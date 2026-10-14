@@ -218,6 +218,7 @@ export function machineRecordFromRow(r: MachineSelect): MachineRecord {
 export const RETIRED_MACHINE_SENTINELS = ['local', '__local__'] as const
 
 export const MACHINE_ID_SITES: readonly string[] = [
+  'agent_profiles.machine_id',
   'approval_requests.machine_id',
   'conversation_segment_incarnations.machine_id',
   'conversation_segments.machine_id',

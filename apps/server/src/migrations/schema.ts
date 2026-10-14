@@ -257,6 +257,11 @@ export const sessions = sqliteTable(
     workflowRunId: text('workflow_run_id'),
     workflowStepId: text('workflow_step_id'),
     executionProfileId: text('execution_profile_id'),
+    /** The agent profile this session started from (POD-6107), or null. The
+     *  launch values it ACTUALLY ran with are `agent_kind`/`model`/`effort`, so
+     *  editing or deleting the profile later never rewrites this session's
+     *  history. Dangling-tolerant TEXT, no FK, for the same reason. */
+    agentProfileId: text('agent_profile_id'),
     nameSource: text('name_source'),
     refIssueId: text('ref_issue_id').$type<IssueId>(),
     refLetter: text('ref_letter'),
@@ -1426,6 +1431,12 @@ export const issues = sqliteTable(
     defaultModel: text('default_model').default('auto').notNull(),
     defaultEffort: text('default_effort').default('auto').notNull(),
     machineId: text('machine_id').$type<MachineId>(),
+    /** Optional agent profile (POD-6107). The effective launch setup is the
+     *  profile with `default_agent`/`default_model`/`default_effort`/`machine_id`
+     *  applied on top, where `auto` means "not set here" — see the model's
+     *  `resolveAgentSetup`. No FK: deleting a profile in use is refused by the
+     *  service, and a stale id resolves as "no profile". */
+    agentProfileId: text('agent_profile_id'),
     linearId: text('linear_id'),
     linearIdentifier: text('linear_identifier'),
     linearUrl: text('linear_url'),
@@ -2455,6 +2466,33 @@ export const executionProfiles = sqliteTable(
     unique('execution_profiles_name_unique').on(table.name),
     check('execution_profiles_check_15', sql`created_by_kind IN ('operator', 'session')`),
   ],
+)
+
+/**
+ * AGENT PROFILES (POD-6107, flight deck D3/D4): named agent setups that issues
+ * and sessions point at. Instance-wide configuration edited only by people.
+ *
+ * `candidates` is the ordered JSON list of `{harness, model, effort}`; the first
+ * one usable on the target machine is picked when a session starts. The table
+ * is NEW rather than a rename of `execution_profiles`: that table still backs
+ * the workflows feature (which also needs a credential account a profile does
+ * not have), and the expand-only gate refuses a rename.
+ */
+export const agentProfiles = sqliteTable(
+  'agent_profiles',
+  {
+    id: text().primaryKey(),
+    name: text().notNull(),
+    description: text().default('').notNull(),
+    candidatesJson: text('candidates_json').default('[]').notNull(),
+    machineId: text('machine_id').$type<MachineId>(),
+    instructions: text().default('').notNull(),
+    createdBy: text('created_by'),
+    updatedBy: text('updated_by'),
+    createdAt: text('created_at').notNull(),
+    updatedAt: text('updated_at').notNull(),
+  },
+  (table) => [unique('agent_profiles_name_unique').on(table.name)],
 )
 
 export const workflowRuns = sqliteTable(
