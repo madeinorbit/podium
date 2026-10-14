@@ -70,6 +70,8 @@ export interface FakeGrokAcpServer {
   /** `session/cancel` notifications received. */
   cancels: number
   answers: Map<string | number, unknown>
+  /** JSON-RPC errors the client answered server requests with, by request id. */
+  errors: Map<string | number, { code: number; message: string }>
   /** Send the held queue ack for the running prompt (`ackPrompt: 'hold'`):
    *  both frames, as Grok does, or only the queued entry (Grok holding the
    *  prompt behind a turn of its own) or only the running frame. */
@@ -83,6 +85,8 @@ export interface FakeGrokAcpServer {
    *  prompt, `block` ends the turn `cancelled` as `HookDenied`, unrecorded. */
   runPromptHook(verdict: 'allow' | 'block'): void
   askPermission(): string
+  /** Grok's interview tool, asked of the client as 1.0.52 does (POD-6108). */
+  askUserQuestion(): number
   /** One assistant reply, chunk by chunk, exactly as grok streams it: a run of
    *  `agent_message_chunk` updates under monotonic `_meta.eventId`s. The item
    *  itself is not pushed — this family flushes its buffer at the fence, which
@@ -223,6 +227,7 @@ export function startFakeGrokAcpServer(
           method?: string
           params?: Record<string, unknown>
           result?: unknown
+          error?: { code: number; message: string }
         }
         if (frame.method && frame.id !== undefined) {
           switch (frame.method) {
@@ -367,7 +372,8 @@ export function startFakeGrokAcpServer(
           return
         }
         if (frame.id !== undefined && !frame.method) {
-          server.answers.set(frame.id, frame.result)
+          if (frame.error) server.errors.set(frame.id, frame.error)
+          else server.answers.set(frame.id, frame.result)
         }
       },
       onLine(next) {
@@ -386,6 +392,7 @@ export function startFakeGrokAcpServer(
     runningPromptId: undefined,
     cancels: 0,
     answers: new Map(),
+    errors: new Map(),
     ackPrompt(stage = 'both') {
       const held = heldAck
       heldAck = undefined
@@ -464,6 +471,21 @@ export function startFakeGrokAcpServer(
         },
       })
       return String(id)
+    },
+    askUserQuestion() {
+      const id = nextServerId++
+      push({
+        jsonrpc: '2.0',
+        id,
+        method: '_x.ai/ask_user_question',
+        params: {
+          sessionId,
+          toolCallId: `tool-${id}`,
+          questions: [{ question: 'Which colour?', options: [{ label: 'Red' }, { label: 'Blue' }] }],
+          mode: 'default',
+        },
+      })
+      return id
     },
     streamAgentText(chunks) {
       for (const chunk of chunks) {

@@ -58,6 +58,7 @@ export * from './families/terminal/composer-sync.js'
 export * from './families/engine-supervision.js'
 /** The hook-shaped boundary-context wire (POD-5814): one codec for a terminal
  *  session's HTTP hooks and the Claude stream engine's in-band callbacks. */
+export * from './families/ask-user-gate.js'
 export * from './families/boundary-hook.js'
 /** The shared lost-queue reporter every server-family session adapter wires. */
 export { reportQueueAbandonment } from './families/queue-report.js'

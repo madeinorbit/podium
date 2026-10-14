@@ -61,6 +61,7 @@ export function createGrokSessionRuntime(deps: GrokSessionDeps): DaemonGrokRunti
     // A queue this driver loses becomes a durable server-side receipt
     // correction, so the port is wired HERE, next to `send` (POD-2297).
     onQueueAbandoned: reportQueueAbandonment(deps.facts.harnessKind, deps.send),
+    ...(deps.askUserGate ? { askUserGate: deps.askUserGate } : {}),
   }, deps.driverSlots)
 
   function translate(sessionId: SessionId, event: RuntimeEvent): void {

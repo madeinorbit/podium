@@ -53,6 +53,7 @@ import type {
   WatchLevel,
 } from '../../host.js'
 import type { OnQueueAbandoned } from '../../queue-abandonment.js'
+import { type AskUserGate, askUserRefusal, isAskUserTool } from '../ask-user-gate.js'
 import type { SessionDriverSlots } from '../session-slots.js'
 import { claudeSdkCapabilities } from './capabilities.js'
 import { classifyClaudeSdkFailure, redactClaudeSdkFailureDetail } from './classify.js'
@@ -163,6 +164,8 @@ export interface ClaudeSdkTurnHandle {
 
 /** Process and native-transcript operations owned by the daemon. */
 export interface ClaudeSdkRuntimeHost {
+  /** Refuses the ask-the-user tools for a session below a coordinator (POD-6108). */
+  askUserGate?: AskUserGate
   mintSessionId(): SessionId
   mintResumeValue(): string
   now(): string
@@ -872,7 +875,19 @@ export function createClaudeSdkRuntime(
           }
         },
         onPermission(request) {
-          openPermission(core, request)
+          // D5 (POD-6108): a session below a coordinator is denied the
+          // ask-the-user tools, and the denial says where to ask instead. Only
+          // those tools wait on the gate; every other permission opens at once.
+          if (!host.askUserGate || !isAskUserTool(request.toolName)) {
+            openPermission(core, request)
+            return
+          }
+          void askUserRefusal(host.askUserGate, core.sessionId).then(async (reason) => {
+            if (reason === null) openPermission(core, request)
+            else await child.answerPermission(request.id, { decision: 'deny', feedback: reason })
+          }).catch(() => {
+            // The turn ended under the gate read: nothing is left to answer.
+          })
         },
         onToolCall(call) {
           if (!core.turnOpen || core.turnEpoch !== epoch) return

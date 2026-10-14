@@ -157,6 +157,8 @@ export const GROK_ACP_METHODS = {
   sessionCancel: 'session/cancel',
   sessionSetMode: 'session/set_mode',
   requestPermission: 'session/request_permission',
+  /** Grok's interview tool, asked of the client (RUN 1.0.52, POD-6108). */
+  askUserQuestion: '_x.ai/ask_user_question',
   queueChanged: '_x.ai/queue/changed',
 } as const
 

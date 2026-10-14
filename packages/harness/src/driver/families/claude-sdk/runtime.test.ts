@@ -572,3 +572,73 @@ describe('the receipt waits for the CLI to acknowledge the line (POD-4836)', () 
     runtime.dispose()
   })
 })
+
+/**
+ * THE ASK-THE-USER TOOLS UNDER THE SEAT RULE (POD-6108, D5). The stream engine
+ * runs with `--permission-prompt-tool stdio`, so Claude 2.1.299 asks
+ * `can_use_tool` for AskUserQuestion and the plan-mode tools in every permission
+ * mode, and a deny's message reaches the model verbatim as the tool error (RUN,
+ * fake model server, 2026-10-14).
+ */
+describe('a session below a coordinator is denied the ask-the-user tools', () => {
+  function gatedHost(gate: ClaudeSdkRuntimeHost['askUserGate']) {
+    const { host } = hostWith(() => new Error('unused'))
+    const answers: Array<{ id: string; answer: unknown }> = []
+    const permissions: Array<(request: { id: string; toolName: string; input?: unknown }) => void> = []
+    const gated: ClaudeSdkRuntimeHost = {
+      ...host,
+      ...(gate ? { askUserGate: gate } : {}),
+      startTurn(input): ClaudeSdkTurnHandle {
+        permissions.push((request) => input.onPermission(request as Parameters<typeof input.onPermission>[0]))
+        const done = new Promise<ClaudeSdkTurnResult>(() => {})
+        return {
+          done,
+          accepted: Promise.resolve(),
+          interrupt() {},
+          answerPermission(id, answer) {
+            answers.push({ id, answer })
+          },
+          dispose() {},
+        }
+      },
+    }
+    return { host: gated, answers, permissions }
+  }
+
+  async function ask(gate: ClaudeSdkRuntimeHost['askUserGate'], toolName: string) {
+    const w = gatedHost(gate)
+    const runtime = createClaudeSdkRuntime(w.host, createMemoryDriverSlots())
+    const handle = await runtime.createWithId(SESSION, spec())
+    void handle.send({ id: 'msg-ask', text: 'go' }, { origin: 'human', delivery: 'when-ready' })
+    await vi.waitFor(() => expect(w.permissions).toHaveLength(1))
+    w.permissions[0]!({ id: 'perm-1', toolName, input: {} })
+    const asked = (): Promise<RuntimeEvent[]> =>
+      eventsUntil(handle, (events) => events.some((e) => e.t === 'interaction' && e.ev.ev === 'asked'))
+    return { ...w, asked }
+  }
+
+  it('answers AskUserQuestion with a deny carrying the seat refusal', async () => {
+    const gate = vi.fn(async () => 'Ask POD-7 instead')
+    const w = await ask(gate, 'AskUserQuestion')
+    await vi.waitFor(() =>
+      expect(w.answers).toEqual([
+        { id: 'perm-1', answer: { decision: 'deny', feedback: 'Ask POD-7 instead' } },
+      ]),
+    )
+    expect(gate).toHaveBeenCalledWith(SESSION, expect.anything())
+  })
+
+  it('never consults the gate for an ordinary permission', async () => {
+    const gate = vi.fn(async () => 'Ask POD-7 instead')
+    const w = await ask(gate, 'Bash')
+    await w.asked()
+    expect(gate).not.toHaveBeenCalled()
+    expect(w.answers).toEqual([])
+  })
+
+  it('opens the ask for a session that may talk to the user', async () => {
+    const w = await ask(async () => null, 'ExitPlanMode')
+    await w.asked()
+    expect(w.answers).toEqual([])
+  })
+})

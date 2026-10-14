@@ -198,6 +198,7 @@ export function createClaudeSdkSessionRuntime(
         ...(effort ? { effort } : {}),
       }),
     onQueueAbandoned: reportQueueAbandonment('claude-sdk', deps.send),
+    ...(deps.askUserGate ? { askUserGate: deps.askUserGate } : {}),
     stopEngine: (sessionId, retire) => deps.engine.stopEngine(sessionId, retire),
     releaseEngines: () => deps.engine.releaseEngines(),
     ...(engineProcessFor ? { processFor: engineProcessFor } : {}),

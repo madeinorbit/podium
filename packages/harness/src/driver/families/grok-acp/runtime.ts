@@ -69,6 +69,7 @@ import {
   type TurnReceipt,
 } from '../../turns.js'
 import { stampRuntimeEvent } from '../terminal/envelope.js'
+import { type AskUserGate, askUserRefusal } from '../ask-user-gate.js'
 import type { SessionDriverSlots } from '../session-slots.js'
 import type { EngineBindingRecords } from '../engine-supervision.js'
 import { grokAcpCapabilities } from './capabilities.js'
@@ -125,6 +126,8 @@ export interface GrokAcpEndpoint {
 export interface GrokAcpRuntimeHost {
   /** Land an attachment's bytes on the session's machine (POD-6093). */
   stageAttachment: AttachmentStager
+  /** Words the refusal of Grok's ask-the-user request (POD-6108). */
+  askUserGate?: AskUserGate
   launch(input: {
     sessionId: SessionId
     workdir: string
@@ -1064,6 +1067,19 @@ export function createGrokAcpRuntime(
   }
 
   function ingestServerRequest(session: DriverSession, request: GrokAcpServerRequest): void {
+    if (request.method === GROK_ACP_METHODS.askUserQuestion) {
+      // This client has no way to put Grok's interview in front of a person, so
+      // the request is always refused. A session below a coordinator (POD-6108)
+      // is told where to ask instead; the error text reaches the model.
+      void askUserRefusal(host.askUserGate, session.sessionId).then((reason) =>
+        session.client.respondError(
+          request.id,
+          -32000,
+          reason ?? `Podium does not implement '${request.method}'`,
+        ),
+      )
+      return
+    }
     if (request.method !== GROK_ACP_METHODS.requestPermission) {
       // fs/read_text_file cannot legitimately arrive because initialize
       // declares it false. Still answer every request so a vendor regression

@@ -169,6 +169,8 @@ import type { DaemonOpencodeRuntime } from '@podium/harness/driver/host'
 import { createScopeMonitor } from './runtime/scope-monitor'
 import { beginServerDriverReap, type ServerReapIo } from './runtime/server-reap'
 import {
+  type AskUserGate,
+  askUserHookResponse,
   boundaryHookResponse,
   createTerminalRuntime,
   type TerminalRuntime,
@@ -707,7 +709,16 @@ export async function createDaemonHostRuntime(args: {
     }),
   )
   const mailContext = composeMailContext(mailInjector, ackReminder)
+  // The seat (POD-6108, D5): a session below a coordinator may not ask the user.
+  // The server words the refusal; every engine family and the terminal hooks
+  // hand it to the model in place of the ask.
+  const askUserGate: AskUserGate = async (sessionId) => {
+    const seat = await agentRelayHub.relay({ sessionId, router: 'issues', proc: 'seat', input: {} })
+    const refusal = seat.ok ? (seat.result as { askUserRefusal?: unknown } | undefined)?.askUserRefusal : undefined
+    return typeof refusal === 'string' ? refusal : null
+  }
   const respondTo = composeResponders(
+    async (sessionId, payload, signal) => askUserHookResponse(askUserGate, sessionId, payload, signal),
     async (sessionId, payload, signal) => terminalRuntime?.respondToHook(sessionId, payload, signal) ?? null,
   )
   const ingest = await startHookIngest({
@@ -1230,7 +1241,7 @@ export async function createDaemonHostRuntime(args: {
           error,
         }),
     )
-  const sessionFrames = { emitBind, sessionReady, traceRuntimeEvent, startMailContinuation }
+  const sessionFrames = { emitBind, sessionReady, traceRuntimeEvent, startMailContinuation, askUserGate }
   /**
    * THE CLAUDE STREAM ENGINE (POD-4499), composed like every other engine:
    * one long-lived `claude` stream-json child per session under podium-host,

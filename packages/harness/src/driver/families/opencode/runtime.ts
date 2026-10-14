@@ -101,6 +101,7 @@ import {
   type TurnReceipt,
 } from '../../turns.js'
 import { driverLocalCursor, stampRuntimeEvent } from '../terminal/envelope.js'
+import { type AskUserGate, askUserRefusal } from '../ask-user-gate.js'
 import type { SessionDriverSlots } from '../session-slots.js'
 import type { EngineBindingRecords } from '../engine-supervision.js'
 import { opencodeServerCapabilities } from './capabilities.js'
@@ -193,6 +194,8 @@ export interface OpencodeServerEndpoint {
 
 /** What the driver needs from whoever owns processes and disks. */
 export interface OpencodeRuntimeHost {
+  /** Refuses the `question` tool for a session below a coordinator (POD-6108). */
+  askUserGate?: AskUserGate
   /** Runtime identity; defaults to the stable v1 driver. */
   driverId?: 'opencode-server' | 'opencode2-server'
   /**
@@ -799,16 +802,29 @@ export function createOpencodeRuntime(
         break
       }
       case 'question.asked': {
-        openAsk(
-          session,
-          questionAsk({
-            id: event.properties.id,
-            sessionId: session.sessionId,
-            questions: event.properties.questions,
-            askedAt: at,
-          }),
-          at,
-        )
+        const open = (): void =>
+          openAsk(
+            session,
+            questionAsk({
+              id: event.properties.id,
+              sessionId: session.sessionId,
+              questions: event.properties.questions,
+              askedAt: at,
+            }),
+            at,
+          )
+        if (!host.askUserGate) {
+          open()
+          break
+        }
+        // D5 (POD-6108): a session below a coordinator may not ask the user.
+        // The question is answered with the refusal, which names where to ask;
+        // a reject would end the turn and drop the text (RUN 1.18.35).
+        const { id, questions } = event.properties
+        void askUserRefusal(host.askUserGate, session.sessionId).then(async (reason) => {
+          if (reason === null) open()
+          else await session.client.replyQuestion(id, questions.map(() => [reason]))
+        }).catch(() => open())
         break
       }
       case 'permission.replied':

@@ -20,6 +20,7 @@ import type { ProcessIdentity, SessionBinding } from '../binding.js'
 import type { AgentSessionHandle, RuntimeDriver } from '../driver.js'
 import type { RuntimeEvent } from '../events.js'
 import type { SessionSpec } from '../session-spec.js'
+import type { AskUserGate } from './ask-user-gate.js'
 
 /**
  * The frame-stream ports every server-family session adapter needs from
@@ -51,6 +52,8 @@ export interface ServerSessionFramePorts {
     handle: AgentSessionHandle,
     isCurrent: () => boolean,
   ): (event: RuntimeEvent) => void
+  /** Whether a session may ask the user (POD-6108). Absent = every ask passes. */
+  askUserGate?: AskUserGate
 }
 
 /**
