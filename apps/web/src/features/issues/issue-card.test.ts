@@ -12,9 +12,9 @@ describe('issueCardModel', () => {
 describe('issueCardModel rich badges (P4)', () => {
   it('derives type label and labels', () => {
     const m = issueCardModel(
-      issue({ priority: 0, type: 'task', ready: false, blocked: true, labels: ['ui', 'p1'] }),
+      issue({ priority: 0, type: 'decision', ready: false, blocked: true, labels: ['ui', 'p1'] }),
     )
-    expect(m.typeLabel).toBe('bug')
+    expect(m.typeLabel).toBe('decision')
     expect(m.labels).toEqual(['ui', 'p1'])
   })
   it('surfaces needsHuman on the card model', () => {

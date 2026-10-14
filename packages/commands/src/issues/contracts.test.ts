@@ -116,6 +116,7 @@ describe('transport exposure', () => {
     'markRead',
     'markUnread',
     'refreshAssistant',
+    'resolveRefs',
     'setTucked',
     'subscriptionSetEnabled',
   ]

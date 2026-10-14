@@ -51,8 +51,11 @@ it.each([128, 512])('does not rebuild idle shell issue projections per unrelated
     const chrome = views.chrome()
     expect(chrome && chrome !== LOADING ? chrome.colorById(f.issues[0]!.id)?.color : null)
       .toBe('violet')
-    f.pool.apply({ type: 'update', rows: [{ kind: 'issue', id: f.issues[0]!.id,
-      value: { ...f.issues[0]!, color: 'violet', type: 'task' } }] as never })
+    // Mission complexity reads the root's child count (POD-6106: there is no
+    // `epic` type to flip), so a new child is the live change that must arrive.
+    const child = { ...f.issues[0]!, id: 'shell-idle-new-child', seq: 99_999,
+      parentId: f.issues[0]!.id, color: undefined }
+    f.pool.apply({ type: 'update', rows: [{ kind: 'issue', id: child.id, value: child }] as never })
     expect(answers, 'live mission complexity change').toHaveLength(3)
   } finally {
     stop()
