@@ -211,3 +211,48 @@ Supporting changes:
 - **`design` and `notes` fold into `brief`** and are removed.
 - **The deck's link says "Read more"**, not "brief".
 - Filed as POD-6101.
+
+**Provisional defaults (2026-10-14; Till may override).** The user chose to stop the question round here and start building.
+- **Proposals:**
+  - Placement ("here" vs "own issue") shows in the tooltip, next to who proposed it.
+  - A quiet × Dismiss button closes a proposal as cancelled ("declined").
+  - Start uses the proposal's agent profile; if it has none, its parent's, then the mission's.
+  - Backlog keeps today's `promote` meaning.
+
+## Plan (epic structure)
+
+- **Phase A: data model and CLI (POD-6102).**
+  - POD-6106 Issue types and labels
+  - POD-6107 Agent profiles
+  - POD-6108 Coordinator and seat rules
+  - POD-6109 Sibling move verb
+  - POD-6100 Fixed dependency types
+  - POD-6101 Issue text fields cleanup
+  - POD-6094 Issue lint removal
+- **Phase B: shared state words (POD-6103)**, blocked by A.
+  - POD-6110 State word derivation
+  - POD-6111 Deck text view for agents
+- **Phase C: flight deck v6 UI (POD-6104)**, blocked by B.
+  - POD-6112 Flight deck v6 web UI (decompose before building)
+  - POD-6113 Remove waterfall and timeline (needs the user's yes)
+- **Later: deferred decisions (POD-6105).**
+  - POD-6095 gates
+  - POD-6096 milestone markers
+  - POD-6097 stage model
+  - POD-6098 agent profile UI
+  - POD-6099 question routing
+
+## More questions for Till (added during the decisions)
+
+- **Nested phases:** how does a phase inside a task render?
+- **A "Later" line** for parked sub-issues, collapsed like the done line, above PROPOSED.
+- **Milestone marker:** a divider row between phases (POD-6096).
+- **Answering a forwarded question** directly in the deck (C2), or only in the coordinator's chat (POD-6099).
+- **Pill wording:** "blocked by PIPP-55" vs "waits on".
+- **"Read more"** instead of "Read full brief". The link expands the description's sections and Acceptance.
+- **Error above Working** (D6) relies on Error tasks opening by default. Confirm that.
+- **The provisional proposal defaults** above.
+
+## Tooling gaps (continued)
+
+4. **Phases can't be real yet.** The phase containers POD-6102…6105 are plain tasks until `type = phase` ships (POD-6106); then they convert.
