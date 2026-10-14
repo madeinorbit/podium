@@ -2392,6 +2392,7 @@ export class SessionRegistry {
           return issue ? { worktreePath: issue.worktreePath } : undefined
         },
         repoIdForPath: async (path) => await this.store.repos.resolveRepoIdForPath(path),
+        agentProfile: async (ref) => await agentProfiles.find(ref),
         notifyCoordinator: async (sessionId, text) => {
           await messagesSvc.send(
             { kind: 'system', name: 'workflow' },
@@ -2593,14 +2594,12 @@ export class SessionRegistry {
             ...(o.name ? { name: o.name } : {}),
             ...(o.workflowRunId ? { workflowRunId: o.workflowRunId } : {}),
             ...(o.workflowStepId ? { workflowStepId: o.workflowStepId } : {}),
-            ...(o.executionProfileId ? { executionProfileId: o.executionProfileId } : {}),
             ...(o.agentProfileId ? { agentProfileId: o.agentProfileId } : {}),
           }),
         findAgentProfile: async (ref) => await agentProfiles.find(ref),
-        resolveExecutionProfile: async (input) => {
-          const { caller, ...profileInput } = input
-          return await workflows.executionProfileForLaunch({
-            ...profileInput,
+        resolveWorkflowStepLaunch: async ({ caller, cwd, ...step }) => {
+          const pinned = await workflows.agentProfileForStep({
+            ...step,
             ...(caller
               ? {
                   caller: await workflowCallerForCapability(
@@ -2610,6 +2609,20 @@ export class SessionRegistry {
                 }
               : {}),
           })
+          if (!pinned) return null
+          const launch = await agentProfiles.launch({
+            profileId: pinned.id,
+            pinned,
+            fields: {},
+            cwd,
+          })
+          return {
+            profile: { id: pinned.id, name: pinned.name },
+            agentKind: launch.agentKind,
+            model: launch.model,
+            effort: launch.effort,
+            machineId: launch.machineId,
+          }
         },
         createIssue: async (o) => await issues.crud.create({ ...o, startNow: false }),
         appendEvent: async (e) => {

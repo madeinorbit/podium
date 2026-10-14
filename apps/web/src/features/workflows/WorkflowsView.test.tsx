@@ -78,10 +78,10 @@ vi.mock('@/app/store', () => {
           list: { query: list },
           get: { query: get },
           bindings: { query: bindings },
-          profiles: { query: profiles },
           runs: { query: runs },
           publish: { mutate: publish },
         },
+        agentProfiles: { list: { query: profiles } },
       },
     })
   testHandle.getSnapshot = fixtureState

@@ -1,6 +1,7 @@
-import { asAccountId, asMachineId, asSessionId, type MachineWire } from '@podium/model/browser'
-import type { ExecutionProfileWire, WorkflowDetailWire, WorkflowRunWire } from '@podium/protocol'
+import { asMachineId, asSessionId, type MachineWire } from '@podium/model/browser'
+import type { WorkflowDetailWire, WorkflowRunWire } from '@podium/protocol'
 import type { Trpc } from '../src/app/trpc'
+import type { AgentProfileRow } from '../src/features/workflows/use-workflows'
 import { createHeaderFixture } from './header-fixture'
 
 /** Synthetic workflow RPC data over the actual provider runtime and replica.
@@ -18,14 +19,20 @@ export function createWorkflowsFixture(issueCount = 32, sessionCount = issueCoun
       agentExecution: { policy: state === 'disabled' ? 'disabled' : 'enabled', state: state === 'degraded' ? 'refused' : 'available', observedAt: stamp },
     },
   }))
-  const profiles: ExecutionProfileWire[] = [...machines.map(machine => machine.id), asMachineId('synthetic-missing'), null].map((machineId, index) => ({
-    id: `synthetic-profile-${index}`, name: `Synthetic profile ${index}`, accountId: asAccountId('synthetic-account'), machineId,
-    harness: 'codex', model: 'auto', effort: 'auto', createdAt: stamp, updatedAt: stamp,
+  const profiles: AgentProfileRow[] = [...machines.map(machine => machine.id), asMachineId('synthetic-missing'), null].map((machineId, index) => ({
+    id: `synthetic-profile-${index}`, name: `Synthetic profile ${index}`, description: '', machineId, machineName: null,
+    candidates: [{ harness: 'codex', model: 'auto', effort: 'auto' }], instructions: '', createdAt: stamp, updatedAt: stamp,
   }))
   const detail: WorkflowDetailWire = {
     workflow: { id: 'synthetic-workflow', name: 'Synthetic workflow', description: 'Synthetic instructions', scope: 'global', scopeRef: null,
       latestRevisionId: 'synthetic-revision', latestVersion: 1, archivedAt: null, createdAt: stamp, updatedAt: stamp },
     revisions: [{ id: 'synthetic-revision', workflowId: 'synthetic-workflow', version: 1, instructions: 'Synthetic instructions', steps: [], createdAt: stamp, publishedAt: stamp }],
+  }
+  // One live step, on one run, so the progress screen offers exactly one write.
+  const activeStep: WorkflowRunWire['steps'][number] = {
+    stepId: 'synthetic-step', position: 0, title: 'Synthetic step', instructions: '', completionGuidance: '',
+    agentProfileId: null, agentProfileSnapshot: null, status: 'active', assignedSessionId: null, attempt: 1, summary: '',
+    evidence: { summary: '', tests: [], artifacts: [] }, observation: null, warnings: [], startedAt: stamp, completedAt: null,
   }
   const runs: WorkflowRunWire[] = [
     ['issue', 'synthetic-0'], ['issue', 'synthetic-5'], ['issue', 'synthetic-missing'],
@@ -33,25 +40,25 @@ export function createWorkflowsFixture(issueCount = 32, sessionCount = issueCoun
   ].map(([subjectKind, subjectId], index) => ({
     id: `synthetic-workflow-run-${index}`, subjectKind: subjectKind as 'issue' | 'session', subjectId: subjectId!,
     coordinatorSessionId: asSessionId('synthetic-session-0'), revision: detail.revisions[0]!, status: 'active', supersedesRunId: null,
-    steps: [], history: [{ kind: 'run.started', actorKind: 'session', actorId: 'synthetic-session-0', onBehalfOf: index ? null : 'synthetic-human', createdAt: stamp }],
+    steps: index === 3 ? [activeStep] : [], history: [{ kind: 'run.started', actorKind: 'session', actorId: 'synthetic-session-0', onBehalfOf: index ? null : 'synthetic-human', createdAt: stamp }],
     startedAt: stamp, completedAt: null,
   }))
   const calls: Record<string, number> = {}
   let denial: string | null = null
   const query = <T>(key: string, read: () => T) => async () => { calls[key] = (calls[key] ?? 0) + 1; return read() }
-  const mutate = query('profileSave', () => { if (denial) throw new Error(denial); return profiles[0] })
+  const skip = query('skip', () => { if (denial) throw new Error(denial); return runs[3] })
   Object.assign(fixture.api, {
     discovery: { refreshRepos: { mutate: query('discovery', () => ({ repositories: [], machines: [...machines], diagnostics: [] })) } },
     workflows: {
       list: { query: query('list', () => [detail.workflow]) }, bindings: { query: query('bindings', () => []) },
-      profiles: { query: query('profiles', () => profiles) }, runs: { query: query('runs', () => runs) },
-      get: { query: query('get', () => detail) }, profileSave: { mutate },
+      runs: { query: query('runs', () => runs) }, get: { query: query('get', () => detail) }, skip: { mutate: skip },
     },
+    agentProfiles: { list: { query: query('profiles', () => profiles) } },
     lock: { status: { query: async (input: unknown) => { calls.locks = (calls.locks ?? 0) + 1; lockInputs.push(input); return [] } } },
   })
   const lockInputs: unknown[] = []
   return { ...fixture, get replica() { return fixture.replica }, api: fixture.api as unknown as Trpc, machines, profiles, runs, detail, calls, lockInputs,
-    denyProfileSave(message: string | null) { denial = message },
+    denyWrites(message: string | null) { denial = message },
     remove(entity: string, id: string) {
       fixture.records.delete(`${entity}:${id}`)
       fixture.replica.onKernelEvent({ type: 'removed', entity, entityId: id })

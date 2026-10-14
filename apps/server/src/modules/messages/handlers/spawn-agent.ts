@@ -9,7 +9,7 @@ import { commandAccess } from '../../issues/command-ctx'
  * EVER auto-created: `newTitle` is the explicit --new path.
  *
  * TWO gates, per the contract: write access to the target issue, and `use` on
- * the machine the resolved execution profile places the child on.
+ * the machine the child is placed on.
  */
 
 import { asIssueId, asMutationId, spawnedByTag } from '@podium/model'
@@ -122,36 +122,44 @@ async function spawnOnce(
         ? { kind: 'user' }
         : { kind: 'agent' },
   )
-  const profile = input.executionProfileId
-    ? await deps.resolveExecutionProfile?.({
-        profileId: input.executionProfileId,
-        caller,
-        ...(input.workflowRunId ? { runId: input.workflowRunId } : {}),
-        ...(input.workflowStepId ? { stepId: input.workflowStepId } : {}),
-      })
-    : undefined
-  // AGENT PROFILE (POD-6107): an explicit --profile, else the issue's own. A
-  // workflow execution profile is a different, older mechanism and wins alone.
-  if (input.agentProfile && input.executionProfileId) {
-    throw new Error('pass --profile or --execution-profile-id, not both')
-  }
+  // A WORKFLOW STEP that pins an agent profile launches from that profile as
+  // the run pinned it (POD-6114). It is the step's own setup, so another
+  // --profile is refused rather than silently winning or losing.
+  const step =
+    input.workflowRunId && input.workflowStepId
+      ? await deps.resolveWorkflowStepLaunch?.({
+          runId: input.workflowRunId,
+          stepId: input.workflowStepId,
+          cwd,
+          caller,
+        })
+      : null
   let agentProfileId: string | undefined
   if (input.agentProfile) {
     const found = await deps.findAgentProfile?.(input.agentProfile)
     if (!found) {
       throw new Error(`no agent profile '${input.agentProfile}' — see \`podium profile list\``)
     }
+    if (step && found.id !== step.profile.id) {
+      throw new Error(
+        `workflow step ${input.workflowStepId} runs with agent profile '${step.profile.name}'; ` +
+          `drop --profile ${input.agentProfile}`,
+      )
+    }
     agentProfileId = found.id
-  } else if (!profile && issue.agentProfileId) {
+  } else if (step) {
+    agentProfileId = step.profile.id
+  } else if (issue.agentProfileId) {
     agentProfileId = issue.agentProfileId
   }
   // An explicit --profile replaces the issue's agent pick rather than being
   // filtered by it; SessionStart resolves the profile's first usable candidate.
+  // A pinned step's pick is already made, and is passed on as it is.
   const harness =
-    profile?.harness ?? input.harness ?? (input.agentProfile ? undefined : issue.defaultAgent)
-  const model = profile?.model ?? input.model
-  const effort = profile?.effort ?? input.effort
-  const machineId = profile?.machineId ?? issue.machineId
+    step?.agentKind ?? input.harness ?? (input.agentProfile ? undefined : issue.defaultAgent)
+  const model = step?.model ?? input.model
+  const effort = step?.effort ?? input.effort
+  const machineId = step?.machineId ?? issue.machineId
   /**
    * A DELEGATE CANNOT CROSS MACHINES AWAY FROM ITS ISSUE'S WORKTREE (POD-1386).
    *
@@ -162,10 +170,10 @@ async function spawnOnce(
    * successful spawn: the command returns an agent id, the sidebar shows a
    * session, and the divergence only surfaces later as work that cannot be merged.
    *
-   * This is reachable only through an execution profile, which is the one input
-   * that can name a machine independently of the issue (`profile?.machineId ??
-   * issue.machineId`) — every other caller inherits the issue's home and is
-   * therefore already correct.
+   * This is reachable only through a workflow step's agent profile, which is the
+   * one input that can name a machine independently of the issue
+   * (`step?.machineId ?? issue.machineId`) — every other caller inherits the
+   * issue's home and is therefore already correct.
    *
    * REFUSING IS THE WHOLE ANSWER, not a fallback. Silently retargeting to the
    * issue's machine would ignore a placement the human configured, and silently
@@ -181,7 +189,7 @@ async function spawnOnce(
       `issue ${issue.id} is homed on machine ${issue.machineId} and its worktree lives there; ` +
         `spawning on ${machineId} would create a second checkout of the same branch. ` +
         'Hand the session off to that machine first (`podium session handoff <id> --to <machine>`), ' +
-        "or clear the execution profile's machine.",
+        "or clear the agent profile's machine.",
     )
   }
   // MACHINE PLACEMENT FAILS CLOSED — readiness §3.1.4 M1/M5/M6.
@@ -230,14 +238,12 @@ async function spawnOnce(
     spawnedBy,
     ...(model ? { model } : {}),
     ...(effort ? { effort } : {}),
-    ...(profile ? { accountId: profile.accountId } : {}),
     ...(input.force ? { forceUnknownModel: true } : {}),
     ...(machineId ? { machineId } : {}),
     // CLI `--title` → curated name slot (not derived title) [spec:SP-4ef9][spec:SP-eb60].
     ...(input.title ? { name: input.title } : {}),
     ...(input.workflowRunId ? { workflowRunId: input.workflowRunId } : {}),
     ...(input.workflowStepId ? { workflowStepId: input.workflowStepId } : {}),
-    ...(input.executionProfileId ? { executionProfileId: input.executionProfileId } : {}),
     ...(agentProfileId ? { agentProfileId } : {}),
   })
   const sessionId = spawned.sessionId
@@ -245,8 +251,7 @@ async function spawnOnce(
   const actualModel = spawned.model === undefined ? model : (spawned.model ?? undefined)
   const actualEffort = spawned.effort === undefined ? effort : (spawned.effort ?? undefined)
   const actualMachineId = spawned.machineId ?? machineId
-  const actualAccountId =
-    spawned.accountId === undefined ? profile?.accountId : (spawned.accountId ?? undefined)
+  const actualAccountId = spawned.accountId ?? undefined
   try {
     await deps.appendEvent?.({
       ts: deps.now?.() ?? new Date().toISOString(),
@@ -266,7 +271,7 @@ async function spawnOnce(
         ...(actualAccountId ? { accountId: actualAccountId } : {}),
         ...(input.workflowRunId ? { workflowRunId: input.workflowRunId } : {}),
         ...(input.workflowStepId ? { workflowStepId: input.workflowStepId } : {}),
-        ...(input.executionProfileId ? { executionProfileId: input.executionProfileId } : {}),
+        ...(agentProfileId ? { agentProfileId } : {}),
       },
     })
   } catch {}

@@ -251,13 +251,19 @@ export class AgentProfileService {
    *
    * Probing only happens when there is a choice to make: a single candidate is
    * returned as is, so the spawn reports its own reason if it cannot run.
+   *
+   * `pinned` is a profile as it was at some earlier moment — a workflow run
+   * pins its steps' profiles when it starts (POD-6114) — and is used instead
+   * of the live row, so editing the profile never changes a run in flight.
    */
   async launch(input: {
     profileId: string | null | undefined
+    pinned?: AgentProfileWire | null
     fields: AgentSetupFields
     cwd: string
   }): Promise<AgentLaunch> {
-    const profile = input.profileId ? await this.deps.store.get(input.profileId) : null
+    const profile =
+      input.pinned ?? (input.profileId ? await this.deps.store.get(input.profileId) : null)
     const setup = resolveAgentSetup(profile, input.fields)
     const machineId = setup.machineId ? asMachineId(setup.machineId) : null
     const picked =

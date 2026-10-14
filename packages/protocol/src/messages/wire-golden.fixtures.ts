@@ -163,7 +163,6 @@ const SESSION_META_FULL = {
   spawnedBy: 'issue:300',
   workflowRunId: 'run-1',
   workflowStepId: 'step-1',
-  executionProfileId: 'profile-1',
   issueId: '300',
   refIssueId: '300',
   refLetter: 'A',

@@ -58,9 +58,10 @@
  *    not be `offline-eligible` (Amendment 1 D18.3) and they must keep
  *    unauthorized distinguishable from unreachable (M5).
  *
- * The precedent for splitting these is `workflows.profileSave`, which names a
- * machine and declares NO `machineVerb` because it pins compute rather than
- * running on it. Same question, asked twelve times.
+ * The precedent for splitting these was `workflows.profileSave` (removed with
+ * the execution profiles, POD-6114), which named a machine and declared NO
+ * `machineVerb` because it pinned compute rather than running on it. Same
+ * question, asked twelve times.
  *
  * ---------------------------------------------------------------------------
  * THE ROLE FLOOR, AND THE ONE PLACE ADR 9 READS TWO WAYS

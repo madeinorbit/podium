@@ -47,8 +47,6 @@ type WorkflowProcName =
   | 'publish'
   | 'bindings'
   | 'assign'
-  | 'profiles'
-  | 'profileSave'
   | 'runs'
   | 'prime'
   | 'status'

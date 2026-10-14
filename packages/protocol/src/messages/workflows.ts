@@ -1,4 +1,4 @@
-import { AccountIdField, MachineIdField, SessionIdField } from '@podium/model'
+import { AgentProfileWire, SessionIdField } from '@podium/model'
 import { z } from 'zod'
 
 /**
@@ -20,7 +20,7 @@ import { z } from 'zod'
  *      delta-bearing collection.
  * Both FAIL for workflows. The read path confirms it: the client fetches over
  * tRPC (apps/web/src/features/workflows/use-workflows.ts — trpc.workflows.list/
- * get/bindings/profiles/runs.query), i.e. request/response, not the feed.
+ * get/bindings/runs.query), i.e. request/response, not the feed.
  *
  * POD-308 (the wire cutover) CLOSED WITHOUT replicating workflows — the moment
  * that could have flipped this passed and did not.
@@ -42,7 +42,9 @@ export const WorkflowStep = z.object({
   title: z.string().min(1),
   instructions: z.string().default(''),
   completionGuidance: z.string().default(''),
-  executionProfileId: z.string().optional(),
+  /** The agent profile (name or id) the step's work runs with. A run pins the
+   *  profile as it is when the run starts. */
+  agentProfile: z.string().min(1).max(256).optional(),
 })
 export type WorkflowStep = z.infer<typeof WorkflowStep>
 
@@ -88,21 +90,6 @@ export const WorkflowBindingWire = z.object({
 })
 export type WorkflowBindingWire = z.infer<typeof WorkflowBindingWire>
 
-/** A named, non-secret launch preset. accountId points at Podium's account
- * inventory; credentials never enter workflow data. */
-export const ExecutionProfileWire = z.object({
-  id: z.string(),
-  name: z.string(),
-  accountId: AccountIdField,
-  machineId: MachineIdField.nullable(),
-  harness: z.string(),
-  model: z.string(),
-  effort: z.string(),
-  createdAt: z.string(),
-  updatedAt: z.string(),
-})
-export type ExecutionProfileWire = z.infer<typeof ExecutionProfileWire>
-
 export const WorkflowRunStatus = z.enum(['active', 'blocked', 'complete', 'superseded'])
 export type WorkflowRunStatus = z.infer<typeof WorkflowRunStatus>
 export const WorkflowRunStepStatus = z.enum(['pending', 'active', 'blocked', 'complete', 'skipped'])
@@ -133,8 +120,13 @@ export const WorkflowRunStepWire = z.object({
   title: z.string(),
   instructions: z.string(),
   completionGuidance: z.string(),
-  executionProfileId: z.string().nullable(),
-  executionProfileSnapshot: ExecutionProfileWire.nullable(),
+  /** The step's agent profile: its id once resolved, else the ref the step
+   *  named (the profile did not exist when the run started). */
+  agentProfileId: z.string().nullable(),
+  /** The profile as it was when the run started; editing the profile later
+   *  never changes a run in flight. Null when the step names none, or it was
+   *  missing. */
+  agentProfileSnapshot: AgentProfileWire.nullable(),
   status: WorkflowRunStepStatus,
   assignedSessionId: SessionIdField.nullable(),
   attempt: z.number().int().positive(),

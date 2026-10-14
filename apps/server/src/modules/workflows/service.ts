@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type { AdvanceIdempotencyPort, WorkflowOwnershipPort } from '@podium/commands'
 import {
-  AgentKind,
+  type AgentProfileWire,
   asIssueId,
   asUserId,
   type IssueId,
@@ -10,7 +10,6 @@ import {
   type SessionId,
 } from '@podium/model'
 import type {
-  ExecutionProfileWire,
   WorkflowGitObservation as GitObservation,
   WorkflowNextActionWire,
   WorkflowRevisionWire,
@@ -67,7 +66,7 @@ export interface WorkflowCaller {
    *
    * POD-731 narrowed what this MEANS without changing who sets it: it is the
    * ACCOUNT GRADE (`admin`), and a grade decides the admin-grade paths — the
-   * global library, execution profiles — rather than short-circuiting every
+   * global library — rather than short-circuiting every
    * guard on the surface. See `workflowPrincipal`. */
   protectedWrite?: boolean
   /**
@@ -117,6 +116,8 @@ export interface WorkflowServiceDeps {
   session(sessionId: SessionId): SessionInfo | undefined
   issue(issueId: IssueId): IssueInfo | undefined | Promise<IssueInfo | undefined>
   repoIdForPath(path: string): Promise<string | null>
+  /** An agent profile by id or name (POD-6114); a run pins what this returns. */
+  agentProfile(ref: string): Promise<AgentProfileWire | null>
   /**
    * Out-of-band nudge to the run's coordinator. PROMISE-TYPED BECAUSE IT WRITES
    * THE STORE [POD-3820]: the composition root wires it to `messagesSvc.send`,
@@ -129,6 +130,14 @@ export interface WorkflowServiceDeps {
 
 function globalTargetId(): string {
   return ''
+}
+
+/** ` (claude-code/auto/high, then codex/auto/high)`, or '' with no candidates. */
+function describeCandidates(profile: AgentProfileWire): string {
+  if (profile.candidates.length === 0) return ''
+  return ` (${profile.candidates
+    .map((candidate) => `${candidate.harness}/${candidate.model}/${candidate.effort}`)
+    .join(', then ')})`
 }
 
 /**
@@ -214,7 +223,8 @@ export class WorkflowService implements WorkflowEngine {
    *
    * Every authorization question this class used to answer inline — the four
    * scope guards, `canReadWorkflow`, `assertCoordinator`, `checkpoint`'s allowed
-   * check, `profileSave`'s inverse guard, and the three read-shaped branches in
+   * check, `profileSave`'s inverse guard (gone with the execution profiles,
+   * POD-6114), and the three read-shaped branches in
    * `bindings`, `runs` and `runFor` — is now one call into {@link
    * WorkflowAccess}, which takes one decision against a real principal.
    *
@@ -276,53 +286,34 @@ export class WorkflowService implements WorkflowEngine {
     )
   }
 
-  /** QUERY. Had NO gate at all and listed every profile — with its
-   *  `accountId`, which names managed credentials — to any caller. */
-  async profiles(caller: WorkflowCaller) {
-    const all = await this.deps.store.listProfiles()
-    return this.access.visibleProfiles(
-      caller,
-      all,
-      await this.access.ownershipFor(this.access.profileEntities(all)),
-    )
-  }
-
   /**
-   * Resolve the immutable execution-profile snapshot attached to a run step.
-   * Standalone profile launches use the current shared profile; launches that
-   * identify a run + step use the snapshot pinned when that run started.
+   * The agent profile a run step pinned when its run started (POD-6114), for a
+   * spawn that names the run and the step. Null when the step names none.
+   *
+   * The snapshot is what launches, not the live profile: editing a profile
+   * never changes a run in flight. A step whose profile was missing when the
+   * run started refuses rather than launching something it did not name.
    */
-  async executionProfileForLaunch(input: {
-    profileId: string
-    runId?: string
-    stepId?: string
+  async agentProfileForStep(input: {
+    runId: string
+    stepId: string
     caller?: WorkflowCaller
-  }): Promise<ExecutionProfileWire & { harness: AgentKind }> {
-    let profile: ExecutionProfileWire | null
-    if (input.runId && input.stepId) {
-      const run = await this.deps.store.getRun(input.runId)
-      if (!run) throw new Error(`unknown workflow run: ${input.runId}`)
-      const step = (await this.deps.store.getRunSteps(run.id)).find(
-        (candidate) => candidate.stepId === input.stepId,
+  }): Promise<AgentProfileWire | null> {
+    const run = await this.deps.store.getRun(input.runId)
+    if (!run) throw new Error(`unknown workflow run: ${input.runId}`)
+    const step = (await this.deps.store.getRunSteps(run.id)).find(
+      (candidate) => candidate.stepId === input.stepId,
+    )
+    if (!step) throw new Error(`workflow run ${run.id} has no step ${input.stepId}`)
+    if (!step.agentProfileId) return null
+    const profile = step.agentProfileSnapshot
+    if (!profile) {
+      throw new Error(
+        `workflow step ${input.stepId} names agent profile ${step.agentProfileId}, which did not exist when the run started`,
       )
-      if (!step) throw new Error(`workflow run ${run.id} has no step ${input.stepId}`)
-      if (step.executionProfileId !== input.profileId) {
-        throw new Error(
-          `workflow step ${input.stepId} requires ${
-            step.executionProfileId ?? 'no execution profile'
-          }, not ${input.profileId}`,
-        )
-      }
-      profile = step.executionProfileSnapshot
-      if (!profile) {
-        throw new Error(`execution profile snapshot ${input.profileId} is unavailable`)
-      }
-    } else {
-      profile = await this.deps.store.getProfile(input.profileId)
-      if (!profile) throw new Error(`unknown execution profile: ${input.profileId}`)
     }
     // PLACEMENT AT APPLY (readiness §3.1.4 M5, and the second half of the check
-    // `assignStep` / `profileSave` make at write time).
+    // `assignStep` makes at write time).
     //
     // BOTH are needed and neither is redundant. A run is long-lived and
     // unattended: the grant that authorized the assignment can be revoked
@@ -332,11 +323,7 @@ export class WorkflowService implements WorkflowEngine {
     // the current grants, every time work is actually placed.
     if (!input.caller) throw new Error('workflow launch requires an authenticated caller')
     await this.access.assertMayPlaceOn(input.caller, profile.machineId)
-    const harness = AgentKind.safeParse(profile.harness)
-    if (!harness.success) {
-      throw new Error(`execution profile ${profile.id} has unsupported harness ${profile.harness}`)
-    }
-    return { ...profile, harness: harness.data }
+    return profile
   }
 
   async liveRunForSession(sessionId: SessionId): Promise<WorkflowRunRow | null> {
@@ -499,12 +486,13 @@ export class WorkflowService implements WorkflowEngine {
     await this.deps.store.insertRun({
       run,
       steps: await Promise.all(
-        revision.steps.map(async (step) => ({
-          ...step,
-          profile: step.executionProfileId
-            ? await this.deps.store.getProfile(step.executionProfileId)
-            : null,
-        })),
+        revision.steps.map(async (step) => {
+          // Pinned by id; a ref that names no profile is kept as written, so
+          // the step reports it as unavailable instead of silently running
+          // with no profile.
+          const profile = step.agentProfile ? await this.deps.agentProfile(step.agentProfile) : null
+          return { ...step, profileId: profile?.id ?? step.agentProfile ?? null, profile }
+        }),
       ),
     })
     if (input.startStepId && startPosition > 0) {
@@ -649,14 +637,15 @@ export class WorkflowService implements WorkflowEngine {
   ): Promise<string[]> {
     const warnings: string[] = []
     const session = caller.actor.id ? this.deps.session(caller.actor.id) : undefined
-    const profile = step.executionProfileSnapshot
-    if (step.executionProfileId && !profile) {
-      warnings.push(`execution profile ${step.executionProfileId} is unavailable`)
+    const profile = step.agentProfileSnapshot
+    if (step.agentProfileId && !profile) {
+      warnings.push(`agent profile ${step.agentProfileId} is unavailable`)
     }
     if (profile && session) {
-      if (profile.harness !== session.agentKind) {
+      const harnesses = profile.candidates.map((candidate) => candidate.harness)
+      if (harnesses.length > 0 && !harnesses.some((harness) => harness === session.agentKind)) {
         warnings.push(
-          `expected execution profile ${profile.name} (${profile.harness}), used ${session.agentKind}`,
+          `expected agent profile ${profile.name} (${harnesses.join(' or ')}), used ${session.agentKind}`,
         )
       }
       if (profile.machineId && profile.machineId !== session.machineId) {
@@ -764,10 +753,10 @@ export class WorkflowService implements WorkflowEngine {
           `Current step: ${current.title} [${current.status}]`,
           current.instructions,
           current.completionGuidance ? `Completion: ${current.completionGuidance}` : '',
-          current.executionProfileSnapshot
-            ? `Execution profile: ${current.executionProfileSnapshot.name} (${current.executionProfileSnapshot.harness}/${current.executionProfileSnapshot.model}/${current.executionProfileSnapshot.effort})`
-            : current.executionProfileId
-              ? `Execution profile unavailable: ${current.executionProfileId}`
+          current.agentProfileSnapshot
+            ? `Agent profile: ${current.agentProfileSnapshot.name}${describeCandidates(current.agentProfileSnapshot)}`
+            : current.agentProfileId
+              ? `Agent profile unavailable: ${current.agentProfileId}`
               : '',
         ]
           .filter(Boolean)
@@ -776,9 +765,9 @@ export class WorkflowService implements WorkflowEngine {
         ? 'Workflow complete.'
         : 'This prompt-only workflow has no structured steps.'
     const delegation =
-      role === 'coordinator' && run.subjectKind === 'issue' && current?.executionProfileId
+      role === 'coordinator' && run.subjectKind === 'issue' && current?.agentProfileSnapshot
         ? [
-            `Delegate this step with: podium agent spawn --issue ${run.subjectId} --prompt "<task>" --workflow-run-id ${run.id} --workflow-step-id ${current.stepId} --execution-profile-id ${current.executionProfileId}`,
+            `Delegate this step with: podium agent spawn --issue ${run.subjectId} --prompt "<task>" --workflow-run-id ${run.id} --workflow-step-id ${current.stepId} (it starts from the step's agent profile)`,
             `Then assign the returned child: podium workflow assign-step ${current.stepId} <child-session-id> --run ${run.id}`,
           ].join('\n')
         : ''

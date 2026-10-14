@@ -1,12 +1,12 @@
 /**
- * The ELEVEN workflow command contracts (ADR 3 D1, POD-311's L1/L3 split).
+ * The TEN workflow command contracts (ADR 3 D1, POD-311's L1/L3 split).
  *
- * `create · revise · fork · publish · assign · profileSave ·
+ * `create · revise · fork · publish · assign ·
  *  checkpoint · assignStep · skip · retry · adopt`
  *
  * L1 DATA ONLY. Every handler lives with the workflow feature in `apps/server`
  * and is joined to its contract at `modules/workflows/registry.ts`. The three
- * QUERIES this surface also serves — `bindings`, `runs`, `profiles` — stay
+ * QUERIES this surface also serves — `bindings`, `runs` — stay
  * hand-written in the service for now (POD-732 owns the cutover), but their
  * authorization no longer differs from a mutation's: all of it routes through
  * `workflowDecision`, which is why POD-730 pinned them.
@@ -26,8 +26,9 @@
  * derived from a rule elsewhere, because a class derived silently is a class
  * nobody audits.
  *
- * `profileSave` is neither: it names managed credentials and owned compute, so
- * it is `online-sensitive`. See its contract.
+ * The eleventh, `profileSave`, went with the execution profiles it saved
+ * (POD-6114): a step now names an AGENT profile, which people edit through the
+ * `agentProfiles` family, and which names no credential.
  *
  * ---------------------------------------------------------------------------
  * EXPOSURE IS DEFAULT-CLOSED AND MATCHES WHAT SHIPS
@@ -42,7 +43,7 @@
  * statement about what is wired. Conflating them is how a surface opens itself.
  */
 
-import { AccountIdField, AgentKind, MachineIdField, SessionIdField } from '@podium/model'
+import { SessionIdField } from '@podium/model'
 import {
   WorkflowBindingTarget,
   WorkflowGitObservation,
@@ -210,7 +211,7 @@ const CONSISTENT_ERRORS: ErrorConsistency = {
     'An id the principal may not see fails identically to an id that does not exist — same message, ' +
     'no code on either. POD-730 §10 pinned five divergent shapes; this converges them. Machine ' +
     'placement is the ONE carve-out and it is not on this path (readiness §3.1.4 M5 pulls the other ' +
-    'way): see `workflowProfileSaveContract` and the assign-time placement check.',
+    'way): see the assign-time placement check.',
 }
 
 /** Ownership on create — ADR 9 D5 A4 and readiness §3.1.2's inheritance rule,
@@ -228,35 +229,26 @@ const OWNED_BY_HUMAN = (creates: readonly string[], note: string) =>
  * THE VISIBILITY CLASS OF WHAT EVERY WORKFLOW COMMAND WRITES (POD-382's field,
  * ADR 9 D3/D4, readiness §3.1.1).
  *
- * ONE CONSTANT FOR ALL ELEVEN, and the sameness is a finding rather than a
- * rubber stamp: POD-731 declared all five workflow classes — definitions,
- * revisions, bindings, execution profiles and runs — on ADR 1's ownership
+ * ONE CONSTANT FOR ALL TEN, and the sameness is a finding rather than a
+ * rubber stamp: POD-731 declared the workflow classes — definitions,
+ * revisions, bindings and runs — on ADR 1's ownership
  * matrix, and every one of them resolved `personal`. A command writes state in
- * one of those five classes and nothing else, so there is no eleven-way
+ * one of those classes and nothing else, so there is no ten-way
  * judgement to make here and pretending otherwise by writing the literal out
- * eleven times would invite someone to change one of them in isolation.
+ * ten times would invite someone to change one of them in isolation.
  *
  * IT IS NOT A GUESS AND IT IS NOT INDEPENDENT OF THE MATRIX: `contracts.test.ts`
  * asserts this value against `visibilityClassOf()` for each matrix row a command
- * writes, so if POD-1071 ever reclassifies one of the five, the contracts go RED
+ * writes, so if POD-1071 ever reclassifies one of them, the contracts go RED
  * rather than quietly disagreeing with the row they are supposed to mirror. That
  * check is the reason this is a constant and not a comment.
  *
  * IT IS A CLASSIFICATION, NOT A TEMPLATE. `personal` here says the state these
- * eleven write is one shared fact owned by one person — it is not a default to
+ * ten write is one shared fact owned by one person — it is not a default to
  * copy onto the next workflow-adjacent command. A facet whose value DIFFERS PER
  * READER is `per-user-state` and a different row family entirely; see the
- * warning on `workflowAssignContract`, which is the one of the eleven a future
+ * warning on `workflowAssignContract`, which is the one of the ten a future
  * per-user preference would most plausibly be copied from.
- *
- * NOTE what is deliberately NOT here. `execution_profiles` carries ADR 1 D6's
- * `secret: 'secret-presence'` on its matrix row, which is a different column
- * answering a different question — the row holds credential and machine
- * REFERENCES, not values, so its ADR 9 visibility class is `personal` and its
- * ADR 1 secret class is `secret-presence`. Declaring `secret` here would satisfy
- * POD-382's new lint (that class forces `online-sensitive`, which `profileSave`
- * already is) while contradicting the matrix row, which is exactly the drift the
- * test above exists to catch.
  */
 const WORKFLOW_VISIBILITY = 'personal' as const
 
@@ -440,7 +432,7 @@ export const workflowAssignContract = {
   /**
    * DO NOT COPY THIS CONTRACT FOR A PER-USER PREFERENCE (POD-311, POD-1076).
    *
-   * This is the one of the eleven with POD-351's rename-contract trap, and it is
+   * This is the one of the ten with POD-351's rename-contract trap, and it is
    * flagged here because the trap is invisible from the classification: a
    * binding is `(target_kind, target_id) → revision`, which is structurally a
    * PIN, and `pins` / `snoozes` / `tab_order` are exactly the family POD-380 had
@@ -458,10 +450,7 @@ export const workflowAssignContract = {
    *
    * Copying this contract for that feature would key a personal preference as a
    * shared instance-wide row: visible to everyone who can see the target, and
-   * silently overwritable by any of them. `profileSave` carries a weaker version
-   * of the same trap (a per-user "preferred profile" is not the shared library
-   * entry it would be copied from); its admin role floor makes the copy less
-   * likely, not less wrong.
+   * silently overwritable by any of them.
    *
    * ADJUDICATED BY POD-1076, and the classification STANDS: a binding is not a
    * family member. What POD-1076 changes is that the warning above now has a
@@ -486,98 +475,6 @@ export const workflowAssignContract = {
   conflict: 'cmd',
   conflictRule:
     'One binding per (target, workflow); assigning replaces the target existing binding in a single Authority commit rather than accumulating two',
-} as const satisfies WorkflowCommandContract
-
-export const workflowProfileSaveInput = z.object({
-  id: z.string().optional(),
-  name: z.string().trim().min(1).max(120),
-  accountId: z.string().min(1).pipe(AccountIdField),
-  machineId: z.string().min(1).pipe(MachineIdField).nullable().optional(),
-  harness: AgentKind,
-  model: z.string().default('auto'),
-  effort: z.string().default('auto'),
-})
-
-/**
- * The one contract that crosses TWO boundaries, and the reason its cells differ
- * from every other library write (readiness §3.1.4 M1/M2/M5, ADR 1 D6).
- *
- *  - `accountId` names MANAGED CREDENTIALS. The row holds a reference, not a
- *    secret value — but binding a credential to a profile that other people's
- *    runs will execute under is a credential-management act, and ADR 1 D6 makes
- *    those admin-grade. `online-sensitive`, and the id is redacted on the way
- *    out: a profile listing that leaks which account funds which workflow is a
- *    billing and blast-radius disclosure even without the secret itself.
- *  - `machineId` names OWNED COMPUTE. `use` is a code-execution boundary
- *    (M2) — arbitrary execution on someone's hardware with their SSH keys, git
- *    identity, dotfiles and checked-out private repos.
- *
- * `resource` is `settings-domain` and NOT `secret`, deliberately. The rows this
- * command touches are `execution_profiles`, which hold no credential material;
- * declaring `secret` would overstate what is written and would force the
- * classification lint's D4 rule 1 for the wrong reason. The credential fact is
- * recorded where it is true — in the rationale, the redaction paths, and the
- * admin role floor.
- *
- * `machineVerb` is likewise absent here and PRESENT at placement time. This
- * command PINS a machine; it does not run anything on one. The `use` check M5
- * demands happens where code is actually placed — at assign and at prime, and
- * again at apply — which is where `placementDecision` keeps unauthorized
- * distinguishable from unreachable. A `use` declaration here would put the
- * check on the wrong side of the boundary and read as if saving a profile were
- * the dangerous act.
- */
-export const workflowProfileSaveContract = {
-  name: 'workflows.profileSave',
-  version: 1,
-  visibility: WORKFLOW_VISIBILITY,
-  input: workflowProfileSaveInput,
-  policy: {
-    action: 'manage',
-    roleFloor: 'admin',
-    resource: 'settings-domain',
-    confirmation: 'confirm',
-    rationale:
-      'Binds managed credentials (`accountId`, ADR 1 D6 admin-grade) to owned compute (`machineId`, ' +
-      'ADR 9 D6 `use`) for runs other people will execute. The shipped guard was the INVERSE shape of ' +
-      'every other one — it refused a session without `protectedWrite` while letting any operator ' +
-      'through and gating `profiles()` not at all — so both halves change: the write is admin-grade ' +
-      'against a real account role, and the LIST is owner-or-admin filtered.',
-  },
-  exposure: SERVED_ON,
-  delivery: {
-    class: 'online-sensitive',
-    outboxReconciliation:
-      'Never queued. A queued profile write would replay a credential-to-compute binding after the ' +
-      'grant that authorized it may have been revoked — and ADR 3 D8’s re-auth would then be deciding ' +
-      'about a machine the principal no longer holds `use` on, which is a code-execution boundary and ' +
-      'not a stale-edit problem.',
-    applyTimeReauthorization: REAUTHORIZATION,
-  },
-  redaction: {
-    reviewed: true,
-    inputPaths: ['accountId'],
-    outputPaths: ['accountId'],
-    note: 'The account id is a REFERENCE, not a credential — but it names managed credentials, and which account funds which workflow is a billing and blast-radius disclosure on its own (ADR 1 D6, readiness §3.1.4 M1). `machineId` is not redacted: naming a machine you may not use is refused outright rather than hidden, per M5.',
-  },
-  ownership: OWNED_BY_HUMAN(
-    ['execution-profile'],
-    'Owned by the creating principal’s human. A run does NOT inherit the live profile — it pins an ' +
-      'immutable snapshot (POD-730 §4), which is correct for reproducibility and must never become ' +
-      'the model for authorization: the snapshot is re-authorized at apply against the CURRENT ' +
-      'delegation (ADR 9 D5 A1), never treated as a frozen grant.',
-  ),
-  attribution: ATTRIBUTION,
-  errorConsistency: {
-    callerSuppliedTargetId: true,
-    invisibleFailsAs: 'nonexistent',
-    distinguishesUnauthorizedFromUnreachable: true,
-    note: 'The profile id follows D20.2 like everything else. The MACHINE it names does not: readiness §3.1.4 M5 requires unauthorized to stay distinguishable from unreachable, because "denied" and "offline" otherwise produce the same empty result and an operator cannot tell a permissions problem from a dead machine. D20.2 and M5 pull in opposite directions on purpose and are decided separately.',
-  },
-  cli: { summary: 'Create or update an execution profile' },
-  conflict: 'cmd',
-  conflictRule:
-    'Upsert keyed by profile id; a run pins an immutable snapshot at start, so a concurrent save never mutates a run already in flight',
 } as const satisfies WorkflowCommandContract
 
 // ---------------------------------------------------------------------------
@@ -827,7 +724,7 @@ export const workflowAdoptContract = {
 // ---------------------------------------------------------------------------
 
 /**
- * The eleven, keyed by the BARE proc name every transport already dispatches on
+ * The ten, keyed by the BARE proc name every transport already dispatches on
  * — `create`, `checkpoint`, … The wire names are kept: renaming them is a
  * client-compatibility change and this issue is a migration, not a rename. The
  * contract's own dotted name (`workflows.checkpoint`) is the identity the
@@ -839,7 +736,6 @@ export const WORKFLOW_CONTRACTS = {
   fork: workflowForkContract,
   publish: workflowPublishContract,
   assign: workflowAssignContract,
-  profileSave: workflowProfileSaveContract,
   checkpoint: workflowCheckpointContract,
   assignStep: workflowAssignStepContract,
   skip: workflowSkipContract,
@@ -862,7 +758,7 @@ export type WorkflowContractName = keyof typeof WORKFLOW_CONTRACTS
  * When POD-382 added the required `visibility` field to `CommandContractBase`,
  * these two lines were the errors that surfaced (TS2352, "neither type
  * sufficiently overlaps"), and TypeScript's suggested remedy — cast through
- * `unknown` — would have compiled. It would also have left all eleven contracts
+ * `unknown` — would have compiled. It would also have left all the contracts
  * with NO visibility class, silently defeating the compile-time half of the
  * default-closed rule that both POD-382 and this issue exist to enforce. The
  * cast was reporting a missing required PROPERTY, not a variance problem. If

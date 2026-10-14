@@ -17,7 +17,7 @@
  * `runFor`), which is what made them easy to miss and what makes them
  * cross-user READS the moment there is a second human. `profileSave` was the
  * inverse shape, refusing a session without `protectedWrite`, and `profiles()`
- * had no gate at all.
+ * had no gate at all; both went with the execution profiles (POD-6114).
  *
  * Every one of them is replaced here by `workflowDecision` against a real
  * principal. The grep that says so — `actor.kind === 'operator'` — returns
@@ -189,7 +189,7 @@ export interface WorkflowPolicyPorts {
  *
  * WHAT CHANGED, in one sentence: `protectedWrite` no longer means "may do
  * anything", it means the account grade is `admin`, and the grade decides only
- * the admin-grade paths (the global library, execution profiles) rather than
+ * the admin-grade paths (the global library) rather than
  * short-circuiting every guard.
  *
  * WHAT DID NOT CHANGE, deliberately: `protectedWrite` is still the flag the
@@ -600,44 +600,6 @@ export class WorkflowAccess {
     })
   }
 
-  /** `profiles()` — the branch that had NO gate at all and listed every
-   *  profile, with its `accountId`, to any caller. */
-  visibleProfiles<T extends { id: string }>(
-    caller: WorkflowCaller,
-    all: readonly T[],
-    ownership: WorkflowOwnershipPort,
-  ): T[] {
-    const principal = this.principal(caller)
-    return all.filter((profile) =>
-      canReadWorkflowEntity(principal, { kind: 'execution-profile', id: profile.id }, ownership),
-    )
-  }
-
-  /** `profileSave` — the inverse-shaped guard, now the same decision as every
-   *  other write, taken against the account grade ADR 1 D6 requires for
-   *  anything that manages managed credentials. */
-  assertProfileWrite(
-    caller: WorkflowCaller,
-    profileId: string | undefined,
-    ownership: WorkflowOwnershipPort,
-  ): void {
-    const principal = this.principal(caller)
-    if (principal.role !== 'admin') {
-      throw new Error('only an administrator may change execution profiles')
-    }
-    if (
-      profileId !== undefined &&
-      workflowDecision(
-        principal,
-        { kind: 'execution-profile', id: profileId },
-        'write',
-        ownership,
-      ) === 'denied'
-    ) {
-      throw new Error('only an administrator may change execution profiles')
-    }
-  }
-
   /** `runs()` — the second read-shaped branch, which returned every run in the
    *  instance for an operator. Filtering is by the SAME decision `runFor` uses,
    *  so a run you cannot open is a run you cannot list. */
@@ -668,11 +630,6 @@ export class WorkflowAccess {
       kind: 'workflow-binding' as const,
       id: `${binding.targetKind}:${binding.targetId}`,
     }))
-  }
-
-  /** Entity refs for a batch of execution profiles. */
-  profileEntities(all: readonly { id: string }[]): WorkflowEntityRef[] {
-    return all.map((profile) => ({ kind: 'execution-profile' as const, id: profile.id }))
   }
 
   /**

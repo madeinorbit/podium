@@ -56,7 +56,6 @@
  * each with an id, a label, a predicate and a run — rather than pre-empting its
  * type.
  */
-import type { MachineId, AccountId } from '@podium/model'
 import type { WorkflowContractName } from '@podium/commands'
 
 /** What the principal may do on this surface. Supplied by the view from what the
@@ -69,9 +68,6 @@ export interface WorkflowRights {
   readonly publish: boolean
   /** May advance a run's state machine (skip / retry). */
   readonly advance: boolean
-  /** May save an execution profile: it names managed credentials and owned
-   *  compute, so it is its own grade (§3.1.4 M1/M2, ADR 1 D6). */
-  readonly manageProfiles: boolean
 }
 
 /** Default-closed, per §3.1.1's rule that a missing classification fails toward
@@ -80,7 +76,6 @@ export const NO_WORKFLOW_RIGHTS: WorkflowRights = {
   write: false,
   publish: false,
   advance: false,
-  manageProfiles: false,
 }
 
 /**
@@ -99,7 +94,6 @@ export const OPERATOR_WORKFLOW_RIGHTS: WorkflowRights = {
   write: true,
   publish: true,
   advance: true,
-  manageProfiles: true,
 }
 
 /** One write, as data. `TInput` is the contract's input; it is built by the
@@ -195,23 +189,6 @@ export const workflowCommands = {
     pendingLabel: 'Retrying…',
     success: 'Reset the step for another attempt.',
     enabledBy: (r) => r.advance,
-    build: (input) => ({ ...input }),
-  }),
-
-  profileSave: command<{
-    name: string
-    accountId: AccountId
-    harness: string
-    model: string
-    effort: string
-    machineId: MachineId | null
-  }>({
-    id: 'workflows.profileSave',
-    contract: 'profileSave',
-    label: 'Save profile',
-    pendingLabel: 'Saving profile…',
-    success: 'Saved the execution profile.',
-    enabledBy: (r) => r.manageProfiles,
     build: (input) => ({ ...input }),
   }),
 } as const

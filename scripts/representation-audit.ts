@@ -812,8 +812,8 @@ export const NOT_A_REPRESENTATION: readonly {
     symbol: 'spawnAgentInput',
     reason:
       'a command CONTRACT input (ADR 3 D1): it declares the ARGUMENTS OF A CALL, not a ' +
-      'representation of a session. Its three session-shaped keys (workflowRunId, workflowStepId, ' +
-      'executionProfileId) are spawn parameters the caller supplies, and its entity-shaped subset ' +
+      'representation of a session. Its two session-shaped keys (workflowRunId, workflowStepId) ' +
+      'are spawn parameters the caller supplies, and its entity-shaped subset ' +
       'owes inventory §6.4 rule 1 — a Pick from model plus transport keys — which is POD-308 wire ' +
       'work. Same class as the tRPC procedure inputs below, and it carried that exclusion at its ' +
       'previous site in apps/server/src/modules/messages/gate.ts.',

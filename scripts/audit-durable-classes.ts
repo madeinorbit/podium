@@ -251,7 +251,6 @@ export const DURABLE_STORES: readonly DurableStore[] = [
   // directions rather than inheriting either.
   { store: 'user_preferences', kind: 'drizzle-table', row: 'preferences-personal-keys' },
   { store: 'accounts', kind: 'drizzle-table', row: 'managed-credentials' },
-  { store: 'execution_profiles', kind: 'drizzle-table', row: 'workflow-execution-profiles' },
   { store: 'agent_profiles', kind: 'drizzle-table', row: 'agent-profiles' },
   {
     store: '<stateDir>/config.json',

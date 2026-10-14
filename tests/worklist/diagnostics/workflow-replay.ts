@@ -7,8 +7,8 @@ import { join } from 'node:path'
 import { dedupeSessions } from './reference-state'
 import type { ReferenceState as Store } from './reference-state'
 import { createKernelReplica, createSideCache, memoryStorage } from '@podium/client-core/replica'
-import { asAccountId, asMachineId, asSessionId, DEFAULT_HARNESS_AGENT, type MachineWire } from '@podium/model/browser'
-import type { ExecutionProfileWire, WorkflowRunWire } from '@podium/protocol'
+import { asMachineId, asSessionId, type MachineWire } from '@podium/model/browser'
+import type { WorkflowRunWire } from '@podium/protocol'
 import { createRuntimeWorklistPool } from '@podium/client-graph/runtime-pool'
 import { createRowSource } from '@podium/client-graph/shared/row-source'
 import { WORKFLOW_SUMMARIES } from '@podium/client-graph/workflow-schema'
@@ -44,7 +44,7 @@ async function main() {
         ...(resumeKind && resumeValue ? { resume: { kind: resumeKind, value: resumeValue } } : {}) }
     })
     machines = db.query('SELECT id,name,hostname,last_seen_at lastSeenAt FROM machines WHERE revoked_at IS NULL AND superseded_by IS NULL ORDER BY id').all().map(row => ({ ...row, online: false })) as MachineWire[]
-    profileRefs = db.query('SELECT id,machine_id machineId FROM execution_profiles ORDER BY id').all()
+    profileRefs = db.query('SELECT id,machine_id machineId FROM agent_profiles ORDER BY id').all()
     runRefs = db.query('SELECT id,subject_kind subjectKind,subject_id subjectId FROM workflow_runs ORDER BY id').all()
     db.exec('ROLLBACK')
   } finally { db.close() }
@@ -68,8 +68,7 @@ async function main() {
     sessions: normalizedSessions,
     repos: [], machines, settingsTab: 'general', coarseNow: Date.now(), selectedIssueId: null,
   } as unknown as Store
-  const profiles: ExecutionProfileWire[] = profileRefs.map(row => ({ id: String(row.id), name: '', machineId: row.machineId ? asMachineId(String(row.machineId)) : null,
-    accountId: asAccountId('replay-placeholder'), harness: DEFAULT_HARNESS_AGENT, model: 'auto', effort: 'auto', createdAt: '', updatedAt: '' }))
+  const profiles = profileRefs.map(row => ({ id: String(row.id), machineId: row.machineId ? asMachineId(String(row.machineId)) : null }))
   // Cover every persisted target identity even when there are no workflow runs.
   // The envelopes are synthetic; only the subject IDs are operator references.
   const subjects = [...runRefs,

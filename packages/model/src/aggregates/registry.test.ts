@@ -355,7 +355,6 @@ const SESSION_AGGREGATE_KEYS = [
   'deleted',
   'durableLabel',
   'effort',
-  'executionProfileId',
   'exitCode',
   'headless',
   'inputCount',

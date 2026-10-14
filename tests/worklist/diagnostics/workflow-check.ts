@@ -1,6 +1,6 @@
 import type { ReferenceState as Store } from './reference-state'
 import { machineViewsFromWire, placementOptions, profilePlacement, runSubjectReference } from '@podium/client-core/values'
-import type { ExecutionProfileWire, WorkflowRunWire } from '@podium/protocol'
+import type { WorkflowRunWire } from '@podium/protocol'
 import { MachineWire } from '@podium/model'
 import { getObserverTree, Reaction, runInAction } from 'mobx'
 import type { MobxPool } from '@podium/client-graph/pool'
@@ -13,7 +13,8 @@ import { modelFields } from './model-fields'
 /** RPC rows are borrowed from the caller's sole service. No query, subscription
  * or retained RPC replica is installed by this on-demand comparison. */
 export interface WorkflowCheckInputs {
-  profiles: readonly ExecutionProfileWire[]
+  /** Agent profiles (POD-6114): only the id and the machine are compared. */
+  profiles: readonly { readonly id: string; readonly machineId: string | null }[]
   runs: readonly WorkflowRunWire[]
 }
 export type WorkflowCheckStore = Pick<Store, 'machines' | 'issueProjections' | 'sessions'>

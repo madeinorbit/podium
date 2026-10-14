@@ -34,7 +34,6 @@ import {
   assignHandler,
   createHandler,
   forkHandler,
-  profileSaveHandler,
   publishHandler,
   reviseHandler,
 } from './handlers/library'
@@ -50,7 +49,8 @@ export interface WorkflowCommand {
  * dispatches on. The wire names are kept: renaming them is a
  * client-compatibility change and this is a migration.
  *
- * ELEVEN, matching POD-311's list exactly. The seven QUERIES this surface also
+ * TEN: POD-311's eleven less `profileSave`, which went with the execution
+ * profiles (POD-6114). The six QUERIES this surface also
  * serves are NOT here and are not contracts: they are declared in
  * `./queries.ts`, for the reason that file gives — a `visibility` class
  * describes what a command WRITES, and a read writes nothing. Their
@@ -64,10 +64,6 @@ export const WORKFLOW_COMMANDS = {
   fork: { contract: WORKFLOW_CONTRACTS.fork, handler: forkHandler },
   publish: { contract: WORKFLOW_CONTRACTS.publish, handler: publishHandler },
   assign: { contract: WORKFLOW_CONTRACTS.assign, handler: assignHandler },
-  profileSave: {
-    contract: WORKFLOW_CONTRACTS.profileSave,
-    handler: profileSaveHandler,
-  },
   checkpoint: {
     contract: WORKFLOW_CONTRACTS.checkpoint,
     handler: checkpointHandler,

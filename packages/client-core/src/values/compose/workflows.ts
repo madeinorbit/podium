@@ -48,9 +48,8 @@
  * for placement. Imports no other slice.
  * Platform-neutral: no DOM, no storage.
  */
-import type { MachineId } from '@podium/model'
+import { asMachineId, type MachineId } from '@podium/model'
 import type {
-  ExecutionProfileWire,
   WorkflowDetailWire,
   WorkflowRevisionWire,
   WorkflowRunEventWire,
@@ -307,8 +306,10 @@ export interface ProfilePlacement {
   readonly state: ProfilePlacementState
 }
 
+/** Where an agent profile (POD-6114; the execution profiles before it) would
+ *  place work, as the principal sees the fleet. */
 export function profilePlacement<M extends { id: string; online: boolean }>(
-  profile: Pick<ExecutionProfileWire, 'id' | 'machineId'>,
+  profile: { readonly id: string; readonly machineId: string | null },
   views: readonly MachineView<M>[],
 ): ProfilePlacement {
   if (profile.machineId === null) {
@@ -316,7 +317,7 @@ export function profilePlacement<M extends { id: string; online: boolean }>(
   }
   const view = views.find((v) => v.machine.id === profile.machineId)
   const state: ProfilePlacementState = view === undefined ? 'unknown' : view.availability
-  return { profileId: profile.id, machineId: profile.machineId, state }
+  return { profileId: profile.id, machineId: asMachineId(profile.machineId), state }
 }
 
 /**

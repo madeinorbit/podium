@@ -256,7 +256,6 @@ export const sessions = sqliteTable(
     deletionSource: text('deletion_source'),
     workflowRunId: text('workflow_run_id'),
     workflowStepId: text('workflow_step_id'),
-    executionProfileId: text('execution_profile_id'),
     /** The agent profile this session started from (POD-6107), or null. The
      *  launch values it ACTUALLY ran with are `agent_kind`/`model`/`effort`, so
      *  editing or deleting the profile later never rewrites this session's
@@ -2444,37 +2443,16 @@ export const workflowBindings = sqliteTable(
   ],
 )
 
-export const executionProfiles = sqliteTable(
-  'execution_profiles',
-  {
-    id: text().primaryKey(),
-    name: text().notNull(),
-    accountId: text('account_id').$type<AccountId>().notNull(),
-    machineId: text('machine_id').$type<MachineId>(),
-    harness: text().notNull(),
-    model: text().default('auto').notNull(),
-    effort: text().default('auto').notNull(),
-    createdByKind: text('created_by_kind').notNull(),
-    createdById: text('created_by_id'),
-    createdAt: text('created_at').notNull(),
-    updatedAt: text('updated_at').notNull(),
-    ownerUserId: text('owner_user_id').$type<UserId>().notNull(),
-  },
-  (table) => [
-    unique('execution_profiles_name_unique').on(table.name),
-    check('execution_profiles_check_15', sql`created_by_kind IN ('operator', 'session')`),
-  ],
-)
-
 /**
  * AGENT PROFILES (POD-6107, flight deck D3/D4): named agent setups that issues
  * and sessions point at. Instance-wide configuration edited only by people.
  *
  * `candidates` is the ordered JSON list of `{harness, model, effort}`; the first
  * one usable on the target machine is picked when a session starts. The table
- * is NEW rather than a rename of `execution_profiles`: that table still backs
- * the workflows feature (which also needs a credential account a profile does
- * not have), and the expand-only gate refuses a rename.
+ * was NEW rather than a rename of `execution_profiles`, which then still backed
+ * the workflows feature; POD-6114 moved workflows onto this table and dropped
+ * that one. A profile names no credential account: a session takes the
+ * Settings account when it starts.
  */
 export const agentProfiles = sqliteTable(
   'agent_profiles',
@@ -2534,8 +2512,12 @@ export const workflowRunSteps = sqliteTable(
     title: text().notNull(),
     instructions: text().default('').notNull(),
     completionGuidance: text('completion_guidance').default('').notNull(),
-    executionProfileId: text('execution_profile_id'),
-    executionProfileJson: text('execution_profile_json'),
+    /** The step's agent profile (POD-6114): its id, or the ref the step named
+     *  when no such profile existed at run start. Dangling-tolerant, no FK. */
+    agentProfileId: text('agent_profile_id'),
+    /** The profile as it was when the run started, so editing it later never
+     *  changes a run in flight. */
+    agentProfileJson: text('agent_profile_json'),
     status: text().notNull(),
     assignedSessionId: text('assigned_session_id').$type<SessionId>(),
     attempt: integer().default(1).notNull(),

@@ -1,7 +1,5 @@
-import type { AccountId, MachineId, SessionId, UserId } from '@podium/model'
+import { AgentProfileWire, type SessionId, type UserId } from '@podium/model'
 import {
-  type ExecutionProfileWire as ExecutionProfile,
-  ExecutionProfileWire,
   type WorkflowGitObservation as GitObservation,
   type WorkflowRunStepWire as RunStep,
   type WorkflowStep as Step,
@@ -33,7 +31,6 @@ import {
   sql,
 } from 'drizzle-orm'
 import {
-  executionProfiles,
   workflowBindings,
   workflowEvents,
   workflowRevisions,
@@ -151,20 +148,6 @@ function toBinding(row: typeof workflowBindings.$inferSelect): WorkflowBindingWi
   }
 }
 
-function toProfile(row: typeof executionProfiles.$inferSelect): ExecutionProfile {
-  return ExecutionProfileWire.parse({
-    id: row.id,
-    name: row.name,
-    accountId: row.accountId,
-    machineId: row.machineId ?? null,
-    harness: row.harness,
-    model: row.model,
-    effort: row.effort,
-    createdAt: row.createdAt,
-    updatedAt: row.updatedAt,
-  })
-}
-
 function toRun(row: typeof workflowRuns.$inferSelect): WorkflowRunRow {
   return {
     id: row.id,
@@ -181,15 +164,17 @@ function toRun(row: typeof workflowRuns.$inferSelect): WorkflowRunRow {
 }
 
 function toRunStep(row: typeof workflowRunSteps.$inferSelect): RunStep {
-  const profileRaw = parseJson(row.executionProfileJson, null)
+  // A snapshot this build cannot read degrades to "unavailable", never a throw:
+  // the run's other steps stay readable.
+  const snapshot = AgentProfileWire.safeParse(parseJson(row.agentProfileJson, null))
   return WorkflowRunStepWire.parse({
     stepId: row.stepId,
     position: row.position,
     title: row.title,
     instructions: row.instructions,
     completionGuidance: row.completionGuidance,
-    executionProfileId: row.executionProfileId ?? null,
-    executionProfileSnapshot: profileRaw,
+    agentProfileId: row.agentProfileId ?? null,
+    agentProfileSnapshot: snapshot.success ? snapshot.data : null,
     status: row.status,
     assignedSessionId: row.assignedSessionId ?? null,
     attempt: row.attempt,
@@ -255,12 +240,6 @@ export class WorkflowsRepository {
             eq(workflowBindings.targetId, id.slice(split + 1)),
           ),
         )
-        .get()
-    } else if (kind === 'execution-profile') {
-      row = await this.db
-        .select({ ownerUserId: executionProfiles.ownerUserId })
-        .from(executionProfiles)
-        .where(eq(executionProfiles.id, id))
         .get()
     } else if (kind === 'workflow-run') {
       row = await this.db
@@ -450,66 +429,6 @@ export class WorkflowsRepository {
     )
   }
 
-  async listProfiles(): Promise<ExecutionProfile[]> {
-    return (await this.db
-      .select()
-      .from(executionProfiles)
-      .orderBy(sql`${executionProfiles.name} COLLATE NOCASE`)
-      .all())
-      .map(toProfile)
-  }
-
-  async getProfile(id: string): Promise<ExecutionProfile | null> {
-    const row = await this.db.select().from(executionProfiles).where(eq(executionProfiles.id, id)).get()
-    return row ? toProfile(row) : null
-  }
-
-  async upsertProfile(input: {
-    id: string
-    name: string
-    accountId: AccountId
-    machineId: MachineId | null
-    harness: string
-    model: string
-    effort: string
-    actor: WorkflowActor
-    ownerUserId: UserId
-    now: string
-  }): Promise<ExecutionProfile> {
-    ;await (this.db
-      .insert(executionProfiles)
-      .values({
-        id: input.id,
-        name: input.name,
-        accountId: input.accountId,
-        machineId: input.machineId,
-        harness: input.harness,
-        model: input.model,
-        effort: input.effort,
-        createdByKind: input.actor.kind,
-        createdById: input.actor.id,
-        ownerUserId: input.ownerUserId,
-        createdAt: input.now,
-        updatedAt: input.now,
-      }))
-      .onConflictDoUpdate({
-        target: executionProfiles.id,
-        // `created_by_*` and `owner_user_id` are absent on purpose: an update
-        // may not re-attribute or re-own a profile.
-        set: {
-          name: input.name,
-          accountId: input.accountId,
-          machineId: input.machineId,
-          harness: input.harness,
-          model: input.model,
-          effort: input.effort,
-          updatedAt: input.now,
-        },
-      })
-      .run()
-    return required(await this.getProfile(input.id), `execution profile ${input.id} was not persisted`)
-  }
-
   async listRuns(includeTerminal = false): Promise<WorkflowRunRow[]> {
     return (await this.db
       .select()
@@ -612,7 +531,7 @@ export class WorkflowsRepository {
 
   async insertRun(input: {
     run: WorkflowRunRow
-    steps: Array<Step & { profile: ExecutionProfile | null }>
+    steps: Array<Step & { profileId: string | null; profile: AgentProfileWire | null }>
   }): Promise<void> {
     await this.createOrJoinTransaction(async () => {
       ;await (this.db
@@ -642,8 +561,8 @@ export class WorkflowsRepository {
             title: step.title,
             instructions: step.instructions,
             completionGuidance: step.completionGuidance,
-            executionProfileId: step.executionProfileId ?? null,
-            executionProfileJson: step.profile ? JSON.stringify(step.profile) : null,
+            agentProfileId: step.profileId,
+            agentProfileJson: step.profile ? JSON.stringify(step.profile) : null,
             // The two literals the raw INSERT carried, kept explicit rather than
             // left to the column defaults, which is what it did.
             status: 'pending',

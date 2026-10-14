@@ -592,7 +592,6 @@ export const SessionMetaEntity = z.object({
    *  space, and a brand would assert a namespace we do not own or mint. */
   workflowRunId: z.string().optional(),
   workflowStepId: z.string().optional(),
-  executionProfileId: z.string().optional(),
   /** Explicit issue attachment (issue-as-workspace): the issue this session is
    *  working on. Wins over cwd-derived worktree grouping. Structured successor
    *  of the freeform `spawnedBy: 'issue:<id>'`. Absent = unattached (legacy /

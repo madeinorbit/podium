@@ -1,5 +1,5 @@
 /**
- * The L1 gate over the eleven workflow contracts: classifications are TOTAL,
+ * The L1 gate over the ten workflow contracts: classifications are TOTAL,
  * the advance partition is exact, and the decision function is default-closed.
  *
  * Every absence assertion below is preceded by a probe showing the instrument
@@ -36,13 +36,12 @@ import {
   workflowDecision,
 } from './ownership'
 
-const ELEVEN: readonly WorkflowContractName[] = [
+const TEN: readonly WorkflowContractName[] = [
   'create',
   'revise',
   'fork',
   'publish',
   'assign',
-  'profileSave',
   'checkpoint',
   'assignStep',
   'skip',
@@ -65,9 +64,10 @@ const isDeclaredMatrixRow = (row: string): boolean =>
 const contracts = (): AnyCommandContract[] =>
   Object.values(WORKFLOW_CONTRACTS).map((c) => c as AnyCommandContract)
 
-describe('the eleven workflow contracts', () => {
-  it('declares exactly the eleven mutations POD-311 named, and no twelfth', () => {
-    expect(Object.keys(WORKFLOW_CONTRACTS).sort()).toEqual([...ELEVEN].sort())
+describe('the ten workflow contracts', () => {
+  // POD-311 named eleven; `profileSave` went with the execution profiles (POD-6114).
+  it('declares exactly the ten mutations, and no eleventh', () => {
+    expect(Object.keys(WORKFLOW_CONTRACTS).sort()).toEqual([...TEN].sort())
   })
 
   it('passes the classification lint with no unclassified field', () => {
@@ -96,13 +96,11 @@ describe('the eleven workflow contracts', () => {
     }
   })
 
-  it('reviews redaction on every contract and redacts the account id on the one that names credentials', () => {
-    for (const contract of contracts()) expect(contract.redaction.reviewed).toBe(true)
-    expect(WORKFLOW_CONTRACTS.profileSave.redaction.inputPaths).toEqual(['accountId'])
-    expect(WORKFLOW_CONTRACTS.profileSave.redaction.outputPaths).toEqual(['accountId'])
-    // The counterfactual: a library write that carries no credential redacts
-    // nothing, so "reviewed" is doing work rather than rubber-stamping.
-    expect(WORKFLOW_CONTRACTS.create.redaction.inputPaths).toEqual([])
+  it('reviews redaction on every contract; none names a credential any more', () => {
+    for (const contract of contracts()) {
+      expect(contract.redaction.reviewed).toBe(true)
+      expect([contract.name, contract.redaction.inputPaths]).toEqual([contract.name, []])
+    }
   })
 
   it('records an offline class per contract with its reasoning, split library vs advance', () => {
@@ -115,7 +113,6 @@ describe('the eleven workflow contracts', () => {
       fork: 'offline-eligible',
       publish: 'offline-eligible',
       assign: 'offline-eligible',
-      profileSave: 'online-sensitive',
       checkpoint: 'online-only',
       assignStep: 'online-only',
       skip: 'online-only',
@@ -132,7 +129,7 @@ describe('the eleven workflow contracts', () => {
    * THE CONTRACT AND THE MATRIX, LOCKED TOGETHER.
    *
    * POD-382 made `visibility` a required field on every contract; POD-731
-   * declared the five workflow classes on ADR 1's matrix. Two hand-written
+   * declared the workflow classes on ADR 1's matrix. Two hand-written
    * answers to the same question is a drift waiting to happen — so this asserts
    * one against the other rather than asserting either against a literal.
    *
@@ -150,7 +147,6 @@ describe('the eleven workflow contracts', () => {
       fork: 'workflow-definitions',
       publish: 'workflow-revisions',
       assign: 'workflow-bindings',
-      profileSave: 'workflow-execution-profiles',
       checkpoint: 'workflow-runs',
       assignStep: 'workflow-runs',
       skip: 'workflow-runs',
@@ -161,15 +157,15 @@ describe('the eleven workflow contracts', () => {
       const contract = WORKFLOW_CONTRACTS[name as WorkflowContractName]
       expect([name, contract.visibility]).toEqual([name, visibilityClassOf(row)])
     }
-    // All five rows are REACHED. Without this, a typo in a row id above would
+    // All four rows are REACHED. Without this, a typo in a row id above would
     // resolve to the default-closed `personal` backstop and match anyway —
     // which is the failure mode `visibilityClassOf` being total creates.
-    expect(new Set(Object.values(writesInto)).size).toBe(5)
+    expect(new Set(Object.values(writesInto)).size).toBe(4)
     for (const row of new Set(Object.values(writesInto))) {
       expect([row, isDeclaredMatrixRow(row)]).toEqual([row, true])
     }
     // …and the backstop itself is shown firing, so the assertion above is
-    // reading real declarations and not the default eleven times.
+    // reading real declarations and not the default ten times.
     expect(isDeclaredMatrixRow('workflow-nonexistent')).toBe(false)
     expect(visibilityClassOf('workflow-nonexistent')).toBe('personal')
   })
@@ -207,7 +203,7 @@ describe('the advance partition', () => {
   })
 
   it('leaves library CRUD with no advance declaration — the absence is the claim', () => {
-    for (const name of ['create', 'revise', 'fork', 'publish', 'assign', 'profileSave'] as const) {
+    for (const name of ['create', 'revise', 'fork', 'publish', 'assign'] as const) {
       expect([name, workflowAdvanceOf(name)]).toEqual([name, undefined])
     }
   })

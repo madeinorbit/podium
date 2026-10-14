@@ -28,7 +28,7 @@ import { attachWorklistPool, useWorklistPool } from '@/app/store-worklist-pool'
 import type { Trpc } from '@/app/trpc'
 import { MergeQueuePanel } from '@/features/merge-queue/MergeQueuePanel'
 import { createWorkflowsFixture } from '../../../test/workflows-fixture'
-import { ExecutionProfiles } from './ExecutionProfiles'
+import { AgentProfiles } from './AgentProfiles'
 import { RunProgress } from './RunProgress'
 import { useWorkflowMachines, useWorkflowSubject } from './readers'
 import { useWorkflows } from './use-workflows'
@@ -82,7 +82,7 @@ it('renders the actual screens through no-pool then real attachment without chan
     const source = useWorkflows()
     return (
       <>
-        <ExecutionProfiles source={source} rights={OPERATOR_WORKFLOW_RIGHTS} />
+        <AgentProfiles source={source} />
         <RunProgress source={source} rights={OPERATOR_WORKFLOW_RIGHTS} />
         <MergeQueuePanel
           issues={[]}
@@ -98,16 +98,15 @@ it('renders the actual screens through no-pool then real attachment without chan
       <Surface />
     </Wrapper>,
   )
-  expect(screen.getByText('Loading execution profiles…')).toBeTruthy()
+  expect(screen.getByText('Loading agent profiles…')).toBeTruthy()
   expect(await screen.findByText('Loading issue · synthetic-0…')).toBeTruthy()
   await act(async () => {
     attach()
   })
   await screen.findByText('Synthetic profile 0')
   await screen.findByText('session · synthetic-session-0')
-  expect(screen.queryByText('Loading execution profiles…')).toBeNull()
+  expect(screen.queryByText('Loading agent profiles…')).toBeNull()
   expect(screen.getAllByText(/synthetic-missing · no access/)).toHaveLength(2)
-  expect(screen.getByLabelText('Machine').querySelectorAll('option')).toHaveLength(2)
   expect(fixture.calls).toMatchObject({
     list: 1,
     bindings: 1,
@@ -296,7 +295,7 @@ it('executes zero legacy readers after feed activity and preserves one denied-wr
     const source = useWorkflows()
     return (
       <>
-        <ExecutionProfiles source={source} rights={OPERATOR_WORKFLOW_RIGHTS} />
+        <AgentProfiles source={source} />
         <RunProgress source={source} rights={OPERATOR_WORKFLOW_RIGHTS} />
         {source.error && <p role="alert">{source.error}</p>}
         <MergeQueuePanel
@@ -330,12 +329,10 @@ it('executes zero legacy readers after feed activity and preserves one denied-wr
       ),
   ).toBe(true)
   expect(fixture.calls.list).toBe(1)
-  fixture.denyProfileSave('Synthetic denial')
-  fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Synthetic saved profile' } })
-  fireEvent.change(screen.getByLabelText('Account ID'), { target: { value: 'synthetic-account' } })
-  fireEvent.click(screen.getByRole('button', { name: /Save profile/ }))
+  fixture.denyWrites('Synthetic denial')
+  fireEvent.click(screen.getByRole('button', { name: /Skip current/ }))
   expect((await screen.findByRole('alert')).textContent).toContain('Synthetic denial')
-  expect(fixture.calls.profileSave).toBe(1)
+  expect(fixture.calls.skip).toBe(1)
   expect(fixture.calls.list).toBe(2)
   expect(fixture.calls.locks).toBe(1)
   expect(owner?.access.replica).toBe(fixture.replica)

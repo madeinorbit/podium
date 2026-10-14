@@ -1,20 +1,23 @@
 /**
- * THE SEVEN WORKFLOW QUERIES, as a table (POD-732).
+ * THE SIX WORKFLOW QUERIES, as a table (POD-732).
  *
- * `list · get · bindings · profiles · runs · prime · status`
+ * `list · get · bindings · runs · prime · status`
+ *
+ * (`profiles` went with the execution profiles, POD-6114: agent profiles are
+ * read through the `agentProfiles` family.)
  *
  * ---------------------------------------------------------------------------
- * WHY A TABLE HERE AND NOT SEVEN READ CONTRACTS IN `@podium/commands`
+ * WHY A TABLE HERE AND NOT SIX READ CONTRACTS IN `@podium/commands`
  * ---------------------------------------------------------------------------
  *
- * The eleven MUTATIONS are contract-derived (POD-731's `WORKFLOW_CONTRACTS`),
+ * The ten MUTATIONS are contract-derived (POD-731's `WORKFLOW_CONTRACTS`),
  * and this issue's criterion is that no hand-written `.mutation(` survives in
  * the workflows router. The queries are a different question and are
  * deliberately NOT promoted to L1 contracts by this issue:
  *
  *  - `CommandContract` requires a `visibility` class, and a visibility class
  *    describes WHAT A COMMAND WRITES. A read writes nothing. Declaring one
- *    anyway — `personal`, copied off the eleven — would put a value in the
+ *    anyway — `personal`, copied off the ten — would put a value in the
  *    field that the classification lint and `contracts.test.ts` both grade
  *    against ADR 1's ownership matrix, for a row the query does not write. That
  *    is a false entry in the audit surface, not a missing one.
@@ -27,11 +30,11 @@
  * declaration, read by BOTH transports. `workflowInputs` was a second schema
  * table beside the router, and `WorkflowService.dispatch` was a second dispatch
  * beside it; both are gone. A query is served over a transport because this
- * table names it — default-closed, the same rule ADR 3 D3 puts on the eleven.
+ * table names it — default-closed, the same rule ADR 3 D3 puts on the ten.
  *
  * AUTHORIZATION IS NOT HERE and must not move here. Every `run` below is one
  * call into the service method whose body ends at `WorkflowAccess` — the same
- * decision the eleven take. This table decides WHICH READS EXIST AND WHERE THEY
+ * decision the ten take. This table decides WHICH READS EXIST AND WHERE THEY
  * ARE SERVED, never who may take them.
  */
 
@@ -41,7 +44,7 @@ import { z } from 'zod'
 import type { WorkflowCaller, WorkflowService } from './service'
 
 /**
- * The three queries whose input is "nothing" — `bindings`, `profiles`, `prime`.
+ * The two queries whose input is "nothing" — `bindings`, `prime`.
  *
  * `.passthrough()` rather than a strict empty object, kept BYTE-FOR-BYTE from
  * the `workflowInputs.actorInput` it replaces. A strict object would start
@@ -50,7 +53,7 @@ import type { WorkflowCaller, WorkflowService } from './service'
  */
 const actorInput = z.object({}).passthrough()
 
-/** Both shipped arms, matching the eleven contracts' `SERVED_ON`. */
+/** Both shipped arms, matching the ten contracts' `SERVED_ON`. */
 const SERVED_ON: readonly TransportTag[] = ['trpc', 'relay']
 
 export interface WorkflowQuery<In extends z.ZodTypeAny, Out> {
@@ -61,7 +64,7 @@ export interface WorkflowQuery<In extends z.ZodTypeAny, Out> {
 
 /** Preserves the schema and return types through the object literal below —
  *  without it every entry widens to `ZodTypeAny`/`unknown` and the web client
- *  loses `AppRouter` inference on all seven reads. */
+ *  loses `AppRouter` inference on all six reads. */
 const query = <In extends z.ZodTypeAny, Out>(
   input: In,
   run: (service: WorkflowService, input: z.infer<In>, caller: WorkflowCaller) => Out,
@@ -80,7 +83,6 @@ export const WORKFLOW_QUERIES = {
     await service.get(input, caller),
   ),
   bindings: query(actorInput, async (service, _input, caller) => await service.bindings(caller)),
-  profiles: query(actorInput, async (service, _input, caller) => await service.profiles(caller)),
   runs: query(z.object({ includeTerminal: z.boolean().optional() }), async (service, input, caller) =>
     await service.runs(input, caller),
   ),
@@ -97,7 +99,7 @@ export const isWorkflowQuery = (proc: string): proc is WorkflowQueryName =>
 
 /**
  * ADR 3 D3, default-closed, for the read half — the same shape
- * `isWorkflowProcExposedOn` has for the eleven. An unknown proc is `false`, so a
+ * `isWorkflowProcExposedOn` has for the ten. An unknown proc is `false`, so a
  * typo removes a surface loudly instead of opening one silently.
  */
 export function isWorkflowQueryExposedOn(proc: string, transport: TransportTag): boolean {

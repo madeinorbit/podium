@@ -9,7 +9,7 @@ import { createRoot } from 'react-dom/client'
 import { attachWorklistPool, useWorklistPool } from '../src/app/store-worklist-pool'
 import type { Trpc } from '../src/app/trpc'
 import { MergeQueuePanel } from '../src/features/merge-queue/MergeQueuePanel'
-import { ExecutionProfiles } from '../src/features/workflows/ExecutionProfiles'
+import { AgentProfiles } from '../src/features/workflows/AgentProfiles'
 import { RunProgress } from '../src/features/workflows/RunProgress'
 import { useWorkflows } from '../src/features/workflows/use-workflows'
 import { OPERATOR_WORKFLOW_RIGHTS } from '../src/features/workflows/workflow-commands'
@@ -32,7 +32,7 @@ function Surface() {
   return (
     <main className="grid h-screen grid-cols-[2fr_2fr_1fr] bg-background text-foreground">
       <div data-proof-surface="profiles">
-        <ExecutionProfiles source={source} rights={OPERATOR_WORKFLOW_RIGHTS} />
+        <AgentProfiles source={source} />
       </div>
       <div data-proof-surface="progress">
         <RunProgress source={source} rights={OPERATOR_WORKFLOW_RIGHTS} />

@@ -276,7 +276,6 @@ export interface SessionRow {
    *  spawnedBy ('session:<id>') — deliberately NOT duplicated here. */
   workflowRunId?: string | null
   workflowStepId?: string | null
-  executionProfileId?: string | null
   /** The agent profile the session started from (POD-6107). */
   agentProfileId?: string | null
   /** Issue-lifecycle tombstone. Tombstoned rows are excluded from active session loads. */

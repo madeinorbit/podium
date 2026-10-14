@@ -233,7 +233,6 @@ export class SessionStart {
     spawnedBy?: string
     workflowRunId?: string
     workflowStepId?: string
-    executionProfileId?: string
     /**
      * The agent profile to start from (POD-6107). Unless the caller already
      * vetted a `launchSelection`, the profile's first usable candidate decides
@@ -400,7 +399,6 @@ export class SessionStart {
       ...(input.spawnedBy ? { spawnedBy: input.spawnedBy } : {}),
       ...(input.workflowRunId ? { workflowRunId: input.workflowRunId } : {}),
       ...(input.workflowStepId ? { workflowStepId: input.workflowStepId } : {}),
-      ...(input.executionProfileId ? { executionProfileId: input.executionProfileId } : {}),
       ...(agentProfileId ? { agentProfileId } : {}),
       ...(issueId ? { issueId } : {}),
       binding,
@@ -488,7 +486,6 @@ export class SessionStart {
     spawnedBy?: string
     workflowRunId?: string
     workflowStepId?: string
-    executionProfileId?: string
     agentProfileId?: string
     issueId?: IssueId
     sessionId?: SessionId
@@ -625,7 +622,6 @@ export class SessionStart {
       ...(input.createdBy ? { createdBy: input.createdBy } : {}),
       ...(input.workflowRunId ? { workflowRunId: input.workflowRunId } : {}),
       ...(input.workflowStepId ? { workflowStepId: input.workflowStepId } : {}),
-      ...(input.executionProfileId ? { executionProfileId: input.executionProfileId } : {}),
       ...(input.agentProfileId ? { agentProfileId: input.agentProfileId } : {}),
       ...(input.issueId ? { issueId: input.issueId } : {}),
       ...(input.name ? { name: input.name } : {}),

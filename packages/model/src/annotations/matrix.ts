@@ -140,7 +140,6 @@ export const ROW = {
   workflowDefinitions: id('workflow-definitions'),
   workflowRevisions: id('workflow-revisions'),
   workflowBindings: id('workflow-bindings'),
-  workflowExecutionProfiles: id('workflow-execution-profiles'),
   agentProfiles: id('agent-profiles'),
   workflowRuns: id('workflow-runs'),
 
@@ -2410,7 +2409,8 @@ const COORDINATION_ROWS: readonly MatrixRow[] = [
     open: [],
   },
   // -------------------------------------------------------------------------
-  // Workflows — FIVE ROWS, not one (POD-731).
+  // Workflows — FOUR ROWS, not one (POD-731; a fifth, execution profiles, went
+  // with the table in POD-6114: a step now names an agent profile).
   //
   // This was a single row covering "workflows / revisions / bindings / runs /
   // steps / events / execution_profiles", and one row could only carry one
@@ -2422,14 +2422,11 @@ const COORDINATION_ROWS: readonly MatrixRow[] = [
   //     advances — different owners, and collapsing them makes "who owns this
   //     run" answerable only by reading handler code;
   //   - a definition is `exp-rev` while the run machine is `cmd` (the old row
-  //     said so, in a NOTE, which is not a column a totality test can check);
-  //   - an EXECUTION PROFILE names managed credentials and owned compute, so it
-  //     is `secret-presence` and `never-enqueue` where the rest is `public` and
-  //     `offline-eligible`.
+  //     said so, in a NOTE, which is not a column a totality test can check).
   //
   // Readiness §3.1.1 rule 2 requires the classification to be declared per
-  // class with a totality test. Five classes, five rows. What is NOT here is a
-  // sixth `deployment-substrate` row for the global library: see
+  // class with a totality test. Four classes, four rows. What is NOT here is a
+  // fifth `deployment-substrate` row for the global library: see
   // `workflowDefinitions`' owner note.
   // -------------------------------------------------------------------------
   {
@@ -2543,47 +2540,11 @@ const COORDINATION_ROWS: readonly MatrixRow[] = [
     open: [],
   },
   {
-    id: ROW.workflowExecutionProfiles,
-    section: 'coordination',
-    title: 'Execution profiles (`execution_profiles`)',
-    sites: [
-      'apps/server `execution_profiles` table (`wfp_` prefix); the per-run immutable snapshot on `workflow_run_steps`',
-    ],
-    home: 'server',
-    idMinting: 'Server prefixed ids (`wfp_`)',
-    writers: ['operator'],
-    replication: 'server-to-clients',
-    replicationNote:
-      'The `accountId` REFERENCE replicates; no credential material does. ADR 1 D6 is untouched — this row is `secret-presence`, not `secret-value`.',
-    conflict: 'exp-rev',
-    tombstone: 'soft-delete',
-    tombstoneNote: 'A profile a run pinned survives as that run’s immutable snapshot regardless.',
-    offline: 'never-enqueue',
-    secret: 'secret-presence',
-    secretNote:
-      'FAIL CLOSED: `accountId` names MANAGED CREDENTIALS (server-only, admin-grade to manage under ADR 1 D6) and `machineId` names OWNED COMPUTE, where `use` is a CODE-EXECUTION boundary and not a privacy one (ADR 9 D6 M2). The row holds neither the credential nor the machine — it holds two references — but which account funds which workflow, and which machine runs it, are disclosures on their own. Never enqueued: a queued profile write would replay a credential-to-compute binding after the grant authorizing it may have been revoked.',
-    owner: { kind: 'user', resolves: 'creating-user' },
-    visibility: 'personal',
-    grants: PERSONAL_GRANTS,
-    attribution: { actor: 'required', onBehalfOf: 'required' },
-    systemWriter: 'never-writes',
-    inheritanceOnCreate: {
-      kind: 'on-behalf-of-human',
-      note: 'DECLARED: the creating principal’s human. A RUN does not inherit the live profile — it pins an immutable SNAPSHOT (POD-730 §4), which is correct for reproducibility and must never become the model for authorization: the snapshot is re-authorized at every apply against the CURRENT delegation (ADR 9 D5 A1).',
-    },
-    visibilityMutability: {
-      mutable: true,
-      verbs: ['share', 'unshare', 'revoke', 'grant-use', 'account-role-change'],
-      note: 'PHASE 2 MUST HANDLE: two axes that move independently — the profile’s own grants, and `use` on the machine it pins. `profiles()` had NO gate at all and listed every profile, with its `accountId`, to any caller.',
-    },
-    open: [],
-  },
-  {
     id: ROW.agentProfiles,
     section: 'coordination',
     title: 'Agent profiles (`agent_profiles`)',
     sites: [
-      'apps/server `agent_profiles` table (`agp_` prefix); `issues.agent_profile_id` and `sessions.agent_profile_id` point at it (POD-6107)',
+      'apps/server `agent_profiles` table (`agp_` prefix); `issues.agent_profile_id` and `sessions.agent_profile_id` point at it (POD-6107); a workflow step names one and its run pins a snapshot on `workflow_run_steps` (POD-6114)',
     ],
     home: 'server',
     idMinting: 'Server prefixed ids (`agp_`); the six starters use fixed `agp_seed_<name>` ids',
@@ -2600,7 +2561,7 @@ const COORDINATION_ROWS: readonly MatrixRow[] = [
     offline: 'online-only',
     secret: 'public',
     secretNote:
-      'No credential reference: unlike `execution_profiles` a profile names no account. `machineId` is a REFERENCE to owned compute; launching there is still checked against `use` at spawn.',
+      'No credential reference: a profile names no account (a session takes the Settings account at start; the retired `execution_profiles` did name one). `machineId` is a REFERENCE to owned compute; launching there is still checked against `use` at spawn.',
     owner: {
       kind: 'none',
       reason: 'substrate',

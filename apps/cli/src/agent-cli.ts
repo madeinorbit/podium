@@ -3,7 +3,7 @@
  * [spec:SP-34d7 cross-harness]:
  *   spawn --harness <claude-code|codex|...> (--issue <ref> | --new "title" [--repo <path>])
  *         --prompt "…" [--title "…"] [--worktree] [--model M] [--effort E]
- *         [--workflow-run-id X] [--workflow-step-id Y] [--execution-profile-id Z]
+ *         [--profile <name>] [--workflow-run-id X] [--workflow-step-id Y]
  *   await <sessionId> [--timeout <seconds>]
  *
  * The child is a FULL Podium session (real PTY, visible in the UI, human-
@@ -49,7 +49,7 @@ function helpText(): string {
     '  spawn --prompt "…" (--issue <ref> | --new "title" [--repo <path>])',
     '        [--title "…"] [--harness <claude-code|codex|grok|opencode|cursor>]',
     '        [--profile <name>] [--worktree] [--model M] [--effort E] [--force-unknown-model]',
-    '        [--workflow-run-id X] [--workflow-step-id Y] [--execution-profile-id Z]',
+    '        [--workflow-run-id X] [--workflow-step-id Y]',
     '      Spawn a full Podium agent session on an issue; the prompt is its first',
     '      turn and you become its parent (interrupt + wake rights). An issue is',
     '      never created implicitly — --new is the explicit create path.',
@@ -57,7 +57,8 @@ function helpText(): string {
     '      the child self-title. --new names the ISSUE, not the session.',
     '      --profile starts from that agent profile (see `podium profile list`);',
     '      without it the issue\'s profile applies. --harness/--model/--effort',
-    '      go on top of the profile.',
+    '      go on top of the profile. With --workflow-run-id/--workflow-step-id',
+    '      a step that names an agent profile starts from it as the run pinned it.',
     '      --model/--effort are checked against the live model catalog; pass',
     '      --force-unknown-model to spawn a deliberately unlisted model slug.',
     '  await <sessionId> [--timeout <seconds, default 30, max 300>]',
@@ -91,7 +92,6 @@ const AGENT_FLAGS = flagTable(MESSAGING_GLOBAL_FLAGS, {
       'profile',
       'workflow-run-id',
       'workflow-step-id',
-      'execution-profile-id',
     ],
     booleans: ['worktree', 'force-unknown-model'],
   },
@@ -136,9 +136,6 @@ export async function runAgentCli(argv: string[], client: AgentClient): Promise<
           : {}),
         ...(typeof args['workflow-step-id'] === 'string'
           ? { workflowStepId: args['workflow-step-id'] }
-          : {}),
-        ...(typeof args['execution-profile-id'] === 'string'
-          ? { executionProfileId: args['execution-profile-id'] }
           : {}),
         ...(typeof args.profile === 'string' ? { agentProfile: args.profile } : {}),
       }

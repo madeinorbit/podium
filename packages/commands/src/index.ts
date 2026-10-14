@@ -522,8 +522,6 @@ export {
   workflowCreateInput,
   workflowForkContract,
   workflowForkInput,
-  workflowProfileSaveContract,
-  workflowProfileSaveInput,
   workflowPublishContract,
   workflowPublishInput,
   workflowRetryContract,

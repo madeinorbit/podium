@@ -174,7 +174,6 @@ export const spawnAgentInput = z.object({
   title: z.string().min(1).max(MAX_AGENT_TITLE_LENGTH).optional(),
   workflowRunId: z.string().max(256).optional(),
   workflowStepId: z.string().max(256).optional(),
-  executionProfileId: z.string().max(256).optional(),
   /** An agent profile by name or id (POD-6107); defaults to the issue's profile. */
   agentProfile: z.string().trim().min(1).max(100).optional(),
 })
@@ -318,10 +317,10 @@ export const spawnAgentContract: CommandContract<typeof spawnAgentInput> = {
     inputPaths: [],
     outputPaths: [],
     note:
-      'The `prompt` is user content and is delivered verbatim. `executionProfileId` names a ' +
-      'profile; the credentials the profile resolves to (accountId, machine secrets) are ' +
-      'server-side and never appear in the input, the result, or the durable agent.spawned event — ' +
-      'the event carries the accountId REFERENCE, which is an id, not material.',
+      'The `prompt` is user content and is delivered verbatim. `agentProfile` names a profile, ' +
+      'which holds no credential; the account the session starts under is resolved server-side ' +
+      'and never appears in the input or the result — the durable agent.spawned event carries ' +
+      'the accountId REFERENCE, which is an id, not material.',
   },
   ownership: {
     creates: ['session', 'issue (only on the deliberate --new path)'],

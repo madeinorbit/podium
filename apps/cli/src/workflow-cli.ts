@@ -79,8 +79,6 @@ const WORKFLOW_FLAGS = flagTable(
     assign: {},
     default: {},
     bindings: {},
-    profiles: {},
-    'profile-save': { known: ['account', 'harness', 'id', 'machine', 'model', 'effort'] },
   },
 )
 
@@ -132,10 +130,8 @@ export function workflowHelpText(): string {
     '  default repository <repo-id> <revision-id>',
     '  bindings [--json]',
     '',
-    'Execution profiles (named, non-secret presets):',
-    '  profiles [--json]',
-    '  profile-save <name> --account <id> --harness <name>',
-    '      [--id <id>] [--machine <id|any>] [--model <name>] [--effort <level>]',
+    'A step may name an agent profile ("agentProfile": "<name>" in its JSON); a run',
+    'pins that profile when it starts. Profiles: `podium profile list`.',
     '',
     'Shared defaults and global publication requested by an agent pause for',
     'operator approval. Workflow steps never run arbitrary enforcement commands.',
@@ -316,7 +312,7 @@ export async function runWorkflowCli(argv: string[], deps: WorkflowCliDeps): Pro
     result = await call(deps.client, 'get', { id }, true)
     return pretty(result)
   }
-  if (command === 'bindings' || command === 'profiles') {
+  if (command === 'bindings') {
     result = await call(deps.client, command, {}, true)
     return pretty(result)
   }
@@ -400,19 +396,6 @@ export async function runWorkflowCli(argv: string[], deps: WorkflowCliDeps): Pro
         'usage: workflow default global <revision> | repository <repo-id> <revision>',
       )
     }
-  } else if (command === 'profile-save') {
-    const name = positionals[0]
-    if (!name) throw new WorkflowCliError('profile-save needs a name')
-    const machine = value(args, 'machine')
-    result = await call(deps.client, 'profileSave', {
-      ...(value(args, 'id') ? { id: value(args, 'id') } : {}),
-      name,
-      accountId: requiredValue(args, 'account'),
-      machineId: machine && machine !== 'any' ? machine : null,
-      harness: requiredValue(args, 'harness'),
-      model: value(args, 'model') ?? 'auto',
-      effort: value(args, 'effort') ?? 'auto',
-    })
   } else if (command === 'checkpoint') {
     const status = positionals[0]
     if (status !== 'active' && status !== 'blocked' && status !== 'complete') {

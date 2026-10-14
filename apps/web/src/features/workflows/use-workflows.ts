@@ -42,8 +42,8 @@
  * old code would have entered — its detail effect fetched whatever `selectedId`
  * held and surfaced the failure as an error banner, forever.
  */
+import type { AgentProfileWire } from '@podium/model/browser'
 import type {
-  ExecutionProfileWire,
   WorkflowBindingWire,
   WorkflowDetailWire,
   WorkflowRunWire,
@@ -54,10 +54,14 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Trpc } from '@/app/trpc'
 import type { WorkflowCommand } from './workflow-commands'
 
+/** An agent profile as `agentProfiles.list` serves it: the row plus the name of
+ *  its machine (POD-6114 — workflow steps name these). */
+export type AgentProfileRow = AgentProfileWire & { machineName: string | null }
+
 export interface WorkflowsSource {
   readonly workflows: WorkflowWire[]
   readonly bindings: WorkflowBindingWire[]
-  readonly profiles: ExecutionProfileWire[]
+  readonly profiles: AgentProfileRow[]
   readonly runs: WorkflowRunWire[]
   readonly detail: WorkflowDetailWire | null
   readonly selectedId: string | null
@@ -86,7 +90,7 @@ export function useWorkflows(): WorkflowsSource {
   const trpc = useStoreHandle<Trpc>().access.trpc
   const [workflows, setWorkflows] = useState<WorkflowWire[]>([])
   const [bindings, setBindings] = useState<WorkflowBindingWire[]>([])
-  const [profiles, setProfiles] = useState<ExecutionProfileWire[]>([])
+  const [profiles, setProfiles] = useState<AgentProfileRow[]>([])
   const [runs, setRuns] = useState<WorkflowRunWire[]>([])
   const [detail, setDetail] = useState<WorkflowDetailWire | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -117,7 +121,7 @@ export function useWorkflows(): WorkflowsSource {
         const [workflowRows, bindingRows, profileRows, runRows] = await Promise.all([
           trpc.workflows.list.query({}),
           trpc.workflows.bindings.query({}),
-          trpc.workflows.profiles.query({}),
+          trpc.agentProfiles.list.query({}),
           trpc.workflows.runs.query({ includeTerminal }),
         ])
         setWorkflows(workflowRows)

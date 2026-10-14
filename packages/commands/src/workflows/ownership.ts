@@ -12,8 +12,8 @@
  * === 'operator') return`. That was sound while OPERATOR was the single shared
  * human declared admin over all. Under multi-user each of those branches makes
  * every authenticated person an admin over every workflow — and the
- * read-shaped ones (`bindings`, `runs`, `runFor`, `profiles`) become cross-user
- * reads of other people's runs, bindings and profiles.
+ * read-shaped ones (`bindings`, `runs`, `runFor`) become cross-user
+ * reads of other people's runs and bindings.
  *
  * So the branch is not narrowed here, it is DELETED and replaced by one
  * decision taken against a real principal. Role class is an input to that
@@ -75,7 +75,6 @@ export type WorkflowEntityKind =
   | 'workflow-definition'
   | 'workflow-revision'
   | 'workflow-binding'
-  | 'execution-profile'
   | 'workflow-run'
   | 'workflow-library-entry'
 

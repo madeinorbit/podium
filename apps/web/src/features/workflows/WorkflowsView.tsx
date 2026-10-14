@@ -9,7 +9,7 @@
  *  - `use-workflows.ts` — the source: fetching, dispatch, denial and eviction;
  *  - `workflow-commands.ts` — every write as DATA, with its POD-641 contract and
  *    its rights predicate;
- *  - `WorkflowLibrary` / `RunProgress` / `ExecutionProfiles` — the three tabs.
+ *  - `WorkflowLibrary` / `RunProgress` / `AgentProfiles` — the three tabs.
  *
  * This file holds the tab, the header and the ONE feedback region — the pieces
  * that genuinely belong to the surface as a whole.
@@ -27,7 +27,7 @@ import type { JSX } from 'react'
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
-import { ExecutionProfiles } from './ExecutionProfiles'
+import { AgentProfiles } from './AgentProfiles'
 import { RunProgress } from './RunProgress'
 import { useWorkflows } from './use-workflows'
 import { OPERATOR_WORKFLOW_RIGHTS } from './workflow-commands'
@@ -38,7 +38,7 @@ type Tab = 'library' | 'progress' | 'profiles'
 const TABS: readonly (readonly [Tab, string])[] = [
   ['library', 'Library'],
   ['progress', 'Progress'],
-  ['profiles', 'Execution profiles'],
+  ['profiles', 'Agent profiles'],
 ]
 
 export function WorkflowsView(): JSX.Element {
@@ -55,7 +55,7 @@ export function WorkflowsView(): JSX.Element {
             Workflows
           </h1>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            Versioned instructions, optional linear steps, and explicit execution profiles.
+            Versioned instructions, optional linear steps, and the agent profile each step runs with.
           </p>
         </div>
         <Button
@@ -121,7 +121,7 @@ export function WorkflowsView(): JSX.Element {
       ) : tab === 'progress' ? (
         <RunProgress source={source} rights={rights} />
       ) : (
-        <ExecutionProfiles source={source} rights={rights} />
+        <AgentProfiles source={source} />
       )}
     </main>
   )

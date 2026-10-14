@@ -1,7 +1,6 @@
 /**
- * Handlers for the six LIBRARY CRUD contracts — create, revise, fork, publish,
- * assign — plus profileSave, which shares the file because it is the sixth
- * non-advance command and nothing but its policy differs in shape.
+ * Handlers for the five LIBRARY CRUD contracts — create, revise, fork, publish,
+ * assign. (`profileSave` went with the execution profiles, POD-6114.)
  *
  * The contracts' policies are L1 data in `@podium/commands`; these functions are
  * the only place that knows there is a `WorkflowsRepository` behind them. Every
@@ -15,7 +14,6 @@ import type {
   workflowAssignContract,
   workflowCreateContract,
   workflowForkContract,
-  workflowProfileSaveContract,
   workflowPublishContract,
   workflowReviseContract,
 } from '@podium/commands'
@@ -207,34 +205,4 @@ export async function assignHandler(
     now,
   })
   return binding
-}
-
-export async function profileSaveHandler(
-  ctx: WorkflowHandlerContext,
-  input: ContractInput<typeof workflowProfileSaveContract>,
-) {
-  const { caller, deps, access, engine } = ctx
-  access.assertProfileWrite(
-    caller,
-    input.id,
-    await access.ownershipFor(input.id ? [{ kind: 'execution-profile', id: input.id }] : []),
-  )
-  // The machine a profile PINS is the machine its runs will execute on, so the
-  // `use` grant is checked when the pin is written as well as when it is used.
-  // Checking only at launch would let a principal stage a binding it may not
-  // run and hand it to someone who can.
-  await access.assertMayPlaceOn(caller, input.machineId)
-  const now = deps.now()
-  return await deps.store.upsertProfile({
-    id: input.id ?? `wfp_${randomUUID()}`,
-    name: input.name,
-    accountId: input.accountId,
-    machineId: input.machineId ?? null,
-    harness: input.harness,
-    model: input.model,
-    effort: input.effort,
-    actor: engine.actor(caller),
-    ownerUserId: asUserId(access.owner(caller)),
-    now,
-  })
 }

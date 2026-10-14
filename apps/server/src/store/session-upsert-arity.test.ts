@@ -64,7 +64,7 @@ describe('session upsert rebase seam', () => {
       stopReason: null,
       workflowRunId: null,
       workflowStepId: null,
-      executionProfileId: null,
+      agentProfileId: null,
       deletedAt: null,
       deletionSource: null,
       deletedByIssueId: null,

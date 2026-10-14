@@ -71,7 +71,6 @@ export interface MessageGateDeps {
     initialPrompt?: string
     model?: string
     effort?: string
-    accountId?: AccountId
     forceUnknownModel?: boolean
     issueId?: IssueId
     spawnedBy?: string
@@ -80,7 +79,6 @@ export interface MessageGateDeps {
     name?: string
     workflowRunId?: string
     workflowStepId?: string
-    executionProfileId?: string
     /** The agent profile to start from (POD-6107); SessionStart resolves it. */
     agentProfileId?: string
   }): Promise<{
@@ -97,21 +95,22 @@ export interface MessageGateDeps {
   }>
   /** Wait for the current daemon connection's first inventory before spawning. */
   awaitMachineInventory?(machineId: MachineId): Promise<void>
-  /** Resolve a named workflow execution profile. When a run + step are present,
-   *  the workflow service returns the immutable snapshot pinned to that run. */
-  resolveExecutionProfile?(input: {
-    profileId: string
-    runId?: string
-    stepId?: string
+  /** The launch for a workflow run step that pins an agent profile (POD-6114):
+   *  the profile AS THE RUN PINNED IT, its first usable candidate picked, and
+   *  the placement re-checked against the caller's current grants. Null when
+   *  the step names no profile. */
+  resolveWorkflowStepLaunch?(input: {
+    runId: string
+    stepId: string
+    cwd: string
     caller?: MailCaller
   }): Promise<{
-    id: string
-    accountId: AccountId
-    machineId: MachineId | null
-    harness: string
+    profile: { id: string; name: string }
+    agentKind: string
     model: string
     effort: string
-  }>
+    machineId: MachineId | null
+  } | null>
   /** An agent profile by name or id (POD-6107), for `agent spawn --profile`. */
   findAgentProfile?(ref: string): Promise<{ id: string; name: string } | null>
   /** The DELIBERATE `--new` issue-create path (never automatic). */

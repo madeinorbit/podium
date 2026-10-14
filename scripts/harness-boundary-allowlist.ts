@@ -227,11 +227,14 @@ export interface HarnessBoundaryAllowlistEntry {
  *  the superagent order it belongs with); the component reads it, the
  *  component entry is deleted, and the policy module's entry covers the
  *  literal: policy 37 → 37, total 63 → 63, baselines unchanged.
+ *  POD-6114: the execution-profile editor went with its table (workflow steps
+ *  name agent profiles now), and EXECUTION_PROFILE_DEFAULT_HARNESS with it:
+ *  harness-defaults 7 → 6, policy 37 → 36, total 61 → 60.
  */
 // POD-5544: deleting the legacy replica retired its two cursor homonyms.
 export const HARNESS_BASELINE_LEAK_COUNT = 24
-export const HARNESS_BASELINE_POLICY_COUNT = 37
-export const HARNESS_BASELINE_TOTAL = 61
+export const HARNESS_BASELINE_POLICY_COUNT = 36
+export const HARNESS_BASELINE_TOTAL = 60
 
 export const HARNESS_BOUNDARY_ALLOWLIST: readonly HarnessBoundaryAllowlistEntry[] = [
   { file: 'apps/cli/src/session-cli.ts', count: 1, category: 'leak', reason: 'homonym: read-command cursor arg (pagination vocabulary), not the Cursor harness; needs a lint rule for non-harness spellings (POD-4437)', issue: 'POD-4437' },
@@ -246,7 +249,7 @@ export const HARNESS_BOUNDARY_ALLOWLIST: readonly HarnessBoundaryAllowlistEntry[
   { file: 'packages/harness/src/browser.ts', count: 2, category: 'policy', reason: 'browser-safe no-tools table + bundled composer rules stay in browser entry; tested against manifests', policy: 'packages/harness/src/browser.ts' },
   { file: 'packages/harness/src/registry.ts', count: 7, category: 'policy', reason: 'registry is the allowed closed-set home; lookups degrade for unknown harnesses', policy: 'packages/harness/src/registry.ts' },
   { file: 'packages/janitor/src/janitor.ts', count: 1, category: 'leak', reason: 'homonym: steward_state cursor key in SQL, not the Cursor harness; needs a lint rule for non-harness spellings (POD-4437)', issue: 'POD-4437' },
-  { file: 'packages/runtime/src/harness-defaults.ts', count: 7, category: 'policy', reason: 'superagent harness order + shipwright eval choice + execution-profile preset harness are Podium policy, stay; must not move into an adapter (spec §5)', policy: 'packages/runtime/src/harness-defaults.ts' },
+  { file: 'packages/runtime/src/harness-defaults.ts', count: 6, category: 'policy', reason: 'superagent harness order + shipwright eval choice are Podium policy, stay; must not move into an adapter (spec §5)', policy: 'packages/runtime/src/harness-defaults.ts' },
   { file: 'packages/runtime/src/settings.ts', count: 5, category: 'leak', reason: 'homonym: Codex ApiProvider id + provider-selected account (provider collision class), not harness branching; needs a lint rule for non-harness spellings (POD-4437)', issue: 'POD-4437' },
   { file: 'packages/sync/src/adapters/indexeddb/schema.ts', count: 1, category: 'leak', reason: 'homonym: meta-table cursor key (adapter DDL spelling), not the Cursor harness; needs a lint rule for non-harness spellings (POD-4437)', issue: 'POD-4437' },
   { file: 'packages/sync/src/adapters/mobile-sqlite/schema.ts', count: 1, category: 'leak', reason: 'homonym: meta-table cursor key (adapter DDL spelling), not the Cursor harness; needs a lint rule for non-harness spellings (POD-4437)', issue: 'POD-4437' },

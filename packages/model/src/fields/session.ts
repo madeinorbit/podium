@@ -432,7 +432,6 @@ export type SessionWorkState = z.infer<typeof SessionWorkState>
 export const SessionWorkflowLink = z.object({
   workflowRunId: z.string().optional(),
   workflowStepId: z.string().optional(),
-  executionProfileId: z.string().optional(),
 })
 export type SessionWorkflowLink = z.infer<typeof SessionWorkflowLink>
 

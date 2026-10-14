@@ -864,7 +864,6 @@ export class SessionRepository {
       ...(r.refDraft != null ? { refDraft: r.refDraft } : {}),
       ...(r.workflowRunId ? { workflowRunId: r.workflowRunId } : {}),
       ...(r.workflowStepId ? { workflowStepId: r.workflowStepId } : {}),
-      ...(r.executionProfileId ? { executionProfileId: r.executionProfileId } : {}),
       ...(r.agentProfileId ? { agentProfileId: r.agentProfileId } : {}),
       archived: r.archived,
       stoppedAt: r.stoppedAt ?? null,
