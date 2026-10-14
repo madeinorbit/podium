@@ -200,7 +200,7 @@ describe('server agent relay handler (P1b)', () => {
       repoPath,
       title: 'phase child',
       startNow: false,
-      parentId: A.id,
+      parentId: asIssueId(A.id),
     })
     await registry.issues.crud.update(child.id, { worktreePath: '/r/.worktrees/issue-2-child' })
     const sChild = (

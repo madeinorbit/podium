@@ -707,14 +707,14 @@ const defs = {
         // D3 (POD-6108): the first child a session creates under its own issue
         // makes it that issue's coordinator — announced here, where it happened.
         const actor = ctx.caller.capability.actorSessionId
-        const tookSeat =
-          parent != null &&
-          actor != null &&
-          !parent.coordinatorSessionId &&
-          (await ctx.reports.get(parent.id))?.coordinatorSessionId === actor
-        const announced = tookSeat
-          ? { coordinator: becameCoordinatorText(await ctx.reports.niceRef(parent)) }
-          : {}
+        const after =
+          parent != null && actor != null && !parent.coordinatorSessionId
+            ? await ctx.reports.get(parent.id)
+            : null
+        const announced =
+          after?.coordinatorSessionId === actor
+            ? { coordinator: becameCoordinatorText(await ctx.reports.niceRef(after)) }
+            : {}
         if (audience === 'agent' && !(await ctx.hasHumanAudienceAncestor(created))) {
           return {
             ...created,

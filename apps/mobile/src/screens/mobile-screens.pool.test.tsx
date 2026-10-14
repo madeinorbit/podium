@@ -744,7 +744,7 @@ it.each([false, true])('a cold phone SpineRow shows loading then its task (folde
   try {
     expect(f.pool.tables.issue.has(f.row.id)).toBe(false)
     const ui = render(<SpineRow row={f.row} carries={[]} rails={[]} accent="#a04090"
-      stops childFollows={false} mode="full" nameOf={() => undefined} folded={folded}
+      stops childFollows={false} mode="full" folded={folded}
       currentSessionId={undefined} onToggleFold={() => {}} onOpenTask={() => {}}
       onOpenSession={() => {}} />)
     expect(ui.getByLabelText('Loading task')).toBeDefined()
