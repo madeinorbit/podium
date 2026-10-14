@@ -107,6 +107,23 @@ export const APPROVED_CONTRACT_STEPS = new Map<
       admits: [{ kind: 'table-rebuild', table: 'messages' }],
     },
   ],
+  [
+    'apps/server/src/migrations/drizzle/20261014173354_issue-types-and-labels/migration.sql',
+    {
+      // POD-6106 (user decision D2/D3, flight deck v6, 2026-10-14): issue types
+      // narrow to task | phase | decision, and labels get their own table. The
+      // `issues` CHECK can only change by a rebuild (it also gains `phase`), and
+      // `issue_labels` changes its primary key to (issue_id, label_id). Every old
+      // label string and every retired type that names a label is carried over
+      // as a label link; nothing is lost. Rollback across a schema change is
+      // refused by design (convergence.ts).
+      reason: 'narrows the issues.type CHECK and re-keys issue_labels onto the labels table',
+      admits: [
+        { kind: 'table-rebuild', table: 'issue_labels' },
+        { kind: 'table-rebuild', table: 'issues' },
+      ],
+    },
+  ],
 ])
 
 /** The findings an approved contract step does not admit. Each admission is

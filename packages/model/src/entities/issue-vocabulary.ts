@@ -92,19 +92,42 @@ export type HumanSettableIssueStage = z.infer<typeof HumanSettableIssueStage>
  * HUMAN_SETTABLE_ISSUE_STAGES. */
 export const ISSUE_STAGES: IssueBoardStage[] = [...ISSUE_BOARD_STAGES]
 
-export const IssueType = z.enum([
-  'task',
-  'bug',
-  'feature',
-  'chore',
-  'epic',
-  'decision',
-  'spike',
-  'story',
-  'milestone',
-  'automation',
-])
+/**
+ * What KIND of node an issue is in the work tree (flight deck v6, D1/D2).
+ *
+ *  - `task`: ordinary work. Any task with children is a parent; the mission is
+ *    the root. There is no `epic` type.
+ *  - `phase`: an ordered section of its parent. It may sit at any depth, groups
+ *    its children, and is never itself a unit of work in counts.
+ *  - `decision`: a question only the user closes. It counts as Needs you and
+ *    blocks whatever waits on it.
+ *
+ * What used to be types (`bug`, `feature`, `chore`, `story`, `spike`) are labels
+ * now; `epic`, `milestone` and `automation` were migrated to `task`/`phase`.
+ */
+export const ISSUE_TYPES = ['task', 'phase', 'decision'] as const
+export const IssueType = z.enum(ISSUE_TYPES)
 export type IssueType = z.infer<typeof IssueType>
+
+/** Retired issue types, each with what it became. Read by the CLI to turn a
+ *  habitual `--type bug` into a pointer at the label, never accepted as a type. */
+export const RETIRED_ISSUE_TYPES: Readonly<Record<string, { type: IssueType; label?: string }>> = {
+  epic: { type: 'task' },
+  milestone: { type: 'phase' },
+  automation: { type: 'task' },
+  bug: { type: 'task', label: 'bug' },
+  feature: { type: 'task', label: 'feature' },
+  chore: { type: 'task', label: 'chore' },
+  story: { type: 'task', label: 'story' },
+  spike: { type: 'task', label: 'spike' },
+}
+
+/** A phase groups work; it is never itself a unit of work in counts (D1). */
+export const isPhaseIssue = (issue: { type?: string | null }): boolean => issue.type === 'phase'
+
+/** Only the user may close a decision (D2). */
+export const isDecisionIssue = (issue: { type?: string | null }): boolean =>
+  issue.type === 'decision'
 
 export const ISSUE_DEP_TYPES = [
   'blocks',

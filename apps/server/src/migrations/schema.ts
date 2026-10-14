@@ -1319,17 +1319,35 @@ export const notificationFacts = sqliteTable(
   ],
 )
 
+/**
+ * The label vocabulary (POD-6106, flight deck v6 D3). One row per label; names
+ * are unique ignoring case, so `Bug` and `bug` are the same label and the first
+ * spelling stays. `color` is an issue colour SLOT name, never a hex. The id is
+ * server-local: the wire names a label by its name.
+ */
+export const labels = sqliteTable(
+  'labels',
+  {
+    id: integer().primaryKey({ autoIncrement: true }),
+    name: text().notNull(),
+    color: text(),
+    description: text(),
+    createdAt: text('created_at').notNull(),
+  },
+  (table) => [uniqueIndex('idx_labels_name_nocase').on(sql`lower(${table.name})`)],
+)
+
 export const issueLabels = sqliteTable(
   'issue_labels',
   {
     issueId: brandedRef(text('issue_id').$type<IssueId>(), () => issues.id, {
       onDelete: 'cascade',
     }).notNull(),
-    label: text().notNull(),
+    labelId: brandedRef(integer('label_id'), () => labels.id, { onDelete: 'cascade' }).notNull(),
   },
   (table) => [
-    index('idx_issue_labels_label').on(table.label),
-    primaryKey({ columns: [table.issueId, table.label], name: 'issue_labels_pk' }),
+    index('idx_issue_labels_label_id').on(table.labelId),
+    primaryKey({ columns: [table.issueId, table.labelId], name: 'issue_labels_pk' }),
   ],
 )
 
@@ -1522,7 +1540,7 @@ export const issues = sqliteTable(
     check('issues_check_2', sql`priority BETWEEN 0 AND 4`),
     check(
       'issues_check_3',
-      sql`type IN ('task', 'bug', 'feature', 'chore', 'epic', 'decision', 'spike', 'story', 'milestone', 'automation')`,
+      sql`type IN ('task', 'phase', 'decision')`,
     ),
   ],
 )
