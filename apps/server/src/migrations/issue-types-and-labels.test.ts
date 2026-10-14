@@ -83,7 +83,9 @@ describe('issue types and labels migration', () => {
     db.prepare(
       'INSERT INTO feed_identity (singleton, feed_id, epoch, minted_at) VALUES (1, ?, ?, ?)',
     ).run('f', 'before', 1)
-    PREVIOUS_TYPES.forEach((type, index) => insertIssue(db, `iss_${type}`, index + 1, type))
+    for (const [index, type] of PREVIOUS_TYPES.entries()) {
+      insertIssue(db, `iss_${type}`, index + 1, type)
+    }
     const label = db.prepare('INSERT INTO issue_labels (issue_id, label) VALUES (?, ?)')
     label.run('iss_task', 'backend')
     label.run('iss_task', 'Backend')

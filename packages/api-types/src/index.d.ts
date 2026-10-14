@@ -1725,6 +1725,7 @@ type Input_issues_create = {
     audience?: "agent" | "human" | undefined;
     brief?: string | undefined;
     color?: "blue" | "cyan" | "fuchsia" | "green" | "indigo" | "lime" | "pink" | "rose" | "teal" | "violet" | undefined;
+    createLabels?: boolean | undefined;
     defaultAgent?: string | undefined;
     defaultEffort?: string | undefined;
     defaultModel?: string | undefined;
@@ -1745,7 +1746,7 @@ type Input_issues_create = {
     startNow: boolean;
     startSessionId?: string | undefined;
     title: string;
-    type?: "automation" | "bug" | "chore" | "decision" | "epic" | "feature" | "milestone" | "spike" | "story" | "task" | undefined;
+    type?: "decision" | "phase" | "task" | undefined;
 };
 type Input_issues_events = {
     before?: number | undefined;
@@ -1778,13 +1779,20 @@ type Input_issues_search = {
     stage?: "backlog" | "done" | "in_progress" | "planning" | "proposed" | "review" | "shipping" | undefined;
     status?: "blocked" | "closed" | "deferred" | "open" | "ready" | undefined;
     text?: string | undefined;
-    type?: "automation" | "bug" | "chore" | "decision" | "epic" | "feature" | "milestone" | "spike" | "story" | "task" | undefined;
+    type?: "decision" | "phase" | "task" | undefined;
 };
 type Input_issues_setCoordinator = {
     claim?: boolean | undefined;
     expectedRevision?: number | undefined;
     id: string;
     sessionId?: null | string | undefined;
+};
+type Input_issues_setLabels = {
+    createLabels?: boolean | undefined;
+    expectedRevision?: number | undefined;
+    id: string;
+    labels: string[];
+    mutationId?: string | undefined;
 };
 type Input_issues_setNeedsHuman = {
     askedBy?: string | undefined;
@@ -1852,7 +1860,7 @@ type Input_issues_update = {
         sortKey?: string | undefined;
         stage?: "backlog" | "done" | "in_progress" | "planning" | "proposed" | "review" | "shipping" | undefined;
         title?: string | undefined;
-        type?: "automation" | "bug" | "chore" | "decision" | "epic" | "feature" | "milestone" | "spike" | "story" | "task" | undefined;
+        type?: "decision" | "phase" | "task" | undefined;
     };
 };
 type Input_lock_acquire = {
@@ -2937,7 +2945,7 @@ type Output_issues_action = {
         suggestedStage?: "backlog" | "done" | "in_progress" | "planning" | "proposed" | "review" | "shipping" | undefined;
         supersededBy?: (string & z.BRAND<"IssueId">) | undefined;
         title: string;
-        type: "automation" | "bug" | "chore" | "decision" | "epic" | "feature" | "milestone" | "spike" | "story" | "task";
+        type: "decision" | "phase" | "task";
         updatedAt: string;
         visibility: "deployment-substrate" | "owned-compute" | "per-user-state" | "personal" | "secret";
         worktreePath?: string | undefined;
@@ -3079,7 +3087,7 @@ type Output_issues_action = {
         suggestedStage?: "backlog" | "done" | "in_progress" | "planning" | "proposed" | "review" | "shipping" | undefined;
         supersededBy?: (string & z.BRAND<"IssueId">) | undefined;
         title: string;
-        type: "automation" | "bug" | "chore" | "decision" | "epic" | "feature" | "milestone" | "spike" | "story" | "task";
+        type: "decision" | "phase" | "task";
         updatedAt: string;
         visibility: "deployment-substrate" | "owned-compute" | "per-user-state" | "personal" | "secret";
         worktreePath?: string | undefined;
@@ -3248,7 +3256,7 @@ type Output_issues_addComment = _podium_model.IssueUserOverlay & Omit<{
     suggestedStage?: "backlog" | "done" | "in_progress" | "planning" | "proposed" | "review" | "shipping" | undefined;
     supersededBy?: (string & z.BRAND<"IssueId">) | undefined;
     title: string;
-    type: "automation" | "bug" | "chore" | "decision" | "epic" | "feature" | "milestone" | "spike" | "story" | "task";
+    type: "decision" | "phase" | "task";
     updatedAt: string;
     visibility: "deployment-substrate" | "owned-compute" | "per-user-state" | "personal" | "secret";
     worktreePath?: string | undefined;
@@ -3390,7 +3398,7 @@ type Output_issues_addComment = _podium_model.IssueUserOverlay & Omit<{
     suggestedStage?: "backlog" | "done" | "in_progress" | "planning" | "proposed" | "review" | "shipping" | undefined;
     supersededBy?: (string & z.BRAND<"IssueId">) | undefined;
     title: string;
-    type: "automation" | "bug" | "chore" | "decision" | "epic" | "feature" | "milestone" | "spike" | "story" | "task";
+    type: "decision" | "phase" | "task";
     updatedAt: string;
     visibility: "deployment-substrate" | "owned-compute" | "per-user-state" | "personal" | "secret";
     worktreePath?: string | undefined;
@@ -3558,7 +3566,7 @@ type Output_issues_answerQuestion = {
         suggestedStage?: "backlog" | "done" | "in_progress" | "planning" | "proposed" | "review" | "shipping" | undefined;
         supersededBy?: (string & z.BRAND<"IssueId">) | undefined;
         title: string;
-        type: "automation" | "bug" | "chore" | "decision" | "epic" | "feature" | "milestone" | "spike" | "story" | "task";
+        type: "decision" | "phase" | "task";
         updatedAt: string;
         visibility: "deployment-substrate" | "owned-compute" | "per-user-state" | "personal" | "secret";
         worktreePath?: string | undefined;
@@ -3700,7 +3708,7 @@ type Output_issues_answerQuestion = {
         suggestedStage?: "backlog" | "done" | "in_progress" | "planning" | "proposed" | "review" | "shipping" | undefined;
         supersededBy?: (string & z.BRAND<"IssueId">) | undefined;
         title: string;
-        type: "automation" | "bug" | "chore" | "decision" | "epic" | "feature" | "milestone" | "spike" | "story" | "task";
+        type: "decision" | "phase" | "task";
         updatedAt: string;
         visibility: "deployment-substrate" | "owned-compute" | "per-user-state" | "personal" | "secret";
         worktreePath?: string | undefined;
@@ -3927,7 +3935,7 @@ type Output_issues_create = (_podium_model.IssueUserOverlay & Omit<{
     suggestedStage?: "backlog" | "done" | "in_progress" | "planning" | "proposed" | "review" | "shipping" | undefined;
     supersededBy?: (string & z.BRAND<"IssueId">) | undefined;
     title: string;
-    type: "automation" | "bug" | "chore" | "decision" | "epic" | "feature" | "milestone" | "spike" | "story" | "task";
+    type: "decision" | "phase" | "task";
     updatedAt: string;
     visibility: "deployment-substrate" | "owned-compute" | "per-user-state" | "personal" | "secret";
     warning: string;
@@ -4070,7 +4078,7 @@ type Output_issues_create = (_podium_model.IssueUserOverlay & Omit<{
     suggestedStage?: "backlog" | "done" | "in_progress" | "planning" | "proposed" | "review" | "shipping" | undefined;
     supersededBy?: (string & z.BRAND<"IssueId">) | undefined;
     title: string;
-    type: "automation" | "bug" | "chore" | "decision" | "epic" | "feature" | "milestone" | "spike" | "story" | "task";
+    type: "decision" | "phase" | "task";
     updatedAt: string;
     visibility: "deployment-substrate" | "owned-compute" | "per-user-state" | "personal" | "secret";
     worktreePath?: string | undefined;
@@ -4235,7 +4243,7 @@ type Output_issues_create = (_podium_model.IssueUserOverlay & Omit<{
     suggestedStage?: "backlog" | "done" | "in_progress" | "planning" | "proposed" | "review" | "shipping" | undefined;
     supersededBy?: (string & z.BRAND<"IssueId">) | undefined;
     title: string;
-    type: "automation" | "bug" | "chore" | "decision" | "epic" | "feature" | "milestone" | "spike" | "story" | "task";
+    type: "decision" | "phase" | "task";
     updatedAt: string;
     visibility: "deployment-substrate" | "owned-compute" | "per-user-state" | "personal" | "secret";
     worktreePath?: string | undefined;
@@ -4377,7 +4385,7 @@ type Output_issues_create = (_podium_model.IssueUserOverlay & Omit<{
     suggestedStage?: "backlog" | "done" | "in_progress" | "planning" | "proposed" | "review" | "shipping" | undefined;
     supersededBy?: (string & z.BRAND<"IssueId">) | undefined;
     title: string;
-    type: "automation" | "bug" | "chore" | "decision" | "epic" | "feature" | "milestone" | "spike" | "story" | "task";
+    type: "decision" | "phase" | "task";
     updatedAt: string;
     visibility: "deployment-substrate" | "owned-compute" | "per-user-state" | "personal" | "secret";
     worktreePath?: string | undefined;
@@ -4671,7 +4679,7 @@ type Output_issues_get = (null) | ({
     supersededBy?: (string & z.BRAND<"IssueId">) | undefined;
     title: string;
     tuckedAt: null | string;
-    type: "automation" | "bug" | "chore" | "decision" | "epic" | "feature" | "milestone" | "spike" | "story" | "task";
+    type: "decision" | "phase" | "task";
     updatedAt: string;
     worktreePath: null | string;
 });
@@ -4958,7 +4966,7 @@ type Output_issues_searchNormalized = Array<{
     suggestedStage?: "backlog" | "done" | "in_progress" | "planning" | "proposed" | "review" | "shipping" | undefined;
     supersededBy?: (string & z.BRAND<"IssueId">) | undefined;
     title: string;
-    type: "automation" | "bug" | "chore" | "decision" | "epic" | "feature" | "milestone" | "spike" | "story" | "task";
+    type: "decision" | "phase" | "task";
     updatedAt: string;
     visibility: "deployment-substrate" | "owned-compute" | "per-user-state" | "personal" | "secret";
     worktreePath?: string | undefined;
@@ -5206,7 +5214,7 @@ type Output_issues_start = _podium_model.IssueUserOverlay & Omit<Partial<{
     suggestedStage?: "backlog" | "done" | "in_progress" | "planning" | "proposed" | "review" | "shipping" | undefined;
     supersededBy?: (string & z.BRAND<"IssueId">) | undefined;
     title: string;
-    type: "automation" | "bug" | "chore" | "decision" | "epic" | "feature" | "milestone" | "spike" | "story" | "task";
+    type: "decision" | "phase" | "task";
     updatedAt: string;
     visibility: "deployment-substrate" | "owned-compute" | "per-user-state" | "personal" | "secret";
     worktreePath?: string | undefined;
@@ -5348,7 +5356,7 @@ type Output_issues_start = _podium_model.IssueUserOverlay & Omit<Partial<{
     suggestedStage?: "backlog" | "done" | "in_progress" | "planning" | "proposed" | "review" | "shipping" | undefined;
     supersededBy?: (string & z.BRAND<"IssueId">) | undefined;
     title: string;
-    type: "automation" | "bug" | "chore" | "decision" | "epic" | "feature" | "milestone" | "spike" | "story" | "task";
+    type: "decision" | "phase" | "task";
     updatedAt: string;
     visibility: "deployment-substrate" | "owned-compute" | "per-user-state" | "personal" | "secret";
     worktreePath?: string | undefined;
@@ -6937,6 +6945,11 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
             output: Output_issues_action;
             meta: unknown;
         }>;
+        "labelList": TRPC.TRPCQueryProcedure<{
+            input: {};
+            output: Array<_podium_model.IssueLabelWire>;
+            meta: unknown;
+        }>;
         "linearSearch": TRPC.TRPCQueryProcedure<{
             input: {
                 query: string;
@@ -7111,12 +7124,7 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
             meta: unknown;
         }>;
         "setLabels": TRPC.TRPCMutationProcedure<{
-            input: {
-                expectedRevision?: number | undefined;
-                id: string;
-                labels: string[];
-                mutationId?: string | undefined;
-            };
+            input: Input_issues_setLabels;
             output: Output_issues_addComment;
             meta: unknown;
         }>;

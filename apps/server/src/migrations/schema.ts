@@ -1538,10 +1538,7 @@ export const issues = sqliteTable(
       sql`stage IN ('proposed', 'backlog', 'planning', 'in_progress', 'review', 'shipping', 'verifying', 'done')`,
     ),
     check('issues_check_2', sql`priority BETWEEN 0 AND 4`),
-    check(
-      'issues_check_3',
-      sql`type IN ('task', 'phase', 'decision')`,
-    ),
+    check('issues_check_3', sql`type IN ('task', 'phase', 'decision')`),
   ],
 )
 
