@@ -62,7 +62,11 @@ export function AgentProfiles({ source }: { source: WorkflowsSource }): JSX.Elem
             {source.profiles.map((profile) => {
               const placement = profilePlacement(profile, views)
               return (
-                <div key={profile.id} className="rounded-lg border p-3" data-profile-id={profile.id}>
+                <div
+                  key={profile.id}
+                  className="rounded-lg border p-3"
+                  data-profile-id={profile.id}
+                >
                   <div className="text-sm font-medium">{profile.name}</div>
                   {profile.description && (
                     <div className="mt-0.5 text-xs text-muted-foreground">
@@ -80,7 +84,9 @@ export function AgentProfiles({ source }: { source: WorkflowsSource }): JSX.Elem
                     className="mt-1 text-[11px] text-muted-foreground"
                     data-placement={placement.state}
                   >
-                    {profile.machineId ? `machine ${profile.machineName ?? profile.machineId} · ` : ''}
+                    {profile.machineId
+                      ? `machine ${profile.machineName ?? profile.machineId} · `
+                      : ''}
                     placement: {PLACEMENT_WORDS[placement.state]}
                   </div>
                 </div>
