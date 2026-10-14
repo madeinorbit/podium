@@ -193,3 +193,12 @@ Supporting changes:
 - **A started task with nothing running that isn't closed shows Idle.** No "Stalled" word.
 - **Blocked:** an unmet `blocks` dependency and nothing running. A cancelled dependency counts as met.
 - **A decision** shows Needs you until it is closed.
+
+**D7 — Dependency types (2026-10-14).**
+- **A fixed list:** `blocked-by`, `related`, `discovered-from`, `supersedes`, `duplicates`.
+- **`blocked-by` replaces `blocks`.** It reads correctly in the stored direction (A blocked-by B = A waits for B), it matches the Blocked state, and it is the industry term.
+- **Migration:** `blocks`, `blocked-by` and `waits-on` all become `blocked-by`. This fixes 24 edges that are ignored today.
+- **The `dep-add` verb stays** as it is.
+- **Cycle check** on `blocked-by`.
+- **Dependencies may point outside the mission.**
+- Filed as POD-6100.
