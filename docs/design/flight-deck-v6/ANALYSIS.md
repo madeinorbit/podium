@@ -159,3 +159,13 @@ Supporting changes:
   - Agents may only apply existing labels (`--create-label` to add one), and `prime` lists them.
   - No label groups for now.
 - **Stage model** (todo vs backlog, merging with proposed, categories): deferred → sub-issue.
+
+**D4 — Agent profile contents and storage (2026-10-14).**
+- **Storage:** profiles live in the database. Instructions are markdown, and import/export uses the Claude Code agent-file shape (`.podium/agents/<name>.md`, frontmatter plus body). Repo files that override by name stay possible later.
+- **Fields:** description, an ordered list of (harness, model, effort) candidates, an optional machine, and instructions.
+- **Candidates:** the first usable one is picked at start. A session never switches mid-run; a usage limit shows as Error.
+- **Instructions are layered, never replaced:** issue rules → seat text → profile text, each a source in the existing session-instruction registry.
+- **Who edits:** profiles are user-only. Agents can pick one but not edit it.
+- **Seeds:** Till's six roles ship as starter profiles.
+- **The profile UI is a later phase, possibly deferred** → POD-6098.
+- **Gap:** I can't create real phases for this epic yet (`type = phase` doesn't exist), so "later phase" is only a sub-issue for now.
