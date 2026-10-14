@@ -200,6 +200,8 @@ export interface IssueDeps {
     spawnedBy?: string
     machineId?: MachineId
     ownerUserId?: import('@podium/model').UserId
+    /** The agent profile the session starts from (POD-6107). */
+    agentProfileId?: string
   }): Promise<SpawnedSessionResult>
   repoOp(
     op: RepoOp,
@@ -258,6 +260,13 @@ export interface IssueDeps {
    * as the refusal. Optional so existing test deps literals stay valid.
    */
   findRepoOnMachine?(repoPath: string, machineId: MachineId): Promise<string | null>
+  /**
+   * Agent profiles (POD-6107): `find` turns `--profile <name>` into an id, and
+   * `launch` is the one resolver (profile, issue fields on top, first usable
+   * candidate). Optional so existing test deps literals stay valid; absent =
+   * issues run their own fields exactly as before.
+   */
+  agentProfiles?: Pick<import('../../agent-profiles/service').AgentProfileService, 'find' | 'launch'>
   /** THE write funnel (modules/funnel): every mutation's store write + fan-out
    *  runs through it, so "durable before fan-out" holds by construction. */
   funnel: IssueFunnel

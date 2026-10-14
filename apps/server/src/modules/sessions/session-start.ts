@@ -52,6 +52,7 @@ import type { Attribution, ResumeRef } from '@podium/model'
 import {
   type AccountId,
   AgentKind,
+  type AgentSetupFields,
   asMachineId,
   asSessionId,
   firstAdminMemberId,
@@ -161,7 +162,20 @@ export interface SessionStartPorts {
     agentKind: AgentKind
     issueId?: IssueId
     workflowRevisionId?: string
+    agentProfileId?: string
   }): Promise<{ instructions: AgentInstruction[]; commit(): Promise<void> }>
+  /** The agent-profile launch resolver (POD-6107). Absent = profiles ignored. */
+  agentLaunch?(input: {
+    profileId: string
+    fields: AgentSetupFields
+    cwd: string
+  }): Promise<{
+    profile: { id: string; name: string } | null
+    agentKind: string
+    model: string
+    effort: string
+    machineId: MachineId | null
+  }>
   sessionOwner(sessionId: SessionId): Promise<{ owner: UserId; grants: string[] } | undefined>
   /** Seed the non-argv creation prompt into the recoverable composer draft. */
   setSessionDraft?(input: { sessionId: SessionId; text: string }): Promise<void>
@@ -220,6 +234,13 @@ export class SessionStart {
     workflowRunId?: string
     workflowStepId?: string
     executionProfileId?: string
+    /**
+     * The agent profile to start from (POD-6107). Unless the caller already
+     * vetted a `launchSelection`, the profile's first usable candidate decides
+     * the harness, model and effort, with `agentKind`/`model`/`effort` applied
+     * on top. Recorded on the session either way.
+     */
+    agentProfileId?: string
     issueId?: IssueId
     sessionId?: SessionId
     workflowRevisionId?: string
@@ -235,10 +256,36 @@ export class SessionStart {
     requestTerminalDriver?: boolean
   }): Promise<SessionSpawnResult> {
     if (process.env.PODIUM_REHEARSAL === '1') throw new Error('Session spawn disabled during upgrade rehearsal')
+    // THE PROFILE, RESOLVED ONCE (POD-6107): profile candidates with the
+    // caller's fields on top, first usable one wins. A caller that already
+    // vetted a launchSelection (issue start / add-session) resolved it itself;
+    // the profile is then only recorded and its instructions attached.
+    let agentProfileId = input.agentProfileId
+    let requestedAgentKind: string | undefined = input.agentKind
+    let profileMachineId: MachineId | undefined
+    let inheritedSelection: { agentKind: string; model: string; effort: string } | undefined
+    if (agentProfileId && this.ports.agentLaunch && !input.launchSelection) {
+      const launch = await this.ports.agentLaunch({
+        profileId: agentProfileId,
+        fields: {
+          agent: input.agentKind ?? null,
+          model: input.model ?? null,
+          effort: input.effort ?? null,
+          machineId: input.machineId ?? null,
+        },
+        cwd: input.cwd,
+      })
+      if (!launch.profile) agentProfileId = undefined
+      requestedAgentKind = launch.agentKind
+      inheritedSelection = { agentKind: launch.agentKind, model: launch.model, effort: launch.effort }
+      // A profile machine places only a session that is not bound to an issue:
+      // an issue session runs where the issue's worktree is (its start homed it).
+      if (launch.machineId && !input.machineId && !input.issueId) profileMachineId = launch.machineId
+    }
     // Resolve the agent down to a concrete AgentKind. `agentKind` may be absent,
     // or carry a non-AgentKind sentinel like 'auto'. 'auto' is NOT a valid
     // AgentKind: persisting it produces an invalid synced session row.
-    const requested = AgentKind.safeParse(input.agentKind)
+    const requested = AgentKind.safeParse(requestedAgentKind)
     const agentKind = requested.success
       ? requested.data
       : resolveRole(
@@ -251,7 +298,7 @@ export class SessionStart {
       throw new Error('loginHarness is only valid for shell sessions')
     }
     const machineId = await this.ports.resolveMachineForAgent(
-      input.machineId,
+      input.machineId ?? profileMachineId,
       input.cwd,
       agentKind,
       input.use,
@@ -269,6 +316,9 @@ export class SessionStart {
     const selection = input.launchSelection ?? resolveLaunchSelection({
       agentKind,
       explicit: { model: input.model ?? 'auto', effort: input.effort ?? 'auto' },
+      // The profile's values are INHERITED, like an issue's stored picks: one the
+      // catalog does not know falls back to `auto` instead of refusing the start.
+      ...(inheritedSelection ? { issueProfile: inheritedSelection } : {}),
       settings: await this.ports.store.settings.getSettingsFor(await this.ports.settingsViewer()),
       catalog: await this.ports.store.settings.getModelCatalog(machineId),
       force: input.forceUnknownModel,
@@ -292,6 +342,7 @@ export class SessionStart {
       agentKind,
       ...(issueId ? { issueId } : {}),
       ...(input.workflowRevisionId ? { workflowRevisionId: input.workflowRevisionId } : {}),
+      ...(agentProfileId ? { agentProfileId } : {}),
     })
     const taskPrompt = input.initialPrompt?.trim() ? input.initialPrompt.trim() : undefined
     const useArgv = taskPrompt !== undefined && harnessSupportsInitialPrompt(agentKind)
@@ -350,6 +401,7 @@ export class SessionStart {
       ...(input.workflowRunId ? { workflowRunId: input.workflowRunId } : {}),
       ...(input.workflowStepId ? { workflowStepId: input.workflowStepId } : {}),
       ...(input.executionProfileId ? { executionProfileId: input.executionProfileId } : {}),
+      ...(agentProfileId ? { agentProfileId } : {}),
       ...(issueId ? { issueId } : {}),
       binding,
       createdBy,
@@ -437,6 +489,7 @@ export class SessionStart {
     workflowRunId?: string
     workflowStepId?: string
     executionProfileId?: string
+    agentProfileId?: string
     issueId?: IssueId
     sessionId?: SessionId
     binding?: Omit<SessionBindingSpawnInstruction, 'transitionId' | 'machineAccess' | 'issueId'>
@@ -573,6 +626,7 @@ export class SessionStart {
       ...(input.workflowRunId ? { workflowRunId: input.workflowRunId } : {}),
       ...(input.workflowStepId ? { workflowStepId: input.workflowStepId } : {}),
       ...(input.executionProfileId ? { executionProfileId: input.executionProfileId } : {}),
+      ...(input.agentProfileId ? { agentProfileId: input.agentProfileId } : {}),
       ...(input.issueId ? { issueId: input.issueId } : {}),
       ...(input.name ? { name: input.name } : {}),
       ...(input.nameSource ? { nameSource: input.nameSource } : {}),

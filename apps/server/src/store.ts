@@ -107,6 +107,7 @@ import { UserDockShellRepository, UserLayoutRepository } from './store/user-layo
 import { UserReadPositionRepository } from './store/user-read-position'
 import { UsersRepository } from './store/users'
 import { WorkflowsRepository } from './store/workflows'
+import { AgentProfilesRepository } from './store/agent-profiles'
 import { openStoreDatabase } from './store-database'
 
 const log = createLogger('server:store')
@@ -213,6 +214,7 @@ export class SessionStore {
   /** Blocking asks (POD-2020, spec §4) — durable so a stuck session is enumerable. */
   readonly interactions: InteractionsRepository
   readonly workflows: WorkflowsRepository
+  readonly agentProfiles: AgentProfilesRepository
   /** Advisory named lease locks [spec:SP-85d1] — podium lock / merge-lock. */
   readonly locks: LocksRepository
   /** Janitor generation fencing + deterministic command outcomes [spec:SP-c29e]. */
@@ -422,6 +424,7 @@ export class SessionStore {
     this.messages = new MessagesRepository(this.queries)
     this.readWatermarks = new ReadWatermarksRepository(this.queries)
     this.workflows = new WorkflowsRepository(this.queries)
+    this.agentProfiles = new AgentProfilesRepository(this.queries)
     this.locks = new LocksRepository(this.queries)
     this.maintenance = new MaintenanceRepository(this.queries)
     this.automations = new AutomationsRepository(this.queries)

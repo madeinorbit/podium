@@ -48,13 +48,16 @@ function helpText(): string {
     '',
     '  spawn --prompt "…" (--issue <ref> | --new "title" [--repo <path>])',
     '        [--title "…"] [--harness <claude-code|codex|grok|opencode|cursor>]',
-    '        [--worktree] [--model M] [--effort E] [--force-unknown-model]',
+    '        [--profile <name>] [--worktree] [--model M] [--effort E] [--force-unknown-model]',
     '        [--workflow-run-id X] [--workflow-step-id Y] [--execution-profile-id Z]',
     '      Spawn a full Podium agent session on an issue; the prompt is its first',
     '      turn and you become its parent (interrupt + wake rights). An issue is',
     '      never created implicitly — --new is the explicit create path.',
     '      --title names the child session (sidebar label) at spawn; omit to let',
     '      the child self-title. --new names the ISSUE, not the session.',
+    '      --profile starts from that agent profile (see `podium profile list`);',
+    '      without it the issue\'s profile applies. --harness/--model/--effort',
+    '      go on top of the profile.',
     '      --model/--effort are checked against the live model catalog; pass',
     '      --force-unknown-model to spawn a deliberately unlisted model slug.',
     '  await <sessionId> [--timeout <seconds, default 30, max 300>]',
@@ -85,6 +88,7 @@ const AGENT_FLAGS = flagTable(MESSAGING_GLOBAL_FLAGS, {
       'title',
       'model',
       'effort',
+      'profile',
       'workflow-run-id',
       'workflow-step-id',
       'execution-profile-id',
@@ -136,6 +140,7 @@ export async function runAgentCli(argv: string[], client: AgentClient): Promise<
         ...(typeof args['execution-profile-id'] === 'string'
           ? { executionProfileId: args['execution-profile-id'] }
           : {}),
+        ...(typeof args.profile === 'string' ? { agentProfile: args.profile } : {}),
       }
       const r = (await repeatUntilAnswered(() => client.messages.spawnAgent.mutate(request))) as {
         ok: boolean

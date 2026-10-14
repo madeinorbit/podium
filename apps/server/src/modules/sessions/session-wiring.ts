@@ -343,6 +343,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     broadcastSessions: () => bag.broadcastSessions(),
     soleOwnerForCwd: async (cwd) => (await bag.deps.issueAccess.soleOwnerForCwd(cwd)) ?? undefined,
     instructionsForStart: (i) => bag.deps.instructionsForStart(i),
+    ...(bag.deps.agentLaunch ? { agentLaunch: bag.deps.agentLaunch } : {}),
     sessionOwner: (sessionId) => ownership.sessionOwner(sessionId),
     setSessionDraft: (input) => bag.state.setDraft(input),
     queueInitialPrompt: (i) => bag.inbox.queueInitialPrompt(i),

@@ -382,6 +382,7 @@ export class SessionsRepository {
       workflowRunId: row.workflowRunId ?? null,
       workflowStepId: row.workflowStepId ?? null,
       executionProfileId: row.executionProfileId ?? null,
+      agentProfileId: row.agentProfileId ?? null,
       refIssueId: row.refIssueId ?? null,
       refLetter: row.refLetter ?? null,
       refDraft: row.refDraft ?? null,
@@ -449,6 +450,7 @@ export class SessionsRepository {
           workflowRunId: values.workflowRunId,
           workflowStepId: values.workflowStepId,
           executionProfileId: values.executionProfileId,
+          agentProfileId: values.agentProfileId,
           // Birth name is PERMANENT (#474): once allocated it never changes, even
           // when the session re-attaches to a different issue. COALESCE keeps the
           // first non-null allocation.
@@ -1297,6 +1299,7 @@ function mapSession(r: SessionSelect): SessionRow {
     workflowRunId: r.workflowRunId ?? null,
     workflowStepId: r.workflowStepId ?? null,
     executionProfileId: r.executionProfileId ?? null,
+    agentProfileId: r.agentProfileId ?? null,
     deletedAt: r.deletedAt ?? null,
     deletionSource: (r.deletionSource as SessionDeletionSource | null) ?? null,
     deletedByIssueId: r.deletedByIssueId ?? null,

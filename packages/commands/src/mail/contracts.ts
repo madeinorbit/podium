@@ -175,6 +175,8 @@ export const spawnAgentInput = z.object({
   workflowRunId: z.string().max(256).optional(),
   workflowStepId: z.string().max(256).optional(),
   executionProfileId: z.string().max(256).optional(),
+  /** An agent profile by name or id (POD-6107); defaults to the issue's profile. */
+  agentProfile: z.string().trim().min(1).max(100).optional(),
 })
 
 export const awaitAgentInput = z.object({

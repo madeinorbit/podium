@@ -81,6 +81,8 @@ export interface MessageGateDeps {
     workflowRunId?: string
     workflowStepId?: string
     executionProfileId?: string
+    /** The agent profile to start from (POD-6107); SessionStart resolves it. */
+    agentProfileId?: string
   }): Promise<{
     sessionId: SessionId
     agentId?: string
@@ -110,6 +112,8 @@ export interface MessageGateDeps {
     model: string
     effort: string
   }>
+  /** An agent profile by name or id (POD-6107), for `agent spawn --profile`. */
+  findAgentProfile?(ref: string): Promise<{ id: string; name: string } | null>
   /** The DELIBERATE `--new` issue-create path (never automatic). */
   createIssue?(input: {
     ownerUserId: UserId

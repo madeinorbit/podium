@@ -287,6 +287,10 @@ export const SessionLaunchConfig = z.object({
   accountId: AccountIdField.optional(),
   /** The durable label requested at spawn. NOT a name — see {@link SessionNaming}. */
   durableLabel: z.string().optional(),
+  /** The agent profile this session started from (POD-6107). The values it ran
+   *  with are `model`/`effort` here and the harness kind; the profile may change
+   *  or vanish later without rewriting them. */
+  agentProfileId: z.string().optional(),
 })
 export type SessionLaunchConfig = z.infer<typeof SessionLaunchConfig>
 

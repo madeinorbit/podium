@@ -130,7 +130,25 @@ async function spawnOnce(
         ...(input.workflowStepId ? { stepId: input.workflowStepId } : {}),
       })
     : undefined
-  const harness = profile?.harness ?? input.harness ?? issue.defaultAgent
+  // AGENT PROFILE (POD-6107): an explicit --profile, else the issue's own. A
+  // workflow execution profile is a different, older mechanism and wins alone.
+  if (input.agentProfile && input.executionProfileId) {
+    throw new Error('pass --profile or --execution-profile-id, not both')
+  }
+  let agentProfileId: string | undefined
+  if (input.agentProfile) {
+    const found = await deps.findAgentProfile?.(input.agentProfile)
+    if (!found) {
+      throw new Error(`no agent profile '${input.agentProfile}' — see \`podium profile list\``)
+    }
+    agentProfileId = found.id
+  } else if (!profile && issue.agentProfileId) {
+    agentProfileId = issue.agentProfileId
+  }
+  // An explicit --profile replaces the issue's agent pick rather than being
+  // filtered by it; SessionStart resolves the profile's first usable candidate.
+  const harness =
+    profile?.harness ?? input.harness ?? (input.agentProfile ? undefined : issue.defaultAgent)
   const model = profile?.model ?? input.model
   const effort = profile?.effort ?? input.effort
   const machineId = profile?.machineId ?? issue.machineId
@@ -220,6 +238,7 @@ async function spawnOnce(
     ...(input.workflowRunId ? { workflowRunId: input.workflowRunId } : {}),
     ...(input.workflowStepId ? { workflowStepId: input.workflowStepId } : {}),
     ...(input.executionProfileId ? { executionProfileId: input.executionProfileId } : {}),
+    ...(agentProfileId ? { agentProfileId } : {}),
   })
   const sessionId = spawned.sessionId
   const actualHarness = spawned.harness ?? harness

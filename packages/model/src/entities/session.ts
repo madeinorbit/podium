@@ -366,6 +366,8 @@ export const SessionMetaEntity = z.object({
   model: z.string().optional(),
   effort: z.string().optional(),
   accountId: AccountIdField.optional(),
+  /** The agent profile this session started from (POD-6107). */
+  agentProfileId: z.string().optional(),
   /** WHO set `name` (#490): 'user' = a human named it, and no agent may overwrite it;
    *  'agent' = the session named itself (it may re-title itself). Absent = unnamed. */
   nameSource: z.enum(['user', 'agent']).optional(),

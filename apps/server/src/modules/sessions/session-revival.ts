@@ -86,6 +86,7 @@ export interface SessionRevivalPorts {
     cwd: string
     agentKind: AgentKind
     issueId?: IssueId
+    agentProfileId?: string
     existingOnly?: boolean
   }): Promise<PreparedSessionInstructions>
   onWorktreesChanged(repoPath: string, machineId?: MachineId): void
@@ -427,6 +428,7 @@ export class SessionRevival {
       cwd,
       agentKind: session.agentKind,
       ...(session.issueId ? { issueId: session.issueId } : {}),
+      ...(session.agentProfileId ? { agentProfileId: session.agentProfileId } : {}),
       existingOnly: true,
     })
     await this.ports.repository.write(session, (draft) => {

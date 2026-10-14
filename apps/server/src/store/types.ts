@@ -277,6 +277,8 @@ export interface SessionRow {
   workflowRunId?: string | null
   workflowStepId?: string | null
   executionProfileId?: string | null
+  /** The agent profile the session started from (POD-6107). */
+  agentProfileId?: string | null
   /** Issue-lifecycle tombstone. Tombstoned rows are excluded from active session loads. */
   deletedAt?: string | null
   /** User-facing path that created the tombstone. */

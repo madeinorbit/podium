@@ -129,6 +129,8 @@ export interface SessionInit {
   workflowRunId?: string
   workflowStepId?: string
   executionProfileId?: string
+  /** The agent profile this session started from (POD-6107); launch identity. */
+  agentProfileId?: string
   stoppedAt?: string | null
   stopReason?: 'self' | 'parent' | 'forced' | 'exited' | 'oom' | null
   /** Event time of the last kernel OOM kill observed in this session's scope. */
@@ -172,7 +174,7 @@ export type SessionDurableFields = Omit<SessionDurableState, 'terminal'>
 
 /** Mutable metadata covered by draft installation and rollback.
  * Row launch identity (model, effort, accountId, loginHarness, workflowRunId,
- * workflowStepId, executionProfileId) is readonly and constructor-only.
+ * workflowStepId, executionProfileId, agentProfileId) is readonly and constructor-only.
  * Transient driver handles and capabilities are not row columns. */
 export interface SessionDurableState {
   selectedDriverId: string | undefined
@@ -244,6 +246,7 @@ export class Session {
   readonly workflowRunId: string | undefined
   readonly workflowStepId: string | undefined
   readonly executionProfileId: string | undefined
+  readonly agentProfileId: string | undefined
   /** True for a headless harness session (no PTY) — immutable for the row's life. */
   readonly headless: boolean
   /** Explicit issue attachment (issue-as-workspace) — mutable: the agent can
@@ -490,6 +493,7 @@ export class Session {
     this.workflowRunId = init.workflowRunId
     this.workflowStepId = init.workflowStepId
     this.executionProfileId = init.executionProfileId
+    this.agentProfileId = init.agentProfileId
     this.headless = init.headless ?? false
     // Restored from the row on a server restart, which is the entire point of
     // persisting it: without this line the rehydrated session is family-unknown
@@ -1029,6 +1033,7 @@ export class Session {
       workflowRunId: this.workflowRunId ?? null,
       workflowStepId: this.workflowStepId ?? null,
       executionProfileId: this.executionProfileId ?? null,
+      agentProfileId: this.agentProfileId ?? null,
     }
   }
 
@@ -1160,6 +1165,7 @@ export class Session {
       ...(this.workflowRunId ? { workflowRunId: this.workflowRunId } : {}),
       ...(this.workflowStepId ? { workflowStepId: this.workflowStepId } : {}),
       ...(this.executionProfileId ? { executionProfileId: this.executionProfileId } : {}),
+      ...(this.agentProfileId ? { agentProfileId: this.agentProfileId } : {}),
     }
   }
 

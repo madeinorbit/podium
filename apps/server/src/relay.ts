@@ -152,6 +152,7 @@ import { readPromotedTargetMetadata } from './modules/server-transfer/target-sta
 import { machinesForPrincipal } from './modules/sessions/command-ctx'
 import { QUEUED_INPUT_SWEEP_MS, SYSTEM_INBOX_PRINCIPAL } from './modules/sessions/inbox'
 import { SessionInstructionRegistry } from './modules/sessions/instructions'
+import { AgentProfileService } from './modules/agent-profiles/service'
 import { SessionLifecycle } from './modules/sessions/lifecycle'
 import { SessionReadToolkit } from './modules/sessions/read-toolkit'
 import { readSessionRefs } from './modules/sessions/refs'
@@ -346,6 +347,8 @@ export interface RegistryModules {
   headless: HeadlessService
   notify: NotifyService
   issues: IssueService
+  /** Named agent setups (POD-6107): the library and the launch resolver. */
+  agentProfiles: AgentProfileService
   /** Durable Shipping control plane; command registration is owned by POD-889. */
   shipping: ShippingService
   issueCommands: IssueCommandDispatcher
@@ -766,6 +769,17 @@ export class SessionRegistry {
           { machines: machineService },
           userCommandPrincipal(asUserId(principal.user), principal.role),
         ),
+    })
+    // AGENT PROFILES (POD-6107). Composed right after machines because the launch
+    // resolver asks the machine service which candidate harness can run where.
+    const agentProfiles = new AgentProfileService({
+      store: this.store.agentProfiles,
+      now: () => new Date(this.now()).toISOString(),
+      listMachines: async () => await machines.listMachines(),
+      requireRunnable: async ({ machineId, cwd, agentKind }) => {
+        await machines.resolveMachineForAgent(machineId ?? undefined, cwd, agentKind as AgentKind)
+      },
+      roleOf: async (userId) => await this.store.users.roleOf(userId),
     })
     // Hosts is composed below the transfer service. The callback is rebound once
     // it exists; transfer actions cannot run until this constructor completes.
@@ -1656,6 +1670,7 @@ export class SessionRegistry {
       snapshotTail,
       onWorktreesChanged: broadcastWorktreesChanged,
       instructionsForStart: (input) => sessionInstructions.prepare(input),
+      agentLaunch: async (input) => await agentProfiles.launch(input),
       // POD-1081: clientCount is a degenerate view of session-room occupancy.
       // Attach still owns frame delivery; presence rooms own who-is-watching.
       // PTY attach auto-joins the room so the two stay one mechanism.
@@ -1995,7 +2010,9 @@ export class SessionRegistry {
           ...(o.spawnedBy ? { spawnedBy: o.spawnedBy } : {}),
           ...(o.machineId ? { machineId: o.machineId } : {}),
           ...(o.ownerUserId ? { ownerUserId: o.ownerUserId } : {}),
+          ...(o.agentProfileId ? { agentProfileId: o.agentProfileId } : {}),
         }),
+      agentProfiles,
       repoOp: async (op, cwd, args, machineId) => await rpc.repoOp(op, cwd, args, machineId),
       resolveMachine: async (requested, cwd) => await machines.resolveMachine(requested, cwd),
       requireMachineForRepo: async (machineId, repoPath) =>
@@ -2532,6 +2549,15 @@ export class SessionRegistry {
         }
       },
     })
+    // LAST, so it layers after the issue rules and seat text (flight deck D4):
+    // the registry keeps registration order.
+    sessionInstructions.register({
+      source: 'podium:profile',
+      prepare: async ({ agentProfileId }) => {
+        const content = await agentProfiles.instructionsFor(agentProfileId)
+        return content ? { content } : null
+      },
+    })
     const messageGate = new MessageGate(
       {
         messages: messagesSvc,
@@ -2565,7 +2591,9 @@ export class SessionRegistry {
             ...(o.workflowRunId ? { workflowRunId: o.workflowRunId } : {}),
             ...(o.workflowStepId ? { workflowStepId: o.workflowStepId } : {}),
             ...(o.executionProfileId ? { executionProfileId: o.executionProfileId } : {}),
+            ...(o.agentProfileId ? { agentProfileId: o.agentProfileId } : {}),
           }),
+        findAgentProfile: async (ref) => await agentProfiles.find(ref),
         resolveExecutionProfile: async (input) => {
           const { caller, ...profileInput } = input
           return await workflows.executionProfileForLaunch({
@@ -3567,6 +3595,7 @@ export class SessionRegistry {
       reactions,
       notify,
       issues,
+      agentProfiles,
       shipping,
       issueSessionLifecycle,
       issueCommands,

@@ -7,6 +7,9 @@ export interface SessionInstructionContext {
   agentKind: AgentKind
   issueId?: IssueId
   workflowRevisionId?: string
+  /** The agent profile the session starts from (POD-6107); its instructions are
+   *  the `podium:profile` source. */
+  agentProfileId?: string
   /** Resurrection only rehydrates instructions already attached to the session;
    * it must not adopt a default that appeared after the conversation began. */
   existingOnly?: boolean

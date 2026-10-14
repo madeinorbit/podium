@@ -3,6 +3,7 @@
  * Hoisted from lifecycle.ts so the service file can fall under the 600-line signal.
  */
 
+import type { SessionStartPorts } from './session-start'
 import type {
   AccountId,
   Attribution,
@@ -255,8 +256,11 @@ export interface SessionLifecycleDeps {
     agentKind: AgentKind
     issueId?: IssueId
     workflowRevisionId?: string
+    agentProfileId?: string
     existingOnly?: boolean
   }): Promise<PreparedSessionInstructions>
+  /** Agent-profile launch resolver (POD-6107); absent = profiles are ignored. */
+  agentLaunch?: SessionStartPorts['agentLaunch']
   /**
    * Presence-room occupancy for a session (POD-1081). When provided,
    * `clientCount` is derived from it and attach/watch policy can consult the
