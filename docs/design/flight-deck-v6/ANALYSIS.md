@@ -186,3 +186,10 @@ Supporting changes:
 
   These sessions are told to ask their coordinator instead. So a pending offer is always Needs you; choice 1 is moot.
 - **Question routing is deferred.** Blocked sessions ask with the existing `issue mail send <coordinator's issue> --expect-response`. The seat instructions and the refusal messages name that issue.
+
+**D6 — Task roll-up (2026-10-14).**
+- **Order:** Error > Needs you > Working > Idle > Blocked > Not started. Error ranks above Working, which overturns POD-1601; tasks in Error or Needs you open by default, so the crashed row is in view.
+- **Done** only when the issue is closed. Cancelled, duplicate and superseded issues count as done and are hidden.
+- **A started task with nothing running that isn't closed shows Idle.** No "Stalled" word.
+- **Blocked:** an unmet `blocks` dependency and nothing running. A cancelled dependency counts as met.
+- **A decision** shows Needs you until it is closed.
