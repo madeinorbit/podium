@@ -437,7 +437,7 @@ export const PER_USER_POLICY = {
     ROLE_FLOOR_RATIONALE,
 } as const
 
-/** The subtree-gated write cell — 29 commands that mutate an EXISTING issue.
+/** The subtree-gated write cell — 30 commands that mutate an EXISTING issue.
  *  `confirmation: 'confirm'` is `--outside-scope` / `overrideScope`: an agent writing
  *  outside its subtree is not refused, it is asked to confirm knowingly (D2's escape,
  *  and the shipped `PRECONDITION_FAILED` re-run message). */
@@ -455,7 +455,7 @@ export const WRITE_POLICY = {
     ROLE_FLOOR_RATIONALE,
 } as const
 
-/** `manage` — delete, restore, setLabels. Operator-only in practice, because `manage`
+/** `manage` — delete and restore. Operator-only in practice, because `manage`
  *  sits above `worker` on `IssueAction`'s ladder and an agent capability is a worker.
  *  The action carries that; the role floor cannot (see {@link READ_POLICY}). */
 export const MANAGE_POLICY = {
@@ -464,7 +464,7 @@ export const MANAGE_POLICY = {
   resource: 'issue',
   confirmation: 'confirm',
   rationale:
-    'Tombstoning an issue, restoring one, and rewriting its whole label set are `manage` on ' +
+    'Tombstoning an issue and restoring one are `manage` on ' +
     '`IssueAction`’s viewer/worker/admin ladder — above the worker grade an agent capability holds, ' +
     'so operator-only in practice. That gate rides `action`, unchanged from the shipped table. ' +
     ROLE_FLOOR_RATIONALE,

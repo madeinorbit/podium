@@ -39,8 +39,8 @@
  *
  *   READS (25)                  role-gated only, never subtree-gated
  *   PER-USER STATE (4)          markRead · markUnread · setTucked · mailInbox
- *   SUBTREE-SCOPED WRITES (29)  mutate an existing issue, `--outside-scope` escape
- *   MANAGE (3)                  delete · restore · setLabels
+ *   SUBTREE-SCOPED WRITES (30)  mutate an existing issue, `--outside-scope` escape
+ *   MANAGE (2)                  delete · restore
  *   ADDITIVE WRITES (6)         create · attachSession · mailSend · subscription*
  *   THE TWO THAT ARE THEIR OWN CLASS  linearSearch · mailClaim (see each)
  *
@@ -1135,7 +1135,7 @@ export const issueMailInboxContract = {
 } as const satisfies MutatingCommandContract
 
 // -------------------------------------------------------------------------
-// SUBTREE-SCOPED WRITES — 29 commands that mutate an EXISTING issue
+// SUBTREE-SCOPED WRITES — 30 commands that mutate an EXISTING issue
 // -------------------------------------------------------------------------
 
 export const issueSetStateContract = {
@@ -1692,8 +1692,26 @@ export const issueDuplicateContract = {
   conflict: 'exp-rev',
 } as const satisfies MutatingCommandContract
 
+/** Rewriting an issue's labels is an ordinary subtree write (POD-6106, flight
+ *  deck v6 D3): agents label the work they own, and the handler still refuses a
+ *  label that does not exist unless the caller passes `createLabels`. */
+export const issueSetLabelsContract = {
+  name: 'issues.setLabels',
+  version: 1,
+  visibility: ISSUE_VISIBILITY,
+  input: setLabelsInput.merge(EXPECTED_REVISION),
+  policy: WRITE_POLICY,
+  exposure: SERVED_EVERYWHERE,
+  delivery: WRITE_DELIVERY,
+  redaction: ISSUE_REDACTION,
+  ownership: CREATES_NOTHING,
+  attribution: ISSUE_ATTRIBUTION,
+  errorConsistency: TARGETED_ERRORS,
+  conflict: 'exp-rev',
+} as const satisfies MutatingCommandContract
+
 // -------------------------------------------------------------------------
-// MANAGE — 3 commands that need the manage verb
+// MANAGE — 2 commands that need the manage verb
 // -------------------------------------------------------------------------
 
 export const issueDeleteContract = {
@@ -1716,21 +1734,6 @@ export const issueRestoreContract = {
   version: 1,
   visibility: ISSUE_VISIBILITY,
   input: restoreInput.merge(EXPECTED_REVISION),
-  policy: MANAGE_POLICY,
-  exposure: SERVED_EVERYWHERE,
-  delivery: WRITE_DELIVERY,
-  redaction: ISSUE_REDACTION,
-  ownership: CREATES_NOTHING,
-  attribution: ISSUE_ATTRIBUTION,
-  errorConsistency: TARGETED_ERRORS,
-  conflict: 'exp-rev',
-} as const satisfies MutatingCommandContract
-
-export const issueSetLabelsContract = {
-  name: 'issues.setLabels',
-  version: 1,
-  visibility: ISSUE_VISIBILITY,
-  input: setLabelsInput.merge(EXPECTED_REVISION),
   policy: MANAGE_POLICY,
   exposure: SERVED_EVERYWHERE,
   delivery: WRITE_DELIVERY,

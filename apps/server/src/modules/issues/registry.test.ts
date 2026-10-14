@@ -71,7 +71,7 @@ const EXPECTED_PROC_ACTION: Record<string, 'read' | 'write' | 'manage'> = {
   archive: 'write',
   delete: 'manage',
   restore: 'manage',
-  setLabels: 'manage',
+  setLabels: 'write',
   share: 'write',
   unshare: 'write',
   depRemove: 'write',
@@ -1336,6 +1336,27 @@ describe('issue types and labels [POD-6106]', () => {
         name: string
       }[],
     ).toEqual([{ name: 'bug' }, { name: 'perf' }, { name: 'ux' }])
+  })
+
+  it('an agent relabels inside its subtree, still only with existing labels', async () => {
+    const { registry, root, create } = await setup()
+    const own = await create(operator, { title: 'Own' })
+    const label = (caller: object, input: Record<string, unknown>) =>
+      registry.issueCommands.dispatch(caller as never, 'issues', 'setLabels', input as never) as Promise<{
+        labels: string[]
+      }>
+    expect((await label(agentOn(root.id), { id: own.id, labels: ['Bug'] })).labels).toEqual(['bug'])
+    await expect(label(agentOn(root.id), { id: own.id, labels: ['nope'] })).rejects.toThrow(
+      /unknown label "nope"/,
+    )
+    expect(
+      (await label(agentOn(root.id), { id: own.id, labels: ['nope'], createLabels: true })).labels,
+    ).toEqual(['nope'])
+    // A write tier, not a free pass: outside the subtree it asks for confirmation.
+    const elsewhere = await registry.issues.crud.create({ repoPath: '/r', title: 'Other', startNow: false })
+    await expect(label(agentOn(root.id), { id: elsewhere.id, labels: ['bug'] })).rejects.toThrow(
+      /outside-scope/,
+    )
   })
 
   it('only the user closes a decision', async () => {
