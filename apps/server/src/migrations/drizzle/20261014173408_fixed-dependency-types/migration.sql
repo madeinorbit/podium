@@ -13,7 +13,7 @@
 --   tracks, caused-by, validates   -> related     (the retired vocabulary; none
 --                                    live, kept for databases this one never saw)
 --   anything else                  -> dropped     (one `bogus` edge live)
--- `OR IGNORE` merges an edge that already exists under its new name (the primary
+-- `DISTINCT` merges an edge stored under two spellings of one type (the primary
 -- key includes `type`). Replicas pick the rewrite up from the boot reconcile,
 -- which diffs the whole `issueDep` kind against this table.
 PRAGMA foreign_keys=OFF;--> statement-breakpoint
@@ -27,8 +27,8 @@ CREATE TABLE `__new_issue_deps` (
 	CONSTRAINT "issue_deps_type" CHECK(type IN ('blocked-by', 'related', 'discovered-from', 'supersedes', 'duplicates'))
 );
 --> statement-breakpoint
-INSERT OR IGNORE INTO `__new_issue_deps`(`from_id`, `to_id`, `type`)
-SELECT `from_id`, `to_id`, `folded` FROM (
+INSERT INTO `__new_issue_deps`(`from_id`, `to_id`, `type`)
+SELECT DISTINCT `from_id`, `to_id`, `folded` FROM (
 	SELECT `from_id`, `to_id`, CASE `type`
 		WHEN 'blocks' THEN 'blocked-by'
 		WHEN 'waits-on' THEN 'blocked-by'
