@@ -181,6 +181,119 @@ interface PodiumEventRecord {
 }
 
 /**
+ * THE CLIENT-LOG FAMILY — `logs.forward · logs.crash · logs.setLevel`
+ * ([spec:2026-08-11-logging-strategy-design]).
+ *
+ * Two ingestion writes and one operator command. The first two are a client
+ * reporting itself; the third is the valve the whole design exists to open —
+ * raising one running client so a problem on a user's machine can be diagnosed
+ * without shipping them a new build. That asymmetry is why they sit at different
+ * role floors, and each contract says so where it is declared.
+ *
+ * A client (web, desktop webview, mobile) keeps its own ring buffer and forwards
+ * what matters to ITS OWN SERVER: `forward` is the routine batch, `crash` is the
+ * one-shot "I died, here is the flight recorder". Both are server-side ingestion
+ * with no client code in this chunk — these contracts are the shape chunks 4 and
+ * 5 build their forwarding sinks against.
+ *
+ * ---------------------------------------------------------------------------
+ * NO CONSENT GATE ON THIS HOP, AND THAT IS A DECISION WITH A REASON
+ * ---------------------------------------------------------------------------
+ *
+ * Podium is self-hosted: the client's server is the USER'S OWN server, so
+ * forwarding a log line to it discloses nothing to anybody — it moves the user's
+ * data from one of their processes to another. The consent gate sits one hop
+ * further out, where a scrubbed crash SIGNATURE may leave the installation
+ * entirely (`telemetry.recordCrash`, the existing `crash` tier). The design spec
+ * states this in "Client → server forwarding"; it is written here too because
+ * this is the contract a reviewer reads when asking "why is there no consent
+ * check on an endpoint that accepts logs".
+ *
+ * ---------------------------------------------------------------------------
+ * BOUNDS ARE PART OF THE CONTRACT, NOT OF THE HANDLER
+ * ---------------------------------------------------------------------------
+ *
+ * An ingestion endpoint that accepts an unbounded array is a disk-filler with an
+ * authentication check in front of it. Every collection and every string below
+ * is capped in the SCHEMA, so an oversized batch is refused by the transport
+ * before a handler sees it, and the cap is visible to the client author writing
+ * the batching sink rather than discoverable by exceeding it in production.
+ *
+ * The caps are deliberately generous against the spec's own client behaviour
+ * (flush every 5 s or 50 records) so a client that batches correctly never meets
+ * them: they exist to bound the worst case, not to shape the normal one.
+ */
+
+declare const logsSetLevelInput: z.ZodObject<{
+    /** `null` puts the matched clients back to their boot default. */
+    level: z.ZodNullable<z.ZodEnum<["error", "warn", "info", "debug", "trace"]>>;
+    /** How long the raise lasts. Absent leaves the duration to the client's own
+     *  default, which is the thing holding the timer. */
+    ttlMs: z.ZodOptional<z.ZodNumber>;
+    /** Absent means every connected client — see {@link logLevelTarget}. */
+    target: z.ZodOptional<z.ZodObject<{
+        /** The server-minted connection id (`c3`), as reported by a previous call. */
+        clientId: z.ZodOptional<z.ZodString>;
+        role: z.ZodOptional<z.ZodString>;
+        machineId: z.ZodOptional<z.ZodPipeline<z.ZodString, z.ZodBranded<z.ZodString, "MachineId">>>;
+    }, "strip", z.ZodTypeAny, {
+        machineId?: (string & z.BRAND<"MachineId">) | undefined;
+        role?: string | undefined;
+        clientId?: string | undefined;
+    }, {
+        machineId?: string | undefined;
+        role?: string | undefined;
+        clientId?: string | undefined;
+    }>>;
+}, "strip", z.ZodTypeAny, {
+    level: "error" | "warn" | "info" | "debug" | "trace" | null;
+    ttlMs?: number | undefined;
+    target?: {
+        machineId?: (string & z.BRAND<"MachineId">) | undefined;
+        role?: string | undefined;
+        clientId?: string | undefined;
+    } | undefined;
+}, {
+    level: "error" | "warn" | "info" | "debug" | "trace" | null;
+    ttlMs?: number | undefined;
+    target?: {
+        machineId?: string | undefined;
+        role?: string | undefined;
+        clientId?: string | undefined;
+    } | undefined;
+}>;
+declare const logsSetDaemonLevelInput: z.ZodObject<{
+    /** `null` puts the matched daemons back to their boot default AND stops them
+     *  forwarding. */
+    level: z.ZodNullable<z.ZodEnum<["error", "warn", "info", "debug", "trace"]>>;
+    /** How long the raise lasts. Absent leaves the duration to the daemon's own
+     *  default, which is the thing holding the timer. */
+    ttlMs: z.ZodOptional<z.ZodNumber>;
+    /** Absent means every daemon online right now — see {@link daemonLogLevelTarget}. */
+    target: z.ZodOptional<z.ZodObject<{
+        machineId: z.ZodOptional<z.ZodPipeline<z.ZodString, z.ZodBranded<z.ZodString, "MachineId">>>;
+    }, "strip", z.ZodTypeAny, {
+        machineId?: (string & z.BRAND<"MachineId">) | undefined;
+    }, {
+        machineId?: string | undefined;
+    }>>;
+}, "strip", z.ZodTypeAny, {
+    level: "error" | "warn" | "info" | "debug" | "trace" | null;
+    ttlMs?: number | undefined;
+    target?: {
+        machineId?: (string & z.BRAND<"MachineId">) | undefined;
+    } | undefined;
+}, {
+    level: "error" | "warn" | "info" | "debug" | "trace" | null;
+    ttlMs?: number | undefined;
+    target?: {
+        machineId?: string | undefined;
+    } | undefined;
+}>;
+type LogsSetLevelInput = z.infer<typeof logsSetLevelInput>;
+type LogsSetDaemonLevelInput = z.infer<typeof logsSetDaemonLevelInput>;
+
+/**
  * The blob, COMPOSED from the three classified halves (POD-418). Key order is
  * the historical one; every value is the model's schema instance.
  *
@@ -215,10 +328,10 @@ declare const PodiumSettings: z.ZodObject<{
             seedCliTheme: boolean;
             harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         }, {
+            harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
             model?: string | undefined;
             effort?: string | undefined;
             accountId?: string | undefined;
-            harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
             subagentModel?: string | undefined;
             startScreen?: "auto" | "native" | "chat" | undefined;
             seedCliTheme?: boolean | undefined;
@@ -234,10 +347,10 @@ declare const PodiumSettings: z.ZodObject<{
             accountId: string & z.BRAND<"AccountId">;
             harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         }, {
+            harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
             model?: string | undefined;
             effort?: string | undefined;
             accountId?: string | undefined;
-            harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         }>>;
         background: z.ZodDefault<z.ZodObject<{
             accountId: z.ZodDefault<z.ZodBranded<z.ZodString, "AccountId">>;
@@ -250,10 +363,10 @@ declare const PodiumSettings: z.ZodObject<{
             accountId: string & z.BRAND<"AccountId">;
             harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         }, {
+            harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
             model?: string | undefined;
             effort?: string | undefined;
             accountId?: string | undefined;
-            harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         }>>;
         shipwright: z.ZodDefault<z.ZodObject<{
             accountId: z.ZodDefault<z.ZodBranded<z.ZodString, "AccountId">>;
@@ -266,10 +379,10 @@ declare const PodiumSettings: z.ZodObject<{
             accountId: string & z.BRAND<"AccountId">;
             harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         }, {
+            harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
             model?: string | undefined;
             effort?: string | undefined;
             accountId?: string | undefined;
-            harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         }>>;
     }, "strip", z.ZodTypeAny, {
         superagent: {
@@ -301,31 +414,31 @@ declare const PodiumSettings: z.ZodObject<{
         };
     }, {
         superagent?: {
+            harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
             model?: string | undefined;
             effort?: string | undefined;
             accountId?: string | undefined;
-            harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         } | undefined;
         coding?: {
+            harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
             model?: string | undefined;
             effort?: string | undefined;
             accountId?: string | undefined;
-            harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
             subagentModel?: string | undefined;
             startScreen?: "auto" | "native" | "chat" | undefined;
             seedCliTheme?: boolean | undefined;
         } | undefined;
         background?: {
+            harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
             model?: string | undefined;
             effort?: string | undefined;
             accountId?: string | undefined;
-            harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         } | undefined;
         shipwright?: {
+            harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
             model?: string | undefined;
             effort?: string | undefined;
             accountId?: string | undefined;
-            harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         } | undefined;
     }>>;
     /** Provider API keys. Stored plaintext in the self-hosted SQLite — same trust
@@ -465,10 +578,10 @@ declare const PodiumSettings: z.ZodObject<{
         mode: z.ZodDefault<z.ZodEnum<["off", "propose", "auto"]>>;
         afterDays: z.ZodDefault<z.ZodNumber>;
     }, "strip", z.ZodTypeAny, {
-        mode: "off" | "auto" | "propose";
+        mode: "auto" | "off" | "propose";
         afterDays: number;
     }, {
-        mode?: "off" | "auto" | "propose" | undefined;
+        mode?: "auto" | "off" | "propose" | undefined;
         afterDays?: number | undefined;
     }>>;
     /** Whether this server mirrors daemon transcripts into its lake (PDM-26).
@@ -572,7 +685,7 @@ declare const PodiumSettings: z.ZodObject<{
     };
     experimental: Record<string, boolean>;
     worktreeGc: {
-        mode: "off" | "auto" | "propose";
+        mode: "auto" | "off" | "propose";
         afterDays: number;
     };
     transcripts: {
@@ -601,31 +714,31 @@ declare const PodiumSettings: z.ZodObject<{
     } | undefined;
     roles?: {
         superagent?: {
+            harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
             model?: string | undefined;
             effort?: string | undefined;
             accountId?: string | undefined;
-            harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         } | undefined;
         coding?: {
+            harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
             model?: string | undefined;
             effort?: string | undefined;
             accountId?: string | undefined;
-            harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
             subagentModel?: string | undefined;
             startScreen?: "auto" | "native" | "chat" | undefined;
             seedCliTheme?: boolean | undefined;
         } | undefined;
         background?: {
+            harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
             model?: string | undefined;
             effort?: string | undefined;
             accountId?: string | undefined;
-            harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         } | undefined;
         shipwright?: {
+            harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
             model?: string | undefined;
             effort?: string | undefined;
             accountId?: string | undefined;
-            harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         } | undefined;
     } | undefined;
     sidebar?: {
@@ -662,7 +775,7 @@ declare const PodiumSettings: z.ZodObject<{
     } | undefined;
     experimental?: Record<string, boolean> | undefined;
     worktreeGc?: {
-        mode?: "off" | "auto" | "propose" | undefined;
+        mode?: "auto" | "off" | "propose" | undefined;
         afterDays?: number | undefined;
     } | undefined;
     transcripts?: {
@@ -742,119 +855,6 @@ interface IssueArtifactContent {
     url: string;
     dataBase64: string;
 }
-
-/**
- * THE CLIENT-LOG FAMILY — `logs.forward · logs.crash · logs.setLevel`
- * ([spec:2026-08-11-logging-strategy-design]).
- *
- * Two ingestion writes and one operator command. The first two are a client
- * reporting itself; the third is the valve the whole design exists to open —
- * raising one running client so a problem on a user's machine can be diagnosed
- * without shipping them a new build. That asymmetry is why they sit at different
- * role floors, and each contract says so where it is declared.
- *
- * A client (web, desktop webview, mobile) keeps its own ring buffer and forwards
- * what matters to ITS OWN SERVER: `forward` is the routine batch, `crash` is the
- * one-shot "I died, here is the flight recorder". Both are server-side ingestion
- * with no client code in this chunk — these contracts are the shape chunks 4 and
- * 5 build their forwarding sinks against.
- *
- * ---------------------------------------------------------------------------
- * NO CONSENT GATE ON THIS HOP, AND THAT IS A DECISION WITH A REASON
- * ---------------------------------------------------------------------------
- *
- * Podium is self-hosted: the client's server is the USER'S OWN server, so
- * forwarding a log line to it discloses nothing to anybody — it moves the user's
- * data from one of their processes to another. The consent gate sits one hop
- * further out, where a scrubbed crash SIGNATURE may leave the installation
- * entirely (`telemetry.recordCrash`, the existing `crash` tier). The design spec
- * states this in "Client → server forwarding"; it is written here too because
- * this is the contract a reviewer reads when asking "why is there no consent
- * check on an endpoint that accepts logs".
- *
- * ---------------------------------------------------------------------------
- * BOUNDS ARE PART OF THE CONTRACT, NOT OF THE HANDLER
- * ---------------------------------------------------------------------------
- *
- * An ingestion endpoint that accepts an unbounded array is a disk-filler with an
- * authentication check in front of it. Every collection and every string below
- * is capped in the SCHEMA, so an oversized batch is refused by the transport
- * before a handler sees it, and the cap is visible to the client author writing
- * the batching sink rather than discoverable by exceeding it in production.
- *
- * The caps are deliberately generous against the spec's own client behaviour
- * (flush every 5 s or 50 records) so a client that batches correctly never meets
- * them: they exist to bound the worst case, not to shape the normal one.
- */
-
-declare const logsSetLevelInput: z.ZodObject<{
-    /** `null` puts the matched clients back to their boot default. */
-    level: z.ZodNullable<z.ZodEnum<["error", "warn", "info", "debug", "trace"]>>;
-    /** How long the raise lasts. Absent leaves the duration to the client's own
-     *  default, which is the thing holding the timer. */
-    ttlMs: z.ZodOptional<z.ZodNumber>;
-    /** Absent means every connected client — see {@link logLevelTarget}. */
-    target: z.ZodOptional<z.ZodObject<{
-        /** The server-minted connection id (`c3`), as reported by a previous call. */
-        clientId: z.ZodOptional<z.ZodString>;
-        role: z.ZodOptional<z.ZodString>;
-        machineId: z.ZodOptional<z.ZodPipeline<z.ZodString, z.ZodBranded<z.ZodString, "MachineId">>>;
-    }, "strip", z.ZodTypeAny, {
-        machineId?: (string & z.BRAND<"MachineId">) | undefined;
-        role?: string | undefined;
-        clientId?: string | undefined;
-    }, {
-        machineId?: string | undefined;
-        role?: string | undefined;
-        clientId?: string | undefined;
-    }>>;
-}, "strip", z.ZodTypeAny, {
-    level: "error" | "warn" | "info" | "debug" | "trace" | null;
-    ttlMs?: number | undefined;
-    target?: {
-        machineId?: (string & z.BRAND<"MachineId">) | undefined;
-        role?: string | undefined;
-        clientId?: string | undefined;
-    } | undefined;
-}, {
-    level: "error" | "warn" | "info" | "debug" | "trace" | null;
-    ttlMs?: number | undefined;
-    target?: {
-        machineId?: string | undefined;
-        role?: string | undefined;
-        clientId?: string | undefined;
-    } | undefined;
-}>;
-declare const logsSetDaemonLevelInput: z.ZodObject<{
-    /** `null` puts the matched daemons back to their boot default AND stops them
-     *  forwarding. */
-    level: z.ZodNullable<z.ZodEnum<["error", "warn", "info", "debug", "trace"]>>;
-    /** How long the raise lasts. Absent leaves the duration to the daemon's own
-     *  default, which is the thing holding the timer. */
-    ttlMs: z.ZodOptional<z.ZodNumber>;
-    /** Absent means every daemon online right now — see {@link daemonLogLevelTarget}. */
-    target: z.ZodOptional<z.ZodObject<{
-        machineId: z.ZodOptional<z.ZodPipeline<z.ZodString, z.ZodBranded<z.ZodString, "MachineId">>>;
-    }, "strip", z.ZodTypeAny, {
-        machineId?: (string & z.BRAND<"MachineId">) | undefined;
-    }, {
-        machineId?: string | undefined;
-    }>>;
-}, "strip", z.ZodTypeAny, {
-    level: "error" | "warn" | "info" | "debug" | "trace" | null;
-    ttlMs?: number | undefined;
-    target?: {
-        machineId?: (string & z.BRAND<"MachineId">) | undefined;
-    } | undefined;
-}, {
-    level: "error" | "warn" | "info" | "debug" | "trace" | null;
-    ttlMs?: number | undefined;
-    target?: {
-        machineId?: string | undefined;
-    } | undefined;
-}>;
-type LogsSetLevelInput = z.infer<typeof logsSetLevelInput>;
-type LogsSetDaemonLevelInput = z.infer<typeof logsSetDaemonLevelInput>;
 
 /**
  * The send vocabulary — the nouns every messages module and every caller of the
@@ -1596,6 +1596,29 @@ interface FeatureStateWire extends FeatureState {
     visibility: FeatureVisibility;
 }
 
+type Input_agentProfiles_create = {
+    candidates?: undefined | {
+        effort?: string | undefined;
+        harness: "claude-code" | "codex" | "cursor" | "grok" | "opencode" | "pi";
+        model?: string | undefined;
+    }[];
+    description?: string | undefined;
+    instructions?: string | undefined;
+    machine?: null | string | undefined;
+    name: string;
+};
+type Input_agentProfiles_update = {
+    candidates?: undefined | {
+        effort?: string | undefined;
+        harness: "claude-code" | "codex" | "cursor" | "grok" | "opencode" | "pi";
+        model?: string | undefined;
+    }[];
+    description?: string | undefined;
+    instructions?: string | undefined;
+    machine?: null | string | undefined;
+    name?: string | undefined;
+    ref: string;
+};
 type Input_automations_create = {
     agentKind: "claude-code" | "codex" | "cursor" | "grok" | "opencode" | "pi" | "shell";
     cron?: null | string | undefined;
@@ -1721,6 +1744,7 @@ type Input_issues_close = {
     reason?: string | undefined;
 };
 type Input_issues_create = {
+    agentProfile?: string | undefined;
     assignee?: string | undefined;
     audience?: "agent" | "human" | undefined;
     brief?: string | undefined;
@@ -1810,6 +1834,7 @@ type Input_issues_setPlacement = {
 };
 type Input_issues_start = {
     agentKind?: string | undefined;
+    agentProfile?: string | undefined;
     defaultEffort?: string | undefined;
     defaultModel?: string | undefined;
     forceUnknownModel?: boolean | undefined;
@@ -1838,6 +1863,7 @@ type Input_issues_update = {
     mutationId?: string | undefined;
     patch: {
         acceptance?: string | undefined;
+        agentProfile?: null | string | undefined;
         archived?: boolean | undefined;
         assignee?: string | undefined;
         brief?: string | undefined;
@@ -2174,6 +2200,7 @@ type Output_accounts_login = Pick<{
     accountId?: (string & z.BRAND<"AccountId">) | undefined;
     agentColor?: string | undefined;
     agentKind: "claude-code" | "codex" | "cursor" | "grok" | "opencode" | "pi" | "shell";
+    agentProfileId?: string | undefined;
     agentState?: undefined | {
         awaitingSubagents?: boolean | undefined;
         error?: undefined | {
@@ -2345,6 +2372,7 @@ type Output_accounts_login = Pick<{
     accountId?: (string & z.BRAND<"AccountId">) | undefined;
     agentColor?: string | undefined;
     agentKind: "claude-code" | "codex" | "cursor" | "grok" | "opencode" | "pi" | "shell";
+    agentProfileId?: string | undefined;
     agentState?: undefined | {
         awaitingSubagents?: boolean | undefined;
         error?: undefined | {
@@ -2517,6 +2545,38 @@ type Output_accounts_login = Pick<{
     machineName: _podium_model.MachineProjection["name"];
     status: NativeLoginAttemptStatus;
 };
+type Output_agentProfiles_create = {
+    candidates: {
+        effort: string;
+        harness: "claude-code" | "codex" | "cursor" | "grok" | "opencode" | "pi";
+        model: string;
+    }[];
+    createdAt: string;
+    description: string;
+    id: string;
+    instructions: string;
+    machineId: null | string;
+    name: string;
+    updatedAt: string;
+} & {
+    machineName: null | string;
+};
+type Output_agentProfiles_list = Array<{
+    candidates: {
+        effort: string;
+        harness: "claude-code" | "codex" | "cursor" | "grok" | "opencode" | "pi";
+        model: string;
+    }[];
+    createdAt: string;
+    description: string;
+    id: string;
+    instructions: string;
+    machineId: null | string;
+    name: string;
+    updatedAt: string;
+} & {
+    machineName: null | string;
+}>;
 type Output_auth_status = {
     canManageInstance: boolean;
     hasOwnCredential: boolean;
@@ -2808,6 +2868,7 @@ type Output_issues_action = {
     issue: _podium_model.IssueUserOverlay & Omit<{
         acceptance?: string | undefined;
         activityNotes?: string | undefined;
+        agentProfileId?: string | undefined;
         archived: boolean;
         asked?: undefined | {
             at?: string | undefined;
@@ -2944,6 +3005,7 @@ type Output_issues_action = {
     }, "asked" | "branch" | "createdBy" | "description" | "intentOrigin" | "isDraftVessel" | "lastLifecycleActor" | "owner" | "visibility" | "worktreePath"> & Omit<{
         acceptance?: string | undefined;
         activityNotes?: string | undefined;
+        agentProfileId?: string | undefined;
         archived: boolean;
         asked?: undefined | {
             at?: string | undefined;
@@ -3077,7 +3139,7 @@ type Output_issues_action = {
         updatedAt: string;
         visibility: "deployment-substrate" | "owned-compute" | "per-user-state" | "personal" | "secret";
         worktreePath?: string | undefined;
-    }, ("acceptance" | "activityNotes" | "asked" | "assignee" | "branch" | "brief" | "closedAt" | "closedReason" | "color" | "coordinatorSessionId" | "deferUntil" | "deletedAt" | "dependencyNote" | "dueAt" | "duplicateOf" | "estimateMin" | "lastLifecycleActor" | "linearId" | "linearIdentifier" | "linearUrl" | "machineId" | "notesUpdatedAt" | "panel" | "parentId" | "prUrl" | "repoId" | "revision" | "sortKey" | "startedBySession" | "suggestedReason" | "suggestedStage" | "supersededBy" | "worktreePath") | ("archived" | "audience" | "blockedByNotes" | "createdAt" | "createdBy" | "defaultAgent" | "defaultEffort" | "defaultModel" | "description" | "id" | "intentOrigin" | "isDraftVessel" | "labels" | "needsHuman" | "owner" | "parentBranch" | "priority" | "seq" | "stage" | "title" | "type" | "updatedAt" | "visibility")> & {
+    }, ("acceptance" | "activityNotes" | "agentProfileId" | "asked" | "assignee" | "branch" | "brief" | "closedAt" | "closedReason" | "color" | "coordinatorSessionId" | "deferUntil" | "deletedAt" | "dependencyNote" | "dueAt" | "duplicateOf" | "estimateMin" | "lastLifecycleActor" | "linearId" | "linearIdentifier" | "linearUrl" | "machineId" | "notesUpdatedAt" | "panel" | "parentId" | "prUrl" | "repoId" | "revision" | "sortKey" | "startedBySession" | "suggestedReason" | "suggestedStage" | "supersededBy" | "worktreePath") | ("archived" | "audience" | "blockedByNotes" | "createdAt" | "createdBy" | "defaultAgent" | "defaultEffort" | "defaultModel" | "description" | "id" | "intentOrigin" | "isDraftVessel" | "labels" | "needsHuman" | "owner" | "parentBranch" | "priority" | "seq" | "stage" | "title" | "type" | "updatedAt" | "visibility")> & {
         blocked: boolean;
         branch: null | string;
         childCount: number;
@@ -3106,6 +3168,7 @@ type Output_issues_action = {
 type Output_issues_addComment = _podium_model.IssueUserOverlay & Omit<{
     acceptance?: string | undefined;
     activityNotes?: string | undefined;
+    agentProfileId?: string | undefined;
     archived: boolean;
     asked?: undefined | {
         at?: string | undefined;
@@ -3242,6 +3305,7 @@ type Output_issues_addComment = _podium_model.IssueUserOverlay & Omit<{
 }, "asked" | "branch" | "createdBy" | "description" | "intentOrigin" | "isDraftVessel" | "lastLifecycleActor" | "owner" | "visibility" | "worktreePath"> & Omit<{
     acceptance?: string | undefined;
     activityNotes?: string | undefined;
+    agentProfileId?: string | undefined;
     archived: boolean;
     asked?: undefined | {
         at?: string | undefined;
@@ -3375,7 +3439,7 @@ type Output_issues_addComment = _podium_model.IssueUserOverlay & Omit<{
     updatedAt: string;
     visibility: "deployment-substrate" | "owned-compute" | "per-user-state" | "personal" | "secret";
     worktreePath?: string | undefined;
-}, ("acceptance" | "activityNotes" | "asked" | "assignee" | "branch" | "brief" | "closedAt" | "closedReason" | "color" | "coordinatorSessionId" | "deferUntil" | "deletedAt" | "dependencyNote" | "dueAt" | "duplicateOf" | "estimateMin" | "lastLifecycleActor" | "linearId" | "linearIdentifier" | "linearUrl" | "machineId" | "notesUpdatedAt" | "panel" | "parentId" | "prUrl" | "repoId" | "revision" | "sortKey" | "startedBySession" | "suggestedReason" | "suggestedStage" | "supersededBy" | "worktreePath") | ("archived" | "audience" | "blockedByNotes" | "createdAt" | "createdBy" | "defaultAgent" | "defaultEffort" | "defaultModel" | "description" | "id" | "intentOrigin" | "isDraftVessel" | "labels" | "needsHuman" | "owner" | "parentBranch" | "priority" | "seq" | "stage" | "title" | "type" | "updatedAt" | "visibility")> & {
+}, ("acceptance" | "activityNotes" | "agentProfileId" | "asked" | "assignee" | "branch" | "brief" | "closedAt" | "closedReason" | "color" | "coordinatorSessionId" | "deferUntil" | "deletedAt" | "dependencyNote" | "dueAt" | "duplicateOf" | "estimateMin" | "lastLifecycleActor" | "linearId" | "linearIdentifier" | "linearUrl" | "machineId" | "notesUpdatedAt" | "panel" | "parentId" | "prUrl" | "repoId" | "revision" | "sortKey" | "startedBySession" | "suggestedReason" | "suggestedStage" | "supersededBy" | "worktreePath") | ("archived" | "audience" | "blockedByNotes" | "createdAt" | "createdBy" | "defaultAgent" | "defaultEffort" | "defaultModel" | "description" | "id" | "intentOrigin" | "isDraftVessel" | "labels" | "needsHuman" | "owner" | "parentBranch" | "priority" | "seq" | "stage" | "title" | "type" | "updatedAt" | "visibility")> & {
     blocked: boolean;
     branch: null | string;
     childCount: number;
@@ -3403,6 +3467,7 @@ type Output_issues_answerQuestion = {
     issue: _podium_model.IssueUserOverlay & Omit<{
         acceptance?: string | undefined;
         activityNotes?: string | undefined;
+        agentProfileId?: string | undefined;
         archived: boolean;
         asked?: undefined | {
             at?: string | undefined;
@@ -3539,6 +3604,7 @@ type Output_issues_answerQuestion = {
     }, "asked" | "branch" | "createdBy" | "description" | "intentOrigin" | "isDraftVessel" | "lastLifecycleActor" | "owner" | "visibility" | "worktreePath"> & Omit<{
         acceptance?: string | undefined;
         activityNotes?: string | undefined;
+        agentProfileId?: string | undefined;
         archived: boolean;
         asked?: undefined | {
             at?: string | undefined;
@@ -3672,7 +3738,7 @@ type Output_issues_answerQuestion = {
         updatedAt: string;
         visibility: "deployment-substrate" | "owned-compute" | "per-user-state" | "personal" | "secret";
         worktreePath?: string | undefined;
-    }, ("acceptance" | "activityNotes" | "asked" | "assignee" | "branch" | "brief" | "closedAt" | "closedReason" | "color" | "coordinatorSessionId" | "deferUntil" | "deletedAt" | "dependencyNote" | "dueAt" | "duplicateOf" | "estimateMin" | "lastLifecycleActor" | "linearId" | "linearIdentifier" | "linearUrl" | "machineId" | "notesUpdatedAt" | "panel" | "parentId" | "prUrl" | "repoId" | "revision" | "sortKey" | "startedBySession" | "suggestedReason" | "suggestedStage" | "supersededBy" | "worktreePath") | ("archived" | "audience" | "blockedByNotes" | "createdAt" | "createdBy" | "defaultAgent" | "defaultEffort" | "defaultModel" | "description" | "id" | "intentOrigin" | "isDraftVessel" | "labels" | "needsHuman" | "owner" | "parentBranch" | "priority" | "seq" | "stage" | "title" | "type" | "updatedAt" | "visibility")> & {
+    }, ("acceptance" | "activityNotes" | "agentProfileId" | "asked" | "assignee" | "branch" | "brief" | "closedAt" | "closedReason" | "color" | "coordinatorSessionId" | "deferUntil" | "deletedAt" | "dependencyNote" | "dueAt" | "duplicateOf" | "estimateMin" | "lastLifecycleActor" | "linearId" | "linearIdentifier" | "linearUrl" | "machineId" | "notesUpdatedAt" | "panel" | "parentId" | "prUrl" | "repoId" | "revision" | "sortKey" | "startedBySession" | "suggestedReason" | "suggestedStage" | "supersededBy" | "worktreePath") | ("archived" | "audience" | "blockedByNotes" | "createdAt" | "createdBy" | "defaultAgent" | "defaultEffort" | "defaultModel" | "description" | "id" | "intentOrigin" | "isDraftVessel" | "labels" | "needsHuman" | "owner" | "parentBranch" | "priority" | "seq" | "stage" | "title" | "type" | "updatedAt" | "visibility")> & {
         blocked: boolean;
         branch: null | string;
         childCount: number;
@@ -3759,6 +3825,7 @@ type Output_issues_cancelShip = {
 type Output_issues_create = (_podium_model.IssueUserOverlay & Omit<{
     acceptance?: string | undefined;
     activityNotes?: string | undefined;
+    agentProfileId?: string | undefined;
     archived: boolean;
     asked?: undefined | {
         at?: string | undefined;
@@ -3893,9 +3960,10 @@ type Output_issues_create = (_podium_model.IssueUserOverlay & Omit<{
     visibility: "deployment-substrate" | "owned-compute" | "per-user-state" | "personal" | "secret";
     warning: string;
     worktreePath?: string | undefined;
-}, ("acceptance" | "activityNotes" | "asked" | "assignee" | "branch" | "brief" | "closedAt" | "closedReason" | "color" | "coordinatorSessionId" | "deferUntil" | "deletedAt" | "dependencyNote" | "dueAt" | "duplicateOf" | "estimateMin" | "lastLifecycleActor" | "linearId" | "linearIdentifier" | "linearUrl" | "machineId" | "notesUpdatedAt" | "panel" | "parentId" | "prUrl" | "repoId" | "revision" | "sortKey" | "startedBySession" | "suggestedReason" | "suggestedStage" | "supersededBy" | "worktreePath") | ("archived" | "audience" | "blockedByNotes" | "createdAt" | "createdBy" | "defaultAgent" | "defaultEffort" | "defaultModel" | "description" | "id" | "intentOrigin" | "isDraftVessel" | "labels" | "needsHuman" | "owner" | "parentBranch" | "priority" | "seq" | "stage" | "title" | "type" | "updatedAt" | "visibility")> & Omit<{
+}, ("acceptance" | "activityNotes" | "agentProfileId" | "asked" | "assignee" | "branch" | "brief" | "closedAt" | "closedReason" | "color" | "coordinatorSessionId" | "deferUntil" | "deletedAt" | "dependencyNote" | "dueAt" | "duplicateOf" | "estimateMin" | "lastLifecycleActor" | "linearId" | "linearIdentifier" | "linearUrl" | "machineId" | "notesUpdatedAt" | "panel" | "parentId" | "prUrl" | "repoId" | "revision" | "sortKey" | "startedBySession" | "suggestedReason" | "suggestedStage" | "supersededBy" | "worktreePath") | ("archived" | "audience" | "blockedByNotes" | "createdAt" | "createdBy" | "defaultAgent" | "defaultEffort" | "defaultModel" | "description" | "id" | "intentOrigin" | "isDraftVessel" | "labels" | "needsHuman" | "owner" | "parentBranch" | "priority" | "seq" | "stage" | "title" | "type" | "updatedAt" | "visibility")> & Omit<{
     acceptance?: string | undefined;
     activityNotes?: string | undefined;
+    agentProfileId?: string | undefined;
     archived: boolean;
     asked?: undefined | {
         at?: string | undefined;
@@ -4054,6 +4122,7 @@ type Output_issues_create = (_podium_model.IssueUserOverlay & Omit<{
 }) | (_podium_model.IssueUserOverlay & Omit<{
     acceptance?: string | undefined;
     activityNotes?: string | undefined;
+    agentProfileId?: string | undefined;
     archived: boolean;
     asked?: undefined | {
         at?: string | undefined;
@@ -4190,6 +4259,7 @@ type Output_issues_create = (_podium_model.IssueUserOverlay & Omit<{
 }, "asked" | "branch" | "createdBy" | "description" | "intentOrigin" | "isDraftVessel" | "lastLifecycleActor" | "owner" | "visibility" | "worktreePath"> & Omit<{
     acceptance?: string | undefined;
     activityNotes?: string | undefined;
+    agentProfileId?: string | undefined;
     archived: boolean;
     asked?: undefined | {
         at?: string | undefined;
@@ -4323,7 +4393,7 @@ type Output_issues_create = (_podium_model.IssueUserOverlay & Omit<{
     updatedAt: string;
     visibility: "deployment-substrate" | "owned-compute" | "per-user-state" | "personal" | "secret";
     worktreePath?: string | undefined;
-}, ("acceptance" | "activityNotes" | "asked" | "assignee" | "branch" | "brief" | "closedAt" | "closedReason" | "color" | "coordinatorSessionId" | "deferUntil" | "deletedAt" | "dependencyNote" | "dueAt" | "duplicateOf" | "estimateMin" | "lastLifecycleActor" | "linearId" | "linearIdentifier" | "linearUrl" | "machineId" | "notesUpdatedAt" | "panel" | "parentId" | "prUrl" | "repoId" | "revision" | "sortKey" | "startedBySession" | "suggestedReason" | "suggestedStage" | "supersededBy" | "worktreePath") | ("archived" | "audience" | "blockedByNotes" | "createdAt" | "createdBy" | "defaultAgent" | "defaultEffort" | "defaultModel" | "description" | "id" | "intentOrigin" | "isDraftVessel" | "labels" | "needsHuman" | "owner" | "parentBranch" | "priority" | "seq" | "stage" | "title" | "type" | "updatedAt" | "visibility")> & {
+}, ("acceptance" | "activityNotes" | "agentProfileId" | "asked" | "assignee" | "branch" | "brief" | "closedAt" | "closedReason" | "color" | "coordinatorSessionId" | "deferUntil" | "deletedAt" | "dependencyNote" | "dueAt" | "duplicateOf" | "estimateMin" | "lastLifecycleActor" | "linearId" | "linearIdentifier" | "linearUrl" | "machineId" | "notesUpdatedAt" | "panel" | "parentId" | "prUrl" | "repoId" | "revision" | "sortKey" | "startedBySession" | "suggestedReason" | "suggestedStage" | "supersededBy" | "worktreePath") | ("archived" | "audience" | "blockedByNotes" | "createdAt" | "createdBy" | "defaultAgent" | "defaultEffort" | "defaultModel" | "description" | "id" | "intentOrigin" | "isDraftVessel" | "labels" | "needsHuman" | "owner" | "parentBranch" | "priority" | "seq" | "stage" | "title" | "type" | "updatedAt" | "visibility")> & {
     blocked: boolean;
     branch: null | string;
     childCount: number;
@@ -4349,6 +4419,7 @@ type Output_issues_create = (_podium_model.IssueUserOverlay & Omit<{
 type Output_issues_get = (null) | ({
     acceptance?: string | undefined;
     activityNotes?: string | undefined;
+    agentProfileId?: string | undefined;
     archived: boolean;
     assignee?: (string & z.BRAND<"UserId">) | undefined;
     audience: "agent" | "human";
@@ -4434,6 +4505,7 @@ type Output_issues_get = (null) | ({
         accountId?: (string & z.BRAND<"AccountId">) | undefined;
         agentColor?: string | undefined;
         agentKind: "claude-code" | "codex" | "cursor" | "grok" | "opencode" | "pi" | "shell";
+        agentProfileId?: string | undefined;
         agentState?: undefined | {
             awaitingSubagents?: boolean | undefined;
             error?: undefined | {
@@ -4761,6 +4833,7 @@ type Output_issues_resolveShipHold = {
 type Output_issues_searchNormalized = Array<{
     acceptance?: string | undefined;
     activityNotes?: string | undefined;
+    agentProfileId?: string | undefined;
     archived: boolean;
     asked?: undefined | {
         at?: string | undefined;
@@ -5004,6 +5077,7 @@ type Output_issues_start = _podium_model.IssueUserOverlay & Omit<Partial<{
 }> & {
     acceptance?: string | undefined;
     activityNotes?: string | undefined;
+    agentProfileId?: string | undefined;
     archived: boolean;
     asked?: undefined | {
         at?: string | undefined;
@@ -5137,9 +5211,10 @@ type Output_issues_start = _podium_model.IssueUserOverlay & Omit<Partial<{
     updatedAt: string;
     visibility: "deployment-substrate" | "owned-compute" | "per-user-state" | "personal" | "secret";
     worktreePath?: string | undefined;
-}, ("acceptance" | "activityNotes" | "asked" | "assignee" | "branch" | "brief" | "closedAt" | "closedReason" | "color" | "coordinatorSessionId" | "deferUntil" | "deletedAt" | "dependencyNote" | "dueAt" | "duplicateOf" | "estimateMin" | "lastLifecycleActor" | "linearId" | "linearIdentifier" | "linearUrl" | "machineId" | "notesUpdatedAt" | "panel" | "parentId" | "prUrl" | "repoId" | "revision" | "sortKey" | "startedBySession" | "suggestedReason" | "suggestedStage" | "supersededBy" | "worktreePath") | ("archived" | "audience" | "blockedByNotes" | "createdAt" | "createdBy" | "defaultAgent" | "defaultEffort" | "defaultModel" | "description" | "id" | "intentOrigin" | "isDraftVessel" | "labels" | "needsHuman" | "owner" | "parentBranch" | "priority" | "seq" | "stage" | "title" | "type" | "updatedAt" | "visibility")> & Omit<{
+}, ("acceptance" | "activityNotes" | "agentProfileId" | "asked" | "assignee" | "branch" | "brief" | "closedAt" | "closedReason" | "color" | "coordinatorSessionId" | "deferUntil" | "deletedAt" | "dependencyNote" | "dueAt" | "duplicateOf" | "estimateMin" | "lastLifecycleActor" | "linearId" | "linearIdentifier" | "linearUrl" | "machineId" | "notesUpdatedAt" | "panel" | "parentId" | "prUrl" | "repoId" | "revision" | "sortKey" | "startedBySession" | "suggestedReason" | "suggestedStage" | "supersededBy" | "worktreePath") | ("archived" | "audience" | "blockedByNotes" | "createdAt" | "createdBy" | "defaultAgent" | "defaultEffort" | "defaultModel" | "description" | "id" | "intentOrigin" | "isDraftVessel" | "labels" | "needsHuman" | "owner" | "parentBranch" | "priority" | "seq" | "stage" | "title" | "type" | "updatedAt" | "visibility")> & Omit<{
     acceptance?: string | undefined;
     activityNotes?: string | undefined;
+    agentProfileId?: string | undefined;
     archived: boolean;
     asked?: undefined | {
         at?: string | undefined;
@@ -6192,6 +6267,65 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
                 machineId?: string | undefined;
             };
             output: Output_accounts_login;
+            meta: unknown;
+        }>;
+    };
+    "agentProfiles": {
+        "create": TRPC.TRPCMutationProcedure<{
+            input: Input_agentProfiles_create;
+            output: Output_agentProfiles_create;
+            meta: unknown;
+        }>;
+        "delete": TRPC.TRPCMutationProcedure<{
+            input: {
+                ref: string;
+            };
+            output: {
+                id: string;
+                name: string;
+            };
+            meta: unknown;
+        }>;
+        "export": TRPC.TRPCQueryProcedure<{
+            input: (undefined) | ({
+                ref?: string | undefined;
+            });
+            output: Array<{
+                name: string;
+                text: string;
+            }>;
+            meta: unknown;
+        }>;
+        "import": TRPC.TRPCMutationProcedure<{
+            input: {
+                files: {
+                    name?: string | undefined;
+                    text: string;
+                }[];
+            };
+            output: Array<{
+                action: "created" | "updated";
+                name: string;
+            }>;
+            meta: unknown;
+        }>;
+        "list": TRPC.TRPCQueryProcedure<{
+            input: (undefined) | ({
+                [k: string]: unknown;
+            } & {});
+            output: Output_agentProfiles_list;
+            meta: unknown;
+        }>;
+        "show": TRPC.TRPCQueryProcedure<{
+            input: {
+                ref: string;
+            };
+            output: Output_agentProfiles_create;
+            meta: unknown;
+        }>;
+        "update": TRPC.TRPCMutationProcedure<{
+            input: Input_agentProfiles_update;
+            output: Output_agentProfiles_create;
             meta: unknown;
         }>;
     };
