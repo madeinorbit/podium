@@ -712,7 +712,7 @@ const defs = {
             ? await ctx.reports.get(parent.id)
             : null
         const announced =
-          after?.coordinatorSessionId === actor
+          after && actor && after.coordinatorSessionId === actor
             ? { coordinator: becameCoordinatorText(await ctx.reports.niceRef(after)) }
             : {}
         if (audience === 'agent' && !(await ctx.hasHumanAudienceAncestor(created))) {
