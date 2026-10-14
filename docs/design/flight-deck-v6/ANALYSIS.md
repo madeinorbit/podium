@@ -143,3 +143,19 @@ Supporting changes:
 1. **`issue create --parent-id` from a plain `git worktree` fails** with `repoPath: Required`, although the help says the path is inferred from the cwd. Passing `--repo-path <main checkout>` works.
 2. **No way to say "deferred, decide at the end".** Every sub-issue starts in `backlog`, so a deferred one looks the same as a ready one. I had to write "Deferred:" into the description.
 3. **No "later" bucket in the deck design** to hold deferred sub-issues (a design question for Till).
+
+**D3 — Agent profiles, coordinator timing, labels (2026-10-14).**
+- **`agent_profile`:** a table, renamed from the unused `execution_profiles` (0 rows).
+  - Issues and sessions carry the agent fields plus an optional `agent_profile_id`. The effective values are the profile with the fields applied on top.
+  - The mechanism is abstracted so every caller resolves it the same way.
+  - A session records the values it actually started with, so editing a profile never rewrites history.
+  - CLI `--profile <name>`; the UI says "Agent profile".
+- **Coordinator:** set automatically when a session first creates a child under its *own* issue.
+  - It is announced in that command's output, in the session's `prime`, and in the issue history.
+  - `--claim` / `--set` / `--clear` remain for handovers.
+  - This replaces "the first agent to claim becomes coordinator".
+  - Every other session on the issue is labelled "helper". Any non-coordinator asks the nearest coordinator at or above its issue.
+- **Labels:** a normalized label entity (names unique ignoring case) with create-or-pick for humans.
+  - Agents may only apply existing labels (`--create-label` to add one), and `prime` lists them.
+  - No label groups for now.
+- **Stage model** (todo vs backlog, merging with proposed, categories): deferred → sub-issue.
