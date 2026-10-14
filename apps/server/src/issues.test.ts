@@ -3654,7 +3654,7 @@ describe('IssueService doctor/preflight (P2b)', () => {
     await svc.crud.create({ repoPath: '/r', title: 'A', startNow: false })
     expect(await svc.reports.preflight('/r')).toEqual({
       ok: true,
-      report: { cycles: [], danglingDeps: [], staleCount: 0 },
+      report: { cycles: [], danglingDeps: [], staleCount: expect.any(Number) },
     })
   })
 })

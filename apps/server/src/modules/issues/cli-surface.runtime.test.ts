@@ -36,6 +36,7 @@ import { ISSUE_COMMAND_NAMES, ISSUE_CONTRACTS } from '@podium/commands'
 import { ISSUE_COMMANDS } from '@podium/issue-client'
 import { afterAll, describe, expect, it } from 'vitest'
 
+import { IssueToolProvider } from '../../issue-mcp'
 import { SessionRegistry } from '../../relay'
 import { OPERATOR } from '../../test-support/capabilities'
 
@@ -75,6 +76,9 @@ describe('the real in-process client serves every cli/mcp-exposed contract', () 
     expect(issues.thisCommandHasNoContract).toBeUndefined()
     expect(issues.lint).toBeUndefined()
     expect(ISSUE_COMMANDS.some((command) => command.name === 'lint')).toBe(false)
+    const tools = new IssueToolProvider().mcpToolSpecs().map((tool) => tool.name)
+    expect(tools).not.toContain('issue_lint')
+    expect(tools).not.toContain('issue_searchNormalized')
     expect(Object.keys(issues).sort()).toEqual([...ISSUE_COMMAND_NAMES].sort())
     // And the specs/lock routers really are NOT served in-process — the historical
     // behaviour, asserted so "everything is reachable" cannot be read into this file.
@@ -86,7 +90,7 @@ describe('the real in-process client serves every cli/mcp-exposed contract', () 
   it('every cli/mcp-exposed contract has a live procedure on the real client', async () => {
     const client = (await fresh()).issueCommands.asIssueTrpc(OPERATOR)
     const issues = client.issues as unknown as Record<string, { query: unknown; mutate: unknown }>
-    expect(CLI_EXPOSED).toHaveLength(68)
+    expect(CLI_EXPOSED).toHaveLength(67)
     for (const name of CLI_EXPOSED) {
       expect(typeof issues[name]?.query, name).toBe('function')
       expect(typeof issues[name]?.mutate, name).toBe('function')

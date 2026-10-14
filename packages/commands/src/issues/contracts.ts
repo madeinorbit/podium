@@ -892,7 +892,12 @@ export const issueSearchContract = {
 } as const satisfies CommandContract
 
 /** Additive normalized search response; legacy clients keep issues.search. */
-export const issueSearchNormalizedContract = { ...issueSearchContract, name: 'issues.searchNormalized', conflict: 'n/a' } as const satisfies CommandContract
+export const issueSearchNormalizedContract = {
+  ...issueSearchContract,
+  name: 'issues.searchNormalized',
+  exposure: SERVED_ON_WIRE,
+  conflict: 'n/a',
+} as const satisfies CommandContract
 
 export const issueCountContract = {
   name: 'issues.count',
