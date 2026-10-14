@@ -428,6 +428,6 @@ describe('normalized dep emission [POD-797]', () => {
     const edges =
       after.kind === 'delta' ? after.changes.filter((change) => change.entity === 'issueDep') : []
     expect(edges.length - beforeCount).toBe(1)
-    expect(edges.at(-1)?.id).toBe('iss_1|iss_2|blocks')
+    expect(edges.at(-1)?.id).toBe('iss_1|iss_2|blocked-by')
   })
 })

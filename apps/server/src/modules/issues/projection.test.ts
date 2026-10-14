@@ -297,7 +297,7 @@ describe('issueDep projection [POD-822]', () => {
     const p = issueDepToProjection({ fromId: 'iss_1', toId: 'iss_2', type: 'blocked-by' })
     // The composed key — not a minted id. Re-adding the same edge produces a
     // byte-identical row the ledger dedups, so a no-op add appends nothing.
-    expect(p).toEqual({ id: 'iss_1|iss_2|blocks', fromId: 'iss_1', toId: 'iss_2', type: 'blocked-by' })
+    expect(p).toEqual({ id: 'iss_1|iss_2|blocked-by', fromId: 'iss_1', toId: 'iss_2', type: 'blocked-by' })
     expect(issueDepToProjection({ fromId: 'iss_1', toId: 'iss_2', type: 'blocked-by' })).toEqual(p)
   })
 
@@ -306,7 +306,7 @@ describe('issueDep projection [POD-822]', () => {
       { fromId: 'iss_1', toId: 'iss_2', type: 'blocked-by' },
       { fromId: 'iss_1', toId: 'iss_3', type: 'related' },
     ])
-    expect(rows?.map((r) => r.id)).toEqual(['iss_1|iss_2|blocks', 'iss_1|iss_3|related'])
+    expect(rows?.map((r) => r.id)).toEqual(['iss_1|iss_2|blocked-by', 'iss_1|iss_3|related'])
   })
 
   it('returns undefined — NOT a partial list — when an edge id cannot be composed', () => {
