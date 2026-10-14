@@ -18,6 +18,7 @@
  */
 
 import {
+  AgentProfileName,
   canonicalShippingDestination,
   DriverFamilyWire,
   InviteId,
@@ -71,6 +72,8 @@ export const SAMPLE_OVERRIDES = new Map<z.ZodTypeAny, SampleOverride>([
   [InviteId, () => 'inv_0ujtsYcgvSTl8PAuAdqWYSMnLOv'],
   // `msg_` + a UUID (POD-4763): the path-derived "MessageId" fails the regex.
   [MessageId, () => 'msg_0190f2a4-7c1e-7d3a-9b5e-2f6c8d4a1e70'],
+  // A lowercase slug (POD-6107): the path-derived "AgentProfileName" fails the regex.
+  [AgentProfileName, () => 'build'],
   // Closed isLayoutKey vocabulary (POD-1350 / POD-402). Path-derived samples
   // like "" / "entityId" / "key" fail the refine; pin the first exact key.
   [LayoutKeyField, () => FIXTURE_LAYOUT_KEY],

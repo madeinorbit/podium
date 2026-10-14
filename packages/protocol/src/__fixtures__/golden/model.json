@@ -659,22 +659,20 @@
     {
       "schema": "AgentProfileName",
       "variant": "minimal",
-      "wire": "",
+      "wire": "build",
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "",
-      "parseError": "<root>: a profile name is lowercase letters, digits and dashes (e.g. \"build\"), at most 63 characters"
+      "encoded": "\"build\""
     },
     {
       "schema": "AgentProfileName",
       "variant": "full",
-      "wire": "",
+      "wire": "build",
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "",
-      "parseError": "<root>: a profile name is lowercase letters, digits and dashes (e.g. \"build\"), at most 63 characters"
+      "encoded": "\"build\""
     },
     {
       "schema": "AgentProfileWire",
