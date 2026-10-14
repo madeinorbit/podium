@@ -1868,7 +1868,8 @@ export class IssueCrudModule {
     sessionId: SessionId | null,
     why: { cause: 'first-child'; childId: IssueId } | { cause: 'set' } = { cause: 'set' },
   ): Promise<IssueProjection> {
-    const before = this.store.rows.get(await this.store.resolveRef(id))?.coordinatorSessionId ?? null
+    const before =
+      this.store.rows.get(await this.store.resolveRef(id))?.coordinatorSessionId ?? null
     const wire = await this.update(id, { coordinatorSessionId: sessionId })
     if (before !== sessionId) {
       await this.store.emitEvent('issue.coordinator_set', wire.id, {

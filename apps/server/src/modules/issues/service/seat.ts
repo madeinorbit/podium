@@ -46,7 +46,11 @@ export async function resolveSeat(
   const own = issueId ? facts.row(issueId) : undefined
   const coordinates = own?.coordinatorSessionId === sessionId
   const seen = new Set<string>()
-  for (let row = own; row && !seen.has(row.id); row = row.parentId ? facts.row(row.parentId) : undefined) {
+  for (
+    let row = own;
+    row && !seen.has(row.id);
+    row = row.parentId ? facts.row(row.parentId) : undefined
+  ) {
     seen.add(row.id)
     const marker = row.coordinatorSessionId
     if (!marker || marker === sessionId) continue
@@ -54,7 +58,12 @@ export async function resolveSeat(
     return {
       kind: 'below',
       coordinates,
-      coordinator: { issueId: row.id, ref: await facts.ref(row), title: row.title, sessionId: marker },
+      coordinator: {
+        issueId: row.id,
+        ref: await facts.ref(row),
+        title: row.title,
+        sessionId: marker,
+      },
     }
   }
   return { kind: 'top', coordinates }

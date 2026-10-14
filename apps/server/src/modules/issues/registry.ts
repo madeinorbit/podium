@@ -1447,7 +1447,10 @@ const defs = {
     handler: async (ctx) => {
       const sessionId = ctx.caller.capability.actorSessionId
       if (!sessionId) {
-        throw new TRPCError({ code: 'BAD_REQUEST', message: 'seat is only answerable for a session' })
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'seat is only answerable for a session',
+        })
       }
       const scope = ctx.caller.capability.scope
       const seat = await ctx.reports.seatFor(
@@ -1457,9 +1460,7 @@ const defs = {
       return {
         ...seat,
         text: seatText(seat),
-        ...(seat.kind === 'below'
-          ? { askUserRefusal: seatRefusal(seat, 'Asking the user') }
-          : {}),
+        ...(seat.kind === 'below' ? { askUserRefusal: seatRefusal(seat, 'Asking the user') } : {}),
       }
     },
   }),

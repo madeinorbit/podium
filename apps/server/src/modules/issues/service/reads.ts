@@ -38,8 +38,8 @@ import { readResourceGrants } from '../../world-index/grant-reader'
 import { issueRowToProjection } from '../projection'
 import type { IssueStore } from './core'
 import { countContextAwarePendingMail } from './mail-pending'
-import { resolveSeat, type SessionSeat, seatText } from './seat'
 import { IssueNotFound } from './not-found'
+import { resolveSeat, type SessionSeat, seatText } from './seat'
 
 export type IssueCommandResult<T> = T extends
   | string
