@@ -12,6 +12,8 @@
  *     model's `resolveAgentSetup`; what is decided HERE is only which candidate
  *     is usable, because that is a machine fact.
  */
+
+import { randomUUID } from 'node:crypto'
 import {
   agentProfileCreateInput,
   agentProfileDeleteInput,
@@ -34,7 +36,6 @@ import {
   type SessionId,
   type UserId,
 } from '@podium/model'
-import { randomUUID } from 'node:crypto'
 import type { z } from 'zod'
 import type { AgentProfilesRepository } from '../../store/agent-profiles'
 
@@ -54,7 +55,11 @@ export interface AgentProfileDeps {
   /** Machines the caller may see, for `machine: <name>` in a profile. */
   listMachines(): Promise<NameableMachine[]>
   /** Throws when `agentKind` cannot run on the machine the placement would pick. */
-  requireRunnable(input: { machineId: MachineId | null; cwd: string; agentKind: string }): Promise<void>
+  requireRunnable(input: {
+    machineId: MachineId | null
+    cwd: string
+    agentKind: string
+  }): Promise<void>
   /** Instance role of a person; edits are admin-grade (matrix row `agent-profiles`). */
   roleOf(userId: UserId): Promise<string | undefined>
 }
@@ -87,7 +92,10 @@ export class AgentProfileService {
   /** By id or by name. */
   async find(ref: string): Promise<AgentProfileWire | null> {
     const trimmed = ref.trim()
-    return (await this.deps.store.get(trimmed)) ?? (await this.deps.store.getByName(trimmed.toLowerCase()))
+    return (
+      (await this.deps.store.get(trimmed)) ??
+      (await this.deps.store.getByName(trimmed.toLowerCase()))
+    )
   }
 
   async show(ref: string): Promise<AgentProfileView> {
@@ -114,11 +122,16 @@ export class AgentProfileService {
   // Writes — people only
   // -------------------------------------------------------------------------
 
-  async create(caller: AgentProfileCaller, raw: z.input<typeof agentProfileCreateInput>): Promise<AgentProfileView> {
+  async create(
+    caller: AgentProfileCaller,
+    raw: z.input<typeof agentProfileCreateInput>,
+  ): Promise<AgentProfileView> {
     await this.requirePerson(caller)
     const input = agentProfileCreateInput.parse(raw)
     if (await this.deps.store.getByName(input.name)) {
-      throw new AgentProfileRefusal(`a profile named '${input.name}' already exists — use \`podium profile update ${input.name}\``)
+      throw new AgentProfileRefusal(
+        `a profile named '${input.name}' already exists — use \`podium profile update ${input.name}\``,
+      )
     }
     const created = await this.deps.store.insert({
       id: `agp_${randomUUID()}`,
@@ -133,7 +146,10 @@ export class AgentProfileService {
     return this.view(created, await this.machineNames())
   }
 
-  async update(caller: AgentProfileCaller, raw: z.input<typeof agentProfileUpdateInput>): Promise<AgentProfileView> {
+  async update(
+    caller: AgentProfileCaller,
+    raw: z.input<typeof agentProfileUpdateInput>,
+  ): Promise<AgentProfileView> {
     await this.requirePerson(caller)
     const input = agentProfileUpdateInput.parse(raw)
     const current = await this.require(input.ref)
@@ -148,20 +164,30 @@ export class AgentProfileService {
       name: input.name ?? current.name,
       description: input.description ?? current.description,
       candidates: input.candidates ?? current.candidates,
-      machineId: input.machine === undefined ? (current.machineId as MachineId | null) : await this.machineIdFor(input.machine),
-      instructions: input.instructions === undefined ? current.instructions : input.instructions.trim(),
+      machineId:
+        input.machine === undefined
+          ? (current.machineId as MachineId | null)
+          : await this.machineIdFor(input.machine),
+      instructions:
+        input.instructions === undefined ? current.instructions : input.instructions.trim(),
       actor: actorOf(caller),
       now: this.deps.now(),
     })
     return await this.show(current.id)
   }
 
-  async delete(caller: AgentProfileCaller, raw: z.input<typeof agentProfileDeleteInput>): Promise<{ id: string; name: string }> {
+  async delete(
+    caller: AgentProfileCaller,
+    raw: z.input<typeof agentProfileDeleteInput>,
+  ): Promise<{ id: string; name: string }> {
     await this.requirePerson(caller)
     const current = await this.require(agentProfileDeleteInput.parse(raw).ref)
     const using = await this.deps.store.openIssueSeqsUsing(current.id)
     if (using.length > 0) {
-      const shown = using.slice(0, 10).map((seq) => `#${seq}`).join(', ')
+      const shown = using
+        .slice(0, 10)
+        .map((seq) => `#${seq}`)
+        .join(', ')
       throw new AgentProfileRefusal(
         `profile '${current.name}' is used by ${using.length} open issue(s) (${shown}${using.length > 10 ? ', …' : ''}) — ` +
           'move them to another profile first (`podium issue update <id> --profile <name>`, or `--profile none`)',
@@ -191,7 +217,8 @@ export class AgentProfileService {
     })
     const seen = new Set<string>()
     for (const doc of docs) {
-      if (seen.has(doc.name)) throw new AgentProfileRefusal(`two files define the profile '${doc.name}'`)
+      if (seen.has(doc.name))
+        throw new AgentProfileRefusal(`two files define the profile '${doc.name}'`)
       seen.add(doc.name)
     }
     const results: Array<{ name: string; action: 'created' | 'updated' }> = []
@@ -238,7 +265,11 @@ export class AgentProfileService {
         ? await pickAgentCandidate(setup.candidates, async (candidate) => {
             if (!isAgentFieldSet(candidate.harness)) return true
             try {
-              await this.deps.requireRunnable({ machineId, cwd: input.cwd, agentKind: candidate.harness })
+              await this.deps.requireRunnable({
+                machineId,
+                cwd: input.cwd,
+                agentKind: candidate.harness,
+              })
               return true
             } catch {
               return false
@@ -267,7 +298,9 @@ export class AgentProfileService {
     const found = await this.find(ref)
     if (!found) {
       const names = (await this.deps.store.list()).map((p) => p.name).join(', ')
-      throw new AgentProfileRefusal(`no agent profile '${ref}'${names ? ` (profiles: ${names})` : ''} — see \`podium profile list\``)
+      throw new AgentProfileRefusal(
+        `no agent profile '${ref}'${names ? ` (profiles: ${names})` : ''} — see \`podium profile list\``,
+      )
     }
     return found
   }
@@ -289,7 +322,9 @@ export class AgentProfileService {
     const match = machineByRef(machines, ref)
     if (!match) {
       const known = machines.map((m) => m.name).join(', ')
-      throw new AgentProfileRefusal(`no visible machine named '${ref}'${known ? ` (visible: ${known})` : ''}`)
+      throw new AgentProfileRefusal(
+        `no visible machine named '${ref}'${known ? ` (visible: ${known})` : ''}`,
+      )
     }
     return asMachineId(match.id)
   }
@@ -303,7 +338,10 @@ export class AgentProfileService {
   }
 
   private view(profile: AgentProfileWire, names: Map<string, string>): AgentProfileView {
-    return { ...profile, machineName: profile.machineId ? (names.get(profile.machineId) ?? null) : null }
+    return {
+      ...profile,
+      machineName: profile.machineId ? (names.get(profile.machineId) ?? null) : null,
+    }
   }
 }
 

@@ -13,7 +13,11 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { basename, join, resolve } from 'node:path'
 import { makeRelayIssueClient } from '@podium/issue-client'
-import { type AgentCandidate, AgentCandidate as AgentCandidateSchema, formatAgentCandidates } from '@podium/model'
+import {
+  type AgentCandidate,
+  AgentCandidate as AgentCandidateSchema,
+  formatAgentCandidates,
+} from '@podium/model'
 import { localServerUrl, resolveAgentRelay, resolvePort } from '@podium/runtime/config'
 import { makeOperatorIssueClient } from './operator-client'
 
@@ -23,7 +27,10 @@ type Proc = {
 }
 
 export interface ProfileClient {
-  agentProfiles: Record<'list' | 'show' | 'export' | 'create' | 'update' | 'delete' | 'import', Proc>
+  agentProfiles: Record<
+    'list' | 'show' | 'export' | 'create' | 'update' | 'delete' | 'import',
+    Proc
+  >
 }
 
 export interface ProfileFs {
@@ -105,12 +112,22 @@ export function parseCandidate(raw: string): AgentCandidate {
     ...(effort ? { effort } : {}),
   })
   if (!parsed.success) {
-    throw new ProfileCliError(`--candidate '${raw}': ${parsed.error.issues[0]?.message ?? 'invalid'}`)
+    throw new ProfileCliError(
+      `--candidate '${raw}': ${parsed.error.issues[0]?.message ?? 'invalid'}`,
+    )
   }
   return parsed.data
 }
 
-const VALUE_FLAGS = new Set(['description', 'candidate', 'machine', 'instructions', 'instructions-file', 'name', 'dir'])
+const VALUE_FLAGS = new Set([
+  'description',
+  'candidate',
+  'machine',
+  'instructions',
+  'instructions-file',
+  'name',
+  'dir',
+])
 const BOOL_FLAGS = new Set(['json'])
 
 interface ParsedArgs {
@@ -137,7 +154,8 @@ function parseArgs(argv: string[]): ParsedArgs {
       json = true
       continue
     }
-    if (!VALUE_FLAGS.has(key)) throw new ProfileCliError(`unknown flag --${key} (see \`podium profile --help\`)`)
+    if (!VALUE_FLAGS.has(key))
+      throw new ProfileCliError(`unknown flag --${key} (see \`podium profile --help\`)`)
     const value = eq === -1 ? rest[++i] : arg.slice(eq + 1)
     if (value === undefined) throw new ProfileCliError(`--${key} needs a value`)
     flags.set(key, [...(flags.get(key) ?? []), value])
@@ -174,7 +192,8 @@ function fieldsFrom(args: ParsedArgs, fs: ProfileFs, cwd: string): Record<string
     throw new ProfileCliError('pass --instructions or --instructions-file, not both')
   }
   if (instructions !== undefined) fields.instructions = instructions
-  if (instructionsFile !== undefined) fields.instructions = fs.readText(resolve(cwd, instructionsFile))
+  if (instructionsFile !== undefined)
+    fields.instructions = fs.readText(resolve(cwd, instructionsFile))
   return fields
 }
 
@@ -187,7 +206,8 @@ function requireName(args: ParsedArgs): string {
 
 function renderLine(p: ProfileView): string {
   const machine = p.machineId ? ` @${p.machineName ?? p.machineId}` : ''
-  const candidates = p.candidates.length > 0 ? formatAgentCandidates(p.candidates) : 'auto (Settings default)'
+  const candidates =
+    p.candidates.length > 0 ? formatAgentCandidates(p.candidates) : 'auto (Settings default)'
   const instructions = p.instructions ? '' : ' (no instructions)'
   return `${p.name.padEnd(12)} ${candidates}${machine}${instructions}${p.description ? `\n${' '.repeat(13)}${p.description}` : ''}`
 }
@@ -216,14 +236,19 @@ export async function runProfileCli(
   const fs = deps.fs ?? nodeFs
   const api = deps.client.agentProfiles
   const args = parseArgs(argv)
-  const out = (data: unknown, text: string): string => (args.json ? JSON.stringify({ ok: true, data }) : text)
+  const out = (data: unknown, text: string): string =>
+    args.json ? JSON.stringify({ ok: true, data }) : text
 
   switch (args.command) {
     case 'list': {
       allowOnly(args, [])
-      if (args.positionals.length > 0) throw new ProfileCliError(`unexpected argument '${args.positionals[0]}'`)
+      if (args.positionals.length > 0)
+        throw new ProfileCliError(`unexpected argument '${args.positionals[0]}'`)
       const profiles = (await api.list.query({})) as ProfileView[]
-      return out(profiles, profiles.length > 0 ? profiles.map(renderLine).join('\n') : 'no agent profiles')
+      return out(
+        profiles,
+        profiles.length > 0 ? profiles.map(renderLine).join('\n') : 'no agent profiles',
+      )
     }
     case 'show': {
       allowOnly(args, [])
@@ -239,14 +264,26 @@ export async function runProfileCli(
       return out(profile, `created profile ${renderLine(profile)}`)
     }
     case 'update': {
-      allowOnly(args, ['description', 'candidate', 'machine', 'instructions', 'instructions-file', 'name'])
+      allowOnly(args, [
+        'description',
+        'candidate',
+        'machine',
+        'instructions',
+        'instructions-file',
+        'name',
+      ])
       const fields = fieldsFrom(args, fs, deps.cwd)
       const rename = one(args, 'name')
       if (rename !== undefined) fields.name = rename
       if (Object.keys(fields).length === 0) {
-        throw new ProfileCliError('update: no fields given — nothing changed (see `podium profile --help`)')
+        throw new ProfileCliError(
+          'update: no fields given — nothing changed (see `podium profile --help`)',
+        )
       }
-      const profile = (await api.update.mutate({ ref: requireName(args), ...fields })) as ProfileView
+      const profile = (await api.update.mutate({
+        ref: requireName(args),
+        ...fields,
+      })) as ProfileView
       return out(profile, `updated profile ${renderLine(profile)}`)
     }
     case 'delete': {
@@ -261,7 +298,8 @@ export async function runProfileCli(
         const full = resolve(deps.cwd, source)
         const listed = fs.listMarkdown(full)
         if (listed) return listed
-        if (!full.endsWith('.md')) throw new ProfileCliError(`${source} is neither a directory nor a .md file`)
+        if (!full.endsWith('.md'))
+          throw new ProfileCliError(`${source} is neither a directory nor a .md file`)
         return [full]
       })
       if (paths.length === 0) throw new ProfileCliError(`no .md files in ${sources.join(', ')}`)
@@ -272,9 +310,13 @@ export async function runProfileCli(
     }
     case 'export': {
       allowOnly(args, ['dir'])
-      if (args.positionals.length > 1) throw new ProfileCliError(`unexpected argument '${args.positionals[1]}'`)
+      if (args.positionals.length > 1)
+        throw new ProfileCliError(`unexpected argument '${args.positionals[1]}'`)
       const ref = args.positionals[0]
-      const files = (await api.export.query(ref ? { ref } : {})) as Array<{ name: string; text: string }>
+      const files = (await api.export.query(ref ? { ref } : {})) as Array<{
+        name: string
+        text: string
+      }>
       const dir = resolve(deps.cwd, one(args, 'dir') ?? DEFAULT_AGENTS_DIR)
       fs.ensureDir(dir)
       const written = files.map((file) => {
@@ -282,7 +324,10 @@ export async function runProfileCli(
         fs.writeText(path, file.text)
         return path
       })
-      return out(written, written.length > 0 ? written.map((p) => `wrote ${p}`).join('\n') : 'no agent profiles')
+      return out(
+        written,
+        written.length > 0 ? written.map((p) => `wrote ${p}`).join('\n') : 'no agent profiles',
+      )
     }
     default:
       throw new ProfileCliError(`unknown command '${args.command}' (see \`podium profile --help\`)`)

@@ -3,7 +3,12 @@
  * (who may write, name and candidate validation, refusing a delete in use) are
  * `AgentProfileService`'s.
  */
-import { AgentCandidates, type AgentProfileWire, isIssueClosed, type MachineId } from '@podium/model'
+import {
+  AgentCandidates,
+  type AgentProfileWire,
+  isIssueClosed,
+  type MachineId,
+} from '@podium/model'
 import { and, eq, isNull, sql } from 'drizzle-orm'
 import { agentProfiles, issues } from '../migrations/schema'
 import type { StoreDrizzle, StoreQueries } from './executor/sync-drizzle'
@@ -51,7 +56,9 @@ export class AgentProfilesRepository {
   }
 
   async list(): Promise<AgentProfileWire[]> {
-    return (await this.db.select().from(agentProfiles).orderBy(agentProfiles.name).all()).map(toProfile)
+    return (await this.db.select().from(agentProfiles).orderBy(agentProfiles.name).all()).map(
+      toProfile,
+    )
   }
 
   async get(id: string): Promise<AgentProfileWire | null> {
@@ -68,7 +75,9 @@ export class AgentProfilesRepository {
     return row ? toProfile(row) : null
   }
 
-  async insert(input: AgentProfileRowInput & { actor: string; now: string }): Promise<AgentProfileWire> {
+  async insert(
+    input: AgentProfileRowInput & { actor: string; now: string },
+  ): Promise<AgentProfileWire> {
     await this.db
       .insert(agentProfiles)
       .values({

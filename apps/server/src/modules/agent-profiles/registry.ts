@@ -27,33 +27,48 @@ export type AgentProfileHandler<In, Out> = (state: AgentProfileState, input: In)
 
 export interface AgentProfileCommand {
   readonly contract: AnyCommandContract
-  // biome-ignore lint/suspicious/noExplicitAny: heterogeneous table; each entry's
-  // input type is pinned by its own contract through the `satisfies` below.
+  // Heterogeneous table: each entry's input type is pinned by its own contract
+  // through the `satisfies` below.
+  // biome-ignore lint/suspicious/noExplicitAny: see above
   readonly handler: AgentProfileHandler<any, unknown>
 }
 
-type InputOf<N extends AgentProfileContractName> = z.infer<(typeof AGENT_PROFILE_CONTRACTS)[N]['input']>
+type InputOf<N extends AgentProfileContractName> = z.infer<
+  (typeof AGENT_PROFILE_CONTRACTS)[N]['input']
+>
 
 export const AGENT_PROFILE_COMMANDS_TRPC = {
   create: {
     contract: AGENT_PROFILE_CONTRACTS.create,
     handler: (async (state, input) =>
-      await state.profiles.create(state.caller, input)) satisfies AgentProfileHandler<InputOf<'create'>, unknown>,
+      await state.profiles.create(state.caller, input)) satisfies AgentProfileHandler<
+      InputOf<'create'>,
+      unknown
+    >,
   },
   update: {
     contract: AGENT_PROFILE_CONTRACTS.update,
     handler: (async (state, input) =>
-      await state.profiles.update(state.caller, input)) satisfies AgentProfileHandler<InputOf<'update'>, unknown>,
+      await state.profiles.update(state.caller, input)) satisfies AgentProfileHandler<
+      InputOf<'update'>,
+      unknown
+    >,
   },
   delete: {
     contract: AGENT_PROFILE_CONTRACTS.delete,
     handler: (async (state, input) =>
-      await state.profiles.delete(state.caller, input)) satisfies AgentProfileHandler<InputOf<'delete'>, unknown>,
+      await state.profiles.delete(state.caller, input)) satisfies AgentProfileHandler<
+      InputOf<'delete'>,
+      unknown
+    >,
   },
   import: {
     contract: AGENT_PROFILE_CONTRACTS.import,
     handler: (async (state, input) =>
-      await state.profiles.import(state.caller, input)) satisfies AgentProfileHandler<InputOf<'import'>, unknown>,
+      await state.profiles.import(state.caller, input)) satisfies AgentProfileHandler<
+      InputOf<'import'>,
+      unknown
+    >,
   },
 } as const satisfies Record<AgentProfileContractName, AgentProfileCommand>
 

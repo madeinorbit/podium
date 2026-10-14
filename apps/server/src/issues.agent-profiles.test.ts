@@ -32,7 +32,11 @@ async function harness() {
     ...sessionReadPorts(() => []),
     getSettings: async () =>
       normalizeSettings({
-        gitWorkflow: { defaultParentBranch: '', mergeStyle: 'ff-only', autoRebaseBeforeMerge: true },
+        gitWorkflow: {
+          defaultParentBranch: '',
+          mergeStyle: 'ff-only',
+          autoRebaseBeforeMerge: true,
+        },
         sessionDefaults: { agent: 'claude-code' },
       }),
     spawnSession,
@@ -52,8 +56,17 @@ describe('issues with agent profiles', () => {
   it('create --profile stores the profile and leaves the agent pick to it', async () => {
     const { svc, agentProfiles } = await harness()
     const build = await agentProfiles.show('build')
-    const issue = await svc.crud.create({ repoPath: '/r', title: 'Built', startNow: false, agentProfile: 'build' })
-    expect(issue).toMatchObject({ agentProfileId: build.id, defaultAgent: 'auto', defaultModel: 'auto' })
+    const issue = await svc.crud.create({
+      repoPath: '/r',
+      title: 'Built',
+      startNow: false,
+      agentProfile: 'build',
+    })
+    expect(issue).toMatchObject({
+      agentProfileId: build.id,
+      defaultAgent: 'auto',
+      defaultModel: 'auto',
+    })
     // Without a profile the Settings default is frozen in, as before.
     const plain = await svc.crud.create({ repoPath: '/r', title: 'Plain', startNow: false })
     expect(plain).toMatchObject({ defaultAgent: 'claude-code' })
@@ -99,7 +112,11 @@ describe('issues with agent profiles', () => {
     const started = await svc.gitWorkflow.start(issue.id, undefined, { agentProfile: 'review' })
     // `review` prefers codex, which is not installed here.
     expect(spawnSession).toHaveBeenCalledWith(
-      expect.objectContaining({ agentKind: 'claude-code', agentProfileId: review.id, issueId: issue.id }),
+      expect.objectContaining({
+        agentKind: 'claude-code',
+        agentProfileId: review.id,
+        issueId: issue.id,
+      }),
     )
     expect(started).toMatchObject({ agentProfileId: review.id, assignee: 'agent:claude-code' })
   })

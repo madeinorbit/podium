@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   DEFAULT_AGENTS_DIR,
-  type ProfileClient,
   ProfileCliError,
+  type ProfileClient,
   type ProfileFs,
   parseCandidate,
   runProfileCli,
@@ -43,7 +43,10 @@ function fakeClient() {
       update: proc('update', (input) => ({ ...BUILD, ...(input as object) })),
       delete: proc('delete', () => ({ id: BUILD.id, name: 'build' })),
       import: proc('import', (input) =>
-        (input as { files: Array<{ name: string }> }).files.map((f) => ({ name: f.name, action: 'created' })),
+        (input as { files: Array<{ name: string }> }).files.map((f) => ({
+          name: f.name,
+          action: 'created',
+        })),
       ),
     },
   }
@@ -113,9 +116,14 @@ describe('podium profile', () => {
 
   it('update sends only the named fields; --machine none clears; an empty update is refused', async () => {
     const { client, calls } = fakeClient()
-    await runProfileCli(['update', 'build', '--machine', 'none', '--name', 'make'], { client, cwd: '/r' })
+    await runProfileCli(['update', 'build', '--machine', 'none', '--name', 'make'], {
+      client,
+      cwd: '/r',
+    })
     expect(calls).toEqual([['update', { ref: 'build', machine: null, name: 'make' }]])
-    await expect(runProfileCli(['update', 'build'], { client, cwd: '/r' })).rejects.toThrow(/no fields given/)
+    await expect(runProfileCli(['update', 'build'], { client, cwd: '/r' })).rejects.toThrow(
+      /no fields given/,
+    )
   })
 
   it('imports every .md in .podium/agents by default, naming each by its file', async () => {
@@ -127,7 +135,12 @@ describe('podium profile', () => {
     const text = await runProfileCli(['import'], { client, cwd: '/repo', fs })
     expect(calls[0]).toEqual([
       'import',
-      { files: [{ name: 'a', text: 'A' }, { name: 'b', text: 'B' }] },
+      {
+        files: [
+          { name: 'a', text: 'A' },
+          { name: 'b', text: 'B' },
+        ],
+      },
     ])
     expect(text).toBe('created a\ncreated b')
   })
@@ -135,17 +148,23 @@ describe('podium profile', () => {
   it('exports into <dir>/<name>.md', async () => {
     const { client } = fakeClient()
     const { fs, written } = fakeFs({})
-    const text = await runProfileCli(['export', 'build', '--dir', 'out'], { client, cwd: '/repo', fs })
+    const text = await runProfileCli(['export', 'build', '--dir', 'out'], {
+      client,
+      cwd: '/repo',
+      fs,
+    })
     expect(written).toEqual({ '/repo/out/build.md': '---\nname: build\n---\n' })
     expect(text).toBe('wrote /repo/out/build.md')
   })
 
   it('refuses unknown flags, flags that do not apply, and bad candidates', async () => {
     const { client } = fakeClient()
-    await expect(runProfileCli(['list', '--bogus', 'x'], { client, cwd: '/r' })).rejects.toThrow(/unknown flag --bogus/)
-    await expect(runProfileCli(['delete', 'build', '--machine', 'x'], { client, cwd: '/r' })).rejects.toThrow(
-      /does not apply/,
+    await expect(runProfileCli(['list', '--bogus', 'x'], { client, cwd: '/r' })).rejects.toThrow(
+      /unknown flag --bogus/,
     )
+    await expect(
+      runProfileCli(['delete', 'build', '--machine', 'x'], { client, cwd: '/r' }),
+    ).rejects.toThrow(/does not apply/)
     expect(() => parseCandidate('vim/x')).toThrow(ProfileCliError)
     expect(() => parseCandidate('codex/a/b/c')).toThrow(/harness/)
   })

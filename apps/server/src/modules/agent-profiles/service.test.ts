@@ -67,7 +67,12 @@ describe('agent profiles', () => {
     })
     expect(created).toMatchObject({ name: 'docs', machineId: 'm-flat', machineName: 'flatblock' })
     const updated = await service.update(person, { ref: 'docs', name: 'writing', machine: null })
-    expect(updated).toMatchObject({ id: created.id, name: 'writing', machineId: null, description: 'Writes docs' })
+    expect(updated).toMatchObject({
+      id: created.id,
+      name: 'writing',
+      machineId: null,
+      description: 'Writes docs',
+    })
     await expect(service.create(person, { name: 'writing' })).rejects.toThrow(/already exists/)
     await expect(service.update(person, { ref: 'writing', machine: 'nowhere' })).rejects.toThrow(
       /no visible machine named 'nowhere'/,
@@ -92,7 +97,9 @@ describe('agent profiles', () => {
   it('refuses to delete a profile an open issue uses, and allows it once the issue is closed', async () => {
     const build = await service.show('build')
     insertIssue(7, build.id)
-    await expect(service.delete(person, { ref: 'build' })).rejects.toThrow(/used by 1 open issue\(s\) \(#7\)/)
+    await expect(service.delete(person, { ref: 'build' })).rejects.toThrow(
+      /used by 1 open issue\(s\) \(#7\)/,
+    )
     db.prepare(`UPDATE issues SET stage = 'done' WHERE seq = 7`).run()
     await expect(service.delete(person, { ref: 'build' })).resolves.toMatchObject({ name: 'build' })
     expect(await service.find('build')).toBeNull()
@@ -105,7 +112,10 @@ describe('agent profiles', () => {
     const results = await service.import(person, {
       files: [
         { name: 'qa', text: edited },
-        { name: 'triage', text: '---\ndescription: Sorts new issues\nmodel: auto\n---\nSort them.' },
+        {
+          name: 'triage',
+          text: '---\ndescription: Sorts new issues\nmodel: auto\n---\nSort them.',
+        },
       ],
     })
     expect(results).toEqual([
@@ -145,7 +155,11 @@ describe('agent profiles', () => {
       expect(probes).toEqual(['codex', 'claude-code'])
 
       probes = []
-      const pinned = await service.launch({ profileId: review.id, fields: { agent: 'codex' }, cwd: '/repo' })
+      const pinned = await service.launch({
+        profileId: review.id,
+        fields: { agent: 'codex' },
+        cwd: '/repo',
+      })
       expect(pinned.agentKind).toBe('codex')
       expect(probes).toEqual([])
     })
@@ -157,9 +171,23 @@ describe('agent profiles', () => {
         fields: { model: 'opus', effort: 'max', machineId: 'm-issue' as MachineId },
         cwd: '/repo',
       })
-      expect(launch).toMatchObject({ agentKind: 'claude-code', model: 'opus', effort: 'max', machineId: 'm-issue' })
-      const stale = await service.launch({ profileId: 'agp_gone', fields: { agent: 'codex' }, cwd: '/repo' })
-      expect(stale).toMatchObject({ profile: null, agentKind: 'codex', model: 'auto', instructions: '' })
+      expect(launch).toMatchObject({
+        agentKind: 'claude-code',
+        model: 'opus',
+        effort: 'max',
+        machineId: 'm-issue',
+      })
+      const stale = await service.launch({
+        profileId: 'agp_gone',
+        fields: { agent: 'codex' },
+        cwd: '/repo',
+      })
+      expect(stale).toMatchObject({
+        profile: null,
+        agentKind: 'codex',
+        model: 'auto',
+        instructions: '',
+      })
     })
   })
 })

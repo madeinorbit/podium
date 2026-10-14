@@ -103,19 +103,25 @@ export interface AgentSetup {
  * - A field is "set" only when it is non-empty and not `auto`.
  */
 export function resolveAgentSetup(
-  profile: Pick<AgentProfileWire, 'id' | 'name' | 'candidates' | 'machineId' | 'instructions'> | null,
+  profile: Pick<
+    AgentProfileWire,
+    'id' | 'name' | 'candidates' | 'machineId' | 'instructions'
+  > | null,
   fields: AgentSetupFields,
 ): AgentSetup {
   let candidates: ResolvedAgentCandidate[] = (profile?.candidates ?? []).map((c) => ({ ...c }))
   if (isAgentFieldSet(fields.agent)) {
     const agent = fields.agent
     const matching = candidates.filter((c) => c.harness === agent)
-    candidates = matching.length > 0
-      ? matching
-      : [{ harness: agent, model: AGENT_FIELD_UNSET, effort: AGENT_FIELD_UNSET }]
+    candidates =
+      matching.length > 0
+        ? matching
+        : [{ harness: agent, model: AGENT_FIELD_UNSET, effort: AGENT_FIELD_UNSET }]
   }
   if (candidates.length === 0) {
-    candidates = [{ harness: AGENT_FIELD_UNSET, model: AGENT_FIELD_UNSET, effort: AGENT_FIELD_UNSET }]
+    candidates = [
+      { harness: AGENT_FIELD_UNSET, model: AGENT_FIELD_UNSET, effort: AGENT_FIELD_UNSET },
+    ]
   }
   const model = fields.model
   const effort = fields.effort
@@ -169,7 +175,10 @@ export class AgentProfileDocumentError extends Error {}
 
 const unquote = (raw: string): string => {
   const v = raw.trim()
-  if (v.length >= 2 && ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'")))) {
+  if (
+    v.length >= 2 &&
+    ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'")))
+  ) {
     return v.startsWith('"') ? (JSON.parse(v) as string) : v.slice(1, -1).replaceAll("''", "'")
   }
   return v
@@ -187,10 +196,14 @@ const scalar = (value: string): string =>
  *
  * `fallbackName` is the file name without `.md`, used when there is no `name:`.
  */
-export function parseAgentProfileMarkdown(text: string, fallbackName?: string): AgentProfileDocument {
+export function parseAgentProfileMarkdown(
+  text: string,
+  fallbackName?: string,
+): AgentProfileDocument {
   const normalized = text.replace(/^﻿/, '').replace(/\r\n/g, '\n')
   const match = /^---\n([\s\S]*?)\n---(?:\n|$)([\s\S]*)$/.exec(normalized)
-  if (!match) throw new AgentProfileDocumentError('a profile file starts with a --- frontmatter block')
+  if (!match)
+    throw new AgentProfileDocumentError('a profile file starts with a --- frontmatter block')
   const [, front = '', body = ''] = match
   const top = new Map<string, string>()
   const rawCandidates: Array<Record<string, string>> = []
@@ -206,7 +219,9 @@ export function parseAgentProfileMarkdown(text: string, fallbackName?: string): 
       inCandidates = key === 'candidates'
       if (inCandidates) {
         if (value && value !== '[]') {
-          throw new AgentProfileDocumentError('candidates is a list: one "- harness: …" item per line')
+          throw new AgentProfileDocumentError(
+            'candidates is a list: one "- harness: …" item per line',
+          )
         }
         continue
       }
@@ -215,7 +230,8 @@ export function parseAgentProfileMarkdown(text: string, fallbackName?: string): 
     }
     if (!inCandidates) continue
     const item = /^\s*(-\s+)?([A-Za-z_][\w-]*):(.*)$/.exec(line)
-    if (!item) throw new AgentProfileDocumentError(`frontmatter line ${i + 1} is not a candidate field`)
+    if (!item)
+      throw new AgentProfileDocumentError(`frontmatter line ${i + 1} is not a candidate field`)
     if (item[1] || rawCandidates.length === 0) rawCandidates.push({})
     ;(rawCandidates.at(-1) as Record<string, string>)[item[2] as string] = unquote(item[3] ?? '')
   }
@@ -254,7 +270,11 @@ export function formatAgentProfileMarkdown(doc: AgentProfileDocument): string {
   if (doc.candidates.length > 0) {
     lines.push('candidates:')
     for (const c of doc.candidates) {
-      lines.push(`  - harness: ${c.harness}`, `    model: ${scalar(c.model)}`, `    effort: ${scalar(c.effort)}`)
+      lines.push(
+        `  - harness: ${c.harness}`,
+        `    model: ${scalar(c.model)}`,
+        `    effort: ${scalar(c.effort)}`,
+      )
     }
   }
   if (doc.machine) lines.push(`machine: ${scalar(doc.machine)}`)

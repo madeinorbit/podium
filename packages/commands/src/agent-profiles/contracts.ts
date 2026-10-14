@@ -15,11 +15,7 @@
  * contracts: a visibility class describes what a command WRITES.
  */
 
-import {
-  AgentCandidates,
-  AgentProfileName,
-  MAX_AGENT_PROFILE_INSTRUCTIONS,
-} from '@podium/model'
+import { AgentCandidates, AgentProfileName, MAX_AGENT_PROFILE_INSTRUCTIONS } from '@podium/model'
 import { z } from 'zod'
 import type {
   AttributionPolicy,

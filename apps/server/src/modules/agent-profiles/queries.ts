@@ -24,7 +24,10 @@ const query = <In extends z.ZodTypeAny, Out>(
 
 export const AGENT_PROFILE_QUERIES = {
   list: query(z.object({}).passthrough().optional(), async (state) => await state.profiles.list()),
-  show: query(z.object({ ref: AgentProfileRef }), async (state, input) => await state.profiles.show(input.ref)),
+  show: query(
+    z.object({ ref: AgentProfileRef }),
+    async (state, input) => await state.profiles.show(input.ref),
+  ),
   /** `.podium/agents/<name>.md` texts; the CLI writes the files. */
   export: query(
     z.object({ ref: AgentProfileRef.optional() }).optional(),
