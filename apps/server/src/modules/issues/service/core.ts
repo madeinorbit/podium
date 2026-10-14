@@ -614,7 +614,7 @@ export class IssueStore {
     return this.computeUnread(row, sessions)
   }
 
-  /** blocked = open AND ≥1 `blocks` dep whose target issue is not closed. */
+  /** blocked = open AND ≥1 `blocked-by` dep whose target issue is not closed. */
   async computeBlocked(
     row: IssueRow,
     batch?: { depsByFrom: ReadonlyMap<string, readonly { toId: IssueId; type: string }[]> },
@@ -626,7 +626,7 @@ export class IssueStore {
       ? (batch.depsByFrom.get(row.id) ?? [])
       : await this.deps.store.issues.listIssueDeps(row.id)
     const blocksTargets = outgoing
-      .filter((d) => d.type === 'blocks')
+      .filter((d) => d.type === 'blocked-by')
       .map((d) => this.rows.get(d.toId))
     return isIssueBlocked(row, blocksTargets)
   }

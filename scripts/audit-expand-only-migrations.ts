@@ -161,6 +161,19 @@ export const APPROVED_CONTRACT_STEPS = new Map<
       ],
     },
   ],
+  [
+    'apps/server/src/migrations/drizzle/20261014173408_fixed-dependency-types/migration.sql',
+    {
+      // POD-6100 (user decision D7, 2026-10-14): dependency types become a fixed
+      // list with a CHECK on `issue_deps.type`, and the copy folds the older
+      // spellings (`blocks` -> `blocked-by`, …) onto it. SQLite can only add a
+      // CHECK by a rebuild. An older binary would write the retired `blocks`
+      // default, but a database newer than the code refuses to open
+      // (apps/daemon/src/convergence.ts), so that rollback is refused by design.
+      reason: 'adds the issue_deps.type CHECK (D7), which SQLite can only do by a rebuild',
+      admits: [{ kind: 'table-rebuild', table: 'issue_deps' }],
+    },
+  ],
 ])
 
 /** The findings an approved contract step does not admit. Each admission is

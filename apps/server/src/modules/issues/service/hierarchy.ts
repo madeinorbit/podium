@@ -1,4 +1,4 @@
-import type { IssueId, IssueProjection } from '@podium/model'
+import { ISSUE_DEP_TYPES, type IssueId, type IssueProjection } from '@podium/model'
 import type { IssueRow } from '../../../store'
 import type { IssueStore } from './core'
 import type { IssueCrudModule } from './crud'
@@ -20,7 +20,7 @@ export class IssueHierarchyModule {
       if (seen.has(current.id)) continue
       seen.add(current.id)
       for (const dep of await this.store.deps.store.issues.listIssueDeps(current.id)) {
-        if (dep.type === 'blocks') {
+        if (dep.type === 'blocked-by') {
           pending.push({ id: dep.toId, path: [...current.path, dep.toId] })
         }
       }
@@ -42,15 +42,19 @@ export class IssueHierarchyModule {
     return null
   }
 
-  async addDep(fromRef: string, toRef: string, type = 'blocks'): Promise<IssueProjection> {
+  async addDep(fromRef: string, toRef: string, type = 'blocked-by'): Promise<IssueProjection> {
     if (type === 'parent-child')
       throw new IssueRefusal('parent-child is managed by reparent, not addDep')
+    if (!(ISSUE_DEP_TYPES as readonly string[]).includes(type))
+      throw new IssueRefusal(
+        `unknown dependency type '${type}'; use one of: ${ISSUE_DEP_TYPES.join(', ')}`,
+      )
     const fromId = await this.store.resolveRef(fromRef)
     const toId = await this.store.resolveRef(toRef)
     const row = await this.store.draftOrThrow(fromId)
     await this.store.rowOrThrow(toId)
     if (fromId === toId) throw new IssueRefusal('an issue cannot depend on itself (self-dep)')
-    if (type === 'blocks') {
+    if (type === 'blocked-by') {
       const returnPath = await this.dependencyPath(toId, fromId)
       if (returnPath) {
         throw new IssueRefusal(
@@ -164,7 +168,7 @@ export class IssueHierarchyModule {
     const id = await this.store.resolveRef(ref)
     const canonicalId = await this.store.resolveRef(canonicalRef)
     await this.store.rowOrThrow(canonicalId)
-    await this.addDep(id, canonicalId, 'related')
+    await this.addDep(id, canonicalId, 'duplicates')
     return await this.crud().update(id, {
       stage: 'done',
       closedReason: 'duplicate',

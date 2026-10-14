@@ -129,16 +129,20 @@ export const isPhaseIssue = (issue: { type?: string | null }): boolean => issue.
 export const isDecisionIssue = (issue: { type?: string | null }): boolean =>
   issue.type === 'decision'
 
+/** The fixed list of dependency types (D7, POD-6100). `issue_deps.type` has a
+ *  CHECK on exactly these, and `depAdd` refuses anything else. Every edge reads
+ *  in its stored direction, `from <type> to`: A `blocked-by` B means A waits for
+ *  B, the only type that makes an issue Blocked. `parent-child` is not one of
+ *  them — reports synthesize it from `parentId`, and `reparent` owns it. */
 export const ISSUE_DEP_TYPES = [
-  'blocks',
+  'blocked-by',
   'related',
-  'parent-child',
   'discovered-from',
-  'tracks',
   'supersedes',
-  'caused-by',
-  'validates',
+  'duplicates',
 ] as const
+export const StoredIssueDepType = z.enum(ISSUE_DEP_TYPES)
+export type StoredIssueDepType = z.infer<typeof StoredIssueDepType>
 
 /** The 10 user-pickable issue colour SLOTS [spec:SP-b4d1] — stored/transmitted
  *  as the slot NAME, never a hex (the palette maps slots to full colouring

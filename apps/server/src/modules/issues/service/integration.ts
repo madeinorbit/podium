@@ -341,7 +341,7 @@ export class IssueEpicIntegrationModule {
     const dependents = new Map<IssueId, IssueId[]>() // blocker id -> ids it unblocks
     for (const c of children) {
       for (const d of await this.store.d.store.issues.listIssueDeps(c.id)) {
-        if (d.type !== 'blocks' || !inSet.has(d.toId)) continue
+        if (d.type !== 'blocked-by' || !inSet.has(d.toId)) continue
         indeg.set(c.id, (indeg.get(c.id) ?? 0) + 1)
         dependents.set(d.toId, [...(dependents.get(d.toId) ?? []), c.id])
       }

@@ -693,7 +693,7 @@ export class IssueCrudModule {
   }
 
   /** Dependents of `closed` that its close just unblocked (their ONLY open blocker
-   *  was `closed`): open rows in the same repo with a `blocks` dep on it whose wire
+   *  was `closed`): open rows in the same repo with a `blocked-by` dep on it whose wire
    *  `ready` is now true.
    *
    *  The ready rows are one DURABLE FOLLOW-UP, not independent best-effort
@@ -707,7 +707,7 @@ export class IssueCrudModule {
       const ready: IssueRow[] = []
       const dependents = await this.store.deps.store.issues.listDependents(closed.id)
       for (const dep of dependents) {
-        if (dep.type !== 'blocks') continue
+        if (dep.type !== 'blocked-by') continue
         const row = this.store.rows.get(dep.fromId)
         if (row && inScope(row) && (await this.store.isReady(row))) ready.push(row)
       }

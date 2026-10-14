@@ -2,16 +2,15 @@ import { z } from 'zod'
 import { IssueDepIdField, IssueIdField } from '../ids'
 
 /**
- * The dep type — an OPEN string, matching the durable column.
+ * The dep type as a READER sees it — an open string on purpose.
  *
- * `@podium/protocol` lists eight known types in `ISSUE_DEP_TYPES`, but nothing
- * enforces them: `issue_deps.type` is `TEXT NOT NULL DEFAULT 'blocks'` with no
- * CHECK, `addIssueDep(from, to, type = 'blocks')` accepts any string, and the
- * `depAdd` command's input is `z.string().optional()`. So an enum here would
- * refuse durable rows this slice does not own — the same reasoning `Timestamp`
- * records for not being a strict datetime. The one type the service REJECTS
+ * The WRITE side is closed (D7, POD-6100): `issue_deps.type` has a CHECK on
+ * `ISSUE_DEP_TYPES`, and `depAdd` parses its input with `StoredIssueDepType`.
+ * A reader stays tolerant so a replica cached before that migration, or a
+ * server one release behind, still parses; an unknown type simply schedules
+ * nothing, since only `blocked-by` does. The one type the service REJECTS
  * ('parent-child', owned by `reparent`) is rejected where that rule lives, in
- * `crud.ts`, not restated here.
+ * `hierarchy.ts`, not restated here.
  */
 export const IssueDepType = z.string().min(1)
 export type IssueDepType = z.infer<typeof IssueDepType>

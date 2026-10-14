@@ -481,7 +481,7 @@ export class IssueReportsModule {
       const blocked = await this.store.computeBlocked(row, batch)
       const blocksDeps: number[] = []
       for (const d of batch.depsByFrom.get(row.id) ?? []) {
-        if (d.type !== 'blocks') continue
+        if (d.type !== 'blocked-by') continue
         const target = this.store.rows.get(d.toId)
         if (target && (await mayRead(target.id))) blocksDeps.push(target.seq)
       }
@@ -735,12 +735,12 @@ export class IssueReportsModule {
     for (const r of rows) {
       for (const d of await this.store.deps.store.issues.listIssueDeps(r.id)) {
         if (!ids.has(d.toId)) danglingDeps.push({ from: r.id, to: d.toId, type: d.type })
-        if (d.type === 'blocks') {
+        if (d.type === 'blocked-by') {
           adj.set(r.id, [...(adj.get(r.id) ?? []), d.toId])
         }
       }
     }
-    // dependency-cycle detection over blocks edges only (DFS colouring); hierarchy is separate.
+    // dependency-cycle detection over blocked-by edges only (DFS colouring); hierarchy is separate.
     const cycles: IssueId[][] = []
     const colour = new Map<IssueId, number>() // 0=white,1=grey,2=black
     const stack: IssueId[] = []
@@ -1059,10 +1059,10 @@ export class IssueReportsModule {
           ),
           mayRead,
         )
-        // Match computeBlocked: only blocks-deps whose TARGET is open (not closed)
+        // Match computeBlocked: only blocked-by deps whose TARGET is open (not closed)
         // actually block — a resolved blocker must not be listed under "Blocked by:".
         const blockerRows = (me.deps ?? [])
-          .filter((d) => d.type === 'blocks')
+          .filter((d) => d.type === 'blocked-by')
           .map((d) => this.store.rows.get(d.id))
           .filter((b): b is IssueRow => b != null && !this.store.isClosed(b))
         const blockers = await Promise.all(

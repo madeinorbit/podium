@@ -1177,12 +1177,14 @@ export class IssuesRepository {
 
   // ---- deps ----
 
-  async addIssueDep(fromId: IssueId, toId: IssueId, type = 'blocks'): Promise<void> {
+  async addIssueDep(fromId: IssueId, toId: IssueId, type = 'blocked-by'): Promise<void> {
     // `INSERT OR IGNORE` before the conversion, and EQUIVALENT here for the
-    // reason setIssueLabels states (spec rule 31). No CHECK on `issue_deps`, and
-    // all three NOT NULL columns are non-nullable at every caller: `fromId` and
-    // `toId` are required, and `type` has both a parameter default and a column
-    // default of 'blocks', so an omitted value takes the same value either way.
+    // reason setIssueLabels states (spec rule 31). All three NOT NULL columns are
+    // non-nullable at every caller: `fromId` and `toId` are required, and `type`
+    // has both a parameter default and a column default of 'blocked-by', so an
+    // omitted value takes the same value either way. The CHECK on `type`
+    // (POD-6100) is NOT swallowed by `onConflictDoNothing` — that is ON CONFLICT
+    // DO NOTHING on the primary key only — so an unknown type still throws.
     await this.db.insert(issueDeps).values({ fromId, toId, type }).onConflictDoNothing().run()
   }
 

@@ -70,6 +70,7 @@ import {
   ShipHoldAction,
   ShipOrderIdField,
   SORT_KEY_MAX_LEN,
+  StoredIssueDepType,
   UserIdField,
 } from '@podium/model'
 import { z } from 'zod'
@@ -486,7 +487,8 @@ export const addCommentInput = z.object({
 export const depAddInput = z.object({
   fromId: z.string(),
   toId: z.string(),
-  type: z.string().optional(),
+  // D7 (POD-6100): a fixed list; the DB CHECK on `issue_deps.type` is the same.
+  type: StoredIssueDepType.optional(),
 })
 
 export const depRemoveInput = z.object({

@@ -1364,12 +1364,18 @@ export const issueDeps = sqliteTable(
     toId: brandedRef(text('to_id').$type<IssueId>(), () => issues.id, {
       onDelete: 'cascade',
     }).notNull(),
-    type: text().default('blocks').notNull(),
+    type: text().default('blocked-by').notNull(),
   },
   (table) => [
     index('idx_issue_deps_to').on(table.toId),
     index('idx_issue_deps_from').on(table.fromId),
     primaryKey({ columns: [table.fromId, table.toId, table.type], name: 'issue_deps_pk' }),
+    // D7 (POD-6100): the fixed list, the same as `ISSUE_DEP_TYPES` in
+    // @podium/model (a value import is not allowed here; see the header).
+    check(
+      'issue_deps_type',
+      sql`type IN ('blocked-by', 'related', 'discovered-from', 'supersedes', 'duplicates')`,
+    ),
   ],
 )
 
