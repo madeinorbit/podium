@@ -169,3 +169,19 @@ Supporting changes:
 - **Seeds:** Till's six roles ship as starter profiles.
 - **The profile UI is a later phase, possibly deferred** → POD-6098.
 - **Gap:** I can't create real phases for this epic yet (`type = phase` doesn't exist), so "later phase" is only a sub-issue for now.
+- **Addendum to D4:** a profile's instructions are optional. A profile can be just an agent setup with no instructions.
+
+**D5 — Session states and who may talk to the user (2026-10-14).**
+- **The five words:**
+  - **Working:** working, compacting, starting or reconnecting. The timer shows the current turn.
+  - **Idle:** the turn is finished and the process is alive or hibernated.
+  - **Needs you:** a question, a permission request, or a pending offer.
+  - **Error:** any agent error, a crash, out-of-memory, or a failed start.
+  - **Done:** stopped by itself, its parent or the user, or its issue is closed. It shows ∑ total working time.
+- **What clears Error:** a new turn, or closing the issue. Opening the session does not.
+- **Native subagents:** they show "running" while they exist. The list holds live ones only.
+- **Talking to the user:** only a session with no coordinator above it may (the top coordinator, or the session of a single-issue mission). Every other session is blocked from:
+  - the harness's built-in ask-the-user tools: denied through hooks, with a message that says where to ask instead. Which harnesses expose such a tool must be checked by running each one.
+  - `podium offer`: refused by the server, with the same kind of message.
+
+  These sessions are told to ask their coordinator instead. So a pending offer is always Needs you; choice 1 is moot.
