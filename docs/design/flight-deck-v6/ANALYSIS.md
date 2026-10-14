@@ -114,7 +114,7 @@ Supporting changes:
 
 ## Decisions (with the user)
 
-**D1 — Phase model (2026-10-12).** A phase is an ordinary parent issue with `type = phase`, placed directly under the epic. It has no behaviour of its own:
+**D1 — Phase model (2026-10-12).** A phase is an ordinary parent issue with `type = phase`, placed under its parent like any issue (D2 lifted the "only under the epic" rule). It has no behaviour of its own:
 - Order comes from `sort_key`, and gating from `blocks` edges.
 - The phase lead is the phase issue's coordinator.
 - A phase closes like any issue, with no enforcement.
@@ -122,3 +122,24 @@ Supporting changes:
 - Counting: the gauge, the done line and the filter totals count leaves. A row's counter (e.g. 1/3 on a parent, 7/9 on a phase) counts its direct children.
 - Data migration: POD-279's 11 `milestone` issues ("Phase 0…9") become `phase`.
 - Agents also need a small `move --before/--after` verb, because today they can only pass a raw `--sort-key`.
+
+**D2 — Types, labels, roles (2026-10-14).**
+- **`type`:** `task` (default), `phase`, `decision`.
+  - `epic` is dropped: any issue with children is a parent, and the mission is the root.
+  - `bug`, `feature`, `chore`, `story` and `spike` become labels.
+  - `decision` = only the user can close it; it counts as Needs you and blocks whatever waits on it.
+- **A phase can sit at any depth.** How the deck draws a nested phase is a question for Till.
+- **Role is an agent template.** The session records the template it actually runs with; the issue holds a default that every session started on it inherits.
+  - Open: whether it absorbs `default_agent/model/effort`, and what the template is called.
+- **One coordinator marker per issue.** Deck labels such as coordinator, phase lead and helper are derived from it.
+  - Open: when the marker is set.
+- **The issue lint goes** → POD-6094.
+- **Deferred to the end of the epic:**
+  - agent-checkable gates → POD-6095
+  - milestone markers in the deck → POD-6096
+
+## Tooling gaps found while structuring this epic
+
+1. **`issue create --parent-id` from a plain `git worktree` fails** with `repoPath: Required`, although the help says the path is inferred from the cwd. Passing `--repo-path <main checkout>` works.
+2. **No way to say "deferred, decide at the end".** Every sub-issue starts in `backlog`, so a deferred one looks the same as a ready one. I had to write "Deferred:" into the description.
+3. **No "later" bucket in the deck design** to hold deferred sub-issues (a design question for Till).
