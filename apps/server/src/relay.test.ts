@@ -926,6 +926,42 @@ describe('SessionRegistry', () => {
     )
   })
 
+  it('starts a session from an agent profile: candidate order, fields on top, recorded, instructions last (POD-6107)', async () => {
+    const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+    const daemon: ControlMessage[] = []
+    await attachHostDaemon(reg, (m) => daemon.push(m))
+    // The seeded `review` starter prefers codex, then claude-code.
+    const review = await reg.modules.agentProfiles.show('review')
+    const spawnOf = (sessionId: string) =>
+      daemon.find((m) => m.type === 'spawn' && m.sessionId === sessionId)
+
+    const fromProfile = await reg.modules.sessions.createSession({ cwd: '/proj', agentProfileId: review.id })
+    const spawn = spawnOf(fromProfile.sessionId)
+    expect(spawn).toMatchObject({ type: 'spawn', agentKind: 'codex' })
+    const instructions = spawn?.type === 'spawn' ? (spawn.instructions ?? []) : []
+    expect(instructions.at(-1)).toMatchObject({ source: 'podium:profile' })
+    expect(instructions.at(-1)?.content).toContain('review task')
+    const row = (await reg.modules.sessions.listSessions(undefined, 'rpc')).find(
+      (s) => s.sessionId === fromProfile.sessionId,
+    )
+    expect(row).toMatchObject({ agentKind: 'codex', agentProfileId: review.id })
+
+    // A harness named by the caller goes ON TOP: it keeps that candidate.
+    const overridden = await reg.modules.sessions.createSession({
+      cwd: '/proj',
+      agentKind: 'claude-code',
+      agentProfileId: review.id,
+    })
+    expect(spawnOf(overridden.sessionId)).toMatchObject({ agentKind: 'claude-code' })
+
+    // No profile, no profile source.
+    const plain = await reg.modules.sessions.createSession({ cwd: '/proj', agentKind: 'claude-code' })
+    const plainSpawn = spawnOf(plain.sessionId)
+    expect(
+      (plainSpawn?.type === 'spawn' ? (plainSpawn.instructions ?? []) : []).map((i) => i.source),
+    ).not.toContain('podium:profile')
+  })
+
   it('resume spawns with the resume ref + resume origin', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const daemon: ControlMessage[] = []

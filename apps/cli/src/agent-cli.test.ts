@@ -127,6 +127,14 @@ describe('podium agent spawn', () => {
     expect(out).toContain('podium agent await child1')
   })
 
+  it('[POD-6107] --profile names an agent profile for the spawn', async () => {
+    const c = client()
+    await runAgentCli(['spawn', '--issue', '#228', '--prompt', 'review it', '--profile', 'review'], c)
+    expect(c.messages.spawnAgent.mutate).toHaveBeenCalledWith(
+      expect.objectContaining({ issue: '#228', prompt: 'review it', agentProfile: 'review' }),
+    )
+  })
+
   it('[POD-4763] a spawn that got no answer is repeated under the same request id', async () => {
     const c = client()
     c.messages.spawnAgent.mutate.mockRejectedValueOnce(new Error('agent relay timed out'))
