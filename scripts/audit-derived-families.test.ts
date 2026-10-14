@@ -135,10 +135,10 @@ describe('subject-present', () => {
 })
 
 describe('the governed list', () => {
-  it('covers POD-314s eleven families', () => {
+  it('covers POD-314s eleven families, plus agent profiles (POD-6107)', () => {
     // Pinned, because a list that silently shrank would take the gate's coverage
     // with it while every case above still passed.
-    expect(GOVERNED).toHaveLength(11)
-    expect(new Set(GOVERNED.map((g) => g.module)).size).toBe(9)
+    expect(GOVERNED).toHaveLength(12)
+    expect(new Set(GOVERNED.map((g) => g.module)).size).toBe(10)
   })
 })

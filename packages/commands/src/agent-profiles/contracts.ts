@@ -81,6 +81,11 @@ const POLICY_RATIONALE =
   'adds the people-only rule (an agent session is refused even under an admin’s delegation), which ' +
   'the service enforces because a role floor cannot say it.'
 
+/** The matrix row's rule: a save replaces the whole profile, and the later
+ *  Authority commit wins outright — never field-merged. */
+const CONFLICT_RULE =
+  'ROW.agentProfiles declared rule; a save replaces the whole profile and the later Authority commit wins outright'
+
 const DELIVERY: DeliveryPolicy = {
   class: 'online-only',
   outboxReconciliation:
@@ -148,7 +153,8 @@ export const agentProfileCreateContract = {
   ownership: OWNERSHIP,
   attribution: ATTRIBUTION,
   errorConsistency: ERRORS,
-  conflict: 'exp-rev',
+  conflict: 'cmd',
+  conflictRule: CONFLICT_RULE,
 } as const satisfies CommandContract<typeof agentProfileCreateInput>
 
 export const agentProfileUpdateContract = {
@@ -169,7 +175,8 @@ export const agentProfileUpdateContract = {
   ownership: OWNERSHIP,
   attribution: ATTRIBUTION,
   errorConsistency: ERRORS,
-  conflict: 'exp-rev',
+  conflict: 'cmd',
+  conflictRule: CONFLICT_RULE,
 } as const satisfies CommandContract<typeof agentProfileUpdateInput>
 
 export const agentProfileDeleteContract = {
@@ -192,7 +199,8 @@ export const agentProfileDeleteContract = {
   ownership: OWNERSHIP,
   attribution: ATTRIBUTION,
   errorConsistency: ERRORS,
-  conflict: 'exp-rev',
+  conflict: 'cmd',
+  conflictRule: CONFLICT_RULE,
 } as const satisfies CommandContract<typeof agentProfileDeleteInput>
 
 export const agentProfileImportContract = {
@@ -215,7 +223,8 @@ export const agentProfileImportContract = {
   ownership: OWNERSHIP,
   attribution: ATTRIBUTION,
   errorConsistency: ERRORS,
-  conflict: 'exp-rev',
+  conflict: 'cmd',
+  conflictRule: CONFLICT_RULE,
 } as const satisfies CommandContract<typeof agentProfileImportInput>
 
 export const AGENT_PROFILE_CONTRACTS = {

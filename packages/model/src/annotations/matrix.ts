@@ -2591,8 +2591,9 @@ const COORDINATION_ROWS: readonly MatrixRow[] = [
     replication: 'server-to-clients',
     replicationNote:
       'Read through `agentProfiles.list`; not a synced feed entity yet (the profile UI is POD-6098).',
-    conflict: 'exp-rev',
-    conflictNote: 'A save replaces the whole profile; the `updatedAt` it was read at guards a concurrent edit.',
+    conflict: 'cmd',
+    conflictNote:
+      'Online replace: a save replaces the whole profile and the later Authority commit wins outright. Edits are rare and made by people, so no revision is carried.',
     tombstone: 'hard-delete',
     tombstoneNote:
       'A delete removes the row, refused while an open issue points at it. Sessions keep the id and the launch values they actually ran with, so history never depends on the row.',

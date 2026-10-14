@@ -412,6 +412,9 @@ describe('no annotation contradicts the ADR', () => {
         ROW.locks,
         ROW.changeLog,
         ROW.appliedMutations,
+        // Flight deck D4 (2026-10-14, the user's decision): agent profiles are
+        // instance-wide configuration that every issue and session may point at.
+        ROW.agentProfiles,
       ]),
     )
   })

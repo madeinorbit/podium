@@ -345,6 +345,7 @@ const SESSION_AGGREGATE_KEYS = [
   'accountId',
   'activityCount',
   'agentKind',
+  'agentProfileId',
   'agentState',
   'archived',
   'createdAt',
@@ -400,6 +401,7 @@ const SESSION_AGGREGATE_KEYS = [
 const ISSUE_AGGREGATE_KEYS = [
   'acceptance',
   'activityNotes',
+  'agentProfileId',
   'archived',
   'asked',
   'assignee',
@@ -459,11 +461,11 @@ const ISSUE_AGGREGATE_KEYS = [
 ]
 
 describe('the canonical key sets are pinned exactly', () => {
-  it('SessionAggregate carries exactly these 46 keys and no others', () => {
+  it('SessionAggregate carries exactly these 47 keys and no others', () => {
     expect(Object.keys(SessionAggregate.shape).sort()).toEqual(SESSION_AGGREGATE_KEYS)
   })
 
-  it('IssueAggregate carries exactly these 58 keys and no others', () => {
+  it('IssueAggregate carries exactly these 59 keys and no others', () => {
     expect(Object.keys(IssueAggregate.shape).sort()).toEqual(ISSUE_AGGREGATE_KEYS)
   })
 
