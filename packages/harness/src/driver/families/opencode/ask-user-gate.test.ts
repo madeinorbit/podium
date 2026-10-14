@@ -54,9 +54,7 @@ describe('OpenCode question under the seat rule', () => {
   it('opens the question for a session that may talk to the user', async () => {
     const { runtime, handle, server } = await askOnce(async () => null)
     try {
-      await expect
-        .poll(async () => (await handle.interactions()).length, { timeout: 5000 })
-        .toBe(1)
+      await expect.poll(async () => (await handle.interactions()).length, { timeout: 5000 }).toBe(1)
       expect(server.questionReplies).toEqual([])
     } finally {
       runtime.dispose()

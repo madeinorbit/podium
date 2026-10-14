@@ -66,7 +66,9 @@ function world(askUserGate?: AskUserGate) {
   return { host, serverFor: (sessionId: SessionId) => servers.get(sessionId) }
 }
 
-async function refusalFor(askUserGate?: AskUserGate): Promise<{ code: number; message: string } | undefined> {
+async function refusalFor(
+  askUserGate?: AskUserGate,
+): Promise<{ code: number; message: string } | undefined> {
   const w = world(askUserGate)
   const runtime = createGrokAcpRuntime(w.host, createMemoryDriverSlots())
   try {

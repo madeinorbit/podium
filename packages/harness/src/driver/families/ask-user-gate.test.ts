@@ -33,7 +33,14 @@ describe('the ask-the-user gate (POD-6108)', () => {
   })
 
   it('names the tools that wait on a person, and nothing else', () => {
-    for (const tool of ['AskUserQuestion', 'EnterPlanMode', 'ExitPlanMode', 'ask_user_question', 'exit_plan_mode', 'request_user_input']) {
+    for (const tool of [
+      'AskUserQuestion',
+      'EnterPlanMode',
+      'ExitPlanMode',
+      'ask_user_question',
+      'exit_plan_mode',
+      'request_user_input',
+    ]) {
       expect(isAskUserTool(tool), tool).toBe(true)
     }
     for (const tool of ['Bash', 'Read', 'question', 'mcp__podium__ask', undefined]) {
@@ -70,7 +77,11 @@ describe('the ask-the-user gate (POD-6108)', () => {
   })
 
   it('fails open when the gate throws or cannot answer in time', async () => {
-    expect(await askUserRefusal(async () => { throw new Error('relay down') }, S)).toBeNull()
+    expect(
+      await askUserRefusal(async () => {
+        throw new Error('relay down')
+      }, S),
+    ).toBeNull()
     vi.useFakeTimers()
     const hung = askUserRefusal(() => new Promise<string>(() => {}), S)
     await vi.advanceTimersByTimeAsync(ASK_USER_GATE_DEADLINE_MS)
