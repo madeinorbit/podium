@@ -1081,6 +1081,10 @@ export class IssueCrudModule {
     } catch {}
     if (input.parentId) wire = await this.hierarchy().reparent(row.id, input.parentId)
     if (input.labels?.length) wire = await this.setLabels(row.id, input.labels)
+    const parentId = this.store.rows.get(row.id)?.parentId
+    if (parentId && input.startedBySession) {
+      await this.takeCoordinatorOnFirstChild(parentId, row.id, input.startedBySession)
+    }
     return wire
   }
 
@@ -1831,27 +1835,19 @@ export class IssueCrudModule {
     return wire
   }
 
-  /** Fill an empty coordinator seat from a real issue member. Automatic callers
-   * use onlyMember so the first agent establishes the default without guessing
-   * among an existing team; an explicit issue claim may name its bound caller.
-   * Existing values — including intentional handoffs and dangling historical
-   * ids — are never replaced here. */
-  async ensureCoordinator(
-    id: string,
+  /** A session becomes its issue's coordinator when it first splits that issue
+   *  (POD-6108, ANALYSIS.md D3): the first child it creates under its OWN issue
+   *  takes an empty seat. A filled seat — a handover, or a dangling historical id —
+   *  is never replaced here; `coordinator --claim/--set/--clear` move it. */
+  private async takeCoordinatorOnFirstChild(
+    parentId: IssueId,
+    childId: IssueId,
     sessionId: SessionId,
-    opts?: { onlyMember?: boolean },
-  ): Promise<IssueProjection> {
-    const row = await this.store.rowOrThrow(await this.store.resolveRef(id))
-    if (row.coordinatorSessionId) return await this.store.projection(row)
-    const eligible = (await this.store.sessionsFor(row)).filter(
-      (session) =>
-        session.agentKind !== 'shell' && !session.archived && session.status !== 'exited',
-    )
-    const candidate = eligible.find((session) => session.sessionId === sessionId)
-    if (!candidate || (opts?.onlyMember && eligible.length !== 1)) {
-      return await this.store.projection(row)
-    }
-    return await this.update(row.id, { coordinatorSessionId: candidate.sessionId })
+  ): Promise<void> {
+    const parent = this.store.rows.get(parentId)
+    if (!parent || parent.coordinatorSessionId) return
+    if (!this.store.factsFor(parent).some((s) => s.sessionId === sessionId)) return
+    await this.setCoordinator(parent.id, sessionId, { cause: 'first-child', childId })
   }
 
   async claim(
@@ -1859,18 +1855,30 @@ export class IssueCrudModule {
     assignee: UserId,
     opts?: { actorSessionId?: SessionId },
   ): Promise<IssueProjection> {
-    const claimed = await this.update(id, { assignee, stage: 'in_progress' }, opts)
-    return opts?.actorSessionId
-      ? await this.ensureCoordinator(claimed.id, opts.actorSessionId)
-      : claimed
+    return await this.update(id, { assignee, stage: 'in_progress' }, opts)
   }
 
   /** Claim / set / clear the issue's designated coordinator session
    *  (docs/agent-comms-target.html §05 q1). Bare session id; null clears.
    *  Dangling-tolerant: we do not validate the session still exists — if it is
-   *  later deleted, actionable mail falls back to selectMailNudgeSession. */
-  async setCoordinator(id: string, sessionId: SessionId | null): Promise<IssueProjection> {
-    return await this.update(id, { coordinatorSessionId: sessionId })
+   *  later deleted, actionable mail falls back to selectMailNudgeSession and the
+   *  seat rule stops counting it. Every change lands in the issue history. */
+  async setCoordinator(
+    id: string,
+    sessionId: SessionId | null,
+    why: { cause: 'first-child'; childId: IssueId } | { cause: 'set' } = { cause: 'set' },
+  ): Promise<IssueProjection> {
+    const before = this.store.rows.get(await this.store.resolveRef(id))?.coordinatorSessionId ?? null
+    const wire = await this.update(id, { coordinatorSessionId: sessionId })
+    if (before !== sessionId) {
+      await this.store.emitEvent('issue.coordinator_set', wire.id, {
+        seq: wire.seq,
+        sessionId,
+        ...(before ? { from: before } : {}),
+        ...why,
+      })
+    }
+    return wire
   }
 
   async close(

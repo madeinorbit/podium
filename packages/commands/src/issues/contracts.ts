@@ -636,6 +636,8 @@ export const mailInboxInput = z.object({ id: IssueIdField.optional() }).optional
 export const mailClaimInput = z.object({ messageId: z.string() })
 
 export const mailPendingInput = z.object({ id: IssueIdField.optional() }).optional()
+/** The calling session's seat (POD-6108): talk to the user, or ask which coordinator. */
+export const seatInput = z.object({}).optional()
 
 export const subscriptionAddInput = z.object({
   event: z.string().min(1),
@@ -1018,6 +1020,21 @@ export const issueEventsContract = {
   version: 1,
   visibility: ISSUE_VISIBILITY,
   input: eventsInput,
+  policy: READ_POLICY,
+  exposure: SERVED_EVERYWHERE,
+  delivery: READ_DELIVERY,
+  redaction: ISSUE_REDACTION,
+  ownership: CREATES_NOTHING,
+  attribution: ISSUE_ATTRIBUTION,
+  errorConsistency: UNTARGETED_ERRORS,
+  conflict: 'n/a',
+} as const satisfies CommandContract
+
+export const issueSeatContract = {
+  name: 'issues.seat',
+  version: 1,
+  visibility: ISSUE_VISIBILITY,
+  input: seatInput,
   policy: READ_POLICY,
   exposure: SERVED_EVERYWHERE,
   delivery: READ_DELIVERY,
@@ -2066,6 +2083,7 @@ export const ISSUE_CONTRACTS = {
   restore: issueRestoreContract,
   search: issueSearchContract,
   searchNormalized: issueSearchNormalizedContract,
+  seat: issueSeatContract,
   setCoordinator: issueSetCoordinatorContract,
   setLabels: issueSetLabelsContract,
   setPlacement: issueSetPlacementContract,
@@ -2187,6 +2205,7 @@ const NON_MUTATING_NAMES = [
   'resolveRefs',
   'search',
   'searchNormalized',
+  'seat',
   'stale',
   'stats',
   'subscriptionList',

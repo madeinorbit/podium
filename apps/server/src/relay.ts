@@ -107,6 +107,7 @@ import { repoProjectionRows } from './modules/issues/projection'
 import { makeAgentRelayDispatch } from './modules/issues/relay-dispatch'
 import { AgentRelayGate } from './modules/issues/relay-gate'
 import { IssueService } from './modules/issues/service'
+import { seatText } from './modules/issues/service/seat'
 import { LayoutService } from './modules/layout/service'
 import { LockCommandDispatcher } from './modules/lock/registry'
 import { LockService } from './modules/lock/service'
@@ -2061,12 +2062,6 @@ export class SessionRegistry {
       onIssueCreated: (event) => this.bus.emit('issue.created', event),
       onIssueClosed: async (input) => await stopClosedIssue?.(input),
     })
-    // Coordinator defaults are lifecycle-derived, not caller discipline. The
-    // first eligible agent born on an issue takes an empty coordinator seat;
-    // later sessions and every explicit set/clear remain untouched.
-    this.bus.on('session.created', async ({ sessionId, issueId }) => {
-      if (issueId) await issues.crud.ensureCoordinator(issueId, sessionId, { onlyMember: true })
-    })
     const applySessionDerived = async (event: EventMap['issue.sessionDerived']): Promise<void> => {
       switch (event.kind) {
         case 'gitActivity':
@@ -2510,6 +2505,14 @@ export class SessionRegistry {
     sessionInstructions.register({
       source: 'podium:issues',
       prepare: async () => ({ content: ISSUE_SYSTEM_POINTER }),
+    })
+    // The seat (POD-6108, D5): whether this session talks to the user or asks a
+    // coordinator. Fixed at spawn like every source; `prime` carries the current
+    // line when a coordinator appears later.
+    sessionInstructions.register({
+      source: 'podium:seat',
+      prepare: async ({ sessionId, issueId }) =>
+        issueId ? { content: seatText(await issues.reports.seatFor(sessionId, issueId)) } : null,
     })
     sessionInstructions.register({
       source: 'podium:specs',

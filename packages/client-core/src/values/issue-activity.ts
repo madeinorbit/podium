@@ -130,6 +130,17 @@ export function formatIssueEvent(event: IssueEvent): IssueEventLine | null {
       return { icon: 'attached', text: 'agent attached' }
     case 'issue.cleaned':
       return { icon: 'cleaned', text: 'worktree cleaned' }
+    // The coordinator seat (POD-6108): taken on the first sub-issue, or moved by hand.
+    case 'issue.coordinator_set':
+      return {
+        icon: 'attached',
+        text:
+          p.sessionId == null
+            ? 'coordinator cleared'
+            : p.cause === 'first-child'
+              ? 'agent became coordinator (first sub-issue)'
+              : 'coordinator changed',
+      }
     case 'issue.needs_human':
       return { icon: 'flagged', text: 'flagged for a human' }
     case 'issue.needs_human_cleared':

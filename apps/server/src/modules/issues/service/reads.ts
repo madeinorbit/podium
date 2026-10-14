@@ -38,6 +38,7 @@ import { readResourceGrants } from '../../world-index/grant-reader'
 import { issueRowToProjection } from '../projection'
 import type { IssueStore } from './core'
 import { countContextAwarePendingMail } from './mail-pending'
+import { resolveSeat, type SessionSeat, seatText } from './seat'
 import { IssueNotFound } from './not-found'
 
 export type IssueCommandResult<T> = T extends
@@ -1003,6 +1004,21 @@ export class IssueReportsModule {
     return (await this.store.deps.store.repos.prefixForPath(repoPath)) ?? FALLBACK_ISSUE_PREFIX
   }
 
+  /** This session's seat (POD-6108): may it talk to the user, or which
+   *  coordinator does it ask? `issueId` defaults to the session's attachment. */
+  async seatFor(sessionId: SessionId, issueId?: IssueId | null): Promise<SessionSeat> {
+    const sessions = this.store.deps.sessionFacts()
+    const self = sessions.find((s) => s.sessionId === sessionId)
+    const own = issueId ?? self?.issueId ?? (self ? this.issueForCwd(self.cwd) : null)
+    const live = new Set(sessions.filter((s) => !s.archived).map((s) => s.sessionId))
+    return await resolveSeat(sessionId, own, {
+      row: (id) => this.store.rows.get(id),
+      isClosed: (row) => this.store.isClosed(row),
+      sessionLive: (id) => live.has(id),
+      ref: async (row) => await this.niceRef(row),
+    })
+  }
+
   /** Agent-facing context at session start / on demand. Bound = the issue + open
    *  children + blockers; unbound = a ready-work lobby. Ends with prime-only
    *  rules — system-pointer policy is not restated. */
@@ -1119,6 +1135,7 @@ export class IssueReportsModule {
             ? `Open children:\n${(await Promise.all(kids.map(async (k) => `  - ${await this.niceRef(k)} (${k.title})`))).join('\n')}`
             : null,
           blockers.length ? `Blocked by: ${blockers.join(', ')}` : null,
+          opts.sessionId ? seatText(await this.seatFor(opts.sessionId, me.id)) : null,
           unreadMail > 0
             ? `You have ${unreadMail} unread mail message(s): run 'podium issue mail inbox'`
             : null,

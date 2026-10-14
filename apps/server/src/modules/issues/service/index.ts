@@ -145,6 +145,7 @@ export type IssueReportsCapability = Pick<
   | 'listEvents'
   | 'niceRef'
   | 'prime'
+  | 'seatFor'
   | 'list'
   | 'resolveRef'
   | 'resolveRefs'

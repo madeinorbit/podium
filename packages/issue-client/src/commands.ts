@@ -724,12 +724,17 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
         displayRef?: string
         worktreePath?: string | null
         warning?: string
+        coordinator?: string
       }
       const started = a.start === true && i.worktreePath ? ` (started in ${i.worktreePath})` : ''
+      const coordinator = i.coordinator ? `\n${i.coordinator}` : ''
       const warn = i.warning ? `\n⚠ ${i.warning}` : ''
       // Print PREFIX-seq as one token (`POD-12`). `#seq` is ambiguous across
       // repos; the prefixed form is the id callers should copy into later flags.
-      return { text: `created ${issueDisplayRef(i)} ${i.title}${started}${warn}`, data: i }
+      return {
+        text: `created ${issueDisplayRef(i)} ${i.title}${started}${coordinator}${warn}`,
+        data: i,
+      }
     },
   },
   {
@@ -1675,6 +1680,16 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
     async run(c, a) {
       const p = (await c.issues.preflight.query(a as { repoPath?: string })) as { ok: boolean }
       return { text: p.ok ? 'preflight: OK' : 'preflight: FAIL (run doctor)', data: p }
+    },
+  },
+  {
+    name: 'seat',
+    summary:
+      'Your seat: whether you talk to the user (questions, offers) or which coordinator you ask instead, by issue mail.',
+    args: z.strictObject({}),
+    async run(c) {
+      const seat = (await c.issues.seat.query({})) as { text: string }
+      return { text: seat.text, data: seat }
     },
   },
   {

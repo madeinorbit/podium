@@ -51,7 +51,6 @@ export class IssueAttentionModule {
       | 'markIssueRead'
       | 'markIssueUnread'
       | 'setIssueTucked'
-      | 'ensureCoordinator'
     >,
     private readonly hierarchy: () => {
       addDep(fromRef: string, toRef: string, type?: string): Promise<IssueProjection>
@@ -218,7 +217,6 @@ export class IssueAttentionModule {
     }
     if (prevId === target.id) return await this.store.projection(target) // self-attach: no-op
     await setSessionIssueId(opts.sessionId, target.id)
-    await this.crud().ensureCoordinator(target.id, opts.sessionId, { onlyMember: true })
     await this.store.emitEvent('issue.session_attached', target.id, {
       seq: target.seq,
       sessionId: opts.sessionId,

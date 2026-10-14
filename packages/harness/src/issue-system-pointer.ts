@@ -72,6 +72,9 @@ export const ISSUE_SYSTEM_POINTER =
   'When you move your issue to `review`, ALWAYS post an offer naming the next steps (merge via --action, send back via --action-input, …) — ' +
   'review-ready work surfaces ONLY through your offer, the stage alone renders nothing. ' +
   'Before posting, test it: reading only the first line and the buttons, does the user know (a) what happened and (b) what to decide? ' +
+  // The seat (POD-6108): offers and questions are the top coordinator's alone.
+  'Offers and questions to the user are only for a session with no coordinator above it; ' +
+  'your seat instruction (and `podium issue seat`) says whether that is you, and if not, which issue to mail instead. ' +
   TITLE_RULE_TERSE
 
 /**

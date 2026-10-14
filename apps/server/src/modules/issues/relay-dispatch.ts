@@ -1,4 +1,5 @@
 import { commandAccess } from './command-ctx'
+import { seatRefusal } from './service/seat'
 /**
  * THE AGENT-RELAY DISPATCH ARM (POD-418).
  *
@@ -311,6 +312,10 @@ export function makeAgentRelayDispatch(
         return await Promise.resolve({ ok: true, cleared: true })
       }
       if (proc === 'set') {
+        // D5 (POD-6108): only a session with no coordinator above it may put a
+        // decision in front of the user; every other session asks its coordinator.
+        const seat = await issues.reports.seatFor(actorSessionId)
+        if (seat.kind === 'below') throw new Error(seatRefusal(seat, '`podium offer`'))
         const raw = (input ?? {}) as Record<string, unknown>
         const message = typeof raw.message === 'string' ? raw.message.trim() : ''
         if (!message || message.length > 4_000) {

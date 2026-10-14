@@ -25,6 +25,7 @@ import { ShippingOrderAccessError } from '../shipping/service'
 import type { IssueCaller, IssueCommandAccess, IssueCommandCtx } from './command-ctx'
 import type { IssueCommandResult } from './service/reads'
 import { IssueRefusal } from './service/refusal'
+import { becameCoordinatorText, seatRefusal, seatText } from './service/seat'
 
 /**
  * THE ISSUE COMMAND TABLE: every issue command's handler, joined to its L1
@@ -703,16 +704,28 @@ const defs = {
           },
           { spawnedBy: ctx.spawnProvenance() },
         )
+        // D3 (POD-6108): the first child a session creates under its own issue
+        // makes it that issue's coordinator — announced here, where it happened.
+        const actor = ctx.caller.capability.actorSessionId
+        const tookSeat =
+          parent != null &&
+          actor != null &&
+          !parent.coordinatorSessionId &&
+          (await ctx.reports.get(parent.id))?.coordinatorSessionId === actor
+        const announced = tookSeat
+          ? { coordinator: becameCoordinatorText(await ctx.reports.niceRef(parent)) }
+          : {}
         if (audience === 'agent' && !(await ctx.hasHumanAudienceAncestor(created))) {
           return {
             ...created,
+            ...announced,
             warning:
               'This issue is invisible: it is internal (audience: agent) but has no ' +
               'human-facing parent. Pass `--audience human`, or attach to an issue first ' +
               'so it nests under a tracked parent.',
           }
         }
-        return created
+        return { ...created, ...announced }
       })
     },
   }),
@@ -1424,6 +1437,30 @@ const defs = {
           ? { sessionId: ctx.caller.capability.actorSessionId }
           : {}),
       })
+    },
+  }),
+  /** The calling session's seat (POD-6108): whether it may talk to the user
+   *  (questions, offers) or which coordinator it asks instead. Read by `podium
+   *  issue seat` and by the daemon when it gates a harness's ask-the-user tool. */
+  seat: def('seat', {
+    kind: 'query',
+    handler: async (ctx) => {
+      const sessionId = ctx.caller.capability.actorSessionId
+      if (!sessionId) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'seat is only answerable for a session' })
+      }
+      const scope = ctx.caller.capability.scope
+      const seat = await ctx.reports.seatFor(
+        sessionId,
+        scope.kind === 'subtree' ? scope.rootId : undefined,
+      )
+      return {
+        ...seat,
+        text: seatText(seat),
+        ...(seat.kind === 'below'
+          ? { askUserRefusal: seatRefusal(seat, 'Asking the user') }
+          : {}),
+      }
     },
   }),
   mailPending: def('mailPending', {
