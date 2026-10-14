@@ -162,7 +162,7 @@ describe('IssueRow rich fields round-trip (P1)', () => {
     await store.issues.upsertIssue(
       baseRow({
         priority: 0,
-        type: 'task',
+        type: 'decision',
         assignee: asUserId('agent:claude'),
         parentId: asIssueId('iss_epic'),
         design: 'D',
@@ -179,7 +179,7 @@ describe('IssueRow rich fields round-trip (P1)', () => {
     )
     const r = (await store.issues.getIssue('iss_x'))!
     expect(r.priority).toBe(0)
-    expect(r.type).toBe('bug')
+    expect(r.type).toBe('decision')
     expect(r.assignee).toBe('agent:claude')
     expect(r.parentId).toBe('iss_epic')
     expect(r.color).toBe('violet')

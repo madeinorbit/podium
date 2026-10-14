@@ -27,12 +27,12 @@ describe('issues router inputs (P1)', () => {
       title: 'A',
       startNow: false,
       priority: 0,
-      type: 'task',
+      type: 'decision',
       labels: ['ui'],
       parentId: 'iss_e',
     })
     expect(parsed.priority).toBe(0)
-    expect(parsed.type).toBe('bug')
+    expect(parsed.type).toBe('decision')
   })
 
   it('depAdd requires fromId + toId', () => {

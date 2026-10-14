@@ -84,7 +84,7 @@ describe('the real in-process client serves every cli/mcp-exposed contract', () 
   it('every cli/mcp-exposed contract has a live procedure on the real client', async () => {
     const client = (await fresh()).issueCommands.asIssueTrpc(OPERATOR)
     const issues = client.issues as unknown as Record<string, { query: unknown; mutate: unknown }>
-    expect(CLI_EXPOSED).toHaveLength(68)
+    expect(CLI_EXPOSED).toHaveLength(69)
     for (const name of CLI_EXPOSED) {
       expect(typeof issues[name]?.query, name).toBe('function')
       expect(typeof issues[name]?.mutate, name).toBe('function')
