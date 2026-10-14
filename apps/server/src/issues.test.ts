@@ -3585,7 +3585,7 @@ describe('IssueService findDuplicates (P2b)', () => {
   })
 })
 
-describe('IssueService stale/lint (P2b)', () => {
+describe('IssueService stale (P2b)', () => {
   it('staleList returns issues older than the cutoff (open only)', async () => {
     const { svc, store } = await harness()
     const a = await svc.crud.create({ repoPath: '/r', title: 'old', startNow: false })
@@ -3596,20 +3596,6 @@ describe('IssueService stale/lint (P2b)', () => {
     await svc.reports.store.reload() // re-hydrate this.rows from the store (see Step 3)
     const stale = await svc.reports.staleList('/r', 30, Date.parse('2026-06-30T00:00:00.000Z'))
     expect(stale.map((w) => w.title)).toEqual(['old'])
-  })
-
-  it('lint flags a task with no acceptance', async () => {
-    const { svc } = await harness()
-    await svc.crud.create({
-      repoPath: '/r',
-      title: 'F',
-      description: 'd',
-      type: 'task',
-      startNow: false,
-    })
-    const findings = await svc.reports.lint('/r')
-    expect(findings.length).toBe(1)
-    expect(findings[0]!.findings).toEqual(['missing acceptance criteria'])
   })
 })
 
@@ -3663,10 +3649,13 @@ describe('IssueService doctor/preflight (P2b)', () => {
     expect((await svc.reports.preflight('/r')).ok).toBe(false)
   })
 
-  it('preflight ok when no cycles or dangling deps', async () => {
+  it('preflight ok with missing acceptance and no cycles or dangling deps', async () => {
     const { svc } = await harness()
     await svc.crud.create({ repoPath: '/r', title: 'A', startNow: false })
-    expect((await svc.reports.preflight('/r')).ok).toBe(true)
+    expect(await svc.reports.preflight('/r')).toEqual({
+      ok: true,
+      report: { cycles: [], danglingDeps: [], staleCount: 0 },
+    })
   })
 })
 

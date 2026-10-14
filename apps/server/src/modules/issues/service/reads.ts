@@ -15,7 +15,6 @@ import {
   isIssueStage,
   isReadyIssueStage,
   isSystemOwnedIssueStage,
-  type LintFinding,
   machinePathKey,
   type OrphanIssue,
   type SessionId,
@@ -31,7 +30,6 @@ import {
   otherRefRule,
   selfRefRule,
 } from '@podium/protocol'
-import { lintIssue } from '../../../issue-lint'
 import { jaccard, tokenize } from '../../../issue-similarity'
 import { isMemberCwd, sessionsForIssue } from '../../../issue-util'
 import type { IssueRow, SessionStore } from '../../../store'
@@ -724,19 +722,6 @@ export class IssueReportsModule {
     return await Promise.all(rows.map(async (r) => await this.report(r, batch)))
   }
 
-  /** Open issues with ≥1 template-completeness finding (see `lintIssue`). */
-  async lint(repoPath?: string, mayRead: IssueReadPredicate = () => true): Promise<LintFinding[]> {
-    const inScope = await this.store.repoScopeFilter(repoPath)
-    return (
-      await filterReadable(
-        [...this.store.rows.values()].filter((r) => inScope(r) && !this.store.isClosed(r)),
-        mayRead,
-      )
-    )
-      .map((r) => ({ id: r.id, seq: r.seq, findings: lintIssue(r) }))
-      .filter((f) => f.findings.length > 0)
-  }
-
   async doctor(repoPath?: string, mayRead: IssueReadPredicate = () => true): Promise<DoctorReport> {
     const inScope = await this.store.repoScopeFilter(repoPath)
     const rows = await filterReadable(
@@ -773,7 +758,6 @@ export class IssueReportsModule {
     return {
       cycles,
       danglingDeps,
-      lintCount: (await this.lint(repoPath, mayRead)).length,
       staleCount: (await this.staleList(repoPath, 30, Date.now(), mayRead)).length,
     }
   }

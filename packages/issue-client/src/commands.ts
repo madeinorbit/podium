@@ -1654,17 +1654,16 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
   },
   {
     name: 'doctor',
-    summary: 'Health check (cycles, dangling deps, lint/stale counts).',
+    summary: 'Health check (cycles, dangling deps, stale count).',
     args: z.strictObject(optRepo),
     async run(c, a) {
       const d = (await c.issues.doctor.query(a as { repoPath?: string })) as {
         cycles: string[][]
         danglingDeps: unknown[]
-        lintCount: number
         staleCount: number
       }
       return {
-        text: `cycles: ${d.cycles.length}, dangling: ${d.danglingDeps.length}, lint: ${d.lintCount}, stale: ${d.staleCount}`,
+        text: `cycles: ${d.cycles.length}, dangling: ${d.danglingDeps.length}, stale: ${d.staleCount}`,
         data: d,
       }
     },
@@ -1701,23 +1700,6 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
         text: rows.length
           ? rows.map((r) => `#${r.seq} ${r.title} (${r.ref})`).join('\n')
           : '(no orphans)',
-        data: rows,
-      }
-    },
-  },
-  {
-    name: 'lint',
-    summary: 'Issues missing template sections.',
-    args: z.strictObject(optRepo),
-    async run(c, a) {
-      const rows = (await c.issues.lint.query(a as { repoPath?: string })) as {
-        seq: number
-        findings: string[]
-      }[]
-      return {
-        text: rows.length
-          ? rows.map((r) => `#${r.seq}: ${r.findings.join('; ')}`).join('\n')
-          : '(lint clean)',
         data: rows,
       }
     },

@@ -73,6 +73,8 @@ describe('the real in-process client serves every cli/mcp-exposed contract', () 
     const issues = client.issues as unknown as Record<string, unknown>
     // Derived from the contract table, so a name with no contract is genuinely absent.
     expect(issues.thisCommandHasNoContract).toBeUndefined()
+    expect(issues.lint).toBeUndefined()
+    expect(ISSUE_COMMANDS.some((command) => command.name === 'lint')).toBe(false)
     expect(Object.keys(issues).sort()).toEqual([...ISSUE_COMMAND_NAMES].sort())
     // And the specs/lock routers really are NOT served in-process — the historical
     // behaviour, asserted so "everything is reachable" cannot be read into this file.
@@ -84,7 +86,7 @@ describe('the real in-process client serves every cli/mcp-exposed contract', () 
   it('every cli/mcp-exposed contract has a live procedure on the real client', async () => {
     const client = (await fresh()).issueCommands.asIssueTrpc(OPERATOR)
     const issues = client.issues as unknown as Record<string, { query: unknown; mutate: unknown }>
-    expect(CLI_EXPOSED).toHaveLength(69)
+    expect(CLI_EXPOSED).toHaveLength(68)
     for (const name of CLI_EXPOSED) {
       expect(typeof issues[name]?.query, name).toBe('function')
       expect(typeof issues[name]?.mutate, name).toBe('function')
@@ -123,7 +125,7 @@ describe('the podium issue CLI table renders over the real surface', () => {
     const client = reg.issueCommands.asIssueTrpc(OPERATOR)
     const made = await reg.issues.crud.create({ repoPath: '/r', title: 'Runtime probe', startNow: false })
 
-    // Pure reads only. `doctor`, `preflight`, `lint` and `orphans` shell out to git
+    // Pure reads only. `doctor`, `preflight` and `orphans` shell out to git
     // and the filesystem; running them from a unit lane would be measuring this
     // machine, not the surface. They are covered by the reachability check above and
     // by the source-half audit, and are named here rather than quietly omitted.

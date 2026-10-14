@@ -162,8 +162,6 @@ export const findDuplicatesInput = z.object({
 
 export const staleInput = z.object({ repoPath: z.string().optional(), days: z.number().optional() })
 
-export const lintInput = repoScoped
-
 export const doctorInput = repoScoped
 
 export const preflightInput = repoScoped
@@ -838,21 +836,6 @@ export const issueStaleContract = {
   version: 1,
   visibility: ISSUE_VISIBILITY,
   input: staleInput,
-  policy: READ_POLICY,
-  exposure: SERVED_EVERYWHERE,
-  delivery: READ_DELIVERY,
-  redaction: ISSUE_REDACTION,
-  ownership: CREATES_NOTHING,
-  attribution: ISSUE_ATTRIBUTION,
-  errorConsistency: UNTARGETED_ERRORS,
-  conflict: 'n/a',
-} as const satisfies CommandContract
-
-export const issueLintContract = {
-  name: 'issues.lint',
-  version: 1,
-  visibility: ISSUE_VISIBILITY,
-  input: lintInput,
   policy: READ_POLICY,
   exposure: SERVED_EVERYWHERE,
   delivery: READ_DELIVERY,
@@ -2059,7 +2042,6 @@ export const ISSUE_CONTRACTS = {
   integrate: issueIntegrateContract,
   labelList: issueLabelListContract,
   linearSearch: issueLinearSearchContract,
-  lint: issueLintContract,
   list: issueListContract,
   mailClaim: issueMailClaimContract,
   mailInbox: issueMailInboxContract,
@@ -2191,7 +2173,6 @@ const NON_MUTATING_NAMES = [
   'get',
   'graph',
   'labelList',
-  'lint',
   'list',
   'mailPending',
   'orphans',

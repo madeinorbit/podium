@@ -23,11 +23,6 @@ const IssueRefHead = IssueIdentity.pick({ id: true, seq: true }).extend({
   title: IssueText.shape.title,
 })
 
-export const LintFinding = IssueRefHead.omit({ title: true }).extend({
-  findings: z.array(z.string()),
-})
-export type LintFinding = z.infer<typeof LintFinding>
-
 export const DoctorReport = z.object({
   /** Cycles and dangling edges are lists of ISSUE IDS; composed, not restated
    *  (POD-362). `type` stays a free string — it is a dep KIND, not an id. */
@@ -39,7 +34,6 @@ export const DoctorReport = z.object({
       type: z.string(),
     }),
   ),
-  lintCount: z.number().int(),
   staleCount: z.number().int(),
 })
 export type DoctorReport = z.infer<typeof DoctorReport>

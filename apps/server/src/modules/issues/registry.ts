@@ -446,11 +446,6 @@ const defs = {
         async (id) => await ctx.mayReadIssue(id),
       ),
   }),
-  lint: def('lint', {
-    kind: 'query',
-    handler: async (ctx, input) =>
-      await ctx.reports.lint(input.repoPath, async (id) => await ctx.mayReadIssue(id)),
-  }),
   doctor: def('doctor', {
     kind: 'query',
     handler: async (ctx, input) =>

@@ -509,7 +509,6 @@ describe('registry totality (ADR 3 D13.2 — declared per contract, never guesse
       'issues.graph',
       'issues.labelList',
       'issues.linearSearch',
-      'issues.lint',
       'issues.list',
       'issues.mailPending',
       'issues.orphans',

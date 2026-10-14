@@ -129,7 +129,6 @@ export type IssueReportsCapability = Pick<
   | 'labelList'
   | 'findDuplicates'
   | 'staleList'
-  | 'lint'
   | 'doctor'
   | 'preflight'
   | 'orphans'

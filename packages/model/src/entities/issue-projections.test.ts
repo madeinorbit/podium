@@ -4,7 +4,6 @@ import {
   IssueAggregate,
   IssueGraph,
   IssueGraphNode,
-  LintFinding,
   OrphanIssue,
 } from '../index'
 
@@ -49,10 +48,6 @@ describe('composed issue projections emit their historical key order', () => {
       'complete',
     ])
   })
-
-  it('LintFinding', () => {
-    expect(Object.keys(LintFinding.shape)).toStrictEqual(['id', 'seq', 'findings'])
-  })
 })
 
 describe('composed issue projections inherit their constraints from IssueAggregate', () => {
@@ -64,7 +59,7 @@ describe('composed issue projections inherit their constraints from IssueAggrega
    */
   it('rejects a non-integer seq, because IssueAggregate constrains seq to an int', () => {
     expect(IssueAggregate.shape.seq.safeParse(1.5).success).toBe(false)
-    for (const s of [IssueGraphNode, OrphanIssue, LintFinding]) {
+    for (const s of [IssueGraphNode, OrphanIssue]) {
       expect(s.shape.seq.safeParse(1.5).success).toBe(false)
       expect(s.shape.seq.safeParse(7).success).toBe(true)
     }
