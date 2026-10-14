@@ -256,3 +256,4 @@ Supporting changes:
 ## Tooling gaps (continued)
 
 4. **Phases can't be real yet.** The phase containers POD-6102…6105 are plain tasks until `type = phase` ships (POD-6106); then they convert.
+- **D4 refinement (2026-10-14, from the POD-6107 lane):** `execution_profiles` is still used by the edge workflows feature, and the migration gate refuses a RENAME. So `agent_profiles` is a new table. Moving workflows onto it and dropping `execution_profiles` is a later sub-issue under Phase A.
