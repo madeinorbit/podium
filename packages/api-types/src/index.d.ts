@@ -1795,6 +1795,12 @@ type Input_issues_create = {
     title: string;
     type?: "decision" | "phase" | "task" | undefined;
 };
+type Input_issues_depAdd = {
+    expectedRevision?: number | undefined;
+    fromId: string;
+    toId: string;
+    type?: "blocked-by" | "discovered-from" | "duplicates" | "related" | "supersedes" | undefined;
+};
 type Input_issues_events = {
     before?: number | undefined;
     excludeKinds?: string[] | undefined;
@@ -6924,12 +6930,7 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
             meta: unknown;
         }>;
         "depAdd": TRPC.TRPCMutationProcedure<{
-            input: {
-                expectedRevision?: number | undefined;
-                fromId: string;
-                toId: string;
-                type?: string | undefined;
-            };
+            input: Input_issues_depAdd;
             output: Output_issues_addComment;
             meta: unknown;
         }>;
