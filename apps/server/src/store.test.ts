@@ -178,6 +178,8 @@ function row(overrides: Partial<SessionRow> = {}): SessionRow {
     workflowRunId: null,
     workflowStepId: null,
     executionProfileId: null,
+    // POD-6107: the agent profile a session started from; null = none.
+    agentProfileId: null,
     // Issue-lifecycle tombstones are always projected by the repository.
     deletedAt: null,
     // Tombstones record whether an issue cascade or a standalone remove created them.
@@ -276,6 +278,14 @@ describe('SessionStore sessions', () => {
       workflowStepId: 'step_3',
       executionProfileId: 'prof_x',
     })
+    await s.sessions.upsertSession(r)
+    expect(await s.sessions.loadSessions()).toEqual([r])
+    await s.close()
+  })
+
+  it('round-trips the agent profile a session started from (POD-6107)', async () => {
+    const s = await openTestStore(':memory:')
+    const r = row({ agentProfileId: 'agp_seed_review' })
     await s.sessions.upsertSession(r)
     expect(await s.sessions.loadSessions()).toEqual([r])
     await s.close()
