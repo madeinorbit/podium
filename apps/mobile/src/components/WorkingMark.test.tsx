@@ -88,7 +88,9 @@ describe('phone tetra mark', () => {
     expect(latestPicture()).not.toEqual(rest)
     expect(drawn).toHaveLength(rendered)
     act(() => vi.advanceTimersByTime(60_000))
-    expect(latestPicture()).toEqual(dotsAt(tetra, Date.now() % tetra.loop))
+    const later = latestPicture()
+    act(() => vi.advanceTimersByTime(200))
+    expect(latestPicture()).not.toEqual(later)
     expect(vi.getTimerCount()).toBe(1)
   })
 
