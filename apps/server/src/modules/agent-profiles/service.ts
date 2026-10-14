@@ -13,15 +13,18 @@
  *     is usable, because that is a machine fact.
  */
 import {
-  AgentCandidates,
+  agentProfileCreateInput,
+  agentProfileDeleteInput,
+  agentProfileImportInput,
+  agentProfileUpdateInput,
+} from '@podium/commands'
+import {
   AgentProfileDocumentError,
-  AgentProfileName,
   type AgentProfileWire,
   type AgentSetupFields,
   asMachineId,
   formatAgentProfileMarkdown,
   isAgentFieldSet,
-  MAX_AGENT_PROFILE_INSTRUCTIONS,
   type MachineId,
   machineByRef,
   type NameableMachine,
@@ -32,7 +35,7 @@ import {
   type UserId,
 } from '@podium/model'
 import { randomUUID } from 'node:crypto'
-import { z } from 'zod'
+import type { z } from 'zod'
 import type { AgentProfilesRepository } from '../../store/agent-profiles'
 
 /** A refusal the caller can act on; the router maps it to a 4xx with this text. */
@@ -55,45 +58,6 @@ export interface AgentProfileDeps {
   /** Instance role of a person; edits are admin-grade (matrix row `agent-profiles`). */
   roleOf(userId: UserId): Promise<string | undefined>
 }
-
-export const AgentProfileRef = z.string().trim().min(1).max(100)
-
-const Description = z.string().trim().max(2_000)
-const Instructions = z.string().max(MAX_AGENT_PROFILE_INSTRUCTIONS)
-/** A machine name or id; null or '' clears it. */
-const MachineRef = z.string().trim().max(200).nullable()
-
-export const agentProfileCreateInput = z.object({
-  name: AgentProfileName,
-  description: Description.default(''),
-  candidates: AgentCandidates.default([]),
-  machine: MachineRef.optional(),
-  instructions: Instructions.default(''),
-})
-
-export const agentProfileUpdateInput = z.object({
-  ref: AgentProfileRef,
-  name: AgentProfileName.optional(),
-  description: Description.optional(),
-  candidates: AgentCandidates.optional(),
-  machine: MachineRef.optional(),
-  instructions: Instructions.optional(),
-})
-
-export const agentProfileDeleteInput = z.object({ ref: AgentProfileRef })
-
-export const agentProfileImportInput = z.object({
-  files: z
-    .array(
-      z.object({
-        /** The file name without `.md`, used when the frontmatter has no `name:`. */
-        name: z.string().trim().max(100).optional(),
-        text: z.string().max(MAX_AGENT_PROFILE_INSTRUCTIONS + 10_000),
-      }),
-    )
-    .min(1)
-    .max(100),
-})
 
 export interface AgentLaunch {
   profile: { id: string; name: string } | null

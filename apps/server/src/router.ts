@@ -78,6 +78,7 @@ import {
   USAGE_QUERIES,
 } from './modules/misc-queries'
 import { modelFamilyProcedures } from './modules/models/trpc'
+import { agentProfileFamilyProcedures } from './modules/agent-profiles/trpc'
 import { operationProcedures } from './modules/operations/trpc'
 import { perfFamilyProcedures } from './modules/perf/trpc'
 import { readPositionFamilyProcedures } from './modules/read-position/trpc'
@@ -393,6 +394,8 @@ export const appRouter = t.router({
   cost: t.router(queryProcedures('cost', COST_QUERIES)),
   quota: t.router(queryProcedures('quota', QUOTA_QUERIES)),
   models: t.router(modelFamilyProcedures()),
+  /** Named agent setups (POD-6107): people edit them, agents pick them. */
+  agentProfiles: t.router(agentProfileFamilyProcedures()),
   /**
    * THE HOST SURFACE IS DERIVED (POD-314) — who owns the used memory right now.
    * Roots are derived SERVER-SIDE from the target machine's registered repos plus

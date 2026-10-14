@@ -76,6 +76,9 @@ export interface IssueTrpc {
    *  issue contracts take. Optional because the operator-side HTTP client and the
    *  relay both reach it, but the drift/unit fakes have no reason to stub it. */
   machines?: { list: IssueProc }
+  /** Read-only here: `--profile` names resolve on the server; `show` reads the
+   *  list to print a profile's NAME rather than its id (POD-6107). */
+  agentProfiles?: { list: IssueProc }
 }
 
 /**

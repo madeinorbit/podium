@@ -388,13 +388,34 @@ function formatSessionLine(
   return parts.join(' ')
 }
 
+/** Profile id → name for the issues about to be shown (POD-6107). One list
+ *  read, and only when an issue has a profile; a client without the proc (or a
+ *  failed read) prints the id instead. */
+async function profileNamesFor(
+  c: IssueTrpc,
+  issues: ReadonlyArray<{ agentProfileId?: string | null }>,
+): Promise<Map<string, string>> {
+  if (!c.agentProfiles || !issues.some((i) => i.agentProfileId)) return new Map()
+  try {
+    const profiles = (await c.agentProfiles.list.query({})) as Array<{ id: string; name: string }>
+    return new Map(profiles.map((p) => [p.id, p.name]))
+  } catch {
+    return new Map()
+  }
+}
+
 /** The single-issue `show` rendering — shared verbatim by single and bulk show.
  *  `comments` is fetched separately (#175); empty ⇒ no comments section.
  *  Sessions list sibling agents on the issue [spec:SP-99d3]. */
-function renderShow(i: ShowWire, comments: ShowComment[] = []): string {
+function renderShow(
+  i: ShowWire,
+  comments: ShowComment[] = [],
+  profileNames: ReadonlyMap<string, string> = new Map(),
+): string {
   const meta = [
     `stage=${i.stage} P${i.priority} ready=${i.ready} blocked=${i.blocked}`,
     i.assignee ? `assignee=${i.assignee}` : null,
+    i.agentProfileId ? `profile=${profileNames.get(i.agentProfileId) ?? i.agentProfileId}` : null,
     i.defaultAgent || i.defaultModel || i.defaultEffort
       ? `agent=${i.defaultAgent ?? 'auto'} model=${i.defaultModel ?? 'auto'} effort=${i.defaultEffort ?? 'auto'}`
       : null,
@@ -520,7 +541,10 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
         // #175: the thread comes from the lazy comments proc (the wire only
         // carries commentCount); data keeps embedding it for --json consumers.
         const comments = await fetchComments(c, i.id)
-        return { text: renderShow(i, comments), data: { ...i, comments } }
+        return {
+          text: renderShow(i, comments, await profileNamesFor(c, [i])),
+          data: { ...i, comments },
+        }
       }
       // Bulk: per-id failures (unknown/ambiguous ref) become an inline error
       // entry instead of failing the whole call — a 24-child survey should not
@@ -540,11 +564,15 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
           },
         ),
       )
+      const names = await profileNamesFor(
+        c,
+        results.filter((r): r is ShowWire & { comments: ShowComment[] } => 'seq' in r),
+      )
       const text = results
         .map((r) =>
           'error' in r && !('seq' in r)
             ? `${r.ref}: ERROR ${r.error}`
-            : renderShow(r as ShowWire, (r as { comments?: ShowComment[] }).comments ?? []),
+            : renderShow(r as ShowWire, (r as { comments?: ShowComment[] }).comments ?? [], names),
         )
         .join('\n\n')
       return { text, data: results }
@@ -638,6 +666,7 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
       agent: z.string().min(1).optional(),
       model: z.string().min(1).optional(),
       effort: z.string().min(1).optional(),
+      profile: z.string().min(1).optional(),
       machine: z.string().min(1).optional(),
       assignee: z.string().optional(),
       labels: z.string().optional(),
@@ -667,6 +696,7 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
         ...(a.agent ? { defaultAgent: a.agent as string } : {}),
         ...(a.model ? { defaultModel: a.model as string } : {}),
         ...(a.effort ? { defaultEffort: a.effort as string } : {}),
+        ...(a.profile ? { agentProfile: a.profile as string } : {}),
         ...(machineId ? { machineId } : {}),
         ...(a.assignee ? { assignee: a.assignee as string } : {}),
         ...(a.color ? { color: a.color as never } : {}),
@@ -698,12 +728,13 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
   {
     name: 'start',
     summary:
-      "Start an issue: create its worktree+branch, claim it, spawn its agent. start <id> [--agent claude-code] [--model <slug>] [--effort low|medium|high] [--machine <name|id>] [--force-unknown-model]. --model/--effort take the same values as create/update and PERSIST onto the issue, so later sessions on it run the same; without them the issue's stored model/effort is used (`auto` = the CLI default). An unknown model or effort is refused before anything is created. --machine HOMES the issue on that machine (see `podium machine list`) — its worktree, branch and agent all live there from now on.",
+      "Start an issue: create its worktree+branch, claim it, spawn its agent. start <id> [--agent claude-code] [--model <slug>] [--effort low|medium|high] [--profile <name>] [--machine <name|id>] [--force-unknown-model]. --profile/--model/--effort take the same values as create/update and PERSIST onto the issue, so later sessions on it run the same; without them the issue's stored model/effort is used (`auto` = the CLI default). An unknown model or effort is refused before anything is created. --machine HOMES the issue on that machine (see `podium machine list`) — its worktree, branch and agent all live there from now on.",
     args: z.strictObject({
       id: idArg,
       agent: z.string().min(1).optional(),
       model: z.string().min(1).optional(),
       effort: z.string().min(1).optional(),
+      profile: z.string().min(1).optional(),
       machine: z.string().min(1).optional(),
       forceUnknownModel: z.boolean().optional(),
     }),
@@ -724,6 +755,7 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
         ...(a.agent ? { agentKind: a.agent as string } : {}),
         ...(a.model ? { defaultModel: a.model as string } : {}),
         ...(a.effort ? { defaultEffort: a.effort as string } : {}),
+        ...(a.profile ? { agentProfile: a.profile as string } : {}),
         ...(a.forceUnknownModel ? { forceUnknownModel: true } : {}),
       })) as {
         seq: number
@@ -759,6 +791,8 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
       agent: z.string().min(1).optional(),
       model: z.string().min(1).optional(),
       effort: z.string().min(1).optional(),
+      // Agent profile by name (POD-6107); 'none' clears it.
+      profile: z.string().min(1).optional(),
       machine: z.string().min(1).optional(),
       parentId: z.string().optional(),
       parentBranch: z.string().optional(),
@@ -807,6 +841,7 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
       if (a.agent != null) patch.defaultAgent = a.agent
       if (a.model != null) patch.defaultModel = a.model
       if (a.effort != null) patch.defaultEffort = a.effort
+      if (a.profile != null) patch.agentProfile = a.profile === 'none' ? null : a.profile
       // 'none' clears the pin (back to repo-affinity routing).
       if (a.machine != null) patch.machineId = a.machine === 'none' ? null : a.machine
       // 'none' clears the colour (back to the neutral slate flow) [spec:SP-b4d1].

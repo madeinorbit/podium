@@ -357,6 +357,20 @@ export {
   senderLabel,
 } from './mail/principal'
 export {
+  AGENT_PROFILE_CONTRACT_NAMES,
+  AGENT_PROFILE_CONTRACTS,
+  type AgentProfileContractName,
+  AgentProfileRef,
+  agentProfileCreateContract,
+  agentProfileCreateInput,
+  agentProfileDeleteContract,
+  agentProfileDeleteInput,
+  agentProfileImportContract,
+  agentProfileImportInput,
+  agentProfileUpdateContract,
+  agentProfileUpdateInput,
+} from './agent-profiles/contracts'
+export {
   MODEL_CONTRACT_NAMES,
   MODEL_CONTRACTS,
   type ModelContractName,

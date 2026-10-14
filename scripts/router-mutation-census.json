@@ -24,6 +24,7 @@
       "perf",
       "logs",
       "models",
+      "agentProfiles",
       "hosts",
       "files",
       "setup",

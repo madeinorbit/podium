@@ -79,6 +79,7 @@ export const GOVERNED: readonly { table: string; module: string }[] = [
   { table: 'CONVERSATION_COMMANDS_TRPC', module: 'conversations' },
   { table: 'PERF_COMMANDS_TRPC', module: 'perf' },
   { table: 'MODEL_COMMANDS_TRPC', module: 'models' },
+  { table: 'AGENT_PROFILE_COMMANDS_TRPC', module: 'agent-profiles' },
   { table: 'FILE_COMMANDS_TRPC', module: 'files' },
   { table: 'HOST_COMMANDS_TRPC', module: 'hosts' },
   { table: 'ACCOUNT_COMMANDS_TRPC', module: 'accounts' },
