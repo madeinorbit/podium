@@ -487,14 +487,14 @@ describe('IssuesRepository: the batched child reads (executed, never named)', ()
     const store = await openIssueStore()
     await seedIssues(store, ['iss_a', 'iss_b', 'iss_c'])
     await store.issues.addIssueDep(asIssueId('iss_b'), asIssueId('iss_a'), 'blocked-by')
-    await store.issues.addIssueDep(asIssueId('iss_a'), asIssueId('iss_c'), 'relates')
+    await store.issues.addIssueDep(asIssueId('iss_a'), asIssueId('iss_c'), 'related')
     await store.issues.addIssueDep(asIssueId('iss_a'), asIssueId('iss_c'), 'blocked-by')
 
     // The ledger's full-truth reconcile diffs by id, but the order is what keeps
     // its change log readable and this expectation deterministic (POD-822).
     expect(await store.issues.listAllIssueDeps()).toEqual([
       { fromId: 'iss_a', toId: 'iss_c', type: 'blocked-by' },
-      { fromId: 'iss_a', toId: 'iss_c', type: 'relates' },
+      { fromId: 'iss_a', toId: 'iss_c', type: 'related' },
       { fromId: 'iss_b', toId: 'iss_a', type: 'blocked-by' },
     ])
     await store.close()

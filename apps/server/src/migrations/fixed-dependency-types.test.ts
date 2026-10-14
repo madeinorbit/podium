@@ -15,6 +15,7 @@
  *  - a second boot applies nothing and changes nothing.
  */
 
+import { firstAdminMemberId } from '@podium/model'
 import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
 import { describe, expect, it } from 'vitest'
 import { runDrizzleMigrations } from '.'
@@ -28,10 +29,12 @@ function beforeMigration(): SqlDatabase {
   runDrizzleMigrations(db, DRIZZLE_MIGRATIONS.slice(0, CUT))
   const insert = db.prepare(
     `INSERT INTO issues
-      (id, repo_path, seq, title, stage, parent_branch, default_agent, created_at, updated_at)
-     VALUES (?, '/r', ?, ?, 'backlog', 'main', 'claude-code', '2026-01-01', '2026-01-01')`,
+      (id, owner_user_id, created_by_actor, repo_path, seq, title, stage, parent_branch,
+       default_agent, created_at, updated_at)
+     VALUES (?, ?, ?, '/r', ?, ?, 'backlog', 'main', 'claude-code', '2026-01-01', '2026-01-01')`,
   )
-  ;['a', 'b', 'c', 'd'].forEach((id, i) => insert.run(id, i + 1, id.toUpperCase()))
+  const owner = firstAdminMemberId()
+  ;['a', 'b', 'c', 'd'].forEach((id, i) => insert.run(id, owner, owner, i + 1, id.toUpperCase()))
   return db
 }
 
