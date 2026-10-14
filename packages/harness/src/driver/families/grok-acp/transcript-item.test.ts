@@ -16,7 +16,7 @@
 import type { SessionId, TranscriptItem, TranscriptItemRef } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { RuntimeEvent, SessionSpec } from '../../host.js'
-import { createMemoryDriverSlots } from '../../testing/index.js'
+import { createMemoryAttachmentStager, createMemoryDriverSlots } from '../../testing/index.js'
 import type { TurnReceipt } from '../../turns.js'
 import {
   createGrokAcpRuntime,
@@ -57,6 +57,7 @@ function world(options: FakeGrokAcpServerOptions = {}): {
   return {
     serverFor: (sessionId) => servers.get(sessionId)!,
     host: {
+      stageAttachment: createMemoryAttachmentStager(),
       bindings: {
         recorded: (id) => entries.get(id),
         bound: (entry) => entries.set(entry.sessionId, entry),
@@ -159,6 +160,36 @@ describe('a Grok prompt carries our id', () => {
       expect(w.serverFor(handle.binding.sessionId).prompts.at(-1)).toMatchObject({
         prompt: [{ type: 'text', text: 'ship it' }],
         _meta: { promptId: 'msg_ship' },
+      })
+    } finally {
+      runtime.dispose()
+    }
+  })
+
+  it('carries staged attachments as their paths ahead of the text (POD-6093)', async () => {
+    const w = world()
+    const runtime = createGrokAcpRuntime(w.host, createMemoryDriverSlots())
+    try {
+      const handle = await runtime.driver.create(spec())
+      const shot = await handle.stageAttachment({
+        bytes: new Uint8Array([1]),
+        filename: 'shot.png',
+        mediaType: 'image/png',
+      })
+      const bundle = await handle.stageAttachment({
+        bytes: new Uint8Array([2]),
+        filename: 'bundle.zip',
+        mediaType: 'application/zip',
+      })
+      if ('reason' in shot || 'reason' in bundle) throw new Error('staging refused')
+      await expect(
+        handle.send(
+          { id: 'msg_files', text: 'what is in these?', attachments: [shot, bundle] },
+          { origin: 'human', delivery: 'when-ready' },
+        ),
+      ).resolves.not.toMatchObject({ outcome: 'refused' })
+      expect(w.serverFor(handle.binding.sessionId).prompts.at(-1)).toMatchObject({
+        prompt: [{ type: 'text', text: `${shot.path}\n${bundle.path}\nwhat is in these?` }],
       })
     } finally {
       runtime.dispose()

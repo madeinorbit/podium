@@ -50,6 +50,8 @@ export {
 
 /** Supervisor-less driver slots, for a family runtime built outside a daemon. */
 export { createMemoryDriverSlots } from './driver-slots.js'
+/** Disk-less attachment staging, for a family runtime built outside a daemon. */
+export { createMemoryAttachmentStager } from './attachment-stager.js'
 /** Session-layer-less binding records, for a family built outside a daemon. */
 export {
   createMemoryBindingRecords,

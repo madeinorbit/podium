@@ -12,7 +12,11 @@ import type { ResumeRef, SessionId, TranscriptItem } from '@podium/model'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { describe, expect, it, vi } from 'vitest'
 import { pageHistory } from '../../history.js'
-import { createMemoryDriverSlots, serverFamilyLaunch } from '../../testing/index.js'
+import {
+  createMemoryAttachmentStager,
+  createMemoryDriverSlots,
+  serverFamilyLaunch,
+} from '../../testing/index.js'
 
 /** A Claude launch from the facts a test names; `resume` rides beside the spec. */
 function launchOf({
@@ -105,6 +109,7 @@ function sessionWorld(
   extra: Partial<ClaudeSdkSessionDeps> = {},
 ) {
   return createClaudeSdkSessionRuntime({
+    stageAttachment: createMemoryAttachmentStager(),
     driverSlots: createMemoryDriverSlots(),
     send: (message) => sent.push(message),
     emitBind: (bind) => {

@@ -30,7 +30,7 @@ import type {
   SessionEngineOwner,
 } from '../engine-supervision.js'
 import { createTestEngineOwner } from '../../testing/binding-records.js'
-import { createMemoryDriverSlots } from '../../testing/index.js'
+import { createMemoryDriverSlots, createMemoryAttachmentStager } from '../../testing/index.js'
 import { isDriverRefusal } from '../../errors.js'
 import type { GrokAcpJournalEntry, GrokAcpRuntimeHost } from './runtime.js'
 import { createGrokAcpRuntime } from './runtime.js'
@@ -364,6 +364,7 @@ describe('readHistory — the Store read over updates.jsonl', () => {
         entries: Map<SessionId, GrokAcpJournalEntry>,
         seq: { n: number },
       ): GrokAcpRuntimeHost => ({
+        stageAttachment: createMemoryAttachmentStager(),
         bindings: {
           recorded: (id) => entries.get(id),
           bound: (entry) => void entries.set(entry.sessionId, entry),

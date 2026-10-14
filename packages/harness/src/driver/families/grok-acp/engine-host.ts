@@ -218,7 +218,9 @@ interface HeldEngine {
   banner: string
 }
 
-export function createGrokEngineHost(deps: GrokEngineHostDeps): GrokAcpRuntimeHost {
+export function createGrokEngineHost(
+  deps: GrokEngineHostDeps,
+): Omit<GrokAcpRuntimeHost, 'stageAttachment'> {
   /** Every engine this daemon generation currently holds a host attachment for.
    *  A daemon restart empties this map without touching the engines — the next
    *  generation re-attaches by label through `launch` itself, which adopts a

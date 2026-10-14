@@ -10,7 +10,10 @@ import {
   type SessionSpec,
   type TurnInput,
 } from '../../../../packages/harness/src/driver/contract.js'
-import { createMemoryDriverSlots } from '../../../../packages/harness/src/driver/testing/index.js'
+import {
+  createMemoryAttachmentStager,
+  createMemoryDriverSlots,
+} from '../../../../packages/harness/src/driver/testing/index.js'
 import {
   createHeadlessRuntime,
   type HeadlessDriverHost,
@@ -83,6 +86,7 @@ async function fixture() {
     acknowledge: async () => {},
   }
   const host: HeadlessDriverHost = {
+    stageAttachment: createMemoryAttachmentStager(),
     send: (frame) => { sent.push(frame) },
     snapshot: async () => testHarnessSnapshot(),
     engines: () => ({

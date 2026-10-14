@@ -104,13 +104,15 @@ import type {
 } from '../../interactions.js'
 import type { OnQueueAbandoned } from '../../queue-abandonment.js'
 import { instructionsText, type ModelPolicy, type SessionSpec } from '../../session-spec.js'
-import type {
-  AnswerOptions,
-  AttachmentStager,
-  Refusal,
-  SendOptions,
-  TurnInput,
-  TurnReceipt,
+import {
+  type AnswerOptions,
+  type AttachmentStager,
+  type Refusal,
+  type SendOptions,
+  splitAttachments,
+  textWithAttachmentPaths,
+  type TurnInput,
+  type TurnReceipt,
 } from '../../turns.js'
 import { driverLocalCursor, stampRuntimeEvent } from '../terminal/envelope.js'
 import type { SessionDriverSlots } from '../session-slots.js'
@@ -1443,12 +1445,8 @@ export function createCodexRuntime(
    * which a path cannot, and that half was never broken.
    */
   const codexInput = (input: TurnInput) => {
-    const attachments = input.attachments ?? []
-    const images = attachments.filter((attachment) => attachment.kind === 'image')
-    const files = attachments.filter((attachment) => attachment.kind !== 'image')
-    const text = [...files.map((attachment) => attachment.path), input.text]
-      .filter(Boolean)
-      .join('\n')
+    const { images, files } = splitAttachments(input.attachments)
+    const text = textWithAttachmentPaths(input.text, files)
     return [
       ...images.map((attachment) => ({ type: 'localImage', path: attachment.path })),
       { type: 'text', text, text_elements: [] },

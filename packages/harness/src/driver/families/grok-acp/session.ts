@@ -49,12 +49,15 @@ export interface GrokSessionDeps extends ServerSessionFramePorts {
    *  each session's handle into its entry and keeps no handle index of its own. */
   driverSlots: SessionDriverSlots
   facts: GrokEngineFacts
-  engine: GrokAcpRuntimeHost
+  engine: Omit<GrokAcpRuntimeHost, 'stageAttachment'>
+  /** The daemon's attachment stager (POD-6093). */
+  stageAttachment: GrokAcpRuntimeHost['stageAttachment']
 }
 
 export function createGrokSessionRuntime(deps: GrokSessionDeps): DaemonGrokRuntime {
   const runtime = createGrokAcpRuntime({
     ...deps.engine,
+    stageAttachment: deps.stageAttachment,
     // A queue this driver loses becomes a durable server-side receipt
     // correction, so the port is wired HERE, next to `send` (POD-2297).
     onQueueAbandoned: reportQueueAbandonment(deps.facts.harnessKind, deps.send),

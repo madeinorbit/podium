@@ -2,7 +2,7 @@ import type { SessionId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import { RequestNotSentError } from '../../errors.js'
 import type { RuntimeEvent } from '../../host.js'
-import { createMemoryDriverSlots } from '../../testing/index.js'
+import { createMemoryAttachmentStager, createMemoryDriverSlots } from '../../testing/index.js'
 import { claudeUserMessageUuid } from './message-uuid.js'
 import {
   type ClaudeSdkRuntimeHost,
@@ -36,6 +36,7 @@ function hostWith(fail: (message: string) => Error): {
   const resumeValue = '00000000-0000-4000-8000-000000000001'
   let archive = ''
   const host: ClaudeSdkRuntimeHost = {
+    stageAttachment: createMemoryAttachmentStager(),
     mintSessionId: () => SESSION,
     mintResumeValue: () => resumeValue,
     now: () => '2026-08-28T00:00:00.000Z',

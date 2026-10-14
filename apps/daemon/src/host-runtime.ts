@@ -1263,6 +1263,7 @@ export async function createDaemonHostRuntime(args: {
     ...sessionFrames,
     facts: claudeFacts,
     engine: claudeEngine,
+    stageAttachment,
     transcript: {
       readHistory: contractHost.readHistory,
       archiveTranscript: contractHost.archiveTranscript,
@@ -1442,6 +1443,7 @@ export async function createDaemonHostRuntime(args: {
   grokRuntime = createGrokSessionRuntime({
     facts: grokFacts,
     engine: grokEngine,
+    stageAttachment,
     driverSlots: driverSlotsOver(ctx.sessions, args.deliveryJournal),
     send,
     ...sessionFrames,
@@ -1455,6 +1457,7 @@ export async function createDaemonHostRuntime(args: {
    */
   headlessRuntime = createHeadlessRuntime({
     send,
+    stageAttachment,
     snapshot: () =>
       harnessRuntime
         ? harnessRuntime.current()

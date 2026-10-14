@@ -25,7 +25,14 @@ export function grokAcpCapabilities(): DriverCapabilities {
       cursorMaterial: 'ACP _meta.eventId',
     },
     transcript: supported({ history: true }),
-    staging: unsupported('Grok ACP reports promptCapabilities.image=false and no file input'),
+    /**
+     * EVERY ATTACHMENT AS ITS PATH (POD-6093). Grok ACP reports
+     * `promptCapabilities.image=false` and takes no file input, so there is no
+     * typed part to use; the path rides in the prompt text, which is the form
+     * POD-5923 measured Grok recording as typed, and the agent opens the file
+     * with its own tools.
+     */
+    staging: supported({ kinds: ['image', 'file'], promptForm: 'path-text' }),
     // The driver can broker a client endpoint when a host supplies one. The
     // stdio production host currently declines it, like the Codex host.
     attach: supported({ kinds: ['client'] }),

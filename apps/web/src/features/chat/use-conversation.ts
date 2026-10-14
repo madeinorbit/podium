@@ -151,20 +151,23 @@ export function createWebConversation(runtime: ClientRuntime<Trpc>, pool: MobxPo
         })
         if (conversation.heldSends.some(send => send.mutationId === turn.deliveryId))
           return store.sendChat({ sessionId, text: turn.wire, wake: route.kind === 'resume' }, asMutationId(turn.deliveryId))
-        if (turn.attachments?.length && route.kind !== 'session') throw new Error('file attachments require a live agent session')
         if (route.kind === 'session' || route.kind === 'resume') {
           store.setPanelMode(sessionId, 'chat')
           return store.sendChat({ sessionId, text: turn.wire, wake: route.kind === 'resume', ...(turn.attachments?.length ? { attachments: turn.attachments } : {}) }, asMutationId(turn.deliveryId))
         }
         if (route.kind === 'refused') { conversation.setTurnError(route.reason); throw new Error(route.reason) }
+        // The superagent's turn is its text alone, queued durably as text, so a
+        // staged attachment rides there as its path ahead of the words: the
+        // path-text form its headless driver declares (POD-6093).
+        const wire = turn.attachments?.length ? [...turn.attachments.map(attachment => attachment.path), turn.wire].filter(Boolean).join('\n') : turn.wire
         const focus = store.getUserFocus()
         const backend = turn.backend ?? { model: conversation.thread?.model ?? 'auto', effort: conversation.thread?.effort ?? 'auto', agentKind: conversation.thread?.agentKind }
         const harness = HarnessAgent.safeParse(backend.agentKind)
         const choice = { ...(backend.model ? { model: backend.model } : {}), ...(backend.effort ? { effort: backend.effort } : {}), ...(harness.success && backend.model !== 'auto' ? { agentKind: harness.data } : {}) }
         try {
-          if (route.kind === 'concierge') { await trpc.superagent.concierge.mutate({ repoPath: route.repoPath, text: turn.wire, focus, ...choice }); return { state: 'sent' } }
+          if (route.kind === 'concierge') { await trpc.superagent.concierge.mutate({ repoPath: route.repoPath, text: wire, focus, ...choice }); return { state: 'sent' } }
           const attached = store.attachedSessionId
-          const answer = await trpc.superagent.sendTurn.mutate({ threadId: route.threadId, text: turn.wire, focus, ...(attached ? { attachSessionId: attached } : {}), ...choice })
+          const answer = await trpc.superagent.sendTurn.mutate({ threadId: route.threadId, text: wire, focus, ...(attached ? { attachSessionId: attached } : {}), ...choice })
           if (attached) store.clearAttachedSession()
           return { state: answer?.queued ? 'queued' : 'sent' }
         } catch (error) { conversation.setTurnError(error instanceof Error ? error.message : String(error)); throw error }

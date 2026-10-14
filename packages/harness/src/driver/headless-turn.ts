@@ -62,9 +62,14 @@ function canonicalJson(value: unknown): string {
  * it flips the SDK's effective permission mode (`default` vs `auto`) when no
  * explicit `permissionMode` is set, so a turn minted unstructured must never
  * verify as structured.
+ *
+ * `attachmentPaths` rides the same way (POD-6093): the staged paths the turn
+ * puts ahead of its prompt, so the text the harness reads is still exactly
+ * what the server minted. A turn without attachments hashes as it always did.
  */
 export function canonicalHeadlessContractFacts(input: {
   prompt: string
+  attachmentPaths?: readonly string[]
   model?: string
   effort?: string
   allowedTools?: readonly string[]

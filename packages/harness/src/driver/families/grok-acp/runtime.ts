@@ -59,7 +59,15 @@ import type {
 } from '../../interactions.js'
 import type { OnQueueAbandoned } from '../../queue-abandonment.js'
 import { instructionsText, type SessionSpec } from '../../session-spec.js'
-import type { AnswerOptions, Refusal, SendOptions, TurnInput, TurnReceipt } from '../../turns.js'
+import {
+  type AnswerOptions,
+  type AttachmentStager,
+  type Refusal,
+  type SendOptions,
+  textWithAttachmentPaths,
+  type TurnInput,
+  type TurnReceipt,
+} from '../../turns.js'
 import { stampRuntimeEvent } from '../terminal/envelope.js'
 import type { SessionDriverSlots } from '../session-slots.js'
 import type { EngineBindingRecords } from '../engine-supervision.js'
@@ -115,6 +123,8 @@ export interface GrokAcpEndpoint {
 }
 
 export interface GrokAcpRuntimeHost {
+  /** Land an attachment's bytes on the session's machine (POD-6093). */
+  stageAttachment: AttachmentStager
   launch(input: {
     sessionId: SessionId
     workdir: string
@@ -1602,7 +1612,10 @@ export function createGrokAcpRuntime(
         void session.client
           .call<unknown>(GROK_ACP_METHODS.sessionPrompt, {
             sessionId: session.grokSessionId,
-            prompt: [{ type: 'text', text: input.text }],
+            // Attachments ride as paths (POD-6093): see the staging capability.
+            prompt: [
+              { type: 'text', text: textWithAttachmentPaths(input.text, input.attachments ?? []) },
+            ],
             _meta: { promptId },
           })
           .then(
@@ -1982,10 +1995,8 @@ export function createGrokAcpRuntime(
         }
         if (session.disposed || !session.endpoint.alive()) return refused('not_running')
         if (session.interactions.size > 0) return refused('needs_user')
-        if (!input.text.trim()) return refused('unsupported', 'Grok ACP requires a text prompt')
-        if (input.attachments?.length) {
-          return refused('unsupported', 'Grok ACP attachment mapping is not implemented')
-        }
+        if (!input.text.trim() && !input.attachments?.length)
+          return refused('unsupported', 'Grok ACP requires a text prompt')
         const deliveredAs = options.delivery === 'steer' ? 'queue' : options.delivery
         if (session.lease?.kind === 'human-controller') {
           session.queue.push({ input, options })
@@ -2043,10 +2054,12 @@ export function createGrokAcpRuntime(
         return await deliverPrompt(session, input, options, deliveredAs)
       },
 
-      async stageAttachment() {
-        return {
-          reason: 'unsupported',
-          detail: 'Grok ACP reports promptCapabilities.image=false and no file input',
+      async stageAttachment(source) {
+        if (session.disposed || !session.endpoint.alive()) return { reason: 'not_running' }
+        try {
+          return await host.stageAttachment({ sessionId: session.sessionId, source })
+        } catch (err) {
+          return { reason: 'staging_failed', detail: String(err) }
         }
       },
 

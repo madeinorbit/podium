@@ -34,6 +34,7 @@
 import type { SessionId, TranscriptItem } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import type { RuntimeEvent } from '../../events.js'
+import { attachmentKindFor } from '../../turns.js'
 // `assertAttachHonoursOneControlLease` is the assertion, not a copy of it: the
 // refusal arm below is judged by the same corpus function the run judges its
 // endpoint arm with. Imported from the module rather than the `testing/` barrel
@@ -171,7 +172,7 @@ function makeWorld(options: WorldOptions = {}): {
           path: '/tmp/' + id + '-' + source.filename,
           filename: source.filename,
           mediaType: source.mediaType,
-          kind: source.mediaType.startsWith('image/') ? 'image' : 'file',
+          kind: attachmentKindFor(source.mediaType),
         }
       }),
     async launch(input) {
@@ -976,31 +977,39 @@ describe('attachment file-part prompts', () => {
     }
   })
 
-  it('sends staged files as opencode file parts', async () => {
+  it('sends a staged image as a file part and any other file as its path (POD-6093)', async () => {
     const world = makeWorld()
     const { driver } = world.target.createDriver()
     try {
       const handle = await driver.create(world.target.spec())
-      const staged = await handle.stageAttachment({
-        bytes: new TextEncoder().encode('notes'),
-        filename: 'notes.txt',
-        mediaType: 'text/plain',
+      const shot = await handle.stageAttachment({
+        bytes: new Uint8Array([0x89, 0x50, 0x4e, 0x47]),
+        filename: 'shot.png',
+        mediaType: 'image/png',
       })
-      if ('reason' in staged) throw new Error(staged.detail ?? staged.reason)
+      const bundle = await handle.stageAttachment({
+        bytes: new Uint8Array([0x50, 0x4b]),
+        filename: 'bundle.zip',
+        mediaType: 'application/zip',
+      })
+      if ('reason' in shot) throw new Error(shot.detail ?? shot.reason)
+      if ('reason' in bundle) throw new Error(bundle.detail ?? bundle.reason)
       await handle.send(
-        { text: 'read this', attachments: [staged] },
+        { text: 'read this', attachments: [shot, bundle] },
         { origin: 'human', delivery: 'when-ready' },
       )
       const url = new URL('file:///')
-      url.pathname = staged.path
+      url.pathname = shot.path
+      // The zip is NOT a part: opencode hands a part to the provider by its
+      // media type, and an `application/zip` part fails that turn and every
+      // later one on the session.
       expect(world.prompt(handle.binding.sessionId)?.parts).toEqual([
-        { type: 'text', text: 'read this', id: expect.stringMatching(/^prt_000000000000/) },
         {
-          type: 'file',
-          mime: 'text/plain',
-          filename: 'notes.txt',
-          url: url.href,
+          type: 'text',
+          text: `${bundle.path}\nread this`,
+          id: expect.stringMatching(/^prt_000000000000/),
         },
+        { type: 'file', mime: 'image/png', filename: 'shot.png', url: url.href },
       ])
     } finally {
       world.target.reset()

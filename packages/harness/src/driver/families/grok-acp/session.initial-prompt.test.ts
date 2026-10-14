@@ -16,7 +16,11 @@ import type { SessionId } from '@podium/model'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { manifestFor } from '../../../registry.js'
-import { createMemoryDriverSlots, serverFamilyLaunch } from '../../testing/index.js'
+import {
+  createMemoryDriverSlots,
+  serverFamilyLaunch,
+  createMemoryAttachmentStager,
+} from '../../testing/index.js'
 import { grokEngineFacts } from './engine-facts.js'
 import { createGrokSessionRuntime, type DaemonGrokRuntime } from './session.js'
 import type { GrokAcpRuntimeHost } from './runtime.js'
@@ -37,6 +41,7 @@ describe('grok-acp launch with an initial prompt', () => {
     const entries = new Map<SessionId, never>()
     let seq = 0
     const host: GrokAcpRuntimeHost = {
+      stageAttachment: createMemoryAttachmentStager(),
       bindings: {
         recorded: (id) => entries.get(id),
         bound: (entry) => void entries.set(entry.sessionId, entry as never),
@@ -59,6 +64,7 @@ describe('grok-acp launch with an initial prompt', () => {
       },
     }
     const runtime = createGrokSessionRuntime({
+      stageAttachment: createMemoryAttachmentStager(),
       driverSlots: createMemoryDriverSlots(),
       facts: grokEngineFacts(manifestFor('grok')!),
       engine: host,

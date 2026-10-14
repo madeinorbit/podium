@@ -16,7 +16,7 @@ import { grokAcpProcessKey } from './engine-host.js'
 import { grokEngineFacts } from './engine-facts.js'
 import { manifestFor } from '../../../registry.js'
 import { createGrokSessionRuntime } from './session.js'
-import { createMemoryDriverSlots } from '../../testing/index.js'
+import { createMemoryDriverSlots, createMemoryAttachmentStager } from '../../testing/index.js'
 
 const FACTS = grokEngineFacts(manifestFor('grok')!)
 
@@ -31,6 +31,7 @@ function adoptionWorld(options: { deferStop?: boolean; deferLoad?: boolean } = {
   let launches = 0
 
   const host: GrokAcpRuntimeHost = {
+    stageAttachment: createMemoryAttachmentStager(),
     bindings: {
       recorded: (sessionId) => entries.get(sessionId),
       bound: (entry) => void entries.set(entry.sessionId, entry),
@@ -83,7 +84,7 @@ function adoptionWorld(options: { deferStop?: boolean; deferLoad?: boolean } = {
       }
     },
   }
-  const runtime = createGrokSessionRuntime({ driverSlots: createMemoryDriverSlots(),
+  const runtime = createGrokSessionRuntime({ stageAttachment: createMemoryAttachmentStager(), driverSlots: createMemoryDriverSlots(),
     facts: FACTS,
     engine: host,
     send: (message) => sent.push(message),
@@ -304,7 +305,7 @@ describe('§4.8 failure ownership — unrecoverable adopt is reported, not swall
     // generic "could not be rebound".
     const sessionId = 'grok-unrecoverable' as SessionId
     const entry = journalEntry(sessionId)
-    const runtime = createGrokSessionRuntime({ driverSlots: createMemoryDriverSlots(),
+    const runtime = createGrokSessionRuntime({ stageAttachment: createMemoryAttachmentStager(), driverSlots: createMemoryDriverSlots(),
       facts: FACTS,
       engine: {
         bindings: {

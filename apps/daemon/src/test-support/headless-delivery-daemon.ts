@@ -16,7 +16,10 @@ import {
   type HeadlessDriverRunners,
   type HeadlessRuntime,
 } from '@podium/harness/driver/host'
-import { createMemoryDriverSlots } from '@podium/harness/driver/testing'
+import {
+  createMemoryAttachmentStager,
+  createMemoryDriverSlots,
+} from '@podium/harness/driver/testing'
 import { asMachineId, type MachineId, type SessionId } from '@podium/model'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import type { BindingStore } from '../binding-store.js'
@@ -79,6 +82,7 @@ export function composeHeadlessDeliveryDaemon(input: {
   }
   const durableLabel = (sessionId: SessionId): string => `podium-4827-${sessionId}`
   const host: HeadlessDriverHost = {
+    stageAttachment: createMemoryAttachmentStager(),
     send: (msg) => sent.push(msg),
     snapshot: async () => testHarnessSnapshot(),
     engines: () => OWNER,

@@ -21,7 +21,7 @@ import {
   type ClaudeSdkTurnHandle,
   createClaudeSdkRuntime,
 } from './runtime.js'
-import { createMemoryDriverSlots } from '../../testing/index.js'
+import { createMemoryDriverSlots, createMemoryAttachmentStager } from '../../testing/index.js'
 
 const SESSION = 'claude-sdk-interrupt' as SessionId
 const RESUME = '00000000-0000-4000-8000-0000000000a1'
@@ -59,6 +59,7 @@ function harness(options: {
 }) {
   const turns: Turn[] = []
   const host: ClaudeSdkRuntimeHost = {
+    stageAttachment: createMemoryAttachmentStager(),
     mintSessionId: () => SESSION,
     mintResumeValue: () => RESUME,
     now: () => new Date(2026, 7, 28).toISOString(),

@@ -38,6 +38,22 @@ describe('runtime attachment staging', () => {
     expect((await stat(staged.path)).mode & 0o777).toBe(0o600)
   })
 
+  it('stages only a pixel format as an image; an SVG or a zip is a file (POD-6093)', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'podium-attachment-kind-'))
+    roots.push(root)
+    const kindOf = async (filename: string, mediaType: string) =>
+      (
+        await writeRuntimeAttachment(root, {
+          sessionId: asSessionId('session-kind'),
+          source: { bytes: new Uint8Array([1]), filename, mediaType },
+        })
+      ).kind
+    await expect(kindOf('a.jpg', 'image/jpeg')).resolves.toBe('image')
+    await expect(kindOf('a.webp', 'IMAGE/WEBP')).resolves.toBe('image')
+    await expect(kindOf('a.svg', 'image/svg+xml')).resolves.toBe('file')
+    await expect(kindOf('a.zip', 'application/zip')).resolves.toBe('file')
+  })
+
   it('accepts only real files minted inside the sending session staging directory', async () => {
     const root = await mkdtemp(join(tmpdir(), 'podium-attachment-authority-'))
     roots.push(root)

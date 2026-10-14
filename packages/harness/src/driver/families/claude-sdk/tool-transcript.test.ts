@@ -8,7 +8,7 @@
 
 import type { SessionId, TranscriptItem } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
-import { createMemoryDriverSlots } from '../../testing/index.js'
+import { createMemoryAttachmentStager, createMemoryDriverSlots } from '../../testing/index.js'
 import {
   type ClaudeSdkRuntimeHost,
   type ClaudeSdkToolCall,
@@ -50,6 +50,7 @@ async function itemsForTurn(script: Script): Promise<TranscriptItem[]> {
   let settle: (() => void) | undefined
   let archive = ''
   const host: ClaudeSdkRuntimeHost = {
+    stageAttachment: createMemoryAttachmentStager(),
     mintSessionId: () => SESSION,
     mintResumeValue: () => RESUME,
     now: () => '2026-08-28T00:00:00.000Z',

@@ -4250,41 +4250,40 @@
       "gate": [
         "exit:then:eb95bf59088a0aacae48b47f694da8acc66addfb6b485c18369f3695b5bbc40b",
         "exit:then:2a9160b19112a59c7b44e568540986db57a63545f1718707ed26b3ea3dbe9c22",
-        "exit:then:7bfb3344dbaea3cdaa21f524bc923bcbd20abdf6b8811e30d62ec3214f8e6e2f",
-        "exit:then:928bc288c3de82133893f813b8ea08c946fb222af1ea71d9a6334a60451412e9",
-        "exit:then:2229310f470619169427a3eeec68da1dc4be7115dec5f1692d21b7c16d6784c8",
+        "exit:then:7136ea1142cb7d82eb65b9b95bdb9ea722d2a2f156a797e77cdfc9fdf397d2c9",
+        "exit:then:e7faca80913fcec9acba0724fbf6fa5f9a649a71055137d715dde8fc1f5fb0ae",
         "exit:then:1f514a0dff4fa91030eabaff13a4dd5cf7302b10a2151aac0ef27d498360df90"
       ],
       "origin": [
-        "bccae209273f69c201c1ac3ef1dde4aa0205c4b37f21a18c43aa81a8ce4a68f0"
+        "fecc492b25994def9bcd26f83ec17f8fc3f11aafb75cb26cfcd02756a7370ee4"
       ],
-      "fingerprint": "629970c5bdff875e120eca4ca6fe534f9d38435e56c4bfecb23dfd19e26c3dae",
+      "fingerprint": "90d2c0aac1de442e621b7f3566a84c126d8ae336168e0d51be6f42c850d4abd9",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Send a turn to the selected superagent thread.",
       "bound": "Backend choice has three optional fields; generic conversation/context taint reaching the send options retains its unproven bound.",
-      "reason": "The web Conversation migration moves ownership and preserves existing collection-taint debt; this record makes no claim that generic context construction or delivery is bounded. POD-5872: Record facts now come from shared models and the remaining machinery is a warm service read through a per-opening view model; existing collection demand is unchanged. Predecessor: a79c9a6543b8f94f8c9185f3383ccff6ef42a16b061b5a66e67abce6f2591809.",
+      "reason": "The web Conversation migration moves ownership and preserves existing collection-taint debt; this record makes no claim that generic context construction or delivery is bounded. POD-5872: Record facts now come from shared models and the remaining machinery is a warm service read through a per-opening view model; existing collection demand is unchanged. Predecessor: a79c9a6543b8f94f8c9185f3383ccff6ef42a16b061b5a66e67abce6f2591809. POD-6093: superagent sends carry staged attachment paths in their text instead of refusing them; collection demand is unchanged. Predecessor: 629970c5bdff875e120eca4ca6fe534f9d38435e56c4bfecb23dfd19e26c3dae.",
       "guard": "Exact fingerprint and multiplicity remain enforced. conversation-renders.test.tsx and conversation-sends.optimistic.test.ts cover migrated observation and delivery behavior, not a new collection bound."
     },
     {
       "file": "apps/web/src/features/chat/use-conversation.ts",
       "holder": "createWebConversation/sends/deliver/callback/composer",
       "rule": "helper-consumer",
-      "tokens": "9a3d46eb35159dd5f1a51f61736fe1af5064d06153ea615890f5a6593d760543",
+      "tokens": "30a3456bc0fd5d6b7f5e3e7f66b0d188cd8779a3a4310a689886b9e1c155e8d3",
       "gate": [
-        "exit:then:2229310f470619169427a3eeec68da1dc4be7115dec5f1692d21b7c16d6784c8"
+        "exit:then:e7faca80913fcec9acba0724fbf6fa5f9a649a71055137d715dde8fc1f5fb0ae"
       ],
       "origin": [
         "adfc80928fa7e8f33d73591c8c752a6ec1006cdeb81b7b8014d0d4921ac12d7c"
       ],
-      "fingerprint": "54ee6cc52ad003b794c32c0a781ced6c08f06ea5f2be7bfa30da9a392ef2c585",
+      "fingerprint": "4081e5af4b05943809b6caf1efc125e48f41d1046d331a9e21df08c0dc472c0e",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Compute composer state immediately before one addressed delivery.",
       "bound": "Composer state is scalar, but the helper inherits the session/context taint previously held in the React send hook.",
-      "reason": "The web Conversation migration moves ownership and preserves existing collection-taint debt; this record makes no claim that generic context construction or delivery is bounded. POD-5872: Record facts now come from shared models and the remaining machinery is a warm service read through a per-opening view model; existing collection demand is unchanged. Predecessor: 8cb8c08cce444f4545e166ce4bbb082edbe8026c494a5d7d9a8f6e083b0e15e2.",
+      "reason": "The web Conversation migration moves ownership and preserves existing collection-taint debt; this record makes no claim that generic context construction or delivery is bounded. POD-5872: Record facts now come from shared models and the remaining machinery is a warm service read through a per-opening view model; existing collection demand is unchanged. Predecessor: 8cb8c08cce444f4545e166ce4bbb082edbe8026c494a5d7d9a8f6e083b0e15e2. POD-6093: superagent sends carry staged attachment paths in their text instead of refusing them; collection demand is unchanged. Predecessor: 54ee6cc52ad003b794c32c0a781ced6c08f06ea5f2be7bfa30da9a392ef2c585.",
       "guard": "Exact fingerprint and multiplicity remain enforced. conversation-renders.test.tsx and conversation-sends.optimistic.test.ts cover migrated observation and delivery behavior, not a new collection bound."
     },
     {
@@ -4314,56 +4313,56 @@
       "tokens": "73ef294c6129cac466f29d0b83fe0f8f577a66cc1f1ed432e11b5df65511ac7f",
       "gate": [
         "else:b324373e6dc9a92f7b216cd4c94e835a9b0a35fb5d91fe38a7e84bd9c31844c2",
-        "??:d989a2384a7a336ce8fcaf25acef1498caf34f39da462aa5b1c90bf1aa95cfe7"
+        "??:ab006fa1e1fd8f809ae303c5be1be25185a2bf6a2179d815dbcb0c698b76c463"
       ],
       "origin": [
         "eb3e9643a20228ecf463b20b4386f5c5fa7a0b783e7c6bd55a3f05c08d7d363f"
       ],
-      "fingerprint": "5a80f4115b2dbeb6ff8b12905e2a116be7defbfb9ca7b491a74d8368f6488b55",
+      "fingerprint": "0731ef13ef1e47b91b3e990f3d51a997007f9342e6e276489b08938a1767d8cb",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5872",
       "trigger": "Initialize or refresh one open conversation’s existing message-record port.",
       "bound": "The addressed noticeSession membership only; no new numeric cap on held notices or records is asserted.",
-      "reason": "The existing snapshot and row-version subscription moved from a manual computed to a lazy service field. Collection ownership and work are preserved; transcript refresh and subscription redesign belongs to POD-5800.",
+      "reason": "The existing snapshot and row-version subscription moved from a manual computed to a lazy service field. Collection ownership and work are preserved; transcript refresh and subscription redesign belongs to POD-5800. POD-6093: superagent sends carry staged attachment paths in their text instead of refusing them; collection demand is unchanged. Predecessor: 5a80f4115b2dbeb6ff8b12905e2a116be7defbfb9ca7b491a74d8368f6488b55.",
       "guard": "ChatView.test.tsx and conversation-service.parity.test.ts preserve delivery and record answers; exact fingerprint and multiplicity remain enforced. This entry does not claim a repaired collection bound."
     },
     {
       "file": "apps/web/src/features/chat/use-conversation.ts",
       "holder": "createWebConversation/sends/records/subscribe/callback/reaction:callback",
       "rule": "consume:map",
-      "tokens": "c2be5b9042c4cad2b534c1dd246b602627d8870f90d699ee92b101e18fb0aa1d",
+      "tokens": "75e19d09f8ffa7de4e7712330873d3ede57f1ba3432c6aec5daff4204b6ee496",
       "gate": [
         "else:b324373e6dc9a92f7b216cd4c94e835a9b0a35fb5d91fe38a7e84bd9c31844c2"
       ],
       "origin": [
         "39197dabd3ad3a37f7543aa35da562935365fcf39c41b4c5daf5374710794ec9"
       ],
-      "fingerprint": "51c998ca196a9a6c243e1bbe5d981eabc11baa7e3cef40d3f3e29834b5c00df1",
+      "fingerprint": "fb0a4dc8ff9e9bb919095049455b6950dc82651b7d3cc1061e131f1b0ccff7b3",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5872",
       "trigger": "Initialize or refresh one open conversation’s existing message-record port.",
       "bound": "The addressed noticeSession membership only; no new numeric cap on held notices or records is asserted.",
-      "reason": "The existing snapshot and row-version subscription moved from a manual computed to a lazy service field. Collection ownership and work are preserved; transcript refresh and subscription redesign belongs to POD-5800.",
+      "reason": "The existing snapshot and row-version subscription moved from a manual computed to a lazy service field. Collection ownership and work are preserved; transcript refresh and subscription redesign belongs to POD-5800. POD-6093: superagent sends carry staged attachment paths in their text instead of refusing them; collection demand is unchanged. Predecessor: 51c998ca196a9a6c243e1bbe5d981eabc11baa7e3cef40d3f3e29834b5c00df1.",
       "guard": "ChatView.test.tsx and conversation-service.parity.test.ts preserve delivery and record answers; exact fingerprint and multiplicity remain enforced. This entry does not claim a repaired collection bound."
     },
     {
       "file": "apps/web/src/features/chat/use-conversation.ts",
       "holder": "useConversation/conversation/useOwnedConversation:callback",
       "rule": "reader-summary",
-      "tokens": "70644137199bbe1df6f01c826d3380e06311fab19187a724d52333ea7ecede4a",
+      "tokens": "b2fac19987eed8c7ad9d4dfaae1b5407eaa29e51dc877a77119a0592ce03ad0e",
       "gate": [],
       "origin": [
         "adfc80928fa7e8f33d73591c8c752a6ec1006cdeb81b7b8014d0d4921ac12d7c"
       ],
-      "fingerprint": "a711a0ea1c6fc8be0a850e43345510cc896125b94d7642d558ebdc94c911b25b",
+      "fingerprint": "6bf0589d085f9a2ae626946d642e2188f1b14ffb9b705c712a8f7d5964f0bba9",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Acquire a web conversation through the shared React lifecycle hook.",
       "bound": "One session identity is acquired; initialization may restore all held sends for that session and has no new collection cap.",
-      "reason": "The web Conversation migration moves ownership and preserves existing collection-taint debt; this record makes no claim that generic context construction or delivery is bounded. POD-5872: Record facts now come from shared models and the remaining machinery is a warm service read through a per-opening view model; existing collection demand is unchanged. Predecessor: cec908acc386d397ab1e0e27148d4eef65403317848ae5fba7c5a9f407312c52.",
+      "reason": "The web Conversation migration moves ownership and preserves existing collection-taint debt; this record makes no claim that generic context construction or delivery is bounded. POD-5872: Record facts now come from shared models and the remaining machinery is a warm service read through a per-opening view model; existing collection demand is unchanged. Predecessor: cec908acc386d397ab1e0e27148d4eef65403317848ae5fba7c5a9f407312c52. POD-6093: superagent sends carry staged attachment paths in their text instead of refusing them; collection demand is unchanged. Predecessor: a711a0ea1c6fc8be0a850e43345510cc896125b94d7642d558ebdc94c911b25b.",
       "guard": "Exact fingerprint and multiplicity remain enforced. conversation-renders.test.tsx and conversation-sends.optimistic.test.ts cover migrated observation and delivery behavior, not a new collection bound."
     },
     {

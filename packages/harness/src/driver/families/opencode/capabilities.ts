@@ -77,7 +77,12 @@ export function opencodeServerCapabilities(
       cursorMaterial: 'event-offset',
     },
     transcript: supported({ history: true }),
-    staging: supported({ kinds: ['image', 'file'], promptForm: 'file-part' }),
+    // An image as a typed file part; any other file as its path in the text,
+    // because the provider refuses most media types in a part (POD-6093).
+    staging: supported({
+      kinds: ['image', 'file'],
+      promptForm: { image: 'file-part', file: 'path-text' },
+    }),
     /**
      * `client`, not `engine`. There is no engine terminal — the session is a
      * server process with no PTY — and opencode ships its own TUI client

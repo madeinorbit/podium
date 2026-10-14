@@ -3,7 +3,10 @@ import type { ControlMessage, RuntimeEvent } from '@podium/protocol/daemon'
 import { describe, expect, it } from 'vitest'
 import type { AgentSessionHandle } from '../../../../packages/harness/src/driver/driver.js'
 import type { SessionSpec } from '../../../../packages/harness/src/driver/session-spec.js'
-import { createMemoryDriverSlots } from '../../../../packages/harness/src/driver/testing/index.js'
+import {
+  createMemoryAttachmentStager,
+  createMemoryDriverSlots,
+} from '../../../../packages/harness/src/driver/testing/index.js'
 import {
   createCodexRuntime,
   type CodexRuntimeHost,
@@ -312,6 +315,7 @@ describe('driver turn-start ordering through the server projection', () => {
     const w = await sessionWorld('grok', 'grok-acp')
     const server = startFakeGrokAcpServer('grok-ordering', { ackPrompt: 'hold' })
     const host: GrokAcpRuntimeHost = {
+      stageAttachment: createMemoryAttachmentStager(),
       now: w.now,
       mintSessionId: () => w.sessionId,
       bindings: bindings(),

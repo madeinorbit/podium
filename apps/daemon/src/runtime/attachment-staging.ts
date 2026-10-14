@@ -2,7 +2,11 @@ import { randomUUID } from 'node:crypto'
 import { realpathSync, statSync } from 'node:fs'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, join, relative, sep } from 'node:path'
-import type { AttachmentRef, AttachmentStager } from '@podium/harness/driver/host'
+import {
+  type AttachmentRef,
+  type AttachmentStager,
+  attachmentKindFor,
+} from '@podium/harness/driver/host'
 import { stateDir } from '@podium/runtime/config'
 import { uploadFilePath } from '../upload.js'
 
@@ -25,7 +29,7 @@ export async function writeRuntimeAttachment(
     path,
     filename,
     mediaType: source.mediaType,
-    kind: source.mediaType.startsWith('image/') ? 'image' : 'file',
+    kind: attachmentKindFor(source.mediaType),
   }
   return ref
 }

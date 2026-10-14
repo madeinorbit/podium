@@ -353,6 +353,53 @@ describe('ChatView headless mode', () => {
     expect(sendText).not.toHaveBeenCalled()
   })
 
+  it('sends a staged attachment as its path ahead of the words (POD-6093)', async () => {
+    const ref = {
+      id: 'att-1',
+      path: '/state/uploads/h1/att-1.zip',
+      filename: 'bundle.zip',
+      mediaType: 'application/zip',
+      kind: 'file' as const,
+    }
+    fakeTrpc.sessions.uploadImage.mutate.mockResolvedValueOnce({ path: ref.path, attachment: ref } as never)
+    drafts = { h1: 'what is in this?' }
+    mount()
+    await flush()
+    const file = new File(['PK'], 'bundle.zip', { type: 'application/zip' })
+    const drop = new Event('drop', { bubbles: true, cancelable: true })
+    Object.defineProperty(drop, 'dataTransfer', {
+      value: {
+        items: Object.assign([{ kind: 'file', type: file.type, getAsFile: () => file }], { length: 1 }),
+        files: [file],
+        types: ['Files'],
+      },
+    })
+    act(() => {
+      textarea().dispatchEvent(drop)
+    })
+    // The file is read and uploaded across several macrotasks.
+    for (let i = 0; i < 20; i++) {
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0))
+      })
+    }
+    expect(fakeTrpc.sessions.uploadImage.mutate).toHaveBeenCalledWith(
+      expect.objectContaining({ filename: 'bundle.zip' }),
+    )
+    const send = container.querySelector('[title="Send (Enter)"]') as HTMLButtonElement
+    await act(async () => {
+      send.click()
+    })
+    // The superagent's turn is text queued durably as text: the path rides in it.
+    expect(sendTurn).toHaveBeenCalledWith({
+      threadId: 'global',
+      text: `${ref.path}\nwhat is in this?`,
+      focus: { view: 'workspace' },
+      model: 'auto',
+      effort: 'auto',
+    })
+  })
+
   /**
    * "ASK SUPERAGENT (BTW)" (POD-1069). The action used to aim the dock at a
    * `btw_<sessionId>` thread this pane has not been able to render since

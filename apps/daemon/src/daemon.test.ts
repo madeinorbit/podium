@@ -20,6 +20,7 @@ import type {
   GrokAcpTransport,
 } from '@podium/harness/driver/host'
 import { agentStateProviderFor, claudeProjectSlug, type LaunchOptions, manifestFor } from '@podium/harness'
+import { createMemoryAttachmentStager } from '@podium/harness/driver/testing'
 import type { ConversationDiagnosticWire, ConversationSummaryWire } from '@podium/model'
 import { asAgentIdentityId, asMachineId, asSessionId, asUserId, type SessionId } from '@podium/model'
 import { type PeerHelloReply, DAEMON_WIRE_VERSION } from '@podium/protocol'
@@ -1169,6 +1170,7 @@ function defaultCodexRuntime(sent: DaemonMessage[], sessions = testSessions()) {
 function defaultGrokRuntime(sent: DaemonMessage[]) {
   const entries = new Map<SessionId, Parameters<GrokAcpRuntimeHost['bindings']['bound']>[0]>()
   const host: GrokAcpRuntimeHost = {
+    stageAttachment: createMemoryAttachmentStager(),
     bindings: {
       recorded: (id) => entries.get(id),
       bound: (entry) => void entries.set(entry.sessionId, entry),
@@ -1196,7 +1198,7 @@ function defaultGrokRuntime(sent: DaemonMessage[]) {
       }
     },
   }
-  return createGrokSessionRuntime({ driverSlots: driverSlotsOver(testSessions()),
+  return createGrokSessionRuntime({ stageAttachment: createMemoryAttachmentStager(), driverSlots: driverSlotsOver(testSessions()),
     facts: grokEngineFacts(manifestFor('grok')!),
     engine: host,
     send: (msg) => void sent.push(msg),

@@ -25,7 +25,7 @@ import {
   type GrokAcpRuntimeHost,
 } from './runtime.js'
 import { type FakeGrokAcpServer, startFakeGrokAcpServer } from './test-support/fake-acp-server.js'
-import { createMemoryDriverSlots } from '../../testing/index.js'
+import { createMemoryDriverSlots, createMemoryAttachmentStager } from '../../testing/index.js'
 
 const spec = (): SessionSpec => ({
   harness: 'grok',
@@ -58,6 +58,7 @@ function world(): World {
     reports,
     serverFor: (sessionId) => servers.get(sessionId),
     host: {
+      stageAttachment: createMemoryAttachmentStager(),
       bindings: {
         recorded: (id) => entries.get(id),
         bound: (entry) => entries.set(entry.sessionId, entry),

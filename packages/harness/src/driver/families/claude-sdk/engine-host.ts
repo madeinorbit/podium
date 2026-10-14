@@ -27,6 +27,7 @@
  * JSONL outlived the process.
  */
 
+import { readFile } from 'node:fs/promises'
 import { createLogger } from '@podium/logger'
 import { markNeverSent } from '../../errors.js'
 import { type BoundaryContextSource, createBoundaryContext } from '../../boundary-context.js'
@@ -51,11 +52,45 @@ import {
   type ClaudeStreamClient,
   type ClaudeStreamTransport,
   type ClaudeStreamTurnSpec,
+  type ClaudeUserContent,
+  type ClaudeUserContentBlock,
 } from './protocol.js'
 import { HeadlessTurnFailure } from '../turn-error.js'
+import { splitAttachments, textWithAttachmentPaths, type TurnInput } from '../../turns.js'
 import type { ClaudeSdkRuntimeHost, ClaudeSdkTurnHandle } from './runtime.js'
 
 const log = createLogger('harness:claude-engine-host')
+
+/**
+ * ONE TURN'S USER LINE (POD-6093): images as base64 blocks the model sees as
+ * pixels, every other attachment as its path on a line ahead of the text —
+ * the form the terminal driver types. A zip, a PDF or a CSV has no block the
+ * CLI passes on, and the agent opens the file with its own tools.
+ *
+ * The bytes are read here, on the session's machine, from the staged path the
+ * daemon already checked belongs to this session. A turn with no attachments
+ * stays the plain string it always was.
+ */
+export async function claudeUserContentFor(
+  turn: Pick<TurnInput, 'text' | 'attachments'>,
+  read: (path: string) => Promise<Uint8Array> = readFile,
+): Promise<ClaudeUserContent> {
+  if (!turn.attachments?.length) return turn.text
+  const { images, files } = splitAttachments(turn.attachments)
+  const text = textWithAttachmentPaths(turn.text, files)
+  const blocks: ClaudeUserContentBlock[] = await Promise.all(
+    images.map(async (image) => ({
+      type: 'image' as const,
+      source: {
+        type: 'base64' as const,
+        media_type: image.mediaType,
+        data: Buffer.from(await read(image.path)).toString('base64'),
+      },
+    })),
+  )
+  // An empty text block is a provider 400; an image-only turn sends none.
+  return text ? [...blocks, { type: 'text', text }] : blocks
+}
 
 /** The writer lease held by a daemon that did not die. A new generation must
  *  refuse loudly — log line naming the session — not read along silently. */
@@ -681,6 +716,15 @@ export function createClaudeEngineHost(deps: ClaudeEngineHostDeps): ClaudeEngine
     })
 
     void (async () => {
+      // Read before the engine is touched: an attachment that cannot be read
+      // fails a line that was never written (POD-6093).
+      let content: ClaudeUserContent
+      try {
+        content = await claudeUserContentFor(input.turn)
+      } catch (error) {
+        failBeforeLine(error instanceof Error ? error : new Error(String(error)))
+        return
+      }
       let held: HeldEngine
       try {
         held = await ensureEngine(sessionId, spec, input.spec.workdir, env)
@@ -696,7 +740,7 @@ export function createClaudeEngineHost(deps: ClaudeEngineHostDeps): ClaudeEngine
       }
       try {
         streamTurn = held.client.turn(
-          input.turn.text,
+          content,
           {
             onPartialText: input.onPartialText,
             onPermission: input.onPermission,

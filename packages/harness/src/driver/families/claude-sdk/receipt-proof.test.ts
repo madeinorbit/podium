@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url'
 import type { SessionId } from '@podium/model'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AgentSessionHandle, RuntimeEvent } from '../../host.js'
-import { createMemoryDriverSlots } from '../../testing/index.js'
+import { createMemoryAttachmentStager, createMemoryDriverSlots } from '../../testing/index.js'
 import records from './__fixtures__/transcript-receipts.json' with { type: 'json' }
 import ack from './__fixtures__/user-message-ack.json' with { type: 'json' }
 import { type ClaudeStreamTransport, createClaudeStreamClient } from './protocol.js'
@@ -50,6 +50,7 @@ async function world(initialHistory = '') {
     bytes: new TextEncoder().encode(history),
   }))
   const host: ClaudeSdkRuntimeHost = {
+    stageAttachment: createMemoryAttachmentStager(),
     mintSessionId: () => SESSION,
     mintResumeValue: () => NATIVE,
     now: () => '2026-09-29T16:27:07.881Z',

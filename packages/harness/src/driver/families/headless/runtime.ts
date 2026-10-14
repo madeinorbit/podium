@@ -102,6 +102,7 @@ import {
   type AgentSessionHandle,
   type AttachEndpoint,
   type AttachmentStageResult,
+  type AttachmentStager,
   type ConfigureRequest,
   canonicalHeadlessContractFacts,
   type DeliveryCancelResult,
@@ -124,6 +125,7 @@ import {
   type TurnDelivery,
   type TurnInput,
   type TurnReceipt,
+  textWithAttachmentPaths,
   type UsageSnapshot,
 } from '../../contract.js'
 import { claudeSdkHarnessKind } from '../claude-sdk/session.js'
@@ -235,6 +237,8 @@ export interface HeadlessDriverHost {
     resumeValue: string
   }): Promise<{ path: string; relativeDir?: string }>
   readFileBytes(path: string): Promise<Uint8Array>
+  /** Land an attachment's bytes on the session's machine (POD-6093). */
+  stageAttachment: AttachmentStager
   now(): number
 }
 
@@ -409,10 +413,9 @@ export function headlessCapabilities(harness?: string): DriverCapabilities {
         ),
     observation: { watchLevels: ['coarse', 'fine'], cursorMaterial: 'event-seq' },
     transcript: { supported: true, value: { history: true } },
-    staging: {
-      supported: false,
-      reason: 'headless turns carry text only; attachment refs refuse unsupported',
-    },
+    // A one-shot turn's only input is its prompt text, so every attachment
+    // rides there as its path, the form every harness reads (POD-6093).
+    staging: supported({ kinds: ['image', 'file'], promptForm: 'path-text' }),
     attach: {
       supported: false,
       reason: 'headless sessions have no terminal to attach',
@@ -790,6 +793,9 @@ export function createHeadlessRuntime(
       .update(
         canonicalHeadlessContractFacts({
           prompt: input.text,
+          ...(input.attachments?.length
+            ? { attachmentPaths: input.attachments.map((attachment) => attachment.path) }
+            : {}),
           ...(model !== undefined ? { model } : {}),
           ...(effort !== undefined ? { effort } : {}),
           ...(input.allowedTools !== undefined ? { allowedTools: [...input.allowedTools] } : {}),
@@ -837,7 +843,7 @@ export function createHeadlessRuntime(
       accountId: identity.accountId,
       requestDigest: input.requestDigest ?? '',
       cwd: session.cwd,
-      prompt: input.text,
+      prompt: textWithAttachmentPaths(input.text, input.attachments ?? []),
       ...(session.sticky.executablePath !== undefined
         ? { executablePath: session.sticky.executablePath }
         : {}),
@@ -902,12 +908,6 @@ export function createHeadlessRuntime(
           'unsupported',
           `headless turns do not implement '${options.delivery}' delivery`,
         ),
-      }
-    }
-    if (input.attachments !== undefined && input.attachments.length > 0) {
-      return {
-        outcome: 'refused',
-        refusal: refuse('unsupported', 'headless turns carry text only'),
       }
     }
     const structured =
@@ -1275,8 +1275,13 @@ export function createHeadlessRuntime(
         }
         return { ...refuse('busy', 'the row is already a running turn'), tooLate: 'delivered' }
       },
-      async stageAttachment(): Promise<AttachmentStageResult> {
-        return refuse('unsupported', 'headless turns carry text only')
+      async stageAttachment(source): Promise<AttachmentStageResult> {
+        if (session.disposed || session.ended) return refuse('not_running', 'session has ended')
+        try {
+          return await host.stageAttachment({ sessionId: session.sessionId, source })
+        } catch (err) {
+          return refuse('staging_failed', String(err))
+        }
       },
       async interrupt(): Promise<void> {
         const live = session.liveTurn

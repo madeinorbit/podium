@@ -3,7 +3,12 @@ import { describe, expect, it } from 'vitest'
 import { pageHistory } from '../../history'
 import { PERMITTED_FAILURES } from '../../permitted-failures.js'
 import type { ConformanceControl, ConformanceTarget } from '../../testing/index.js'
-import { createMemoryDriverSlots, defaultAskFor, runConformance } from '../../testing/index.js'
+import {
+  createMemoryAttachmentStager,
+  createMemoryDriverSlots,
+  defaultAskFor,
+  runConformance,
+} from '../../testing/index.js'
 import {
   type ClaudeSdkRuntime,
   type ClaudeSdkRuntimeHost,
@@ -41,6 +46,7 @@ function makeWorld(): {
   const stamp = () => new Date(Date.UTC(2026, 7, 27) + ++seq * 1000).toISOString()
 
   const host: ClaudeSdkRuntimeHost = {
+    stageAttachment: createMemoryAttachmentStager(),
     mintSessionId: () => `claude-sdk-session-${++seq}` as SessionId,
     mintResumeValue: () => `00000000-0000-4000-8000-${String(++seq).padStart(12, '0')}`,
     now: stamp,

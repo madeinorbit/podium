@@ -181,6 +181,62 @@ export interface AttachmentRef {
   kind: AttachmentKind
 }
 
+/**
+ * THE IMAGES A MODEL CAN BE SHOWN AS PIXELS (POD-6093): the raster formats
+ * every provider API this runtime drives accepts. `image/*` is not the test —
+ * an SVG, HEIC or TIFF in a typed image part fails the provider call, and on
+ * opencode a part the provider refuses stays in the session's history and
+ * fails every later turn too. Anything outside this set is a FILE, and rides
+ * as a path the agent opens with its own tools.
+ */
+const PIXEL_IMAGE_MEDIA_TYPES: ReadonlySet<string> = new Set([
+  'image/png',
+  'image/jpeg',
+  'image/gif',
+  'image/webp',
+])
+
+/** The kind a staged attachment of this media type is. */
+export function attachmentKindFor(mediaType: string): AttachmentKind {
+  const essence = mediaType.split(';', 1)[0]?.trim().toLowerCase() ?? ''
+  return PIXEL_IMAGE_MEDIA_TYPES.has(essence) ? 'image' : 'file'
+}
+
+/**
+ * A turn's attachments split by how a typed-part driver carries them: the
+ * images it can put in front of the model as pixels, and everything else, which
+ * rides as path-text. The media type is read again rather than trusting `kind`
+ * alone, so a ref staged under a looser rule still never reaches a typed image
+ * part the provider would refuse.
+ */
+export function splitAttachments(attachments: readonly AttachmentRef[] | undefined): {
+  images: AttachmentRef[]
+  files: AttachmentRef[]
+} {
+  const images: AttachmentRef[] = []
+  const files: AttachmentRef[] = []
+  for (const attachment of attachments ?? []) {
+    const pixels =
+      attachment.kind === 'image' && attachmentKindFor(attachment.mediaType) === 'image'
+    ;(pixels ? images : files).push(attachment)
+  }
+  return { images, files }
+}
+
+/**
+ * THE PATH-TEXT FORM, the one every harness can read: each attachment's path
+ * on its own line, ahead of the text. It is what the terminal driver types and
+ * what the web composer produced before staging existed
+ * (`paths.join('\n') + '\n' + text`); the agent opens the files with its own
+ * tools.
+ */
+export function textWithAttachmentPaths(
+  text: string,
+  attachments: readonly AttachmentRef[],
+): string {
+  return [...attachments.map((attachment) => attachment.path), text].filter(Boolean).join('\n')
+}
+
 export type AttachmentStageResult = AttachmentRef | Refusal
 export type AttachmentStager = (input: {
   sessionId: SessionId

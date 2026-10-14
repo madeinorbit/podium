@@ -251,16 +251,36 @@ const BOUNDARY_HOOK_DEADLINE_MS = 10_000
  *  Measured on claude 2.1.284 — a line carrying a uuid lands in the session
  *  JSONL as the `type:'user'` record with exactly that `uuid`, which is the
  *  id the transcript mapper gives the item. So the id the driver reports on
- *  delivery is the id history shows, not one it made up. */
-export function userMessageLine(prompt: string, uuid?: string): string {
+ *  delivery is the id history shows, not one it made up.
+ *
+ *  A string is the one text block; blocks go out as given (POD-6093). */
+export function userMessageLine(prompt: ClaudeUserContent, uuid?: string): string {
   return JSON.stringify({
     type: 'user',
     session_id: '',
     ...(uuid ? { uuid } : {}),
-    message: { role: 'user', content: [{ type: 'text', text: prompt }] },
+    message: {
+      role: 'user',
+      content: typeof prompt === 'string' ? [{ type: 'text', text: prompt }] : prompt,
+    },
     parent_tool_use_id: null,
   })
 }
+
+/**
+ * WHAT ONE USER LINE CARRIES (POD-6093): text, and images as base64 blocks.
+ *
+ * The base64 image block is the Messages API's own, and the CLI passes it to
+ * the model as an image. Measured on claude 2.1.299 against a fake model: the
+ * request held an `image/png` block beside the text, the `isReplay` echo kept
+ * the line's uuid, and a 3000x3000 PNG reached the model re-encoded as a
+ * smaller JPEG — the CLI normalizes the pixels itself, so no size gate sits
+ * here. Files are not blocks: they ride as paths inside the text.
+ */
+export type ClaudeUserContentBlock =
+  | { type: 'text'; text: string }
+  | { type: 'image'; source: { type: 'base64'; media_type: string; data: string } }
+export type ClaudeUserContent = string | readonly ClaudeUserContentBlock[]
 
 /** The content blocks of a `user` message, whatever shape it arrived in. */
 function userContentBlocks(
@@ -410,7 +430,7 @@ export interface ClaudeStreamClient {
    *  `userMessageUuid` names the user line and so its history entry (POD-4774);
    *  absent, the client mints one — a line always has a uuid to be acked by. */
   turn(
-    prompt: string,
+    prompt: ClaudeUserContent,
     callbacks: ClaudeStreamTurnCallbacks,
     options?: { userMessageUuid?: string; onTypingStarted?: () => void },
   ): ClaudeStreamTurn

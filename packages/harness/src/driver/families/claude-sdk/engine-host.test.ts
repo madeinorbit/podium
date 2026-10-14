@@ -2,8 +2,13 @@
 // spawn, adopt, journal, stop and kill — over fake owner attachments, no
 // daemon, no CLI.
 
+import { mkdtemp, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionId } from '@podium/model'
+import { wasNeverSent } from '../../errors.js'
+import type { AttachmentRef } from '../../turns.js'
 import type {
   EngineAttachment,
   EngineProcessOwner,
@@ -13,6 +18,7 @@ import type {
 import { EngineBindUnrecoverable } from '../engine-supervision.js'
 import {
   ClaudeEngineLeaseRefused,
+  claudeUserContentFor,
   createClaudeEngineHost,
   type ClaudeEngineHostDeps,
   type ClaudeEngineJournalEntry,
@@ -494,4 +500,94 @@ describe('the claude stream engine host', () => {
       vi.useRealTimers()
     }
   }, 30_000)
+})
+
+describe('attachments on the user line (POD-6093)', () => {
+  const PNG = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3])
+  const ref = (over: Partial<AttachmentRef>): AttachmentRef => ({
+    id: 'a1',
+    path: '/staged/a1.png',
+    filename: 'shot.png',
+    mediaType: 'image/png',
+    kind: 'image',
+    ...over,
+  })
+
+  it('carries an image as a base64 block and a file as its path ahead of the text', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'podium-claude-attach-'))
+    const image = ref({ path: join(dir, 'a1.png') })
+    await writeFile(image.path, PNG)
+    const zip = ref({
+      id: 'a2',
+      path: join(dir, 'a2.zip'),
+      filename: 'bundle.zip',
+      mediaType: 'application/zip',
+      kind: 'file',
+    })
+    const attachment = fakeAttachment()
+    const { supervision, engines } = fakePorts({ spawn: attachment })
+    const host = createClaudeEngineHost(hostDeps({ supervision, engines }, journalStore()))
+    const input = turnInput('what is in these?')
+    const handle = host.startTurn({
+      ...input,
+      turn: { text: 'what is in these?', attachments: [image, zip] },
+    })
+    await vi.waitFor(() => expect(attachment.writes.length).toBeGreaterThan(0))
+    answerHandshake(attachment)
+    let line: { message: { content: unknown } } | undefined
+    await vi.waitFor(() => {
+      line = attachment.writes.map((raw) => JSON.parse(raw)).find((msg) => msg.type === 'user')
+      expect(line).toBeDefined()
+    })
+    expect(line?.message.content).toEqual([
+      {
+        type: 'image',
+        source: {
+          type: 'base64',
+          media_type: 'image/png',
+          data: Buffer.from(PNG).toString('base64'),
+        },
+      },
+      { type: 'text', text: `${zip.path}\nwhat is in these?` },
+    ])
+    endTurn(attachment)
+    await expect(handle.done).resolves.toMatchObject({ output: 'answered' })
+  })
+
+  it('refuses a turn whose image cannot be read, before an engine is started', async () => {
+    const attachment = fakeAttachment()
+    const { supervision, engines, spawned } = fakePorts({ spawn: attachment })
+    const host = createClaudeEngineHost(hostDeps({ supervision, engines }, journalStore()))
+    const input = turnInput()
+    const handle = host.startTurn({
+      ...input,
+      turn: { text: 'look', attachments: [ref({ path: '/nonexistent/podium/a1.png' })] },
+    })
+    const refused = await handle.accepted.then(
+      () => undefined,
+      (error: unknown) => error,
+    )
+    expect(wasNeverSent(refused)).toBe(true)
+    expect(spawned).toHaveLength(0)
+  })
+
+  it('keeps a plain turn a plain string, and an image-only turn free of an empty text block', async () => {
+    await expect(claudeUserContentFor({ text: 'hi' })).resolves.toBe('hi')
+    const read = async () => PNG
+    await expect(claudeUserContentFor({ text: '', attachments: [ref({})] }, read)).resolves.toEqual([
+      {
+        type: 'image',
+        source: { type: 'base64', media_type: 'image/png', data: Buffer.from(PNG).toString('base64') },
+      },
+    ])
+  })
+
+  it('sends an image the provider cannot show as pixels as a path instead', async () => {
+    const svg = ref({ path: '/staged/a3.svg', filename: 'logo.svg', mediaType: 'image/svg+xml' })
+    const read = vi.fn(async () => PNG)
+    await expect(claudeUserContentFor({ text: 'see', attachments: [svg] }, read)).resolves.toEqual([
+      { type: 'text', text: '/staged/a3.svg\nsee' },
+    ])
+    expect(read).not.toHaveBeenCalled()
+  })
 })

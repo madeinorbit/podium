@@ -29,7 +29,7 @@ import { createSessionEngineScope } from '../session/engines.js'
 import { SERVER_GRACEFUL_EXIT_MS } from './server-teardown-budget'
 import { createDurableProcess } from '@podium/process/durable'
 import { createGrokSessionRuntime } from '@podium/harness/driver/host'
-import { serverFamilyLaunch } from '@podium/harness/driver/testing'
+import { createMemoryAttachmentStager, serverFamilyLaunch } from '@podium/harness/driver/testing'
 import { driverSlotsOver } from '../session/driver-slots.js'
 import { testSessions } from '../session/testing.js'
 import { SessionRegistry } from '../session/registry.js'
@@ -149,7 +149,7 @@ describe('Grok ACP real scoped child boundary', () => {
         gracefulExitMs: SERVER_GRACEFUL_EXIT_MS,
         checkVersion: () => grokAcpVersionProbe(),
       })
-      runtime = createGrokSessionRuntime({ driverSlots: driverSlotsOver(testSessions()),
+      runtime = createGrokSessionRuntime({ stageAttachment: createMemoryAttachmentStager(), driverSlots: driverSlotsOver(testSessions()),
         facts,
         engine: host,
         send: (message) => sent.push(message),

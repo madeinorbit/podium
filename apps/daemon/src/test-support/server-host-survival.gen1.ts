@@ -132,7 +132,7 @@ const grokHost = createGrokEngineHost({
   gracefulExitMs: SERVER_GRACEFUL_EXIT_MS,
   checkVersion: () => grokAcpVersionProbe(),
 })
-const grokRuntime = createGrokAcpRuntime(grokHost, driverSlotsOver(testSessions()))
+const grokRuntime = createGrokAcpRuntime({ ...grokHost, stageAttachment: stageRuntimeAttachment }, driverSlotsOver(testSessions()))
 const grokHandle = await grokRuntime.driver.create({
   harness: 'grok',
   selection: {
@@ -159,7 +159,7 @@ const claudeEngine = createClaudeEngineHost({
   buildEnv: engineEnvBuilder(() => ({})),
   gracefulExitMs: SERVER_GRACEFUL_EXIT_MS,
 })
-const claudeRuntime = createClaudeSdkSessionRuntime({ driverSlots: driverSlotsOver(testSessions()),
+const claudeRuntime = createClaudeSdkSessionRuntime({ stageAttachment: stageRuntimeAttachment, driverSlots: driverSlotsOver(testSessions()),
   send: () => {},
   emitBind: () => {},
   sessionReady: () => {},

@@ -139,6 +139,7 @@ import {
   sessionHealth,
   stampRuntimeEvent,
   terminalCapabilities,
+  textWithAttachmentPaths,
 } from '../../host.js'
 
 const log = createLogger('harness:terminal-driver')
@@ -2497,9 +2498,7 @@ export function createTerminalRuntime(
             refusal: refuse('unsupported', RAW_FIRST_TURN_ATTACHMENT_REFUSAL),
           }
         }
-        const text = [...(input.attachments ?? []).map((attachment) => attachment.path), input.text]
-          .filter(Boolean)
-          .join('\n')
+        const text = textWithAttachmentPaths(input.text, input.attachments ?? [])
         const enqueue = (): TurnReceipt =>
           session.injection.enqueue(text, {
             origin: options.origin,

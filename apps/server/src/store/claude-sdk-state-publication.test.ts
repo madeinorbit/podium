@@ -8,7 +8,10 @@ import {
   type ClaudeSdkTurnHandle,
   type ClaudeSdkTurnResult,
 } from '../../../../packages/harness/src/driver/families/claude-sdk/runtime.js'
-import { createMemoryDriverSlots } from '../../../../packages/harness/src/driver/testing/index.js'
+import {
+  createMemoryAttachmentStager,
+  createMemoryDriverSlots,
+} from '../../../../packages/harness/src/driver/testing/index.js'
 import { SessionRegistry } from '../relay'
 import { openTestStore } from '../test-support/open-test-store'
 
@@ -47,6 +50,7 @@ async function fixture() {
     answer: ReturnType<typeof vi.fn<ClaudeSdkTurnHandle['answerPermission']>>
   }> = []
   const host: ClaudeSdkRuntimeHost = {
+    stageAttachment: createMemoryAttachmentStager(),
     mintSessionId: () => sessionId,
     mintResumeValue: () => '00000000-0000-4000-8000-000000000001',
     now: () => { const at = new Date(clock).toISOString(); clock += clockStep; return at },

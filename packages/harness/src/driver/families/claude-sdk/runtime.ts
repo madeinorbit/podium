@@ -28,6 +28,7 @@ import { headlessInterruptMark } from '../../headless-interrupt.js'
 import type {
   AgentSessionHandle,
   AttachmentStageResult,
+  AttachmentStager,
   ConfigureRequest,
   EventStreamStart,
   InteractionAnswerOutcome,
@@ -165,6 +166,9 @@ export interface ClaudeSdkRuntimeHost {
   mintSessionId(): SessionId
   mintResumeValue(): string
   now(): string
+  /** Land an attachment's bytes on the session's machine (POD-6093): the
+   *  daemon's one staging tree, which `send()` reads the images back from. */
+  stageAttachment: AttachmentStager
   startTurn(input: {
     sessionId: SessionId
     spec: SessionSpec
@@ -1147,15 +1151,6 @@ export function createClaudeSdkRuntime(
         }
         assertCurrent()
         if (!core.alive) return { outcome: 'refused', refusal: refuse('not_running') }
-        if (input.attachments?.length) {
-          return {
-            outcome: 'refused',
-            refusal: refuse(
-              'unsupported',
-              'the Claude SDK adapter has no typed attachment channel',
-            ),
-          }
-        }
         if (core.interactions.size > 0) return { outcome: 'refused', refusal: refuse('needs_user') }
         if (core.lease?.kind === 'human-controller' && options.origin !== 'human') {
           return { outcome: 'refused', refusal: refuse('lease_held', core.lease.holder) }
@@ -1189,8 +1184,13 @@ export function createClaudeSdkRuntime(
         }
         return deliver(core, input, { ...options, delivery: deliveredAs })
       },
-      async stageAttachment(): Promise<AttachmentStageResult> {
-        return refuse('unsupported', 'the Claude SDK adapter has no typed attachment channel')
+      async stageAttachment(source): Promise<AttachmentStageResult> {
+        if (!core.alive) return refuse('not_running')
+        try {
+          return await host.stageAttachment({ sessionId: core.sessionId, source })
+        } catch (err) {
+          return refuse('staging_failed', String(err))
+        }
       },
       async interrupt() {
         assertCurrent()

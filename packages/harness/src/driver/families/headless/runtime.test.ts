@@ -25,7 +25,9 @@ import {
   type SessionSpec,
   type TurnInput,
 } from '../../contract.js'
+import { createMemoryAttachmentStager } from '../../testing/attachment-stager.js'
 import { createMemoryDriverSlots } from '../../testing/driver-slots.js'
+import type { AttachmentRef } from '../../turns.js'
 import type { EngineProcessOwner } from '../engine-supervision.js'
 import {
   assertNativeHeadlessAccount,
@@ -171,6 +173,7 @@ function makeRuntime(overrides: Partial<Pick<FakeHost, 'nativeAccount'>> = {}): 
   const runners = makeRunners()
   const now = 1_000_000
   const host: FakeHost = {
+    stageAttachment: createMemoryAttachmentStager(),
     binds: [],
     sent: [],
     envs: [],
@@ -227,6 +230,7 @@ function makeSpec(harness = 'claude-code', extra: Partial<SessionSpec> = {}): Se
 /** Mirror the driver's digest computation exactly: turn-carried fields only. */
 function digestFor(input: {
   text: string
+  attachmentPaths?: string[]
   turnId: string
   sessionId: string
   accountId: string
@@ -244,6 +248,7 @@ function digestFor(input: {
     .update(
       canonicalHeadlessContractFacts({
         prompt: input.text,
+        ...(input.attachmentPaths !== undefined ? { attachmentPaths: input.attachmentPaths } : {}),
         ...(input.model !== undefined ? { model: input.model } : {}),
         ...(input.effort !== undefined ? { effort: input.effort } : {}),
         ...(input.allowedTools !== undefined ? { allowedTools: [...input.allowedTools] } : {}),
@@ -278,6 +283,7 @@ function makeTurn(
     resumeValue?: string
     sessionUuid?: string
     structuredPermissions?: true
+    attachments?: AttachmentRef[]
     digest?: string
   } = {},
 ): TurnInput {
@@ -291,6 +297,9 @@ function makeTurn(
       turnId,
       sessionId,
       accountId,
+      ...(fields.attachments !== undefined
+        ? { attachmentPaths: fields.attachments.map((attachment) => attachment.path) }
+        : {}),
       ...(fields.model !== undefined ? { model: fields.model } : {}),
       ...(fields.effort !== undefined ? { effort: fields.effort } : {}),
       ...(fields.allowedTools !== undefined ? { allowedTools: fields.allowedTools } : {}),
@@ -308,6 +317,7 @@ function makeTurn(
     text,
     accountId,
     requestDigest,
+    ...(fields.attachments !== undefined ? { attachments: fields.attachments } : {}),
     ...(fields.model !== undefined || fields.effort !== undefined
       ? {
           overrides: supported({
@@ -396,7 +406,10 @@ describe('headless driver identity', () => {
       value: { effective: 'next-turn' },
     })
     expect(capabilities.interactions).toMatchObject({ supported: true })
-    expect(capabilities.staging).toMatchObject({ supported: false })
+    expect(capabilities.staging).toMatchObject({
+      supported: true,
+      value: { kinds: ['image', 'file'], promptForm: 'path-text' },
+    })
     expect(capabilities.attach).toMatchObject({ supported: false })
   })
 
@@ -529,6 +542,7 @@ describe('headless dispatch', () => {
     }
     const now = 1_000_000
     const host: FakeHost = {
+      stageAttachment: createMemoryAttachmentStager(),
       binds: [],
       sent: [],
       envs: [],
@@ -732,6 +746,53 @@ describe('headless fences', () => {
     }
   })
 
+  it('puts staged attachments ahead of the prompt as paths (POD-6093)', async () => {
+    const { runtime, runners } = makeRuntime()
+    try {
+      const { handle, sessionId } = await createHandle(runtime)
+      const zip = await handle.stageAttachment({
+        bytes: new Uint8Array([1]),
+        filename: 'bundle.zip',
+        mediaType: 'application/zip',
+      })
+      const png = await handle.stageAttachment({
+        bytes: new Uint8Array([2]),
+        filename: 'shot.png',
+        mediaType: 'image/png',
+      })
+      if ('reason' in zip || 'reason' in png) throw new Error('staging refused')
+      const receipt = await handle.send(
+        makeTurn(sessionId, { text: 'what is in these?', attachments: [zip, png] }),
+        { origin: 'system', delivery: 'when-ready' },
+      )
+      expect(receipt).not.toMatchObject({ outcome: 'refused' })
+      expect(runners.turns[0]?.spec.prompt).toBe(`${zip.path}\n${png.path}\nwhat is in these?`)
+    } finally {
+      runtime.dispose()
+    }
+  })
+
+  it('binds attachments into the digest: one minted without them refuses (POD-6093)', async () => {
+    const { runtime, runners } = makeRuntime()
+    try {
+      const { handle, sessionId } = await createHandle(runtime)
+      const zip = await handle.stageAttachment({
+        bytes: new Uint8Array([1]),
+        filename: 'bundle.zip',
+        mediaType: 'application/zip',
+      })
+      if ('reason' in zip) throw new Error('staging refused')
+      const receipt = await handle.send(
+        { ...makeTurn(sessionId), attachments: [zip] },
+        { origin: 'system', delivery: 'when-ready' },
+      )
+      expect(receipt).toMatchObject({ outcome: 'refused', refusal: { reason: 'invalid_value' } })
+      expect(runners.turns).toHaveLength(0)
+    } finally {
+      runtime.dispose()
+    }
+  })
+
   it('refuses toolPolicy none where the harness cannot enforce it', async () => {
     const { runtime, runners } = makeRuntime()
     try {
@@ -859,17 +920,10 @@ describe('headless fences', () => {
     }
   })
 
-  it('refuses attachments and non-write deliveries', async () => {
+  it('refuses non-write deliveries', async () => {
     const { runtime, runners } = makeRuntime()
     try {
       const { handle, sessionId } = await createHandle(runtime)
-      const withAttachment = {
-        ...makeTurn(sessionId),
-        attachments: [{ id: 'a', path: '/tmp/a', filename: 'a', mediaType: 'text/plain', kind: 'file' as const }],
-      }
-      expect(
-        await handle.send(withAttachment, { origin: 'system', delivery: 'when-ready' }),
-      ).toMatchObject({ outcome: 'refused', refusal: { reason: 'unsupported' } })
       for (const delivery of ['steer', 'queue', 'at-boundary'] as const) {
         expect(
           await handle.send(makeTurn(sessionId), { origin: 'system', delivery }),
@@ -1117,7 +1171,7 @@ describe('headless history and rebind', () => {
     }
   })
 
-  it('answers unknown asks as unknown-interaction; attaches and usage stay unsupported', async () => {
+  it('answers unknown asks as unknown-interaction; attach, draft and usage stay unsupported', async () => {
     const { runtime } = makeRuntime()
     try {
       const { handle } = await createHandle(runtime)
@@ -1131,9 +1185,19 @@ describe('headless history and rebind', () => {
       })
       expect(await handle.draft.get()).toMatchObject({ reason: 'unsupported' })
       expect(await handle.usage()).toMatchObject({ reason: 'unsupported' })
-      expect(await handle.stageAttachment({ bytes: new Uint8Array(), filename: 'a', mediaType: 't' })).toMatchObject({
-        reason: 'unsupported',
-      })
+    } finally {
+      runtime.dispose()
+    }
+  })
+
+  it('stages through the host while live, and refuses once the session has ended', async () => {
+    const { runtime } = makeRuntime()
+    try {
+      const { handle } = await createHandle(runtime)
+      const source = { bytes: new Uint8Array([1]), filename: 'a.zip', mediaType: 'application/zip' }
+      expect(await handle.stageAttachment(source)).toMatchObject({ filename: 'a.zip', kind: 'file' })
+      await handle.kill()
+      expect(await handle.stageAttachment(source)).toMatchObject({ reason: 'not_running' })
     } finally {
       runtime.dispose()
     }

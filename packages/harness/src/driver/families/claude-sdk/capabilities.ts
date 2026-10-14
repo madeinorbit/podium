@@ -22,7 +22,17 @@ export function claudeSdkCapabilities(): DriverCapabilities {
     }),
     observation: { watchLevels: ['coarse', 'fine'], cursorMaterial: 'sdk-event-seq' },
     transcript: supported({ history: true }),
-    staging: unsupported('the Claude SDK adapter has no typed attachment channel'),
+    /**
+     * AN IMAGE AS PIXELS, A FILE AS ITS PATH (POD-6093). The stream-json user
+     * line takes the Messages API's base64 image block, which the CLI hands
+     * the model as an image (measured on 2.1.299). Nothing typed carries a
+     * zip or a CSV, so a file rides as path-text, as the terminal driver
+     * types it.
+     */
+    staging: supported({
+      kinds: ['image', 'file'],
+      promptForm: { image: 'local-image', file: 'path-text' },
+    }),
     attach: unsupported('the Claude stream engine has no terminal or native client to attach'),
     lease: supported({ humanTakeover: true }),
     snapshot: supported({ includesDraft: false }),

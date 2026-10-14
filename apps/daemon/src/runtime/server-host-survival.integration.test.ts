@@ -599,7 +599,7 @@ describe('a real daemon restart re-adopts headless engines (POD-4433)', () => {
         gracefulExitMs: SERVER_GRACEFUL_EXIT_MS,
         checkVersion: () => grokAcpVersionProbe(),
       })
-      const grokRuntime = createGrokAcpRuntime(grokHost, driverSlotsOver(testSessions()))
+      const grokRuntime = createGrokAcpRuntime({ ...grokHost, stageAttachment: stageRuntimeAttachment }, driverSlotsOver(testSessions()))
       const adoptedGrok = await grokRuntime.driver.adopt(grokBinding)
       expect(adoptedGrok.binding.process.pid).toBe(grokPid)
       expect(incarnations('grok')).toEqual([String(grokPid)])
@@ -614,7 +614,7 @@ describe('a real daemon restart re-adopts headless engines (POD-4433)', () => {
         buildEnv: engineEnvBuilder(() => ({})),
         gracefulExitMs: SERVER_GRACEFUL_EXIT_MS,
       })
-      const claudeRuntime = createClaudeSdkSessionRuntime({ driverSlots: driverSlotsOver(testSessions()),
+      const claudeRuntime = createClaudeSdkSessionRuntime({ stageAttachment: stageRuntimeAttachment, driverSlots: driverSlotsOver(testSessions()),
         send: () => {},
         emitBind: () => {},
         sessionReady: () => {},

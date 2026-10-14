@@ -90,13 +90,15 @@ import type {
 } from '../../interactions.js'
 import type { OnQueueAbandoned } from '../../queue-abandonment.js'
 import { instructionsText, type ModelPolicy, type SessionSpec } from '../../session-spec.js'
-import type {
-  AnswerOptions,
-  AttachmentStager,
-  Refusal,
-  SendOptions,
-  TurnInput,
-  TurnReceipt,
+import {
+  type AnswerOptions,
+  type AttachmentStager,
+  type Refusal,
+  type SendOptions,
+  splitAttachments,
+  textWithAttachmentPaths,
+  type TurnInput,
+  type TurnReceipt,
 } from '../../turns.js'
 import { driverLocalCursor, stampRuntimeEvent } from '../terminal/envelope.js'
 import type { SessionDriverSlots } from '../session-slots.js'
@@ -1583,11 +1585,20 @@ export function createOpencodeRuntime(
     session.observedConfiguration = undefined
     const epochBeforePrompt = session.turnEpoch
     onTypingStarted?.()
+    // ONLY AN IMAGE IS A FILE PART (POD-6093). opencode 1.18.35 hands a file
+    // part to the provider as content of its media type, and the provider
+    // refuses most of them: measured against a fake Anthropic endpoint,
+    // `application/zip`, `application/json`, `text/csv` and
+    // `application/octet-stream` each failed the turn with "'media type: …'
+    // functionality not supported", and the part stays in the history, so
+    // every later turn on that session failed the same way. A file rides as
+    // its path in the text, as codex and the terminal driver carry it.
+    const { images, files } = splitAttachments(input.attachments)
     const admission = await session.client.prompt(session.opencodeSessionId, {
       messageID: ids.messageID,
       parts: [
-        { type: 'text', text: input.text, id: ids.textPartId },
-        ...(input.attachments ?? []).map((attachment) => ({
+        { type: 'text', text: textWithAttachmentPaths(input.text, files), id: ids.textPartId },
+        ...images.map((attachment) => ({
           type: 'file' as const,
           mime: attachment.mediaType,
           filename: attachment.filename,

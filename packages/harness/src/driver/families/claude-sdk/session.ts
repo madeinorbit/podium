@@ -3,6 +3,7 @@ import { basename } from 'node:path'
 import type { AgentSessionHandle } from '../../driver.js'
 import type { RuntimeEvent } from '../../events.js'
 import type { PendingInteraction } from '../../interactions.js'
+import type { AttachmentStager } from '../../turns.js'
 import { attachKindsForDriver, configureFieldsForDriver } from '../../configure-catalog.js'
 import {
   type ClaudeSdkRuntime,
@@ -129,6 +130,9 @@ export interface ClaudeSdkSessionDeps extends ServerSessionFramePorts {
   driverSlots: SessionDriverSlots
   facts: ClaudeEngineFacts
   engine: ClaudeEngineHost
+  /** The daemon's attachment stager (POD-6093): the same landing every family
+   *  writes into, so the send-time ownership check covers this one too. */
+  stageAttachment: AttachmentStager
   transcript: {
     readHistory(
       session: {
@@ -159,6 +163,7 @@ export function createClaudeSdkSessionRuntime(
     mintSessionId: () => randomUUID() as SessionId,
     mintResumeValue: randomUUID,
     now: () => new Date().toISOString(),
+    stageAttachment: deps.stageAttachment,
     startTurn: (input) => deps.engine.startTurn(input),
     readTranscript: ({ sessionId, workdir, resumeValue, range }) =>
       deps.transcript.readHistory(
