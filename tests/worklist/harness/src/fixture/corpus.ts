@@ -2193,11 +2193,13 @@ function build(seed: number, scale: CorpusScale, cell: CorpusCell | null): Fixtu
   }
   // The rest of the live mix, per unit: related 234, supersedes 25,
   // duplicate 15, blocked-by 12, waits-on 10, duplicates 3, and one edge of
-  // a type no code knows — as measured before POD-6100, minted under the
-  // types its migration folds them onto (duplicate -> duplicates; blocked-by
-  // and waits-on -> blocked-by, which now block, so like the edges above they
-  // never block a visible row on open work). The unknown edge stays: a reader
-  // must still tolerate a type it does not know (an old cached replica).
+  // a type no code knows — measured before POD-6100. `duplicate` is minted
+  // under the name its migration gives it. The 22 `blocked-by` / `waits-on`
+  // edges were inert then (only `blocks` was read); the migration makes them
+  // block, but these are random pairs and spec §6 keeps dependency semantics
+  // out of the comparison, so they stay inert here, minted as `waits-on` — a
+  // retired spelling a stale replica can still carry — beside the unknown
+  // edge: a reader must tolerate a type it does not schedule on.
   for (const u of units) {
     enter(units.indexOf(u))
     const pool = unitOriginPool[units.indexOf(u)]!
@@ -2207,8 +2209,8 @@ function build(seed: number, scale: CorpusScale, cell: CorpusCell | null): Fixtu
       ['related', 234],
       ['supersedes', 25],
       ['duplicates', 15],
-      ['blocked-by', 12],
-      ['blocked-by', 10],
+      ['waits-on', 12],
+      ['waits-on', 10],
       ['duplicates', 3],
       ['bogus', 1],
     ] as const) {
@@ -2217,7 +2219,6 @@ function build(seed: number, scale: CorpusScale, cell: CorpusCell | null): Fixtu
         const from = pick(pool)
         let to = pick(pool)
         if (to === from) to = pool[(pool.indexOf(from) + 1) % pool.length]!
-        if (type === 'blocked-by' && isVisibleRow(from) && mints[to]!.stage !== 'done') continue
         deps.push({ from, to, type })
       }
     }

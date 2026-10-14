@@ -134,7 +134,7 @@ const LIVE = {
   visibleRows: 759,
   maxDepth: 6,
 } as const
-const LIVE_DEP_TYPES = ['blocked-by', 'related', 'supersedes', 'duplicates']
+const LIVE_DEP_TYPES = ['blocked-by', 'related', 'supersedes', 'duplicates', 'waits-on']
 const TOLERANCE = 0.2
 
 interface LiveTarget {
@@ -199,12 +199,13 @@ function liveTargets(scale: number): LiveTarget[] {
     share('open / issues', 2284, 'issues', (m) => m.openIssues),
     // Edges.
     share('discovered-from / issues', 1788, 'issues', (m) => m.discoveredFromEdges),
-    // POD-6100 folded the measured types: blocks 1751 + blocked-by 13 +
-    // waits-on 11 -> blocked-by; duplicate 16 -> duplicates.
-    share('blocked-by / issues', 1751 + 13 + 11, 'issues', (m) => m.depsByType['blocked-by'] ?? 0),
+    // POD-6100 renamed `blocks` and `duplicate`. The fixture keeps the 24
+    // measured `blocked-by` / `waits-on` edges inert as `waits-on` (corpus.ts).
+    share('blocked-by / issues', 1751, 'issues', (m) => m.depsByType['blocked-by'] ?? 0),
     share('related / issues', 249, 'issues', (m) => m.depsByType['related'] ?? 0),
     share('supersedes / issues', 27, 'issues', (m) => m.depsByType['supersedes'] ?? 0),
     share('duplicates / issues', 16, 'issues', (m) => m.depsByType['duplicates'] ?? 0),
+    share('waits-on / issues', 13 + 11, 'issues', (m) => m.depsByType['waits-on'] ?? 0),
     share('startedBySession / issues', 3770, 'issues', (m) => m.withStartedBySession),
     share('coordinatorSessionId / issues', 1315, 'issues', (m) => m.withCoordinator),
     share('needsHuman / issues', 46, 'issues', (m) => m.needsHuman),
