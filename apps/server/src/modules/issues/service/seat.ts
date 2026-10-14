@@ -69,8 +69,11 @@ export async function resolveSeat(
   return { kind: 'top', coordinates }
 }
 
+// The unified mail CLI: `podium issue mail send` takes no --expect-response, and a
+// coordinator above sits outside the asking session's subtree, so the send must
+// confirm the scope (both RUN 2026-10-15).
 const askCommand = (c: SeatCoordinator): string =>
-  `\`podium issue mail send ${c.ref} --body "…" --expect-response\``
+  `\`podium mail send --to ${c.ref} --body "…" --expect-response --outside-scope\``
 
 /** The `podium:seat` instruction and the seat line in `prime`. */
 export function seatText(seat: SessionSeat): string {

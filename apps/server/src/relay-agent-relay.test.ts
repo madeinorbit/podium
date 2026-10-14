@@ -229,7 +229,7 @@ describe('server agent relay handler (P1b)', () => {
     const below = await setOffer('ir-offer-below', sChild)
     expect(below.ok).toBe(false)
     expect(below.error).toContain(`coordinator of ${ref}`)
-    expect(below.error).toContain(`podium issue mail send ${ref} --body "…" --expect-response`)
+    expect(below.error).toContain(`podium mail send --to ${ref} --body "…" --expect-response --outside-scope`)
 
     const top = await setOffer('ir-offer-top', sA)
     expect(top.ok).toBe(true)

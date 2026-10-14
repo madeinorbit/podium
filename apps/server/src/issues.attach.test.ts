@@ -828,7 +828,7 @@ describe('coordinator seat', () => {
     const ref = await svc.reports.niceRef((await svc.reports.get(root.id))!)
     const helper = await svc.reports.prime({ boundIssueId: root.id, sessionId: S('helper') })
     expect(helper).toContain(`you work under the coordinator of ${ref}`)
-    expect(helper).toContain(`podium issue mail send ${ref} --body "…" --expect-response`)
+    expect(helper).toContain(`podium mail send --to ${ref} --body "…" --expect-response --outside-scope`)
     const top = await svc.reports.prime({ boundIssueId: root.id, sessionId: S('root') })
     expect(top).toContain('you talk to the user directly')
     expect(top).toContain('You coordinate this issue')
