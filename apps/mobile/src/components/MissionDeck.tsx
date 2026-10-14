@@ -181,16 +181,6 @@ export const MissionDeck = observer(function MissionDeck({
     })
   }, [spineRows, rootId, leadTone])
 
-  /** A session's name, for the roles that are named by another session (a spawn
-   *  edge) rather than by the issue. */
-  const nameOf = useCallback(
-    (sessionId: SessionId) => {
-      const found = screen.reader.session(sessionId)
-      return found && found !== LOADING ? sessionTitle(found) : undefined
-    },
-    [screen],
-  )
-
   // THE HEADER'S AGENTS OBEY THE VIEW BAR (POD-1356), which they did not: the
   // roster was read with `matched` forced true, so every agent hanging off the
   // mission survived every view. On the one-task mission — which most missions
@@ -340,7 +330,6 @@ export const MissionDeck = observer(function MissionDeck({
                 carries={[]}
                 rails={[leadTone(rootId)]}
                 accent={accent}
-                nameOf={nameOf}
                 // The root's rail carries on into the spine below it, so the
                 // last agent's elbow must not close the line.
                 stops={i === rootSessions.length - 1 && spineRows.length === 0}
@@ -374,7 +363,6 @@ export const MissionDeck = observer(function MissionDeck({
             stops={!(guides[index + 1] ?? [])[row.depth - 1]}
             childFollows={(spineRows[index + 1]?.depth ?? 0) > row.depth}
             mode={mode}
-            nameOf={nameOf}
             folded={row.folded(folds)}
             currentSessionId={currentSessionId}
             onToggleFold={() => screen.toggleFold(row)}
@@ -461,7 +449,6 @@ export const SpineRow = observer(function SpineRow({
   stops,
   childFollows,
   mode,
-  nameOf,
   folded,
   currentSessionId,
   onToggleFold,
@@ -479,7 +466,6 @@ export const SpineRow = observer(function SpineRow({
    *  block and the next row instead of stopping at the last agent's elbow. */
   childFollows: boolean
   mode: FlightDeckMode
-  nameOf: (sessionId: SessionId) => string | undefined
   folded: boolean
   currentSessionId: SessionId | undefined
   onToggleFold: () => void
@@ -545,7 +531,6 @@ export const SpineRow = observer(function SpineRow({
             carries={carries}
             rails={rails}
             accent={accent}
-            nameOf={nameOf}
             stops={i === bands.length - 1 && !childFollows}
             current={session.sessionId === currentSessionId}
             onPress={() => onOpenSession(session)}
@@ -573,7 +558,6 @@ const Band = observer(function Band({
   carries,
   rails,
   accent,
-  nameOf,
   stops,
   current,
   onPress,
@@ -584,7 +568,6 @@ const Band = observer(function Band({
   carries: readonly boolean[]
   rails: readonly RailTone[]
   accent: string
-  nameOf: (sessionId: SessionId) => string | undefined
   stops: boolean
   current: boolean
   onPress: () => void
@@ -597,7 +580,6 @@ const Band = observer(function Band({
   const role = sessionRole(row.roleIssue, session, {
     rootId: row.depth === 0 ? row.id : null,
     siblings: row.sessions,
-    inMission: new Set(row.sessions.map((s) => s.sessionId)),
   })
   return (
     <SessionBand
@@ -609,7 +591,7 @@ const Band = observer(function Band({
       name={sessionTitle(session)}
       displayRef={session.displayRef?.trim() || undefined}
       role={role}
-      roleText={roleLabel(role, nameOf)}
+      roleText={roleLabel(role)}
       kind={session.agentKind}
       asking={asking}
       working={working}

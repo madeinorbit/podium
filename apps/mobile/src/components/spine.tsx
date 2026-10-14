@@ -709,25 +709,16 @@ export function SessionBand({
   )
 }
 
-const ROLE_LABEL: Record<Exclude<SessionRole, { kind: 'spawned' }>['kind'], string> = {
+// The three seats of D3 (POD-6108), all derived from the issue's coordinator marker.
+const ROLE_LABEL: Record<SessionRole['kind'], string> = {
   coordinator: 'COORDINATOR',
-  // "task lead", not "phase lead": the thing it leads is a task, and the spine
-  // calls every node in it a task. Two words for one node is one too many.
-  'phase-lead': 'TASK LEAD',
-  peer: 'operator-added peer',
+  'phase-lead': 'PHASE LEAD',
+  helper: 'HELPER',
 }
 
-/** The role as the word under the name. A spawn edge is named by its PARENT —
- *  "by Spine designer" is the fact the operator can act on; the parent session
- *  id is not. An unresolvable parent gets no word rather than an id. */
-export function roleLabel(
-  role: SessionRole | null,
-  nameOf: (sessionId: SessionId) => string | undefined,
-): string | null {
-  if (role === null) return null
-  if (role.kind !== 'spawned') return ROLE_LABEL[role.kind]
-  const parent = nameOf(role.parentSessionId)
-  return parent ? `by ${parent}` : null
+/** The role as the word under the name. */
+export function roleLabel(role: SessionRole | null): string | null {
+  return role === null ? null : ROLE_LABEL[role.kind]
 }
 
 export const isLead = (role: SessionRole | null): boolean =>

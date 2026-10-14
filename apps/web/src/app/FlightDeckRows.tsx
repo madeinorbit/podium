@@ -834,27 +834,16 @@ function NativeRows({
   )
 }
 
-const ROLE_LABEL: Record<Exclude<SessionRole, { kind: 'spawned' }>['kind'], string> = {
+// The three seats of D3 (POD-6108), all derived from the issue's coordinator marker.
+const ROLE_LABEL: Record<SessionRole['kind'], string> = {
   coordinator: 'coordinator',
-  // "task lead", not "phase lead": the thing it leads is a task, and the spine
-  // calls every node in it a task. Two words for one node is one too many.
-  'phase-lead': 'task lead',
-  // `peer`, not `operator-added peer`: this is the relationship the operator
-  // needs to scan. How it was added is history, not a second role.
-  peer: 'peer',
+  'phase-lead': 'phase lead',
+  helper: 'helper',
 }
 
-/** The role as the word after the name. A spawn edge is named by its PARENT —
- *  "by Spine designer" is the fact the operator can act on; the parent session
- *  id is not. An unresolvable parent gets no word rather than an id. */
-export function roleLabel(
-  role: SessionRole | null,
-  nameOf: (sessionId: SessionId) => string | undefined,
-): string | null {
-  if (role === null) return null
-  if (role.kind !== 'spawned') return ROLE_LABEL[role.kind]
-  const parent = nameOf(role.parentSessionId)
-  return parent ? `by ${parent}` : null
+/** The role as the word after the name. */
+export function roleLabel(role: SessionRole | null): string | null {
+  return role === null ? null : ROLE_LABEL[role.kind]
 }
 
 const isLead = (role: SessionRole | null): boolean =>
@@ -1300,8 +1289,6 @@ interface HungContext {
   model: MissionDeckIssueModel
   mode: FlightDeckMode
   rootId: string | undefined
-  inMission: ReadonlySet<string>
-  nameOf: (sessionId: SessionId) => string | undefined
   activeSessionId: SessionId | null
   /** Session ids that appeared since the deck settled — see `useArrivals`. */
   arrivals: ReadonlySet<string>
@@ -1347,7 +1334,6 @@ export const HungRows = observer(function HungRows(ctx: HungContext): JSX.Elemen
         const role = settled(() => sessionRole(ctx.model.roleIssue, session, {
           rootId: ctx.rootId,
           siblings: ctx.model.sessions,
-          inMission: ctx.inMission,
         }))
         if (role === LOADING) return pending()
         const row = (
@@ -1356,7 +1342,7 @@ export const HungRows = observer(function HungRows(ctx: HungContext): JSX.Elemen
             session={session}
             model={ctx.model}
             role={role}
-            label={roleLabel(role, ctx.nameOf)}
+            label={roleLabel(role)}
             active={ctx.activeSessionId === session.sessionId}
             last={!ctx.tail && index === ids.length - 1}
             rail={ctx.rail}
@@ -1525,8 +1511,6 @@ export const TaskRow = observer(
     carries,
     mode,
     rootId,
-    inMission,
-    nameOf,
     selected,
     activeSessionId,
     arrivals,
@@ -1562,8 +1546,6 @@ export const TaskRow = observer(
     window?: DeckWindow
     mode: FlightDeckMode
     rootId: string | undefined
-    inMission: ReadonlySet<string>
-    nameOf: (sessionId: SessionId) => string | undefined
     selected: boolean
     activeSessionId: SessionId | null
     arrivals: ReadonlySet<string>
@@ -1607,7 +1589,7 @@ export const TaskRow = observer(
       return <div className="relative pb-1.5" data-flight-issue={row.id} data-depth={row.depth}>
         <BranchGuides carries={carries} rails={rails} mid={stage === 'proposed' ? PROPOSED_MID : BAND_MID} />
         <DeckRowPlaceholder row={{ key: deckTaskKey(row.key), size: BAND_HEIGHT, get text() { return deckWindow.text(deckTaskKey(row.key)) } }} window={deckWindow} />
-        {!collapsed && issue !== LOADING && issue && <HungRows model={row} mode={mode} rootId={rootId} inMission={inMission} nameOf={nameOf}
+        {!collapsed && issue !== LOADING && issue && <HungRows model={row} mode={mode} rootId={rootId}
           activeSessionId={activeSessionId} arrivals={arrivals} settle={settle} inset={bandLeft} rail={agentRail} tail={childFollows}
           onSelectSession={onSelectSession} onSelectNative={onSelectNative} window={deckWindow} />}
       </div>
@@ -1863,8 +1845,6 @@ export const TaskRow = observer(
                 model={row}
                 mode={mode}
                 rootId={rootId}
-                inMission={inMission}
-                nameOf={nameOf}
                 activeSessionId={activeSessionId}
                 arrivals={arrivals}
                 settle={settle}

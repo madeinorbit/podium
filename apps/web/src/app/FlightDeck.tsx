@@ -1730,13 +1730,6 @@ export const FlightDeckContent = observer(function FlightDeckContent({
   // does: resolving against the mode-filtered rows let a switch to "Needs you"
   // silently move the highlight — and the Task dock with it — to the root.
   const focused = resolveFocus(focusedIssueId, screen.members, rootId)
-  // Every session anywhere in the mission, so a spawn edge can be named ("by
-  // Spine designer") and one pointing outside the mission is left unnamed rather
-  // than rendered as a raw id.
-  const nameOf = useCallback((sessionId: SessionId): string | undefined => {
-    const session = source.session(sessionId)
-    return session ? sessionDisplayName(session) : undefined
-  }, [source])
   /**
    * The mission's own row, which the SPINE NO LONGER PRINTS (round 3 §4).
    *
@@ -1813,7 +1806,6 @@ export const FlightDeckContent = observer(function FlightDeckContent({
     return Array.from({ length: row.depth }, (_, level) => leadTone(railTrail[level] ? asIssueId(railTrail[level]!) : undefined))
   })
   const sessionKeys = screen.crewIds
-  const missionSessionIds = screen.inMission
   const { arrivals, settle } = useArrivals(sessionKeys as string[])
   // The virtual list owns estimates and measurements. Presentation text is
   // read only by the row or searchable placeholder that actually draws it.
@@ -1826,8 +1818,8 @@ export const FlightDeckContent = observer(function FlightDeckContent({
         const session = requireLoaded(row.view.rawSession(id))
         if (!session) return ''
         return sessionSearchText(session, roleLabel(sessionRole(row.roleIssue, session, {
-          rootId, siblings: row.sessions, inMission: missionSessionIds,
-        }), nameOf), row)
+          rootId, siblings: row.sessions,
+        })), row)
       },
     })
     if (rootRow) for (const id of rootSessions) leaves.push(sessionLeaf(rootRow, id))
@@ -1850,7 +1842,7 @@ export const FlightDeckContent = observer(function FlightDeckContent({
       blocks.set(row.key, block); leaves.push(...block)
     }
     return { leaves, blocks }
-  }, [screen, rootId, rootRow, rootSessions, visibleRows, folds, mode, missionSessionIds, nameOf])
+  }, [screen, rootId, rootRow, rootSessions, visibleRows, folds, mode])
   const spineWindow = useFlightDeckWindow(
     spineView ? spineGeometry.leaves : [],
     deckScrollerRef,
@@ -2481,8 +2473,6 @@ export const FlightDeckContent = observer(function FlightDeckContent({
                   model={rootRow}
                   mode={mode}
                   rootId={rootId}
-                  inMission={missionSessionIds}
-                  nameOf={nameOf}
                   activeSessionId={activeSessionId}
                   arrivals={arrivals}
                   settle={settle}
@@ -2533,8 +2523,6 @@ export const FlightDeckContent = observer(function FlightDeckContent({
                   window={spineWindow}
                   mode={mode}
                   rootId={rootId}
-                  inMission={missionSessionIds}
-                  nameOf={nameOf}
                   selected={focused === row.id}
                   activeSessionId={activeSessionId}
                   arrivals={arrivals}

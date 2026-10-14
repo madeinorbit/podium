@@ -6,7 +6,7 @@ import {
   asSessionId,
   type IssueId,
   type SessionId,
-  spawnedByParentSessionId} from '@podium/model'
+} from '@podium/model'
 import { type HarnessDescriptorWire, issueDisplayRef } from '@podium/protocol'
 import { sessionParked, sessionPresentOnTask } from './fleet'
 import { agentLabel } from './quota'
@@ -2028,15 +2028,12 @@ export function deckViewEmptyLine(mode: FlightDeckMode, waiting = 0): string | n
 /**
  * What a session IS on this task — the dim mono word after its name.
  *
- * A nine-agent mission where only the coordinator is named reads as eight
- * anonymous rows. Every arm here is derived from a fact the model already holds:
- * the issue's designated coordinator, the spawn edge, or the absence of both.
+ * Derived from the one coordinator marker per issue (POD-6108, ANALYSIS.md D2/D3):
+ * the root's coordinator is the `coordinator`, a sub-issue's is a `phase lead`, and
+ * every other session on an issue that has company is a `helper`. A LONE session
+ * gets no label: a word that distinguishes it from nothing is noise.
  */
-export type SessionRole =
-  | { kind: 'coordinator' }
-  | { kind: 'phase-lead' }
-  | { kind: 'peer' }
-  | { kind: 'spawned'; parentSessionId: SessionId }
+export type SessionRole = { kind: 'coordinator' } | { kind: 'phase-lead' } | { kind: 'helper' }
 
 export function sessionRole(
   issue: IssueNavigationModel,
@@ -2047,26 +2044,12 @@ export function sessionRole(
     rootId: string | null | undefined
     /** Every session rendered on this task, including this one. */
     siblings: readonly SessionView[]
-    /** Session ids present anywhere in the mission: a spawn parent outside it
-     *  cannot be named, so the row must not claim it. */
-    inMission: ReadonlySet<string>
   },
 ): SessionRole | null {
   if (isCoordinatorSession(issue, session.sessionId)) {
     return issue.id === ctx.rootId ? { kind: 'coordinator' } : { kind: 'phase-lead' }
   }
-  const parentSessionId = spawnedByParentSessionId(session.spawnedBy)
-  if (
-    parentSessionId &&
-    parentSessionId !== session.sessionId &&
-    ctx.inMission.has(parentSessionId)
-  ) {
-    return { kind: 'spawned', parentSessionId }
-  }
-  // No agent put it here and it does not lead the task, so the operator did.
-  // A LONE session gets no label: "operator-added peer" on the only agent on a
-  // task is a word that distinguishes it from nothing.
-  return ctx.siblings.length > 1 ? { kind: 'peer' } : null
+  return ctx.siblings.length > 1 ? { kind: 'helper' } : null
 }
 
 /**
