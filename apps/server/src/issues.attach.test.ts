@@ -140,7 +140,8 @@ describe('attachSession', () => {
     expect(w.id).toBe(target.id)
     expect(issueBySession.get(asSessionId('s1'))).toBe(target.id)
     expect(await svc.reports.get(draft.id)).toBeNull() // empty draft deleted
-    expect(w.coordinatorSessionId).toBe('s1')
+    // D3 (POD-6108): attaching never takes the coordinator seat; splitting does.
+    expect(w.coordinatorSessionId).toBeUndefined()
   })
 
   it('self-attach is a no-op', async () => {
@@ -695,5 +696,141 @@ describe('store: sessions.issue_id round-trip', () => {
     // clearing round-trips too
     await store.sessions.upsertSession({ ...rows.find((r) => r.id === 'sx')!, issueId: null })
     expect((await store.sessions.loadSessions()).find((r) => r.id === 'sx')?.issueId).toBeNull()
+  })
+})
+
+// D3 + D5 (POD-6108): a session becomes its issue's coordinator when it first
+// creates a child under its OWN issue; the seat says who may talk to the user.
+describe('coordinator seat', () => {
+  const S = (id: string) => asSessionId(id)
+  async function tree() {
+    const sessions = [sess(S('root')), sess(S('helper')), sess(S('lead')), sess(S('worker'))]
+    const h = await harness(sessions)
+    const root = await h.svc.crud.create({ repoPath: '/r', title: 'Root', startNow: false })
+    h.issueBySession.set(S('root'), root.id)
+    h.issueBySession.set(S('helper'), root.id)
+    return { ...h, sessions, root }
+  }
+  const coordinatorOf = async (svc: IssueService, id: string) =>
+    (await svc.reports.get(id))?.coordinatorSessionId
+
+  it('the first child a session creates under its own issue makes it coordinator, once', async () => {
+    const { svc, store, root } = await tree()
+    await svc.crud.claim(root.id, asUserId('agent:claude-code'), { actorSessionId: S('helper') })
+    expect(await coordinatorOf(svc, root.id)).toBeUndefined() // claim no longer seats
+
+    await svc.crud.create({
+      repoPath: '/r',
+      title: 'Child A',
+      startNow: false,
+      parentId: root.id,
+      startedBySession: S('root'),
+    })
+    expect(await coordinatorOf(svc, root.id)).toBe('root')
+    // A later split by a teammate never replaces the seat.
+    await svc.crud.create({
+      repoPath: '/r',
+      title: 'Child B',
+      startNow: false,
+      parentId: root.id,
+      startedBySession: S('helper'),
+    })
+    expect(await coordinatorOf(svc, root.id)).toBe('root')
+
+    const events = await store.events.listEventsSince(0, {
+      kinds: ['issue.coordinator_set'],
+      subject: root.id,
+    })
+    expect(events).toHaveLength(1)
+    expect(events[0]?.payload).toMatchObject({ sessionId: 'root', cause: 'first-child' })
+  })
+
+  it('a child created under someone else\'s issue does not seat its creator', async () => {
+    const { svc, issueBySession } = await tree()
+    const other = await svc.crud.create({ repoPath: '/r', title: 'Other', startNow: false })
+    issueBySession.set(S('worker'), other.id)
+    const elsewhere = await svc.crud.create({ repoPath: '/r', title: 'Elsewhere', startNow: false })
+    await svc.crud.create({
+      repoPath: '/r',
+      title: 'Not mine',
+      startNow: false,
+      parentId: elsewhere.id,
+      startedBySession: S('worker'),
+    })
+    expect(await coordinatorOf(svc, elsewhere.id)).toBeUndefined()
+  })
+
+  it('only a session with no coordinator above it is the top seat', async () => {
+    const { svc, root, issueBySession, sessions } = await tree()
+    // Before any split nobody coordinates, so every session talks to the user.
+    expect((await svc.reports.seatFor(S('helper'))).kind).toBe('top')
+
+    const phase = await svc.crud.create({
+      repoPath: '/r',
+      title: 'Phase',
+      startNow: false,
+      parentId: root.id,
+      startedBySession: S('root'),
+    })
+    issueBySession.set(S('lead'), phase.id)
+    issueBySession.set(S('worker'), phase.id)
+
+    expect(await svc.reports.seatFor(S('root'))).toEqual({ kind: 'top', coordinates: true })
+    expect(await svc.reports.seatFor(S('helper'))).toMatchObject({
+      kind: 'below',
+      coordinates: false,
+      coordinator: { issueId: root.id, sessionId: 'root' },
+    })
+    // No coordinator on the phase yet: its sessions ask the root's.
+    expect(await svc.reports.seatFor(S('worker'))).toMatchObject({
+      kind: 'below',
+      coordinator: { issueId: root.id },
+    })
+
+    // The lead splits its phase: it leads that phase, and still asks the root.
+    await svc.crud.create({
+      repoPath: '/r',
+      title: 'Task',
+      startNow: false,
+      parentId: phase.id,
+      startedBySession: S('lead'),
+    })
+    expect(await svc.reports.seatFor(S('lead'))).toMatchObject({
+      kind: 'below',
+      coordinates: true,
+      coordinator: { issueId: root.id },
+    })
+    // The nearest coordinator wins.
+    expect(await svc.reports.seatFor(S('worker'))).toMatchObject({
+      kind: 'below',
+      coordinator: { issueId: phase.id, sessionId: 'lead' },
+    })
+
+    // A coordinator that can no longer answer does not count.
+    const lead = sessions.find((s) => s.sessionId === 'lead')!
+    ;(lead as { archived: boolean }).archived = true
+    expect(await svc.reports.seatFor(S('worker'))).toMatchObject({
+      coordinator: { issueId: root.id },
+    })
+    await svc.crud.close(root.id)
+    expect((await svc.reports.seatFor(S('worker'))).kind).toBe('top')
+  })
+
+  it('prime tells a session below a coordinator where to ask', async () => {
+    const { svc, root } = await tree()
+    await svc.crud.create({
+      repoPath: '/r',
+      title: 'Split',
+      startNow: false,
+      parentId: root.id,
+      startedBySession: S('root'),
+    })
+    const ref = await svc.reports.niceRef((await svc.reports.get(root.id))!)
+    const helper = await svc.reports.prime({ boundIssueId: root.id, sessionId: S('helper') })
+    expect(helper).toContain(`you work under the coordinator of ${ref}`)
+    expect(helper).toContain(`podium issue mail send ${ref} --body "…" --expect-response`)
+    const top = await svc.reports.prime({ boundIssueId: root.id, sessionId: S('root') })
+    expect(top).toContain('you talk to the user directly')
+    expect(top).toContain('You coordinate this issue')
   })
 })

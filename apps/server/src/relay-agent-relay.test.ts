@@ -190,6 +190,51 @@ describe('server agent relay handler (P1b)', () => {
     expect(await offerOf()).toBeUndefined()
   })
 
+  /**
+   * The seat (POD-6108, D5): a session below a coordinator may not put a decision
+   * in front of the user. The refusal names the coordinator's issue and the mail
+   * command to ask it with; the coordinator itself, with nobody above, may offer.
+   */
+  it('refuses an offer from a session below a coordinator and names where to ask', async () => {
+    const child = await registry.issues.crud.create({
+      repoPath,
+      title: 'phase child',
+      startNow: false,
+      parentId: A.id,
+    })
+    await registry.issues.crud.update(child.id, { worktreePath: '/r/.worktrees/issue-2-child' })
+    const sChild = (
+      await registry.modules.sessions.createSession({
+        cwd: '/r/.worktrees/issue-2-child',
+        agentKind: 'shell',
+      })
+    ).sessionId
+    await registry.issues.crud.setCoordinator(A.id, asSessionId(sA))
+    const ref = await registry.issues.reports.niceRef(
+      (await registry.issues.reports.get(A.id)) as { repoPath: string; seq: number },
+    )
+    const setOffer = async (requestId: string, sessionId: string) => {
+      const reply = captureReply(registry, machineId)
+      registry.gateway.routeDaemonFrame(machineId, {
+        type: 'agentRelayRequest',
+        requestId,
+        sessionId: asSessionId(sessionId),
+        router: 'offer',
+        proc: 'set',
+        input: { message: 'Phase ready for review', actions: [] },
+      })
+      return await reply
+    }
+
+    const below = await setOffer('ir-offer-below', sChild)
+    expect(below.ok).toBe(false)
+    expect(below.error).toContain(`coordinator of ${ref}`)
+    expect(below.error).toContain(`podium issue mail send ${ref} --body "…" --expect-response`)
+
+    const top = await setOffer('ir-offer-top', sA)
+    expect(top.ok).toBe(true)
+  })
+
   it('override lets a scoped op write outside its subtree', async () => {
     const reply = captureReply(registry, machineId)
     registry.gateway.routeDaemonFrame(machineId, {

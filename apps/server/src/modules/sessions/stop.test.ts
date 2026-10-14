@@ -688,11 +688,6 @@ describe('stopIssue [spec:SP-9904]', () => {
       issueId: issue.id,
     })
     await bindLive(reg, sessionId, wt)
-    // Session creation publishes coordinator assignment as a background event.
-    // Finish that setup write before starting the independent close command.
-    await vi.waitFor(async () => {
-      expect((await reg.modules.issues.reports.getMeta(issue.id))?.coordinatorSessionId).toBe(sessionId)
-    })
 
     await reg.modules.issues.crud.update(issue.id, { stage: 'done' })
 

@@ -183,7 +183,9 @@ describe('SessionRegistry', () => {
     ])
   })
 
-  it('defaults the first issue agent to coordinator without overriding clear or claim', async () => {
+  // D3 (POD-6108): being born on, attached to, or claiming an issue never takes
+  // the coordinator seat — only a session's first split of its own issue does.
+  it('leaves the coordinator seat empty when agents start on or claim an issue', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
       await attachHostDaemon(reg, () => {}, { repos: ['/proj'] })
@@ -192,14 +194,6 @@ describe('SessionRegistry', () => {
         title: 'Coordinator default',
         startNow: false,
       })
-
-      await reg.modules.sessions.createSession({
-        agentKind: 'shell',
-        cwd: '/proj',
-        issueId: issue.id,
-      })
-      expect((await reg.modules.issues.reports.get(issue.id))?.coordinatorSessionId).toBeUndefined()
-
       const first = (
         await reg.modules.sessions.createSession({
           agentKind: 'codex',
@@ -207,31 +201,17 @@ describe('SessionRegistry', () => {
           issueId: issue.id,
         })
       ).sessionId
-      await expect
-        .poll(async () => (await reg.modules.issues.reports.get(issue.id))?.coordinatorSessionId)
-        .toBe(first)
-
-      // Explicit clear survives a later teammate joining: with two eligible
-      // agents there is no unambiguous default to invent.
-      await reg.modules.issues.crud.setCoordinator(issue.id, null)
-      const second = (
-        await reg.modules.sessions.createSession({
-          agentKind: 'codex',
-          cwd: '/proj',
-          issueId: issue.id,
-        })
-      ).sessionId
+      await reg.modules.issues.crud.claim(issue.id, asUserId('agent:codex'), { actorSessionId: first })
       expect((await reg.modules.issues.reports.get(issue.id))?.coordinatorSessionId).toBeUndefined()
 
-      // An issue claim by a bound agent fills the empty seat, but never replaces
-      // an explicit handoff.
-      await reg.modules.issues.crud.claim(issue.id, asUserId('agent:codex'), { actorSessionId: second })
-      expect((await reg.modules.issues.reports.get(issue.id))?.coordinatorSessionId).toBe(second)
-      await reg.modules.issues.crud.setCoordinator(issue.id, first)
-      await reg.modules.issues.crud.claim(issue.id, asUserId('agent:codex'), { actorSessionId: second })
-      await expect
-        .poll(async () => (await reg.modules.issues.reports.get(issue.id))?.coordinatorSessionId)
-        .toBe(first)
+      await reg.modules.issues.crud.create({
+        repoPath: '/proj',
+        title: 'First split',
+        startNow: false,
+        parentId: issue.id,
+        startedBySession: first,
+      })
+      expect((await reg.modules.issues.reports.get(issue.id))?.coordinatorSessionId).toBe(first)
     } finally {
       await reg.dispose()
     }
