@@ -3361,7 +3361,7 @@ describe('IssueService graph (P2a)', () => {
 describe('IssueService epic status (P2a)', () => {
   it('epicStatus reports child completion; closeEligibleEpics lists fully-done epics', async () => {
     const { svc } = await harness()
-    const epic = await svc.crud.create({ repoPath: '/r', title: 'E', type: 'epic', startNow: false })
+    const epic = await svc.crud.create({ repoPath: '/r', title: 'E', type: 'task', startNow: false })
     const c1 = await svc.crud.create({ repoPath: '/r', title: 'c1', parentId: epic.id, startNow: false })
     const c2 = await svc.crud.create({ repoPath: '/r', title: 'c2', parentId: epic.id, startNow: false })
     expect(await svc.reports.epicStatus(epic.id)).toEqual({
@@ -3386,7 +3386,7 @@ describe('IssueService epic status (P2a)', () => {
 describe('IssueService.tree (issue #82)', () => {
   it('returns the whole subtree in one payload with blocks-deps as seqs', async () => {
     const { svc } = await harness()
-    const epic = await svc.crud.create({ repoPath: '/r', title: 'Epic', type: 'epic', startNow: false })
+    const epic = await svc.crud.create({ repoPath: '/r', title: 'Epic', type: 'task', startNow: false })
     const c1 = await svc.crud.create({
       repoPath: '/r',
       title: 'C1',
@@ -3413,7 +3413,7 @@ describe('IssueService.tree (issue #82)', () => {
 
   it('caps depth and total nodes, counting omissions per parent and in total', async () => {
     const { svc } = await harness()
-    const epic = await svc.crud.create({ repoPath: '/r', title: 'E', type: 'epic', startNow: false })
+    const epic = await svc.crud.create({ repoPath: '/r', title: 'E', type: 'task', startNow: false })
     const c = await svc.crud.create({ repoPath: '/r', title: 'C', parentId: epic.id, startNow: false })
     const g = await svc.crud.create({ repoPath: '/r', title: 'G', parentId: c.id, startNow: false })
     const gg = await svc.crud.create({ repoPath: '/r', title: 'GG', parentId: g.id, startNow: false })
@@ -3425,7 +3425,7 @@ describe('IssueService.tree (issue #82)', () => {
     expect(deepest.title).toBe('GG')
     expect(deepest.omittedChildren).toBe(1)
 
-    const wide = await svc.crud.create({ repoPath: '/r', title: 'W', type: 'epic', startNow: false })
+    const wide = await svc.crud.create({ repoPath: '/r', title: 'W', type: 'task', startNow: false })
     for (let i = 0; i < 5; i++)
       await svc.crud.create({ repoPath: '/r', title: `k${i}`, parentId: wide.id, startNow: false })
     const capped = await svc.reports.tree(wide.id, { maxNodes: 3 })
@@ -3456,7 +3456,7 @@ describe('IssueService.tree (issue #82)', () => {
   it('lists all sessions on each issue including siblings, with coordinator', async () => {
     const sessions: SessionMeta[] = []
     const { svc } = await harness(sessions)
-    const epic = await svc.crud.create({ repoPath: '/r', title: 'Epic', type: 'epic', startNow: false })
+    const epic = await svc.crud.create({ repoPath: '/r', title: 'Epic', type: 'task', startNow: false })
     // Membership is via explicit issueId (issue-as-workspace), not cwd.
     const child = await svc.crud.create({
       repoPath: '/r',
@@ -3598,13 +3598,13 @@ describe('IssueService stale/lint (P2b)', () => {
     expect(stale.map((w) => w.title)).toEqual(['old'])
   })
 
-  it('lint flags a feature with no acceptance', async () => {
+  it('lint flags a task with no acceptance', async () => {
     const { svc } = await harness()
     await svc.crud.create({
       repoPath: '/r',
       title: 'F',
       description: 'd',
-      type: 'feature',
+      type: 'task',
       startNow: false,
     })
     const findings = await svc.reports.lint('/r')
@@ -3633,11 +3633,11 @@ describe('IssueService search/count/stats (P2b)', () => {
 
   it('count groups and stats totals', async () => {
     const { svc } = await harness()
-    await svc.crud.create({ repoPath: '/r', title: 'A', priority: 0, type: 'bug', startNow: false })
+    await svc.crud.create({ repoPath: '/r', title: 'A', priority: 0, type: 'decision', startNow: false })
     const b = await svc.crud.create({ repoPath: '/r', title: 'B', startNow: false })
     await svc.crud.close(b.id)
     expect((await svc.reports.count('/r')).byPriority['0']).toBe(1)
-    expect((await svc.reports.count('/r')).byType['bug']).toBe(1)
+    expect((await svc.reports.count('/r')).byType['decision']).toBe(1)
     const s = await svc.reports.stats('/r')
     expect(s.total).toBe(2)
     expect(s.closed).toBe(1)
@@ -3995,7 +3995,7 @@ describe('IssueService.resolveRef (display seq → internal id)', () => {
 
   it('reparent + supersede + duplicate resolve BOTH sides (no raw refs in columns)', async () => {
     const { svc, store } = await harness()
-    const parent = await svc.crud.create({ repoPath: '/r', title: 'P', type: 'epic', startNow: false })
+    const parent = await svc.crud.create({ repoPath: '/r', title: 'P', type: 'task', startNow: false })
     const kid = await svc.crud.create({ repoPath: '/r', title: 'K', startNow: false })
     const repl = await svc.crud.create({ repoPath: '/r', title: 'R', startNow: false })
 
@@ -4580,7 +4580,7 @@ describe('IssueService.integrate (issue #70)', () => {
     const epic = await h.svc.crud.create({
       repoPath: '/r',
       title: 'E',
-      type: 'epic',
+      type: 'task',
       parentBranch: 'main',
       startNow: false,
     })
@@ -4603,7 +4603,7 @@ describe('IssueService.integrate (issue #70)', () => {
 
   it('refuses a target with no children (no repoOp at all)', async () => {
     const h = await harness()
-    const epic = await h.svc.crud.create({ repoPath: '/r', title: 'E', type: 'epic', startNow: false })
+    const epic = await h.svc.crud.create({ repoPath: '/r', title: 'E', type: 'task', startNow: false })
     const calls = scriptOps(h.deps, () => undefined)
     const r = await h.svc.gitWorkflow.integrate(epic.id, AS_OPERATOR)
     expect(r.ok).toBe(false)
@@ -5191,7 +5191,7 @@ describe('IssueService.integrate (issue #70)', () => {
 describe('IssueService children + depReport (epic ergonomics)', () => {
   it('children lists direct subissues sorted by seq; recursive walks the subtree', async () => {
     const { svc } = await harness()
-    const epic = await svc.crud.create({ repoPath: '/r', title: 'E', type: 'epic', startNow: false })
+    const epic = await svc.crud.create({ repoPath: '/r', title: 'E', type: 'task', startNow: false })
     const c2 = await svc.crud.create({ repoPath: '/r', title: 'c2', parentId: epic.id, startNow: false })
     const c1 = await svc.crud.create({ repoPath: '/r', title: 'c1', parentId: epic.id, startNow: false })
     const grand = await svc.crud.create({ repoPath: '/r', title: 'g', parentId: c1.id, startNow: false })
@@ -5205,7 +5205,7 @@ describe('IssueService children + depReport (epic ergonomics)', () => {
 
   it('depReport over an epic subtree marks ready/blocked and resolves edges', async () => {
     const { svc } = await harness()
-    const epic = await svc.crud.create({ repoPath: '/r', title: 'E', type: 'epic', startNow: false })
+    const epic = await svc.crud.create({ repoPath: '/r', title: 'E', type: 'task', startNow: false })
     const a = await svc.crud.create({ repoPath: '/r', title: 'a', parentId: epic.id, startNow: false })
     const b = await svc.crud.create({ repoPath: '/r', title: 'b', parentId: epic.id, startNow: false })
     const c = await svc.crud.create({ repoPath: '/r', title: 'c', parentId: epic.id, startNow: false })

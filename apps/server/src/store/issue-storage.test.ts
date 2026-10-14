@@ -84,7 +84,7 @@ const fullRow = (): IssueRow => ({
   archived: true,
   deletedAt: '2026-01-09T00:00:00Z',
   priority: 1,
-  type: 'bug',
+  type: 'task',
   assignee: asUserId('mgw'),
   parentId: asIssueId('iss_parent'),
   design: 'design doc',

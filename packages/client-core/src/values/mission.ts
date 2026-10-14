@@ -13,7 +13,7 @@ import { agentLabel } from './quota'
 import { sessionsForIssueNav } from './session-ownership'
 import { motionPhase, sessionErrored, sessionErrorLabel } from './session-status'
 import { type IssueNavigationModel, isEmptyDraftVessel, issueAbandoned } from './compose/issues'
-import { isFinished as issueClosed, isPhaseIssue } from '@podium/model/browser'
+import { isDecisionIssue, isFinished as issueClosed, isPhaseIssue } from '@podium/model/browser'
 export { isFinished as issueClosed } from '@podium/model/browser'
 import { isCoordinatorSession } from './compose/terminal'
 
@@ -374,6 +374,8 @@ export function issueNeedsHuman(
   // that quiets the offers already sitting in the store from before it.
   if (issueClosed(issue)) return false
   if (issue.needsHuman === true) return true
+  // An open decision is the user's to answer (POD-6106, D2/D6).
+  if (isDecisionIssue(issue)) return true
   if (sessions.some((session) => !session.archived && sessionNeedsHuman(session))) return true
   // An empty review whose session hopscotched is a signpost, not a review item.
   if (issue.stage === 'review' && isVacatedOrigin(issue, sessions, byId)) return false

@@ -32,7 +32,7 @@ it('keeps requested issue JSON fields on create, update, get, list and tree', as
     repoPath: '/report-fixture',
     title: 'Report contract fixture',
     description: 'Plain text body',
-    type: 'epic',
+    type: 'task',
     startNow: false,
   })
   const child = await api.create({

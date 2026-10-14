@@ -162,7 +162,7 @@ describe('IssueRow rich fields round-trip (P1)', () => {
     await store.issues.upsertIssue(
       baseRow({
         priority: 0,
-        type: 'bug',
+        type: 'task',
         assignee: asUserId('agent:claude'),
         parentId: asIssueId('iss_epic'),
         design: 'D',

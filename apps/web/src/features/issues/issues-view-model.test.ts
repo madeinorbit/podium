@@ -12,7 +12,7 @@ const display = (over: Partial<typeof DEFAULT_DISPLAY> = {}) => ({
 
 describe('deriveIssuesViewModel', () => {
   it('keeps scope-wide counts while the board/list use the active filter', () => {
-    const root = makeIssue({ id: 'root', stage: 'backlog', type: 'epic', childCount: 1 })
+    const root = makeIssue({ id: 'root', stage: 'backlog', type: 'task', childCount: 1 })
     const child = makeIssue({ id: 'child', parentId: 'root', stage: 'review' })
     const other = makeIssue({ id: 'other', stage: 'in_progress' })
     const archived = makeIssue({ id: 'archived', archived: true, stage: 'review' })
@@ -35,7 +35,7 @@ describe('deriveIssuesViewModel', () => {
   })
 
   it('shares hierarchy, list order, board columns, and deep-link navigation', () => {
-    const root = makeIssue({ id: 'root', stage: 'backlog', type: 'epic' })
+    const root = makeIssue({ id: 'root', stage: 'backlog', type: 'task' })
     const child = makeIssue({ id: 'child', parentId: 'root', stage: 'review' })
     const other = makeIssue({ id: 'other', stage: 'done' })
 

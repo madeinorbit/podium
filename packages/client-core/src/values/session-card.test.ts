@@ -43,7 +43,7 @@ function issue(
     defaultEffort: 'auto',
     blockedByNotes: [],
     priority: 0,
-    type: 'feature',
+    type: 'task',
     pinned: false,
     needsHuman: false,
     labels: [],

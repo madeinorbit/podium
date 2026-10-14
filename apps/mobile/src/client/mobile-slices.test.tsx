@@ -41,7 +41,7 @@ function issue(
   return {
     seq: 1,
     stage: 'in_progress',
-    type: 'feature',
+    type: 'task',
     audience: 'human',
     archived: false,
     pinned: false,

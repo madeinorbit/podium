@@ -6,8 +6,8 @@ import {
 } from './flight-deck-display'
 
 describe('Flight Deck display contract', () => {
-  it('defaults complex epics to expanded and ordinary work to compact', () => {
-    expect(isComplexFlightDeckMission({ type: 'epic', childCount: 2 })).toBe(true)
+  it('defaults large missions to expanded and ordinary work to compact', () => {
+    expect(isComplexFlightDeckMission({ type: 'task', childCount: 6 })).toBe(true)
     expect(isComplexFlightDeckMission({ type: 'task', childCount: 12 })).toBe(true)
     expect(isComplexFlightDeckMission({ type: 'task', childCount: 2 })).toBe(false)
     expect(readFlightDeckDisplay(null, true)).toBe('expanded')

@@ -207,7 +207,7 @@ describe('IssuePage agent-saved data', () => {
     const ordinary = makeIssue({
       id: 'i-ordinary',
       stage: 'in_progress',
-      type: 'feature',
+      type: 'task',
       priority: 1,
       assignee: 'agent:codex',
       createdAt: '2026-07-14T10:00:00.000Z',

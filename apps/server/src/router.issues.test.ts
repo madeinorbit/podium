@@ -27,7 +27,7 @@ describe('issues router inputs (P1)', () => {
       title: 'A',
       startNow: false,
       priority: 0,
-      type: 'bug',
+      type: 'task',
       labels: ['ui'],
       parentId: 'iss_e',
     })

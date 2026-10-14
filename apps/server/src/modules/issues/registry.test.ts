@@ -1274,3 +1274,107 @@ describe('agent close while a session on the issue works [POD-5762]', () => {
     expect(await closed(registry, issue.id)).toBe(true)
   })
 })
+
+describe('issue types and labels [POD-6106]', () => {
+  const registries: SessionRegistry[] = []
+  afterAll(async () => {
+    for (const registry of registries.splice(0)) await registry.dispose()
+  })
+
+  const operator = { capability: OPERATOR }
+  const agentOn = (rootId: string) => ({
+    capability: {
+      role: 'worker' as const,
+      scope: { kind: 'subtree' as const, rootId: asIssueId(rootId) },
+      actorSessionId: asSessionId('sess_types_agent'),
+      onBehalfOf: firstAdminMemberId(),
+    },
+  })
+
+  const setup = async () => {
+    const registry = await reportingRegistry()
+    registries.push(registry)
+    const root = await registry.issues.crud.create({ repoPath: '/r', title: 'Root', startNow: false })
+    await registry.issues.crud.setLabels(root.id, ['bug'])
+    const create = (caller: object, input: Record<string, unknown>) =>
+      registry.issueCommands.dispatch(caller as never, 'issues', 'create', {
+        repoPath: '/r',
+        startNow: false,
+        parentId: root.id,
+        ...input,
+      }) as Promise<{ id: string; labels: string[]; type: string }>
+    return { registry, root, create }
+  }
+
+  it('an agent applies existing labels by any case, and gets the stored spelling', async () => {
+    const { root, create } = await setup()
+    const made = await create(agentOn(root.id), { title: 'Known', labels: ['BUG'] })
+    expect(made.labels).toEqual(['bug'])
+  })
+
+  it('an agent naming an unknown label is refused before anything is created', async () => {
+    const { registry, root, create } = await setup()
+    await expect(
+      create(agentOn(root.id), { title: 'Typo', labels: ['bgu'] }),
+    ).rejects.toThrow(/unknown label "bgu".*Existing labels: bug.*--create-label/s)
+    const titles = (await registry.issues.reports.list('/r')).map((i) => i.title)
+    expect(titles).not.toContain('Typo')
+  })
+
+  it('an agent adds a new label with createLabels, and the operator always creates-or-picks', async () => {
+    const { registry, root, create } = await setup()
+    const byAgent = await create(agentOn(root.id), {
+      title: 'New',
+      labels: ['perf'],
+      createLabels: true,
+    })
+    expect(byAgent.labels).toEqual(['perf'])
+    const byOperator = await create(operator, { title: 'Op', labels: ['ux', 'Perf'] })
+    expect(byOperator.labels).toEqual(['perf', 'ux'])
+    expect(
+      (await registry.issueCommands.dispatch(operator as never, 'issues', 'labelList', {})) as {
+        name: string
+      }[],
+    ).toEqual([{ name: 'bug' }, { name: 'perf' }, { name: 'ux' }])
+  })
+
+  it('only the user closes a decision', async () => {
+    const { registry, root, create } = await setup()
+    const decision = await create(operator, { title: 'Pick one', type: 'decision' })
+    const agent = agentOn(root.id)
+    const dispatch = (proc: string, input: object) =>
+      registry.issueCommands.dispatch(agent as never, 'issues', proc as never, input as never)
+    await expect(dispatch('close', { id: decision.id })).rejects.toThrow(/only the user/)
+    await expect(
+      dispatch('update', { id: decision.id, patch: { stage: 'done' } }),
+    ).rejects.toThrow(/only the user/)
+    await expect(
+      dispatch('update', { id: decision.id, patch: { type: 'task' } }),
+    ).rejects.toThrow(/retype refused/)
+    expect((await registry.issues.reports.get(decision.id))?.stage).not.toBe('done')
+
+    await registry.issueCommands.dispatch(operator as never, 'issues', 'close', { id: decision.id })
+    expect((await registry.issues.reports.get(decision.id))?.stage).toBe('done')
+  })
+
+  it('an agent still closes an ordinary task', async () => {
+    const { registry, root, create } = await setup()
+    const task = await create(operator, { title: 'Plain' })
+    await registry.issueCommands.dispatch(agentOn(root.id) as never, 'issues', 'close', {
+      id: task.id,
+    })
+    expect((await registry.issues.reports.get(task.id))?.stage).toBe('done')
+  })
+
+  it('prime lists the label vocabulary and says what a decision is', async () => {
+    const { registry, create } = await setup()
+    const decision = await create(operator, { title: 'Pick one', type: 'decision' })
+    const out = await registry.issues.reports.prime({
+      repoPath: '/r',
+      boundIssueId: asIssueId(decision.id),
+    })
+    expect(out).toContain('Labels (apply with `--labels a,b`')
+    expect(out).toMatch(/--create-label`\): bug\./)
+    expect(out).toContain('This issue is a decision: only the user closes it.')
+  })
+})

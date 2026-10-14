@@ -79,8 +79,8 @@ describe('issueCardStateSlots — rank', () => {
   })
 
   it('keeps type OFF the state line — it is identity, and it costs a whole row', () => {
-    const bug = makeIssue({ type: 'bug' })
-    expect(issueCardStateSlots(bug, { badges, workingAgents: 0 })).toEqual([])
+    const decision = makeIssue({ type: 'decision' })
+    expect(issueCardStateSlots(decision, { badges, workingAgents: 0 })).toEqual([])
   })
 
   it('says nothing about a task that has nothing to say', () => {
@@ -153,7 +153,7 @@ describe('issueStateWord — the one word a dense row has space for', () => {
   })
 
   it('ignores the Display badges — a row is not a card', () => {
-    expect(issueStateWord(makeIssue({ type: 'bug', labels: ['ui'] }), 0)).toBeNull()
+    expect(issueStateWord(makeIssue({ type: 'task', labels: ['ui'] }), 0)).toBeNull()
   })
 })
 

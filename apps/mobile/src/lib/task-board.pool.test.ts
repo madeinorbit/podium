@@ -54,7 +54,7 @@ const rowIds = (sections: MobileTaskSection[]) =>
 
 describe('pool task sections', () => {
   it("lists roots only — an epic's decomposition stays off the tab", async () => {
-    const epic = issue({ id: asIssueId('epic'), stage: 'in_progress', type: 'epic', childCount: 2 })
+    const epic = issue({ id: asIssueId('epic'), stage: 'in_progress', type: 'task', childCount: 2 })
     const kid1 = issue({
       id: asIssueId('k1'),
       parentId: asIssueId('epic'),
@@ -73,7 +73,7 @@ describe('pool task sections', () => {
     // The defect: the phone passed an expanded set that could never grow, so a
     // sub-task existed on this tab only as a number on its parent while the
     // desktop board could open the same epic in place.
-    const epic = issue({ id: asIssueId('epic'), stage: 'in_progress', type: 'epic', childCount: 2 })
+    const epic = issue({ id: asIssueId('epic'), stage: 'in_progress', type: 'task', childCount: 2 })
     const kid1 = issue({
       id: asIssueId('k1'),
       parentId: asIssueId('epic'),
@@ -104,7 +104,7 @@ describe('pool task sections', () => {
   })
 
   it('hides them again when the parent is collapsed', async () => {
-    const epic = issue({ id: asIssueId('epic'), stage: 'in_progress', type: 'epic', childCount: 1 })
+    const epic = issue({ id: asIssueId('epic'), stage: 'in_progress', type: 'task', childCount: 1 })
     const kid = issue({
       id: asIssueId('k1'),
       parentId: asIssueId('epic'),
@@ -128,7 +128,7 @@ describe('pool task sections', () => {
       seq: 40,
     })
     const second = issue({ id: asIssueId('second'), stage: 'proposed', seq: 30 })
-    const epic = issue({ id: asIssueId('epic'), stage: 'in_progress', type: 'epic', childCount: 1 })
+    const epic = issue({ id: asIssueId('epic'), stage: 'in_progress', type: 'task', childCount: 1 })
     const promoted = issue({
       id: asIssueId('promoted'),
       parentId: asIssueId('epic'),
@@ -153,7 +153,7 @@ describe('pool task sections', () => {
     // The shared derivation only ever emits a root's subtree, and a promoted
     // proposal is not a root: its sub-task count was rendered with nothing
     // behind it.
-    const epic = issue({ id: asIssueId('epic'), stage: 'in_progress', type: 'epic', childCount: 1 })
+    const epic = issue({ id: asIssueId('epic'), stage: 'in_progress', type: 'task', childCount: 1 })
     const promoted = issue({
       id: asIssueId('promoted'),
       parentId: asIssueId('epic'),
@@ -189,7 +189,7 @@ describe('pool task sections', () => {
     // A child rides in its PARENT's section whatever its own stage, so hiding
     // the Done section is not enough — the filter has to bind the population,
     // or the count on the chevron promises rows it must not show.
-    const epic = issue({ id: asIssueId('epic'), stage: 'in_progress', type: 'epic', childCount: 2 })
+    const epic = issue({ id: asIssueId('epic'), stage: 'in_progress', type: 'task', childCount: 2 })
     const open = issue({
       id: asIssueId('open'),
       parentId: asIssueId('epic'),
@@ -222,7 +222,7 @@ describe('pool task sections', () => {
     // proposals into Proposed, and expansion reveals every child in place. A
     // SectionList keyed by issue id cannot render the row twice, and the
     // proposal must remain a root decision rather than ordinary mission work.
-    const epic = issue({ id: asIssueId('epic'), stage: 'in_progress', type: 'epic', childCount: 1 })
+    const epic = issue({ id: asIssueId('epic'), stage: 'in_progress', type: 'task', childCount: 1 })
     const proposal = issue({
       id: asIssueId('prop'),
       parentId: asIssueId('epic'),
@@ -252,7 +252,7 @@ describe('pool task sections', () => {
   })
 
   it('promotes a proposal parented under an approved epic into Proposed', async () => {
-    const epic = issue({ id: asIssueId('epic'), stage: 'in_progress', type: 'epic', childCount: 1 })
+    const epic = issue({ id: asIssueId('epic'), stage: 'in_progress', type: 'task', childCount: 1 })
     const proposal = issue({
       id: asIssueId('prop'),
       parentId: asIssueId('epic'),
@@ -361,7 +361,7 @@ describe('pool task sections', () => {
         displayRef: 'POD-1234',
         title: 'Login bug',
         priority: 0,
-        type: 'bug',
+        type: 'task',
         labels: ['ui'],
       }),
       issue({
@@ -370,7 +370,7 @@ describe('pool task sections', () => {
         displayRef: 'POD-7',
         title: 'Dark mode',
         priority: 2,
-        type: 'feature',
+        type: 'task',
         stage: 'review',
         blocked: true,
         ready: false,
@@ -409,7 +409,7 @@ describe('pool task sections', () => {
   })
 
   it('ranks a root as working when only a grandchild has a confirmed worker', async () => {
-    const root = issue({ id: asIssueId('root'), type: 'epic', stage: 'in_progress', childCount: 1 })
+    const root = issue({ id: asIssueId('root'), type: 'task', stage: 'in_progress', childCount: 1 })
     const child = issue({
       id: asIssueId('child'),
       parentId: asIssueId('root'),

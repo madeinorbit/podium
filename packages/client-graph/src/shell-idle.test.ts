@@ -52,7 +52,7 @@ it.each([128, 512])('does not rebuild idle shell issue projections per unrelated
     expect(chrome && chrome !== LOADING ? chrome.colorById(f.issues[0]!.id)?.color : null)
       .toBe('violet')
     f.pool.apply({ type: 'update', rows: [{ kind: 'issue', id: f.issues[0]!.id,
-      value: { ...f.issues[0]!, color: 'violet', type: 'epic' } }] as never })
+      value: { ...f.issues[0]!, color: 'violet', type: 'task' } }] as never })
     expect(answers, 'live mission complexity change').toHaveLength(3)
   } finally {
     stop()
@@ -89,12 +89,13 @@ it('preserves live shell color and mission answers through keyed ancestry change
     if (!mission) return // Cyclic mission roots already differ in the landed mission reader.
     const expected = legacyShellSnapshot(f.state(), issues).sections.find(section => section.key === 'chrome')!.fields
     expect(chrome.missionRoot?.id ?? null).toBe(expected.missionRootId)
-    expect(Boolean(chrome.missionRoot && (chrome.missionRoot.type === 'epic' ||
-      chrome.missionRoot.childCount >= 6))).toBe(expected.missionExpanded)
+    expect(Boolean(chrome.missionRoot && chrome.missionRoot.childCount >= 6)).toBe(
+      expected.missionExpanded,
+    )
   }
   try {
     check()
-    patch(0, { color: 'violet', type: 'epic' })
+    patch(0, { color: 'violet', type: 'task' })
     check()
     patch(1, { color: 'teal' })
     check()

@@ -80,7 +80,7 @@ async function setupBoard(rows: ReturnType<typeof issue>[], seats: ReturnType<ty
 
 const READ = at(now - 60 * 60_000)
 const ROWS = [
-  issue('root', { seq: 10, type: 'epic', readAt: READ, labels: ['a', 'b'], dueAt: '2026-10-20T00:00:00Z', estimateMin: 30 }),
+  issue('root', { seq: 10, type: 'task', readAt: READ, labels: ['a', 'b'], dueAt: '2026-10-20T00:00:00Z', estimateMin: 30 }),
   issue('c1', { seq: 11, parentId: 'root', stage: 'review', readAt: at(now + 60_000) }),
   issue('c2', { seq: 12, parentId: 'root', stage: 'done', closedReason: 'completed' }),
   issue('c3', { seq: 13, parentId: 'root', stage: 'planning', archived: true }),

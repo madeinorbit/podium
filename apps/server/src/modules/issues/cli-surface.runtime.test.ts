@@ -84,7 +84,7 @@ describe('the real in-process client serves every cli/mcp-exposed contract', () 
   it('every cli/mcp-exposed contract has a live procedure on the real client', async () => {
     const client = (await fresh()).issueCommands.asIssueTrpc(OPERATOR)
     const issues = client.issues as unknown as Record<string, { query: unknown; mutate: unknown }>
-    expect(CLI_EXPOSED).toHaveLength(67)
+    expect(CLI_EXPOSED).toHaveLength(68)
     for (const name of CLI_EXPOSED) {
       expect(typeof issues[name]?.query, name).toBe('function')
       expect(typeof issues[name]?.mutate, name).toBe('function')
@@ -183,6 +183,11 @@ describe('the podium issue CLI table renders over the real surface', () => {
       'alpha',
       'beta',
     ])
+
+    // The vocabulary the label write created (POD-6106), through the list verb.
+    const labelsCmd = verb('labels')
+    const vocabulary = await labelsCmd?.run(client, parseArgs(labelsCmd, {}))
+    expect(vocabulary?.text.split('\n')).toEqual(['alpha', 'beta'])
 
     const closeCmd = verb('close')
     await closeCmd?.run(client, parseArgs(closeCmd, { id }))

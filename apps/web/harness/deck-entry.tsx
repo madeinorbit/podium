@@ -65,7 +65,7 @@ const MISSIONS = {
         title: 'Checkout revamp',
         description: 'Split payment capture from cart mutation, then land fraud checks.',
         stage: 'in_progress',
-        type: 'epic',
+        type: 'task',
         memberSessionIds: ['coord'],
         coordinatorSessionId: 'coord',
       }),

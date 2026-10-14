@@ -74,7 +74,7 @@ describe('issueRowToProjection [POD-796]', () => {
       seq: 13,
       title: 'a title',
       stage: 'in_progress',
-      type: 'feature',
+      type: 'task',
       priority: 2,
       color: 'violet',
       estimateMin: 45,

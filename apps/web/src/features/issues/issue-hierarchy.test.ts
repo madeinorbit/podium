@@ -15,8 +15,8 @@ import { childStageCounts, isEpic, issuePageOrderIds } from './issue-hierarchy'
 const issue = makeIssue
 
 describe('isEpic', () => {
-  it('true for type=epic even with no children', () => {
-    expect(isEpic(issue({ type: 'epic' }))).toBe(true)
+  it('true for a phase even with no children', () => {
+    expect(isEpic(issue({ type: 'phase' }))).toBe(true)
   })
   it('true for any issue with children', () => {
     expect(isEpic(issue({ type: 'task', childCount: 2 }))).toBe(true)
