@@ -17,7 +17,7 @@ it.each([128, 512])('does not rebuild idle shell issue projections per unrelated
     if (chrome && chrome !== LOADING) {
       // Read the same keyed color and mission scalars the shell consumes.
       chrome.missionRoot?.id
-      if (chrome.missionRoot && chrome.missionRoot.type !== 'epic') chrome.missionRoot.childCount
+      chrome.missionRoot?.childCount
       chrome.colorIssue?.color
       const parentId = chrome.colorIssue?.parentId
       if (parentId) chrome.colorById(parentId)?.color
