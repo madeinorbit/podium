@@ -151,6 +151,7 @@ export const DURABLE_STORES: readonly DurableStore[] = [
   { store: 'issues', kind: 'drizzle-table', row: 'issue-core' },
   { store: 'issue_deps', kind: 'drizzle-table', row: 'issue-graph' },
   { store: 'issue_labels', kind: 'drizzle-table', row: 'issue-core' },
+  { store: 'labels', kind: 'drizzle-table', row: 'issue-core' },
   { store: 'issue_comments', kind: 'drizzle-table', row: 'issue-comments' },
   { store: 'issue_messages', kind: 'drizzle-table', row: 'issue-messages' },
   { store: 'issue_user_state', kind: 'drizzle-table', row: 'issue-message-read-at' },
