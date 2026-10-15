@@ -310,11 +310,7 @@ describe('counting', () => {
         issue('a', 3, 'p', { sortKey: 'a' }),
         issue('b', 4, 'p', { sortKey: 'b' }),
       ],
-      sessions: [
-        session('w-p', 'p', own),
-        session('w-a', 'a', leafA),
-        session('w-b', 'b', leafB),
-      ],
+      sessions: [session('w-p', 'p', own), session('w-a', 'a', leafA), session('w-b', 'b', leafB)],
     })
     const needsYouRows = (full: FullDeck) => {
       full.setFilter('needs-you')
