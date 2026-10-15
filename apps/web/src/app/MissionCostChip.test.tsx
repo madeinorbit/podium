@@ -60,16 +60,17 @@ const cohortRows = [
 
 let answer: TaskCostWire = wire()
 
+// The chip reads the store handle's keyed runtime access (since 01e6852ef5).
 vi.mock('@podium/client-core/react', () => ({
   useStoreHandle: () => ({
-    getSnapshot: () => ({
+    access: {
       trpc: {
         cost: {
           task: { query: () => Promise.resolve(answer) },
           tasks: { query: () => Promise.resolve(cohortRows) },
         },
       },
-    }),
+    },
   }),
 }))
 
