@@ -29,6 +29,7 @@ async function fixture() {
       sessionId: asSessionId(id), issueId, agentKind: 'codex', title: id, cwd: '/repo',
       status: 'live', controllerId: null, geometry: { cols: 80, rows: 24 }, epoch: 0,
       clientCount: 0, createdAt: '2026-10-15T00:00:00Z', lastActiveAt: '2026-10-15T00:00:00Z',
+      origin: { kind: 'spawn' }, archived: false,
       ...patch,
     }
     sessions.push(s)
@@ -38,6 +39,8 @@ async function fixture() {
 }
 
 const flatten = (root: IssueDeckNode): IssueDeckNode[] => [root, ...root.children.flatMap(flatten)]
+const agentState = (phase: NonNullable<SessionMeta['agentState']>['phase']): NonNullable<SessionMeta['agentState']> =>
+  ({ phase, since: '2026-10-15T00:00:00Z', nativeSubagentCount: 0 })
 
 it('orders nested phases, rolls up shared words and counts leaves without phase units', async () => {
   const { svc, create, seat } = await fixture()
@@ -56,7 +59,7 @@ it('orders nested phases, rolls up shared words and counts leaves without phase 
   const external = await create('External task')
   await svc.hierarchy.addDep(blocked.id, external.id)
   await svc.hierarchy.addDep(decision.id, closed.id)
-  seat('working', crashed.id, { agentState: { phase: 'working' } })
+  seat('working', crashed.id, { agentState: agentState('working') })
   seat('crash', crashed.id, { status: 'exited', stopReason: 'oom', exitCode: 137 })
   const deck = await svc.reports.deck(root.id)
   expect(deck.root.children.map((row) => row.title)).toEqual(['Build', 'Later', 'External wait'])
@@ -78,9 +81,9 @@ it('shows marker-derived seats and shared session words, excluding non-roster se
   const task = await create('Task', phase.id)
   const coordinator = seat('coordinator', root.id)
   const lead = seat('lead', phase.id, { status: 'hibernated' })
-  const worker = seat('worker', task.id, { agentState: { phase: 'compacting' }, model: 'configured', observedModel: 'actual' })
+  const worker = seat('worker', task.id, { agentState: agentState('compacting'), model: 'configured', observedModel: 'actual' })
   seat('helper', task.id, { offer: { message: 'Review ready', actions: [], createdAt: '2026-10-15T00:00:00Z' } })
-  seat('archived', task.id, { archived: true, agentState: { phase: 'errored' } })
+  seat('archived', task.id, { archived: true, agentState: agentState('errored') })
   seat('headless', task.id, { headless: true })
   seat('shell', task.id, { agentKind: 'shell' })
   const parked = { status: 'hibernated' as const, resume: { kind: 'codex' as const, value: 'same' } }
@@ -126,7 +129,7 @@ it('filters hidden issues, dependency targets and sessions before deriving state
   const hidden = await create('Private child', root.id, 'decision')
   const visible = await create('Visible task', root.id)
   await svc.hierarchy.addDep(visible.id, hidden.id)
-  seat('private-session', hidden.id, { agentState: { phase: 'errored' } })
+  seat('private-session', hidden.id, { agentState: agentState('errored') })
   const deck = await svc.reports.deck(root.id, (id) => id !== hidden.id)
   expect(deck.counts).toMatchObject({ total: 1, 'not-started': 1, error: 0, blocked: 0 })
   expect(JSON.stringify(deck)).not.toContain('Private')
