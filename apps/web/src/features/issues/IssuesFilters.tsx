@@ -321,23 +321,28 @@ export function ProjectMenu({
         }
       />
       <DropdownMenuContent align="end" className="w-60">
-        <DropdownMenuLabel>Projects</DropdownMenuLabel>
-        {paths.length === 0 ? (
-          <DropdownMenuItem disabled>No projects</DropdownMenuItem>
-        ) : (
-          paths.map((path) => (
-            <DropdownMenuCheckboxItem
-              key={path}
-              checked={selected.includes(path)}
-              title={path}
-              onCheckedChange={(checked) =>
-                onChange(checked ? [...selected, path] : selected.filter((value) => value !== path))
-              }
-            >
-              {machinePathBasename(path) || path}
-            </DropdownMenuCheckboxItem>
-          ))
-        )}
+        {/* The heading is a Base UI GroupLabel, which throws outside a Group. */}
+        <DropdownMenuGroup>
+          <DropdownMenuLabel>Projects</DropdownMenuLabel>
+          {paths.length === 0 ? (
+            <DropdownMenuItem disabled>No projects</DropdownMenuItem>
+          ) : (
+            paths.map((path) => (
+              <DropdownMenuCheckboxItem
+                key={path}
+                checked={selected.includes(path)}
+                title={path}
+                onCheckedChange={(checked) =>
+                  onChange(
+                    checked ? [...selected, path] : selected.filter((value) => value !== path),
+                  )
+                }
+              >
+                {machinePathBasename(path) || path}
+              </DropdownMenuCheckboxItem>
+            ))
+          )}
+        </DropdownMenuGroup>
         {selected.length > 0 && (
           <>
             <DropdownMenuSeparator />
