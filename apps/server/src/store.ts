@@ -61,6 +61,8 @@ import {
   checkpointStore,
   configureStoreConnection,
   migrateStoreConnection,
+  PLANNER_STATISTICS_INTERVAL_MS,
+  refreshPlannerStatistics,
   setStoreTransferFence,
 } from './migrations/store-lifecycle'
 import { syncServerTables } from './migrations/sync-server-tables'
@@ -336,6 +338,15 @@ export class SessionStore {
       const backfillStarted = performance.now()
       await store.initialize()
       bootStage('backfill', backfillStarted)
+      // After the migrations and the boot repairs, so the statistics describe
+      // the tables as the server will read them. An in-memory store is a test
+      // fixture whose tables are empty; statistics would describe nothing.
+      if (path !== ':memory:') {
+        const statisticsStarted = performance.now()
+        await store.refreshPlannerStatistics('open')
+        bootStage('planner statistics', statisticsStarted)
+        store.startPlannerStatistics()
+      }
       return store
     } catch (error) {
       await executor.close()
@@ -693,7 +704,31 @@ export class SessionStore {
     return unsubscribe
   }
 
+  private plannerStatisticsTimer: ReturnType<typeof setInterval> | undefined
+
+  /**
+   * Refresh the planner's statistics on the exclusive lane (see
+   * `refreshPlannerStatistics`). Refused from inside a transaction scope:
+   * `exclusive()` throws there rather than run it inside the transaction.
+   */
+  async refreshPlannerStatistics(when: 'open' | 'periodic'): Promise<void> {
+    await this.executor.exclusive(async (session) => await refreshPlannerStatistics(session, when))
+  }
+
+  /** Refresh the statistics every `intervalMs` until the store closes. Restarts a running timer. */
+  startPlannerStatistics(intervalMs: number = PLANNER_STATISTICS_INTERVAL_MS): void {
+    if (this.plannerStatisticsTimer !== undefined) clearInterval(this.plannerStatisticsTimer)
+    this.plannerStatisticsTimer = setInterval(() => {
+      this.refreshPlannerStatistics('periodic').catch((error: unknown) =>
+        log.warn('planner statistics refresh failed', { err: error }),
+      )
+    }, intervalMs)
+    this.plannerStatisticsTimer.unref?.()
+  }
+
   async close(persist?: () => Promise<void>): Promise<void> {
+    if (this.plannerStatisticsTimer !== undefined) clearInterval(this.plannerStatisticsTimer)
+    this.plannerStatisticsTimer = undefined
     // Abort the detached verifier first, then await its child inside close so a
     // scan cannot outlive the database (rule 67). This is persist ordering, not
     // exclusive-lane membership — the proof never held exclusive.

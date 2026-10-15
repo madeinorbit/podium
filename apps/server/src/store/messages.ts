@@ -132,7 +132,7 @@ const notOnItsWay = (handedToSession: boolean): SQL =>
 const pending = (): SQL => inArray(messagesTable.deliveryStatus, [...MESSAGE_PENDING])
 
 /**
- * CONFIRMED INTO `sessionId`, read through `idx_messages_delivered_to` (POD-5941).
+ * CONFIRMED INTO `sessionId`, read through `idx_messages_delivered_to_time` (POD-5941).
  *
  * The database carries no `sqlite_stat1`, so the planner cannot know that
  * `confirmed` is nearly every row. Given `delivery_status = ?` it picked
@@ -390,25 +390,40 @@ const pendingForSessionProof = prepared((db: StoreDrizzle) =>
 /** Which principals a ledger read names: an issue, a session, or both. */
 type LedgerShape = 'issue' | 'session' | 'both'
 
+/**
+ * THE DELIVERY LEDGER, ONE ARM PER WAY A ROW CAN NAME THE PRINCIPAL [POD-6148].
+ *
+ * A row belongs to an issue's ledger when the issue sent it or it was
+ * addressed to the issue; to a session's when the session sent it, it was
+ * addressed to the session, or it was handed to the session (`delivered_to`).
+ * Written as one `WHERE a OR b OR ...` this read every message and sorted it:
+ * SQLite takes the OR-by-union path only when EVERY arm has an index, and even
+ * then it sorts the union. Written as a `UNION` of one SELECT per arm, each
+ * arm reads its own index newest first (`idx_messages_from_issue`,
+ * `idx_messages_recipient_time`, `idx_messages_from_session_time`,
+ * `idx_messages_delivered_to_time`, all ending in `created_at, id`), SQLite
+ * merges the arms in that order and stops at the limit. `UNION`, not `UNION
+ * ALL`: a row an issue both sent and received appears once, as it did.
+ */
 const ledger = preparedFamily((db: StoreDrizzle, shape: LedgerShape) => {
-  const ors: SQL[] = []
+  const arms: SQL[] = []
   if (shape !== 'session') {
-    ors.push(
+    arms.push(
       eq(messagesTable.fromIssue, param(messagesTable.fromIssue, 'issueId')),
       and(eq(messagesTable.toKind, 'issue'), eq(messagesTable.toId, param(messagesTable.toId, 'issueId'))) as SQL,
     )
   }
   if (shape !== 'issue') {
-    ors.push(
+    arms.push(
       eq(messagesTable.fromSession, param(messagesTable.fromSession, 'sessionId')),
       and(eq(messagesTable.toKind, 'session'), eq(messagesTable.toId, param(messagesTable.toId, 'sessionId'))) as SQL,
       eq(messagesTable.deliveredTo, param(messagesTable.deliveredTo, 'sessionId')),
     )
   }
-  return db
-    .select()
-    .from(messagesTable)
-    .where(or(...ors))
+  const [first, ...rest] = arms.map((where) => db.select().from(messagesTable).where(where))
+  let union = first!.$dynamic()
+  for (const arm of rest) union = union.union(arm).$dynamic()
+  return union
     .orderBy(desc(messagesTable.createdAt), desc(messagesTable.id))
     .limit(sql.placeholder('limit'))
     .prepare()

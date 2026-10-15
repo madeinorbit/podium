@@ -298,6 +298,17 @@ export const sessions = sqliteTable(
     // so led by `machine_id` this index bought nothing and every harvest, i.e.
     // every 90s usage poll, fell back to a full scan of `sessions`.
     index('idx_sessions_resume_machine').on(table.resumeValue, table.machineId),
+    // LOOKUP KEYS WITH NO INDEX until POD-6148, found by the query-plan audit
+    // (`store/query-plan-audit.test.ts`): the sessions of an issue (the
+    // visibility pass after writes, the legacy-worktree EXISTS), the sessions
+    // that reference one, and a machine's sessions.
+    // Full, not partial: SQLite proves `issue_id IS NOT NULL` from `issue_id = ?`
+    // but not from `issue_id IN (...)`, which is how the visibility pass asks.
+    index('idx_sessions_issue').on(table.issueId),
+    index('idx_sessions_ref_issue')
+      .on(table.refIssueId)
+      .where(sql`${table.refIssueId} IS NOT NULL`),
+    index('idx_sessions_machine').on(table.machineId),
     check(
       'sessions_stop_reason_check',
       sql`stop_reason IS NULL OR stop_reason IN ('self', 'parent', 'forced', 'exited')`,
@@ -500,7 +511,11 @@ export const pins = sqliteTable(
     id: text().notNull(),
     pinnedAt: text('pinned_at').notNull(),
   },
-  (table) => [primaryKey({ columns: [table.userId, table.kind, table.id], name: 'pins_pk' })],
+  (table) => [
+    primaryKey({ columns: [table.userId, table.kind, table.id], name: 'pins_pk' }),
+    // Removing a pinned thing for every user (POD-6148).
+    index('idx_pins_target').on(table.kind, table.id),
+  ],
 )
 
 // PER-USER STATE (POD-380): keyed (user_id, worktree).
@@ -536,6 +551,8 @@ export const sessionUserState = sqliteTable(
   },
   (table) => [
     primaryKey({ columns: [table.userId, table.sessionId], name: 'session_user_state_pk' }),
+    // Every user's row for one session (POD-6148).
+    index('idx_session_user_state_session').on(table.sessionId),
   ],
 )
 
@@ -552,7 +569,11 @@ export const issueUserState = sqliteTable(
     tuckedAt: text('tucked_at'),
     pinnedAt: text('pinned_at'),
   },
-  (table) => [primaryKey({ columns: [table.userId, table.issueId], name: 'issue_user_state_pk' })],
+  (table) => [
+    primaryKey({ columns: [table.userId, table.issueId], name: 'issue_user_state_pk' }),
+    // Every user's row for one issue (POD-6148).
+    index('idx_issue_user_state_issue').on(table.issueId),
+  ],
 )
 
 export const issueMessageUserState = sqliteTable(
@@ -702,54 +723,66 @@ export const conversations = sqliteTable(
   ],
 )
 
-export const superagentMessages = sqliteTable('superagent_messages', {
-  id: integer().primaryKey({ autoIncrement: true }),
-  ownerUserId: text('owner_user_id').$type<UserId>().notNull(),
-  role: text().notNull(),
-  content: text().notNull(),
-  toolCalls: text('tool_calls'),
-  toolCallId: text('tool_call_id'),
-  toolName: text('tool_name'),
-  createdAt: text('created_at').notNull(),
-  threadId: text('thread_id').default('global').$type<ThreadId>().notNull(),
-})
+export const superagentMessages = sqliteTable(
+  'superagent_messages',
+  {
+    id: integer().primaryKey({ autoIncrement: true }),
+    ownerUserId: text('owner_user_id').$type<UserId>().notNull(),
+    role: text().notNull(),
+    content: text().notNull(),
+    toolCalls: text('tool_calls'),
+    toolCallId: text('tool_call_id'),
+    toolName: text('tool_name'),
+    createdAt: text('created_at').notNull(),
+    threadId: text('thread_id').default('global').$type<ThreadId>().notNull(),
+  },
+  // A thread's messages, newest first (POD-6148).
+  (table) => [index('idx_superagent_messages_thread').on(table.threadId, table.id)],
+)
 
-export const superagentThreads = sqliteTable('superagent_threads', {
-  id: text().$type<ThreadId>().primaryKey(),
-  ownerUserId: text('owner_user_id').$type<UserId>().notNull(),
-  kind: text().notNull(),
-  originSessionId: text('origin_session_id').$type<SessionId>(),
-  title: text(),
-  watermarkItemId: text('watermark_item_id'),
-  watermarkTs: text('watermark_ts'),
-  createdAt: text('created_at').notNull(),
-  updatedAt: text('updated_at').notNull(),
-  archived: integer({ mode: 'boolean' }).default(sql`0`).notNull(),
-  repoPath: text('repo_path'),
-  agentKind: text('agent_kind'),
-  podiumSessionId: text('podium_session_id').$type<SessionId>(),
-  /** UNBRANDED: a HARNESS-minted id, the carve-out `protocol/messages/headless.ts`
-   *  already records. Deliberately NOT a {@link SessionId}. */
-  harnessSessionId: text('harness_session_id'),
-  /** A PODIUM session id: `superagent/service.ts` resolves it through
-   *  `sessionById(...)`, so it is the sessions table's key and not a terminal
-   *  emulator's handle — unlike `harness_session_id` two lines up. */
-  terminalSessionId: text('terminal_session_id').$type<SessionId>(),
-  /**
-   * The thread's own model / effort (POD-782). NULLABLE and null is MEANINGFUL:
-   * null = "follow the `superagent` settings role", which is what every thread
-   * did before this column existed and what a thread keeps doing until the
-   * operator picks something in the prompt box. A value here is an explicit
-   * per-thread choice and OVERRIDES the role — including the role's silent
-   * fall-through to the `coding` backend, which is the drift this fixes.
-   *
-   * Not folded into `agent_kind`: the harness is FROZEN onto the thread at its
-   * first turn (changing it hands off to a fresh harness session, #199), while
-   * model and effort are free to change turn to turn on the same conversation.
-   */
-  model: text(),
-  effort: text(),
-})
+export const superagentThreads = sqliteTable(
+  'superagent_threads',
+  {
+    id: text().$type<ThreadId>().primaryKey(),
+    ownerUserId: text('owner_user_id').$type<UserId>().notNull(),
+    kind: text().notNull(),
+    originSessionId: text('origin_session_id').$type<SessionId>(),
+    title: text(),
+    watermarkItemId: text('watermark_item_id'),
+    watermarkTs: text('watermark_ts'),
+    createdAt: text('created_at').notNull(),
+    updatedAt: text('updated_at').notNull(),
+    archived: integer({ mode: 'boolean' }).default(sql`0`).notNull(),
+    repoPath: text('repo_path'),
+    agentKind: text('agent_kind'),
+    podiumSessionId: text('podium_session_id').$type<SessionId>(),
+    /** UNBRANDED: a HARNESS-minted id, the carve-out `protocol/messages/headless.ts`
+     *  already records. Deliberately NOT a {@link SessionId}. */
+    harnessSessionId: text('harness_session_id'),
+    /** A PODIUM session id: `superagent/service.ts` resolves it through
+     *  `sessionById(...)`, so it is the sessions table's key and not a terminal
+     *  emulator's handle — unlike `harness_session_id` two lines up. */
+    terminalSessionId: text('terminal_session_id').$type<SessionId>(),
+    /**
+     * The thread's own model / effort (POD-782). NULLABLE and null is MEANINGFUL:
+     * null = "follow the `superagent` settings role", which is what every thread
+     * did before this column existed and what a thread keeps doing until the
+     * operator picks something in the prompt box. A value here is an explicit
+     * per-thread choice and OVERRIDES the role — including the role's silent
+     * fall-through to the `coding` backend, which is the drift this fixes.
+     *
+     * Not folded into `agent_kind`: the harness is FROZEN onto the thread at its
+     * first turn (changing it hands off to a fresh harness session, #199), while
+     * model and effort are free to change turn to turn on the same conversation.
+     */
+    model: text(),
+    effort: text(),
+  },
+  // A user's open threads, most recently updated first (POD-6148).
+  (table) => [
+    index('idx_superagent_threads_owner').on(table.ownerUserId, table.archived, table.updatedAt),
+  ],
+)
 
 export const machines = sqliteTable(
   'machines',
@@ -859,7 +892,11 @@ export const snoozes = sqliteTable(
     snoozedUntil: text('snoozed_until'),
     createdAt: text('created_at').notNull(),
   },
-  (table) => [primaryKey({ columns: [table.userId, table.sessionId], name: 'snoozes_pk' })],
+  (table) => [
+    primaryKey({ columns: [table.userId, table.sessionId], name: 'snoozes_pk' }),
+    // Every user's snooze of one session (POD-6148).
+    index('idx_snoozes_session').on(table.sessionId),
+  ],
 )
 
 // Agent action offers [spec:SP-c7f1] — one live offer per session (a freeform
@@ -980,6 +1017,8 @@ export const grants = sqliteTable(
       columns: [table.resourceKind, table.resourceId, table.grantee, table.verb],
       name: 'grants_pk',
     }),
+    // A grantee's grants, removed when the grantee goes (POD-6148).
+    index('idx_grants_grantee').on(table.grantee),
   ],
 )
 
@@ -1010,7 +1049,13 @@ export const clientSessions = sqliteTable(
     platform: text(),
     lastSeenAt: text('last_seen_at'),
   },
-  (table) => [uniqueIndex('idx_client_sessions_session_id').on(table.sessionId)],
+  (table) => [
+    uniqueIndex('idx_client_sessions_session_id').on(table.sessionId),
+    // A user's devices, the expiry sweep and revocation by label (POD-6148).
+    index('idx_client_sessions_user').on(table.userId),
+    index('idx_client_sessions_expires').on(table.expiresAt),
+    index('idx_client_sessions_label').on(table.label),
+  ],
 )
 
 // TELEGRAM CHAT BINDING (POD-1080, ADR 3 Amendment 1 D22; ADR 1 matrix row
@@ -1367,7 +1412,8 @@ export const issueDeps = sqliteTable(
     type: text().default('blocked-by').notNull(),
   },
   (table) => [
-    index('idx_issue_deps_to').on(table.toId),
+    // Ordered as `depsTo` reads it, so it needs no sort (POD-6148).
+    index('idx_issue_deps_to_from').on(table.toId, table.fromId, table.type),
     index('idx_issue_deps_from').on(table.fromId),
     primaryKey({ columns: [table.fromId, table.toId, table.type], name: 'issue_deps_pk' }),
     // D7 (POD-6100): the fixed list, the same as `ISSUE_DEP_TYPES` in
@@ -1392,7 +1438,8 @@ export const issueComments = sqliteTable(
     actor: text('actor'),
     onBehalfOf: text('on_behalf_of'),
   },
-  (table) => [index('idx_issue_comments_issue').on(table.issueId)],
+  // Ordered as an issue's comments are read, so the read needs no sort (POD-6148).
+  (table) => [index('idx_issue_comments_issue_time').on(table.issueId, table.createdAt, table.id)],
 )
 
 export const issueMessages = sqliteTable(
@@ -1411,7 +1458,8 @@ export const issueMessages = sqliteTable(
     claimedBy: text('claimed_by'),
     claimedAt: text('claimed_at'),
   },
-  (table) => [index('idx_issue_messages_issue').on(table.issueId)],
+  // Ordered as an issue's messages are read, so the read needs no sort (POD-6148).
+  (table) => [index('idx_issue_messages_issue_time').on(table.issueId, table.createdAt, table.id)],
 )
 
 export const issues = sqliteTable(
@@ -1547,6 +1595,26 @@ export const issues = sqliteTable(
     uniqueIndex('idx_issues_repo_id_seq').on(table.repoId, table.seq),
     index('idx_issues_parent').on(table.parentId),
     index('idx_issues_repo').on(table.repoPath),
+    // WHICH LIVE ISSUE OWNS THIS FOLDER (POD-6148): the lookup that replaces the
+    // world index's in-memory folder scan (POD-6140). Only live issues with a
+    // worktree are in it; a reader must say `worktree_path = ? AND deleted_at
+    // IS NULL` for SQLite to use it.
+    index('idx_issues_worktree')
+      .on(table.worktreePath)
+      .where(sql`${table.worktreePath} IS NOT NULL AND ${table.deletedAt} IS NULL`),
+    // The ON DELETE SET NULL of `superseded_by` and `duplicate_of`: without
+    // these, deleting one issue scanned every issue twice (POD-6148).
+    index('idx_issues_superseded_by')
+      .on(table.supersededBy)
+      .where(sql`${table.supersededBy} IS NOT NULL`),
+    index('idx_issues_duplicate_of')
+      .on(table.duplicateOf)
+      .where(sql`${table.duplicateOf} IS NOT NULL`),
+    // The agent-profile deletion guard looks up the issues that name a profile;
+    // most issues name none (POD-6148).
+    index('idx_issues_agent_profile')
+      .on(table.agentProfileId)
+      .where(sql`${table.agentProfileId} IS NOT NULL`),
     check(
       'issues_check_1',
       sql`stage IN ('proposed', 'backlog', 'planning', 'in_progress', 'review', 'shipping', 'verifying', 'done')`,
@@ -1712,6 +1780,8 @@ export const shipRepairCandidates = sqliteTable(
       name: 'ship_repair_candidates_pk',
     }),
     uniqueIndex('idx_ship_repair_candidates_ref').on(table.repairRef),
+    // The foreign key to `ship_orders`: its check scanned this table (POD-6148).
+    index('idx_ship_repair_candidates_order').on(table.orderId),
     foreignKey({
       columns: [table.attemptId, table.orderId],
       foreignColumns: [shipAttempts.id, shipAttempts.orderId],
@@ -1740,6 +1810,8 @@ export const shipEvidence = sqliteTable(
     materializedAt: text('materialized_at').notNull(),
   },
   (table) => [
+    // Evidence by its custody digest and source (POD-6148).
+    index('idx_ship_evidence_source').on(table.custodyDigest, table.sourceRef),
     check(
       'ship_evidence_custody_digest_check',
       sql`length(custody_digest) = 64 AND custody_digest NOT GLOB '*[^a-f0-9]*'`,
@@ -1820,6 +1892,10 @@ export const shipTrainManifests = sqliteTable(
   (table) => [
     uniqueIndex('idx_ship_train_manifests_subset').on(table.subsetId),
     uniqueIndex('idx_ship_train_manifests_digest').on(table.canonicalDigest),
+    // A lane's open trains, oldest first (POD-6148).
+    index('idx_ship_train_manifests_open_lane')
+      .on(table.laneKey, table.createdAt, table.id)
+      .where(sql`${table.releasedAt} IS NULL`),
     index('idx_ship_train_manifests_leader').on(
       table.leaderOrderId,
       table.leaderAttemptId,
@@ -1868,6 +1944,8 @@ export const shipTrainMembers = sqliteTable(
     unique('idx_ship_train_members_issue').on(table.trainId, table.issueId),
     unique('idx_ship_train_members_attempt').on(table.trainId, table.attemptId),
     uniqueIndex('idx_ship_train_members_attempt_global').on(table.attemptId),
+    // The foreign key to `issues`: deleting an issue scanned this table (POD-6148).
+    index('idx_ship_train_members_issue_ref').on(table.issueId),
     unique('idx_ship_train_members_source').on(table.trainId, table.sourceBranch),
     index('idx_ship_train_members_live_custody').on(
       table.orderId,
@@ -2239,7 +2317,8 @@ export const messages = sqliteTable(
     retractRequestedAt: text('retract_requested_at'),
   },
   (table) => [
-    index('idx_messages_delivered_to').on(table.deliveredTo),
+    // Ordered by time so the ledger's arms merge without a sort (POD-6148).
+    index('idx_messages_delivered_to_time').on(table.deliveredTo, table.createdAt, table.id),
     // THE CHAT FEED'S BOOT READ [POD-4764]: a person's messages into sessions
     // that are not settled yet or still await their sender's attention. Partial,
     // so the read touches only that handful and never the confirmed history.
@@ -2255,7 +2334,18 @@ export const messages = sqliteTable(
     // for the ORDER BY. Measured on the live server: 8 calls costing 8,214ms of
     // blocked event loop in five minutes, over only 6,969 rows — `SELECT *`
     // drags every message body through the scan.
-    index('idx_messages_from_session').on(table.fromSession),
+    index('idx_messages_from_session_time').on(table.fromSession, table.createdAt, table.id),
+    // The ledger's issue arm and a recipient's history, newest first (POD-6148).
+    // Before these the issue ledger read every message and sorted it.
+    index('idx_messages_from_issue')
+      .on(table.fromIssue, table.createdAt, table.id)
+      .where(sql`${table.fromIssue} IS NOT NULL`),
+    index('idx_messages_recipient_time').on(table.toKind, table.toId, table.createdAt, table.id),
+    // Replies to a message by kind: a correlated NOT EXISTS scanned every
+    // message once per candidate row (POD-6148).
+    index('idx_messages_reply')
+      .on(table.inReplyTo, table.kind)
+      .where(sql`${table.inReplyTo} IS NOT NULL`),
     index('idx_messages_thread').on(table.threadId),
     check('messages_check_5', sql`from_kind IN ('operator','superagent','agent','system')`),
     check('messages_check_6', sql`to_kind IN ('issue','session','operator')`),
@@ -2502,6 +2592,11 @@ export const workflowRuns = sqliteTable(
       .on(table.subjectKind, table.subjectId)
       .where(sql`${table.status} IN ('active', 'blocked')`),
     index('workflow_runs_coordinator').on(table.coordinatorSessionId, desc(table.startedAt)),
+    // The live runs, and a subject's runs, newest first (POD-6148). The partial
+    // unique index above names its statuses as literals, so a query that binds
+    // them as parameters cannot use it.
+    index('workflow_runs_status').on(table.status, table.startedAt),
+    index('workflow_runs_subject').on(table.subjectKind, table.subjectId, table.startedAt),
     check('workflow_runs_check_23', sql`subject_kind IN ('issue', 'session')`),
     check('workflow_runs_check_24', sql`status IN ('active', 'blocked', 'complete', 'superseded')`),
   ],
@@ -2713,7 +2808,8 @@ export const pendingInteractions = sqliteTable(
     expiredAt: text('expired_at'),
   },
   (table) => [
-    index('idx_pending_interactions_session').on(table.sessionId, table.status),
+    // A session's interactions newest first, with no sort (POD-6148).
+    index('idx_pending_interactions_session_time').on(table.sessionId, table.askedAt, table.id),
     index('idx_pending_interactions_open').on(table.status, table.askedAt),
     uniqueIndex('idx_pending_interactions_fingerprint')
       .on(table.sessionId, table.fingerprint)

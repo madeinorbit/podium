@@ -189,3 +189,86 @@ export function censusScope(paths: readonly string[]): string[] {
       !path.endsWith('/test-support.ts'),
   )
 }
+
+/** One `prepared(...)` / `preparedFamily(...)` call in the source [POD-6148]. */
+export interface QueryDefinitionSite {
+  readonly file: string
+  /**
+   * The name the query-plan audit keys allowlists and family shapes by:
+   * `const name = prepared(...)` gives `name`, `{ name: prepared(...) }` gives
+   * `name`, `this.writes.name ??= prepared(...)` gives `name`, with the enclosing
+   * class or function in front when there is one (`IssuesRepository.upsert`).
+   */
+  readonly name: string
+  readonly kind: 'prepared' | 'family'
+  /** First and last line of the call, 1-based, inclusive. */
+  readonly startLine: number
+  readonly endLine: number
+  /** False for a definition made inside a function or method rather than at module level. */
+  readonly moduleLevel: boolean
+}
+
+function definitionName(call: ts.CallExpression): string {
+  let own: string | undefined
+  for (let current: ts.Node = call.parent; current && own === undefined; current = current.parent) {
+    if (ts.isVariableDeclaration(current) && ts.isIdentifier(current.name)) own = current.name.text
+    else if (ts.isPropertyAssignment(current)) own = current.name.getText()
+    else if (ts.isBinaryExpression(current)) {
+      own = ts.isPropertyAccessExpression(current.left)
+        ? current.left.name.text
+        : current.left.getText()
+    } else if (!ts.isParenthesizedExpression(current) && !ts.isAsExpression(current)) break
+  }
+  let owner: string | undefined
+  for (let current: ts.Node = call.parent; current; current = current.parent) {
+    if (ts.isClassDeclaration(current) && current.name) {
+      owner = current.name.text
+      break
+    }
+    if (ts.isFunctionDeclaration(current) && current.name) {
+      owner = current.name.text
+      break
+    }
+  }
+  return [owner, own ?? '<anonymous>'].filter(Boolean).join('.')
+}
+
+function atModuleLevel(node: ts.Node): boolean {
+  for (let current = node.parent; current; current = current.parent) {
+    if (
+      ts.isFunctionLike(current) &&
+      !(current.parent && ts.isCallExpression(current.parent) && isDefinerCall(current.parent))
+    ) {
+      return false
+    }
+    if (ts.isClassLike(current)) return false
+  }
+  return true
+}
+
+function isDefinerCall(node: ts.CallExpression): boolean {
+  const callee = node.expression
+  return ts.isIdentifier(callee) && DEFINERS.has(callee.text)
+}
+
+/** Every query definition in one source file, in source order. */
+export function queryDefinitionSites(file: string, source: string): QueryDefinitionSite[] {
+  const sourceFile = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true)
+  const found: QueryDefinitionSite[] = []
+  const visit = (node: ts.Node): void => {
+    if (ts.isCallExpression(node) && isDefinerCall(node)) {
+      const callee = node.expression as ts.Identifier
+      found.push({
+        file,
+        name: definitionName(node),
+        kind: callee.text === 'prepared' ? 'prepared' : 'family',
+        startLine: sourceFile.getLineAndCharacterOfPosition(node.getStart()).line + 1,
+        endLine: sourceFile.getLineAndCharacterOfPosition(node.getEnd()).line + 1,
+        moduleLevel: atModuleLevel(node),
+      })
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(sourceFile)
+  return found
+}

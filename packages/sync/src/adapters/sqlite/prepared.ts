@@ -35,8 +35,49 @@
 
 import { type Column, inArray, notInArray, Param, type Placeholder, type SQL, sql } from 'drizzle-orm'
 
+// ---------------------------------------------------------------------------
+// The definition registry [POD-6148]
+// ---------------------------------------------------------------------------
+
+/**
+ * One `prepared(...)` or `preparedFamily(...)` call, as the query-plan audit
+ * (`apps/server/src/store/query-plan-audit.test.ts`) reads it: the audit calls
+ * `build` itself on a drizzle instance that records instead of running, so it
+ * sees every repository query whether or not a test ever executes it, and
+ * `site` names the definition (the audit maps its stack to the source).
+ */
+export interface PreparedDefinition {
+  readonly kind: 'prepared' | 'family'
+  readonly build: (db: never, key: never) => unknown
+  readonly site: Error
+}
+
+/**
+ * Bound on the registry. Module-level definitions register once per process;
+ * a definition made inside a method (a per-repository write, a status move per
+ * variant) registers once per repository instance, so a process that opens
+ * many stores adds a few per store. Past the bound nothing more is recorded,
+ * and the audit fails if it ever sees the bound reached.
+ */
+const DEFINITION_LIMIT = 20_000
+const definitions: PreparedDefinition[] = []
+
+function register(kind: PreparedDefinition['kind'], build: PreparedDefinition['build']): void {
+  if (definitions.length >= DEFINITION_LIMIT) return
+  definitions.push({ kind, build, site: new Error('query definition') })
+}
+
+/** Every definition made in this process so far, oldest first (audit only). */
+export function preparedDefinitions(): readonly PreparedDefinition[] {
+  return definitions
+}
+
+/** The registry's bound; the audit asserts it was never reached. */
+export const PREPARED_DEFINITION_LIMIT = DEFINITION_LIMIT
+
 /** One query, prepared on first use and reused for the drizzle instance's life. */
 export function prepared<D extends object, P>(build: (db: D) => P): (db: D) => P {
+  register('prepared', build as PreparedDefinition['build'])
   const cache = new WeakMap<D, P>()
   return (db) => {
     const hit = cache.get(db)
@@ -73,6 +114,7 @@ export function preparedFamilyOverflows(): number {
 export function preparedFamily<D extends object, K extends string | number, P>(
   build: (db: D, key: K) => P,
 ): (db: D, key: K) => P {
+  register('family', build as PreparedDefinition['build'])
   const cache = new WeakMap<D, Map<K, P>>()
   return (db, key) => {
     let family = cache.get(db)
