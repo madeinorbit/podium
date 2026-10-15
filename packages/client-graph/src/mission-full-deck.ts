@@ -35,6 +35,7 @@ import {
   type MissionDeckModel,
   requireLoaded,
   settled,
+  settledAll,
 } from './mission-view'
 import type { IssueModel } from './models'
 
@@ -209,8 +210,9 @@ export class FullDeckTask {
    * reason; a dependency that is gone no longer blocks. */
   @lazy({ equals: compareShallow }) get unmetBlockedByIds(): readonly string[] {
     const reader = this.deck.screen.reader
-    return this.blockedByIds.filter((id) => {
-      const target = requireLoaded(reader.catalogIssue(id))
+    const targets = requireLoaded(settledAll(this.blockedByIds, (id) => reader.catalogIssue(id)))
+    return this.blockedByIds.filter((_, index) => {
+      const target = targets[index]
       return target !== undefined && !isFinished(target)
     })
   }

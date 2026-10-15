@@ -94,6 +94,20 @@ export function requireLoaded<T>(value: T | typeof LOADING): T {
   if (value === LOADING) throw LOADING
   return value
 }
+/** Read every item before answering: LOADING only once all were tried, so a
+ * pending input never keeps its siblings out of the same load window. A list
+ * reader that stops at its first cold entry asks for one row per window, and a
+ * deep mission then settles in one round per row (POD-6134). */
+export function settledAll<T, R>(items: Iterable<T>, read: (item: T) => R | typeof LOADING): Exclude<R, typeof LOADING>[] | typeof LOADING {
+  const values: Exclude<R, typeof LOADING>[] = []
+  let pending = false
+  for (const item of items) {
+    const value = settled(() => read(item))
+    if (value === LOADING) pending = true
+    else values.push(value as Exclude<R, typeof LOADING>)
+  }
+  return pending ? LOADING : values
+}
 interface DeckTopology {
   readonly scope: ReadonlySet<string>
   readonly children: ReadonlyMap<string, readonly string[]>
@@ -229,8 +243,12 @@ const hasPayload = ((row: MissionDeckIssueModel) => requireLoaded(row.deckChildr
 // A parent shows its most urgent descendant (D6): each child's word is that
 // child row's own lazy state, so a change re-derives one path upward and never
 // reads a child's note or presence.
-const rowState = ((row: MissionDeckIssueModel): DeckIssueState => row.view.deckState(row.issue, row.sessions,
-  requireLoaded(row.deckChildren).map(id => row.deck.model(id).word)))
+const rowState = ((row: MissionDeckIssueModel): DeckIssueState => {
+  const words = settledAll(requireLoaded(row.deckChildren), id => row.deck.model(id).word)
+  const issue = settled(() => row.issue), crew = settled(() => row.sessions)
+  if (words === LOADING || issue === LOADING || crew === LOADING) throw LOADING
+  return row.view.deckState(issue, crew, words)
+})
 const presentation = ((row: MissionDeckIssueModel): MissionRowPresentation => row.view.presentation(row.issue, row.sessions, row.state))
 const crewOf = ((row: MissionDeckIssueModel) => deckSessionOrder(row.facts,
   requireLoaded(row.view.roster(row.id))))
@@ -243,8 +261,11 @@ const collapsedCrew: (row: MissionDeckIssueModel) => SessionView[] = ((row: Miss
     return facts.open && facts.workingMotion ? 0 : facts.settled ? 2 : 1
   }
   const shape = requireLoaded(row.deck.topology)
-  const groups = shape.overlap ? [row.sessions, ...row.descendantIds.map(id => row.deck.model(id).sessions)] :
-    [row.sessions, ...requireLoaded(row.deckChildren).map(id => row.deck.model(id).collapsedCrew)]
+  const below = shape.overlap ? settledAll(row.descendantIds, id => row.deck.model(id).sessions) :
+    settledAll(requireLoaded(row.deckChildren), id => row.deck.model(id).collapsedCrew)
+  const own = settled(() => row.sessions)
+  if (below === LOADING || own === LOADING) throw LOADING
+  const groups = [own, ...below]
   for (const crew of groups) {
     for (const session of crew) {
       if (seen.has(session.sessionId)) continue
@@ -262,12 +283,18 @@ const kindCodes: (row: MissionDeckIssueModel) => string = ((row: MissionDeckIssu
     if (row.view.pool.sessionObject(session.sessionId).open) kinds.add(session.agentKind)
     if (kinds.size === 2) return JSON.stringify([...kinds])
   }
+  // A pending child cannot stop the walk early: its kinds come first, and
+  // the siblings after it are asked for in the same window.
+  let pending = false
   if (!shape.overlap) for (const id of requireLoaded(row.deckChildren)) {
-    for (const kind of JSON.parse(row.deck.model(id).kindCodes) as SessionView['agentKind'][]) {
+    const codes = settled(() => row.deck.model(id).kindCodes)
+    if (codes === LOADING) { pending = true; continue }
+    for (const kind of JSON.parse(codes) as SessionView['agentKind'][]) {
       kinds.add(kind)
-      if (kinds.size === 2) return JSON.stringify([...kinds])
+      if (kinds.size === 2 && !pending) return JSON.stringify([...kinds])
     }
   }
+  if (pending) throw LOADING
   return JSON.stringify([...kinds])
 })
 const kindsOf = ((row: MissionDeckIssueModel) => JSON.parse(row.kindCodes) as SessionView['agentKind'][])
@@ -827,7 +854,8 @@ export class MissionViewReader {
   }
   /** The present and archived seats are both settled (history rows loaded). */
   settled(id: string): boolean {
-    return this.present(id) !== LOADING && this.history(id) !== LOADING
+    const present = this.present(id), history = this.history(id)
+    return present !== LOADING && history !== LOADING
   }
   /** First session in session order among the present and archived candidates. */
   earlier(present: SessionView | undefined, archived: SessionView | undefined): SessionView | undefined {
@@ -966,7 +994,11 @@ export class MissionViewReader {
     const visibleId = (id: string) => {
       const row = omitGone(this.pool.row('issue', id, 'summary')) as Loaded<{ archived?: boolean; deletedAt?: string | null }>
       if (row === LOADING) { pending = true; return false }
-      return Boolean(row && this.facts(id).visible)
+      if (!row) return false
+      // A cold row's visibility is pending, not a reason to stop the walk.
+      const visible = settled(() => this.facts(id).visible)
+      if (visible === LOADING) { pending = true; return false }
+      return visible
     }
     const formal = [...members]
     while (formal.length) {
@@ -1139,10 +1171,8 @@ export class MissionViewReader {
     return { kind: 'spinoff', target: tip, short: ref, full: `Work continued in ${ref}`, line: `continued · ${ref}` }
   }
   waiting(issue: IssueNavigationModel): string[] {
-    return issue.deps.filter(dep => dep.type === 'blocked-by').flatMap(dep => {
-      const target = requireLoaded(this.catalogIssue(dep.id))
-      return target && !this.facts(target.id).finished ? [issueDisplayRef(target)] : []
-    })
+    const targets = requireLoaded(settledAll(issue.deps.filter(dep => dep.type === 'blocked-by'), dep => this.catalogIssue(dep.id)))
+    return targets.flatMap(target => target && !this.facts(target.id).finished ? [issueDisplayRef(target)] : [])
   }
   blockLabel(issue: IssueNavigationModel) {
     const refs = this.waiting(issue)
@@ -1243,9 +1273,10 @@ const NOW_RANK: Record<HandoffNowEntry['kind'], number> = {
 function poolHandoffNow(ctx: MissionViewReader, issues: readonly IssueNavigationModel[], memberIds: ReadonlySet<string>): HandoffNowEntry[] {
   const entries: Array<{ entry: HandoffNowEntry; seq: number }> = []
 
-  for (const issue of issues) {
+  // One issue still loading must not keep the next ones out of this window.
+  const visited = settledAll(issues, issue => {
     if (!memberIds.has(issue.id) || issue.stage === 'proposed' || !ctx.facts(issue.id).visible)
-      continue
+      return
     const crew = requireLoaded(ctx.present(issue.id))
     const present = crew.filter(session => ctx.pool.sessionObject(session.sessionId).open)
     const asking = present.find(
@@ -1312,7 +1343,8 @@ function poolHandoffNow(ctx: MissionViewReader, issues: readonly IssueNavigation
     }
 
     if (entry) entries.push({ entry, seq: issue.seq })
-  }
+  })
+  requireLoaded(visited)
 
   entries.sort(
     (left, right) => NOW_RANK[left.entry.kind] - NOW_RANK[right.entry.kind] || left.seq - right.seq,
@@ -1325,14 +1357,16 @@ function poolHandoffNext(ctx: MissionViewReader, issues: readonly IssueNavigatio
   const entries: Array<{ entry: HandoffNextEntry; seq: number; depth: number }> = []
   const depthMemo = new Map<string, number>()
 
-  const prerequisites = (issue: IssueNavigationModel): IssueNavigationModel[] => {
-    const blockers = (issue.deps ?? [])
-      .filter((dep) => dep.type === 'blocked-by')
-      .map((dep) => requireLoaded(ctx.issue(dep.id)))
+  // Each list below asks for all of its rows before it answers LOADING.
+  const openBlockersOf = (issue: IssueNavigationModel): IssueNavigationModel[] =>
+    requireLoaded(settledAll((issue.deps ?? []).filter((dep) => dep.type === 'blocked-by'), (dep) => ctx.issue(dep.id)))
       .filter((candidate): candidate is IssueNavigationModel =>
         Boolean(candidate && !ctx.facts(candidate.id).finished),
       )
-    return [...blockers, ...poolOpenChildren(ctx, memberIds, issue.id)]
+  const prerequisites = (issue: IssueNavigationModel): IssueNavigationModel[] => {
+    const blockers = settled(() => openBlockersOf(issue)), children = settled(() => poolOpenChildren(ctx, memberIds, issue.id))
+    if (blockers === LOADING || children === LOADING) throw LOADING
+    return [...blockers, ...children]
   }
   const depthOf = (issue: IssueNavigationModel, visiting = new Set<string>()): number => {
     const memo = depthMemo.get(issue.id)
@@ -1341,25 +1375,20 @@ function poolHandoffNext(ctx: MissionViewReader, issues: readonly IssueNavigatio
     const nextVisiting = new Set(visiting).add(issue.id)
     const deps = prerequisites(issue)
     const depth =
-      deps.length === 0 ? 0 : 1 + Math.max(...deps.map((dep) => depthOf(dep, nextVisiting)))
+      deps.length === 0 ? 0 : 1 + Math.max(...requireLoaded(settledAll(deps, (dep) => depthOf(dep, nextVisiting))))
     depthMemo.set(issue.id, depth)
     return depth
   }
 
-  for (const issue of issues) {
+  const visited = settledAll(issues, (issue) => {
     if (
       !memberIds.has(issue.id) ||
       issue.stage === 'proposed' ||
       !ctx.facts(issue.id).visible ||
       ctx.facts(issue.id).finished
     )
-      continue
-    const openBlockers = (issue.deps ?? [])
-      .filter((dep) => dep.type === 'blocked-by')
-      .map((dep) => requireLoaded(ctx.issue(dep.id)))
-      .filter((candidate): candidate is IssueNavigationModel =>
-        Boolean(candidate && !ctx.facts(candidate.id).finished),
-      )
+      return
+    const openBlockers = openBlockersOf(issue)
     const children = poolOpenChildren(ctx, memberIds, issue.id)
     const session = ctx.newest(issue.id)
     let entry: HandoffNextEntry | null = null
@@ -1391,18 +1420,18 @@ function poolHandoffNext(ctx: MissionViewReader, issues: readonly IssueNavigatio
     }
 
     if (entry) entries.push({ entry, seq: issue.seq, depth: depthOf(issue) })
-  }
+  })
+  requireLoaded(visited)
 
   entries.sort((left, right) => left.depth - right.depth || left.seq - right.seq)
   return entries.map(({ entry }) => entry)
 }
 
 function poolOpenChildren(ctx: MissionViewReader, members: ReadonlySet<string>, parentId: string): IssueNavigationModel[] {
-  return [...ctx.pool.graph.many('issue', parentId, 'treeChildren')].flatMap(id => {
-    if (!members.has(id)) return []
-    const issue = requireLoaded(ctx.issue(id))
-    return issue && issue.stage !== 'proposed' && ctx.facts(issue.id).visible && !ctx.facts(issue.id).finished ? [issue] : []
-  }).sort(rowOrder)
+  const children = [...ctx.pool.graph.many('issue', parentId, 'treeChildren')].filter(id => members.has(id))
+  return requireLoaded(settledAll(children, id => ctx.issue(id))).flatMap(issue =>
+    issue && issue.stage !== 'proposed' && ctx.facts(issue.id).visible && !ctx.facts(issue.id).finished ? [issue] : [],
+  ).sort(rowOrder)
 }
 export interface MissionHandoffValues {
   /** The mission's seated (non-archived) senders, in session order. */
@@ -1490,14 +1519,17 @@ function deriveMissionHandoff(view: MissionViewReader, rootId: string): MissionH
     if (members === LOADING) return LOADING
     if (!view.prepareHandoff(members)) return LOADING
     const ctx = view
-    const issues = [...members].sort().flatMap(id => { const issue = requireLoaded(ctx.issue(id)); return issue ? [issue] : [] })
-    const crew = [...new Map([...members].flatMap(id => requireLoaded(ctx.present(id))).map(session => [session.sessionId, session])).values()].sort(view.sessionOrder)
+    // Every member's row, crew and history share one load window.
+    const rows = settledAll([...members].sort(), id => ctx.issue(id))
+    const seated = settledAll(members, id => ctx.present(id))
+    const histories = settledAll(members, id => view.history(id))
+    if (rows === LOADING || seated === LOADING || histories === LOADING) return LOADING
+    const issues = rows.flatMap(issue => issue ? [issue] : [])
+    const crew = [...new Map(seated.flat().map(session => [session.sessionId, session])).values()].sort(view.sessionOrder)
     // A session has one issue, so member histories never overlap.
     let count = 0
     const winners: string[] = []
-    for (const id of members) {
-      const history = view.history(id)
-      if (history === LOADING) return LOADING
+    for (const history of histories) {
       count += history.count
       if (history.latestPrompt !== undefined) winners.push(history.latestPrompt)
     }

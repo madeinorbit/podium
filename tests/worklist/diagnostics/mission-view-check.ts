@@ -14,7 +14,7 @@ import {
   selectedMissionRoot, selectLatestPromptSession, type DeckIssueState, type FlightDeckMode, type FlightDeckRow, type IssueNavigationModel,
 } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph/pool'
-import { EMPTY_MISSION_HANDOFF, requireLoaded, settled, type MissionHandoffValues } from '@podium/client-graph/mission-view'
+import { EMPTY_MISSION_HANDOFF, requireLoaded, settled, settledAll, type MissionHandoffValues } from '@podium/client-graph/mission-view'
 import { MissionScreen, missionRootId } from '@podium/client-graph/mission-screen'
 import { missions } from '@podium/client-graph/mission'
 import { coordinatorsOf, hasAnyTaskOf, issueOf, rootOf } from '../../../apps/web/src/app/workspace-mission-reads'
@@ -170,12 +170,17 @@ export function poolMissionViewSnapshot(pool: MobxPool, selectedId: string | nul
   const settledReads = [deck.topology, deck.progress, deck.archivedCount, deck.headerReady, reader.issue(rootId), settled(() => deck.rowIds())]
   if (settledReads.includes(LOADING)) return LOADING
   const rows = deck.rows()
+  // The deck draws each row in its own observer, so every row's fields are
+  // asked for in one load window; read them the same way (POD-6134).
+  const titles = settledAll(rows, row => deck.model(row.id).title)
+  const presentations = settledAll(rows, row => deck.model(row.id).presentation)
+  if (titles === LOADING || presentations === LOADING) return LOADING
   const values: PaneValues = {
     root: requireLoaded(reader.issue(rootId)), rows, members: requireLoaded(deck.members),
-    titles: new Map(rows.map(row => [row.id, deck.model(row.id).title])),
+    titles: new Map(rows.map((row, index) => [row.id, titles[index]!])),
     progress: requireLoaded(deck.progress), departures: deck.departures, continuation: deck.continuation,
     note: deck.note, presence: deck.presence,
-    rowPresentation: new Map(rows.map(row => [row.id, deck.model(row.id).presentation])),
+    rowPresentation: new Map(rows.map((row, index) => [row.id, presentations[index]!])),
   }
   // The deck reads its count from the opening and the list only while shown;
   // compare the list the expanded section draws, and that the count agrees.

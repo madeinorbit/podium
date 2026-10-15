@@ -241,6 +241,47 @@ it('requests cold mission ancestry together without changing the shared root ans
   expect(tracked(() => reader.rootFor('ancestor-99'))).toBe('ancestor-0')
 })
 
+// POD-6134: each list reader asks for all of its rows before it answers
+// LOADING. A reader that stops at its first cold entry asks for one row per
+// load window, so a mission settled in one window per task.
+const WIDTH = 24
+it.each([
+  ['task word over cold dependency targets', () => {
+    const tasks = Array.from({ length: WIDTH }, (_, index) => issue(`task-${index}`, {
+      parentId: 'root', seq: index + 2, blocked: true, deps: [{ id: `target-${index}`, type: 'blocked-by' }],
+    }))
+    const targets = Array.from({ length: WIDTH }, (_, index) => issue(`target-${index}`, {
+      ...coldRoot(), id: `target-${index}`, seq: index + 100,
+    }))
+    const { pool, reader } = open([issue('root'), ...tasks, ...targets], [])
+    return { pool, read: () => settled(() => reader.deck('root').model('root').word) }
+  }],
+  ['handoff depth over the blockers of a task\'s blockers', () => {
+    // The lead resumes after its one child; ordering that entry walks the
+    // child's open blockers and, through each, the blocker it waits on.
+    const blockers = Array.from({ length: WIDTH }, (_, index) => issue(`blocker-${index}`, {
+      seq: index + 10, deps: [{ id: `cold-${index}`, type: 'blocked-by' }],
+    }))
+    const cold = Array.from({ length: WIDTH }, (_, index) => issue(`cold-${index}`, {
+      ...coldRoot(), id: `cold-${index}`, seq: index + 100,
+    }))
+    const { pool, reader } = open([issue('root'), issue('lead', { parentId: 'root', seq: 2 }),
+      issue('child', { parentId: 'lead', seq: 3, deps: blockers.map(blocker => ({ id: blocker.id, type: 'blocked-by' })) }),
+      ...blockers, ...cold], [])
+    return { pool, read: () => readMissionHandoff(reader, 'root') }
+  }],
+] as const)('settles the %s in a few load windows, not one per task', (_name, fixture) => {
+  const { pool, read } = fixture()
+  let value: unknown = LOADING
+  const stop = autorun(() => { value = read() })
+  try {
+    let windows = 0
+    while (pool.hydrate() > 0 && windows < 4 * WIDTH) windows++
+    expect(value).not.toBe(LOADING)
+    expect(windows).toBeLessThanOrEqual(3)
+  } finally { stop() }
+})
+
 it('reads only the selected mission attachment edges as unrelated sessions grow', () => {
   const { pool, reader } = open([issue('root'), issue('other')], [session('own', 'root', { archived: false, status: 'live' }),
     ...Array.from({ length: 1000 }, (_, index) => session(`other-${index}`, 'other', { archived: false, status: 'live' }))])
