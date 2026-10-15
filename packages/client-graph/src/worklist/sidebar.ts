@@ -15,7 +15,7 @@ import { createRowOverlay } from '../shared/overlay-row'
 import type { SliceIssue, SliceSession, SliceWorktree } from '../shared/slice-types'
 import { attentionGroup, LOADING, type Loaded } from './rollup'
 import { type SidebarProgress, type SidebarRowValues, sortedSidebarSessions } from './sidebar-row'
-import { retains } from './visible'
+import { parkedOnFinishedIssue, retains } from './visible'
 import { WorklistIssue } from './issue'
 import { worklistView, type Worklist } from './view-model'
 
@@ -85,6 +85,7 @@ export function sidebarRosterOf(host: ModelHost, path: string): SidebarRoster {
     if (retention === null || !retention.seat || retention.shell) continue
     const owner = session.issueLink === null ? undefined : input.issue(session.issueLink)
     if (owner?.standing?.excluded) continue
+    if (parkedOnFinishedIssue(session.status, owner?.standing?.finished)) continue
     const finish =
       retention.finish.kind === 'idleDone' && owner?.standing?.finished ? owner.ownFacts : undefined
     if (retains(retention, finish, owner?.standing, input)) ids.push(id)

@@ -405,3 +405,31 @@ it('keeps demanded roster groups current across membership moves and replacement
     expect(second.ids).toEqual([])
   } finally { stop(); pool.dispose() }
 })
+
+it('keeps a parked session of a closed agent issue out of the roster (POD-6131)', () => {
+  // The shape of POD-886-A: a top-level agent issue (never drawn on its own)
+  // closed while its session hibernated without a stop time or a finished turn.
+  const closed = {
+    id: 'closed-agent', seq: 886, title: 'Closed agent task', repoPath: LANE,
+    stage: 'done', audience: 'agent', closedAt: '2026-07-17T22:37:11Z',
+    createdAt: '2026-07-17T22:30:00Z', updatedAt: '2026-07-17T22:37:11Z', deps: [],
+  }
+  const seat = (sessionId: string, status: string) => ({
+    sessionId, cwd: LANE, issueId: closed.id, agentKind: 'claude-code', status,
+    archived: false, title: sessionId, createdAt: '2026-07-17T22:34:30Z',
+    lastActiveAt: '2026-07-17T22:40:55Z',
+  })
+  const parked = seat('parked', 'hibernated'), live = seat('live', 'live')
+  const pool = new MobxPool({ selectedIssueId: null, coarseNow: NOW })
+  try {
+    pool.apply({ type: 'replace', rows: [
+      { kind: 'worktree', id: LANE, value: { path: LANE, repoPath: LANE, repoName: 'Lane' } as never },
+      { kind: 'issue', id: closed.id, value: closed as never },
+      ...[parked, live].map(value => ({ kind: 'session' as const, id: value.sessionId, value: value as never })),
+    ] })
+    const tree = worklistView(pool).tree(requireHere(pool.model('worktree', LANE)))
+    expect(tree.rosterIds).toEqual(['live'])
+    expect(tree.candidateIds).toEqual(['live'])
+    expect(tree.sessions.map(session => session.id)).toEqual(['live'])
+  } finally { pool.dispose() }
+})

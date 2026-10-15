@@ -425,6 +425,19 @@ export function retains(
   return !input.passed(Math.max(finishedMs, retention.readMs) + FINISHED_GRACE_MS)
 }
 
+/**
+ * POD-6131: a parked session (hibernated or exited) whose issue is finished
+ * is no loose roster seat. Its finished issue still owns it, even when that
+ * issue never draws (a closed top-level agent issue), and a parked run that
+ * never recorded its finish would otherwise stay in the roster forever.
+ */
+export function parkedOnFinishedIssue(
+  status: string | null | undefined,
+  issueFinished: boolean | undefined,
+): boolean {
+  return issueFinished === true && (status === 'hibernated' || status === 'exited')
+}
+
 /** A session's `lastActiveAt`, epoch ms: the unread rollup's and the row's activity stamp. */
 export function activityMsOf(session: SliceSession | undefined): number | null {
   return parseMs(session?.lastActiveAt)

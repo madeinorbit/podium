@@ -8,7 +8,7 @@ import { hostOf, type SessionModel } from '../models'
 import type { SliceSession } from '../shared/slice-types'
 import { attentionGroup, isOfferOnlyAttention, LOADING, type Loaded as LoadedRow, motionPhase, type SeatVerdict } from './rollup'
 import { type SidebarSessionFacts, type SidebarSessionOrder } from './sidebar-row'
-import { type Retention, retentionOf, retains, type SessionVisibility } from './visible'
+import { parkedOnFinishedIssue, type Retention, retentionOf, retains, type SessionVisibility } from './visible'
 
 /** Retention and display contributions of a session in the worklist. */
 export class WorklistSession implements SessionVisibility {
@@ -53,6 +53,7 @@ export class WorklistSession implements SessionVisibility {
     const pool = this.host as MobxPool, view = worklistView(pool)
     const owner = retention.issueId ? view.knownRow(retention.issueId)?.rosterOwner : undefined
     if (owner?.represented || owner?.excluded) return false
+    if (parkedOnFinishedIssue(this.session.status, owner && owner.finishAt !== undefined)) return false
     const retainedBy = (value: SidebarOwner | undefined) => retains(retention,
       value?.finishAt === undefined ? undefined : { updatedAt: new Date(value.finishAt).toISOString() },
       { finished: value?.finishAt !== undefined }, pool.clock)
