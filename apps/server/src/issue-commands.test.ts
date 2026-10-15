@@ -84,7 +84,6 @@ describe('ISSUE_COMMANDS registry', () => {
       'doctor',
       'stale',
       'orphans',
-      'lint',
       'preflight',
       'count',
       'epic-status',
