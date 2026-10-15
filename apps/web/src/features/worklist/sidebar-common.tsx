@@ -174,6 +174,13 @@ export function ResizableColumn({
     const v = Number(ui.get(storageKey))
     return Number.isFinite(v) && v >= min && v <= max ? v : defaultWidth
   })
+  const previousStorageKey = useRef(storageKey)
+  useLayoutEffect(() => {
+    if (previousStorageKey.current === storageKey) return
+    previousStorageKey.current = storageKey
+    const stored = Number(ui.get(storageKey))
+    setWidth(Number.isFinite(stored) && stored >= min && stored <= max ? stored : defaultWidth)
+  }, [storageKey, ui, min, max, defaultWidth])
   const isDrawer = collapsed !== undefined
   const open = !collapsed
   const rootRef = useRef<HTMLDivElement>(null)

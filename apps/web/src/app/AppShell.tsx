@@ -1047,7 +1047,7 @@ function AppBodyView({ syncProgress }: { syncProgress: SyncProgressStore }): JSX
                   </Suspense>
                 ) : (
                   <ResizableColumn
-                    key={`${fullDeckSizing}:${flightDeckDisplay}`}
+                    key={fullDeckSizing ? 'full' : flightDeckDisplay}
                     storageKey={flightDeckSize.storageKey}
                     min={flightDeckSize.min}
                     max={flightDeckSize.max}
