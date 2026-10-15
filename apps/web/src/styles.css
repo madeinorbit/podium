@@ -12950,22 +12950,22 @@ button.waterfall-fold:hover {
   padding: 3px 0 0 8px;
 }
 .flight-v6-task { position: relative; padding-bottom: 3px; }
-.flight-v6-card { min-width: 0; border-radius: 6px; background: var(--tabstrip); }
+.flight-v6-card { min-width: 0; border-radius: 6px; background: var(--card); }
 .flight-v6-card[data-context='true'] { background: transparent; }
 .flight-v6-card[data-word='blocked'] {
   background-image: repeating-linear-gradient(135deg, transparent 0 4px, color-mix(in srgb, var(--text-faint) 6%, transparent) 4px 5px);
 }
 .flight-v6-strip { position: relative; display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 32px 0 6px; border-radius: 6px; }
-.flight-v6-strip:hover { background-color: var(--muted); }
+.flight-v6-strip:hover { background-color: var(--accent); }
 .flight-v6-fold { display: grid; place-items: center; flex: none; width: 12px; height: 24px; color: var(--text-faint); }
 .flight-v6-ring-control { position: relative; display: grid; place-items: center; flex: none; width: 14px; height: 14px; }
 .flight-v6-ring-control > span:first-child > svg { opacity: 0; }
 .flight-v6-ring { position: absolute; pointer-events: none; box-sizing: border-box; width: 14px; height: 14px; border: 1.5px dotted var(--text-faint); border-radius: 50%; }
 .flight-v6-ring[data-word='working'], .flight-v6-ring[data-word='idle'], .flight-v6-ring[data-word='error'], .flight-v6-ring[data-word='needs-you'] {
-  border-style: solid; border-color: var(--issue); padding: 1.5px;
-  background: conic-gradient(var(--issue) 0 25%, transparent 25% 100%); background-clip: content-box;
+  border-style: solid; border-color: var(--live); padding: 1.5px;
+  background: conic-gradient(var(--live) 0 25%, transparent 25% 100%); background-clip: content-box;
 }
-.flight-v6-ring[data-word='done'] { display: grid; place-items: center; border: 0; background: var(--issue); color: white; }
+.flight-v6-ring[data-word='done'] { display: grid; place-items: center; border: 0; background: var(--success); color: white; }
 .flight-v6-task-body { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; height: 32px; text-align: left; }
 .flight-v6-ref, .flight-v6-counter { flex: none; white-space: nowrap; font-family: var(--font-mono); font-size: 10.5px; color: var(--text-faint); }
 .flight-v6-title { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 12.5px; font-weight: 600; color: var(--text-strong); }
@@ -12979,10 +12979,10 @@ button.waterfall-fold:hover {
 .flight-v6-actions { position: absolute; right: 4px; top: 4px; display: grid; place-items: center; width: 24px; height: 24px; border-radius: 4px; color: var(--text-faint); opacity: 0; }
 .flight-v6-strip:hover > .flight-v6-actions, .flight-v6-session-line:hover > .flight-v6-actions, .flight-v6-actions:focus-visible { opacity: 1; background: var(--tabstrip); }
 .flight-v6-actions:hover { color: var(--text-strong); }
-.flight-v6-sessions { margin: 0 4px 4px; padding: 3px 4px 3px 20px; border-radius: 5px; background: var(--background); }
+.flight-v6-sessions { margin: 0 4px 4px; padding: 3px 4px 3px 20px; border-radius: 5px; background: var(--bar); }
 .flight-v6-session-line { position: relative; display: flex; align-items: center; min-height: 28px; border-radius: 5px; }
 .flight-v6-session-line:hover { background: var(--muted); }
-.flight-v6-session[data-selected='true'] > .flight-v6-session-line { background: color-mix(in srgb, var(--issue) 12%, var(--background)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--issue) 45%, transparent); }
+.flight-v6-session[data-selected='true'] > .flight-v6-session-line { background: color-mix(in srgb, var(--live) 12%, var(--bar)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--live) 45%, transparent); }
 .flight-v6-session-open { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; height: 28px; padding: 0 24px 0 2px; text-align: left; }
 .flight-v6-session-open .flight-v6-title { font-size: 12px; font-weight: 500; }
 .flight-v6-role { flex: none; color: var(--text-faint); font-size: 11.5px; }
@@ -13000,3 +13000,4 @@ button.waterfall-fold:hover {
 .flight-v6-guide[data-guide='middle']::after, .flight-v6-guide[data-guide='carry']::after { content: ''; position: absolute; left: 11px; top: 16px; bottom: 0; border-left: 1px solid var(--border); }
 .flight-v6-guide[data-guide='empty']::before { display: none; }
 .flight-v6-rows button:focus-visible { outline: 1px solid var(--issue); outline-offset: 1px; }
+.flight-v6-session[data-pointed='true'][data-selected='false'] > .flight-v6-session-line { background: var(--muted); }
