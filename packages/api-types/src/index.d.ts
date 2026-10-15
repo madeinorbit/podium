@@ -2180,8 +2180,8 @@ type Input_workflows_create = {
     scope: "global" | "repository" | "task";
     scopeRef?: null | string | undefined;
     steps?: undefined | {
+        agentProfile?: string | undefined;
         completionGuidance?: string | undefined;
-        executionProfileId?: string | undefined;
         id: string;
         instructions?: string | undefined;
         title: string;
@@ -2199,20 +2199,11 @@ type Input_workflows_list = {
     scope?: "global" | "repository" | "task" | undefined;
     scopeRef?: string | undefined;
 };
-type Input_workflows_profileSave = {
-    accountId: string;
-    effort?: string | undefined;
-    harness: "claude-code" | "codex" | "cursor" | "grok" | "opencode" | "pi" | "shell";
-    id?: string | undefined;
-    machineId?: null | string | undefined;
-    model?: string | undefined;
-    name: string;
-};
 type Input_workflows_revise = {
     instructions?: string | undefined;
     steps?: undefined | {
+        agentProfile?: string | undefined;
         completionGuidance?: string | undefined;
-        executionProfileId?: string | undefined;
         id: string;
         instructions?: string | undefined;
         title: string;
@@ -2323,7 +2314,6 @@ type Output_accounts_login = Pick<{
     driverId?: string | undefined;
     effort?: string | undefined;
     epoch: number;
-    executionProfileId?: string | undefined;
     exitCode?: number | undefined;
     geometry: {
         cols: number;
@@ -2495,7 +2485,6 @@ type Output_accounts_login = Pick<{
     driverId?: string | undefined;
     effort?: string | undefined;
     epoch: number;
-    executionProfileId?: string | undefined;
     exitCode?: number | undefined;
     geometry: {
         cols: number;
@@ -4630,7 +4619,6 @@ type Output_issues_get = (null) | ({
         driverId?: string | undefined;
         effort?: string | undefined;
         epoch: number;
-        executionProfileId?: string | undefined;
         exitCode?: number | undefined;
         geometry: {
             cols: number;
@@ -6213,8 +6201,8 @@ type Output_workflows_create = {
         instructions: string;
         publishedAt: null | string;
         steps: {
+            agentProfile?: string | undefined;
             completionGuidance: string;
-            executionProfileId?: string | undefined;
             id: string;
             instructions: string;
             title: string;
@@ -6242,8 +6230,8 @@ type Output_workflows_get = {
         instructions: string;
         publishedAt: null | string;
         steps: {
+            agentProfile?: string | undefined;
             completionGuidance: string;
-            executionProfileId?: string | undefined;
             id: string;
             instructions: string;
             title: string;
@@ -8698,18 +8686,6 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
                 [k: string]: unknown;
             } & {};
             output: string;
-            meta: unknown;
-        }>;
-        "profileSave": TRPC.TRPCMutationProcedure<{
-            input: Input_workflows_profileSave;
-            output: Protocol.ExecutionProfileWire;
-            meta: unknown;
-        }>;
-        "profiles": TRPC.TRPCQueryProcedure<{
-            input: {
-                [k: string]: unknown;
-            } & {};
-            output: Array<Protocol.ExecutionProfileWire>;
             meta: unknown;
         }>;
         "publish": TRPC.TRPCMutationProcedure<{
