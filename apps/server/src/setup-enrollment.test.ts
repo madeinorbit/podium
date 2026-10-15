@@ -66,7 +66,7 @@ describe('setup enrollment transaction', () => {
 
   it('binds the sole setup member and activates its password in the enrollment transaction', async () => {
     const { store, request } = await fixture(true, false)
-    const member = (await store.users.loadWorldUsers())[0]!
+    const member = (await store.users.soleActiveMember())!
     const receipt = await completePreauthorizedSetup(store, 'installation-a', request, 'setup-password-hash')
     expect(receipt?.actor).toBe(member.id)
     expect((await store.users.credentialFor(asUserId(member.id)))?.passwordHash).toBe('setup-password-hash')

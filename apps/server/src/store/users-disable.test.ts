@@ -39,7 +39,7 @@ it('atomically revokes all client sessions, preserves custody/shares, and re-ena
   await store.auth.createClientSession('other', other, future)
   await store.users.disable(member, at)
   await store.users.disable(member, 'later')
-  expect(index.reader.user(member)).toBeUndefined()
+  expect(await store.users.get(member)).toBeUndefined()
   expect(await store.users.credentialFor(member)).toBeUndefined()
   expect((await store.auth.listClientSessions()).map(row => row.tokenHash)).toEqual(['other'])
   expect(index.reader.machine('shared-machine')).toEqual(machine)
@@ -52,7 +52,7 @@ it('atomically revokes all client sessions, preserves custody/shares, and re-ena
   expect(await store.settingsAudit.list()).toHaveLength(1)
   await store.users.enable(member, 'enabled')
   await store.users.enable(member, 'later')
-  expect(index.reader.user(member)?.role).toBe('admin')
+  expect((await store.users.get(member))?.role).toBe('admin')
   expect(await store.users.credentialFor(member)).toBeDefined()
   expect(await store.auth.getClientSession('login')).toBeUndefined()
   expect(index.reader.machine('shared-machine')).toEqual(machine)
@@ -62,18 +62,15 @@ it('atomically revokes all client sessions, preserves custody/shares, and re-ena
 it('rolls back member, sessions, audit and live principal publication together', async () => {
   const store = await setup()
   const member = firstAdminMemberId()
-  const index = await WorldIndex.load(store)
   await store.auth.createClientSession('cookie', member, future)
   await expect(store.transact(async () => {
     await store.users.disable(member, at)
     expect(await store.auth.getClientSession('cookie')).toBeUndefined()
-    expect(index.reader.user(member)).toBeDefined()
     throw new Error('abort')
   })).rejects.toThrow('abort')
   expect(await store.users.get(member)).toBeDefined()
   expect(await store.auth.getClientSession('cookie')).toBeDefined()
   expect(await store.settingsAudit.list()).toEqual([])
-  expect(index.reader.user(member)).toBeDefined()
 })
 
 it('refuses sign-in and old cookies until re-enabled, without resurrecting revoked cookies', async () => {

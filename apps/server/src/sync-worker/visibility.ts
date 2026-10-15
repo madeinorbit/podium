@@ -31,7 +31,7 @@ export function bootstrapVisibility(database: SqlDatabase) {
   }
   const worldIndex: WorldIndexReader = {
     grantsFor: (kind, id) => byResource.get(key(kind, id)) ?? [],
-    issueForWorktree: unsupported, pendingCount: unsupported, user: unsupported, machine: unsupported,
+    issueForWorktree: unsupported, pendingCount: unsupported, machine: unsupported,
   }
   const sync = new SyncRepository(q, syncServerTables)
   // The publisher mutates its window before capture and may swallow failure

@@ -173,14 +173,13 @@ describe('world index committed facts', () => {
         [...loading.byQuery]
           .filter(([sql]) => /^select /i.test(sql))
           .reduce((sum, [, n]) => sum + n, 0),
-      ).toBe(5)
+      ).toBe(4)
     expect(await WorldIndex.load(store)).toBe(index)
     expect(index.reader).not.toHaveProperty('lease')
     const read = () => {
       expect(index.reader.grantsFor('issue', 'iss_x')).toEqual([grant])
       expect(index.reader.issueForWorktree('/worktree')).toBe('iss_x')
       expect(index.reader.pendingCount({ kind: 'issue', id: 'iss_target' })).toBe(2)
-      expect(index.reader.user(alice)).toEqual(account)
       expect(index.reader.machine(machine.id)?.name).toBe('First')
     }
     read()
@@ -194,19 +193,17 @@ describe('world index committed facts', () => {
     expect(index.reader.grantsFor('issue', 'iss_x')).toEqual([grant])
   })
 
-  it('commits every grant and user writer, with revocation and disable fail-closed', async () => {
+  it('commits every grant writer, with revocation fail-closed', async () => {
     const store = await setup()
+    await store.users.create(account, 'hash')
     const index = await WorldIndex.load(store)
     const apply = vi.spyOn(index, 'apply')
     for (const write of [
-      () => store.users.create(account, 'hash'),
-      () => store.users.setPasswordHash(alice, 'new-hash', at),
       () => store.grants.upsert(grant),
       () => store.grants.upsert({ ...grant, createdAt: 'later' }),
       () => store.grants.remove('issue', 'iss_x', alice, grant.verb),
       () => store.grants.upsert(grant),
       () => store.grants.removeAllForResource('issue', 'iss_x'),
-      () => store.users.disable(alice, at),
     ]) {
       apply.mockClear()
       await write()
@@ -214,16 +211,13 @@ describe('world index committed facts', () => {
       expect(index.reader.grantsFor('issue', 'iss_x')).toEqual(
         await store.grants.listForResource('issue', 'iss_x'),
       )
-      expect(index.reader.user(alice)).toEqual(await store.users.get(alice))
     }
-    expect(index.reader.user(alice)).toBeUndefined()
     expect(index.reader.grantsFor('issue', 'iss_x')).toEqual([])
   })
 
   it('cannot republish a disabled account from an older credential caller read scope', async () => {
     const store = await setup()
     await store.users.create(account, 'hash')
-    const index = await WorldIndex.load(store)
     let cached!: () => void
     let resume!: () => void
     const cachedAccount = new Promise<void>((resolve) => {
@@ -246,7 +240,7 @@ describe('world index committed facts', () => {
     await store.users.disable(alice, at)
     resume()
     await caller
-    expect(index.reader.user(alice)).toBeUndefined()
+    expect(await store.users.get(alice)).toBeUndefined()
   })
 
   it('applies all twelve machine writers using the same decoder as boot', async () => {
@@ -455,7 +449,6 @@ describe('world index committed facts', () => {
         await store.machines.upsertMachine(machine)
         await store.messages.addMessage(message({ id: 'rollback' }))
         await store.issues.upsertIssue(issueRow({ worktreePath: '/rollback' }))
-        expect(index.reader.user(alice)).toBeUndefined()
         expect(apply).not.toHaveBeenCalled()
         throw new Error('abort')
       }),

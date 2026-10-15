@@ -13,8 +13,6 @@ import { bindCommittedGrantReader } from './grant-reader'
  * - Pending counts: store/messages.ts owns INSERT and every status mutation,
  *   including read/dead-letter/refusal. Janitor observations become server-side
  *   expireObserved writes; the janitor does not mutate the messages table.
- * - Users: store/users.ts owns create, disable and credential replacement. The
- *   credential writer republishes the unchanged account; secrets are not indexed.
  * - Machines: store/machines.ts owns all twelve mutation statements. Daemon and
  *   supervisor reports enter MachinesService/enrollment and call this repository;
  *   those remote processes do not write the server's machines table themselves.
@@ -31,7 +29,7 @@ import { bindCommittedGrantReader } from './grant-reader'
  * Migrations/heals run before loading; no cached authorization survives restart.
  *
  * COMMIT CHOICE: sync ChangeRow contains wire projections, not all owned facts.
- * All five repositories instead publish typed write RETURNING results through
+ * All four repositories instead publish typed write RETURNING results through
  * CommittedRows.write and applyAfterCommit (the same mandatory mechanism used
  * by Authority's onCommit adapter in relay.ts). This includes standalone writes,
  * changes absent from the sync log, and bulk updates. Rollback drops application;
@@ -54,8 +52,7 @@ import type { IssueWorktreeRow } from '../../store/issues'
 import { machineRecordFromRow } from '../../store/machines'
 import type { MessageQueueFact } from '../../store/messages'
 import type { MachineRecord } from '../../store/types'
-import { userFromRow, type UserAccountRow } from '../../store/users'
-import type { grants, issues, machines, users } from '../../migrations/schema'
+import type { grants, issues, machines } from '../../migrations/schema'
 
 export interface DeliveryTarget {
   readonly kind: string
@@ -65,7 +62,6 @@ export interface WorldIndexReader {
   grantsFor(kind: string, id: string): readonly Readonly<GrantRow>[]
   issueForWorktree(path: string): IssueId | undefined
   pendingCount(target: DeliveryTarget): number
-  user(id: string): Readonly<UserAccountRow> | undefined
   machine(id: string): Readonly<MachineRecord> | undefined
 }
 
@@ -73,7 +69,6 @@ export type ChangeRow =
   | ({ readonly kind: 'grants' } & CommittedRowChange<typeof grants.$inferSelect>)
   | ({ readonly kind: 'issues' } & CommittedRowChange<typeof issues.$inferSelect>)
   | ({ readonly kind: 'messages' } & CommittedRowChange<MessageQueueFact>)
-  | ({ readonly kind: 'users' } & CommittedRowChange<typeof users.$inferSelect>)
   | ({ readonly kind: 'machines' } & CommittedRowChange<typeof machines.$inferSelect>)
 
 const key = (kind: string, id: string | null | undefined) => JSON.stringify([kind, id ?? null])
@@ -89,7 +84,6 @@ export class WorldIndex {
   private readonly issuesByWorktree = new Map<string, IssueId>()
   private readonly pendingByTarget = new Map<string, number>()
   private readonly queuedTargets = new Map<string, string>()
-  private readonly usersById = new Map<string, UserAccountRow>()
   private readonly machineRecords = new Map<string, MachineRecord>()
   private elapsedMs = 0
   get loadMs(): number {
@@ -113,7 +107,6 @@ export class WorldIndex {
     },
     pendingCount: (target: DeliveryTarget) =>
       this.pendingByTarget.get(key(target.kind, target.id)) ?? 0,
-    user: (id: string) => clone(this.usersById.get(id)),
     machine: (id: string) => clone(this.machineRecords.get(id)),
   })
 
@@ -123,11 +116,10 @@ export class WorldIndex {
     if (existing) return existing
     const loading = store.transact(async () => {
       const started = performance.now()
-      // Five grouped/table reads, independent of the number of facts.
+      // Four grouped/table reads, independent of the number of facts.
       const grants = await store.grants.loadWorldGrants()
       const issues = await store.issues.loadWorldIssuePaths()
       const pending = await store.messages.loadWorldPending()
-      const users = await store.users.loadWorldUsers()
       const machines = await store.machines.listMachines()
       const index = new WorldIndex()
       for (const row of grants) index.putGrant(row)
@@ -148,14 +140,12 @@ export class WorldIndex {
         index.pendingByTarget.set(target, row.count)
         for (const id of row.ids) index.queuedTargets.set(id, target)
       }
-      for (const row of users) index.usersById.set(row.id, row)
       for (const row of machines) index.machineRecords.set(row.id, row)
       index.elapsedMs = performance.now() - started
       applyAfterCommit(() => {
         store.grants.committed.subscribe((change) => index.apply({ kind: 'grants', ...change }))
         store.issues.committed.subscribe((change) => index.apply({ kind: 'issues', ...change }))
         store.messages.committed.subscribe((change) => index.apply({ kind: 'messages', ...change }))
-        store.users.committed.subscribe((change) => index.apply({ kind: 'users', ...change }))
         store.machines.committed.subscribe((change) => index.apply({ kind: 'machines', ...change }))
         bindCommittedGrantReader(store.grants, index.reader)
       }, 'world-index:load')
@@ -205,13 +195,6 @@ export class WorldIndex {
             this.queuedTargets.set(row.id, next)
             this.pendingByTarget.set(next, (this.pendingByTarget.get(next) ?? 0) + 1)
           }
-        }
-        break
-      case 'users':
-        for (const raw of change.rows) {
-          const row = userFromRow(raw)
-          if (change.operation === 'upsert' && row) this.usersById.set(row.id, row)
-          else this.usersById.delete(raw.id)
         }
         break
       case 'machines':

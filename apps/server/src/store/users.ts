@@ -23,7 +23,7 @@ import { GrantsRepository } from './grants'
 
 import type { CredentialSource, UserId, UserRole } from '@podium/model'
 import { asUserId, CREDENTIAL_SOURCES, LoginEmail, USER_ROLES } from '@podium/model'
-import { and, asc, eq, isNotNull, isNull, sql } from 'drizzle-orm'
+import { and, asc, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm'
 import { clientSessions, grants, memberInvites, settingsAuditEvents, userCredentials, users } from '../migrations/schema'
 import { currentReadScope, readScopeSlot } from './executor/read-scope'
 import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
@@ -47,7 +47,13 @@ const accountById = prepared((db: StoreDrizzle) =>
   db.select().from(users).where(eq(users.id, param(users.id, 'id'))).prepare(),
 )
 
-const allUsers = prepared((db: StoreDrizzle) => db.select().from(users).prepare())
+// Two rows are enough to tell "exactly one" from "more than one".
+const firstTwoActiveMembers = prepared((db: StoreDrizzle) =>
+  db.select().from(users)
+    .where(and(isNull(users.disabledAt), inArray(users.role, [...USER_ROLES])))
+    .limit(2)
+    .prepare(),
+)
 
 const earliestAdminId = prepared((db: StoreDrizzle) =>
   db
@@ -433,10 +439,10 @@ export class UsersRepository {
     return accounts.filter((account): account is UserAccountRow => account !== undefined)
   }
 
-  /** One grouped boot read; disabled/unknown roles stay fail-closed. */
-  async loadWorldUsers(): Promise<UserAccountRow[]> {
-    return (await allUsers(this.db).all())
-      .flatMap((row) => { const account = userFromRow(row); return account ? [account] : [] })
+  /** The only enabled, readable member, or `undefined` when there are none or several. */
+  async soleActiveMember(): Promise<UserAccountRow | undefined> {
+    const rows = await firstTwoActiveMembers(this.db).all()
+    return rows.length === 1 ? userFromRow(rows[0]!) : undefined
   }
 
   /**

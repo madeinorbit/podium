@@ -8,7 +8,6 @@ export const factMethods = {
   grants: ['listForResource', 'listForResources', 'loadWorldGrants'],
   messages: ['countPending', 'countPendingForSession', 'countQueued', 'loadWorldPending'],
   issues: ['getIssue', 'getIssues', 'listIssueRows', 'listIssueCwdRows', 'loadWorldIssuePaths', 'closedIssueIds', 'listIssueParentEdges', 'nextIssueSeq', 'issuesMissingRepoId', 'legacyWorktreeSkippedQuery'],
-  users: ['get', 'read', 'roleOf', 'list', 'loadWorldUsers'],
   machines: ['getMachine', 'listMachines'],
 } as const
 

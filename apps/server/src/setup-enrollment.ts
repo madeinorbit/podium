@@ -57,9 +57,8 @@ export async function completePreauthorizedSetup(store: SessionStore, installati
     const prior = await readSetupEnrollment(store, installationId, request)
     if (prior) return prior
     if (!request.preauthorized) return undefined
-    const members = await store.users.loadWorldUsers()
-    const sole = members.length === 1 ? members[0] : undefined
-    const actor = sole && !sole.disabledAt && sole.role === 'admin' ? asUserId(sole.id) : null
+    const sole = await store.users.soleActiveMember()
+    const actor = sole?.role === 'admin' ? asUserId(sole.id) : null
     if (actor && passwordHash) {
       const credential = await store.users.credentialFor(actor)
       if (!credential?.passwordHash || credential.source !== 'per-user-scrypt') {

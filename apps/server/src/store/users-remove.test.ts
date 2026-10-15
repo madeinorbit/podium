@@ -48,7 +48,7 @@ it('removes custody and incoming grants atomically, preserves shares and attribu
     expect((index.reader.grantsFor('machine', id).find(edge => edge.custody)?.grantee ?? null)).toBeNull()
   }
   expect((await store.machines.custodian('other-owned'))).toBe(admin)
-  expect(index.reader.user(member)).toBeUndefined()
+  expect(await store.users.get(member)).toBeUndefined()
   for (const [kind, id] of [['machine', 'other-owned'], ['machine', 'unowned'], ['session', 'historical']] as const) {
     expect((await store.grants.listForResource(kind, id)).filter(edge => edge.grantee === member)).toEqual([])
     expect(index.reader.grantsFor(kind, id).filter(edge => edge.grantee === member)).toEqual([])
@@ -97,7 +97,7 @@ it('rolls back custody, grants, credentials, invites, sessions, audits and live 
   })).rejects.toThrow('abort removal')
   expect((await store.machines.custodian('owned'))).toBe(member)
   expect((index.reader.grantsFor('machine', 'owned').find(edge => edge.custody)?.grantee ?? null)).toBe(member)
-  expect(index.reader.user(member)).toBeDefined()
+  expect(await store.users.get(member)).toBeDefined()
   expect(await store.users.credentialFor(member)).toBeDefined()
   expect(await store.users.inviteByHash('invite-hash')).toBeDefined()
   expect(await store.auth.getClientSession('member-cookie')).toBeDefined()

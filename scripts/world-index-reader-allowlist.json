@@ -3,14 +3,6 @@
     "count": 1,
     "reason": "Machine enrollment, service, or inventory reader retained pending its transaction and full-record requirements audit."
   },
-  "apps/server/src/modules/fleet/authz.ts :: accountRoleOf :: users.roleOf": {
-    "count": 1,
-    "reason": "Live account or role reader retained for the separate account-reader migration; transaction freshness must be audited before switching."
-  },
-  "apps/server/src/modules/fleet/handlers.ts :: result :: users.roleOf": {
-    "count": 1,
-    "reason": "Live account or role reader retained for the separate account-reader migration; transaction freshness must be audited before switching."
-  },
   "apps/server/src/modules/issues/service/core.ts :: hydrate :: issues.listIssueRows": {
     "count": 1,
     "reason": "Boot/reload hydration of the single full IssueStore row map, loaded under the transaction that installs its repository commit subscription."
@@ -18,10 +10,6 @@
   "apps/server/src/modules/issues/service/crud.ts :: seq :: issues.nextIssueSeq": {
     "count": 1,
     "reason": "Sequence allocation requires the live repository maximum, including rows created in the enclosing mutation span; the committed map cannot allocate ids."
-  },
-  "apps/server/src/modules/layout/authz.ts :: layoutAuthzDeps :: users.roleOf": {
-    "count": 1,
-    "reason": "Live account or role reader retained for the separate account-reader migration; transaction freshness must be audited before switching."
   },
   "apps/server/src/modules/machines/enrollment.ts :: authenticateDaemon :: machines.getMachine": {
     "count": 1,
@@ -67,26 +55,6 @@
     "count": 1,
     "reason": "Global queued total is not the per-target indexed counter; retain until its separate semantics are covered."
   },
-  "apps/server/src/modules/read-position/authz.ts :: readPositionAuthzDeps :: users.roleOf": {
-    "count": 1,
-    "reason": "Live account or role reader retained for the separate account-reader migration; transaction freshness must be audited before switching."
-  },
-  "apps/server/src/modules/sessions/session-authz.ts :: authorizeQueuedInputAtApply :: users.get": {
-    "count": 2,
-    "reason": "Live account or role reader retained for the separate account-reader migration; transaction freshness must be audited before switching."
-  },
-  "apps/server/src/modules/sessions/session-authz.ts :: role :: users.roleOf": {
-    "count": 1,
-    "reason": "Live account or role reader retained for the separate account-reader migration; transaction freshness must be audited before switching."
-  },
-  "apps/server/src/modules/sessions/view.ts :: role :: users.roleOf": {
-    "count": 2,
-    "reason": "Live account or role reader retained for the separate account-reader migration; transaction freshness must be audited before switching."
-  },
-  "apps/server/src/modules/settings/authz.ts :: settingsAuthzDeps :: users.roleOf": {
-    "count": 1,
-    "reason": "Live account or role reader retained for the separate account-reader migration; transaction freshness must be audited before switching."
-  },
   "apps/server/src/modules/world-index/grant-reader.ts :: readResourceGrants :: grants.listForResource": {
     "count": 1,
     "reason": "Live read-your-writes fallback inside mutation spans, or before WorldIndex boot binding; committed readers use the index."
@@ -108,10 +76,6 @@
     "reason": "Boot snapshot load under the transaction that installs commit subscriptions."
   },
   "apps/server/src/modules/world-index/index.ts :: pending :: messages.loadWorldPending": {
-    "count": 1,
-    "reason": "Boot snapshot load under the transaction that installs commit subscriptions."
-  },
-  "apps/server/src/modules/world-index/index.ts :: users :: users.loadWorldUsers": {
     "count": 1,
     "reason": "Boot snapshot load under the transaction that installs commit subscriptions."
   },
@@ -139,49 +103,9 @@
     "count": 1,
     "reason": "Live read-your-writes fallback inside mutation spans, before IssueStore boot binding, or when boot quarantine prevents equivalent snapshot reads."
   },
-  "apps/server/src/relay.ts :: <module> :: users.list": {
-    "count": 1,
-    "reason": "Live account or role reader retained for the separate account-reader migration; transaction freshness must be audited before switching."
-  },
-  "apps/server/src/relay.ts :: liveRole :: users.roleOf": {
-    "count": 1,
-    "reason": "Live account or role reader retained for the separate account-reader migration; transaction freshness must be audited before switching."
-  },
-  "apps/server/src/relay.ts :: machines :: users.get": {
-    "count": 1,
-    "reason": "Live account or role reader retained for the separate account-reader migration; transaction freshness must be audited before switching."
-  },
-  "apps/server/src/relay.ts :: role :: users.roleOf": {
-    "count": 5,
-    "reason": "Live account or role reader retained for the separate account-reader migration; transaction freshness must be audited before switching."
-  },
-  "apps/server/src/relay.ts :: rows :: users.list": {
-    "count": 1,
-    "reason": "Live account or role reader retained for the separate account-reader migration; transaction freshness must be audited before switching."
-  },
-  "apps/server/src/relay.ts :: user :: users.get": {
-    "count": 1,
-    "reason": "Live account or role reader retained for the separate account-reader migration; transaction freshness must be audited before switching."
-  },
-  "apps/server/src/server.ts :: account :: users.get": {
-    "count": 2,
-    "reason": "Live account or role reader retained for the separate account-reader migration; transaction freshness must be audited before switching."
-  },
-  "apps/server/src/server.ts :: bootstrapAccount :: users.get": {
-    "count": 1,
-    "reason": "Live account or role reader retained for the separate account-reader migration; transaction freshness must be audited before switching."
-  },
   "apps/server/src/server.ts :: devPublisher :: machines.listMachines": {
     "count": 2,
     "reason": "Machine enrollment, service, or inventory reader retained pending its transaction and full-record requirements audit."
-  },
-  "apps/server/src/server.ts :: startServer :: users.roleOf": {
-    "count": 1,
-    "reason": "Live account or role reader retained for the separate account-reader migration; transaction freshness must be audited before switching."
-  },
-  "apps/server/src/server.ts :: userRole :: users.roleOf": {
-    "count": 1,
-    "reason": "Live account or role reader retained for the separate account-reader migration; transaction freshness must be audited before switching."
   },
   "apps/server/src/store.ts :: issuesMissing :: issues.issuesMissingRepoId": {
     "count": 1,
@@ -198,22 +122,6 @@
   "apps/server/src/store/issues.ts :: skipped :: issues.legacyWorktreeSkippedQuery": {
     "count": 1,
     "reason": "Boot machine backfill counts the live SQL session-contradiction predicate inside its mutation transaction; committed issue rows do not include this joined evidence."
-  },
-  "apps/server/src/store/users.ts :: account :: users.read": {
-    "count": 2,
-    "reason": "Live account or role reader retained for the separate account-reader migration; transaction freshness must be audited before switching."
-  },
-  "apps/server/src/store/users.ts :: accounts :: users.get": {
-    "count": 1,
-    "reason": "Live account or role reader retained for the separate account-reader migration; transaction freshness must be audited before switching."
-  },
-  "apps/server/src/store/users.ts :: credentialFor :: users.get": {
-    "count": 1,
-    "reason": "Live account or role reader retained for the separate account-reader migration; transaction freshness must be audited before switching."
-  },
-  "apps/server/src/store/users.ts :: roleOf :: users.get": {
-    "count": 1,
-    "reason": "Live account or role reader retained for the separate account-reader migration; transaction freshness must be audited before switching."
   },
   "scripts/measure-hot-paths.ts :: row :: issues.getIssue": {
     "count": 1,
