@@ -1,23 +1,19 @@
 /**
- * Old/new parity for grant reads (POD-6155 step 2, server-data "removes an
- * in-memory copy").
+ * Grant reads answer exactly what the writes say (POD-6155 step 2).
  *
- * OLD: the world index's committed copy (`WorldIndex.reader.grantsFor`) and
- * the `grant-reader` helpers that preferred it outside write spans. NEW: the
- * grants repository's indexed queries (`loadForResource`, `listForResources`)
- * inside and outside spans. Both are compared with an independent model of the
- * writes, over the benchmark corpus's resource ids (POD-6146: cell h1a1, seed
- * 4443) and over edge-case fixtures: every verb, custody, agent-delegated
- * shares, re-shares, revocations, whole-resource and whole-grantee removal,
- * created-at ties, unknown ids, and reads inside a rolled-back write span.
+ * Before the world index's grants copy was deleted, this test compared the
+ * copy (`WorldIndex.reader.grantsFor` and the `grant-reader` helpers) with the
+ * repository's indexed queries over the benchmark corpus (POD-6146: cell h1a1,
+ * seed 4443) and these fixtures, at the commit that adds this file. What stays
+ * is the fixture part, as a regression test: `loadForResource` (unscoped and
+ * batched in one read scope) and `listForResources` against an independent
+ * model of the writes, for every verb, custody, agent-delegated shares,
+ * re-shares, revocations, whole-resource and whole-grantee removal, created-at
+ * ties, unknown ids, and reads inside a rolled-back write span.
  */
 
-import { createHash } from 'node:crypto'
-import { fileURLToPath } from 'node:url'
 import { GRANT_VERBS, type GrantVerb } from '@podium/model'
 import { afterEach, describe, expect, it } from 'vitest'
-import { readResourceGrants, readResourcesGrants } from '../modules/world-index/grant-reader'
-import { WorldIndex } from '../modules/world-index'
 import type { SessionStore } from '../store'
 import { openTestStore } from '../test-support/open-test-store'
 import { withReadScope } from './executor/read-scope'
@@ -30,7 +26,6 @@ afterEach(async () => {
 
 type Kind = 'issue' | 'session' | 'machine'
 const users = ['user:p0', 'user:p1', 'user:p2', 'user:p3', 'user:p4', 'user:p5']
-const hash = (value: string) => createHash('sha256').update(value).digest().readUInt32BE(0)
 const key = (kind: string, id: string) => `${kind}\u0000${id}`
 const edgeKey = (row: Pick<GrantRow, 'grantee' | 'verb'>) => `${row.grantee}\u0000${row.verb}`
 
@@ -83,119 +78,28 @@ function share(kind: Kind, id: string, grantee: string, verb: GrantVerb, n: numb
   }
 }
 
-async function corpusIds(): Promise<Record<Kind, string[]>> {
-  const module = fileURLToPath(new URL('../../../../scripts/server-data-bench/corpus-export.ts', import.meta.url))
-  const { exportCorpus } = (await import(module)) as {
-    exportCorpus(cell: string, seed: number): Promise<{
-      issues: { id: string }[]
-      sessions: { id: string }[]
-      machines: { id: string }[]
-    }>
-  }
-  const corpus = await exportCorpus('h1a1', 4443)
-  return {
-    issue: corpus.issues.map((row) => `iss_${row.id}`),
-    session: corpus.sessions.map((row) => row.id),
-    machine: corpus.machines.map((row) => row.id),
-  }
-}
-
-/** Deterministic shares over `ids`, then revocations, through the real writers. */
-async function seed(store: SessionStore, ids: Record<Kind, string[]>, model: Model) {
-  let n = 0
-  const writes: (() => Promise<void>)[] = []
-  for (const kind of ['issue', 'session', 'machine'] as const) {
-    for (const id of ids[kind]) {
-      const count = hash(`${kind}:${id}`) % 4
-      for (let i = 0; i < count; i++) {
-        const verb = GRANT_VERBS[(hash(id) + i) % GRANT_VERBS.length]!
-        const row = share(kind, id, users[(hash(id) + i) % users.length]!, verb, n++)
-        writes.push(async () => {
-          await store.grants.upsert(row)
-          model.upsert(row)
-        })
-      }
-      if (kind === 'machine') {
-        // One custodian per machine (the partial unique index).
-        const custody = { ...share(kind, id, users[hash(id) % users.length]!, 'manage', n++), custody: true }
-        writes.push(async () => {
-          await store.grants.upsert(custody)
-          model.upsert(custody)
-        })
-      }
-    }
-  }
-  for (let i = 0; i < writes.length; i += 500) {
-    await store.transact(async () => {
-      for (const write of writes.slice(i, i + 500)) await write()
-    })
-  }
-  // Re-share with a new granter and stamp; revoke one verb; drop whole resources.
-  await store.transact(async () => {
-    for (const kind of ['issue', 'session', 'machine'] as const) {
-      for (const id of ids[kind]) {
-        const edges = model.edges(kind, id)
-        const first = edges[0]
-        if (!first) continue
-        const bucket = hash(`revoke:${kind}:${id}`) % 7
-        if (bucket === 0) {
-          await store.grants.remove(kind, id, first.grantee, first.verb)
-          model.remove(kind, id, first.grantee, first.verb)
-        } else if (bucket === 1 && kind !== 'machine') {
-          await store.grants.removeAllForResource(kind, id)
-          model.removeResource(kind, id)
-        } else if (bucket === 2) {
-          const reshared = { ...first, custody: undefined, owner: users[5]!, createdAt: '2026-10-16T00:00:00.000Z' }
-          await store.grants.upsert(reshared)
-          model.upsert(reshared)
-        }
-      }
-    }
-  })
-}
-
-async function expectParity(store: SessionStore, index: WorldIndex, ids: Record<Kind, string[]>, model: Model) {
+async function expectAnswers(store: SessionStore, ids: Record<Kind, string[]>, model: Model) {
   for (const kind of ['issue', 'session', 'machine'] as const) {
     const asked = [...ids[kind], `${kind}-never-granted`]
     const many = await store.grants.listForResources(kind, asked)
-    const oldMany = await readResourcesGrants(store.grants, kind, asked)
     const scoped = await withReadScope(async () =>
       await Promise.all(asked.map(async (id) => await store.grants.loadForResource(kind, id))),
     )
     for (const [i, id] of asked.entries()) {
       const want = normal(model.edges(kind, id))
-      // OLD: the committed copy, directly and through the old helpers.
-      expect(normal(index.reader.grantsFor(kind, id)), `${kind} ${id} copy`).toEqual(want)
-      expect(normal(await readResourceGrants(store.grants, kind, id)), `${kind} ${id} old one`).toEqual(want)
-      expect(normal(oldMany.get(id) ?? []), `${kind} ${id} old many`).toEqual(want)
-      // NEW: the indexed queries, unscoped, batched in one scope, and grouped.
-      expect(normal(await store.grants.loadForResource(kind, id)), `${kind} ${id} new one`).toEqual(want)
-      expect(normal(scoped[i]!), `${kind} ${id} new scoped`).toEqual(want)
-      expect(normal(many.get(id) ?? []), `${kind} ${id} new many`).toEqual(want)
+      // Unscoped, batched in one scope, and grouped.
+      expect(normal(await store.grants.loadForResource(kind, id)), `${kind} ${id} one`).toEqual(want)
+      expect(normal(scoped[i]!), `${kind} ${id} scoped`).toEqual(want)
+      expect(normal(many.get(id) ?? []), `${kind} ${id} many`).toEqual(want)
       expect(many.has(id), `${kind} ${id} absent means no edges`).toBe(want.length > 0)
     }
   }
 }
 
-describe('grant reads: old copy and new queries give the same answers', () => {
-  it('over the benchmark corpus', async () => {
-    const store = await openTestStore(':memory:')
-    stores.push(store)
-    const ids = await corpusIds()
-    expect(ids.issue.length).toBeGreaterThan(4000)
-    const index = await WorldIndex.load(store)
-    const model = new Model()
-    await seed(store, ids, model)
-    // A member removal revokes every incoming share at once.
-    await store.grants.removeAllForGrantee(users[3]!)
-    model.removeGrantee(users[3]!)
-    await expectParity(store, index, ids, model)
-  }, 300_000)
-
+describe('grant reads answer what the writes say', () => {
   it('over the edge-case fixtures, inside and outside a write span', async () => {
     const store = await openTestStore(':memory:')
     stores.push(store)
-    const index = await WorldIndex.load(store)
     const model = new Model()
     const ids: Record<Kind, string[]> = { issue: ['iss_edge'], session: ['session-edge'], machine: ['machine-edge'] }
     // Every verb on every kind, for the same grantee; ties on created-at.
@@ -218,24 +122,24 @@ describe('grant reads: old copy and new queries give the same answers', () => {
     const delegated = share('issue', 'iss_edge', users[4]!, 'read', 5)
     await store.grants.upsert(delegated)
     model.upsert(delegated)
-    await expectParity(store, index, ids, model)
+    await expectAnswers(store, ids, model)
     expect(await store.grants.remove('issue', 'iss_edge', users[4]!, 'read')).toBe(true)
     model.remove('issue', 'iss_edge', users[4]!, 'read')
-    await expectParity(store, index, ids, model)
+    await expectAnswers(store, ids, model)
 
-    // Inside a write span both paths read live: the revocation denies at once,
-    // and the rollback leaves nothing behind in any reader.
+    // Inside a write span reads are live: the revocation denies at once, and
+    // the rollback leaves nothing behind in any reader.
     await expect(
       store.transact(async () => {
         await store.grants.remove('issue', 'iss_edge', users[1]!, 'read')
-        const without = model.edges('issue', 'iss_edge').filter((row) => !(row.grantee === users[1] && row.verb === 'read'))
-        expect(normal(await readResourceGrants(store.grants, 'issue', 'iss_edge'))).toEqual(normal(without))
+        const without = model.edges('issue', 'iss_edge')
+          .filter((row) => !(row.grantee === users[1] && row.verb === 'read'))
         expect(normal(await store.grants.loadForResource('issue', 'iss_edge'))).toEqual(normal(without))
         expect(normal((await store.grants.listForResources('issue', ['iss_edge'])).get('iss_edge') ?? [])).toEqual(normal(without))
         throw new Error('roll back')
       }),
     ).rejects.toThrow('roll back')
-    await expectParity(store, index, ids, model)
+    await expectAnswers(store, ids, model)
 
     // A read scope that spans a write sees the write (the loader is invalidated).
     await withReadScope(async () => {
@@ -244,6 +148,11 @@ describe('grant reads: old copy and new queries give the same answers', () => {
       model.removeResource('session', 'session-edge')
       expect(await store.grants.loadForResource('session', 'session-edge')).toEqual([])
     })
-    await expectParity(store, index, ids, model)
+    await expectAnswers(store, ids, model)
+
+    // A member removal revokes every incoming share at once.
+    await store.grants.removeAllForGrantee(users[1]!)
+    model.removeGrantee(users[1]!)
+    await expectAnswers(store, ids, model)
   })
 })

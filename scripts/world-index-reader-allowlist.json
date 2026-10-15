@@ -55,18 +55,6 @@
     "count": 1,
     "reason": "Global queued total is not the per-target indexed counter; retain until its separate semantics are covered."
   },
-  "apps/server/src/modules/world-index/grant-reader.ts :: readResourceGrants :: grants.listForResource": {
-    "count": 1,
-    "reason": "Live read-your-writes fallback inside mutation spans, or before WorldIndex boot binding; committed readers use the index."
-  },
-  "apps/server/src/modules/world-index/grant-reader.ts :: readResourcesGrants :: grants.listForResources": {
-    "count": 1,
-    "reason": "Live read-your-writes fallback inside mutation spans, or before WorldIndex boot binding; committed readers use the index."
-  },
-  "apps/server/src/modules/world-index/index.ts :: grants :: grants.loadWorldGrants": {
-    "count": 1,
-    "reason": "Boot snapshot load under the transaction that installs commit subscriptions."
-  },
   "apps/server/src/modules/world-index/index.ts :: issues :: issues.loadWorldIssuePaths": {
     "count": 1,
     "reason": "Boot worktree-key snapshot load under the transaction that installs commit subscriptions; full rows remain owned by IssueStore."

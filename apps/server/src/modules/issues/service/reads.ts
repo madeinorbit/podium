@@ -34,7 +34,6 @@ import { jaccard, tokenize } from '../../../issue-similarity'
 import { isMemberCwd, sessionsForIssue } from '../../../issue-util'
 import type { IssueRow, SessionStore } from '../../../store'
 import type { SessionFacts } from '../../sessions/facts'
-import { readResourceGrants } from '../../world-index/grant-reader'
 import { issueRowToProjection } from '../projection'
 import type { IssueStore } from './core'
 import { readDeck } from './deck'
@@ -947,7 +946,7 @@ export class IssueReportsModule {
       kind: 'owned' as const,
       id: row.id,
       owner: row.ownerUserId ?? null,
-      grants: (await readResourceGrants(this.store.deps.store.grants, 'issue', row.id))
+      grants: (await this.store.deps.store.grants.loadForResource('issue', row.id))
         .filter((edge) => covers(edge.verb))
         .map((edge) => edge.grantee),
     }

@@ -44,8 +44,6 @@ it('atomically revokes all client sessions, preserves custody/shares, and re-ena
   expect((await store.auth.listClientSessions()).map(row => row.tokenHash)).toEqual(['other'])
   expect(index.reader.machine('shared-machine')).toEqual(machine)
   expect(await store.grants.listForResource('machine', 'shared-machine')).toEqual(shares)
-  expect(index.reader.grantsFor('machine', 'shared-machine')).toEqual(expect.arrayContaining(shares))
-  expect(index.reader.grantsFor('machine', 'shared-machine')).toHaveLength(shares.length)
   await expect(store.auth.createClientSession('late-login', member, future)).rejects.toThrow('Member disabled')
   expect(await store.auth.getClientSession('late-login')).toBeUndefined()
   expect(await store.settingsAudit.list()).toMatchObject([{ command: 'members.disable', detail: { memberId: member, runningAgentPolicy: 'let-finish' }, createdAt: at }])

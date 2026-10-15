@@ -12,7 +12,6 @@ import {
 } from '@podium/sync'
 import { describe, expect, it } from 'vitest'
 import { makeFeedVisibility } from '../feed-visibility'
-import { WorldIndex } from '../modules/world-index'
 import { openTestStore } from '../test-support/open-test-store'
 import { produceBootstrap } from './producer'
 import { type BootstrapJob, SyncWorkerError } from './types'
@@ -123,10 +122,8 @@ describe('snapshot bootstrap producer', () => {
       const forbidden = (): never => {
         throw new Error('bootstrap invoked anchor input')
       }
-      const world = await WorldIndex.load(store)
       const feed = makeFeedVisibility({
         store,
-        worldIndex: world.reader,
         audienceResourceIds: forbidden,
         audienceFor: forbidden,
         issueEventSubjects: forbidden,

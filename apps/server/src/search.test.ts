@@ -269,7 +269,7 @@ describe('MemoryService omni-search', () => {
     expect(grantLookups).toBe(0)
   })
 
-  it('reads issue ownership and grants for the native conversation list without SQL', async () => {
+  it('reads issue ownership without SQL and grants in one batch for the native conversation list', async () => {
     const store = await openTestStore(':memory:')
     const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     registries.push(registry)
@@ -363,10 +363,11 @@ describe('MemoryService omni-search', () => {
     // readers resolve issue rows from the IssueStore's committed rows outside
     // a mutation span, so the count is now ZERO: no per-owner statement and no
     // batch either. A regression to per-owner or batched SQL shows up here.
+    // Grants have no copy since POD-6155: the four issues' edges are one batch.
     expect(singleReads).toBe(0)
     expect(batchReads).toEqual([])
     expect(singleGrantReads).toBe(0)
-    expect(batchGrantReads).toHaveLength(0)
+    expect(batchGrantReads.map((ids) => [...ids].sort())).toEqual([[...issueIds].sort()])
   })
 
   it('returns nothing for blank text (the router schema rejects it upstream too)', async () => {

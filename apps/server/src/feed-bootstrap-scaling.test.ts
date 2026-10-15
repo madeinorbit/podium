@@ -354,6 +354,16 @@ async function seedGrantedIssues(reg: SessionRegistry, count: number): Promise<n
   ).length
 }
 
+/** Wait until the authority has delivered every captured batch. Its broadcast
+ *  prepares each batch (reading that batch's grant edges) on a promise tail
+ *  after the capture returns; a probe opened before it settles counts those
+ *  reads as the measured operation's. */
+async function publicationSettled(reg: SessionRegistry): Promise<void> {
+  const authority = internals(reg).ledger.authority as unknown as { broadcastTail: Promise<void> }
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  await authority.broadcastTail
+}
+
 /** Count the entire async pass, keeping the probes installed until delivery finishes. */
 async function grantReadsDuring(
   reg: SessionRegistry,
@@ -361,18 +371,22 @@ async function grantReadsDuring(
 ): Promise<{
   points: number
   batches: number
+  /** Grouped reads per resource kind. */
+  byKind: Map<string, number>
 }> {
   const { store } = internals(reg)
   const one = store.grants.listForResource.bind(store.grants)
   const many = store.grants.listForResources.bind(store.grants)
   let points = 0
   let batches = 0
+  const byKind = new Map<string, number>()
   store.grants.listForResource = async (kind, id) => {
     points++
     return await one(kind, id)
   }
   store.grants.listForResources = async (kind, ids) => {
     batches++
+    byKind.set(kind, (byKind.get(kind) ?? 0) + 1)
     return await many(kind, ids)
   }
   try {
@@ -381,19 +395,24 @@ async function grantReadsDuring(
     store.grants.listForResource = one
     store.grants.listForResources = many
   }
-  return { points, batches }
+  return { points, batches, byKind }
 }
 
-describe('POD-3870 — feed passes read grants from the world index', () => {
-  it('reads shared corpus grants without SQL, however large the corpus', async () => {
+// POD-3870 served these reads from the world index's grants copy; POD-6155
+// removed the copy. A pass now reads the edges it needs in one grouped query
+// per resource kind, so the count stays fixed however many rows are shared.
+describe('POD-6155 — feed passes read grants in one grouped query', () => {
+  it('reads shared corpus grants in one query, however large the corpus', async () => {
     const small = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const large = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
 
-    // CONTROL. Without it a count of 0 passes just as well against a world with
+    // CONTROL. Without it a fixed count passes just as well against a world with
     // no shared rows in it, which is the one way this could be satisfied for the
     // wrong reason.
     expect(await seedGrantedIssues(small, 4)).toBe(4)
     expect(await seedGrantedIssues(large, 32)).toBe(32)
+    await publicationSettled(small)
+    await publicationSettled(large)
 
     const a = await grantReadsDuring(small, () =>
       internals(small).ledger.authority.bootstrap(feedPrincipal),
@@ -402,11 +421,12 @@ describe('POD-3870 — feed passes read grants from the world index', () => {
       internals(large).ledger.authority.bootstrap(feedPrincipal),
     )
 
-    // Neither point nor batch grant SQL survives the index switch.
+    // No point read, and at either size one grouped read per resource kind the
+    // pass names: the issue edges once, never once per shared row.
     expect(a.points).toBe(0)
     expect(b.points).toBe(0)
-    expect(a.batches).toBe(0)
-    expect(b.batches).toBe(0)
+    expect(a.byKind.get('issue')).toBe(1)
+    expect(b.byKind).toEqual(a.byKind)
 
     // AND THE ANSWER IS UNCHANGED — the rows the grant admits are still in the
     // world. A prefetch that returned nothing would satisfy every count above.
@@ -414,7 +434,7 @@ describe('POD-3870 — feed passes read grants from the world index', () => {
     expect(world.changes.filter((change) => change.entity === 'issueProjection')).toHaveLength(32)
   })
 
-  it('reads them without SQL for a batch across subscribed principals', async () => {
+  it('reads them once for a batch across subscribed principals', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const { ledger, store } = internals(reg)
     // Session subjects do not trigger the issue-anchor rescope threshold (32).
@@ -474,7 +494,8 @@ describe('POD-3870 — feed passes read grants from the world index', () => {
       const reads = budget?.result ?? (await publish())
       if (budget) {
         expect(budget.statements).toBeGreaterThan(0)
-        expect([...budget.byQuery].filter(([sql]) => /\bgrants\b/i.test(sql))).toEqual([])
+        const grantReads = [...budget.byQuery].filter(([sql]) => /\bgrants\b/i.test(sql))
+        expect(grantReads.reduce((sum, [, n]) => sum + n, 0)).toBe(1)
       }
       expect(delivered).toEqual(Array.from({ length: 10 }, (_, i) => i))
       for (const batch of payloads) {
@@ -495,8 +516,8 @@ describe('POD-3870 — feed passes read grants from the world index', () => {
         )
       }
       expect(reads.points).toBe(0)
-      // No grant repository read remains in publication.
-      expect(reads.batches).toBe(0)
+      // One grouped grant read for the whole batch, not one per subscriber.
+      expect(reads.batches).toBe(1)
     } finally {
       for (const off of unsubscribe) off()
     }

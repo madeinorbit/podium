@@ -16,7 +16,6 @@ import {
 import { afterEach, describe, expect, expectTypeOf, it } from 'vitest'
 import { makeFeedVisibility } from './feed-visibility'
 import type { FeedVisibilityStore, IssueRow, SessionRow } from './hot-path-ports'
-import { WorldIndex } from './modules/world-index'
 import type { SessionStore } from './store'
 import type { GrantRow } from './store/grants'
 import { openTestStore } from './test-support/open-test-store'
@@ -33,7 +32,6 @@ afterEach(async () => {
 async function fixture() {
   const store = await openTestStore(':memory:')
   stores.push(store)
-  const world = await WorldIndex.load(store)
   const issue = { id: asIssueId('shared'), ownerUserId: owner } as IssueRow
   const session = {
     id: asSessionId('shared'),
@@ -57,11 +55,11 @@ async function fixture() {
       getOrder: async () => null,
     },
     automations: { ownersOf: async () => new Map(), runOwnersOf: async () => new Map() },
+    grants: store.grants,
     sync: store.sync,
   }
   const policy = makeFeedVisibility({
     store: rows,
-    worldIndex: world.reader,
     audienceResourceIds: (kind) => store.grants.visibilityAudienceResourceIds(kind),
     audienceFor: (kind, id) => store.grants.visibilityAudienceFor(kind, id),
     authorizationRevision: () => store.grants.visibilityRevision(),
@@ -79,7 +77,7 @@ async function fixture() {
       actorId: owner,
       onBehalfOf: owner,
     })
-  return { store, world, policy, grant }
+  return { store, policy, grant }
 }
 const refs: EntityRef[] = [
   { entity: 'issueProjection', entityId: 'shared' },
@@ -150,8 +148,10 @@ describe('feed visibility grant semantics', () => {
         ?.subjects,
     ).toContainEqual(git)
   })
-  it('cannot access grant persistence through its store port', () => {
-    expectTypeOf<FeedVisibilityStore>().not.toHaveProperty('grants')
+  it('reads grants through its store port but cannot write them', () => {
+    expectTypeOf<FeedVisibilityStore['grants']>().toHaveProperty('listForResources')
+    expectTypeOf<FeedVisibilityStore['grants']>().not.toHaveProperty('upsert')
+    expectTypeOf<FeedVisibilityStore['grants']>().not.toHaveProperty('remove')
   })
 
   it('observes committed writes and revocations but not rolled-back grants', async () => {

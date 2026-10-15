@@ -93,7 +93,7 @@ function harness(issueForCwd: () => Promise<string | null> = async () => null) {
       sessions: { getSession: get },
       users: { get: (id: string) => (id === USER ? { id } : undefined), roleOf: () => 'admin' },
       issues: { getIssue: () => ({ ownerUserId: USER }), getIssues: () => new Map() },
-      grants: { listForResource: () => [], listForResources: () => new Map() },
+      grants: { loadForResource: () => [], listForResources: () => new Map() },
     },
   } as never)
 }

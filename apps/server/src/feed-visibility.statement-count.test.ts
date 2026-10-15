@@ -1,7 +1,9 @@
 /**
  * Feed scoping runs a fixed number of statements, whatever the batch size
  * [POD-6149, server-data rule 8]: the prefetch for a change batch reads each
- * table once, and a lane departure reads its member issues together.
+ * table once, and a lane departure reads its member issues together. Grant
+ * edges come from the grants table (POD-6155): one grouped read per resource
+ * kind for a batch, one for a lane's members, never one per subject.
  */
 
 import { createHash } from 'node:crypto'
@@ -18,7 +20,6 @@ import {
 import type { EntityRef } from '@podium/sync'
 import { describe, expect, it } from 'vitest'
 import { makeFeedVisibility } from './feed-visibility'
-import { WorldIndex } from './modules/world-index'
 import type { SessionStore } from './store'
 import { openTestStore } from './test-support/open-test-store'
 import { expectConstantStatements, type StatementPin } from './test-support/statement-count'
@@ -121,7 +122,6 @@ interface Fixture {
  */
 async function fixture(size: number): Promise<Fixture> {
   const store = await openTestStore(':memory:')
-  const world = await WorldIndex.load(store)
   for (let i = 0; i < size; i++) {
     await store.issues.upsertIssue(issueRow(`iss_${i}`, i + 1))
     await store.shipping.createOrder(order(`order-${i}`, `iss_${i}`, `repo-${i}`))
@@ -142,7 +142,6 @@ async function fixture(size: number): Promise<Fixture> {
   })
   const policy = makeFeedVisibility({
     store,
-    worldIndex: world.reader,
     audienceResourceIds: (kind) => store.grants.visibilityAudienceResourceIds(kind),
     audienceFor: (kind, id) => store.grants.visibilityAudienceFor(kind, id),
     authorizationRevision: () => store.grants.visibilityRevision(),
@@ -150,9 +149,11 @@ async function fixture(size: number): Promise<Fixture> {
   return { store, policy, size }
 }
 
-/** A change batch naming `size` rows of every kind the prefetch resolves. */
-const batchRefs = (size: number): EntityRef[] =>
-  Array.from({ length: size }, (_, i): EntityRef[] => [
+/** A change batch naming `size` rows of every kind the prefetch resolves,
+ * plus the one issue shared with the reader. */
+const batchRefs = (size: number): EntityRef[] => [
+  { entity: 'issueProjection', entityId: 'shared_0' },
+  ...Array.from({ length: size }, (_, i): EntityRef[] => [
     { entity: 'issueProjection', entityId: `iss_${i}` },
     { entity: 'shipOrder', entityId: `order-${i}` },
     { entity: 'shipLane', entityId: shipLaneId(asRepoId(`repo-${i}`), 'local:main') },
@@ -160,7 +161,8 @@ const batchRefs = (size: number): EntityRef[] =>
     { entity: 'conversation', entityId: `resume-${i}` },
     { entity: 'automation', entityId: `automation-${i}` },
     { entity: 'automationRun', entityId: `run-${i}` },
-  ]).flat()
+  ]).flat(),
+]
 
 const pin = (
   name: string,
@@ -190,9 +192,13 @@ describe('feed scoping: pinned statement counts at 5 and 200 rows per kind', () 
           expect(s.mayRead(owner, lane)).toBe(true)
           expect(s.mayRead(reader, lane)).toBe(false)
           expect(s.mayRead(owner, { entity: 'automation', entityId: 'automation-0' })).toBe(false)
+          // The grant edge decides: shared with the reader, and nothing else is.
+          expect(s.mayRead(reader, { entity: 'issueProjection', entityId: 'shared_0' })).toBe(true)
+          expect(s.mayRead(reader, { entity: 'issueProjection', entityId: 'iss_0' })).toBe(false)
         },
       ),
-      7,
+      // 7 table reads, plus the issue grants and the session grants.
+      9,
     )
   })
 
@@ -220,7 +226,8 @@ describe('feed scoping: pinned statement counts at 5 and 200 rows per kind', () 
           return f
         },
       },
-      5,
+      // 5 reads, plus the member issues' grants.
+      6,
     )
   })
 })

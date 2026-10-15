@@ -1,10 +1,7 @@
-import { bindCommittedGrantReader } from './grant-reader'
 /**
  * Server-owned facts at the write funnel (POD-3869).
  *
  * OWNERSHIP AUDIT (apps/, packages/, scripts/, including non-server callers):
- * - Grants: store/grants.ts owns the three INSERT/DELETE writers; authorization
- *   and enrollment handlers call that repository, never a daemon SQLite handle.
  * - Issues: store/issues.ts owns upsert, shipping CAS, delete, renumber, repo
  *   reassignment and machine backfill. The existing IssueStore retains the full
  *   issue-row map and its boot loader/commit projection. This index adds only
@@ -29,7 +26,7 @@ import { bindCommittedGrantReader } from './grant-reader'
  * Migrations/heals run before loading; no cached authorization survives restart.
  *
  * COMMIT CHOICE: sync ChangeRow contains wire projections, not all owned facts.
- * All four repositories instead publish typed write RETURNING results through
+ * All three repositories instead publish typed write RETURNING results through
  * CommittedRows.write and applyAfterCommit (the same mandatory mechanism used
  * by Authority's onCommit adapter in relay.ts). This includes standalone writes,
  * changes absent from the sync log, and bulk updates. Rollback drops application;
@@ -47,26 +44,23 @@ import { type IssueId, isMessagePending } from '@podium/model'
 import type { SessionStore } from '../../store'
 import type { CommittedRowChange } from '../../store/committed-rows'
 import { applyAfterCommit, spanOpen } from '../../store/executor/executor'
-import { grantFromRow, type GrantRow } from '../../store/grants'
 import type { IssueWorktreeRow } from '../../store/issues'
 import { machineRecordFromRow } from '../../store/machines'
 import type { MessageQueueFact } from '../../store/messages'
 import type { MachineRecord } from '../../store/types'
-import type { grants, issues, machines } from '../../migrations/schema'
+import type { issues, machines } from '../../migrations/schema'
 
 export interface DeliveryTarget {
   readonly kind: string
   readonly id?: string | null
 }
 export interface WorldIndexReader {
-  grantsFor(kind: string, id: string): readonly Readonly<GrantRow>[]
   issueForWorktree(path: string): IssueId | undefined
   pendingCount(target: DeliveryTarget): number
   machine(id: string): Readonly<MachineRecord> | undefined
 }
 
 export type ChangeRow =
-  | ({ readonly kind: 'grants' } & CommittedRowChange<typeof grants.$inferSelect>)
   | ({ readonly kind: 'issues' } & CommittedRowChange<typeof issues.$inferSelect>)
   | ({ readonly kind: 'messages' } & CommittedRowChange<MessageQueueFact>)
   | ({ readonly kind: 'machines' } & CommittedRowChange<typeof machines.$inferSelect>)
@@ -78,7 +72,6 @@ const compareIssues = (a: IssueWorktreeRow, b: IssueWorktreeRow) =>
   a.repoPath.localeCompare(b.repoPath) || a.seq - b.seq || a.id.localeCompare(b.id)
 
 export class WorldIndex {
-  private readonly grantsByResource = new Map<string, GrantRow[]>()
   private readonly issuesById = new Map<string, IssueWorktreeRow>()
   private readonly worktreeMembers = new Map<string, Set<string>>()
   private readonly issuesByWorktree = new Map<string, IssueId>()
@@ -92,7 +85,6 @@ export class WorldIndex {
   private constructor() {}
 
   readonly reader: WorldIndexReader = Object.freeze({
-    grantsFor: (kind: string, id: string) => clone(this.grantsByResource.get(key(kind, id)) ?? []),
     issueForWorktree: (path: string) => {
       // Probe only component boundaries, deepest first: O(cwd depth), never
       // O(issue count). Preserve literal path semantics, including trailing '/'.
@@ -116,13 +108,11 @@ export class WorldIndex {
     if (existing) return existing
     const loading = store.transact(async () => {
       const started = performance.now()
-      // Four grouped/table reads, independent of the number of facts.
-      const grants = await store.grants.loadWorldGrants()
+      // Three grouped/table reads, independent of the number of facts.
       const issues = await store.issues.loadWorldIssuePaths()
       const pending = await store.messages.loadWorldPending()
       const machines = await store.machines.listMachines()
       const index = new WorldIndex()
-      for (const row of grants) index.putGrant(row)
       for (const row of issues) {
         index.issuesById.set(row.id, row)
         if (!row.worktreePath || row.deletedAt) continue
@@ -143,11 +133,9 @@ export class WorldIndex {
       for (const row of machines) index.machineRecords.set(row.id, row)
       index.elapsedMs = performance.now() - started
       applyAfterCommit(() => {
-        store.grants.committed.subscribe((change) => index.apply({ kind: 'grants', ...change }))
         store.issues.committed.subscribe((change) => index.apply({ kind: 'issues', ...change }))
         store.messages.committed.subscribe((change) => index.apply({ kind: 'messages', ...change }))
         store.machines.committed.subscribe((change) => index.apply({ kind: 'machines', ...change }))
-        bindCommittedGrantReader(store.grants, index.reader)
       }, 'world-index:load')
       return index
     })
@@ -158,19 +146,6 @@ export class WorldIndex {
 
   apply(change: ChangeRow): void {
     switch (change.kind) {
-      case 'grants':
-        for (const raw of change.rows) {
-          const resource = key(raw.resourceKind, raw.resourceId)
-          const rows = (this.grantsByResource.get(resource) ?? []).filter(
-            (row) => row.grantee !== raw.grantee || row.verb !== raw.verb,
-          )
-          this.grantsByResource.set(resource, rows)
-          const row = grantFromRow(raw)
-          if (change.operation === 'upsert' && row) this.putGrant(row)
-          if (this.grantsByResource.get(resource)?.length === 0)
-            this.grantsByResource.delete(resource)
-        }
-        break
       case 'issues':
         for (const raw of change.rows) {
           if (change.operation === 'upsert' && !raw.deletedAt) this.putIssue(raw.id, raw)
@@ -205,14 +180,6 @@ export class WorldIndex {
         }
         break
     }
-  }
-
-  private putGrant(row: GrantRow): void {
-    const resource = key(row.resourceKind, row.resourceId)
-    const rows = this.grantsByResource.get(resource) ?? []
-    rows.push(row)
-    rows.sort((a, b) => a.createdAt.localeCompare(b.createdAt))
-    this.grantsByResource.set(resource, rows)
   }
 
   private putIssue(id: string, next: IssueWorktreeRow | undefined): void {

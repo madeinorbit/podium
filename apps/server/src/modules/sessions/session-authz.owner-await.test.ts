@@ -59,7 +59,7 @@ interface Counts {
   getSession: number
   getIssue: number
   getIssues: number
-  listForResource: number
+  loadForResource: number
   listForResources: number
 }
 
@@ -68,7 +68,7 @@ function harness() {
     getSession: 0,
     getIssue: 0,
     getIssues: 0,
-    listForResource: 0,
+    loadForResource: 0,
     listForResources: 0,
   }
   const authz = new SessionAuthz({
@@ -108,8 +108,8 @@ function harness() {
         },
       },
       grants: {
-        listForResource: async (kind: string, id: string) => {
-          counts.listForResource += 1
+        loadForResource: async (kind: string, id: string) => {
+          counts.loadForResource += 1
           return kind === 'issue' && id === ISSUE ? GRANTS : []
         },
         listForResources: async (kind: string, ids: readonly string[]) => {
@@ -146,7 +146,7 @@ describe('session ownership resolves through the store reads [POD-3507]', () => 
     // so a fixture that accidentally served it from memory would prove nothing.
     expect(counts.getSession).toBe(1)
     expect(counts.getIssue).toBe(1)
-    expect(counts.listForResource).toBe(1)
+    expect(counts.loadForResource).toBe(1)
   })
 
   it('names the ISSUE owner through an UNPRIMED memo', async () => {
@@ -178,7 +178,7 @@ describe('session ownership resolves through the store reads [POD-3507]', () => 
     expect(counts.getIssues).toBe(1)
     expect(counts.listForResources).toBe(1)
     expect(counts.getIssue).toBe(0)
-    expect(counts.listForResource).toBe(0)
+    expect(counts.loadForResource).toBe(0)
   })
 
   it('primes the memo with ROWS, not with pending promises', async () => {

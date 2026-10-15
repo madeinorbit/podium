@@ -4,35 +4,23 @@ import { GrantEdgeVisibilityPolicy, NoDelegationsGranted } from '@podium/sync/bo
 import { SyncRepository } from '@podium/sync/adapters/sqlite/sync-repository'
 import { makeFeedVisibility } from '../feed-visibility'
 import { syncServerTables } from '../migrations/sync-server-tables'
-import type { WorldIndexReader } from '../modules/world-index'
 import { createBunStoreExecutor } from '../store/executor/bun-driver'
 import { IssuesRepository } from '../store/issues'
 import { SessionsRepository } from '../store/sessions'
 import { ShippingRepository } from '../store/shipping'
 import { AutomationsRepository } from '../store/automations'
-import { GrantsRepository, type GrantRow } from '../store/grants'
+import { GrantsRepository } from '../store/grants'
 
 const unsupported = (): never => { throw new Error('snapshot cannot use writer state') }
-const key = (kind: string, id: string) => JSON.stringify([kind, id])
 
 /** Construct only query repositories: no SessionStore, migrations, authority or publication. */
 export function bootstrapVisibility(database: SqlDatabase) {
   const executor = createBunStoreExecutor({ database })
   const context = (async () => {
   const q = executor.queries
+  // Caller has already established the read transaction; every grant read
+  // below asks for the resources it needs and belongs to that snapshot.
   const grants = new GrantsRepository(q)
-  const byResource = new Map<string, GrantRow[]>()
-  // Caller has already established the read transaction; grants belong to its snapshot.
-  for (const grant of await grants.loadWorldGrants()) {
-    const k = key(grant.resourceKind, grant.resourceId)
-    const rows = byResource.get(k) ?? []
-    rows.push(grant)
-    byResource.set(k, rows)
-  }
-  const worldIndex: WorldIndexReader = {
-    grantsFor: (kind, id) => byResource.get(key(kind, id)) ?? [],
-    issueForWorktree: unsupported, pendingCount: unsupported, machine: unsupported,
-  }
   const sync = new SyncRepository(q, syncServerTables)
   // The publisher mutates its window before capture and may swallow failure
   // (POD-4033). Only committed rows belong to this snapshot, in event-id order.
@@ -53,9 +41,9 @@ export function bootstrapVisibility(database: SqlDatabase) {
       sessions: new SessionsRepository(q, unsupported),
       shipping: new ShippingRepository(q),
       automations: new AutomationsRepository(q),
+      grants,
       sync,
     },
-    worldIndex,
     audienceResourceIds: kind => grants.visibilityAudienceResourceIds(kind),
     audienceFor: (kind, id) => grants.visibilityAudienceFor(kind, id),
     // A job-local cache lives only as long as this immutable read snapshot.

@@ -12,7 +12,6 @@ import WebSocket from 'ws'
 const { Authority, DEVICE_GRADE_PRINCIPAL, GrantEdgeVisibilityPolicy, NoDelegationsGranted } =
   await import('@podium/sync')
 const { makeFeedVisibility } = await import('../feed-visibility')
-const { WorldIndex } = await import('../modules/world-index')
 const { openTestStore } = await import('../test-support/open-test-store')
 const { SyncWorkerClient } = await import('../sync-worker/worker-client')
 const { registerSyncRoutes } = await import('./routes')
@@ -90,13 +89,11 @@ async function fixture() {
   const path = join(dir, 'world.db')
   const store = await openTestStore(path)
   const worker = new SyncWorkerClient({ dbPath: path })
-  const world = await WorldIndex.load(store)
   const forbidden = (): never => {
     throw new Error('bootstrap read an anchor')
   }
   const feed = makeFeedVisibility({
     store,
-    worldIndex: world.reader,
     audienceResourceIds: forbidden,
     audienceFor: forbidden,
     issueEventSubjects: forbidden,
@@ -462,10 +459,8 @@ describe('snapshot delta producer', () => {
         3,
       )
       const through = await store.sync.maxChangeSeq()
-      const world = await WorldIndex.load(store)
       const feed = makeFeedVisibility({
         store,
-        worldIndex: world.reader,
         audienceResourceIds: (kind) => store.grants.visibilityAudienceResourceIds(kind),
         audienceFor: (kind, id) => store.grants.visibilityAudienceFor(kind, id),
         authorizationRevision: () => store.grants.visibilityRevision(),

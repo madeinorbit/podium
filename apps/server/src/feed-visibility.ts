@@ -53,7 +53,6 @@ import type {
 import type { FeedVisibilityStore, GrantRow, IssueRow, SessionRow } from './hot-path-ports'
 import { perfPrincipal } from './modules/perf/principal'
 import { perf } from './modules/perf/registry'
-import type { WorldIndexReader } from './modules/world-index'
 
 /**
  * The store reads a feed bootstrap can cause, named so each is separately
@@ -68,6 +67,7 @@ type BootstrapReadPhase =
   | 'visibility.automationRun.runOwnerOf'
   | 'visibility.shipOrder.issueIdForOrder'
   | 'visibility.shipLane.memberIssueIds'
+  | 'visibility.grants.listForResources'
 
 interface BootstrapReadTrace {
   readonly phases: Map<BootstrapReadPhase, number>
@@ -90,9 +90,8 @@ type BootstrapVisibilityPrefetch = {
   readonly sessions: ReadonlyMap<string, SessionRow>
   readonly resumeValues: ReadonlySet<string>
   readonly sessionsByResumeValue: ReadonlyMap<string, SessionRow>
-  /** Committed grant edges, copied from the world index for this pass.
-   * ID sets distinguish an empty answer from an unprepared ref. Preparation
-   * runs after commit for delta publication; no read-your-writes is required.
+  /** Grant edges for this pass, one grouped read per resource kind.
+   * ID sets distinguish an empty answer from an unprepared ref.
    */
   readonly issueGrants: ReadonlyMap<string, readonly GrantRow[]>
   readonly sessionGrants: ReadonlyMap<string, readonly GrantRow[]>
@@ -156,7 +155,6 @@ type BootstrapReadCache = {
 /** The store surface this policy reads. Nothing here writes. */
 export interface FeedVisibilityDeps {
   readonly store: FeedVisibilityStore
-  readonly worldIndex: WorldIndexReader
   /** Historical audiences include revoked readers; current edges cannot replace
    * them. These existing memory-only signals remain owned by the grant writer. */
   readonly audienceResourceIds: (kind: string) => Promise<string[]>
@@ -199,7 +197,7 @@ export interface FeedVisibility {
 }
 
 export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
-  const { store, worldIndex } = deps
+  const { store } = deps
 
   const traces: BootstrapReadTrace[] = []
   const measure = async <T>(phase: BootstrapReadPhase, fn: () => T | Promise<T>): Promise<T> => {
@@ -237,7 +235,9 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
       async () => await readIssue(store.issues, issueId),
     )
     if (row?.ownerUserId === userId) return true
-    return worldIndex.grantsFor('issue', issueId).some((edge) => issueGrantAdmits(edge, userId))
+    return (await store.grants.loadForResource('issue', issueId)).some((edge) =>
+      issueGrantAdmits(edge, userId),
+    )
   }
 
   const mayReadIssueFromSnapshot = (
@@ -561,10 +561,21 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
       'visibility.automationRun.runOwnerOf',
       (ids) => store.automations.runOwnersOf(ids),
     )
-    const issueGrants = new Map([...issueIds].map((id) => [id, worldIndex.grantsFor('issue', id)]))
-    const sessionGrants = new Map(
-      [...grantedSessionIds].map((id) => [id, worldIndex.grantsFor('session', id)]),
-    )
+    // One grouped read per resource kind for the whole batch; every asked id
+    // gets an entry, `[]` for "no edges".
+    const grantsOf = async (
+      kind: 'issue' | 'session',
+      ids: ReadonlySet<string>,
+    ): Promise<Map<string, readonly GrantRow[]>> => {
+      if (ids.size === 0) return new Map()
+      const found = await measure(
+        'visibility.grants.listForResources',
+        async () => await store.grants.listForResources(kind, [...ids]),
+      )
+      return new Map([...ids].map((id) => [id, found.get(id) ?? []]))
+    }
+    const issueGrants = await grantsOf('issue', issueIds)
+    const sessionGrants = await grantsOf('session', grantedSessionIds)
     return makeVisibilityState({
       issueIds,
       issues,
@@ -756,12 +767,19 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
             'visibility.issue.getIssue',
             async () => await readIssues(store.issues, members),
           )
+    const memberGrants =
+      members.length === 0
+        ? new Map<string, GrantRow[]>()
+        : await measure(
+            'visibility.grants.listForResources',
+            async () => await store.grants.listForResources('issue', members),
+          )
     const audience: string[] = []
     for (const userId of candidates) {
       const readable = members.some(
         (issueId) =>
           memberRows.get(issueId)?.ownerUserId === userId ||
-          worldIndex.grantsFor('issue', issueId).some((edge) => issueGrantAdmits(edge, userId)),
+          (memberGrants.get(issueId) ?? []).some((edge) => issueGrantAdmits(edge, userId)),
       )
       if (!readable) audience.push(userId)
     }

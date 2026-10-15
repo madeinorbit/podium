@@ -55,7 +55,6 @@ import type { SettingsAuditRow } from '../../store/settings-audit'
 import type { EventBus } from '../bus'
 import type { Send } from '../sessions/session'
 import type { WorldIndexReader } from '../world-index'
-import { readResourceGrants } from '../world-index/grant-reader'
 import type { EnrollmentHost, MachineManagementContext } from './enrollment'
 import * as credentials from './enrollment'
 import { sha256 } from './enrollment'
@@ -1616,16 +1615,20 @@ export class MachinesService {
   }
 
   /**
-   * The grant edges on one machine, read STRAIGHT FROM THE TABLE (POD-1079).
+   * The grant edges on one machine, read from the table (POD-1079, POD-6155).
    *
-   * Deliberately NOT served from `machineRecordsCache`. That cache exists because
-   * `listSessions` resolves a machine NAME per session on the hottest path; a
-   * grant is consulted once per access decision, and caching it would reintroduce
-   * the exact failure ADR 9 D2 rule 4 forbids — a revoked share that keeps
-   * working until somebody remembers to invalidate.
+   * Never served from a cache: caching a grant would reintroduce the exact
+   * failure ADR 9 D2 rule 4 forbids — a revoked share that keeps working until
+   * somebody remembers to invalidate. Inside one operation's read scope the
+   * repository's loader batches the reads; inside a write span they stay live.
    */
   async grantsForMachine(machineId: MachineId): Promise<{ grantee: string; verb: string; custody?: boolean }[]> {
-    return await readResourceGrants(this.deps.store.grants, 'machine', machineId)
+    return await this.deps.store.grants.loadForResource('machine', machineId)
+  }
+
+  /** {@link grantsForMachine} for many machines in one query. */
+  async grantsForMachines(machineIds: readonly MachineId[]): Promise<Map<string, { grantee: string; verb: string; custody?: boolean }[]>> {
+    return await this.deps.store.grants.listForResources('machine', machineIds)
   }
 
   /** Persist a daemon's inventoryReport (#222) on its machine row. */

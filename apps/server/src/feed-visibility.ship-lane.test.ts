@@ -26,7 +26,6 @@ import {
 } from '@podium/sync'
 import { afterEach, describe, expect, it } from 'vitest'
 import { makeFeedVisibility } from './feed-visibility'
-import { WorldIndex } from './modules/world-index'
 import type { SessionStore } from './store'
 import { openTestStore } from './test-support/open-test-store'
 
@@ -142,7 +141,6 @@ const principal = (user: string): Principal => ({
 async function fixture() {
   const store = await openTestStore(':memory:')
   stores.push(store)
-  const world = await WorldIndex.load(store)
   await store.issues.upsertIssue(issueRow('iss_shared', 1))
   await store.issues.upsertIssue(issueRow('iss_private', 2))
   await store.shipping.createOrder(order('order-shared', 'iss_shared', 1))
@@ -163,7 +161,6 @@ async function fixture() {
   await grant('iss_shared', reader)
   const policy = makeFeedVisibility({
     store,
-    worldIndex: world.reader,
     audienceResourceIds: (kind) => store.grants.visibilityAudienceResourceIds(kind),
     audienceFor: (kind, id) => store.grants.visibilityAudienceFor(kind, id),
     authorizationRevision: () => store.grants.visibilityRevision(),

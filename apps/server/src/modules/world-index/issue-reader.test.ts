@@ -90,8 +90,7 @@ describe.each([false, true])('issue authority, bound=%s', bound => {
     const { store } = await setup(bound)
     const access = new DurableIssueAccessIndex(store.issues, store.grants, store.repos)
     const policy = new MemoryVisibilityPolicy(store)
-    const world = await WorldIndex.load(store)
-    const feed = makeFeedVisibility({ store, worldIndex: world.reader,
+    const feed = makeFeedVisibility({ store,
       audienceResourceIds: kind => store.grants.visibilityAudienceResourceIds(kind),
       audienceFor: (kind, id) => store.grants.visibilityAudienceFor(kind, id),
       authorizationRevision: () => store.grants.visibilityRevision() })

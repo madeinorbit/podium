@@ -29,7 +29,7 @@ import type { SessionOwnerMemo } from './session-state/service'
 interface Counts {
   getIssue: number
   getIssues: number
-  listForResource: number
+  loadForResource: number
   listForResources: number
 }
 
@@ -67,7 +67,7 @@ const GRANTS: GrantRow[] = [
 ]
 
 function harness() {
-  const counts: Counts = { getIssue: 0, getIssues: 0, listForResource: 0, listForResources: 0 }
+  const counts: Counts = { getIssue: 0, getIssues: 0, loadForResource: 0, listForResources: 0 }
   const matching = (kind: string, id: string): GrantRow[] =>
     GRANTS.filter((g) => g.resourceKind === kind && g.resourceId === id)
 
@@ -95,8 +95,8 @@ function harness() {
         },
       },
       grants: {
-        listForResource: async (kind: string, id: string) => {
-          counts.listForResource += 1
+        loadForResource: async (kind: string, id: string) => {
+          counts.loadForResource += 1
           return matching(kind, id)
         },
         listForResources: async (kind: string, ids: readonly string[]) => {
@@ -157,7 +157,7 @@ describe('per-pass ownership memo [POD-1653]', () => {
     expect(counts.getIssues).toBe(1)
     expect(counts.getIssue).toBe(0)
     expect(counts.listForResources).toBe(2)
-    expect(counts.listForResource).toBe(0)
+    expect(counts.loadForResource).toBe(0)
   })
 
   it('does not grow its read count when the pass grows', async () => {

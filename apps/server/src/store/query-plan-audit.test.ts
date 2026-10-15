@@ -541,10 +541,6 @@ const WHOLE_TABLE_READS: ReadonlyMap<string, string> = new Map([
     'Whole-table read (POD-6172): every grant of one resource kind.',
   ],
   [
-    'apps/server/src/store/grants.ts:allGrants',
-    'Whole-table read (POD-6172): boot load of the world index grants (POD-6155).',
-  ],
-  [
     'apps/server/src/store/machines.ts:legacySentinelScan',
     'Whole-table read (POD-6172): boot check that no row in any table still names a retired machine sentinel; a sweep by design.',
   ],

@@ -1,6 +1,5 @@
 import { readIssue, readIssues } from '../world-index/issue-reader'
 import { spanOpen } from '../../store/executor/executor'
-import { readResourceGrants, readResourcesGrants } from '../world-index/grant-reader'
 /**
  * Session apply-time authorization and ownership (POD-1396).
  * Queued-input authorize-at-apply, drive gate, machine use, session owner.
@@ -41,7 +40,7 @@ export interface SessionAuthzStorePort {
   readonly users: Pick<SessionStore['users'], 'get' | 'roleOf' | 'earliestAdmin'>
   readonly sessions: Pick<SessionStore['sessions'], 'getSession'>
   readonly issues: Pick<SessionStore['issues'], 'getIssue' | 'getIssues'>
-  readonly grants: Pick<SessionStore['grants'], 'listForResource' | 'listForResources'>
+  readonly grants: Pick<SessionStore['grants'], 'loadForResource' | 'listForResources'>
 }
 
 export interface SessionAuthzPorts {
@@ -359,7 +358,7 @@ export class SessionAuthz {
     for (const [kind, ids] of byKind) {
       const wanted = [...ids].filter((id) => !memo.grants.has(`${kind}:${id}`))
       if (wanted.length === 0) continue
-      const found = await readResourcesGrants(this.ports.store.grants, kind, wanted)
+      const found = await this.ports.store.grants.listForResources(kind, wanted)
       for (const id of wanted) {
         memo.grants.set(`${kind}:${id}`, granteesOf(found.get(id) ?? []))
       }
@@ -388,7 +387,7 @@ export class SessionAuthz {
     memo?: SessionOwnerMemo,
   ): Promise<string[]> {
     const compute = async (): Promise<string[]> =>
-      granteesOf(await readResourceGrants(this.ports.store.grants, resourceKind, resourceId))
+      granteesOf(await this.ports.store.grants.loadForResource(resourceKind, resourceId))
     if (!memo || spanOpen()) return compute()
     const key = `${resourceKind}:${resourceId}`
     const hit = memo.grants.get(key)

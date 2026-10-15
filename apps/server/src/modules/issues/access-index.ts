@@ -5,7 +5,6 @@ import { isMemberCwd } from '../../issue-util'
 import type { GrantsRepository } from '../../store/grants'
 import type { IssuesRepository } from '../../store/issues'
 import type { ReposRepository } from '../../store/repos'
-import { readResourceGrants } from '../world-index/grant-reader'
 import { readIssue, readIssueCwdRows } from '../world-index/issue-reader'
 
 /** Issue authorization reads the committed IssueStore rows outside mutation
@@ -47,7 +46,7 @@ export class DurableIssueAccessIndex implements IssueAccessIndex {
       kind: 'owned' as const,
       id: row.id,
       owner: row.ownerUserId ?? null,
-      grants: (await readResourceGrants(this.grants, 'issue', row.id))
+      grants: (await this.grants.loadForResource('issue', row.id))
         .filter((edge) => covers(edge.verb))
         .map((edge) => edge.grantee),
     }

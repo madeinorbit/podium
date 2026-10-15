@@ -81,6 +81,10 @@ export interface AsyncMachineRowSource {
   ):
     | { grantee: string; verb: string; custody?: boolean }[]
     | Promise<{ grantee: string; verb: string; custody?: boolean }[]>
+  /** Every listed machine's edges in one read; a machine with none is absent. */
+  grantsForMachines?(
+    machineIds: readonly MachineId[],
+  ): Promise<ReadonlyMap<string, readonly { grantee: string; verb: string; custody?: boolean }[]>>
 }
 
 /** The verbs a machine grant can carry, as a runtime membership test. A stored
@@ -126,9 +130,11 @@ export async function ownershipSnapshotFromMachines(
   machines: AsyncMachineRowSource,
 ): Promise<MachineOwnershipIndex> {
   const rows = await machines.ownershipRows()
+  // One grouped read for the fleet when the source offers it (rule 2).
+  const grouped = machines.grantsForMachines ? await machines.grantsForMachines(rows.map((row) => row.id)) : undefined
   const resolved = await Promise.all(
     rows.map(async (row): Promise<MachineOwnershipRow> => {
-      const edges = ((await machines.grantsForMachine?.(row.id)) ?? [])
+      const edges = ((grouped ? grouped.get(row.id) : await machines.grantsForMachine?.(row.id)) ?? [])
         .filter((edge) => MACHINE_VERBS.includes(edge.verb))
         .map((edge) => ({ subject: edge.grantee as UserId, verb: edge.verb as MachineVerb, custody: edge.custody === true }))
       return {

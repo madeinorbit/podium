@@ -122,15 +122,25 @@ async function regWithRevocableMachineGrant() {
 
   let grantReads = 0
   const liveGrants = reg.modules.machines.grantsForMachine.bind(reg.modules.machines)
+  const liveFleetGrants = reg.modules.machines.grantsForMachines.bind(reg.modules.machines)
+  // One read of this machine's edges, by either the single or the fleet read;
+  // the first one is followed by a revocation.
+  const counted = async () => {
+    grantReads += 1
+    if (grantReads === 1) {
+      await store.grants.remove('machine', SHARED_MACHINE, firstAdminMemberId(), 'use')
+    }
+  }
   const revokeAfterFirstGrantRead = () => {
     vi.spyOn(reg.modules.machines, 'grantsForMachine').mockImplementation(async (machineId) => {
       const snapshot = await liveGrants(machineId)
       // The ownership snapshot also reads the host machine; count this resource only.
-      if (machineId !== SHARED_MACHINE) return snapshot
-      grantReads += 1
-      if (grantReads === 1) {
-        await store.grants.remove('machine', SHARED_MACHINE, firstAdminMemberId(), 'use')
-      }
+      if (machineId === SHARED_MACHINE) await counted()
+      return snapshot
+    })
+    vi.spyOn(reg.modules.machines, 'grantsForMachines').mockImplementation(async (machineIds) => {
+      const snapshot = await liveFleetGrants(machineIds)
+      if (machineIds.includes(SHARED_MACHINE)) await counted()
       return snapshot
     })
   }

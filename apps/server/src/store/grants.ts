@@ -1,9 +1,8 @@
 import { CommittedRows } from './committed-rows'
 /**
- * Durable grant edges, never cached authorization decisions. Existing readers
- * still query this repository. WorldIndex separately mirrors these rows through
- * the mandatory commit application: a revocation and its in-memory edge removal
- * commit together, so there is no cache invalidation or stale-rights interval.
+ * Durable grant edges, never cached authorization decisions. Every reader asks
+ * this repository; there is no in-memory copy (POD-6155), so a revocation is
+ * visible to the next read, inside or outside the writing transaction.
  * The granter's CURRENT rights must still be evaluated at every decision.
  */
 
@@ -125,10 +124,6 @@ const grantsOfKind = prepared((db: StoreDrizzle) =>
     .where(eq(grants.resourceKind, param(grants.resourceKind, 'resourceKind')))
     .orderBy(asc(grants.createdAt))
     .prepare(),
-)
-
-const allGrants = prepared((db: StoreDrizzle) =>
-  db.select().from(grants).orderBy(asc(grants.createdAt)).prepare(),
 )
 
 /** `custody` keeps the stored marker when the row does not name one: two shapes. */
@@ -264,9 +259,6 @@ export class GrantsRepository {
    * The same LIVE read as {@link listForResource}, asked about MANY resources at
    * once [POD-1653].
    *
-   * This API remains a live batched read. WorldIndex is a separate committed
-   * fact capability; switching authorization callers belongs to the child issues.
-   *
    * Why it was needed: a reader-scoped session projection asked this question
    * once per session, and for the ~1145 sessions with no issue the resource key
    * is the session's own id — unique per row, so nothing could ever coalesce
@@ -346,12 +338,6 @@ export class GrantsRepository {
       const row = grantFromRow(r)
       return row ? [row] : []
     })
-  }
-
-  /** One boot statement, sharing the same fail-closed decoder as live reads. */
-  async loadWorldGrants(): Promise<GrantRow[]> {
-    return (await allGrants(this.db).all())
-      .flatMap((row) => { const grant = grantFromRow(row); return grant ? [grant] : [] })
   }
 
   /**

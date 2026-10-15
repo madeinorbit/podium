@@ -194,7 +194,6 @@ import type { ServerPlacement } from './modules/updates/service'
 import { UpdatesService } from './modules/updates/service'
 import { WorkflowService } from './modules/workflows/service'
 import { WorldIndex, type WorldIndexReader } from './modules/world-index'
-import { readResourceGrants } from './modules/world-index/grant-reader'
 import { readClosedIssueIds, readIssue } from './modules/world-index/issue-reader'
 import { inferRepoFromRoots } from './repo-registry'
 import { JANITOR_STEWARD_EVENT_LIMIT, StewardService, stewardNoticeSender } from './steward'
@@ -975,7 +974,6 @@ export class SessionRegistry {
     let issueEventFeed: IssueEventFeedPublisher | undefined
     const feedVisibility = makeFeedVisibility({
       store: this.store,
-      worldIndex: this.worldIndex,
       audienceResourceIds: (kind) => this.store.grants.visibilityAudienceResourceIds(kind),
       audienceFor: (kind, id) => this.store.grants.visibilityAudienceFor(kind, id),
       authorizationRevision: () => this.store.grants.visibilityRevision(),
@@ -1419,7 +1417,7 @@ export class SessionRegistry {
       if (!session) return undefined
       return {
         owner: session.ownerUserId,
-        grants: (await readResourceGrants(this.store.grants, 'session', sessionId))
+        grants: (await this.store.grants.loadForResource('session', sessionId))
           .filter((edge) => edge.verb === 'read' || edge.verb === 'write' || edge.verb === 'manage')
           .map((edge) => edge.grantee),
       }
@@ -2464,11 +2462,7 @@ export class SessionRegistry {
             const entityKey = key(entity)
             if (owners.has(entityKey)) continue
             owners.set(entityKey, await this.store.workflows.ownerOf(entity.kind, entity.id))
-            for (const grant of await readResourceGrants(
-              this.store.grants,
-              entity.kind,
-              entity.id,
-            )) {
+            for (const grant of await this.store.grants.loadForResource(entity.kind, entity.id)) {
               grants.add(`${grant.grantee}\u0000${entityKey}\u0000${grant.verb}`)
             }
           }
