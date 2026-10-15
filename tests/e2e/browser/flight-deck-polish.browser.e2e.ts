@@ -2,7 +2,7 @@ import { mkdir } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { type APIRequestContext, expect, type Page, test } from '@playwright/test'
-import { RELAY } from './_harness'
+import { expandFlightDeckIfFolded, RELAY } from './_harness'
 
 test.skip(({ isMobile }) => isMobile, 'desktop Flight Deck')
 test.setTimeout(180_000)
@@ -96,6 +96,8 @@ test('issue-first hierarchy, distinct live status, and animated open/close contr
     .first()
   await expect(issueRow).toBeVisible({ timeout: 30_000 })
   await issueRow.locator('button.flex-1').first().click()
+  // A new install boots the deck folded (since the first-run flow); open it.
+  await expandFlightDeckIfFolded(page)
 
   const deck = page.locator('aside[aria-label="Flight Deck"]')
   await expect(deck).toBeVisible({ timeout: 20_000 })
