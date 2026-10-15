@@ -44,6 +44,7 @@ import {
   waitingNote,
 } from './mission'
 import { type IssueNavigationModel, issuePendingDecision } from './compose/issues'
+import { isFinished as issueClosed, sessionWord, wordWantsAttention } from '@podium/model/browser'
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -729,8 +730,9 @@ describe('missionDepartures', () => {
   it('names the work that left, and the task it left from', () => {
     const out = missionDepartures([...base, departed()], sessions, 'root')
     expect(out.map((d) => [d.issue.id, d.originId])).toEqual([['spin', 'c1']])
-    // It reports what the work is doing OUT THERE, in the spine's own words.
-    expect(out[0]?.state.label).toBe('Not started')
+    // It reports what the work is doing OUT THERE, in the spine's own words:
+    // claimed (`in_progress`) with nobody on it now is Idle (D6).
+    expect(out[0]?.state.label).toBe('Idle')
   })
 
   it('keeps concurrent sibling spin-offs from the same task', () => {
@@ -2998,81 +3000,149 @@ describe('issueNote', () => {
 // ---------------------------------------------------------------------------
 
 describe('deckIssueState', () => {
-  // `Next` promised an order the deck could not keep (round 3 §7a): a proposal
-  // is not scheduled, and neither is anything else with nobody on it.
-  it('calls a proposal a proposal, not the next thing', () => {
-    const state = deckIssueState(issue('a', { stage: 'proposed' }), [])
-    expect(state.state).toBe('proposed')
-    expect(state.label).toBe('Proposed')
-  })
-
-  it('claims no order for other unstaffed work', () => {
+  it('says Not started for anything nobody has taken up, a proposal included', () => {
+    expect(deckIssueState(issue('a', { stage: 'proposed' }), []).label).toBe('Not started')
     expect(deckIssueState(issue('a', { stage: 'backlog' }), []).label).toBe('Not started')
   })
 
-  it('still reads as running when an agent picks a proposal up', () => {
+  it('reads Working when an agent picks a proposal up', () => {
     const live = sess('s', { issueId: 'a', agentState: workingState })
     expect(deckIssueState(issue('a', { stage: 'proposed' }), [live]).state).toBe('working')
   })
 
-  // POD-1074 gave the strip its cancel glyph (`issueStatusOf` → `StatusGlyph`)
-  // and left the word beside it reading `Done`, so a cancelled row contradicted
-  // itself twice in 70px. Every spelling of the cancelled CATEGORY answers
-  // here, including the legacy `wontfix` rows that never migrate.
-  it.each([
-    ['cancelled'],
-    ['duplicate'],
-    ['superseded'],
-    ['wontfix'],
-    ["won't fix"],
-  ])('says Cancelled, not Done, for %s', (reason) => {
-    const state = deckIssueState(issue('a', { closedReason: reason }), [])
-    expect(state.state).toBe('cancelled')
-    expect(state.label).toBe('Cancelled')
-  })
+  // POD-1074 gave the strip its cancel glyph. The word is Done in every count
+  // (D6), but the label says what the glyph beside it says, in every spelling of
+  // the cancelled category, including legacy `wontfix` rows that never migrate.
+  it.each([['cancelled'], ['duplicate'], ['superseded'], ['wontfix'], ["won't fix"]])(
+    'is Done, labelled Cancelled, for %s',
+    (reason) => {
+      const state = deckIssueState(issue('a', { closedReason: reason }), [])
+      expect(state.state).toBe('done')
+      expect(state.label).toBe('Cancelled')
+    },
+  )
 
-  it.each([['done'], [undefined]])('still says Done for a completed task (%s)', (reason) => {
+  it.each([['done'], [undefined]])('says Done for a completed task (%s)', (reason) => {
     const target = reason ? issue('a', { closedReason: reason }) : issue('a', { stage: 'done' })
     expect(deckIssueState(target, []).label).toBe('Done')
   })
 
-  // An UNRECOGNISED reason is still a close, and `done` is the honest
-  // stage-level answer — the same call `issueStatusOf` makes.
   it('does not read an unknown close reason as cancelled', () => {
-    expect(deckIssueState(issue('a', { closedReason: 'shipped' }), []).state).toBe('done')
+    expect(deckIssueState(issue('a', { closedReason: 'shipped' }), []).label).toBe('Done')
   })
 
-  // POD-1601 — the strip used to cover a dead agent with whatever its STAGE
-  // implied. A task in `review` whose only agent errored read `Standing by`.
+  it('rolls a sub-issue up: a parent shows its most urgent descendant (D6)', () => {
+    const live = sess('s', { issueId: 'a', agentState: workingState })
+    expect(deckIssueState(issue('a'), [live], { children: ['error'] }).state).toBe('error')
+    expect(deckIssueState(issue('a', { stage: 'backlog' }), [], { children: ['blocked'] }).state).toBe('blocked')
+  })
+
+  it('counts a blocked-by target the deck already sees open', () => {
+    expect(deckIssueState(issue('a', { stage: 'backlog' }), [], { unmetDependency: true }).state).toBe('blocked')
+  })
+
   describe('an agent that stopped on an error', () => {
-    const dead = (over = {}) =>
-      sess('s', { issueId: 'a', agentState: erroredState(false), ...over })
+    const dead = (over = {}) => sess('s', { issueId: 'a', agentState: erroredState(false), ...over })
 
-    it('says Errored instead of the stage word', () => {
+    it('says Error instead of the stage word, with the attention dot', () => {
       const state = deckIssueState(issue('a', { stage: 'review' }), [dead()])
-      expect(state.state).toBe('errored')
-      expect(state.label).toBe('Errored')
+      expect(state).toEqual({ state: 'error', label: 'Error', attention: true })
     })
 
-    // The attention channel is separate from the state channel by design, and
-    // this is the case that proves both are wired: the word says what happened,
-    // the dot says there is something in here.
-    it('lights the attention indicator with it', () => {
-      expect(deckIssueState(issue('a', { stage: 'review' }), [dead()]).attention).toBe(true)
-    })
-
-    it('does not shout over a task that is genuinely still running', () => {
+    // D6 overturns POD-1601: Error ranks above a second agent still running,
+    // and the task opens by default so the crashed row is in view.
+    it('outranks a task that is still running', () => {
       const alive = sess('t', { issueId: 'a', agentState: workingState })
-      expect(deckIssueState(issue('a'), [dead(), alive]).state).toBe('working')
+      expect(deckIssueState(issue('a'), [dead(), alive]).state).toBe('error')
     })
 
     it('stays quiet once the task is closed', () => {
       expect(deckIssueState(issue('a', { stage: 'done' }), [dead()]).state).toBe('done')
     })
 
-    it('outranks a blocked or unstarted reading', () => {
-      expect(deckIssueState(issue('a', { blocked: true }), [dead()]).state).toBe('errored')
+    it('outranks a blocked reading', () => {
+      expect(deckIssueState(issue('a', { blocked: true }), [dead()]).state).toBe('error')
     })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// The state words replace the deck's eleven words (POD-6110). The old function
+// is frozen below as a control arm: every fixture states what it USED to say
+// and what it says now, and each difference names the decision that made it.
+// ---------------------------------------------------------------------------
+
+/** `deckIssueState` as it was before POD-6110, without the `waiting` arm
+ *  (it needed a catalog these fixtures do not pass). */
+function legacyDeckWord(target: IssueNavigationModel, sessions: readonly SessionView[]): string {
+  const active = sessions.filter((session) => !session.archived && session.status !== 'exited')
+  const working = (session: SessionView) =>
+    session.agentState?.phase === 'working' || session.agentState?.phase === 'compacting'
+  if (active.some((session) => session.handoffTarget)) return 'moved'
+  if (active.some(working)) return 'working'
+  const reason = target.closedReason
+  if (reason && ['cancelled', 'duplicate', 'superseded', 'wontfix', "won't fix"].includes(reason))
+    return 'cancelled'
+  if (reason != null || target.stage === 'done') return 'done'
+  if (active.some((session) => session.agentState?.phase === 'errored')) return 'errored'
+  if (target.stage === 'shipping') return 'working'
+  if (target.blocked) return 'blocked'
+  if (active.length === 0 && sessions.length > 0) return 'retired'
+  if (active.length === 0) return target.stage === 'proposed' ? 'proposed' : 'next'
+  return 'idle'
+}
+
+/** `SessionModel.asking` as it was before POD-6110. */
+const legacyAsking = (session: SessionView): boolean =>
+  !session.archived &&
+  (session.agentState?.phase === 'needs_user' ||
+    session.agentState?.phase === 'errored' ||
+    Boolean(session.offer))
+
+describe('state words against the deck they replace', () => {
+  const idleDone: AgentState = { phase: 'idle', since: SINCE, nativeSubagentCount: 0, idle: { kind: 'done' } }
+  const offer = { message: 'Ready to merge', actions: [], createdAt: SINCE } as unknown as SessionViewInput['offer']
+  const exited = (over: Partial<SessionViewInput> = {}) =>
+    sess('s', { issueId: 'a', status: 'exited', stopReason: 'self', exitCode: 0, agentState: idleDone, ...over })
+  const cases: Array<[string, string, string, string, IssueNavigationModel, SessionView[]]> = [
+    // [fixture, before, now, why, issue, sessions]
+    ['nobody on it', 'next', 'not-started', 'same meaning, D6 word', issue('a', { stage: 'backlog' }), []],
+    ['a proposal', 'proposed', 'not-started', 'D6 has no proposal word; the deck section says it', issue('a', { stage: 'proposed' }), []],
+    ['an agent working', 'working', 'working', 'same', issue('a'), [sess('s', { agentState: workingState })]],
+    ['an idle live agent', 'idle', 'idle', 'Standing by becomes Idle', issue('a'), [sess('s', { agentState: idleDone })]],
+    ['its agent exited', 'retired', 'idle', 'D6: started with nothing running reads Idle', issue('a'), [exited()]],
+    ['its agent asks', 'idle', 'needs-you', 'D5/D6: Needs you is a state, not only a dot', issue('a'), [sess('s', { agentState: needsUserState })]],
+    ['a standing offer', 'idle', 'needs-you', 'D5: a pending offer is Needs you', issue('a', { stage: 'review' }), [sess('s', { agentState: idleDone, offer })]],
+    ['errored beside a working agent', 'working', 'error', 'D6 overturns POD-1601', issue('a'), [sess('s', { agentState: erroredState(true) }), sess('t', { agentState: workingState })]],
+    ['its agent crashed', 'retired', 'error', 'D5: a crash is Error', issue('a'), [exited({ stopReason: 'exited', exitCode: 137 })]],
+    ['out of memory', 'retired', 'error', 'D5: out-of-memory is Error', issue('a'), [exited({ stopReason: 'oom' })]],
+    ['blocked, agent exited', 'blocked', 'blocked', 'same', issue('a', { blocked: true }), [exited()]],
+    ['an open decision', 'next', 'needs-you', 'D2/D6: a decision is Needs you', issue('a', { type: 'decision', stage: 'backlog' }), []],
+    ['shipping', 'working', 'working', 'same', issue('a', { stage: 'shipping' }), []],
+    ['cancelled', 'cancelled', 'done', 'D6: counts as done, hidden', issue('a', { closedReason: 'cancelled' }), []],
+    ['closed with its agent still asking', 'done', 'done', 'same', issue('a', { closedReason: 'done' }), [sess('s', { agentState: needsUserState })]],
+  ]
+
+  it.each(cases)('%s: was %s, is now %s (%s)', (_name, before, now, _why, target, sessions) => {
+    expect(legacyDeckWord(target, sessions)).toBe(before)
+    expect(deckIssueState(target, sessions).state).toBe(now)
+  })
+
+  const sessionCases: Array<[string, boolean, boolean, SessionView, IssueNavigationModel]> = [
+    // [fixture, asking before, attention now, session, its issue]
+    ['a question', true, true, sess('s', { agentState: needsUserState }), issue('a')],
+    ['an agent error', true, true, sess('s', { agentState: erroredState(false) }), issue('a')],
+    ['an offer', true, true, sess('s', { agentState: idleDone, offer }), issue('a')],
+    ['a textual question at idle', false, true, sess('s', { agentState: { ...idleDone, idle: { kind: 'question' } } }), issue('a')],
+    ['a crash', false, true, exited({ stopReason: 'exited', exitCode: 1 }), issue('a')],
+    ['an offer on a closed issue', true, false, sess('s', { agentState: idleDone, offer }), issue('a', { stage: 'done' })],
+    ['a question on an exited process', true, false, exited({ agentState: needsUserState }), issue('a')],
+    ['working', false, false, sess('s', { agentState: workingState }), issue('a')],
+  ]
+
+  it.each(sessionCases)('session with %s: asking was %s, attention is now %s', (_name, before, now, session, target) => {
+    expect(legacyAsking(session)).toBe(before)
+    expect(wordWantsAttention(sessionWord(session, { issueClosed: issueClosed(target) }))).toBe(now)
   })
 })
 

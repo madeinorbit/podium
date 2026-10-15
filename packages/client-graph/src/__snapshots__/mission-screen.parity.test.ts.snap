@@ -2,28 +2,28 @@
 
 exports[`opens corpus missions with the bundle's answers at 1x with cold crews: views, folds, search, archive > mission screen answers at 1x with cold crews 1`] = `
 {
-  "bytes": 1820232,
-  "sha256": "257acc2eb005f4669d629dcf07334e6e3fa57a408477e1b966622b16e378e88b",
+  "bytes": 1822230,
+  "sha256": "b2f7f35bba83c7af7f034fd21cc619bfbdc0dab5504ab405ffb31a4842428c40",
 }
 `;
 
 exports[`opens corpus missions with the bundle's answers at 1x: views, folds, search, archive > mission screen answers at 1x 1`] = `
 {
-  "bytes": 3093618,
-  "sha256": "b77fd1def9005c50fcd3ac7a237876bcb2aada23d3dcc058db0bca7a72071a52",
+  "bytes": 3098091,
+  "sha256": "032c57df55aa666265b1d3d2938a6f33c1628eacb134c63ad0e1b0307eeb7b68",
 }
 `;
 
 exports[`opens corpus missions with the bundle's answers at 4x: views, folds, search, archive > mission screen answers at 4x 1`] = `
 {
-  "bytes": 1856425,
-  "sha256": "a6dd5890cab22a19a5c2943adf8e2f25f2dc9475904a7fb797cbb69341fe3c74",
+  "bytes": 1859674,
+  "sha256": "1bbd3c7364b75c053101eafa488de2346137ffb7209afea3a0a259043f1ecdc2",
 }
 `;
 
 exports[`opens phone missions with the phone bundle's answers: crew, header issue, progress, deck lists > phone mission answers 1`] = `
 {
-  "bytes": 718486,
-  "sha256": "e15e393cf6f1e4e0d77cafa67f6dffc321b78abf042ea33087789db780968022",
+  "bytes": 716875,
+  "sha256": "0cba9414d1b3d36e0434190d68990dd9724a71cd272fa9cd2ec5f857beb82895",
 }
 `;

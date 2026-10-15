@@ -108,7 +108,7 @@ export const MissionScreen = observer(function MissionScreen() {
   const currentIssue = currentValue && currentValue !== LOADING ? currentValue : root
   const headerIssue = currentIssue ?? root
 
-  const attention = missionSessions.filter((s) => (s as SessionModel).asking).length
+  const attention = missionSessions.filter((s) => (s as SessionModel).attention).length
   const live = missionSessions.filter((s) => (s as SessionModel).open).length
   const working = missionSessions.filter((s) => (s as SessionModel).executing).length
 

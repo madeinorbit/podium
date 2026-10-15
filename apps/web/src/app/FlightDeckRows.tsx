@@ -393,7 +393,7 @@ export function sessionSearchText(
   const facts = session as SessionModel
   const retired = !facts.open
   const needs =
-    !retired && (model ? model.asks(session) : facts.asking)
+    !retired && (model ? model.asks(session) : facts.attention)
   return [
     session.handoffTarget ? `Handing over → ${session.handoffTarget}` : sessionDisplayName(session),
     session.displayRef,
@@ -550,7 +550,7 @@ function crewLine(session: SessionView, now: number): string {
   const phase = facts.motion
   const state = retired
     ? `retired ${relativeTime(session.lastActiveAt, now)}`
-    : facts.asking
+    : facts.attention
       ? 'needs you'
       : phase === 'working'
         ? 'working'
@@ -962,7 +962,7 @@ export const SessionRow = observer(function SessionRow({
   const retired = !facts.open
   const starting = session.status === 'starting' || session.status === 'reconnecting'
   const needs =
-    !retired && (model ? model.asks(session) : facts.asking)
+    !retired && (model ? model.asks(session) : facts.attention)
   const phase = facts.motion
   const since = Date.parse(session.agentState?.since ?? session.lastActiveAt)
   const now = Date.now()

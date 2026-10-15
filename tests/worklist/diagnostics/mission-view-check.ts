@@ -11,7 +11,7 @@ import {
   archivedSessionsForIssue, buildFlightDeckRows, deckIssueState, deriveHandoffNext,
   deriveHandoffNow, issueContinuation, issueDisplayTitle, issueNote, missionDepartures,
   missionIssueIds, missionProgress, missionRootFor, missionSessions, presenceNote, reposToViews,
-  selectedMissionRoot, selectLatestPromptSession, type FlightDeckMode, type FlightDeckRow, type IssueNavigationModel,
+  selectedMissionRoot, selectLatestPromptSession, type DeckIssueState, type FlightDeckMode, type FlightDeckRow, type IssueNavigationModel,
 } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph/pool'
 import { EMPTY_MISSION_HANDOFF, requireLoaded, settled, type MissionHandoffValues } from '@podium/client-graph/mission-view'
@@ -115,6 +115,7 @@ export function legacyMissionViewSnapshot(issues: readonly IssueNavigationModel[
   const root = selectedMissionRoot(issues, sessions, selectedId ? asIssueId(selectedId) : null)
   const rows = root ? buildFlightDeckRows(issues, sessions, root.id, mode, worktreePaths) : []
   const byId = legacyMap(issues)
+  const deckStates = legacyDeckStates(root && mode !== 'full' ? buildFlightDeckRows(issues, sessions, root.id, 'full', worktreePaths) : rows, byId)
   const seen = new Set<string>(), archived: SessionView[] = []
   for (const row of rows) for (const session of archivedSessionsForIssue(row.issue, sessions as SessionView[], worktreePaths)) {
     if (!seen.has(session.sessionId)) { seen.add(session.sessionId); archived.push(session) }
@@ -127,9 +128,28 @@ export function legacyMissionViewSnapshot(issues: readonly IssueNavigationModel[
     continuation: root ? issueContinuation(root, byId, sessions) : null,
     note: root ? issueNote(root, byId, sessions) : null,
     presence: root ? presenceNote(root, rows[0]?.sessions ?? [], byId, sessions) : null,
-    rowPresentation: new Map(rows.map(row => [row.issue.id, { state: deckIssueState(row.issue, row.sessions, byId),
+    rowPresentation: new Map(rows.map(row => [row.issue.id, { state: deckStates.get(row.issue.id)!,
       note: issueNote(row.issue, byId, row.sessions), presence: presenceNote(row.issue, row.sessions, byId) }])),
   }, archived, root ? legacyHandoff(issues, sessions, root.id) : EMPTY_MISSION_HANDOFF)
+}
+
+/** Every row's word with the D6 roll-up: a parent reads its sub-issues' words.
+ * The full deck is depth-first pre-order, so a row's parent is the nearest
+ * earlier row one level up, and walking it backwards visits children first. */
+function legacyDeckStates(rows: readonly FlightDeckRow[], byId: ReadonlyMap<string, IssueNavigationModel>): Map<string, DeckIssueState> {
+  const children = new Map<string, string[]>(), path: string[] = []
+  for (const row of rows) {
+    path.length = row.depth
+    const parent = path[row.depth - 1]
+    if (parent !== undefined) children.set(parent, [...(children.get(parent) ?? []), row.issue.id])
+    path.push(row.issue.id)
+  }
+  const states = new Map<string, DeckIssueState>()
+  for (const row of [...rows].reverse()) {
+    const words = (children.get(row.issue.id) ?? []).map(id => states.get(id)!.state)
+    states.set(row.issue.id, deckIssueState(row.issue, row.sessions, { byId, children: words }))
+  }
+  return states
 }
 
 /** The legacy handoff in the pane's contract: the seated crew, and the

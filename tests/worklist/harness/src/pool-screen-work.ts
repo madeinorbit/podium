@@ -636,7 +636,7 @@ async function measureScreenCells(
           id: session.sessionId,
           title: session.title,
           name: session.name,
-          asking: session.asking,
+          asking: session.attention,
           motion: session.motion,
         })),
         memberCount: issue.memberCount,

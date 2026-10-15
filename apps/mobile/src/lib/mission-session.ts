@@ -22,7 +22,7 @@ export function mostRelevantSession<S extends SessionModel | SessionView>(sessio
     // The phone projection carries the pool's models through its wire-shaped API.
     const model = s as SessionModel
     if (!model.open || model.status === 'hibernated') return 3
-    if (model.asking) return 0
+    if (model.attention) return 0
     if (model.phase === 'working') return 1
     return 2
   }

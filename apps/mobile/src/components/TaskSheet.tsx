@@ -201,7 +201,7 @@ const SheetHead = observer(function SheetHead({
   const detail = views?.row(issue.id)
   const mine = detail?.inspectorSessions ?? []
   if (typeof mine === 'symbol') throw mine
-  const asking = mine.filter((session) => session.asking)
+  const asking = mine.filter((session) => session.attention)
   const op = operationalState(issue, mine)
   const presence = detail?.presence
 
@@ -501,7 +501,7 @@ const SheetSessionRow = observer(function SheetSessionRow({
       <Text numberOfLines={1} style={styles.rowTitle}>
         {sessionTitle(session)}
       </Text>
-      {session.asking ? <View style={styles.dot} /> : null}
+      {session.attention ? <View style={styles.dot} /> : null}
       <Text style={styles.rowStamp}>{relativeTime(session.lastActiveAt, Date.now())}</Text>
     </PressableScale>
   )

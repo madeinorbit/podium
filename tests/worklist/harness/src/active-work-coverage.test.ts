@@ -117,7 +117,7 @@ function pageOf(pool: MobxPool, id: string): { readonly pending: number; readonl
       childCount: issue.childCount,
       childDoneCount: issue.childDoneCount,
       children: children?.map((child) => [child.id, child.authoredTitle, child.displayRef, child.stage]),
-      crew: crew?.map((session) => [session.sessionId, session.title, session.asking, session.motion]),
+      crew: crew?.map((session) => [session.sessionId, session.title, session.attention, session.motion]),
       memberCount: issue.memberCount,
     },
   }

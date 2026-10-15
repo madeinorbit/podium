@@ -267,7 +267,7 @@ function createHeaderViews(pool: MobxPool) {
         if (member.archived || member.headless || member.agentKind === 'shell') continue
         sessions.set(sid, member)
         staffed ||= member.open
-        asking ||= member.asking
+        asking ||= member.attention
       }
       const vacated = !staffed && pool.graph.size('issue', id, 'spinOffs') > 0
       if (

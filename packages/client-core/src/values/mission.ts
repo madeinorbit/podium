@@ -13,7 +13,17 @@ import { agentLabel } from './quota'
 import { sessionsForIssueNav } from './session-ownership'
 import { motionPhase, sessionErrored, sessionErrorLabel } from './session-status'
 import { type IssueNavigationModel, isEmptyDraftVessel, issueAbandoned } from './compose/issues'
-import { isDecisionIssue, isFinished as issueClosed, isPhaseIssue } from '@podium/model/browser'
+import {
+  isDecisionIssue,
+  isFinished as issueClosed,
+  isPhaseIssue,
+  sessionWord,
+  TASK_WORD_LABEL,
+  type TaskWord,
+  taskHidden,
+  taskWord,
+  wordWantsAttention,
+} from '@podium/model/browser'
 export { isFinished as issueClosed } from '@podium/model/browser'
 import { isCoordinatorSession } from './compose/terminal'
 
@@ -1546,7 +1556,7 @@ export function missionDepartures(
       out.push({
         issue: tip,
         originId: origin.id,
-        state: deckIssueState(tip, sessionsForIssue(tip, sessions, allWorktreePaths), byId),
+        state: deckIssueState(tip, sessionsForIssue(tip, sessions, allWorktreePaths), { byId }),
       })
     }
   }
@@ -1835,113 +1845,71 @@ export function operationalState(
 }
 
 // ---------------------------------------------------------------------------
-// The Flight Deck's own row vocabulary.
+// The Flight Deck's own row vocabulary: the shared state words (POD-6110).
 //
 // Deliberately a SECOND function beside `operationalState` rather than a change
 // to it: the Task inspector and the compact issue controls read that one, and
-// they still want "Needs you" as a state. The deck does not — see DeckIssueState.
+// they still want its longer sentences. The deck speaks the one vocabulary the
+// CLI and the phone use, from `@podium/model` (ANALYSIS.md D5/D6).
 // ---------------------------------------------------------------------------
 
 /** One word per state, and the same word every time it appears in the spine. */
-export type DeckState =
-  | 'working'
-  | 'errored'
-  | 'moved'
-  | 'done'
-  | 'cancelled'
-  | 'blocked'
-  | 'waiting'
-  | 'retired'
-  | 'proposed'
-  | 'next'
-  | 'idle'
+export type DeckState = TaskWord
 
 export interface DeckIssueState {
   state: DeckState
   /** The right-aligned word beside the mark. */
   label: string
   /**
-   * Something inside this task stopped and asked — rendered as a COLOUR
-   * INDICATOR, never as words (POD-516 round 2 §5).
-   *
-   * A task does not need you. A session did, and the session row is where the
-   * operator can answer it, so that is where the marker and the words live. The
-   * task strip only has to be findable from a distance.
+   * Error or Needs you: the two words that carry the colour and the dot.
+   * Rendered as a COLOUR INDICATOR beside the word (POD-516 round 2 §5).
    */
   attention: boolean
 }
 
 /**
- * `Next` was a promise the spine could not keep (POD-516 round 3 §7a).
+ * What a task strip says on its right-hand side: the shared {@link taskWord}
+ * over the task's crew and, for a parent, its sub-issues' words (D6: a parent
+ * shows its most urgent descendant).
  *
- * It said "scheduled after this" about work nobody has accepted yet, on the one
- * surface an operator uses to decide what to run. Podium's own word for a
- * proposal is the stage's — `Proposed` (ISSUE_STAGE_LABELS) — and everything
- * else that simply has nobody on it is `Not started`, which claims no order.
- */
-const DECK_LABEL: Record<DeckState, string> = {
-  working: 'Running',
-  moved: 'Moving',
-  done: 'Done',
-  // One word, like every other entry here — the strip is the narrowest column on
-  // the deck and its register is state words, not sentences. The surfaces with
-  // room for the cause (the explorer, the sidebar row) get it from
-  // {@link sessionErrorLabel}; here the attention dot beside the word carries
-  // the urgency and the task's own session line carries the detail.
-  errored: 'Errored',
-  // The strip already draws the cancel mark (`issueStatusOf` → `StatusGlyph`).
-  // Printing `Done` beside it made the row contradict itself in two glyphs'
-  // worth of space; this is the word that mark has always meant.
-  cancelled: 'Cancelled',
-  blocked: 'Blocked',
-  waiting: 'Waiting',
-  retired: 'Retired',
-  proposed: 'Proposed',
-  next: 'Not started',
-  idle: 'Standing by',
-}
-
-/**
- * What a task strip says on its right-hand side, and whether it carries the
- * attention colour.
+ * `blocked` also counts a `blocked-by` target the client already sees open,
+ * so the word does not wait for the feed's next `blocked` verdict.
  *
- * The state channel answers "what is this task doing" and is orthogonal to the
- * attention channel — which is the whole point of the round-2 change. An issue
- * whose only session is waiting on the operator therefore reads `Standing by`
- * with the indicator lit, not `Needs you`: the task genuinely is standing by,
- * and the row below it says who is asking.
+ * An abandoned close keeps the word `Done` in every count, but the strip still
+ * draws the cancel mark beside it, so its label says `Cancelled` rather than
+ * contradicting the glyph. D6 hides those rows; until the v6 deck does, they
+ * say what they are.
  */
 export function deckIssueState(
   issue: IssueNavigationModel,
   sessions: readonly SessionView[],
-  byId?: ReadonlyMap<string, IssueNavigationModel>,
+  context: {
+    /** Resolves `blocked-by` targets the client can already see open. */
+    byId?: ReadonlyMap<string, IssueNavigationModel>
+    /** The deck's own answer to the same question, from its catalog. */
+    unmetDependency?: boolean
+    /** The sub-issues' words, for a parent. */
+    children?: readonly TaskWord[]
+  } = {},
 ): DeckIssueState {
-  const active = sessions.filter(openSession)
-  const attention = issueNeedsHuman(issue, active)
-  const at = (state: DeckState): DeckIssueState => ({ state, label: DECK_LABEL[state], attention })
-  if (active.some((session) => session.handoffTarget)) return at('moved')
-  if (active.some((session) => motionPhase(session) === 'working')) return at('working')
-  if (issueAbandoned(issue)) return at('cancelled')
-  if (issueClosed(issue)) return at('done')
-  // BELOW `working`, ABOVE EVERY STAGE WORD (POD-1601). A mission with a second
-  // agent still computing genuinely IS working, and the strip's job in that
-  // moment is to say so — the attention dot beside the word is already lit, and
-  // the dead agent's own row underneath carries its red badge. But the moment
-  // nothing is running, `Errored` is the truest word available, and every arm
-  // below this one would have covered it with something the STAGE implies:
-  // `Standing by` for a task in review, `Blocked`, `Not started`. Those describe
-  // a task waiting on a process that no longer exists.
-  const errored = issueErroredSession(issue, active)
-  if (errored) return at('errored')
-  if (issue.stage === 'shipping') return at('working')
-  if (issue.blocked) return at('blocked')
-  if (waitingRefs(issue, byId).length > 0) return at('waiting')
-  if (active.length === 0 && sessions.length > 0) return at('retired')
-  // A proposal says so in its own word. It is the one stage the deck treats as a
-  // different KIND of row (no reserved session slot, a narrower strip), so the
-  // state channel has to name it rather than lumping it in with backlog work.
-  if (active.length === 0) return at(issue.stage === 'proposed' ? 'proposed' : 'next')
-  return at('idle')
+  const closed = issueClosed(issue)
+  const facts = {
+    type: issue.type,
+    stage: issue.stage,
+    closedReason: issue.closedReason,
+    needsHuman: issue.needsHuman,
+    blocked:
+      issue.blocked || context.unmetDependency === true || waitingRefs(issue, context.byId).length > 0,
+  }
+  const state = taskWord(facts, {
+    sessions: sessions.map((session) => sessionWord(session, { issueClosed: closed })),
+    children: context.children,
+  })
+  return {
+    state,
+    label: taskHidden(facts) ? 'Cancelled' : TASK_WORD_LABEL[state],
+    attention: wordWantsAttention(state),
+  }
 }
 
 /**

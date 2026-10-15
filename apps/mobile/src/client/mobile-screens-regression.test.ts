@@ -68,8 +68,8 @@ function settle(pool: MobxPool, input: MobileScreenInput) {
 }
 
 it.each([
-  { selectedId: 'i100', header: { id: 'i100', archived: true, startedBySession: 's4048' }, hash: 'd96ff48b3da330f4bd8b8783fb43a8e93d84154c89fcd728218cc105ca96397e' },
-  { selectedId: 'i1157', header: { id: 'i1321', archived: true }, hash: '4ffc0f9ff59ee6fc4c40417d6d432967503d349abc3002307d8b74ce92a5e5b5' },
+  { selectedId: 'i100', header: { id: 'i100', archived: true, startedBySession: 's4048' }, hash: '3e698491bf56f08575933a73e0496e0821f54229ca0a73ee63098ca32dd596a6' },
+  { selectedId: 'i1157', header: { id: 'i1321', archived: true }, hash: 'dc908ac2055f75434757ee5cbaf8b0c6fe90ff14dd6c7462eabfa7c9967a4635' },
 ])('archived corpus $selectedId retains its full header and frozen phone output', async ({ selectedId, header, hash }) => {
   const ctx = await startScenarioEngine(1), feeds = openFenceFeeds(ctx, 'pooled')
   const handle = createWorklistPool(feeds.rows.source, feeds.locals.source, {

@@ -3,6 +3,7 @@ import type { SessionView } from '@podium/client-core/session-values'
 
 import { displayRefOf } from './views'
 import {
+  type DeckIssueState,
   deckIssueState,
   deckSessions,
   deckSessionOrder,
@@ -26,7 +27,7 @@ import {
 } from '@podium/client-core/values'
 import { companion, lazy } from '@podium/mobx-helpers'
 import { compareShallow, compareStructural } from 'mobx'
-import { machinePathsEqual } from '@podium/model'
+import { machinePathsEqual, type TaskWord } from '@podium/model'
 import type { GitRepositoryWire, MachineWire } from '@podium/model/browser'
 import { asIssueId, asSessionId, DRAFT_ISSUE_TITLE, HANDOFF_HARNESS_KINDS } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
@@ -51,7 +52,7 @@ const MENU_SESSION_OMISSIONS = new Set<PropertyKey>(['machineName', 'condition',
 const MENU_OMISSIONS = new Set<PropertyKey>(['memberSessionIds', 'childIds', 'dependents'])
 
 export interface MissionRowPresentation {
-  state: ReturnType<typeof deckIssueState>
+  state: DeckIssueState
   note: IssueNote | null
   presence: PresenceNote | null
 }
@@ -225,7 +226,12 @@ const crewIds = ((row: MissionDeckIssueModel) => {
     view.pool.sessionObject(a).createdAt.localeCompare(view.pool.sessionObject(b).createdAt) || a.localeCompare(b))
 })
 const hasPayload = ((row: MissionDeckIssueModel) => requireLoaded(row.deckChildren).length > 0 || row.crewIds.length > 0)
-const presentation = ((row: MissionDeckIssueModel) => row.view.presentation(row.issue, row.sessions))
+// A parent shows its most urgent descendant (D6): each child's word is that
+// child row's own lazy state, so a change re-derives one path upward and never
+// reads a child's note or presence.
+const rowState = ((row: MissionDeckIssueModel): DeckIssueState => row.view.deckState(row.issue, row.sessions,
+  requireLoaded(row.deckChildren).map(id => row.deck.model(id).word)))
+const presentation = ((row: MissionDeckIssueModel): MissionRowPresentation => row.view.presentation(row.issue, row.sessions, row.state))
 const crewOf = ((row: MissionDeckIssueModel) => deckSessionOrder(row.facts,
   requireLoaded(row.view.roster(row.id))))
 const matchedWorking = ((row: MissionDeckIssueModel) => row.sessions.some(session => row.view.pool.sessionObject(session.sessionId).atWork))
@@ -385,7 +391,7 @@ export class MissionDeckIssueModel implements FlightDeckRow {
   @lazy({ equals: compareShallow }) private get ownCrewIds() { return crewIds(this) }
   get crewIds() { return this.canonical.ownCrewIds }
   get hasLead() { return this.entity.hasLead }
-  asks(session: Pick<SessionView, 'sessionId'>) { return this.view.pool.sessionObject(session.sessionId).asking && !this.entity.finished }
+  asks(session: Pick<SessionView, 'sessionId'>) { return this.view.pool.sessionObject(session.sessionId).attention && !this.entity.finished }
   @lazy({ equals: compareShallow }) get workingSessionIds() { return this.crewIds.filter(id => this.view.pool.sessionObject(id).atWork) }
   @lazy({ equals: compareShallow }) get askingSessionIds() { return this.matches('needs-you') ? this.crewIds.filter(id => this.asks(this.view.pool.sessionObject(id))) : [] }
   sessionIds(mode: FlightDeckMode): readonly string[] {
@@ -420,6 +426,10 @@ export class MissionDeckIssueModel implements FlightDeckRow {
       get needsYou() { return row.actionableCount > 0 },
     }
   }
+  @lazy({ equals: compareStructural }) private get ownState(): DeckIssueState { return rowState(this) }
+  get state(): DeckIssueState { return this.canonical.ownState }
+  /** The row's task word (D6), rolled up from its crew and its sub-issues. */
+  get word(): TaskWord { return this.state.state }
   @lazy({ equals: compareStructural }) private get ownPresentation() { return presentation(this) }
   get presentation() { return this.canonical.ownPresentation }
   @lazy private get ownUpdatedBelow() { return latestBelow(this) }
@@ -1044,10 +1054,10 @@ export class MissionViewReader {
   }
   hasSpinOffDependent(id: string) { return this.rulesIssue(id)?.dependents.some(dep => dep.type === 'discovered-from') ?? false }
   tipIds(id: string, local = false) { return this.tips(id, local).map(issue => issue.id as string) }
-  presentation(issue: IssueNavigationModel, sessions: readonly SessionView[]): MissionRowPresentation {
-    let state = deckIssueState(issue, sessions)
-    if (['retired', 'proposed', 'next', 'idle'].includes(state.state) && this.waiting(issue).length)
-      state = { ...state, state: 'waiting', label: 'Waiting' }
+  deckState(issue: IssueNavigationModel, sessions: readonly SessionView[], children: readonly TaskWord[] = []): DeckIssueState {
+    return deckIssueState(issue, sessions, { children, unmetDependency: this.waiting(issue).length > 0 })
+  }
+  presentation(issue: IssueNavigationModel, sessions: readonly SessionView[], state = this.deckState(issue, sessions)): MissionRowPresentation {
     return { state, note: this.note(issue, true), presence: this.presence(issue, sessions, true) }
   }
   live(id: string) { return this.facts(id).live }
@@ -1239,7 +1249,7 @@ function poolHandoffNow(ctx: MissionViewReader, issues: readonly IssueNavigation
     const crew = requireLoaded(ctx.present(issue.id))
     const present = crew.filter(session => ctx.pool.sessionObject(session.sessionId).open)
     const asking = present.find(
-      (session) => ctx.pool.sessionObject(session.sessionId).asking && !ctx.facts(issue.id).finished || ctx.pool.sessionObject(session.sessionId).motion === 'waiting',
+      (session) => ctx.pool.sessionObject(session.sessionId).attention && !ctx.facts(issue.id).finished,
     )
     const askedBy = issue.asked?.by ? ctx.member(issue.id, issue.asked.by) : undefined
     const explicitNeed = issue.needsHuman === true || asking !== undefined

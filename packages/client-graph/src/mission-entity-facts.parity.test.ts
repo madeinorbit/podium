@@ -2,7 +2,8 @@ import { here, requireHere } from './lookup'
 import { autorun } from 'mobx'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SessionView } from '@podium/client-core/session-values'
-import { isSessionWorking, motionPhase, sessionAtWork, sessionNeedsHuman, sessionPresentOnTask, sessionSettled } from '@podium/client-core/values'
+import { isSessionWorking, motionPhase, sessionAtWork, sessionPresentOnTask, sessionSettled } from '@podium/client-core/values'
+import { sessionWord, wordWantsAttention } from '@podium/model/browser'
 import { MobxPool } from './pool'
 import { missionView, settled } from './mission-view'
 import { MISSION_VIEW_SUMMARIES } from './mission-view-schema'
@@ -45,7 +46,8 @@ const old = {
   onRoster: (row: SessionView) => !row.archived && !row.headless && row.agentKind !== 'shell',
   atWork: sessionAtWork,
   executing: isSessionWorking,
-  asking: (row: SessionView) => !row.archived && sessionNeedsHuman(row),
+  // The shared word (POD-6110); the legacy `asking` comparison lives in client-core's mission.test.
+  attention: (row: SessionView) => wordWantsAttention(sessionWord(row)),
   motion: motionPhase,
   settled: sessionSettled,
 }
@@ -121,7 +123,7 @@ it.each(['visible', 'live', 'hasLead', 'memberSummary', 'memberSessionIds', 'mem
   expect(() => expect(model[name]).toEqual(expected)).toThrow()
 })
 
-it.each(['open', 'onRoster', 'atWork', 'asking', 'executing', 'motion', 'settled', 'phase', 'rosterEligible'] as const)('cold session %s is LOADING until the batched row arrives', name => {
+it.each(['open', 'onRoster', 'atWork', 'attention', 'executing', 'motion', 'settled', 'phase', 'rosterEligible'] as const)('cold session %s is LOADING until the batched row arrives', name => {
   const { pool, load } = open(issueRow({ stage: 'done', closedAt: '2026-09-01T12:00:00Z' }),
     [sessionRow({ status: 'exited', archived: false, lastActiveAt: '2026-09-01T12:00:00Z',
       stoppedAt: '2026-09-01T12:00:00Z', agentState: { phase: 'ended' } })], true)

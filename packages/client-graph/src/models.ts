@@ -8,7 +8,7 @@ export type { AutomationModel, AutomationRunModel, MachineModel } from './synced
 import type { IssueSessionFactReader } from './shared/issue-session-facts'
 import { attentionGroup, effectiveRecency } from '@podium/client-core/focus'
 import type { SessionView } from '@podium/client-core/session-values'
-import { asSessionId, isFinished, isExcluded } from '@podium/model/browser'
+import { asSessionId, isFinished, isExcluded, type SessionWord, type SessionWordFacts, sessionWord, wordWantsAttention } from '@podium/model/browser'
 import { groupRelations, type IssueCloseMemberCounts, type IssueCloseScalarSubject, type ReferentExit, type TaskProgress } from '@podium/client-core/values'
 import type { ReaderQueries } from './reader-queries'
 import { motionPhase as sessionMotion } from '@podium/client-core/values'
@@ -932,10 +932,17 @@ export class SessionModel extends EntityModel {
 
   @lazy get unstarted(): boolean { return unstarted(this as unknown as SliceSession) }
 
+  // State word (D5): the one answer the deck, the phone and the CLI give.
   @lazy
-  get asking(): boolean {
-    return !this.archived && this.exists && (this.phase === 'needs_user' || this.phase === 'errored' || Boolean(this.offer))
+  get word(): SessionWord {
+    if (!this.exists) return 'done'
+    const issueId = this.issueId
+    const issueClosed = issueId ? this.host.issueObject(issueId).finished === true : false
+    return sessionWord(this as unknown as SessionWordFacts, { issueClosed })
   }
+
+  /** Error or Needs you: the two words that carry the colour and the dot. */
+  @lazy get attention(): boolean { return wordWantsAttention(this.word) }
 
   /** Fresh execution evidence is a session fact; views decide which agents to show. */
   @lazy

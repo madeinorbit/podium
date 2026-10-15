@@ -440,10 +440,9 @@ export function TaskStrip({
                 styles.stripTitle,
                 context ? styles.stripTitleContext : null,
                 selected ? styles.stripTitleSelected : null,
-                // Cancelled settles exactly the way done does — the work has
-                // stopped either way, and the WORD in the state column is what
-                // says which ending it was.
-                state.state === 'done' || state.state === 'cancelled'
+                // Cancelled is Done in the shared words; the LABEL in the
+                // state column is what says which ending it was.
+                state.state === 'done'
                   ? styles.stripTitleDone
                   : null,
               ]}
@@ -523,7 +522,7 @@ function stripLabel({
 function stateStyle(state: DeckIssueState) {
   if (state.state === 'working') return { color: color.workingText }
   if (state.state === 'blocked') return { color: color.dangerText }
-  if (state.state === 'done' || state.state === 'cancelled') return { color: color.textMicro }
+  if (state.state === 'done') return { color: color.textMicro }
   return null
 }
 

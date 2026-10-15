@@ -172,7 +172,7 @@ export function decisionLine(issue: IssueViewModel, active: readonly SessionView
   const asked = issue.asked?.question?.trim()
   if (asked) return asked
   const waiting = active.find((session) =>
-    'asking' in session ? (session as SessionModel).asking : sessionNeedsHuman(session),
+    'attention' in session ? (session as SessionModel).attention : sessionNeedsHuman(session),
   )
   if (waiting) return `${sessionDisplayName(waiting)} is waiting on your reply.`
   if (active.length === 0 && (issue.dependents ?? []).some((dep) => dep.type === 'discovered-from'))
@@ -267,8 +267,8 @@ export const IssueSessionRow = observer(function IssueSessionRow({
   const retired = 'open' in session
     ? !(session as SessionModel).open
     : session.archived || session.status === 'exited'
-  const needs = !retired && ('asking' in session
-    ? (session as SessionModel).asking
+  const needs = !retired && ('attention' in session
+    ? (session as SessionModel).attention
     : sessionNeedsHuman(session))
   return (
     <div

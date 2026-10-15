@@ -126,7 +126,7 @@ function createIssueDetailLists(issue: PageIssue, pool: MobxPool) {
     false,
     (session) => session.open,
     (session) =>
-      `${session.asking ? '0' : '1'}|${session.sessionId === issue.coordinatorSessionId ? '0' : '1'}|${String(9e15 - (session.activityMs ?? 0)).padStart(16, '0')}`,
+      `${session.attention ? '0' : '1'}|${session.sessionId === issue.coordinatorSessionId ? '0' : '1'}|${String(9e15 - (session.activityMs ?? 0)).padStart(16, '0')}`,
   )
   const retired = seats('retired', 'pageSessions', undefined, (session) => !session.open)
   // The dock includes explicitly attached shells; raw page membership excludes them.
@@ -136,7 +136,7 @@ function createIssueDetailLists(issue: PageIssue, pool: MobxPool) {
     false,
     (session) => session.open,
     (session) =>
-      `${session.asking ? '0' : '1'}|${session.sessionId === issue.coordinatorSessionId ? '0' : '1'}|${String(9e15 - (session.activityMs ?? 0)).padStart(16, '0')}`,
+      `${session.attention ? '0' : '1'}|${session.sessionId === issue.coordinatorSessionId ? '0' : '1'}|${String(9e15 - (session.activityMs ?? 0)).padStart(16, '0')}`,
   )
   const dockRetired = seats(
     'dock-retired',
@@ -165,7 +165,7 @@ function createIssueDetailLists(issue: PageIssue, pool: MobxPool) {
     false,
     (session) => session.agentKind !== 'shell',
     (session) =>
-      `${session.asking ? '0' : '1'}|${String(9e15 - (session.activityMs ?? 0)).padStart(16, '0')}`,
+      `${session.attention ? '0' : '1'}|${String(9e15 - (session.activityMs ?? 0)).padStart(16, '0')}`,
   )
   return {
     children: child,

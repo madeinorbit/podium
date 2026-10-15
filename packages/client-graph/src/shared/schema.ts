@@ -780,6 +780,8 @@ const DECLARED = defineSchema({
       busy: { type: 'boolean', optional: true, source: meta() },
       queuedMessageCount: { type: 'number', optional: true, source: meta() },
       stoppedAt: { type: 'isoDate', optional: true, nullable: true, source: meta() },
+      exitCode: { type: 'number', optional: true, source: meta(), note: 'With stopReason and spawnFailure, what the state word reads to tell a crash or failed start (Error) from a stop (Done), D5.' },
+      spawnFailure: { type: 'string', optional: true, source: meta() },
       readAt: { type: 'isoDate', optional: true, nullable: true, source: sessionValue('readAt') },
       unread: { type: 'boolean', optional: true, source: sessionValue('readAt'), note: 'Derived from the personal read cursor and session activity at the row-source boundary; legacy only while the companion is absent.' },
       agentState: {
