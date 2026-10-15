@@ -615,7 +615,7 @@ describe('mission brief cutoff', () => {
 describe('mission brief cutoff interaction', () => {
   beforeEach(() => {
     developerFeature.enabled = true
-    harness.ui.set('podium.flightDeck.mode', 'timeline')
+    harness.ui.set('podium.flightDeck.mode', 'handoff')
   })
   const separator = (): HTMLElement =>
     screen.getByRole('separator', { name: 'Resize mission brief' })
@@ -717,7 +717,7 @@ describe('mission brief cutoff interaction', () => {
 describe('mission brief measurement after layout', () => {
   beforeEach(() => {
     developerFeature.enabled = true
-    harness.ui.set('podium.flightDeck.mode', 'timeline')
+    harness.ui.set('podium.flightDeck.mode', 'handoff')
   })
   // Each observation starts with a browser-delivered size report after layout.
   // No geometry read may happen during the commit, on mount or content change.
@@ -1163,7 +1163,7 @@ describe('the developer Flight Deck views', () => {
 describe("the mission's brief (POD-1455)", () => {
   beforeEach(() => {
     developerFeature.enabled = true
-    harness.ui.set('podium.flightDeck.mode', 'timeline')
+    harness.ui.set('podium.flightDeck.mode', 'handoff')
   })
   const brief = (): HTMLElement => screen.getByTestId('deck-brief')
 
