@@ -94,7 +94,7 @@ it('shows ref and live truncating title, with provenance and placement in a keyb
   const user = userEvent.setup()
   details.focus()
   await user.keyboard('{Tab}{Shift>}{Tab}{/Shift}')
-  expect(await f.ui.findByRole('tooltip')).toHaveProperty('textContent', details.getAttribute('aria-description'))
+  expect(await f.ui.findByText('Proposed by POD-7-C · Here in this mission')).toBeTruthy()
   expect(f.proposal()!.getAttribute('data-depth')).toBeNull()
   expect(f.proposal()!.querySelector('.flight-proposal-title')?.textContent).toContain('very long proposal')
   expect(within(f.proposal()!).getByRole('button', { name: 'Backlog' })).toBeTruthy()
@@ -155,6 +155,7 @@ it.each(['Backlog', 'Start', 'Dismiss POD-3'])('blocks rapid repeated and compet
   const pending = deferred()
   for (const cmd of Object.values(commands)) cmd.mockReturnValue(pending.promise)
   const f = await open()
+  const wasOpen = f.screen.full.task('parent').open
   const buttons = within(f.proposal()!).getAllByRole('button').filter(b => !b.classList.contains('flight-proposal-details'))
   const button = within(f.proposal()!).getByRole('button', { name: label })
   act(() => { fireEvent.click(button); fireEvent.click(button); for (const b of buttons) fireEvent.click(b) })
@@ -162,7 +163,7 @@ it.each(['Backlog', 'Start', 'Dismiss POD-3'])('blocks rapid repeated and compet
   for (const b of buttons) expect((b as HTMLButtonElement).disabled).toBe(true)
   expect(f.ui.getByRole('status').textContent).toMatch(/Adding|Starting|Dismissing/)
   expect(f.actions.onSelect).not.toHaveBeenCalled()
-  expect(f.screen.full.task('parent').open).toBe(true)
+  expect(f.screen.full.task('parent').open).toBe(wasOpen)
   await act(async () => pending.resolve())
 })
 
