@@ -857,6 +857,29 @@ interface IssueArtifactContent {
 }
 
 /**
+ * THE SEAT RULE (POD-6108, ANALYSIS.md D3 + D5).
+ *
+ * A session's seat answers one question: may it talk to the user, or does it ask a
+ * coordinator? Only a session with no coordinator above it may talk to the user —
+ * the top coordinator, or the lone session of a single-issue mission. Every other
+ * session asks the NEAREST coordinator at or above its own issue, by issue mail.
+ *
+ * Derived, never stored: the only fact is each issue's `coordinatorSessionId`. A
+ * marker counts only while it can answer — the issue is open and the session still
+ * exists unarchived — so a coordinator that is gone never leaves a session blocked
+ * with nobody to ask. The walk skips the session's OWN marker: a phase lead asks the
+ * coordinator above it, and the top coordinator asks nobody.
+ */
+
+interface SeatCoordinator {
+    issueId: IssueId;
+    /** Human-facing ref (`POD-12`), as commands take it. */
+    ref: string;
+    title: string;
+    sessionId: SessionId;
+}
+
+/**
  * The send vocabulary — the nouns every messages module and every caller of the
  * delivery service speaks (POD-1397).
  *
@@ -3857,6 +3880,7 @@ type Output_issues_create = (_podium_model.IssueUserOverlay & Omit<{
     closedAt?: string | undefined;
     closedReason?: string | undefined;
     color?: "blue" | "cyan" | "fuchsia" | "green" | "indigo" | "lime" | "pink" | "rose" | "teal" | "violet" | undefined;
+    coordinator?: string;
     coordinatorSessionId?: (string & z.BRAND<"SessionId">) | undefined;
     createdAt: string;
     createdBy: {
@@ -4154,6 +4178,7 @@ type Output_issues_create = (_podium_model.IssueUserOverlay & Omit<{
     closedAt?: string | undefined;
     closedReason?: string | undefined;
     color?: "blue" | "cyan" | "fuchsia" | "green" | "indigo" | "lime" | "pink" | "rose" | "teal" | "violet" | undefined;
+    coordinator?: string;
     coordinatorSessionId?: (string & z.BRAND<"SessionId">) | undefined;
     createdAt: string;
     createdBy: {
@@ -4256,7 +4281,7 @@ type Output_issues_create = (_podium_model.IssueUserOverlay & Omit<{
     updatedAt: string;
     visibility: "deployment-substrate" | "owned-compute" | "per-user-state" | "personal" | "secret";
     worktreePath?: string | undefined;
-}, "asked" | "branch" | "createdBy" | "description" | "intentOrigin" | "isDraftVessel" | "lastLifecycleActor" | "owner" | "visibility" | "worktreePath"> & Omit<{
+}, ("acceptance" | "activityNotes" | "agentProfileId" | "asked" | "assignee" | "branch" | "brief" | "closedAt" | "closedReason" | "color" | "coordinatorSessionId" | "deferUntil" | "deletedAt" | "dependencyNote" | "dueAt" | "duplicateOf" | "estimateMin" | "lastLifecycleActor" | "linearId" | "linearIdentifier" | "linearUrl" | "machineId" | "notesUpdatedAt" | "panel" | "parentId" | "prUrl" | "repoId" | "revision" | "sortKey" | "startedBySession" | "suggestedReason" | "suggestedStage" | "supersededBy" | "worktreePath") | ("archived" | "audience" | "blockedByNotes" | "createdAt" | "createdBy" | "defaultAgent" | "defaultEffort" | "defaultModel" | "description" | "id" | "intentOrigin" | "isDraftVessel" | "labels" | "needsHuman" | "owner" | "parentBranch" | "priority" | "seq" | "stage" | "title" | "type" | "updatedAt" | "visibility")> & Omit<{
     acceptance?: string | undefined;
     activityNotes?: string | undefined;
     agentProfileId?: string | undefined;
@@ -4393,7 +4418,7 @@ type Output_issues_create = (_podium_model.IssueUserOverlay & Omit<{
     updatedAt: string;
     visibility: "deployment-substrate" | "owned-compute" | "per-user-state" | "personal" | "secret";
     worktreePath?: string | undefined;
-}, ("acceptance" | "activityNotes" | "agentProfileId" | "asked" | "assignee" | "branch" | "brief" | "closedAt" | "closedReason" | "color" | "coordinatorSessionId" | "deferUntil" | "deletedAt" | "dependencyNote" | "dueAt" | "duplicateOf" | "estimateMin" | "lastLifecycleActor" | "linearId" | "linearIdentifier" | "linearUrl" | "machineId" | "notesUpdatedAt" | "panel" | "parentId" | "prUrl" | "repoId" | "revision" | "sortKey" | "startedBySession" | "suggestedReason" | "suggestedStage" | "supersededBy" | "worktreePath") | ("archived" | "audience" | "blockedByNotes" | "createdAt" | "createdBy" | "defaultAgent" | "defaultEffort" | "defaultModel" | "description" | "id" | "intentOrigin" | "isDraftVessel" | "labels" | "needsHuman" | "owner" | "parentBranch" | "priority" | "seq" | "stage" | "title" | "type" | "updatedAt" | "visibility")> & {
+}, "asked" | "branch" | "createdBy" | "description" | "intentOrigin" | "isDraftVessel" | "lastLifecycleActor" | "owner" | "visibility" | "worktreePath"> & {
     blocked: boolean;
     branch: null | string;
     childCount: number;
@@ -4969,6 +4994,18 @@ type Output_issues_searchNormalized = Array<{
     visibility: "deployment-substrate" | "owned-compute" | "per-user-state" | "personal" | "secret";
     worktreePath?: string | undefined;
 }>;
+type Output_issues_seat = ({
+    askUserRefusal?: string | undefined;
+    coordinates: boolean;
+    coordinator: SeatCoordinator;
+    kind: "below";
+    text: string;
+}) | ({
+    askUserRefusal?: string | undefined;
+    coordinates: boolean;
+    kind: "top";
+    text: string;
+});
 type Output_issues_ship = {
     created: boolean;
     descendantManifest: {
@@ -7155,6 +7192,11 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
         "searchNormalized": TRPC.TRPCQueryProcedure<{
             input: Input_issues_search;
             output: Output_issues_searchNormalized;
+            meta: unknown;
+        }>;
+        "seat": TRPC.TRPCQueryProcedure<{
+            input: (undefined) | ({});
+            output: Output_issues_seat;
             meta: unknown;
         }>;
         "setCoordinator": TRPC.TRPCMutationProcedure<{

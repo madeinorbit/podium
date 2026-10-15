@@ -711,7 +711,7 @@ const defs = {
           parent != null && actor != null && !parent.coordinatorSessionId
             ? await ctx.reports.get(parent.id)
             : null
-        const announced =
+        const announced: { coordinator?: string } =
           after && actor && after.coordinatorSessionId === actor
             ? { coordinator: becameCoordinatorText(await ctx.reports.niceRef(after)) }
             : {}
