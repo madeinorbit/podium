@@ -105,7 +105,7 @@ import { useClickIntent } from './click-intent'
 import { FlightDeckHandoff } from './FlightDeckHandoff'
 import { FlightDeckFullGroups } from './FlightDeckFullGroups'
 import { FlightDeckProposals } from './FlightDeckProposals'
-import { FlightDeckFullCoordinator } from './FlightDeckFullSeats'
+import { FlightDeckFullArchivedSession, FlightDeckFullCoordinator } from './FlightDeckFullSeats'
 import type { FlightDeckV6Actions } from './FlightDeckV6Rows'
 import PoolFlightDeck from './FlightDeckPool'
 import { FlightDeckWaterfall } from './FlightDeckWaterfall'
@@ -1603,19 +1603,27 @@ const DeckArchive = observer(function DeckArchive({
           {(archivedSessions) => (
             <DeckFlatRows
               revealSessionId={revealSessionId}
-              className="mt-1 flex flex-col gap-0.5"
+              className={cn('mt-1 flex flex-col gap-0.5', screen.view === 'full' && 'flight-full-archive')}
               gap={2}
               scrollRef={scrollRef}
               scope={`${screen.rootId}:archived:${scrollKey}`}
               rows={archivedSessions.map((session) => ({
                 key: `archived:${session.sessionId}`,
-                size: 48,
+                size: screen.view === 'full' ? 28 : 48,
                 text: sessionSearchText(session),
               }))}
             >
               {(index) => {
                 const session = archivedSessions[index]!
-                return (
+                return screen.view === 'full' ? (
+                  <FlightDeckFullArchivedSession
+                    key={session.sessionId}
+                    full={screen.full}
+                    id={session.sessionId}
+                    activeSessionId={activeSessionId}
+                    onOpen={(permanent) => onSelect(session, { permanent })}
+                  />
+                ) : (
                   <SessionRow
                     key={session.sessionId}
                     session={session}

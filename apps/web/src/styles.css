@@ -13234,3 +13234,5 @@ button.waterfall-fold:hover {
 .flight-v6-session[data-seat='phase-lead'] .flight-v6-title { font-weight: 600; }
 .flight-full-phase-lead > .flight-v6-sessions { margin: 0 0 2px; padding: 0; background: transparent; }
 .flight-full-coordinator button:focus-visible { outline: 1px solid var(--live); outline-offset: -1px; }
+.flight-full-archive { --v6-state-width: 118px; }
+.flight-full-archive button:focus-visible { outline: 1px solid var(--live); outline-offset: -1px; }

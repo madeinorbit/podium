@@ -3270,6 +3270,22 @@ describe('Full coordinator and session seats', () => {
     expect(screen.getByTestId('flight-deck-tail').textContent).toContain('Agent left · choose a handoff')
     expect(screen.getByRole('button', { name: /archived session/i })).toBeTruthy()
   })
+
+  it('gives a focused archived conversation the same selected row as live seats', async () => {
+    fixtures()
+    harness.sessions = [...harness.sessions, session('archived', { issueId: 'root', archived: true, status: 'exited' })]
+    harness.split = true
+    harness.paneA = 'coord'
+    harness.paneB = 'archived'
+    harness.focusedPane = 'B'
+    await deck()
+    fireEvent.click(screen.getByRole('button', { name: /archived session/i }))
+    expect(selected()).toEqual(['archived'])
+    expect(row('archived').className).toBe(row('coord').className)
+    expect(row('archived').textContent).toContain('Done')
+    fireEvent.keyDown(button('archived'), { key: 'Enter' })
+    expect(harness.openSessionTab).toHaveBeenLastCalledWith('archived', { permanent: true })
+  })
 })
 
 // Review evidence comes from the actual rendered acceptance fixtures and the
