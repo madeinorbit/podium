@@ -12950,7 +12950,7 @@ button.waterfall-fold:hover {
   padding: 3px 0 0 8px;
 }
 .flight-v6-task { position: relative; padding-bottom: 3px; }
-.flight-v6-card { min-width: 0; border-radius: 6px; background: var(--card); }
+.flight-v6-card { display: flow-root; min-width: 0; border-radius: 6px; background: var(--card); }
 .flight-v6-card[data-context='true'] { background: transparent; }
 .flight-v6-card[data-word='blocked'] {
   background-image: repeating-linear-gradient(135deg, transparent 0 4px, color-mix(in srgb, var(--text-faint) 6%, transparent) 4px 5px);

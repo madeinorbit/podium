@@ -66,7 +66,8 @@ export const FlightDeckV6Rows = observer(function FlightDeckV6Rows({
         return `${task.row.displayRef} ${task.row.title} ${TASK_WORD_LABEL[task.word]}`
       },
     })
-    if (task.open)
+    if (task.open && task.sessionIds.length > 0) {
+      leaves.push({ key: `v6:inset-top:${task.id}`, size: 3 })
       for (const id of task.sessionIds)
         leaves.push({
           key: deckSessionKey(task.id, id),
@@ -78,6 +79,8 @@ export const FlightDeckV6Rows = observer(function FlightDeckV6Rows({
               : ''
           },
         })
+      leaves.push({ key: `v6:inset-bottom:${task.id}`, size: 7 })
+    }
     leaves.push({ key: `v6:gap:${task.id}`, size: 3 })
   }
   const window = useFlightDeckWindow(leaves, scrollRef, container, full.rootId, 'v6')
