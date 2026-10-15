@@ -104,6 +104,7 @@ import { KindIcon, SessionNameEditor, sessionDisplayName, WorkerLabel } from '@/
 import { useClickIntent } from './click-intent'
 import { FlightDeckHandoff } from './FlightDeckHandoff'
 import { FlightDeckFullGroups } from './FlightDeckFullGroups'
+import { FlightDeckProposals } from './FlightDeckProposals'
 import PoolFlightDeck from './FlightDeckPool'
 import { FlightDeckWaterfall } from './FlightDeckWaterfall'
 import { type FlightDeckDisplay, nextFlightDeckDisplayForSessionPick } from './flight-deck-display'
@@ -2677,7 +2678,11 @@ export const FlightDeckContent = observer(function FlightDeckContent({
             ))}
           {/* THE SECTIONS BELOW THE TREE. PROPOSALS SINK: work being offered
             to the operator is not part of the mission's shape. */}
-          {proposedSection(false)}
+          {view === 'full' ? (
+            <FlightDeckProposals full={screen.full}
+              onSelect={(task, permanent) => selectIssue(task.row, permanent)}
+              onMenu={(task, event) => openIssueMenu(asIssueId(task.id), event)} />
+          ) : proposedSection(false)}
           {/* The archive is where the roster STOPS: a wider break (POD-1461). */}
           <DeckArchive
             screen={screen}

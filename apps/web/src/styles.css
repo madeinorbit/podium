@@ -13176,3 +13176,36 @@ button.waterfall-fold:hover {
 .flight-full-phase-lead > .flight-v6-sessions { margin-left: 0; }
 .flight-full-phase[data-complete='true'] > .flight-full-phase-section > .flight-full-phase-header .flight-full-phase-name { color: var(--text-dim); }
 .flight-full-groups button:focus-visible { outline: 1px solid var(--issue); outline-offset: 1px; }
+
+/* Full proposal triage. Magenta belongs to this section; action widths survive
+   narrow decks while the live title yields its space. Other views keep theirs. */
+.flight-proposals { padding:16px 12px 18px; display:flex; flex-direction:column; gap:6px; }
+.flight-proposals-heading { display:flex; align-items:center; gap:8px; padding:0 2px 2px; font:10.5px var(--font-mono); color:var(--text-dim); }
+.flight-proposals-heading h2 { margin:0; font:inherit; font-weight:600; letter-spacing:.16em; text-transform:uppercase; color:#d946ef; }
+.flight-proposals-heading i { height:1px; flex:1; background:rgb(217 70 239 / .18); }
+.flight-proposal { border:1px solid rgb(217 70 239 / .22); background:rgb(217 70 239 / .05); border-radius:6px; min-width:0; }
+.flight-proposal-line { display:flex; align-items:center; gap:8px; min-height:34px; padding:0 6px 0 10px; }
+.flight-proposal-ring { width:12px; height:12px; border:1.5px solid #d946ef; border-radius:50%; flex:none; }
+.flight-proposal-details { display:flex; align-items:center; gap:8px; min-width:0; flex:1; text-align:left; padding:6px 0; cursor:pointer; }
+.flight-proposal-ref { font:11px var(--font-mono); color:#d946ef; flex:none; }
+.flight-proposal-title { font-size:12.5px; color:var(--foreground); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; }
+.flight-proposal-actions { display:flex; align-items:center; gap:4px; flex:none; }
+.flight-proposal-actions button { height:26px; padding:0 8px; border-radius:5px; font-size:11px; white-space:nowrap; cursor:pointer; }
+.flight-proposal-backlog { color:var(--text-dim); }
+.flight-proposal-start { color:#f0abfc; border:1px solid rgb(217 70 239 / .4); font-weight:500; }
+.flight-proposal-actions .flight-proposal-dismiss { display:flex; align-items:center; justify-content:center; width:24px; padding:0; color:var(--text-faint); }
+.flight-proposal-actions button:hover:enabled { background:rgb(217 70 239 / .12); color:var(--foreground); }
+.flight-proposal-actions button:disabled { opacity:.5; cursor:wait; }
+.flight-proposals button:focus-visible { outline:2px solid #d946ef; outline-offset:2px; }
+.flight-proposal-result { display:flex; align-items:center; gap:4px; flex:none; padding:0 6px; font:10.5px var(--font-mono); color:var(--text-dim); }
+.flight-proposal-message { display:flex; align-items:center; gap:8px; margin:0; padding:0 10px 6px; font-size:11px; color:var(--text-dim); overflow-wrap:anywhere; }
+.flight-proposal-error { color:var(--destructive); }
+.flight-proposal-error button { flex:none; text-decoration:underline; cursor:pointer; }
+.flight-proposal-receipt { min-width:0; border-bottom:1px solid var(--border); }
+.flight-proposal-receipt .flight-proposal-ref { color:var(--text-dim); }
+.flight-proposal-receipt .flight-proposal-title { display:none; }
+@container (max-width:360px) {
+  .flight-proposals { padding-inline:8px; }
+  .flight-proposal-line, .flight-proposal-details { gap:5px; }
+  .flight-proposal-line { padding-left:6px; }
+}
