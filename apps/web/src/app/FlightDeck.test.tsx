@@ -1,4 +1,7 @@
 import '@/test-support/mock-pool-fixture'
+import { readFileSync, writeFileSync } from 'node:fs'
+import type { TaskCostWire } from '@podium/model/browser'
+import { resetPolledQueryCache } from '@/lib/use-polled-query'
 import { DEFAULT_SETTINGS, nativeAccountId } from '@podium/runtime'
 // @vitest-environment happy-dom
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
@@ -42,7 +45,7 @@ import {
 import { defaultWaterfallRowZoom, defaultWaterfallTaskWidth } from './FlightDeckWaterfall'
 import { OperatorFocusProvider } from './operator-focus'
 import { clearHoveredSession, setHoveredSession } from './session-hover'
-import { REVEAL_IN_DECK_EVENT, RIGHT_PANEL_KEY } from './shell-state'
+import { OPEN_RIGHT_PANEL_EVENT, REVEAL_IN_DECK_EVENT, RIGHT_PANEL_KEY } from './shell-state'
 import { useRuntimeSelector as selectFixtureSnapshot } from './store'
 
 /**
@@ -62,6 +65,7 @@ const harness = vi.hoisted(() => ({
   // nothing refused — and every test but the harness one leaves them that way.
   repos: [] as unknown[],
   machines: [] as unknown[],
+  costAnswer: null as TaskCostWire | null,
   codingHarness: 'claude-code' as 'claude-code' | 'codex',
   selectedIssueId: null as string | null,
   paneA: null as string | null,
@@ -102,7 +106,7 @@ const harness = vi.hoisted(() => ({
     // have no figure, which is the ordinary case and renders no chip at all —
     // but the procedure has to EXIST, or the read throws inside the effect.
     cost: {
-      task: { query: async () => null },
+      task: { query: async () => harness.costAnswer },
       tasks: { query: async () => [] },
     },
     issues: {
@@ -317,6 +321,8 @@ const settle = async (): Promise<void> => {
 beforeEach(() => {
   vi.useFakeTimers({ shouldAdvanceTime: true })
   harness.ui.clear()
+  harness.costAnswer = null
+  resetPolledQueryCache()
   harness.listeners.clear()
   harness.repos = []
   harness.machines = []
@@ -607,6 +613,10 @@ describe('mission brief cutoff', () => {
 })
 
 describe('mission brief cutoff interaction', () => {
+  beforeEach(() => {
+    developerFeature.enabled = true
+    harness.ui.set('podium.flightDeck.mode', 'timeline')
+  })
   const separator = (): HTMLElement =>
     screen.getByRole('separator', { name: 'Resize mission brief' })
 
@@ -705,6 +715,10 @@ describe('mission brief cutoff interaction', () => {
 })
 
 describe('mission brief measurement after layout', () => {
+  beforeEach(() => {
+    developerFeature.enabled = true
+    harness.ui.set('podium.flightDeck.mode', 'timeline')
+  })
   // Each observation starts with a browser-delivered size report after layout.
   // No geometry read may happen during the commit, on mount or content change.
   // Only the deck/header are observed; the body's height is their output.
@@ -1147,6 +1161,10 @@ describe('the developer Flight Deck views', () => {
 })
 
 describe("the mission's brief (POD-1455)", () => {
+  beforeEach(() => {
+    developerFeature.enabled = true
+    harness.ui.set('podium.flightDeck.mode', 'timeline')
+  })
   const brief = (): HTMLElement => screen.getByTestId('deck-brief')
 
   it('keeps the shape the author wrote — a lead-in, then a list', async () => {
@@ -1225,6 +1243,145 @@ describe("the mission's brief (POD-1455)", () => {
     expect(brief().textContent).toContain('Rebasing onto main')
     expect(brief().getAttribute('data-standing')).toBeNull()
   })
+})
+
+describe('Full mission header', () => {
+  const description = () => screen.getByTestId('full-mission-description')
+  const details = () => fireEvent.click(screen.getByRole('button', { name: 'Read more' }))
+
+  it('expands human markdown sections and Acceptance, with no agent brief or invented columns', async () => {
+    harness.issues = [issue('root', {
+      description: 'A human summary.\n\n## Delivery\n\n- Keep the authored structure.\n- **Ship** the increment.',
+      brief: 'SECRET AGENT INSTRUCTIONS',
+      activityNotes: 'Agent progress update',
+      acceptance: '- Human can read the result.\n- Existing actions still work.',
+    })]
+    harness.sessions = []
+    await deck()
+    expect(description().querySelector('.flight-full-description-summary')).toBeTruthy()
+    expect(description().textContent).toContain('A human summary.')
+    expect(screen.queryByRole('region', { name: 'Acceptance' })).toBeNull()
+    captureHeader('Two-line human summary')
+    details()
+    expect(screen.getByRole('button', { name: 'Collapse' }).getAttribute('aria-expanded')).toBe('true')
+    expect(description().querySelector('h2')?.textContent).toBe('Delivery')
+    expect(description().querySelector('strong')?.textContent).toBe('Ship')
+    expect(screen.getByRole('region', { name: 'Acceptance' }).querySelectorAll('li')).toHaveLength(2)
+    for (const text of ['SECRET AGENT INSTRUCTIONS', 'Agent progress update', 'Goal', 'Scope']) {
+      expect(description().textContent).not.toContain(text)
+    }
+    captureHeader('Expanded authored sections and Acceptance')
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse' }))
+    expect(screen.getByRole('button', { name: 'Read more' }).getAttribute('aria-expanded')).toBe('false')
+    expect(screen.queryByRole('region', { name: 'Acceptance' })).toBeNull()
+  })
+
+  it('keeps task details on the existing detail action', async () => {
+    harness.issues = [issue('root', { description: 'Human description.' })]
+    harness.sessions = []
+    const opened = vi.fn()
+    window.addEventListener(OPEN_RIGHT_PANEL_EVENT, opened)
+    afterEachListeners.push(() => window.removeEventListener(OPEN_RIGHT_PANEL_EVENT, opened))
+    await deck()
+    details()
+    fireEvent.click(screen.getByRole('button', { name: 'Open task details' }))
+    expect(opened).toHaveBeenCalledTimes(1)
+    expect((opened.mock.calls[0]?.[0] as CustomEvent).detail).toBe('issue')
+    expect(harness.setSelectedIssueId).toHaveBeenCalledWith('root')
+  })
+
+  it('shows acceptance without substituting instructions when the description is absent', async () => {
+    harness.issues = [issue('root', {
+      brief: 'Agent-only instructions', activityNotes: 'Agent-only note', acceptance: 'A human check.',
+    })]
+    harness.sessions = []
+    await deck()
+    expect(description().textContent).toContain('No description yet.')
+    details()
+    expect(screen.getByRole('region', { name: 'Acceptance' }).textContent).toContain('A human check.')
+    expect(description().textContent).not.toContain('Agent-only')
+  })
+
+  it('does not offer empty details and resets expansion on a different mission', async () => {
+    harness.issues = [issue('root', { description: 'First mission.' }), issue('other')]
+    harness.sessions = []
+    const ui = await deck()
+    details()
+    harness.selectedIssueId = 'other'
+    ui.rerender(<DeckHarness />)
+    await waitFor(() => expect(description().textContent).toContain('No description yet.'))
+    expect(screen.queryByRole('button', { name: 'Read more' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Collapse' })).toBeNull()
+  })
+
+  it('counts leaves consistently with the Full done line, without parents or phases', async () => {
+    harness.issues = [
+      issue('root'), issue('phase', { parentId: 'root', type: 'phase' }),
+      issue('parent', { parentId: 'phase' }),
+      issue('finished', { parentId: 'parent', stage: 'done', closedAt: '2026-01-01T00:00:00Z' }),
+      issue('future', { parentId: 'parent', stage: 'backlog' }),
+      issue('cancelled', { parentId: 'phase', stage: 'done', closedReason: 'cancelled', closedAt: '2026-01-01T00:00:00Z' }),
+      issue('proposal', { parentId: 'root', stage: 'proposed' }),
+    ]
+    harness.sessions = []
+    await deck()
+    await waitFor(() => expect(screen.getByTestId('mission-gauge').getAttribute('aria-label')).toBe(
+      '2 of 3 tasks done, 1 to go · 0 agents',
+    ))
+    expect(screen.getByRole('button', { name: /2 tasks done Show/ })).toBeTruthy()
+    const before = screen.getByTestId('mission-gauge').getAttribute('aria-label')
+    fireEvent.click(screen.getByRole('button', { name: /2 tasks done Show/ }))
+    expect(screen.getByTestId('mission-gauge').getAttribute('aria-label')).toBe(before)
+    captureHeader('Leaf totals · parents and phases excluded')
+  })
+
+  it('counts a standalone mission as its one task', async () => {
+    harness.issues = [issue('root', { stage: 'backlog' })]
+    harness.sessions = []
+    await deck()
+    expect(screen.getByTestId('mission-gauge').getAttribute('aria-label')).toBe(
+      '0 of 1 task done, 1 to go · 0 agents',
+    )
+  })
+
+  it('keeps the cost floor and live crew while Add agent uses the existing default action', async () => {
+    harness.issues = [issue('root', { description: 'Human summary.', defaultAgent: 'codex', agentProfileId: 'profile' })]
+    harness.sessions = [session('present', { issueId: 'root', agentState: WORKING })]
+    const usage = { model: 'claude-opus-5', inputTokens: 1_000_000, outputTokens: 0,
+      cacheReadTokens: 0, cacheCreationTokens: 0, cacheCreation1hTokens: 0, messages: 2 }
+    harness.costAnswer = {
+      issueId: 'root', state: 'costed', own: { models: [usage], messages: 2, sessionCount: 1 },
+      rollup: { models: [usage], messages: 2, sessionCount: 1 }, descendantCount: 0,
+      provisional: false, floor: 'partial', harnesses: ['codex'], sessions: [],
+    } as TaskCostWire
+    await deck()
+    await waitFor(() => expect(screen.getByTestId('mission-cost-chip').textContent).toContain('≥$'))
+    expect(screen.getByTestId('mission-live-chip').textContent).toBe('1 working')
+    expect(screen.getByRole('button', { name: 'Collapse Flight Deck' })).toBeTruthy()
+    captureHeader('Live crew · partial cost · Add agent')
+    fireEvent.click(screen.getByRole('button', { name: 'Add agent to mission' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Add Codex (default)' }))
+    await waitFor(() => expect(harness.addSession).toHaveBeenCalledWith({ id: 'root' }))
+    expect(harness.focusIssueSession).toHaveBeenCalledWith('root', { excludeSessionIds: ['present'] })
+  })
+})
+
+// Static review evidence comes from the tested header DOM, without browser driving.
+const headerCaptures: { title: string; html: string }[] = []
+function captureHeader(title: string) {
+  if (!process.env['PODIUM_FULL_HEADER_REVIEW_HTML']) return
+  headerCaptures.push({ title, html: document.querySelector('.deck-header')?.outerHTML ?? '' })
+}
+afterAll(() => {
+  const path = process.env['PODIUM_FULL_HEADER_REVIEW_HTML']
+  if (!path) return
+  const css = readFileSync('src/styles.css', 'utf8').split('/* Full mission header (v6).')[1]?.split('/* ── THE RUNNING')[0]
+  const tokens = readFileSync('src/index.css', 'utf8').split('[data-theme="podium"].dark {')[1]?.split('}')[0]
+  writeFileSync(path, `<!doctype html><html lang="en"><meta charset="utf-8"><title>Full mission header</title><style>
+    :root{${tokens}--font-mono:ui-monospace,monospace;--shell-type-micro:10.5px}
+    *{box-sizing:border-box}body{margin:0;padding:24px;background:#16171a;color:#d7dae0;font:12px system-ui}main{max-width:1100px;margin:auto}article{margin:24px 0}button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}svg{flex:none}.samples{display:flex;flex-wrap:wrap;align-items:start;gap:20px}.sample{flex:none;border:1px solid #33373f;border-radius:8px;background:#1d1f23;padding:12px 16px}.sample>p{color:#949aa4}.shell-type-micro{font-size:10.5px}.shell-type-column-title{margin:4px 0;font-weight:600}.deck-header>div:first-child{display:flex;align-items:center;gap:6px}.deck-header>div:first-child>span[aria-hidden]{flex:1}.deck-header button{flex-shrink:0}.deck-header h2{text-align:left}.deck-header .mt-2\\.5{margin-top:10px}.flight-full-gauge-row{display:flex;flex-wrap:wrap;align-items:center;margin-top:12px}.mission-gauge-full{display:flex;align-items:center}.mission-gauge-full [data-testid="mission-gauge-track"]{display:flex;height:26px;gap:2px;padding:2px;border-radius:8px;background:#16171a}.mission-gauge-full [data-testid="mission-live-chip"], [data-testid="mission-cost-chip"], button[aria-label="Add agent to mission"]{display:flex;align-items:center;flex:none;height:26px;gap:6px;padding:0 9px;border-radius:8px;background:#16171a;white-space:nowrap}[data-testid="mission-cost-chip"]{border:1px solid #3a3f48}
+    /* Full mission header (v6).${css}
+  </style><main><h1>Full mission header</h1><p>Actual tested header DOM at 300px, 480px and 900px. Summary and band shedding use the source CSS. Actions wrap and retain their labels. Static captures; use Read more and Collapse in the live Full view.</p>${headerCaptures.map(c => `<article><h2>${c.title}</h2><div class="samples">${[300,480,900].map(w => `<div class="sample" style="width:${w}px"><p>${w}px</p>${c.html}</div>`).join('')}</div></article>`).join('')}</main></html>`)
 })
 
 describe('flight deck mission agent action', () => {

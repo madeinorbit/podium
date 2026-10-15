@@ -47,6 +47,7 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  ChevronUp,
   ChevronsDownUp,
   ChevronsUpDown,
   Ellipsis,
@@ -68,7 +69,7 @@ import type {
   RefObject,
   PointerEvent as ReactPointerEvent,
 } from 'react'
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useLayoutEffect, useId, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { GhostBar, GhostDot, GhostPreview, GhostSquare } from '@/components/GhostPreview'
 import { UnreadDot } from '@/components/UnreadMark'
@@ -1398,6 +1399,60 @@ const DeckBrief = observer(function DeckBrief({
   return <MissionBrief html={briefHtml} standing={!authoredBrief} />
 })
 
+/** D8: the Full header expands human text, never the agent instructions. */
+const FullDeckBrief = observer(function FullDeckBrief({
+  screen,
+  onOpenDetails,
+}: {
+  screen: MissionScreen
+  onOpenDetails: () => void
+}): JSX.Element {
+  const description = screen.root.description.trim()
+  const acceptance = screen.root.acceptance?.trim() ?? ''
+  const descriptionHtml = useMemo(() => renderReadoutMarkdown(description), [description])
+  const acceptanceHtml = useMemo(() => renderReadoutMarkdown(acceptance), [acceptance])
+  const [open, setOpen] = useState(false)
+  const contentId = useId()
+  const hasDetails = Boolean(description || acceptance)
+  return (
+    <div className="flight-full-description" data-testid="full-mission-description" data-open={open}>
+      <div className={open ? 'flight-full-description-panel' : undefined}>
+        <div id={contentId} className={open ? 'flight-full-description-content' : undefined}>
+          {description ? (
+            <div
+              className={cn('flight-full-description-markdown', !open && 'flight-full-description-summary')}
+              dangerouslySetInnerHTML={{ __html: descriptionHtml }}
+            />
+          ) : (
+            <p className="flight-full-description-empty">No description yet.</p>
+          )}
+          {open && acceptance && (
+            <section className="flight-full-description-acceptance" aria-label="Acceptance">
+              <h3>Acceptance</h3>
+              <div className="flight-full-description-markdown" dangerouslySetInnerHTML={{ __html: acceptanceHtml }} />
+            </section>
+          )}
+        </div>
+        {hasDetails && (
+          <div className="flight-full-description-actions">
+            <button type="button" aria-expanded={open} aria-controls={contentId} onClick={() => setOpen(!open)}>
+              {open ? <ChevronUp size={11} aria-hidden="true" /> : null}
+              {open ? 'Collapse' : 'Read more'}
+              {!open ? <ChevronDown size={11} aria-hidden="true" /> : null}
+            </button>
+            {open && (
+              <button type="button" onClick={onOpenDetails}>
+                <ArrowUpRight size={12} aria-hidden="true" />
+                Open task details
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+})
+
 /** The gauge, the price and the mission's one action, on one baseline. */
 const DeckGaugeRow = observer(function DeckGaugeRow({
   screen,
@@ -1410,10 +1465,14 @@ const DeckGaugeRow = observer(function DeckGaugeRow({
 }): JSX.Element {
   const target = screen.rootAgentTarget
   return (
-    <div className="mt-3 flex flex-wrap items-center gap-2">
-      <div className="min-w-[9rem] flex-[1_1_9rem]">
-        <MissionGauge progress={screen.progress} live={screen.liveCount} working={screen.workingCount} />
-      </div>
+    <div className={cn('mt-3 flex flex-wrap items-center gap-2', screen.view === 'full' && 'flight-full-gauge-row')}>
+      {screen.view === 'full' ? (
+        <MissionGauge full={screen.full} live={screen.liveCount} working={screen.workingCount} />
+      ) : (
+        <div className="min-w-[9rem] flex-[1_1_9rem]">
+          <MissionGauge progress={screen.progress} live={screen.liveCount} working={screen.workingCount} />
+        </div>
+      )}
       {/* THE DECK'S ONE PRICE (POD-1862). One more object in this
         row, so it inherits the wrap above rather than adding a drop
         rung of its own, and it renders NOTHING at all until there
@@ -2266,7 +2325,7 @@ export const FlightDeckContent = observer(function FlightDeckContent({
           no strip would be the one task with no menu. */}
         {/* biome-ignore lint/a11y/noStaticElementInteractions: context menu covers the header; its buttons provide keyboard actions. */}
         <div
-          className="deck-header relative flex-none"
+          className={cn("deck-header relative flex-none", view === 'full' && 'flight-full-header')}
           onContextMenu={(event) => openIssueMenu(rootId as IssueId, event)}
         >
           {/* THE EYEBROW MAY TAKE A SECOND LINE (POD-1146), and it stands on
@@ -2296,7 +2355,15 @@ export const FlightDeckContent = observer(function FlightDeckContent({
             {/* THE BRIEF IS THE ONE THING HERE THAT IS READ RATHER THAN
               SCANNED — see {@link MissionBrief}. */}
             <div className="mt-2.5">
-              <DeckBrief screen={screen} focusedSessionId={activeSessionId} />
+              {view === 'full' ? (
+                <FullDeckBrief
+                  key={rootId}
+                  screen={screen}
+                  onOpenDetails={() => rootRow && selectIssue(rootRow, true)}
+                />
+              ) : (
+                <DeckBrief screen={screen} focusedSessionId={activeSessionId} />
+              )}
             </div>
             {/* ONE 26px FAMILY, ON ONE BASELINE (POD-1146). */}
             <DeckGaugeRow

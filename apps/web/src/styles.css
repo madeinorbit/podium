@@ -11365,6 +11365,94 @@ button.waterfall-fold:hover {
    min-width rungs ONLY, so a browser without container queries lands on bare
    material rather than on clipped text — and the full sentence is on the
    gauge's aria-label and title at every rung either way. */
+/* Full mission header (v6). Keep these rules local: the development views
+   retain their measured, resizable brief and their current gauge. */
+.flight-full-header .shell-type-column-title {
+  font-size: 16px;
+  letter-spacing: -0.01em;
+  overflow-wrap: anywhere;
+}
+.flight-full-description {
+  min-width: 0;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text-dim);
+  overflow-wrap: anywhere;
+  text-wrap: pretty;
+}
+.flight-full-description-summary {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.flight-full-description-markdown > :first-child { margin-top: 0; }
+.flight-full-description-markdown > :last-child { margin-bottom: 0; }
+.flight-full-description-markdown p { margin: 0 0 0.6em; }
+.flight-full-description-markdown :is(h1, h2, h3, h4, h5, h6),
+.flight-full-description-acceptance > h3 {
+  margin: 1em 0 0.3em;
+  font: 500 9.5px var(--font-mono);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.flight-full-description-markdown :is(ul, ol) { margin: 0.4em 0; padding-left: 1.5em; }
+.flight-full-description-markdown ul { list-style: disc; }
+.flight-full-description-markdown ol { list-style: decimal; }
+.flight-full-description-markdown pre { max-width: 100%; overflow-x: auto; }
+.flight-full-description-markdown .code-copy { display: none; }
+.flight-full-description-empty { margin: 0; color: var(--text-faint); }
+.flight-full-description-panel {
+  padding: 12px 12px 10px;
+  border: 1px solid var(--hairline-soft);
+  border-radius: 8px;
+  background: var(--background);
+}
+.flight-full-description-content {
+  max-height: min(40vh, 28rem);
+  overflow-y: auto;
+  color: var(--text-strong);
+}
+.flight-full-description-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 14px;
+  margin-top: 3px;
+}
+.flight-full-description-panel .flight-full-description-actions { margin-top: 10px; }
+.flight-full-description-actions button {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  font-size: 11.5px;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+.flight-full-description-actions button:hover { color: var(--text-strong); }
+.flight-full-description-actions button:focus-visible {
+  outline: 2px solid var(--live);
+  outline-offset: 3px;
+  border-radius: 2px;
+}
+.flight-full-gauge-row { gap: 6px; }
+.flight-full-gauge-row > :is(button, [data-testid="mission-cost-chip"]) {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.mission-gauge-full {
+  flex: 1 1 260px;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 120px;
+}
+.mission-gauge-full [data-testid="mission-gauge-track"] {
+  flex: 1 1 160px;
+  min-width: 120px;
+}
+
 .gauge-band {
   position: relative;
   container: gauge-band / inline-size;
