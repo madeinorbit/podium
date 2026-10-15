@@ -5,7 +5,6 @@ import { readdirSync } from 'node:fs'
 import { join, relative } from 'node:path'
 
 export const factMethods = {
-  messages: ['countPending', 'countPendingForSession', 'countQueued', 'loadWorldPending'],
   issues: ['getIssue', 'getIssues', 'listIssueRows', 'listIssueCwdRows', 'loadWorldIssuePaths', 'closedIssueIds', 'listIssueParentEdges', 'nextIssueSeq', 'issuesMissingRepoId', 'legacyWorktreeSkippedQuery'],
 } as const
 

@@ -186,7 +186,6 @@ function harness(
     resume: options.resumable === false ? undefined : { kind: 'codex', value: 'resume-1' },
     hasBoundDriver: options.hasBoundDriver ?? false,
     driverId: options.driverId,
-    queuedMessageCount: 0,
     transcriptAvailable: options.transcriptAvailable ?? false,
     agentState: {
       phase: options.phase ?? 'idle',
@@ -234,6 +233,7 @@ function harness(
         return true
       },
       list: listQueue,
+      count: async (id: SessionId) => rows.filter((row) => row.sessionId === id).length,
       reserveDelivery: async (id) => {
         const row = rows.find((candidate) => candidate.id === id)
         if (row) { row.attempts = Math.max(row.attempts, 1); row.deliveryOwner = 'daemon' }
@@ -517,32 +517,31 @@ describe('SessionInbox persistence completion', () => {
     expect(h.broadcast).not.toHaveBeenCalled()
   })
 
-  it('waits for the queued count commit before returning or broadcasting', async () => {
+  it('waits for the queued row session commit before returning or broadcasting', async () => {
     vi.useFakeTimers()
     const h = harness()
     const pending = barrier()
-    h.write.mockImplementationOnce(async (session, mutate) => {
+    h.persist.mockImplementationOnce(async () => {
       await pending.promise
-      mutate(session as never)
     })
     let finished = false
     const operation = h.inbox.queueText({ sessionId: SID, text: 'queued', principal: agentPrincipal() })
       .then(() => { finished = true })
     await vi.advanceTimersByTimeAsync(0)
-    expect(h.write).toHaveBeenCalledOnce()
-    expect(h.session.queuedMessageCount).toBe(0)
+    expect(h.persist).toHaveBeenCalledOnce()
+    expect(h.persist).toHaveBeenCalledWith(h.session, { cancelTerminalCandidate: true })
+    expect(h.rows).toHaveLength(1)
     expect(h.broadcast).not.toHaveBeenCalled()
     expect(finished).toBe(false)
     pending.release()
     await operation
-    expect(h.session.queuedMessageCount).toBe(1)
     expect(h.broadcast).toHaveBeenCalledOnce()
   })
 
-  it('returns a queued count commit rejection to the caller', async () => {
+  it('returns a queued row session commit rejection to the caller', async () => {
     const h = harness()
-    const error = new Error('count commit failed')
-    h.write.mockRejectedValueOnce(error)
+    const error = new Error('session commit failed')
+    h.persist.mockRejectedValueOnce(error)
     await expect(h.inbox.queueText({ sessionId: SID, text: 'queued', principal: agentPrincipal() }))
       .rejects.toBe(error)
     expect(h.broadcast).not.toHaveBeenCalled()
@@ -1038,7 +1037,6 @@ describe('SessionInbox authorization and identity', () => {
 
     const noRow = exactGrok()
     noRow.setStatus('exited')
-    ;(noRow.session as unknown as { queuedMessageCount: number }).queuedMessageCount = 1
     expect(await noRow.inbox.recoverQueuedAfterExit(SID)).toBe(false)
 
     const archived = exactGrok()
@@ -2048,7 +2046,6 @@ describe('shell rows held past the typing loop', () => {
 
     await h.inbox.onTranscriptDelta(SID, [{ event: 'interrupt' }])
     expect(h.rows).toEqual([])
-    expect(h.session.queuedMessageCount).toBe(0)
     expect(h.interrupted).toHaveBeenCalledWith({
       sourceMessageId: 'message-interrupted',
       sessionId: SID,
@@ -2311,7 +2308,6 @@ describe('server-family drain via the runtime contract [POD-2291]', () => {
     })
     h.rows.push({ delivery: 'when-ready', id: 'persisted', sessionId: SID, queuedAt: 1, text: 'held by the program', attempts: 1,
       deliveryOwner: 'daemon', inputOrigin: 'human', principal: agentPrincipal(), sourceMessageId: 'persisted' })
-    h.session.queuedMessageCount = 1
     await h.inbox.drain(SID, { justBound: true })
     await vi.advanceTimersByTimeAsync(0)
     expect(h.contractCalls).toHaveLength(1)
@@ -2374,7 +2370,6 @@ describe('server-family drain via the runtime contract [POD-2291]', () => {
     h.contractResolvers[0]!(accepted)
     await vi.advanceTimersByTimeAsync(0)
     expect(h.rows).toHaveLength(1)
-    expect(h.session.queuedMessageCount).toBe(1)
     expect(h.applied).not.toHaveBeenCalled()
     expect(h.inbox.isDraining(SID)).toBe(false)
 
@@ -2384,7 +2379,6 @@ describe('server-family drain via the runtime contract [POD-2291]', () => {
     expect(h.rows).toHaveLength(1)
     await h.inbox.deliveryOutcome(SID, { rowId: 'msg_srv_exit_bind', outcome: 'delivered' })
     expect(h.rows).toEqual([])
-    expect(h.session.queuedMessageCount).toBe(0)
     expect(h.applied).toHaveBeenCalledTimes(1)
     expect(h.inbox.isDraining(SID)).toBe(false)
   })
@@ -2482,7 +2476,6 @@ describe('server-family drain via the runtime contract [POD-2291]', () => {
     expect(await h.inbox.retract(SID, 'cancel-source')).toBe('cancelled')
     expect(h.contractCancel).toHaveBeenCalledWith(SID, 'cancel-source')
     expect(h.rows.map((row) => row.id)).toEqual(['keep-source'])
-    expect(h.session.queuedMessageCount).toBe(1)
   })
 
   it('settles failed and dropped outcomes visibly by durable row identity', async () => {
@@ -2679,7 +2672,6 @@ describe('queued input that nothing would come back for [POD-1703]', () => {
     await h.inbox.queueText({ sessionId: SID, text: PROMPT, principal, sourceMessageId: 'msg_a' })
     await h.inbox.queueText({ sessionId: SID, text: PROMPT, principal, sourceMessageId: 'msg_a' })
     expect(h.rows).toHaveLength(1)
-    expect(h.session.queuedMessageCount).toBe(1)
 
     // A DIFFERENT message is not the same intent and still queues.
     await h.inbox.queueText({
@@ -3039,7 +3031,6 @@ describe('agent drain via the runtime contract', () => {
     // Fresh inbox instance, only durable state survived the server.
     h.rows.push({ delivery: 'when-ready', id: 'persisted', sessionId: SID, queuedAt: 1, text: 'already admitted', attempts: 1,
       deliveryOwner: 'daemon', inputOrigin: 'human', principal: agentPrincipal(), sourceMessageId: 'receipt' })
-    h.session.queuedMessageCount = 1
     await h.inbox.drain(SID, { justBound: true })
     await vi.advanceTimersByTimeAsync(60_000)
     expect(h.contractCalls).toEqual([expect.objectContaining({ turnId: 'persisted', deliveryRecovery: true })])

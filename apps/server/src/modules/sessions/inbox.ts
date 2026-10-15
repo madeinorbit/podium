@@ -265,6 +265,8 @@ export interface InboxQueuePort {
     attachments?: readonly RuntimeAttachmentRef[]
   }): Promise<boolean>
   list(sessionId: SessionId): Promise<QueuedInboxMessage[]>
+  /** How many rows the session's durable queue holds: one indexed count. */
+  count(sessionId: SessionId): Promise<number>
   /** UNBRANDED BY DECISION: queue primary key; may be a mutation id or a generated UUID. */
   reserveDelivery?(id: string): Promise<void>
   /** Undo a reservation a proven-unwritten forward took (POD-4622): no owner,
@@ -664,7 +666,6 @@ export class SessionInbox {
       !session ||
       session.status !== 'exited' ||
       session.archived ||
-      session.queuedMessageCount === 0 ||
       session.driverId !== 'grok-acp' ||
       !session.resume
     ) {
@@ -729,7 +730,7 @@ export class SessionInbox {
     if (session.agentState?.phase === 'needs_user') return { ok: false }
     // Ordering, not readiness: a live send past a non-empty durable queue would
     // land ahead of older rows still waiting to drain.
-    if (session.queuedMessageCount > 0 || this.isDraining(input.sessionId)) {
+    if (this.isDraining(input.sessionId) || (await this.deps.queue.count(input.sessionId)) > 0) {
       return await this.queueText(input)
     }
     // Complete metadata admission before entering the synchronous byte path.
@@ -760,7 +761,7 @@ export class SessionInbox {
     if (!session) return { ok: false, reason: 'unknown session' }
     const blockedReason = archivedSessionSendReason(session)
     if (blockedReason) return { ok: false, reason: blockedReason }
-    if (session.status === 'live' && session.queuedMessageCount === 0)
+    if (session.status === 'live' && (await this.deps.queue.count(input.sessionId)) === 0)
       return await this.sendText(input)
     return await this.queueText({ ...input, mutationId: input.mutationId })
   }
@@ -1079,11 +1080,7 @@ export class SessionInbox {
   private async withdrawn(session: Session, row: QueuedInboxMessage): Promise<void> {
     const sessionId = session.sessionId
     this.forwardedRows.get(sessionId)?.ids.delete(row.id)
-    const remaining = await this.deps.queue.list(sessionId)
-    const persistence: Promise<void> = this.deps.write(session, (draft) => {
-      draft.queuedMessageCount = remaining.length
-    })
-    await persistence
+    // The queue count on the wire is read from the table; tell the clients.
     this.deps.broadcast()
     const completion: Promise<void> | undefined = this.deps.authorization.interrupted?.({
       sourceMessageId: row.sourceMessageId,
@@ -1191,13 +1188,7 @@ export class SessionInbox {
     })
     const inserted = await insertion
     if (inserted) {
-      const persistence: Promise<void> = this.deps.write(
-        session,
-        (draft) => {
-          draft.queuedMessageCount += 1
-        },
-        { cancelTerminalCandidate: true },
-      )
+      const persistence: Promise<void> = this.deps.persist(session, { cancelTerminalCandidate: true })
       await persistence
       this.deps.broadcast()
     }
@@ -1443,11 +1434,7 @@ export class SessionInbox {
           return
         }
       }
-      if (current()) {
-        const remaining = await this.deps.queue.list(sessionId)
-        await this.deps.write(session, (draft) => { draft.queuedMessageCount = remaining.length })
-        this.deps.broadcast()
-      }
+      if (current()) this.deps.broadcast()
     }
     const operation = run()
     this.forwarding.set(sessionId, operation)
@@ -1696,10 +1683,8 @@ export class SessionInbox {
       this.forwardedRows.get(sessionId)?.ids.delete(row.id)
     }
     this.settledQueueRowIds.add(row.id)
-    const remaining = await this.deps.queue.list(sessionId)
-    await this.deps.write(session, (draft) => { draft.queuedMessageCount = remaining.length })
     this.deps.broadcast()
-    if (remaining.length) await this.drain(sessionId)
+    if ((await this.deps.queue.count(sessionId)) > 0) await this.drain(sessionId)
   }
 
   /**
@@ -1821,10 +1806,6 @@ export class SessionInbox {
         })
         await this.settleDelivered(session, head)
         if (!isCurrent()) return
-        const remaining = await this.deps.queue.list(sessionId)
-        await this.deps.write(session, (draft) => {
-          draft.queuedMessageCount = remaining.length
-        })
         this.deps.broadcast()
       }
     } finally {

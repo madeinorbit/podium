@@ -251,7 +251,6 @@ async function harness(sessions: SessionMeta[] = [], opts?: HarnessOpts) {
   const narrowCalls = { byId: 0, byIssue: 0 }
   const issueGetLists: (SessionMeta[] | undefined)[] = []
   const svc = new MessageDeliveryService({
-    worldIndex: (await WorldIndex.load(store)).reader,
       firstAdminMemberId: () => firstAdminMemberId(store),
     messages: store.messages,
     notificationFacts: store.notificationFacts,
@@ -4663,17 +4662,22 @@ describe('event-driven delivery review boundaries [POD-842] [spec:SP-c29e]', () 
     let world: WorldIndexReader
     const { svc, store, listCalls } = await harness(sessions, { issueForCwd: (cwd) => world.issueForWorktree(cwd) ?? null })
     world = (await WorldIndex.load(store)).reader
+    // One change alone, for the per-change statement cost below.
+    const one = queryAttributionEnabled
+      ? await statementBudget(async () => await svc.onSessionEligibilityChanged(sessions[0]!.sessionId, sessions[0]!))
+      : null
     const resolve = vi.spyOn(svc as unknown as { issueForSession: (s: SessionMeta) => string | null }, 'issueForSession')
     const scan = vi.spyOn(store.issues, 'listIssueCwdRows')
     const run = async () => {
       for (const s of sessions) await svc.onSessionEligibilityChanged(s.sessionId, s)
     }
     const before = listCalls.n
-    if (queryAttributionEnabled) {
+    if (one) {
       const budget = await statementBudget(run)
-      // Membership and pending-mail counters both use committed indexes after
-      // integration with POD-3871; all 200 events must remain SQL-free.
-      expect(budget.statements).toBe(0)
+      // Membership reads the committed index; each change asks one indexed
+      // count of its targets' pending mail (POD-6155). The cost of a change is
+      // fixed, so 200 changes cost 200 times one, and none scans issues.
+      expect(budget.statements).toBe(200 * one.statements)
       expect([...budget.byQuery.keys()].filter((sql) => /from ["`]?issues["`]?\b/i.test(sql))).toEqual([])
     } else await run()
     expect(resolve).toHaveBeenCalledTimes(200)

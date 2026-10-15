@@ -35,5 +35,5 @@ export interface FeedVisibilityStore {
 }
 export type DeliveryMessages = Pick<
   SessionStore['messages'],
-  'countQueued' | 'listQueuedPage' | 'pendingForPage'
+  'countPending' | 'countQueued' | 'listQueuedPage' | 'pendingForPage'
 >

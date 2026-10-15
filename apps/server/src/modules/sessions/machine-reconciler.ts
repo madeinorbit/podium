@@ -47,6 +47,8 @@ const log = createLogger('server:sessions')
 export interface MachineReconcilerPorts {
   /** This machine's candidate sessions. Read-only: nothing here adds or removes. */
   sessions(): Iterable<Session>
+  /** Durable queue sizes for a set of sessions, one grouped read; an empty queue is absent. */
+  queuedMessageCounts(sessionIds: readonly Session['sessionId'][]): Promise<ReadonlyMap<Session['sessionId'], number>>
   /** Re-arm a parked queued-send drain. */
   drainInbox(sessionId: Session['sessionId']): Promise<void>
   /** Transcript-lake catch-up sweep for this machine. */
@@ -92,8 +94,10 @@ export class SessionMachineReconciler {
     // Re-arm queued-send delivery for this machine's sessions: their earlier drain
     // attempts parked while the daemon was away (single-flight + liveness wait make
     // this safe to fire eagerly; reattached sessions also re-trigger via 'bind').
-    for (const s of this.ports.sessions()) {
-      if (s.machineId === machineId && s.queuedMessageCount > 0) {
+    const here = [...this.ports.sessions()].filter((s) => s.machineId === machineId)
+    const queued = here.length > 0 ? await this.ports.queuedMessageCounts(here.map((s) => s.sessionId)) : new Map()
+    for (const s of here) {
+      if ((queued.get(s.sessionId) ?? 0) > 0) {
         // NOT awaited: the drain waits for later daemon observations.
         // A drain pass loses nothing if it fails — the row is durable and the
         // next bind, reconnect or enqueue re-arms a fresh pass (rule 57, and

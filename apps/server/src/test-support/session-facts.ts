@@ -61,7 +61,6 @@ export function metaAsFacts(meta: SessionMeta): SessionFacts {
       ? { contextUsagePercent: meta.contextUsagePercent }
       : {}),
     ...(meta.draftUpdatedAt !== undefined ? { draftUpdatedAt: meta.draftUpdatedAt } : {}),
-    queuedMessageCount: meta.queuedMessageCount ?? 0,
     refIssueId: meta.refIssueId ?? null,
     refLetter: meta.refLetter ?? null,
     refDraft: meta.refDraft ?? null,

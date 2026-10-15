@@ -99,7 +99,6 @@ describe('message delivery: pinned statement counts at 5 and 200 queued messages
           const attempted: string[] = []
           const scheduler = new DeliveryScheduler({
             messages: store.messages,
-            worldIndex: { pendingCount: () => 1 },
             now: () => '2026-10-15T01:00:00.000Z',
             runner: {
               targetOf: (row) => ({ kind: 'issue', id: row.toId ?? '' }),

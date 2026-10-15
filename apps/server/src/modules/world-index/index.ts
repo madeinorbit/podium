@@ -7,9 +7,6 @@
  *   issue-row map and its boot loader/commit projection. This index adds only
  *   worktree lookup keys (id, path and collision ordering), avoiding a second
  *   full-row copy. SessionRegistry likewise retains its existing session map.
- * - Pending counts: store/messages.ts owns INSERT and every status mutation,
- *   including read/dead-letter/refusal. Janitor observations become server-side
- *   expireObserved writes; the janitor does not mutate the messages table.
  * - LEASES EXCLUDED, option (b): observation checkpoints retain their documented
  *   foreign-writer freshness contract (daemon-lifecycle.ts). No lease() capability
  *   is exposed here; POD-3862 must settle that contract before switching it.
@@ -23,7 +20,7 @@
  * Migrations/heals run before loading; no cached authorization survives restart.
  *
  * COMMIT CHOICE: sync ChangeRow contains wire projections, not all owned facts.
- * Both repositories instead publish typed write RETURNING results through
+ * The issues repository instead publish typed write RETURNING results through
  * CommittedRows.write and applyAfterCommit (the same mandatory mechanism used
  * by Authority's onCommit adapter in relay.ts). This includes standalone writes,
  * changes absent from the sync log, and bulk updates. Rollback drops application;
@@ -32,33 +29,22 @@
  *
  * Load and the corresponding apply branch live together here and use the SAME
  * repository decoders. Loading holds one transaction through subscription, so
- * there is no snapshot/subscription gap. Queued IDs come from the single grouped
- * count statement and distinguish mixed-status transitions without a read.
- * Readers are committed snapshots: they must not be used for read-your-writes
+ * there is no snapshot/subscription gap. Readers are committed snapshots: they must not be used for read-your-writes
  * inside an open mutation span. No hot-path reader is switched by this module.
  */
-import { type IssueId, isMessagePending } from '@podium/model'
+import type { IssueId } from '@podium/model'
 import type { SessionStore } from '../../store'
 import type { CommittedRowChange } from '../../store/committed-rows'
 import { applyAfterCommit, spanOpen } from '../../store/executor/executor'
 import type { IssueWorktreeRow } from '../../store/issues'
-import type { MessageQueueFact } from '../../store/messages'
 import type { issues } from '../../migrations/schema'
 
-export interface DeliveryTarget {
-  readonly kind: string
-  readonly id?: string | null
-}
 export interface WorldIndexReader {
   issueForWorktree(path: string): IssueId | undefined
-  pendingCount(target: DeliveryTarget): number
 }
 
-export type ChangeRow =
-  | ({ readonly kind: 'issues' } & CommittedRowChange<typeof issues.$inferSelect>)
-  | ({ readonly kind: 'messages' } & CommittedRowChange<MessageQueueFact>)
+export type ChangeRow = { readonly kind: 'issues' } & CommittedRowChange<typeof issues.$inferSelect>
 
-const key = (kind: string, id: string | null | undefined) => JSON.stringify([kind, id ?? null])
 const loaded = new WeakMap<SessionStore, Promise<WorldIndex>>()
 const compareIssues = (a: IssueWorktreeRow, b: IssueWorktreeRow) =>
   a.repoPath.localeCompare(b.repoPath) || a.seq - b.seq || a.id.localeCompare(b.id)
@@ -67,8 +53,6 @@ export class WorldIndex {
   private readonly issuesById = new Map<string, IssueWorktreeRow>()
   private readonly worktreeMembers = new Map<string, Set<string>>()
   private readonly issuesByWorktree = new Map<string, IssueId>()
-  private readonly pendingByTarget = new Map<string, number>()
-  private readonly queuedTargets = new Map<string, string>()
   private elapsedMs = 0
   get loadMs(): number {
     return this.elapsedMs
@@ -88,8 +72,6 @@ export class WorldIndex {
       }
       return undefined
     },
-    pendingCount: (target: DeliveryTarget) =>
-      this.pendingByTarget.get(key(target.kind, target.id)) ?? 0,
   })
 
   static load(store: SessionStore): Promise<WorldIndex> {
@@ -98,9 +80,8 @@ export class WorldIndex {
     if (existing) return existing
     const loading = store.transact(async () => {
       const started = performance.now()
-      // Two grouped/table reads, independent of the number of facts.
+      // One table read, independent of the number of facts.
       const issues = await store.issues.loadWorldIssuePaths()
-      const pending = await store.messages.loadWorldPending()
       const index = new WorldIndex()
       for (const row of issues) {
         index.issuesById.set(row.id, row)
@@ -114,15 +95,9 @@ export class WorldIndex {
           index.issuesByWorktree.set(row.worktreePath, row.id)
         }
       }
-      for (const row of pending) {
-        const target = key(row.toKind, row.toId)
-        index.pendingByTarget.set(target, row.count)
-        for (const id of row.ids) index.queuedTargets.set(id, target)
-      }
       index.elapsedMs = performance.now() - started
       applyAfterCommit(() => {
         store.issues.committed.subscribe((change) => index.apply({ kind: 'issues', ...change }))
-        store.messages.committed.subscribe((change) => index.apply({ kind: 'messages', ...change }))
       }, 'world-index:load')
       return index
     })
@@ -132,33 +107,9 @@ export class WorldIndex {
   }
 
   apply(change: ChangeRow): void {
-    switch (change.kind) {
-      case 'issues':
-        for (const raw of change.rows) {
-          if (change.operation === 'upsert' && !raw.deletedAt) this.putIssue(raw.id, raw)
-          else this.putIssue(raw.id, undefined)
-        }
-        break
-      case 'messages':
-        for (const row of change.rows) {
-          const previous = this.queuedTargets.get(row.id)
-          const next =
-            change.operation === 'upsert' && isMessagePending(row.deliveryStatus)
-              ? key(row.toKind, row.toId)
-              : undefined
-          if (previous === next) continue
-          if (previous !== undefined) {
-            const remaining = this.pendingByTarget.get(previous)! - 1
-            if (remaining === 0) this.pendingByTarget.delete(previous)
-            else this.pendingByTarget.set(previous, remaining)
-            this.queuedTargets.delete(row.id)
-          }
-          if (next !== undefined) {
-            this.queuedTargets.set(row.id, next)
-            this.pendingByTarget.set(next, (this.pendingByTarget.get(next) ?? 0) + 1)
-          }
-        }
-        break
+    for (const raw of change.rows) {
+      if (change.operation === 'upsert' && !raw.deletedAt) this.putIssue(raw.id, raw)
+      else this.putIssue(raw.id, undefined)
     }
   }
 

@@ -95,7 +95,6 @@ function harness(
     resume: { kind: 'claude-code', value: 'resume-1' },
     hasBoundDriver: false,
     driverId: undefined,
-    queuedMessageCount: 0,
     transcriptAvailable: false,
     agentState: {
       phase: options.phase ?? 'idle',
@@ -129,6 +128,7 @@ function harness(
         return true
       },
       list: async (id: SessionId) => rows.filter((row) => row.sessionId === id),
+      count: async (id: SessionId) => rows.filter((row) => row.sessionId === id).length,
       reserveDelivery: async (id: string) => {
         const row = rows.find((candidate) => candidate.id === id)
         if (row) {
@@ -324,7 +324,6 @@ describe('previous-release rows drain once through the gateway (POD-4427 migrati
       principal: agentPrincipal(),
       sourceMessageId: null,
     })
-    h.session.queuedMessageCount = 1
 
     await h.inbox.drain(SID)
     await flush()
@@ -482,7 +481,6 @@ describe('previous-release rows drain once through the gateway (POD-4427 migrati
       principal: agentPrincipal(),
       sourceMessageId: null,
     })
-    h.session.queuedMessageCount = 1
 
     await h.inbox.drain(SID)
     await flush()

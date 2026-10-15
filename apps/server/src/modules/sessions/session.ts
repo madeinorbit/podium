@@ -209,7 +209,6 @@ export interface SessionDurableState {
   requestedModel: string | undefined
   requestedEffort: string | undefined
   contextUsagePercent: number | undefined
-  queuedMessageCount: number
   handoffTargetMachineId: MachineId | undefined
   conversationPodiumId: ConversationId | undefined
   draftUpdatedAt: string | undefined
@@ -384,10 +383,6 @@ export class Session {
   requestedEffort: string | undefined
   /** Latest exact harness-reported context-window usage, if this harness exposes it. */
   contextUsagePercent: number | undefined
-  /** Count of durable queued messages awaiting delivery (queued_messages table).
-   *  Transient mirror maintained by the registry (enqueue/deliver/boot) — the
-   *  table is the truth; SessionView reads it directly for display. */
-  queuedMessageCount = 0
   /** Transient UI overlay while the canonical row moves machines ([spec:SP-3f7a]). */
   handoffTargetMachineId: MachineId | undefined
   /** Stable Podium conversation identity (conversation registry). Stamped by the
@@ -883,7 +878,6 @@ export class Session {
       requestedModel: this.requestedModel,
       requestedEffort: this.requestedEffort,
       contextUsagePercent: this.contextUsagePercent,
-      queuedMessageCount: this.queuedMessageCount,
       handoffTargetMachineId: this.handoffTargetMachineId,
       conversationPodiumId: this.conversationPodiumId,
       draftUpdatedAt: this.draftUpdatedAt,
@@ -957,7 +951,6 @@ export class Session {
     this.requestedModel = state.requestedModel
     this.requestedEffort = state.requestedEffort
     this.contextUsagePercent = state.contextUsagePercent
-    this.queuedMessageCount = state.queuedMessageCount
     if (!preserve.has('handoffTargetMachineId')) {
       this.handoffTargetMachineId = state.handoffTargetMachineId
     }

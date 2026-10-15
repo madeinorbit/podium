@@ -26,7 +26,6 @@
  * finite snapshot and takes back which rows were consumed.
  */
 
-import type { WorldIndexReader } from '../world-index'
 import { createLogger } from '@podium/logger'
 import type { MessageRow, MessagePageCursor, DeliveryMessages } from '../../hot-path-ports'
 import {
@@ -81,7 +80,6 @@ export interface DeliveryRunner {
 
 export interface DeliverySchedulerDeps {
   messages: DeliveryMessages
-  worldIndex: Pick<WorldIndexReader, 'pendingCount'>
   now(): string
   runner: DeliveryRunner
 }
@@ -109,10 +107,8 @@ export class DeliveryScheduler {
   async queueDeliveryTarget(target: DeliveryTarget, after?: MessagePageCursor): Promise<void> {
     const key = deliveryTargetKey(target)
     try {
-      // Eligibility bus listeners run at root after commit (ModuleBus.emit).
-      // Boot and cooldown timers likewise enter outside a span. This is a committed reader,
-      // never a read-your-writes seam inside an open mutation.
-      if (this.deps.worldIndex.pendingCount(target) === 0) return
+      // One indexed count of the target's pending rows; nothing to deliver, no job.
+      if ((await this.deps.messages.countPending(target)) === 0) return
     } catch (error) {
       this.recordTriggerFailure(`target count ${deliveryTargetKey(target)}`, error)
       return

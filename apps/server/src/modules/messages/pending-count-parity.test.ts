@@ -1,25 +1,27 @@
 /**
- * Old/new parity for pending-message counts (POD-6155 step 4).
+ * Pending-message counts come from SQL (POD-6155 step 4).
  *
- * OLD: the world index's counters (`WorldIndex.reader.pendingCount`), kept
- * current by every committed message write. NEW: the indexed count in SQL
- * (`MessagesRepository.countPending`), the read the delivery scheduler's
- * trigger makes instead. Compared for every delivery target (issue and
- * session) over the benchmark corpus's ids (POD-6146: cell h1a1, seed 4443)
- * with messages in every delivery status — queued, on its way, delivered, read,
- * failed, cancelled, expired — then after a second wave of transitions; and
- * operator (chat) messages, which are never delivery targets, must not move
- * an issue or session count.
+ * Before the world index's counters were deleted, this test compared them
+ * (`WorldIndex.reader.pendingCount`) with the indexed SQL count
+ * (`MessagesRepository.countPending`) for every delivery target over the
+ * benchmark corpus's ids (POD-6146: cell h1a1, seed 4443), at the commit that
+ * adds this file. What stays is a regression test over a smaller set: the
+ * count equals the number of the target's rows in a pending status, read back
+ * row by row, with messages in every delivery status — queued, on its way,
+ * delivered, read, failed, cancelled, expired — after a second wave of
+ * transitions and a rolled-back one; operator (chat) messages, which are never
+ * delivery targets, never move an issue or session count; and a delivery
+ * trigger costs one statement however much mail is pending.
  */
 
 import { createHash } from 'node:crypto'
-import { fileURLToPath } from 'node:url'
-import { asSessionId, asThreadId, type MessageDeliveryStatus } from '@podium/model'
+import { asSessionId, asThreadId, isMessagePending, type MessageDeliveryStatus } from '@podium/model'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { MessageRow, SessionStore } from '../../store'
 import { openTestStore } from '../../test-support/open-test-store'
 import { seedMessage } from '../../test-support/seed-message'
-import { WorldIndex } from '../world-index'
+import { expectConstantStatements } from '../../test-support/statement-count'
+import { DeliveryScheduler } from './scheduler'
 
 const stores: SessionStore[] = []
 afterEach(async () => {
@@ -63,35 +65,32 @@ function message(id: string, toKind: MessageRow['toKind'], toId: string | null, 
   } as unknown as MessageRow
 }
 
-async function corpusTargets(): Promise<{ kind: 'issue' | 'session'; id: string }[]> {
-  const module = fileURLToPath(new URL('../../../../../scripts/server-data-bench/corpus-export.ts', import.meta.url))
-  const { exportCorpus } = (await import(module)) as {
-    exportCorpus(cell: string, seed: number): Promise<{ issues: { id: string }[]; sessions: { id: string }[] }>
-  }
-  const corpus = await exportCorpus('h1a1', 4443)
-  return [
-    ...corpus.issues.map((row) => ({ kind: 'issue' as const, id: `iss_${row.id}` })),
-    ...corpus.sessions.map((row) => ({ kind: 'session' as const, id: row.id })),
-  ]
-}
+type Target = { kind: 'issue' | 'session'; id: string }
 
-async function expectParity(store: SessionStore, index: WorldIndex, targets: readonly { kind: 'issue' | 'session'; id: string }[]) {
+/** The SQL count against the rows' own statuses, read back one by one. */
+async function expectCounts(store: SessionStore, targets: readonly Target[], seeded: readonly { id: string; target: Target }[]) {
+  const pending = new Map<string, number>()
+  for (const { id, target } of seeded) {
+    const row = await store.messages.getMessage(id)
+    if (row && isMessagePending(row.deliveryStatus)) {
+      const key = `${target.kind}:${target.id}`
+      pending.set(key, (pending.get(key) ?? 0) + 1)
+    }
+  }
   for (const target of targets) {
-    expect(await store.messages.countPending(target), `${target.kind} ${target.id}`).toBe(index.reader.pendingCount(target))
+    expect(await store.messages.countPending(target), `${target.kind} ${target.id}`).toBe(pending.get(`${target.kind}:${target.id}`) ?? 0)
   }
 }
 
-describe('pending counts: old counters and new SQL counts give the same answers', () => {
-  it('over the benchmark corpus, every status, and a second wave of transitions', async () => {
+describe('pending counts come from SQL', () => {
+  it('for every status, after a second wave of transitions and a rolled-back one', async () => {
     const store = await openTestStore(':memory:')
     stores.push(store)
-    const index = await WorldIndex.load(store)
-    const targets = [
-      ...(await corpusTargets()),
-      { kind: 'issue' as const, id: 'iss_never-addressed' },
-      { kind: 'session' as const, id: 'session-never-addressed' },
+    const targets: Target[] = [
+      ...Array.from({ length: 40 }, (_, i): Target => ({ kind: i % 2 ? 'issue' : 'session', id: `${i % 2 ? 'iss_' : 'session-'}${i}` })),
+      { kind: 'issue', id: 'iss_never-addressed' },
+      { kind: 'session', id: 'session-never-addressed' },
     ]
-    expect(targets.length).toBeGreaterThan(9000)
     const seeded: { id: string; target: (typeof targets)[number] }[] = []
     const writes: (() => Promise<void>)[] = []
     for (const target of targets.slice(0, -2)) {
@@ -112,8 +111,9 @@ describe('pending counts: old counters and new SQL counts give the same answers'
         for (const write of writes.slice(i, i + 500)) await write()
       })
     }
-    expect(seeded.length).toBeGreaterThan(5000)
-    await expectParity(store, index, targets)
+    expect(seeded.length).toBeGreaterThan(30)
+    expect(new Set(await Promise.all(seeded.map(async ({ id }) => (await store.messages.getMessage(id))?.deliveryStatus))).size).toBeGreaterThan(4)
+    await expectCounts(store, targets, seeded)
 
     // Second wave: move a slice of the rows on, through the production moves.
     await store.transact(async () => {
@@ -127,7 +127,7 @@ describe('pending counts: old counters and new SQL counts give the same answers'
         }
       }
     })
-    await expectParity(store, index, targets)
+    await expectCounts(store, targets, seeded)
 
     // A rolled-back wave moves neither.
     const before = await Promise.all(targets.slice(0, 50).map(async (target) => await store.messages.countPending(target)))
@@ -136,6 +136,33 @@ describe('pending counts: old counters and new SQL counts give the same answers'
       throw new Error('roll back')
     })).rejects.toThrow('roll back')
     expect(await Promise.all(targets.slice(0, 50).map(async (target) => await store.messages.countPending(target)))).toEqual(before)
-    await expectParity(store, index, targets)
-  }, 300_000)
+    await expectCounts(store, targets, seeded)
+  })
+
+  it('a delivery trigger costs one statement, however much mail is pending', async () => {
+    await expectConstantStatements(
+      {
+        name: 'queueDeliveryTarget',
+        setup: async (size) => {
+          const store = await openTestStore(':memory:')
+          stores.push(store)
+          for (let i = 0; i < size; i++) await seedMessage(store.messages, message(`pending-${i}`, 'issue', 'iss_busy', 'stored'))
+          const scheduler = new DeliveryScheduler({
+            messages: store.messages,
+            now: () => at,
+            runner: { targetOf: () => null, nowMs: () => 0, attemptOne: () => {} },
+          })
+          return { store, scheduler }
+        },
+        target: (f) => f.store,
+        run: async (f) => {
+          await f.scheduler.queueDeliveryTarget({ kind: 'issue', id: 'iss_busy' })
+          return f.scheduler.deliveryStats()
+        },
+        check: (stats) => expect(stats).toMatchObject({ pendingTargetCount: 1 }),
+        teardown: (f) => f.scheduler.dispose(),
+      },
+      1,
+    )
+  })
 })

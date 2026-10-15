@@ -33,7 +33,7 @@ import type { ChangeLogReadRow, ChangeLogWriteRow } from '../../authority/change
 import type { ChangePrunePlan } from '../../change-log'
 import { appliedMutations, changeLatest, changes, feedIdentity } from './schema'
 import type { QueuedMessagesTable, SyncServerTables, UpstreamOutboxTable } from './server-tables'
-import { param, prepared, preparedFamily } from './prepared'
+import { inListOf, inListSize, inListValues, param, prepared, preparedFamily } from './prepared'
 import type { StoreQueries, StoreDrizzle, TransactionRunner } from './store-queries'
 
 /**
@@ -319,15 +319,15 @@ function serverTableQueries(queued: QueuedMessagesTable, upstream: UpstreamOutbo
         .prepare(),
     ),
 
-    /** Keyed by the restriction: none, one session, or a set of sessions. */
-    queuedCounts: preparedFamily((db: StoreDrizzle, scope: 'all' | 'one' | 'set') =>
+    /** Keyed by the restriction: none, one session, or a set of sessions as a
+     *  portable `IN` list keyed by its prepared size ({@link inListSize}). */
+    queuedCounts: preparedFamily((db: StoreDrizzle, scope: 'all' | 'one' | number) =>
       db
         .select({ sessionId: queued.sessionId, n: count() })
         .from(queued)
         .where(scope === 'all' ? undefined : scope === 'one'
           ? eq(queued.sessionId, param(queued.sessionId, 'sessionId'))
-          // One bound JSON value keeps a fleet-sized set below SQLite's parameter limit.
-          : inArray(queued.sessionId, sql`(select value from json_each(${sql.placeholder('sessionIds')}))`))
+          : inListOf(queued.sessionId, scope, 'ids'))
         .groupBy(queued.sessionId)
         .prepare(),
     ),
@@ -809,12 +809,23 @@ export class SyncRepository {
 
   /** Read current queue sizes, optionally restricted to one session or one set. */
   async queuedMessageCounts(sessionId?: SessionId | readonly SessionId[]): Promise<Map<SessionId, number>> {
-    const rows = sessionId === undefined
-      ? await this.serverTables.queuedCounts(this.db, 'all').all()
-      : typeof sessionId === 'string'
-        ? await this.serverTables.queuedCounts(this.db, 'one').all({ sessionId })
-        : await this.serverTables.queuedCounts(this.db, 'set').all({ sessionIds: JSON.stringify(sessionId) })
-    return new Map(rows.map((r) => [r.sessionId, r.n]))
+    if (sessionId === undefined || typeof sessionId === 'string') {
+      const rows = sessionId === undefined
+        ? await this.serverTables.queuedCounts(this.db, 'all').all()
+        : await this.serverTables.queuedCounts(this.db, 'one').all({ sessionId })
+      return new Map(rows.map((r) => [r.sessionId, r.n]))
+    }
+    // One query per 500 ids keeps a fleet-sized set below SQLite's parameter limit.
+    const out = new Map<SessionId, number>()
+    const unique = [...new Set(sessionId)]
+    for (let i = 0; i < unique.length; i += 500) {
+      const chunk = unique.slice(i, i + 500)
+      const size = inListSize(chunk.length)
+      for (const r of await this.serverTables.queuedCounts(this.db, size).all(inListValues(chunk, size, 'ids'))) {
+        out.set(r.sessionId, r.n)
+      }
+    }
+    return out
   }
 
   async deleteQueuedMessage(id: string): Promise<void> {

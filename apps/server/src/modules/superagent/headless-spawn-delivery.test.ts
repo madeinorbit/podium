@@ -396,6 +396,7 @@ describe('superagent first turn past the binding gate (POD-4827)', () => {
     const directSends: ControlMessage[] = []
     const reconciler = new SessionMachineReconciler({
       sessions: () => [row, rowResumed],
+      queuedMessageCounts: async () => new Map(),
       drainInbox: async () => {},
       triggerLakeSweep: async () => {},
       resetPriorities: () => {},

@@ -649,7 +649,7 @@ describe('SessionView visibility is awaited [POD-3534]', () => {
 
 
 describe('SessionView durable queue display', () => {
-  it('reads stored rows despite drift in both live and draft session counts', async () => {
+  it('reads the queue count from the stored rows', async () => {
     const store = await openTestStore(':memory:')
     const current = session('queue-display', '/w')
     const other = session('other-queue', '/w')
@@ -660,18 +660,14 @@ describe('SessionView durable queue display', () => {
       for (const [id, owner] of [['first', current], ['second', current], ['other', other]] as const) {
         await store.sync.enqueueMessage({ id, sessionId: owner.sessionId, text: id, queuedAt: 1 })
       }
-      current.queuedMessageCount = 0
-      other.queuedMessageCount = 99
       expect((await view.list(PRINCIPAL, 'rpc')).map((meta) => meta.queuedMessageCount)).toEqual([2, 1])
       expect(countReads).toHaveBeenCalledTimes(1)
       expect((await view.byId(current.sessionId, PRINCIPAL))?.queuedMessageCount).toBe(2)
       const draft = current.captureDurableState()
-      draft.queuedMessageCount = 45
       expect((await view.wire(current, await view.buildProjectionPass([{ ...draft, sessionId: current.sessionId }]), draft)).queuedMessageCount).toBe(2)
       await store.sync.deleteQueuedMessage('first')
       expect((await view.wire(current, await view.buildProjectionPass([{ ...draft, sessionId: current.sessionId }]), draft)).queuedMessageCount).toBe(1)
       await store.sync.deleteQueuedMessage('second')
-      current.queuedMessageCount = 99
       expect(await view.wire(current, await view.buildProjectionPass([{ ...draft, sessionId: current.sessionId }]), draft)).not.toHaveProperty('queuedMessageCount')
       expect((await view.list(PRINCIPAL, 'rpc'))[0]).not.toHaveProperty('queuedMessageCount')
     } finally {

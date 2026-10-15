@@ -1,12 +1,13 @@
 /**
- * Old/new parity for a session's queued-input count (POD-6155 step 4).
+ * A session's queued-input count comes from its `queued_messages` rows
+ * (POD-6155 step 4).
  *
- * OLD: `Session.queuedMessageCount`, the registry's transient mirror of the
- * durable queue, bumped on insert, re-read after a drain or retract, and
- * re-seeded at boot. NEW: the indexed count of the session's `queued_messages`
- * rows. Compared after every step of the outbox flows that move the mirror:
- * queueing while live, an exit, a server restart (the boot re-seed), the wake,
- * custody, delivery of each row, and a session with nothing queued.
+ * Before `Session.queuedMessageCount` (the registry's mirror of the durable
+ * queue, bumped on insert, re-read after a drain and re-seeded at boot) was
+ * deleted, this test compared it with the indexed count after every step of
+ * these outbox flows, at the commit that adds this file. What stays is a
+ * regression test: the count, and the count clients see, follow queueing while
+ * live, an exit, a server restart, the wake, custody and delivery of each row.
  */
 
 import { mkdtempSync } from 'node:fs'
@@ -72,19 +73,15 @@ async function deliverRows(reg: SessionRegistry, daemon: ControlMessage[], sessi
   }
 }
 
-/** OLD (the registry's mirror) against NEW (the durable rows), for every session it holds. */
+/** The indexed count, the rows themselves and the count the wire meta carries agree. */
 async function expectParity(reg: SessionRegistry, sessionId: SessionId) {
-  const counts = await reg.sessionStore.sync.queuedMessageCounts()
-  for (const facts of reg.modules.sessions.sessionFacts()) {
-    expect(facts.queuedMessageCount, facts.sessionId).toBe(counts.get(facts.sessionId) ?? 0)
-  }
   const rows = (await reg.sessionStore.sync.listQueuedMessages(sessionId)).length
   expect((await reg.sessionStore.sync.queuedMessageCounts(sessionId)).get(sessionId) ?? 0).toBe(rows)
   const meta = (await reg.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)
   expect(meta?.queuedMessageCount ?? 0).toBe(rows)
 }
 
-describe('session queue counts: old mirror and new SQL count give the same answers', () => {
+describe('session queue counts come from the durable rows', () => {
   it('through queueing, an exit, a server restart, the wake, custody and delivery', async () => {
     vi.useFakeTimers()
     try {

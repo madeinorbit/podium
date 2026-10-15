@@ -149,7 +149,7 @@ const FAMILY_SHAPES: ReadonlyMap<string, readonly (string | number)[]> = new Map
   ['packages/sync/src/adapters/sqlite/sync-repository.ts:insertChangeRows', SIZES],
   [
     'packages/sync/src/adapters/sqlite/sync-repository.ts:serverTableQueries.queuedCounts',
-    ['all', 'one', 'set'],
+    ['all', 'one', ...SIZES],
   ],
   [
     'apps/server/src/store/workflows.ts:workflowsWhere',
@@ -231,10 +231,6 @@ const ALLOWLIST: ReadonlyMap<string, string> = new Map([
   [
     'apps/server/src/store/messages.ts:ledger',
     'Each UNION arm reads its index newest first and SQLite merges them, stopping at the limit; the temporary B-tree orders only rows tied on (created_at, id), which is unique, so every sort group is one row.',
-  ],
-  [
-    'apps/server/src/store/messages.ts:pendingByTarget',
-    'Sorts only undelivered rows: the delivery_status IN list selects the pending queue, which empties as messages are delivered.',
   ],
   [
     'apps/server/src/store/messages.ts:pendingForSessionProof',

@@ -103,7 +103,7 @@ it('every indexed fact reader is declared with a reason', () => {
   expect(actual).toEqual(Object.fromEntries(Object.entries(readerAllowlist).map(([site, entry]) => [site, entry.count])))
 }, 120_000)
 
-it.each([['messages', 'MessagesRepository', 'countQueued'], ['issues', 'IssuesRepository', 'getIssue']])('arms the %s census against new direct, aliased and port readers', (fact, className, method) => {
+it.each([['issues', 'IssuesRepository', 'getIssue']])('arms the %s census against new direct, aliased and port readers', (fact, className, method) => {
   const root = process.cwd()
   const repository = join(root, `apps/server/src/store/${fact}.ts`)
   const caller = join(root, 'apps/census-mutation.ts')

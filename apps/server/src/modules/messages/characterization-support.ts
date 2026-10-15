@@ -22,7 +22,6 @@
  *    predicate-driven `sleep` seam.
  */
 
-import { WorldIndex } from '../world-index'
 import { type HumanCeiling, placementDecision } from '@podium/commands'
 import {
   type AgentPhase,
@@ -350,7 +349,6 @@ export async function mailHarness(opts?: HarnessOptions): Promise<MailHarness> {
   }
 
   const svc = new MessageDeliveryService({
-    worldIndex: (await WorldIndex.load(store)).reader,
       firstAdminMemberId: () => firstAdminMemberId(store),
     messages: store.messages,
     notificationFacts: store.notificationFacts,

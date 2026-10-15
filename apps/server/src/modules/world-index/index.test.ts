@@ -5,20 +5,17 @@ import { openDatabase } from '@podium/runtime/sqlite'
 import {
   asIssueId,
   asRepoId,
-  asSessionId,
-  asThreadId,
   asUserId,
   firstAdminMemberId,
 } from '@podium/model'
 import { queryAttributionEnabled } from '@podium/runtime/query-attribution'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { IssueRow, MessageRow, SessionStore } from '../../store'
+import type { IssueRow, SessionStore } from '../../store'
 import type { GrantRow } from '../../store/grants'
 import { withReadScope } from '../../store/executor/read-scope'
 import { openTestStore } from '../../test-support/open-test-store'
 import { statementBudget } from '../../test-support/statement-budget'
 import { WorldIndex } from './index'
-import { DeliveryScheduler } from '../messages/scheduler'
 
 const stores: SessionStore[] = []
 afterEach(async () => {
@@ -33,7 +30,6 @@ async function setup() {
   return store
 }
 const alice = asUserId('user:world-alice')
-const session = asSessionId('world-reader')
 const at = '2026-09-11T00:00:00Z'
 const grant: GrantRow = {
   resourceKind: 'issue',
@@ -113,38 +109,6 @@ function issueRow(over: Partial<IssueRow> = {}): IssueRow {
   }
 }
 
-function message(input: Omit<Partial<MessageRow>, 'id'> & { id: string }): MessageRow {
-  return {
-    threadId: asThreadId(input.id),
-    inReplyTo: null,
-    fromKind: 'agent',
-    fromSession: null,
-    fromIssue: null,
-    toKind: 'issue',
-    toId: 'iss_target',
-    kind: 'message',
-    urgency: 'fyi',
-    lifecycle: 'wait',
-    body: input.id,
-    expiresAt: null,
-    createdAt: 't0',
-    deliveryStatus: 'stored',
-    deliveredAt: null,
-    deliveredTo: null,
-    readAt: null,
-    injectedAt: null,
-    deadLetteredAt: null,
-    ackedBy: null,
-    hop: 0,
-    clampedFrom: null,
-    remindedAt: null,
-    factKey: null,
-    factTarget: null,
-    expectsResponse: false,
-    ...input,
-  } as MessageRow
-}
-
 describe('world index committed facts', () => {
   it('loads all facts, excludes leases and exposes only memory reads', async () => {
     const store = await setup()
@@ -152,10 +116,6 @@ describe('world index committed facts', () => {
     await store.grants.upsert(grant)
     await store.issues.upsertIssue(issueRow({ worktreePath: '/worktree' }))
     await store.machines.upsertMachine(machine)
-    await store.messages.addMessage(message({ id: 'one' }))
-    await store.messages.addMessage(message({ id: 'two' }))
-    await store.messages.addMessage(message({ id: 'done' }))
-    await store.messages.markDelivered('done', null, 't1')
     const loading = queryAttributionEnabled
       ? await statementBudget(() => WorldIndex.load(store))
       : null
@@ -165,12 +125,11 @@ describe('world index committed facts', () => {
         [...loading.byQuery]
           .filter(([sql]) => /^select /i.test(sql))
           .reduce((sum, [, n]) => sum + n, 0),
-      ).toBe(2)
+      ).toBe(1)
     expect(await WorldIndex.load(store)).toBe(index)
     expect(index.reader).not.toHaveProperty('lease')
     const read = () => {
       expect(index.reader.issueForWorktree('/worktree')).toBe('iss_x')
-      expect(index.reader.pendingCount({ kind: 'issue', id: 'iss_target' })).toBe(2)
     }
     read()
     if (queryAttributionEnabled) expect((await statementBudget(read)).statements).toBe(0)
@@ -319,14 +278,12 @@ describe('world index committed facts', () => {
         await store.users.create(account, 'hash')
         await store.grants.upsert(grant)
         await store.machines.upsertMachine(machine)
-        await store.messages.addMessage(message({ id: 'rollback' }))
         await store.issues.upsertIssue(issueRow({ worktreePath: '/rollback' }))
         expect(apply).not.toHaveBeenCalled()
         throw new Error('abort')
       }),
     ).rejects.toThrow('abort')
     expect(apply).not.toHaveBeenCalled()
-    expect(index.reader.pendingCount({ kind: 'issue', id: 'iss_target' })).toBe(0)
     expect(index.reader.issueForWorktree('/rollback')).toBeUndefined()
     await store.transact(async () => {
       await store.issues.upsertIssue(issueRow({ worktreePath: '/kept' }))
@@ -354,156 +311,5 @@ describe('world index committed facts', () => {
       await store.issues.upsertIssue(issueRow({ worktreePath: '/micro' }))
     })
     expect(observations).toEqual([true])
-  })
-
-  it('counts every message transition and duplicate CAS without before-image reads', async () => {
-    const store = await setup()
-    const index = await WorldIndex.load(store)
-    const apply = vi.spyOn(index, 'apply')
-    const writes: Array<[string, (id: string) => Promise<unknown>]> = [
-      ['markDispatched', (id) => store.messages.markDispatched(id, session, at)],
-      ['markTyped', (id) => store.messages.markTyped(id, session, at)],
-      ['markDelivered', (id) => store.messages.markDelivered(id, null, at)],
-      ['markCancelled', (id) => store.messages.markCancelled(id)],
-      ['markDeliveredByPull', (id) => store.messages.markDeliveredByPull(id, null, at)],
-      ['markRead', (id) => store.messages.markRead(id, null, at)],
-      ['markDeadLetter', (id) => store.messages.markDeadLetter(id, at)],
-      [
-        'markDeliveryAbandoned',
-        (id) => store.messages.markDeliveryAbandoned(id, session, at, 'teardown'),
-      ],
-      ['markAcked', (id) => store.messages.markAcked(id, 'ack')],
-      ['markReminded', (id) => store.messages.markReminded(id, at)],
-      [
-        'expireObserved',
-        (id) =>
-          store.messages.expireObserved({
-            id,
-            createdAt: 't0',
-            lifecycle: 'wait',
-            expiresAt: null,
-          }),
-      ],
-    ]
-    for (const [id, write] of writes) {
-      await store.messages.addMessage(message({ id }))
-      apply.mockClear()
-      await write(id)
-      expect(apply, id).toHaveBeenCalledTimes(1)
-      await write(id)
-      expect(index.reader.pendingCount({ kind: 'issue', id: 'iss_target' })).toBe(
-        await store.messages.countPending({ kind: 'issue', id: 'iss_target' }),
-      )
-    }
-    for (const transition of ['refuse', 'read'] as const) {
-      const id = `dispatched-${transition}`
-      await store.messages.addMessage(message({ id }))
-      await store.messages.markDispatched(id, session, at)
-      apply.mockClear()
-      if (transition === 'refuse')
-        await store.messages.markDeliveryAbandoned(id, session, at, 'teardown')
-      else await store.messages.markRead(id, null, at)
-      expect(apply).toHaveBeenCalledTimes(1)
-      expect(index.reader.pendingCount({ kind: 'issue', id: 'iss_target' })).toBe(
-        await store.messages.countPending({ kind: 'issue', id: 'iss_target' }),
-      )
-    }
-    if (queryAttributionEnabled) {
-      // A move that applies is ONE statement: no before-image read. Only a move
-      // that did not apply reads the row once, by primary key, to say whether
-      // it was already there or refused.
-      await store.messages.addMessage(message({ id: 'budget' }))
-      const applied = await statementBudget(() => store.messages.markCancelled('budget'))
-      expect([...applied.byQuery.keys()].filter((sql) => /^select /i.test(sql))).toEqual([])
-      expect([...applied.byQuery.keys()].filter((sql) => /^update /i.test(sql))).toHaveLength(1)
-      const refused = await statementBudget(() => store.messages.markCancelled('absent'))
-      expect([...refused.byQuery.keys()].filter((sql) => /^select /i.test(sql))).toHaveLength(1)
-      expect([...refused.byQuery.keys()].filter((sql) => /^update /i.test(sql))).toHaveLength(1)
-    }
-  })
-})
-
-
-describe('pending message counter properties', () => {
-  it.each([1, 17, 3852, 3871])('matches SQLite after each random transition (seed %i)', async (seed) => {
-    const store = await setup()
-    const targets = [
-      { kind: 'issue' as const, id: 'iss_target' },
-      { kind: 'issue' as const, id: 'iss_other' },
-      { kind: 'session' as const, id: 'world-reader' },
-      { kind: 'operator' as const },
-    ]
-    let state = seed
-    const random = (n: number) => {
-      state = (Math.imul(state, 1664525) + 1013904223) >>> 0
-      return state % n
-    }
-    const ids: string[] = []
-    // Exercise boot hydration as well as subsequent commit projections.
-    await store.messages.addMessage(message({ id: 'initial' }))
-    ids.push('initial')
-    const index = await WorldIndex.load(store)
-    const check = async () => {
-      for (const target of targets) {
-        expect(index.reader.pendingCount(target), JSON.stringify({ seed, state, target })).toBe(
-          await store.messages.countPending(target),
-        )
-      }
-    }
-    await check()
-    for (let step = 0; step < 200; step++) {
-      const operation = random(5)
-      const id = ids[random(ids.length)]!
-      if (operation === 0) {
-        const target = targets[random(targets.length)]!
-        const next = `random-${step}`
-        await store.messages.addMessage(message({ id: next, toKind: target.kind, toId: target.id ?? null }))
-        ids.push(next)
-      } else if (operation === 1) {
-        await store.messages.markDelivered(id, session, at)
-      } else if (operation === 2) {
-        await store.messages.markCancelled(id)
-      } else if (operation === 3) {
-        await store.messages.expireObserved({ id, createdAt: 't0', lifecycle: 'wait', expiresAt: null })
-      } else {
-        await store.messages.markDispatched(id, session, at)
-      }
-      await check()
-      if (step % 25 === 0) {
-        await expect(store.transact(async () => {
-          await store.messages.addMessage(message({ id: `rollback-${step}` }))
-          await store.messages.markCancelled(id)
-          throw new Error('rollback property')
-        })).rejects.toThrow('rollback property')
-        await check()
-      }
-    }
-  })
-
-  it.skipIf(!queryAttributionEnabled)('200 delivery triggers execute zero SQL statements', async () => {
-    const store = await setup()
-    await store.messages.addMessage(message({ id: 'pending' }))
-    const index = await WorldIndex.load(store)
-    const scheduler = new DeliveryScheduler({
-      messages: store.messages,
-      worldIndex: index.reader,
-      now: () => at,
-      runner: {
-        targetOf: () => null,
-        nowMs: () => 0,
-        attemptOne: () => {},
-      },
-    })
-    try {
-      const budget = await statementBudget(async () => {
-        for (let i = 0; i < 200; i++) {
-          await scheduler.queueDeliveryTarget({ kind: 'issue', id: i % 2 ? 'empty' : 'iss_target' })
-        }
-      })
-      expect(budget.statements).toBe(0)
-      expect(scheduler.deliveryStats()).toMatchObject({ pendingTargetCount: 1, coalescedTriggerCount: 99 })
-    } finally {
-      scheduler.dispose()
-    }
   })
 })

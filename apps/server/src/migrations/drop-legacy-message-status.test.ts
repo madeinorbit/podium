@@ -296,7 +296,6 @@ describe('the drop-legacy-message-status migration', () => {
       { kind: 'issue' as const, id: 'iss_from' },
       { kind: 'operator' as const },
     ]
-    await repo.loadWorldPending()
     await repo.getMessage('held')
     await repo.getMessages(['held', 'typed'])
     await repo.pendingForSessionProof(session, '2026-07-21T00:00:00.000Z')

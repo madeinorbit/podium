@@ -70,6 +70,8 @@ export interface TerminalProofPorts {
       ackedBy: string | null
     }[]
   >
+  /** How many rows the session's durable input queue holds. */
+  queuedInputCount(sessionId: SessionId): Promise<number>
   /** Whether the inbox is mid-drain for this session. */
   isDraining(sessionId: SessionId): boolean
   /** Whether the auto-continue controller is holding this session. */
@@ -176,7 +178,7 @@ export class SessionTerminalProof {
       inputCount: session.terminal.inputCount,
       outputCount: session.terminal.outputCount,
       activityCount: session.terminal.activityCount,
-      queuedInputCount: d.queuedMessageCount,
+      queuedInputCount: await this.ports.queuedInputCount(session.sessionId),
       pendingMessages: addressedMessages,
       autoContinueActive: this.ports.autoContinueActive(session.sessionId),
       activeWork,

@@ -54,9 +54,8 @@ import type { Session } from './session'
  *  - `machineName` needs the machines service,
  *  - `condition` needs the harness login probe,
  *  - `readAt` / `unread` / `snoozedUntil` need the reader's own overlay,
- *  - `queuedMessageCount` on the wire is a fresh count from the durable queue.
- *    (`Session.queuedMessageCount` — carried here — is the registry's transient
- *    mirror of it, which is what the inbox reasons about.)
+ *  - `queuedMessageCount` on the wire is a fresh count from the durable queue
+ *    (there is no in-memory mirror of it since POD-6155).
  *
  * Internal readers obtain joined values from their sources: `readSessionRefs`
  * for refs, MachinesService for machine labels, and the caller's per-user row
@@ -113,8 +112,6 @@ export interface SessionFacts {
   requestedEffort?: string
   contextUsagePercent?: number
   draftUpdatedAt?: string
-  /** The registry's transient mirror of the durable queue depth. */
-  queuedMessageCount: number
   refIssueId: IssueId | null
   refLetter: string | null
   refDraft: number | null
@@ -155,7 +152,6 @@ export function sessionFactsOf(session: Session): SessionFacts {
       ? { contextUsagePercent: session.contextUsagePercent }
       : {}),
     ...(session.draftUpdatedAt !== undefined ? { draftUpdatedAt: session.draftUpdatedAt } : {}),
-    queuedMessageCount: session.queuedMessageCount,
     refIssueId: session.refIssueId,
     refLetter: session.refLetter,
     refDraft: session.refDraft,

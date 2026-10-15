@@ -335,14 +335,6 @@ const insertMessage = preparedFamily((db: StoreDrizzle, shape: string) =>
     .prepare(),
 )
 
-const pendingByTarget = prepared((db: StoreDrizzle) =>
-  db.select({
-    toKind: messagesTable.toKind, toId: messagesTable.toId,
-    count: sql<number>`count(*)`, ids: sql<string>`json_group_array(${messagesTable.id})`,
-  }).from(messagesTable).where(pending())
-    .groupBy(messagesTable.toKind, messagesTable.toId).prepare(),
-)
-
 const messageById = prepared((db: StoreDrizzle) =>
   db.select().from(messagesTable).where(eq(messagesTable.id, param(messagesTable.id, 'id'))).prepare(),
 )
@@ -1165,11 +1157,6 @@ export class MessagesRepository {
 
   /** Queued identities let apply distinguish mixed queued/delivered predicates
    * without a before-image SELECT. Still one statement, grouped by target. */
-  async loadWorldPending(): Promise<{ toKind: string; toId: string | null; count: number; ids: string[] }[]> {
-    const rows = await pendingByTarget(this.db).all()
-    return rows.map((row) => ({ ...row, ids: JSON.parse(row.ids) as string[] }))
-  }
-
   async getMessage(id: string): Promise<MessageRow | null> {
     const r = await messageById(this.db).get({ id })
     return r ? mapMessage(r) : null

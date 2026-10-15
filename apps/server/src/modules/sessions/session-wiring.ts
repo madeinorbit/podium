@@ -143,6 +143,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     sessions: () => bag.sessions.values(),
     session: (sessionId) => bag.sessions.get(sessionId),
     pendingForProof: (sessionId, atIso) => store.messages.pendingForSessionProof(sessionId, atIso),
+    queuedInputCount: async (sessionId) => (await store.sync.queuedMessageCounts(sessionId)).get(sessionId) ?? 0,
     isDraining: (sessionId) => bag.inbox.isDraining(sessionId),
     autoContinueActive: (sessionId) => bag.autoContinue.isActive(sessionId),
   })
@@ -159,6 +160,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
   })
   const machineReconciler = new SessionMachineReconciler({
     sessions: () => bag.sessions.values(),
+    queuedMessageCounts: (sessionIds) => store.sync.queuedMessageCounts(sessionIds),
     drainInbox: (sessionId) => bag.inbox.drain(sessionId),
     triggerLakeSweep: (machineId) => bag.deps.memory.triggerLakeSweep(machineId),
     resetPriorities: () => bag.state.resetPriorities(),
@@ -406,6 +408,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
           attachmentsJson: row.attachments?.length ? JSON.stringify(row.attachments) : null,
         })
       },
+      count: async (sessionId) => (await store.sync.queuedMessageCounts(sessionId)).get(sessionId) ?? 0,
       list: async (sessionId) => {
         const rows: Promise<QueuedMessageRow[]> = store.sync.listQueuedMessages(sessionId)
         return (await rows).map((row: QueuedMessageRow) => ({
@@ -436,8 +439,8 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
       deleteUnreserved: (id) => store.sync.deleteUnreservedQueuedMessage(id),
       requestRetract: (id, at) => store.sync.requestQueuedRetract(id, at),
       clearRetract: (id) => store.sync.clearQueuedRetract(id),
-      // The same per-session tally that seeds Session.queuedMessageCount at
-      // boot, read as a work list for the queue sweep (POD-1703).
+      // The per-session tally of the durable queue, read as a work list for
+      // the queue sweep (POD-1703).
       sessionsWithPending: async () => {
         const counts: Promise<Map<SessionId, number>> = store.sync.queuedMessageCounts()
         return [...(await counts).keys()]

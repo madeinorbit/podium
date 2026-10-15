@@ -993,13 +993,11 @@ export class SessionRepository {
       const additionalWrite = await this.view.prepareRefAllocation(draft)
       if (additionalWrite) await this.persistDraft(session, draft, additionalWrite)
     }
-    // Re-seed the transient queued-send counts from the durable queue — the rows
-    // survived the restart (that's their point); delivery re-arms when the daemon
-    // reattaches and the sessions bind.
-    for (const [sessionId, n] of await this.store.sync.queuedMessageCounts()) {
-      const session = this.sessions.get(sessionId)
-      if (session) session.queuedMessageCount = n
-      else await this.store.sync.deleteQueuedMessagesForSession(sessionId) // orphaned queue
+    // Queued rows survive a restart (that's their point) and are counted from
+    // the table; delivery re-arms when the daemon reattaches and the sessions
+    // bind. Only a queue whose session is gone is dropped.
+    for (const sessionId of (await this.store.sync.queuedMessageCounts()).keys()) {
+      if (!this.sessions.has(sessionId)) await this.store.sync.deleteQueuedMessagesForSession(sessionId)
     }
     await this.store.sync.pruneAppliedMutations({
       maxAgeMs: this.ports.appliedMutationMaxAgeMs,

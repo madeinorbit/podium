@@ -2263,7 +2263,6 @@ export class SessionRegistry {
     // than only unit-tested against the handler, so POD-1075's real ceiling
     // arrives at a composition root that already carries it.
     const messagesSvc = new MessageDeliveryService({
-      worldIndex: this.worldIndex,
       firstAdminMemberId: () => firstAdminMemberId(this.store),
       authorizeAtApply: mail.authorizeAtApply,
       // POD-1193: wake resumes/spawns on the target session's machine — enforce

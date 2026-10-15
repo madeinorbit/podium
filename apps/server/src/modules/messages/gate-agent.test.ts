@@ -2,7 +2,6 @@
 // cross-harness]: gate authz ordering, deliberate-only issue creation, #285
 // pass-through metadata, parent provenance, and the never-hangs await contract.
 
-import { WorldIndex } from '../world-index'
 import type { SessionMeta, SessionMetaInput } from '@podium/model'
 import {
   asAccountId,
@@ -118,7 +117,6 @@ async function harness(opts?: {
   const sent: { fn: string; sessionId: SessionId; text: string }[] = []
   const retired: { factKey: string; target: string }[] = []
   const svc = new MessageDeliveryService({
-    worldIndex: (await WorldIndex.load(store)).reader,
       firstAdminMemberId: () => firstAdminMemberId(store),
     messages: store.messages,
     notificationFacts: store.notificationFacts,

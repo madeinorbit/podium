@@ -3,7 +3,6 @@
 // choice, provenance stamping — plus the end-to-end wake→spawn→first-prompt
 // path through MessageDeliveryService and the parent clamp it unlocks.
 
-import { WorldIndex } from '../world-index'
 import { asIssueId, asSessionId, firstAdminMemberId, type SessionId } from '@podium/model'
 import type { SessionMeta } from '@podium/model'
 import { describe, expect, it } from 'vitest'
@@ -140,7 +139,6 @@ describe('wake → spawn → first prompt (service integration)', () => {
     const queued: { sessionId: SessionId; text: string }[] = []
     const interrupted: { sessionId: SessionId; text: string }[] = []
     const deps: MessageDeliveryDeps = {
-      worldIndex: (await WorldIndex.load(store)).reader,
       firstAdminMemberId: () => firstAdminMemberId(store),
       messages: store.messages,
       notificationFacts: store.notificationFacts,

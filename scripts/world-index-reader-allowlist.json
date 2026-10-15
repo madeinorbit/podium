@@ -7,17 +7,9 @@
     "count": 1,
     "reason": "Sequence allocation requires the live repository maximum, including rows created in the enclosing mutation span; the committed map cannot allocate ids."
   },
-  "apps/server/src/modules/messages/scheduler.ts :: queueIsEmpty :: messages.countQueued": {
-    "count": 1,
-    "reason": "Global queued total is not the per-target indexed counter; retain until its separate semantics are covered."
-  },
   "apps/server/src/modules/world-index/index.ts :: issues :: issues.loadWorldIssuePaths": {
     "count": 1,
     "reason": "Boot worktree-key snapshot load under the transaction that installs commit subscriptions; full rows remain owned by IssueStore."
-  },
-  "apps/server/src/modules/world-index/index.ts :: pending :: messages.loadWorldPending": {
-    "count": 1,
-    "reason": "Boot snapshot load under the transaction that installs commit subscriptions."
   },
   "apps/server/src/modules/world-index/issue-reader.ts :: readClosedIssueIds :: issues.closedIssueIds": {
     "count": 1,
