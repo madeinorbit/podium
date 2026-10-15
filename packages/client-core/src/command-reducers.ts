@@ -308,6 +308,14 @@ const ISSUE_PROJECTION_KEYS: ReadonlySet<string> = new Set(Object.keys(IssueProj
 const ISSUE_DOCUMENT_KEYS: ReadonlySet<string> = new Set(['description'])
 
 /**
+ * `issues.update` keys the SERVER resolves into a different cell, so no row can
+ * cover their raw value and they are not painted (they would only sit on the
+ * TTL). `agentProfile` is a name or id the server turns into `agentProfileId`
+ * (POD-6107). `overlay.test.ts` holds this set exact, so it cannot grow quietly.
+ */
+export const ISSUE_SERVER_RESOLVED_UPDATE_KEYS: ReadonlySet<string> = new Set(['agentProfile'])
+
+/**
  * Split an `issues.update` patch by the row each key lives on (POD-4969).
  *
  * A per-user marker goes to the `(user, issue)` row; a durable field goes to

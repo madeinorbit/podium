@@ -26,6 +26,7 @@ import {
   AWAITING_TRUTH_TTL_MS,
   type AwaitingTruth,
   foldRowOverlays,
+  ISSUE_SERVER_RESOLVED_UPDATE_KEYS,
   insertOverlay,
   issueUpdateRoute,
   type OverlayRow,
@@ -430,8 +431,15 @@ describe('overlayForOutboxEntry projection', () => {
   it('every key `issues.update` accepts has exactly one home, so none paints where it can never be covered', () => {
     const keys = Object.keys(ISSUE_CONTRACTS.update.input.shape.patch.shape)
     expect(keys.length).toBeGreaterThan(20)
+    // The one deliberate exception: keys the server resolves into another cell
+    // land nowhere, and the set is exactly these (POD-6107/POD-6114).
+    expect([...ISSUE_SERVER_RESOLVED_UPDATE_KEYS]).toEqual(['agentProfile'])
     for (const key of keys) {
       const { issue, user } = issueUpdateRoute({ [key]: 'x' })
+      if (ISSUE_SERVER_RESOLVED_UPDATE_KEYS.has(key)) {
+        expect([Object.keys(issue).length, Object.keys(user).length], key).toEqual([0, 0])
+        continue
+      }
       expect(
         [Object.keys(issue).length, Object.keys(user).length].sort(),
         `${key} must land on exactly one normalized row`,
