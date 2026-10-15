@@ -26,8 +26,12 @@ function fixture(count: number) {
   const projected: unknown[] = []
   const store = {
     transferFenceActive: false,
-    sessions: { upsertSession: vi.fn(async (row: SessionRow) => { written.push(row) }) },
+    sessions: {
+      upsertSession: vi.fn(async (row: SessionRow) => { written.push(row) }),
+      upsertSessions: vi.fn(async (rows: readonly SessionRow[]) => { written.push(...rows) }),
+    },
   }
+  let commits = 0
   const repo = new SessionRepository({
     sessions,
     store,
@@ -36,6 +40,7 @@ function fixture(count: number) {
         write: () => Promise<void>
         changes: () => Promise<unknown[]>
       }) => {
+        commits += 1
         await write()
         projected.push(...await changes())
         return { changes: [] }
@@ -47,7 +52,7 @@ function fixture(count: number) {
     },
     now: () => Date.now(),
   } as never)
-  return { repo, rows, sessions, store, written, projected }
+  return { repo, rows, sessions, store, written, projected, commits: () => commits }
 }
 
 // The pre-queue algorithm, retained as the same-fixture behavioral oracle.
@@ -109,6 +114,39 @@ describe('changed session activity saving', () => {
     await expect(flushCandidate(candidate.repo)).rejects.toThrow('retry')
     await compare()
     expect(candidate.written).toHaveLength(6)
+  })
+
+  it('writes every busy session in one commit, in the order they went dirty (POD-6175)', async () => {
+    const f = fixture(4)
+    for (const i of [2, 0, 3]) f.rows[i]!.terminal.recordInputActivity()
+    await flushCandidate(f.repo)
+    expect(f.commits()).toBe(1)
+    expect(f.store.sessions.upsertSessions).toHaveBeenCalledTimes(1)
+    expect(f.store.sessions.upsertSession).not.toHaveBeenCalled()
+    expect(f.written.map((row) => row.id)).toEqual(['dirty-2', 'dirty-0', 'dirty-3'])
+    expect(f.projected.map((change) => (change as { id: string }).id)).toEqual(['dirty-2', 'dirty-0', 'dirty-3'])
+    expect(f.rows.map((s) => s.terminal.activityDirty)).toEqual([false, false, false, false])
+  })
+
+  it('waits for an earlier write to any of its sessions and holds later ones behind it (POD-6175)', async () => {
+    const f = fixture(2)
+    f.rows.forEach((s) => s.terminal.recordInputActivity())
+    let release!: () => void
+    const blocked = new Promise<void>((resolve) => { release = resolve })
+    f.store.sessions.upsertSession.mockImplementationOnce(async (row) => {
+      f.written.push(row)
+      await blocked
+    })
+    const earlier = f.repo.persist(f.rows[1]!)
+    const flush = flushCandidate(f.repo)
+    const later = f.repo.persist(f.rows[0]!)
+    for (let i = 0; i < 20; i++) await new Promise((resolve) => setImmediate(resolve))
+    // The flush waits for the write to dirty-1, and the write to dirty-0 waits
+    // for the flush, though nothing else holds dirty-0.
+    expect(f.written.map((row) => row.id)).toEqual(['dirty-1'])
+    release()
+    await Promise.all([earlier, flush, later])
+    expect(f.written.map((row) => row.id)).toEqual(['dirty-1', 'dirty-0', 'dirty-1', 'dirty-0'])
   })
 
   it.each([16, 64])('visits only one dirty ID among %i retained sessions', async (count) => {
@@ -215,15 +253,41 @@ describe('changed session activity saving', () => {
     }
   })
 
-  it('retains the failed ID and the unvisited backlog for a later retry', async () => {
-    const f = fixture(2)
+  it('writes the others and keeps only a poisoned session dirty when the batch fails (POD-6175)', async () => {
+    const f = fixture(3)
     f.rows.forEach((s) => s.terminal.recordResumeActivity())
     await flushCandidate(f.repo) // Establish the durable baselines first.
     f.written.length = 0
     f.rows.forEach((s) => s.terminal.recordInputActivity())
-    f.store.sessions.upsertSession.mockRejectedValueOnce(new Error('retry'))
-    await expect(flushCandidate(f.repo)).rejects.toThrow('retry')
-    expect(f.rows.every((s) => s.terminal.activityDirty)).toBe(true)
+    // A row the store refuses fails the whole batch, and fails again on its own.
+    const poisoned = (rows: readonly SessionRow[]) => rows.some((row) => row.id === 'dirty-1')
+    f.store.sessions.upsertSessions.mockImplementation(async (rows) => {
+      if (poisoned(rows)) throw new Error('poisoned row')
+      f.written.push(...rows)
+    })
+    f.store.sessions.upsertSession.mockImplementation(async (row) => {
+      if (poisoned([row])) throw new Error('poisoned row')
+      f.written.push(row)
+    })
+    await expect(flushCandidate(f.repo)).rejects.toThrow('poisoned row')
+    expect(f.written.map((row) => row.id)).toEqual(['dirty-0', 'dirty-2'])
+    expect(f.rows.map((s) => s.terminal.activityDirty)).toEqual([false, true, false])
+    expect(f.sessions.size).toBe(3)
+
+    // The next tick writes only the session still dirty, once it can be written.
+    f.store.sessions.upsertSession.mockImplementation(async (row) => { f.written.push(row) })
+    await flushCandidate(f.repo)
+    expect(f.written.map((row) => row.id)).toEqual(['dirty-0', 'dirty-2', 'dirty-1'])
+    expect(f.rows.every((s) => !s.terminal.activityDirty)).toBe(true)
+  })
+
+  it('retries a failed batch session by session, so a passing retry clears every session', async () => {
+    const f = fixture(2)
+    f.rows.forEach((s) => s.terminal.recordResumeActivity())
+    await flushCandidate(f.repo)
+    f.written.length = 0
+    f.rows.forEach((s) => s.terminal.recordInputActivity())
+    f.store.sessions.upsertSessions.mockRejectedValueOnce(new Error('retry'))
     await flushCandidate(f.repo)
     expect(f.written.map((row) => row.id)).toEqual(['dirty-0', 'dirty-1'])
     expect(f.rows.every((s) => !s.terminal.activityDirty)).toBe(true)

@@ -199,6 +199,48 @@ describe('SessionStore sessions', () => {
     await s.close()
   })
 
+  it('writes many rows in one upsert exactly as one upsert per row would (POD-6175)', async () => {
+    // Control: the one-row upsert, row by row. Three rows pad to a four-row
+    // statement, and the existing row checks the rules the set keeps on update:
+    // created_at stays, a bound conversation stays bound, login harness stays.
+    const existing = row({ id: asSessionId('b'), conversationBinding: 'bound', loginHarness: 'claude-code' })
+    const batch = [
+      row({ id: asSessionId('a'), title: 'first', outputCount: 3 }),
+      row({
+        id: asSessionId('b'),
+        createdAt: '2026-06-10T00:00:00.000Z',
+        conversationBinding: 'never',
+        loginHarness: null,
+        status: 'live',
+        outputCount: 7,
+      }),
+      row({ id: asSessionId('c'), geometry: { cols: 120, rows: 40 } }),
+    ]
+    const control = await openTestStore(':memory:')
+    const candidate = await openTestStore(':memory:')
+    for (const store of [control, candidate]) await store.sessions.upsertSession(existing)
+    for (const r of batch) await control.sessions.upsertSession(r)
+    await candidate.sessions.upsertSessions(batch)
+    const byId = (rows: SessionRow[]) => [...rows].sort((x, y) => x.id.localeCompare(y.id))
+    const written = byId(await candidate.sessions.loadSessions())
+    expect(written).toEqual(byId(await control.sessions.loadSessions()))
+    expect(written.find((r) => r.id === 'b')).toMatchObject({
+      createdAt: existing.createdAt,
+      conversationBinding: 'bound',
+      loginHarness: 'claude-code',
+      status: 'live',
+      outputCount: 7,
+    })
+
+    // Every row is checked before the first is written.
+    await expect(
+      candidate.sessions.upsertSessions([row({ id: asSessionId('d') }), row({ id: asSessionId('e'), agentKind: 'auto' })]),
+    ).rejects.toThrow(/agentKind/i)
+    expect((await candidate.sessions.loadSessions()).map((r) => r.id)).not.toContain('d')
+    await control.close()
+    await candidate.close()
+  })
+
   it('round-trips optional cumulative compute time and preserves legacy absence', async () => {
     const store = await openTestStore(':memory:')
     await store.sessions.upsertSession(row({ workingMsTotal: 123_456 }))

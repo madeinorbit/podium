@@ -133,7 +133,7 @@ export class SessionRepository {
    * themselves.
    */
   private readonly sessionWriteTail = new Map<SessionId, Promise<void>>()
-  private readonly sessionWriteScope = new AsyncLocalStorage<SessionId>()
+  private readonly sessionWriteScope = new AsyncLocalStorage<ReadonlySet<SessionId>>()
   /** Shallow origin recorded by {@link draft}, keyed by the draft bag. */
   private readonly draftOrigins = new WeakMap<SessionDurableState, SessionDurableState>()
   /**
@@ -512,17 +512,39 @@ export class SessionRepository {
    * proceeds immediately rather than waiting on its own tail.
    */
   private enqueueSessionWrite<T>(sessionId: SessionId, fn: () => Promise<T>): Promise<T> {
-    if (this.sessionWriteScope.getStore() === sessionId) return fn()
-    const prev = this.sessionWriteTail.get(sessionId) ?? Promise.resolve()
+    return this.enqueueSessionsWrite([sessionId], fn)
+  }
+
+  /**
+   * {@link enqueueSessionWrite} for several sessions at once [POD-6175]: `fn`
+   * runs once every one of them has had its earlier writes, and every later
+   * write to any of them waits for `fn`. All the tails are taken in one
+   * synchronous step, so two such calls cannot each hold half of the other's
+   * sessions.
+   *
+   * A session the calling write already holds is neither waited for nor
+   * re-queued: its tail is the caller's own, so waiting on it would wait on
+   * itself, and replacing it would let a later writer start before the caller
+   * finishes. The nested write's scope keeps the caller's sessions for the
+   * same reason, so a write nested inside it re-enters rather than waiting.
+   */
+  private enqueueSessionsWrite<T>(sessionIds: readonly SessionId[], fn: () => Promise<T>): Promise<T> {
+    const held = this.sessionWriteScope.getStore()
+    const queued = held ? sessionIds.filter((id) => !held.has(id)) : sessionIds
+    if (queued.length === 0) return fn()
+    const scope: ReadonlySet<SessionId> = new Set([...(held ?? []), ...sessionIds])
+    const tails = queued.map((id) => this.sessionWriteTail.get(id) ?? Promise.resolve())
+    // One session waits on its tail itself, so the common path keeps its timing.
+    const prev = tails.length === 1 ? tails[0]! : Promise.all(tails)
     const run = prev.then(
-      () => this.sessionWriteScope.run(sessionId, fn),
-      () => this.sessionWriteScope.run(sessionId, fn),
+      () => this.sessionWriteScope.run(scope, fn),
+      () => this.sessionWriteScope.run(scope, fn),
     )
     const settled = run.then(
       () => undefined,
       () => undefined,
     )
-    this.sessionWriteTail.set(sessionId, settled)
+    for (const id of queued) this.sessionWriteTail.set(id, settled)
     // DRAIN THE TAIL WHEN IT IS THIS WRITE'S. Every other per-session map here
     // is dropped when the session is removed; this one is keyed by every session
     // ever written and would otherwise hold an entry for the process's life.
@@ -534,7 +556,9 @@ export class SessionRepository {
     // that — `still serializes a third write arriving after the first drains
     // its tail` is the one that goes red.
     void settled.then(() => {
-      if (this.sessionWriteTail.get(sessionId) === settled) this.sessionWriteTail.delete(sessionId)
+      for (const id of queued) {
+        if (this.sessionWriteTail.get(id) === settled) this.sessionWriteTail.delete(id)
+      }
     })
     return run
   }
@@ -650,7 +674,25 @@ export class SessionRepository {
     additionalWrite: () => void | Promise<void> = async () => {},
     additionalChanges: () => Promise<EntityChangeSpec[]> = async () => [],
   ): Promise<void> {
-    const pending = this.pendingVolatileSessions.get(session.sessionId)
+    await this.persistDraftsUnlocked([{ session, draft }], additionalWrite, additionalChanges)
+  }
+
+  /**
+   * {@link persistDraftUnlocked} for several sessions in ONE commit [POD-6175]:
+   * one row write for all of them, one projection pass and one change append,
+   * with the changes in the order of `entries`. Every session's write turn must
+   * be held. The commit is all or nothing. A failed one-session write restores
+   * its session; a failed batch leaves every session as it was, for its caller
+   * to retry one session at a time (see {@link persistBatch}), where each
+   * failure restores its own session.
+   */
+  private async persistDraftsUnlocked(
+    entries: readonly { session: Session; draft: SessionDurableState }[],
+    additionalWrite: () => void | Promise<void> = async () => {},
+    additionalChanges: () => Promise<EntityChangeSpec[]> = async () => [],
+  ): Promise<void> {
+    if (entries.length === 0) return
+    const pending = entries.map(({ session }) => this.pendingVolatileSessions.get(session.sessionId))
     // THE DRAFT IS WHAT THIS WRITE PERSISTS [POD-3259, POD-3330], overlayed
     // onto live for fields it did not change [POD-3720]. The row and the
     // declared change are projected from that resolved bag rather than from
@@ -662,7 +704,7 @@ export class SessionRepository {
     // into the baseline, and the next rollback would restore a state no commit
     // ever saw.
     const installedVersion = this.volatileSessionMutationVersion
-    let toPersist = draft
+    let toPersist = entries.map(({ draft }) => draft)
     let changes: MetadataChange[]
     try {
       const committed = await this.ports.ledger.commit({
@@ -671,57 +713,123 @@ export class SessionRepository {
           // AFTER additionalWrite: D-txn sites assign into `draft` inside the
           // span. AFTER the previous sibling has installed, because this body
           // runs on the per-session turn [POD-3720].
-          toPersist = this.resolvePersistedDraft(session, draft)
-          await this.store.sessions.upsertSession(session.toRow(toPersist))
+          toPersist = entries.map(({ session, draft }) => this.resolvePersistedDraft(session, draft))
+          const rows = entries.map(({ session }, index) => session.toRow(toPersist[index]!))
+          if (rows.length === 1) await this.store.sessions.upsertSession(rows[0]!)
+          else await this.store.sessions.upsertSessions(rows)
         },
-        changes: async () => [
-          ...(await additionalChanges()),
-          {
-            entity: 'session',
-            id: session.sessionId,
-            op: 'upsert',
-            value: await this.view.wire(session, await this.view.buildProjectionPass([{ ...toPersist, sessionId: session.sessionId }]), toPersist),
-          },
-        ],
+        changes: async () => {
+          const extra = await additionalChanges()
+          const pass = await this.view.buildProjectionPass(
+            entries.map(({ session }, index) => ({ ...toPersist[index]!, sessionId: session.sessionId })),
+          )
+          const specs = [...extra]
+          for (const [index, { session }] of entries.entries()) {
+            specs.push({
+              entity: 'session',
+              id: session.sessionId,
+              op: 'upsert',
+              value: await this.view.wire(session, pass, toPersist[index]),
+            })
+          }
+          return specs
+        },
       })
       changes = committed.changes
     } catch (err) {
-      const captured = this.durableBaselineFor(session.sessionId)
-      // The LATEST committed baseline, deliberately — see the field's doc for
-      // why a version-pinned refusal is the wrong answer here. The live terminal
-      // half survives this either way. A drafted write has nothing of its own to
-      // undo (that is the point of the draft); what this restores is the state
-      // of a live object that some OTHER path left ahead of the durable row.
-      if (captured) session.restoreDurableState(captured, pending?.preserve)
-      else this.sessions.delete(session.sessionId)
+      // A batch restores nothing: one bad row fails the whole commit, and the
+      // retry of each session on its own decides which session it was.
+      if (entries.length > 1) throw err
+      entries.forEach(({ session }, index) => {
+        const captured = this.durableBaselineFor(session.sessionId)
+        // The LATEST committed baseline, deliberately — see the field's doc for
+        // why a version-pinned refusal is the wrong answer here. The live
+        // terminal half survives this either way. A drafted write has nothing of
+        // its own to undo (that is the point of the draft); what this restores
+        // is the state of a live object that some OTHER path left ahead of the
+        // durable row.
+        if (captured) session.restoreDurableState(captured, pending[index]?.preserve)
+        else this.sessions.delete(session.sessionId)
+      })
       throw err
     }
-    if (
-      pending !== undefined &&
-      this.pendingVolatileSessions.get(session.sessionId)?.version === pending.version
-    ) {
-      this.pendingVolatileSessions.delete(session.sessionId)
-      if (this.pendingVolatileSessions.size === 0) this.clearVolatileSessionCaptureTimer()
-    }
-    // INSTALL THE DRAFT ON THE LIVE OBJECT, now that it is durable — the write's
-    // fields become visible in memory at the same moment they become visible in
-    // the row, and not one statement earlier.
-    //
-    // THE PRESERVE SET IS THE VOLATILE WORK THAT LANDED DURING THIS WRITE, not
-    // the pending entry this write inherited. A sweep that marked `status` or
-    // `machineId` dirty while the commit was in flight knows something newer
-    // than this draft about those four fields, so it keeps them; everything
-    // this write changed is installed regardless, because the draft was cut
-    // from the same live object one statement before the commit. Nothing
-    // suspends today, so the version cannot move and this installs the whole
-    // draft — which is exactly what assigning onto the live object did before.
-    const raced = this.pendingVolatileSessions.get(session.sessionId)
-    session.installDurableState(
-      toPersist,
-      raced !== undefined && raced.version > installedVersion ? raced.preserve : undefined,
-    )
-    this.commitDurableBaseline(session.sessionId, toPersist)
+    entries.forEach(({ session }, index) => {
+      const inherited = pending[index]
+      if (
+        inherited !== undefined &&
+        this.pendingVolatileSessions.get(session.sessionId)?.version === inherited.version
+      ) {
+        this.pendingVolatileSessions.delete(session.sessionId)
+        if (this.pendingVolatileSessions.size === 0) this.clearVolatileSessionCaptureTimer()
+      }
+      // INSTALL THE DRAFT ON THE LIVE OBJECT, now that it is durable — the
+      // write's fields become visible in memory at the same moment they become
+      // visible in the row, and not one statement earlier.
+      //
+      // THE PRESERVE SET IS THE VOLATILE WORK THAT LANDED DURING THIS WRITE, not
+      // the pending entry this write inherited. A sweep that marked `status` or
+      // `machineId` dirty while the commit was in flight knows something newer
+      // than this draft about those four fields, so it keeps them; everything
+      // this write changed is installed regardless, because the draft was cut
+      // from the same live object one statement before the commit. Nothing
+      // suspends today, so the version cannot move and this installs the whole
+      // draft — which is exactly what assigning onto the live object did before.
+      const raced = this.pendingVolatileSessions.get(session.sessionId)
+      const persisted = toPersist[index]!
+      session.installDurableState(
+        persisted,
+        raced !== undefined && raced.version > installedVersion ? raced.preserve : undefined,
+      )
+      this.commitDurableBaseline(session.sessionId, persisted)
+    })
     this.publishSessionProjection(changes)
+  }
+
+  /**
+   * {@link persist} for every session in `sessions` in ONE commit [POD-6175]:
+   * the activity flush's write, which restates the live state of each busy
+   * session. It takes every session's write turn at once, so it waits for
+   * each one's earlier writes and every later write to any of them waits for
+   * it. `sessions` must not repeat a session.
+   *
+   * ONE BAD ROW MUST NOT STALL THE OTHERS. When the batched commit fails, each
+   * session is written again on its own, so only the session that cannot be
+   * written stays unwritten; it would otherwise fail every tick for every
+   * session. Returns the sessions that failed, with their errors.
+   */
+  async persistBatch(sessions: readonly Session[]): Promise<Map<SessionId, unknown>> {
+    const failed = new Map<SessionId, unknown>()
+    if (sessions.length === 0) return failed
+    try {
+      await this.enqueueSessionsWrite(
+        sessions.map((session) => session.sessionId),
+        () =>
+          this.persistDraftsUnlocked(
+            sessions.map((session) => ({ session, draft: session.captureDurableState() })),
+          ),
+      )
+      return failed
+    } catch (err) {
+      // One session is already the one-session write; retrying would only
+      // repeat it.
+      if (sessions.length === 1) {
+        failed.set(sessions[0]!.sessionId, err)
+        return failed
+      }
+      log.warn('batched session write failed; writing each session on its own', {
+        sessions: sessions.length,
+        err,
+      })
+    }
+    for (const session of sessions) {
+      try {
+        await this.persist(session)
+      } catch (err) {
+        log.error('session write failed', { sessionId: session.sessionId, err })
+        failed.set(session.sessionId, err)
+      }
+    }
+    return failed
   }
 
   /** Persist activity only while this store can accept synchronous writes. */
@@ -734,26 +842,36 @@ export class SessionRepository {
     return true
   }
 
-  /** Drain only the IDs dirty at entry; newer activity stays queued for the next tick. */
+  /**
+   * Drain only the IDs dirty at entry; newer activity stays queued for the next
+   * tick. Every busy session is written in one commit [POD-6175], so the tick
+   * costs the same statements however many sessions printed output. A session
+   * that cannot be written stays dirty for the next tick, the others are
+   * written, and the flush rejects with the first failure.
+   */
   async flushActivity(): Promise<void> {
     if (this.flushingActivity) return
     this.flushingActivity = true
     try {
+      const due: { session: Session; version: number | undefined }[] = []
       for (const sessionId of [...this.dirtyActivitySessions.keys()]) {
         const session = this.sessions.get(sessionId)
         if (!session || !session.terminal.activityDirty) {
           this.dirtyActivitySessions.delete(sessionId)
           continue
         }
-        const version = this.dirtyActivitySessions.get(sessionId)
-        if (
-          (await this.persistActivityIfWritable(session)) &&
-          this.dirtyActivitySessions.get(sessionId) === version
-        ) {
+        due.push({ session, version: this.dirtyActivitySessions.get(sessionId) })
+      }
+      if (due.length === 0 || this.store.transferFenceActive) return
+      const failed = await this.persistBatch(due.map(({ session }) => session))
+      for (const { session, version } of due) {
+        if (failed.has(session.sessionId)) continue
+        if (this.dirtyActivitySessions.get(session.sessionId) === version) {
           session.terminal.clearActivityDirty()
-          this.dirtyActivitySessions.delete(sessionId)
+          this.dirtyActivitySessions.delete(session.sessionId)
         }
       }
+      if (failed.size > 0) throw failed.values().next().value
     } finally {
       this.flushingActivity = false
     }

@@ -165,9 +165,11 @@ describe('daemon frames: pinned statement counts at 5 and 200', () => {
     )
   })
 
-  // POD-6175: the activity flush persists each busy session on its own, so its
-  // count grows with the number of sessions that printed output.
-  it.skip('activity flush after output on every session (POD-6175)', async () => {
+  // Every busy session is written in one commit [POD-6175]: one many-row
+  // upsert and the projection pass's two reads (grants, queued messages). No
+  // change is appended: output counters live in the row, not in the session's
+  // wire meta, so every change dedups away.
+  it('activity flush after output on every session', async () => {
     await expectConstantStatements(
       {
         ...pin('flushActivity', async (f) => await f.reg.modules.sessions.flushActivity()),
@@ -177,7 +179,7 @@ describe('daemon frames: pinned statement counts at 5 and 200', () => {
           return f
         },
       },
-      4,
+      3,
     )
   })
 })

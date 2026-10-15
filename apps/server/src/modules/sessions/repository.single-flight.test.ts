@@ -13,7 +13,7 @@ import { Session } from './session'
  * writes the row a second time — two ledger commits and two projections for one
  * counter advance.
  *
- * The probe re-enters from inside `persist`, which IS that window. One persist
+ * The probe re-enters from inside `persistBatch`, which IS that window. One persist
  * means the overlapping flush was refused.
  *
  * The ports object follows the idiom of `repository.volatile-slice.test.ts` next
@@ -67,14 +67,14 @@ describe('SessionRepository.flushActivity single-flight (POD-3258)', () => {
     expect(rows[0]!.terminal.activityDirty).toBe(true)
 
     let reentered = false
-    const original = repo.persist.bind(repo)
-    const spy = vi.spyOn(repo, 'persist').mockImplementation(async (session, extra) => {
+    const original = repo.persistBatch.bind(repo)
+    const spy = vi.spyOn(repo, 'persistBatch').mockImplementation(async (sessions) => {
       if (!reentered) {
         reentered = true
         // Re-enter in the window between the write and `clearActivityDirty`.
         await repo.flushActivity()
       }
-      return original(session, extra)
+      return original(sessions)
     })
 
     await repo.flushActivity()
@@ -105,7 +105,7 @@ describe('SessionRepository.flushActivity single-flight (POD-3258)', () => {
     rows[0]!.terminal.recordResumeActivity()
 
     let calls = 0
-    const spy = vi.spyOn(repo, 'persist').mockImplementation(async () => {
+    const spy = vi.spyOn(repo, 'persistBatch').mockImplementation(async () => {
       calls += 1
       throw new Error('ledger is gone')
     })

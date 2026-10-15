@@ -16,7 +16,7 @@ import {
   type UserId,
   type SessionUserStateWire,
 } from '@podium/model'
-import { and, asc, eq, inArray, isNotNull, isNull, or, type Placeholder, type SQL, sql } from 'drizzle-orm'
+import { and, asc, eq, getTableColumns, inArray, isNotNull, isNull, or, type Placeholder, type SQL, sql } from 'drizzle-orm'
 import {
   issues as issuesTable,
   offers as offersTable,
@@ -173,87 +173,224 @@ const deletedSessionsForIssue = prepared((db: StoreDrizzle) => sessionsWhere(db,
  */
 type SessionPlaceholders = Partial<Record<keyof typeof sessionsTable.$inferInsert, Placeholder>>
 
+type SessionInsert = typeof sessionsTable.$inferInsert
+type SessionColumnKey = keyof SessionInsert
+
+/**
+ * The ON CONFLICT set both session upserts share, so the one-row and the
+ * many-row forms cannot drift apart. `value(key)` names the incoming value of a
+ * column: its placeholder in the one-row form, `excluded."column"` in the
+ * many-row form. `id`, `ownerUserId`, `agentKind`, `createdAt` and `headless`
+ * are written on insert only.
+ */
+function sessionUpsertSet(value: (key: SessionColumnKey) => Placeholder | SQL | undefined) {
+  return {
+    cwd: value('cwd'),
+    model: value('model'),
+    effort: value('effort'),
+    requestedModel: value('requestedModel'),
+    requestedEffort: value('requestedEffort'),
+    accountId: value('accountId'),
+    loginHarness: sql`COALESCE(${sessionsTable.loginHarness}, excluded."login_harness")`,
+    title: value('title'),
+    name: value('name'),
+    nameSource: value('nameSource'),
+    originKind: value('originKind'),
+    conversationId: value('conversationId'),
+    resumeKind: value('resumeKind'),
+    resumeValue: value('resumeValue'),
+    selectedDriverId: value('selectedDriverId'),
+    requestedDriverId: value('requestedDriverId'),
+    // BINDING IS ONE-WAY (POD-2392): once a launch is known to have had a
+    // native conversation, no later write may say it never did. The rule
+    // lives here rather than in the caller because it is the premise the
+    // fresh-relaunch path depends on — a caller that reconstructs a stale
+    // Session and persists it must not be able to un-prove a conversation.
+    conversationBinding: sql`CASE
+         WHEN ${sessionsTable.conversationBinding} = 'bound' THEN 'bound'
+         ELSE excluded."conversation_binding"
+       END`,
+    status: value('status'),
+    exitCode: value('exitCode'),
+    spawnFailure: value('spawnFailure'),
+    durableLabel: value('durableLabel'),
+    lastActiveAt: value('lastActiveAt'),
+    terminalCols: value('terminalCols'),
+    terminalRows: value('terminalRows'),
+    workingMsTotal: value('workingMsTotal'),
+    inputCount: value('inputCount'),
+    outputCount: value('outputCount'),
+    activityCount: value('activityCount'),
+    archived: value('archived'),
+    workState: value('workState'),
+    machineId: value('machineId'),
+    lastOutputAt: value('lastOutputAt'),
+    lastInputAt: value('lastInputAt'),
+    lastResumedAt: value('lastResumedAt'),
+    spawnedBy: value('spawnedBy'),
+    issueId: value('issueId'),
+    stoppedAt: value('stoppedAt'),
+    stopReason: value('stopReason'),
+    oomKilledAt: value('oomKilledAt'),
+    deletedAt: value('deletedAt'),
+    deletionSource: value('deletionSource'),
+    deletedByIssueId: value('deletedByIssueId'),
+    workflowRunId: value('workflowRunId'),
+    workflowStepId: value('workflowStepId'),
+    agentProfileId: value('agentProfileId'),
+    // Birth name is PERMANENT (#474): once allocated it never changes, even
+    // when the session re-attaches to a different issue. COALESCE keeps the
+    // first non-null allocation.
+    refIssueId: sql`COALESCE(${sessionsTable.refIssueId}, excluded."ref_issue_id")`,
+    refLetter: sql`COALESCE(${sessionsTable.refLetter}, excluded."ref_letter")`,
+    refDraft: sql`COALESCE(${sessionsTable.refDraft}, excluded."ref_draft")`,
+    // ATTRIBUTION IS IMMUTABLE AFTER CREATE (POD-365's
+    // SESSION_IMMUTABLE_AFTER_CREATE lists `createdBy`). COALESCE keeps the
+    // pair stamped at birth: an upsert from a later code path — a status
+    // change, a rename, a reattach — must not be able to re-attribute the
+    // session to whoever happened to trigger it. It can only FILL a pair
+    // that was never recorded, never overwrite one that was.
+    delegation: sql`COALESCE(${sessionsTable.delegation}, excluded."delegation")`,
+    createdByActorKind: sql`COALESCE(${sessionsTable.createdByActorKind}, excluded."created_by_actor_kind")`,
+    createdByActorId: sql`COALESCE(${sessionsTable.createdByActorId}, excluded."created_by_actor_id")`,
+    createdByOnBehalfOf: sql`COALESCE(${sessionsTable.createdByOnBehalfOf}, excluded."created_by_on_behalf_of")`,
+  }
+}
+
 const upsertSessionOfShape = preparedFamily((db: StoreDrizzle, shape: string) => {
   const p = placeholdersFor(shape) as SessionPlaceholders
   return db
     .insert(sessionsTable)
-    .values(p as unknown as typeof sessionsTable.$inferInsert)
+    .values(p as unknown as SessionInsert)
+    .onConflictDoUpdate({ target: sessionsTable.id, set: sessionUpsertSet((key) => p[key]) })
+    .prepare()
+})
+
+/**
+ * At most this many rows go in one many-row upsert. A sessions row binds 57
+ * values, so 256 rows bind 14592, under SQLite's 32766 bound parameters, and
+ * one activity flush of up to 256 busy sessions is one statement.
+ */
+const UPSERT_ROWS_PER_STATEMENT = 256
+
+/** Placeholder name of `key` in row `index` of a many-row upsert. */
+const rowParam = (index: number, key: string): string => `r${index}_${key}`
+
+/**
+ * The upsert of `size` rows that all carry the keys in `shape` [POD-6175],
+ * keyed `${size}|${shape}`. `size` comes from {@link inListSize}, so there are
+ * at most log2(256) + 2 sizes per shape; a shorter batch repeats its last row,
+ * and an upsert of the same row twice leaves it as once (the set is the
+ * incoming values, and every COALESCE and CASE in it keeps a value it already
+ * wrote).
+ */
+const upsertSessionsOfShape = preparedFamily((db: StoreDrizzle, key: string) => {
+  const bar = key.indexOf('|')
+  const size = Number(key.slice(0, bar))
+  const shape = key.slice(bar + 1)
+  const keys = shape === '' ? [] : shape.split(',')
+  const present = new Set<string>(keys)
+  const columns = getTableColumns(sessionsTable)
+  const rows = Array.from({ length: size }, (_, index) =>
+    Object.fromEntries(keys.map((name) => [name, sql.placeholder(rowParam(index, name))])),
+  )
+  return db
+    .insert(sessionsTable)
+    .values(rows as unknown as SessionInsert[])
     .onConflictDoUpdate({
       target: sessionsTable.id,
-      set: {
-        cwd: p.cwd,
-        model: p.model,
-        effort: p.effort,
-        requestedModel: p.requestedModel,
-        requestedEffort: p.requestedEffort,
-        accountId: p.accountId,
-        loginHarness: sql`COALESCE(${sessionsTable.loginHarness}, excluded."login_harness")`,
-        title: p.title,
-        name: p.name,
-        nameSource: p.nameSource,
-        originKind: p.originKind,
-        conversationId: p.conversationId,
-        resumeKind: p.resumeKind,
-        resumeValue: p.resumeValue,
-        selectedDriverId: p.selectedDriverId,
-        requestedDriverId: p.requestedDriverId,
-        // BINDING IS ONE-WAY (POD-2392): once a launch is known to have had a
-        // native conversation, no later write may say it never did. The rule
-        // lives here rather than in the caller because it is the premise the
-        // fresh-relaunch path depends on — a caller that reconstructs a stale
-        // Session and persists it must not be able to un-prove a conversation.
-        conversationBinding: sql`CASE
-             WHEN ${sessionsTable.conversationBinding} = 'bound' THEN 'bound'
-             ELSE excluded."conversation_binding"
-           END`,
-        status: p.status,
-        exitCode: p.exitCode,
-        spawnFailure: p.spawnFailure,
-        durableLabel: p.durableLabel,
-        lastActiveAt: p.lastActiveAt,
-        terminalCols: p.terminalCols,
-        terminalRows: p.terminalRows,
-        workingMsTotal: p.workingMsTotal,
-        inputCount: p.inputCount,
-        outputCount: p.outputCount,
-        activityCount: p.activityCount,
-        archived: p.archived,
-        workState: p.workState,
-        machineId: p.machineId,
-        lastOutputAt: p.lastOutputAt,
-        lastInputAt: p.lastInputAt,
-        lastResumedAt: p.lastResumedAt,
-        spawnedBy: p.spawnedBy,
-        issueId: p.issueId,
-        stoppedAt: p.stoppedAt,
-        stopReason: p.stopReason,
-        oomKilledAt: p.oomKilledAt,
-        deletedAt: p.deletedAt,
-        deletionSource: p.deletionSource,
-        deletedByIssueId: p.deletedByIssueId,
-        workflowRunId: p.workflowRunId,
-        workflowStepId: p.workflowStepId,
-        agentProfileId: p.agentProfileId,
-        // Birth name is PERMANENT (#474): once allocated it never changes, even
-        // when the session re-attaches to a different issue. COALESCE keeps the
-        // first non-null allocation.
-        refIssueId: sql`COALESCE(${sessionsTable.refIssueId}, excluded."ref_issue_id")`,
-        refLetter: sql`COALESCE(${sessionsTable.refLetter}, excluded."ref_letter")`,
-        refDraft: sql`COALESCE(${sessionsTable.refDraft}, excluded."ref_draft")`,
-        // ATTRIBUTION IS IMMUTABLE AFTER CREATE (POD-365's
-        // SESSION_IMMUTABLE_AFTER_CREATE lists `createdBy`). COALESCE keeps the
-        // pair stamped at birth: an upsert from a later code path — a status
-        // change, a rename, a reattach — must not be able to re-attribute the
-        // session to whoever happened to trigger it. It can only FILL a pair
-        // that was never recorded, never overwrite one that was.
-        delegation: sql`COALESCE(${sessionsTable.delegation}, excluded."delegation")`,
-        createdByActorKind: sql`COALESCE(${sessionsTable.createdByActorKind}, excluded."created_by_actor_kind")`,
-        createdByActorId: sql`COALESCE(${sessionsTable.createdByActorId}, excluded."created_by_actor_id")`,
-        createdByOnBehalfOf: sql`COALESCE(${sessionsTable.createdByOnBehalfOf}, excluded."created_by_on_behalf_of")`,
-      },
+      set: sessionUpsertSet((name) =>
+        present.has(name) ? sql`excluded.${sql.identifier(columns[name].name)}` : undefined,
+      ),
     })
     .prepare()
 })
+
+/** The column values of one session row, refused before any write when the row
+ *  is one no client could read. */
+function sessionUpsertValues(row: SessionRow) {
+  if (!row.ownerUserId) {
+    throw new Error(`upsertSession: ownerUserId is required for ${row.id}`)
+  }
+  // Strict on write: never persist an out-of-enum agentKind. That value later fails
+  // synced session validation on every client
+  // (see relay.createSession, which resolves the 'auto' sentinel before it gets here).
+  if (!AgentKind.safeParse(row.agentKind).success) {
+    throw new Error(
+      `upsertSession: refusing to persist invalid agentKind ${JSON.stringify(row.agentKind)} for ${row.id}`,
+    )
+  }
+  const createdBy = row.createdBy ? actorColumns(row.createdBy.actor) : null
+  const values = {
+    id: row.id,
+    ownerUserId: row.ownerUserId,
+    agentKind: row.agentKind,
+    model: row.model ?? null,
+    effort: row.effort ?? null,
+    requestedModel: row.requestedModel ?? null,
+    requestedEffort: row.requestedEffort ?? null,
+    accountId: row.accountId ?? null,
+    loginHarness: row.loginHarness ?? null,
+    cwd: row.cwd,
+    title: row.title,
+    name: row.name,
+    nameSource: row.nameSource ?? null,
+    originKind: row.originKind,
+    conversationId: row.conversationId,
+    resumeKind: row.resumeKind,
+    resumeValue: row.resumeValue,
+    selectedDriverId: row.selectedDriverId ?? null,
+    requestedDriverId: row.requestedDriverId ?? null,
+    conversationBinding: row.conversationBinding ?? null,
+    status: row.status,
+    exitCode: row.exitCode,
+    spawnFailure: row.spawnFailure ?? null,
+    durableLabel: row.durableLabel,
+    createdAt: row.createdAt,
+    lastActiveAt: row.lastActiveAt,
+    terminalCols: row.geometry?.cols ?? 80,
+    terminalRows: row.geometry?.rows ?? 24,
+    workingMsTotal: row.workingMsTotal ?? null,
+    inputCount: row.inputCount ?? 0,
+    outputCount: row.outputCount ?? 0,
+    activityCount: row.activityCount ?? 0,
+    archived: row.archived,
+    workState: row.workState,
+    machineId: row.machineId,
+    lastOutputAt: row.lastOutputAt ?? null,
+    lastInputAt: row.lastInputAt ?? null,
+    lastResumedAt: row.lastResumedAt ?? null,
+    spawnedBy: row.spawnedBy ?? null,
+    headless: row.headless ?? false,
+    issueId: row.issueId ?? null,
+    stoppedAt: row.stoppedAt ?? null,
+    /**
+     * `stop_reason` KEEPS ITS FOUR-VALUE VOCABULARY, and `oom` is not one
+     * of them: `sessions_stop_reason_check` admits only self/parent/
+     * forced/exited, and widening it means a SQLite table rebuild the
+     * expand-only gate refuses. So the DEATH persists as `exited` and the
+     * CAUSE persists beside it as a timestamp; `Session.hydrate` re-derives
+     * `oom` from the pair. Without this the whole write threw on the CHECK
+     * and took the durable `oomKilled` event append down with it.
+     */
+    stopReason: row.stopReason === 'oom' ? 'exited' : (row.stopReason ?? null),
+    oomKilledAt: row.oomKilledAt ?? null,
+    deletedAt: row.deletedAt ?? null,
+    deletionSource: row.deletionSource ?? null,
+    deletedByIssueId: row.deletedByIssueId ?? null,
+    workflowRunId: row.workflowRunId ?? null,
+    workflowStepId: row.workflowStepId ?? null,
+    agentProfileId: row.agentProfileId ?? null,
+    refIssueId: row.refIssueId ?? null,
+    refLetter: row.refLetter ?? null,
+    refDraft: row.refDraft ?? null,
+    delegation: row.delegation ?? null,
+    createdByActorKind: createdBy ? createdBy.kind : null,
+    createdByActorId: createdBy ? createdBy.id : null,
+    createdByOnBehalfOf: row.createdBy?.onBehalfOf ?? null,
+  }
+  return values
+}
 
 const untombstonedById = (): SQL | undefined =>
   and(eq(sessionsTable.id, param(sessionsTable.id, 'id')), isNull(sessionsTable.deletedAt))
@@ -908,87 +1045,40 @@ export class SessionsRepository {
   }
 
   async upsertSession(row: SessionRow): Promise<void> {
-    if (!row.ownerUserId) {
-      throw new Error(`upsertSession: ownerUserId is required for ${row.id}`)
-    }
-    // Strict on write: never persist an out-of-enum agentKind. That value later fails
-    // synced session validation on every client
-    // (see relay.createSession, which resolves the 'auto' sentinel before it gets here).
-    if (!AgentKind.safeParse(row.agentKind).success) {
-      throw new Error(
-        `upsertSession: refusing to persist invalid agentKind ${JSON.stringify(row.agentKind)} for ${row.id}`,
-      )
-    }
-    const createdBy = row.createdBy ? actorColumns(row.createdBy.actor) : null
-    const values = {
-      id: row.id,
-      ownerUserId: row.ownerUserId,
-      agentKind: row.agentKind,
-      model: row.model ?? null,
-      effort: row.effort ?? null,
-      requestedModel: row.requestedModel ?? null,
-      requestedEffort: row.requestedEffort ?? null,
-      accountId: row.accountId ?? null,
-      loginHarness: row.loginHarness ?? null,
-      cwd: row.cwd,
-      title: row.title,
-      name: row.name,
-      nameSource: row.nameSource ?? null,
-      originKind: row.originKind,
-      conversationId: row.conversationId,
-      resumeKind: row.resumeKind,
-      resumeValue: row.resumeValue,
-      selectedDriverId: row.selectedDriverId ?? null,
-      requestedDriverId: row.requestedDriverId ?? null,
-      conversationBinding: row.conversationBinding ?? null,
-      status: row.status,
-      exitCode: row.exitCode,
-      spawnFailure: row.spawnFailure ?? null,
-      durableLabel: row.durableLabel,
-      createdAt: row.createdAt,
-      lastActiveAt: row.lastActiveAt,
-      terminalCols: row.geometry?.cols ?? 80,
-      terminalRows: row.geometry?.rows ?? 24,
-      workingMsTotal: row.workingMsTotal ?? null,
-      inputCount: row.inputCount ?? 0,
-      outputCount: row.outputCount ?? 0,
-      activityCount: row.activityCount ?? 0,
-      archived: row.archived,
-      workState: row.workState,
-      machineId: row.machineId,
-      lastOutputAt: row.lastOutputAt ?? null,
-      lastInputAt: row.lastInputAt ?? null,
-      lastResumedAt: row.lastResumedAt ?? null,
-      spawnedBy: row.spawnedBy ?? null,
-      headless: row.headless ?? false,
-      issueId: row.issueId ?? null,
-      stoppedAt: row.stoppedAt ?? null,
-      /**
-       * `stop_reason` KEEPS ITS FOUR-VALUE VOCABULARY, and `oom` is not one
-       * of them: `sessions_stop_reason_check` admits only self/parent/
-       * forced/exited, and widening it means a SQLite table rebuild the
-       * expand-only gate refuses. So the DEATH persists as `exited` and the
-       * CAUSE persists beside it as a timestamp; `Session.hydrate` re-derives
-       * `oom` from the pair. Without this the whole write threw on the CHECK
-       * and took the durable `oomKilled` event append down with it.
-       */
-      stopReason: row.stopReason === 'oom' ? 'exited' : (row.stopReason ?? null),
-      oomKilledAt: row.oomKilledAt ?? null,
-      deletedAt: row.deletedAt ?? null,
-      deletionSource: row.deletionSource ?? null,
-      deletedByIssueId: row.deletedByIssueId ?? null,
-      workflowRunId: row.workflowRunId ?? null,
-      workflowStepId: row.workflowStepId ?? null,
-      agentProfileId: row.agentProfileId ?? null,
-      refIssueId: row.refIssueId ?? null,
-      refLetter: row.refLetter ?? null,
-      refDraft: row.refDraft ?? null,
-      delegation: row.delegation ?? null,
-      createdByActorKind: createdBy ? createdBy.kind : null,
-      createdByActorId: createdBy ? createdBy.id : null,
-      createdByOnBehalfOf: row.createdBy?.onBehalfOf ?? null,
-    }
+    const values = sessionUpsertValues(row)
     await upsertSessionOfShape(this.db, shapeOf(values)).run(values)
+    this.sessionRows.invalidate()
+  }
+
+  /**
+   * {@link upsertSession} for many rows in one statement per 256 rows of one
+   * key shape [POD-6175], for the activity flush that persists every busy
+   * session on one tick. Every row is checked before the first is written.
+   * Rows are written in the order given; pass each session once.
+   */
+  async upsertSessions(rows: readonly SessionRow[]): Promise<void> {
+    if (rows.length === 0) return
+    const byShape = new Map<string, ReturnType<typeof sessionUpsertValues>[]>()
+    for (const row of rows) {
+      const values = sessionUpsertValues(row)
+      const shape = shapeOf(values)
+      const group = byShape.get(shape)
+      if (group) group.push(values)
+      else byShape.set(shape, [values])
+    }
+    for (const [shape, group] of byShape) {
+      const keys = shape === '' ? [] : shape.split(',')
+      for (let start = 0; start < group.length; start += UPSERT_ROWS_PER_STATEMENT) {
+        const chunk = group.slice(start, start + UPSERT_ROWS_PER_STATEMENT)
+        const size = inListSize(chunk.length)
+        const params: Record<string, unknown> = {}
+        for (let index = 0; index < size; index++) {
+          const values = chunk[Math.min(index, chunk.length - 1)] as Record<string, unknown>
+          for (const key of keys) params[rowParam(index, key)] = values[key]
+        }
+        await upsertSessionsOfShape(this.db, `${size}|${shape}`).run(params)
+      }
+    }
     this.sessionRows.invalidate()
   }
 

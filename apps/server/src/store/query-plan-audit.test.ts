@@ -100,6 +100,7 @@ const FAMILY_SHAPES: ReadonlyMap<string, readonly (string | number)[]> = new Map
   ['apps/server/src/store/sessions.ts:liveSessionsOfResumeValues', SIZES],
   ['apps/server/src/store/sessions.ts:liveSessionsOfIssueIds', SIZES],
   ['apps/server/src/store/sessions.ts:upsertSessionOfShape', ['id']],
+  ['apps/server/src/store/sessions.ts:upsertSessionsOfShape', ['2|id', '4|id']],
   ['apps/server/src/store/superagent.ts:setThreadBinding', ['podiumSessionId,updatedAt']],
   ['apps/server/src/store/machines.ts:rotateCredentialOf', ['null', 'key']],
   ['apps/server/src/store/issues.ts:issuesByIds', SIZES],
