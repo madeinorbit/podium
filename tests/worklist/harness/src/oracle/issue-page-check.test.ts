@@ -77,6 +77,8 @@ describe('issue page differential replay', () => {
   const firstSeed = Number(process.env['POD_POOL_GATE_FIRST_SEED'] ?? 1)
   const seeds = Number(process.env['POD_POOL_GATE_SEEDS'] ?? 3)
   const steps = Number(process.env['POD_POOL_GATE_STEPS'] ?? 200)
+  // POD-6141: the seeds stop near step 50 on "[pool] tracked() ran inside a
+  // batch" (dev/mw, 2026-10-08); the unreached steps keep old values and stay red.
   for (let seed = firstSeed; seed < firstSeed + seeds; seed++)
     it(`every generated change, seed ${seed}`, async () => {
       const clock = vi.spyOn(Date, 'now').mockReturnValue(FIXED_NOW)
