@@ -31,6 +31,8 @@ function settle(pool: MobxPool) {
 }
 
 describe('issue page differential replay', () => {
+  // POD-6168: the 4x case times out after ~9 of 19 calls (the frozen era ran it
+  // in 102 s); the unreached keys keep old values and stay red.
   for (const scale of [1, 4] as const)
     it(`corpus and every methodology change at ${scale}x`, async () => {
       const clock = vi.spyOn(Date, 'now').mockReturnValue(FIXED_NOW)
