@@ -194,12 +194,16 @@ Prefix letters are phases, numbers the order inside a phase. Blocking edges in t
 | A4 | Turso spike | POD-6162 | – |
 | B1 | Indexes and query-plan audit | POD-6148 | POD-6147 (same files) |
 | B2 | Statement-count tests, relational queries and per-operation loaders | POD-6149 | – (parallel with B1, split file ownership) |
+| B3 | Index-friendly query shapes (audit debt) | POD-6173 | – |
+| B4 | Delivery flush batching | POD-6174 | POD-6155 |
+| B5 | Activity flush batching | POD-6175 | POD-6159 |
 | C1 | Remove the world index (five steps) | POD-6155 | POD-6146, POD-6149 |
 | C2 | Remove observation checkpoint map | POD-6159 | POD-6146, POD-6149 |
 | C3 | Remove sync memory copies (two steps) | POD-6156 | POD-6155 (shared feed-visibility code) |
 | D1 | Remove full issue map | POD-6158 | POD-6155, POD-6156 |
-| D2 | Session map to running sessions | POD-6160 | POD-6158, POD-6159 |
-| E1 | Final measurement | POD-6161 | POD-6160 |
+| D2 | Session map to running sessions | POD-6160 | POD-6158, POD-6159, POD-6175 |
+| D3 | Remaining whole-table reads (audit debt) | POD-6172 | POD-6160 |
+| E1 | Final measurement | POD-6161 | POD-6172 |
 | E2 | Cache interface (deferred until a measured need) | POD-6150 | POD-6161 |
 
 POD-6151 to POD-6154 were merged into POD-6155 and POD-6157 into POD-6156 (superseded).
