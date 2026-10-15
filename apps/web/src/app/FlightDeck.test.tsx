@@ -1335,6 +1335,22 @@ describe('Full mission header', () => {
     captureHeader('Leaf totals · parents and phases excluded')
   })
 
+  it('renders all four bands from the shared Full model', async () => {
+    harness.issues = [issue('root', { description: 'A mission with work in every band.' }),
+      issue('done', { parentId: 'root', stage: 'done', closedAt: '2026-01-01T00:00:00Z' }),
+      issue('working', { parentId: 'root', memberSessionIds: ['worker'] }),
+      issue('blocked', { parentId: 'root', stage: 'backlog', blocked: true,
+        deps: [{ id: 'future', type: 'blocked-by' }] }),
+      issue('future', { parentId: 'root', stage: 'backlog' }),
+    ]
+    harness.sessions = [session('worker', { issueId: 'working', agentState: WORKING })]
+    await deck()
+    expect(screen.getByTestId('mission-gauge').getAttribute('aria-label')).toBe(
+      '1 of 4 tasks done, 1 underway, 1 blocked, 1 to go · 1 working',
+    )
+    captureHeader('Four bands · shared live leaf totals')
+  })
+
   it('counts a standalone mission as its one task', async () => {
     harness.issues = [issue('root', { stage: 'backlog' })]
     harness.sessions = []
@@ -1375,12 +1391,14 @@ function captureHeader(title: string) {
 afterAll(() => {
   const path = process.env['PODIUM_FULL_HEADER_REVIEW_HTML']
   if (!path) return
-  const css = readFileSync('src/styles.css', 'utf8').split('/* Full mission header (v6).')[1]?.split('/* ── THE RUNNING')[0]
+  const sourceCss = readFileSync('src/styles.css', 'utf8')
+  const css = sourceCss.split('/* Full mission header (v6).')[1]?.split('/* ── THE RUNNING')[0]
+  const hatch = sourceCss.match(/\.gauge-hatch\s*\{[^}]+\}/)?.[0] ?? ''
   const tokens = readFileSync('src/index.css', 'utf8').split('[data-theme="podium"].dark {')[1]?.split('}')[0]
   writeFileSync(path, `<!doctype html><html lang="en"><meta charset="utf-8"><title>Full mission header</title><style>
     :root{${tokens}--font-mono:ui-monospace,monospace;--shell-type-micro:10.5px}
     *{box-sizing:border-box}body{margin:0;padding:24px;background:#16171a;color:#d7dae0;font:12px system-ui}main{max-width:1100px;margin:auto}article{margin:24px 0}button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}svg{flex:none}.samples{display:flex;flex-wrap:wrap;align-items:start;gap:20px}.sample{flex:none;border:1px solid #33373f;border-radius:8px;background:#1d1f23;padding:12px 16px}.sample>p{color:#949aa4}.shell-type-micro{font-size:10.5px}.shell-type-column-title{margin:4px 0;font-weight:600}.deck-header>div:first-child{display:flex;align-items:center;gap:6px}.deck-header>div:first-child>span[aria-hidden]{flex:1}.deck-header button{flex-shrink:0}.deck-header h2{text-align:left}.deck-header .mt-2\\.5{margin-top:10px}.flight-full-gauge-row{display:flex;flex-wrap:wrap;align-items:center;margin-top:12px}.mission-gauge-full{display:flex;align-items:center}.mission-gauge-full [data-testid="mission-gauge-track"]{display:flex;height:26px;gap:2px;padding:2px;border-radius:8px;background:#16171a}.mission-gauge-full [data-testid="mission-live-chip"], [data-testid="mission-cost-chip"], button[aria-label="Add agent to mission"]{display:flex;align-items:center;flex:none;height:26px;gap:6px;padding:0 9px;border-radius:8px;background:#16171a;white-space:nowrap}[data-testid="mission-cost-chip"]{border:1px solid #3a3f48}
-    /* Full mission header (v6).${css}
+    /* Full mission header (v6).${css}\n${hatch}
   </style><main><h1>Full mission header</h1><p>Actual tested header DOM at 300px, 480px and 900px. Summary and band shedding use the source CSS. Actions wrap and retain their labels. Static captures; use Read more and Collapse in the live Full view.</p>${headerCaptures.map(c => `<article><h2>${c.title}</h2><div class="samples">${[300,480,900].map(w => `<div class="sample" style="width:${w}px"><p>${w}px</p>${c.html}</div>`).join('')}</div></article>`).join('')}</main></html>`)
 })
 
