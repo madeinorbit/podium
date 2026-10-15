@@ -220,6 +220,7 @@ export * from './predicates/session-priority'
 export * from './predicates/server-readiness'
 export * from './predicates/snooze'
 export * from './predicates/sort-key'
+export * from './predicates/state-word'
 export * from './predicates/stopped-send'
 export * from './predicates/unaddressable-send'
 
