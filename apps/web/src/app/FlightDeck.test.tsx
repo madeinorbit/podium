@@ -21,7 +21,7 @@ import {
 } from '@podium/client-core/ui-state'
 import { buildFlightDeckRows, missionIssueIds } from '@podium/client-core/values'
 
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { IssueExplorerProvider } from '@/features/issues/explorer/explorer-context'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
@@ -1979,7 +1979,7 @@ describe('flight deck click semantics (POD-710 §4.1)', () => {
     harness.ui.set('podium.flightDeck.mode', 'handoff')
     await deck()
 
-    fireEvent.click(screen.getByLabelText('Status: Proposed'))
+    fireEvent.click(within(screen.getAllByTestId('flight-proposed')[0]!).getByLabelText('Status: Proposed'))
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Backlog' }))
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, DOUBLE_CLICK_MS + 40))
