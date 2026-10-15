@@ -412,6 +412,11 @@ const defs = {
         async (id) => await ctx.mayReadIssue(id),
       ),
   }),
+  deck: def('deck', {
+    kind: 'query',
+    handler: async (ctx, input) =>
+      await ctx.reports.deck(input.id, async (id) => await ctx.mayReadIssue(id)),
+  }),
   depReport: def('depReport', {
     kind: 'query',
     handler: async (ctx, input) =>

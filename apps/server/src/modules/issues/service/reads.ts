@@ -39,6 +39,7 @@ import { issueRowToProjection } from '../projection'
 import type { IssueStore } from './core'
 import { countContextAwarePendingMail } from './mail-pending'
 import { IssueNotFound } from './not-found'
+import { readDeck } from './deck'
 import { resolveSeat, type SessionSeat, seatText } from './seat'
 
 export type IssueCommandResult<T> = T extends
@@ -405,6 +406,10 @@ export class IssueReportsModule {
       childDoneCount,
       complete: children.length > 0 && childDoneCount === children.length,
     }
+  }
+
+  async deck(ref: string, mayRead: IssueReadPredicate = () => true) {
+    return await readDeck(this.store, ref, mayRead, async (row) => await this.niceRef(row))
   }
 
   /** Subissues of an issue — direct children, or the whole subtree with

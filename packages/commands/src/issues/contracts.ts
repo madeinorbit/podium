@@ -801,6 +801,21 @@ export const issueTreeContract = {
   conflict: 'n/a',
 } as const satisfies CommandContract
 
+export const issueDeckContract = {
+  name: 'issues.deck',
+  version: 1,
+  visibility: ISSUE_VISIBILITY,
+  input: byIssueId,
+  policy: READ_POLICY,
+  exposure: SERVED_EVERYWHERE,
+  delivery: READ_DELIVERY,
+  redaction: ISSUE_REDACTION,
+  ownership: CREATES_NOTHING,
+  attribution: ISSUE_ATTRIBUTION,
+  errorConsistency: TARGETED_ERRORS,
+  conflict: 'n/a',
+} as const satisfies CommandContract
+
 export const issueDepReportContract = {
   name: 'issues.depReport',
   version: 1,
@@ -2135,6 +2150,7 @@ export const ISSUE_CONTRACTS = {
   supersede: issueSupersedeContract,
   unshare: issueUnshareContract,
   tree: issueTreeContract,
+  deck: issueDeckContract,
   undefer: issueUndeferContract,
   update: issueUpdateContract,
 } as const

@@ -5,6 +5,7 @@ import {
   HOST_REPOS,
   ISSUE_TYPES,
   IssueColor,
+  type IssueDeck,
   type IssueId,
   type IssueLabelWire,
   type IssueReport,
@@ -31,6 +32,7 @@ import {
 } from '@podium/protocol'
 import { z } from 'zod'
 import type { IssueTrpc } from './client.js'
+import { renderIssueDeck } from './deck.js'
 import { newMessageId, repeatUntilAnswered } from './send-once.js'
 
 /**
@@ -656,6 +658,16 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
         out.unshift(truncationNotice, '')
       }
       return { text: out.join('\n'), data: t }
+    },
+  },
+  {
+    name: 'deck',
+    summary: 'The user’s flight deck: deck <id> [--json] — ordered phases and tasks, shared state words, session seats, unmet blockers, proposals and leaf task counts.',
+    args: z.strictObject({ id: idArg }),
+    positionals: ['id'],
+    async run(c, a) {
+      const deck = (await c.issues.deck.query({ id: a.id as string })) as IssueDeck
+      return { text: renderIssueDeck(deck), data: deck }
     },
   },
   {

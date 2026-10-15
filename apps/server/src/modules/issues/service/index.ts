@@ -125,6 +125,7 @@ export type IssueReportsCapability = Pick<
   | 'epicStatus'
   | 'children'
   | 'tree'
+  | 'deck'
   | 'depReport'
   | 'closeEligibleEpics'
   | 'labelList'
