@@ -8,6 +8,7 @@ import { missions } from '@podium/client-graph/mission'
 import { MissionScreen, missionRootId } from '@podium/client-graph/mission-screen'
 import { missionView, readMissionActionInputs, settled } from '@podium/client-graph/mission-view'
 import { observer } from '@podium/client-graph/react'
+import { followVisibleRequest } from '@podium/client-graph/visible-request'
 import {
   type ComponentProps,
   type JSX,
@@ -121,6 +122,16 @@ const MissionOpening = observer(function MissionOpening({
     screen.open()
     return () => screen.close()
   }, [screen])
+  useEffect(() => followVisibleRequest(() => {
+    if (!screen.settingsRequest.loading)
+      void screen.settingsRequest.read(() => handleRef.current.access.trpc.settings.get.query())
+  }, {
+    visible: () => document.visibilityState !== 'hidden',
+    subscribe: changed => {
+      document.addEventListener('visibilitychange', changed)
+      return () => document.removeEventListener('visibilitychange', changed)
+    },
+  }), [screen])
   const source = useMemo<FlightDeckSource>(() => {
     const reader = screen.reader
     return {
