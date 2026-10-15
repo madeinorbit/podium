@@ -114,14 +114,18 @@ it('lists formal and provenance proposals with author and placement, excluding d
   const proposal = await svc.crud.create({ repoPath: '/repo', title: 'Own proposal', stage: 'proposed', startedBySession: author.sessionId, startNow: false })
   await svc.hierarchy.addDep(proposal.id, root.id, 'discovered-from')
   const formal = await svc.crud.create({ repoPath: '/repo', title: 'Here proposal', parentId: root.id, stage: 'proposed', startedBySession: author.sessionId, startNow: false })
+  const proposedChild = await create('Proposed subtree', formal.id, 'decision')
+  const accepted = await create('Accepted task', root.id)
   const active = await svc.crud.create({ repoPath: '/repo', title: 'Started discovery', startedBySession: author.sessionId, startNow: false })
   await svc.hierarchy.addDep(active.id, root.id, 'discovered-from')
   await svc.crud.update(active.id, { stage: 'in_progress' })
   const deck = await svc.reports.deck(root.id)
-  expect(deck.root.children).toEqual([])
+  expect(deck.root.children.map((row) => row.id)).toEqual([accepted.id])
+  expect(deck.counts).toMatchObject({ total: 1, 'not-started': 1, 'needs-you': 0 })
+  expect(deck.root.word).toBe('idle')
   expect(deck.proposals).toEqual([
-    expect.objectContaining({ id: formal.id, placement: 'here', proposedBy: { sessionId: author.sessionId, displayRef: 'POD-1-A' } }),
     expect.objectContaining({ id: proposal.id, placement: 'own-issue' }),
+    expect.objectContaining({ id: formal.id, placement: 'here', word: 'needs-you', proposedBy: { sessionId: author.sessionId, displayRef: 'POD-1-A' }, children: [expect.objectContaining({ id: proposedChild.id })] }),
   ])
   expect(JSON.stringify(deck)).not.toContain(active.id)
 })

@@ -32,6 +32,7 @@ export function renderIssueDeck(deck: IssueDeck): string {
       const author = proposal.proposedBy
       out.push(`  ${proposal.displayRef} ${proposal.title} — ${TASK_WORD_LABEL[proposal.word]} · ${proposal.placement === 'here' ? 'here' : 'own issue'}${author ? ` · proposed by ${author.displayRef ?? author.sessionId}` : ''}`)
       details(proposal, '    ')
+      for (const child of proposal.children) walk(child, 2)
     }
   }
   return out.join('\n')

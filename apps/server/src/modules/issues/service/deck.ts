@@ -13,7 +13,6 @@ import {
   sessionWord,
   tallyTaskWords,
   taskHidden,
-  taskWord,
   toIssueTreeSession,
 } from '@podium/model'
 import type { IssueRow } from '../../../store'
@@ -90,8 +89,15 @@ export async function readDeck(
       ? a.sortKey.localeCompare(b.sortKey) : a.seq - b.seq || left.localeCompare(right)
   })
 
-  const proposalIds = new Set([...admitted].filter((id) =>
-    id !== root.id && rows.get(id)?.stage === 'proposed' && !(children.get(id)?.length)))
+  const ordered: IssueId[] = []
+  const order = (id: IssueId): void => {
+    ordered.push(id)
+    for (const child of children.get(id) ?? []) order(child)
+  }
+  order(root.id)
+  // All proposed work lives in the tail, including parents. Their subtrees
+  // remain inspectable there and never enter accepted-work totals/roll-up.
+  const proposalIds = new Set(ordered.filter((id) => id !== root.id && rows.get(id)?.stage === 'proposed'))
   const workChildren = (id: IssueId) => (children.get(id) ?? []).filter((child) => !proposalIds.has(child))
   const refs = new Map<IssueId, string>()
   const refOf = async (row: IssueRow): Promise<string> => {
@@ -143,7 +149,9 @@ export async function readDeck(
     sessions: (id: IssueId) => (seats.get(id) ?? []).map((s) => s.word),
   }
   const words = rollUpTaskWords(root.id, tree)
-  for (const id of proposalIds) words.set(id, taskWord(tree.task(id)!, { sessions: tree.sessions(id) }))
+  for (const id of proposalIds) {
+    for (const [child, word] of rollUpTaskWords(id, tree)) words.set(child, word)
+  }
   const wordOf = (id: IssueId) => words.get(id) ?? 'not-started'
   const build = (id: IssueId): IssueDeckNode => {
     const row = rows.get(id)!
