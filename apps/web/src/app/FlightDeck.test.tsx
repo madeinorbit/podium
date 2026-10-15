@@ -2964,3 +2964,31 @@ describe('flight deck view filters (POD-1245)', () => {
     })
   })
 })
+
+
+describe('Full phase sections', () => {
+  it('puts done restoration above unphased work and phase sections while retaining the tail', async () => {
+    harness.ui.set('podium.flightDeck.mode', 'full')
+    harness.issues = [
+      issue('root', { title: 'Mission' }),
+      issue('phase', { parentId: 'root', type: 'phase', title: 'Build', sortKey: 'a' }),
+      issue('work', { parentId: 'phase', title: 'Unfinished work' }),
+      issue('done', { parentId: 'phase', title: 'Finished work', stage: 'done', closedAt: '2026-01-01T00:00:00.000Z' }),
+      issue('loose', { parentId: 'root', title: 'Loose work', sortKey: 'z' }),
+      issue('proposal', { parentId: 'root', title: 'Suggested follow-up', stage: 'proposed' }),
+    ]
+    harness.sessions = []
+    const current = await deck()
+    const groups = current.getByTestId('flight-deck-full-groups')
+    const order = () => [...groups.querySelectorAll('[data-flight-issue], [data-flight-phase]')]
+      .map(node => node.getAttribute('data-flight-issue') ?? node.getAttribute('data-flight-phase'))
+    expect(order()).toEqual(['loose', 'phase', 'work'])
+    const tail = current.getByTestId('flight-deck-tail')
+    expect(tail.textContent).toContain('Suggested follow-up')
+    expect(tail.querySelector('[data-flight-issue="proposal"]')).not.toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: '1 task done Show' }))
+    expect(order()).toEqual(['loose', 'phase', 'done', 'work'])
+    expect(harness.closeIssue).not.toHaveBeenCalled()
+    expect(harness.updateIssue).not.toHaveBeenCalled()
+  })
+})
