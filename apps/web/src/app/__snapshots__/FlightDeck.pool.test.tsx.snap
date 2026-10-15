@@ -30,8 +30,8 @@ exports[`rendered mission pane parity > preserves session action labels and orde
 
 exports[`rendered mission pane parity > preserves visible words, labels, order and layout in full > rendered output 1`] = `
 {
-  "bytes": 72949,
-  "sha256": "3331063c442a1039d4cc72bc0e53787c8d1c5bc16f1b96b91288301c8dde5d03",
+  "bytes": 73086,
+  "sha256": "3688e0a3e156b1f1d1981b824168a7145d3730ec6bb677a6025a84d12a64900d",
 }
 `;
 
