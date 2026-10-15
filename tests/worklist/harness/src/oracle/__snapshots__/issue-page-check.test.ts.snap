@@ -135,8 +135,8 @@ exports[`issue page differential replay > corpus and every methodology change at
 
 exports[`issue page differential replay > corpus and every methodology change at 4x > archiveIssue 1`] = `
 {
-  "bytes": 83298995,
-  "sha256": "2101c9804432d49050d2cdf403ec4c0a9f486981c9bf1692e1df3b6938a40c8a",
+  "bytes": 82410545,
+  "sha256": "9084c1ef52fb6d5b7d5c6262093d2c34d18a246bf7bff6eac091126c63636155",
 }
 `;
 
@@ -163,8 +163,8 @@ exports[`issue page differential replay > corpus and every methodology change at
 
 exports[`issue page differential replay > corpus and every methodology change at 4x > corpus 1`] = `
 {
-  "bytes": 83295559,
-  "sha256": "e87cfd641b8a82b5f44058abe1578d8311798c86fe10bed9828f209c29e04142",
+  "bytes": 82407121,
+  "sha256": "25963e4a4502d1c052c3a0b48a5e52e42810a49df5a0ce008c3aae0a4b3c191b",
 }
 `;
 
@@ -177,15 +177,15 @@ exports[`issue page differential replay > corpus and every methodology change at
 
 exports[`issue page differential replay > corpus and every methodology change at 4x > evictWithoutRevision 1`] = `
 {
-  "bytes": 83293242,
-  "sha256": "de7e6463ca3c0d6308df435e2727514f725775c6e24b7d49f213465dea2e9a37",
+  "bytes": 82404825,
+  "sha256": "199e8bee1a7beefcf664683e5a02fa24b3ac60bafeea00957872cd1d3daf9be8",
 }
 `;
 
 exports[`issue page differential replay > corpus and every methodology change at 4x > newIssue 1`] = `
 {
-  "bytes": 83298996,
-  "sha256": "b658709bc109e3fed0d4c36a12d3d2d283163c46ce9871093c2a4ba0f9b924b4",
+  "bytes": 82410546,
+  "sha256": "7b52927f454026d27ae08ed2ae0eae1a972a4a0709b5645d3fbecf55c8519979",
 }
 `;
 
@@ -233,36 +233,36 @@ exports[`issue page differential replay > corpus and every methodology change at
 
 exports[`issue page differential replay > corpus and every methodology change at 4x > selectionClick 1`] = `
 {
-  "bytes": 83295489,
-  "sha256": "f92cbd18be35bb579dae731da1b6179bfb3fce73f94588c1127dde115108f3ed",
+  "bytes": 82407051,
+  "sha256": "e68ece93f4e2b407e7381e183d2fef5adfc56cc9d1ffd4ee4276d48a28aeb9fb",
 }
 `;
 
 exports[`issue page differential replay > corpus and every methodology change at 4x > stageMoveAcrossGroups 1`] = `
 {
-  "bytes": 83295531,
-  "sha256": "32293df4a280fae2282b4f0b2dc233583f3aec27b47edd51b6e3aeaaff722bca",
+  "bytes": 82407093,
+  "sha256": "c08fb2672855acf0f3763800b0882ee2973a08c3cad9e6394599f4a1963d4360",
 }
 `;
 
 exports[`issue page differential replay > corpus and every methodology change at 4x > unrelatedHeartbeat 1`] = `
 {
-  "bytes": 83295556,
-  "sha256": "dc1c511934ee1ad0aae553af0e42fc59105f78096a000c4886604ff61709739e",
+  "bytes": 82407118,
+  "sha256": "2f6f83ecb6905ba743d731ab0fcb282514bfb7d294d8f7ed0d69c60ed0f8915b",
 }
 `;
 
 exports[`issue page differential replay > corpus and every methodology change at 4x > visibleSessionPhaseChange 1`] = `
 {
-  "bytes": 83295488,
-  "sha256": "41d8e6c41adcb4a9e13e4e443d6a5a91bb156906caa60fcee31c710bb497ea5a",
+  "bytes": 82407050,
+  "sha256": "944baa60e040c5514299fe4e91a2c0bd473020e196a50e84d70ce5f0821bab4c",
 }
 `;
 
 exports[`issue page differential replay > corpus and every methodology change at 4x > visibleTitleRename 1`] = `
 {
-  "bytes": 83295488,
-  "sha256": "eb20504ba2a22ab96d2a544cd534ca79caa32fb452d27f838ed76cd68c6f5519",
+  "bytes": 82407050,
+  "sha256": "4c672521ef5e849f94683262907f6f56bfd76c2829ddac0bf2de28af4016a334",
 }
 `;
 
