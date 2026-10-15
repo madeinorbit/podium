@@ -1287,7 +1287,7 @@ describe('Full mission header', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Open task details' }))
     expect(opened).toHaveBeenCalledTimes(1)
     expect((opened.mock.calls[0]?.[0] as CustomEvent).detail).toBe('issue')
-    expect(harness.setSelectedIssueId).toHaveBeenCalledWith('root')
+    expect(harness.addSession).not.toHaveBeenCalled()
   })
 
   it('shows acceptance without substituting instructions when the description is absent', async () => {

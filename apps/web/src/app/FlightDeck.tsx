@@ -69,7 +69,7 @@ import type {
   RefObject,
   PointerEvent as ReactPointerEvent,
 } from 'react'
-import { memo, useCallback, useEffect, useLayoutEffect, useId, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { GhostBar, GhostDot, GhostPreview, GhostSquare } from '@/components/GhostPreview'
 import { UnreadDot } from '@/components/UnreadMark'
@@ -1467,7 +1467,11 @@ const DeckGaugeRow = observer(function DeckGaugeRow({
   return (
     <div className={cn('mt-3 flex flex-wrap items-center gap-2', screen.view === 'full' && 'flight-full-gauge-row')}>
       {screen.view === 'full' ? (
-        <MissionGauge full={screen.full} live={screen.liveCount} working={screen.workingCount} />
+        settled(() => screen.full.ready) === true ? (
+          <MissionGauge full={screen.full} live={screen.liveCount} working={screen.workingCount} />
+        ) : (
+          <span className="flex-1" role="status" aria-label="Loading mission progress"><GhostBar /></span>
+        )
       ) : (
         <div className="min-w-[9rem] flex-[1_1_9rem]">
           <MissionGauge progress={screen.progress} live={screen.liveCount} working={screen.workingCount} />
@@ -2325,7 +2329,7 @@ export const FlightDeckContent = observer(function FlightDeckContent({
           no strip would be the one task with no menu. */}
         {/* biome-ignore lint/a11y/noStaticElementInteractions: context menu covers the header; its buttons provide keyboard actions. */}
         <div
-          className={cn("deck-header relative flex-none", view === 'full' && 'flight-full-header')}
+          className={cn('deck-header relative flex-none', view === 'full' && 'flight-full-header')}
           onContextMenu={(event) => openIssueMenu(rootId as IssueId, event)}
         >
           {/* THE EYEBROW MAY TAKE A SECOND LINE (POD-1146), and it stands on

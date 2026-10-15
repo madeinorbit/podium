@@ -1,3 +1,5 @@
+import type { FullDeck } from '@podium/client-graph/mission-full-deck'
+import { observer } from '@podium/client-graph/react'
 import { type missionProgress, missionCrewLabel } from '@podium/client-core/values'
 import { Users } from 'lucide-react'
 import type { JSX } from 'react'
@@ -5,6 +7,12 @@ import { cn } from '@/lib/utils'
 
 /**
  * THE MISSION GAUGE — "the split readout" (POD-710).
+ *
+ * Full v6 reads FullDeck's shared leaf tally and Active count, the same units
+ * as its filters and done line. POD-6000 confirmed the presentation mapping:
+ * done / underway (Error, Needs you, Working, Idle) / blocked / to go.
+ * The legacy progress input below preserves Waterfall and Timeline's header.
+ * Its review and stalled bands never appear in Full; they are not v6 words.
  *
  * ---------------------------------------------------------------------------
  * WHAT THE BAR IS
@@ -145,16 +153,31 @@ import { cn } from '@/lib/utils'
  * says who is computing when someone is (`N working`), otherwise who is on
  * the task (`N agents`) — never `live`, which parked agents are not.
  */
-export function MissionGauge({
-  progress,
-  live,
-  working,
-}: {
-  progress: ReturnType<typeof missionProgress>
+type MissionGaugeProps = {
   live: number
   working: number
-}): JSX.Element {
-  const { total, done, run, review, stall, block, wait } = progress
+} & (
+  | { full: FullDeck; progress?: never }
+  | { full?: never; progress: ReturnType<typeof missionProgress> }
+)
+
+// The Full bands use 9px mono at .06em tracking, approximately 6px per
+// character. Round upward to a CSS container-query rung, including every digit.
+const textRung = (text: string): number => Math.ceil((text.length * 6) / 8) * 8
+
+export const MissionGauge = observer(function MissionGauge({
+  progress,
+  full,
+  live,
+  working,
+}: MissionGaugeProps): JSX.Element {
+  const total = full ? full.counts.all : progress.total
+  const done = full ? full.tally.done : progress.done
+  const run = full ? full.counts.active : progress.run
+  const review = full ? 0 : progress.review
+  const stall = full ? 0 : progress.stall
+  const block = full ? full.tally.blocked : progress.block
+  const wait = full ? full.tally['not-started'] : progress.wait
   const crew = missionCrewLabel(live, working)
   const work =
     total === 0
@@ -189,7 +212,7 @@ export function MissionGauge({
         ).filter(([, , count]) => count > 0)
   return (
     <div
-      className="flex min-w-0 items-center gap-2"
+      className={cn('flex min-w-0 items-center gap-2', full && 'mission-gauge-full')}
       data-testid="mission-gauge"
       data-running={run > 0 ? 'true' : 'false'}
       data-working={working > 0 ? 'true' : 'false'}
@@ -228,13 +251,22 @@ export function MissionGauge({
               {/* The empty band counts nothing \u2014 it exists to say there is
                   nothing to count \u2014 so it carries the word alone. */}
               {state !== 'none' && (
-                <b className="gauge-band-count" data-w={Math.min(3, String(count).length)}>
+                <b
+                  className="gauge-band-count"
+                  data-w={Math.min(3, String(count).length)}
+                  data-fit={full ? textRung(String(count)) : undefined}
+                >
                   {count}
                 </b>
               )}
               {/* The separating space belongs to the WORD, so shedding the word
                   sheds it too and a lone numeral is never left off-centre. */}
-              <span className="gauge-band-word">{state === 'none' ? word : `\u00a0${word}`}</span>
+              <span
+                className="gauge-band-word"
+                data-fit={full ? textRung(state === 'none' ? word : `${count} ${word}`) : undefined}
+              >
+                {state === 'none' ? word : `\u00a0${word}`}
+              </span>
             </span>
           </span>
         ))}
@@ -253,4 +285,4 @@ export function MissionGauge({
       </span>
     </div>
   )
-}
+})
