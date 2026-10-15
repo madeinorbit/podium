@@ -7,7 +7,7 @@ import {
   type SessionRole,
   sessionSettled,
 } from '@podium/client-core/values'
-import type { AgentKind, IssueStage, SessionId } from '@podium/model'
+import type { AgentKind, IssueStage } from '@podium/model'
 import type { ReactNode } from 'react'
 import { Animated, StyleSheet, Text, View } from 'react-native'
 import Svg, { Line } from 'react-native-svg'
