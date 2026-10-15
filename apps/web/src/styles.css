@@ -11607,57 +11607,57 @@ button.waterfall-fold:hover {
   font-size: 9px;
   font-weight: 700;
 }
-.mission-gauge-full :is(.gauge-band-count, .gauge-band-word) { display: none; }
+.mission-gauge-full .gauge-band :is(.gauge-band-count, .gauge-band-word) { display: none; }
 @container gauge-band (min-width: 8px) {
-  .mission-gauge-full [data-fit="8"] { display: inline; }
+  .mission-gauge-full .gauge-band [data-fit="8"] { display: inline; }
 }
 @container gauge-band (min-width: 16px) {
-  .mission-gauge-full [data-fit="16"] { display: inline; }
+  .mission-gauge-full .gauge-band [data-fit="16"] { display: inline; }
 }
 @container gauge-band (min-width: 24px) {
-  .mission-gauge-full [data-fit="24"] { display: inline; }
+  .mission-gauge-full .gauge-band [data-fit="24"] { display: inline; }
 }
 @container gauge-band (min-width: 32px) {
-  .mission-gauge-full [data-fit="32"] { display: inline; }
+  .mission-gauge-full .gauge-band [data-fit="32"] { display: inline; }
 }
 @container gauge-band (min-width: 40px) {
-  .mission-gauge-full [data-fit="40"] { display: inline; }
+  .mission-gauge-full .gauge-band [data-fit="40"] { display: inline; }
 }
 @container gauge-band (min-width: 48px) {
-  .mission-gauge-full [data-fit="48"] { display: inline; }
+  .mission-gauge-full .gauge-band [data-fit="48"] { display: inline; }
 }
 @container gauge-band (min-width: 56px) {
-  .mission-gauge-full [data-fit="56"] { display: inline; }
+  .mission-gauge-full .gauge-band [data-fit="56"] { display: inline; }
 }
 @container gauge-band (min-width: 64px) {
-  .mission-gauge-full [data-fit="64"] { display: inline; }
+  .mission-gauge-full .gauge-band [data-fit="64"] { display: inline; }
 }
 @container gauge-band (min-width: 72px) {
-  .mission-gauge-full [data-fit="72"] { display: inline; }
+  .mission-gauge-full .gauge-band [data-fit="72"] { display: inline; }
 }
 @container gauge-band (min-width: 80px) {
-  .mission-gauge-full [data-fit="80"] { display: inline; }
+  .mission-gauge-full .gauge-band [data-fit="80"] { display: inline; }
 }
 @container gauge-band (min-width: 88px) {
-  .mission-gauge-full [data-fit="88"] { display: inline; }
+  .mission-gauge-full .gauge-band [data-fit="88"] { display: inline; }
 }
 @container gauge-band (min-width: 96px) {
-  .mission-gauge-full [data-fit="96"] { display: inline; }
+  .mission-gauge-full .gauge-band [data-fit="96"] { display: inline; }
 }
 @container gauge-band (min-width: 104px) {
-  .mission-gauge-full [data-fit="104"] { display: inline; }
+  .mission-gauge-full .gauge-band [data-fit="104"] { display: inline; }
 }
 @container gauge-band (min-width: 112px) {
-  .mission-gauge-full [data-fit="112"] { display: inline; }
+  .mission-gauge-full .gauge-band [data-fit="112"] { display: inline; }
 }
 @container gauge-band (min-width: 120px) {
-  .mission-gauge-full [data-fit="120"] { display: inline; }
+  .mission-gauge-full .gauge-band [data-fit="120"] { display: inline; }
 }
 @container gauge-band (min-width: 128px) {
-  .mission-gauge-full [data-fit="128"] { display: inline; }
+  .mission-gauge-full .gauge-band [data-fit="128"] { display: inline; }
 }
 @container gauge-band (min-width: 136px) {
-  .mission-gauge-full [data-fit="136"] { display: inline; }
+  .mission-gauge-full .gauge-band [data-fit="136"] { display: inline; }
 }
 
 /* ── THE RUNNING BAND'S CELLS (POD-1146, made fluid in POD-1177) ─────────────
