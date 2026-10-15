@@ -24,7 +24,7 @@ import { and, asc, eq, isNull, type SQL, sql } from 'drizzle-orm'
 import { machines, grants } from '../migrations/schema'
 import { GrantsRepository } from './grants'
 import type { StoreDrizzle, StoreQueries, TransactionRunner } from './executor/sync-drizzle'
-import { executeRaw, param, prepared, preparedFamily } from './executor/sync-drizzle'
+import { executeRaw, inListOf, inListSize, inListValues, param, prepared, preparedFamily } from './executor/sync-drizzle'
 import { verifyWithMachineKey } from '@podium/runtime/machine-credential'
 import type { MachineRecord } from './types'
 
@@ -285,6 +285,10 @@ const machinesByCreation = prepared((db: StoreDrizzle) =>
 
 const machineById = prepared((db: StoreDrizzle) =>
   db.select(MACHINE_COLUMNS).from(machines).where(eq(machines.id, param(machines.id, 'id'))).prepare(),
+)
+
+const machinesByIds = preparedFamily((db: StoreDrizzle, size: number) =>
+  db.select(MACHINE_COLUMNS).from(machines).where(inListOf(machines.id, size)).prepare(),
 )
 
 const machineRowById = prepared((db: StoreDrizzle) =>
@@ -575,6 +579,21 @@ export class MachinesRepository {
     const r = await machineById(this.db).get({ id: id as MachineId })
     if (!r) return undefined
     return machineRecordFromRow(r)
+  }
+
+  /** {@link getMachine} for many ids in one query per 500; a missing id is absent. */
+  async getMachines(ids: readonly string[]): Promise<Map<string, MachineRecord>> {
+    const out = new Map<string, MachineRecord>()
+    const unique = [...new Set(ids)]
+    for (let i = 0; i < unique.length; i += 500) {
+      const chunk = unique.slice(i, i + 500)
+      const size = inListSize(chunk.length)
+      for (const row of await machinesByIds(this.db, size).all(inListValues(chunk, size))) {
+        const record = machineRecordFromRow(row)
+        out.set(record.id, record)
+      }
+    }
+    return out
   }
 
   /** Explicit assignment add/remove; attachment never calls this transition. */
