@@ -259,14 +259,32 @@ it('collapses parked twins across deck boundaries without letting a private twin
   const root = await create('Mission')
   const elsewhere = await create('Other mission')
   const resume = { kind: 'codex', value: 'one-conversation' }
-  const old = seat('old', root.id, { status: 'hibernated', resume, refIssueId: root.id, refLetter: 'A', lastActiveAt: '2026-10-14T00:00:00Z' })
+  const old = seat('old', root.id, {
+    status: 'hibernated',
+    resume,
+    refIssueId: root.id,
+    refLetter: 'A',
+    lastActiveAt: '2026-10-14T00:00:00Z',
+  })
   const current = seat('current', elsewhere.id, { status: 'hibernated', resume })
-  await svc.crud.create({ repoPath: '/repo', title: 'Formal proposal', stage: 'proposed', parentId: root.id, startedBySession: old.sessionId, startNow: false })
+  await svc.crud.create({
+    repoPath: '/repo',
+    title: 'Formal proposal',
+    stage: 'proposed',
+    parentId: root.id,
+    startedBySession: old.sessionId,
+    startNow: false,
+  })
   const deck = await svc.reports.deck(root.id)
   expect(deck.root.sessions).toEqual([])
   expect(deck.proposals[0]?.proposedBy).toBeNull()
   hiddenSessions.add(current.sessionId)
   const privateTwin = await svc.reports.deck(root.id)
-  expect(privateTwin.root.sessions).toEqual([expect.objectContaining({ sessionId: old.sessionId, displayRef: 'POD-1-A' })])
-  expect(privateTwin.proposals[0]?.proposedBy).toEqual({ sessionId: old.sessionId, displayRef: 'POD-1-A' })
+  expect(privateTwin.root.sessions).toEqual([
+    expect.objectContaining({ sessionId: old.sessionId, displayRef: 'POD-1-A' }),
+  ])
+  expect(privateTwin.proposals[0]?.proposedBy).toEqual({
+    sessionId: old.sessionId,
+    displayRef: 'POD-1-A',
+  })
 })

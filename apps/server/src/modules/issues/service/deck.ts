@@ -81,7 +81,9 @@ export async function readDeck(
   )
   let grew = true
   while (grew) {
-    const candidates = new Set(facts.filter((s) => s.issueId && admitted.has(s.issueId)).map((s) => s.sessionId))
+    const candidates = new Set(
+      facts.filter((s) => s.issueId && admitted.has(s.issueId)).map((s) => s.sessionId),
+    )
     for (const id of admitted) {
       const row = rows.get(id)!
       if (row.stage === 'proposed' && row.startedBySession) candidates.add(row.startedBySession)
@@ -92,7 +94,8 @@ export async function readDeck(
     for (const id of candidates) {
       const s = factsById.get(id)
       if (!s?.resume || s.headless) continue
-      for (const twin of resumeTwins.get(resumeKey(s.resume.kind, s.resume.value)) ?? []) candidates.add(twin)
+      for (const twin of resumeTwins.get(resumeKey(s.resume.kind, s.resume.value)) ?? [])
+        candidates.add(twin)
     }
     const ids = [...candidates].filter((id) => !requested.has(id))
     for (const id of ids) requested.add(id)
@@ -164,11 +167,21 @@ export async function readDeck(
     if (projected.has(ask.sessionId))
       pending.set(ask.sessionId, (pending.get(ask.sessionId) ?? 0) + 1)
   }
-  const sessionRefs = await readSessionRefs(store.deps.store, facts.filter((s) => projected.has(s.sessionId)))
+  const sessionRefs = await readSessionRefs(
+    store.deps.store,
+    facts.filter((s) => projected.has(s.sessionId)),
+  )
   const kept = new Map(senders().map((s) => [s.sessionId, s]))
   const seats = new Map<IssueId, IssueDeckSession[]>()
   for (const s of kept.values()) {
-    if (!s.issueId || !admitted.has(s.issueId) || s.archived || s.headless || s.agentKind === 'shell') continue
+    if (
+      !s.issueId ||
+      !admitted.has(s.issueId) ||
+      s.archived ||
+      s.headless ||
+      s.agentKind === 'shell'
+    )
+      continue
     const row = rows.get(s.issueId)
     if (!row) continue
     const coordinator = row.coordinatorSessionId === s.sessionId
@@ -243,7 +256,9 @@ export async function readDeck(
       proposedBy: author
         ? {
             sessionId: author.sessionId,
-            ...(sessionRefs.has(author.sessionId) ? { displayRef: sessionRefs.get(author.sessionId)! } : {}),
+            ...(sessionRefs.has(author.sessionId)
+              ? { displayRef: sessionRefs.get(author.sessionId)! }
+              : {}),
           }
         : null,
       placement: row.parentId && admitted.has(row.parentId) ? 'here' : 'own-issue',
