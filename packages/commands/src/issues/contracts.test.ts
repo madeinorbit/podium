@@ -301,7 +301,7 @@ describe('redaction', () => {
     const mutations = ISSUE_COMMAND_NAMES.filter((k) => classOf(k) !== 'n/a')
     const nonMutating = ISSUE_COMMAND_NAMES.filter((k) => classOf(k) === 'n/a')
     expect(mutations.length).toBe(50)
-    expect(nonMutating.length).toBe(30)
+    expect(nonMutating.length).toBe(31)
     // The named case, kept from the original: write-grade authority, no row.
     expect(classOf('linearSearch')).toBe('n/a')
   })
