@@ -49,6 +49,9 @@ function roots(store: Store<PodiumClientApi>): string[] {
     ),
   ]
 }
+// POD-6134: the deepest corpus missions need up to 76 batched load rounds (15
+// on 2026-10-09), so the 1x check stays red until the deck's load waterfall is
+// fixed. Keep the cap; it is the guard.
 function settle(pool: MobxPool, ids: readonly string[]) {
   const last: number[] = []
   for (let round = 0; round < 64; round++) {

@@ -429,6 +429,9 @@ const OWNED = ' (pool owns optimism)'
 describe('sidebar differential replay', () => {
   // POD-5432: 'owned' is the pool owning optimism (its log paints, the
   // runtime's actions route through it), against the same legacy oracle.
+  // POD-6136: the 4x keys keep their pre-147bdd51c8 values and stay red. Issue
+  // activity there ignores exited history sessions the pool never received (two
+  // unread marks, one continuation target); regenerate them once it is fixed.
   for (const mode of ['pooled', 'owned'] as const)
     for (const scale of [1, 4] as const)
       it(`corpus and every methodology change at ${scale}x${mode === 'owned' ? OWNED : ''}`, async () => {
