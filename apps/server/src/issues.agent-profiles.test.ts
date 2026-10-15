@@ -105,9 +105,14 @@ describe('issues with agent profiles', () => {
       defaultAgent: 'auto',
       defaultModel: 'auto',
     })
-    // Without a profile the Settings default is frozen in, as before.
+    // Without a profile the harness stays `auto` too (POD-6133): the issue stores
+    // picks only, and Settings apply when each session starts.
     const plain = await svc.crud.create({ repoPath: '/r', title: 'Plain', startNow: false })
-    expect(plain).toMatchObject({ defaultAgent: 'claude-code' })
+    expect(plain).toMatchObject({
+      defaultAgent: 'auto',
+      defaultModel: 'auto',
+      defaultEffort: 'auto',
+    })
     expect(plain).not.toHaveProperty('agentProfileId')
   })
 
@@ -269,10 +274,30 @@ describe('agent profile inheritance on start', () => {
       parentId: root.id,
       stage: 'proposed',
     })
-    await svc.gitWorkflow.start(proposal.id)
+    const started = await svc.gitWorkflow.start(proposal.id)
     const spawned = spawnedWith(spawnSession)
     expect(spawned).toMatchObject({ agentKind: 'claude-code' })
     expect(spawned).not.toHaveProperty('agentProfileId')
+    // The Settings harness is launch-only: the issue keeps `auto` for the next start.
+    expect(started).toMatchObject({ defaultAgent: 'auto' })
+  })
+
+  it('a harness pick equal to the Settings default is still a pick (POD-6133)', async () => {
+    const { svc, spawnSession, p, task } = await mission()
+    const proposal = await svc.crud.create({
+      repoPath: '/r',
+      title: 'Picked default',
+      startNow: false,
+      parentId: task.id,
+      stage: 'proposed',
+      defaultAgent: 'claude-code',
+    })
+    await svc.gitWorkflow.start(proposal.id)
+    // The mission's profile lists only codex, so the pick stands alone on top of it.
+    expect(spawnedWith(spawnSession)).toMatchObject({
+      agentKind: 'claude-code',
+      agentProfileId: p.mission.id,
+    })
   })
 
   it("the issue's own picks ride on top of an inherited profile", async () => {
@@ -317,6 +342,33 @@ describe('agent profile inheritance on start', () => {
     const started = await svc.gitWorkflow.start(profiled.id, undefined, { agentProfile: 'p-own' })
     expect(spawnedWith(spawnSession)).toMatchObject({ agentProfileId: p.own.id })
     expect(started).toMatchObject({ agentProfileId: p.own.id })
+  })
+
+  it('naming the Settings harness on an `auto` issue keeps its model; another harness resets it', async () => {
+    const { svc, spawnSession } = await harness()
+    const issue = await svc.crud.create({
+      repoPath: '/r',
+      title: 'Model picked',
+      startNow: false,
+      defaultModel: 'opus',
+    })
+    expect(await svc.crud.update(issue.id, { defaultAgent: 'claude-code' })).toMatchObject({
+      defaultAgent: 'claude-code',
+      defaultModel: 'opus',
+    })
+    expect(await svc.crud.update(issue.id, { defaultAgent: 'codex' })).toMatchObject({
+      defaultAgent: 'codex',
+      defaultModel: 'auto',
+    })
+    const atStart = await svc.crud.create({
+      repoPath: '/r',
+      title: 'Start names default',
+      startNow: false,
+      defaultModel: 'opus',
+    })
+    const started = await svc.gitWorkflow.start(atStart.id, 'claude-code')
+    expect(spawnedWith(spawnSession)).toMatchObject({ agentKind: 'claude-code' })
+    expect(started).toMatchObject({ defaultAgent: 'claude-code', defaultModel: 'opus' })
   })
 
   it('add-session on a started issue inherits the same way', async () => {

@@ -1006,6 +1006,22 @@ export class IssueCrudModule {
     }
   }
 
+  /**
+   * Whether moving an issue from harness `from` to `to` changes the harness its
+   * stored model/effort were picked for, so they must reset [spec:SP-7ff1]. An
+   * `auto` side counts as the Settings harness it resolves to (POD-6133): naming
+   * the default harness on an `auto` issue is no switch, as it was when create
+   * froze that harness into the row.
+   */
+  async switchesHarness(from: string, to: string): Promise<boolean> {
+    if (from === to) return false
+    const settings = await this.store.deps.getSettings()
+    return (
+      resolveSpawnDefaults(settings, { agentKind: from }).agentKind !==
+      resolveSpawnDefaults(settings, { agentKind: to }).agentKind
+    )
+  }
+
   async create(input: CreateIssueInput): Promise<IssueProjection> {
     if ((input as { stage?: string }).stage === 'shipping') {
       throw new IssueRefusal('shipping stage is system-owned and requires a ship order')
@@ -1034,11 +1050,6 @@ export class IssueCrudModule {
     const agentProfileId = input.agentProfile
       ? await this.agentProfileIdFor(input.agentProfile)
       : undefined
-    // With a profile, an unnamed agent stays `auto` so the PROFILE picks it
-    // (POD-6107); without one, the Settings default is frozen in as before.
-    const spawnDefaults = agentProfileId && !input.defaultAgent
-      ? { agentKind: 'auto' }
-      : resolveSpawnDefaults(settings, { agentKind: input.defaultAgent })
     // Built as the IN-MEMORY issue (R1) and encoded ONCE, through the pair that
     // owns the R1 <-> R3 splits (ADR 4 §4.1). Everything absent here is absent by
     // R1's own optionality — the storage nulls are `toStorage`'s to write, and
@@ -1054,8 +1065,10 @@ export class IssueCrudModule {
       worktreePath: null,
       branch: null,
       parentBranch: input.parentBranch || settings.gitWorkflow.defaultParentBranch || 'main',
-      defaultAgent: spawnDefaults.agentKind,
-      // The issue stores picks only; current Settings apply when each session starts.
+      // The issue stores picks only (POD-6133): an unnamed harness, model or effort
+      // stays `auto`, so the profile and then the Settings current at each
+      // session start decide it, and a stored harness is always a real pick.
+      defaultAgent: input.defaultAgent || 'auto',
       defaultModel: input.defaultModel || 'auto',
       defaultEffort: input.defaultEffort || 'auto',
       ...(agentProfileId ? { agentProfileId } : {}),
@@ -1237,7 +1250,11 @@ export class IssueCrudModule {
         ...(!('defaultEffort' in patch) ? { defaultEffort: 'auto' } : {}),
       }
     }
-    if (patch.defaultAgent !== undefined && patch.defaultAgent !== row.defaultAgent) {
+    if (
+      patch.defaultAgent !== undefined &&
+      patch.defaultAgent !== row.defaultAgent &&
+      (await this.switchesHarness(row.defaultAgent, patch.defaultAgent))
+    ) {
       patch = {
         ...patch,
         ...(!('defaultModel' in patch) ? { defaultModel: 'auto' } : {}),

@@ -326,8 +326,9 @@ describe('IssueService CRUD', () => {
       })
 
     const configured = await svc.crud.create({ repoPath: '/r', title: 'Claude', startNow: false })
-    expect(configured.defaultAgent).toBe('claude-code')
-    // DECISION (POD-3911): Settings apply at session start, never at issue creation.
+    // DECISION (POD-3911, POD-6133): Settings apply at session start, never at
+    // issue creation — the harness included.
+    expect(configured.defaultAgent).toBe('auto')
     expect(configured.defaultModel).toBe('auto')
     expect(configured.defaultEffort).toBe('auto')
 
@@ -2453,9 +2454,13 @@ describe('IssueService.start', () => {
     /** Found while verifying live: re-starting a started issue is a no-op, so the flag
      *  was accepted and dropped and the CLI still printed `started #n`. */
     it('refuses --model/--effort on an already-started issue instead of ignoring them', async () => {
-      const { svc, deps } = await harness()
+      const sessions: SessionMeta[] = []
+      const { svc, deps } = await harness(sessions)
       const a = await svc.crud.create({ repoPath: '/r', title: 'A', startNow: false })
-      await svc.gitWorkflow.start(a.id)
+      const started = await svc.gitWorkflow.start(a.id)
+      // "Already started" means a session exists: a worktree with none is a failed
+      // spawn that a retry finishes (POD-6119).
+      sessions.push({ ...sess(started.worktreePath as string), issueId: a.id } as SessionMeta)
       ;(deps.spawnSession as ReturnType<typeof vi.fn>).mockClear()
       await expect(svc.gitWorkflow.start(a.id, undefined, { model: 'opus' })).rejects.toThrow(
         /already started.*add-session/s,

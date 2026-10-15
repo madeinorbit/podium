@@ -144,7 +144,7 @@ export class IssueGitWorkflowModule {
     readonly store: IssueStore,
     private readonly crud: () => Pick<
       IssueCrudModule,
-      'update' | 'create' | 'close' | 'defer' | 'agentProfileIdFor'
+      'update' | 'create' | 'close' | 'defer' | 'agentProfileIdFor' | 'switchesHarness'
     >,
     private readonly commentsMail: () => Pick<IssueCommentsMailModule, 'addComment'>,
     attention: () => Pick<IssueAttentionModule, 'setNeedsHuman'>,
@@ -300,17 +300,11 @@ export class IssueGitWorkflowModule {
    * with the issue's own fields on top, first usable candidate picked — through
    * the one resolver every spawn path shares. Without a profile of its own the
    * issue inherits one ({@link inheritedAgentProfileId}); with none anywhere it
-   * is exactly the issue's own fields, as before. `auto` for the harness becomes
-   * the Settings default here, because the vetting below needs a concrete harness.
-   *
-   * An inherited profile meets fields that were never chosen with it in mind. A
-   * profile-less create freezes the Settings harness into `defaultAgent`, which
-   * is indistinguishable from a pick of that same harness, so it would filter
-   * the inherited candidates down to one harness the profile may not even list.
-   * The issue's fields therefore ride on top of an inherited profile only when
-   * they carry a pick of their own: a model or effort (both `auto` unless chosen),
-   * a harness other than the Settings default, or an `explicitAgent` named for
-   * this launch. Otherwise the inherited profile decides the whole setup.
+   * is exactly the issue's own fields, as before. Every non-`auto` field is a
+   * pick and rides on top of the profile, own or inherited: create stores `auto`
+   * for anything not chosen (POD-6133), so a stored harness is never a frozen
+   * Settings default. `auto` for the harness becomes the Settings default here,
+   * because the vetting below needs a concrete harness.
    */
   private async issueLaunch(
     row: Pick<IssueRow, 'id' | 'parentId' | 'machineId' | 'repoPath'> & {
@@ -318,7 +312,6 @@ export class IssueGitWorkflowModule {
     },
     fields: { agent: string; model: string; effort: string },
     cwd: string,
-    opts?: { explicitAgent?: boolean },
   ): Promise<{
     agent: string
     issueProfile: { agentKind: string; model: string; effort: string }
@@ -327,26 +320,12 @@ export class IssueGitWorkflowModule {
   }> {
     const profiles = this.store.d.agentProfiles
     let profileId = row.agentProfileId ?? null
-    let launchFields = fields
-    if (!profileId && profiles) {
-      profileId = await this.inheritedAgentProfileId(row)
-      if (
-        profileId &&
-        !opts?.explicitAgent &&
-        !isAgentFieldSet(fields.model) &&
-        !isAgentFieldSet(fields.effort)
-      ) {
-        const settingsAgent = resolveSpawnDefaults(await this.store.d.getSettings(), {}).agentKind
-        if (!isAgentFieldSet(fields.agent) || fields.agent === settingsAgent) {
-          launchFields = { agent: 'auto', model: 'auto', effort: 'auto' }
-        }
-      }
-    }
+    if (!profileId && profiles) profileId = await this.inheritedAgentProfileId(row)
     const launch =
       profileId && profiles
         ? await profiles.launch({
             profileId,
-            fields: { ...launchFields, machineId: row.machineId ?? null },
+            fields: { ...fields, machineId: row.machineId ?? null },
             cwd,
           })
         : null
@@ -441,7 +420,9 @@ export class IssueGitWorkflowModule {
       explicitProfileId !== undefined && explicitProfileId !== (row.agentProfileId ?? null)
     // Switching harness at start discards the stored model/effort: they were chosen
     // for the OLD harness and its slugs mean nothing on the new one.
-    const switching = Boolean(agentKind && agentKind !== row.defaultAgent)
+    const switching = Boolean(
+      agentKind && (await this.crud().switchesHarness(row.defaultAgent, agentKind)),
+    )
     const agent = agentKind ?? (profileChanged ? 'auto' : row.defaultAgent)
     const stored = {
       agent,
@@ -452,7 +433,6 @@ export class IssueGitWorkflowModule {
       { ...row, agentProfileId: explicitProfileId ?? row.agentProfileId ?? null },
       { agent, model: stored.model, effort: stored.effort },
       row.repoPath,
-      { explicitAgent: Boolean(agentKind) },
     )
     // Where the worktree is cut: the issue's pin, else its profile's machine.
     const homeMachineId = launch.machineId ?? undefined
@@ -1740,7 +1720,6 @@ export class IssueGitWorkflowModule {
               effort: row.defaultEffort,
             },
             row.worktreePath,
-            { explicitAgent: Boolean(agentKind) },
           )
     const kind = agentKind === 'shell' ? 'shell' : (launch?.agent ?? row.defaultAgent)
     // Everything here is inherited from the issue's profile, so nothing here can
