@@ -3278,13 +3278,14 @@ describe('Full coordinator and session seats', () => {
     harness.paneA = 'coord'
     harness.paneB = 'archived'
     harness.focusedPane = 'B'
-    await deck()
+    const view = await deck()
     fireEvent.click(screen.getByRole('button', { name: /archived session/i }))
     expect(selected()).toEqual(['archived'])
     expect(row('archived').className).toBe(row('coord').className)
     expect(row('archived').textContent).toContain('Done')
     fireEvent.keyDown(button('archived'), { key: 'Enter' })
     expect(harness.openSessionTab).toHaveBeenLastCalledWith('archived', { permanent: true })
+    captureSeats('Archived conversation · focused pane', view.container)
   })
 })
 
