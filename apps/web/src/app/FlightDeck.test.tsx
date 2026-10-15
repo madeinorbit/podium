@@ -1786,6 +1786,9 @@ describe('flight deck click semantics (POD-710 §4.1)', () => {
   })
 
   it('advances active bar geometry with the shared clock while Now stays anchored', async () => {
+    // Since 6071eaca8e the live edge reads the shared observed clock, not the
+    // store's coarseNow: pin it to the fixture's time and advance them together.
+    vi.setSystemTime(harness.coarseNow)
     harness.sessions = harness.sessions.map((raw) => {
       const candidate = raw as SessionView
       return candidate.sessionId === 's2'
@@ -1804,6 +1807,7 @@ describe('flight deck click semantics (POD-710 §4.1)', () => {
     expect(Number.parseFloat(initialNow)).toBeLessThanOrEqual(100)
 
     harness.coarseNow += 10 * 60_000
+    act(() => vi.advanceTimersByTime(10 * 60_000))
     view.rerender(<DeckHarness />)
 
     const advancedLane = sessionRow('s2').closest('.waterfall-session-lane') as HTMLElement
