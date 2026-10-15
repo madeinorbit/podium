@@ -101,7 +101,7 @@ import { cn } from '@/lib/utils'
 import { KindIcon, SessionNameEditor, sessionDisplayName, WorkerLabel } from '@/lib/WorkerLabel'
 import { useClickIntent } from './click-intent'
 import { FlightDeckHandoff } from './FlightDeckHandoff'
-import { FlightDeckV6Rows } from './FlightDeckV6Rows'
+import { FlightDeckFullGroups } from './FlightDeckFullGroups'
 import PoolFlightDeck from './FlightDeckPool'
 import { FlightDeckWaterfall } from './FlightDeckWaterfall'
 import { type FlightDeckDisplay, nextFlightDeckDisplayForSessionPick } from './flight-deck-display'
@@ -2502,7 +2502,7 @@ export const FlightDeckContent = observer(function FlightDeckContent({
                 )}
               </>
             )}
-            {view === 'full' ? <FlightDeckV6Rows
+            {view === 'full' ? <FlightDeckFullGroups
               full={screen.full}
               revealSessionId={revealSessionId}
               scrollRef={deckScrollerRef}

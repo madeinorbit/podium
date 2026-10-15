@@ -13001,3 +13001,29 @@ button.waterfall-fold:hover {
 .flight-v6-guide[data-guide='empty']::before { display: none; }
 .flight-v6-rows button:focus-visible { outline: 1px solid var(--issue); outline-offset: 1px; }
 .flight-v6-session[data-pointed='true'][data-selected='false'] > .flight-v6-session-line { background: var(--muted); }
+
+/* Full phase sections and done line. All rules stay inside Full's renderer. */
+.flight-full-done-line { display: flex; align-items: center; gap: 8px; width: calc(100% - 8px); min-height: 26px; margin: 3px 0 10px 8px; padding: 3px 8px; border: 1px dashed var(--border); border-radius: 6px; color: var(--text-faint); font-size: 11.5px; text-align: left; }
+.flight-full-done-line > svg { flex: none; color: var(--issue); }
+.flight-full-done-line > span:first-of-type { flex: 1; }
+.flight-full-done-line:hover { color: var(--text-dim); border-color: var(--text-faint); }
+.flight-full-show, .flight-full-phase-index, .flight-full-phase-counter { flex: none; color: var(--text-faint); font-family: var(--font-mono); font-size: 10.5px; white-space: nowrap; }
+.flight-full-phase { position: relative; min-width: 0; padding-bottom: 3px; }
+.flight-full-phase-section { position: relative; min-width: 0; }
+.flight-full-phase-header { position: relative; display: flex; align-items: center; min-height: 32px; padding-right: 28px; border-radius: 6px; }
+.flight-full-phase-header:hover { background: var(--bar); }
+.flight-full-phase-header:hover > .flight-v6-actions { opacity: 1; }
+.flight-full-phase-toggle { display: flex; align-items: center; flex: 1; gap: 8px; min-width: 0; min-height: 32px; padding: 3px 6px; text-align: left; }
+.flight-full-phase-toggle > svg { flex: none; color: var(--text-faint); }
+.flight-full-phase-index { letter-spacing: .08em; }
+.flight-full-phase-name { color: var(--text-strong); font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
+.flight-full-phase-hairline { flex: 1; height: 1px; min-width: 12px; background: var(--border); }
+.flight-full-phase-meter { display: flex; flex: none; width: 36px; height: 3px; overflow: hidden; border-radius: 2px; background: var(--border); }
+.flight-full-phase-meter > span { background: var(--issue); }
+.flight-full-phase-content { margin-left: 11px; border-left: 2px solid var(--border); padding-left: 9px; }
+.flight-full-phase-content[data-has-lead='true'] { border-left-color: color-mix(in srgb, var(--text-dim) 50%, transparent); }
+.flight-full-phase-content[hidden] { display: none; }
+.flight-full-phase-lead:empty { display: none; }
+.flight-full-phase-lead > .flight-v6-sessions { margin-left: 0; }
+.flight-full-phase[data-complete='true'] > .flight-full-phase-section > .flight-full-phase-header .flight-full-phase-name { color: var(--text-dim); }
+.flight-full-groups button:focus-visible { outline: 1px solid var(--issue); outline-offset: 1px; }

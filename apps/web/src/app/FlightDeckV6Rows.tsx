@@ -38,7 +38,7 @@ const STRIP_HEIGHT = 32
 const SESSION_HEIGHT = 28
 export const V6_DEPTH_STEP = 22
 
-type Actions = {
+export type FlightDeckV6Actions = {
   activeSessionId: string | null
   onSelectSession: (task: FullDeckTask, session: SessionView, permanent: boolean) => void
   onMenu: (task: FullDeckTask, event: MouseEvent) => void
@@ -54,11 +54,13 @@ export const FlightDeckV6Rows = observer(function FlightDeckV6Rows({
   full,
   scrollRef,
   revealSessionId,
+  renderRows,
   ...actions
-}: Actions & {
+}: FlightDeckV6Actions & {
   full: FullDeck
   revealSessionId?: string | null
   scrollRef: RefObject<HTMLElement | null>
+  renderRows?: (tasks: readonly FullDeckTask[], guides: readonly boolean[][], window: DeckWindow) => ReactNode
 }) {
   const container = useRef<HTMLDivElement>(null)
   const pending = settled(() => {
@@ -114,7 +116,7 @@ export const FlightDeckV6Rows = observer(function FlightDeckV6Rows({
           <GhostBar />
         </div>
       ) : (
-        tasks.map((task, index) => (
+        renderRows ? renderRows(tasks, guides, window) : tasks.map((task, index) => (
           <FlightDeckV6Task
             key={task.id}
             task={task}
@@ -128,6 +130,19 @@ export const FlightDeckV6Rows = observer(function FlightDeckV6Rows({
   )
 })
 
+/** Shared inset roster, also the phase-lead slot until the seat-card child lands. */
+export const FlightDeckV6Crew = observer(function FlightDeckV6Crew({
+  task, window, ...actions
+}: FlightDeckV6Actions & { task: FullDeckTask; window?: DeckWindow }) {
+  return task.sessionIds.length > 0 ? (
+    <div className="flight-v6-sessions">
+      {task.sessionIds.map((id) => (
+        <SessionSlot key={id} task={task} id={id} window={window} {...actions} />
+      ))}
+    </div>
+  ) : null
+})
+
 const Ring = ({ word }: { word: TaskWord }) => (
   <span aria-hidden className="flight-v6-ring" data-word={word}>
     {word === 'done' && <Check size={9} />}
@@ -138,11 +153,14 @@ const Ring = ({ word }: { word: TaskWord }) => (
 export const FlightDeckV6Task = observer(function FlightDeckV6Task({
   task,
   carries,
+  visualDepth = task.depth,
   window,
   ...actions
-}: Actions & {
+}: FlightDeckV6Actions & {
   task: FullDeckTask
   carries: readonly boolean[]
+  /** Phase rails already supply one level of the structural indentation. */
+  visualDepth?: number
   window?: DeckWindow
 }) {
   const contentId = useId()
@@ -175,7 +193,7 @@ export const FlightDeckV6Task = observer(function FlightDeckV6Task({
         data-word={task.word}
         data-open={open}
         data-context={!task.matches}
-        style={{ marginLeft: task.depth * V6_DEPTH_STEP }}
+        style={{ marginLeft: visualDepth * V6_DEPTH_STEP }}
       >
         {shown ? (
           <div
@@ -237,13 +255,7 @@ export const FlightDeckV6Task = observer(function FlightDeckV6Task({
           />
         )}
         <div id={contentId} hidden={!open}>
-          {open && task.sessionIds.length > 0 && (
-            <div className="flight-v6-sessions">
-              {task.sessionIds.map((id) => (
-                <SessionSlot key={id} task={task} id={id} window={window} {...actions} />
-              ))}
-            </div>
-          )}
+          {open && <FlightDeckV6Crew task={task} window={window} {...actions} />}
         </div>
       </div>
     </div>
@@ -318,7 +330,7 @@ const TaskActions = observer(function TaskActions({
   onMenu,
 }: {
   task: FullDeckTask
-  onMenu: Actions['onMenu']
+  onMenu: FlightDeckV6Actions['onMenu']
 }) {
   return (
     <button
@@ -379,7 +391,7 @@ const SessionSlot = observer(function SessionSlot({
   id,
   window,
   ...actions
-}: Actions & { task: FullDeckTask; id: string; window?: DeckWindow }) {
+}: FlightDeckV6Actions & { task: FullDeckTask; id: string; window?: DeckWindow }) {
   const key = deckSessionKey(task.id, id)
   if (window?.enabled && !window.contains(key))
     return (
