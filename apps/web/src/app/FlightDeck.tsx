@@ -1825,6 +1825,7 @@ export const FlightDeckContent = observer(function FlightDeckContent({
     })
     if (rootRow) for (const id of rootSessions) leaves.push(sessionLeaf(rootRow, id))
     if (rootSessions.length && visibleRows.length) leaves.push({ key: 'spine:gap', size: 8 })
+    const rootLeaves = leaves.slice()
     for (const row of visibleRows) {
       const block: DeckWindowRow[] = [{ key: deckTaskKey(row.key), size: row.stage === 'proposed' ? PROPOSED_BAND : BAND_HEIGHT,
         get text() {
@@ -1842,10 +1843,10 @@ export const FlightDeckContent = observer(function FlightDeckContent({
       block.push({ key: `padding:${row.key}`, size: 6 })
       blocks.set(row.key, block); leaves.push(...block)
     }
-    return { leaves, blocks }
+    return { leaves, blocks, rootLeaves }
   }, [screen, rootId, rootRow, rootSessions, visibleRows, folds, mode])
   const spineWindow = useFlightDeckWindow(
-    spineView && view !== 'full' ? spineGeometry.leaves : [],
+    spineView ? view === 'full' ? spineGeometry.rootLeaves : spineGeometry.leaves : [],
     deckScrollerRef,
     deckRowsRef,
     rootId,
@@ -2500,6 +2501,7 @@ export const FlightDeckContent = observer(function FlightDeckContent({
             )}
             {view === 'full' ? <FlightDeckV6Rows
               full={screen.full}
+              revealSessionId={revealSessionId}
               scrollRef={deckScrollerRef}
               activeSessionId={activeSessionId}
               renameTarget={renameTarget}

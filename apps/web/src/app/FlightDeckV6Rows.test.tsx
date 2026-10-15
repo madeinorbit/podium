@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { MissionScreen } from '@podium/client-graph/mission-screen'
-import { attachMissionTestPreferences } from '@podium/client-graph/mission-screen.test.fixture'
+import { attachPreferenceSource } from '@podium/client-graph/preference-source'
+import type { RoutedUiState } from '@podium/client-core/ui-state'
 import { settled } from '@podium/client-graph/mission-view'
 import { MobxPool } from '@podium/client-graph/pool'
 import { SESSION_WORD_LABEL, TASK_WORD_LABEL, type TaskWord } from '@podium/model/browser'
@@ -32,12 +33,19 @@ afterEach(() => { cleanup(); for (const close of releases.splice(0)) close(); vi
 async function open(issues = [issue('root', null, 1), issue('task', 'root', 2, { coordinatorSessionId: 'worker' })],
   sessions = [session('worker', 'task'), session('helper', 'task')]) {
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: NOW })
-  attachMissionTestPreferences(pool)
+  const values = new Map<string, string>()
+  const listeners = new Set<(keys: ReadonlySet<string>) => void>()
+  const uiState: RoutedUiState = {
+    get: key => values.get(key) ?? null,
+    set: (key, raw) => { if (raw === null) values.delete(key); else values.set(key, raw); for (const listener of listeners) listener(new Set([key])) },
+    subscribe: listener => { listeners.add(listener); return () => listeners.delete(listener) },
+  }
+  attachPreferenceSource(pool, uiState)
   pool.apply({ type: 'replace', rows: [
     ...issues.map(value => ({ kind: 'issue' as const, id: value['id'] as string, value: value as never })),
     ...sessions.map(value => ({ kind: 'session' as const, id: value['sessionId'] as string, value: value as never })),
   ] })
-  const screen = new MissionScreen(pool, 'root')
+  const screen = new MissionScreen(pool, 'root', { setPreference: (key, raw) => uiState.set(key, raw) })
   screen.open()
   const stop = autorun(() => { void settled(() => [screen.ready, screen.full.ready]) })
   releases.push(() => { stop(); screen.close(); pool.dispose() })

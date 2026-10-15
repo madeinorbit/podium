@@ -7,7 +7,7 @@ import type { SessionView } from '@podium/client-core/session-values'
 import { nativeSubagentRows, treeGuides } from '@podium/client-core/values'
 import { SESSION_WORD_LABEL, TASK_WORD_LABEL, type TaskWord } from '@podium/model/browser'
 import { Check, ChevronDown, ChevronRight, Ellipsis, ListTree } from 'lucide-react'
-import { useId, useRef, useState, type MouseEvent, type RefObject } from 'react'
+import { useId, useLayoutEffect, useRef, useState, type MouseEvent, type RefObject } from 'react'
 import { GhostBar } from '@/components/GhostPreview'
 import { IssueStatusPicker } from '@/features/issues/IssueStatusPicker'
 import { PhaseTimer } from '@/lib/motion'
@@ -35,8 +35,9 @@ type Actions = {
 
 /** Full-only geometry and rendering. The companions own membership, words,
  * counters, seats, search and folds; these arrays describe pixels, not records. */
-export const FlightDeckV6Rows = observer(function FlightDeckV6Rows({ full, scrollRef, ...actions }: Actions & {
+export const FlightDeckV6Rows = observer(function FlightDeckV6Rows({ full, scrollRef, revealSessionId, ...actions }: Actions & {
   full: FullDeck
+  revealSessionId?: string | null
   scrollRef: RefObject<HTMLElement | null>
 }) {
   const container = useRef<HTMLDivElement>(null)
@@ -58,6 +59,11 @@ export const FlightDeckV6Rows = observer(function FlightDeckV6Rows({ full, scrol
     leaves.push({ key: `v6:gap:${task.id}`, size: 3 })
   }
   const window = useFlightDeckWindow(leaves, scrollRef, container, full.rootId, 'v6')
+  useLayoutEffect(() => {
+    if (!revealSessionId || !window.enabled) return
+    const leaf = leaves.find(row => row.key.endsWith(`:${revealSessionId}`))
+    if (leaf && !window.contains(leaf.key)) window.reveal(leaf.key)
+  }, [revealSessionId, leaves, window])
   return <div ref={container} className="flight-v6-rows" data-testid="flight-deck-v6-rows">
     {pending === LOADING ? <div role="status" aria-label="Loading tasks"><GhostBar /></div> :
       tasks.map((task, index) => <FlightDeckV6Task key={task.id} task={task} carries={guides[index] ?? []} window={window} {...actions} />)}
