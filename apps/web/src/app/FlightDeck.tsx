@@ -1796,7 +1796,9 @@ export const FlightDeckContent = observer(function FlightDeckContent({
    * out would leave its children hanging off a parent that is no longer there.
    */
   const visibleRows = screen.visibleRows
-  const proposedRows = screen.proposedRows
+  const proposedRows = view === 'full'
+    ? fullReady ? screen.full.proposalIds.map(id => screen.full.task(id).row) : []
+    : screen.proposedRows
   const query = screen.query
   const searchOpen = screen.searchOpen
   const guides = useMemo(() => treeGuides(visibleRows as MissionDeckIssueModel[]), [visibleRows])

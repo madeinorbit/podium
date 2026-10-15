@@ -2137,6 +2137,17 @@ describe('flight deck sections (POD-710 §4.3, §4.4)', () => {
     expect(tree?.getAttribute('data-depth')).toBe('0')
   })
 
+  it('keeps a proposed parent reachable in the Full tail after it leaves the accepted tree', async () => {
+    harness.issues.push(issue('proposal-parent', { parentId: 'root', stage: 'proposed', title: 'Proposed parent' }),
+      issue('proposal-child', { parentId: 'proposal-parent' }))
+    await deck()
+    const proposal = screen.getByTestId('flight-proposed').querySelector('[data-flight-issue="proposal-parent"]')
+    expect(proposal).not.toBeNull()
+    expect(screen.getByTestId('flight-deck-v6-rows').querySelector('[data-flight-issue="proposal-parent"]')).toBeNull()
+    fireEvent.contextMenu(proposal!.querySelector('button')!)
+    expect(await screen.findByText('Set status')).toBeTruthy()
+  })
+
   it('keeps one fixed scrollport around sticky mission chrome and growing rows', async () => {
     await deck()
 
