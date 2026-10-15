@@ -2,8 +2,8 @@
 
 exports[`rendered mission pane parity > keeps archived-session reveal names/order and opens the same session > rendered output 1`] = `
 {
-  "bytes": 183036,
-  "sha256": "89e5f7370f26d23dece1566a5dc96923cfe7d864f89b1432dee80e64ce904d3e",
+  "bytes": 183045,
+  "sha256": "2f17b7709fcffe7fb57d89a3d945b43efd9e299e3e299dd4db3863884979b013",
 }
 `;
 
@@ -30,8 +30,8 @@ exports[`rendered mission pane parity > preserves session action labels and orde
 
 exports[`rendered mission pane parity > preserves visible words, labels, order and layout in full > rendered output 1`] = `
 {
-  "bytes": 164400,
-  "sha256": "37359c6b9615143da9efcc1978d64435b799ea0fced006012d96975a68e69d4e",
+  "bytes": 164409,
+  "sha256": "316c736592af9b19775685ad1ffa3afb9bfd6cfeaad2b2894b674d990dd4d808",
 }
 `;
 
@@ -44,8 +44,8 @@ exports[`rendered mission pane parity > preserves visible words, labels, order a
 
 exports[`rendered mission pane parity > preserves visible words, labels, order and layout in needs-you > rendered output 1`] = `
 {
-  "bytes": 42721,
-  "sha256": "4f29c8901828f54aec8c5252eeb2088b6bbea4a2687a59c34cc0f8de806874e1",
+  "bytes": 42724,
+  "sha256": "67240e795f5402c098a83b02bf68c960d5cc2129f47b403081f518476f840762",
 }
 `;
 
