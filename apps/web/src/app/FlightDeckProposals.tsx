@@ -137,7 +137,7 @@ const FullProposal = observer(function FullProposal({ task, provenance, status, 
               intent.commit(() => onSelect(task, true))
             }}>
             <span className="flight-proposal-ref">{ref}</span>
-            {drawable && <span className="flight-proposal-title">{task.row.title}</span>}
+            {drawable && <span className="flight-proposal-title" title={task.row.title}>{task.row.title}</span>}
           </TooltipTrigger>
           {description && <TooltipContent>{description}</TooltipContent>}
         </Tooltip>

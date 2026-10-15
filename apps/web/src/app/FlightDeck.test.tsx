@@ -322,6 +322,18 @@ const settle = async (): Promise<void> => {
   })
 }
 
+it('keeps explicit Full expansion reachable without forcing compact or hiding collapse', async () => {
+  harness.display = 'expanded'
+  await deck()
+  expect(harness.onDisplayChange).not.toHaveBeenCalled()
+  expect(screen.getByTestId('flight-deck-scroller').classList.contains('flight-full-panel')).toBe(true)
+  const compact = screen.getByRole('button', { name: 'Use compact Flight Deck' })
+  expect(compact.getAttribute('aria-pressed')).toBe('true')
+  fireEvent.click(compact)
+  expect(harness.onDisplayChange).toHaveBeenCalledExactlyOnceWith('compact')
+  expect(screen.getByRole('button', { name: 'Collapse Flight Deck' })).toBeDefined()
+})
+
 beforeEach(() => {
   vi.useFakeTimers({ shouldAdvanceTime: true })
   harness.ui.clear()

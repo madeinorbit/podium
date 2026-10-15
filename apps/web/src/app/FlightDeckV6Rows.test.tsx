@@ -233,7 +233,7 @@ it('draws 22px guide steps with middle, last and continuing ancestor elbows beyo
   )
   expect(V6_DEPTH_STEP).toBe(22)
   expect(f.task('d').getAttribute('data-depth')).toBe('3')
-  expect((f.task('d').querySelector('.flight-v6-card') as HTMLElement).style.marginLeft).toBe(
+  expect((f.task('d').querySelector('.flight-v6-card') as HTMLElement).style.getPropertyValue('--v6-indent')).toBe(
     '66px',
   )
   expect(
@@ -247,7 +247,7 @@ it('draws 22px guide steps with middle, last and continuing ancestor elbows beyo
     ),
   ).toEqual(['carry', 'empty', 'last'])
   expect(
-    [...f.task('e').querySelectorAll<HTMLElement>('[data-guide]')].map((node) => node.style.left),
+    [...f.task('e').querySelectorAll<HTMLElement>('[data-guide]')].map((node) => node.style.getPropertyValue('--v6-guide-left')),
   ).toEqual(['0px', '22px', '44px'])
 })
 

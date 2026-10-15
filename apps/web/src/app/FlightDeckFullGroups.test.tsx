@@ -14,6 +14,9 @@ import { createRef } from 'react'
 import { afterAll, afterEach, expect, it, vi } from 'vitest'
 import { FlightDeckFullGroups } from './FlightDeckFullGroups'
 import { FlightDeckFullCoordinator } from './FlightDeckFullSeats'
+import { FlightDeckFullControls } from './FlightDeckFullControls'
+import { FlightDeckProposals } from './FlightDeckProposals'
+import { MissionGauge } from './MissionGauge'
 
 vi.mock('./store', () => ({
   useRuntimeSelector: (read: (value: unknown) => unknown) => read({ renameSession: vi.fn() }),
@@ -94,7 +97,7 @@ it('orders the done line, unheaded loose tasks, sorted phase sections, leaving p
   expect(f.order()).toEqual(['loose work', 'build', 'parent', 'open grandchild', 'next', 'future task'])
   expect(f.ui.container.querySelector('.flight-full-groups')?.firstElementChild?.className).toBe('flight-full-done-line')
   expect(f.task('loose work')?.closest('[data-flight-phase]')).toBeNull()
-  expect(f.task('loose work')?.querySelector<HTMLElement>('.flight-v6-card')?.style.marginLeft).toBe('0px')
+  expect(f.task('loose work')?.querySelector<HTMLElement>('.flight-v6-card')?.style.getPropertyValue('--v6-indent')).toBe('0px')
   expect(f.task('proposal')).toBeNull()
   expect(f.full.proposalIds).toEqual(['proposal'])
   expect(f.group('build')?.querySelector('.flight-full-phase-index')?.textContent).toBe('02')
@@ -187,8 +190,8 @@ it('preserves nested phases under both tasks and phases, with phase-local elbows
   expect(f.group('deep phase')?.closest('[data-flight-phase="outer phase"]')).toBe(f.group('outer phase'))
   expect(f.group('phase under phase')?.parentElement?.closest('[data-flight-phase]')).toBe(f.group('outer phase'))
   expect(f.task('deep work')?.getAttribute('data-depth')).toBe('3')
-  expect(f.task('deep work')?.querySelector<HTMLElement>('.flight-v6-card')?.style.marginLeft).toBe('0px')
-  expect(f.group('deep phase')?.querySelector<HTMLElement>('.flight-full-phase-section')?.style.marginLeft).toBe('22px')
+  expect(f.task('deep work')?.querySelector<HTMLElement>('.flight-v6-card')?.style.getPropertyValue('--v6-indent')).toBe('66px')
+  expect(f.group('deep phase')?.querySelector<HTMLElement>('.flight-full-phase-section')?.style.getPropertyValue('--v6-indent')).toBe('44px')
   expect(f.full.counts.all).toBe(4)
   expect(f.group('outer phase')?.querySelector('.flight-full-phase-counter')?.textContent).toBe('1/3')
   capture('Nested phases · structural location preserved', f.ui.container)
@@ -212,6 +215,68 @@ it('keeps empty phases and a closed phase with unfinished contained work visible
   expect(f.task('unfinished')).not.toBeNull()
   expect(f.full.counts.all).toBe(1)
   expect(f.ui.container.querySelector('.flight-full-done-line')).toBeNull()
+})
+
+it('keeps long identity, shared state, dependency locks and position hooks at arbitrary depth', async () => {
+  const issues = [
+    issue('root', null, 'a', { coordinatorSessionId: 'coord' }),
+    issue('blocker-a', 'root', 'a', { seq: 123456789 }),
+    issue('blocker-b', 'root', 'b', { seq: 987654321 }),
+    issue('blocked', 'root', 'c', { blocked: true, deps: [
+      { id: 'blocker-a', type: 'blocked-by' }, { id: 'blocker-b', type: 'blocked-by' },
+    ] }),
+    issue('waiting', 'root', 'd', { deps: [{ id: 'blocker-a', type: 'blocked-by' }], coordinatorSessionId: 'worker' }),
+    issue('proposal', 'root', 'z', { stage: 'proposed', title: 'A proposal title that must yield to every full size action'.repeat(3) }),
+  ]
+  for (let depth = 0; depth < 18; depth++) issues.push(issue(
+    `depth-${depth}`, depth ? `depth-${depth - 1}` : 'root', 'e', {
+      seq: 100000000 + depth, type: depth % 3 === 0 ? 'phase' : 'task',
+      title: depth % 3 === 0 ? 'A long phase name stays readable at every width' : 'A long task title yields space to identity and state'.repeat(4),
+    },
+  ))
+  const sessions: Row[] = ['coord', 'worker', 'helper'].map(id => ({
+    sessionId: id, issueId: id === 'coord' ? 'root' : 'waiting', agentKind: 'codex',
+    refRepoId: 'repo', refSeq: 123456789, refLetter: id === 'coord' ? 'A' : id === 'worker' ? 'B' : 'C',
+    name: `A long ${id} session title`, status: 'live', cwd: '/synthetic', archived: false,
+    createdAt: stamp, lastActiveAt: stamp, readAt: stamp,
+    agentState: { phase: id === 'coord' ? 'needs_user' : 'idle' },
+  }))
+  const f = await open(issues, sessions)
+  act(() => f.full.foldAll())
+  if (f.full.allFolded) act(() => f.full.foldAll())
+  const strip = f.task('blocked')!.querySelector('[data-flight-task-row]')!
+  expect(strip.getAttribute('data-flight-task-row')).toBe('blocked')
+  expect(strip.getAttribute('data-edge-gutter')).toBe('28')
+  const dependency = strip.querySelector('[data-dependency-slot="blocked"]')!
+  expect(dependency.getAttribute('data-kind')).toBe('blocked')
+  expect(dependency.querySelector('svg')).not.toBeNull()
+  expect(dependency.querySelector('.flight-v6-dependency-label')?.textContent).toBe('blocked by')
+  expect(dependency.getAttribute('title')).toContain('POD-123456789')
+  expect(dependency.getAttribute('title')).toContain('POD-987654321')
+  expect(f.task('waiting')?.querySelector('[data-kind="waiting"] .flight-v6-dependency-label')?.textContent).toBe('after')
+  expect(f.task('depth-17')?.getAttribute('data-depth')).toBe('17')
+  expect(f.task('depth-17')?.querySelector<HTMLElement>('.flight-v6-card')?.style.getPropertyValue('--v6-indent')).toBe('374px')
+  expect(f.task('depth-17')?.querySelector('.flight-v6-state')?.textContent).toBe('Not started')
+  expect(f.task('depth-17')?.querySelector('.flight-v6-ref')?.textContent).toBe('POD-100000017')
+  expect(f.task('depth-17')?.querySelector('.flight-v6-title')?.getAttribute('title')).toContain('identity and state')
+  const surfaces = render(<div className="flight-full-panel">
+    <div className="flight-full-gauge-row"><MissionGauge full={f.full} live={3} working={0} /></div>
+    <FlightDeckFullCoordinator full={f.full} {...f.actions} />
+    <FlightDeckFullControls full={f.full} />
+    <FlightDeckFullGroups {...f.props} />
+    <FlightDeckProposals full={f.full} onSelect={vi.fn()} onMenu={vi.fn()} />
+  </div>)
+  for (const name of ['Backlog', 'Start']) expect(surfaces.getByRole('button', { name })).toBeDefined()
+  expect(surfaces.getByRole('button', { name: /^Dismiss POD-/ })).toBeDefined()
+  const path = process.env['PODIUM_FULL_RESPONSIVE_REVIEW_HTML']
+  if (path) {
+    const header = readFileSync('src/styles.css', 'utf8').split('/* Full mission header (v6).')[1]
+    const tokens = readFileSync('src/index.css', 'utf8').split('[data-theme="podium"].dark {')[1]?.split('}')[0]
+    writeFileSync(path, `<!doctype html><html lang="en"><meta charset="utf-8"><title>Full deck responsive ladder</title><style>
+    :root{${tokens} --font-mono:ui-monospace,monospace}*{box-sizing:border-box}body{margin:0;padding:24px;background:#16171a;color:#d7dae0;font:13px system-ui}h1{font-size:20px}p{max-width:850px;color:#949aa4;line-height:1.6}button{font:inherit;color:inherit;background:none;border:0;padding:0}svg{flex:none}.samples{display:flex;align-items:start;flex-wrap:wrap;gap:24px}.sample{flex:none}.flight-full-panel{background:#1d1f23;border:1px solid #373a42}.size-4{width:16px;height:16px}.size-5{width:20px;height:20px}.flex{display:flex}.flex-none{flex:none}.items-center{align-items:center}.justify-center{justify-content:center}.border{border:1px solid #3a3f48}.rounded{border-radius:4px}.flight-full-gauge-row{display:flex;flex-wrap:wrap;padding:12px}.mission-gauge-full{display:flex;align-items:center}.mission-gauge-full [data-testid="mission-gauge-track"]{display:flex;height:26px;gap:2px;padding:2px;background:#16171a}.mission-gauge-full [data-testid="mission-live-chip"]{display:flex;align-items:center;flex:none;gap:6px;padding:6px}
+    /* Full mission header (v6).${header}
+    </style><h1>Full deck · 300px to expanded</h1><p>Actual rendered acceptance fixture with 18 nested levels, long refs, Not started, Needs you, multiple blockers, session seats, controls and proposals. POD-6000 approved wrapping required slots and capping indentation at three steps. Only titles truncate. Each sample is its own panel container; the browser viewport does not select a rung. Buttons are static layout evidence.</p><div class="samples">${[300,320,359,360,439,440,480,559,560,859,860,900,1120].map(width => `<article class="sample" style="width:${width}px"><h2>${width}px</h2>${surfaces.container.innerHTML}</article>`).join('')}</div></html>`)
+  }
 })
 
 it('keeps phase actions and rename accessible without coupling collapse to issue stages', async () => {

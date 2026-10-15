@@ -6,13 +6,14 @@ import { LOADING } from '@podium/client-graph/loading'
 import type { SessionView } from '@podium/client-core/session-values'
 import { nativeSubagentRows, treeGuides } from '@podium/client-core/values'
 import { SESSION_WORD_LABEL, TASK_WORD_LABEL, type TaskWord } from '@podium/model/browser'
-import { ArrowUpRight, Check, ChevronDown, ChevronRight, Ellipsis, ListTree } from 'lucide-react'
+import { ArrowUpRight, Check, ChevronDown, ChevronRight, Ellipsis, ListTree, Lock } from 'lucide-react'
 import {
   useId,
   useLayoutEffect,
   useRef,
   useState,
   type MouseEvent,
+  type CSSProperties,
   type RefObject,
   type ReactNode,
 } from 'react'
@@ -187,7 +188,7 @@ export const FlightDeckV6Task = observer(function FlightDeckV6Task({
             data-guide={
               level === carries.length - 1 ? (carry ? 'middle' : 'last') : carry ? 'carry' : 'empty'
             }
-            style={{ left: level * V6_DEPTH_STEP }}
+            style={{ '--v6-guide-left': `${(task.depth - carries.length + level) * V6_DEPTH_STEP}px` } as CSSProperties}
           />
         ))}
       </div>
@@ -196,11 +197,14 @@ export const FlightDeckV6Task = observer(function FlightDeckV6Task({
         data-word={task.word}
         data-open={open}
         data-context={!task.matches}
-        style={{ marginLeft: visualDepth * V6_DEPTH_STEP }}
+        style={{ '--v6-indent': `${task.depth * V6_DEPTH_STEP}px` } as CSSProperties}
       >
         {shown ? (
           <div
             className="flight-v6-strip deck-strip"
+            data-flight-task-row={task.id}
+            data-visual-depth={visualDepth}
+            data-edge-gutter="28"
             onClick={(event) => {
               if (event.target === event.currentTarget) task.deck.toggleFold(task.id)
             }}
@@ -365,9 +369,14 @@ const TaskCounter = observer(function TaskCounter({ task }: { task: FullDeckTask
 const DependencySlot = observer(function DependencySlot({ task }: { task: FullDeckTask }) {
   const note = settled(() => task.row.presentation?.note)
   if (!note || note === LOADING || (note.kind !== 'blocked' && note.kind !== 'waiting')) return null
+  const refs = settled(() => task.dependencyReferences)
+  const tooltip = typeof refs === 'string' && refs ? `${note.full} · ${refs}` : note.full
   return (
-    <span className="flight-v6-dependency" title={note.full}>
-      {note.label} {note.short}
+    <span className="flight-v6-dependency" data-kind={note.kind}
+      data-dependency-slot={task.id} title={tooltip}>
+      {note.kind === 'blocked' && <Lock size={11} aria-hidden />}
+      <span className="flight-v6-dependency-label">{note.kind === 'waiting' ? 'after' : note.label}</span>
+      <span className="flight-v6-dependency-ref">{note.short}</span>
     </span>
   )
 })

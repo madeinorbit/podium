@@ -13204,7 +13204,7 @@ button.waterfall-fold:hover {
 .flight-proposal-receipt { min-width:0; border-bottom:1px solid var(--border); }
 .flight-proposal-receipt .flight-proposal-ref { color:var(--text-dim); }
 .flight-proposal-receipt .flight-proposal-title { display:none; }
-@container (max-width:360px) {
+@container flight-full (width < 360px) {
   .flight-proposals { padding-inline:8px; }
   .flight-proposal-line, .flight-proposal-details { gap:5px; }
   .flight-proposal-line { padding-left:6px; }
@@ -13254,3 +13254,106 @@ button.waterfall-fold:hover {
 .flight-full-search input { flex: 1; min-width: 0; background: transparent; color: var(--foreground); font-size: 12px; outline: none; }
 .flight-full-search input::placeholder { color: var(--text-faint); }
 .flight-full-search[hidden], .flight-v6-natives[hidden] { display: none; }
+
+/* Full alone sheds by the entire panel, never the viewport or an indented
+   strip. Expanded uses this same tree. POD-6000 approved wrapping mandatory
+   identity/state and bounded indentation when their intrinsic widths collide. */
+.flight-full-panel {
+  container: flight-full / inline-size;
+  width: 100%;
+  min-width: 0;
+  overflow-x: hidden;
+  --v6-state-width: 76px;
+  --v6-gap: 8px;
+  --v6-title-min: 60px;
+  --v6-indent-limit: clamp(0px, calc(100cqi - 440px), 66px);
+}
+.flight-v6-rows, .flight-full-coordinator, .flight-full-archive { --v6-state-width: 76px; }
+.flight-v6-task, .flight-v6-session { min-width: 0; }
+.flight-v6-card, .flight-full-phase-header, .flight-full-phase-lead {
+  margin-left: min(var(--v6-indent, 0px), var(--v6-indent-limit, 66px));
+}
+/* Phase wrappers retain semantic nesting/disclosure IDs without accumulating
+   horizontal padding. The rail is decoration, independent of content width. */
+.flight-full-phase-section { margin-left: 0; }
+.flight-full-phase-content { position: relative; margin-left: 0; padding-left: 0; border-left: 0; }
+.flight-full-phase-content::before {
+  content: ''; position: absolute; pointer-events: none; top: 0; bottom: 0;
+  left: min(calc(var(--v6-indent, 0px) + 11px), var(--v6-indent-limit, 66px));
+  border-left: 2px solid var(--border);
+}
+.flight-full-phase-content[data-has-lead='true']::before { border-left-color: var(--text-dim); }
+.flight-v6-guide { left: min(var(--v6-guide-left), var(--v6-indent-limit, 66px)); }
+.flight-v6-strip {
+  container-type: normal; container-name: none;
+  height: auto; min-height: 32px; gap: var(--v6-gap, 8px);
+  padding: 3px 28px 3px 6px;
+}
+.flight-v6-task-body {
+  flex-wrap: wrap; height: auto; min-height: 26px;
+  gap: 4px var(--v6-gap, 8px);
+}
+.flight-v6-title { min-width: var(--v6-title-min, 60px); }
+.flight-v6-ref {
+  flex-shrink: 1; max-width: 100%; min-width: 0;
+  white-space: normal; overflow-wrap: anywhere;
+}
+.flight-v6-state {
+  min-width: max-content; max-width: 100%; width: var(--v6-state-width, 76px);
+  flex-wrap: wrap; margin-left: auto; white-space: normal;
+}
+.flight-v6-state > span { white-space: nowrap; }
+.flight-v6-dependency {
+  display: inline-flex; align-items: center; gap: 4px; max-width: 100%;
+  overflow: visible; white-space: normal; overflow-wrap: anywhere;
+}
+.flight-v6-dependency > svg { flex: none; }
+.flight-v6-dependency[data-kind='waiting'] { display: none; }
+.flight-v6-dependency-ref { min-width: 0; }
+.flight-v6-session-line { flex-wrap: wrap; padding-right: 28px; }
+.flight-v6-session-open {
+  flex-wrap: wrap; height: auto; min-height: 28px; gap: 4px var(--v6-gap, 8px);
+  padding-right: 0;
+}
+.flight-v6-session-open > svg, .flight-v6-session-open > span:first-child:not(.flight-v6-title) { flex-shrink: 0; }
+.flight-v6-native-slot { display: none; }
+.flight-v6-native-chip { position: static; flex: none; margin: 0 0 4px auto; }
+.flight-v6-natives { margin-left: 6px; padding-left: 6px; }
+.flight-v6-natives li { flex-wrap: wrap; overflow-wrap: anywhere; }
+.flight-v6-natives li > span { min-width: 0; }
+.flight-full-coordinator .flight-v6-session[data-seat='helper'] { margin-left: 0; }
+.flight-v6-session[data-seat='coordinator'] .flight-v6-session-open {
+  height: auto; min-height: 56px; padding-right: 0;
+}
+.flight-full-coordinator-identity { min-width: 0; flex-basis: 60px; }
+.flight-full-coordinator-caption { flex-wrap: wrap; }
+.flight-full-phase-toggle { flex-wrap: wrap; }
+.flight-full-phase-name { min-width: 0; flex: 0 1 auto; }
+.flight-full-phase-hairline { min-width: 0; flex: 1 1 12px; }
+.flight-full-done-line > span:first-of-type { min-width: 0; overflow-wrap: anywhere; }
+.flight-proposal-line { flex-wrap: wrap; padding-block: 3px; }
+.flight-proposal-details { flex: 1 1 140px; flex-wrap: wrap; }
+.flight-proposal-ref { flex-shrink: 1; min-width: 0; overflow-wrap: anywhere; }
+.flight-proposal-title { flex: 1; min-width: 40px; }
+.flight-proposal-actions { margin-left: auto; }
+.flight-proposal-actions button { flex: none; }
+.flight-proposal-result { flex-wrap: wrap; min-width: 0; }
+
+@container flight-full (width >= 860px) {
+  .flight-v6-dependency[data-kind='waiting'] { display: inline-flex; }
+}
+@container flight-full (width < 560px) {
+  .flight-v6-role, .flight-v6-dependency[data-kind='blocked'] .flight-v6-dependency-label { display: none; }
+}
+@container flight-full (width < 440px) {
+  .flight-v6-dependency[data-kind='blocked'] .flight-v6-dependency-ref { display: none; }
+}
+@container flight-full (width < 360px) {
+  .flight-v6-rows, .flight-full-coordinator, .flight-full-archive {
+    --v6-state-width: 56px;
+    --v6-gap: 6px;
+    --v6-title-min: 40px;
+  }
+  .flight-v6-engines, .flight-v6-counter, .flight-v6-native-chip { display: none; }
+  .flight-v6-strip, .flight-v6-task-body, .flight-v6-session-open { gap: 4px 6px; }
+}

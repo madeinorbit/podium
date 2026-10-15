@@ -539,6 +539,19 @@ describe('seats and profiles', () => {
 })
 
 describe('dependencies', () => {
+  it('keeps every tooltip reference live while legacy notes summarize multiple dependencies', async () => {
+    const fixture = mission()
+    const target = fixture.issues.find(row => row['id'] === 'ext')!
+    target['deps'] = [{ id: 'outside', type: 'blocked-by' }, { id: 'audit', type: 'blocked-by' }]
+    const { pool, full } = await open(fixture)
+    const refs = () => tracked(() => full.task('ext').dependencyReferences)
+    expect(refs()).toBe(tracked(() => ['outside', 'audit'].map(id => full.task(id).row.displayRef).join(', ')))
+    const outside = fixture.issues.find(row => row['id'] === 'outside')!
+    pool.apply({ type: 'update', rows: [{ kind: 'issue', id: 'outside',
+      value: { ...outside, stage: 'done', closedAt: later } as never }] })
+    expect(refs()).toBe(tracked(() => full.task('audit').row.displayRef))
+  })
+
   it('keeps unmet blocked-by edges, inside and outside the mission, dependents and related', async () => {
     const { full } = await open()
     expect(tracked(() => full.task('usage').unmetBlockedByIds)).toEqual(['audit'])

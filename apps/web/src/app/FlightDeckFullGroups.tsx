@@ -3,7 +3,7 @@ import { LOADING } from '@podium/client-graph/loading'
 import { settled } from '@podium/client-graph/mission-view'
 import { observer } from '@podium/client-graph/react'
 import { CheckCircle2, ChevronDown, ChevronRight, Ellipsis } from 'lucide-react'
-import { useId, type ReactNode, type RefObject } from 'react'
+import { useId, type CSSProperties, type ReactNode, type RefObject } from 'react'
 import { GhostBar } from '@/components/GhostPreview'
 import { SessionNameEditor } from '@/lib/WorkerLabel'
 import {
@@ -157,11 +157,12 @@ const PhaseGroup = observer(function PhaseGroup({
             key={level}
             className="flight-v6-guide"
             data-guide={level === carries.length - 1 ? (carry ? 'middle' : 'last') : carry ? 'carry' : 'empty'}
-            style={{ left: level * V6_DEPTH_STEP }}
+            style={{ '--v6-guide-left': `${(task.depth - carries.length + level) * V6_DEPTH_STEP}px` } as CSSProperties}
           />
         ))}
       </div>
-      <div className="flight-full-phase-section" style={{ marginLeft: visualDepth * V6_DEPTH_STEP }}>
+      <div className="flight-full-phase-section" data-visual-depth={visualDepth}
+        style={{ '--v6-indent': `${task.depth * V6_DEPTH_STEP}px` } as CSSProperties}>
         {shown ? (
           <PhaseHeader task={task} contentId={contentId} window={window} {...actions} />
         ) : (
@@ -199,6 +200,8 @@ const PhaseHeader = observer(function PhaseHeader({
   return (
     <div
       className="flight-full-phase-header"
+      data-flight-task-row={task.id}
+      data-edge-gutter="28"
       ref={window.enabled ? window.measure(deckTaskKey(task.id)) : undefined}
       onContextMenu={(event) => actions.onMenu(task, event)}
     >
