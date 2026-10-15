@@ -101,6 +101,7 @@ import { cn } from '@/lib/utils'
 import { KindIcon, SessionNameEditor, sessionDisplayName, WorkerLabel } from '@/lib/WorkerLabel'
 import { useClickIntent } from './click-intent'
 import { FlightDeckHandoff } from './FlightDeckHandoff'
+import { FlightDeckV6Rows } from './FlightDeckV6Rows'
 import PoolFlightDeck from './FlightDeckPool'
 import { FlightDeckWaterfall } from './FlightDeckWaterfall'
 import { type FlightDeckDisplay, nextFlightDeckDisplayForSessionPick } from './flight-deck-display'
@@ -1844,7 +1845,7 @@ export const FlightDeckContent = observer(function FlightDeckContent({
     return { leaves, blocks }
   }, [screen, rootId, rootRow, rootSessions, visibleRows, folds, mode])
   const spineWindow = useFlightDeckWindow(
-    spineView ? spineGeometry.leaves : [],
+    spineView && view !== 'full' ? spineGeometry.leaves : [],
     deckScrollerRef,
     deckRowsRef,
     rootId,
@@ -2366,15 +2367,15 @@ export const FlightDeckContent = observer(function FlightDeckContent({
                   variant="ghost"
                   size="icon-sm"
                   className="size-6 text-text-faint"
-                  title={screen.allFolded ? 'Expand every branch' : 'Fold every branch'}
-                  disabled={!screen.anyFoldable}
+                  title={(view === 'full' ? screen.full.allFolded : screen.allFolded) ? 'Expand every branch' : 'Fold every branch'}
+                  disabled={view === 'full' ? screen.full.foldableIds.length === 0 : !screen.anyFoldable}
                   // Both directions write EXPLICIT values for every foldable
                   // branch: "expand everything" that merely cleared the map would
                   // leave the one-session tasks closed by the default rule, which
                   // is not what the control says.
-                  onClick={() => screen.foldAll()}
+                  onClick={() => view === 'full' ? screen.full.foldAll() : screen.foldAll()}
                 >
-                  {screen.allFolded ? <ChevronsUpDown size={13} /> : <ChevronsDownUp size={13} />}
+                  {(view === 'full' ? screen.full.allFolded : screen.allFolded) ? <ChevronsUpDown size={13} /> : <ChevronsDownUp size={13} />}
                 </Button>
               </>
             )}
@@ -2497,7 +2498,17 @@ export const FlightDeckContent = observer(function FlightDeckContent({
                 )}
               </>
             )}
-            {visibleRows.map((row, index) => {
+            {view === 'full' ? <FlightDeckV6Rows
+              full={screen.full}
+              scrollRef={deckScrollerRef}
+              activeSessionId={activeSessionId}
+              renameTarget={renameTarget}
+              onSelectSession={(task, session, permanent) => selectSession(asIssueId(task.id), session, { permanent })}
+              onMenu={(task, event) => openIssueMenu(asIssueId(task.id), event)}
+              onStatusPick={(task, value) => pickRowStatus(task.id, value)}
+              onRename={(task, title) => renameIssue(task.id, title, renameTarget?.id === task.id ? renameTarget.seed : task.row.title)}
+              onRenameDone={() => setRenameTarget(null)}
+            /> : visibleRows.map((row, index) => {
               const block = spineGeometry.blocks.get(row.key)!
               if (
                 spineWindow.enabled &&

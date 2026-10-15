@@ -12942,3 +12942,61 @@ button.waterfall-fold:hover {
 .cost-swatch-kid {
   background: color-mix(in srgb, var(--foreground) 18%, transparent);
 }
+
+/* Full flight deck v6. Legacy spine, Waterfall, Timeline and mobile retain
+   their own row grammar. A task's surface never follows session selection. */
+.flight-v6-rows {
+  --v6-state-width: 118px;
+  padding: 3px 0 0 8px;
+}
+.flight-v6-task { position: relative; padding-bottom: 3px; }
+.flight-v6-card { min-width: 0; border-radius: 6px; background: var(--tabstrip); }
+.flight-v6-card[data-context='true'] { background: transparent; }
+.flight-v6-card[data-word='blocked'] {
+  background-image: repeating-linear-gradient(135deg, transparent 0 4px, color-mix(in srgb, var(--text-faint) 6%, transparent) 4px 5px);
+}
+.flight-v6-strip { position: relative; display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 32px 0 6px; border-radius: 6px; }
+.flight-v6-strip:hover { background-color: var(--muted); }
+.flight-v6-fold { display: grid; place-items: center; flex: none; width: 12px; height: 24px; color: var(--text-faint); }
+.flight-v6-ring-control { position: relative; display: grid; place-items: center; flex: none; width: 14px; height: 14px; }
+.flight-v6-ring-control > span:first-child > svg { opacity: 0; }
+.flight-v6-ring { position: absolute; pointer-events: none; box-sizing: border-box; width: 14px; height: 14px; border: 1.5px dotted var(--text-faint); border-radius: 50%; }
+.flight-v6-ring[data-word='working'], .flight-v6-ring[data-word='idle'], .flight-v6-ring[data-word='error'], .flight-v6-ring[data-word='needs-you'] {
+  border-style: solid; border-color: var(--issue); padding: 1.5px;
+  background: conic-gradient(var(--issue) 0 25%, transparent 25% 100%); background-clip: content-box;
+}
+.flight-v6-ring[data-word='done'] { display: grid; place-items: center; border: 0; background: var(--issue); color: white; }
+.flight-v6-task-body { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; height: 32px; text-align: left; }
+.flight-v6-ref, .flight-v6-counter { flex: none; white-space: nowrap; font-family: var(--font-mono); font-size: 10.5px; color: var(--text-faint); }
+.flight-v6-title { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 12.5px; font-weight: 600; color: var(--text-strong); }
+.flight-v6-counter { display: flex; align-items: center; gap: 4px; }
+.flight-v6-dependency { flex: none; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border-radius: 9px; padding: 1px 6px; background: var(--muted); color: var(--text-dim); font-size: 11px; }
+.flight-v6-engines { display: flex; flex: none; gap: 3px; }
+.flight-v6-state { width: var(--v6-state-width); display: inline-flex; align-items: center; justify-content: flex-end; gap: 5px; flex: none; white-space: nowrap; color: var(--text-dim); font-family: var(--font-mono); font-size: 10.5px; }
+.flight-v6-state[data-word='error'] { color: var(--destructive); }
+.flight-v6-state[data-word='needs-you'] { color: var(--attention); }
+.flight-v6-state[data-word='error']::before, .flight-v6-state[data-word='needs-you']::before { content: ''; width: 5px; height: 5px; flex: none; border-radius: 50%; background: currentColor; }
+.flight-v6-actions { position: absolute; right: 4px; top: 4px; display: grid; place-items: center; width: 24px; height: 24px; border-radius: 4px; color: var(--text-faint); opacity: 0; }
+.flight-v6-strip:hover > .flight-v6-actions, .flight-v6-session-line:hover > .flight-v6-actions, .flight-v6-actions:focus-visible { opacity: 1; background: var(--tabstrip); }
+.flight-v6-actions:hover { color: var(--text-strong); }
+.flight-v6-sessions { margin: 0 4px 4px; padding: 3px 4px 3px 20px; border-radius: 5px; background: var(--background); }
+.flight-v6-session-line { position: relative; display: flex; align-items: center; min-height: 28px; border-radius: 5px; }
+.flight-v6-session-line:hover { background: var(--muted); }
+.flight-v6-session[data-selected='true'] > .flight-v6-session-line { background: color-mix(in srgb, var(--issue) 12%, var(--background)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--issue) 45%, transparent); }
+.flight-v6-session-open { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; height: 28px; padding: 0 24px 0 2px; text-align: left; }
+.flight-v6-session-open .flight-v6-title { font-size: 12px; font-weight: 500; }
+.flight-v6-role { flex: none; color: var(--text-faint); font-size: 11.5px; }
+.flight-v6-native-slot { width: 70px; flex: none; }
+.flight-v6-native-chip { position: absolute; right: calc(var(--v6-state-width) + 32px); top: 5px; display: flex; align-items: center; gap: 4px; height: 18px; padding: 0 6px; border-radius: 4px; background: var(--muted); color: var(--text-dim); font-family: var(--font-mono); font-size: 9.5px; }
+.flight-v6-native-chip:hover { color: var(--text-strong); }
+.flight-v6-natives { margin: 0 0 4px 30px; border-left: 1px solid var(--border); padding-left: 10px; list-style: none; }
+.flight-v6-natives li { display: flex; align-items: center; gap: 6px; min-height: 22px; color: var(--text-faint); font-family: var(--font-mono); font-size: 10.5px; }
+.flight-v6-native-state { margin-left: auto; padding-right: 24px; }
+.flight-v6-guides { position: absolute; inset: 0; pointer-events: none; }
+.flight-v6-guide { position: absolute; top: 0; bottom: 0; width: 22px; }
+.flight-v6-guide::before { content: ''; position: absolute; left: 11px; top: -3px; width: 11px; height: 19px; border-left: 1px solid var(--border); }
+.flight-v6-guide[data-guide='middle']::before, .flight-v6-guide[data-guide='last']::before { border-bottom: 1px solid var(--border); }
+.flight-v6-guide[data-guide='last']::before { border-bottom-left-radius: 4px; }
+.flight-v6-guide[data-guide='middle']::after, .flight-v6-guide[data-guide='carry']::after { content: ''; position: absolute; left: 11px; top: 16px; bottom: 0; border-left: 1px solid var(--border); }
+.flight-v6-guide[data-guide='empty']::before { display: none; }
+.flight-v6-rows button:focus-visible { outline: 1px solid var(--issue); outline-offset: 1px; }
