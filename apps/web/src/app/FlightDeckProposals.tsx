@@ -5,7 +5,7 @@ import { requireLoaded, settled } from '@podium/client-graph/mission-view'
 import { observer } from '@podium/client-graph/react'
 import { asIssueId, asMutationId } from '@podium/model'
 import { Check, X } from 'lucide-react'
-import { action, observable, runInAction } from 'mobx'
+import { action, compareShallow, observable, runInAction } from 'mobx'
 import type { JSX, MouseEvent } from 'react'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useClickIntent } from './click-intent'
@@ -36,8 +36,18 @@ class ProposalProvenance {
 /** UI state for this mission opening only. The pool remains the sole record store.
  * Receipts keep only the command outcome and its ID, including across publication. */
 class ProposalSubmissions {
+  constructor(readonly full: FullDeck) {}
   readonly provenance = companion((task: FullDeckTask) => new ProposalProvenance(task))
   readonly byId = observable.map<string, Submission>([], { deep: false })
+
+  @lazy({ equals: compareShallow }) get ids(): readonly string[] {
+    const proposed = settled(() => this.full.proposalIds)
+    return [...new Set([...(typeof proposed === 'symbol' ? [] : proposed), ...this.byId.keys()])].filter(id => {
+      const status = this.byId.get(id)
+      return !(status?.action === 'dismiss' && status.phase === 'success')
+        && settled(() => this.full.task(id).abandoned) !== true
+    })
+  }
 
   @action async submit(id: string, verb: ProposalAction, trpc: Trpc): Promise<void> {
     const previous = this.byId.get(id)
@@ -64,7 +74,7 @@ class ProposalSubmissions {
 
 // The opening's Full view model owns this companion's lifetime. A temporary
 // loading screen or mode switch must not discard an in-flight command/receipt.
-const submissionsFor = companion<FullDeck, ProposalSubmissions>(() => new ProposalSubmissions())
+const submissionsFor = companion((full: FullDeck) => new ProposalSubmissions(full))
 
 type ProposalNavigation = {
   onSelect: (task: FullDeckTask, permanent: boolean) => void
@@ -76,12 +86,7 @@ export const FlightDeckProposals = observer(function FlightDeckProposals({
 }: { full: FullDeck } & ProposalNavigation): JSX.Element | null {
   const submissions = submissionsFor(full)
   const trpc = useRuntimeSelector(store => store.trpc)
-  const proposed = settled(() => full.proposalIds)
-  const ids = [...new Set([...(typeof proposed === 'symbol' ? [] : proposed), ...submissions.byId.keys()])].filter(id => {
-    const status = submissions.byId.get(id)
-    return !(status?.action === 'dismiss' && status.phase === 'success')
-      && settled(() => full.task(id).abandoned) !== true
-  })
+  const ids = submissions.ids
   if (!ids.length) return null
   return (
     <section className="flight-proposals" data-testid="flight-proposed" aria-label="Proposed">
