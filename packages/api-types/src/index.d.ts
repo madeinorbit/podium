@@ -7085,6 +7085,16 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
             output: Output_issues_addComment;
             meta: unknown;
         }>;
+        "move": TRPC.TRPCMutationProcedure<{
+            input: {
+                after?: string | undefined;
+                before?: string | undefined;
+                expectedRevision?: number | undefined;
+                id: string;
+            };
+            output: Output_issues_addComment;
+            meta: unknown;
+        }>;
         "orphans": TRPC.TRPCQueryProcedure<{
             input: {
                 repoPath: string;
