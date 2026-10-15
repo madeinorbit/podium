@@ -1,6 +1,6 @@
 import '@/test-support/mock-pool-fixture'
 import { readFileSync, writeFileSync } from 'node:fs'
-import type { TaskCostWire } from '@podium/model/browser'
+import { asIssueId, type TaskCostWire } from '@podium/model/browser'
 import { resetPolledQueryCache } from '@/lib/use-polled-query'
 import { DEFAULT_SETTINGS, nativeAccountId } from '@podium/runtime'
 // @vitest-environment happy-dom
@@ -1366,10 +1366,10 @@ describe('Full mission header', () => {
     const usage = { model: 'claude-opus-5', inputTokens: 1_000_000, outputTokens: 0,
       cacheReadTokens: 0, cacheCreationTokens: 0, cacheCreation1hTokens: 0, messages: 2 }
     harness.costAnswer = {
-      issueId: 'root', state: 'costed', own: { models: [usage], messages: 2, sessionCount: 1 },
+      issueId: asIssueId('root'), state: 'costed', own: { models: [usage], messages: 2, sessionCount: 1 },
       rollup: { models: [usage], messages: 2, sessionCount: 1 }, descendantCount: 0,
-      provisional: false, floor: 'partial', harnesses: ['codex'], sessions: [],
-    } as TaskCostWire
+      provisional: false, floor: 'partial', uncostedSessionCount: 1, harnesses: ['codex'], sessions: [],
+    } satisfies TaskCostWire
     await deck()
     await waitFor(() => expect(screen.getByTestId('mission-cost-chip').textContent).toContain('≥$'))
     expect(screen.getByTestId('mission-live-chip').textContent).toBe('1 working')
