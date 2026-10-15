@@ -118,19 +118,24 @@ The `change_latest` table stays until the later sync design decides its future.
 
 ## 7. Rollout
 
-1. **Fresh baseline.** Take a new baseline with the POD-3810 event-loop accounting before the
-   first change: busy share, stalls per minute, statements per minute and per daemon message,
-   memory, boot time. Old numbers are stale and do not count.
+1. **Fresh baseline and a repeatable benchmark.** Before the first change: read today's numbers
+   off the live server with the POD-3810 event-loop accounting (busy share, stalls per minute,
+   statements per minute and per daemon message, memory, boot time), and build a repeatable
+   benchmark (seeded corpus plus synthetic load) that every later landing runs against its parent.
+   Old numbers are stale and do not count.
 2. **Foundations, with no behavior change:** prepared queries everywhere, the missing indexes and
    planner statistics, the cache interface, statement-count tests and a test that every
    repository query uses an index.
 3. **Remove the copies one at a time, smallest first**, each as its own landing: users, grants,
-   machines, pending counts, the world index, the two sync copies, the issue map, and the session
+   machines, pending counts, the world index, the observation checkpoint map, the two sync copies, the issue map, and the session
    map last. For each one:
    1. switch its readers to the database;
-   2. in development builds, let old and new both answer for a while and log any difference;
+   2. let old and new both answer and compare: for every copy in a test over the benchmark corpus
+      and edge-case fixtures; for the issue map and the session map also at runtime in development
+      builds, logging any difference, before the copy is deleted;
    3. delete the copy;
-   4. measure against a run with the old code as the control.
+   4. measure on the benchmark against the parent commit as the control, with the two runs
+      interleaved.
 4. **Measure and fix.** With the rules in place, find the remaining hot paths from fresh
    measurements and fix them one by one, adding a declared cache only where the measurement
    demands it.
@@ -168,3 +173,26 @@ Concurrent writes are not part of the spike; writes stay one at a time.
 Found during research, not decided here (candidates for their own issues): `applied_mutations`
 holds 2.15 GB of the 3.58 GB database with no size limit, and the change log keeps only 20k rows
 or 3 days.
+
+## 11. Sub-issues
+
+| step | issue | waits on |
+|---|---|---|
+| Rules doc (`docs/agents/server-data.md`) | POD-6145 | – |
+| Benchmark and live baseline | POD-6146 | – |
+| Prepared repository queries | POD-6147 | POD-6145 |
+| Indexes and query-plan audit | POD-6148 | POD-6147 |
+| Statement-count tests | POD-6149 | POD-6148 |
+| Cache interface | POD-6150 | POD-6145 |
+| Remove users copy | POD-6151 | POD-6146, POD-6149 |
+| Remove grants copy | POD-6152 | POD-6151 |
+| Remove machine copies | POD-6153 | POD-6152 |
+| Remove pending-message counters | POD-6154 | POD-6153 |
+| Remove the world index | POD-6155 | POD-6154 |
+| Remove observation checkpoint map | POD-6159 | POD-6155 |
+| Remove raw `change_latest` copy | POD-6156 | POD-6159 |
+| Remove sync change baseline | POD-6157 | POD-6156 |
+| Remove full issue map | POD-6158 | POD-6157 |
+| Session map to running sessions | POD-6160 | POD-6158 |
+| Final measurement | POD-6161 | POD-6160 |
+| Turso spike | POD-6162 | – |
