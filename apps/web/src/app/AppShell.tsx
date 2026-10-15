@@ -5,8 +5,8 @@ import {
   FLIGHT_DECK_EXPANDED_WIDTH_KEY,
   FLIGHT_DECK_FULL_DISPLAY_KEY,
   FLIGHT_DECK_MODE_KEY,
+  readMissionScreenView,
 } from '@podium/client-core/ui-state'
-import { readMissionScreenView } from '@podium/client-graph/mission-screen'
 import { observer } from '@podium/client-graph/react'
 import { ChevronLeft } from 'lucide-react'
 import type { CSSProperties, JSX, ReactNode } from 'react'

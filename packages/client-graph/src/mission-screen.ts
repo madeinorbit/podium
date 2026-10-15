@@ -1,6 +1,12 @@
 import type { SessionView } from '@podium/client-core/session-values'
 import { issueDefaultAgentKind } from '@podium/client-core/agent-models'
-import { FLIGHT_DECK_FOLDS_KEY, FLIGHT_DECK_MODE_KEY } from '@podium/client-core/ui-state'
+import {
+  FLIGHT_DECK_FOLDS_KEY,
+  FLIGHT_DECK_MODE_KEY,
+  type MissionScreenView,
+  readMissionScreenView,
+  writeMissionScreenView,
+} from '@podium/client-core/ui-state'
 import {
   type FlightDeckFoldMap,
   type FlightDeckFoldState,
@@ -25,18 +31,6 @@ import type { IssueModel, SessionModel } from './models'
 import type { MobxPool } from './pool'
 import { SettingsRecordRequest } from './requested-records'
 import { LOADING, type Loaded } from './worklist/rollup'
-
-/** The deck's spine views plus the two experimental ones. */
-export type MissionScreenView = FlightDeckMode | 'waterfall' | 'handoff'
-
-/** `active` is `working`'s old id (POD-1452); an operator who chose it stays there. */
-export const readMissionScreenView = (raw: string | null): MissionScreenView =>
-  raw === 'active'
-    ? 'working'
-    : raw === 'working' || raw === 'needs-you' || raw === 'waterfall' || raw === 'handoff'
-      ? raw
-      : 'full'
-export const writeMissionScreenView = (view: MissionScreenView): string | null => (view === 'full' ? null : view)
 
 /** The answer's shape the review-return count reads. */
 export type MissionIssueEvent = { kind: string; payload?: unknown }

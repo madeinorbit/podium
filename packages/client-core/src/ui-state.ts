@@ -19,7 +19,7 @@ import {
   THEME_UI_KEYS,
 } from '@podium/model'
 import type { UiState } from './replica/contract'
-import type { DockTab, FileScope, FileTab, RecentFileEntry, WorkspaceMap } from './values'
+import type { DockTab, FileScope, FileTab, FlightDeckMode, RecentFileEntry, WorkspaceMap } from './values'
 import { deserializeWorkspaces, readStoredDockTab, serializeWorkspaces } from './values'
 
 export type { UiState }
@@ -340,6 +340,20 @@ export const FLIGHT_DECK_EXPANDED_WIDTH_KEY = 'podium:flightDeck:expandedWidth'
 export const FLIGHT_DECK_FULL_DISPLAY_KEY = 'podium.flightDeck.fullDisplay'
 export const FLIGHT_DECK_FULL_COMPACT_WIDTH_KEY = 'podium:flightDeck:fullCompactWidth'
 export const FLIGHT_DECK_FULL_EXPANDED_WIDTH_KEY = 'podium:flightDeck:fullExpandedWidth'
+
+/** The deck's saved view is also read by shell geometry before the deck opens.
+ * Keep this scalar codec here so that read never imports the optional screen. */
+export type MissionScreenView = FlightDeckMode | 'waterfall' | 'handoff'
+
+/** `active` is `working`'s old id (POD-1452); an operator who chose it stays there. */
+export const readMissionScreenView = (raw: string | null): MissionScreenView =>
+  raw === 'active'
+    ? 'working'
+    : raw === 'working' || raw === 'needs-you' || raw === 'waterfall' || raw === 'handoff'
+      ? raw
+      : 'full'
+export const writeMissionScreenView = (view: MissionScreenView): string | null => (view === 'full' ? null : view)
+
 export const STICKY_PROMPTS_KEY = 'podium.chat.stickyPrompts'
 export const CHAT_VERBOSITY_KEY = 'podium.chat.verbosity'
 export const DIFF_SHEET_WRAP_KEY = 'podium:diff-sheet:wrap'
