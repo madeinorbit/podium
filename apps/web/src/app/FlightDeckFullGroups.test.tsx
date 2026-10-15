@@ -235,7 +235,7 @@ it('reserves the first phase-content slot for seats, brightens its rail and pres
     readAt: stamp, agentState: { phase: 'idle' },
   }])
   expect(f.group('build')?.querySelector('.flight-full-phase-content')?.getAttribute('data-has-lead')).toBe('true')
-  fireEvent.click(f.ui.getByRole('button', { name: /Build lead/ }))
+  fireEvent.click(f.ui.container.querySelector('[data-flight-session="lead"] button.deck-agent')!)
   expect(f.actions.onSelectSession).toHaveBeenCalled()
   f.ui.rerender(<FlightDeckFullGroups {...f.props} renderPhaseLead={(task: FullDeckTask) => <div>Seat for {task.id}</div>} />)
   const content = f.group('build')!.querySelector('.flight-full-phase-content')!

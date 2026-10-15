@@ -4,6 +4,7 @@ import { settled } from '@podium/client-graph/mission-view'
 import { observer } from '@podium/client-graph/react'
 import { CheckCircle2, ChevronDown, ChevronRight, Ellipsis } from 'lucide-react'
 import { Fragment, useId, type ReactNode, type RefObject } from 'react'
+import { GhostBar } from '@/components/GhostPreview'
 import { SessionNameEditor } from '@/lib/WorkerLabel'
 import {
   FlightDeckV6Crew,
@@ -122,6 +123,11 @@ const PhaseGroup = observer(function PhaseGroup({
   children: ReactNode
 }) {
   const contentId = useId()
+  const ready = settled(() => task.row.drawable && (
+    void task.counter, void task.workComplete, void task.matches,
+    void task.leadSessionId, void task.deck.phaseIds, true
+  ))
+  if (ready !== true) return <div role="status" aria-label="Loading phase"><GhostBar /></div>
   const key = deckTaskKey(task.id)
   const shown = !window.enabled || window.contains(key)
   return (
