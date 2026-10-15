@@ -62,23 +62,20 @@ const cohortRows = [
 let answer: TaskCostWire = wire()
 
 // The chip reads the store handle's keyed runtime access (since 01e6852ef5).
-vi.mock('@podium/client-core/react', () => ({
-  useStoreHandle: () => ({
-    access: {
-      trpc: {
-        cost: {
-          task: { query: () => Promise.resolve(answer) },
-          tasks: { query: () => Promise.resolve(cohortRows) },
-          // Since 9847886aaa the popover reads one addressed comparison: the
-          // task plus the cohort the server builds from the same own rows.
-          taskComparison: {
-            query: () => Promise.resolve({ task: answer, cohort: costCohort(cohortRows) }),
-          },
-        },
-      },
+// One stable handle, as the app's: readers key their models on `trpc` identity.
+const storeHandle = vi.hoisted(() => ({ access: { trpc: {} as Record<string, unknown> } }))
+vi.mock('@podium/client-core/react', () => ({ useStoreHandle: () => storeHandle }))
+storeHandle.access.trpc = {
+  cost: {
+    task: { query: () => Promise.resolve(answer) },
+    tasks: { query: () => Promise.resolve(cohortRows) },
+    // Since 9847886aaa the popover reads one addressed comparison: the task
+    // plus the cohort the server builds from the same own rows.
+    taskComparison: {
+      query: () => Promise.resolve({ task: answer, cohort: costCohort(cohortRows) }),
     },
-  }),
-}))
+  },
+}
 
 afterEach(() => {
   cleanup()
