@@ -557,10 +557,11 @@ export const cancelShipInput = z.object({ orderId: ShipOrderIdField })
 /** Immutable delivery proof is addressed through its owning order. */
 export const deliveryReceiptInput = z.object({ orderId: ShipOrderIdField })
 
+const MoveIssueRef = IssueIdField.refine((ref) => ref.trim().length > 0, 'empty issue reference')
 export const moveInput = z.object({
-  id: IssueIdField,
-  before: IssueIdField.optional(),
-  after: IssueIdField.optional(),
+  id: MoveIssueRef,
+  before: MoveIssueRef.optional(),
+  after: MoveIssueRef.optional(),
 })
 
 export const reparentInput = z.object({ id: IssueIdField, parentId: IssueIdField.nullable() })

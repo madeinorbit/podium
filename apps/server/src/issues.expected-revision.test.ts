@@ -18,10 +18,11 @@ import { OPERATOR } from './test-support/capabilities'
  * declared totally across the registry (ADR 3 D13.2).
  */
 
-/** The field names one def's input schema accepts, unwrapping `.optional()`. */
+/** The input fields behind optional and refined-object wrappers. */
 function fieldsOf(schema: z.ZodTypeAny): string[] {
-  const inner = schema instanceof z.ZodOptional ? schema.unwrap() : schema
-  return inner instanceof z.ZodObject ? Object.keys(inner.shape as object) : []
+  if (schema instanceof z.ZodOptional) return fieldsOf(schema.unwrap())
+  if (schema instanceof z.ZodEffects) return fieldsOf(schema.innerType())
+  return schema instanceof z.ZodObject ? Object.keys(schema.shape as object) : []
 }
 
 function callerFor(registry: SessionRegistry) {
@@ -519,6 +520,7 @@ describe('registry totality (ADR 3 D13.2 — declared per contract, never guesse
       'issues.resolveRefs',
       'issues.search',
       'issues.searchNormalized',
+      'issues.seat',
       'issues.stale',
       'issues.stats',
       'issues.subscriptionList',

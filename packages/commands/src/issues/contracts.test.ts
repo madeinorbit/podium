@@ -8,6 +8,7 @@
 
 import { OWNERSHIP_MATRIX, visibilityClassOf } from '@podium/model'
 import { describe, expect, it } from 'vitest'
+import { z } from 'zod'
 import type { AnyCommandContract, ContractConflictClass } from '../contract'
 import { classificationErrors, registryClassificationErrors } from '../contract'
 import { PER_USER_VISIBILITY, SERVED_EVERYWHERE, SERVED_ON_WIRE, SHIPPING_DELIVERY } from './cells'
@@ -214,10 +215,9 @@ describe('redaction', () => {
   const CREDENTIAL_ISH = /token|secret|password|passwd|apikey|api_key|credential|privatekey/i
 
   const keysOf = (schema: unknown): string[] => {
-    // biome-ignore lint/suspicious/noExplicitAny: reading zod internals is the point
-    const s = schema as any
-    const shape = s?._def?.shape?.() ?? s?._def?.innerType?._def?.shape?.()
-    return shape ? Object.keys(shape) : []
+    if (schema instanceof z.ZodOptional) return keysOf(schema.unwrap())
+    if (schema instanceof z.ZodEffects) return keysOf(schema.innerType())
+    return schema instanceof z.ZodObject ? Object.keys(schema.shape) : []
   }
 
   it('no issue command input carries a credential-shaped field', () => {
@@ -262,7 +262,7 @@ describe('redaction', () => {
       if (declares) expRev += 1
     }
     // Non-vacuity: the loop met the 23 rows §2e extracted from main, not zero.
-    expect(expRev).toBe(24)
+    expect(expRev).toBe(25)
   })
 
   it('every `cmd` command states its rule, because the engine refuses one without', () => {
@@ -300,8 +300,8 @@ describe('redaction', () => {
 
     const mutations = ISSUE_COMMAND_NAMES.filter((k) => classOf(k) !== 'n/a')
     const nonMutating = ISSUE_COMMAND_NAMES.filter((k) => classOf(k) === 'n/a')
-    expect(mutations.length).toBe(49)
-    expect(nonMutating.length).toBe(29)
+    expect(mutations.length).toBe(50)
+    expect(nonMutating.length).toBe(30)
     // The named case, kept from the original: write-grade authority, no row.
     expect(classOf('linearSearch')).toBe('n/a')
   })

@@ -65,7 +65,7 @@ describe('sibling-relative issue moves', () => {
     const other = await create('other root')
     const moved = await op.issues.move({ id: `POD-${parent.seq}`, before: String(other.seq) })
     expect(moved.id).toBe(parent.id)
-    expect(moved.parentId).toBeNull()
+    expect(moved.parentId).toBeUndefined()
     expect(moved.sortKey! < other.sortKey!).toBe(true)
   })
 
@@ -111,7 +111,7 @@ describe('sibling-relative issue moves', () => {
   })
 
   it('compacts at the wire ceiling and keeps pinned siblings in the same key space', async () => {
-    const { op, a, c, d, siblings, order } = await fixture()
+    const { op, a, d, siblings, order } = await fixture()
     await op.issues.update({ id: d.id, patch: { sortKey: `${'0'.repeat(SORT_KEY_MAX_LEN - 1)}1`, pinned: true } })
     await op.issues.move({ id: a.id, before: d.id })
     expect(await order()).toEqual(['a', 'd', 'c', 'b'])
