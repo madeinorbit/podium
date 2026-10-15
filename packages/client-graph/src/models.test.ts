@@ -73,6 +73,30 @@ it('reads live issue visibility from the row and leaves missing visibility unkno
   } finally { stop(); pool.dispose() }
 })
 
+it('keeps Acceptance readers isolated from title and description edits while following live Acceptance', () => {
+  const pool = fixture(), issue = pool.issueObject('root')
+  const initial = issueRow('root', { acceptance: 'Original acceptance.', description: 'Human description.' })
+  pool.apply({ type: 'update', rows: [{ kind: 'issue', id: 'root', value: initial as never }] })
+  const seen: Array<string | undefined> = []
+  const stop = autorun(() => { seen.push(issue.acceptance) })
+  try {
+    const renamed = { ...initial, title: 'Renamed mission', description: 'Revised human description.' }
+    runInAction(() => pool.apply({ type: 'update', rows: [
+      { kind: 'issue', id: 'root', value: renamed as never },
+    ] }))
+    expect(seen).toEqual(['Original acceptance.'])
+    runInAction(() => pool.apply({ type: 'update', rows: [
+      { kind: 'issue', id: 'root', value: { ...renamed, acceptance: 'Revised acceptance.' } as never },
+    ] }))
+    expect(pool.issueObject('root')).toBe(issue)
+    expect(seen).toEqual(['Original acceptance.', 'Revised acceptance.'])
+    runInAction(() => pool.apply({ type: 'update', rows: [
+      { kind: 'issue', id: 'root', value: { ...renamed, acceptance: undefined } as never },
+    ] }))
+    expect(seen).toEqual(['Original acceptance.', 'Revised acceptance.', undefined])
+  } finally { stop(); pool.dispose() }
+})
+
 it.each([true, false])('a cold reference uses only declared identity (%s) without requesting its payload', declared => {
   const schedule = vi.fn(() => () => {})
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) }, undefined, {

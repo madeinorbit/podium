@@ -39,7 +39,7 @@ const EMPTY_DEPENDENTS: readonly { id: string; type: string }[] = Object.freeze(
 // Direct work-row paint readers need scalar equality when an unrelated stored
 // field changes. Other installed stored getters stay plain.
 const ISSUE_PAINT_FIELDS: ReadonlySet<string> = new Set([
-  'title', 'color', 'audience', 'pinned', 'linearIdentifier', 'seq',
+  'title', 'color', 'audience', 'pinned', 'linearIdentifier', 'seq', 'acceptance',
   'stage', 'closedReason', 'blocked', 'branch', 'gitState', 'parentBranch',
 ])
 
@@ -1060,7 +1060,7 @@ interface IssueEdits {
 // presence fields above keep their scalar types, and no row is stored here.
 export interface SessionModel extends Readonly<Omit<SessionView, 'archived' | 'condition' | 'messageDraft'>>, RelationGetters<'session'> {}
 
-export interface IssueModel extends Readonly<Pick<IssueProjection, 'priority' | 'visibility'>>, Readonly<Omit<SliceIssue, 'title' | 'stage' | 'readAt' | 'description' | 'gitState'>>, IssueEdits, RelationGetters<'issue'> {
+export interface IssueModel extends Readonly<Pick<IssueProjection, 'priority' | 'visibility' | 'acceptance'>>, Readonly<Omit<SliceIssue, 'title' | 'stage' | 'readAt' | 'description' | 'gitState'>>, IssueEdits, RelationGetters<'issue'> {
   /** The stored projection uses the full wire contract; summaries only gate loading. */
   readonly gitState?: IssueGitState | null
 }

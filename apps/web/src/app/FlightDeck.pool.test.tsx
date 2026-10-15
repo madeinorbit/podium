@@ -533,4 +533,40 @@ describe('mission sections read their own fields', () => {
     expect(current.container.querySelector('.deck-header')?.textContent).toContain('Renamed mission only')
     expect([...header.keys()]).toEqual(['observerDeckTitle'])
   }, 120_000)
+
+  it('keeps expanded human details live while title updates redraw only the header title', async () => {
+    const root = issues.find(issue => !issue.archived && !issue.deletedAt && !issue.parentId &&
+      issue.childCount >= 2 && issue.childCount < 12)
+    if (!root) throw new Error('Missing mission fixture')
+    const authored = { ...root, description: 'Original human description.', acceptance: 'Original acceptance.' }
+    state.selectedIssueId = root.id
+    pool.apply({ type: 'update', rows: [{ kind: 'issue', id: root.id, value: authored }] })
+    mount('full')
+    await settled()
+    fireEvent.click(screen.getByRole('button', { name: 'Read more' }))
+    const description = screen.getByTestId('full-mission-description')
+    expect(description.textContent).toContain('Original human description.')
+    expect(screen.getByRole('region', { name: 'Acceptance' }).textContent).toContain('Original acceptance.')
+
+    const renamed = { ...authored, title: 'Only the mission title changed' }
+    const titleReactions = await reactionsDuring(() =>
+      pool.apply({ type: 'update', rows: [{ kind: 'issue', id: root.id, value: renamed }] }),
+    )
+    expect([...titleReactions.keys()]).toEqual(['observerDeckTitle'])
+    expect(screen.getByRole('button', { name: 'Collapse' }).getAttribute('aria-expanded')).toBe('true')
+
+    const revised = { ...renamed, description: 'Revised human description.' }
+    const descriptionReactions = await reactionsDuring(() =>
+      pool.apply({ type: 'update', rows: [{ kind: 'issue', id: root.id, value: revised }] }),
+    )
+    expect(description.textContent).toContain('Revised human description.')
+    expect([...descriptionReactions.keys()]).toEqual(['observerFullDeckBrief'])
+
+    const acceptanceReactions = await reactionsDuring(() =>
+      pool.apply({ type: 'update', rows: [{ kind: 'issue', id: root.id,
+        value: { ...revised, acceptance: 'Revised acceptance.' } }] }),
+    )
+    expect(screen.getByRole('region', { name: 'Acceptance' }).textContent).toContain('Revised acceptance.')
+    expect([...acceptanceReactions.keys()]).toEqual(['observerFullDeckBrief'])
+  }, 120_000)
 })

@@ -1,4 +1,3 @@
-import type { PageIssue } from '@podium/client-graph/issue-page'
 import type { SessionModel } from '@podium/client-graph/models'
 import { relativeTime } from '@podium/client-core/focus'
 import type { SessionView } from '@podium/client-core/session-values'
@@ -1412,8 +1411,7 @@ const FullDeckBrief = observer(function FullDeckBrief({
   onOpenDetails: () => void
 }): JSX.Element {
   const description = screen.root.description.trim()
-  // The page schema's human fields are installed on this same pooled record.
-  const acceptance = (screen.root as PageIssue).acceptance?.trim() ?? ''
+  const acceptance = screen.root.acceptance?.trim() ?? ''
   const descriptionHtml = useMemo(() => renderReadoutMarkdown(description), [description])
   const acceptanceHtml = useMemo(() => renderReadoutMarkdown(acceptance), [acceptance])
   const [open, setOpen] = useState(false)
