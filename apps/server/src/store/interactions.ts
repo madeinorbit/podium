@@ -27,15 +27,15 @@
  */
 
 import type { SessionId } from '@podium/model'
-import type {
-  InteractionAnswer,
-  InteractionAnsweredBy,
-  InteractionKind,
-  InteractionSource,
+import {
+  type InteractionAnswer,
+  type InteractionAnsweredBy,
+  type InteractionKind,
+  type InteractionSource,
   InteractionStatus,
-  PendingInteractionWire,
+  type PendingInteractionWire,
 } from '@podium/protocol'
-import { and, asc, desc, eq, lt, ne, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, lt, sql } from 'drizzle-orm'
 import { pendingInteractions } from '../migrations/schema'
 import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
 import { param, prepared } from './executor/sync-drizzle'
@@ -271,12 +271,22 @@ const closeSessionInteractions = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
+/** Every status but `asked`: the rows retention may drop. */
+const RESOLVED_STATUSES = InteractionStatus.options.filter((status) => status !== 'asked')
+
 const pruneResolvedInteractions = prepared((db: StoreDrizzle) =>
   db
     .delete(t)
     .where(
       and(
-        ne(t.status, 'asked'),
+        inArray(t.status, RESOLVED_STATUSES),
+        // What idx_pending_interactions_open seeks [POD-6173]. A row resolves
+        // after it is asked, so a row resolved before the cutoff was asked
+        // before it too: this takes nothing out of what the next clause
+        // selects, and bounds the read to the resolved rows asked before the
+        // cutoff. A row whose clocks stamped its ask after its resolution is
+        // dropped once its ask passes the cutoff instead.
+        lt(t.askedAt, param(t.askedAt, 'cutoffIso')),
         // The cutoff is compared against the RESOLUTION time, falling back to
         // the ask time only when a row has neither — not against asked_at.
         lt(

@@ -138,17 +138,25 @@ describe('listPendingSenders — never executed before this file', () => {
     expect(senders.map((s) => s.fromIssue)).not.toContain('iss_c')
   })
 
-  it('addresses an OPERATOR principal by dropping the id predicate, not by binding null', async () => {
-    // `operator` has no id, and the repository answers that by OMITTING the
-    // `to_id = ?` clause rather than binding null. The two are not the same: a
-    // bound null matches nothing, so an implementation that took that shortcut
-    // would return an empty list here while still passing every issue-addressed
-    // test above.
+  it('addresses an OPERATOR principal as `to_id IS NULL`, not by binding null', async () => {
+    // `operator` has no id, and the repository asks `to_id IS NULL` for it
+    // rather than binding null. The two are not the same: a bound null matches
+    // nothing, so an implementation that took that shortcut would return an
+    // empty list here while still passing every issue-addressed test above.
     await add({ id: 'op1', toKind: 'operator', toId: null, fromIssue: asIssueId('iss_a') })
-    await add({ id: 'op2', toKind: 'operator', toId: 'ignored', fromIssue: asIssueId('iss_b') })
+    await add({ id: 'op2', toKind: 'operator', toId: null, fromIssue: asIssueId('iss_b') })
 
     const senders = await messages.listPendingSenders({ kind: 'operator' })
     expect(senders.map((s) => s.fromIssue)).toEqual(['iss_a', 'iss_b'])
+  })
+
+  it('refuses to store a message to the operator that carries a recipient id [POD-6173]', async () => {
+    // The operator reads above seek the recipient index on (to_kind, to_id),
+    // which holds only because no operator row has an id.
+    await expect(add({ id: 'op3', toKind: 'operator', toId: 'stray' })).rejects.toThrow(
+      /to the operator must carry no recipient id/,
+    )
+    expect(await back('op3')).toBeNull()
   })
 })
 

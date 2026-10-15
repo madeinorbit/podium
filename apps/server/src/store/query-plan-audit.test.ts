@@ -120,28 +120,28 @@ const FAMILY_SHAPES: ReadonlyMap<string, readonly (string | number)[]> = new Map
   ],
   ['apps/server/src/store/messages.ts:insertMessage', ['id']],
   ['apps/server/src/store/messages.ts:messagesWithIds', SIZES],
-  ['apps/server/src/store/messages.ts:messagesAddressedTo', ['operator', 'no-id', 'id']],
+  ['apps/server/src/store/messages.ts:messagesAddressedTo', ['no-id', 'id']],
   ['apps/server/src/store/messages.ts:ledger', ['issue', 'session', 'both']],
   [
     'apps/server/src/store/messages.ts:pendingPage',
-    ['operator', 'no-id', 'id', 'operator|after', 'no-id|after', 'id|after'],
+    ['no-id', 'id', 'no-id|after', 'id|after'],
   ],
   [
     'apps/server/src/store/messages.ts:pendingSummaryOf',
-    ['operator', 'no-id', 'id', 'session', 'session-blank'],
+    ['no-id', 'id', 'session', 'session-blank'],
   ],
   [
     'apps/server/src/store/messages.ts:pendingSendersOf',
-    ['operator', 'no-id', 'id', 'session', 'session-blank'],
+    ['no-id', 'id', 'session', 'session-blank'],
   ],
   [
     'apps/server/src/store/messages.ts:pendingCountOf',
-    ['operator', 'no-id', 'id', 'session', 'session-blank'],
+    ['no-id', 'id', 'session', 'session-blank'],
   ],
   ['apps/server/src/store/messages.ts:existingIdsAmong', SIZES],
   ['apps/server/src/store/messages.ts:receiptsAmong', SIZES],
   ['apps/server/src/store/messages.ts:sentAmong', SIZES],
-  ['apps/server/src/store/messages.ts:communicatedSince', ['operator', 'no-id', 'id']],
+  ['apps/server/src/store/messages.ts:communicatedSince', ['no-id', 'id']],
   ['apps/server/src/store/messages.ts:swapHarnessRef', ['null', 'text']],
   ['apps/server/src/store/messages.ts:openBoundTo', ['1', '4', '1|issue', '4|issue']],
   ['apps/server/src/store/messages.ts:queuedPage', ['start', 'after']],
@@ -252,8 +252,8 @@ const ALLOWLIST: ReadonlyMap<string, string> = new Map([
     'Sorts only undelivered rows: the delivery_status IN list selects the pending queue, which empties as messages are delivered.',
   ],
   [
-    'apps/server/src/store/messages.ts:pendingPage',
-    'Sorts only undelivered rows: the delivery_status IN list selects the pending queue, which empties as messages are delivered.',
+    'apps/server/src/store/messages.ts:openChat',
+    "Walks the partial index idx_messages_open_chat (named with INDEXED BY) in its order: a person's chat messages not yet settled or not yet seen, never the confirmed history. The plan is asserted below.",
   ],
   [
     'apps/server/src/store/issues.ts:labelsOf',
@@ -381,6 +381,14 @@ const ALLOWLIST: ReadonlyMap<string, string> = new Map([
   [
     'apps/server/src/store/workflows.ts:liveRunOfSession',
     'Sorts the live runs of one session, found through the status and coordinator indexes.',
+  ],
+  [
+    'apps/server/src/store/issues.ts:issuesUnderPathOutsideRepo',
+    'Sorts the issues at or under one repository path, found through idx_issues_repo (an equality and a range); runs when a repository gains its id.',
+  ],
+  [
+    'apps/server/src/store/conversations/transcript-index.ts:catchUpKeys',
+    'Keys the transcript FTS rows past the last keyed rowid, a rowid range, when search opens: every row once, the first time the key table exists, and normally none after.',
   ],
   [
     'apps/server/src/store/issues.ts:legacyWorktreeSkipped',
@@ -586,69 +594,25 @@ const WHOLE_TABLE_READS: ReadonlyMap<string, string> = new Map([
 /**
  * Lookups an index could serve but whose SQL prevents it (a LIKE on a bound
  * prefix, a literal turned into a parameter, an expression over the column).
- * The fix is in the query, in a file this issue does not own; each reason
- * names the sub-issue that rewrites it. The list may only shrink.
+ * POD-6173 rewrote the rest; what is left needs full-text search, and each
+ * reason names the decision that defers it. The list may only shrink.
  */
 const SHAPE_DEBT: ReadonlyMap<string, string> = new Map([
   [
-    'apps/server/src/store/issues.ts:issuesUnderPathOutsideRepo',
-    "Query shape (POD-6173): `repo_path LIKE ? || '/%'` cannot use idx_issues_repo; rewrite as a range.",
-  ],
-  [
     'apps/server/src/store/issues.ts:commentSearch',
-    'Query shape (POD-6173): substring LIKE over comment bodies; needs a full-text index.',
+    'Query shape: substring LIKE over comment bodies; needs server full-text search, which the operator deferred (POD-5617).',
   ],
   [
     'apps/server/src/store/conversations/index.ts:searchConversations [like|any]',
-    'Query shape (POD-6173): substring LIKE over conversations; the FTS path serves this when enabled.',
+    'Query shape: substring LIKE over conversations; the FTS path serves this when enabled, and server full-text search is deferred (POD-5617).',
   ],
   [
     'apps/server/src/store/conversations/index.ts:searchConversations [like|posix]',
-    'Query shape (POD-6173): substring LIKE over conversations; the FTS path serves this when enabled.',
+    'Query shape: substring LIKE over conversations; the FTS path serves this when enabled, and server full-text search is deferred (POD-5617).',
   ],
   [
     'apps/server/src/store/conversations/index.ts:searchConversations [like|windows]',
-    'Query shape (POD-6173): substring LIKE over conversations; the FTS path serves this when enabled.',
-  ],
-  [
-    'apps/server/src/store/conversations/transcript-index.ts:deleteTranscriptRows',
-    'Query shape (POD-6173): filters the FTS5 table on non-MATCH columns, which FTS5 cannot index.',
-  ],
-  [
-    'apps/server/src/store/conversations/transcript-index.ts:transcriptRowsOf',
-    'Query shape (POD-6173): filters the FTS5 table on non-MATCH columns, which FTS5 cannot index.',
-  ],
-  [
-    'apps/server/src/store/notification-facts.ts:retireFactsOfKeyPrefix',
-    'Query shape (POD-6173): `fact_key LIKE ?` cannot use the primary key; rewrite as a range.',
-  ],
-  [
-    'apps/server/src/store/interactions.ts:pruneResolvedInteractions',
-    'Query shape (POD-6173): COALESCE over three time columns hides them from any index.',
-  ],
-  [
-    'apps/server/src/store/messages.ts:openChat',
-    "Query shape (POD-6173): POD-6147 bound the partial index's literals as parameters, so idx_messages_open_chat is never used; inline them.",
-  ],
-  [
-    'apps/server/src/store/messages.ts:messagesAddressedTo [operator]',
-    'Query shape (POD-6173): the operator shape constrains only to_kind, which three values share.',
-  ],
-  [
-    'apps/server/src/store/messages.ts:pendingPage [operator]',
-    'Query shape (POD-6173): the operator shape constrains only to_kind, which three values share.',
-  ],
-  [
-    'apps/server/src/store/messages.ts:pendingPage [operator|after]',
-    'Query shape (POD-6173): the operator shape constrains only to_kind, which three values share.',
-  ],
-  [
-    'apps/server/src/store/messages.ts:pendingSummaryOf [operator]',
-    'Query shape (POD-6173): the operator shape constrains only to_kind, which three values share.',
-  ],
-  [
-    'apps/server/src/store/messages.ts:pendingSendersOf [operator]',
-    'Query shape (POD-6173): the operator shape constrains only to_kind, which three values share.',
+    'Query shape: substring LIKE over conversations; the FTS path serves this when enabled, and server full-text search is deferred (POD-5617).',
   ],
 ])
 
@@ -1066,6 +1030,15 @@ describe('POD-6148 — every repository query is served by an index', () => {
     )
     for (const entry of unexplained) console.log(`UNEXPLAINED ${describeEntry(entry)}`)
     expect(unexplained.map((entry) => `${entry.key} [${String(entry.shape ?? '')}]`)).toEqual([])
+  })
+
+  it('reads the open chat through its partial index (POD-6173)', () => {
+    const { keyed } = keyedDefinitions(trackedSources())
+    const { audited } = auditDefinitions(keyed)
+    const openChat = audited.filter((entry) => entry.key === 'apps/server/src/store/messages.ts:openChat')
+    expect(openChat.map((entry) => entry.plan)).toEqual([
+      ['SCAN messages USING INDEX idx_messages_open_chat'],
+    ])
   })
 
   it('keeps no stale entry: every listed query still scans or sorts, every small table exists', () => {

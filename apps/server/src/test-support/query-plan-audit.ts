@@ -182,7 +182,8 @@ function tableNamed(
  * every row of `t` (the last two in index order), so all three are scans. A
  * scan of something that is not a table (a subquery, a CTE, `json_each`, a
  * constant row) is not. An FTS5 table reports `VIRTUAL TABLE INDEX n:<plan>`;
- * a plan string with an `M` (a MATCH) is served by the full-text index.
+ * a plan string with an `M` (a MATCH) is served by the full-text index, and one
+ * with an `=` (a rowid equality) reads one row by its key.
  *
  * A `SEARCH` is a scan in disguise when every column it constrains is one
  * whose value is shared by most rows (`lowSelectivity`, `table.column`): with
@@ -203,7 +204,7 @@ export function planFindings(
       const rest = scan[2] ?? ''
       if (table === undefined) continue
       const virtual = /VIRTUAL TABLE INDEX \d+:(\S*)/.exec(rest)
-      if (virtual && /M/.test(virtual[1] ?? '')) continue
+      if (virtual && /[M=]/.test(virtual[1] ?? '')) continue
       findings.push({ kind: 'scan', table, detail })
       continue
     }

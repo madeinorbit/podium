@@ -38,6 +38,7 @@ import {
   count,
   desc,
   eq,
+  getColumns,
   gt,
   gte,
   inArray,
@@ -283,27 +284,29 @@ function mapMessage(r: MessageSelect): MessageRow {
 }
 
 /**
- * ADDRESSED TO A PRINCIPAL. `operator` has no id, so the id clause is OMITTED
- * rather than bound to null — the two are different questions and a bound null
- * matches nothing. Declared once because seven readers ask it.
+ * ADDRESSED TO A PRINCIPAL. A principal with no id is `to_id IS NULL`, never a
+ * bound null, which matches nothing. Declared once because seven readers ask it.
  *
- * Prepared by SHAPE [POD-6147]: which of the three forms a principal takes is
- * the key, and the kind and id are the `toKind` / `toId` placeholders
+ * `operator` has no id, and every row addressed to the operator stores none:
+ * the send path and the failure notice both write `to_id` null for it, as the
+ * substrate has since it began. So the operator is the `no-id` shape, and its
+ * reads seek the recipient indexes on `(to_kind, to_id)`; asking `to_kind`
+ * alone read every message of that kind [POD-6173].
+ *
+ * Prepared by SHAPE [POD-6147]: whether the principal has an id is the key,
+ * and the kind and id are the `toKind` / `toId` placeholders
  * ({@link addressValues}).
  */
-type AddressShape = 'operator' | 'no-id' | 'id'
+type AddressShape = 'no-id' | 'id'
 
 const addressShape = (to: MessagePrincipalRef): AddressShape =>
-  to.kind === 'operator' ? 'operator' : (to.id ?? null) === null ? 'no-id' : 'id'
+  to.kind === 'operator' || (to.id ?? null) === null ? 'no-id' : 'id'
 
 function addressedTo(shape: AddressShape): SQL[] {
-  const clauses: SQL[] = [eq(messagesTable.toKind, param(messagesTable.toKind, 'toKind'))]
-  if (shape !== 'operator') {
-    clauses.push(
-      shape === 'no-id' ? isNull(messagesTable.toId) : eq(messagesTable.toId, param(messagesTable.toId, 'toId')),
-    )
-  }
-  return clauses
+  return [
+    eq(messagesTable.toKind, param(messagesTable.toKind, 'toKind')),
+    shape === 'no-id' ? isNull(messagesTable.toId) : eq(messagesTable.toId, param(messagesTable.toId, 'toId')),
+  ]
 }
 
 /** The placeholder values {@link addressedTo} reads. */
@@ -918,19 +921,41 @@ const dismissNoticeOnce = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
+/**
+ * Every column of `messages` by its bare name, decoded as the column decodes:
+ * what `select()` returns, for a FROM drizzle cannot express. Drizzle refuses a
+ * table's own columns over a raw FROM, so each is a fragment mapped with its
+ * column.
+ */
+const MESSAGE_COLUMNS = Object.fromEntries(
+  Object.entries(getColumns(messagesTable)).map(([key, column]) => [
+    key,
+    sql`${sql.identifier(column.name)}`.mapWith(column),
+  ]),
+) as { [K in keyof MessageSelect]: SQL<MessageSelect[K]> }
+
+/**
+ * The chat feed's boot read, through the partial index idx_messages_open_chat
+ * [POD-6173]. Two things kept it off that index. SQLite uses a partial index
+ * only when the query states its WHERE terms with the same LITERALS, and
+ * `eq(column, 'operator')` binds a parameter, a value the planner cannot see:
+ * so the terms are written as the schema writes the index. And even then the
+ * planner costs a walk of a partial index as a walk of the whole table, so it
+ * seeks `to_kind = 'session'` instead, a large share of every message: so the
+ * index is named with INDEXED BY, which also makes SQLite refuse to prepare the
+ * statement if the query and the index ever stop matching. Ordered as the
+ * index is, by `created_at` then rowid, so the walk needs no sort; the feed
+ * keys the rows by id, so the order of rows tied on `created_at` does not
+ * matter there. The query-plan audit asserts this plan.
+ */
 const openChat = prepared((db: StoreDrizzle) =>
   db
-    .select()
-    .from(messagesTable)
+    .select(MESSAGE_COLUMNS)
+    .from(sql`${messagesTable} INDEXED BY idx_messages_open_chat`)
     .where(
-      and(
-        eq(messagesTable.fromKind, 'operator'),
-        eq(messagesTable.toKind, 'session'),
-        isNull(messagesTable.noticeDismissedAt),
-        notInArray(messagesTable.deliveryStatus, ['confirmed', 'cancelled']),
-      ),
+      sql`${messagesTable.fromKind} = 'operator' AND ${messagesTable.toKind} = 'session' AND ${messagesTable.noticeDismissedAt} IS NULL AND ${messagesTable.deliveryStatus} NOT IN ('confirmed', 'cancelled')`,
     )
-    .orderBy(...DELIVERY_ORDER)
+    .orderBy(asc(messagesTable.createdAt), asc(sql`rowid`))
     .limit(sql.placeholder('limit'))
     .prepare(),
 )
@@ -1088,6 +1113,10 @@ export class MessagesRepository {
   async addMessage(m: MessageRow): Promise<boolean> {
     if (m.deliveryStatus !== 'stored') {
       throw new Error(`message ${m.id} must be stored before it moves (got ${m.deliveryStatus})`)
+    }
+    // The operator's reads ask `to_id IS NULL` ({@link addressedTo}).
+    if (m.toKind === 'operator' && m.toId !== null) {
+      throw new Error(`message ${m.id} to the operator must carry no recipient id (got ${m.toId})`)
     }
     const values: typeof messagesTable.$inferInsert = {
       id: m.id,

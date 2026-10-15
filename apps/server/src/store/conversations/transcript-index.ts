@@ -20,6 +20,38 @@ const createTranscriptFts = prepared((db: StoreDrizzle) =>
         content, machine_id UNINDEXED, native_id UNINDEXED, item_uuid UNINDEXED, ts UNINDEXED)`),
 )
 
+/*
+ * WHICH SEGMENT EACH FTS ROW BELONGS TO, KEYED [POD-6173]. FTS5 indexes only
+ * what MATCH searches, so `WHERE machine_id = ? AND native_id = ?` on
+ * `transcript_fts` read every transcript row of every segment; dropping one
+ * segment's rows on each re-mirror did that. `transcript_fts_keys` names the
+ * segment of every FTS row by its rowid, and its segment index is what those
+ * reads and deletes seek.
+ *
+ * Every write below changes both tables in one transaction. FTS5 tables take
+ * no triggers, so nothing else could keep them in step. The keys are made with
+ * the FTS table, at runtime when search is on, and {@link catchUpKeys} adds the
+ * key of every FTS row past the last keyed one when the index opens: all of
+ * them the first time, after that the rows a build from before this table
+ * appended, normally none.
+ */
+const createTranscriptKeys = prepared((db: StoreDrizzle) =>
+  db.run(sql`CREATE TABLE IF NOT EXISTS transcript_fts_keys (
+        fts_rowid INTEGER PRIMARY KEY, machine_id TEXT NOT NULL, native_id TEXT NOT NULL)`),
+)
+
+const createTranscriptKeysIndex = prepared((db: StoreDrizzle) =>
+  db.run(sql`CREATE INDEX IF NOT EXISTS idx_transcript_fts_keys_segment
+        ON transcript_fts_keys (machine_id, native_id)`),
+)
+
+/** Key every FTS row past the last keyed one: a rowid range of `transcript_fts`. */
+const catchUpKeys = prepared((db: StoreDrizzle) =>
+  db.run(sql`INSERT OR REPLACE INTO transcript_fts_keys (fts_rowid, machine_id, native_id)
+        SELECT rowid, machine_id, native_id FROM transcript_fts
+        WHERE rowid > (SELECT coalesce(max(fts_rowid), 0) FROM transcript_fts_keys)`),
+)
+
 const segmentsBehindMirror = prepared((db: StoreDrizzle) =>
   db
     .select({
@@ -52,6 +84,19 @@ const insertTranscriptRow = prepared((db: StoreDrizzle) =>
   ),
 )
 
+/**
+ * The key of the FTS row the previous statement inserted. Run right after
+ * {@link insertTranscriptRow} in the same write transaction, so nothing can
+ * insert between the two. REPLACE: a key left behind by a build from before
+ * this table, whose FTS row was deleted and its rowid reused, is stale.
+ */
+const insertTranscriptKey = prepared((db: StoreDrizzle) =>
+  db.run(
+    sql`INSERT OR REPLACE INTO transcript_fts_keys (fts_rowid, machine_id, native_id)
+              VALUES(last_insert_rowid(),${sql.placeholder('machineId')},${sql.placeholder('nativeId')})`,
+  ),
+)
+
 const setSegmentIndexedBytes = prepared((db: StoreDrizzle) =>
   db
     .update(conversationSegments)
@@ -74,16 +119,30 @@ const resetSegmentIfAt = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
+/** One segment's keys, over the `machineId` / `nativeId` placeholders. */
+const segmentKeys = () =>
+  sql`SELECT fts_rowid FROM transcript_fts_keys
+      WHERE machine_id=${sql.placeholder('machineId')} AND native_id=${sql.placeholder('nativeId')}`
+
+/** One segment's FTS rows, each found by rowid; then {@link deleteTranscriptKeys}. */
 const deleteTranscriptRows = prepared((db: StoreDrizzle) =>
+  db.run(sql`DELETE FROM transcript_fts WHERE rowid IN (${segmentKeys()})`),
+)
+
+const deleteTranscriptKeys = prepared((db: StoreDrizzle) =>
   db.run(
-    sql`DELETE FROM transcript_fts WHERE machine_id=${sql.placeholder('machineId')} AND native_id=${sql.placeholder('nativeId')}`,
+    sql`DELETE FROM transcript_fts_keys
+      WHERE machine_id=${sql.placeholder('machineId')} AND native_id=${sql.placeholder('nativeId')}`,
   ),
 )
 
+/** One segment's rows in insertion order, each found by rowid from its key. */
 const transcriptRowsOf = prepared((db: StoreDrizzle) =>
   db.all<Record<string, unknown>>(
-    sql`SELECT content,item_uuid,ts FROM transcript_fts
-      WHERE machine_id=${sql.placeholder('machineId')} AND native_id=${sql.placeholder('nativeId')} ORDER BY rowid`,
+    sql`SELECT f.content,f.item_uuid,f.ts FROM transcript_fts_keys k
+      CROSS JOIN transcript_fts f ON f.rowid=k.fts_rowid
+      WHERE k.machine_id=${sql.placeholder('machineId')} AND k.native_id=${sql.placeholder('nativeId')}
+      ORDER BY k.fts_rowid`,
   ),
 )
 
@@ -138,7 +197,12 @@ export class TranscriptIndexRepository {
    */
   async enableFts(): Promise<void> {
     try {
-      await executeRaw(createTranscriptFts(this.db))
+      await this.createOrJoinTransaction(async () => {
+        await executeRaw(createTranscriptFts(this.db))
+        await executeRaw(createTranscriptKeys(this.db))
+        await executeRaw(createTranscriptKeysIndex(this.db))
+        await executeRaw(catchUpKeys(this.db))
+      })
       this.available = true
     } catch {
       this.available = false
@@ -188,6 +252,7 @@ export class TranscriptIndexRepository {
           itemUuid: row.itemUuid ?? null,
           ts: row.ts ?? null,
         })
+        await executeRaw(insertTranscriptKey(this.db), { machineId, nativeId })
       }
       await setSegmentIndexedBytes(this.db).run({ machineId, nativeId, indexedBytes })
     })
@@ -215,9 +280,7 @@ export class TranscriptIndexRepository {
         indexedBytes: expected.indexedBytes,
       })
       reset = Number(result.changes) === 1
-      if (reset && this.available) {
-        await executeRaw(deleteTranscriptRows(this.db), { machineId, nativeId })
-      }
+      if (reset && this.available) await this.deleteSegmentRows(machineId, nativeId)
     })
     return reset
   }
@@ -261,9 +324,15 @@ export class TranscriptIndexRepository {
   }
 
   async drop(machineId: MachineId, nativeId: string): Promise<void> {
-    if (this.available) {
-      await executeRaw(deleteTranscriptRows(this.db), { machineId, nativeId })
-    }
-    await setSegmentIndexedBytes(this.db).run({ machineId, nativeId, indexedBytes: 0 })
+    await this.createOrJoinTransaction(async () => {
+      if (this.available) await this.deleteSegmentRows(machineId, nativeId)
+      await setSegmentIndexedBytes(this.db).run({ machineId, nativeId, indexedBytes: 0 })
+    })
+  }
+
+  /** One segment's FTS rows and their keys; the caller holds the transaction. */
+  private async deleteSegmentRows(machineId: MachineId, nativeId: string): Promise<void> {
+    await executeRaw(deleteTranscriptRows(this.db), { machineId, nativeId })
+    await executeRaw(deleteTranscriptKeys(this.db), { machineId, nativeId })
   }
 }

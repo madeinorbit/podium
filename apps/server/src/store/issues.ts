@@ -29,9 +29,11 @@ import {
   desc,
   eq,
   exists,
+  gte,
   inArray,
   isNotNull,
   isNull,
+  lt,
   max,
   ne,
   not,
@@ -68,6 +70,7 @@ import {
 } from './executor/sync-drizzle'
 import { parseStringArray, requireUserId } from './helpers'
 import { StaleIssueRevisionError } from './issue-revision'
+import { prefixUpperBound } from './prefix-range'
 import type { IssueCommentRow, IssueMessageRow, IssueRow, StoredIssueUserState } from './types'
 
 export const LEGACY_WORKTREE_MIGRATION = 'legacy_worktree_machine_ids_v1'
@@ -205,10 +208,12 @@ const issueSeqRows = prepared((db: StoreDrizzle) =>
 )
 
 /**
- * `LIKE ? || '/%'` matches at a PATH BOUNDARY: `/rootless` merely shares a text
- * prefix with `/root` and must not be swept in. The `rowid` tie-break is
- * load-bearing on equal `created_at`, and `rowid` is not a schema column, so
- * both stay as fragments.
+ * The path itself, or a path under it: the second arm is the range of paths
+ * that start with `<path>/` (`under` .. `below`, see {@link prefixUpperBound}),
+ * which idx_issues_repo seeks. The `/` is the PATH BOUNDARY: `/rootless` merely
+ * shares a text prefix with `/root` and must not be swept in. The `rowid`
+ * tie-break is load-bearing on equal `created_at`, and `rowid` is not a schema
+ * column, so it stays a fragment.
  */
 const issuesUnderPathOutsideRepo = prepared((db: StoreDrizzle) =>
   db
@@ -218,7 +223,10 @@ const issuesUnderPathOutsideRepo = prepared((db: StoreDrizzle) =>
       and(
         or(
           eq(issues.repoPath, param(issues.repoPath, 'repoPath')),
-          sql`${issues.repoPath} LIKE ${sql.placeholder('repoPath')} || '/%'`,
+          and(
+            gte(issues.repoPath, param(issues.repoPath, 'under')),
+            lt(issues.repoPath, param(issues.repoPath, 'below')),
+          ),
         ),
         or(isNull(issues.repoId), ne(issues.repoId, param(issues.repoId, 'repoId'))),
       ),
@@ -1525,8 +1533,14 @@ export class IssuesRepository {
    *  already taken in the target bucket is renumbered to the next free seq
    *  (oldest row first keeps its number), loudly logged. */
   async assignRepoIdToIssuesUnder(repoId: RepoId, repoPath: string): Promise<void> {
-    // `LIKE ? || '/%'` matches at a PATH BOUNDARY (see issuesUnderPathOutsideRepo).
-    const rows = await issuesUnderPathOutsideRepo(this.db).all({ repoPath, repoId })
+    // Matches at a PATH BOUNDARY (see issuesUnderPathOutsideRepo).
+    const under = `${repoPath}/`
+    const rows = await issuesUnderPathOutsideRepo(this.db).all({
+      repoPath,
+      under,
+      below: prefixUpperBound(under),
+      repoId,
+    })
     if (rows.length === 0) return
     const highest = await highestSeqOfRepo(this.db).get({ repoId })
     let next = (highest?.m ?? 0) + 1

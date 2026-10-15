@@ -1,8 +1,9 @@
 import type { IssueId } from '@podium/model'
-import { and, eq, gte, isNotNull, isNull, like, lt, or, sql } from 'drizzle-orm'
+import { and, eq, gte, isNotNull, isNull, lt, or, sql } from 'drizzle-orm'
 import { notificationFacts } from '../migrations/schema'
 import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
 import { param, prepared } from './executor/sync-drizzle'
+import { prefixUpperBound } from './prefix-range'
 
 const DEFAULT_TTL_MS = 24 * 60 * 60 * 1000
 
@@ -101,7 +102,8 @@ const retireFactsOfKeyPrefix = prepared((db: StoreDrizzle) =>
     .set({ consumedAt: sql.placeholder('consumedAt') })
     .where(
       and(
-        like(notificationFacts.factKey, sql.placeholder('pattern')),
+        gte(notificationFacts.factKey, param(notificationFacts.factKey, 'from')),
+        lt(notificationFacts.factKey, param(notificationFacts.factKey, 'below')),
         isNull(notificationFacts.consumedAt),
       ),
     )
@@ -182,10 +184,15 @@ export class NotificationFactsRepository {
 
   /**
    * Retire every live claim whose fact_key starts with `prefix` (all targets).
-   * Fact keys use only alphanumerics and `:` / `-` — no LIKE wildcards.
+   * Read as a range of the primary key (see {@link prefixUpperBound}), so the
+   * prefix ends in ASCII; every caller's ends in `:`.
    */
   async retireFactKeyPrefix(prefix: string, consumedAt: string): Promise<number> {
-    const result = await retireFactsOfKeyPrefix(this.db).run({ pattern: `${prefix}%`, consumedAt })
+    const result = await retireFactsOfKeyPrefix(this.db).run({
+      from: prefix,
+      below: prefixUpperBound(prefix),
+      consumedAt,
+    })
     return Number(result.changes)
   }
 
