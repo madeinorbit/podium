@@ -1,4 +1,5 @@
 import '@/test-support/mock-pool-fixture'
+import { DEFAULT_SETTINGS, nativeAccountId } from '@podium/runtime'
 // @vitest-environment happy-dom
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 import {
@@ -61,6 +62,7 @@ const harness = vi.hoisted(() => ({
   // nothing refused — and every test but the harness one leaves them that way.
   repos: [] as unknown[],
   machines: [] as unknown[],
+  codingHarness: 'claude-code' as 'claude-code' | 'codex',
   selectedIssueId: null as string | null,
   paneA: null as string | null,
   coarseNow: Date.parse('2026-01-01T00:10:00.000Z'),
@@ -93,6 +95,8 @@ const harness = vi.hoisted(() => ({
     putTranscriptWindow: vi.fn(),
   },
   trpc: {
+    settings: { get: { query: async () => ({ ...DEFAULT_SETTINGS, roles: { ...DEFAULT_SETTINGS.roles,
+      coding: { ...DEFAULT_SETTINGS.roles.coding, accountId: nativeAccountId(harness.codingHarness) } } }) } },
     features: { state: { query: async () => null } },
     // The mission header asks what the mission cost (POD-1862). These decks
     // have no figure, which is the ordinary case and renders no chip at all —
@@ -316,6 +320,7 @@ beforeEach(() => {
   harness.listeners.clear()
   harness.repos = []
   harness.machines = []
+  harness.codingHarness = 'claude-code'
   harness.selectedIssueId = 'root'
   harness.paneA = null
   harness.coarseNow = Date.parse('2026-01-01T00:10:00.000Z')
@@ -1314,6 +1319,7 @@ describe('flight deck mission agent action', () => {
    * menu: a gate applied indiscriminately fails the Codex half.
    */
   it('refuses a harness the mission’s host does not have, and offers the one it does', async () => {
+    harness.codingHarness = 'codex'
     harness.repos = [
       { path: '/repo', kind: 'repository', branch: 'main', machineId: 'mine', worktrees: [] },
     ]
@@ -1339,7 +1345,7 @@ describe('flight deck mission agent action', () => {
             ...(candidate as Issue),
             worktreePath: '/repo',
             repoPath: '/repo',
-            defaultAgent: 'codex',
+            defaultAgent: 'auto',
           }
         : candidate,
     )
@@ -1353,7 +1359,7 @@ describe('flight deck mission agent action', () => {
     fireEvent.click(cursor)
     expect(harness.addSession).not.toHaveBeenCalled()
 
-    const codex = await screen.findByRole('menuitem', { name: /Add Codex/ })
+    const codex = await screen.findByRole('menuitem', { name: 'Add Codex (default)' })
     expect(codex.getAttribute('data-refused')).toBeNull()
   })
 })
