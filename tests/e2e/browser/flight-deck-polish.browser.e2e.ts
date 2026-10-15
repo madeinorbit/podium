@@ -123,8 +123,11 @@ test('issue-first hierarchy, distinct live status, and animated open/close contr
 
   const shell = page.locator('[data-flight-deck-shell]')
   const openWidth = (await shell.boundingBox())?.width ?? 0
+  // Sampling is armed BEFORE the click: the fold lasts 240ms and decelerates, so
+  // on a loaded box a sampler started after `click()` returns sees only its tail.
+  const closingSamples = widthSamples(page, 1_000)
   await deck.getByRole('button', { name: 'Collapse Flight Deck' }).click()
-  const closing = await widthSamples(page, 360)
+  const closing = await closingSamples
   await expect(shell).toHaveAttribute('data-flight-deck-shell', 'folded')
   await expect.poll(async () => Math.round((await shell.boundingBox())?.width ?? 0)).toBe(44)
   const reducedMotion = await page.evaluate(
@@ -147,8 +150,9 @@ test('issue-first hierarchy, distinct live status, and animated open/close contr
   if (activityBox && attentionBox) expect(attentionBox.y).toBeLessThan(activityBox.y)
   await page.screenshot({ path: resolve(ARTIFACT_DIR, 'flight-deck-folded.png'), fullPage: true })
 
+  const openingSamples = widthSamples(page, 1_000)
   await attention.click()
-  const opening = await widthSamples(page, 360)
+  const opening = await openingSamples
   await expect(shell).toHaveAttribute('data-flight-deck-shell', 'open')
   await expect(deck).toBeVisible()
   expect(opening.some((width) => width > 48 && width < openWidth - 4)).toBe(true)
