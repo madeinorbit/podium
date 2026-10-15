@@ -8,6 +8,7 @@
  * slot — or, far worse, a confident `$0` — on half the missions on this
  * machine, because half of all tasks are `pending` today.
  */
+import { costCohort } from '@podium/client-core/values'
 import type { TaskCostRowWire, TaskCostState, TaskCostWire } from '@podium/model/browser'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -68,6 +69,11 @@ vi.mock('@podium/client-core/react', () => ({
         cost: {
           task: { query: () => Promise.resolve(answer) },
           tasks: { query: () => Promise.resolve(cohortRows) },
+          // Since 9847886aaa the popover reads one addressed comparison: the
+          // task plus the cohort the server builds from the same own rows.
+          taskComparison: {
+            query: () => Promise.resolve({ task: answer, cohort: costCohort(cohortRows) }),
+          },
         },
       },
     },
