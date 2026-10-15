@@ -525,6 +525,7 @@ async function seed(): Promise<Fixture> {
         title: 'First',
         instructions: 'go',
         completionGuidance: 'done when done',
+        profileId: null,
         profile: null,
       },
     ],

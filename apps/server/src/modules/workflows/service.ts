@@ -3,6 +3,7 @@ import type { AdvanceIdempotencyPort, WorkflowOwnershipPort } from '@podium/comm
 import {
   type AgentProfileWire,
   asIssueId,
+  asMachineId,
   asUserId,
   type IssueId,
   type MachineId,
@@ -327,7 +328,10 @@ export class WorkflowService implements WorkflowEngine {
     // AUTHORIZATION (POD-730 §4). So the machine is re-checked here, against
     // the current grants, every time work is actually placed.
     if (!input.caller) throw new Error('workflow launch requires an authenticated caller')
-    await this.access.assertMayPlaceOn(input.caller, profile.machineId)
+    await this.access.assertMayPlaceOn(
+      input.caller,
+      profile.machineId === null ? null : asMachineId(profile.machineId),
+    )
     return profile
   }
 
