@@ -11,7 +11,12 @@ import userEvent from '@testing-library/user-event'
 import { autorun } from 'mobx'
 import { createRef } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { FlightDeckV6Rows, FlightDeckV6Task, V6_DEPTH_STEP } from './FlightDeckV6Rows'
+import {
+  FlightDeckV6Rows,
+  FlightDeckV6Task,
+  FlightDeckV6Session,
+  V6_DEPTH_STEP,
+} from './FlightDeckV6Rows'
 
 vi.mock('./store', () => ({
   useRuntimeSelector: (read: (value: unknown) => unknown) => read({ renameSession: vi.fn() }),
@@ -427,4 +432,20 @@ it('opens Error and Needs you by default and leaves working and blocked leaves f
     </style><main><h1>Full task strips and inset sessions</h1><p>Rendered acceptance fixture. Error and Needs you open automatically; the task surface stays neutral. Session buttons open conversations; the native chip discloses a read-only running list. This capture is static.</p>${f.ui.container.innerHTML}</main></html>`,
     )
   }
+})
+
+it('retains the shared shell icon without changing mission roster membership', async () => {
+  const f = await open(undefined, [session('worker', 'task', { agentKind: 'shell' })])
+  expect(f.full.task('task').sessionIds).toHaveLength(0)
+  const shell = f.screen.reader.rawSession('worker')
+  if (!shell || typeof shell === 'symbol') throw new Error('Missing shell fixture')
+  const row = render(
+    <FlightDeckV6Session
+      task={f.full.task('task')}
+      session={shell}
+      active={false}
+      onOpen={vi.fn()}
+    />,
+  )
+  expect(row.getByLabelText('Shell')).toBeDefined()
 })
