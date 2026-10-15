@@ -25,6 +25,7 @@ import { LOADING, type MobxPool } from '@podium/client-graph'
 import { missionView, readMissionHandoffTargets } from '@podium/client-graph/mission-view'
 import { Check, ChevronRight } from 'lucide-react'
 import { Fragment, type JSX, type ReactNode, useCallback, useState } from 'react'
+import { observer } from 'mobx-react-lite'
 import { createPortal } from 'react-dom'
 import { toast } from 'sonner'
 import type { Trpc } from '@/app/trpc'
@@ -99,7 +100,7 @@ const SECTION_LABEL: Record<IssueMenuSection, string | null> = {
 }
 
 /** A cursor-anchored menu whose tree is projected from issue-menu-config.ts. */
-export function IssueContextMenu({
+export const IssueContextMenu = observer(function IssueContextMenu({
   issues,
   allIssues: suppliedIssues,
   anchor,
@@ -742,4 +743,4 @@ export function IssueContextMenu({
     </div>,
     document.body,
   )
-}
+})

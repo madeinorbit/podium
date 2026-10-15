@@ -9,7 +9,8 @@ import {
   type MachineId,
   type MachineWire,
 } from '@podium/model'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { observable, runInAction } from 'mobx'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
 import { makeIssue } from '@/lib/test-issue'
@@ -18,6 +19,8 @@ import type { IssueMenuPoolInputs } from './issue-menu-pool-inputs'
 import { IssuePageWorldContext } from './issue-page/issue-page-data'
 
 const featureEnabled = vi.hoisted(() => ({ value: true }))
+const settings = vi.hoisted(() => ({ model: undefined as { codingHarness: string } | undefined }))
+vi.mock('@/features/settings/record-readers', () => ({ useSettingsRecord: () => settings }))
 vi.mock('@/lib/use-feature', () => ({
   useFeature: () => featureEnabled.value,
 }))
@@ -101,7 +104,7 @@ const session = (over: Partial<SessionViewInput> & Pick<SessionView, 'sessionId'
     // construction site `wire-input.ts` describes.
   }) as unknown as SessionView
 
-function open(issue: IssueViewModel & { memberSessionIds?: string[] }): void {
+function open(issue: IssueViewModel & { memberSessionIds?: string[] }, surface: 'board' | 'palette' = 'board'): void {
   const viewIssue = {
     ...issue,
     memberSessionIds: issue.memberSessionIds?.map(asSessionId),
@@ -114,6 +117,7 @@ function open(issue: IssueViewModel & { memberSessionIds?: string[] }): void {
         value={{ issues: [viewIssue], sessions: state.sessions as SessionView[] }}
       >
         <IssueContextMenu
+          surface={surface}
           issues={[viewIssue]}
           allIssues={[viewIssue]}
           poolInputs={state}
@@ -136,6 +140,16 @@ afterEach(() => {
   state.repos = []
   state.machines = []
   state.sessions = []
+  settings.model = undefined
+})
+
+it('updates an open auto agent submenu when the Settings harness changes', () => {
+  settings.model = observable({ codingHarness: 'codex' })
+  open(makeIssue({ defaultAgent: 'auto' }), 'palette')
+  fireEvent.click(screen.getByRole('menuitem', { name: /Assign agent|Run now/ }))
+  expect(screen.getByRole('menuitem', { name: 'Codex (default)' })).toBeTruthy()
+  act(() => runInAction(() => { settings.model!.codingHarness = 'claude-code' }))
+  expect(screen.getByRole('menuitem', { name: 'Claude Code (default)' })).toBeTruthy()
 })
 
 describe('IssueContextMenu handoff (POD-850)', () => {
