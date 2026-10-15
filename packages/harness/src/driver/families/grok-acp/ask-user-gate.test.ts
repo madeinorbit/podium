@@ -11,7 +11,7 @@
 import type { SessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { SessionSpec } from '../../host.js'
-import { createMemoryDriverSlots } from '../../testing/index.js'
+import { createMemoryAttachmentStager, createMemoryDriverSlots } from '../../testing/index.js'
 import type { AskUserGate } from '../ask-user-gate.js'
 import {
   createGrokAcpRuntime,
@@ -39,6 +39,7 @@ function world(askUserGate?: AskUserGate) {
   const servers = new Map<SessionId, FakeGrokAcpServer>()
   const entries = new Map<SessionId, GrokAcpJournalEntry>()
   const host: GrokAcpRuntimeHost = {
+    stageAttachment: createMemoryAttachmentStager(),
     ...(askUserGate ? { askUserGate } : {}),
     bindings: {
       recorded: (id) => entries.get(id),
