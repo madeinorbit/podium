@@ -5,7 +5,7 @@
  * WHAT THESE ARE FOR. The coverage census (docs/internal/pod-3244) found one
  * method of `IssuesRepository` that no test executes (`purgeIssueUserState`)
  * and ten that are executed only incidentally, never named by an assertion:
- * `listIssueCwdRows`, `listIssueParentEdges`, `assignRepoIdToIssuesUnder`,
+ * `listIssueCwdRows` (since removed), `listIssueParentEdges`, `assignRepoIdToIssuesUnder`,
  * `issuesMissingRepoId`, `listIssueLabelsByIssue`, `listAllIssueDeps`,
  * `countIssueComments`, `countIssueCommentsByIssue`, `searchIssueComments` and
  * `deleteIssueMessagesForIssue`. A method in either group has no oracle, so its
@@ -214,10 +214,10 @@ describe('IssuesRepository: the mode: boolean columns (spec rule 28)', () => {
 
   it('carries archived through the projection as well as the row map', async () => {
     const store = await openIssueStore()
-    // `listIssueCwdRows` reads the column directly rather than through
+    // `worktreeOwnerCandidates` reads the column directly rather than through
     // `mapIssueRow`, so it is a second decode site and needs its own true case.
-    await seed(store, { id: asIssueId('iss_on'), seq: 1, archived: true })
-    expect((await store.issues.listIssueCwdRows())[0]?.archived).toBe(true)
+    await seed(store, { id: asIssueId('iss_on'), seq: 1, archived: true, worktreePath: '/wt/on' })
+    expect((await store.issues.worktreeOwnerCandidates(['/wt/on']))[0]?.archived).toBe(true)
     await store.close()
   })
 
@@ -279,41 +279,31 @@ describe('IssuesRepository: purgeIssueUserState (no test executes this today)', 
 })
 
 describe('IssuesRepository: the projections (executed, never named)', () => {
-  it('listIssueCwdRows returns the four columns, ordered by repo path then seq', async () => {
+  it('worktreeOwnerCandidates returns the live owners of a folder in repository order', async () => {
     const store = await openIssueStore('/a', '/b')
-    await seed(store, { id: asIssueId('iss_b2'), repoPath: '/b', seq: 2, worktreePath: '/wt/b2' })
-    await seed(store, { id: asIssueId('iss_a1'), repoPath: '/a', seq: 1 })
-    await seed(store, { id: asIssueId('iss_b1'), repoPath: '/b', seq: 1, archived: true })
+    await seed(store, { id: asIssueId('iss_b2'), repoPath: '/b', seq: 2, worktreePath: '/wt/b' })
+    await seed(store, { id: asIssueId('iss_a1'), repoPath: '/a', seq: 1, worktreePath: '/wt' })
+    await seed(store, { id: asIssueId('iss_b1'), repoPath: '/b', seq: 1, worktreePath: '/wt/b', archived: true })
+    await seed(store, { id: asIssueId('iss_b3'), repoPath: '/b', seq: 3, worktreePath: '/elsewhere' })
 
-    const rows = await store.issues.listIssueCwdRows()
+    const rows = await store.issues.worktreeOwnerCandidates(['/wt/b/src'])
 
     expect(rows).toEqual([
-      { id: 'iss_a1', repoPath: '/a', worktreePath: null, deletedAt: null, archived: false },
-      { id: 'iss_b1', repoPath: '/b', worktreePath: null, deletedAt: null, archived: true },
-      { id: 'iss_b2', repoPath: '/b', worktreePath: '/wt/b2', deletedAt: null, archived: false },
+      { id: 'iss_a1', repoPath: '/a', seq: 1, worktreePath: '/wt', archived: false },
+      { id: 'iss_b1', repoPath: '/b', seq: 1, worktreePath: '/wt/b', archived: true },
+      { id: 'iss_b2', repoPath: '/b', seq: 2, worktreePath: '/wt/b', archived: false },
     ])
     await store.close()
   })
 
-  it('listIssueCwdRows keeps soft-deleted rows, carrying their deletedAt', async () => {
+  it('worktreeOwnerCandidates leaves soft-deleted rows out', async () => {
     const store = await openIssueStore()
-    // A tombstoned issue still owns its worktree path, so the cwd index must
-    // see it and decide for itself — filtering here would let a second issue
-    // claim a directory the first has not released.
     await seed(store, {
       id: asIssueId('iss_1'),
       worktreePath: '/wt/1',
       deletedAt: '2026-01-01T00:00:00Z',
     })
-    expect(await store.issues.listIssueCwdRows()).toEqual([
-      {
-        id: 'iss_1',
-        repoPath: '/r',
-        worktreePath: '/wt/1',
-        deletedAt: '2026-01-01T00:00:00Z',
-        archived: false,
-      },
-    ])
+    expect(await store.issues.worktreeOwnerCandidates(['/wt/1'])).toEqual([])
     await store.close()
   })
 

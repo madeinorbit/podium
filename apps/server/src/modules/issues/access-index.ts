@@ -1,15 +1,15 @@
 import type { IssueAction, IssueId } from '@podium/model'
-import { machinePathKey } from '@podium/model'
+import { machinePathKey, machinePathsEqual } from '@podium/model'
 import type { IssueAccessIndex } from '../../issue-authz'
-import { isMemberCwd } from '../../issue-util'
 import type { GrantsRepository } from '../../store/grants'
 import type { IssuesRepository } from '../../store/issues'
 import type { ReposRepository } from '../../store/repos'
-import { readIssue, readIssueCwdRows } from '../world-index/issue-reader'
+import { readIssue } from './issue-reader'
+import { deepestOwner, soleOwner } from './folder-owner'
 
 /** Issue authorization reads the committed IssueStore rows outside mutation
- * spans and live repository rows inside them. Boot quarantine disables snapshot binding so cwd ambiguity and ownership
- * semantics remain identical for structurally corrupt rows. */
+ * spans and live repository rows inside them; which issue owns a folder is one
+ * indexed query (`folder-owner.ts`, POD-6155). */
 export class DurableIssueAccessIndex implements IssueAccessIndex {
   constructor(
     private readonly issues: IssuesRepository,
@@ -56,62 +56,33 @@ export class DurableIssueAccessIndex implements IssueAccessIndex {
     return await readIssue(this.issues, id)
   }
 
-  async worktreePaths(): Promise<string[]> {
-    return (await readIssueCwdRows(this.issues))
-      .filter((row) => !row.deletedAt && row.worktreePath)
-      .map((row) => row.worktreePath as string)
+  /** Whether `cwd` is exactly some live issue's worktree. */
+  async isIssueWorktree(cwd: string): Promise<boolean> {
+    return (await this.issues.worktreeOwnerCandidates([cwd]))
+      .some((row) => row.worktreePath !== null && machinePathsEqual(row.worktreePath, cwd))
   }
 
   async soleOwnerForCwd(cwd: string): Promise<IssueId | null> {
     const repoRoots = new Set((await this.repos.listRepoPaths()).map(machinePathKey))
-    const owners = (await readIssueCwdRows(this.issues))
-      .filter(
-        (row) =>
-          !row.deletedAt &&
-          !row.archived &&
-          row.worktreePath !== null &&
-          !repoRoots.has(machinePathKey(row.worktreePath)) &&
-          isMemberCwd(row.worktreePath, cwd),
-      )
-    const deepest = owners.reduce(
-      (length, row) => Math.max(length, row.worktreePath ? machinePathKey(row.worktreePath).length : 0),
-      0,
-    )
-    const mostSpecific = owners.filter((row) => row.worktreePath && machinePathKey(row.worktreePath).length === deepest)
-    return mostSpecific.length === 1 ? (mostSpecific[0]?.id ?? null) : null
+    return soleOwner(await this.issues.worktreeOwnerCandidates([cwd]), cwd, repoRoots)
   }
 
   async issueForCwd(cwd: string): Promise<IssueId | null> {
-    return deepestOwner(await readIssueCwdRows(this.issues), cwd)
+    return deepestOwner(await this.issues.worktreeOwnerCandidates([cwd]), cwd)
   }
 
   /**
-   * {@link issueForCwd} for many cwds against ONE read of the issue rows
-   * (POD-5941). The host sample resolved every live shell's owner with its own
-   * `issueForCwd`, so each shell re-read the whole issue table four to six
-   * times per machine per five-second sample.
+   * {@link issueForCwd} for many cwds in ONE indexed read of the candidate
+   * issues (POD-5941, POD-6155): the host sample asks this for every live shell
+   * every five seconds, so its cost must not follow the number of shells or of
+   * issues.
    */
   async issuesForCwds(cwds: Iterable<string>): Promise<Map<string, IssueId | null>> {
     const owners = new Map<string, IssueId | null>()
-    const unique = new Set(cwds)
-    if (unique.size === 0) return owners
-    const rows = await readIssueCwdRows(this.issues)
+    const unique = [...new Set(cwds)]
+    if (unique.length === 0) return owners
+    const rows = await this.issues.worktreeOwnerCandidates(unique)
     for (const cwd of unique) owners.set(cwd, deepestOwner(rows, cwd))
     return owners
   }
-}
-
-/** The live issue whose worktree contains `cwd` most specifically; the first
- * such row in repository order wins a tie. */
-function deepestOwner(
-  rows: ReadonlyArray<{ id: IssueId; worktreePath: string | null; deletedAt?: string | null | undefined }>,
-  cwd: string,
-): IssueId | null {
-  let best: { id: IssueId; length: number } | undefined
-  for (const row of rows) {
-    if (row.deletedAt || !isMemberCwd(row.worktreePath, cwd)) continue
-    const length = row.worktreePath ? machinePathKey(row.worktreePath).length : 0
-    if (!best || length > best.length) best = { id: row.id, length }
-  }
-  return best?.id ?? null
 }

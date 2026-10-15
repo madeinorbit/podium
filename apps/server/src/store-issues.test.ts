@@ -325,7 +325,8 @@ describe('store issues', () => {
     })
     rawDb(s).prepare('UPDATE issues SET deleted_at = ? WHERE id = ?').run('t1', 'gone')
 
-    expect([...await s.issues.closedIssueIds()].sort()).toEqual(['done', 'duped', 'gone'])
+    expect([...await s.issues.closedIssueIdsAmong(['open', 'review', 'done', 'duped', 'gone', 'missing'])].sort()).toEqual(['done', 'duped', 'gone'])
+    expect([...await s.issues.closedIssueIdsAmong(['open', 'done'])]).toEqual(['done'])
   })
 })
 

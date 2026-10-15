@@ -34,7 +34,7 @@ import { afterCommit, applyAfterCommit } from '../../../store/executor/executor'
 import { decodePanel } from '../../../store/issue-storage'
 import { issueFromRow } from '../../../store/issues'
 import type { SessionFacts } from '../../sessions/facts'
-import { bindCommittedIssueReader } from '../../world-index/issue-reader'
+import { bindCommittedIssueReader } from '../issue-reader'
 import { normalizeBlankIssueText } from '../blank-text'
 import {
   issueDepProjectionRows,

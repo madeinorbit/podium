@@ -1,4 +1,4 @@
-import { readIssue, readIssues } from '../world-index/issue-reader'
+import { readIssue, readIssues } from '../issues/issue-reader'
 import { spanOpen } from '../../store/executor/executor'
 import {
   asIssueId,

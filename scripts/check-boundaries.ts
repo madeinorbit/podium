@@ -3657,9 +3657,9 @@ export function checkHistoryFromDisk(file: string, source: string): Violation[] 
   return violations
 }
 
-/** Hot paths may consume the read-only index and explicitly injected ports,
- * never import a repository. This participates in the whole-repo sweep. */
-export function checkWorldIndexBoundary(file: string, source: string): Violation[] {
+/** Hot paths consume explicitly injected ports (hot-path-ports.ts), never
+ * import a repository. This participates in the whole-repo sweep. */
+export function checkHotPathStoreBoundary(file: string, source: string): Violation[] {
   if (isTestFile(file) || file === 'apps/server/src/gateway/feed-test-plumbing.ts') return []
   const hot = file.startsWith('apps/server/src/gateway/') || [
     'apps/server/src/modules/sessions/daemon-lifecycle.ts',
@@ -3672,8 +3672,8 @@ export function checkWorldIndexBoundary(file: string, source: string): Violation
       ? relative(process.cwd(), resolve(dirname(file), ref.specifier)).split(sep).join('/')
       : ref.specifier.replace(/^@podium\/server(?:\/src)?(?=\/|$)/, 'apps/server/src')
     if (!/^apps\/server\/src\/store(?:[/.]|$)/.test(target)) return []
-    return [{ rule: 'world-index-reader-boundary', file, specifier: ref.specifier,
-      message: 'Hot paths receive WorldIndexReader or a named port; store imports belong to composition and persistence.' }]
+    return [{ rule: 'hot-path-store-boundary', file, specifier: ref.specifier,
+      message: 'Hot paths receive a named port (hot-path-ports.ts); store imports belong to composition and persistence.' }]
   })
 }
 
@@ -3796,7 +3796,7 @@ export function checkFile(
     ...checkTerminalObjectsServer(file, source),
     ...checkTerminalObjectsPrimitives(file, source),
     ...checkHistoryFromDisk(file, source),
-    ...checkWorldIndexBoundary(file, source),
+    ...checkHotPathStoreBoundary(file, source),
     ...checkReplicaDirection(file, source),
     ...checkStoreRawHandles(file, source),
     ...checkRepositoryDbCapture(file, source),

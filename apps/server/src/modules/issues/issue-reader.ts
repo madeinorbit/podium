@@ -1,11 +1,9 @@
-import { isIssueClosed } from '@podium/model'
 import type { IssuesRepository } from '../../store/issues'
 import type { IssueRow } from '../../store/types'
 import { spanOpen } from '../../store/executor/executor'
 
 type IssueReadPort = Pick<IssuesRepository, 'getIssue' | 'getIssues'>
-// As with grant-reader, repository identity isolates instances and unbound
-// repositories remain live. The callback borrows IssueStore's existing map.
+// Repository identity isolates instances and unbound repositories remain live. The callback borrows IssueStore's existing map.
 interface CommittedIssueReader {
   rows(): ReadonlyMap<string, IssueRow>
 }
@@ -42,12 +40,8 @@ export async function readIssues(repository: IssueReadPort, ids: readonly string
 
 /**
  * The repository's `ORDER BY repo_path, seq`: SQLite's BINARY collation, i.e.
- * UTF-8 byte order, then sequence.
- *
- * Each repo path is encoded ONCE per row, not once per comparison (POD-5941).
- * Encoding inside the comparator allocated two Buffers per comparison — about
- * 170k for 6.8k issues — and every live shell paid for a full sort on every
- * five-second host sample, which pinned the server's event loop.
+ * UTF-8 byte order, then sequence. Each repo path is encoded ONCE per row, not
+ * once per comparison (POD-5941).
  */
 function byRepoPathThenSeq<T extends { repoPath: string; seq: number }>(rows: Iterable<T>): T[] {
   const keyed = Array.from(rows, (row) => ({ row, key: Buffer.from(row.repoPath) }))
@@ -62,27 +56,9 @@ export async function readIssueRows(repository: IssueReadPort & Pick<IssuesRepos
   return byRepoPathThenSeq(reader.rows().values()).map(copy)
 }
 
-/**
- * Same rows and order as `listIssueCwdRows`, projected straight from the
- * committed snapshot: the five fields are primitives, so there is no whole-row
- * copy to make before throwing most of it away (POD-5941).
- */
-export async function readIssueCwdRows(repository: IssueReadPort & Pick<IssuesRepository, 'listIssueCwdRows' | 'listIssueRows'>) {
-  const reader = !spanOpen() && committedReaders.get(repository)
-  if (!reader) return await repository.listIssueCwdRows()
-  return byRepoPathThenSeq(reader.rows().values()).map(({ id, repoPath, worktreePath, deletedAt, archived }) =>
-    ({ id, repoPath, worktreePath, deletedAt, archived }))
-}
-
 export async function readIssueParentEdges(repository: IssueReadPort & Pick<IssuesRepository, 'listIssueParentEdges'>) {
   const reader = !spanOpen() && committedReaders.get(repository)
   if (!reader) return await repository.listIssueParentEdges()
   return [...reader.rows().values()].filter(row => row.deletedAt == null)
     .map(({ id, parentId }) => ({ id, parentId }))
-}
-
-export async function readClosedIssueIds(repository: IssueReadPort & Pick<IssuesRepository, 'closedIssueIds'>) {
-  const reader = !spanOpen() && committedReaders.get(repository)
-  if (!reader) return await repository.closedIssueIds()
-  return new Set([...reader.rows().values()].filter(row => row.deletedAt != null || isIssueClosed(row)).map(row => String(row.id)))
 }

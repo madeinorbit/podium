@@ -1,4 +1,3 @@
-import { WorldIndex } from '../world-index'
 import { asSessionId } from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
 import { describe, expect, it, vi } from 'vitest'
@@ -17,7 +16,6 @@ async function harness() {
   const sessionFacts = vi.fn(() => [])
   const deps: IssueDeps = {
     store,
-    worldIndex: (await WorldIndex.load(store)).reader,
     sessionFacts,
     sessionById: async () => undefined,
     listSessionsForIssue: async () => [],
@@ -60,23 +58,23 @@ describe('POD-826 lightweight issue lookups', () => {
     expect(sessionFacts).not.toHaveBeenCalled()
   })
 
-  it('uses the committed index without enumerating rows and retains staged reads', async () => {
+  it('answers the folder owner from the table, inside and outside a write span', async () => {
     const { deps, svc } = await harness()
     const created = await svc.crud.create({ repoPath: '/repo', title: 'indexed', startNow: false })
-    const row = (await svc.reports.getMeta(created.id))!
+    const row = (await deps.store.issues.getIssue(created.id))!
     const rows = (svc.reports.store as unknown as { rows: Map<string, typeof row> }).rows
     const scan = vi.spyOn(rows, 'values')
-    const indexed = vi.fn(deps.worldIndex!.issueForWorktree)
-    deps.worldIndex = { ...deps.worldIndex!, issueForWorktree: indexed }
-    // The row map deliberately differs to model a staged worktree installation.
-    rows.set(created.id, { ...row, worktreePath: '/staged' })
-    for (let i = 0; i < 200; i++) expect(svc.reports.issueForCwd('/staged/src')).toBeNull()
-    expect(indexed).toHaveBeenCalledTimes(200)
+    await deps.store.issues.upsertIssue({ ...row, worktreePath: '/wt' })
+    // One indexed query per answer (POD-6155); the issue map is never walked.
+    for (let i = 0; i < 20; i++) expect(await svc.reports.issueForCwd('/wt/src')).toBe(created.id)
     expect(scan).not.toHaveBeenCalled()
-    deps.applyCommit = { spanOpen: () => true, onCommit: () => ({ live: () => true }) }
-    expect(svc.reports.issueForCwd('/staged/src')).toBe(created.id)
-    expect(indexed).toHaveBeenCalledTimes(200)
-    expect(scan).toHaveBeenCalledTimes(1)
+    // Inside a write span the same query sees the span's own write.
+    await deps.store.transact(async () => {
+      await deps.store.issues.upsertIssue({ ...row, worktreePath: '/moved' })
+      expect(await svc.reports.issueForCwd('/moved/src')).toBe(created.id)
+      expect(await svc.reports.issueForCwd('/wt/src')).toBeNull()
+    })
+    expect(scan).not.toHaveBeenCalled()
   })
 
   it('keeps get as a session-free wire lookup', async () => {

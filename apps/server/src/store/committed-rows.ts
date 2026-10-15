@@ -37,7 +37,7 @@ export class CommittedRows<Row> {
       applyAfterCommit(() => {
         const change = { operation, rows }
         for (const listener of this.listeners) listener(change)
-      }, `world-index:${this.label}`)
+      }, `committed-rows:${this.label}`)
       return { changes: rows.length }
     })
   }

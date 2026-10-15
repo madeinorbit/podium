@@ -1,7 +1,7 @@
 import type { RepoId, SessionId } from '@podium/model'
 import { formatSessionRef } from '@podium/protocol'
 import type { IssueRow, SessionStore } from '../../store'
-import { readIssues } from '../world-index/issue-reader'
+import { readIssues } from '../issues/issue-reader'
 import type { SessionFacts } from './facts'
 
 /** Durable ref inputs, independent of the reader-scoped session projection. */

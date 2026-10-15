@@ -336,7 +336,7 @@ export class SessionReadToolkit {
     if (!target) throw new Error(`no session found for ${ref}`)
     await this.logRead('session.status_read', target.sessionId, reader)
     const issues = this.deps.issues
-    const issueId = target.issueId ?? issues.reports.issueForCwd(target.cwd)
+    const issueId = target.issueId ?? (await issues.reports.issueForCwd(target.cwd))
     // Full wire is intentional: status surfaces the derived panel todo projection.
     const issue = issueId ? await issues.reports.get(issueId) : null
     const [log, status] = await Promise.all([

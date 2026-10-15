@@ -712,10 +712,11 @@ export class MessageDeliveryService {
     else this.sessionIssueTargets.delete(sessionId)
   }
 
-  private seedMembership(sessions: readonly SessionFacts[], preserveKnown = false): void {
-    for (const session of sessions) {
-      if (preserveKnown && this.routingMembership.has(session.sessionId)) continue
-      this.rememberMembership(session.sessionId, session, this.issueForSession(session))
+  private async seedMembership(sessions: readonly SessionFacts[], preserveKnown = false): Promise<void> {
+    const pending = sessions.filter((session) => !(preserveKnown && this.routingMembership.has(session.sessionId)))
+    const owners = await this.issuesForSessions(pending)
+    for (const session of pending) {
+      this.rememberMembership(session.sessionId, session, owners.get(session.sessionId) ?? null)
     }
     this.routingMembershipReady = true
   }
@@ -728,9 +729,10 @@ export class MessageDeliveryService {
   private async requeueSessionTargets(
     sessionId: SessionId,
     session: Pick<SessionFacts, 'cwd' | 'issueId'> | undefined,
+    resolved?: IssueId | null,
   ): Promise<void> {
     const previousIssueId = this.sessionIssueTargets.get(sessionId)
-    const nextIssueId = this.issueForSession(session)
+    const nextIssueId = resolved !== undefined ? resolved : await this.issueForSession(session)
     this.rememberMembership(sessionId, session, nextIssueId)
 
     await this.queueDeliveryTarget({ kind: 'session', id: sessionId })
@@ -756,7 +758,7 @@ export class MessageDeliveryService {
   async onIssuesEligibilityChanged(issueIds: readonly string[]): Promise<void> {
     const changed = new Set(issueIds)
     if (changed.size === 0) return
-    if (!this.routingMembershipReady) this.seedMembership(this.deps.sessions.sessionFacts(), true)
+    if (!this.routingMembershipReady) await this.seedMembership(this.deps.sessions.sessionFacts(), true)
     const candidates = new Set<SessionId>()
     for (const issueId of changed) {
       await this.queueDeliveryTarget({ kind: 'issue', id: issueId })
@@ -795,11 +797,13 @@ export class MessageDeliveryService {
       // Preserve the before-state needed by detach/reassign events without
       // issuing two principal COUNTs per live session on the overwhelmingly
       // common empty-queue boot path.
-      this.seedMembership(sessions)
+      await this.seedMembership(sessions)
       return
     }
+    // Every session's owning issue in one read, not one per session (POD-6155).
+    const owners = await this.issuesForSessions(sessions)
     for (const session of sessions) {
-      await this.requeueSessionTargets(session.sessionId, session)
+      await this.requeueSessionTargets(session.sessionId, session, owners.get(session.sessionId) ?? null)
     }
     this.routingMembershipReady = true
     await this.scheduler.reconcile()
@@ -943,7 +947,7 @@ export class MessageDeliveryService {
     // never braked. Checked at send; the sweep also honours it on retries.
     if (lifecycle === 'wake' && !exemptFromWakeCooldown(principalOf(from))) {
       const issueKey =
-        input.to.kind === 'issue' ? (toId ?? '') : this.issueForSession(targetSession)
+        input.to.kind === 'issue' ? (toId ?? '') : await this.issueForSession(targetSession)
       const key = `${(await this.senderKey(from))}|${issueKey ?? toId ?? ''}`
       if (await this.brakes.isWakeHot(key)) {
         clamps.push({ lifecycle, reason: 'wake cooldown (1 per 10min per sender+issue)' })
@@ -1439,7 +1443,7 @@ export class MessageDeliveryService {
       // the parked session's machine; the spawn may land on the ISSUE's machine
       // instead (issue.machineId), so re-check against that placement target.
       const issueId =
-        this.issueForSession(target) ?? (message.toId ? asIssueId(message.toId) : null)
+        (await this.issueForSession(target)) ?? (message.toId ? asIssueId(message.toId) : null)
       const issueMachine = issueId ? (await this.deps.issues.reports.get(issueId))?.machineId : undefined
       if (issueMachine && issueMachine !== target.machineId) {
         const denied = await this.refuseWakeUnlessUsable(message, issueMachine, opts?.viaSweep === true)
@@ -1563,7 +1567,7 @@ export class MessageDeliveryService {
     text: string
   }): Promise<string> {
     const parent = await this.deps.sessions.sessionById(input.parentSessionId)
-    const parentIssue = this.issueForSession(parent)
+    const parentIssue = await this.issueForSession(parent)
     return await this.recordPrompt(
       {
         kind: 'agent',
@@ -2196,15 +2200,35 @@ export class MessageDeliveryService {
 
   // ---- state helpers ----
 
-  private issueForSession(s: Pick<SessionMeta, 'issueId' | 'cwd'> | undefined): IssueId | null {
+  private async issueForSession(s: Pick<SessionMeta, 'issueId' | 'cwd'> | undefined): Promise<IssueId | null> {
     if (!s) return null
     if (s.issueId) return s.issueId
     try {
-      const issueId = this.deps.issues.reports.issueForCwd(s.cwd)
+      const issueId = await this.deps.issues.reports.issueForCwd(s.cwd)
       return issueId ? asIssueId(issueId) : null
     } catch {
       return null
     }
+  }
+
+  /** {@link issueForSession} for many sessions: the bound ones answer
+   *  themselves, the rest share one indexed folder read. */
+  private async issuesForSessions(
+    sessions: readonly Pick<SessionFacts, 'sessionId' | 'issueId' | 'cwd'>[],
+  ): Promise<Map<SessionId, IssueId | null>> {
+    const out = new Map<SessionId, IssueId | null>()
+    const unbound = sessions.filter((session) => !session.issueId)
+    let owners = new Map<string, IssueId | null>()
+    try {
+      if (unbound.length > 0) owners = await this.deps.issues.reports.issuesForCwds(unbound.map((s) => s.cwd))
+    } catch {
+      owners = new Map()
+    }
+    for (const session of sessions) {
+      const issueId = session.issueId ?? owners.get(session.cwd) ?? null
+      out.set(session.sessionId, issueId ? asIssueId(issueId) : null)
+    }
+    return out
   }
 
   /** ONE definition of the brake bucket, in `@podium/commands` — see
@@ -2279,7 +2303,7 @@ export class MessageDeliveryService {
       m.toKind === 'session' && m.toId
         ? await this.deps.sessions.sessionById(asSessionId(m.toId))
         : undefined
-    const issueKey = m.toKind === 'issue' ? m.toId : this.issueForSession(target)
+    const issueKey = m.toKind === 'issue' ? m.toId : await this.issueForSession(target)
     return `${this.senderKeyOfRow(m)}|${issueKey ?? m.toId ?? ''}`
   }
 
@@ -2293,7 +2317,7 @@ export class MessageDeliveryService {
 
   private async recordWake(message: MessageRow, target: SessionMeta | undefined): Promise<void> {
     if (exemptFromWakeCooldown(principalOfRow(message))) return
-    const issueKey = message.toKind === 'issue' ? message.toId : this.issueForSession(target)
+    const issueKey = message.toKind === 'issue' ? message.toId : await this.issueForSession(target)
     await this.brakes.recordWake(`${this.senderKeyOfRow(message)}|${issueKey ?? message.toId ?? ''}`)
   }
 
@@ -2761,7 +2785,7 @@ export class MessageDeliveryService {
     const issueId =
       message.toKind === 'issue'
         ? message.toId
-        : this.issueForSession(
+        : await this.issueForSession(
             message.toId
               ? await this.deps.sessions.sessionById(asSessionId(message.toId))
               : undefined,

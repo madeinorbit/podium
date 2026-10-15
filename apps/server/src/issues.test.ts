@@ -3876,13 +3876,13 @@ describe('IssueService.issueForCwd (P1b)', () => {
     const i = await svc.crud.create({ repoPath: '/r', title: 'W', startNow: false })
     await svc.gitWorkflow.start(i.id) // sets worktreePath
     const wt = (await svc.reports.get(i.id))!.worktreePath as string
-    expect(svc.reports.issueForCwd(wt)).toBe(i.id)
-    expect(svc.reports.issueForCwd(`${wt}/sub/dir`)).toBe(i.id)
-    expect(svc.reports.issueForCwd('/somewhere/else')).toBeNull()
+    expect(await svc.reports.issueForCwd(wt)).toBe(i.id)
+    expect(await svc.reports.issueForCwd(`${wt}/sub/dir`)).toBe(i.id)
+    expect(await svc.reports.issueForCwd('/somewhere/else')).toBeNull()
   })
 
   it('picks the most specific worktree when one contains another (POD-529)', async () => {
-    const { svc } = await harness()
+    const { svc, store } = await harness()
     const broad = await svc.crud.create({ repoPath: '/r', title: 'Broad', startNow: false })
     const narrow = await svc.crud.create({ repoPath: '/r', title: 'Narrow', startNow: false })
     await svc.gitWorkflow.start(broad.id)
@@ -3890,12 +3890,10 @@ describe('IssueService.issueForCwd (P1b)', () => {
     const broadWt = (await svc.reports.get(broad.id))!.worktreePath as string
     // Simulate a narrow worktree nested under the broad one (row-level, no git).
     const nested = `${broadWt}/nested/issue-narrow`
-    await svc.reports.get(narrow.id) // ensure row exists
-    ;(svc.reports.store as never as { rows: Map<string, { worktreePath: string | null }> }).rows.get(
-      narrow.id,
-    )!.worktreePath = nested
-    expect(svc.reports.issueForCwd(`${nested}/src`)).toBe(narrow.id)
-    expect(svc.reports.issueForCwd(`${broadWt}/other`)).toBe(broad.id)
+    // Row-level move, straight to the table the folder lookup reads (POD-6155).
+    await store.issues.upsertIssue({ ...(await store.issues.getIssue(narrow.id))!, worktreePath: nested })
+    expect(await svc.reports.issueForCwd(`${nested}/src`)).toBe(narrow.id)
+    expect(await svc.reports.issueForCwd(`${broadWt}/other`)).toBe(broad.id)
   })
 
   it('addSession passes the explicit issueId to spawn (POD-529)', async () => {

@@ -1,4 +1,4 @@
-import { readIssue, readIssues } from './modules/world-index/issue-reader'
+import { readIssue, readIssues } from './modules/issues/issue-reader'
 /**
  * THE FEED'S VISIBILITY POLICY (POD-418).
  *

@@ -1,4 +1,4 @@
-import { readIssues, readIssueParentEdges } from '../world-index/issue-reader'
+import { readIssues, readIssueParentEdges } from '../issues/issue-reader'
 /**
  * WHAT A TASK COST (POD-1858) — the read path, and the fold that fills it.
  *

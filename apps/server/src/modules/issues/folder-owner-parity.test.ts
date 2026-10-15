@@ -1,16 +1,16 @@
 /**
- * Old/new parity for "which issue owns this folder" (POD-6155 step 5).
+ * "Which issue owns this folder" answers like the durable access index always
+ * did (POD-6155 step 5).
  *
- * OLD: the durable access index (`DurableIssueAccessIndex.issueForCwd`,
- * `issuesForCwds`, `soleOwnerForCwd`), which copies and sorts every issue row
- * on every call, and the world index's literal-prefix map
- * (`WorldIndex.reader.issueForWorktree`). NEW: one indexed query for the
- * candidates (`IssuesRepository.worktreeOwnerCandidates`) and the pure ranking
- * in `folder-owner.ts`. Compared over the benchmark corpus (POD-6146: cell
- * h1a1, seed 4443: its issues' worktrees and repos, its sessions' folders) and
- * edge cases: nested worktrees, repo roots, deleted and archived issues, ties,
- * trailing separators, relative paths, and Windows drive, UNC, mixed-separator
- * and mixed-case forms.
+ * Before the world index and the access index's whole-table scans were
+ * deleted, this file compared them with the new indexed query over the
+ * benchmark corpus (POD-6146: cell h1a1, seed 4443) and these edge cases, at
+ * the commit that adds it. What stays is the edge-case part, as a regression
+ * test against an oracle that runs the old algorithm (`isMemberCwd` over every
+ * live row in repository order, the deepest `machinePathKey` winning) on the
+ * fixture rows: nested worktrees, repo roots, deleted and archived issues,
+ * ties, trailing separators, relative paths, and Windows drive, UNC,
+ * mixed-separator and mixed-case forms.
  *
  * ONE DELIBERATE DIFFERENCE, pinned at the end: a POSIX-absolute folder used to
  * count as inside a Windows-style worktree with the same tail (`/r/wt` inside
@@ -19,13 +19,13 @@
  * never meet in a real answer; the new lookup does not reproduce it.
  */
 
-import { fileURLToPath } from 'node:url'
-import { asIssueId, firstAdminMemberId, machinePathKey } from '@podium/model'
+import { firstAdminMemberId, type IssueId, machinePathKey } from '@podium/model'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { SessionStore } from '../../store'
 import { openTestStore } from '../../test-support/open-test-store'
+import { expectConstantStatements } from '../../test-support/statement-count'
 import { issueRowFixture } from '../../test-support/issue-row'
-import { WorldIndex } from '../world-index'
+import { isMemberCwd } from '../../issue-util'
 import { DurableIssueAccessIndex } from './access-index'
 import { deepestOwner, soleOwner } from './folder-owner'
 
@@ -41,18 +41,6 @@ interface CorpusIssue {
   worktreePath: string | null
   archived: boolean
   deletedAt: string | null
-}
-
-async function exportedCorpus() {
-  const module = fileURLToPath(new URL('../../../../../scripts/server-data-bench/corpus-export.ts', import.meta.url))
-  const { exportCorpus } = (await import(module)) as {
-    exportCorpus(cell: string, seed: number): Promise<{
-      issues: CorpusIssue[]
-      sessions: { cwd: string }[]
-      repos: string[]
-    }>
-  }
-  return await exportCorpus('h1a1', 4443)
 }
 
 async function seed(store: SessionStore, repos: readonly string[], rows: readonly CorpusIssue[]) {
@@ -76,58 +64,47 @@ async function seed(store: SessionStore, repos: readonly string[], rows: readonl
   }
 }
 
-/** Every folder worth asking about: each worktree, below it, above it, beside it. */
-function foldersOf(rows: readonly CorpusIssue[], extra: readonly string[]): string[] {
-  const folders = new Set(extra)
-  for (const row of rows) {
-    if (!row.worktreePath) continue
-    folders.add(row.worktreePath)
-    folders.add(`${row.worktreePath}/src/deep`)
-    folders.add(`${row.worktreePath}-sibling`)
-    const parent = row.worktreePath.slice(0, row.worktreePath.lastIndexOf('/'))
-    if (parent) folders.add(parent)
+/** The old algorithm, over every live fixture row in BINARY repository order. */
+function oracle(rows: readonly CorpusIssue[], cwd: string, roots: ReadonlySet<string>) {
+  const live = rows
+    .filter((row) => !row.deletedAt)
+    .map((row) => ({ ...row, key: Buffer.from(row.repoPath ?? '') }))
+    .sort((a, b) => Buffer.compare(a.key, b.key) || a.seq - b.seq)
+  const depth = (row: CorpusIssue) => (row.worktreePath ? machinePathKey(row.worktreePath).length : 0)
+  let owner: { id: string; length: number } | undefined
+  for (const row of live) {
+    if (!isMemberCwd(row.worktreePath, cwd)) continue
+    if (!owner || depth(row) > owner.length) owner = { id: row.id, length: depth(row) }
   }
-  return [...folders]
+  const candidates = live.filter((row) => !row.archived && row.worktreePath !== null
+    && !roots.has(machinePathKey(row.worktreePath)) && isMemberCwd(row.worktreePath, cwd))
+  const deepest = Math.max(0, ...candidates.map(depth))
+  const sole = candidates.filter((row) => depth(row) === deepest)
+  return { owner: (owner?.id ?? null) as IssueId | null, sole: (sole.length === 1 ? sole[0]!.id : null) as IssueId | null }
 }
 
-async function expectParity(store: SessionStore, folders: readonly string[], world?: WorldIndex) {
+async function expectAnswers(store: SessionStore, rows: readonly CorpusIssue[], folders: readonly string[]) {
   const access = new DurableIssueAccessIndex(store.issues, store.grants, store.repos)
   const roots = new Set((await store.repos.listRepoPaths()).map(machinePathKey))
-  const rows = await store.issues.worktreeOwnerCandidates(folders)
-  const oldMany = await access.issuesForCwds(folders)
+  const shared = await store.issues.worktreeOwnerCandidates(folders)
+  const many = await access.issuesForCwds(folders)
   const mismatches: unknown[] = []
   for (const cwd of folders) {
-    // NEW answers from one shared candidate read, and from a read of its own.
-    const own = await store.issues.worktreeOwnerCandidates([cwd])
-    const answer = { owner: deepestOwner(rows, cwd), alone: deepestOwner(own, cwd), sole: soleOwner(own, cwd, roots) }
-    const old = { owner: await access.issueForCwd(cwd), alone: oldMany.get(cwd) ?? null, sole: await access.soleOwnerForCwd(cwd) }
-    if (JSON.stringify(answer) !== JSON.stringify(old)) mismatches.push({ cwd, old, new: answer })
-    // The world index probes literal '/' prefixes only (no trailing-slash or
-    // Windows roots) and breaks ties by locale order; it agrees wherever those
-    // never arise, which is every folder in the corpus.
-    if (world) {
-      const literal = world.reader.issueForWorktree(cwd) ?? null
-      if (literal !== answer.owner) mismatches.push({ cwd, world: literal, new: answer.owner })
+    const want = oracle(rows, cwd, roots)
+    const got = {
+      owner: await access.issueForCwd(cwd),
+      shared: deepestOwner(shared, cwd),
+      many: many.get(cwd) ?? null,
+      sole: await access.soleOwnerForCwd(cwd),
+      soleShared: soleOwner(shared, cwd, roots),
     }
+    const expected = { owner: want.owner, shared: want.owner, many: want.owner, sole: want.sole, soleShared: want.sole }
+    if (JSON.stringify(got) !== JSON.stringify(expected)) mismatches.push({ cwd, got, expected })
   }
   expect(mismatches).toEqual([])
 }
 
-describe('folder owner: old copies and the new query give the same answers', () => {
-  it('over the benchmark corpus', async () => {
-    const corpus = await exportedCorpus()
-    const store = await openTestStore(':memory:')
-    stores.push(store)
-    const repos = [...new Set([...corpus.repos, ...corpus.issues.flatMap((row) => (row.repoPath ? [row.repoPath] : []))])]
-    const rows = corpus.issues.map((row) => ({ ...row, id: `iss_${row.id}` }))
-    await seed(store, repos, rows)
-    expect(rows.filter((row) => row.worktreePath).length).toBeGreaterThan(100)
-    const world = await WorldIndex.load(store)
-    const folders = foldersOf(rows, [...corpus.sessions.map((session) => session.cwd), ...repos])
-    expect(folders.length).toBeGreaterThan(1000)
-    await expectParity(store, folders, world)
-  }, 300_000)
-
+describe('folder owner: the indexed query answers like the old algorithm', () => {
   it('over the edge cases', async () => {
     const store = await openTestStore(':memory:')
     stores.push(store)
@@ -153,7 +130,7 @@ describe('folder owner: old copies and the new query give the same answers', () 
       issue('C:\\Repo\\.worktrees\\Win\\Inner', { repoPath: 'C:\\Repo' }),
     ]
     await seed(store, ['/r', '/a', 'C:\\Repo'], rows)
-    await expectParity(store, [
+    await expectAnswers(store, rows, [
       '/r', '/r/', '/r/src', '/r/.worktrees', '/r/.worktrees/a', '/r/.worktrees/a/', '/r/.worktrees/a/x',
       '/r/.worktrees/a/nested', '/r/.worktrees/a/nested/deeper', '/r/.worktrees/a-sibling',
       '/r/.worktrees/deleted/x', '/r/.worktrees/archived', '/r/.worktrees/archived/x',
@@ -173,7 +150,29 @@ describe('folder owner: old copies and the new query give the same answers', () 
     // The one deliberate difference (see the header).
     const access = new DurableIssueAccessIndex(store.issues, store.grants, store.repos)
     const crossForm = '/Repo/.worktrees/Win/x'
-    expect(await access.issueForCwd(crossForm)).toBe(asIssueId('iss_edge_12'))
-    expect(deepestOwner(await store.issues.worktreeOwnerCandidates([crossForm]), crossForm)).toBeNull()
+    expect(oracle(rows, crossForm, new Set()).owner).toBe('iss_edge_12')
+    expect(await access.issueForCwd(crossForm)).toBeNull()
+  })
+
+  it('answers a set of folders in one statement, however many issues there are', async () => {
+    const folders = Array.from({ length: 50 }, (_, i) => `/r/.worktrees/wt-${i}/src/deep`)
+    await expectConstantStatements(
+      {
+        name: 'issuesForCwds',
+        setup: async (size) => {
+          const store = await openTestStore(':memory:')
+          stores.push(store)
+          await seed(store, ['/r'], Array.from({ length: size }, (_, i) => ({
+            id: `iss_count_${i}`, seq: i + 1, repoPath: '/r', worktreePath: `/r/.worktrees/wt-${i}`,
+            archived: false, deletedAt: null,
+          })))
+          return { store, access: new DurableIssueAccessIndex(store.issues, store.grants, store.repos) }
+        },
+        target: (f) => f.store,
+        run: async (f) => await f.access.issuesForCwds(folders),
+        check: (owners) => expect((owners as Map<string, string | null>).get(folders[0]!)).toBe('iss_count_0'),
+      },
+      1,
+    )
   })
 })

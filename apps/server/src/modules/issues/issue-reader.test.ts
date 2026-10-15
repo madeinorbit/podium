@@ -7,8 +7,7 @@ import { IssueStore } from '../issues/service/core'
 import type { IssueDeps } from '../issues/service/types'
 import { DurableIssueAccessIndex } from '../issues/access-index'
 import { MemoryVisibilityPolicy } from '../memory/visibility'
-import { WorldIndex } from './index'
-import { readIssue, readIssues, readIssueRows, readIssueCwdRows, readIssueParentEdges, readClosedIssueIds } from './issue-reader'
+import { readIssue, readIssues, readIssueRows, readIssueParentEdges } from './issue-reader'
 
 const stores: SessionStore[] = []
 afterEach(async () => { for (const store of stores.splice(0)) await store.close() })
@@ -68,7 +67,6 @@ async function setup(bound: boolean) {
   // An issue row resolves its repo only through a machine that REPORTED it (2b803efb5).
   await store.repos.addRepo('/r', store.hostMachineId)
   await store.issues.upsertIssue(issueRow({ ownerUserId: alice }))
-  await WorldIndex.load(store)
   // Only hydration and row projection are needed; workflow ports are not used.
   const index = bound ? await new IssueStore({ store } as IssueDeps).init() : undefined
   return { store, index }
@@ -186,16 +184,20 @@ it('preserves cwd ordering, archive ambiguity, and lightweight projections', asy
   await store.issues.upsertIssue(issueRow({ id: asIssueId('iss_y'), seq: 2, worktreePath: '/r/work', parentId: asIssueId('iss_x'), stage: 'done' }))
   const access = new DurableIssueAccessIndex(store.issues, store.grants, store.repos)
   const before = {
-    cwd: await store.issues.listIssueCwdRows(), parents: await store.issues.listIssueParentEdges(), closed: await store.issues.closedIssueIds(),
-    match: await access.issueForCwd('/r/work/sub'), sole: await access.soleOwnerForCwd('/r/work/sub'), paths: await access.worktreePaths(),
+    parents: await store.issues.listIssueParentEdges(), closed: await store.issues.closedIssueIdsAmong(['iss_x', 'iss_y']),
+    match: await access.issueForCwd('/r/work/sub'), sole: await access.soleOwnerForCwd('/r/work/sub'),
   }
+  expect(before.closed).toEqual(new Set(['iss_y']))
+  // The archived issue is first in repository order, so it owns the folder; it
+  // is not a sole owner, and the live one alone is not ambiguous.
+  expect(before.match).toBe('iss_x')
+  expect(before.sole).toBe('iss_y')
   await new IssueStore({ store } as IssueDeps).init()
-  expect(await readIssueCwdRows(store.issues)).toEqual(before.cwd)
   expect(await readIssueParentEdges(store.issues)).toEqual(before.parents)
-  expect(await readClosedIssueIds(store.issues)).toEqual(before.closed)
   expect(await access.issueForCwd('/r/work/sub')).toBe(before.match)
   expect(await access.soleOwnerForCwd('/r/work/sub')).toBe(before.sole)
-  expect(await access.worktreePaths()).toEqual(before.paths)
+  expect(await access.isIssueWorktree('/r/work')).toBe(true)
+  expect(await access.isIssueWorktree('/r/work/sub')).toBe(false)
 })
 
 it('disables the snapshot when boot quarantines a row', async () => {
@@ -204,14 +206,11 @@ it('disables the snapshot when boot quarantines a row', async () => {
   raw.prepare("INSERT INTO issues (id, owner_user_id, created_by_actor, repo_path, seq, title, stage, default_agent, created_at, updated_at) VALUES (NULL, 'alice', 'alice', '/r', 99, 'bad', 'backlog', 'claude-code', 't', 't')").run()
   await new IssueStore({ store } as IssueDeps).init()
   const point = vi.spyOn(store.issues, 'getIssue')
-  const cwd = vi.spyOn(store.issues, 'listIssueCwdRows')
   expect((await readIssue(store.issues, 'iss_x'))?.ownerUserId).toBe(alice)
-  await readIssueCwdRows(store.issues)
   expect(point).toHaveBeenCalledOnce()
-  expect(cwd).toHaveBeenCalledOnce()
 })
 
-it('orders snapshot cwd rows by repo-path bytes like SQL, and batches owners identically (POD-5941)', async () => {
+it('orders by repo-path bytes like SQL, and batches folder owners identically (POD-5941, POD-6155)', async () => {
   const { store } = await setup(false)
   // U+FF01 sorts AFTER the surrogate pair of U+1F600 in UTF-16 but BEFORE it in
   // UTF-8 bytes (SQLite BINARY): string comparison would get this pair wrong.
@@ -231,18 +230,16 @@ it('orders snapshot cwd rows by repo-path bytes like SQL, and batches owners ide
   const access = new DurableIssueAccessIndex(store.issues, store.grants, store.repos)
   const cwds = ['/w', '/w/deep/x', '/w/other', '/elsewhere']
   const before = {
-    cwd: await store.issues.listIssueCwdRows(),
     rows: (await store.issues.listIssueRows()).map(row => row.id),
     owners: await Promise.all(cwds.map(cwd => access.issueForCwd(cwd))),
   }
+  // Ties go to the first row in BINARY repo-path order: '/a', seq 11 / 12.
+  expect(before.owners).toEqual(['iss_2', 'iss_3', 'iss_2', null])
   await new IssueStore({ store } as IssueDeps).init()
   const list = vi.spyOn(store.issues, 'listIssueRows')
-  const cwdList = vi.spyOn(store.issues, 'listIssueCwdRows')
-  expect(await readIssueCwdRows(store.issues)).toEqual(before.cwd)
   expect((await readIssueRows(store.issues)).map(row => row.id)).toEqual(before.rows)
   expect(await Promise.all(cwds.map(cwd => access.issueForCwd(cwd)))).toEqual(before.owners)
   expect([...(await access.issuesForCwds([...cwds, '/w'])).entries()]).toEqual(cwds.map((cwd, i) => [cwd, before.owners[i]]))
   expect(list).not.toHaveBeenCalled()
-  expect(cwdList).not.toHaveBeenCalled()
   expect(await access.issuesForCwds([])).toEqual(new Map())
 })

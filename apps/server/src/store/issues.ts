@@ -100,21 +100,26 @@ const issueById = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
-const issueCwdRows = prepared((db: StoreDrizzle) =>
-  db
-    .select({
-      id: issues.id,
-      repoPath: issues.repoPath,
-      worktreePath: issues.worktreePath,
-      deletedAt: issues.deletedAt,
-      archived: issues.archived,
-    })
-    .from(issues)
-    .orderBy(asc(issues.repoPath), asc(issues.seq))
-    .prepare(),
-)
 
-const issueClosureRows = prepared((db: StoreDrizzle) =>
+
+/** Closed or deleted, by the same rule as `isIssueClosed`; a NULL id is skipped. */
+function closedOf(rows: readonly { id: unknown; stage: unknown; closedReason: string | null; deletedAt: string | null }[]): Set<string> {
+  const out = new Set<string>()
+  for (const r of rows) {
+    if (typeof r.id !== 'string') continue
+    const closed =
+      r.deletedAt != null ||
+      isIssueClosed({
+        stage: typeof r.stage === 'string' ? r.stage : '',
+        closedReason: r.closedReason,
+      })
+    if (closed) out.add(r.id)
+  }
+  return out
+}
+
+/** The closure columns for a set of ids; one shape per IN-list size. */
+const issueClosureRowsOf = preparedFamily((db: StoreDrizzle, size: number) =>
   db
     .select({
       id: issues.id,
@@ -123,6 +128,7 @@ const issueClosureRows = prepared((db: StoreDrizzle) =>
       deletedAt: issues.deletedAt,
     })
     .from(issues)
+    .where(inListOf(issues.id, size, 'ids'))
     .prepare(),
 )
 
@@ -221,18 +227,6 @@ const worktreeOwnersOf = preparedFamily((db: StoreDrizzle, size: number) => {
  *  bound-parameter limit. */
 const WORKTREE_OWNER_CHUNK = 2048
 
-const issueWorktreeRows = prepared((db: StoreDrizzle) =>
-  db
-    .select({
-      id: issues.id,
-      repoPath: issues.repoPath,
-      seq: issues.seq,
-      worktreePath: issues.worktreePath,
-      deletedAt: issues.deletedAt,
-    })
-    .from(issues)
-    .prepare(),
-)
 
 const deleteRefLettersOf = prepared((db: StoreDrizzle) =>
   db
@@ -919,11 +913,6 @@ function byRepoPathThenSeq<T extends { repoPath: string; seq: number }>(rows: It
   return keyed.map(({ row }) => row)
 }
 
-export type IssueWorktreeRow = Pick<
-  IssueRow,
-  'id' | 'repoPath' | 'seq' | 'worktreePath' | 'deletedAt'
->
-
 /** One row of the label vocabulary (POD-6106). `id` is server-local. */
 export type LabelRow = typeof labels.$inferSelect
 
@@ -1286,82 +1275,23 @@ export class IssuesRepository {
   }
 
   /**
-   * The CWD-RESOLUTION PROJECTION [POD-1653] — five columns, no row mapping.
-   *
-   * `DurableIssueAccessIndex` answers three questions from the issue table
-   * (which worktrees exist, which issue owns this cwd, who solely owns it) and
-   * answered all three with `listIssueRows()`: `SELECT *` over every issue,
-   * each row then run through `mapIssueRow`, which parses several JSON columns.
-   * On the live host that is ~1600 rows fully materialized — and it sat on a
-   * per-message path (`worktreePaths().includes(cwd)`), so a membership test
-   * cost a full scan plus 1600 JSON parses.
-   *
-   * The questions only ever read `worktree_path`, `repo_path`, `deleted_at` and
-   * `archived`. Reading those columns keeps the answer identical while dropping
-   * both the row payload and the mapping entirely.
-   *
-   * Deliberately still a LIVE read, once per call. This index exists to reflect
-   * durable state without a snapshot (see its header); making it cheaper is not
-   * a licence to make it stale.
-   */
-  async listIssueCwdRows(): Promise<
-    {
-      id: IssueId
-      repoPath: string
-      worktreePath: string | null
-      deletedAt: string | null
-      archived: boolean
-    }[]
-  > {
-    const rows = await issueCwdRows(this.db).all()
-    const out: {
-      id: IssueId
-      repoPath: string
-      worktreePath: string | null
-      deletedAt: string | null
-      archived: boolean
-    }[] = []
-    for (const r of rows) {
-      // Same structural quarantine listIssueRows applies: a NULL id or repo_path
-      // is a corrupt row, and it must not reach a cwd decision.
-      if (typeof r.id !== 'string' || typeof r.repoPath !== 'string') continue
-      out.push({
-        id: r.id,
-        repoPath: r.repoPath,
-        worktreePath: r.worktreePath,
-        deletedAt: r.deletedAt,
-        archived: r.archived,
-      })
-    }
-    return out
-  }
-
-  /**
-   * The FINISHED-WORK PROJECTION — two columns, no row mapping.
+   * The FINISHED-WORK PROJECTION for a set of issues — four columns, no row
+   * mapping, read by primary key (POD-6155).
    *
    * The auto-hibernate sweep orders its candidates by whether the work they sit
    * on is finished (POD-568), which it asks once per host sample. Answering that
-   * with `getIssues()` would be `SELECT *` plus `mapIssueRow`'s JSON parses over
-   * every issue a live session touches, on a five-second path — the exact cost
-   * {@link listIssueCwdRows} exists to have removed.
-   *
-   * Only `stage` and `closed_reason` are read, and the predicate itself stays
-   * {@link isIssueClosed}'s so there is one definition of finished. Deleted rows
-   * count as closed: a session on a tombstoned issue is at least as reapable as
-   * one on a done issue, and quarantining it would order it BELOW live work.
+   * with `getIssues()` would be `SELECT *` plus `mapIssueRow`'s JSON parses on a
+   * five-second path. The predicate stays {@link isIssueClosed}'s so there is
+   * one definition of finished. Deleted rows count as closed: a session on a
+   * tombstoned issue is at least as reapable as one on a done issue.
    */
-  async closedIssueIds(): Promise<Set<string>> {
-    const rows = await issueClosureRows(this.db).all()
+  async closedIssueIdsAmong(ids: Iterable<string>): Promise<Set<string>> {
+    const unique = [...new Set(ids)]
     const out = new Set<string>()
-    for (const r of rows) {
-      if (typeof r.id !== 'string') continue
-      const closed =
-        r.deletedAt != null ||
-        isIssueClosed({
-          stage: typeof r.stage === 'string' ? r.stage : '',
-          closedReason: r.closedReason,
-        })
-      if (closed) out.add(r.id)
+    for (let at = 0; at < unique.length; at += 500) {
+      const chunk = unique.slice(at, at + 500)
+      const size = inListSize(chunk.length)
+      for (const id of closedOf(await issueClosureRowsOf(this.db, size).all(inListValues(chunk.map(asIssueId), size, 'ids')))) out.add(id)
     }
     return out
   }
@@ -1514,10 +1444,6 @@ export class IssuesRepository {
       }
     }
     return byRepoPathThenSeq(byId.values())
-  }
-
-  async loadWorldIssuePaths(): Promise<IssueWorktreeRow[]> {
-    return await issueWorktreeRows(this.db).all()
   }
 
   async deleteIssue(id: string): Promise<void> {

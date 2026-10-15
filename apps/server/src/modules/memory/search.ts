@@ -1,4 +1,4 @@
-import { readIssueRows } from '../world-index/issue-reader'
+import { readIssueRows } from '../issues/issue-reader'
 import { asIssueId, asMachineId, machineScopedKey } from '@podium/model'
 import type { SearchResultWire } from '@podium/protocol'
 import type { SessionStore } from '../../store'

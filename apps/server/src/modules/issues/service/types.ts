@@ -22,7 +22,6 @@ import type { LinearIssue } from '../../../linear'
 import type { llmClient } from '../../../llm'
 import type { IssueRow, SessionStore } from '../../../store'
 import type { SessionFacts } from '../../sessions/facts'
-import type { WorldIndexReader } from '../../world-index'
 
 /**
  * The write-funnel face IssueService mutations run through (issue #190): the
@@ -147,7 +146,6 @@ export interface SpawnedSessionResult {
  * This rejects synchronous implementations; callers still need behavioral
  * coverage because a promise can be inspected without awaiting its value. */
 export interface IssueDeps {
-  worldIndex?: WorldIndexReader
   store: SessionStore
   /**
    * Where a ROW INSTALL waits for the outermost commit [POD-3366].

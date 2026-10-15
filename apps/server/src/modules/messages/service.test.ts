@@ -1,4 +1,3 @@
-import { WorldIndex, type WorldIndexReader } from '../world-index'
 import { queryAttributionEnabled } from '@podium/runtime/query-attribution'
 import { statementBudget } from '../../test-support/statement-budget'
 // Unified agent messaging (#237) [spec:SP-34d7] — store CRUD, server-stamped
@@ -62,6 +61,14 @@ function fakeIssues(
     [ISSUE.id, ISSUE],
     [SENDER_ISSUE.id, SENDER_ISSUE],
   ])
+  const ownerOf = (cwd: string) =>
+    resolveIssueForCwd
+      ? resolveIssueForCwd(cwd)
+      : ([...byId.values()].find(
+          (issue) =>
+            issue.worktreePath &&
+            (cwd === issue.worktreePath || cwd.startsWith(`${issue.worktreePath}/`)),
+        )?.id ?? null)
   return {
     reports: {
       resolveRef: (ref: string) => {
@@ -97,14 +104,8 @@ function fakeIssues(
       has: (id: string) => byId.has(asIssueId(id)),
       ownedTarget: () => undefined,
       niceRef: (row: { seq: number }) => (prefix ? `${prefix}-${row.seq}` : `#${row.seq}`),
-      issueForCwd:
-        resolveIssueForCwd ??
-        ((cwd: string) =>
-          [...byId.values()].find(
-            (issue) =>
-              issue.worktreePath &&
-              (cwd === issue.worktreePath || cwd.startsWith(`${issue.worktreePath}/`)),
-          )?.id ?? null),
+      issueForCwd: async (cwd: string) => ownerOf(cwd),
+      issuesForCwds: async (cwds: Iterable<string>) => new Map([...cwds].map((cwd) => [cwd, ownerOf(cwd)])),
     },
     hierarchy: {
       ancestorIds: () => [],
@@ -4659,15 +4660,12 @@ describe('event-driven delivery review boundaries [POD-842] [spec:SP-c29e]', () 
 
   it('resolves 200 session changes exactly once each without issue scans or fleet reads', async () => {
     const sessions = Array.from({ length: 200 }, (_, i) => session({ sessionId: asSessionId(`changed_${i}`), cwd: ISSUE.worktreePath }))
-    let world: WorldIndexReader
-    const { svc, store, listCalls } = await harness(sessions, { issueForCwd: (cwd) => world.issueForWorktree(cwd) ?? null })
-    world = (await WorldIndex.load(store)).reader
+    const { svc, listCalls } = await harness(sessions)
     // One change alone, for the per-change statement cost below.
     const one = queryAttributionEnabled
       ? await statementBudget(async () => await svc.onSessionEligibilityChanged(sessions[0]!.sessionId, sessions[0]!))
       : null
     const resolve = vi.spyOn(svc as unknown as { issueForSession: (s: SessionMeta) => string | null }, 'issueForSession')
-    const scan = vi.spyOn(store.issues, 'listIssueCwdRows')
     const run = async () => {
       for (const s of sessions) await svc.onSessionEligibilityChanged(s.sessionId, s)
     }
@@ -4681,7 +4679,6 @@ describe('event-driven delivery review boundaries [POD-842] [spec:SP-c29e]', () 
       expect([...budget.byQuery.keys()].filter((sql) => /from ["`]?issues["`]?\b/i.test(sql))).toEqual([])
     } else await run()
     expect(resolve).toHaveBeenCalledTimes(200)
-    expect(scan).not.toHaveBeenCalled()
     expect(listCalls.n).toBe(before)
   })
 
@@ -4719,11 +4716,11 @@ describe('event-driven delivery review boundaries [POD-842] [spec:SP-c29e]', () 
     nested = true
     await svc.onIssueEligibilityChanged(SENDER_ISSUE.id)
     expect(resolve).toHaveBeenCalledTimes(1)
-    expect(resolve.mock.results[0]?.value).toBe(SENDER_ISSUE.id)
+    expect(await resolve.mock.results[0]?.value).toBe(SENDER_ISSUE.id)
     nested = false
     await svc.onIssueEligibilityChanged(SENDER_ISSUE.id)
     expect(resolve).toHaveBeenCalledTimes(2)
-    expect(resolve.mock.results[1]?.value).toBe(ISSUE.id)
+    expect(await resolve.mock.results[1]?.value).toBe(ISSUE.id)
     expect(listCalls.n).toBe(before)
   })
 

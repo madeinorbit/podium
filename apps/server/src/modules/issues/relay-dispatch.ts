@@ -127,7 +127,7 @@ async function sessionTitlePrime(
   const actor = await sessionsSvc.sessionById(actorSessionId)
   if (!actor) return ''
   if (actor.name?.trim()) return ''
-  const issueId = actor.issueId ?? issues.reports.issueForCwd(actor.cwd)
+  const issueId = actor.issueId ?? (await issues.reports.issueForCwd(actor.cwd))
   if (!issueId) return ''
   const issue = await issues.reports.getMeta(issueId)
   const seq = issue?.seq
@@ -136,10 +136,13 @@ async function sessionTitlePrime(
   // session still showing a placeholder ('Claude Code', a spinner frame, an empty
   // OSC title) contributes nothing an agent could distinguish itself from, so it
   // is skipped rather than listed as noise.
-  const siblings = (await sessionsSvc
+  const members = (await sessionsSvc
     .listSessionsForIssue(issue?.worktreePath ?? null, issueId))
     .filter((s) => s.sessionId !== actorSessionId && !s.archived)
-    .filter((s) => (s.issueId ?? issues.reports.issueForCwd(s.cwd)) === issueId)
+  // Every unbound member's owner in one indexed read (POD-6155).
+  const owners = await issues.reports.issuesForCwds(members.flatMap((s) => (s.issueId ? [] : [s.cwd])))
+  const siblings = members
+    .filter((s) => (s.issueId ?? owners.get(s.cwd) ?? null) === issueId)
     .map((s) => sessionLabel(s))
     .filter((label): label is string => label !== undefined)
   return sessionTitleRule(seq, siblings)
@@ -279,7 +282,7 @@ export function makeAgentRelayDispatch(
         if (typeof raw.ref !== 'string' || !raw.ref) throw new Error('ref is required')
         const target = await readToolkit.resolveTarget(raw.ref)
         if (!target) throw new Error(`no session found for ${raw.ref}`)
-        const targetIssueId = target.issueId ?? issues.reports.issueForCwd(target.cwd)
+        const targetIssueId = target.issueId ?? (await issues.reports.issueForCwd(target.cwd))
         if (targetIssueId) {
           await checkIssueAccess(
             {
@@ -426,7 +429,7 @@ export function makeAgentRelayDispatch(
           }
           const target = await readToolkit.resolveTarget(ref)
           if (!target) throw new Error(`no session found for ${ref}`)
-          const targetIssueId = target.issueId ?? issues.reports.issueForCwd(target.cwd)
+          const targetIssueId = target.issueId ?? (await issues.reports.issueForCwd(target.cwd))
           if (targetIssueId) {
             await checkIssueAccess(
               {
@@ -516,7 +519,7 @@ export function makeAgentRelayDispatch(
           if (!selfStop) {
             const target = await sessionsSvc.sessionById(sessionId)
             if (!target) throw new Error('session not found')
-            const targetIssueId = target.issueId ?? issues.reports.issueForCwd(target.cwd)
+            const targetIssueId = target.issueId ?? (await issues.reports.issueForCwd(target.cwd))
             if (targetIssueId) {
               await checkIssueAccess(
                 { capability, ...(overrideScope ? { overrideScope: true } : {}) },

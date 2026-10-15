@@ -143,6 +143,7 @@ export type IssueReportsCapability = Pick<
   | 'has'
   | 'ownedTarget'
   | 'issueForCwd'
+  | 'issuesForCwds'
   | 'soleOwnerForCwd'
   | 'listEvents'
   | 'niceRef'

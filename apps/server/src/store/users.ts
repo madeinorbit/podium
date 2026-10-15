@@ -333,8 +333,7 @@ export class UsersRepository {
    * is the PER-PASS form of spec rule 18's open question. It is legitimate here
    * for a reason that does not extend to grants: `create` and `setEmail` both
    * clear this scope cache, so account reads after either write observe the
-   * committed identity. WorldIndex keeps its own committed view through the
-   * write funnel. A caller still gets its own object per call;
+   * committed identity. A caller still gets its own object per call;
    * `undefined` is cached as an answer too, because "no account" is the verdict
    * every caller acts on.
    */

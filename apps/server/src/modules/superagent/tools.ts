@@ -142,7 +142,7 @@ export async function buildSuperagentTools(
               async (s) => {
                 // Reverse of issue_show's session list (issue #72): session cwd →
                 // bound issue, via the same worktree-containment rule as authz scope.
-                const issueId = issues.reports.issueForCwd(s.cwd)
+                const issueId = await issues.reports.issueForCwd(s.cwd)
                 const issue = issueId ? await issues.reports.getMeta(issueId) : null
                 return {
                   sessionId: s.sessionId,

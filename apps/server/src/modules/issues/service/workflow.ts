@@ -1,3 +1,4 @@
+import { deepestOwner } from '../folder-owner'
 import { createLogger } from '@podium/logger'
 import {
   asMachineId,
@@ -18,7 +19,7 @@ import {
 import { formatIssueRef, type WorktreeGcObservation } from '@podium/protocol'
 import { resolveSpawnDefaults } from '@podium/runtime'
 import { type CommandPrincipal, systemPrincipal } from '../../../command-principal'
-import { isMemberCwd, sessionsForIssue } from '../../../issue-util'
+import { sessionsForIssue } from '../../../issue-util'
 import { type LinearIssue, searchIssues } from '../../../linear'
 import { resolveLaunchSelection } from '../../../model-validation'
 import type { IssueRow } from '../../../store'
@@ -1198,17 +1199,10 @@ export class IssueGitWorkflowModule {
     }
   }
 
-  /** The issue whose worktree contains `cwd`, or null — same most-specific
-   *  match the reports read uses, over the live row map. */
+  /** The issue whose worktree contains `cwd`, or null — the same indexed
+   *  query and ranking the reports read uses (POD-6155). */
   private async issueForCwd(cwd: string): Promise<IssueId | null> {
-    let best: { id: IssueId; len: number } | null = null
-    for (const row of this.store.rows.values()) {
-      if (row.deletedAt) continue
-      if (!isMemberCwd(row.worktreePath, cwd)) continue
-      const len = row.worktreePath?.length ?? 0
-      if (!best || len > best.len) best = { id: row.id, len }
-    }
-    return best?.id ?? null
+    return deepestOwner(await this.store.d.store.issues.worktreeOwnerCandidates([cwd]), cwd)
   }
 
   async releaseWorktreeIfIdle(id: string, principal: CommandPrincipal) {

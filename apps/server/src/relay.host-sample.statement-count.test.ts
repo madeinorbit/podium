@@ -1,12 +1,20 @@
 /**
  * One host sample runs a fixed number of statements, whatever the number of
- * live sessions on the machine [POD-6149, server-data rule 8].
+ * live sessions on the machine or of issues in the database [POD-6149,
+ * server-data rule 8].
+ *
+ * The constants grew when the world index went (POD-6155), by reads that used
+ * to be answered from its memory copies and now ask the database once per
+ * sample, never once per session: the shells' folder owners (one indexed
+ * query), a machine row, and a target's pending-mail count; at the backstop
+ * also the retired session's grant edges and its machine and mail reads.
  */
-import { asMachineId, type SessionId } from '@podium/model'
+import { asIssueId, asMachineId, type SessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { SessionRegistry } from './relay'
 import type { SessionStore } from './store'
 import { attachHostDaemon } from './test-support/host-daemon'
+import { issueRowFixture } from './test-support/issue-row'
 import { openTestStore } from './test-support/open-test-store'
 import { expectConstantStatements, quietShipping, type StatementPin } from './test-support/statement-count'
 
@@ -109,7 +117,32 @@ describe('host sample: pinned statement counts at 5 and 200 live shells', () => 
       pin('host sample (steady)', false, async (f) => {
         expect((await f.store.sessions.loadSessions()).map((s) => s.id).sort()).toEqual([...f.ids].sort())
       }),
-      7,
+      8,
+    )
+  })
+
+  it('a sample costs the same with 5 or 200 issues', async () => {
+    await expectConstantStatements(
+      {
+        ...pin('host sample (issues)', false, async (f) => {
+          expect((await f.store.sessions.loadSessions()).length).toBe(f.ids.length)
+        }),
+        setup: async (size) => {
+          const f = await fixture(5, false)
+          await f.store.repos.addRepo('/w', f.store.hostMachineId)
+          for (let i = 0; i < size; i++) {
+            // Worktrees outside every shell's folder. The folder-owner query's
+            // own cost is pinned in folder-owner-parity.test.ts.
+            await f.store.issues.upsertIssue({
+              ...issueRowFixture({ id: asIssueId(`iss_sample_${i}`), repoPath: '/w', seq: i + 1 }),
+              repoId: undefined, machineId: f.store.hostMachineId, parentId: null,
+              worktreePath: `/elsewhere/${i}`,
+            } as never)
+          }
+          return f
+        },
+      },
+      6,
     )
   })
 
@@ -121,7 +154,7 @@ describe('host sample: pinned statement counts at 5 and 200 live shells', () => 
           .poll(async () => (await f.store.sessions.loadSessions()).some((s) => s.id === f.ids.at(-1)))
           .toBe(false)
       }),
-      48,
+      49,
     )
   })
 })

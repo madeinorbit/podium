@@ -18,7 +18,9 @@ import { expectConstantStatements, quietShipping, type StatementPin } from './te
 // copy (POD-6155 step "read grants from the table": +1 to +4 per frame, one per
 // access check), and counts pending mail and queued input in SQL where counters
 // were kept in memory (step "count pending mail and queued input in SQL": +1).
-// Neither depends on the number of sessions.
+// Neither depends on the number of sessions. The step that answers "which
+// issue owns this folder" with one indexed query (POD-6155 step 5) adds that
+// query once to every frame that resolves its session's issue: +1.
 
 interface Fixture {
   store: SessionStore
@@ -114,7 +116,7 @@ describe('daemon frames: pinned statement counts at 5 and 200', () => {
   it('agentObservation (idle snapshot) of one session among many', async () => {
     const counts = await expectConstantStatements(
       pin('agentObservation', async (f) => await route(f, { type: 'agentObservation', observation: observation(f.ids[0]!) })),
-      11,
+      12,
     )
     expect(counts.small.statements).toBeGreaterThan(0)
   })
@@ -136,7 +138,7 @@ describe('daemon frames: pinned statement counts at 5 and 200', () => {
           tail: `c${size - 1}`,
         }),
       ),
-      9,
+      10,
     )
   })
 
@@ -161,7 +163,7 @@ describe('daemon frames: pinned statement counts at 5 and 200', () => {
         ),
         setup: async (size) => await fixture(size, true),
       },
-      37,
+      38,
     )
   })
 
@@ -193,7 +195,7 @@ describe('daemon frames that read an observation checkpoint: pinned at 5 and 200
     await expectConstantStatements(
       pin('agentExit', async (f) =>
         await route(f, { type: 'agentExit', sessionId: f.ids[0], code: 0, observerGeneration: 1 })),
-      26,
+      27,
     )
   })
 
@@ -211,7 +213,7 @@ describe('daemon frames that read an observation checkpoint: pinned at 5 and 200
           resumeKind: 'codex-thread',
           rebindId: 'rebind-1',
         })),
-      19,
+      20,
     )
   })
 
@@ -236,7 +238,7 @@ describe('daemon frames that read an observation checkpoint: pinned at 5 and 200
   it('agentState (legacy, unfenced) of one session among many', async () => {
     await expectConstantStatements(
       pin('agentState', async (f) => await route(f, { type: 'agentState', sessionId: f.ids[0], state: idle })),
-      30,
+      31,
     )
   })
 
@@ -264,7 +266,7 @@ describe('daemon frames that read an observation checkpoint: pinned at 5 and 200
         ),
         setup: async (size) => await fixture(size, true),
       },
-      26,
+      27,
     )
   })
 })

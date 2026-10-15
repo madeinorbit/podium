@@ -1,6 +1,6 @@
 import { createLogger } from '@podium/logger'
 import { machinePathBasename } from '@podium/model'
-import { readIssue } from '../world-index/issue-reader'
+import { readIssue } from '../issues/issue-reader'
 /**
  * STARTING A SESSION (POD-1396, from POD-1385's god-object audit).
  *

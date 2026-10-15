@@ -31,9 +31,10 @@ import {
   selfRefRule,
 } from '@podium/protocol'
 import { jaccard, tokenize } from '../../../issue-similarity'
-import { isMemberCwd, sessionsForIssue } from '../../../issue-util'
+import { sessionsForIssue } from '../../../issue-util'
 import type { IssueRow, SessionStore } from '../../../store'
 import type { SessionFacts } from '../../sessions/facts'
+import { deepestOwner, soleOwner } from '../folder-owner'
 import { issueRowToProjection } from '../projection'
 import type { IssueStore } from './core'
 import { readDeck } from './deck'
@@ -965,23 +966,21 @@ export class IssueReportsModule {
     }))
   }
 
-  /** The id of the issue whose worktree contains `cwd`, or null. Used to mint per-agent scope. */
-  issueForCwd(cwd: string): IssueId | null {
-    // IssueStore exposes staged rows inside mutation spans. Keep that read for
-    // orchestrated read-your-writes; the world reader is committed-only.
-    if (this.store.deps.worldIndex && !this.store.deps.applyCommit?.spanOpen()) {
-      return this.store.deps.worldIndex.issueForWorktree(cwd) ?? null
-    }
-    // Most-specific match (POD-529): with nested worktrees (or a worktree under the
-    // repo root), first-match could attribute a session to the broader owner.
-    let best: { id: IssueId; len: number } | null = null
-    for (const r of this.store.rows.values()) {
-      if (r.deletedAt) continue
-      if (!isMemberCwd(r.worktreePath, cwd)) continue
-      const len = r.worktreePath?.length ?? 0
-      if (!best || len > best.len) best = { id: r.id, len }
-    }
-    return best?.id ?? null
+  /** The id of the issue whose worktree contains `cwd`, or null. Used to mint
+   *  per-agent scope. One indexed query (POD-6155); the deepest worktree wins
+   *  (POD-529) and repository order breaks a tie. */
+  async issueForCwd(cwd: string): Promise<IssueId | null> {
+    return deepestOwner(await this.store.deps.store.issues.worktreeOwnerCandidates([cwd]), cwd)
+  }
+
+  /** {@link issueForCwd} for many cwds in one indexed query. */
+  async issuesForCwds(cwds: Iterable<string>): Promise<Map<string, IssueId | null>> {
+    const unique = [...new Set(cwds)]
+    const owners = new Map<string, IssueId | null>()
+    if (unique.length === 0) return owners
+    const rows = await this.store.deps.store.issues.worktreeOwnerCandidates(unique)
+    for (const cwd of unique) owners.set(cwd, deepestOwner(rows, cwd))
+    return owners
   }
 
   /** Spawn-time attachment derivation (issue-as-workspace): choose the deepest
@@ -992,18 +991,7 @@ export class IssueReportsModule {
    *  there ([spec:SP-595b] #582). */
   async soleOwnerForCwd(cwd: string): Promise<IssueId | null> {
     const repoRoots = new Set((await this.store.deps.store.repos.listRepoPaths()).map(machinePathKey))
-    const owners = [...this.store.rows.values()].filter(
-      (r) =>
-        !r.deletedAt &&
-        !r.archived &&
-        r.worktreePath != null &&
-        !repoRoots.has(machinePathKey(r.worktreePath)) &&
-        isMemberCwd(r.worktreePath, cwd),
-    )
-    let deepest = 0
-    for (const owner of owners) deepest = Math.max(deepest, owner.worktreePath ? machinePathKey(owner.worktreePath).length : 0)
-    const mostSpecific = owners.filter((owner) => owner.worktreePath && machinePathKey(owner.worktreePath).length === deepest)
-    return mostSpecific.length === 1 ? (mostSpecific[0]?.id ?? null) : null
+    return soleOwner(await this.store.deps.store.issues.worktreeOwnerCandidates([cwd]), cwd, repoRoots)
   }
 
   /** Durable event-log read; cursor = the last event id the caller has seen. */
@@ -1037,7 +1025,7 @@ export class IssueReportsModule {
   async seatFor(sessionId: SessionId, issueId?: IssueId | null): Promise<SessionSeat> {
     const sessions = this.store.deps.sessionFacts()
     const self = sessions.find((s) => s.sessionId === sessionId)
-    const own = issueId ?? self?.issueId ?? (self ? this.issueForCwd(self.cwd) : null)
+    const own = issueId ?? self?.issueId ?? (self ? await this.issueForCwd(self.cwd) : null)
     const live = new Set(sessions.filter((s) => !s.archived).map((s) => s.sessionId))
     return await resolveSeat(sessionId, own, {
       row: (id) => this.store.rows.get(id),

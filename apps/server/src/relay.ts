@@ -193,8 +193,7 @@ import { type ChannelFeed, resolveReleaseTarget } from './modules/updates/releas
 import type { ServerPlacement } from './modules/updates/service'
 import { UpdatesService } from './modules/updates/service'
 import { WorkflowService } from './modules/workflows/service'
-import { WorldIndex, type WorldIndexReader } from './modules/world-index'
-import { readClosedIssueIds, readIssue } from './modules/world-index/issue-reader'
+import { readIssue } from './modules/issues/issue-reader'
 import { inferRepoFromRoots } from './repo-registry'
 import { JANITOR_STEWARD_EVENT_LIMIT, StewardService, stewardNoticeSender } from './steward'
 import { SessionStore } from './store'
@@ -226,7 +225,6 @@ export type { MemoryBreakdown }
  * when the closure is made.
  */
 interface SessionRegistryBoot {
-  worldIndex: WorldIndexReader
   readonly settings: Awaited<ReturnType<SessionStore['settings']['getSettings']>>
 }
 
@@ -421,8 +419,6 @@ function noticeInfo(session: Session): SessionNoticeInfo {
 export class SessionRegistry {
   private mobileVersions?: MobileClientVersions
 
-  readonly worldIndex: WorldIndexReader
-
   readonly recoveryOnly: boolean
   /** Typed in-process event bus — modules subscribe here (issue #13 Phase 2). */
   readonly bus = new EventBus()
@@ -586,18 +582,13 @@ export class SessionRegistry {
     options: SessionRegistryOptions,
   ): Promise<SessionRegistry> {
     const resolvedStore = store ?? (await SessionStore.open(':memory:'))
-    const worldStarted = performance.now()
-    const world = await WorldIndex.load(resolvedStore)
-    bootStage('world index', worldStarted)
     const baselineStarted = performance.now()
     // Warm the shared repository cache explicitly; Authority consumes it below.
     // Otherwise this queued read is silently charged to session recovery.
     await resolvedStore.sync.latestChangeStates()
     bootStage('ledger baseline read', baselineStarted)
-    log.info('world index loaded', { elapsedMs: world.loadMs })
     const registry = new SessionRegistry(resolvedStore, notificationPushers, options, {
       settings: await resolvedStore.settings.getSettings(),
-      worldIndex: world.reader,
     })
     await registry.hydrate(options.rehearseBoot)
     return registry
@@ -618,7 +609,6 @@ export class SessionRegistry {
     // rather than surface after services and timers exist (POD-1470).
     const reactions = composeReactions(options.reactions ?? REACTIONS)
     this.store = store
-    this.worldIndex = boot.worldIndex
     notificationPushers ??= DEFAULT_NOTIFICATION_PUSHERS
     const { instanceId } = options
     const recoveryOnly = options.recoveryOnly === true
@@ -1704,17 +1694,32 @@ export class SessionRegistry {
     // the lifetime of a READ SCOPE [POD-3261]. It used to be invalidated by
     // `queueMicrotask`, which is sound only while nothing in the pass yields —
     // the first `await` anywhere drops it and the full scans come back. The
-    // slot is a read-through cache with no invalidation of its own, exactly as
-    // the memo was: whether an issue is CLOSED cannot change inside one scope.
-    const closedIssueIdsSlot = readScopeSlot<{ ids: Set<string> | undefined }>(() => ({
-      ids: undefined,
-    }))
-    const closedIssueIdsInScope = async (): Promise<Set<string>> => {
-      const held = currentReadScope().slot(closedIssueIdsSlot)
-      if (held.ids !== undefined) return held.ids
-      const closed = await readClosedIssueIds(this.store.issues)
-      held.ids = closed
-      return closed
+    // slot is a read-through memo with no invalidation of its own: whether an
+    // issue is CLOSED cannot change inside one scope. It holds an answer only
+    // for the issues the sample asked about, read by id (POD-6155): never the
+    // whole table.
+    const closedIssueIdsSlot = readScopeSlot<Map<string, boolean>>(() => new Map())
+    const closedIssueIdsInScope = async (ids: Iterable<string>): Promise<ReadonlySet<string>> => {
+      const known = currentReadScope().slot(closedIssueIdsSlot)
+      const missing = [...new Set(ids)].filter((id) => !known.has(id))
+      if (missing.length > 0) {
+        const closed = await this.store.issues.closedIssueIdsAmong(missing)
+        for (const id of missing) known.set(id, closed.has(id))
+      }
+      return new Set([...known].flatMap(([id, closed]) => (closed ? [id] : [])))
+    }
+    // The folder owners behind the same projection, memoized the same way: one
+    // indexed read per sample for the folders not yet asked (POD-6155), however
+    // many times the sample rebuilds its session list. Which issue owns a
+    // folder does not change inside one host sample's scope.
+    const folderOwnersSlot = readScopeSlot<Map<string, IssueId | null>>(() => new Map())
+    const folderOwnersInScope = async (cwds: Iterable<string>): Promise<Map<string, IssueId | null>> => {
+      const known = currentReadScope().slot(folderOwnersSlot)
+      const missing = [...new Set(cwds)].filter((cwd) => !known.has(cwd))
+      if (missing.length > 0) {
+        for (const [cwd, owner] of await issueAccess.issuesForCwds(missing)) known.set(cwd, owner)
+      }
+      return known
     }
     // The two automation reads behind `hasScheduledWakeup`, once per READ SCOPE
     // [POD-6149]. The backstop asks once per quiet live session, and the answer
@@ -1758,11 +1763,6 @@ export class SessionRegistry {
           // `issues` table. Measured live: 280 full scans / 4 minutes, 2.6s of
           // blocked event loop.
           //
-          // Only the CLOSED SET is memoized for the host sample's explicit
-          // read scope, including across awaits. The session list itself stays
-          // live on every call, which is what the re-read after a hibernate
-          // attempt depends on.
-          const closed = await closedIssueIdsInScope()
           // LIVE ONLY (POD-4657): the map holds every retained row — hibernated
           // and exited included — and every sweep consumer filters
           // `status === 'live'` first. Building a view (driver-family manifest
@@ -1787,9 +1787,19 @@ export class SessionRegistry {
           const ownerIssueIds = await resolveSampledShellOwners(
             {
               worktreesForSessions: (ids) => this.store.dockShells.worktreesForSessions(ids),
-              issuesForCwds: (cwds) => issueAccess.issuesForCwds(cwds),
+              issuesForCwds: (cwds) => folderOwnersInScope(cwds),
             },
             samples,
+          )
+          // Only the CLOSED answers are memoized for the host sample's explicit
+          // read scope, including across awaits. The session list itself stays
+          // live on every call, which is what the re-read after a hibernate
+          // attempt depends on.
+          const closed = await closedIssueIdsInScope(
+            samples.flatMap((session) => {
+              const owner = session.agentKind === 'shell' ? ownerIssueIds.get(session.sessionId) : session.issueId
+              return owner != null ? [owner] : []
+            }),
           )
           return samples.map((session) => {
             // The bound driver's FAMILY, so the park gate can tell a terminal
@@ -1968,7 +1978,6 @@ export class SessionRegistry {
     })
 
     const issues = IssueService.compose({
-      worldIndex: this.worldIndex,
       store: this.store,
       // The issue row map is the authoritative in-memory projection and it is
       // installed behind a `ledger.commit` that may be a savepoint inside a
@@ -2108,7 +2117,7 @@ export class SessionRegistry {
           )
             break
           if (message.repoRoot !== undefined && !machinePathsEqual(message.repoRoot, issue.repoPath)) break
-          if ((await issueAccess.worktreePaths()).some(path => machinePathsEqual(path, message.cwd))) break
+          if (await issueAccess.isIssueWorktree(message.cwd)) break
           await issues.crud.update(issue.id, {
             worktreePath: message.cwd,
             machineId: event.machineId,
@@ -2739,7 +2748,7 @@ export class SessionRegistry {
       clients: () => clientRegistry.values(),
       sessionIssueId: async (sessionId) => {
         const s = await sessionsSvc.sessionById(sessionId)
-        return s ? (s.issueId ?? issues.reports.issueForCwd(s.cwd)) : null
+        return s ? (s.issueId ?? (await issues.reports.issueForCwd(s.cwd))) : null
       },
       issueInfo: async (issueId) => {
         const row = await issues.reports.getMeta(issueId)
@@ -3729,7 +3738,7 @@ export class SessionRegistry {
           void (async () => {
             if ((await messagesSvc.settleNotifiable(sessionId)).length === 0) return
             const meta = await sessionsSvc.sessionById(sessionId)
-            const issueId = meta ? (meta.issueId ?? issues.reports.issueForCwd(meta.cwd)) : null
+            const issueId = meta ? (meta.issueId ?? (await issues.reports.issueForCwd(meta.cwd))) : null
             const issue = issueId ? await issues.reports.getMeta(issueId) : null
             let lastCommit: string | undefined
             if (meta) {

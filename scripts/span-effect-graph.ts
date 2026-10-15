@@ -549,7 +549,7 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
     kind: 'contained',
     why: 'Pure string normalisation of a driver id (claude-pty -> generic-pty); no I/O, no state, nothing observable outside this process.',
   },
-  'apps/server/src/modules/world-index/issue-reader.ts#CommittedIssueReader.rows': {
+  'apps/server/src/modules/issues/issue-reader.ts#CommittedIssueReader.rows': {
     kind: 'contained',
     why: 'Reads the existing committed IssueStore map without I/O or publication; rollback leaves nothing observable outside this process.',
   },

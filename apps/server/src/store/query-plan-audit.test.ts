@@ -93,6 +93,7 @@ const FAMILY_SHAPES: ReadonlyMap<string, readonly (string | number)[]> = new Map
   ['apps/server/src/store/grants.ts:grantsOfResources', SIZES],
   ['apps/server/src/store/machines.ts:machinesByIds', SIZES],
   ['apps/server/src/store/issues.ts:worktreeOwnersOf', SIZES],
+  ['apps/server/src/store/issues.ts:issueClosureRowsOf', SIZES],
   ['apps/server/src/store/grants.ts:upsertGrant', ['set', 'keep']],
   ['apps/server/src/store/grants.ts:deleteGrantsOfResource', ['retain', 'all']],
   ['apps/server/src/store/sessions.ts:bindingOwnersOfIds', SIZES],
@@ -408,14 +409,6 @@ const ALLOWLIST: ReadonlyMap<string, string> = new Map([
  */
 const WHOLE_TABLE_READS: ReadonlyMap<string, string> = new Map([
   [
-    'apps/server/src/store/issues.ts:issueCwdRows',
-    'Whole-table read (POD-6172): boot load of the issue folder rows for the world index (POD-6155).',
-  ],
-  [
-    'apps/server/src/store/issues.ts:issueClosureRows',
-    'Whole-table read (POD-6172): the finished-work projection over every issue.',
-  ],
-  [
     'apps/server/src/store/issues.ts:liveIssueParentEdges',
     "Whole-table read (POD-6172): every live issue's parent edge, for the issue tree.",
   ],
@@ -426,10 +419,6 @@ const WHOLE_TABLE_READS: ReadonlyMap<string, string> = new Map([
   [
     'apps/server/src/store/issues.ts:allIssueRows',
     'Whole-table read (POD-6172): boot load of the issue map.',
-  ],
-  [
-    'apps/server/src/store/issues.ts:issueWorktreeRows',
-    "Whole-table read (POD-6172): every issue's worktree, for folder ownership (POD-6155 replaces it with idx_issues_worktree).",
   ],
   [
     'apps/server/src/store/issues.ts:issueSeqRows',

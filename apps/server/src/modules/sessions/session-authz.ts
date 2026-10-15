@@ -1,4 +1,4 @@
-import { readIssue, readIssues } from '../world-index/issue-reader'
+import { readIssue, readIssues } from '../issues/issue-reader'
 import { spanOpen } from '../../store/executor/executor'
 /**
  * Session apply-time authorization and ownership (POD-1396).
