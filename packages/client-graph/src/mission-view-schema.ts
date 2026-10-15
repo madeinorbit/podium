@@ -17,6 +17,12 @@ export const MISSION_VIEW_SESSION_FIELDS: Readonly<Record<string, FieldSpec>> = 
   ['resumable', 'boolean', true], ['spawnedBy', 'string', true], ['machineId', 'id', true],
 ].map(([name, type, optional]) => [name, { type, optional, source: { schema: 'SessionMeta', arrivesOn: 'replica:sessions' } }])) as Readonly<Record<string, FieldSpec>>
 
+/** What the Full view's seats read beyond the shared roster: the agent
+ * profile a session actually started with (POD-6107), for its role text. */
+export const FULL_DECK_SESSION_FIELDS: Readonly<Record<string, FieldSpec>> = {
+  agentProfileId: { type: 'id', optional: true, source: { schema: 'SessionMeta', arrivesOn: 'replica:sessions' } },
+}
+
 /** Cold issue rows need only topology/stage facts. Visible prose/detail loads
  * normally; attachment counts use scalar summaries; session display detail loads normally. */
 export const MISSION_VIEW_SUMMARIES = {

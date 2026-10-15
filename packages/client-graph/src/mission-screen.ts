@@ -18,6 +18,7 @@ import { isFinished } from '@podium/model/browser'
 import { action, compareShallow, compareStructural, observable, runInAction } from 'mobx'
 import { headerView } from './header-views'
 import { omitGone } from './lookup'
+import { FullDeck } from './mission-full-deck'
 import { type MissionDeckIssueModel, MissionViewReader, missionView, requireLoaded, settled } from './mission-view'
 import type { IssueModel, SessionModel } from './models'
 import type { MobxPool } from './pool'
@@ -108,6 +109,9 @@ export class MissionScreen {
   private readonly seat = companion((session: SessionModel) => new MissionSession(session))
   /** Review-return answers of this opening, one per issue. */
   readonly reviewReturn = companion((_issue: IssueModel) => new ReviewReturnAnswer())
+  /** The Full view (flight deck v6): its own filter, Show done and default
+   * folds over this opening's full deck. Waterfall and Timeline never read it. */
+  readonly full: FullDeck = new FullDeck(this)
 
   constructor(readonly pool: MobxPool, readonly rootId: string, private readonly options: MissionScreenOptions = {}) {
     this.reader = new MissionViewReader(pool)

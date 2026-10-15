@@ -15,7 +15,7 @@ import {
   type MembersKeptBySpec,
   SESSION_ACTIVE_WORK,
 } from '@podium/model/browser'
-import { MISSION_VIEW_ISSUE_FIELDS, MISSION_VIEW_SESSION_FIELDS } from '../mission-view-schema'
+import { FULL_DECK_SESSION_FIELDS, MISSION_VIEW_ISSUE_FIELDS, MISSION_VIEW_SESSION_FIELDS } from '../mission-view-schema'
 
 /**
  * POD-4546 (L1a) — the ONE declared model schema both round-three substrates
@@ -760,6 +760,7 @@ const DECLARED = defineSchema({
     },
     fields: {
       ...MISSION_VIEW_SESSION_FIELDS,
+      ...FULL_DECK_SESSION_FIELDS,
       sessionId: { type: 'id', source: meta() },
       issueId: { type: 'id', optional: true, nullable: true, source: meta(), note: 'Foreign key of the `issue` relation.' },
       cwd: { type: 'string', source: meta(), note: "The path the `worktree` prefix relation places. There is no `session.worktreePath`." },
