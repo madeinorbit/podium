@@ -34,6 +34,7 @@
 
 import { ISSUE_COMMAND_NAMES, ISSUE_CONTRACTS } from '@podium/commands'
 import { ISSUE_COMMANDS } from '@podium/issue-client'
+import type { IssueId } from '@podium/model'
 import { afterAll, describe, expect, it } from 'vitest'
 
 import { IssueToolProvider } from '../../issue-mcp'
@@ -207,7 +208,7 @@ describe('the podium issue CLI table renders over the real surface', () => {
   it('move executes through the CLI table and real dispatcher in both directions', async () => {
     const reg = await fresh()
     const client = reg.issueCommands.asIssueTrpc(OPERATOR)
-    const create = async (title: string, parentId?: string) =>
+    const create = async (title: string, parentId?: IssueId) =>
       await reg.issues.crud.create({ repoPath: '/r', title, parentId, startNow: false })
     const parent = await create('parent')
     const a = await create('a', parent.id)
