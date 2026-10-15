@@ -78,6 +78,11 @@ describe('the real in-process client serves every cli/mcp-exposed contract', () 
     expect(ISSUE_COMMANDS.some((command) => command.name === 'lint')).toBe(false)
     const tools = new IssueToolProvider().mcpToolSpecs().map((tool) => tool.name)
     expect(tools).not.toContain('issue_lint')
+    const move = new IssueToolProvider().mcpToolSpecs().find((tool) => tool.name === 'issue_move')!
+    expect(move.inputSchema).toMatchObject({
+      type: 'object', required: ['id'],
+      properties: { id: { type: 'string' }, before: { type: 'string' }, after: { type: 'string' } },
+    })
     expect(Object.keys(issues).sort()).toEqual([...ISSUE_COMMAND_NAMES].sort())
     // And the specs/lock routers really are NOT served in-process — the historical
     // behaviour, asserted so "everything is reachable" cannot be read into this file.

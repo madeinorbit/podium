@@ -1614,12 +1614,12 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
     name: 'move',
     summary:
       'Reorder siblings: move <id> --before <ref> | --after <ref>. Both issues must share a parent (and repository at the top level). Agents: confirm outside your subtree with --outside-scope.',
-    args: z.strictObject({ id: idArg, before: idArg.optional(), after: idArg.optional() }).refine(
-      (a) => (a.before !== undefined) !== (a.after !== undefined),
-      'pass exactly one of --before or --after',
-    ),
+    args: z.strictObject({ id: idArg, before: idArg.optional(), after: idArg.optional() }),
     positionals: ['id'],
     async run(c, a) {
+      if ((a.before !== undefined) === (a.after !== undefined)) {
+        throw new Error('pass exactly one of --before or --after')
+      }
       const i = await c.issues.move.mutate({
         id: a.id as string,
         ...(a.before !== undefined ? { before: a.before as string } : {}),

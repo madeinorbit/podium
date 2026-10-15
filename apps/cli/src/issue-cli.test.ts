@@ -20,6 +20,12 @@ describe('parseIssueArgs', () => {
     expect(r.args.json).toBe(true)
   })
 
+  it.each(['before', 'after'])('parses the sibling move --%s reference as a value', (direction) => {
+    expect(parseIssueArgs(['move', 'POD-1', `--${direction}`, 'POD-2'])).toMatchObject({
+      command: 'move', positionals: ['POD-1'], args: { [direction]: 'POD-2' },
+    })
+  })
+
   it('parses --outside-scope', () => {
     const { args } = parseIssueArgs(['update', '--id=B', '--outside-scope'])
     expect(args.outsideScope).toBe(true)
@@ -72,6 +78,21 @@ describe('runIssueCli', () => {
   it('runs a known command and returns its text', async () => {
     const out = await runIssueCli(['ready', '--repoPath', '/r'], client)
     expect(out).toContain('A')
+  })
+
+  it.each(['before', 'after'])('runs move from argv with --%s and documents both flags', async (direction) => {
+    const move = vi.fn(async () => ({ id: 'iss_1' }))
+    const moveClient = { issues: { move: { mutate: move } } } as unknown as IssueTrpc
+    const out = await runIssueCli(['move', 'POD-1', `--${direction}`, 'POD-2'], moveClient)
+    expect(move).toHaveBeenCalledWith({ id: 'POD-1', [direction]: 'POD-2' })
+    expect(out).toBe(`POD-1 moved ${direction} POD-2`)
+    const help = await runIssueCli(['move', '--help'], moveClient)
+    expect(help).toContain('--before <value>')
+    expect(help).toContain('--after <value>')
+    await expect(runIssueCli(['move', 'POD-1'], moveClient)).rejects.toThrow('exactly one')
+    await expect(runIssueCli(['move', 'POD-1', '--before', 'POD-2', '--after', 'POD-3'], moveClient))
+      .rejects.toThrow('exactly one')
+    expect(move).toHaveBeenCalledTimes(1)
   })
 
   it('issue help lists the command names', async () => {

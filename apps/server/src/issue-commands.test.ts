@@ -113,9 +113,12 @@ describe('ISSUE_COMMANDS registry', () => {
     expect(result.data).toMatchObject({ id: 'iss_1' })
   })
 
-  it('move rejects missing or conflicting placement flags before dispatch', () => {
-    expect(cmd('move').args.safeParse({ id: 1 }).success).toBe(false)
-    expect(cmd('move').args.safeParse({ id: 1, before: 2, after: 3 }).success).toBe(false)
+  it('move rejects missing or conflicting placement flags before dispatch', async () => {
+    const { client, calls } = mockClient()
+    for (const args of [{ id: '1' }, { id: '1', before: '2', after: '3' }]) {
+      await expect(cmd('move').run(client, args)).rejects.toThrow('exactly one')
+    }
+    expect(calls).toEqual([])
   })
 
   it('cleanup calls issues.cleanup.mutate with the id and reports OK/REFUSED', async () => {
