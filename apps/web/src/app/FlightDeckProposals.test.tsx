@@ -121,10 +121,14 @@ it.each(['backlog', 'start'] as const)('%s sends only the correct operator comma
   expect(f.section()!.textContent).toContain(verb === 'start' ? 'Started' : 'In backlog')
   expect(f.section()!.querySelector('.flight-proposal-details')?.getAttribute('aria-description')).toBe('Proposed by POD-7-C · Here in this mission')
   capture(`${verb} · receipt after publication, task appears once`, f.section()!)
-  // Opening a fresh Full view drops receipts; normal server membership wins.
+  // Temporary loading/mode unmounts keep this opening's command feedback.
   f.ui.unmount()
-  const reopened = render(<FlightDeckProposals full={f.screen.full} {...f.actions} />)
-  expect(reopened.queryByTestId('flight-proposed')).toBeNull()
+  const resumed = render(<FlightDeckProposals full={f.screen.full} {...f.actions} />)
+  expect(resumed.getByRole('status').textContent).toBe(verb === 'start' ? 'Started' : 'In backlog')
+  resumed.unmount()
+  // A genuinely new mission opening drops receipts; server membership wins.
+  const reopened = await open([], { stage: 'in_progress' })
+  expect(reopened.section()).toBeNull()
 })
 
 it.each([undefined, 'proposal-profile'])('hands profile resolution to issues.start with profile %s', async agentProfileId => {
@@ -195,6 +199,20 @@ it.each(['backlog', 'start'] as const)('publication before %s response shows pen
   expect(f.ui.getByRole('status').textContent).toMatch(/Starting|Adding/)
   await act(async () => result.resolve())
   expect(f.ui.getByRole('status').textContent).toBe(verb === 'start' ? 'Started' : 'In backlog')
+})
+
+
+it('retains an in-flight command when publication temporarily unmounts the rows', async () => {
+  const result = deferred()
+  commands.start.mockReturnValue(result.promise)
+  const f = await open()
+  fireEvent.click(within(f.proposal()!).getByRole('button', { name: 'Start' }))
+  f.ui.unmount()
+  await f.update('proposal', { stage: 'in_progress' })
+  await act(async () => result.resolve())
+  const resumed = render(<FlightDeckProposals full={f.screen.full} {...f.actions} />)
+  expect(resumed.getByRole('status').textContent).toBe('Started')
+  expect(resumed.container.querySelector('[data-flight-issue="proposal"]')).toBeNull()
 })
 
 it('does not claim success if a publication beats a rejected command; the receipt can retry', async () => {

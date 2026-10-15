@@ -6,7 +6,7 @@ import { observer } from '@podium/client-graph/react'
 import { asIssueId, asMutationId } from '@podium/model'
 import { Check, X } from 'lucide-react'
 import { action, observable, runInAction } from 'mobx'
-import { useState, type JSX, type MouseEvent } from 'react'
+import type { JSX, MouseEvent } from 'react'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useClickIntent } from './click-intent'
 import { useRuntimeSelector } from './store'
@@ -22,8 +22,6 @@ type Submission = {
 const pendingLabel = { backlog: 'Adding to backlog…', start: 'Starting…', dismiss: 'Dismissing…' }
 const successLabel = { backlog: 'In backlog', start: 'Started', dismiss: 'Dismissed' }
 
-/** UI state for this Full opening only. The pool remains the sole record store.
- * Receipts keep only the command outcome and its ID, including across publication. */
 class ProposalProvenance {
   constructor(readonly task: FullDeckTask) {}
   @lazy get tooltip(): string {
@@ -35,6 +33,8 @@ class ProposalProvenance {
   }
 }
 
+/** UI state for this mission opening only. The pool remains the sole record store.
+ * Receipts keep only the command outcome and its ID, including across publication. */
 class ProposalSubmissions {
   readonly provenance = companion((task: FullDeckTask) => new ProposalProvenance(task))
   readonly byId = observable.map<string, Submission>([], { deep: false })
@@ -62,6 +62,10 @@ class ProposalSubmissions {
   }
 }
 
+// The opening's Full view model owns this companion's lifetime. A temporary
+// loading screen or mode switch must not discard an in-flight command/receipt.
+const submissionsFor = companion<FullDeck, ProposalSubmissions>(() => new ProposalSubmissions())
+
 type ProposalNavigation = {
   onSelect: (task: FullDeckTask, permanent: boolean) => void
   onMenu: (task: FullDeckTask, event: MouseEvent) => void
@@ -70,7 +74,7 @@ type ProposalNavigation = {
 export const FlightDeckProposals = observer(function FlightDeckProposals({
   full, ...navigation
 }: { full: FullDeck } & ProposalNavigation): JSX.Element | null {
-  const [submissions] = useState(() => new ProposalSubmissions())
+  const submissions = submissionsFor(full)
   const trpc = useRuntimeSelector(store => store.trpc)
   const proposed = settled(() => full.proposalIds)
   const ids = [...new Set([...(typeof proposed === 'symbol' ? [] : proposed), ...submissions.byId.keys()])].filter(id => {
