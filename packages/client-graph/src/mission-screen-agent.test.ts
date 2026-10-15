@@ -1,4 +1,4 @@
-import { DEFAULT_SETTINGS } from '@podium/runtime'
+import { DEFAULT_SETTINGS, nativeAccountId } from '@podium/runtime'
 import { autorun } from 'mobx'
 import { expect, it } from 'vitest'
 import { MissionScreen } from './mission-screen'
@@ -16,7 +16,7 @@ it('resolves the root launch target from Settings and follows changes without us
   try {
     for (const harness of ['codex', 'claude-code'] as const) {
       ingestSettings(pool, { ...DEFAULT_SETTINGS, roles: { ...DEFAULT_SETTINGS.roles,
-        coding: { ...DEFAULT_SETTINGS.roles.coding, harness } } })
+        coding: { ...DEFAULT_SETTINGS.roles.coding, accountId: nativeAccountId(harness) } } })
       expect(screen.rootAgentTarget).toEqual({ defaultAgent: harness, repoPath: '/repo', machineId: null })
     }
     expect(seen).toContain('codex')
