@@ -86,7 +86,9 @@ export const FlightDeckFullDependencies = observer(function FlightDeckFullDepend
   useLayoutEffect(() => {
     const container = root.current
     if (!container) return
-    const scroll = scrollRef.current
+    // Child layout effects can precede the ancestor's ref attachment on the
+    // first commit. The mounted Full panel is already in the DOM then.
+    const scroll = scrollRef.current ?? container.closest<HTMLElement>('.flight-full-panel')
     const panel = container.closest<HTMLElement>('.flight-full-panel') ?? scroll ?? container
     let frame: number | null = null
     const observed = new Set<Element>()
