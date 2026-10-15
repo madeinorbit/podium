@@ -29,7 +29,7 @@ export async function readDeck(
   niceRef: (row: IssueRow) => Promise<string>,
 ): Promise<IssueDeck> {
   const root = await store.rowOrThrow(await store.resolveRef(ref))
-  if (!(await mayRead(root.id))) throw new IssueNotFound(ref)
+  if (root.deletedAt || !(await mayRead(root.id))) throw new IssueNotFound(ref)
   const rows = new Map<IssueId, IssueRow>()
   for (const row of store.rows.values()) {
     if (row.deletedAt || row.archived || row.draft || !(await mayRead(row.id))) continue
@@ -61,6 +61,8 @@ export async function readDeck(
   const facts = store.deps.sessionFacts()
   const projected = new Map<SessionId, SessionMeta>()
   const requested = new Set<SessionId>()
+  // The pool breaks exact parked-resume ties by stable session id.
+  const senders = () => dedupeSessionsByResume([...projected.values()].sort((a, b) => a.sessionId.localeCompare(b.sessionId)))
   const departed = new Set(deps.filter((dep) => dep.type === 'discovered-from').map((dep) => dep.fromId))
   let grew = true
   while (grew) {
@@ -68,12 +70,12 @@ export async function readDeck(
       .map((s) => s.sessionId)
     for (const id of ids) requested.add(id)
     for (const session of await store.deps.sessionsById(ids)) projected.set(session.sessionId, session)
-    const senders = new Map(dedupeSessionsByResume([...projected.values()]).map((s) => [s.sessionId, s]))
+    const authors = new Map(senders().map((s) => [s.sessionId, s]))
     grew = false
     for (const row of rows.values()) {
       if (admitted.has(row.id) || !row.startedBySession) continue
       if (departed.has(row.id) && row.stage !== 'proposed' && row.stage !== 'backlog') continue
-      const author = senders.get(row.startedBySession)
+      const author = authors.get(row.startedBySession)
       if (!author?.issueId || !admitted.has(author.issueId)) continue
       const siblings = children.get(author.issueId) ?? []
       siblings.push(row.id)
@@ -103,6 +105,7 @@ export async function readDeck(
   const blockers = new Map<IssueId, IssueDeckNode['blockers']>()
   for (const dep of deps) {
     if (dep.type !== 'blocked-by' || !admitted.has(dep.fromId)) continue
+    if (store.isClosed(rows.get(dep.fromId)!)) continue
     const target = store.rows.get(dep.toId)
     if (!target || target.deletedAt || store.isClosed(target) || !(await mayRead(target.id))) continue
     const list = blockers.get(dep.fromId) ?? []
@@ -114,7 +117,7 @@ export async function readDeck(
     if (projected.has(ask.sessionId)) pending.set(ask.sessionId, (pending.get(ask.sessionId) ?? 0) + 1)
   }
   const seats = new Map<IssueId, IssueDeckSession[]>()
-  for (const s of dedupeSessionsByResume([...projected.values()])) {
+  for (const s of senders()) {
     if (!s.issueId || s.archived || s.headless || s.agentKind === 'shell') continue
     const row = rows.get(s.issueId)
     if (!row) continue

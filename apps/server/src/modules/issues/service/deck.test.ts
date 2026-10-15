@@ -1,4 +1,4 @@
-import { asSessionId, type IssueDeckNode, type IssueId, type SessionMeta } from '@podium/model'
+import { asSessionId, type IssueDeckNode, type IssueId, type SessionId, type SessionMeta } from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
 import { afterEach, expect, it } from 'vitest'
 import { openTestStore } from '../../../test-support/open-test-store'
@@ -14,9 +14,12 @@ async function fixture() {
   stores.push(store)
   await store.repos.addRepo('/repo', store.hostMachineId)
   const sessions: SessionMeta[] = []
+  const hiddenSessions = new Set<SessionId>()
+  const ports = sessionReadPorts(() => sessions)
   const svc = await IssueService.create({
     store,
-    ...sessionReadPorts(() => sessions),
+    ...ports,
+    sessionsById: async (ids) => (await ports.sessionsById(ids)).filter((s) => !hiddenSessions.has(s.sessionId)),
     getSettings: async () => normalizeSettings({ sessionDefaults: { agent: 'codex' } }),
     spawnSession: async () => ({ sessionId: asSessionId('unused'), machine: 'fixture' }),
     repoOp: async () => ({ ok: true, output: '' }),
@@ -35,7 +38,7 @@ async function fixture() {
     sessions.push(s)
     return s
   }
-  return { store, svc, create, seat, sessions }
+  return { store, svc, create, seat, sessions, hiddenSessions }
 }
 
 const flatten = (root: IssueDeckNode): IssueDeckNode[] => [root, ...root.children.flatMap(flatten)]
@@ -148,4 +151,16 @@ it('includes pending permission asks in session and task words', async () => {
   const deck = await svc.reports.deck(root.id)
   expect(deck.root.word).toBe('needs-you')
   expect(deck.root.sessions[0]?.word).toBe('needs-you')
+})
+
+it('cannot expose a private session through a seat, word, or provenance proposal', async () => {
+  const { svc, create, seat, hiddenSessions } = await fixture()
+  const root = await create('Mission')
+  const privateSession = seat('private', root.id, { agentState: agentState('errored') })
+  hiddenSessions.add(privateSession.sessionId)
+  await svc.crud.create({ repoPath: '/repo', title: 'Private discovery', stage: 'proposed', startedBySession: privateSession.sessionId, startNow: false })
+  const deck = await svc.reports.deck(root.id)
+  expect(deck.root.word).toBe('not-started')
+  expect(deck.root.sessions).toEqual([])
+  expect(deck.proposals).toEqual([])
 })
