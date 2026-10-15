@@ -1,4 +1,10 @@
-import { asSessionId, type IssueDeckNode, type IssueId, type SessionId, type SessionMeta } from '@podium/model'
+import {
+  asSessionId,
+  type IssueDeckNode,
+  type IssueId,
+  type SessionId,
+  type SessionMeta,
+} from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
 import { afterEach, expect, it } from 'vitest'
 import { openTestStore } from '../../../test-support/open-test-store'
@@ -7,7 +13,9 @@ import { IssueService } from '.'
 import { issueTestPlumbing } from './test-plumbing'
 
 const stores: Awaited<ReturnType<typeof openTestStore>>[] = []
-afterEach(async () => { for (const store of stores.splice(0)) await store.close() })
+afterEach(async () => {
+  for (const store of stores.splice(0)) await store.close()
+})
 
 async function fixture() {
   const store = await openTestStore(':memory:')
@@ -19,20 +27,41 @@ async function fixture() {
   const svc = await IssueService.create({
     store,
     ...ports,
-    sessionsById: async (ids) => (await ports.sessionsById(ids)).filter((s) => !hiddenSessions.has(s.sessionId)),
+    sessionsById: async (ids) =>
+      (await ports.sessionsById(ids)).filter((s) => !hiddenSessions.has(s.sessionId)),
     getSettings: async () => normalizeSettings({ sessionDefaults: { agent: 'codex' } }),
     spawnSession: async () => ({ sessionId: asSessionId('unused'), machine: 'fixture' }),
     repoOp: async () => ({ ok: true, output: '' }),
     ...issueTestPlumbing(),
   })
-  const create = async (title: string, parentId?: IssueId, type: 'task' | 'phase' | 'decision' = 'task') =>
-    await svc.crud.create({ repoPath: '/repo', title, type, ...(parentId ? { parentId } : {}), startNow: false })
+  const create = async (
+    title: string,
+    parentId?: IssueId,
+    type: 'task' | 'phase' | 'decision' = 'task',
+  ) =>
+    await svc.crud.create({
+      repoPath: '/repo',
+      title,
+      type,
+      ...(parentId ? { parentId } : {}),
+      startNow: false,
+    })
   const seat = (id: string, issueId: IssueId, patch: Partial<SessionMeta> = {}) => {
     const s: SessionMeta = {
-      sessionId: asSessionId(id), issueId, agentKind: 'codex', title: id, cwd: '/repo',
-      status: 'live', controllerId: null, geometry: { cols: 80, rows: 24 }, epoch: 0,
-      clientCount: 0, createdAt: '2026-10-15T00:00:00Z', lastActiveAt: '2026-10-15T00:00:00Z',
-      origin: { kind: 'spawn' }, archived: false,
+      sessionId: asSessionId(id),
+      issueId,
+      agentKind: 'codex',
+      title: id,
+      cwd: '/repo',
+      status: 'live',
+      controllerId: null,
+      geometry: { cols: 80, rows: 24 },
+      epoch: 0,
+      clientCount: 0,
+      createdAt: '2026-10-15T00:00:00Z',
+      lastActiveAt: '2026-10-15T00:00:00Z',
+      origin: { kind: 'spawn' },
+      archived: false,
       ...patch,
     }
     sessions.push(s)
@@ -42,8 +71,13 @@ async function fixture() {
 }
 
 const flatten = (root: IssueDeckNode): IssueDeckNode[] => [root, ...root.children.flatMap(flatten)]
-const agentState = (phase: NonNullable<SessionMeta['agentState']>['phase']): NonNullable<SessionMeta['agentState']> =>
-  ({ phase, since: '2026-10-15T00:00:00Z', nativeSubagentCount: 0 })
+const agentState = (
+  phase: NonNullable<SessionMeta['agentState']>['phase'],
+): NonNullable<SessionMeta['agentState']> => ({
+  phase,
+  since: '2026-10-15T00:00:00Z',
+  nativeSubagentCount: 0,
+})
 
 it('orders nested phases, rolls up shared words and counts leaves without phase units', async () => {
   const { svc, create, seat } = await fixture()
@@ -84,12 +118,21 @@ it('shows marker-derived seats and shared session words, excluding non-roster se
   const task = await create('Task', phase.id)
   const coordinator = seat('coordinator', root.id)
   const lead = seat('lead', phase.id, { status: 'hibernated' })
-  const worker = seat('worker', task.id, { agentState: agentState('compacting'), model: 'configured', observedModel: 'actual' })
-  seat('helper', task.id, { offer: { message: 'Review ready', actions: [], createdAt: '2026-10-15T00:00:00Z' } })
+  const worker = seat('worker', task.id, {
+    agentState: agentState('compacting'),
+    model: 'configured',
+    observedModel: 'actual',
+  })
+  seat('helper', task.id, {
+    offer: { message: 'Review ready', actions: [], createdAt: '2026-10-15T00:00:00Z' },
+  })
   seat('archived', task.id, { archived: true, agentState: agentState('errored') })
   seat('headless', task.id, { headless: true })
   seat('shell', task.id, { agentKind: 'shell' })
-  const parked = { status: 'hibernated' as const, resume: { kind: 'codex' as const, value: 'same' } }
+  const parked = {
+    status: 'hibernated' as const,
+    resume: { kind: 'codex' as const, value: 'same' },
+  }
   seat('old', task.id, { ...parked, lastActiveAt: '2026-10-14T00:00:00Z' })
   seat('new', task.id, parked)
   await svc.crud.setCoordinator(root.id, coordinator.sessionId)
@@ -101,7 +144,11 @@ it('shows marker-derived seats and shared session words, excluding non-roster se
   const row = deck.root.children[0]!.children[0]!
   expect(row.sessions).toEqual([
     expect.objectContaining({ seat: 'worker', word: 'working', model: 'actual' }),
-    expect.objectContaining({ sessionId: asSessionId('helper'), seat: 'helper', word: 'needs-you' }),
+    expect.objectContaining({
+      sessionId: asSessionId('helper'),
+      seat: 'helper',
+      word: 'needs-you',
+    }),
     expect.objectContaining({ sessionId: asSessionId('new'), seat: 'helper', word: 'idle' }),
   ])
   expect(row.word).toBe('needs-you')
@@ -111,12 +158,30 @@ it('lists formal and provenance proposals with author and placement, excluding d
   const { svc, create, seat } = await fixture()
   const root = await create('Mission')
   const author = seat('author', root.id, { displayRef: 'POD-1-A' })
-  const proposal = await svc.crud.create({ repoPath: '/repo', title: 'Own proposal', stage: 'proposed', startedBySession: author.sessionId, startNow: false })
+  const proposal = await svc.crud.create({
+    repoPath: '/repo',
+    title: 'Own proposal',
+    stage: 'proposed',
+    startedBySession: author.sessionId,
+    startNow: false,
+  })
   await svc.hierarchy.addDep(proposal.id, root.id, 'discovered-from')
-  const formal = await svc.crud.create({ repoPath: '/repo', title: 'Here proposal', parentId: root.id, stage: 'proposed', startedBySession: author.sessionId, startNow: false })
+  const formal = await svc.crud.create({
+    repoPath: '/repo',
+    title: 'Here proposal',
+    parentId: root.id,
+    stage: 'proposed',
+    startedBySession: author.sessionId,
+    startNow: false,
+  })
   const proposedChild = await create('Proposed subtree', formal.id, 'decision')
   const accepted = await create('Accepted task', root.id)
-  const active = await svc.crud.create({ repoPath: '/repo', title: 'Started discovery', startedBySession: author.sessionId, startNow: false })
+  const active = await svc.crud.create({
+    repoPath: '/repo',
+    title: 'Started discovery',
+    startedBySession: author.sessionId,
+    startNow: false,
+  })
   await svc.hierarchy.addDep(active.id, root.id, 'discovered-from')
   await svc.crud.update(active.id, { stage: 'in_progress' })
   const deck = await svc.reports.deck(root.id)
@@ -125,7 +190,13 @@ it('lists formal and provenance proposals with author and placement, excluding d
   expect(deck.root.word).toBe('idle')
   expect(deck.proposals).toEqual([
     expect.objectContaining({ id: proposal.id, placement: 'own-issue' }),
-    expect.objectContaining({ id: formal.id, placement: 'here', word: 'needs-you', proposedBy: { sessionId: author.sessionId, displayRef: 'POD-1-A' }, children: [expect.objectContaining({ id: proposedChild.id })] }),
+    expect.objectContaining({
+      id: formal.id,
+      placement: 'here',
+      word: 'needs-you',
+      proposedBy: { sessionId: author.sessionId, displayRef: 'POD-1-A' },
+      children: [expect.objectContaining({ id: proposedChild.id })],
+    }),
   ])
   expect(JSON.stringify(deck)).not.toContain(active.id)
 })
@@ -149,8 +220,14 @@ it('includes pending permission asks in session and task words', async () => {
   const root = await create('Mission')
   const session = seat('asking', root.id)
   await store.interactions.insert({
-    id: 'ask', sessionId: session.sessionId, kind: 'permission', payload: {},
-    source: 'protocol', answerable: 'structured', fingerprint: 'ask', askedAt: '2026-10-15T00:00:00Z',
+    id: 'ask',
+    sessionId: session.sessionId,
+    kind: 'permission',
+    payload: {},
+    source: 'protocol',
+    answerable: 'structured',
+    fingerprint: 'ask',
+    askedAt: '2026-10-15T00:00:00Z',
   })
   const deck = await svc.reports.deck(root.id)
   expect(deck.root.word).toBe('needs-you')
@@ -162,7 +239,13 @@ it('cannot expose a private session through a seat, word, or provenance proposal
   const root = await create('Mission')
   const privateSession = seat('private', root.id, { agentState: agentState('errored') })
   hiddenSessions.add(privateSession.sessionId)
-  await svc.crud.create({ repoPath: '/repo', title: 'Private discovery', stage: 'proposed', startedBySession: privateSession.sessionId, startNow: false })
+  await svc.crud.create({
+    repoPath: '/repo',
+    title: 'Private discovery',
+    stage: 'proposed',
+    startedBySession: privateSession.sessionId,
+    startNow: false,
+  })
   const deck = await svc.reports.deck(root.id)
   expect(deck.root.word).toBe('not-started')
   expect(deck.root.sessions).toEqual([])

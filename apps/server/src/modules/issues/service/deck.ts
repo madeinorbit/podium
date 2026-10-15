@@ -61,14 +61,21 @@ export async function readDeck(
   const projected = new Map<SessionId, SessionMeta>()
   const requested = new Set<SessionId>()
   // The pool breaks exact parked-resume ties by stable session id.
-  const senders = () => dedupeSessionsByResume([...projected.values()].sort((a, b) => a.sessionId.localeCompare(b.sessionId)))
-  const departed = new Set(deps.filter((dep) => dep.type === 'discovered-from').map((dep) => dep.fromId))
+  const senders = () =>
+    dedupeSessionsByResume(
+      [...projected.values()].sort((a, b) => a.sessionId.localeCompare(b.sessionId)),
+    )
+  const departed = new Set(
+    deps.filter((dep) => dep.type === 'discovered-from').map((dep) => dep.fromId),
+  )
   let grew = true
   while (grew) {
-    const ids = facts.filter((s) => s.issueId && admitted.has(s.issueId) && !requested.has(s.sessionId))
+    const ids = facts
+      .filter((s) => s.issueId && admitted.has(s.issueId) && !requested.has(s.sessionId))
       .map((s) => s.sessionId)
     for (const id of ids) requested.add(id)
-    for (const session of await store.deps.sessionsById(ids)) projected.set(session.sessionId, session)
+    for (const session of await store.deps.sessionsById(ids))
+      projected.set(session.sessionId, session)
     const authors = new Map(senders().map((s) => [s.sessionId, s]))
     grew = false
     for (const row of rows.values()) {
@@ -83,11 +90,14 @@ export async function readDeck(
       grew = true
     }
   }
-  for (const kids of children.values()) kids.sort((left, right) => {
-    const a = rows.get(left)!, b = rows.get(right)!
-    return a.sortKey && b.sortKey && a.sortKey !== b.sortKey
-      ? a.sortKey.localeCompare(b.sortKey) : a.seq - b.seq || left.localeCompare(right)
-  })
+  for (const kids of children.values())
+    kids.sort((left, right) => {
+      const a = rows.get(left)!,
+        b = rows.get(right)!
+      return a.sortKey && b.sortKey && a.sortKey !== b.sortKey
+        ? a.sortKey.localeCompare(b.sortKey)
+        : a.seq - b.seq || left.localeCompare(right)
+    })
 
   const ordered: IssueId[] = []
   const order = (id: IssueId): void => {
@@ -97,8 +107,11 @@ export async function readDeck(
   order(root.id)
   // All proposed work lives in the tail, including parents. Their subtrees
   // remain inspectable there and never enter accepted-work totals/roll-up.
-  const proposalIds = new Set(ordered.filter((id) => id !== root.id && rows.get(id)?.stage === 'proposed'))
-  const workChildren = (id: IssueId) => (children.get(id) ?? []).filter((child) => !proposalIds.has(child))
+  const proposalIds = new Set(
+    ordered.filter((id) => id !== root.id && rows.get(id)?.stage === 'proposed'),
+  )
+  const workChildren = (id: IssueId) =>
+    (children.get(id) ?? []).filter((child) => !proposalIds.has(child))
   const refs = new Map<IssueId, string>()
   const refOf = async (row: IssueRow): Promise<string> => {
     const known = refs.get(row.id)
@@ -113,14 +126,21 @@ export async function readDeck(
     if (dep.type !== 'blocked-by' || !admitted.has(dep.fromId)) continue
     if (store.isClosed(rows.get(dep.fromId)!)) continue
     const target = store.rows.get(dep.toId)
-    if (!target || target.deletedAt || store.isClosed(target) || !(await mayRead(target.id))) continue
+    if (!target || target.deletedAt || store.isClosed(target) || !(await mayRead(target.id)))
+      continue
     const list = blockers.get(dep.fromId) ?? []
-    list.push({ id: target.id, displayRef: await refOf(target), title: target.title, external: !admitted.has(target.id) })
+    list.push({
+      id: target.id,
+      displayRef: await refOf(target),
+      title: target.title,
+      external: !admitted.has(target.id),
+    })
     blockers.set(dep.fromId, list)
   }
   const pending = new Map<SessionId, number>()
   for (const ask of await store.deps.store.interactions.listOpen()) {
-    if (projected.has(ask.sessionId)) pending.set(ask.sessionId, (pending.get(ask.sessionId) ?? 0) + 1)
+    if (projected.has(ask.sessionId))
+      pending.set(ask.sessionId, (pending.get(ask.sessionId) ?? 0) + 1)
   }
   const seats = new Map<IssueId, IssueDeckSession[]>()
   for (const s of senders()) {
@@ -129,17 +149,37 @@ export async function readDeck(
     if (!row) continue
     const coordinator = row.coordinatorSessionId === s.sessionId
     const session: IssueDeckSession = {
-      ...toIssueTreeSession({ ...s, model: s.observedModel ?? s.model, effort: s.observedEffort ?? s.effort, coordinator }),
-      seat: !coordinator ? 'helper' : row.id === root.id ? 'coordinator' : row.type === 'phase' ? 'phase-lead' : 'worker',
-      word: sessionWord(s, { issueClosed: store.isClosed(row), pendingInteractions: pending.get(s.sessionId) ?? 0 }),
+      ...toIssueTreeSession({
+        ...s,
+        model: s.observedModel ?? s.model,
+        effort: s.observedEffort ?? s.effort,
+        coordinator,
+      }),
+      seat: !coordinator
+        ? 'helper'
+        : row.id === root.id
+          ? 'coordinator'
+          : row.type === 'phase'
+            ? 'phase-lead'
+            : 'worker',
+      word: sessionWord(s, {
+        issueClosed: store.isClosed(row),
+        pendingInteractions: pending.get(s.sessionId) ?? 0,
+      }),
     }
     const list = seats.get(row.id) ?? []
     list.push(session)
     seats.set(row.id, list)
   }
-  for (const list of seats.values()) list.sort((a, b) =>
-    Number(b.coordinator === true) - Number(a.coordinator === true) ||
-    projected.get(a.sessionId)!.createdAt.localeCompare(projected.get(b.sessionId)!.createdAt) || a.sessionId.localeCompare(b.sessionId))
+  for (const list of seats.values())
+    list.sort(
+      (a, b) =>
+        Number(b.coordinator === true) - Number(a.coordinator === true) ||
+        projected
+          .get(a.sessionId)!
+          .createdAt.localeCompare(projected.get(b.sessionId)!.createdAt) ||
+        a.sessionId.localeCompare(b.sessionId),
+    )
   const tree = {
     task: (id: IssueId) => {
       const row = rows.get(id)
@@ -157,19 +197,36 @@ export async function readDeck(
     const row = rows.get(id)!
     const tally = tallyTaskWords(counterChildren(id, tree), wordOf)
     return {
-      id, displayRef: refs.get(id)!, title: row.title, type: row.type, stage: row.stage,
-      word: wordOf(id), hidden: taskHidden(row), counter: { done: tally.done, total: tally.total },
-      sessions: seats.get(id) ?? [], blockers: blockers.get(id) ?? [],
+      id,
+      displayRef: refs.get(id)!,
+      title: row.title,
+      type: row.type,
+      stage: row.stage,
+      word: wordOf(id),
+      hidden: taskHidden(row),
+      counter: { done: tally.done, total: tally.total },
+      sessions: seats.get(id) ?? [],
+      blockers: blockers.get(id) ?? [],
       children: workChildren(id).map(build),
     }
   }
   const proposals: IssueDeckProposal[] = [...proposalIds].map((id) => {
-    const row = rows.get(id)!, author = row.startedBySession ? projected.get(row.startedBySession) : undefined
+    const row = rows.get(id)!,
+      author = row.startedBySession ? projected.get(row.startedBySession) : undefined
     return {
       ...build(id),
-      proposedBy: author ? { sessionId: author.sessionId, ...(author.displayRef ? { displayRef: author.displayRef } : {}) } : null,
+      proposedBy: author
+        ? {
+            sessionId: author.sessionId,
+            ...(author.displayRef ? { displayRef: author.displayRef } : {}),
+          }
+        : null,
       placement: row.parentId && admitted.has(row.parentId) ? 'here' : 'own-issue',
     }
   })
-  return { root: build(root.id), counts: tallyTaskWords(leafTasks(root.id, tree), wordOf), proposals }
+  return {
+    root: build(root.id),
+    counts: tallyTaskWords(leafTasks(root.id, tree), wordOf),
+    proposals,
+  }
 }
