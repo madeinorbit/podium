@@ -143,7 +143,7 @@ export const APPROVED_CONTRACT_STEPS = new Map<
     },
   ],
   [
-    'apps/server/src/migrations/drizzle/MIGRATION_PLACEHOLDER/migration.sql',
+    'apps/server/src/migrations/drizzle/20261015030733_workflow-agent-profiles/migration.sql',
     {
       // POD-6114 (follow-up to POD-6107, flight deck D3/D4, 2026-10-14): the
       // workflows feature moved onto agent profiles, so `execution_profiles`

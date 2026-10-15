@@ -149,7 +149,7 @@ ALTER TABLE \`__new_${table}\` RENAME TO \`${table}\`;`
 
 describe('an approved contract step that drops (POD-6114)', () => {
   const path =
-    'apps/server/src/migrations/drizzle/20261014204411_workflow-agent-profiles/migration.sql'
+    'apps/server/src/migrations/drizzle/20261015030733_workflow-agent-profiles/migration.sql'
   const drops = `DROP TABLE \`execution_profiles\`;--> statement-breakpoint
 ALTER TABLE \`workflow_run_steps\` DROP COLUMN \`execution_profile_id\`;--> statement-breakpoint
 ALTER TABLE \`workflow_run_steps\` DROP COLUMN \`execution_profile_json\`;--> statement-breakpoint
