@@ -6,6 +6,7 @@ import { issueDisplayRef } from '@podium/protocol'
 import { useMemo, useState } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
 import { useTrpc } from '../client/hooks'
+import { useSettingsRecord } from '../client/use-settings-record'
 import { IssueLaunchForm } from '../lib/issue-launch-draft'
 import {
   type LaunchPlan,
@@ -30,7 +31,8 @@ const ConfiguredIssueLaunchSheetBody = observer(function ConfiguredIssueLaunchSh
   onClose: () => void
 }) {
   const trpc = useTrpc()
-  const form = useMemo(() => issue ? new IssueLaunchForm(issue, patch => trpc.issues.update.mutate({ id: issue.id, patch })) : null, [issue, trpc])
+  const settingsRequest = useSettingsRecord()
+  const form = useMemo(() => issue ? new IssueLaunchForm(issue, patch => trpc.issues.update.mutate({ id: issue.id, patch }), () => settingsRequest?.model?.codingHarness) : null, [issue, trpc, settingsRequest])
   const [plan, setPlan] = useState<LaunchPlan | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)

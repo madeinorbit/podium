@@ -115,6 +115,7 @@ export interface IssueHandoffMenuData {
 }
 
 export interface IssueMenuData {
+  codingHarness?: string
   first: IssueNavigationModel
   issues: readonly IssueNavigationModel[]
   allIssues: readonly IssueNavigationModel[]
@@ -271,9 +272,9 @@ export const ISSUE_MENU_CONFIG: readonly IssueMenuConfig[] = [
     when: (data) =>
       data.eligibility.canAssignAgent && !(data.primaryStart && isIssueStartable(data.first)),
     options: (data) => {
-      const defaultKind = issueDefaultAgentKind(data.first.defaultAgent)
+      const defaultKind = issueDefaultAgentKind(data.first.defaultAgent, data.codingHarness)
       return [
-        { id: 'default', value: '', label: issueAgentDefaultLabel(data.first.defaultAgent) },
+        { id: 'default', value: '', label: issueAgentDefaultLabel(defaultKind) },
         ...ISSUE_AGENT_KINDS.filter((kind) => kind !== defaultKind).map((kind) => ({
           id: kind,
           value: kind,
@@ -450,6 +451,7 @@ export const ISSUE_MENU_CONFIG: readonly IssueMenuConfig[] = [
 
 /** Build the data passed to the shared tree; hosts only supply environment-specific handoff data. */
 export function createIssueMenuData(input: {
+  codingHarness?: string
   issues: readonly IssueNavigationModel[]
   allIssues: readonly IssueNavigationModel[]
   /** Invoked only when the host renders catalog choices. */
@@ -465,6 +467,7 @@ export function createIssueMenuData(input: {
   if (!first) return null
   const targetIds = new Set(input.issues.map((issue) => issue.id))
   return {
+    codingHarness: input.codingHarness,
     first,
     issues: input.issues,
     allIssues: input.allIssues,

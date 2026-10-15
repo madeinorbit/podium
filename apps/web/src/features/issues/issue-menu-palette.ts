@@ -7,6 +7,7 @@ import { issueHandoffAvailability, issueMenuEligibility } from './issue-context-
 import { createIssueMenuData, type IssueMenuData } from './issue-menu-config'
 
 export function paletteIssueMenuData(input: {
+  codingHarness?: string
   issues: readonly IssueViewModel[]
   selectedIssue?: IssueViewModel | null
   issueId: IssueId | null | undefined
@@ -33,6 +34,7 @@ export function paletteIssueMenuData(input: {
       : []
 
   return createIssueMenuData({
+    codingHarness: input.codingHarness,
     issues: [issue],
     allIssues: input.issues,
     // ITS OWN SURFACE (POD-1470), no longer borrowing the board's. The palette

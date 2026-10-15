@@ -8,6 +8,11 @@ import {
 } from './outbox-recovery-copy'
 
 describe('describeQueuedChange', () => {
+  it('names Settings inheritance for a queued auto harness', () => {
+    expect(describeQueuedChange('issueUpdate', { id: 'issue', patch: { defaultAgent: 'auto' } })).toEqual({
+      label: 'Default agent', summary: 'Settings coding harness',
+    })
+  })
   it('specializes an issueUpdate patch from the author’s fields, never the id', () => {
     expect(
       describeQueuedChange('issueUpdate', { id: 'SECRET-ISSUE-ID', patch: { title: 'New name' } }),

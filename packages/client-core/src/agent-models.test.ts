@@ -173,6 +173,12 @@ describe('cross-harness model picks', () => {
     expect(issueDefaultAgentKind(null)).toBe(DEFAULT_HARNESS_AGENT)
     expect(issueDefaultAgentKind('codex')).toBe('codex')
     expect(issueDefaultAgentKind('no-such-harness')).toBe(DEFAULT_HARNESS_AGENT)
+    expect(issueDefaultAgentKind('auto', 'codex')).toBe('codex')
+    expect(issueDefaultAgentKind(undefined, 'codex')).toBe('codex')
+    expect(issueDefaultAgentKind(null, 'codex')).toBe('codex')
+    expect(issueDefaultAgentKind('claude-code', 'codex')).toBe('claude-code')
+    expect(issueDefaultAgentKind('auto', 'invalid')).toBe(DEFAULT_HARNESS_AGENT)
+    expect(issueDefaultAgentKind('auto')).toBe(DEFAULT_HARNESS_AGENT)
   })
 
   it('namespaces a model so opus on Claude and a custom opus cannot collide', () => {
@@ -328,4 +334,6 @@ it('shares default harness labels and option ordering independently of registry 
   expect(issueAgentLabel(undefined)).toBe('Claude Code')
   expect(issueAgentOptions(undefined)[0]).toEqual({ value: '', label: 'Claude Code (default)' })
   expect(issueAgentOptions('codex').filter(option => option.value === 'codex')).toEqual([])
+  expect(issueAgentOptions('auto', undefined, 'codex')[0]).toEqual({ value: '', label: 'Codex (default)' })
+  expect(issueAgentOptions('auto', undefined, 'codex').some(option => option.value === 'codex')).toBe(false)
 })

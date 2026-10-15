@@ -5,6 +5,7 @@ import {
   type LaunchConfiguration,
   hasAuthoritativeLaunchCatalog,
   launchConfigurationPatch,
+  launchConfigurationForIssue,
   launchPlanCanSubmit,
   normalizeLaunchConfiguration,
   selectLaunchAgent,
@@ -23,6 +24,15 @@ const selected: LaunchConfiguration = {
 const catalog = {
   codex: [{ value: 'gpt-current', label: 'Current', efforts: ['low', 'high'] }],
 }
+
+it('resolves auto issue plans from Settings and leaves the harness inherited', () => {
+  const plan = launchConfigurationForIssue({ defaultAgent: 'auto' }, 'codex')
+  expect(plan).toMatchObject({ agentKind: 'codex', inheritAgent: true, modelPick: AUTO, effort: AUTO })
+  expect(launchConfigurationPatch(plan)).not.toHaveProperty('defaultAgent')
+  expect(launchConfigurationForIssue({ defaultAgent: 'claude-code' }, 'codex')).toMatchObject({
+    agentKind: 'claude-code', inheritAgent: false,
+  })
+})
 
 describe('normalizeLaunchConfiguration', () => {
   it('keeps an eligible live selection unchanged', () => {

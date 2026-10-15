@@ -39,13 +39,15 @@ export const ISSUE_AGENT_KINDS: readonly IssueAgentKind[] = BUNDLED_DESCRIPTORS.
 )
 
 /**
- * The default harness (POD-4737): the named product policy
- * (`DEFAULT_HARNESS_AGENT` in `@podium/model` — Claude is the default for new
- * work), not the registry's first row, so a reorder can never silently change
- * the default and the two can never drift.
+ * Resolve an issue's next harness. Auto/unset inherits the Settings coding
+ * harness; the named product default is only the fallback before settings load.
+ * Session history is deliberately irrelevant to an issue's launch plan.
  */
-export function issueDefaultAgentKind(value: string | null | undefined): IssueAgentKind {
-  return issueAgentKind(value) ?? DEFAULT_HARNESS_AGENT
+export function issueDefaultAgentKind(
+  value: string | null | undefined,
+  codingHarness?: string | null,
+): IssueAgentKind {
+  return issueAgentKind(value) ?? issueAgentKind(codingHarness) ?? DEFAULT_HARNESS_AGENT
 }
 
 /** Picker label for a harness: the descriptor label, or the wire id when new. */
@@ -85,8 +87,9 @@ export function agentDescriptors(
 export function issueAgentOptions(
   defaultAgent: string | null | undefined,
   descriptors?: readonly HarnessDescriptorWire[],
+  codingHarness?: string | null,
 ): CatalogOption[] {
-  const defaultKind = issueDefaultAgentKind(defaultAgent)
+  const defaultKind = issueDefaultAgentKind(defaultAgent, codingHarness)
   return [
     { value: '', label: `${issueAgentLabel(defaultKind, descriptors)} (default)` },
     ...agentDescriptors(descriptors)

@@ -1,4 +1,5 @@
 import type { SessionView } from '@podium/client-core/session-values'
+import { issueDefaultAgentKind } from '@podium/client-core/agent-models'
 import { FLIGHT_DECK_FOLDS_KEY, FLIGHT_DECK_MODE_KEY } from '@podium/client-core/ui-state'
 import {
   type FlightDeckFoldMap,
@@ -22,6 +23,7 @@ import { FullDeck } from './mission-full-deck'
 import { type MissionDeckIssueModel, MissionViewReader, missionView, requireLoaded, settled } from './mission-view'
 import type { IssueModel, SessionModel } from './models'
 import type { MobxPool } from './pool'
+import { SettingsRecordRequest } from './requested-records'
 import { LOADING, type Loaded } from './worklist/rollup'
 
 /** The deck's spine views plus the two experimental ones. */
@@ -98,6 +100,7 @@ class MissionSession {
  */
 export class MissionScreen {
   readonly reader: MissionViewReader
+  readonly settingsRequest: SettingsRecordRequest
   @observable accessor query = ''
   @observable accessor searchOpen = false
   @observable accessor archivedOpen = false
@@ -115,6 +118,7 @@ export class MissionScreen {
 
   constructor(readonly pool: MobxPool, readonly rootId: string, private readonly options: MissionScreenOptions = {}) {
     this.reader = new MissionViewReader(pool)
+    this.settingsRequest = new SettingsRecordRequest(pool)
   }
 
   get sessionName(): (session: SessionView) => string {
@@ -129,6 +133,7 @@ export class MissionScreen {
     this.generation++
     this.waiting.length = 0
     this.reader.dispose()
+    this.settingsRequest.close()
   }
 
   // Preferences: stored once, in the pool's preference rows
@@ -289,7 +294,7 @@ export class MissionScreen {
   @lazy get rootClosable(): boolean { return !this.rootFinished && !this.rootIssue.deletedAt }
   @lazy({ equals: compareShallow }) get rootAgentTarget() {
     const { defaultAgent, repoPath, machineId } = this.rootIssue
-    return { defaultAgent, repoPath, machineId }
+    return { defaultAgent: issueDefaultAgentKind(defaultAgent, this.settingsRequest.model?.codingHarness), repoPath, machineId }
   }
   @lazy({ equals: compareStructural }) get progress() {
     const progress = requireLoaded(this.deck.progress)

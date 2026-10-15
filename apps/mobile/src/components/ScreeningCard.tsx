@@ -2,6 +2,8 @@ import { useAgeNow } from '../lib/clock-hooks'
 import { observer } from '@podium/client-graph/react'
 import { relativeTime } from '@podium/client-core/focus'
 import type { IssueViewModel } from '@podium/client-core/replica'
+import { issueAgentLabel, issueDefaultAgentKind } from '@podium/client-core/agent-models'
+import { useSettingsRecord } from '../client/use-settings-record'
 
 import * as Haptics from 'expo-haptics'
 import { StyleSheet, Text, useWindowDimensions, View } from 'react-native'
@@ -59,7 +61,7 @@ export type ScreeningGesture = 'accepted' | 'declined' | 'skipped'
  * reports the gesture. Every gesture has a button twin in the screen's action
  * row, so nothing here is reachable only by dragging.
  */
-export function ScreeningCard({
+export const ScreeningCard = observer(function ScreeningCard({
   issue,
   repoName,
   parent,
@@ -74,6 +76,7 @@ export function ScreeningCard({
   onOpen: () => void
 }) {
   const { width } = useWindowDimensions()
+  const settingsRequest = useSettingsRecord()
   const reduceMotion = useReduceMotion()
   const translateX = useSharedValue(0)
   const translateY = useSharedValue(0)
@@ -221,7 +224,8 @@ export function ScreeningCard({
   const openChildren = Math.max(0, issue.childCount - issue.childDoneCount)
   const brief = issue.brief?.trim()
   const description = issue.description.trim()
-  const modelBits = [issue.defaultAgent, issue.defaultModel, issue.defaultEffort]
+  const agentKind = issueDefaultAgentKind(issue.defaultAgent, settingsRequest?.model?.codingHarness)
+  const modelBits = [issueAgentLabel(agentKind), issue.defaultModel, issue.defaultEffort]
     .filter((bit) => bit && bit !== 'auto')
     .join(' · ')
 
@@ -314,13 +318,13 @@ export function ScreeningCard({
             </Text>
           ) : null}
           <Text style={styles.fact} numberOfLines={1}>
-            {`starts ${modelBits || issue.defaultAgent} on ⎇ ${issue.parentBranch}`}
+            {`starts ${modelBits} on ⎇ ${issue.parentBranch}`}
           </Text>
         </View>
       </Animated.View>
     </GestureDetector>
   )
-}
+})
 
 const styles = StyleSheet.create({
   card: {

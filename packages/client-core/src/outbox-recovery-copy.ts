@@ -439,7 +439,7 @@ function describeSinglePatchField(key: string, value: unknown): QueuedChangeView
     case 'defaultAgent':
       return {
         label: 'Default agent',
-        summary: typeof value === 'string' && value.length > 0 ? value : null,
+        summary: value === 'auto' ? 'Settings coding harness' : typeof value === 'string' && value.length > 0 ? value : null,
       }
     case 'defaultModel':
       return {

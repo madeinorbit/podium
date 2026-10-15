@@ -7,7 +7,6 @@ import {
   encodeModelPick,
   type IssueAgentKind,
   draftForReportedModels,
-  issueAgentKind,
   issueDefaultAgentKind,
 } from '@podium/client-core/agent-models'
 
@@ -105,10 +104,13 @@ export function selectLaunchMachine(
   return { ...value, machineId }
 }
 
-export function launchConfigurationForIssue(issue: Partial<Pick<IssueViewModel, 'defaultAgent' | 'defaultModel' | 'defaultEffort'>> & { machineId?: MachineId | null }): LaunchConfiguration {
-  const agentKind = issueAgentKind(issue.defaultAgent) ?? issueDefaultAgentKind(undefined)
+export function launchConfigurationForIssue(
+  issue: Partial<Pick<IssueViewModel, 'defaultAgent' | 'defaultModel' | 'defaultEffort'>> & { machineId?: MachineId | null },
+  codingHarness?: string | null,
+): LaunchConfiguration {
+  const agentKind = issueDefaultAgentKind(issue.defaultAgent, codingHarness)
   return {
-    inheritAgent: false,
+    inheritAgent: !issue.defaultAgent || issue.defaultAgent === AUTO,
     agentKind,
     modelPick:
       issue.defaultModel && issue.defaultModel !== AUTO

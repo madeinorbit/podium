@@ -43,18 +43,21 @@ export function issueAgentIcon(
 export function issueAgentDefaultLabel(
   value: string | null | undefined,
   descriptors?: readonly HarnessDescriptorWire[],
+  codingHarness?: string | null,
 ): string {
-  return `${issueAgentLabel(value, descriptors)} (default)`
+  return `${issueAgentLabel(issueDefaultAgentKind(value, codingHarness), descriptors)} (default)`
 }
 
 /** Web presentation adapter: shared options plus the harness icons. */
 export function issueAgentOptions(
   defaultAgent: string | null | undefined,
   descriptors?: readonly HarnessDescriptorWire[],
+  codingHarness?: string | null,
 ): PropertyOption[] {
-  return harnessOptions(defaultAgent, descriptors).map((option) => ({
+  const defaultKind = issueDefaultAgentKind(defaultAgent, codingHarness)
+  return harnessOptions(defaultKind, descriptors).map((option) => ({
     ...option,
-    icon: issueAgentIcon(option.value || defaultAgent, 14, descriptors),
+    icon: issueAgentIcon(option.value || defaultKind, 14, descriptors),
   }))
 }
 

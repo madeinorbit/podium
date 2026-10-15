@@ -1,10 +1,7 @@
 import { observer } from 'mobx-react-lite'
 import { LOADING } from '@podium/client-graph/loading'
 import { isGone } from '@podium/client-graph/lookup'
-import { SettingsRecordRequest } from '@podium/client-graph/requested-records'
-import { useMobilePool } from '../client/mobile-pool'
-import { followPhoneRequest } from '../client/visible-request'
-import { useMemo } from 'react'
+import { useSettingsRecord } from '../client/use-settings-record'
 import { ISSUE_STAGE_LABELS } from '@podium/client-core/values'
 import { HUMAN_SETTABLE_ISSUE_STAGES, type IssueStage, machinePathBasename } from '@podium/model'
 import { useRouter } from 'expo-router'
@@ -51,8 +48,7 @@ export const NewIssueScreen = observer(function NewIssueScreen() {
   const repositoriesLoading = repositoryPaths === LOADING
   const repositoriesGone = isGone(repositoryPaths)
   const repos = repositoryPaths === LOADING || isGone(repositoryPaths) ? [] : repositoryPaths
-  const pool = useMobilePool()
-  const settingsRequest = useMemo(() => pool ? new SettingsRecordRequest(pool) : null, [pool])
+  const settingsRequest = useSettingsRecord()
   const [repoPath, setRepoPath] = useState('')
   const [title, setTitle] = useState('')
   const [prompt, setPrompt] = useState('')
@@ -64,10 +60,6 @@ export const NewIssueScreen = observer(function NewIssueScreen() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  useEffect(() => {
-    const stop = followPhoneRequest(() => { if (settingsRequest && !settingsRequest.loading) void settingsRequest.read(() => trpc.settings.get.query()) })
-    return () => { stop(); settingsRequest?.close() }
-  }, [settingsRequest, trpc])
   const configuredHarness = settingsRequest?.model?.codingHarness
   const configuredAgent = configuredHarness ? issueAgentKind(configuredHarness) : undefined
   useEffect(() => {

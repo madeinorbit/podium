@@ -30,7 +30,8 @@ import { toast } from 'sonner'
 import type { Trpc } from '@/app/trpc'
 import { IssueColorSwatches } from '@/components/IssueColorSwatches'
 import { useConfirm } from '@/lib/hooks/use-confirm'
-import { issueAgentIcon } from '@/lib/issue-agents'
+import { issueAgentIcon, issueDefaultAgentKind } from '@/lib/issue-agents'
+import { useSettingsRecord } from '@/features/settings/record-readers'
 import {
   MENU_EMPTY,
   MENU_HEADER,
@@ -150,6 +151,8 @@ export function IssueContextMenu({
     setIssuePlacement,
     restoreIssue,
   } = useStoreHandle<Trpc>().access
+  const readSettings = useCallback(() => trpc.settings.get.query(), [trpc])
+  const settingsRequest = useSettingsRecord(readSettings)
   const { sessions, repos, machines } = poolInputs
   const handoffEnabled = useFeature('session-handoff')
   // The app-wide dialog, replacing two raw `window.confirm` calls (POD-1077).
@@ -387,6 +390,7 @@ export function IssueContextMenu({
   }
 
   const menuData = createIssueMenuData({
+    codingHarness: settingsRequest?.model?.codingHarness,
     issues,
     allIssues,
     choiceIssues: () => choices ?? [],
@@ -566,7 +570,7 @@ export function IssueContextMenu({
       return <StatusGlyph status={option.value} />
     if (entry.id === 'priority' && option.value)
       return <PriorityGlyph priority={Number(option.value)} />
-    if (entry.id === 'agent') return issueAgentIcon(option.value || first.defaultAgent)
+    if (entry.id === 'agent') return issueAgentIcon(option.value || issueDefaultAgentKind(first.defaultAgent, settingsRequest?.model?.codingHarness))
     return option.icon ? renderIcon(option.icon) : null
   }
 

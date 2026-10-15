@@ -354,6 +354,7 @@ const PaletteDialogBody = observer(function PaletteDialogBody({
   const issueMenuData = (
     () =>
       paletteIssueMenuData({
+        codingHarness: agentSetting,
         issues,
         selectedIssue: data.selectedIssue ?? null,
         issueId: openIssueId ?? selectedIssueId,
