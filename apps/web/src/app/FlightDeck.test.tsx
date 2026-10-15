@@ -1966,7 +1966,7 @@ describe('flight deck click semantics (POD-710 §4.1)', () => {
     ])
   })
 
-  it('changes a proposed issue from its status icon without opening the row', async () => {
+  it('keeps the legacy proposal status picker in Working without opening the row', async () => {
     // This file's fake clock is for the click-intent window. Base UI positions
     // the status menu on rAF, and the two together make `findByRole` miss the
     // item. The rest of the suite can keep the fake clock; this test needs the
@@ -1975,6 +1975,7 @@ describe('flight deck click semantics (POD-710 §4.1)', () => {
     vi.useRealTimers()
     const openPanel = vi.fn()
     window.addEventListener('podium:open-right-panel', openPanel)
+    harness.ui.set('podium.flightDeck.mode', 'working')
     await deck()
 
     fireEvent.click(screen.getByLabelText('Status: Proposed'))

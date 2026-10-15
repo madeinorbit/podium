@@ -58,7 +58,8 @@ export const FlightDeckProposals = observer(function FlightDeckProposals({
 }: { full: FullDeck } & ProposalNavigation): JSX.Element | null {
   const [submissions] = useState(() => new ProposalSubmissions())
   const trpc = useRuntimeSelector(store => store.trpc)
-  const ids = [...new Set([...full.proposalIds, ...submissions.byId.keys()])].filter(id => {
+  const proposed = settled(() => full.proposalIds)
+  const ids = [...new Set([...(typeof proposed === 'symbol' ? [] : proposed), ...submissions.byId.keys()])].filter(id => {
     const status = submissions.byId.get(id)
     return !(status?.action === 'dismiss' && status.phase === 'success')
   })
@@ -103,6 +104,7 @@ const FullProposal = observer(function FullProposal({ task, status, onSubmit, on
         {!receipt && <span className="flight-proposal-ring" aria-hidden="true" />}
         <Tooltip>
           <TooltipTrigger render={<button type="button" className="flight-proposal-details" />}
+            aria-description={provenance}
             aria-label={`Open ${ref}: ${drawable ? task.row.title : 'proposal details'}`}
             onClick={() => intent.press(() => onSelect(task, false), () => onSelect(task, true))}
             onKeyDown={event => {
