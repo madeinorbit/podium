@@ -143,7 +143,8 @@ test('issue-first hierarchy, distinct live status, and animated open/close contr
   const attentionBox = await attention.boundingBox()
   expect(activityBox).not.toBeNull()
   expect(attentionBox).not.toBeNull()
-  if (activityBox && attentionBox) expect(attentionBox.y).toBeGreaterThan(activityBox.y)
+  // Obligation first: the folded bar stacks what needs you above the crew.
+  if (activityBox && attentionBox) expect(attentionBox.y).toBeLessThan(activityBox.y)
   await page.screenshot({ path: resolve(ARTIFACT_DIR, 'flight-deck-folded.png'), fullPage: true })
 
   await attention.click()
