@@ -56,6 +56,8 @@ it('keeps intrinsic identity/state, title minima and the edge gutter through wra
   expect(declaration(300, '.flight-full-phase-hairline', 'min-width')).toBe('0')
   expect(declaration(300, '.flight-full-phase-toggle', 'flex-wrap')).toBe('wrap')
   expect(declaration(300, '.flight-proposal-actions button', 'flex')).toBe('none')
+  expect(declaration(300, '.flight-full-modes', 'flex-wrap')).toBe('wrap')
+  expect(declaration(300, '.flight-full-modes', 'overflow-x')).toBe('visible')
   expect(full).not.toContain('@media')
   expect(css).toContain('container: gauge-band / inline-size')
   expect(css).toContain('.flight-full-gauge-row > :is(button, [data-testid="mission-cost-chip"])')

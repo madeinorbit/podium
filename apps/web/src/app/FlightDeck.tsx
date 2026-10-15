@@ -2412,12 +2412,12 @@ export const FlightDeckContent = observer(function FlightDeckContent({
           through the column, and its top rule is the seam the header no
           longer draws for itself. */}
         <div
-          className="relative flex h-8 flex-none items-center gap-1 border-y border-hairline-soft pr-2"
+          className={cn('relative flex h-8 flex-none items-center gap-1 border-y border-hairline-soft pr-2', view === 'full' && 'flight-full-view-bar')}
           role="group"
           aria-label="Deck view"
           style={{ paddingLeft: GUTTER }}
         >
-          <div className="flex min-w-0 flex-1 gap-1 self-stretch overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          <div className={cn('flex min-w-0 flex-1 gap-1 self-stretch overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden', view === 'full' && 'flight-full-modes')}>
             {modes.map((option) => (
               <button
                 data-pressable

@@ -13269,6 +13269,9 @@ button.waterfall-fold:hover {
   --v6-indent-limit: clamp(0px, calc(100cqi - 440px), 66px);
 }
 .flight-v6-rows, .flight-full-coordinator, .flight-full-archive { --v6-state-width: 76px; }
+.flight-full-view-bar { height: auto; min-height: 32px; flex-wrap: wrap; }
+.flight-full-modes { flex-wrap: wrap; overflow-x: visible; }
+.flight-full-modes > button { min-height: 32px; }
 .flight-v6-task, .flight-v6-session { min-width: 0; }
 .flight-v6-card, .flight-full-phase-header, .flight-full-phase-lead {
   margin-left: min(var(--v6-indent, 0px), var(--v6-indent-limit, 66px));
