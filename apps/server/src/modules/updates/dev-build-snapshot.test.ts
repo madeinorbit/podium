@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { ReleaseBuildTimingRecord } from '@podium/runtime/release-build-timing'
 import { afterEach, describe, expect, it } from 'vitest'
-import { withDevBuildSnapshot } from './dev-build-snapshot'
+import { installSnapshotDependencies, withDevBuildSnapshot } from './dev-build-snapshot'
 
 const roots: string[] = []
 
@@ -138,5 +138,44 @@ describe('approved development build timing evidence', () => {
         outcome: 'success',
       }),
     )
+  })
+})
+
+describe('approved development build dependency install', () => {
+  const offline = ['install', '--frozen-lockfile', '--offline', '--ignore-scripts']
+  const fetching = ['install', '--frozen-lockfile', '--ignore-scripts']
+
+  it('installs from the cache alone when the cache holds the lockfile', async () => {
+    const calls: string[][] = []
+    await installSnapshotDependencies('/snapshot', async (_root, args) => {
+      calls.push([...args])
+    })
+    expect(calls).toEqual([offline])
+  })
+
+  it('fetches the lockfile packages the cache has never seen', async () => {
+    const calls: string[][] = []
+    await installSnapshotDependencies('/snapshot', async (_root, args) => {
+      calls.push([...args])
+      if (args.includes('--offline')) {
+        throw Object.assign(new Error('Command failed: bun install --frozen-lockfile --offline'), {
+          stderr: 'error: --offline: "expo" is not in the cache\n',
+        })
+      }
+    })
+    expect(calls).toEqual([offline, fetching])
+  })
+
+  it('does not retry an install that failed for any other reason', async () => {
+    const calls: string[][] = []
+    await expect(
+      installSnapshotDependencies('/snapshot', async (_root, args) => {
+        calls.push([...args])
+        throw Object.assign(new Error('Command failed: bun install'), {
+          stderr: 'error: lockfile had changes, but lockfile is frozen\n',
+        })
+      }),
+    ).rejects.toThrow(/Command failed/)
+    expect(calls).toEqual([offline])
   })
 })

@@ -41,6 +41,46 @@ async function assertSnapshotIdentity(root: string, approvedSha: string): Promis
   }
 }
 
+export type BunInstall = (snapshotRoot: string, args: readonly string[]) => Promise<void>
+
+const runBunInstall: BunInstall = async (snapshotRoot, args) => {
+  await execFileAsync(devBuildCommand(process.env), [...args], {
+    cwd: snapshotRoot,
+    env: { ...process.env },
+  })
+}
+
+function isOfflineCacheMiss(error: unknown): boolean {
+  const text = [
+    error instanceof Error ? error.message : String(error),
+    (error as { stderr?: unknown } | null)?.stderr,
+  ]
+    .filter((part) => typeof part === 'string')
+    .join('\n')
+  return /--offline: .* is not in the cache/.test(text)
+}
+
+/**
+ * Install the snapshot's dependencies from the lockfile.
+ *
+ * The offline install is the fast path: it links straight from the global bun
+ * cache. A lockfile bump the build host has never installed (a new expo set,
+ * say) is not in that cache yet, and the offline install refuses outright. Only
+ * then does it fetch: still `--frozen-lockfile`, so every package is pinned to
+ * the lockfile's integrity hash, and the fetch fills the cache for next time.
+ */
+export async function installSnapshotDependencies(
+  snapshotRoot: string,
+  install: BunInstall = runBunInstall,
+): Promise<void> {
+  try {
+    await install(snapshotRoot, ['install', '--frozen-lockfile', '--offline', '--ignore-scripts'])
+  } catch (error) {
+    if (!isOfflineCacheMiss(error)) throw error
+    await install(snapshotRoot, ['install', '--frozen-lockfile', '--ignore-scripts'])
+  }
+}
+
 export type DevBuildSnapshot = <T>(
   approvedSha: string,
   build: (snapshotRoot: string) => Promise<T>,
@@ -95,15 +135,7 @@ export async function withDevBuildSnapshot<T>(
       await assertSnapshotIdentity(snapshotRoot, input.approvedSha),
     )
     await timed('dependency-preparation', 'bun-install', async () => {
-      if (input.install) {
-        await input.install(snapshotRoot)
-      } else {
-        await execFileAsync(
-          devBuildCommand(process.env),
-          ['install', '--frozen-lockfile', '--offline', '--ignore-scripts'],
-          { cwd: snapshotRoot, env: { ...process.env } },
-        )
-      }
+      await (input.install ?? installSnapshotDependencies)(snapshotRoot)
     })
     const result = await build(snapshotRoot)
     await timed('validation', 'final-source-identity', async () =>
