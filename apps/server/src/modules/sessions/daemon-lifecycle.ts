@@ -22,7 +22,6 @@ import type { EventBus } from '../bus'
 import type { MemoryService } from '../memory/service'
 import type { SessionDaemonProjection } from './daemon-projection'
 import type { SessionInbox } from './inbox'
-import type { SessionObservationLeases } from './observation-leases'
 import type { Session, SessionDurableState } from './session'
 import type { SessionStateService } from './session-state/service'
 
@@ -38,7 +37,6 @@ export interface SessionDaemonLifecyclePorts {
   projection: SessionDaemonProjection
   store: DaemonObservationStore
   memory: Pick<MemoryService, 'ensureConversationIdentity' | 'linkConversationSegment'>
-  observationLeases: SessionObservationLeases
   persist(session: Session, additionalWrite?: () => void | Promise<void>): Promise<void>
   /** Mutate the durable half as a DRAFT and persist it [POD-3330]. */
   write(
@@ -183,9 +181,6 @@ export class SessionDaemonLifecycle {
   private get store(): DaemonObservationStore {
     return this.ports.store
   }
-  private get observationLeases(): SessionObservationLeases {
-    return this.ports.observationLeases
-  }
   private readonly persist = async (
     session: Session,
     additionalWrite?: () => Promise<void>,
@@ -231,9 +226,7 @@ export class SessionDaemonLifecycle {
     msg: Extract<SessionsDaemonFrame, { type: 'agentExit' }>,
   ): Promise<void> {
     const before = this.sessions.get(msg.sessionId)
-    const lease =
-      this.observationLeases.get(msg.sessionId) ??
-      (await this.store.observationCheckpoints.get(msg.sessionId))
+    const lease = await this.store.observationCheckpoints.get(msg.sessionId)
     // A replacement reuses the Podium session id but owns a newer runtime
     // generation. Reject any exit not authored by the currently fenced
     // process, including one repeated after the replacement has bound live.
@@ -593,9 +586,7 @@ export class SessionDaemonLifecycle {
         const session = this.sessions.get(msg.sessionId)
         if (!session || session.machineId !== machineId) break
         if (!['starting', 'live', 'reconnecting'].includes(session.status)) break
-        const lease =
-          this.observationLeases.get(msg.sessionId) ??
-          (await this.store.observationCheckpoints.get(msg.sessionId))
+        const lease = await this.store.observationCheckpoints.get(msg.sessionId)
         const expectedProvider = harnessObservationProvider(session.agentKind)
         const sessionBindingCompatible =
           session.resume === undefined ||
@@ -704,7 +695,6 @@ export class SessionDaemonLifecycle {
           break
         }
         const rebound = outcome.lease
-        this.observationLeases.record(session.sessionId, rebound)
         this.toMachine(session.machineId, {
           type: 'agentObservationRebindAck',
           sessionId: session.sessionId,
@@ -737,10 +727,7 @@ export class SessionDaemonLifecycle {
           observation.receivedAt,
           observation.inputOrigin,
         )
-        // Durable state is authoritative: a foreign daemon or reattach may
-        // have advanced the lease since this process cached it.
         const lease = await this.store.observationCheckpoints.get(observation.podiumSessionId)
-        if (lease) this.observationLeases.record(observation.podiumSessionId, lease)
         const outcome =
           observation.podiumSessionId !== session.sessionId || !lease
             ? ({ kind: 'rejected', rejectionReason: 'legacy_unfenced_observation' } as const)
@@ -831,7 +818,6 @@ export class SessionDaemonLifecycle {
             }
           }
         })
-        this.observationLeases.record(session.sessionId, acceptedLease)
         const next = session.agentState ?? outcome.checkpoint.turnState
 
         // The durable commit above is the release point for daemon-side
@@ -928,7 +914,10 @@ export class SessionDaemonLifecycle {
         // A contract bind selects causal state before its first durable event.
         // Legacy-only sessions retain compatibility; durable heads also fence
         // late frames during server restart, before a daemon binds again.
-        if (this.runtimeOwnsState(session) || this.observationLeases.hasCheckpoint(msg.sessionId)) {
+        if (
+          this.runtimeOwnsState(session) ||
+          (await this.store.observationCheckpoints.get(msg.sessionId))?.checkpoint != null
+        ) {
           log.warn('rejected a legacy unfenced observation', { sessionId: msg.sessionId })
           break
         }
@@ -1052,7 +1041,7 @@ export class SessionDaemonLifecycle {
         }
         let result: import('./runtime-event-gate').RuntimeEventGateResult | undefined
         const identityLease = msg.event.t === 'binding'
-          ? this.observationLeases.get(msg.sessionId) : undefined
+          ? await this.store.observationCheckpoints.get(msg.sessionId) : null
         if (msg.event.t === 'binding' && identityLease &&
             (identityLease.observationGeneration !== msg.event.observerGeneration ||
              identityLease.bindingVersion !== msg.event.bindingVersion)) {

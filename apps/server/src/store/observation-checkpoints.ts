@@ -1,8 +1,9 @@
 import { createLogger } from '@podium/logger'
 import type { SessionId } from '@podium/model'
 import { ObservationProvider, SessionObservationCheckpointV1 } from '@podium/protocol'
-import { and, eq, isNull, sql } from 'drizzle-orm'
+import { and, eq, isNotNull, isNull, sql } from 'drizzle-orm'
 import {
+  sessions,
   sessionObservationCheckpoints,
   sessionObservationRebinds,
   sessionTerminalCandidates,
@@ -107,8 +108,13 @@ const rebindReceiptOf = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
-const allLeases = prepared((db: StoreDrizzle) =>
-  db.select(LEASE_COLUMNS).from(ck).orderBy(ck.sessionId).prepare(),
+const checkpointedLiveLeases = prepared((db: StoreDrizzle) =>
+  db
+    .select(LEASE_COLUMNS)
+    .from(ck)
+    .innerJoin(sessions, eq(sessions.id, ck.sessionId))
+    .where(and(isNull(sessions.deletedAt), isNotNull(ck.checkpointJson)))
+    .prepare(),
 )
 
 const openLease = prepared((db: StoreDrizzle) =>
@@ -387,11 +393,20 @@ export class ObservationCheckpointsRepository {
     }
   }
 
-  async loadAll(): Promise<ObservationLeaseRecord[]> {
-    const rows = await allLeases(this.db).all()
-    return (await Promise.all(rows.map(async (row) => await this.mapRow(row)))).filter(
-      (row): row is ObservationLeaseRecord => row !== null,
-    )
+  /**
+   * The checkpoint of every live (not tombstoned) session that has one, read
+   * once at boot to restore the session map's agent state [POD-6159]. Nothing
+   * keeps the result: every later read is {@link get}. It goes when the session
+   * map itself stops being a copy of the table (design §6).
+   */
+  async checkpointsOfLiveSessions(): Promise<Map<SessionId, SessionObservationCheckpointV1>> {
+    const rows = await checkpointedLiveLeases(this.db).all()
+    const checkpoints = new Map<SessionId, SessionObservationCheckpointV1>()
+    for (const row of rows) {
+      const lease = await this.mapRow(row)
+      if (lease?.checkpoint) checkpoints.set(lease.sessionId, lease.checkpoint)
+    }
+    return checkpoints
   }
 
   async get(sessionId: SessionId): Promise<ObservationLeaseRecord | null> {

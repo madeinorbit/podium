@@ -29,7 +29,6 @@ import type { WriteFunnel } from '../funnel'
 import type { MemoryService } from '../memory/service'
 import { DEPLOYMENT, perf } from '../perf/registry'
 import type { SessionLedger } from './lifecycle'
-import type { SessionObservationLeases } from './observation-leases'
 export interface SessionProjectionEvent {
   generation: number
   changes: MetadataChange[]
@@ -106,7 +105,6 @@ export interface SessionRepositoryPorts {
   funnel: WriteFunnel
   view: SessionView
   state: SessionStateService
-  observationLeases: SessionObservationLeases
   autoContinue(): AutoContinueController
   toMachine(machineId: MachineId, message: ControlMessage): void
   toPtyInput(machineId: MachineId, input: DaemonPtyInputBatch): void
@@ -262,9 +260,6 @@ export class SessionRepository {
   }
   private get state(): SessionStateService {
     return this.ports.state
-  }
-  private get observationLeases(): SessionObservationLeases {
-    return this.ports.observationLeases
   }
   private get autoContinue(): AutoContinueController {
     return this.ports.autoContinue()
@@ -944,7 +939,7 @@ export class SessionRepository {
 
   async loadFromStore(): Promise<void> {
     const recoveryStarted = performance.now()
-    this.observationLeases.hydrate(await this.store.observationCheckpoints.loadAll())
+    const checkpoints = await this.store.observationCheckpoints.checkpointsOfLiveSessions()
 
     // Shared draft documents hydrate here; viewer rows remain lazy per principal.
     this.state.setDraftSyncEnabled(
@@ -966,7 +961,7 @@ export class SessionRepository {
       if (!session) continue
       await this.installStoredSession(session, offers)
       installMs += performance.now() - rowStarted
-      const checkpoint = this.observationLeases.checkpointOf(r.id)
+      const checkpoint = checkpoints.get(r.id)
       if (checkpoint) {
         session.applyObservationCheckpoint(checkpoint)
         // Only the current state of a durably accepted LIVE cursor may restore

@@ -92,7 +92,6 @@ import type { AgentConcurrencyHistory, AgentConcurrencyHistoryResult } from './c
 import type { SessionLaunchConfig } from './launch-config'
 import type { SessionMachineReconciler } from './machine-reconciler'
 import type { SessionNaming } from './naming'
-import { SessionObservationLeases } from './observation-leases'
 import type { SessionBroadcastCoordinator } from './publication/broadcast'
 import type { SessionProjectionEvent, SessionRepository } from './repository'
 import type { Session } from './session'
@@ -128,8 +127,6 @@ export class SessionLifecycle {
   readonly sessions!: Map<SessionId, Session>
   /** THE CLIENT CONNECTION SET — OWNED BY THE GATEWAY (POD-390). */
   readonly clients!: ClientRegistry
-  /** Durable observer leases, hydrated before session state restoration. */
-  private readonly observationLeases = new SessionObservationLeases()
   /** Terminal-proof reasoning over the lease book (POD-1396). */
   private readonly terminalProof!: SessionTerminalProof
   /** Daemon presence reconciliation for one machine (POD-1396). */

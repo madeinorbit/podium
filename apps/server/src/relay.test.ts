@@ -4601,7 +4601,7 @@ describe('hibernation', () => {
     expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.status).toBe('starting')
   })
 
-  it('rejects a fenced Grok exit when both live and durable leases are absent', async () => {
+  it('rejects a fenced Grok exit when the durable lease is absent', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const daemon: ControlMessage[] = []
     await attachHostDaemon(reg, (message) => daemon.push(message))
@@ -4623,17 +4623,7 @@ describe('hibernation', () => {
       driverId: 'grok-acp',
     })
 
-    const leaseBook = (
-      reg.modules.sessions as unknown as {
-        observationLeases: {
-          hydrate(rows: Iterable<never>): void
-          get(sessionId: SessionId): unknown
-        }
-      }
-    ).observationLeases
-    leaseBook.hydrate([])
     await reg.sessionStore.observationCheckpoints.purge(sessionId)
-    expect(leaseBook.get(sessionId)).toBeUndefined()
     expect(await reg.sessionStore.observationCheckpoints.get(sessionId)).toBeNull()
     daemon.length = 0
 

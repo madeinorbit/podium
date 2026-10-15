@@ -14,13 +14,11 @@
  * own inputs, and nothing else in `lifecycle.ts` reads them. This module is
  * that port, given a home.
  *
- * WHAT IT OWNS AND WHAT IT ONLY READS. It owns the observation LEASE BOOK
- * ({@link SessionObservationLeases}) because fencing allocates a lease and the
- * proof reads it back; the repository's boot hydration and the daemon
- * lifecycle's rebind writes reach the same book through their own reference to
- * it. Everything else — sessions, store, drain state, auto-continue — arrives
- * through narrow ports and is READ ONLY. This module writes nothing except a
- * fenced lease.
+ * WHAT IT WRITES AND WHAT IT ONLY READS. Fencing allocates a lease in the
+ * database, and the proof reads leases back from the database; there is no
+ * in-memory copy of them [POD-6159]. Everything else — sessions, drain state,
+ * auto-continue — arrives through narrow ports and is READ ONLY. This module
+ * writes nothing except a fenced lease.
  *
  * THE ORDER MATTERS AND IS NOT AN ACCIDENT. `facts()` gathers; `consumable()`
  * judges the gathered facts; `hasValidProof()` requires BOTH that the durable
@@ -36,7 +34,6 @@ import { harnessObservationProvider } from '../../harness-manifest'
 import type { SessionId } from '@podium/model'
 import type { ObservationCheckpointsRepository } from '../../store/observation-checkpoints'
 import type { ObservationLeaseRecord, TerminalCandidateFacts } from '../../store/types'
-import type { SessionObservationLeases } from './observation-leases'
 import type { Session, SessionDurableFields } from './session'
 
 /**
@@ -56,7 +53,6 @@ export type TerminalProofCheckpoints = Pick<
 
 export interface TerminalProofPorts {
   now(): number
-  leases: SessionObservationLeases
   checkpoints: TerminalProofCheckpoints
   /** The live session map, read-only: the child-session scan needs every session. */
   sessions(): Iterable<Session>
@@ -90,13 +86,11 @@ export class SessionTerminalProof {
   async fence(session: Session): Promise<ObservationLeaseRecord | undefined> {
     const provider = harnessObservationProvider(session.agentKind)
     if (!provider) return undefined
-    const lease = await this.ports.checkpoints.advanceGeneration(
+    return await this.ports.checkpoints.advanceGeneration(
       session.sessionId,
       provider,
       session.resume?.value ?? null,
     )
-    this.ports.leases.record(session.sessionId, lease)
-    return lease
   }
 
   /**

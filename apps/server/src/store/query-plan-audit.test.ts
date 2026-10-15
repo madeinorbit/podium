@@ -541,8 +541,8 @@ const WHOLE_TABLE_READS: ReadonlyMap<string, string> = new Map([
     'Whole-table read (POD-6172): boot check that no row in any table still names a retired machine sentinel; a sweep by design.',
   ],
   [
-    'apps/server/src/store/observation-checkpoints.ts:allLeases',
-    'Whole-table read (POD-6172): boot load of every observation checkpoint.',
+    'apps/server/src/store/observation-checkpoints.ts:checkpointedLiveLeases',
+    'Whole-table read (POD-6172): boot restore of the session map, which loads every live session row itself until it is removed (POD-6159, design §6).',
   ],
   [
     'apps/server/src/store/shipping.ts:allOrders',

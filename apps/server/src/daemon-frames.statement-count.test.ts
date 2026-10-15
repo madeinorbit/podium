@@ -173,3 +173,88 @@ describe('daemon frames: pinned statement counts at 5 and 200', () => {
     )
   })
 })
+
+// Every frame that reads a session's observation checkpoint, which comes from
+// the database on each frame [POD-6159]: one primary-key read per reader,
+// whatever the size. A binding event has two readers (the observer-generation
+// check in the daemon lifecycle and the binding gate), so it reads twice.
+describe('daemon frames that read an observation checkpoint: pinned at 5 and 200', () => {
+  it('agentExit of the fenced observer', async () => {
+    await expectConstantStatements(
+      pin('agentExit', async (f) =>
+        await route(f, { type: 'agentExit', sessionId: f.ids[0], code: 0, observerGeneration: 1 })),
+      23,
+    )
+  })
+
+  it('agentObservationRebind onto a new provider thread', async () => {
+    await expectConstantStatements(
+      pin('agentObservationRebind', async (f) =>
+        await route(f, {
+          type: 'agentObservationRebind',
+          sessionId: f.ids[0],
+          provider: 'codex',
+          providerSessionId: null,
+          observerGeneration: 1,
+          bindingVersion: 1,
+          nextProviderSessionId: 'thread-2',
+          resumeKind: 'codex-thread',
+          rebindId: 'rebind-1',
+        })),
+      17,
+    )
+  })
+
+  it('agentObserverLiveConfirmation without a terminal fence', async () => {
+    await expectConstantStatements(
+      pin('agentObserverLiveConfirmation', async (f) =>
+        await route(f, {
+          type: 'agentObserverLiveConfirmation',
+          sessionId: f.ids[0],
+          provider: 'codex',
+          providerSessionId: null,
+          bindingVersion: 1,
+          observerGeneration: 1,
+          providerCursor: { segmentId: 'rollout-1', components: { file: 10 } },
+          livePollSequence: 1,
+          confirmedAt: at(30),
+        })),
+      1,
+    )
+  })
+
+  it('agentState (legacy, unfenced) of one session among many', async () => {
+    await expectConstantStatements(
+      pin('agentState', async (f) => await route(f, { type: 'agentState', sessionId: f.ids[0], state: idle })),
+      25,
+    )
+  })
+
+  it('runtimeEvent binding of a contract session', async () => {
+    await expectConstantStatements(
+      {
+        ...pin('runtimeEvent binding', async (f) =>
+          await route(f, {
+            type: 'runtimeEvent',
+            sessionId: f.ids[0],
+            deliveryId: 'binding-1-21',
+            event: {
+              t: 'binding',
+              resume: { kind: 'codex-thread', value: 'native-thread' },
+              confidence: 'exact',
+              ackRequested: true,
+              bindingVersion: 1,
+              at: at(21),
+              provenance: 'live',
+              cursor: { segmentId: 'runtime-segment', components: { seq: 21 } },
+              observerGeneration: 1,
+              turnEpoch: 1,
+            },
+          }),
+        ),
+        setup: async (size) => await fixture(size, true),
+      },
+      23,
+    )
+  })
+})

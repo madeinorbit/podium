@@ -139,7 +139,6 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
   })
   bag.terminalProof = new SessionTerminalProof({
     now: () => bag.now(),
-    leases: bag.observationLeases,
     checkpoints: store.observationCheckpoints,
     sessions: () => bag.sessions.values(),
     session: (sessionId) => bag.sessions.get(sessionId),
@@ -298,7 +297,6 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     funnel: bag.funnel,
     view: bag.view,
     state: bag.state,
-    observationLeases: bag.observationLeases,
     autoContinue: () => bag.autoContinue,
     toMachine: (machineId, message) => bag.toMachine(machineId, message),
     toPtyInput: (machineId, input) => bag.toPtyInput(machineId, input),
@@ -798,7 +796,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     binding: async (sessionId, event) => {
       const session = bag.sessions.get(sessionId)
       if (!session) return
-      const lease = bag.observationLeases.get(sessionId)
+      const lease = await store.observationCheckpoints.get(sessionId)
       if (lease && (lease.observationGeneration !== event.observerGeneration ||
           lease.bindingVersion !== event.bindingVersion)) return
       await bag.bindingReceipts.observeResumeRef(session.machineId, {
@@ -1056,7 +1054,6 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     projection: bag.daemonProjection,
     store,
     memory: bag.deps.memory,
-    observationLeases: bag.observationLeases,
     persist: (session, additionalWrite) => bag.repository.persist(session, additionalWrite),
     mutateSessionView: (sessionId, mutate) => bag.repository.mutateSessionView(sessionId, mutate),
     write: (session, mutate, additionalWrite) =>
