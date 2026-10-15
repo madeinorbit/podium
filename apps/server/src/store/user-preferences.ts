@@ -46,10 +46,10 @@
  */
 
 import { settingsPathsInTier, type UserId } from '@podium/model'
-import { and, asc, eq } from 'drizzle-orm'
+import { and, asc, eq, sql } from 'drizzle-orm'
 import { userPreferences } from '../migrations/schema'
 import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
-import { currentTransaction } from './executor/sync-drizzle'
+import { param, prepared } from './executor/sync-drizzle'
 
 /** The admissible keys, derived once. A `Set` for the membership test only — the
  *  ORDER and the CONTENT are the classification's, never this module's. */
@@ -63,6 +63,57 @@ const PERSONAL_PREFERENCE_KEYS: ReadonlySet<string> = new Set(
  *  homes. */
 export const isPersonalPreferenceKey = (key: string): boolean => PERSONAL_PREFERENCE_KEYS.has(key)
 
+// Every query this repository runs, prepared once per store [POD-6147].
+
+const preferencesOfUser = prepared((db: StoreDrizzle) =>
+  db
+    .select({ key: userPreferences.key, value: userPreferences.value })
+    .from(userPreferences)
+    .where(eq(userPreferences.userId, param(userPreferences.userId, 'userId')))
+    .prepare(),
+)
+
+const onePreference = () =>
+  and(
+    eq(userPreferences.userId, param(userPreferences.userId, 'userId')),
+    eq(userPreferences.key, param(userPreferences.key, 'key')),
+  )
+
+const preferenceValue = prepared((db: StoreDrizzle) =>
+  db.select({ value: userPreferences.value }).from(userPreferences).where(onePreference()).prepare(),
+)
+
+const preferencePlaceholders = {
+  userId: sql.placeholder('userId'),
+  key: sql.placeholder('key'),
+  value: sql.placeholder('value'),
+  updatedAt: sql.placeholder('updatedAt'),
+}
+
+const upsertPreference = prepared((db: StoreDrizzle) =>
+  db
+    .insert(userPreferences)
+    .values(preferencePlaceholders)
+    .onConflictDoUpdate({
+      target: [userPreferences.userId, userPreferences.key],
+      set: preferencePlaceholders,
+    })
+    .prepare(),
+)
+
+const deletePreference = prepared((db: StoreDrizzle) =>
+  db.delete(userPreferences).where(onePreference()).prepare(),
+)
+
+const preferenceKeysOfUser = prepared((db: StoreDrizzle) =>
+  db
+    .select({ key: userPreferences.key })
+    .from(userPreferences)
+    .where(eq(userPreferences.userId, param(userPreferences.userId, 'userId')))
+    .orderBy(asc(userPreferences.key))
+    .prepare(),
+)
+
 export class UserPreferencesRepository {
   private readonly rootDb: StoreDrizzle
   protected readonly createOrJoinTransaction: TransactionRunner
@@ -75,7 +126,7 @@ export class UserPreferencesRepository {
   /** The query builder, resolved on every access so B1 changes this line and nothing else
    *  [POD-3221 spec rule 34a]. */
   protected get db() {
-    return currentTransaction() ?? this.rootDb
+    return this.rootDb
   }
 
   /**
@@ -88,11 +139,7 @@ export class UserPreferencesRepository {
    * "never set".
    */
   async getFor(userId: UserId): Promise<Map<string, unknown>> {
-    const rows = await this.db
-      .select({ key: userPreferences.key, value: userPreferences.value })
-      .from(userPreferences)
-      .where(eq(userPreferences.userId, userId))
-      .all()
+    const rows = await preferencesOfUser(this.db).all({ userId })
     const out = new Map<string, unknown>()
     for (const row of rows) {
       try {
@@ -108,11 +155,7 @@ export class UserPreferencesRepository {
    *  it. `undefined` is the ABSENCE answer and is never a stored value — the
    *  column is NOT NULL and holds JSON, so a stored `null` reads back as `null`. */
   async get(userId: UserId, key: string): Promise<unknown> {
-    const row = await this.db
-      .select({ value: userPreferences.value })
-      .from(userPreferences)
-      .where(and(eq(userPreferences.userId, userId), eq(userPreferences.key, key)))
-      .get()
+    const row = await preferenceValue(this.db).get({ userId, key })
     if (!row) return undefined
     try {
       return JSON.parse(row.value)
@@ -151,35 +194,20 @@ export class UserPreferencesRepository {
       value: JSON.stringify(value),
       updatedAt,
     }
-    ;await (this.db
-      .insert(userPreferences)
-      .values(values))
-      .onConflictDoUpdate({
-        target: [userPreferences.userId, userPreferences.key],
-        set: values,
-      })
-      .run()
+    await upsertPreference(this.db).run(values)
   }
 
   /** Forget one person's choice for one path — it resolves to the fallback
    *  again. A DELETE rather than a written default, so "never chosen" and "chose
    *  the value that happens to be the default" stay distinguishable. */
   async clear(userId: UserId, key: string): Promise<void> {
-    await this.db
-      .delete(userPreferences)
-      .where(and(eq(userPreferences.userId, userId), eq(userPreferences.key, key)))
-      .run()
+    await deletePreference(this.db).run({ userId, key })
   }
 
   /** Every path this person has set. Scoped to one user like every other method
    *  here — see the file header on why there is no cross-user read. */
   async keysFor(userId: UserId): Promise<string[]> {
-    const rows = await this.db
-      .select({ key: userPreferences.key })
-      .from(userPreferences)
-      .where(eq(userPreferences.userId, userId))
-      .orderBy(asc(userPreferences.key))
-      .all()
+    const rows = await preferenceKeysOfUser(this.db).all({ userId })
     return rows.map((r) => r.key)
   }
 }

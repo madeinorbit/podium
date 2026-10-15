@@ -8,10 +8,10 @@
  */
 
 import { type AccountId, asAccountId } from '@podium/model'
-import { asc, eq } from 'drizzle-orm'
+import { asc, eq, sql } from 'drizzle-orm'
 import { accounts } from '../migrations/schema'
 import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
-import { currentTransaction } from './executor/sync-drizzle'
+import { param, prepared } from './executor/sync-drizzle'
 
 export interface ManagedAccountRow {
   id: AccountId
@@ -47,6 +47,38 @@ function toRow(r: typeof accounts.$inferSelect): ManagedAccountRow {
   }
 }
 
+// Every query this repository runs, prepared once per store [POD-6147].
+
+const accountsByCreation = prepared((db: StoreDrizzle) =>
+  db.select().from(accounts).orderBy(asc(accounts.createdAt)).prepare(),
+)
+
+const accountById = prepared((db: StoreDrizzle) =>
+  db.select().from(accounts).where(eq(accounts.id, param(accounts.id, 'id'))).prepare(),
+)
+
+const accountPlaceholders = {
+  id: sql.placeholder('id'),
+  provider: sql.placeholder('provider'),
+  kind: sql.placeholder('kind'),
+  credential: sql.placeholder('credential'),
+  identity: sql.placeholder('identity'),
+  scope: sql.placeholder('scope'),
+  createdAt: sql.placeholder('createdAt'),
+}
+
+const upsertAccount = prepared((db: StoreDrizzle) =>
+  db
+    .insert(accounts)
+    .values(accountPlaceholders)
+    .onConflictDoUpdate({ target: accounts.id, set: accountPlaceholders })
+    .prepare(),
+)
+
+const deleteAccount = prepared((db: StoreDrizzle) =>
+  db.delete(accounts).where(eq(accounts.id, param(accounts.id, 'id'))).prepare(),
+)
+
 /** RETAINED EXTERNAL-INPUT BRAND CASTS: the legacy account lookup API accepts
  * provider-facing string ids; its query comparisons brand those inputs. */
 export class AccountsRepository {
@@ -61,19 +93,15 @@ export class AccountsRepository {
   /** The query builder, resolved on every access so B1 changes this line and nothing else
    *  [POD-3221 spec rule 34a]. */
   protected get db() {
-    return currentTransaction() ?? this.rootDb
+    return this.rootDb
   }
 
   async list(): Promise<ManagedAccountRow[]> {
-    return (await this.db.select().from(accounts).orderBy(asc(accounts.createdAt)).all()).map(toRow)
+    return (await accountsByCreation(this.db).all()).map(toRow)
   }
 
   async get(id: string): Promise<ManagedAccountRow | undefined> {
-    const row = await this.db
-      .select()
-      .from(accounts)
-      .where(eq(accounts.id, asAccountId(id)))
-      .get()
+    const row = await accountById(this.db).get({ id: asAccountId(id) })
     return row ? toRow(row) : undefined
   }
 
@@ -101,20 +129,10 @@ export class AccountsRepository {
       scope: row.scope,
       createdAt: row.createdAt,
     }
-    ;await (this.db
-      .insert(accounts)
-      .values(values))
-      .onConflictDoUpdate({
-        target: accounts.id,
-        set: values,
-      })
-      .run()
+    await upsertAccount(this.db).run(values)
   }
 
   async remove(id: string): Promise<void> {
-    await this.db
-      .delete(accounts)
-      .where(eq(accounts.id, asAccountId(id)))
-      .run()
+    await deleteAccount(this.db).run({ id: asAccountId(id) })
   }
 }

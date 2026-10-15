@@ -37,7 +37,7 @@ async function fixture() {
       return await session.executeBatch(batch)
     },
   )
-  const queries = storeQueriesOver(client, async (fn) => await fn(client))
+  const queries = storeQueriesOver(client, async (fn) => await fn())
   return { db: queries.rootDb, queries, statements }
 }
 
@@ -160,7 +160,7 @@ describe('builder-declared statement intent', () => {
       async () => ({ rows: [row] }),
       async () => [],
     )
-    const db = storeQueriesOver(client, async (fn) => await fn(client)).rootDb
+    const db = storeQueriesOver(client, async (fn) => await fn()).rootDb
     const result = await db.get<{ id: number; note_body: string }>(sql`select id, note_body`)
     current = 'changed'
     expect(result?.id).toBe(1)

@@ -28,7 +28,117 @@ import type { UserId } from '@podium/model'
 import { and, desc, eq, lte, sql } from 'drizzle-orm'
 import { clientSessions, users } from '../migrations/schema'
 import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
-import { currentTransaction } from './executor/sync-drizzle'
+import { executeRaw, param, prepared } from './executor/sync-drizzle'
+
+// Every query this repository runs, prepared once per store [POD-6147].
+
+const memberDisabledAt = prepared((db: StoreDrizzle) =>
+  db
+    .select({ disabledAt: users.disabledAt })
+    .from(users)
+    .where(eq(users.id, param(users.id, 'userId')))
+    .prepare(),
+)
+
+// REPLACE-STATEMENT POD-3403 — rule 31b: path + token + SQL shape, all three.
+const replaceClientSession = prepared((db: StoreDrizzle) =>
+  db.run(
+    sql`INSERT OR REPLACE INTO client_sessions
+          (token_hash, user_id, created_at, expires_at, label, session_id, device_id, device_name, platform, last_seen_at)
+        VALUES (${sql.placeholder('tokenHash')}, ${sql.placeholder('userId')}, ${sql.placeholder('createdAt')}, ${sql.placeholder('expiresAt')}, ${sql.placeholder('label')},
+                ${sql.placeholder('sessionId')}, ${sql.placeholder('deviceId')}, ${sql.placeholder('deviceName')},
+                ${sql.placeholder('platform')}, ${sql.placeholder('lastSeenAt')})`,
+  ),
+)
+
+const clientSessionsNewestFirst = prepared((db: StoreDrizzle) =>
+  db
+    .select({
+      tokenHash: clientSessions.tokenHash,
+      userId: clientSessions.userId,
+      createdAt: clientSessions.createdAt,
+      expiresAt: clientSessions.expiresAt,
+      label: clientSessions.label,
+      sessionId: clientSessions.sessionId,
+      deviceId: clientSessions.deviceId,
+      deviceName: clientSessions.deviceName,
+      platform: clientSessions.platform,
+      lastSeenAt: clientSessions.lastSeenAt,
+    })
+    .from(clientSessions)
+    .orderBy(desc(clientSessions.createdAt))
+    .prepare(),
+)
+
+const deleteClientSessionsWithLabel = prepared((db: StoreDrizzle) =>
+  db
+    .delete(clientSessions)
+    .where(eq(clientSessions.label, param(clientSessions.label, 'label')))
+    .prepare(),
+)
+
+const clientSessionByTokenHash = prepared((db: StoreDrizzle) =>
+  db
+    .select({
+      userId: clientSessions.userId,
+      expiresAt: clientSessions.expiresAt,
+      label: clientSessions.label,
+      sessionId: clientSessions.sessionId,
+      deviceId: clientSessions.deviceId,
+      deviceName: clientSessions.deviceName,
+      platform: clientSessions.platform,
+      lastSeenAt: clientSessions.lastSeenAt,
+    })
+    .from(clientSessions)
+    .where(eq(clientSessions.tokenHash, param(clientSessions.tokenHash, 'tokenHash')))
+    .prepare(),
+)
+
+const setClientSessionExpiresAt = prepared((db: StoreDrizzle) =>
+  db
+    .update(clientSessions)
+    .set({ expiresAt: sql.placeholder('expiresAt') })
+    .where(eq(clientSessions.tokenHash, param(clientSessions.tokenHash, 'tokenHash')))
+    .prepare(),
+)
+
+const setClientSessionLastSeenAt = prepared((db: StoreDrizzle) =>
+  db
+    .update(clientSessions)
+    .set({ lastSeenAt: sql.placeholder('lastSeenAt') })
+    .where(eq(clientSessions.tokenHash, param(clientSessions.tokenHash, 'tokenHash')))
+    .prepare(),
+)
+
+const ownedMobileClientSessionTokenHash = prepared((db: StoreDrizzle) =>
+  db
+    .select({ tokenHash: clientSessions.tokenHash })
+    .from(clientSessions)
+    .where(
+      and(
+        eq(clientSessions.sessionId, param(clientSessions.sessionId, 'sessionId')),
+        eq(clientSessions.userId, param(clientSessions.userId, 'userId')),
+        eq(clientSessions.label, 'mobile'),
+      ),
+    )
+    .prepare(),
+)
+
+const deleteClientSessionByTokenHash = prepared((db: StoreDrizzle) =>
+  db
+    .delete(clientSessions)
+    .where(eq(clientSessions.tokenHash, param(clientSessions.tokenHash, 'tokenHash')))
+    .prepare(),
+)
+
+const deleteEveryClientSession = prepared((db: StoreDrizzle) => db.delete(clientSessions).prepare())
+
+const deleteClientSessionsExpiredBy = prepared((db: StoreDrizzle) =>
+  db
+    .delete(clientSessions)
+    .where(lte(clientSessions.expiresAt, param(clientSessions.expiresAt, 'nowIso')))
+    .prepare(),
+)
 
 export interface ClientSessionMetadata {
   sessionId?: string
@@ -64,13 +174,9 @@ export class AuthRepository {
     this.createOrJoinTransaction = queries.createOrJoinTransaction
   }
 
-  /**
-   * Rule 34a — `db` RESOLVES on every access rather than being frozen at
-   * construction, so rule 35's ambient transaction routing has one line to
-   * change at B1 and no call site does.
-   */
+  /** The store's one drizzle instance; the executor routes each statement to the current transaction. */
   protected get db(): StoreDrizzle {
-    return currentTransaction() ?? this.rootDb
+    return this.rootDb
   }
 
   /** Record a login session for `userId`, keyed by the SHA-256 of its cookie
@@ -94,39 +200,28 @@ export class AuthRepository {
     // this atomic statement instead of changing mobile re-pair behaviour on the
     // auth path.
     await this.createOrJoinTransaction(async () => {
-      const member = await this.db.select({ disabledAt: users.disabledAt }).from(users)
-        .where(eq(users.id, userId)).get()
+      const member = await memberDisabledAt(this.db).get({ userId })
       if (member?.disabledAt != null) throw new DisabledMemberError()
-      await this.db.run(
       // REPLACE-STATEMENT POD-3403 — rule 31b: path + token + SQL shape, all three.
-      sql`INSERT OR REPLACE INTO client_sessions
-            (token_hash, user_id, created_at, expires_at, label, session_id, device_id, device_name, platform, last_seen_at)
-          VALUES (${tokenHash}, ${userId}, ${new Date().toISOString()}, ${expiresAt}, ${label},
-                  ${metadata.sessionId ?? null}, ${metadata.deviceId ?? null}, ${metadata.deviceName ?? null},
-                  ${metadata.platform ?? null}, ${metadata.lastSeenAt ?? null})`,
-      )
+      await executeRaw(replaceClientSession(this.db), {
+        tokenHash,
+        userId,
+        createdAt: new Date().toISOString(),
+        expiresAt,
+        label,
+        sessionId: metadata.sessionId ?? null,
+        deviceId: metadata.deviceId ?? null,
+        deviceName: metadata.deviceName ?? null,
+        platform: metadata.platform ?? null,
+        lastSeenAt: metadata.lastSeenAt ?? null,
+      })
     })
   }
 
   /** Every session row, newest first — the read behind `podium auth sessions`. Returns
    *  hashes, never tokens: the plaintext is not stored and cannot be recovered. */
   async listClientSessions(): Promise<ClientSessionRow[]> {
-    const rows = await this.db
-      .select({
-        tokenHash: clientSessions.tokenHash,
-        userId: clientSessions.userId,
-        createdAt: clientSessions.createdAt,
-        expiresAt: clientSessions.expiresAt,
-        label: clientSessions.label,
-        sessionId: clientSessions.sessionId,
-        deviceId: clientSessions.deviceId,
-        deviceName: clientSessions.deviceName,
-        platform: clientSessions.platform,
-        lastSeenAt: clientSessions.lastSeenAt,
-      })
-      .from(clientSessions)
-      .orderBy(desc(clientSessions.createdAt))
-      .all()
+    const rows = await clientSessionsNewestFirst(this.db).all()
     return rows.map((r) => ({
       tokenHash: r.tokenHash,
       userId: r.userId,
@@ -146,27 +241,14 @@ export class AuthRepository {
   async deleteClientSessionsByLabel(label: string): Promise<number> {
     // `changes` is number|bigint across the two drivers; the count here is always small.
     return Number(
-      (await this.db.delete(clientSessions).where(eq(clientSessions.label, label)).run()).changes,
+      (await deleteClientSessionsWithLabel(this.db).run({ label })).changes,
     )
   }
 
   async getClientSession(
     tokenHash: string,
   ): Promise<Omit<ClientSessionRow, 'tokenHash' | 'createdAt'> | undefined> {
-    const row = await this.db
-      .select({
-        userId: clientSessions.userId,
-        expiresAt: clientSessions.expiresAt,
-        label: clientSessions.label,
-        sessionId: clientSessions.sessionId,
-        deviceId: clientSessions.deviceId,
-        deviceName: clientSessions.deviceName,
-        platform: clientSessions.platform,
-        lastSeenAt: clientSessions.lastSeenAt,
-      })
-      .from(clientSessions)
-      .where(eq(clientSessions.tokenHash, tokenHash))
-      .get()
+    const row = await clientSessionByTokenHash(this.db).get({ tokenHash })
     return row
       ? {
           userId: row.userId,
@@ -183,19 +265,11 @@ export class AuthRepository {
 
   /** Push out an existing session's expiry (sliding/rolling renewal). No-op if absent. */
   async extendClientSession(tokenHash: string, expiresAt: string): Promise<void> {
-    await this.db
-      .update(clientSessions)
-      .set({ expiresAt })
-      .where(eq(clientSessions.tokenHash, tokenHash))
-      .run()
+    await setClientSessionExpiresAt(this.db).run({ tokenHash, expiresAt })
   }
 
   async touchClientSession(tokenHash: string, lastSeenAt: string): Promise<void> {
-    await this.db
-      .update(clientSessions)
-      .set({ lastSeenAt })
-      .where(eq(clientSessions.tokenHash, tokenHash))
-      .run()
+    await setClientSessionLastSeenAt(this.db).run({ tokenHash, lastSeenAt })
   }
 
   async listMobileClientSessions(userId: UserId): Promise<ClientSessionRow[]> {
@@ -205,19 +279,9 @@ export class AuthRepository {
   }
 
   async deleteOwnedMobileClientSession(sessionId: string, userId: UserId): Promise<string | undefined> {
-    const row = await this.db
-      .select({ tokenHash: clientSessions.tokenHash })
-      .from(clientSessions)
-      .where(
-        and(
-          eq(clientSessions.sessionId, sessionId),
-          eq(clientSessions.userId, userId),
-          eq(clientSessions.label, 'mobile'),
-        ),
-      )
-      .get()
+    const row = await ownedMobileClientSessionTokenHash(this.db).get({ sessionId, userId })
     if (!row) return undefined
-    await this.db.delete(clientSessions).where(eq(clientSessions.tokenHash, row.tokenHash)).run()
+    await deleteClientSessionByTokenHash(this.db).run({ tokenHash: row.tokenHash })
     return row.tokenHash
   }
 
@@ -228,16 +292,16 @@ export class AuthRepository {
   }
 
   async deleteClientSession(tokenHash: string): Promise<void> {
-    await this.db.delete(clientSessions).where(eq(clientSessions.tokenHash, tokenHash)).run()
+    await deleteClientSessionByTokenHash(this.db).run({ tokenHash })
   }
 
   /** Revoke every client login session ("sign out everywhere"). */
   async deleteAllClientSessions(): Promise<void> {
-    await this.db.delete(clientSessions).run()
+    await deleteEveryClientSession(this.db).run()
   }
 
   /** Housekeeping: drop sessions whose expiry has passed. */
   async deleteExpiredClientSessions(nowIso: string): Promise<void> {
-    await this.db.delete(clientSessions).where(lte(clientSessions.expiresAt, nowIso)).run()
+    await deleteClientSessionsExpiredBy(this.db).run({ nowIso })
   }
 }

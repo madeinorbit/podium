@@ -43,10 +43,10 @@ import {
   type LayeredSettings,
   type PodiumConfig,
 } from '@podium/runtime/config'
-import { eq } from 'drizzle-orm'
+import { eq, sql } from 'drizzle-orm'
 import { meta } from '../migrations/schema'
 import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
-import { currentTransaction } from './executor/sync-drizzle'
+import { param, prepared } from './executor/sync-drizzle'
 import { isPersonalPreferenceKey, UserPreferencesRepository } from './user-preferences'
 
 /** What the environment and config.json say about telemetry; `undefined` = no say. */
@@ -73,6 +73,21 @@ function needsTelemetryIdentity(
   }
   return on('usage', deployment.telemetryUsage) || on('crash', deployment.telemetryCrash)
 }
+
+// Every query this repository runs, prepared once per store [POD-6147].
+
+/** One `meta` value by key: every read here, whichever key it names. */
+const metaValue = prepared((db: StoreDrizzle) =>
+  db.select({ value: meta.value }).from(meta).where(eq(meta.key, param(meta.key, 'key'))).prepare(),
+)
+
+const upsertMeta = prepared((db: StoreDrizzle) =>
+  db
+    .insert(meta)
+    .values({ key: sql.placeholder('key'), value: sql.placeholder('value') })
+    .onConflictDoUpdate({ target: meta.key, set: { value: sql.placeholder('value') } })
+    .prepare(),
+)
 
 export class SettingsRepository {
   private committed = normalizeSettings(undefined)
@@ -205,7 +220,7 @@ export class SettingsRepository {
    * change at B1 and no call site does.
    */
   protected get db(): StoreDrizzle {
-    return currentTransaction() ?? this.rootDb
+    return this.rootDb
   }
 
   /**
@@ -218,18 +233,13 @@ export class SettingsRepository {
    */
   /** Immutable migration fact, never inferred from the current member roster. */
   async retiredSoloMemberId(): Promise<UserId | null> {
-    const row = await this.db
-      .select({ value: meta.value })
-      .from(meta)
-      .where(eq(meta.key, 'retired_solo_member_id'))
-      .get()
+    const row = await metaValue(this.db).get({ key: 'retired_solo_member_id' })
     return row?.value ? asUserId(row.value) : null
   }
 
   /** Setup enrollment receipts share the database transaction with their machine row. */
   async setupEnrollmentReceipt(key: string): Promise<string | undefined> {
-    return (await this.db.select({ value: meta.value }).from(meta)
-      .where(eq(meta.key, `setup_enrollment:${key}`)).get())?.value
+    return (await metaValue(this.db).get({ key: `setup_enrollment:${key}` }))?.value
   }
 
   async recordSetupEnrollment(key: string, receipt: string): Promise<void> {
@@ -237,11 +247,7 @@ export class SettingsRepository {
   }
 
   async getSettings(): Promise<PodiumSettings> {
-    const row = await this.db
-      .select({ value: meta.value })
-      .from(meta)
-      .where(eq(meta.key, 'settings'))
-      .get()
+    const row = await metaValue(this.db).get({ key: 'settings' })
     if (!row) return normalizeSettings(undefined)
     try {
       return normalizeSettings(JSON.parse(row.value))
@@ -269,11 +275,7 @@ export class SettingsRepository {
    * as amended: every column is named).
    */
   private async writeMeta(key: string, value: string): Promise<void> {
-    await this.db
-      .insert(meta)
-      .values({ key, value })
-      .onConflictDoUpdate({ target: meta.key, set: { value } })
-      .run()
+    await upsertMeta(this.db).run({ key, value })
   }
 
   // -------------------------------------------------------------------------
@@ -395,11 +397,7 @@ export class SettingsRepository {
     fetchedAt: number
     version?: number
   } | null> {
-    const row = await this.db
-      .select({ value: meta.value })
-      .from(meta)
-      .where(eq(meta.key, `model_catalog:${machineId}`))
-      .get()
+    const row = await metaValue(this.db).get({ key: `model_catalog:${machineId}` })
     if (!row) return null
     try {
       const parsed = JSON.parse(row.value) as {

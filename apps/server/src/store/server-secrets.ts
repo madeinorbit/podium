@@ -49,12 +49,69 @@ import { eq, sql } from 'drizzle-orm'
 import { FINGERPRINT_SECRET_KEY } from '../fingerprint-key-import'
 import { meta, serverSecrets } from '../migrations/schema'
 import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
-import { currentTransaction } from './executor/sync-drizzle'
+import { param, prepared } from './executor/sync-drizzle'
 
 function nativeLoginTransferKey(principalUserId: UserId, transferId: string): string {
   const principal = createHash('sha256').update(principalUserId).digest('hex')
   return 'native-login-transfer:' + principal + ':' + transferId
 }
+
+// Every query this repository runs, prepared once per store [POD-6147].
+
+const keyIs = () => eq(serverSecrets.key, param(serverSecrets.key, 'key'))
+
+/** One secret's value by key: every value read here, whichever key it names. */
+const secretValue = prepared((db: StoreDrizzle) =>
+  db.select({ value: serverSecrets.value }).from(serverSecrets).where(keyIs()).prepare(),
+)
+
+const deleteSecret = prepared((db: StoreDrizzle) =>
+  db.delete(serverSecrets).where(keyIs()).prepare(),
+)
+
+const upsertSecret = prepared((db: StoreDrizzle) =>
+  db
+    .insert(serverSecrets)
+    .values({
+      key: sql.placeholder('key'),
+      value: sql.placeholder('value'),
+      updatedAt: sql.placeholder('updatedAt'),
+    })
+    .onConflictDoUpdate({
+      target: serverSecrets.key,
+      set: { value: sql.placeholder('value'), updatedAt: sql.placeholder('updatedAt') },
+    })
+    .prepare(),
+)
+
+// Both tables call the column `value`; explicit aliases keep the executor's
+// named-row adapter from collapsing them before Drizzle decodes the result.
+const installationRow = prepared((db: StoreDrizzle) =>
+  db
+    .select({
+      metadata: sql<string>`${meta.value}`.as('installation_metadata'),
+      privateKey: sql<string>`${serverSecrets.value}`.as('installation_private_key'),
+    })
+    .from(meta)
+    .innerJoin(serverSecrets, eq(serverSecrets.key, INSTALLATION_PRIVATE_KEY))
+    .where(eq(meta.key, INSTALLATION_META_KEY))
+    .prepare(),
+)
+
+const secretUpdatedAt = prepared((db: StoreDrizzle) =>
+  db.select({ updatedAt: serverSecrets.updatedAt }).from(serverSecrets).where(keyIs()).prepare(),
+)
+
+const secretPresence = prepared((db: StoreDrizzle) =>
+  db
+    .select({
+      key: serverSecrets.key,
+      value: serverSecrets.value,
+      updatedAt: serverSecrets.updatedAt,
+    })
+    .from(serverSecrets)
+    .prepare(),
+)
 
 export class ServerSecretsRepository {
   private readonly rootDb: StoreDrizzle
@@ -68,7 +125,7 @@ export class ServerSecretsRepository {
   /** The query builder, resolved on every access so B1 changes this line and nothing else
    *  [POD-3221 spec rule 34a]. */
   protected get db() {
-    return currentTransaction() ?? this.rootDb
+    return this.rootDb
   }
 
   /**
@@ -99,11 +156,9 @@ export class ServerSecretsRepository {
     principalUserId: UserId,
     transferId: string,
   ): Promise<PortableCredentialBundleValue | undefined> {
-    const row = await this.db
-      .select({ value: serverSecrets.value })
-      .from(serverSecrets)
-      .where(eq(serverSecrets.key, nativeLoginTransferKey(principalUserId, transferId)))
-      .get()
+    const row = await secretValue(this.db).get({
+      key: nativeLoginTransferKey(principalUserId, transferId),
+    })
     if (!row) return undefined
     try {
       const parsed = PortableCredentialBundle.safeParse(JSON.parse(row.value))
@@ -114,10 +169,7 @@ export class ServerSecretsRepository {
   }
 
   async clearNativeLoginTransfer(principalUserId: UserId, transferId: string): Promise<void> {
-    await this.db
-      .delete(serverSecrets)
-      .where(eq(serverSecrets.key, nativeLoginTransferKey(principalUserId, transferId)))
-      .run()
+    await deleteSecret(this.db).run({ key: nativeLoginTransferKey(principalUserId, transferId) })
   }
 
   private async writeNativeLoginTransfer(
@@ -126,34 +178,18 @@ export class ServerSecretsRepository {
     bundle: PortableCredentialBundleValue,
     updatedAt: string,
   ): Promise<void> {
-    ;await (this.db
-      .insert(serverSecrets)
-      .values({
-        key: nativeLoginTransferKey(principalUserId, transferId),
-        value: JSON.stringify(bundle),
-        updatedAt,
-      }))
-      .onConflictDoUpdate({
-        target: serverSecrets.key,
-        set: { value: JSON.stringify(bundle), updatedAt },
-      })
-      .run()
+    await upsertSecret(this.db).run({
+      key: nativeLoginTransferKey(principalUserId, transferId),
+      value: JSON.stringify(bundle),
+      updatedAt,
+    })
   }
 
   /** Installation key is outside the settings-secret vocabulary and presence projection.
    * Read both rows in one statement so callers never observe mismatched halves. */
   async installationIdentity(): Promise<InstallationIdentity> {
-    // Both tables call the column `value`; explicit aliases keep the executor's
-    // named-row adapter from collapsing them before Drizzle decodes the result.
-    const row = await this.db
-      .select({
-        metadata: sql<string>`${meta.value}`.as('installation_metadata'),
-        privateKey: sql<string>`${serverSecrets.value}`.as('installation_private_key'),
-      })
-      .from(meta)
-      .innerJoin(serverSecrets, eq(serverSecrets.key, INSTALLATION_PRIVATE_KEY))
-      .where(eq(meta.key, INSTALLATION_META_KEY))
-      .get()
+    // Aliased columns: see `installationRow`.
+    const row = await installationRow(this.db).get()
     if (!row) throw new Error('installation identity is missing from the database')
     return parseInstallationIdentity(
       'database',
@@ -163,18 +199,13 @@ export class ServerSecretsRepository {
 
   /** Private installation MAC key; never included in settings presence. */
   async fingerprintKey(): Promise<Buffer> {
-    const row = await this.db.select({ value: serverSecrets.value })
-      .from(serverSecrets).where(eq(serverSecrets.key, FINGERPRINT_SECRET_KEY)).get()
+    const row = await secretValue(this.db).get({ key: FINGERPRINT_SECRET_KEY })
     if (!row) throw new Error('secret fingerprint key is missing from the database')
     return Buffer.from(row.value, 'hex')
   }
 
   async get(key: ServerSecretKey): Promise<string | undefined> {
-    const row = await this.db
-      .select({ value: serverSecrets.value })
-      .from(serverSecrets)
-      .where(eq(serverSecrets.key, key))
-      .get()
+    const row = await secretValue(this.db).get({ key })
     return row?.value
   }
 
@@ -198,11 +229,7 @@ export class ServerSecretsRepository {
       await this.clear(key)
       return
     }
-    ;await (this.db
-      .insert(serverSecrets)
-      .values({ key, value, updatedAt }))
-      .onConflictDoUpdate({ target: serverSecrets.key, set: { value, updatedAt } })
-      .run()
+    await upsertSecret(this.db).run({ key, value, updatedAt })
   }
 
   /**
@@ -221,16 +248,12 @@ export class ServerSecretsRepository {
   }
 
   async clear(key: ServerSecretKey): Promise<void> {
-    await this.db.delete(serverSecrets).where(eq(serverSecrets.key, key)).run()
+    await deleteSecret(this.db).run({ key })
   }
 
   /** When this key's secret was last replaced, or `undefined` when absent. */
   async updatedAt(key: ServerSecretKey): Promise<string | undefined> {
-    const row = await this.db
-      .select({ updatedAt: serverSecrets.updatedAt })
-      .from(serverSecrets)
-      .where(eq(serverSecrets.key, key))
-      .get()
+    const row = await secretUpdatedAt(this.db).get({ key })
     return row?.updatedAt
   }
 
@@ -244,14 +267,7 @@ export class ServerSecretsRepository {
    * fills it — see `SettingsService.secretPresenceList`.
    */
   async presence(): Promise<SecretPresenceWire[]> {
-    const rows = await this.db
-      .select({
-        key: serverSecrets.key,
-        value: serverSecrets.value,
-        updatedAt: serverSecrets.updatedAt,
-      })
-      .from(serverSecrets)
-      .all()
+    const rows = await secretPresence(this.db).all()
     const byKey = new Map(rows.map((r) => [r.key, r]))
     return SERVER_SECRET_KEYS.map((key) => {
       const row = byKey.get(key)

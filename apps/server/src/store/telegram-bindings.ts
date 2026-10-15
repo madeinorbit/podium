@@ -31,10 +31,10 @@
 
 import type { Attribution, TelegramChatBinding, UserId } from '@podium/model'
 import { asUserId } from '@podium/model'
-import { asc, eq } from 'drizzle-orm'
+import { asc, eq, sql } from 'drizzle-orm'
 import { telegramChatBindings } from '../migrations/schema'
 import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
-import { currentTransaction } from './executor/sync-drizzle'
+import { param, prepared } from './executor/sync-drizzle'
 
 /** The stored row, as drizzle's own execution path maps it back. */
 type BindingRow = typeof telegramChatBindings.$inferSelect
@@ -95,6 +95,36 @@ function toBinding(r: BindingRow): TelegramChatBinding | undefined {
   return { chatId: r.chatId, userId: r.userId, boundAt: r.boundAt, boundBy }
 }
 
+// Every query this repository runs, prepared once per store [POD-6147].
+
+const bindingsByTime = prepared((db: StoreDrizzle) =>
+  db.select().from(telegramChatBindings).orderBy(asc(telegramChatBindings.boundAt)).prepare(),
+)
+
+const bindingPlaceholders = {
+  chatId: sql.placeholder('chatId'),
+  userId: sql.placeholder('userId'),
+  boundAt: sql.placeholder('boundAt'),
+  actorKind: sql.placeholder('actorKind'),
+  actorId: sql.placeholder('actorId'),
+  onBehalfOf: sql.placeholder('onBehalfOf'),
+}
+
+const upsertBinding = prepared((db: StoreDrizzle) =>
+  db
+    .insert(telegramChatBindings)
+    .values(bindingPlaceholders)
+    .onConflictDoUpdate({ target: telegramChatBindings.chatId, set: bindingPlaceholders })
+    .prepare(),
+)
+
+const deleteBinding = prepared((db: StoreDrizzle) =>
+  db
+    .delete(telegramChatBindings)
+    .where(eq(telegramChatBindings.chatId, param(telegramChatBindings.chatId, 'chatId')))
+    .prepare(),
+)
+
 export class TelegramBindingsRepository {
   private readonly rootDb: StoreDrizzle
   protected readonly createOrJoinTransaction: TransactionRunner
@@ -107,17 +137,13 @@ export class TelegramBindingsRepository {
   /** The query builder, resolved on every access so B1 changes this line and nothing else
    *  [POD-3221 spec rule 34a]. */
   protected get db() {
-    return currentTransaction() ?? this.rootDb
+    return this.rootDb
   }
 
   /** Every binding, for the resolver to answer over. Unreadable rows are omitted
    *  — see {@link toAttribution} on why omission is the fail-closed direction. */
   async list(): Promise<TelegramChatBinding[]> {
-    const rows = await this.db
-      .select()
-      .from(telegramChatBindings)
-      .orderBy(asc(telegramChatBindings.boundAt))
-      .all()
+    const rows = await bindingsByTime(this.db).all()
     return rows.flatMap((r) => {
       const binding = toBinding(r)
       return binding ? [binding] : []
@@ -155,17 +181,13 @@ export class TelegramBindingsRepository {
       actorId: actor.kind === 'system' ? actor.job : actor.id,
       onBehalfOf: binding.boundBy.onBehalfOf,
     }
-    ;await (this.db
-      .insert(telegramChatBindings)
-      .values(values))
-      .onConflictDoUpdate({ target: telegramChatBindings.chatId, set: values })
-      .run()
+    await upsertBinding(this.db).run(values)
   }
 
   /** Remove a binding. The chat stops resolving to anyone on the next message —
    *  no reaper, no cache to invalidate, because resolution reads this table
    *  live. */
   async remove(chatId: string): Promise<void> {
-    await this.db.delete(telegramChatBindings).where(eq(telegramChatBindings.chatId, chatId)).run()
+    await deleteBinding(this.db).run({ chatId })
   }
 }

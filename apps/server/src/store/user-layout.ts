@@ -32,7 +32,124 @@ import {
 import { and, asc, eq, sql } from 'drizzle-orm'
 import { userDockShell, userLayout } from '../migrations/schema'
 import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
-import { currentTransaction } from './executor/sync-drizzle'
+import { param, prepared } from './executor/sync-drizzle'
+
+// Every query these repositories run, prepared once per store [POD-6147].
+
+const P = (name: string) => sql.placeholder(name)
+const layoutUserIs = () => eq(userLayout.userId, param(userLayout.userId, 'userId'))
+const layoutKeyIs = () => and(layoutUserIs(), eq(userLayout.key, param(userLayout.key, 'key')))
+
+const layoutOfUser = prepared((db: StoreDrizzle) =>
+  db.select({ key: userLayout.key, value: userLayout.value }).from(userLayout).where(layoutUserIs()).prepare(),
+)
+
+const layoutValue = prepared((db: StoreDrizzle) =>
+  db.select({ value: userLayout.value }).from(userLayout).where(layoutKeyIs()).prepare(),
+)
+
+const upsertLayout = prepared((db: StoreDrizzle) =>
+  db
+    .insert(userLayout)
+    .values({ userId: P('userId'), key: P('key'), value: P('value'), updatedAt: P('updatedAt') })
+    .onConflictDoUpdate({
+      target: [userLayout.userId, userLayout.key],
+      set: { value: P('value'), updatedAt: P('updatedAt') },
+    })
+    .prepare(),
+)
+
+const deleteLayoutKey = prepared((db: StoreDrizzle) =>
+  db.delete(userLayout).where(layoutKeyIs()).prepare(),
+)
+
+const layoutKeysOfUser = prepared((db: StoreDrizzle) =>
+  db.select({ key: userLayout.key }).from(userLayout).where(layoutUserIs()).orderBy(asc(userLayout.key)).prepare(),
+)
+
+const shellUserIs = () => eq(userDockShell.userId, param(userDockShell.userId, 'userId'))
+const shellSlotIs = () =>
+  and(shellUserIs(), eq(userDockShell.worktreeKey, param(userDockShell.worktreeKey, 'worktreeKey')))
+const shellWorktreeIs = () =>
+  eq(userDockShell.worktreeKey, param(userDockShell.worktreeKey, 'worktreeKey'))
+const shellSessionIs = () => eq(userDockShell.sessionId, param(userDockShell.sessionId, 'sessionId'))
+
+const dockShellOfSlot = prepared((db: StoreDrizzle) =>
+  db.select({ sessionId: userDockShell.sessionId }).from(userDockShell).where(shellSlotIs()).prepare(),
+)
+
+const dockShellsOfUser = prepared((db: StoreDrizzle) =>
+  db
+    .select({ worktreeKey: userDockShell.worktreeKey, sessionId: userDockShell.sessionId })
+    .from(userDockShell)
+    .where(shellUserIs())
+    .orderBy(asc(userDockShell.worktreeKey))
+    .prepare(),
+)
+
+const dockShellValues = {
+  userId: P('userId'),
+  worktreeKey: P('worktreeKey'),
+  sessionId: P('sessionId'),
+  updatedAt: P('updatedAt'),
+}
+
+const claimDockShell = prepared((db: StoreDrizzle) =>
+  db
+    .insert(userDockShell)
+    .values(dockShellValues)
+    .onConflictDoNothing({ target: [userDockShell.userId, userDockShell.worktreeKey] })
+    .prepare(),
+)
+
+const upsertDockShell = prepared((db: StoreDrizzle) =>
+  db
+    .insert(userDockShell)
+    .values(dockShellValues)
+    .onConflictDoUpdate({
+      target: [userDockShell.userId, userDockShell.worktreeKey],
+      set: { sessionId: P('sessionId'), updatedAt: P('updatedAt') },
+    })
+    .prepare(),
+)
+
+const deleteDockShellSlot = prepared((db: StoreDrizzle) =>
+  db.delete(userDockShell).where(shellSlotIs()).prepare(),
+)
+
+const dockShellsOfWorktree = prepared((db: StoreDrizzle) =>
+  db.select({ sessionId: userDockShell.sessionId }).from(userDockShell).where(shellWorktreeIs()).prepare(),
+)
+
+const deleteDockShellsOfWorktree = prepared((db: StoreDrizzle) =>
+  db.delete(userDockShell).where(shellWorktreeIs()).prepare(),
+)
+
+const deleteDockShellsOfSession = prepared((db: StoreDrizzle) =>
+  db.delete(userDockShell).where(shellSessionIs()).prepare(),
+)
+
+const worktreesOfSession = prepared((db: StoreDrizzle) =>
+  db
+    .select({ userId: userDockShell.userId, worktreeKey: userDockShell.worktreeKey })
+    .from(userDockShell)
+    .where(shellSessionIs())
+    .prepare(),
+)
+
+/** One JSON parameter, not an IN list: see `worktreesForSessions`. */
+const worktreesOfSessions = prepared((db: StoreDrizzle) =>
+  db
+    .select({
+      sessionId: userDockShell.sessionId,
+      userId: userDockShell.userId,
+      worktreeKey: userDockShell.worktreeKey,
+    })
+    .from(userDockShell)
+    .where(sql`${userDockShell.sessionId} in (select value from json_each(${P('sessionIdsJson')}))`)
+    .orderBy(sql`rowid`)
+    .prepare(),
+)
 
 export class UserLayoutRepository {
   private readonly rootDb: StoreDrizzle
@@ -49,7 +166,7 @@ export class UserLayoutRepository {
    * change at B1 and no call site does.
    */
   protected get db(): StoreDrizzle {
-    return currentTransaction() ?? this.rootDb
+    return this.rootDb
   }
 
   /**
@@ -58,11 +175,7 @@ export class UserLayoutRepository {
    * Unparseable rows are skipped (same posture as preferences).
    */
   async getSnapshot(userId: UserId): Promise<LayoutSnapshot> {
-    const rows = await this.db
-      .select({ key: userLayout.key, value: userLayout.value })
-      .from(userLayout)
-      .where(eq(userLayout.userId, userId))
-      .all()
+    const rows = await layoutOfUser(this.db).all({ userId })
     const out: LayoutSnapshot = {}
     for (const row of rows) {
       try {
@@ -76,11 +189,7 @@ export class UserLayoutRepository {
 
   /** One key's value, or `undefined` when never set. */
   async get(userId: UserId, key: string): Promise<unknown> {
-    const row = await this.db
-      .select({ value: userLayout.value })
-      .from(userLayout)
-      .where(and(eq(userLayout.userId, userId), eq(userLayout.key, key)))
-      .get()
+    const row = await layoutValue(this.db).get({ userId, key })
     if (!row) return undefined
     try {
       return JSON.parse(row.value)
@@ -127,22 +236,12 @@ export class UserLayoutRepository {
    */
   private async write(userId: UserId, key: string, value: unknown, updatedAt: string): Promise<void> {
     const encoded = JSON.stringify(value ?? null)
-    ;await (this.db
-      .insert(userLayout)
-      .values({ userId, key, value: encoded, updatedAt }))
-      .onConflictDoUpdate({
-        target: [userLayout.userId, userLayout.key],
-        set: { value: encoded, updatedAt },
-      })
-      .run()
+    await upsertLayout(this.db).run({ userId, key, value: encoded, updatedAt })
   }
 
   /** Forget one key — the client falls back to its default. */
   async clear(userId: UserId, key: string): Promise<void> {
-    await this.db
-      .delete(userLayout)
-      .where(and(eq(userLayout.userId, userId), eq(userLayout.key, key)))
-      .run()
+    await deleteLayoutKey(this.db).run({ userId, key })
   }
 
   async clearMany(userId: UserId, keys: readonly string[]): Promise<void> {
@@ -152,12 +251,7 @@ export class UserLayoutRepository {
   }
 
   async keysFor(userId: UserId): Promise<string[]> {
-    const rows = await this.db
-      .select({ key: userLayout.key })
-      .from(userLayout)
-      .where(eq(userLayout.userId, userId))
-      .orderBy(asc(userLayout.key))
-      .all()
+    const rows = await layoutKeysOfUser(this.db).all({ userId })
     return rows.map((r) => r.key)
   }
 }
@@ -208,7 +302,7 @@ export class UserDockShellRepository {
    * change at B1 and no call site does.
    */
   protected get db(): StoreDrizzle {
-    return currentTransaction() ?? this.rootDb
+    return this.rootDb
   }
 
   /** Resolve the normalized key or THROW — a relative cwd cannot name a worktree. */
@@ -226,22 +320,13 @@ export class UserDockShellRepository {
   async get(userId: UserId, worktreePath: string): Promise<SessionId | undefined> {
     const key = normalizeDockWorktreeKey(worktreePath)
     if (key === null) return undefined
-    const row = await this.db
-      .select({ sessionId: userDockShell.sessionId })
-      .from(userDockShell)
-      .where(and(eq(userDockShell.userId, userId), eq(userDockShell.worktreeKey, key)))
-      .get()
+    const row = await dockShellOfSlot(this.db).get({ userId, worktreeKey: key })
     return row?.sessionId
   }
 
   /** Every worktree→shell entry for one user, as a plain map. */
   async listForUser(userId: UserId): Promise<Record<string, SessionId>> {
-    const rows = await this.db
-      .select({ worktreeKey: userDockShell.worktreeKey, sessionId: userDockShell.sessionId })
-      .from(userDockShell)
-      .where(eq(userDockShell.userId, userId))
-      .orderBy(asc(userDockShell.worktreeKey))
-      .all()
+    const rows = await dockShellsOfUser(this.db).all({ userId })
     const out: Record<string, SessionId> = {}
     for (const row of rows) out[row.worktreeKey] = row.sessionId
     return out
@@ -260,16 +345,8 @@ export class UserDockShellRepository {
     updatedAt: string,
   ): Promise<boolean> {
     const key = this.keyOf(worktreePath)
-    await this.db
-      .insert(userDockShell)
-      .values({ userId, worktreeKey: key, sessionId, updatedAt })
-      .onConflictDoNothing({ target: [userDockShell.userId, userDockShell.worktreeKey] })
-      .run()
-    const row = await this.db
-      .select({ sessionId: userDockShell.sessionId })
-      .from(userDockShell)
-      .where(and(eq(userDockShell.userId, userId), eq(userDockShell.worktreeKey, key)))
-      .get()
+    await claimDockShell(this.db).run({ userId, worktreeKey: key, sessionId, updatedAt })
+    const row = await dockShellOfSlot(this.db).get({ userId, worktreeKey: key })
     return row?.sessionId === sessionId
   }
 
@@ -284,24 +361,14 @@ export class UserDockShellRepository {
     updatedAt: string,
   ): Promise<void> {
     const key = this.keyOf(worktreePath)
-    await this.db
-      .insert(userDockShell)
-      .values({ userId, worktreeKey: key, sessionId, updatedAt })
-      .onConflictDoUpdate({
-        target: [userDockShell.userId, userDockShell.worktreeKey],
-        set: { sessionId, updatedAt },
-      })
-      .run()
+    await upsertDockShell(this.db).run({ userId, worktreeKey: key, sessionId, updatedAt })
   }
 
   /** Forget one user's mapping for one worktree. */
   async remove(userId: UserId, worktreePath: string): Promise<void> {
     const key = normalizeDockWorktreeKey(worktreePath)
     if (key === null) return
-    await this.db
-      .delete(userDockShell)
-      .where(and(eq(userDockShell.userId, userId), eq(userDockShell.worktreeKey, key)))
-      .run()
+    await deleteDockShellSlot(this.db).run({ userId, worktreeKey: key })
   }
 
   /**
@@ -312,18 +379,14 @@ export class UserDockShellRepository {
   async removeByWorktree(worktreePath: string): Promise<SessionId[]> {
     const key = normalizeDockWorktreeKey(worktreePath)
     if (key === null) return []
-    const rows = await this.db
-      .select({ sessionId: userDockShell.sessionId })
-      .from(userDockShell)
-      .where(eq(userDockShell.worktreeKey, key))
-      .all()
-    await this.db.delete(userDockShell).where(eq(userDockShell.worktreeKey, key)).run()
+    const rows = await dockShellsOfWorktree(this.db).all({ worktreeKey: key })
+    await deleteDockShellsOfWorktree(this.db).run({ worktreeKey: key })
     return rows.map((r) => r.sessionId)
   }
 
   /** Forget every mapping that points at `sessionId` (shell retired). */
   async removeBySession(sessionId: SessionId): Promise<void> {
-    await this.db.delete(userDockShell).where(eq(userDockShell.sessionId, sessionId)).run()
+    await deleteDockShellsOfSession(this.db).run({ sessionId })
   }
 
   /**
@@ -335,11 +398,7 @@ export class UserDockShellRepository {
   async worktreeForSession(
     sessionId: SessionId,
   ): Promise<Array<{ userId: UserId; worktreeKey: string }>> {
-    const rows = await this.db
-      .select({ userId: userDockShell.userId, worktreeKey: userDockShell.worktreeKey })
-      .from(userDockShell)
-      .where(eq(userDockShell.sessionId, sessionId))
-      .all()
+    const rows = await worktreesOfSession(this.db).all({ sessionId })
     return rows.map((r) => ({ userId: r.userId, worktreeKey: r.worktreeKey }))
   }
 
@@ -362,18 +421,9 @@ export class UserDockShellRepository {
   ): Promise<Map<SessionId, Array<{ userId: UserId; worktreeKey: string }>>> {
     const out = new Map<SessionId, Array<{ userId: UserId; worktreeKey: string }>>()
     if (sessionIds.length === 0) return out
-    const rows = await this.db
-      .select({
-        sessionId: userDockShell.sessionId,
-        userId: userDockShell.userId,
-        worktreeKey: userDockShell.worktreeKey,
-      })
-      .from(userDockShell)
-      .where(
-        sql`${userDockShell.sessionId} in (select value from json_each(${JSON.stringify([...new Set(sessionIds)])}))`,
-      )
-      .orderBy(sql`rowid`)
-      .all()
+    const rows = await worktreesOfSessions(this.db).all({
+      sessionIdsJson: JSON.stringify([...new Set(sessionIds)]),
+    })
     for (const r of rows) {
       const bucket = out.get(r.sessionId)
       const row = { userId: r.userId, worktreeKey: r.worktreeKey }

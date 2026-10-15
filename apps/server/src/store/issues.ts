@@ -37,6 +37,7 @@ import {
   not,
   notInArray,
   or,
+  type Placeholder,
   sql,
 } from 'drizzle-orm'
 import {
@@ -55,7 +56,16 @@ import {
 } from '../migrations/schema'
 import { currentReadScope, readScopeSlot } from './executor/read-scope'
 import type { StoreDrizzle, StoreQueries, TransactionRunner } from './executor/sync-drizzle'
-import { currentTransaction } from './executor/sync-drizzle'
+import {
+  inListOf,
+  inListSize,
+  inListValues,
+  param,
+  placeholdersFor,
+  prepared,
+  preparedFamily,
+  shapeOf,
+} from './executor/sync-drizzle'
 import { parseStringArray, requireUserId } from './helpers'
 import { StaleIssueRevisionError } from './issue-revision'
 import type { IssueCommentRow, IssueMessageRow, IssueRow, StoredIssueUserState } from './types'
@@ -63,6 +73,760 @@ import type { IssueCommentRow, IssueMessageRow, IssueRow, StoredIssueUserState }
 export const LEGACY_WORKTREE_MIGRATION = 'legacy_worktree_machine_ids_v1'
 
 const log = createLogger('server:store')
+
+// Every query this repository runs, prepared once per store [POD-6147]. The
+// statements that WRITE the `issues` table are the exception in placement, not
+// in kind: they are prepared inside their own method (see `issueWrites`).
+
+const issueRevision = prepared((db: StoreDrizzle) =>
+  db
+    .select({ revision: issues.revision })
+    .from(issues)
+    .where(eq(issues.id, param(issues.id, 'id')))
+    .prepare(),
+)
+
+const issueById = prepared((db: StoreDrizzle) =>
+  db
+    .select()
+    .from(issues)
+    .where(eq(issues.id, param(issues.id, 'id')))
+    .prepare(),
+)
+
+const issueCwdRows = prepared((db: StoreDrizzle) =>
+  db
+    .select({
+      id: issues.id,
+      repoPath: issues.repoPath,
+      worktreePath: issues.worktreePath,
+      deletedAt: issues.deletedAt,
+      archived: issues.archived,
+    })
+    .from(issues)
+    .orderBy(asc(issues.repoPath), asc(issues.seq))
+    .prepare(),
+)
+
+const issueClosureRows = prepared((db: StoreDrizzle) =>
+  db
+    .select({
+      id: issues.id,
+      stage: issues.stage,
+      closedReason: issues.closedReason,
+      deletedAt: issues.deletedAt,
+    })
+    .from(issues)
+    .prepare(),
+)
+
+/** One shape per IN-list size bucket; `getIssues` chunks at 500. */
+const issuesByIds = preparedFamily((db: StoreDrizzle, size: number) =>
+  db
+    .select()
+    .from(issues)
+    .where(inListOf(issues.id, size, 'ids'))
+    .prepare(),
+)
+
+const liveIssueParentEdges = prepared((db: StoreDrizzle) =>
+  db
+    .select({ id: issues.id, parentId: issues.parentId })
+    .from(issues)
+    .where(isNull(issues.deletedAt))
+    .prepare(),
+)
+
+const issueRowsOfRepo = prepared((db: StoreDrizzle) =>
+  db
+    .select()
+    .from(issues)
+    .where(
+      or(
+        eq(issues.repoId, param(issues.repoId, 'repoId')),
+        and(isNull(issues.repoId), eq(issues.repoPath, param(issues.repoPath, 'repoPath'))),
+      ),
+    )
+    .orderBy(asc(issues.seq))
+    .prepare(),
+)
+
+const allIssueRows = prepared((db: StoreDrizzle) =>
+  db.select().from(issues).orderBy(asc(issues.repoPath), asc(issues.seq)).prepare(),
+)
+
+const issueWorktreeRows = prepared((db: StoreDrizzle) =>
+  db
+    .select({
+      id: issues.id,
+      repoPath: issues.repoPath,
+      seq: issues.seq,
+      worktreePath: issues.worktreePath,
+      deletedAt: issues.deletedAt,
+    })
+    .from(issues)
+    .prepare(),
+)
+
+const deleteRefLettersOf = prepared((db: StoreDrizzle) =>
+  db
+    .delete(issueRefLetters)
+    .where(eq(issueRefLetters.issueId, param(issueRefLetters.issueId, 'issueId')))
+    .prepare(),
+)
+
+const deleteOrphanRefLetters = prepared((db: StoreDrizzle) =>
+  db
+    .delete(issueRefLetters)
+    .where(notInArray(issueRefLetters.issueId, db.select({ id: issues.id }).from(issues)))
+    .prepare(),
+)
+
+const highestSeqOfRepo = prepared((db: StoreDrizzle) =>
+  db
+    .select({ m: max(issues.seq) })
+    .from(issues)
+    .where(eq(issues.repoId, param(issues.repoId, 'repoId')))
+    .prepare(),
+)
+
+const issueSeqRows = prepared((db: StoreDrizzle) =>
+  db
+    .select({
+      id: issues.id,
+      repoId: issues.repoId,
+      repoPath: issues.repoPath,
+      machineId: issues.machineId,
+      seq: issues.seq,
+      createdAt: issues.createdAt,
+    })
+    .from(issues)
+    .prepare(),
+)
+
+/**
+ * `LIKE ? || '/%'` matches at a PATH BOUNDARY: `/rootless` merely shares a text
+ * prefix with `/root` and must not be swept in. The `rowid` tie-break is
+ * load-bearing on equal `created_at`, and `rowid` is not a schema column, so
+ * both stay as fragments.
+ */
+const issuesUnderPathOutsideRepo = prepared((db: StoreDrizzle) =>
+  db
+    .select({ id: issues.id, seq: issues.seq })
+    .from(issues)
+    .where(
+      and(
+        or(
+          eq(issues.repoPath, param(issues.repoPath, 'repoPath')),
+          sql`${issues.repoPath} LIKE ${sql.placeholder('repoPath')} || '/%'`,
+        ),
+        or(isNull(issues.repoId), ne(issues.repoId, param(issues.repoId, 'repoId'))),
+      ),
+    )
+    .orderBy(asc(issues.createdAt), sql`rowid asc`)
+    .prepare(),
+)
+
+const issueIdAtSeq = prepared((db: StoreDrizzle) =>
+  db
+    .select({ id: issues.id })
+    .from(issues)
+    .where(and(eq(issues.repoId, param(issues.repoId, 'repoId')), eq(issues.seq, param(issues.seq, 'seq'))))
+    .prepare(),
+)
+
+const refLetterNextIndex = prepared((db: StoreDrizzle) =>
+  db
+    .select({ nextIndex: issueRefLetters.nextIndex })
+    .from(issueRefLetters)
+    .where(eq(issueRefLetters.issueId, param(issueRefLetters.issueId, 'issueId')))
+    .prepare(),
+)
+
+const upsertRefLetterNextIndex = prepared((db: StoreDrizzle) =>
+  db
+    .insert(issueRefLetters)
+    .values({ issueId: sql.placeholder('issueId'), nextIndex: sql.placeholder('nextIndex') })
+    .onConflictDoUpdate({
+      target: issueRefLetters.issueId,
+      set: { nextIndex: sql.placeholder('nextIndex') },
+    })
+    .prepare(),
+)
+
+const issuesMissingRepoIdCount = prepared((db: StoreDrizzle) =>
+  db.select({ c: count() }).from(issues).where(isNull(issues.repoId)).prepare(),
+)
+
+const legacyWorktreeReceipt = prepared((db: StoreDrizzle) =>
+  db
+    .select({ value: meta.value })
+    .from(meta)
+    .where(eq(meta.key, LEGACY_WORKTREE_MIGRATION))
+    .prepare(),
+)
+
+const liveMachineById = prepared((db: StoreDrizzle) =>
+  db
+    .select({ id: machines.id })
+    .from(machines)
+    .where(and(eq(machines.id, param(machines.id, 'id')), isNull(machines.revokedAt)))
+    .prepare(),
+)
+
+const insertLegacyWorktreeReceipt = prepared((db: StoreDrizzle) =>
+  db
+    .insert(meta)
+    .values({ key: LEGACY_WORKTREE_MIGRATION, value: sql.placeholder('value') })
+    .prepare(),
+)
+
+/**
+ * The two terms `backfillLegacyWorktreeMachineIds` is built from, in one place
+ * so the count and the UPDATE can never drift into disagreeing about which
+ * rows are candidates and which are contradicted. The host machine is the
+ * `hostMachineId` placeholder of whichever statement embeds them.
+ */
+const legacyWorktreeTerms = prepared((db: StoreDrizzle) => ({
+  /** Owns a worktree, names no machine — the residue a v0.1.0 build leaves. */
+  legacyWorktreeRow: and(isNotNull(issues.worktreePath), isNull(issues.machineId)),
+  /**
+   * Correlated on `issues.id` in the WHERE, so drizzle qualifies it back to
+   * the OUTER row rather than self-joining; the select list is the literal
+   * `1`, so there is no unqualified column here to silently rebind onto
+   * `sessions`. `legacyWorktreeBackfillSql` pins both properties.
+   */
+  contradictorySession: exists(
+    db
+      .select({ one: sql`1` })
+      .from(sessions)
+      .where(
+        and(
+          or(eq(sessions.issueId, issues.id), eq(sessions.refIssueId, issues.id)),
+          ne(sessions.machineId, param(sessions.machineId, 'hostMachineId')),
+        ),
+      ),
+  ),
+}))
+
+/** Counts the candidates the contradiction evidence tells the backfill to leave alone. */
+const legacyWorktreeSkippedBuilder = prepared((db: StoreDrizzle) => {
+  const { legacyWorktreeRow, contradictorySession } = legacyWorktreeTerms(db)
+  return db
+    .select({ c: count() })
+    .from(issues)
+    .where(and(legacyWorktreeRow, contradictorySession))
+})
+
+const legacyWorktreeSkipped = prepared((db: StoreDrizzle) =>
+  legacyWorktreeSkippedBuilder(db).prepare(),
+)
+
+/** Labels by lower-cased name, one shape per IN-list size (see {@link inListSize}). */
+const labelsNamed = preparedFamily((db: StoreDrizzle, size: number) =>
+  db
+    .select()
+    .from(labels)
+    .where(
+      inArray(
+        sql`lower(${labels.name})`,
+        Array.from({ length: size }, (_, index) => sql.placeholder(`name${index}`)),
+      ),
+    )
+    .prepare(),
+)
+
+/** A label's colour and/or description; one shape per set of patched columns. */
+const patchLabel = preparedFamily((db: StoreDrizzle, shape: string) =>
+  db
+    .update(labels)
+    .set(placeholdersFor(shape) as Partial<typeof labels.$inferInsert>)
+    .where(eq(labels.id, param(labels.id, 'id')))
+    .prepare(),
+)
+
+const insertLabelRow = prepared((db: StoreDrizzle) =>
+  db
+    .insert(labels)
+    .values({
+      name: sql.placeholder('name'),
+      color: sql.placeholder('color'),
+      description: sql.placeholder('description'),
+      createdAt: sql.placeholder('createdAt'),
+    })
+    .returning()
+    .prepare(),
+)
+
+const labelVocabulary = prepared((db: StoreDrizzle) =>
+  db
+    .select()
+    .from(labels)
+    .orderBy(asc(sql`lower(${labels.name})`))
+    .prepare(),
+)
+
+const deleteLabelsOf = prepared((db: StoreDrizzle) =>
+  db
+    .delete(issueLabels)
+    .where(eq(issueLabels.issueId, param(issueLabels.issueId, 'issueId')))
+    .prepare(),
+)
+
+const insertLabel = prepared((db: StoreDrizzle) =>
+  db
+    .insert(issueLabels)
+    .values({ issueId: sql.placeholder('issueId'), labelId: sql.placeholder('labelId') })
+    .onConflictDoNothing()
+    .prepare(),
+)
+
+const labelsOf = prepared((db: StoreDrizzle) =>
+  db
+    .select({ label: labels.name })
+    .from(issueLabels)
+    .innerJoin(labels, eq(labels.id, issueLabels.labelId))
+    .where(eq(issueLabels.issueId, param(issueLabels.issueId, 'issueId')))
+    .orderBy(asc(labels.name))
+    .prepare(),
+)
+
+const allIssueLabels = prepared((db: StoreDrizzle) =>
+  db
+    .select({ issueId: issueLabels.issueId, label: labels.name })
+    .from(issueLabels)
+    .innerJoin(labels, eq(labels.id, issueLabels.labelId))
+    .orderBy(asc(issueLabels.issueId), asc(labels.name))
+    .prepare(),
+)
+
+const distinctLabels = prepared((db: StoreDrizzle) =>
+  db
+    .selectDistinct({ label: labels.name })
+    .from(labels)
+    .innerJoin(issueLabels, eq(issueLabels.labelId, labels.id))
+    .orderBy(asc(labels.name))
+    .prepare(),
+)
+
+const insertDep = prepared((db: StoreDrizzle) =>
+  db
+    .insert(issueDeps)
+    .values({
+      fromId: sql.placeholder('fromId'),
+      toId: sql.placeholder('toId'),
+      type: sql.placeholder('type'),
+    })
+    .onConflictDoNothing()
+    .prepare(),
+)
+
+const deleteDepOfType = prepared((db: StoreDrizzle) =>
+  db
+    .delete(issueDeps)
+    .where(
+      and(
+        eq(issueDeps.fromId, param(issueDeps.fromId, 'fromId')),
+        eq(issueDeps.toId, param(issueDeps.toId, 'toId')),
+        eq(issueDeps.type, param(issueDeps.type, 'type')),
+      ),
+    )
+    .prepare(),
+)
+
+const deleteDepsBetween = prepared((db: StoreDrizzle) =>
+  db
+    .delete(issueDeps)
+    .where(
+      and(
+        eq(issueDeps.fromId, param(issueDeps.fromId, 'fromId')),
+        eq(issueDeps.toId, param(issueDeps.toId, 'toId')),
+      ),
+    )
+    .prepare(),
+)
+
+const depsFrom = prepared((db: StoreDrizzle) =>
+  db
+    .select({ toId: issueDeps.toId, type: issueDeps.type })
+    .from(issueDeps)
+    .where(eq(issueDeps.fromId, param(issueDeps.fromId, 'fromId')))
+    .orderBy(asc(issueDeps.toId), asc(issueDeps.type))
+    .prepare(),
+)
+
+const allDeps = prepared((db: StoreDrizzle) =>
+  db
+    .select({ fromId: issueDeps.fromId, toId: issueDeps.toId, type: issueDeps.type })
+    .from(issueDeps)
+    .orderBy(asc(issueDeps.fromId), asc(issueDeps.toId), asc(issueDeps.type))
+    .prepare(),
+)
+
+const depsTo = prepared((db: StoreDrizzle) =>
+  db
+    .select({ fromId: issueDeps.fromId, type: issueDeps.type })
+    .from(issueDeps)
+    .where(eq(issueDeps.toId, param(issueDeps.toId, 'toId')))
+    .orderBy(asc(issueDeps.fromId), asc(issueDeps.type))
+    .prepare(),
+)
+
+const insertComment = prepared((db: StoreDrizzle) =>
+  db
+    .insert(issueComments)
+    .values({
+      id: sql.placeholder('id'),
+      issueId: sql.placeholder('issueId'),
+      author: sql.placeholder('author'),
+      body: sql.placeholder('body'),
+      createdAt: sql.placeholder('createdAt'),
+      actor: sql.placeholder('actor'),
+      onBehalfOf: sql.placeholder('onBehalfOf'),
+    })
+    .prepare(),
+)
+
+const commentsOf = prepared((db: StoreDrizzle) =>
+  db
+    .select()
+    .from(issueComments)
+    .where(eq(issueComments.issueId, param(issueComments.issueId, 'issueId')))
+    .orderBy(asc(issueComments.createdAt), asc(issueComments.id))
+    .prepare(),
+)
+
+const commentCountOf = prepared((db: StoreDrizzle) =>
+  db
+    .select({ n: count() })
+    .from(issueComments)
+    .where(eq(issueComments.issueId, param(issueComments.issueId, 'issueId')))
+    .prepare(),
+)
+
+const commentCountsByIssue = prepared((db: StoreDrizzle) =>
+  db
+    .select({ issueId: issueComments.issueId, n: count() })
+    .from(issueComments)
+    .groupBy(issueComments.issueId)
+    .prepare(),
+)
+
+/**
+ * The ESCAPE clause is what makes `%` and `_` in a user's query LITERAL.
+ * drizzle's `like()` emits no ESCAPE, so this stays a fragment; dropping it
+ * would make a query of `100%` match every comment.
+ */
+const commentSearch = preparedFamily((db: StoreDrizzle, limited: 'all' | 'limited') => {
+  const base = db
+    .select({
+      issueId: issueComments.issueId,
+      body: issueComments.body,
+      createdAt: issueComments.createdAt,
+    })
+    .from(issueComments)
+    .where(sql`${issueComments.body} LIKE ${sql.placeholder('pattern')} ESCAPE '\\'`)
+    .orderBy(desc(issueComments.createdAt))
+  return limited === 'all' ? base.prepare() : base.limit(sql.placeholder('limit')).prepare()
+})
+
+const insertMessage = prepared((db: StoreDrizzle) =>
+  db
+    .insert(issueMessages)
+    .values({
+      id: sql.placeholder('id'),
+      issueId: sql.placeholder('issueId'),
+      fromAuthor: sql.placeholder('fromAuthor'),
+      body: sql.placeholder('body'),
+      createdAt: sql.placeholder('createdAt'),
+      status: sql.placeholder('status'),
+      claimedBy: sql.placeholder('claimedBy'),
+      claimedAt: sql.placeholder('claimedAt'),
+    })
+    .prepare(),
+)
+
+const messageById = prepared((db: StoreDrizzle) =>
+  db
+    .select()
+    .from(issueMessages)
+    .where(eq(issueMessages.id, param(issueMessages.id, 'id')))
+    .prepare(),
+)
+
+const messagesOf = prepared((db: StoreDrizzle) =>
+  db
+    .select()
+    .from(issueMessages)
+    .where(eq(issueMessages.issueId, param(issueMessages.issueId, 'issueId')))
+    .orderBy(asc(issueMessages.createdAt), asc(issueMessages.id))
+    .prepare(),
+)
+
+const messagesOfWithStatus = prepared((db: StoreDrizzle) =>
+  db
+    .select()
+    .from(issueMessages)
+    .where(
+      and(
+        eq(issueMessages.issueId, param(issueMessages.issueId, 'issueId')),
+        eq(issueMessages.status, param(issueMessages.status, 'status')),
+      ),
+    )
+    .orderBy(asc(issueMessages.createdAt), asc(issueMessages.id))
+    .prepare(),
+)
+
+const unreadMessageCountOf = prepared((db: StoreDrizzle) =>
+  db
+    .select({ n: count() })
+    .from(issueMessages)
+    .where(
+      and(
+        eq(issueMessages.issueId, param(issueMessages.issueId, 'issueId')),
+        eq(issueMessages.status, 'unread'),
+      ),
+    )
+    .prepare(),
+)
+
+/** Only `unread` flips, so a `claimed` message never regresses to `read`. */
+const markMessageRead = prepared((db: StoreDrizzle) =>
+  db
+    .update(issueMessages)
+    .set({ status: 'read' })
+    .where(
+      and(
+        eq(issueMessages.issueId, param(issueMessages.issueId, 'issueId')),
+        eq(issueMessages.id, param(issueMessages.id, 'id')),
+        eq(issueMessages.status, 'unread'),
+      ),
+    )
+    .prepare(),
+)
+
+const upsertMessageReadAt = prepared((db: StoreDrizzle) =>
+  db
+    .insert(issueMessageUserState)
+    .values({
+      userId: sql.placeholder('userId'),
+      issueMessageId: sql.placeholder('issueMessageId'),
+      readAt: sql.placeholder('readAt'),
+    })
+    .onConflictDoUpdate({
+      target: [issueMessageUserState.userId, issueMessageUserState.issueMessageId],
+      set: { readAt: sql.placeholder('readAt') },
+    })
+    .prepare(),
+)
+
+const messageReadAtOf = prepared((db: StoreDrizzle) =>
+  db
+    .select({
+      issueMessageId: issueMessageUserState.issueMessageId,
+      readAt: issueMessageUserState.readAt,
+    })
+    .from(issueMessageUserState)
+    .where(eq(issueMessageUserState.userId, param(issueMessageUserState.userId, 'userId')))
+    .prepare(),
+)
+
+const issueUserStateFeedColumns = {
+  userId: issueUserState.userId,
+  entityId: issueUserState.issueId,
+  readAt: issueUserState.readAt,
+  tuckedAt: issueUserState.tuckedAt,
+  pinnedAt: issueUserState.pinnedAt,
+}
+
+const allIssueUserStateRows = prepared((db: StoreDrizzle) =>
+  db.select(issueUserStateFeedColumns).from(issueUserState).prepare(),
+)
+
+const issueUserStateRowsOf = prepared((db: StoreDrizzle) =>
+  db
+    .select(issueUserStateFeedColumns)
+    .from(issueUserState)
+    .where(eq(issueUserState.issueId, param(issueUserState.issueId, 'issueId')))
+    .prepare(),
+)
+
+const issueUserStateOfUser = prepared((db: StoreDrizzle) =>
+  db
+    .select({
+      issueId: issueUserState.issueId,
+      readAt: issueUserState.readAt,
+      tuckedAt: issueUserState.tuckedAt,
+      pinnedAt: issueUserState.pinnedAt,
+    })
+    .from(issueUserState)
+    .where(eq(issueUserState.userId, param(issueUserState.userId, 'userId')))
+    .prepare(),
+)
+
+const issueUserStateOne = prepared((db: StoreDrizzle) =>
+  db
+    .select({
+      readAt: issueUserState.readAt,
+      tuckedAt: issueUserState.tuckedAt,
+      pinnedAt: issueUserState.pinnedAt,
+    })
+    .from(issueUserState)
+    .where(
+      and(
+        eq(issueUserState.userId, param(issueUserState.userId, 'userId')),
+        eq(issueUserState.issueId, param(issueUserState.issueId, 'issueId')),
+      ),
+    )
+    .prepare(),
+)
+
+const deleteIssueUserStateOne = prepared((db: StoreDrizzle) =>
+  db
+    .delete(issueUserState)
+    .where(
+      and(
+        eq(issueUserState.userId, param(issueUserState.userId, 'userId')),
+        eq(issueUserState.issueId, param(issueUserState.issueId, 'issueId')),
+      ),
+    )
+    .prepare(),
+)
+
+const upsertIssueUserState = prepared((db: StoreDrizzle) =>
+  db
+    .insert(issueUserState)
+    .values({
+      userId: sql.placeholder('userId'),
+      issueId: sql.placeholder('issueId'),
+      readAt: sql.placeholder('readAt'),
+      tuckedAt: sql.placeholder('tuckedAt'),
+      pinnedAt: sql.placeholder('pinnedAt'),
+    })
+    .onConflictDoUpdate({
+      target: [issueUserState.userId, issueUserState.issueId],
+      set: {
+        readAt: sql.placeholder('readAt'),
+        tuckedAt: sql.placeholder('tuckedAt'),
+        pinnedAt: sql.placeholder('pinnedAt'),
+      },
+    })
+    .prepare(),
+)
+
+const deleteIssueUserStateOf = prepared((db: StoreDrizzle) =>
+  db
+    .delete(issueUserState)
+    .where(eq(issueUserState.issueId, param(issueUserState.issueId, 'issueId')))
+    .prepare(),
+)
+
+/** Single UPDATE guarded on status, so there is no read-then-write race. */
+const claimMessage = prepared((db: StoreDrizzle) =>
+  db
+    .update(issueMessages)
+    .set({
+      status: 'claimed',
+      claimedBy: sql.placeholder('claimedBy'),
+      claimedAt: sql.placeholder('claimedAt'),
+    })
+    .where(and(eq(issueMessages.id, param(issueMessages.id, 'id')), ne(issueMessages.status, 'claimed')))
+    .prepare(),
+)
+
+const deleteMessagesOf = prepared((db: StoreDrizzle) =>
+  db
+    .delete(issueMessages)
+    .where(eq(issueMessages.issueId, param(issueMessages.issueId, 'issueId')))
+    .prepare(),
+)
+
+const deleteDepsTouching = prepared((db: StoreDrizzle) =>
+  db
+    .delete(issueDeps)
+    .where(
+      or(
+        eq(issueDeps.fromId, param(issueDeps.fromId, 'issueId')),
+        eq(issueDeps.toId, param(issueDeps.toId, 'issueId')),
+      ),
+    )
+    .prepare(),
+)
+
+const deleteCommentsOf = prepared((db: StoreDrizzle) =>
+  db
+    .delete(issueComments)
+    .where(eq(issueComments.issueId, param(issueComments.issueId, 'issueId')))
+    .prepare(),
+)
+
+/**
+ * The columns `upsertIssue`'s conflict branch rewrites. The eight it omits — id,
+ * owner_user_id, visibility, created_by_actor, created_by_on_behalf_of,
+ * repo_path, seq and created_at — are the row's identity and its provenance.
+ */
+const UPSERT_ISSUE_SET_COLUMNS = [
+  'repoId',
+  'title',
+  'description',
+  'brief',
+  'stage',
+  'worktreePath',
+  'branch',
+  'parentBranch',
+  'defaultAgent',
+  'defaultModel',
+  'defaultEffort',
+  'agentProfileId',
+  'machineId',
+  'linearId',
+  'linearIdentifier',
+  'linearUrl',
+  'activityNotes',
+  'notesUpdatedAt',
+  'suggestedStage',
+  'suggestedReason',
+  'blockedBy',
+  'dependencyNote',
+  'prUrl',
+  'priority',
+  'type',
+  'assignee',
+  'parentId',
+  'acceptance',
+  'dueAt',
+  'deferUntil',
+  'closedReason',
+  'closedAt',
+  'landedAt',
+  'landedSha',
+  'supersededBy',
+  'duplicateOf',
+  'sortKey',
+  'color',
+  'estimateMin',
+  'needsHuman',
+  'humanQuestion',
+  'humanQuestionOptions',
+  'humanQuestionAskedBy',
+  'humanQuestionAskedAt',
+  'humanQuestionAttribution',
+  'panel',
+  'updatedAt',
+  'archived',
+  'origin',
+  'audience',
+  'draft',
+  'deletedAt',
+  'revision',
+  'coordinatorSessionId',
+  'startedBySession',
+] as const
+
+/** A prepared write on the `issues` table that RETURNS the rows it wrote. */
+interface IssueRowsWrite {
+  all(values: Record<string, unknown>): Promise<(typeof issues.$inferSelect)[]>
+}
 
 /** RETAINED EXTERNAL-INPUT BRAND CASTS: compatibility methods accept raw issue
  * ids and repo-path resolution still returns a string. Query/write casts decode
@@ -126,6 +890,27 @@ export class IssuesRepository {
   private readonly rootDb: StoreDrizzle
   protected readonly createOrJoinTransaction: TransactionRunner
 
+  /**
+   * THE `issues`-TABLE WRITES, PREPARED INSIDE THEIR OWN METHOD [POD-6147].
+   *
+   * Prepared once like every other statement here, but defined at the write
+   * site rather than at module level: `store-issues-row-cache-writers.test.ts`
+   * requires every builder that writes `issues` to sit inside a method that
+   * calls `invalidateRowCache()` before it (POD-1939), and a module-level
+   * definition has no method. Each is built on its method's first run, after
+   * that method's invalidation, and held for the repository's life — one
+   * repository per store, so this is once per store, as module-level
+   * `prepared` would be.
+   */
+  private readonly issueWrites: {
+    upsert?: (db: StoreDrizzle, shape: string) => IssueRowsWrite
+    shippingStage?: (db: StoreDrizzle) => IssueRowsWrite
+    remove?: (db: StoreDrizzle) => IssueRowsWrite
+    seq?: (db: StoreDrizzle) => IssueRowsWrite
+    repoIdAndSeq?: (db: StoreDrizzle) => IssueRowsWrite
+    legacyMachine?: (db: StoreDrizzle) => IssueRowsWrite
+  } = {}
+
   constructor(
     queries: StoreQueries,
     /** Repos-aggregate lookup: stable repo_id for an issue's repoPath. */
@@ -148,7 +933,7 @@ export class IssuesRepository {
    * field frozen at construction could never do that. B1 changes this one line.
    */
   protected get db(): StoreDrizzle {
-    return currentTransaction() ?? this.rootDb
+    return this.rootDb
   }
 
   /** Every issue-row WRITE calls this BEFORE the write: the frame stops caching,
@@ -241,11 +1026,7 @@ export class IssuesRepository {
     // reconcile never reaches this method, so no revision burns on a no-op and
     // the ripple republishes under an unchanged revision — leaving in-flight
     // expectedRevision preconditions valid, which is the whole point of D3.
-    const current = await this.db
-      .select({ revision: issues.revision })
-      .from(issues)
-      .where(eq(issues.id, row.id))
-      .get()
+    const current = await issueRevision(this.db).get({ id: row.id })
     if (opts) {
       const found = current?.revision ?? null
       if (found !== opts.expectedRevision) {
@@ -329,73 +1110,28 @@ export class IssuesRepository {
       coordinatorSessionId: row.coordinatorSessionId ?? null,
       startedBySession: row.startedBySession ?? null,
     }
+    // The SHAPE is the set of keys this row actually sets: drizzle renders an
+    // undefined `values` key as NULL and drops an undefined `set` key, so a
+    // row with an undefined column is a different statement, as it always was.
+    const upsert = (this.issueWrites.upsert ??= preparedFamily((db: StoreDrizzle, shape: string) => {
+      const placeholders = placeholdersFor(shape)
+      const set: Record<string, Placeholder> = {}
+      for (const column of UPSERT_ISSUE_SET_COLUMNS) {
+        const placeholder = placeholders[column]
+        if (placeholder !== undefined) set[column] = placeholder
+      }
+      return db
+        .insert(issues)
+        .values(placeholders as unknown as typeof issues.$inferInsert)
+        .onConflictDoUpdate({
+          target: issues.id,
+          set: set as unknown as Partial<typeof issues.$inferInsert>,
+        })
+        .returning()
+        .prepare()
+    }))
     await this.committed.write(
-      async () =>
-        this.db
-          .insert(issues)
-          .values(values)
-          .onConflictDoUpdate({
-            target: issues.id,
-            set: {
-              repoId: values.repoId,
-              title: values.title,
-              description: values.description,
-              brief: values.brief,
-              stage: values.stage,
-              worktreePath: values.worktreePath,
-              branch: values.branch,
-              parentBranch: values.parentBranch,
-              defaultAgent: values.defaultAgent,
-              defaultModel: values.defaultModel,
-              defaultEffort: values.defaultEffort,
-              agentProfileId: values.agentProfileId,
-              machineId: values.machineId,
-              linearId: values.linearId,
-              linearIdentifier: values.linearIdentifier,
-              linearUrl: values.linearUrl,
-              activityNotes: values.activityNotes,
-              notesUpdatedAt: values.notesUpdatedAt,
-              suggestedStage: values.suggestedStage,
-              suggestedReason: values.suggestedReason,
-              blockedBy: values.blockedBy,
-              dependencyNote: values.dependencyNote,
-              prUrl: values.prUrl,
-              priority: values.priority,
-              type: values.type,
-              assignee: values.assignee,
-              parentId: values.parentId,
-              acceptance: values.acceptance,
-              dueAt: values.dueAt,
-              deferUntil: values.deferUntil,
-              closedReason: values.closedReason,
-              closedAt: values.closedAt,
-              landedAt: values.landedAt,
-              landedSha: values.landedSha,
-              supersededBy: values.supersededBy,
-              duplicateOf: values.duplicateOf,
-              sortKey: values.sortKey,
-              color: values.color,
-              estimateMin: values.estimateMin,
-              needsHuman: values.needsHuman,
-              humanQuestion: values.humanQuestion,
-              humanQuestionOptions: values.humanQuestionOptions,
-              humanQuestionAskedBy: values.humanQuestionAskedBy,
-              humanQuestionAskedAt: values.humanQuestionAskedAt,
-              humanQuestionAttribution: values.humanQuestionAttribution,
-              panel: values.panel,
-              updatedAt: values.updatedAt,
-              archived: values.archived,
-              origin: values.origin,
-              audience: values.audience,
-              draft: values.draft,
-              deletedAt: values.deletedAt,
-              revision: values.revision,
-              coordinatorSessionId: values.coordinatorSessionId,
-              startedBySession: values.startedBySession,
-            },
-          })
-          .returning()
-          .all(),
+      async () => await upsert(this.db, shapeOf(values)).all(values),
       'upsert',
     )
   }
@@ -421,18 +1157,26 @@ export class IssuesRepository {
     // read out would turn the CAS into a race. `revision` is bumped from its own
     // stored value, so the expression references the column rather than a bound
     // parameter.
+    const transition = (this.issueWrites.shippingStage ??= prepared((db: StoreDrizzle) =>
+      db
+        .update(issues)
+        .set({
+          stage: sql.placeholder('nextStage'),
+          updatedAt: sql.placeholder('updatedAt'),
+          revision: sql`COALESCE(${issues.revision}, 0) + 1`,
+        })
+        .where(
+          and(
+            eq(issues.id, param(issues.id, 'id')),
+            eq(issues.stage, param(issues.stage, 'expectedStage')),
+            isNull(issues.deletedAt),
+          ),
+        )
+        .returning()
+        .prepare(),
+    ))
     const result = await this.committed.write(
-      async () =>
-        this.db
-          .update(issues)
-          .set({
-            stage: nextStage,
-            updatedAt,
-            revision: sql`COALESCE(${issues.revision}, 0) + 1`,
-          })
-          .where(and(eq(issues.id, id), eq(issues.stage, expectedStage), isNull(issues.deletedAt)))
-          .returning()
-          .all(),
+      async () => await transition(this.db).all({ id, expectedStage, nextStage, updatedAt }),
       'upsert',
     )
     if (result.changes !== 1) {
@@ -447,11 +1191,7 @@ export class IssuesRepository {
     const cache = await this.frameRows()
     const hit = cache?.get(id)
     if (hit !== undefined) return hit === null ? null : { ...hit }
-    const r = await this.db
-      .select()
-      .from(issues)
-      .where(eq(issues.id, asIssueId(id)))
-      .get()
+    const r = await issueById(this.db).get({ id: asIssueId(id) })
     const mapped = r ? await issueFromRow(r) : null
     cache?.set(id, mapped)
     return mapped === null ? null : { ...mapped }
@@ -485,17 +1225,7 @@ export class IssuesRepository {
       archived: boolean
     }[]
   > {
-    const rows = await this.db
-      .select({
-        id: issues.id,
-        repoPath: issues.repoPath,
-        worktreePath: issues.worktreePath,
-        deletedAt: issues.deletedAt,
-        archived: issues.archived,
-      })
-      .from(issues)
-      .orderBy(asc(issues.repoPath), asc(issues.seq))
-      .all()
+    const rows = await issueCwdRows(this.db).all()
     const out: {
       id: IssueId
       repoPath: string
@@ -533,15 +1263,7 @@ export class IssuesRepository {
    * one on a done issue, and quarantining it would order it BELOW live work.
    */
   async closedIssueIds(): Promise<Set<string>> {
-    const rows = await this.db
-      .select({
-        id: issues.id,
-        stage: issues.stage,
-        closedReason: issues.closedReason,
-        deletedAt: issues.deletedAt,
-      })
-      .from(issues)
-      .all()
+    const rows = await issueClosureRows(this.db).all()
     const out = new Set<string>()
     for (const r of rows) {
       if (typeof r.id !== 'string') continue
@@ -589,11 +1311,10 @@ export class IssuesRepository {
     const CHUNK = 500
     for (let i = 0; i < wanted.length; i += CHUNK) {
       const chunk = wanted.slice(i, i + CHUNK)
-      const rows = await this.db
-        .select()
-        .from(issues)
-        .where(inArray(issues.id, chunk.map(asIssueId)))
-        .all()
+      const size = inListSize(chunk.length)
+      const rows = await issuesByIds(this.db, size).all(
+        inListValues(chunk.map(asIssueId), size, 'ids'),
+      )
       for (const r of rows) {
         try {
           if (typeof r.id !== 'string') continue
@@ -632,11 +1353,7 @@ export class IssuesRepository {
     // TOMBSTONES ARE NOT ANCESTORS. Issues are soft-deleted, so an unfiltered
     // walk folds a costed task's spend into a parent the operator deleted and
     // can see nowhere else in the app (POD-1858 review).
-    const rows = await this.db
-      .select({ id: issues.id, parentId: issues.parentId })
-      .from(issues)
-      .where(isNull(issues.deletedAt))
-      .all()
+    const rows = await liveIssueParentEdges(this.db).all()
     return rows.map((r) => ({ id: r.id, parentId: r.parentId }))
   }
 
@@ -648,18 +1365,8 @@ export class IssuesRepository {
     // visible under their exact path.
     const repoId = repoPath ? await this.resolveRepoIdForPath(repoPath) : undefined
     const rows = repoPath
-      ? await this.db
-          .select()
-          .from(issues)
-          .where(
-            or(
-              eq(issues.repoId, repoId as RepoId),
-              and(isNull(issues.repoId), eq(issues.repoPath, repoPath)),
-            ),
-          )
-          .orderBy(asc(issues.seq))
-          .all()
-      : await this.db.select().from(issues).orderBy(asc(issues.repoPath), asc(issues.seq)).all()
+      ? await issueRowsOfRepo(this.db).all({ repoId: repoId as RepoId, repoPath })
+      : await allIssueRows(this.db).all()
     const out: IssueRow[] = []
     this.quarantinedRowCount = 0
     for (const r of rows) {
@@ -687,16 +1394,7 @@ export class IssuesRepository {
   /** The full issue rows already belong to IssueStore's boot projection.
    * This one statement loads only the additional worktree lookup keys. */
   async loadWorldIssuePaths(): Promise<IssueWorktreeRow[]> {
-    return this.db
-      .select({
-        id: issues.id,
-        repoPath: issues.repoPath,
-        seq: issues.seq,
-        worktreePath: issues.worktreePath,
-        deletedAt: issues.deletedAt,
-      })
-      .from(issues)
-      .all()
+    return await issueWorktreeRows(this.db).all()
   }
 
   async deleteIssue(id: string): Promise<void> {
@@ -714,18 +1412,17 @@ export class IssuesRepository {
     // here that points at an issue without a constraint must be scrubbed by hand
     // or it outlives the row, and the comment above will read as if it were
     // covered.
-    await this.db
-      .delete(issueRefLetters)
-      .where(eq(issueRefLetters.issueId, asIssueId(id)))
-      .run()
+    await deleteRefLettersOf(this.db).run({ issueId: asIssueId(id) })
     await this.invalidateRowCache()
+    const remove = (this.issueWrites.remove ??= prepared((db: StoreDrizzle) =>
+      db
+        .delete(issues)
+        .where(eq(issues.id, param(issues.id, 'id')))
+        .returning()
+        .prepare(),
+    ))
     await this.committed.write(
-      async () =>
-        this.db
-          .delete(issues)
-          .where(eq(issues.id, asIssueId(id)))
-          .returning()
-          .all(),
+      async () => await remove(this.db).all({ id: asIssueId(id) }),
       'delete',
     )
   }
@@ -735,10 +1432,7 @@ export class IssuesRepository {
    *  counter exists so a letter is never reused WITHIN an issue, so once the issue
    *  is deleted it protects nothing. Returns the number of rows dropped. */
   async pruneOrphanRefLetters(): Promise<number> {
-    const result = await this.db
-      .delete(issueRefLetters)
-      .where(notInArray(issueRefLetters.issueId, this.db.select({ id: issues.id }).from(issues)))
-      .run()
+    const result = await deleteOrphanRefLetters(this.db).run()
     return Number(result.changes)
   }
 
@@ -748,11 +1442,7 @@ export class IssuesRepository {
    *  colliding numbers. Callers resolve the path to a repo_id (resolveRepoIdForPath)
    *  before allocating. UNIQUE(repo_id, seq) enforces the invariant at the SQL layer. */
   async nextIssueSeq(repoId: RepoId): Promise<number> {
-    const r = await this.db
-      .select({ m: max(issues.seq) })
-      .from(issues)
-      .where(eq(issues.repoId, repoId))
-      .get()
+    const r = await highestSeqOfRepo(this.db).get({ repoId })
     return Number(r?.m ?? 0) + 1
   }
 
@@ -770,17 +1460,7 @@ export class IssuesRepository {
    * is defense in depth for databases restored from a pre-index build.
    */
   async renumberCollidingIssueSeqs(): Promise<number> {
-    const rows = await this.db
-      .select({
-        id: issues.id,
-        repoId: issues.repoId,
-        repoPath: issues.repoPath,
-        machineId: issues.machineId,
-        seq: issues.seq,
-        createdAt: issues.createdAt,
-      })
-      .from(issues)
-      .all()
+    const rows = await issueSeqRows(this.db).all()
     const byRepo = new Map<string, typeof rows>()
     for (const r of rows) {
       const rid = r.repoId ?? (await this.resolveRepoIdForPath(r.repoPath, r.machineId))
@@ -818,11 +1498,18 @@ export class IssuesRepository {
     // The span covers the UPDATE loop only. The read and the planning above are
     // deliberately outside it, which is what keeps the write window short; a
     // conversion must not widen the span to cover them.
+    const setSeq = (this.issueWrites.seq ??= prepared((db: StoreDrizzle) =>
+      db
+        .update(issues)
+        .set({ seq: sql.placeholder('seq') })
+        .where(eq(issues.id, param(issues.id, 'id')))
+        .returning()
+        .prepare(),
+    ))
     await this.createOrJoinTransaction(async () => {
       for (const u of updates) {
         await this.committed.write(
-          async () =>
-            this.db.update(issues).set({ seq: u.seq }).where(eq(issues.id, u.id)).returning().all(),
+          async () => await setSeq(this.db).all({ id: u.id, seq: u.seq }),
           'upsert',
         )
       }
@@ -838,35 +1525,21 @@ export class IssuesRepository {
    *  already taken in the target bucket is renumbered to the next free seq
    *  (oldest row first keeps its number), loudly logged. */
   async assignRepoIdToIssuesUnder(repoId: RepoId, repoPath: string): Promise<void> {
-    // `LIKE ? || '/%'` matches at a PATH BOUNDARY: `/rootless` merely shares a
-    // text prefix with `/root` and must not be swept in. The `rowid` tie-break is
-    // load-bearing on equal `created_at`, and `rowid` is not a schema column, so
-    // both stay as fragments.
-    const rows = await this.db
-      .select({ id: issues.id, seq: issues.seq })
-      .from(issues)
-      .where(
-        and(
-          or(eq(issues.repoPath, repoPath), sql`${issues.repoPath} LIKE ${repoPath} || '/%'`),
-          or(isNull(issues.repoId), ne(issues.repoId, repoId)),
-        ),
-      )
-      .orderBy(asc(issues.createdAt), sql`rowid asc`)
-      .all()
+    // `LIKE ? || '/%'` matches at a PATH BOUNDARY (see issuesUnderPathOutsideRepo).
+    const rows = await issuesUnderPathOutsideRepo(this.db).all({ repoPath, repoId })
     if (rows.length === 0) return
-    const highest = await this.db
-      .select({ m: max(issues.seq) })
-      .from(issues)
-      .where(eq(issues.repoId, repoId))
-      .get()
+    const highest = await highestSeqOfRepo(this.db).get({ repoId })
     let next = (highest?.m ?? 0) + 1
-    const taken = async (seq: number) =>
-      await this.db
-        .select({ id: issues.id })
-        .from(issues)
-        .where(and(eq(issues.repoId, repoId), eq(issues.seq, seq)))
-        .get()
+    const taken = async (seq: number) => await issueIdAtSeq(this.db).get({ repoId, seq })
     await this.invalidateRowCache()
+    const setRepoIdAndSeq = (this.issueWrites.repoIdAndSeq ??= prepared((db: StoreDrizzle) =>
+      db
+        .update(issues)
+        .set({ repoId: sql.placeholder('repoId'), seq: sql.placeholder('seq') })
+        .where(eq(issues.id, param(issues.id, 'id')))
+        .returning()
+        .prepare(),
+    ))
     await this.createOrJoinTransaction(async () => {
       for (const r of rows) {
         let seq = r.seq
@@ -886,13 +1559,7 @@ export class IssuesRepository {
           )
         }
         await this.committed.write(
-          async () =>
-            this.db
-              .update(issues)
-              .set({ repoId, seq })
-              .where(eq(issues.id, r.id))
-              .returning()
-              .all(),
+          async () => await setRepoIdAndSeq(this.db).all({ id: r.id, repoId, seq }),
           'upsert',
         )
       }
@@ -909,20 +1576,9 @@ export class IssuesRepository {
    */
   async allocateSessionLetter(issueId: IssueId): Promise<string> {
     return await this.createOrJoinTransaction(async () => {
-      const row = await this.db
-        .select({ nextIndex: issueRefLetters.nextIndex })
-        .from(issueRefLetters)
-        .where(eq(issueRefLetters.issueId, issueId))
-        .get()
+      const row = await refLetterNextIndex(this.db).get({ issueId })
       const index = row?.nextIndex ?? 0
-      await this.db
-        .insert(issueRefLetters)
-        .values({ issueId, nextIndex: index + 1 })
-        .onConflictDoUpdate({
-          target: issueRefLetters.issueId,
-          set: { nextIndex: index + 1 },
-        })
-        .run()
+      await upsertRefLetterNextIndex(this.db).run({ issueId, nextIndex: index + 1 })
       return letterForIndex(index)
     })
   }
@@ -931,7 +1587,7 @@ export class IssuesRepository {
    *  writer cannot produce one (`upsertIssue` resolves a repo_id before it
    *  inserts), so a non-zero answer means a database from before POD-1360. */
   async issuesMissingRepoId(): Promise<number> {
-    const r = await this.db.select({ c: count() }).from(issues).where(isNull(issues.repoId)).get()
+    const r = await issuesMissingRepoIdCount(this.db).get()
     return r?.c ?? 0
   }
 
@@ -943,88 +1599,37 @@ export class IssuesRepository {
     candidateHostId: MachineId,
   ): Promise<{ hostMachineId: MachineId; backfilled: number; skipped: number } | undefined> {
     return await this.createOrJoinTransaction(async () => {
-      if (
-        await this.db
-          .select({ value: meta.value })
-          .from(meta)
-          .where(eq(meta.key, LEGACY_WORKTREE_MIGRATION))
-          .get()
-      )
-        return undefined
-      const host = await this.db
-        .select({ id: machines.id })
-        .from(machines)
-        .where(and(eq(machines.id, candidateHostId), isNull(machines.revokedAt)))
-        .get()
+      if (await legacyWorktreeReceipt(this.db).get()) return undefined
+      const host = await liveMachineById(this.db).get({ id: candidateHostId })
       if (!host) return undefined
       const hostMachineId = host.id
-      const { legacyWorktreeRow, contradictorySession } = this.legacyWorktreeTerms(hostMachineId)
-      const skipped = (await this.legacyWorktreeSkippedQuery(hostMachineId).get())?.c ?? 0
+      const skipped = (await legacyWorktreeSkipped(this.db).get({ hostMachineId }))?.c ?? 0
       // BEFORE the write, per the POD-1939 invariant `store-issues-row-cache-writers`
       // enforces: invalidating afterwards would still empty the map, but a read
       // taken in between would cache rows read inside this open transaction.
       await this.invalidateRowCache()
+      const backfill = (this.issueWrites.legacyMachine ??= prepared((db: StoreDrizzle) => {
+        const { legacyWorktreeRow, contradictorySession } = legacyWorktreeTerms(db)
+        return db
+          .update(issues)
+          .set({ machineId: sql.placeholder('hostMachineId') })
+          .where(and(legacyWorktreeRow, not(contradictorySession)))
+          .returning()
+          .prepare()
+      }))
       const backfilled = Number(
         (
           await this.committed.write(
-            async () =>
-              this.db
-                .update(issues)
-                .set({ machineId: hostMachineId })
-                .where(and(legacyWorktreeRow, not(contradictorySession)))
-                .returning()
-                .all(),
+            async () => await backfill(this.db).all({ hostMachineId }),
             'upsert',
           )
         ).changes,
       )
-      await this.db
-        .insert(meta)
-        .values({
-          key: LEGACY_WORKTREE_MIGRATION,
-          value: JSON.stringify({ hostMachineId, backfilled, skipped }),
-        })
-        .run()
+      await insertLegacyWorktreeReceipt(this.db).run({
+        value: JSON.stringify({ hostMachineId, backfilled, skipped }),
+      })
       return { hostMachineId, backfilled, skipped }
     })
-  }
-
-  /**
-   * The two terms `backfillLegacyWorktreeMachineIds` is built from, in one place
-   * so the count and the UPDATE can never drift into disagreeing about which
-   * rows are candidates and which are contradicted.
-   */
-  private legacyWorktreeTerms(hostMachineId: MachineId) {
-    return {
-      /** Owns a worktree, names no machine — the residue a v0.1.0 build leaves. */
-      legacyWorktreeRow: and(isNotNull(issues.worktreePath), isNull(issues.machineId)),
-      /**
-       * Correlated on `issues.id` in the WHERE, so drizzle qualifies it back to
-       * the OUTER row rather than self-joining; the select list is the literal
-       * `1`, so there is no unqualified column here to silently rebind onto
-       * `sessions`. `legacyWorktreeBackfillSql` pins both properties.
-       */
-      contradictorySession: exists(
-        this.db
-          .select({ one: sql`1` })
-          .from(sessions)
-          .where(
-            and(
-              or(eq(sessions.issueId, issues.id), eq(sessions.refIssueId, issues.id)),
-              ne(sessions.machineId, hostMachineId),
-            ),
-          ),
-      ),
-    }
-  }
-
-  /** Counts the candidates the contradiction evidence tells the backfill to leave alone. */
-  private legacyWorktreeSkippedQuery(hostMachineId: MachineId) {
-    const { legacyWorktreeRow, contradictorySession } = this.legacyWorktreeTerms(hostMachineId)
-    return this.db
-      .select({ c: count() })
-      .from(issues)
-      .where(and(legacyWorktreeRow, contradictorySession))
   }
 
   /**
@@ -1033,9 +1638,10 @@ export class IssuesRepository {
    * count query rather than the UPDATE because both are built from the same
    * `legacyWorktreeTerms`, and a write builder in a method that exists only to
    * print SQL would owe the POD-1939 cache invalidation it has no reason to do.
+   * The host machine is a placeholder in both, so the text does not depend on it.
    */
-  legacyWorktreeContradictionSql(hostMachineId: MachineId): string {
-    return this.legacyWorktreeSkippedQuery(hostMachineId).toSQL().sql
+  legacyWorktreeContradictionSql(_hostMachineId: MachineId): string {
+    return legacyWorktreeSkippedBuilder(this.db).toSQL().sql
   }
 
   // ---- labels ----
@@ -1061,11 +1667,8 @@ export class IssuesRepository {
   async findLabels(names: readonly string[]): Promise<Map<string, LabelRow>> {
     const wanted = this.cleanLabelNames(names).map((n) => n.toLowerCase())
     if (wanted.length === 0) return new Map()
-    const rows = await this.db
-      .select()
-      .from(labels)
-      .where(inArray(sql`lower(${labels.name})`, wanted))
-      .all()
+    const size = inListSize(wanted.length)
+    const rows = await labelsNamed(this.db, size).all(inListValues(wanted, size, 'name'))
     return new Map(rows.map((r) => [r.name.toLowerCase(), r]))
   }
 
@@ -1084,29 +1687,22 @@ export class IssuesRepository {
       if (input.color !== undefined) patch.color = input.color
       if (input.description !== undefined) patch.description = input.description
       if (Object.keys(patch).length === 0) return existing
-      await this.db.update(labels).set(patch).where(eq(labels.id, existing.id)).run()
+      await patchLabel(this.db, shapeOf(patch)).run({ ...patch, id: existing.id })
       return { ...existing, ...patch }
     }
-    const created = await this.db
-      .insert(labels)
-      .values({
-        name,
-        color: input.color ?? null,
-        description: input.description ?? null,
-        createdAt: new Date().toISOString(),
-      })
-      .returning()
-      .get()
+    const created = await insertLabelRow(this.db).get({
+      name,
+      color: input.color ?? null,
+      description: input.description ?? null,
+      createdAt: new Date().toISOString(),
+    })
+    if (!created) throw new Error(`label ${name} was not persisted`)
     return created
   }
 
   /** The whole vocabulary, by name ignoring case. */
   async listLabels(): Promise<LabelRow[]> {
-    return await this.db
-      .select()
-      .from(labels)
-      .orderBy(asc(sql`lower(${labels.name})`))
-      .all()
+    return await labelVocabulary(this.db).all()
   }
 
   /** Replace an issue's labels. A name with no label yet CREATES one — the
@@ -1121,39 +1717,26 @@ export class IssuesRepository {
       ids.push(row.id)
       stored.push(row.name)
     }
-    await this.db.delete(issueLabels).where(eq(issueLabels.issueId, issueId)).run()
+    await deleteLabelsOf(this.db).run({ issueId })
     for (const labelId of ids) {
       // `INSERT OR IGNORE` before the conversion, and EQUIVALENT here (spec
       // rule 31). The two forms differ only where OR IGNORE suppresses
       // something DO NOTHING does not, which is NOT NULL and CHECK — a foreign
       // key is suppressed by neither, measured on the shipped table. This one
       // has no CHECK, and both NOT NULL columns come from non-nullable sources.
-      await this.db.insert(issueLabels).values({ issueId, labelId }).onConflictDoNothing().run()
+      await insertLabel(this.db).run({ issueId, labelId })
     }
     return stored
   }
 
   async getIssueLabels(issueId: IssueId): Promise<string[]> {
-    return (
-      await this.db
-        .select({ label: labels.name })
-        .from(issueLabels)
-        .innerJoin(labels, eq(labels.id, issueLabels.labelId))
-        .where(eq(issueLabels.issueId, issueId))
-        .orderBy(asc(labels.name))
-        .all()
-    ).map((r) => r.label)
+    return (await labelsOf(this.db).all({ issueId })).map((r) => r.label)
   }
 
   /** Labels for every issue in one ordered read — list serializers use this to
    * avoid preparing and running one query per issue at live board sizes. */
   async listIssueLabelsByIssue(): Promise<Map<string, string[]>> {
-    const rows = await this.db
-      .select({ issueId: issueLabels.issueId, label: labels.name })
-      .from(issueLabels)
-      .innerJoin(labels, eq(labels.id, issueLabels.labelId))
-      .orderBy(asc(issueLabels.issueId), asc(labels.name))
-      .all()
+    const rows = await allIssueLabels(this.db).all()
     const byIssue = new Map<string, string[]>()
     for (const row of rows) {
       const names = byIssue.get(row.issueId)
@@ -1165,14 +1748,7 @@ export class IssuesRepository {
 
   /** Names of the labels at least one issue carries. */
   async listAllLabels(): Promise<string[]> {
-    return (
-      await this.db
-        .selectDistinct({ label: labels.name })
-        .from(labels)
-        .innerJoin(issueLabels, eq(issueLabels.labelId, labels.id))
-        .orderBy(asc(labels.name))
-        .all()
-    ).map((r) => r.label)
+    return (await distinctLabels(this.db).all()).map((r) => r.label)
   }
 
   // ---- deps ----
@@ -1185,22 +1761,14 @@ export class IssuesRepository {
     // omitted value takes the same value either way. The CHECK on `type`
     // (POD-6100) is NOT swallowed by `onConflictDoNothing` — that is ON CONFLICT
     // DO NOTHING on the primary key only — so an unknown type still throws.
-    await this.db.insert(issueDeps).values({ fromId, toId, type }).onConflictDoNothing().run()
+    await insertDep(this.db).run({ fromId, toId, type })
   }
 
   async removeIssueDep(fromId: IssueId, toId: IssueId, type?: string): Promise<void> {
     if (type) {
-      await this.db
-        .delete(issueDeps)
-        .where(
-          and(eq(issueDeps.fromId, fromId), eq(issueDeps.toId, toId), eq(issueDeps.type, type)),
-        )
-        .run()
+      await deleteDepOfType(this.db).run({ fromId, toId, type })
     } else {
-      await this.db
-        .delete(issueDeps)
-        .where(and(eq(issueDeps.fromId, fromId), eq(issueDeps.toId, toId)))
-        .run()
+      await deleteDepsBetween(this.db).run({ fromId, toId })
     }
   }
 
@@ -1208,12 +1776,7 @@ export class IssuesRepository {
    *  re-declares the id space they were stored under. `type` is a dep KIND, not
    *  an id, and stays a free string. */
   async listIssueDeps(fromId: IssueId): Promise<{ toId: IssueId; type: string }[]> {
-    return await this.db
-      .select({ toId: issueDeps.toId, type: issueDeps.type })
-      .from(issueDeps)
-      .where(eq(issueDeps.fromId, fromId))
-      .orderBy(asc(issueDeps.toId), asc(issueDeps.type))
-      .all()
+    return await depsFrom(this.db).all({ fromId })
   }
 
   /** EVERY dep edge, for the ledger's full-truth reconcile of the 'issueDep'
@@ -1221,55 +1784,34 @@ export class IssuesRepository {
    *  diffs by id, but a stable order keeps the change log's appends readable and
    *  the tests' expectations deterministic. */
   async listAllIssueDeps(): Promise<{ fromId: IssueId; toId: IssueId; type: string }[]> {
-    return await this.db
-      .select({ fromId: issueDeps.fromId, toId: issueDeps.toId, type: issueDeps.type })
-      .from(issueDeps)
-      .orderBy(asc(issueDeps.fromId), asc(issueDeps.toId), asc(issueDeps.type))
-      .all()
+    return await allDeps(this.db).all()
   }
 
   async listDependents(toId: IssueId): Promise<{ fromId: IssueId; type: string }[]> {
-    return await this.db
-      .select({ fromId: issueDeps.fromId, type: issueDeps.type })
-      .from(issueDeps)
-      .where(eq(issueDeps.toId, toId))
-      .orderBy(asc(issueDeps.fromId), asc(issueDeps.type))
-      .all()
+    return await depsTo(this.db).all({ toId })
   }
 
   // ---- comments ----
 
   async addIssueComment(c: IssueCommentRow): Promise<void> {
-    await this.db
-      .insert(issueComments)
-      .values({
-        id: c.id,
-        issueId: c.issueId,
-        author: c.author,
-        body: c.body,
-        createdAt: c.createdAt,
-        actor: c.actor ?? null,
-        onBehalfOf: c.onBehalfOf ?? null,
-      })
-      .run()
+    await insertComment(this.db).run({
+      id: c.id,
+      issueId: c.issueId,
+      author: c.author,
+      body: c.body,
+      createdAt: c.createdAt,
+      actor: c.actor ?? null,
+      onBehalfOf: c.onBehalfOf ?? null,
+    })
   }
 
   async listIssueComments(issueId: IssueId): Promise<IssueCommentRow[]> {
-    return await this.db
-      .select()
-      .from(issueComments)
-      .where(eq(issueComments.issueId, issueId))
-      .orderBy(asc(issueComments.createdAt), asc(issueComments.id))
-      .all()
+    return await commentsOf(this.db).all({ issueId })
   }
 
   /** Comment count for ONE issue — the single-issue toWire path (#175). */
   async countIssueComments(issueId: IssueId): Promise<number> {
-    const r = await this.db
-      .select({ n: count() })
-      .from(issueComments)
-      .where(eq(issueComments.issueId, issueId))
-      .get()
+    const r = await commentCountOf(this.db).get({ issueId })
     return r?.n ?? 0
   }
 
@@ -1278,11 +1820,7 @@ export class IssuesRepository {
    *  same batching posture as the shared sessionList). Issues with no comments
    *  are simply absent (read as 0). */
   async countIssueCommentsByIssue(): Promise<Map<string, number>> {
-    const rows = await this.db
-      .select({ issueId: issueComments.issueId, n: count() })
-      .from(issueComments)
-      .groupBy(issueComments.issueId)
-      .all()
+    const rows = await commentCountsByIssue(this.db).all()
     return new Map(rows.map((r) => [r.issueId, r.n]))
   }
 
@@ -1295,21 +1833,14 @@ export class IssuesRepository {
     const q = query.trim()
     if (!q) return []
     const escaped = '%' + q.replace(/[%_]/g, (c) => '\\' + c) + '%'
-    // The ESCAPE clause is what makes `%` and `_` in a user's query LITERAL.
-    // drizzle's `like()` emits no ESCAPE, so this stays a fragment; dropping it
-    // would make a query of `100%` match every comment.
-    const base = this.db
-      .select({
-        issueId: issueComments.issueId,
-        body: issueComments.body,
-        createdAt: issueComments.createdAt,
-      })
-      .from(issueComments)
-      .where(sql`${issueComments.body} LIKE ${escaped} ESCAPE '\\'`)
-      .orderBy(desc(issueComments.createdAt))
+    // The ESCAPE clause is what makes `%` and `_` in a user's query LITERAL
+    // (see commentSearch).
     return limit === null
-      ? await base.all()
-      : await base.limit(Math.min(200, Math.max(1, limit))).all()
+      ? await commentSearch(this.db, 'all').all({ pattern: escaped })
+      : await commentSearch(this.db, 'limited').all({
+          pattern: escaped,
+          limit: Math.min(200, Math.max(1, limit)),
+        })
   }
 
   // ---- issue mail (issue #103) ----
@@ -1341,23 +1872,20 @@ export class IssuesRepository {
   }
 
   async addIssueMessage(m: IssueMessageRow): Promise<void> {
-    await this.db
-      .insert(issueMessages)
-      .values({
-        id: m.id,
-        issueId: m.issueId,
-        fromAuthor: m.fromAuthor,
-        body: m.body,
-        createdAt: m.createdAt,
-        status: m.status,
-        claimedBy: m.claimedBy,
-        claimedAt: m.claimedAt,
-      })
-      .run()
+    await insertMessage(this.db).run({
+      id: m.id,
+      issueId: m.issueId,
+      fromAuthor: m.fromAuthor,
+      body: m.body,
+      createdAt: m.createdAt,
+      status: m.status,
+      claimedBy: m.claimedBy,
+      claimedAt: m.claimedAt,
+    })
   }
 
   async getIssueMessage(id: string): Promise<IssueMessageRow | null> {
-    const r = await this.db.select().from(issueMessages).where(eq(issueMessages.id, id)).get()
+    const r = await messageById(this.db).get({ id })
     return r ? await this.mapIssueMessage(r) : null
   }
 
@@ -1365,25 +1893,14 @@ export class IssuesRepository {
     issueId: IssueId,
     opts?: { status?: IssueMessageRow['status'] },
   ): Promise<IssueMessageRow[]> {
-    const rows = await this.db
-      .select()
-      .from(issueMessages)
-      .where(
-        opts?.status
-          ? and(eq(issueMessages.issueId, issueId), eq(issueMessages.status, opts.status))
-          : eq(issueMessages.issueId, issueId),
-      )
-      .orderBy(asc(issueMessages.createdAt), asc(issueMessages.id))
-      .all()
+    const rows = opts?.status
+      ? await messagesOfWithStatus(this.db).all({ issueId, status: opts.status })
+      : await messagesOf(this.db).all({ issueId })
     return await Promise.all(rows.map(async (r) => await this.mapIssueMessage(r)))
   }
 
   async countUnreadIssueMessages(issueId: IssueId): Promise<number> {
-    const r = await this.db
-      .select({ n: count() })
-      .from(issueMessages)
-      .where(and(eq(issueMessages.issueId, issueId), eq(issueMessages.status, 'unread')))
-      .get()
+    const r = await unreadMessageCountOf(this.db).get({ issueId })
     return r?.n ?? 0
   }
 
@@ -1407,40 +1924,16 @@ export class IssuesRepository {
     requireUserId(userId)
     for (const id of ids) {
       // Only `unread` flips, so a `claimed` message never regresses to `read`.
-      await this.db
-        .update(issueMessages)
-        .set({ status: 'read' })
-        .where(
-          and(
-            eq(issueMessages.issueId, issueId),
-            eq(issueMessages.id, id),
-            eq(issueMessages.status, 'unread'),
-          ),
-        )
-        .run()
+      await markMessageRead(this.db).run({ issueId, id })
       // Written for EVERY named message, not only the unread ones.
-      await this.db
-        .insert(issueMessageUserState)
-        .values({ userId, issueMessageId: id, readAt })
-        .onConflictDoUpdate({
-          target: [issueMessageUserState.userId, issueMessageUserState.issueMessageId],
-          set: { readAt },
-        })
-        .run()
+      await upsertMessageReadAt(this.db).run({ userId, issueMessageId: id, readAt })
     }
   }
 
   /** One user's tracker-mail read markers, `issueMessageId → readAt`. */
   async listIssueMessageReadAt(userId: UserId): Promise<Record<string, string | null>> {
     requireUserId(userId)
-    const rows = await this.db
-      .select({
-        issueMessageId: issueMessageUserState.issueMessageId,
-        readAt: issueMessageUserState.readAt,
-      })
-      .from(issueMessageUserState)
-      .where(eq(issueMessageUserState.userId, userId))
-      .all()
+    const rows = await messageReadAtOf(this.db).all({ userId })
     const out: Record<string, string | null> = {}
     for (const r of rows) out[r.issueMessageId] = r.readAt
     return out
@@ -1459,32 +1952,16 @@ export class IssuesRepository {
   /** Authority-only feed truth. A targeted publish reads one issue's users;
    * boot/purge reconciles the full set. Delivery is filtered by the keyed user. */
   async listIssueUserStateRows(issueId?: IssueId): Promise<IssueUserState[]> {
-    const rows = await this.db
-      .select({
-        userId: issueUserState.userId,
-        entityId: issueUserState.issueId,
-        readAt: issueUserState.readAt,
-        tuckedAt: issueUserState.tuckedAt,
-        pinnedAt: issueUserState.pinnedAt,
-      })
-      .from(issueUserState)
-      .where(issueId === undefined ? undefined : eq(issueUserState.issueId, issueId))
-      .all()
+    const rows =
+      issueId === undefined
+        ? await allIssueUserStateRows(this.db).all()
+        : await issueUserStateRowsOf(this.db).all({ issueId })
     return rows.map((row) => IssueUserState.parse(row))
   }
 
   async listIssueUserState(userId: UserId): Promise<Map<string, StoredIssueUserState>> {
     requireUserId(userId)
-    const rows = await this.db
-      .select({
-        issueId: issueUserState.issueId,
-        readAt: issueUserState.readAt,
-        tuckedAt: issueUserState.tuckedAt,
-        pinnedAt: issueUserState.pinnedAt,
-      })
-      .from(issueUserState)
-      .where(eq(issueUserState.userId, userId))
-      .all()
+    const rows = await issueUserStateOfUser(this.db).all({ userId })
     const out = new Map<string, StoredIssueUserState>()
     for (const r of rows) {
       out.set(r.issueId, { readAt: r.readAt, tuckedAt: r.tuckedAt, pinnedAt: r.pinnedAt })
@@ -1497,15 +1974,7 @@ export class IssuesRepository {
     issueId: IssueId,
   ): Promise<StoredIssueUserState | undefined> {
     requireUserId(userId)
-    const r = await this.db
-      .select({
-        readAt: issueUserState.readAt,
-        tuckedAt: issueUserState.tuckedAt,
-        pinnedAt: issueUserState.pinnedAt,
-      })
-      .from(issueUserState)
-      .where(and(eq(issueUserState.userId, userId), eq(issueUserState.issueId, issueId)))
-      .get()
+    const r = await issueUserStateOne(this.db).get({ userId, issueId })
     return r ? { readAt: r.readAt, tuckedAt: r.tuckedAt, pinnedAt: r.pinnedAt } : undefined
   }
 
@@ -1535,57 +2004,40 @@ export class IssuesRepository {
       pinnedAt: patch.pinnedAt !== undefined ? patch.pinnedAt : current.pinnedAt,
     }
     if (next.readAt === null && next.tuckedAt === null && next.pinnedAt === null) {
-      await this.db
-        .delete(issueUserState)
-        .where(and(eq(issueUserState.userId, userId), eq(issueUserState.issueId, issueId)))
-        .run()
+      await deleteIssueUserStateOne(this.db).run({ userId, issueId })
       return
     }
-    await this.db
-      .insert(issueUserState)
-      .values({
-        userId,
-        issueId,
-        readAt: next.readAt,
-        tuckedAt: next.tuckedAt,
-        pinnedAt: next.pinnedAt,
-      })
-      .onConflictDoUpdate({
-        target: [issueUserState.userId, issueUserState.issueId],
-        set: { readAt: next.readAt, tuckedAt: next.tuckedAt, pinnedAt: next.pinnedAt },
-      })
-      .run()
+    await upsertIssueUserState(this.db).run({
+      userId,
+      issueId,
+      readAt: next.readAt,
+      tuckedAt: next.tuckedAt,
+      pinnedAt: next.pinnedAt,
+    })
   }
 
   /** Drop every user's per-user rows for an issue. Called from the issue's own
    *  purge path: the rows are not the issue's (they follow the USER), but a
    *  hard-deleted issue leaves them addressing nothing. */
   async purgeIssueUserState(issueId: IssueId): Promise<void> {
-    await this.db.delete(issueUserState).where(eq(issueUserState.issueId, issueId)).run()
+    await deleteIssueUserStateOf(this.db).run({ issueId })
   }
 
   /** Atomic claim: exactly one caller wins; a second claim on the same message
    *  returns false. Single UPDATE guarded on status, so there is no read-then-write race. */
   async claimIssueMessage(id: string, claimedBy: string, claimedAt: string): Promise<boolean> {
-    const r = await this.db
-      .update(issueMessages)
-      .set({ status: 'claimed', claimedBy, claimedAt })
-      .where(and(eq(issueMessages.id, id), ne(issueMessages.status, 'claimed')))
-      .run()
+    const r = await claimMessage(this.db).run({ id, claimedBy, claimedAt })
     return r.changes === 1
   }
 
   async deleteIssueMessagesForIssue(issueId: IssueId): Promise<void> {
-    await this.db.delete(issueMessages).where(eq(issueMessages.issueId, issueId)).run()
+    await deleteMessagesOf(this.db).run({ issueId })
   }
 
   async deleteIssueChildRows(issueId: IssueId): Promise<void> {
-    await this.db.delete(issueLabels).where(eq(issueLabels.issueId, issueId)).run()
-    await this.db
-      .delete(issueDeps)
-      .where(or(eq(issueDeps.fromId, issueId), eq(issueDeps.toId, issueId)))
-      .run()
-    await this.db.delete(issueComments).where(eq(issueComments.issueId, issueId)).run()
+    await deleteLabelsOf(this.db).run({ issueId })
+    await deleteDepsTouching(this.db).run({ issueId })
+    await deleteCommentsOf(this.db).run({ issueId })
     await this.deleteIssueMessagesForIssue(issueId)
   }
 }

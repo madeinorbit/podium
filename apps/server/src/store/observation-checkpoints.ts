@@ -8,7 +8,7 @@ import {
   sessionTerminalCandidates,
 } from '../migrations/schema'
 import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
-import { currentTransaction } from './executor/sync-drizzle'
+import { param, prepared } from './executor/sync-drizzle'
 import type {
   ObservationLeaseRecord,
   TerminalCandidateFacts,
@@ -79,6 +79,225 @@ type LeaseSelect = Pick<
   | 'updatedAt'
 >
 
+// Every query this repository runs, prepared once per store [POD-6147].
+
+const P = (name: string) => sql.placeholder(name)
+const ck = sessionObservationCheckpoints
+const tc = sessionTerminalCandidates
+const ckSessionIs = () => eq(ck.sessionId, param(ck.sessionId, 'sessionId'))
+const tcSessionIs = () => eq(tc.sessionId, param(tc.sessionId, 'sessionId'))
+
+const leaseOf = prepared((db: StoreDrizzle) =>
+  db.select(LEASE_COLUMNS).from(ck).where(ckSessionIs()).prepare(),
+)
+
+const rebindReceiptOf = prepared((db: StoreDrizzle) =>
+  db
+    .select({
+      provider: sessionObservationRebinds.provider,
+      fromProviderSessionId: sessionObservationRebinds.fromProviderSessionId,
+      fromBindingVersion: sessionObservationRebinds.fromBindingVersion,
+      fromObservationGeneration: sessionObservationRebinds.fromObservationGeneration,
+      toProviderSessionId: sessionObservationRebinds.toProviderSessionId,
+      resultingBindingVersion: sessionObservationRebinds.resultingBindingVersion,
+      resultingObservationGeneration: sessionObservationRebinds.resultingObservationGeneration,
+    })
+    .from(sessionObservationRebinds)
+    .where(eq(sessionObservationRebinds.sessionId, param(sessionObservationRebinds.sessionId, 'sessionId')))
+    .prepare(),
+)
+
+const allLeases = prepared((db: StoreDrizzle) =>
+  db.select(LEASE_COLUMNS).from(ck).orderBy(ck.sessionId).prepare(),
+)
+
+const openLease = prepared((db: StoreDrizzle) =>
+  db
+    .insert(ck)
+    .values({
+      sessionId: P('sessionId'),
+      schemaVersion: 1,
+      provider: P('provider'),
+      providerSessionId: P('providerSessionId'),
+      bindingVersion: 1,
+      observationGeneration: 0,
+      checkpointJson: null,
+      updatedAt: P('updatedAt'),
+    })
+    // WAS `INSERT OR IGNORE`, and the two are NOT generally interchangeable
+    // (spec rule 31). Measured on bun:sqlite: `OR IGNORE` suppresses UNIQUE,
+    // PRIMARY KEY, NOT NULL and CHECK, while `DO NOTHING` suppresses only the
+    // uniqueness conflict. Foreign keys do not enter it — NEITHER form
+    // suppresses those, which is why "this table has no foreign keys" is the
+    // wrong premise and is not the one relied on here.
+    //
+    // THE CONDITION IS THAT NO NOT NULL AND NO CHECK VIOLATION IS REACHABLE,
+    // and on the shipped table it holds: no CHECK constraints, one index
+    // (the primary key's own, which both forms suppress), and every NOT NULL
+    // column here — schema_version, provider, binding_version,
+    // observation_generation, updated_at — is supplied from a literal or a
+    // non-nullable parameter. So the only violation either form can meet is
+    // the primary key. The enumeration is in the commit message.
+    .onConflictDoNothing()
+    .prepare(),
+)
+
+const advanceLeaseGeneration = prepared((db: StoreDrizzle) =>
+  db
+    .update(ck)
+    .set({
+      // Read-modify-write IN THE STATEMENT, not in the caller: the fence has
+      // to advance atomically with respect to any other observer.
+      observationGeneration: sql`${ck.observationGeneration} + 1`,
+      providerSessionId: sql`COALESCE(${ck.providerSessionId}, ${P('providerSessionId')})`,
+      updatedAt: P('updatedAt'),
+    })
+    .where(and(ckSessionIs(), eq(ck.provider, param(ck.provider, 'provider'))))
+    .prepare(),
+)
+
+const rebindLease = prepared((db: StoreDrizzle) =>
+  db
+    .update(ck)
+    .set({
+      providerSessionId: P('nextProviderSessionId'),
+      bindingVersion: P('nextBindingVersion'),
+      observationGeneration: P('nextObservationGeneration'),
+      checkpointJson: null,
+      updatedAt: P('updatedAt'),
+    })
+    .where(
+      and(
+        ckSessionIs(),
+        eq(ck.provider, param(ck.provider, 'provider')),
+        eq(ck.bindingVersion, param(ck.bindingVersion, 'bindingVersion')),
+        eq(ck.observationGeneration, param(ck.observationGeneration, 'observationGeneration')),
+        // THE FULL COMPARE-AND-SWAP, reproduced rather than simplified: the
+        // `IS NULL AND ? IS NULL` arm is what lets a lease with no provider
+        // session id be rebound at all, and `= NULL` would match no row.
+        sql`(${ck.providerSessionId} = ${P('providerSessionId')} OR (${ck.providerSessionId} IS NULL AND ${P('providerSessionId')} IS NULL))`,
+      ),
+    )
+    .prepare(),
+)
+
+const rebindReceiptColumns = {
+  provider: P('provider'),
+  fromProviderSessionId: P('fromProviderSessionId'),
+  fromBindingVersion: P('fromBindingVersion'),
+  fromObservationGeneration: P('fromObservationGeneration'),
+  toProviderSessionId: P('toProviderSessionId'),
+  resultingBindingVersion: P('resultingBindingVersion'),
+  resultingObservationGeneration: P('resultingObservationGeneration'),
+  updatedAt: P('updatedAt'),
+}
+
+const upsertRebindReceipt = prepared((db: StoreDrizzle) =>
+  db
+    .insert(sessionObservationRebinds)
+    .values({ sessionId: P('sessionId'), ...rebindReceiptColumns })
+    .onConflictDoUpdate({ target: sessionObservationRebinds.sessionId, set: rebindReceiptColumns })
+    .prepare(),
+)
+
+const saveCheckpoint = prepared((db: StoreDrizzle) =>
+  db
+    .update(ck)
+    .set({
+      providerSessionId: sql`COALESCE(${ck.providerSessionId}, ${P('providerSessionId')})`,
+      checkpointJson: P('checkpointJson'),
+      updatedAt: P('updatedAt'),
+    })
+    .where(
+      and(
+        ckSessionIs(),
+        eq(ck.provider, param(ck.provider, 'provider')),
+        eq(ck.bindingVersion, param(ck.bindingVersion, 'bindingVersion')),
+        eq(ck.observationGeneration, param(ck.observationGeneration, 'observationGeneration')),
+        // NOT the same predicate as `rebindLease`'s: an UNSET provider session
+        // id accepts any writer, where a set one must match. Keeping the two
+        // spelled differently is the point.
+        sql`(${ck.providerSessionId} IS NULL OR ${ck.providerSessionId} = ${P('providerSessionId')})`,
+      ),
+    )
+    .prepare(),
+)
+
+const terminalCandidateOf = prepared((db: StoreDrizzle) =>
+  db
+    .select({
+      proofJson: tc.proofJson,
+      confirmedAt: tc.confirmedAt,
+      consumedAt: tc.consumedAt,
+      updatedAt: tc.updatedAt,
+    })
+    .from(tc)
+    .where(tcSessionIs())
+    .prepare(),
+)
+
+const upsertTerminalProof = prepared((db: StoreDrizzle) =>
+  db
+    .insert(tc)
+    .values({
+      sessionId: P('sessionId'),
+      proofJson: P('proofJson'),
+      confirmedAt: null,
+      consumedAt: null,
+      updatedAt: P('at'),
+    })
+    .onConflictDoUpdate({
+      target: tc.sessionId,
+      set: { proofJson: P('proofJson'), confirmedAt: null, consumedAt: null, updatedAt: P('at') },
+    })
+    .prepare(),
+)
+
+const confirmTerminalProof = prepared((db: StoreDrizzle) =>
+  db
+    .update(tc)
+    .set({
+      proofJson: P('proofJson'),
+      // COALESCE, so a second confirmation keeps the FIRST instant.
+      confirmedAt: sql`COALESCE(${tc.confirmedAt}, ${P('confirmedAt')})`,
+      updatedAt: P('at'),
+    })
+    .where(and(tcSessionIs(), isNull(tc.consumedAt)))
+    .prepare(),
+)
+
+const renewTerminalProof = prepared((db: StoreDrizzle) =>
+  db
+    .update(tc)
+    .set({ proofJson: P('proofJson'), updatedAt: P('at') })
+    .where(
+      and(
+        tcSessionIs(),
+        // The PREVIOUS proof text is part of the guard: a renewal only lands
+        // on the exact row it read, so a concurrent write cannot be
+        // overwritten by a translation of a proof that is no longer there.
+        eq(tc.proofJson, param(tc.proofJson, 'previousProof')),
+        sql`${tc.confirmedAt} IS NOT NULL`,
+        isNull(tc.consumedAt),
+      ),
+    )
+    .prepare(),
+)
+
+const consumeTerminalProof = prepared((db: StoreDrizzle) =>
+  db
+    .update(tc)
+    .set({ consumedAt: P('at'), updatedAt: P('at') })
+    .where(and(tcSessionIs(), sql`${tc.confirmedAt} IS NOT NULL`, isNull(tc.consumedAt)))
+    .prepare(),
+)
+
+const deleteTerminalCandidate = prepared((db: StoreDrizzle) =>
+  db.delete(tc).where(tcSessionIs()).prepare(),
+)
+
+const deleteLease = prepared((db: StoreDrizzle) => db.delete(ck).where(ckSessionIs()).prepare())
+
 /** Durable causal observer leases and checkpoints [spec:SP-cdb2]. */
 export class ObservationCheckpointsRepository {
   private readonly rootDb: StoreDrizzle
@@ -98,7 +317,7 @@ export class ObservationCheckpointsRepository {
    * line; no call site moves.
    */
   protected get db() {
-    return currentTransaction() ?? this.rootDb
+    return this.rootDb
   }
 
   private async mapRow(r: LeaseSelect): Promise<ObservationLeaseRecord | null> {
@@ -138,11 +357,7 @@ export class ObservationCheckpointsRepository {
   }
 
   private async read(sessionId: SessionId): Promise<ObservationLeaseRecord | null> {
-    const row = await this.db
-      .select(LEASE_COLUMNS)
-      .from(sessionObservationCheckpoints)
-      .where(eq(sessionObservationCheckpoints.sessionId, sessionId))
-      .get()
+    const row = await leaseOf(this.db).get({ sessionId })
     return row ? await this.mapRow(row) : null
   }
 
@@ -157,19 +372,7 @@ export class ObservationCheckpointsRepository {
     resultingBindingVersion: number
     resultingObservationGeneration: number
   } | null> {
-    const row = await this.db
-      .select({
-        provider: sessionObservationRebinds.provider,
-        fromProviderSessionId: sessionObservationRebinds.fromProviderSessionId,
-        fromBindingVersion: sessionObservationRebinds.fromBindingVersion,
-        fromObservationGeneration: sessionObservationRebinds.fromObservationGeneration,
-        toProviderSessionId: sessionObservationRebinds.toProviderSessionId,
-        resultingBindingVersion: sessionObservationRebinds.resultingBindingVersion,
-        resultingObservationGeneration: sessionObservationRebinds.resultingObservationGeneration,
-      })
-      .from(sessionObservationRebinds)
-      .where(eq(sessionObservationRebinds.sessionId, sessionId))
-      .get()
+    const row = await rebindReceiptOf(this.db).get({ sessionId })
     if (!row) return null
     const provider = ObservationProvider.safeParse(row.provider)
     if (!provider.success) return null
@@ -185,11 +388,7 @@ export class ObservationCheckpointsRepository {
   }
 
   async loadAll(): Promise<ObservationLeaseRecord[]> {
-    const rows = await this.db
-      .select(LEASE_COLUMNS)
-      .from(sessionObservationCheckpoints)
-      .orderBy(sessionObservationCheckpoints.sessionId)
-      .all()
+    const rows = await allLeases(this.db).all()
     return (await Promise.all(rows.map(async (row) => await this.mapRow(row)))).filter(
       (row): row is ObservationLeaseRecord => row !== null,
     )
@@ -211,50 +410,9 @@ export class ObservationCheckpointsRepository {
   ): Promise<ObservationLeaseRecord> {
     return await this.createOrJoinTransaction(async () => {
       const updatedAt = new Date().toISOString()
-      await this.db
-        .insert(sessionObservationCheckpoints)
-        .values({
-          sessionId,
-          schemaVersion: 1,
-          provider,
-          providerSessionId,
-          bindingVersion: 1,
-          observationGeneration: 0,
-          checkpointJson: null,
-          updatedAt,
-        })
-        // WAS `INSERT OR IGNORE`, and the two are NOT generally interchangeable
-        // (spec rule 31). Measured on bun:sqlite: `OR IGNORE` suppresses UNIQUE,
-        // PRIMARY KEY, NOT NULL and CHECK, while `DO NOTHING` suppresses only the
-        // uniqueness conflict. Foreign keys do not enter it — NEITHER form
-        // suppresses those, which is why "this table has no foreign keys" is the
-        // wrong premise and is not the one relied on here.
-        //
-        // THE CONDITION IS THAT NO NOT NULL AND NO CHECK VIOLATION IS REACHABLE,
-        // and on the shipped table it holds: no CHECK constraints, one index
-        // (the primary key's own, which both forms suppress), and every NOT NULL
-        // column here — schema_version, provider, binding_version,
-        // observation_generation, updated_at — is supplied from a literal or a
-        // non-nullable parameter. So the only violation either form can meet is
-        // the primary key. The enumeration is in the commit message.
-        .onConflictDoNothing()
-        .run()
-      await this.db
-        .update(sessionObservationCheckpoints)
-        .set({
-          // Read-modify-write IN THE STATEMENT, not in the caller: the fence has
-          // to advance atomically with respect to any other observer.
-          observationGeneration: sql`${sessionObservationCheckpoints.observationGeneration} + 1`,
-          providerSessionId: sql`COALESCE(${sessionObservationCheckpoints.providerSessionId}, ${providerSessionId})`,
-          updatedAt,
-        })
-        .where(
-          and(
-            eq(sessionObservationCheckpoints.sessionId, sessionId),
-            eq(sessionObservationCheckpoints.provider, provider),
-          ),
-        )
-        .run()
+      // `DO NOTHING`, not `OR IGNORE`: see `openLease`.
+      await openLease(this.db).run({ sessionId, provider, providerSessionId, updatedAt })
+      await advanceLeaseGeneration(this.db).run({ sessionId, provider, providerSessionId, updatedAt })
       // A SPENT proof does not survive its observer's life. Consumption is the
       // last act of one hibernation; a fresh fence means the session is being
       // observed again, and `confirmTerminalCandidate` refuses to touch a
@@ -332,28 +490,17 @@ export class ObservationCheckpointsRepository {
       const bindingVersion = current.bindingVersion + 1
       const observationGeneration = current.observationGeneration + 1
       const updatedAt = new Date().toISOString()
-      const result = await this.db
-        .update(sessionObservationCheckpoints)
-        .set({
-          providerSessionId: input.nextProviderSessionId,
-          bindingVersion,
-          observationGeneration,
-          checkpointJson: null,
-          updatedAt,
-        })
-        .where(
-          and(
-            eq(sessionObservationCheckpoints.sessionId, input.sessionId),
-            eq(sessionObservationCheckpoints.provider, input.provider),
-            eq(sessionObservationCheckpoints.bindingVersion, input.bindingVersion),
-            eq(sessionObservationCheckpoints.observationGeneration, input.observationGeneration),
-            // THE FULL COMPARE-AND-SWAP, reproduced rather than simplified: the
-            // `IS NULL AND ? IS NULL` arm is what lets a lease with no provider
-            // session id be rebound at all, and `= NULL` would match no row.
-            sql`(${sessionObservationCheckpoints.providerSessionId} = ${input.providerSessionId} OR (${sessionObservationCheckpoints.providerSessionId} IS NULL AND ${input.providerSessionId} IS NULL))`,
-          ),
-        )
-        .run()
+      const result = await rebindLease(this.db).run({
+        sessionId: input.sessionId,
+        provider: input.provider,
+        bindingVersion: input.bindingVersion,
+        observationGeneration: input.observationGeneration,
+        providerSessionId: input.providerSessionId,
+        nextProviderSessionId: input.nextProviderSessionId,
+        nextBindingVersion: bindingVersion,
+        nextObservationGeneration: observationGeneration,
+        updatedAt,
+      })
       if (Number(result.changes) !== 1) {
         throw new Error(`observation rebind lease changed for ${input.sessionId}`)
       }
@@ -368,23 +515,7 @@ export class ObservationCheckpointsRepository {
         resultingObservationGeneration: observationGeneration,
         updatedAt,
       }
-      await this.db
-        .insert(sessionObservationRebinds)
-        .values(receiptRow)
-        .onConflictDoUpdate({
-          target: sessionObservationRebinds.sessionId,
-          set: {
-            provider: receiptRow.provider,
-            fromProviderSessionId: receiptRow.fromProviderSessionId,
-            fromBindingVersion: receiptRow.fromBindingVersion,
-            fromObservationGeneration: receiptRow.fromObservationGeneration,
-            toProviderSessionId: receiptRow.toProviderSessionId,
-            resultingBindingVersion: receiptRow.resultingBindingVersion,
-            resultingObservationGeneration: receiptRow.resultingObservationGeneration,
-            updatedAt: receiptRow.updatedAt,
-          },
-        })
-        .run()
+      await upsertRebindReceipt(this.db).run(receiptRow)
       await this.cancelTerminalCandidate(input.sessionId)
       const lease = await this.read(input.sessionId)
       if (!lease) throw new Error(`missing rebound observation lease for ${input.sessionId}`)
@@ -394,45 +525,22 @@ export class ObservationCheckpointsRepository {
 
   /** Persist only against the still-current lease; stale sockets cannot win. */
   async save(checkpoint: SessionObservationCheckpointV1): Promise<void> {
-    const result = await this.db
-      .update(sessionObservationCheckpoints)
-      .set({
-        providerSessionId: sql`COALESCE(${sessionObservationCheckpoints.providerSessionId}, ${checkpoint.providerSessionId})`,
-        checkpointJson: JSON.stringify(checkpoint),
-        updatedAt: checkpoint.acceptedAt,
-      })
-      .where(
-        and(
-          eq(sessionObservationCheckpoints.sessionId, checkpoint.podiumSessionId),
-          eq(sessionObservationCheckpoints.provider, checkpoint.provider),
-          eq(sessionObservationCheckpoints.bindingVersion, checkpoint.bindingVersion),
-          eq(
-            sessionObservationCheckpoints.observationGeneration,
-            checkpoint.lifecycleObservationGeneration,
-          ),
-          // NOT the same predicate as `rebindExact`'s: an UNSET provider session
-          // id accepts any writer, where a set one must match. Keeping the two
-          // spelled differently is the point.
-          sql`(${sessionObservationCheckpoints.providerSessionId} IS NULL OR ${sessionObservationCheckpoints.providerSessionId} = ${checkpoint.providerSessionId})`,
-        ),
-      )
-      .run()
+    const result = await saveCheckpoint(this.db).run({
+      sessionId: checkpoint.podiumSessionId,
+      provider: checkpoint.provider,
+      bindingVersion: checkpoint.bindingVersion,
+      observationGeneration: checkpoint.lifecycleObservationGeneration,
+      providerSessionId: checkpoint.providerSessionId,
+      checkpointJson: JSON.stringify(checkpoint),
+      updatedAt: checkpoint.acceptedAt,
+    })
     if (Number(result.changes) !== 1) {
       throw new Error(`observation checkpoint lease changed for ${checkpoint.podiumSessionId}`)
     }
   }
 
   async getTerminalCandidate(sessionId: SessionId): Promise<TerminalCandidateRecord | null> {
-    const row = await this.db
-      .select({
-        proofJson: sessionTerminalCandidates.proofJson,
-        confirmedAt: sessionTerminalCandidates.confirmedAt,
-        consumedAt: sessionTerminalCandidates.consumedAt,
-        updatedAt: sessionTerminalCandidates.updatedAt,
-      })
-      .from(sessionTerminalCandidates)
-      .where(eq(sessionTerminalCandidates.sessionId, sessionId))
-      .get()
+    const row = await terminalCandidateOf(this.db).get({ sessionId })
     if (!row) return null
     try {
       // QUARANTINE, as `mapRow`: an unreadable proof reads as no proof.
@@ -469,20 +577,7 @@ export class ObservationCheckpointsRepository {
    */
   private async upsertProof(sessionId: SessionId, proof: unknown, at: string): Promise<void> {
     const proofJson = JSON.stringify(proof)
-    await this.db
-      .insert(sessionTerminalCandidates)
-      .values({
-        sessionId,
-        proofJson,
-        confirmedAt: null,
-        consumedAt: null,
-        updatedAt: at,
-      })
-      .onConflictDoUpdate({
-        target: sessionTerminalCandidates.sessionId,
-        set: { proofJson, confirmedAt: null, consumedAt: null, updatedAt: at },
-      })
-      .run()
+    await upsertTerminalProof(this.db).run({ sessionId, proofJson, at })
   }
 
   /** Arm pass one at this observer sequence, discarding whatever was there. */
@@ -545,21 +640,12 @@ export class ObservationCheckpointsRepository {
         firstLivePollSequence: current.firstLivePollSequence,
         lastLivePollSequence: livePollSequence,
       }
-      await this.db
-        .update(sessionTerminalCandidates)
-        .set({
-          proofJson: JSON.stringify(proof),
-          // COALESCE, so a second confirmation keeps the FIRST instant.
-          confirmedAt: sql`COALESCE(${sessionTerminalCandidates.confirmedAt}, ${confirmed ? at : null})`,
-          updatedAt: at,
-        })
-        .where(
-          and(
-            eq(sessionTerminalCandidates.sessionId, facts.sessionId),
-            isNull(sessionTerminalCandidates.consumedAt),
-          ),
-        )
-        .run()
+      await confirmTerminalProof(this.db).run({
+        sessionId: facts.sessionId,
+        proofJson: JSON.stringify(proof),
+        confirmedAt: confirmed ? at : null,
+        at,
+      })
       return confirmed ? 'confirmed' : 'recorded'
     })
   }
@@ -602,21 +688,12 @@ export class ObservationCheckpointsRepository {
         firstLivePollSequence: current.firstLivePollSequence,
         lastLivePollSequence: current.lastLivePollSequence,
       }
-      const result = await this.db
-        .update(sessionTerminalCandidates)
-        .set({ proofJson: JSON.stringify(proof), updatedAt: at })
-        .where(
-          and(
-            eq(sessionTerminalCandidates.sessionId, facts.sessionId),
-            // The PREVIOUS proof text is part of the guard: a renewal only lands
-            // on the exact row it read, so a concurrent write cannot be
-            // overwritten by a translation of a proof that is no longer there.
-            eq(sessionTerminalCandidates.proofJson, previousProof),
-            sql`${sessionTerminalCandidates.confirmedAt} IS NOT NULL`,
-            isNull(sessionTerminalCandidates.consumedAt),
-          ),
-        )
-        .run()
+      const result = await renewTerminalProof(this.db).run({
+        sessionId: facts.sessionId,
+        proofJson: JSON.stringify(proof),
+        previousProof,
+        at,
+      })
       return Number(result.changes) === 1
     })
   }
@@ -639,31 +716,15 @@ export class ObservationCheckpointsRepository {
       JSON.stringify(checkpoint.providerCursor) !== JSON.stringify(facts.providerCursor)
     )
       return false
-    const result = await this.db
-      .update(sessionTerminalCandidates)
-      .set({ consumedAt: at, updatedAt: at })
-      .where(
-        and(
-          eq(sessionTerminalCandidates.sessionId, facts.sessionId),
-          sql`${sessionTerminalCandidates.confirmedAt} IS NOT NULL`,
-          isNull(sessionTerminalCandidates.consumedAt),
-        ),
-      )
-      .run()
+    const result = await consumeTerminalProof(this.db).run({ sessionId: facts.sessionId, at })
     return Number(result.changes) === 1
   }
 
   async cancelTerminalCandidate(sessionId: SessionId): Promise<void> {
-    await this.db
-      .delete(sessionTerminalCandidates)
-      .where(eq(sessionTerminalCandidates.sessionId, sessionId))
-      .run()
+    await deleteTerminalCandidate(this.db).run({ sessionId })
   }
 
   async purge(sessionId: SessionId): Promise<void> {
-    await this.db
-      .delete(sessionObservationCheckpoints)
-      .where(eq(sessionObservationCheckpoints.sessionId, sessionId))
-      .run()
+    await deleteLease(this.db).run({ sessionId })
   }
 }

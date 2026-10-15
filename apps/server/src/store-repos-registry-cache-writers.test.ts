@@ -338,7 +338,9 @@ describe('repos registry cache: every writer invalidates', () => {
     const { writes } = scanRegistryWriters(source)
     // Not a pinned list of method names: a rename must not be able to make the scan
     // go quiet, which is the failure mode this class of guard exists for.
-    expect(writes.length).toBeGreaterThanOrEqual(10)
+    // Nine since POD-6147: `updateRepoOrigin` prepares its row delete once and
+    // runs it for both rows it removes, where it used to spell it twice.
+    expect(writes.length).toBeGreaterThanOrEqual(9)
     expect(new Set(writes.map((w) => w.kind))).toEqual(new Set(['INSERT', 'UPDATE', 'DELETE']))
     expect(writes.filter((w) => w.method === null)).toEqual([])
   })

@@ -27,7 +27,230 @@ import { and, asc, eq, isNotNull, isNull, sql } from 'drizzle-orm'
 import { clientSessions, grants, memberInvites, settingsAuditEvents, userCredentials, users } from '../migrations/schema'
 import { currentReadScope, readScopeSlot } from './executor/read-scope'
 import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
-import { currentTransaction, preparedPerDb } from './executor/sync-drizzle'
+import { param, placeholdersFor, prepared, preparedFamily, shapeOf } from './executor/sync-drizzle'
+
+// Every query this repository runs, prepared once per store [POD-6147].
+
+/**
+ * THE MOST-EXECUTED STATEMENT IN THE SERVER, PREPARED ONCE [POD-3854].
+ *
+ * Seven minutes of a live instance issued this 180,660 times — the frame cache
+ * above absorbs the repeats inside one read scope, and what is left is still
+ * the top statement by count. The fluent form re-serialised the SQL and
+ * regenerated the row mapper on every one of them; measured on the migrated
+ * schema it cost 48.9 us per call against 12.4 us prepared.
+ *
+ * Prepared once per store (see {@link prepared}); inside a transaction the
+ * executor's router runs it on that transaction.
+ */
+const accountById = prepared((db: StoreDrizzle) =>
+  db.select().from(users).where(eq(users.id, param(users.id, 'id'))).prepare(),
+)
+
+const allUsers = prepared((db: StoreDrizzle) => db.select().from(users).prepare())
+
+const earliestAdminId = prepared((db: StoreDrizzle) =>
+  db
+    .select({ id: users.id })
+    .from(users)
+    .where(and(eq(users.role, 'admin'), isNull(users.disabledAt)))
+    .orderBy(asc(users.createdAt), asc(users.id))
+    .limit(1)
+    .prepare(),
+)
+
+const userIdByEmail = prepared((db: StoreDrizzle) =>
+  db
+    .select({ id: users.id })
+    .from(users)
+    .where(eq(sql`lower(${users.email})`, sql.placeholder('email')))
+    .prepare(),
+)
+
+const userIdByAccount = prepared((db: StoreDrizzle) =>
+  db
+    .select({ id: users.id })
+    .from(users)
+    .where(eq(users.cloudAccountId, param(users.cloudAccountId, 'accountId')))
+    .prepare(),
+)
+
+const userIdsByCreation = prepared((db: StoreDrizzle) =>
+  db.select({ id: users.id }).from(users).orderBy(asc(users.createdAt)).prepare(),
+)
+
+const insertUserValues = {
+  id: sql.placeholder('id'),
+  displayName: sql.placeholder('displayName'),
+  email: sql.placeholder('email'),
+  role: sql.placeholder('role'),
+  createdAt: sql.placeholder('createdAt'),
+  disabledAt: null,
+}
+
+const insertUser = prepared((db: StoreDrizzle) =>
+  db.insert(users).values(insertUserValues).prepare(),
+)
+
+const insertUserReturning = prepared((db: StoreDrizzle) =>
+  db.insert(users).values(insertUserValues).returning().prepare(),
+)
+
+const setUserEmail = prepared((db: StoreDrizzle) =>
+  db
+    .update(users)
+    .set({ email: sql.placeholder('email') })
+    .where(eq(users.id, param(users.id, 'id')))
+    .prepare(),
+)
+
+const setUserDisabledAt = prepared((db: StoreDrizzle) =>
+  db
+    .update(users)
+    .set({ disabledAt: sql.placeholder('disabledAt') })
+    .where(eq(users.id, param(users.id, 'id')))
+    .returning()
+    .prepare(),
+)
+
+const setUserProfile = prepared((db: StoreDrizzle) =>
+  db
+    .update(users)
+    .set({ displayName: sql.placeholder('displayName'), avatar: sql.placeholder('avatar') })
+    .where(eq(users.id, param(users.id, 'id')))
+    .prepare(),
+)
+
+const claimUserAccount = prepared((db: StoreDrizzle) =>
+  db
+    .update(users)
+    .set({ cloudAccountId: sql.placeholder('cloudAccountId') })
+    .where(and(eq(users.id, param(users.id, 'id')), isNull(users.cloudAccountId), isNull(users.disabledAt)))
+    .prepare(),
+)
+
+const credentialByUser = prepared((db: StoreDrizzle) =>
+  db
+    .select()
+    .from(userCredentials)
+    .where(eq(userCredentials.userId, param(userCredentials.userId, 'userId')))
+    .prepare(),
+)
+
+const anyPerUserCredential = prepared((db: StoreDrizzle) =>
+  db
+    .select({ present: sql<number>`1` })
+    .from(userCredentials)
+    .where(and(eq(userCredentials.source, 'per-user-scrypt'), isNotNull(userCredentials.passwordHash)))
+    .limit(1)
+    .prepare(),
+)
+
+const insertCredential = prepared((db: StoreDrizzle) =>
+  db
+    .insert(userCredentials)
+    .values({
+      userId: sql.placeholder('userId'),
+      source: 'per-user-scrypt',
+      passwordHash: sql.placeholder('passwordHash'),
+      updatedAt: sql.placeholder('updatedAt'),
+    })
+    .prepare(),
+)
+
+const upsertCredential = prepared((db: StoreDrizzle) =>
+  db
+    .insert(userCredentials)
+    .values({
+      userId: sql.placeholder('userId'),
+      source: 'per-user-scrypt',
+      passwordHash: sql.placeholder('passwordHash'),
+      updatedAt: sql.placeholder('updatedAt'),
+    })
+    .onConflictDoUpdate({
+      target: userCredentials.userId,
+      set: {
+        source: 'per-user-scrypt',
+        passwordHash: sql.placeholder('passwordHash'),
+        updatedAt: sql.placeholder('updatedAt'),
+      },
+    })
+    .prepare(),
+)
+
+const deleteCredentialOf = prepared((db: StoreDrizzle) =>
+  db
+    .delete(userCredentials)
+    .where(eq(userCredentials.userId, param(userCredentials.userId, 'userId')))
+    .prepare(),
+)
+
+const deleteClientSessionsOf = prepared((db: StoreDrizzle) =>
+  db
+    .delete(clientSessions)
+    .where(eq(clientSessions.userId, param(clientSessions.userId, 'userId')))
+    .prepare(),
+)
+
+const insertSettingsAudit = prepared((db: StoreDrizzle) =>
+  db
+    .insert(settingsAuditEvents)
+    .values({
+      command: sql.placeholder('command'),
+      outcome: sql.placeholder('outcome'),
+      actorKind: sql.placeholder('actorKind'),
+      actorId: sql.placeholder('actorId'),
+      onBehalfOf: sql.placeholder('onBehalfOf'),
+      detailJson: sql.placeholder('detailJson'),
+      createdAt: sql.placeholder('createdAt'),
+    })
+    .prepare(),
+)
+
+const custodyMachinesOf = prepared((db: StoreDrizzle) =>
+  db
+    .select({ id: grants.resourceId })
+    .from(grants)
+    .where(
+      and(
+        eq(grants.resourceKind, 'machine'),
+        eq(grants.custody, true),
+        eq(grants.grantee, param(grants.grantee, 'grantee')),
+      ),
+    )
+    .prepare(),
+)
+
+/** The invite row is the caller's insert model, so its optional columns decide the shape. */
+const insertInvite = preparedFamily((db: StoreDrizzle, shape: string) =>
+  db
+    .insert(memberInvites)
+    .values(placeholdersFor(shape) as unknown as typeof memberInvites.$inferInsert)
+    .prepare(),
+)
+
+const invitesByCreation = prepared((db: StoreDrizzle) =>
+  db.select().from(memberInvites).orderBy(asc(memberInvites.createdAt)).prepare(),
+)
+
+const inviteByTokenHash = prepared((db: StoreDrizzle) =>
+  db
+    .select()
+    .from(memberInvites)
+    .where(eq(memberInvites.tokenHash, param(memberInvites.tokenHash, 'tokenHash')))
+    .prepare(),
+)
+
+const deleteInviteById = prepared((db: StoreDrizzle) =>
+  db.delete(memberInvites).where(eq(memberInvites.id, param(memberInvites.id, 'id'))).prepare(),
+)
+
+const deleteInvitesOfMember = prepared((db: StoreDrizzle) =>
+  db
+    .delete(memberInvites)
+    .where(eq(memberInvites.memberId, param(memberInvites.memberId, 'memberId')))
+    .prepare(),
+)
 
 export interface UserAccountRow {
   id: string
@@ -76,13 +299,9 @@ export class UsersRepository {
     this.createOrJoinTransaction = queries.createOrJoinTransaction
   }
 
-  /**
-   * Rule 34a — `db` RESOLVES on every access rather than being frozen at
-   * construction, so rule 35's ambient transaction routing has one line to
-   * change at B1 and no call site does.
-   */
+  /** The store's one drizzle instance; the executor routes each statement to the current transaction. */
   protected get db(): StoreDrizzle {
-    return currentTransaction() ?? this.rootDb
+    return this.rootDb
   }
 
   /**
@@ -151,24 +370,9 @@ export class UsersRepository {
     }
   }
 
-  /**
-   * THE MOST-EXECUTED STATEMENT IN THE SERVER, PREPARED ONCE [POD-3854].
-   *
-   * Seven minutes of a live instance issued this 180,660 times — the frame cache
-   * above absorbs the repeats inside one read scope, and what is left is still
-   * the top statement by count. The fluent form re-serialised the SQL and
-   * regenerated the row mapper on every one of them; measured on the migrated
-   * schema it cost 48.9 us per call against 12.4 us prepared.
-   *
-   * See {@link preparedPerDb} for why the cache is keyed on the drizzle instance
-   * and not held as one query per repository.
-   */
-  private readonly accountById = preparedPerDb((db) =>
-    db.select().from(users).where(eq(users.id, sql.placeholder('id'))).prepare(),
-  )
 
   private async read(userId: UserId): Promise<UserAccountRow | undefined> {
-    const r = await this.accountById(this.db).get({ id: userId })
+    const r = await accountById(this.db).get({ id: userId })
     if (!r) return undefined
     return userFromRow(r)
   }
@@ -202,24 +406,14 @@ export class UsersRepository {
    * is the whole point of retiring the constant.
    */
   async earliestAdmin(): Promise<UserAccountRow | undefined> {
-    const row = await this.db
-      .select({ id: users.id })
-      .from(users)
-      .where(and(eq(users.role, 'admin'), isNull(users.disabledAt)))
-      .orderBy(asc(users.createdAt), asc(users.id))
-      .limit(1)
-      .get()
+    const row = await earliestAdminId(this.db).get()
     return row ? await this.get(asUserId(row.id)) : undefined
   }
 
   async byEmail(email: string): Promise<UserAccountRow | undefined> {
     const parsed = LoginEmail.safeParse(email)
     if (!parsed.success) return undefined
-    const row = await this.db
-      .select({ id: users.id })
-      .from(users)
-      .where(eq(sql`lower(${users.email})`, parsed.data))
-      .get()
+    const row = await userIdByEmail(this.db).get({ email: parsed.data })
     return row ? await this.get(row.id) : undefined
   }
 
@@ -227,25 +421,21 @@ export class UsersRepository {
     const normalized = LoginEmail.parse(email)
     if (!(await this.get(userId))) throw new Error(`unknown user: ${userId}`)
     try {
-      await this.db.update(users).set({ email: normalized }).where(eq(users.id, userId)).run()
+      await setUserEmail(this.db).run({ id: userId, email: normalized })
     } finally {
       currentReadScope().clear(this.accountsSlot)
     }
   }
 
   async list(): Promise<UserAccountRow[]> {
-    const rows = await this.db
-      .select({ id: users.id })
-      .from(users)
-      .orderBy(asc(users.createdAt))
-      .all()
+    const rows = await userIdsByCreation(this.db).all()
     const accounts = await Promise.all(rows.map(async (row) => await this.get(row.id)))
     return accounts.filter((account): account is UserAccountRow => account !== undefined)
   }
 
   /** One grouped boot read; disabled/unknown roles stay fail-closed. */
   async loadWorldUsers(): Promise<UserAccountRow[]> {
-    return (await this.db.select().from(users).all())
+    return (await allUsers(this.db).all())
       .flatMap((row) => { const account = userFromRow(row); return account ? [account] : [] })
   }
 
@@ -269,16 +459,15 @@ export class UsersRepository {
   ): Promise<void> {
     await this.claimTransaction(async () => {
       if (actor && (await this.roleOf(actor)) !== 'admin') throw new Error('Administrator required')
-      const existing = await this.accountById(this.db).get({ id: userId })
+      const existing = await accountById(this.db).get({ id: userId })
       if (!existing) throw new Error(`unknown user: ${userId}`)
       if ((existing.disabledAt !== null) === (disabledAt !== null)) return
       await this.committed.write(async () => {
-        const rows = await this.db.update(users).set({ disabledAt })
-          .where(eq(users.id, userId)).returning().all()
+        const rows = await setUserDisabledAt(this.db).all({ id: userId, disabledAt })
         if (disabledAt !== null) {
-          await this.db.delete(clientSessions).where(eq(clientSessions.userId, userId)).run()
+          await deleteClientSessionsOf(this.db).run({ userId })
         }
-        await this.db.insert(settingsAuditEvents).values({
+        await insertSettingsAudit(this.db).run({
           command: disabledAt === null ? 'members.enable' : 'members.disable',
           outcome: 'applied',
           actorKind: actor ? 'user' : 'system',
@@ -286,7 +475,7 @@ export class UsersRepository {
           onBehalfOf: actor ?? null,
           detailJson: JSON.stringify({ memberId: userId, runningAgentPolicy: 'let-finish' }),
           createdAt: at,
-        }).run()
+        })
         return rows
       }, 'upsert')
     })
@@ -294,11 +483,7 @@ export class UsersRepository {
 
   async credentialFor(userId: UserId): Promise<UserCredentialRow | undefined> {
     if (!(await this.get(userId))) return undefined
-    const row = await this.db
-      .select()
-      .from(userCredentials)
-      .where(eq(userCredentials.userId, userId))
-      .get()
+    const row = await credentialByUser(this.db).get({ userId })
     if (!row) return undefined
     // Source parsing FAILS CLOSED for the same reason `parseRole` does, and it is
     // load-bearing here rather than defensive: a leftover `'instance-password'` row from
@@ -314,14 +499,7 @@ export class UsersRepository {
   }
 
   async hasPerUserCredentials(): Promise<boolean> {
-    const row = await this.db
-      .select({ present: sql<number>`1` })
-      .from(userCredentials)
-      .where(
-        and(eq(userCredentials.source, 'per-user-scrypt'), isNotNull(userCredentials.passwordHash)),
-      )
-      .limit(1)
-      .get()
+    const row = await anyPerUserCredential(this.db).get()
     return row?.present === 1
   }
 
@@ -334,9 +512,7 @@ export class UsersRepository {
     currentReadScope().clear(this.accountsSlot)
     try {
       await this.createOrJoinTransaction(async () => {
-        ;await this.committed.write(async () => (this.db
-          .insert(users)
-          .values({
+        ;await this.committed.write(async () => await insertUserReturning(this.db).all({
             // EXTERNAL INPUT BRAND DECODE: UserAccountRow is the account-import
             // boundary and deliberately carries its source id as a string.
             id: asUserId(account.id),
@@ -344,18 +520,13 @@ export class UsersRepository {
             email: account.email == null ? null : LoginEmail.parse(account.email),
             role: account.role,
             createdAt: account.createdAt,
-            disabledAt: null,
-          })).returning().all(), 'upsert')
-        ;await (this.db
-          .insert(userCredentials)
-          .values({
+          }), 'upsert')
+        ;await insertCredential(this.db).run({
             // Same external account id, branded independently for this write.
             userId: asUserId(account.id),
-            source: 'per-user-scrypt',
             passwordHash,
             updatedAt: account.createdAt,
-          }))
-          .run()
+          })
       })
     } finally {
       // And again on the way out — in a `finally`, because the case that needs
@@ -371,21 +542,14 @@ export class UsersRepository {
       // The funnel publishes the COMMITTED ROW, not UserAccountRow: the two
       // diverged once accounts grew `accountId` and `avatar` (A4, A5), and the
       // index is keyed on the stored column names.
-      const account = await this.accountById(this.db).get({ id: userId })
+      const account = await accountById(this.db).get({ id: userId })
       // Gate on the MAPPED read, publish the raw row. userFromRow answers
       // undefined for a disabled account and for a role this build cannot
       // parse; accountById answers the raw row regardless, and disable() sets
       // disabledAt rather than removing the row, so a truthy row is not
       // permission to write a credential.
       if (!account || !userFromRow(account)) throw new Error(`unknown user: ${userId}`)
-      await (this.db
-      .insert(userCredentials)
-      .values({ userId, source: 'per-user-scrypt', passwordHash, updatedAt }))
-      .onConflictDoUpdate({
-        target: userCredentials.userId,
-        set: { source: 'per-user-scrypt', passwordHash, updatedAt },
-      })
-      .run()
+      await upsertCredential(this.db).run({ userId, passwordHash, updatedAt })
       return [{ ...account, id: userId }]
     }, 'upsert')
   }
@@ -400,48 +564,32 @@ export class UsersRepository {
   }
 
   async createUnclaimed(account: UserAccountRow): Promise<void> {
-    await this.db
-      .insert(users)
-      .values({
-        id: asUserId(account.id),
-        displayName: account.displayName,
-        email: account.email,
-        role: account.role,
-        createdAt: account.createdAt,
-        disabledAt: null,
-      })
-      .run()
+    await insertUser(this.db).run({
+      id: asUserId(account.id),
+      displayName: account.displayName,
+      email: account.email,
+      role: account.role,
+      createdAt: account.createdAt,
+    })
     currentReadScope().clear(this.accountsSlot)
   }
 
   async findMemberByAccount(accountId: string): Promise<UserAccountRow | undefined> {
-    const row = await this.db
-      .select({ id: users.id })
-      .from(users)
-      .where(eq(users.cloudAccountId, accountId))
-      .get()
+    const row = await userIdByAccount(this.db).get({ accountId })
     return row ? await this.get(row.id) : undefined
   }
 
   async writeProfile(userId: UserId, name: string, avatar: string | null): Promise<void> {
     if (!(await this.get(userId))) throw new Error('Member unavailable')
     try {
-      await this.db
-        .update(users)
-        .set({ displayName: name, avatar })
-        .where(eq(users.id, userId))
-        .run()
+      await setUserProfile(this.db).run({ id: userId, displayName: name, avatar })
     } finally {
       currentReadScope().clear(this.accountsSlot)
     }
   }
 
   async attachAccount(userId: UserId, accountId: string): Promise<void> {
-    const result = await this.db
-      .update(users)
-      .set({ cloudAccountId: accountId })
-      .where(and(eq(users.id, userId), isNull(users.cloudAccountId), isNull(users.disabledAt)))
-      .run()
+    const result = await claimUserAccount(this.db).run({ id: userId, cloudAccountId: accountId })
     if (Number(result.changes) !== 1) throw new Error('Member is already claimed or unavailable')
     currentReadScope().clear(this.accountsSlot)
   }
@@ -452,14 +600,13 @@ export class UsersRepository {
       if (userId === actor) throw new Error('You cannot remove yourself')
       // Read the retained row: a disabled member can still hold custody, and
       // retrying removal by member id must succeed without duplicate audits.
-      if (!(await this.accountById(this.db).get({ id: userId }))) throw new Error('Member unavailable')
+      if (!(await accountById(this.db).get({ id: userId }))) throw new Error('Member unavailable')
       const at = new Date().toISOString()
       await this.disable(userId, at, actor)
-      const held = await this.db.select({ id: grants.resourceId }).from(grants)
-        .where(and(eq(grants.resourceKind, 'machine'), eq(grants.custody, true), eq(grants.grantee, userId))).all()
+      const held = await custodyMachinesOf(this.db).all({ grantee: userId })
       for (const machine of held) {
         await this.machinesRepository.setMachineOwner(machine.id, null)
-        await this.db.insert(settingsAuditEvents).values({
+        await insertSettingsAudit(this.db).run({
           command: 'members.remove', outcome: 'applied',
           actorKind: 'user', actorId: actor, onBehalfOf: actor,
           detailJson: JSON.stringify({
@@ -467,34 +614,34 @@ export class UsersRepository {
             previousOwnerUserId: userId, newOwnerUserId: null,
           }),
           createdAt: at,
-        }).run()
+        })
       }
       // Keep other members' shares, including shares granted by this member.
       // Only the removed member's incoming grants are invalidated. Session and
       // issue attribution (and historical grant audiences) are never rewritten.
       await this.grantsRepository.removeAllForGrantee(userId)
-      await this.db.delete(clientSessions).where(eq(clientSessions.userId, userId)).run()
-      await this.db.delete(userCredentials).where(eq(userCredentials.userId, userId)).run()
-      await this.db.delete(memberInvites).where(eq(memberInvites.memberId, userId)).run()
+      await deleteClientSessionsOf(this.db).run({ userId })
+      await deleteCredentialOf(this.db).run({ userId })
+      await deleteInvitesOfMember(this.db).run({ memberId: userId })
     })
   }
 
   async insertInvite(invite: typeof memberInvites.$inferInsert): Promise<void> {
-    await this.db.insert(memberInvites).values(invite).run()
+    await insertInvite(this.db, shapeOf(invite)).run(invite)
   }
 
   async pendingInvites(): Promise<(typeof memberInvites.$inferSelect)[]> {
-    return await this.db.select().from(memberInvites).orderBy(asc(memberInvites.createdAt)).all()
+    return await invitesByCreation(this.db).all()
   }
 
   async inviteByHash(hash: string): Promise<typeof memberInvites.$inferSelect | undefined> {
-    return await this.db.select().from(memberInvites).where(eq(memberInvites.tokenHash, hash)).get()
+    return await inviteByTokenHash(this.db).get({ tokenHash: hash })
   }
 
   async deleteInvite(id: import('@podium/model').InviteId): Promise<boolean> {
     return (
       Number(
-        (await this.db.delete(memberInvites).where(eq(memberInvites.id, id)).run()).changes,
+        (await deleteInviteById(this.db).run({ id })).changes,
       ) === 1
     )
   }

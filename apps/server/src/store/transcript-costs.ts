@@ -18,10 +18,10 @@
 
 import { foldModelTotals } from '@podium/model'
 import type { CostHarness, CostModelTotalWire, IssueId, MachineId, SessionId } from '@podium/model'
-import { and, count, eq, gt, inArray, isNotNull, isNull, max, sql, sum } from 'drizzle-orm'
+import { and, count, eq, gt, isNotNull, isNull, max, sql, sum } from 'drizzle-orm'
 import { issues, transcriptCosts } from '../migrations/schema'
 import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
-import { currentTransaction } from './executor/sync-drizzle'
+import { inListOf, inListSize, inListValues, prepared, preparedFamily } from './executor/sync-drizzle'
 
 /** One transcript's fold, as the ingest hands it over. */
 export interface TranscriptCostRecord {
@@ -94,6 +94,95 @@ const toCost = (row: Row): TranscriptCost => ({
   updatedAt: row.updatedAt,
 })
 
+// Every query this repository runs, prepared once per store [POD-6147].
+
+const recordCost = prepared((db: StoreDrizzle) =>
+  db
+    .insert(transcriptCosts)
+    .values({
+      machineId: sql.placeholder('machineId'),
+      nativeId: sql.placeholder('nativeId'),
+      path: sql.placeholder('path'),
+      harness: sql.placeholder('harness'),
+      sessionId: sql.placeholder('sessionId'),
+      issueId: sql.placeholder('issueId'),
+      scannedBytes: sql.placeholder('scannedBytes'),
+      firstTsMs: sql.placeholder('firstTsMs'),
+      lastTsMs: sql.placeholder('lastTsMs'),
+      messages: sql.placeholder('messages'),
+      modelsJson: sql.placeholder('modelsJson'),
+      windowModelsJson: sql.placeholder('windowModelsJson'),
+      windowSinceMs: sql.placeholder('windowSinceMs'),
+      updatedAt: sql.placeholder('updatedAt'),
+    })
+    .onConflictDoUpdate({
+      target: [transcriptCosts.machineId, transcriptCosts.nativeId],
+      set: {
+        path: sql`excluded.path`,
+        harness: sql`excluded.harness`,
+        // COALESCE, NEVER A PLAIN OVERWRITE. A later harvest re-resolves the
+        // owner from live rows, and that lookup skips tombstones -- so a
+        // session soft-deleted while its transcript is still inside the mtime
+        // window resolves to nothing, and a plain assignment would write NULL
+        // over an attribution this table exists to keep. Every other column is
+        // a re-measurement and may be overwritten; these two are history.
+        //
+        // COALESCE PROTECTS, IT CANNOT REPAIR. Any attribution a pre-fix build
+        // already nulled stays nulled forever, and invisibly: the owner lookup
+        // skips tombstones, so it will never resolve that session again and no
+        // later harvest can put the id back. A task missing spend it once had
+        // is the shape to look for; the row is still there, with session_id and
+        // issue_id NULL and its token totals intact.
+        sessionId: sql`COALESCE(excluded.session_id, ${transcriptCosts.sessionId})`,
+        issueId: sql`COALESCE(excluded.issue_id, ${transcriptCosts.issueId})`,
+        scannedBytes: sql`MAX(${transcriptCosts.scannedBytes}, excluded.scanned_bytes)`,
+        firstTsMs: sql`excluded.first_ts_ms`,
+        lastTsMs: sql`excluded.last_ts_ms`,
+        messages: sql`excluded.messages`,
+        modelsJson: sql`excluded.models_json`,
+        windowModelsJson: sql`excluded.window_models_json`,
+        windowSinceMs: sql`excluded.window_since_ms`,
+        updatedAt: sql`excluded.updated_at`,
+      },
+    })
+    .prepare(),
+)
+
+const costsOfIssues = preparedFamily((db: StoreDrizzle, size: number) =>
+  db.select().from(transcriptCosts).where(inListOf(transcriptCosts.issueId, size)).prepare(),
+)
+
+const attributedCosts = prepared((db: StoreDrizzle) =>
+  db.select().from(transcriptCosts).where(isNotNull(transcriptCosts.issueId)).prepare(),
+)
+
+const ownCohortFolds = prepared((db: StoreDrizzle) =>
+  db
+    .select({ folds: sql<string>`json_group_array(${transcriptCosts.modelsJson})` })
+    .from(transcriptCosts)
+    .innerJoin(issues, eq(issues.id, transcriptCosts.issueId))
+    .where(isNull(issues.deletedAt))
+    .groupBy(transcriptCosts.issueId)
+    .having(gt(sum(transcriptCosts.messages), sql.placeholder('minReplies')))
+    .prepare(),
+)
+
+const costedSessions = prepared((db: StoreDrizzle) =>
+  db
+    .selectDistinct({ sessionId: transcriptCosts.sessionId })
+    .from(transcriptCosts)
+    .where(and(isNotNull(transcriptCosts.sessionId), gt(transcriptCosts.messages, 0)))
+    .prepare(),
+)
+
+const latestWindow = prepared((db: StoreDrizzle) =>
+  db.select({ m: max(transcriptCosts.windowSinceMs) }).from(transcriptCosts).prepare(),
+)
+
+const costCount = prepared((db: StoreDrizzle) =>
+  db.select({ n: count() }).from(transcriptCosts).prepare(),
+)
+
 export class TranscriptCostsRepository {
   private readonly rootDb: StoreDrizzle
   protected readonly createOrJoinTransaction: TransactionRunner
@@ -111,7 +200,7 @@ export class TranscriptCostsRepository {
    * B1 changes the one line inside this getter and no call site below it.
    */
   private get db(): StoreDrizzle {
-    return currentTransaction() ?? this.rootDb
+    return this.rootDb
   }
 
   /**
@@ -123,55 +212,22 @@ export class TranscriptCostsRepository {
     if (records.length === 0) return
     await this.createOrJoinTransaction(async () => {
       for (const r of records) {
-        ;await (this.db
-          .insert(transcriptCosts)
-          .values({
-            machineId: r.machineId,
-            nativeId: r.nativeId,
-            path: r.path,
-            harness: r.harness,
-            sessionId: r.sessionId,
-            issueId: r.issueId,
-            scannedBytes: r.scannedBytes,
-            firstTsMs: r.firstTsMs,
-            lastTsMs: r.lastTsMs,
-            messages: r.models.reduce((n, m) => n + m.messages, 0),
-            modelsJson: JSON.stringify(r.models),
-            windowModelsJson: JSON.stringify(r.windowModels),
-            windowSinceMs: r.windowSinceMs,
-            updatedAt: nowIso,
-          }))
-          .onConflictDoUpdate({
-            target: [transcriptCosts.machineId, transcriptCosts.nativeId],
-            set: {
-              path: sql`excluded.path`,
-              harness: sql`excluded.harness`,
-              // COALESCE, NEVER A PLAIN OVERWRITE. A later harvest re-resolves the
-              // owner from live rows, and that lookup skips tombstones -- so a
-              // session soft-deleted while its transcript is still inside the mtime
-              // window resolves to nothing, and a plain assignment would write NULL
-              // over an attribution this table exists to keep. Every other column is
-              // a re-measurement and may be overwritten; these two are history.
-              //
-              // COALESCE PROTECTS, IT CANNOT REPAIR. Any attribution a pre-fix build
-              // already nulled stays nulled forever, and invisibly: the owner lookup
-              // skips tombstones, so it will never resolve that session again and no
-              // later harvest can put the id back. A task missing spend it once had
-              // is the shape to look for; the row is still there, with session_id and
-              // issue_id NULL and its token totals intact.
-              sessionId: sql`COALESCE(excluded.session_id, ${transcriptCosts.sessionId})`,
-              issueId: sql`COALESCE(excluded.issue_id, ${transcriptCosts.issueId})`,
-              scannedBytes: sql`MAX(${transcriptCosts.scannedBytes}, excluded.scanned_bytes)`,
-              firstTsMs: sql`excluded.first_ts_ms`,
-              lastTsMs: sql`excluded.last_ts_ms`,
-              messages: sql`excluded.messages`,
-              modelsJson: sql`excluded.models_json`,
-              windowModelsJson: sql`excluded.window_models_json`,
-              windowSinceMs: sql`excluded.window_since_ms`,
-              updatedAt: sql`excluded.updated_at`,
-            },
-          })
-          .run()
+        await recordCost(this.db).run({
+          machineId: r.machineId,
+          nativeId: r.nativeId,
+          path: r.path,
+          harness: r.harness,
+          sessionId: r.sessionId,
+          issueId: r.issueId,
+          scannedBytes: r.scannedBytes,
+          firstTsMs: r.firstTsMs,
+          lastTsMs: r.lastTsMs,
+          messages: r.models.reduce((n, m) => n + m.messages, 0),
+          modelsJson: JSON.stringify(r.models),
+          windowModelsJson: JSON.stringify(r.windowModels),
+          windowSinceMs: r.windowSinceMs,
+          updatedAt: nowIso,
+        })
       }
     })
   }
@@ -179,35 +235,19 @@ export class TranscriptCostsRepository {
   /** Every transcript attributed to one of these issues. */
   async forIssues(issueIds: readonly IssueId[]): Promise<TranscriptCost[]> {
     if (issueIds.length === 0) return []
-    return (await this.db
-      .select()
-      .from(transcriptCosts)
-      .where(inArray(transcriptCosts.issueId, issueIds))
-      .all())
-      .map(toCost)
+    const size = inListSize(issueIds.length)
+    return (await costsOfIssues(this.db, size).all(inListValues(issueIds, size))).map(toCost)
   }
 
   /** Every transcript that resolved to a task, for the sheet's ranked table. */
   async allAttributed(): Promise<TranscriptCost[]> {
-    return (await this.db
-      .select()
-      .from(transcriptCosts)
-      .where(isNotNull(transcriptCosts.issueId))
-      .all())
-      .map(toCost)
+    return (await attributedCosts(this.db).all()).map(toCost)
   }
 
   /** Only all-time OWN model folds for qualifying, surviving issues. One
    * grouped SQL read; no issue bodies, window folds, sessions or rollups. */
   async ownCohortTotals(minReplies: number): Promise<CostModelTotalWire[][]> {
-    const rows = await this.db
-      .select({ folds: sql<string>`json_group_array(${transcriptCosts.modelsJson})` })
-      .from(transcriptCosts)
-      .innerJoin(issues, eq(issues.id, transcriptCosts.issueId))
-      .where(isNull(issues.deletedAt))
-      .groupBy(transcriptCosts.issueId)
-      .having(gt(sum(transcriptCosts.messages), minReplies))
-      .all()
+    const rows = await ownCohortFolds(this.db).all({ minReplies })
     return rows.map((row) =>
       foldModelTotals((JSON.parse(row.folds) as string[]).map(parseModels)),
     )
@@ -215,11 +255,7 @@ export class TranscriptCostsRepository {
 
   /** Which sessions already have a fold — the `pending` state's other half. */
   async costedSessionIds(): Promise<Set<string>> {
-    const rows = await this.db
-      .selectDistinct({ sessionId: transcriptCosts.sessionId })
-      .from(transcriptCosts)
-      .where(and(isNotNull(transcriptCosts.sessionId), gt(transcriptCosts.messages, 0)))
-      .all()
+    const rows = await costedSessions(this.db).all()
     return new Set(rows.flatMap((r) => (r.sessionId === null ? [] : [r.sessionId])))
   }
 
@@ -232,15 +268,12 @@ export class TranscriptCostsRepository {
    * against this is how a reader tells the two apart without a second write.
    */
   async latestWindowSinceMs(): Promise<number> {
-    const row = await this.db
-      .select({ m: max(transcriptCosts.windowSinceMs) })
-      .from(transcriptCosts)
-      .get()
+    const row = await latestWindow(this.db).get()
     return row?.m ?? 0
   }
 
   async countAll(): Promise<number> {
-    const row = await this.db.select({ n: count() }).from(transcriptCosts).get()
+    const row = await costCount(this.db).get()
     return row?.n ?? 0
   }
 }

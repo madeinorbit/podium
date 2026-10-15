@@ -32,16 +32,63 @@ import {
   type ReadPositionSnapshot,
   type UserId,
 } from '@podium/model'
-import { and, eq } from 'drizzle-orm'
+import { and, eq, sql } from 'drizzle-orm'
 import { userReadPosition } from '../migrations/schema'
 import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
-import { currentTransaction } from './executor/sync-drizzle'
+import { param, prepared } from './executor/sync-drizzle'
 
 /** One stored position. `undefined` from a reader means "never read this stream". */
 export interface StoredReadPosition {
   readonly lastEventId: number
   readonly seenAt: string | null
 }
+
+// Every query this repository runs, prepared once per store [POD-6147].
+
+const positionsOfUser = prepared((db: StoreDrizzle) =>
+  db
+    .select({
+      streamId: userReadPosition.streamId,
+      lastEventId: userReadPosition.lastEventId,
+      seenAt: userReadPosition.seenAt,
+    })
+    .from(userReadPosition)
+    .where(eq(userReadPosition.userId, param(userReadPosition.userId, 'userId')))
+    .prepare(),
+)
+
+const positionOf = prepared((db: StoreDrizzle) =>
+  db
+    .select({
+      lastEventId: userReadPosition.lastEventId,
+      seenAt: userReadPosition.seenAt,
+    })
+    .from(userReadPosition)
+    .where(and(
+      eq(userReadPosition.userId, param(userReadPosition.userId, 'userId')),
+      eq(userReadPosition.streamId, param(userReadPosition.streamId, 'streamId')),
+    ))
+    .prepare(),
+)
+
+const positionPlaceholders = {
+  userId: sql.placeholder('userId'),
+  streamId: sql.placeholder('streamId'),
+  lastEventId: sql.placeholder('lastEventId'),
+  seenAt: sql.placeholder('seenAt'),
+  updatedAt: sql.placeholder('updatedAt'),
+}
+
+const upsertPosition = prepared((db: StoreDrizzle) =>
+  db
+    .insert(userReadPosition)
+    .values(positionPlaceholders)
+    .onConflictDoUpdate({
+      target: [userReadPosition.userId, userReadPosition.streamId],
+      set: positionPlaceholders,
+    })
+    .prepare(),
+)
 
 export class UserReadPositionRepository {
   private readonly rootDb: StoreDrizzle
@@ -55,20 +102,12 @@ export class UserReadPositionRepository {
   /** The query builder, resolved on every access so B1 changes this line and nothing else
    *  [POD-3221 spec rule 34a]. */
   protected get db() {
-    return currentTransaction() ?? this.rootDb
+    return this.rootDb
   }
 
   /** One person's position in every stream they have read. Absent key = never. */
   async getSnapshot(userId: UserId): Promise<ReadPositionSnapshot> {
-    const rows = await this.db
-      .select({
-        streamId: userReadPosition.streamId,
-        lastEventId: userReadPosition.lastEventId,
-        seenAt: userReadPosition.seenAt,
-      })
-      .from(userReadPosition)
-      .where(eq(userReadPosition.userId, userId))
-      .all()
+    const rows = await positionsOfUser(this.db).all({ userId })
     const out: Record<string, StoredReadPosition> = {}
     for (const row of rows) {
       // A feed retired from the vocabulary stops being reported rather than
@@ -81,14 +120,7 @@ export class UserReadPositionRepository {
 
   /** One stream's position for one person, or `undefined` when never read. */
   async get(userId: UserId, streamId: string): Promise<StoredReadPosition | undefined> {
-    const row = await this.db
-      .select({
-        lastEventId: userReadPosition.lastEventId,
-        seenAt: userReadPosition.seenAt,
-      })
-      .from(userReadPosition)
-      .where(and(eq(userReadPosition.userId, userId), eq(userReadPosition.streamId, streamId)))
-      .get()
+    const row = await positionOf(this.db).get({ userId, streamId })
     return row === undefined ? undefined : { lastEventId: row.lastEventId, seenAt: row.seenAt }
   }
 
@@ -128,14 +160,7 @@ export class UserReadPositionRepository {
         seenAt: next.seenAt,
         updatedAt,
       }
-      ;await (this.db
-        .insert(userReadPosition)
-        .values(values))
-        .onConflictDoUpdate({
-          target: [userReadPosition.userId, userReadPosition.streamId],
-          set: values,
-        })
-        .run()
+      await upsertPosition(this.db).run(values)
       return next
     })
   }

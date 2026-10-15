@@ -44,11 +44,11 @@
  */
 
 import type { RedactionReport } from '@podium/commands'
-import { asc } from 'drizzle-orm'
+import { asc, sql } from 'drizzle-orm'
 import { attributionOf, type CommandPrincipal } from '../command-principal'
 import { settingsAuditEvents } from '../migrations/schema'
 import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
-import { currentTransaction } from './executor/sync-drizzle'
+import { prepared } from './executor/sync-drizzle'
 
 /** Whether the command was carried out or refused. A refusal is an audit fact:
  *  a trail that records only successes cannot answer "who TRIED to rotate this
@@ -119,6 +119,33 @@ export function settingsAuditRow(input: {
   }
 }
 
+// Every query this repository runs, prepared once per store [POD-6147].
+
+const appendAudit = prepared((db: StoreDrizzle) =>
+  db
+    .insert(settingsAuditEvents)
+    .values({
+      command: sql.placeholder('command'),
+      outcome: sql.placeholder('outcome'),
+      actorKind: sql.placeholder('actorKind'),
+      actorId: sql.placeholder('actorId'),
+      onBehalfOf: sql.placeholder('onBehalfOf'),
+      detailJson: sql.placeholder('detailJson'),
+      redactedPaths: sql.placeholder('redactedPaths'),
+      createdAt: sql.placeholder('createdAt'),
+    })
+    .prepare(),
+)
+
+const auditInOrder = prepared((db: StoreDrizzle) =>
+  db
+    .select()
+    .from(settingsAuditEvents)
+    .orderBy(asc(settingsAuditEvents.id))
+    .limit(sql.placeholder('limit'))
+    .prepare(),
+)
+
 export class SettingsAuditRepository {
   private readonly rootDb: StoreDrizzle
   protected readonly createOrJoinTransaction: TransactionRunner
@@ -131,7 +158,7 @@ export class SettingsAuditRepository {
   /** The query builder, resolved on every access so B1 changes this line and nothing else
    *  [POD-3221 spec rule 34a]. */
   protected get db() {
-    return currentTransaction() ?? this.rootDb
+    return this.rootDb
   }
 
   /**
@@ -140,19 +167,16 @@ export class SettingsAuditRepository {
    * is kept for.
    */
   async append(row: SettingsAuditRow): Promise<void> {
-    ;await (this.db
-      .insert(settingsAuditEvents)
-      .values({
-        command: row.command,
-        outcome: row.outcome,
-        actorKind: row.actorKind,
-        actorId: row.actorId,
-        onBehalfOf: row.onBehalfOf,
-        detailJson: JSON.stringify(row.detail ?? {}),
-        redactedPaths: JSON.stringify(row.redactedPaths),
-        createdAt: row.createdAt,
-      }))
-      .run()
+    await appendAudit(this.db).run({
+      command: row.command,
+      outcome: row.outcome,
+      actorKind: row.actorKind,
+      actorId: row.actorId,
+      onBehalfOf: row.onBehalfOf,
+      detailJson: JSON.stringify(row.detail ?? {}),
+      redactedPaths: JSON.stringify(row.redactedPaths),
+      createdAt: row.createdAt,
+    })
   }
 
   /**
@@ -170,12 +194,7 @@ export class SettingsAuditRepository {
    * the constraint rather than discovering it.
    */
   async list(limit = 100): Promise<SettingsAuditRow[]> {
-    const rows = await this.db
-      .select()
-      .from(settingsAuditEvents)
-      .orderBy(asc(settingsAuditEvents.id))
-      .limit(limit)
-      .all()
+    const rows = await auditInOrder(this.db).all({ limit })
     return rows.map((r) => ({
       command: r.command,
       // `outcome` and `actor_kind` are plain text() columns held to their

@@ -1060,10 +1060,7 @@ export function createStoreExecutor<TClient>(
 
   const rootClient = driver.client(ambientRouter, ambientBatchRouter)
   const rootQueries = isQueryClient(rootClient)
-    ? storeQueriesOver(
-        rootClient,
-        async (fn) => await transact(async (tx) => fn(tx.drizzle as unknown as QueryClient)),
-      )
+    ? storeQueriesOver(rootClient, async (fn) => await transact(async () => await fn()))
     : undefined
   const root: RootStoreExecutor<TClient> = {
     drizzle: rootClient,

@@ -125,9 +125,12 @@ function buildTestDrizzle(db: SqlDatabase): FullTestDrizzle {
 export function createTestSyncQueries(db: SqlDatabase = createTestSyncDatabase()): StoreQueries {
   const rootDb = buildTestDrizzle(db)
   return {
-    get rootDb() {
-      return (testTransactionScope.getStore() ?? rootDb) as unknown as StoreDrizzle
-    },
+    // ONE INSTANCE, inside transactions and out, as the server's seam hands out
+    // since POD-6147: the fixture is one synchronous connection, so a statement
+    // issued through the root instance inside `createOrJoinTransaction` runs
+    // inside that BEGIN, and a query prepared once stays valid in every
+    // transaction. The scope below only decides BEGIN versus SAVEPOINT.
+    rootDb: rootDb as unknown as StoreDrizzle,
     createOrJoinTransaction: async (fn) => {
       const current = testTransactionScope.getStore()
       if (current) {

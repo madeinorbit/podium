@@ -4,7 +4,7 @@
  * `getSession` and `UsersRepository.read` were the top two statements by count
  * on a live instance (146,040 and 180,660 in seven minutes). Both rebuilt their
  * query object on every call; both now hold a drizzle PREPARED query, built once
- * per drizzle instance by {@link preparedPerDb}.
+ * per store by `prepared` (POD-6147 extended that to every repository query).
  *
  * ---------------------------------------------------------------------------
  * THE ORACLE IS THE FLUENT FORM, EVALUATED
@@ -24,19 +24,18 @@
  *
  * A drizzle prepared query holds pre-serialised SQL, a placeholder-filling param
  * list, a row mapper — AND the remote callback it was prepared against, which is
- * bound to one `QueryClient`. Preparing once per REPOSITORY would therefore pin
- * every one of these reads to the root client, taking them out of an enclosing
- * transaction silently and only for callers that had one. That is what
- * `keeps the enclosing transaction's client` below is for, and it is the one
- * test here that fails if the cache is keyed on anything but the drizzle
- * instance.
+ * bound to one `QueryClient`. That is safe because the store hands out ONE
+ * drizzle instance over the executor's AMBIENT client (POD-6147): its router
+ * resolves `currentScope()` at EXECUTION time, so the same prepared query runs
+ * inside whatever transaction is current. `runs inside the enclosing
+ * transaction` below is the test that fails if a prepared read ever stops
+ * following the transaction.
  *
- * Everything downstream of the callback is untouched by construction — the
- * executor's ambient router resolves `currentScope()` at EXECUTION time, so
- * lane, span scope and probe attribution are decided per call exactly as
- * before — and the rest of this file is the evidence for that: same SQL text,
- * same probe observation, same answer on all three connection roles, and one
- * driver-level `prepare` per connection however many times it runs.
+ * Everything downstream of the callback is untouched by construction — lane,
+ * span scope and probe attribution are decided per call exactly as before — and
+ * the rest of this file is the evidence for that: same SQL text, same probe
+ * observation, same answer on all three connection roles, and one driver-level
+ * `prepare` per connection however many times it runs.
  */
 
 import { asMachineId, asSessionId, asUserId, type UserId } from '@podium/model'
@@ -61,7 +60,7 @@ import {
 import { storeQueriesOver } from './executor/sync-drizzle'
 import { SessionsRepository } from './sessions'
 import type { SessionRow } from './types'
-import { UsersRepository } from './users'
+import { UsersRepository, userFromRow } from './users'
 
 const cleanup: (() => void | Promise<void>)[] = []
 afterEach(async () => {
@@ -174,7 +173,13 @@ describe('POD-3854 — the prepared read answers exactly what the fluent read di
       .values({ ...account(asUserId('user:future'), '2026-09-01T10:00:00.000Z'), role: 'overlord' })
       .run()
 
-    expect(await repo.get(ALICE)).toEqual(account(ALICE, '2026-09-01T10:00:00.000Z'))
+    // The fluent read it replaced, mapped the same way, is the oracle. (Comparing
+    // against the inserted literal went stale when accounts grew `email`,
+    // `accountId` and `avatar`: the mapped row carries them as null.)
+    const fluent = async (id: UserId) =>
+      userFromRow((await db.select().from(users).where(eq(users.id, id)).get())!)
+    expect(await repo.get(ALICE)).toEqual(await fluent(ALICE))
+    expect(await repo.get(ALICE)).toMatchObject(account(ALICE, '2026-09-01T10:00:00.000Z'))
     // FAILS CLOSED, all three ways: no row, a disabled row, an unreadable role.
     expect(await repo.get(asUserId('user:nobody'))).toBeUndefined()
     expect(await repo.get(BOB)).toBeUndefined()
@@ -286,76 +291,46 @@ describe('POD-3854 — the executor sees the same statement it saw before', () =
 })
 
 // ---------------------------------------------------------------------------
-// 4. The failure mode the per-instance cache exists to make impossible
+// 4. The failure mode the one shared instance must make impossible
 // ---------------------------------------------------------------------------
 
-describe('POD-3854 — a prepared read stays bound to the client its `db` resolved to', () => {
-  /**
-   * Two DISTINCT clients over one session, so which one ran a statement is
-   * observable. `storeQueriesOver` hands the second to everything inside
-   * `createOrJoinTransaction`, which is exactly the substitution a prepared
-   * query built once per repository would defeat: it closes over the callback of
-   * the instance it was prepared on.
-   */
-  async function twoClients() {
-    const database = openMigratedTestDatabase()
-    const driver = createBunSqliteDriver({ database })
-    const session = await driver.open('write')
-    cleanup.push(async () => {
-      await session.close()
-      await driver.close()
-    })
-    const used: string[] = []
-    const named = (name: string) =>
-      queryClientOver(
-        async (statement) => {
-          used.push(name)
-          return await session.execute(statement)
-        },
-        async (batch) => {
-          used.push(name)
-          return await session.executeBatch(batch)
-        },
-      )
-    const root = named('root')
-    const tx = named('tx')
-    return { used, queries: storeQueriesOver(root, async (fn) => await fn(tx)) }
-  }
-
-  it('keeps the enclosing transaction’s client, having already prepared on the root', async () => {
-    const { used, queries } = await twoClients()
+describe('POD-3854 — a prepared read follows the transaction it runs in', () => {
+  it('runs inside the enclosing transaction, having already prepared at the root', async () => {
+    const { queries } = migratedStore()
     const sessions = new SessionsRepository(queries)
     const repo = new UsersRepository(queries)
-    await sessions.upsertSession(sessionRow('sess-a', ALICE, '2026-09-01T10:00:00.000Z'))
-    await queries.rootDb.insert(users).values(account(ALICE, '2026-09-01T10:00:00.000Z')).run()
 
-    // PREPARE ON THE ROOT FIRST. Without this the transaction would be the
-    // first caller and would prepare its own query whatever the cache is keyed
-    // on, so the test would pass against the defect it is here to catch.
-    await sessions.getSession(asSessionId('sess-a'))
-    await repo.get(ALICE)
-    used.length = 0
+    // PREPARE AT THE ROOT FIRST. Without this the transaction would be the
+    // first caller and would prepare the query itself, so the test would pass
+    // against a query bound to the transaction it happened to start in.
+    expect(await sessions.getSession(asSessionId('sess-a'))).toBeUndefined()
+    expect(await repo.get(ALICE)).toBeUndefined()
 
-    await queries.createOrJoinTransaction(async () => {
-      await sessions.getSession(asSessionId('sess-a'))
-      // A second id: the account read has a per-read-scope frame cache in front
-      // of it, and a repeat of the same id never reaches a client at all.
-      await repo.get(asUserId('user:nobody'))
-    })
-    expect(used).toEqual(['tx', 'tx'])
+    await expect(
+      queries.createOrJoinTransaction(async () => {
+        await sessions.upsertSession(sessionRow('sess-a', ALICE, '2026-09-01T10:00:00.000Z'))
+        await queries.rootDb.insert(users).values(account(ALICE, '2026-09-01T10:00:00.000Z')).run()
+        // Only the transaction's own connection, inside its BEGIN, can see these.
+        expect((await sessions.getSession(asSessionId('sess-a')))?.id).toBe('sess-a')
+        expect((await repo.get(ALICE))?.id).toBe(ALICE)
+        throw new Error('roll back')
+      }),
+    ).rejects.toThrow('roll back')
+
+    expect(await sessions.getSession(asSessionId('sess-a'))).toBeUndefined()
   })
 
-  it('is a different prepared query per drizzle instance, and the root one survives', async () => {
-    const { used, queries } = await twoClients()
+  it('serves the root again after a transaction closed, with the same query', async () => {
+    const { queries } = migratedStore()
     const sessions = new SessionsRepository(queries)
     await sessions.upsertSession(sessionRow('sess-a', ALICE, '2026-09-01T10:00:00.000Z'))
-    used.length = 0
-    await sessions.getSession(asSessionId('sess-a'))
+    expect((await sessions.getSession(asSessionId('sess-a')))?.id).toBe('sess-a')
     await queries.createOrJoinTransaction(async () => {
-      await sessions.getSession(asSessionId('sess-a'))
+      expect((await sessions.getSession(asSessionId('sess-a')))?.id).toBe('sess-a')
     })
-    await sessions.getSession(asSessionId('sess-a'))
-    expect(used).toEqual(['root', 'tx', 'root'])
+    // A query that had bound itself to the transaction's frame would be refused
+    // here: the executor rejects a statement addressed to a closed frame.
+    expect((await sessions.getSession(asSessionId('sess-a')))?.id).toBe('sess-a')
   })
 })
 
@@ -396,7 +371,7 @@ describe('POD-3854 — the prepared query runs on every connection role', () => 
       async (statement) => await session.execute(statement),
       async (batch) => await session.executeBatch(batch),
     )
-    const queries = storeQueriesOver(client, async (fn) => await fn(client))
+    const queries = storeQueriesOver(client, async (fn) => await fn())
     return {
       sessions: new SessionsRepository(queries),
       users: new UsersRepository(queries),

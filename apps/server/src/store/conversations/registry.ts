@@ -1,9 +1,218 @@
 import { randomUUID } from 'node:crypto'
 import { asConversationId, type ConversationId, type MachineId } from '@podium/model'
-import { and, eq, inArray, isNotNull, isNull, like, max, sql } from 'drizzle-orm'
+import { and, eq, isNotNull, isNull, like, max, sql } from 'drizzle-orm'
 import { conversationIdentities, conversationSegments } from '../../migrations/schema'
 import type { StoreQueries, StoreDrizzle, TransactionRunner } from '../executor/sync-drizzle'
-import { currentTransaction } from '../executor/sync-drizzle'
+import { inListOf, inListSize, inListValues, param, prepared, preparedFamily } from '../executor/sync-drizzle'
+
+// Every query this repository runs, prepared once per store [POD-6147].
+
+/** One segment by its key, over the `machineId` / `nativeId` placeholders. */
+const segmentKey = () =>
+  and(
+    eq(conversationSegments.machineId, param(conversationSegments.machineId, 'machineId')),
+    eq(conversationSegments.nativeId, param(conversationSegments.nativeId, 'nativeId')),
+  )
+
+const clearStraySubagentPaths = prepared((db: StoreDrizzle) =>
+  db
+    .update(conversationSegments)
+    .set({ path: null })
+    .where(
+      and(
+        like(conversationSegments.path, '%/subagents/%'),
+        // The comparison is against a value built FROM THE ROW, so it is a
+        // fragment rather than a bound parameter: a subagent path is repaired
+        // unless it ends in its own native id.
+        sql`${conversationSegments.path} NOT LIKE '%/' || ${conversationSegments.nativeId} || '.jsonl'`,
+      ),
+    )
+    .prepare(),
+)
+
+const podiumIdOfSegment = prepared((db: StoreDrizzle) =>
+  db
+    .select({ podiumId: conversationSegments.podiumId })
+    .from(conversationSegments)
+    .where(segmentKey())
+    .prepare(),
+)
+
+/** The batch reads below are keyed by the chunk's prepared IN-list size; values are `in0`, `in1`, ... */
+const segmentsWithPaths = preparedFamily((db: StoreDrizzle, size: number) =>
+  db
+    .select({
+      machineId: conversationSegments.machineId,
+      nativeId: conversationSegments.nativeId,
+      podiumId: conversationSegments.podiumId,
+      path: conversationSegments.path,
+    })
+    .from(conversationSegments)
+    // SCOPED BY MACHINE, like every other lookup in this file. The caller
+    // trusts the returned `machineId` as the transcript's identity, so an
+    // unscoped match would let a path that also exists in another host's
+    // segment rows attribute this daemon's spend to that host's session and
+    // bank it under the wrong (machineId, nativeId) key.
+    .where(
+      and(
+        eq(conversationSegments.machineId, param(conversationSegments.machineId, 'machineId')),
+        inListOf(conversationSegments.path, size),
+      ),
+    )
+    .prepare(),
+)
+
+const parentsOf = preparedFamily((db: StoreDrizzle, size: number) =>
+  db
+    .select({
+      podiumId: conversationIdentities.podiumId,
+      parentPodiumId: conversationIdentities.parentPodiumId,
+    })
+    .from(conversationIdentities)
+    .where(
+      and(
+        isNotNull(conversationIdentities.parentPodiumId),
+        inListOf(conversationIdentities.podiumId, size),
+      ),
+    )
+    .prepare(),
+)
+
+const nativeIdsOf = preparedFamily((db: StoreDrizzle, size: number) =>
+  db
+    .select({
+      podiumId: conversationSegments.podiumId,
+      nativeId: conversationSegments.nativeId,
+    })
+    .from(conversationSegments)
+    .where(inListOf(conversationSegments.podiumId, size))
+    .orderBy(conversationSegments.seqInConv)
+    .prepare(),
+)
+
+const pathsOfNativeIds = preparedFamily((db: StoreDrizzle, size: number) =>
+  db
+    .select({ nativeId: conversationSegments.nativeId, path: conversationSegments.path })
+    .from(conversationSegments)
+    .where(
+      and(
+        eq(conversationSegments.machineId, param(conversationSegments.machineId, 'machineId')),
+        isNotNull(conversationSegments.path),
+        inListOf(conversationSegments.nativeId, size),
+      ),
+    )
+    .prepare(),
+)
+
+const pathOfSegment = prepared((db: StoreDrizzle) =>
+  db
+    .select({ path: conversationSegments.path })
+    .from(conversationSegments)
+    .where(segmentKey())
+    .prepare(),
+)
+
+const adoptParent = prepared((db: StoreDrizzle) =>
+  db
+    .update(conversationIdentities)
+    .set({ parentPodiumId: sql.placeholder('parentPodiumId') })
+    .where(
+      and(
+        eq(conversationIdentities.podiumId, param(conversationIdentities.podiumId, 'podiumId')),
+        isNull(conversationIdentities.parentPodiumId),
+      ),
+    )
+    .prepare(),
+)
+
+// The trailing predicate is what keeps a re-discovery of an UNCHANGED
+// segment free. Every sweep re-offers the whole corpus, so this matched
+// its row and rewrote the same two values ~1656 times per 4 minutes on
+// the live server (2026-08-12, POD-1931). Comparing with `IS NOT`
+// against the value the SET would assign makes the no-op write vanish
+// while a real change still lands.
+const refreshSegmentFile = prepared((db: StoreDrizzle) => {
+  const path = sql.placeholder('path')
+  const reportedBytes = sql.placeholder('reportedBytes')
+  return db
+    .update(conversationSegments)
+    .set({
+      path: sql`COALESCE(${path}, ${conversationSegments.path})`,
+      reportedBytes: sql`COALESCE(${reportedBytes}, ${conversationSegments.reportedBytes})`,
+    })
+    .where(
+      and(
+        segmentKey(),
+        sql`(${conversationSegments.path} IS NOT COALESCE(${path}, ${conversationSegments.path})
+                   OR ${conversationSegments.reportedBytes} IS NOT COALESCE(${reportedBytes}, ${conversationSegments.reportedBytes}))`,
+      ),
+    )
+    .prepare()
+})
+
+const insertIdentity = prepared((db: StoreDrizzle) =>
+  db
+    .insert(conversationIdentities)
+    .values({
+      podiumId: sql.placeholder('podiumId'),
+      parentPodiumId: sql.placeholder('parentPodiumId'),
+      createdAt: sql.placeholder('createdAt'),
+    })
+    .prepare(),
+)
+
+const insertDiscoveredSegment = prepared((db: StoreDrizzle) =>
+  db
+    .insert(conversationSegments)
+    .values({
+      machineId: sql.placeholder('machineId'),
+      nativeId: sql.placeholder('nativeId'),
+      providerId: sql.placeholder('providerId'),
+      podiumId: sql.placeholder('podiumId'),
+      path: sql.placeholder('path'),
+      reportedBytes: sql.placeholder('reportedBytes'),
+      seqInConv: 1,
+      linkedBy: 'discovery',
+      createdAt: sql.placeholder('createdAt'),
+    })
+    .prepare(),
+)
+
+const highestSeqInConversation = prepared((db: StoreDrizzle) =>
+  db
+    .select({ m: max(conversationSegments.seqInConv) })
+    .from(conversationSegments)
+    .where(eq(conversationSegments.podiumId, param(conversationSegments.podiumId, 'podiumId')))
+    .prepare(),
+)
+
+const insertRolledSegment = prepared((db: StoreDrizzle) =>
+  db
+    .insert(conversationSegments)
+    .values({
+      machineId: sql.placeholder('machineId'),
+      nativeId: sql.placeholder('nativeId'),
+      providerId: sql.placeholder('providerId'),
+      podiumId: sql.placeholder('podiumId'),
+      path: null,
+      seqInConv: sql.placeholder('seqInConv'),
+      linkedBy: 'live-roll',
+      createdAt: sql.placeholder('createdAt'),
+    })
+    .prepare(),
+)
+
+const segmentsOfConversation = prepared((db: StoreDrizzle) =>
+  db
+    .select({
+      machineId: conversationSegments.machineId,
+      nativeId: conversationSegments.nativeId,
+    })
+    .from(conversationSegments)
+    .where(eq(conversationSegments.podiumId, param(conversationSegments.podiumId, 'podiumId')))
+    .orderBy(conversationSegments.seqInConv)
+    .prepare(),
+)
 
 /** Stable Podium identities and the machine-native artifacts that evidence them.
  * RETAINED ID MINT: new ConversationIds are created from UUID-backed strings;
@@ -18,38 +227,20 @@ export class ConversationRegistryRepository {
   }
 
   /**
-   * The query capability, INJECTED rather than reached for [spec rule 27b], and
-   * read through a getter rather than frozen into a field [rule 34a]. Ambient
-   * transaction routing (rule 35) has to resolve the ENCLOSING transaction on
-   * every access, which a field assigned once in a constructor can never do — so
-   * B1 changes the one line inside this getter and no call site below it.
+   * The query capability, INJECTED rather than reached for [spec rule 27b]: the
+   * store's one drizzle instance, whose executor routes each statement to the
+   * current transaction.
    */
   private get db(): StoreDrizzle {
-    return currentTransaction() ?? this.rootDb
+    return this.rootDb
   }
 
   async repairSubagentSegmentPaths(): Promise<void> {
-    await this.db
-      .update(conversationSegments)
-      .set({ path: null })
-      .where(
-        and(
-          like(conversationSegments.path, '%/subagents/%'),
-          // The comparison is against a value built FROM THE ROW, so it is a
-          // fragment rather than a bound parameter: a subagent path is repaired
-          // unless it ends in its own native id.
-          sql`${conversationSegments.path} NOT LIKE '%/' || ${conversationSegments.nativeId} || '.jsonl'`,
-        ),
-      )
-      .run()
+    await clearStraySubagentPaths(this.db).run()
   }
 
   async podiumId(machineId: MachineId, nativeId: string): Promise<ConversationId | undefined> {
-    const row = await this.db
-      .select({ podiumId: conversationSegments.podiumId })
-      .from(conversationSegments)
-      .where(this.segment(machineId, nativeId))
-      .get()
+    const row = await podiumIdOfSegment(this.db).get({ machineId, nativeId })
     return row?.podiumId
   }
 
@@ -70,26 +261,8 @@ export class ConversationRegistryRepository {
       { machineId: MachineId; nativeId: string; podiumId: ConversationId }
     >()
     for (const chunk of chunks(paths)) {
-      const rows = await this.db
-        .select({
-          machineId: conversationSegments.machineId,
-          nativeId: conversationSegments.nativeId,
-          podiumId: conversationSegments.podiumId,
-          path: conversationSegments.path,
-        })
-        .from(conversationSegments)
-        // SCOPED BY MACHINE, like every other lookup in this file. The caller
-        // trusts the returned `machineId` as the transcript's identity, so an
-        // unscoped match would let a path that also exists in another host's
-        // segment rows attribute this daemon's spend to that host's session and
-        // bank it under the wrong (machineId, nativeId) key.
-        .where(
-          and(
-            eq(conversationSegments.machineId, machineId),
-            inArray(conversationSegments.path, chunk),
-          ),
-        )
-        .all()
+      const size = inListSize(chunk.length)
+      const rows = await segmentsWithPaths(this.db, size).all(inListValues(chunk, size, 'in', { machineId }))
       for (const row of rows) {
         if (row.path === null || out.has(row.path)) continue
         out.set(row.path, {
@@ -113,19 +286,8 @@ export class ConversationRegistryRepository {
   async parentPodiumIds(podiumIds: readonly ConversationId[]): Promise<Map<ConversationId, ConversationId>> {
     const out = new Map<ConversationId, ConversationId>()
     for (const chunk of chunks(podiumIds)) {
-      const rows = await this.db
-        .select({
-          podiumId: conversationIdentities.podiumId,
-          parentPodiumId: conversationIdentities.parentPodiumId,
-        })
-        .from(conversationIdentities)
-        .where(
-          and(
-            isNotNull(conversationIdentities.parentPodiumId),
-            inArray(conversationIdentities.podiumId, chunk),
-          ),
-        )
-        .all()
+      const size = inListSize(chunk.length)
+      const rows = await parentsOf(this.db, size).all(inListValues(chunk, size))
       for (const row of rows) {
         if (row.parentPodiumId === null) continue
         out.set(row.podiumId, row.parentPodiumId)
@@ -138,15 +300,8 @@ export class ConversationRegistryRepository {
   async nativeIdsByPodiumIds(podiumIds: readonly ConversationId[]): Promise<Map<ConversationId, string[]>> {
     const out = new Map<ConversationId, string[]>()
     for (const chunk of chunks(podiumIds)) {
-      const rows = await this.db
-        .select({
-          podiumId: conversationSegments.podiumId,
-          nativeId: conversationSegments.nativeId,
-        })
-        .from(conversationSegments)
-        .where(inArray(conversationSegments.podiumId, chunk))
-        .orderBy(conversationSegments.seqInConv)
-        .all()
+      const size = inListSize(chunk.length)
+      const rows = await nativeIdsOf(this.db, size).all(inListValues(chunk, size))
       for (const row of rows) {
         const list = out.get(row.podiumId)
         if (list) list.push(row.nativeId)
@@ -166,28 +321,15 @@ export class ConversationRegistryRepository {
   async pathsByNativeIds(machineId: MachineId, nativeIds: readonly string[]): Promise<Map<string, string>> {
     const out = new Map<string, string>()
     for (const chunk of chunks(nativeIds)) {
-      const rows = await this.db
-        .select({ nativeId: conversationSegments.nativeId, path: conversationSegments.path })
-        .from(conversationSegments)
-        .where(
-          and(
-            eq(conversationSegments.machineId, machineId),
-            isNotNull(conversationSegments.path),
-            inArray(conversationSegments.nativeId, chunk),
-          ),
-        )
-        .all()
+      const size = inListSize(chunk.length)
+      const rows = await pathsOfNativeIds(this.db, size).all(inListValues(chunk, size, 'in', { machineId }))
       for (const row of rows) if (row.path !== null) out.set(row.nativeId, row.path)
     }
     return out
   }
 
   async segmentPath(machineId: MachineId, nativeId: string): Promise<string | undefined> {
-    const row = await this.db
-      .select({ path: conversationSegments.path })
-      .from(conversationSegments)
-      .where(this.segment(machineId, nativeId))
-      .get()
+    const row = await pathOfSegment(this.db).get({ machineId, nativeId })
     return row?.path ?? undefined
   }
 
@@ -202,63 +344,30 @@ export class ConversationRegistryRepository {
     const existing = await this.podiumId(opts.machineId, opts.nativeId)
     if (existing !== undefined) {
       if (opts.parentPodiumId) {
-        await this.db
-          .update(conversationIdentities)
-          .set({ parentPodiumId: opts.parentPodiumId })
-          .where(
-            and(
-              eq(conversationIdentities.podiumId, existing),
-              isNull(conversationIdentities.parentPodiumId),
-            ),
-          )
-          .run()
+        await adoptParent(this.db).run({ podiumId: existing, parentPodiumId: opts.parentPodiumId })
       }
       if (opts.path || opts.sizeBytes !== undefined) {
-        const path = opts.path ?? null
-        const reportedBytes = opts.sizeBytes ?? null
-        // The trailing predicate is what keeps a re-discovery of an UNCHANGED
-        // segment free. Every sweep re-offers the whole corpus, so this matched
-        // its row and rewrote the same two values ~1656 times per 4 minutes on
-        // the live server (2026-08-12, POD-1931). Comparing with `IS NOT`
-        // against the value the SET would assign makes the no-op write vanish
-        // while a real change still lands.
-        await this.db
-          .update(conversationSegments)
-          .set({
-            path: sql`COALESCE(${path}, ${conversationSegments.path})`,
-            reportedBytes: sql`COALESCE(${reportedBytes}, ${conversationSegments.reportedBytes})`,
-          })
-          .where(
-            and(
-              this.segment(opts.machineId, opts.nativeId),
-              sql`(${conversationSegments.path} IS NOT COALESCE(${path}, ${conversationSegments.path})
-                   OR ${conversationSegments.reportedBytes} IS NOT COALESCE(${reportedBytes}, ${conversationSegments.reportedBytes}))`,
-            ),
-          )
-          .run()
+        await refreshSegmentFile(this.db).run({
+          machineId: opts.machineId,
+          nativeId: opts.nativeId,
+          path: opts.path ?? null,
+          reportedBytes: opts.sizeBytes ?? null,
+        })
       }
       return existing
     }
     const podiumId = asConversationId(`conv_${randomUUID()}`)
     const now = new Date().toISOString()
-    ;await (this.db
-      .insert(conversationIdentities)
-      .values({ podiumId, parentPodiumId: opts.parentPodiumId ?? null, createdAt: now }))
-      .run()
-    ;await (this.db
-      .insert(conversationSegments)
-      .values({
-        machineId: opts.machineId,
-        nativeId: opts.nativeId,
-        providerId: opts.providerId,
-        podiumId,
-        path: opts.path ?? null,
-        reportedBytes: opts.sizeBytes ?? null,
-        seqInConv: 1,
-        linkedBy: 'discovery',
-        createdAt: now,
-      }))
-      .run()
+    await insertIdentity(this.db).run({ podiumId, parentPodiumId: opts.parentPodiumId ?? null, createdAt: now })
+    await insertDiscoveredSegment(this.db).run({
+      machineId: opts.machineId,
+      nativeId: opts.nativeId,
+      providerId: opts.providerId,
+      podiumId,
+      path: opts.path ?? null,
+      reportedBytes: opts.sizeBytes ?? null,
+      createdAt: now,
+    })
     return podiumId
   }
 
@@ -275,25 +384,16 @@ export class ConversationRegistryRepository {
       nativeId: opts.priorNativeId,
       providerId: opts.providerId,
     })
-    const highest = await this.db
-      .select({ m: max(conversationSegments.seqInConv) })
-      .from(conversationSegments)
-      .where(eq(conversationSegments.podiumId, podiumId))
-      .get()
+    const highest = await highestSeqInConversation(this.db).get({ podiumId })
     const nextSeq = (highest?.m ?? 0) + 1
-    ;await (this.db
-      .insert(conversationSegments)
-      .values({
-        machineId: opts.machineId,
-        nativeId: opts.newNativeId,
-        providerId: opts.providerId,
-        podiumId,
-        path: null,
-        seqInConv: nextSeq,
-        linkedBy: 'live-roll',
-        createdAt: new Date().toISOString(),
-      }))
-      .run()
+    await insertRolledSegment(this.db).run({
+      machineId: opts.machineId,
+      nativeId: opts.newNativeId,
+      providerId: opts.providerId,
+      podiumId,
+      seqInConv: nextSeq,
+      createdAt: new Date().toISOString(),
+    })
     return podiumId
   }
 
@@ -304,11 +404,7 @@ export class ConversationRegistryRepository {
     // the ids it asked for and a missing row must stay missing — so it is left
     // for the read-scope work (B0.6) rather than decided in a conversion.
     for (const nativeId of nativeIds) {
-      const row = await this.db
-        .select({ podiumId: conversationSegments.podiumId })
-        .from(conversationSegments)
-        .where(this.segment(machineId, nativeId))
-        .get()
+      const row = await podiumIdOfSegment(this.db).get({ machineId, nativeId })
       if (row) out.set(nativeId, row.podiumId)
     }
     return out
@@ -320,22 +416,7 @@ export class ConversationRegistryRepository {
   ): Promise<{ machineId: MachineId; nativeId: string }[]> {
     const podiumId = await this.podiumId(machineId, nativeId)
     if (!podiumId) return []
-    return await this.db
-      .select({
-        machineId: conversationSegments.machineId,
-        nativeId: conversationSegments.nativeId,
-      })
-      .from(conversationSegments)
-      .where(eq(conversationSegments.podiumId, podiumId))
-      .orderBy(conversationSegments.seqInConv)
-      .all()
-  }
-
-  private segment(machineId: MachineId, nativeId: string) {
-    return and(
-      eq(conversationSegments.machineId, machineId),
-      eq(conversationSegments.nativeId, nativeId),
-    )
+    return await segmentsOfConversation(this.db).all({ podiumId })
   }
 }
 

@@ -8,7 +8,7 @@
 import type { SessionId } from '@podium/model'
 import { ISSUE_EVENTS_DEFAULT_LIMIT, ProviderCursor } from '@podium/protocol'
 import { RuntimeEvent } from '@podium/protocol/daemon'
-import { and, asc, desc, eq, gt, inArray, lt, lte, max, not, notInArray, or, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, gt, inArray, lt, lte, max, not, or, type SQL, sql } from 'drizzle-orm'
 import {
   podiumEvents,
   runtimeEventCheckpoints,
@@ -18,7 +18,15 @@ import {
   subscriptions,
 } from '../migrations/schema'
 import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
-import { currentTransaction } from './executor/sync-drizzle'
+import {
+  inListOf,
+  inListSize,
+  inListValues,
+  notInListOf,
+  param,
+  prepared,
+  preparedFamily,
+} from './executor/sync-drizzle'
 import { afterCommit } from './executor/executor'
 import type { Subscription } from './types'
 
@@ -94,6 +102,394 @@ export const RUNTIME_EVENT_LOG_KIND = 'session.runtime'
 /** The projector whose head fences runtime-event pruning. */
 const RUNTIME_BOARD_PROJECTOR = 'runtime.board.v1'
 
+/** The steward-state key whose presence records the janitor's claim. */
+const JANITOR_OWNERSHIP_KEY = 'janitor-ownership-v1'
+
+// Every query this repository runs, prepared once per store [POD-6147].
+
+const checkpointOf = prepared((db: StoreDrizzle) =>
+  db
+    .select({
+      observerGeneration: runtimeEventCheckpoints.observerGeneration,
+      cursorJson: runtimeEventCheckpoints.cursorJson,
+      turnEpoch: runtimeEventCheckpoints.turnEpoch,
+      closedTurnEpoch: runtimeEventCheckpoints.closedTurnEpoch,
+      updatedAt: runtimeEventCheckpoints.updatedAt,
+    })
+    .from(runtimeEventCheckpoints)
+    .where(eq(runtimeEventCheckpoints.sessionId, param(runtimeEventCheckpoints.sessionId, 'sessionId')))
+    .prepare(),
+)
+
+const upsertCheckpoint = prepared((db: StoreDrizzle) =>
+  db
+    .insert(runtimeEventCheckpoints)
+    .values({
+      sessionId: sql.placeholder('sessionId'),
+      observerGeneration: sql.placeholder('observerGeneration'),
+      cursorJson: sql.placeholder('cursorJson'),
+      turnEpoch: sql.placeholder('turnEpoch'),
+      closedTurnEpoch: sql.placeholder('closedTurnEpoch'),
+      updatedAt: sql.placeholder('updatedAt'),
+    })
+    .onConflictDoUpdate({
+      target: runtimeEventCheckpoints.sessionId,
+      set: {
+        observerGeneration: sql.placeholder('observerGeneration'),
+        cursorJson: sql.placeholder('cursorJson'),
+        turnEpoch: sql.placeholder('turnEpoch'),
+        closedTurnEpoch: sql.placeholder('closedTurnEpoch'),
+        updatedAt: sql.placeholder('updatedAt'),
+      },
+    })
+    .prepare(),
+)
+
+const recentRuntimeEventPayloads = prepared((db: StoreDrizzle) =>
+  db
+    .select({ payload: podiumEvents.payload })
+    .from(podiumEvents)
+    .where(
+      and(
+        eq(podiumEvents.kind, RUNTIME_EVENT_LOG_KIND),
+        eq(podiumEvents.subject, param(podiumEvents.subject, 'sessionId')),
+      ),
+    )
+    .orderBy(desc(podiumEvents.id))
+    .limit(sql.placeholder('limit'))
+    .prepare(),
+)
+
+const runtimeEventSubjects = prepared((db: StoreDrizzle) =>
+  db
+    .selectDistinct({ subject: podiumEvents.subject })
+    .from(podiumEvents)
+    .where(eq(podiumEvents.kind, RUNTIME_EVENT_LOG_KIND))
+    .prepare(),
+)
+
+/**
+ * The inner query takes the NEWEST `limit` matching rows and the outer one puts
+ * them back in ascending order. Both orderings are load-bearing: taking the
+ * newest is what bounds the read, and returning them oldest-first is what the
+ * transcript reader expects.
+ */
+const runtimeTranscriptPayloads = prepared((db: StoreDrizzle) => {
+  const recent = db
+    .select({ id: podiumEvents.id, payload: podiumEvents.payload })
+    .from(podiumEvents)
+    .where(
+      and(
+        eq(podiumEvents.kind, RUNTIME_EVENT_LOG_KIND),
+        eq(podiumEvents.subject, param(podiumEvents.subject, 'sessionId')),
+        sql`(json_extract(${podiumEvents.payload}, '$.t') = 'transcript-reset'
+          OR (json_extract(${podiumEvents.payload}, '$.t') = 'item'
+            AND json_extract(${podiumEvents.payload}, '$.item.kind') = 'complete'))`,
+      ),
+    )
+    .orderBy(desc(podiumEvents.id))
+    .limit(sql.placeholder('limit'))
+    .as('recent')
+  return db
+    .select({ payload: recent.payload })
+    .from(recent)
+    .orderBy(asc(recent.id))
+    .prepare()
+})
+
+const liveTurnFailure = prepared((db: StoreDrizzle) =>
+  db
+    .select({ present: sql<number>`1` })
+    .from(podiumEvents)
+    .where(
+      and(
+        eq(podiumEvents.kind, RUNTIME_EVENT_LOG_KIND),
+        eq(podiumEvents.subject, param(podiumEvents.subject, 'sessionId')),
+        sql`json_extract(${podiumEvents.payload}, '$.t') = 'turn'`,
+        sql`json_extract(${podiumEvents.payload}, '$.ev.ev') = 'failed'`,
+        sql`json_extract(${podiumEvents.payload}, '$.provenance') = 'live'`,
+        sql`json_extract(${podiumEvents.payload}, '$.turnEpoch') >= ${sql.placeholder('turnEpoch')}`,
+      ),
+    )
+    .limit(1)
+    .prepare(),
+)
+
+const runtimeEventsAfter = prepared((db: StoreDrizzle) =>
+  db
+    .select({
+      id: podiumEvents.id,
+      subject: podiumEvents.subject,
+      payload: podiumEvents.payload,
+    })
+    .from(podiumEvents)
+    .where(
+      and(
+        eq(podiumEvents.kind, RUNTIME_EVENT_LOG_KIND),
+        gt(podiumEvents.id, param(podiumEvents.id, 'afterId')),
+      ),
+    )
+    .orderBy(asc(podiumEvents.id))
+    .limit(sql.placeholder('limit'))
+    .prepare(),
+)
+
+const projectionCursorOf = prepared((db: StoreDrizzle) =>
+  db
+    .select({ lastEventId: runtimeEventProjectionCursors.lastEventId })
+    .from(runtimeEventProjectionCursors)
+    .where(
+      eq(
+        runtimeEventProjectionCursors.projector,
+        param(runtimeEventProjectionCursors.projector, 'projector'),
+      ),
+    )
+    .prepare(),
+)
+
+const advanceProjectionCursor = prepared((db: StoreDrizzle) =>
+  db
+    .insert(runtimeEventProjectionCursors)
+    .values({
+      projector: sql.placeholder('projector'),
+      lastEventId: sql.placeholder('lastEventId'),
+      updatedAt: sql.placeholder('updatedAt'),
+    })
+    .onConflictDoUpdate({
+      target: runtimeEventProjectionCursors.projector,
+      set: { lastEventId: sql.placeholder('lastEventId'), updatedAt: sql.placeholder('updatedAt') },
+      // MONOTONIC, and the guard belongs in the statement rather than in a
+      // caller: a replaying projector must not rewind the head, because
+      // `pruneEventBatch` refuses to delete runtime rows above it and a rewind
+      // would make already-projected rows undeletable. `setWhere` guards the
+      // UPDATE; `targetWhere` would filter which rows conflict, which is a
+      // different statement.
+      setWhere: sql`excluded.last_event_id > ${runtimeEventProjectionCursors.lastEventId}`,
+    })
+    .prepare(),
+)
+
+const insertEvent = prepared((db: StoreDrizzle) =>
+  db
+    .insert(podiumEvents)
+    .values({
+      ts: sql.placeholder('ts'),
+      kind: sql.placeholder('kind'),
+      subject: sql.placeholder('subject'),
+      repoPath: sql.placeholder('repoPath'),
+      payload: sql.placeholder('payload'),
+    })
+    .prepare(),
+)
+
+const eventById = prepared((db: StoreDrizzle) =>
+  db
+    .select()
+    .from(podiumEvents)
+    .where(eq(podiumEvents.id, param(podiumEvents.id, 'id')))
+    .prepare(),
+)
+
+/**
+ * `listEventsSince`, one statement per SHAPE: which optional filters are set
+ * (`b` before, `r` repoPath, `s` subject), the bucketed size of each kind list
+ * (`k`, `x`; 0 means the filter is absent), and the order.
+ */
+const eventsSince = preparedFamily((db: StoreDrizzle, shape: string) => {
+  const [before, kinds, excludeKinds, repoPath, subject, order] = shape.split('|')
+  const kindsSize = Number(kinds!.slice(1))
+  const excludeSize = Number(excludeKinds!.slice(1))
+  const where: SQL[] = [gt(podiumEvents.id, param(podiumEvents.id, 'sinceId'))]
+  if (before === 'b1') where.push(lt(podiumEvents.id, param(podiumEvents.id, 'before')))
+  if (kindsSize > 0) where.push(inListOf(podiumEvents.kind, kindsSize, 'kind'))
+  if (excludeSize > 0) where.push(notInListOf(podiumEvents.kind, excludeSize, 'xkind'))
+  if (repoPath === 'r1') where.push(eq(podiumEvents.repoPath, param(podiumEvents.repoPath, 'repoPath')))
+  if (subject === 's1') where.push(eq(podiumEvents.subject, param(podiumEvents.subject, 'subject')))
+  return db
+    .select()
+    .from(podiumEvents)
+    .where(and(...where))
+    .orderBy(order === 'desc' ? desc(podiumEvents.id) : asc(podiumEvents.id))
+    .limit(sql.placeholder('limit'))
+    .prepare()
+})
+
+const kindSubjectPrior = prepared((db: StoreDrizzle) =>
+  db
+    .select()
+    .from(podiumEvents)
+    .where(
+      and(
+        eq(podiumEvents.kind, param(podiumEvents.kind, 'kind')),
+        eq(podiumEvents.subject, param(podiumEvents.subject, 'subject')),
+        sql`${podiumEvents.ts} < ${sql.placeholder('since')}`,
+      ),
+    )
+    .orderBy(desc(podiumEvents.ts), desc(podiumEvents.id))
+    .limit(1)
+    .prepare(),
+)
+
+const kindSubjectSince = prepared((db: StoreDrizzle) =>
+  db
+    .select()
+    .from(podiumEvents)
+    .where(
+      and(
+        eq(podiumEvents.kind, param(podiumEvents.kind, 'kind')),
+        eq(podiumEvents.subject, param(podiumEvents.subject, 'subject')),
+        sql`${podiumEvents.ts} >= ${sql.placeholder('since')}`,
+      ),
+    )
+    .orderBy(asc(podiumEvents.ts), asc(podiumEvents.id))
+    .prepare(),
+)
+
+const highestEventId = prepared((db: StoreDrizzle) =>
+  db
+    .select({ m: max(podiumEvents.id) })
+    .from(podiumEvents)
+    .prepare(),
+)
+
+const eventIdBeyondCap = prepared((db: StoreDrizzle) =>
+  db
+    .select({ id: podiumEvents.id })
+    .from(podiumEvents)
+    .orderBy(desc(podiumEvents.id))
+    .limit(1)
+    .offset(sql.placeholder('maxRows'))
+    .prepare(),
+)
+
+/**
+ * The projector's head fences runtime rows: anything above it has not been
+ * projected yet and must survive retention. COALESCE covers the projector
+ * never having run, where the head is 0 and nothing is fenced.
+ */
+const deletePruneBatch = prepared((db: StoreDrizzle) => {
+  const projectedThrough = db
+    .select({ head: runtimeEventProjectionCursors.lastEventId })
+    .from(runtimeEventProjectionCursors)
+    .where(eq(runtimeEventProjectionCursors.projector, RUNTIME_BOARD_PROJECTOR))
+  const victims = db
+    .select({ id: podiumEvents.id })
+    .from(podiumEvents)
+    .where(
+      and(
+        or(
+          sql`${podiumEvents.ts} < ${sql.placeholder('cutoff')}`,
+          lte(podiumEvents.id, param(podiumEvents.id, 'capThroughId')),
+        ),
+        not(
+          and(
+            eq(podiumEvents.kind, RUNTIME_EVENT_LOG_KIND),
+            gt(podiumEvents.id, sql`COALESCE((${projectedThrough}), 0)`),
+          ) ?? sql`0`,
+        ),
+      ),
+    )
+    .orderBy(asc(podiumEvents.id))
+    .limit(sql.placeholder('batchSize'))
+  return db.delete(podiumEvents).where(inArray(podiumEvents.id, victims)).prepare()
+})
+
+const stewardValueOf = prepared((db: StoreDrizzle) =>
+  db
+    .select({ value: stewardState.value })
+    .from(stewardState)
+    .where(eq(stewardState.key, param(stewardState.key, 'key')))
+    .prepare(),
+)
+
+const upsertStewardValue = prepared((db: StoreDrizzle) =>
+  db
+    .insert(stewardState)
+    .values({ key: sql.placeholder('key'), value: sql.placeholder('value') })
+    .onConflictDoUpdate({ target: stewardState.key, set: { value: sql.placeholder('value') } })
+    .prepare(),
+)
+
+const janitorOwnership = prepared((db: StoreDrizzle) =>
+  db
+    .select({ present: sql<number>`1` })
+    .from(stewardState)
+    .where(eq(stewardState.key, JANITOR_OWNERSHIP_KEY))
+    .prepare(),
+)
+
+const insertSubscription = prepared((db: StoreDrizzle) =>
+  db
+    .insert(subscriptions)
+    .values({
+      id: sql.placeholder('id'),
+      subscriberKind: sql.placeholder('subscriberKind'),
+      subscriberId: sql.placeholder('subscriberId'),
+      event: sql.placeholder('event'),
+      sourceKind: sql.placeholder('sourceKind'),
+      sourceRef: sql.placeholder('sourceRef'),
+      deliverNudge: sql.placeholder('deliverNudge'),
+      deliverNotify: sql.placeholder('deliverNotify'),
+      origin: sql.placeholder('origin'),
+      enabled: sql.placeholder('enabled'),
+      createdAt: sql.placeholder('createdAt'),
+    })
+    .prepare(),
+)
+
+const deleteSubscription = prepared((db: StoreDrizzle) =>
+  db
+    .delete(subscriptions)
+    .where(eq(subscriptions.id, param(subscriptions.id, 'id')))
+    .prepare(),
+)
+
+const allSubscriptions = prepared((db: StoreDrizzle) =>
+  db.select().from(subscriptions).orderBy(asc(subscriptions.createdAt)).prepare(),
+)
+
+const subscriptionsOf = prepared((db: StoreDrizzle) =>
+  db
+    .select()
+    .from(subscriptions)
+    .where(eq(subscriptions.subscriberId, param(subscriptions.subscriberId, 'subscriberId')))
+    .orderBy(asc(subscriptions.createdAt))
+    .prepare(),
+)
+
+const setSubscriptionEnabledById = prepared((db: StoreDrizzle) =>
+  db
+    .update(subscriptions)
+    .set({ enabled: sql.placeholder('enabled') })
+    .where(eq(subscriptions.id, param(subscriptions.id, 'id')))
+    .prepare(),
+)
+
+const subscriptionById = prepared((db: StoreDrizzle) =>
+  db
+    .select()
+    .from(subscriptions)
+    .where(eq(subscriptions.id, param(subscriptions.id, 'id')))
+    .prepare(),
+)
+
+const enabledSubscriptions = prepared((db: StoreDrizzle) =>
+  db
+    .select()
+    .from(subscriptions)
+    .where(eq(subscriptions.enabled, true))
+    .orderBy(asc(subscriptions.createdAt))
+    .prepare(),
+)
+
+const insertDeliveryIfNew = prepared((db: StoreDrizzle) =>
+  db
+    .insert(subscriptionDeliveries)
+    .values({ subscriptionId: sql.placeholder('subscriptionId'), eventId: sql.placeholder('eventId') })
+    .onConflictDoNothing()
+    .prepare(),
+)
+
 export interface RuntimeEventCheckpoint {
   sessionId: SessionId
   observerGeneration: number
@@ -144,7 +540,7 @@ export class EventsRepository {
    * field frozen at construction could never do that. B1 changes this one line.
    */
   protected get db(): StoreDrizzle {
-    return currentTransaction() ?? this.rootDb
+    return this.rootDb
   }
 
   /** Install the post-append announcement. One listener: this is the feed's
@@ -156,17 +552,7 @@ export class EventsRepository {
   // ---- coarse runtime event log + restart head ----
 
   async runtimeEventCheckpoint(sessionId: SessionId): Promise<RuntimeEventCheckpoint | null> {
-    const row = await this.db
-      .select({
-        observerGeneration: runtimeEventCheckpoints.observerGeneration,
-        cursorJson: runtimeEventCheckpoints.cursorJson,
-        turnEpoch: runtimeEventCheckpoints.turnEpoch,
-        closedTurnEpoch: runtimeEventCheckpoints.closedTurnEpoch,
-        updatedAt: runtimeEventCheckpoints.updatedAt,
-      })
-      .from(runtimeEventCheckpoints)
-      .where(eq(runtimeEventCheckpoints.sessionId, sessionId))
-      .get()
+    const row = await checkpointOf(this.db).get({ sessionId })
     if (!row) return null
     try {
       const cursor = ProviderCursor.parse(JSON.parse(row.cursorJson))
@@ -188,39 +574,18 @@ export class EventsRepository {
   }
 
   async saveRuntimeEventCheckpoint(checkpoint: RuntimeEventCheckpoint): Promise<void> {
-    ;await (this.db
-      .insert(runtimeEventCheckpoints)
-      .values({
-        sessionId: checkpoint.sessionId,
-        observerGeneration: checkpoint.observerGeneration,
-        cursorJson: JSON.stringify(checkpoint.cursor),
-        turnEpoch: checkpoint.turnEpoch,
-        closedTurnEpoch: checkpoint.closedTurnEpoch,
-        updatedAt: checkpoint.updatedAt,
-      }))
-      .onConflictDoUpdate({
-        target: runtimeEventCheckpoints.sessionId,
-        set: {
-          observerGeneration: checkpoint.observerGeneration,
-          cursorJson: JSON.stringify(checkpoint.cursor),
-          turnEpoch: checkpoint.turnEpoch,
-          closedTurnEpoch: checkpoint.closedTurnEpoch,
-          updatedAt: checkpoint.updatedAt,
-        },
-      })
-      .run()
+    await upsertCheckpoint(this.db).run({
+      sessionId: checkpoint.sessionId,
+      observerGeneration: checkpoint.observerGeneration,
+      cursorJson: JSON.stringify(checkpoint.cursor),
+      turnEpoch: checkpoint.turnEpoch,
+      closedTurnEpoch: checkpoint.closedTurnEpoch,
+      updatedAt: checkpoint.updatedAt,
+    })
   }
 
   async listRuntimeEvents(sessionId: SessionId, limit = 64): Promise<RuntimeEvent[]> {
-    const rows = await this.db
-      .select({ payload: podiumEvents.payload })
-      .from(podiumEvents)
-      .where(
-        and(eq(podiumEvents.kind, RUNTIME_EVENT_LOG_KIND), eq(podiumEvents.subject, sessionId)),
-      )
-      .orderBy(desc(podiumEvents.id))
-      .limit(limit)
-      .all()
+    const rows = await recentRuntimeEventPayloads(this.db).all({ sessionId, limit })
     const events: RuntimeEvent[] = []
     for (const row of rows.reverse()) {
       try {
@@ -232,37 +597,14 @@ export class EventsRepository {
 
   /** Boot census: legacy sessions with no runtime stream need no transcript query. */
   async runtimeTranscriptSessionIds(): Promise<Set<string>> {
-    const rows = await this.db.selectDistinct({ subject: podiumEvents.subject })
-      .from(podiumEvents).where(eq(podiumEvents.kind, RUNTIME_EVENT_LOG_KIND)).all()
+    const rows = await runtimeEventSubjects(this.db).all()
     return new Set(rows.map((row) => row.subject))
   }
 
   /** Read complete transcript items committed by a runtime driver. */
   async listRuntimeTranscriptEvents(sessionId: SessionId, limit = 12_000): Promise<RuntimeEvent[]> {
-    // The inner query takes the NEWEST `limit` matching rows and the outer one
-    // puts them back in ascending order. Both orderings are load-bearing: taking
-    // the newest is what bounds the read, and returning them oldest-first is what
-    // the transcript reader expects.
-    const recent = this.db
-      .select({ id: podiumEvents.id, payload: podiumEvents.payload })
-      .from(podiumEvents)
-      .where(
-        and(
-          eq(podiumEvents.kind, RUNTIME_EVENT_LOG_KIND),
-          eq(podiumEvents.subject, sessionId),
-          sql`(json_extract(${podiumEvents.payload}, '$.t') = 'transcript-reset'
-            OR (json_extract(${podiumEvents.payload}, '$.t') = 'item'
-              AND json_extract(${podiumEvents.payload}, '$.item.kind') = 'complete'))`,
-        ),
-      )
-      .orderBy(desc(podiumEvents.id))
-      .limit(limit)
-      .as('recent')
-    const rows = await this.db
-      .select({ payload: recent.payload })
-      .from(recent)
-      .orderBy(asc(recent.id))
-      .all()
+    // Newest `limit` rows, returned oldest-first (see runtimeTranscriptPayloads).
+    const rows = await runtimeTranscriptPayloads(this.db).all({ sessionId, limit })
     const events: RuntimeEvent[] = []
     for (const row of rows) {
       try {
@@ -295,36 +637,12 @@ export class EventsRepository {
    * place.
    */
   async hasCausalTurnFailure(sessionId: SessionId, turnEpoch: number): Promise<boolean> {
-    const row = await this.db
-      .select({ present: sql<number>`1` })
-      .from(podiumEvents)
-      .where(
-        and(
-          eq(podiumEvents.kind, RUNTIME_EVENT_LOG_KIND),
-          eq(podiumEvents.subject, sessionId),
-          sql`json_extract(${podiumEvents.payload}, '$.t') = 'turn'`,
-          sql`json_extract(${podiumEvents.payload}, '$.ev.ev') = 'failed'`,
-          sql`json_extract(${podiumEvents.payload}, '$.provenance') = 'live'`,
-          sql`json_extract(${podiumEvents.payload}, '$.turnEpoch') >= ${turnEpoch}`,
-        ),
-      )
-      .limit(1)
-      .get()
+    const row = await liveTurnFailure(this.db).get({ sessionId, turnEpoch })
     return row !== undefined && row !== null
   }
 
   async listRuntimeEventsAfter(afterId: number, limit = 128): Promise<RuntimeEventLogRecord[]> {
-    const rows = await this.db
-      .select({
-        id: podiumEvents.id,
-        subject: podiumEvents.subject,
-        payload: podiumEvents.payload,
-      })
-      .from(podiumEvents)
-      .where(and(eq(podiumEvents.kind, RUNTIME_EVENT_LOG_KIND), gt(podiumEvents.id, afterId)))
-      .orderBy(asc(podiumEvents.id))
-      .limit(limit)
-      .all()
+    const rows = await runtimeEventsAfter(this.db).all({ afterId, limit })
     return rows.map((row) => ({
       id: row.id,
       // POLYMORPHIC BRAND DECODE: `subject` cannot carry one schema brand; the
@@ -335,30 +653,14 @@ export class EventsRepository {
   }
 
   async runtimeEventProjectionCursor(projector: string): Promise<number> {
-    const row = await this.db
-      .select({ lastEventId: runtimeEventProjectionCursors.lastEventId })
-      .from(runtimeEventProjectionCursors)
-      .where(eq(runtimeEventProjectionCursors.projector, projector))
-      .get()
+    const row = await projectionCursorOf(this.db).get({ projector })
     return row ? row.lastEventId : 0
   }
 
   async saveRuntimeEventProjectionCursor(projector: string, eventId: number, updatedAt: string): Promise<void> {
-    ;await (this.db
-      .insert(runtimeEventProjectionCursors)
-      .values({ projector, lastEventId: eventId, updatedAt }))
-      .onConflictDoUpdate({
-        target: runtimeEventProjectionCursors.projector,
-        set: { lastEventId: eventId, updatedAt },
-        // MONOTONIC, and the guard belongs in the statement rather than in a
-        // caller: a replaying projector must not rewind the head, because
-        // `pruneEventBatch` refuses to delete runtime rows above it and a rewind
-        // would make already-projected rows undeletable. `setWhere` guards the
-        // UPDATE; `targetWhere` would filter which rows conflict, which is a
-        // different statement.
-        setWhere: sql`excluded.last_event_id > ${runtimeEventProjectionCursors.lastEventId}`,
-      })
-      .run()
+    // MONOTONIC: the statement's `setWhere` never rewinds the head (see
+    // advanceProjectionCursor).
+    await advanceProjectionCursor(this.db).run({ projector, lastEventId: eventId, updatedAt })
   }
 
   // ---- event log ----
@@ -373,16 +675,13 @@ export class EventsRepository {
     },
     options: { announce?: boolean } = {},
   ): Promise<number> {
-    const r = await (this.db
-      .insert(podiumEvents)
-      .values({
-        ts: e.ts,
-        kind: e.kind,
-        subject: e.subject,
-        repoPath: e.repoPath ?? null,
-        payload: JSON.stringify(e.payload ?? {}),
-      }))
-      .run()
+    const r = await insertEvent(this.db).run({
+      ts: e.ts,
+      kind: e.kind,
+      subject: e.subject,
+      repoPath: e.repoPath ?? null,
+      payload: JSON.stringify(e.payload ?? {}),
+    })
     const id = Number(r.lastInsertRowid)
     // AFTER the insert, never before: the feed must not carry a row the log does
     // not have. The listener is documented as non-throwing, and this call is not
@@ -435,7 +734,7 @@ export class EventsRepository {
    * The caller invokes this only after that transaction commits. */
   async announceEvent(id: number): Promise<void> {
     if (!this.appendListener) return
-    const row = await this.db.select().from(podiumEvents).where(eq(podiumEvents.id, id)).get()
+    const row = await eventById(this.db).get({ id })
     if (!row) throw new Error(`unknown podium event ${id}`)
     const event = rowToEvent(row)
     // AWAITED. The installed listener publishes to the metadata feed and is
@@ -483,19 +782,29 @@ export class EventsRepository {
       order?: 'asc' | 'desc'
     },
   ): Promise<PodiumEventRecord[]> {
-    const where = [gt(podiumEvents.id, sinceId)]
-    if (opts?.before != null) where.push(lt(podiumEvents.id, opts.before))
-    if (opts?.kinds?.length) where.push(inArray(podiumEvents.kind, opts.kinds))
-    if (opts?.excludeKinds?.length) where.push(notInArray(podiumEvents.kind, opts.excludeKinds))
-    if (opts?.repoPath) where.push(eq(podiumEvents.repoPath, opts.repoPath))
-    if (opts?.subject) where.push(eq(podiumEvents.subject, opts.subject))
-    const rows = await this.db
-      .select()
-      .from(podiumEvents)
-      .where(and(...where))
-      .orderBy(opts?.order === 'desc' ? desc(podiumEvents.id) : asc(podiumEvents.id))
-      .limit(opts?.limit ?? ISSUE_EVENTS_DEFAULT_LIMIT)
-      .all()
+    const values: Record<string, unknown> = {
+      sinceId,
+      limit: opts?.limit ?? ISSUE_EVENTS_DEFAULT_LIMIT,
+    }
+    const before = opts?.before != null
+    if (before) values.before = opts?.before
+    const kinds = opts?.kinds?.length ? opts.kinds : []
+    const kindsSize = inListSize(kinds.length)
+    inListValues(kinds, kindsSize, 'kind', values)
+    const excludeKinds = opts?.excludeKinds?.length ? opts.excludeKinds : []
+    const excludeSize = inListSize(excludeKinds.length)
+    inListValues(excludeKinds, excludeSize, 'xkind', values)
+    if (opts?.repoPath) values.repoPath = opts.repoPath
+    if (opts?.subject) values.subject = opts.subject
+    const shape = [
+      before ? 'b1' : 'b0',
+      `k${kindsSize}`,
+      `x${excludeSize}`,
+      opts?.repoPath ? 'r1' : 'r0',
+      opts?.subject ? 's1' : 's0',
+      opts?.order === 'desc' ? 'desc' : 'asc',
+    ].join('|')
+    const rows = await eventsSince(this.db, shape).all(values)
     return rows.map(rowToEvent)
   }
 
@@ -513,41 +822,15 @@ export class EventsRepository {
    * real-size log.
    */
   async listKindSubjectSinceWithPrior(kind: string, subject: string, since: string): Promise<PodiumEventRecord[]> {
-    const prior = await this.db
-      .select()
-      .from(podiumEvents)
-      .where(
-        and(
-          eq(podiumEvents.kind, kind),
-          eq(podiumEvents.subject, subject),
-          sql`${podiumEvents.ts} < ${since}`,
-        ),
-      )
-      .orderBy(desc(podiumEvents.ts), desc(podiumEvents.id))
-      .limit(1)
-      .get()
-    const rows = await this.db
-      .select()
-      .from(podiumEvents)
-      .where(
-        and(
-          eq(podiumEvents.kind, kind),
-          eq(podiumEvents.subject, subject),
-          sql`${podiumEvents.ts} >= ${since}`,
-        ),
-      )
-      .orderBy(asc(podiumEvents.ts), asc(podiumEvents.id))
-      .all()
+    const prior = await kindSubjectPrior(this.db).get({ kind, subject, since })
+    const rows = await kindSubjectSince(this.db).all({ kind, subject, since })
     return [...(prior ? [rowToEvent(prior)] : []), ...rows.map(rowToEvent)]
   }
 
   /** The highest event id in the log (0 when empty) — the "now" mark for
    *  seeding a consumer cursor that must not replay history. */
   async maxEventId(): Promise<number> {
-    const r = await this.db
-      .select({ m: max(podiumEvents.id) })
-      .from(podiumEvents)
-      .get()
+    const r = await highestEventId(this.db).get()
     return r?.m ?? 0
   }
 
@@ -574,13 +857,7 @@ export class EventsRepository {
     // Compute the cap threshold once per job. Repeating this OFFSET scan before
     // every delete unit made a 50k-row retention pass itself monopolize the loop.
     // Rows appended after this snapshot are intentionally handled by the next pass.
-    const cap = await this.db
-      .select({ id: podiumEvents.id })
-      .from(podiumEvents)
-      .orderBy(desc(podiumEvents.id))
-      .limit(1)
-      .offset(opts.maxRows)
-      .get()
+    const cap = await eventIdBeyondCap(this.db).get({ maxRows: opts.maxRows })
     return { cutoff, capThroughId: cap?.id ?? 0 }
   }
 
@@ -589,41 +866,19 @@ export class EventsRepository {
     if (!Number.isInteger(batchSize) || batchSize <= 0) {
       throw new RangeError('batchSize must be a positive integer')
     }
-    // The projector's head fences runtime rows: anything above it has not been
-    // projected yet and must survive retention. COALESCE covers the projector
-    // never having run, where the head is 0 and nothing is fenced.
-    const projectedThrough = this.db
-      .select({ head: runtimeEventProjectionCursors.lastEventId })
-      .from(runtimeEventProjectionCursors)
-      .where(eq(runtimeEventProjectionCursors.projector, RUNTIME_BOARD_PROJECTOR))
-    const victims = this.db
-      .select({ id: podiumEvents.id })
-      .from(podiumEvents)
-      .where(
-        and(
-          or(sql`${podiumEvents.ts} < ${plan.cutoff}`, lte(podiumEvents.id, plan.capThroughId)),
-          not(
-            and(
-              eq(podiumEvents.kind, RUNTIME_EVENT_LOG_KIND),
-              gt(podiumEvents.id, sql`COALESCE((${projectedThrough}), 0)`),
-            ) ?? sql`0`,
-          ),
-        ),
-      )
-      .orderBy(asc(podiumEvents.id))
-      .limit(batchSize)
-    const result = await this.db.delete(podiumEvents).where(inArray(podiumEvents.id, victims)).run()
+    // The projector's head fences runtime rows (see deletePruneBatch).
+    const result = await deletePruneBatch(this.db).run({
+      cutoff: plan.cutoff,
+      capThroughId: plan.capThroughId,
+      batchSize,
+    })
     return Number(result.changes)
   }
 
   // ---- steward state ----
 
   async getStewardState(key: string): Promise<string | undefined> {
-    const row = await this.db
-      .select({ value: stewardState.value })
-      .from(stewardState)
-      .where(eq(stewardState.key, key))
-      .get()
+    const row = await stewardValueOf(this.db).get({ key })
     return row?.value
   }
 
@@ -633,11 +888,7 @@ export class EventsRepository {
     // constraint — checked in schema.ts and in the baseline migration — so the
     // conflict target is unambiguous and there is no third column for a replace
     // to have blanked (spec rule 27, amended checklist item 1).
-    ;await (this.db
-      .insert(stewardState)
-      .values({ key, value }))
-      .onConflictDoUpdate({ target: stewardState.key, set: { value } })
-      .run()
+    await upsertStewardValue(this.db).run({ key, value })
   }
 
   /**
@@ -655,12 +906,8 @@ export class EventsRepository {
    */
   async activateJanitorSteward(): Promise<number | undefined> {
     return await this.createOrJoinTransaction(async () => {
-      const ownershipKey = 'janitor-ownership-v1'
-      const owned = await this.db
-        .select({ present: sql<number>`1` })
-        .from(stewardState)
-        .where(eq(stewardState.key, ownershipKey))
-        .get()
+      const ownershipKey = JANITOR_OWNERSHIP_KEY
+      const owned = await janitorOwnership(this.db).get()
       if (owned) return undefined
       const head = await this.maxEventId()
       await this.setStewardState('cursor', String(head))
@@ -672,56 +919,45 @@ export class EventsRepository {
   // ---- event subscriptions (event-subscriptions design, Phase B) ----
 
   async addSubscription(sub: Subscription): Promise<void> {
-    ;await (this.db
-      .insert(subscriptions)
-      .values({
-        id: sub.id,
-        subscriberKind: sub.subscriberKind,
-        subscriberId: sub.subscriberId,
-        event: sub.event,
-        sourceKind: sub.sourceKind,
-        sourceRef: sub.sourceRef,
-        deliverNudge: sub.deliverNudge,
-        deliverNotify: sub.deliverNotify,
-        origin: sub.origin,
-        enabled: sub.enabled,
-        createdAt: sub.createdAt,
-      }))
-      .run()
+    await insertSubscription(this.db).run({
+      id: sub.id,
+      subscriberKind: sub.subscriberKind,
+      subscriberId: sub.subscriberId,
+      event: sub.event,
+      sourceKind: sub.sourceKind,
+      sourceRef: sub.sourceRef,
+      deliverNudge: sub.deliverNudge,
+      deliverNotify: sub.deliverNotify,
+      origin: sub.origin,
+      enabled: sub.enabled,
+      createdAt: sub.createdAt,
+    })
   }
 
   async removeSubscription(id: string): Promise<void> {
-    await this.db.delete(subscriptions).where(eq(subscriptions.id, id)).run()
+    await deleteSubscription(this.db).run({ id })
   }
 
   async listSubscriptions(filter?: { subscriberId?: string }): Promise<Subscription[]> {
-    const rows = await this.db
-      .select()
-      .from(subscriptions)
-      .where(filter?.subscriberId ? eq(subscriptions.subscriberId, filter.subscriberId) : undefined)
-      .orderBy(asc(subscriptions.createdAt))
-      .all()
+    const rows = filter?.subscriberId
+      ? await subscriptionsOf(this.db).all({ subscriberId: filter.subscriberId })
+      : await allSubscriptions(this.db).all()
     return rows.map(rowToSubscription)
   }
 
   /** Flip a subscription's enabled flag. Returns true when a row was updated. */
   async setSubscriptionEnabled(id: string, enabled: boolean): Promise<boolean> {
-    const r = await this.db.update(subscriptions).set({ enabled }).where(eq(subscriptions.id, id)).run()
+    const r = await setSubscriptionEnabledById(this.db).run({ id, enabled })
     return r.changes > 0
   }
 
   async getSubscription(id: string): Promise<Subscription | undefined> {
-    const row = await this.db.select().from(subscriptions).where(eq(subscriptions.id, id)).get()
+    const row = await subscriptionById(this.db).get({ id })
     return row ? rowToSubscription(row) : undefined
   }
 
   async listEnabledSubscriptions(): Promise<Subscription[]> {
-    const rows = await this.db
-      .select()
-      .from(subscriptions)
-      .where(eq(subscriptions.enabled, true))
-      .orderBy(asc(subscriptions.createdAt))
-      .all()
+    const rows = await enabledSubscriptions(this.db).all()
     return rows.map(rowToSubscription)
   }
 
@@ -738,11 +974,7 @@ export class EventsRepository {
     // subscription id and an event id that are both non-nullable. So the
     // primary-key conflict is the only thing OR IGNORE could have suppressed,
     // and `changes > 0` keeps meaning exactly what it meant.
-    const r = await (this.db
-      .insert(subscriptionDeliveries)
-      .values({ subscriptionId, eventId }))
-      .onConflictDoNothing()
-      .run()
+    const r = await insertDeliveryIfNew(this.db).run({ subscriptionId, eventId })
     return Number(r.changes) > 0
   }
 }

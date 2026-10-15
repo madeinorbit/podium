@@ -95,7 +95,7 @@ describe('caller attribution across the executor’s awaits', () => {
       },
       captureIssueSites,
     )
-    const queries = storeQueriesOver(client, async (fn) => await fn(client))
+    const queries = storeQueriesOver(client, async (fn) => await fn())
     return { db: queries.rootDb, client, seen, probeBuilt }
   }
 

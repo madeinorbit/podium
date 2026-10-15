@@ -34,7 +34,7 @@ import {
 import { and, asc, desc, eq, gte, lt, sql } from 'drizzle-orm'
 import { quotaWindows } from '../migrations/schema'
 import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
-import { currentTransaction } from './executor/sync-drizzle'
+import { param, prepared } from './executor/sync-drizzle'
 
 /** Quantisation behind the uniqueness constraint only — never an identity test. */
 const RESET_BUCKET_MS = 60_000
@@ -113,6 +113,123 @@ function toWire(row: Row, nowMs: number): QuotaWindowHistoryWire {
   }
 }
 
+// Every query this repository runs, prepared once per store [POD-6147].
+
+const seriesIs = () =>
+  and(
+    eq(quotaWindows.accountKey, param(quotaWindows.accountKey, 'accountKey')),
+    eq(quotaWindows.windowKey, param(quotaWindows.windowKey, 'windowKey')),
+  )
+
+const bucketIs = () =>
+  and(
+    eq(quotaWindows.accountKey, param(quotaWindows.accountKey, 'accountKey')),
+    eq(quotaWindows.windowKey, param(quotaWindows.windowKey, 'windowKey')),
+    eq(quotaWindows.resetsAtBucket, param(quotaWindows.resetsAtBucket, 'bucket')),
+  )
+
+const newestWindowOfSeries = prepared((db: StoreDrizzle) =>
+  db.select().from(quotaWindows).where(seriesIs()).orderBy(desc(quotaWindows.resetsAtMs)).limit(1).prepare(),
+)
+
+const windowOfBucket = prepared((db: StoreDrizzle) =>
+  db.select().from(quotaWindows).where(bucketIs()).prepare(),
+)
+
+const windowPlaceholders = {
+  label: sql.placeholder('label'),
+  scopeModel: sql.placeholder('scopeModel'),
+  plan: sql.placeholder('plan'),
+  resetsAtMs: sql.placeholder('resetsAtMs'),
+  startedAtMs: sql.placeholder('startedAtMs'),
+  windowMinutes: sql.placeholder('windowMinutes'),
+  firstSeenMs: sql.placeholder('firstSeenMs'),
+  lastSeenMs: sql.placeholder('lastSeenMs'),
+  firstPercent: sql.placeholder('firstPercent'),
+  peakPercent: sql.placeholder('peakPercent'),
+  lastPercent: sql.placeholder('lastPercent'),
+  sampleCount: sql.placeholder('sampleCount'),
+  partial: sql.placeholder('partial'),
+  source: sql.placeholder('source'),
+  trailJson: sql.placeholder('trailJson'),
+}
+
+// The three `MAX`/`+ 1` expressions stay as `sql` FRAGMENTS inside the
+// builder query (spec §6 rule 1): they read the CURRENT row beside
+// `excluded`, which the builder has no expression for. The conflict target
+// is the composite primary key, unchanged, and this statement was already an
+// `ON CONFLICT` rather than an `OR REPLACE`.
+const insertWindow = prepared((db: StoreDrizzle) =>
+  db
+    .insert(quotaWindows)
+    .values({
+      accountKey: sql.placeholder('accountKey'),
+      agent: sql.placeholder('agent'),
+      windowKey: sql.placeholder('windowKey'),
+      resetsAtBucket: sql.placeholder('bucket'),
+      ...windowPlaceholders,
+    })
+    .onConflictDoUpdate({
+      target: [quotaWindows.accountKey, quotaWindows.windowKey, quotaWindows.resetsAtBucket],
+      set: {
+        peakPercent: sql`MAX(${quotaWindows.peakPercent}, excluded.peak_percent)`,
+        lastSeenMs: sql`MAX(${quotaWindows.lastSeenMs}, excluded.last_seen_ms)`,
+        sampleCount: sql`${quotaWindows.sampleCount} + 1`,
+      },
+    })
+    .prepare(),
+)
+
+const updateWindow = prepared((db: StoreDrizzle) =>
+  db.update(quotaWindows).set(windowPlaceholders).where(bucketIs()).prepare(),
+)
+
+const windowsSince = prepared((db: StoreDrizzle) =>
+  db
+    .select()
+    .from(quotaWindows)
+    .where(gte(quotaWindows.resetsAtMs, param(quotaWindows.resetsAtMs, 'sinceMs')))
+    .orderBy(
+      asc(quotaWindows.accountKey),
+      asc(quotaWindows.windowKey),
+      asc(quotaWindows.resetsAtMs),
+    )
+    .prepare(),
+)
+
+const trailOfBucket = prepared((db: StoreDrizzle) =>
+  db.select({ trailJson: quotaWindows.trailJson }).from(quotaWindows).where(bucketIs()).prepare(),
+)
+
+const pruneWindows = prepared((db: StoreDrizzle) =>
+  db.delete(quotaWindows).where(lt(quotaWindows.resetsAtMs, param(quotaWindows.resetsAtMs, 'cutoffMs'))).prepare(),
+)
+
+const windowCount = prepared((db: StoreDrizzle) =>
+  db.select({ n: sql<number>`COUNT(*)` }).from(quotaWindows).prepare(),
+)
+
+/** The rewritable columns of one window instance, as placeholder values. */
+function windowValues(instance: QuotaWindowInstance) {
+  return {
+    label: instance.label,
+    scopeModel: instance.scopeModel ?? null,
+    plan: instance.plan ?? null,
+    resetsAtMs: instance.resetsAtMs,
+    startedAtMs: instance.startedAtMs ?? null,
+    windowMinutes: instance.windowMinutes,
+    firstSeenMs: instance.firstSeenMs,
+    lastSeenMs: instance.lastSeenMs,
+    firstPercent: instance.firstPercent,
+    peakPercent: instance.peakPercent,
+    lastPercent: instance.lastPercent,
+    sampleCount: instance.sampleCount,
+    partial: instance.partial,
+    source: instance.source,
+    trailJson: JSON.stringify(instance.trail),
+  }
+}
+
 export class QuotaHistoryRepository {
   private readonly rootDb: StoreDrizzle
   protected readonly createOrJoinTransaction: TransactionRunner
@@ -125,7 +242,7 @@ export class QuotaHistoryRepository {
   /** The query builder, resolved on every access so B1 changes this line and nothing else
    *  [POD-3221 spec rule 34a]. */
   protected get db() {
-    return currentTransaction() ?? this.rootDb
+    return this.rootDb
   }
 
   /**
@@ -138,18 +255,10 @@ export class QuotaHistoryRepository {
       // The candidate is the newest window we hold for this series. A sample
       // older than it (backfill walking files out of order) is matched against it
       // anyway: `isSameInstance` compares reset times, not arrival order.
-      const candidate = await this.db
-        .select()
-        .from(quotaWindows)
-        .where(
-          and(
-            eq(quotaWindows.accountKey, sample.accountKey),
-            eq(quotaWindows.windowKey, sample.windowKey),
-          ),
-        )
-        .orderBy(desc(quotaWindows.resetsAtMs))
-        .limit(1)
-        .get()
+      const candidate = await newestWindowOfSeries(this.db).get({
+        accountKey: sample.accountKey,
+        windowKey: sample.windowKey,
+      })
 
       if (candidate) {
         const instance = toInstance(candidate)
@@ -175,118 +284,47 @@ export class QuotaHistoryRepository {
   }
 
   private async findByBucket(sample: QuotaSample): Promise<Row | undefined> {
-    return await this.db
-      .select()
-      .from(quotaWindows)
-      .where(
-        and(
-          eq(quotaWindows.accountKey, sample.accountKey),
-          eq(quotaWindows.windowKey, sample.windowKey),
-          eq(quotaWindows.resetsAtBucket, bucketOf(sample.resetsAtMs)),
-        ),
-      )
-      .get()
+    return await windowOfBucket(this.db).get({
+      accountKey: sample.accountKey,
+      windowKey: sample.windowKey,
+      bucket: bucketOf(sample.resetsAtMs),
+    })
   }
 
   private async insert(instance: QuotaWindowInstance): Promise<void> {
-    // The three `MAX`/`+ 1` expressions stay as `sql` FRAGMENTS inside the
-    // builder query (spec §6 rule 1): they read the CURRENT row beside
-    // `excluded`, which the builder has no expression for. The conflict target
-    // is the composite primary key, unchanged, and this statement was already an
-    // `ON CONFLICT` rather than an `OR REPLACE`.
-    ;await (this.db
-      .insert(quotaWindows)
-      .values({
-        accountKey: instance.accountKey,
-        agent: instance.agent,
-        windowKey: instance.windowKey,
-        resetsAtBucket: bucketOf(instance.resetsAtMs),
-        label: instance.label,
-        scopeModel: instance.scopeModel ?? null,
-        plan: instance.plan ?? null,
-        resetsAtMs: instance.resetsAtMs,
-        startedAtMs: instance.startedAtMs ?? null,
-        windowMinutes: instance.windowMinutes,
-        firstSeenMs: instance.firstSeenMs,
-        lastSeenMs: instance.lastSeenMs,
-        firstPercent: instance.firstPercent,
-        peakPercent: instance.peakPercent,
-        lastPercent: instance.lastPercent,
-        sampleCount: instance.sampleCount,
-        partial: instance.partial,
-        source: instance.source,
-        trailJson: JSON.stringify(instance.trail),
-      }))
-      .onConflictDoUpdate({
-        target: [quotaWindows.accountKey, quotaWindows.windowKey, quotaWindows.resetsAtBucket],
-        set: {
-          peakPercent: sql`MAX(${quotaWindows.peakPercent}, excluded.peak_percent)`,
-          lastSeenMs: sql`MAX(${quotaWindows.lastSeenMs}, excluded.last_seen_ms)`,
-          sampleCount: sql`${quotaWindows.sampleCount} + 1`,
-        },
-      })
-      .run()
+    // The upsert's conflict arm is explained at `insertWindow`.
+    await insertWindow(this.db).run({
+      accountKey: instance.accountKey,
+      agent: instance.agent,
+      windowKey: instance.windowKey,
+      bucket: bucketOf(instance.resetsAtMs),
+      ...windowValues(instance),
+    })
   }
 
   /** Rewrites everything except the bucket, which is identity and never moves. */
   private async update(bucket: number, instance: QuotaWindowInstance): Promise<void> {
-    await this.db
-      .update(quotaWindows)
-      .set({
-        label: instance.label,
-        scopeModel: instance.scopeModel ?? null,
-        plan: instance.plan ?? null,
-        resetsAtMs: instance.resetsAtMs,
-        startedAtMs: instance.startedAtMs ?? null,
-        windowMinutes: instance.windowMinutes,
-        firstSeenMs: instance.firstSeenMs,
-        lastSeenMs: instance.lastSeenMs,
-        firstPercent: instance.firstPercent,
-        peakPercent: instance.peakPercent,
-        lastPercent: instance.lastPercent,
-        sampleCount: instance.sampleCount,
-        partial: instance.partial,
-        source: instance.source,
-        trailJson: JSON.stringify(instance.trail),
-      })
-      .where(
-        and(
-          eq(quotaWindows.accountKey, instance.accountKey),
-          eq(quotaWindows.windowKey, instance.windowKey),
-          eq(quotaWindows.resetsAtBucket, bucket),
-        ),
-      )
-      .run()
+    await updateWindow(this.db).run({
+      accountKey: instance.accountKey,
+      windowKey: instance.windowKey,
+      bucket,
+      ...windowValues(instance),
+    })
   }
 
   /** Every window that reset at or after `sinceMs`, oldest first. */
   async list(sinceMs: number, nowMs: number): Promise<QuotaWindowHistoryWire[]> {
-    const rows = await this.db
-      .select()
-      .from(quotaWindows)
-      .where(gte(quotaWindows.resetsAtMs, sinceMs))
-      .orderBy(
-        asc(quotaWindows.accountKey),
-        asc(quotaWindows.windowKey),
-        asc(quotaWindows.resetsAtMs),
-      )
-      .all()
+    const rows = await windowsSince(this.db).all({ sinceMs })
     return rows.map((r) => toWire(r, nowMs))
   }
 
   /** The stored burn curve for one window instance. Empty when unknown. */
   async trail(accountKey: string, windowKey: string, resetsAtMs: number): Promise<[number, number][]> {
-    const row = await this.db
-      .select({ trailJson: quotaWindows.trailJson })
-      .from(quotaWindows)
-      .where(
-        and(
-          eq(quotaWindows.accountKey, accountKey),
-          eq(quotaWindows.windowKey, windowKey),
-          eq(quotaWindows.resetsAtBucket, bucketOf(resetsAtMs)),
-        ),
-      )
-      .get()
+    const row = await trailOfBucket(this.db).get({
+      accountKey,
+      windowKey,
+      bucket: bucketOf(resetsAtMs),
+    })
     return row ? parseTrail(row.trailJson) : []
   }
 
@@ -299,12 +337,12 @@ export class QuotaHistoryRepository {
    * single indexed DELETE on a table of this size does not warrant that.
    */
   async prune(cutoffMs: number): Promise<number> {
-    const res = await this.db.delete(quotaWindows).where(lt(quotaWindows.resetsAtMs, cutoffMs)).run()
+    const res = await pruneWindows(this.db).run({ cutoffMs })
     return Number(res.changes)
   }
 
   async countAll(): Promise<number> {
-    const row = await this.db.select({ n: sql<number>`COUNT(*)` }).from(quotaWindows).get()
+    const row = await windowCount(this.db).get()
     return row?.n ?? 0
   }
 }

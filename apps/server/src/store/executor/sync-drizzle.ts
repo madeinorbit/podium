@@ -6,8 +6,21 @@ import type { BatchItem, BatchResponse } from 'drizzle-orm/batch'
 import { SQLiteDialect } from 'drizzle-orm/sqlite-core'
 import { SqliteRemoteDatabase, type AsyncRemoteCallback } from 'drizzle-orm/sqlite-proxy'
 import { SQLiteRemoteSession, type PreparedQueryConfig } from 'drizzle-orm/sqlite-proxy/session'
-import { AsyncLocalStorage } from 'node:async_hooks'
+import type { SQLiteAsyncRaw } from 'drizzle-orm/sqlite-core'
 import type { QueryClient, SqlRunResult, StatementIntent } from './driver'
+
+export {
+  inListOf,
+  inListSize,
+  inListValues,
+  notInListOf,
+  param,
+  placeholdersFor,
+  prepared,
+  preparedFamily,
+  preparedFamilyOverflows,
+  shapeOf,
+} from '@podium/sync/adapters/sqlite/prepared'
 
 /**
  * WHAT A REPOSITORY IS HANDED: a query builder and a transaction, together.
@@ -28,28 +41,6 @@ import type { QueryClient, SqlRunResult, StatementIntent } from './driver'
  * leaves every construction site alone.
  */
 export type TransactionRunner = <T>(fn: () => Promise<T>) => Promise<T>
-
-type FullStoreDrizzle = ReturnType<typeof buildStoreDrizzle>
-
-/**
- * WHAT THE SPAN SCOPE CARRIES, with `transaction` OMITTED [POD-3498].
- *
- * The omission is the fix's guard, and it belongs at the type level because the
- * defect was a type confusion: the scope holds a proxy DATABASE built over the
- * transaction's client, and `.transaction()` on a database emits BEGIN. A nested
- * span therefore issued a second BEGIN on a connection that already had one open.
- *
- * Omitting the member makes reinstating that call a COMPILE ERROR rather than a
- * convention (spec rule 45). The executor's ambient `transact` is how a span nests;
- * there is nothing left for drizzle's own transaction to do here.
- */
-type SpanScopeDrizzle = Omit<FullStoreDrizzle, 'transaction'>
-
-const transactionScope = new AsyncLocalStorage<SpanScopeDrizzle>()
-
-export function currentTransaction(): StoreDrizzle | undefined {
-  return transactionScope.getStore() as StoreDrizzle | undefined
-}
 
 /**
  * Drizzle drops result mode at the remote callback. Keep it at preparation:
@@ -79,6 +70,8 @@ class StoreRemoteSession extends SQLiteRemoteSession<EmptyRelations> {
   private readonly arrayWritingSession: SQLiteRemoteSession<EmptyRelations>
   private readonly intents = new WeakMap<object, StatementIntent>()
   private readonly arrayQueries = new WeakSet<object>()
+  /** Every query this session has prepared: builder terminals, `.prepare()` and raw calls. */
+  preparations = 0
 
   constructor(
     private readonly queryClient: QueryClient,
@@ -97,6 +90,7 @@ class StoreRemoteSession extends SQLiteRemoteSession<EmptyRelations> {
   }
 
   override prepareQuery<T extends Omit<PreparedQueryConfig, 'run'>>(...args: PrepareArguments) {
+    this.preparations += 1
     const intent = args[5]?.type === 'select' ? 'read' : 'write'
     const arrays = args[1] === 'arrays'
     const prepared =
@@ -201,47 +195,28 @@ export type StoreDrizzle = Omit<
   'transaction'
 >
 
-/** Named callback seam so the effect graph never classifies every anonymous function here. */
-export type PreparedQueryForDb<P> = (db: StoreDrizzle) => P
+/**
+ * HOW MANY QUERIES `db` HAS PREPARED, for the guard tests [POD-6147].
+ *
+ * Counted at the session's `prepareQuery`, where every builder terminal
+ * (`.get()`, `.all()`, `.run()`), every `.prepare()` and every raw `db.all(sql)`
+ * builds its SQL. A repository that prepares once leaves this flat while its
+ * executions grow; one that rebuilds per call moves it once per call.
+ */
+export function preparationsOf(db: StoreDrizzle): number {
+  return (db as unknown as { _: { session: StoreRemoteSession } })._.session.preparations
+}
 
 /**
- * ONE PREPARED QUERY PER DRIZZLE INSTANCE [POD-3854].
- *
- * WHAT PREPARING BUYS. `.get()` and `.all()` on a builder are `_prepare().get()`
- * and `_prepare().all()`, and `_prepare` is the expensive half: it serialises the
- * statement through the dialect and generates a row mapper over the selection
- * list, per call. `.prepare()` is the SAME `_prepare()`, kept. Everything after
- * it is byte-identical — `fillPlaceholders`, then the remote callback below,
- * then the executor's ambient router — so intent, lane, span scope,
- * statement-probe attribution and the driver's per-connection statement cache
- * all see exactly what the fluent form showed them. Only the rebuilding goes.
- *
- * WHY "PER INSTANCE" IS THE WHOLE POINT. A prepared query also closes over the
- * remote callback it was prepared against, and that callback is bound to ONE
- * `QueryClient`. `buildStoreDrizzle` makes a new instance per transaction over
- * that transaction's frame-pinned client, which is what `currentTransaction()`
- * hands a repository's `db` getter. Preparing once per STORE would therefore
- * pin every read to the root client and quietly take reads out of the enclosing
- * transaction — the one failure mode this cache exists to make impossible.
- * Keying on the instance leaves `currentTransaction() ?? rootDb` deciding which
- * client runs the statement, exactly as the fluent form does.
- *
- * The lifetimes line up with the call counts. The root instance is one object
- * for the store's life, so every read outside a transaction — the hot path this
- * is for — hits the cache. A transaction's instance prepares once per
- * transaction and is collected with it, and once per transaction is strictly
- * less than the once per CALL the fluent form was already paying.
+ * Run a raw statement prepared once with {@link prepared} — `db.all(sql\`...\`)`
+ * kept rather than awaited — with its placeholder values. Drizzle types those
+ * values as `undefined`; this is the one cast.
  */
-export function preparedPerDb<P>(build: (db: StoreDrizzle) => P): PreparedQueryForDb<P> {
-  const cache = new WeakMap<object, P>()
-  return (db) => {
-    const key = db as unknown as object
-    const hit = cache.get(key)
-    if (hit !== undefined) return hit
-    const made = build(db)
-    cache.set(key, made)
-    return made
-  }
+export async function executeRaw<T>(
+  raw: SQLiteAsyncRaw<T>,
+  values: Record<string, unknown> = {},
+): Promise<T> {
+  return await raw.execute(values as Record<string, undefined>)
 }
 
 export interface StoreQueries {
@@ -251,14 +226,34 @@ export interface StoreQueries {
   readonly createOrJoinTransaction: TransactionRunner
 }
 
-export type ExecutorTransaction = <T>(fn: (client: QueryClient) => Promise<T>) => Promise<T>
+/** The executor's ambient transaction: it opens a root transaction or a savepoint under the current one. */
+export type ExecutorTransaction = <T>(fn: () => Promise<T>) => Promise<T>
 
+/**
+ * ONE DRIZZLE INSTANCE FOR THE STORE'S LIFE, INSIDE TRANSACTIONS AND OUT
+ * [POD-6147].
+ *
+ * `client` is the executor's AMBIENT client: its router resolves `currentScope()`
+ * for each statement as it executes, and inside a transaction that is the
+ * transaction's frame. So the same instance, and every query prepared on it,
+ * runs inside whatever transaction is current, and no repository needs to know
+ * whether one is open.
+ *
+ * WHAT THIS REPLACED. Until POD-6147 each transaction carried a second drizzle
+ * instance over a frame-pinned client in an AsyncLocalStorage, and a
+ * repository's `db` getter picked it. It decided nothing the router does not
+ * decide: the store's scope was set at exactly the points where the executor's
+ * own scope is, so the two named the same frame. Where they could differ the
+ * executor's is the intended one: `runAtRoot`, the post-commit drain and
+ * `outsideTransaction` replace the executor's scope on purpose, and the pinned
+ * instance would have sent their statements back into the transaction. What
+ * the second instance did cost was one fresh set of builders per transaction,
+ * so even queries prepared once per instance (`preparedPerDb`, POD-3854) were
+ * prepared again in every transaction.
+ */
 export function storeQueriesOver(client: QueryClient, transact: ExecutorTransaction): StoreQueries {
-  const rootDb = buildStoreDrizzle(client)
   return {
-    get rootDb() {
-      return (transactionScope.getStore() ?? rootDb) as unknown as StoreDrizzle
-    },
+    rootDb: buildStoreDrizzle(client) as unknown as StoreDrizzle,
     /**
      * ROOT AND NESTED ARE THE SAME CALL [POD-3498].
      *
@@ -267,19 +262,8 @@ export function storeQueriesOver(client: QueryClient, transact: ExecutorTransact
      * `currentScope()` and, inside an open transaction scope, calls
      * `transactOn(scope.frame, fn)` — which opens a SAVEPOINT under the enclosing
      * frame. Joining is what the executor already does; the port only has to ask.
-     *
-     * WHAT THE BRANCH DID INSTEAD. The value this ALS carries is
-     * `buildStoreDrizzle(txClient)` — a proxy DATABASE built over the transaction's
-     * client, not a drizzle transaction OBJECT. `.transaction()` on a database
-     * emits BEGIN, so a nested span issued a second BEGIN on a connection that
-     * already had one open and SQLite refused it: `cannot start a transaction
-     * within a transaction`. That is exactly what the file's own doc comments
-     * above forbid — the code contradicted its comment.
      */
-    createOrJoinTransaction: async (fn) =>
-      await transact(
-        async (txClient) => await transactionScope.run(buildStoreDrizzle(txClient), fn),
-      ),
+    createOrJoinTransaction: async (fn) => await transact(fn),
   }
 }
 
@@ -296,8 +280,5 @@ export function syncQueriesOver(database: SqlDatabase): StoreQueries {
     writeAll: async (sql, ...params) => await (await executor).drizzle.writeAll(sql, ...params),
     batch: async (statements) => await (await executor).drizzle.batch(statements),
   }
-  return storeQueriesOver(
-    client,
-    async (fn) => await (await executor).transact(async (tx) => fn(tx.drizzle)),
-  )
+  return storeQueriesOver(client, async (fn) => await (await executor).transact(async () => await fn()))
 }

@@ -2,7 +2,102 @@ import { asMachineId, type MachineId } from '@podium/model'
 import { and, eq, gt, sql } from 'drizzle-orm'
 import { conversationSegments } from '../../migrations/schema'
 import type { StoreQueries, StoreDrizzle, TransactionRunner } from '../executor/sync-drizzle'
-import { currentTransaction } from '../executor/sync-drizzle'
+import { executeRaw, param, prepared } from '../executor/sync-drizzle'
+
+// Every query this repository runs, prepared once per store [POD-6147].
+// `transcript_fts` is the virtual table this port owns; there is no schema
+// model to build against, so its statements stay whole raw SQL.
+
+/** One segment by its key, over the `machineId` / `nativeId` placeholders. */
+const segmentKey = () =>
+  and(
+    eq(conversationSegments.machineId, param(conversationSegments.machineId, 'machineId')),
+    eq(conversationSegments.nativeId, param(conversationSegments.nativeId, 'nativeId')),
+  )
+
+const createTranscriptFts = prepared((db: StoreDrizzle) =>
+  db.run(sql`CREATE VIRTUAL TABLE IF NOT EXISTS transcript_fts USING fts5(
+        content, machine_id UNINDEXED, native_id UNINDEXED, item_uuid UNINDEXED, ts UNINDEXED)`),
+)
+
+const segmentsBehindMirror = prepared((db: StoreDrizzle) =>
+  db
+    .select({
+      nativeId: conversationSegments.nativeId,
+      mirroredBytes: conversationSegments.mirroredBytes,
+      indexedBytes: conversationSegments.indexedBytes,
+    })
+    .from(conversationSegments)
+    .where(
+      and(
+        eq(conversationSegments.machineId, param(conversationSegments.machineId, 'machineId')),
+        gt(conversationSegments.mirroredBytes, conversationSegments.indexedBytes),
+      ),
+    )
+    .prepare(),
+)
+
+const segmentIndexedCursor = prepared((db: StoreDrizzle) =>
+  db
+    .select({ indexedBytes: conversationSegments.indexedBytes })
+    .from(conversationSegments)
+    .where(segmentKey())
+    .prepare(),
+)
+
+const insertTranscriptRow = prepared((db: StoreDrizzle) =>
+  db.run(
+    sql`INSERT INTO transcript_fts (content,machine_id,native_id,item_uuid,ts)
+              VALUES(${sql.placeholder('content')},${sql.placeholder('machineId')},${sql.placeholder('nativeId')},${sql.placeholder('itemUuid')},${sql.placeholder('ts')})`,
+  ),
+)
+
+const setSegmentIndexedBytes = prepared((db: StoreDrizzle) =>
+  db
+    .update(conversationSegments)
+    .set({ indexedBytes: sql.placeholder('indexedBytes') })
+    .where(segmentKey())
+    .prepare(),
+)
+
+const resetSegmentIfAt = prepared((db: StoreDrizzle) =>
+  db
+    .update(conversationSegments)
+    .set({ mirroredBytes: 0, mirroredAt: null, indexedBytes: 0 })
+    .where(
+      and(
+        segmentKey(),
+        eq(conversationSegments.mirroredBytes, param(conversationSegments.mirroredBytes, 'mirroredBytes')),
+        eq(conversationSegments.indexedBytes, param(conversationSegments.indexedBytes, 'indexedBytes')),
+      ),
+    )
+    .prepare(),
+)
+
+const deleteTranscriptRows = prepared((db: StoreDrizzle) =>
+  db.run(
+    sql`DELETE FROM transcript_fts WHERE machine_id=${sql.placeholder('machineId')} AND native_id=${sql.placeholder('nativeId')}`,
+  ),
+)
+
+const transcriptRowsOf = prepared((db: StoreDrizzle) =>
+  db.all<Record<string, unknown>>(
+    sql`SELECT content,item_uuid,ts FROM transcript_fts
+      WHERE machine_id=${sql.placeholder('machineId')} AND native_id=${sql.placeholder('nativeId')} ORDER BY rowid`,
+  ),
+)
+
+const searchTranscripts = prepared((db: StoreDrizzle) =>
+  db.all<Record<string, unknown>>(
+    sql`SELECT f.machine_id,f.native_id,f.item_uuid,f.ts,
+      snippet(transcript_fts,0,'**','**','…',12) AS snip, bm25(transcript_fts) AS rank,
+      s.podium_id,c.title,c.name,c.updated_at
+      FROM transcript_fts f
+      LEFT JOIN conversation_segments s ON s.machine_id=f.machine_id AND s.native_id=f.native_id
+      LEFT JOIN conversations c ON c.id=f.native_id
+      WHERE transcript_fts MATCH ${sql.placeholder('fts')} ORDER BY rank`,
+  ),
+)
 
 export interface TranscriptSearchCandidate {
   machineId: MachineId
@@ -28,14 +123,12 @@ export class TranscriptIndexRepository {
   }
 
   /**
-   * The query capability, INJECTED rather than reached for [spec rule 27b], and
-   * read through a getter rather than frozen into a field [rule 34a]. Ambient
-   * transaction routing (rule 35) has to resolve the ENCLOSING transaction on
-   * every access, which a field assigned once in a constructor can never do — so
-   * B1 changes the one line inside this getter and no call site below it.
+   * The query capability, INJECTED rather than reached for [spec rule 27b]: the
+   * store's one drizzle instance, whose executor routes each statement to the
+   * current transaction.
    */
   private get db(): StoreDrizzle {
-    return currentTransaction() ?? this.rootDb
+    return this.rootDb
   }
 
   /**
@@ -45,8 +138,7 @@ export class TranscriptIndexRepository {
    */
   async enableFts(): Promise<void> {
     try {
-      await this.db.run(sql`CREATE VIRTUAL TABLE IF NOT EXISTS transcript_fts USING fts5(
-        content, machine_id UNINDEXED, native_id UNINDEXED, item_uuid UNINDEXED, ts UNINDEXED)`)
+      await executeRaw(createTranscriptFts(this.db))
       this.available = true
     } catch {
       this.available = false
@@ -72,28 +164,11 @@ export class TranscriptIndexRepository {
   async segmentsToIndex(
     machineId: MachineId,
   ): Promise<{ nativeId: string; mirroredBytes: number; indexedBytes: number }[]> {
-    return await this.db
-      .select({
-        nativeId: conversationSegments.nativeId,
-        mirroredBytes: conversationSegments.mirroredBytes,
-        indexedBytes: conversationSegments.indexedBytes,
-      })
-      .from(conversationSegments)
-      .where(
-        and(
-          eq(conversationSegments.machineId, machineId),
-          gt(conversationSegments.mirroredBytes, conversationSegments.indexedBytes),
-        ),
-      )
-      .all()
+    return await segmentsBehindMirror(this.db).all({ machineId })
   }
 
   async indexedCursor(machineId: MachineId, nativeId: string): Promise<number> {
-    const row = await this.db
-      .select({ indexedBytes: conversationSegments.indexedBytes })
-      .from(conversationSegments)
-      .where(this.segment(machineId, nativeId))
-      .get()
+    const row = await segmentIndexedCursor(this.db).get({ machineId, nativeId })
     return row?.indexedBytes ?? 0
   }
 
@@ -106,18 +181,15 @@ export class TranscriptIndexRepository {
     if (!this.available) return
     await this.createOrJoinTransaction(async () => {
       for (const row of rows) {
-        // `transcript_fts` is the virtual table this port owns; there is no
-        // schema model to build against, so the statement stays whole.
-        await this.db.run(
-          sql`INSERT INTO transcript_fts (content,machine_id,native_id,item_uuid,ts)
-              VALUES(${row.content},${machineId},${nativeId},${row.itemUuid ?? null},${row.ts ?? null})`,
-        )
+        await executeRaw(insertTranscriptRow(this.db), {
+          content: row.content,
+          machineId,
+          nativeId,
+          itemUuid: row.itemUuid ?? null,
+          ts: row.ts ?? null,
+        })
       }
-      await this.db
-        .update(conversationSegments)
-        .set({ indexedBytes })
-        .where(this.segment(machineId, nativeId))
-        .run()
+      await setSegmentIndexedBytes(this.db).run({ machineId, nativeId, indexedBytes })
     })
   }
 
@@ -136,22 +208,15 @@ export class TranscriptIndexRepository {
   ): Promise<boolean> {
     let reset = false
     await this.createOrJoinTransaction(async () => {
-      const result = await this.db
-        .update(conversationSegments)
-        .set({ mirroredBytes: 0, mirroredAt: null, indexedBytes: 0 })
-        .where(
-          and(
-            this.segment(machineId, nativeId),
-            eq(conversationSegments.mirroredBytes, expected.mirroredBytes),
-            eq(conversationSegments.indexedBytes, expected.indexedBytes),
-          ),
-        )
-        .run()
+      const result = await resetSegmentIfAt(this.db).run({
+        machineId,
+        nativeId,
+        mirroredBytes: expected.mirroredBytes,
+        indexedBytes: expected.indexedBytes,
+      })
       reset = Number(result.changes) === 1
       if (reset && this.available) {
-        await this.db.run(
-          sql`DELETE FROM transcript_fts WHERE machine_id=${machineId} AND native_id=${nativeId}`,
-        )
+        await executeRaw(deleteTranscriptRows(this.db), { machineId, nativeId })
       }
     })
     return reset
@@ -162,10 +227,7 @@ export class TranscriptIndexRepository {
     nativeId: string,
   ): Promise<{ content: string; itemUuid?: string; ts?: string }[]> {
     if (!this.available) return []
-    const rows: Record<string, unknown>[] = await this.db.all(
-      sql`SELECT content,item_uuid,ts FROM transcript_fts
-      WHERE machine_id=${machineId} AND native_id=${nativeId} ORDER BY rowid`,
-    )
+    const rows: Record<string, unknown>[] = await executeRaw(transcriptRowsOf(this.db), { machineId, nativeId })
     return rows.map((row) => ({
       content: row.content as string,
       itemUuid: (row.item_uuid as string | null) ?? undefined,
@@ -182,15 +244,7 @@ export class TranscriptIndexRepository {
       .filter(Boolean)
       .map((token) => `"${token.replace(/"/g, '""')}"*`)
       .join(' ')
-    const rows: Record<string, unknown>[] = await this.db.all(
-      sql`SELECT f.machine_id,f.native_id,f.item_uuid,f.ts,
-      snippet(transcript_fts,0,'**','**','…',12) AS snip, bm25(transcript_fts) AS rank,
-      s.podium_id,c.title,c.name,c.updated_at
-      FROM transcript_fts f
-      LEFT JOIN conversation_segments s ON s.machine_id=f.machine_id AND s.native_id=f.native_id
-      LEFT JOIN conversations c ON c.id=f.native_id
-      WHERE transcript_fts MATCH ${fts} ORDER BY rank`,
-    )
+    const rows: Record<string, unknown>[] = await executeRaw(searchTranscripts(this.db), { fts })
     return rows.map((row) => ({
       // EXTERNAL ROW BRAND DECODE: FTS rows bypass the drizzle schema, so this
       // raw result is decoded at the search-port boundary.
@@ -208,21 +262,8 @@ export class TranscriptIndexRepository {
 
   async drop(machineId: MachineId, nativeId: string): Promise<void> {
     if (this.available) {
-      await this.db.run(
-        sql`DELETE FROM transcript_fts WHERE machine_id=${machineId} AND native_id=${nativeId}`,
-      )
+      await executeRaw(deleteTranscriptRows(this.db), { machineId, nativeId })
     }
-    await this.db
-      .update(conversationSegments)
-      .set({ indexedBytes: 0 })
-      .where(this.segment(machineId, nativeId))
-      .run()
-  }
-
-  private segment(machineId: MachineId, nativeId: string) {
-    return and(
-      eq(conversationSegments.machineId, machineId),
-      eq(conversationSegments.nativeId, nativeId),
-    )
+    await setSegmentIndexedBytes(this.db).run({ machineId, nativeId, indexedBytes: 0 })
   }
 }
