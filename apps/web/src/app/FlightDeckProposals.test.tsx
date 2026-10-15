@@ -80,7 +80,7 @@ async function open(extra: Row[] = [], proposalPatch: Row = {}) {
   const update = async (id: string, patch: Row) => {
     const row = rows.find(row => row['id'] === id)!
     Object.assign(row, patch)
-    await act(async () => pool.apply({ type: 'batch', rows: [{ kind: 'issue', id, value: { ...row } as never }] }))
+    await act(async () => pool.apply({ type: 'update', rows: [{ kind: 'issue', id, value: { ...row } as never }] }))
   }
   const proposal = (id = 'proposal') => ui.container.querySelector<HTMLElement>(`[data-flight-issue="${id}"]`)
   const section = () => ui.queryByTestId('flight-proposed')
