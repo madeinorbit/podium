@@ -9,8 +9,8 @@ exports[`rendered mission pane parity > keeps archived-session reveal names/orde
 
 exports[`rendered mission pane parity > preserves folded bar words, labels, tick order and layout > rendered output 1`] = `
 {
-  "bytes": 6725,
-  "sha256": "5134e95eaea2444bed2847d302f6106c0e8b8ec575f4db2b6a57509e8f65c354",
+  "bytes": 5892,
+  "sha256": "2b31de4afb35c6a9916f8a5bd377a0265b6ee08a5d3d233c88c8cd308ed6c08a",
 }
 `;
 
@@ -37,28 +37,28 @@ exports[`rendered mission pane parity > preserves visible words, labels, order a
 
 exports[`rendered mission pane parity > preserves visible words, labels, order and layout in handoff > rendered output 1`] = `
 {
-  "bytes": 51285,
-  "sha256": "b407e2ca15a9a05e6af0a4e41bddc3316a170ebfa2c50e26d611dab6126e5256",
+  "bytes": 51108,
+  "sha256": "30d204febe43ab136c45f7cd2c49581d26b7e951d99caa346d501dd11068d8ee",
 }
 `;
 
 exports[`rendered mission pane parity > preserves visible words, labels, order and layout in needs-you > rendered output 1`] = `
 {
-  "bytes": 42724,
-  "sha256": "67240e795f5402c098a83b02bf68c960d5cc2129f47b403081f518476f840762",
+  "bytes": 42543,
+  "sha256": "d354c7248b2dab78ed31559cf5d4468f42a5cd4dad04c40fbdb8b438bc8f3bfa",
 }
 `;
 
 exports[`rendered mission pane parity > preserves visible words, labels, order and layout in waterfall > rendered output 1`] = `
 {
-  "bytes": 80188,
-  "sha256": "8f58a6a614320de2b96e2cce70394608ba03908a4816f4543a69c3582d33d161",
+  "bytes": 51472,
+  "sha256": "d68f9cce9b588880f75618e67d937cdda61145283f61a2a07b56f0cb6ea04bce",
 }
 `;
 
 exports[`rendered mission pane parity > preserves visible words, labels, order and layout in working > rendered output 1`] = `
 {
-  "bytes": 23078,
-  "sha256": "00e5fef87184c72de846b732277dbc45c497e3ae34d61e2a75b75f3bbacee717",
+  "bytes": 22901,
+  "sha256": "593270a9425266b0a213eb6471aa6d9f2ef0a0c2000233d61d4dba354e0f921e",
 }
 `;
