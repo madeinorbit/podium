@@ -76,6 +76,7 @@ export const FlightDeckProposals = observer(function FlightDeckProposals({
   const ids = [...new Set([...(typeof proposed === 'symbol' ? [] : proposed), ...submissions.byId.keys()])].filter(id => {
     const status = submissions.byId.get(id)
     return !(status?.action === 'dismiss' && status.phase === 'success')
+      && settled(() => full.task(id).abandoned) !== true
   })
   if (!ids.length) return null
   return (

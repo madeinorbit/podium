@@ -226,6 +226,29 @@ it.each([false, true])('Dismiss closes as declined and disappears consistently (
 })
 
 
+
+it.each([['Backlog', ' '], ['Start', '{Enter}'], ['Dismiss POD-3', '{Enter}']])('activates %s from the keyboard without selecting or folding', async (label, key) => {
+  const f = await open()
+  const wasOpen = f.screen.full.task('parent').open
+  const user = userEvent.setup()
+  within(f.proposal()!).getByRole('button', { name: label! }).focus()
+  await user.keyboard(key!)
+  await waitFor(() => expect(Object.values(commands).reduce((n, cmd) => n + cmd.mock.calls.length, 0)).toBe(1))
+  expect(f.actions.onSelect).not.toHaveBeenCalled()
+  expect(f.screen.full.task('parent').open).toBe(wasOpen)
+})
+
+it('does not resurrect a declined proposal when an earlier command fails late', async () => {
+  const result = deferred()
+  commands.start.mockReturnValue(result.promise)
+  const f = await open()
+  fireEvent.click(within(f.proposal()!).getByRole('button', { name: 'Start' }))
+  await f.update('proposal', { stage: 'cancelled', closedReason: 'declined', closedAt: stamp })
+  await act(async () => result.reject(new Error('Already declined')))
+  expect(f.section()).toBeNull()
+  expect(f.proposal()).toBeNull()
+})
+
 it('drops proposals declined by another operator without resurrecting them', async () => {
   const f = await open()
   await f.update('proposal', { stage: 'cancelled', closedReason: 'declined', closedAt: stamp })
