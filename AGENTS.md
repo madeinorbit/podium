@@ -32,6 +32,13 @@ Before changing how any client screen (web, desktop, phone) gets or derives data
 **[docs/agents/frontend-data.md](docs/agents/frontend-data.md)** and follow it: one shared model
 per record, `@lazy` derived fields, view models and companions, and what a change must show.
 
+## Server data
+
+Before changing how server code (`apps/server`, `packages/sync`) reads, writes or caches data,
+read **[docs/agents/server-data.md](docs/agents/server-data.md)** and follow it: the database is
+the only source of truth, no table copies in memory, the nine rules for queries, declared caches
+only, and what a change must show.
+
 ## Testing independent instances
 
 When changing instance identity, state, endpoints, CLI routing, agent ownership, or lifecycle
@@ -212,6 +219,7 @@ passed, delete the code, or move the date and say why in the same commit.
 ## Reference docs for agents
 
 - [docs/agents/frontend-data.md](docs/agents/frontend-data.md) — how client screens get and derive data from the MobX pool: models, `@lazy`, view models, companions.
+- [docs/agents/server-data.md](docs/agents/server-data.md) — how server code uses the database and caches: one source of truth, the nine query rules, declared caches, statement-count and query-plan checks.
 - [docs/agents/multi-instance.md](docs/agents/multi-instance.md) — operate and test fully independent instances on one machine.
 - [docs/agents/driving-podium.md](docs/agents/driving-podium.md) — drive the Podium UI with Playwright to verify features at runtime.
 - [docs/agents/driving-desktop.md](docs/agents/driving-desktop.md) — run the Tauri desktop shell headlessly, for the few properties only the real webview answers (cross-origin, cookies, sidecar spawn).
