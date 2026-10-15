@@ -172,6 +172,22 @@ it('answers ownership through the tombstone, which is the one fact that outlives
 
     expect(await store.automations.ownerOf('never-existed')).toBeUndefined()
     expect(await store.automations.runOwnerOf('never-existed')).toBeUndefined()
+
+    // The batched forms [POD-6149] answer the same, tombstone included, and
+    // leave an unknown id out of the map.
+    expect(await store.automations.ownersOf(['auto-1', 'auto-2', 'never-existed', 'auto-1'])).toEqual(
+      new Map([
+        ['auto-1', owner],
+        ['auto-2', other],
+      ]),
+    )
+    expect(await store.automations.runOwnersOf(['run-1', 'run-2', 'never-existed'])).toEqual(
+      new Map([
+        ['run-1', owner],
+        ['run-2', other],
+      ]),
+    )
+    expect(await store.automations.ownersOf([])).toEqual(new Map())
   } finally {
     await store.close()
   }

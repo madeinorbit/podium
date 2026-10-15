@@ -2,7 +2,8 @@ import type { GrantsRepository } from '../../store/grants'
 import { spanOpen } from '../../store/executor/executor'
 import type { WorldIndexReader } from './index'
 
-export type GrantReadPort = Pick<GrantsRepository, 'listForResource' | 'listForResources'>
+export type GrantReadPort = Pick<GrantsRepository, 'listForResource' | 'listForResources'> &
+  Partial<Pick<GrantsRepository, 'loadForResource'>>
 
 // Key by repository identity: never share facts across stores/instances. Boot
 // binds only after the snapshot and its subscription have committed. Standalone
@@ -16,8 +17,14 @@ export function bindCommittedGrantReader(repository: GrantReadPort, reader: Pick
  * a revocation inside authorization/apply or projection spans must deny now,
  * even though WorldIndex correctly retains the old edge until commit. */
 export async function readResourceGrants(repository: GrantReadPort, kind: string, id: string) {
-  const reader = !spanOpen() && committedReaders.get(repository)
-  return reader ? [...reader.grantsFor(kind, id)] : await repository.listForResource(kind, id)
+  if (spanOpen()) return await repository.listForResource(kind, id)
+  const reader = committedReaders.get(repository)
+  if (reader) return [...reader.grantsFor(kind, id)]
+  // Outside a span the operation's loader batches and reuses these per-row
+  // reads [POD-6149]; inside one, every read stays live (read-your-writes).
+  return repository.loadForResource
+    ? await repository.loadForResource(kind, id)
+    : await repository.listForResource(kind, id)
 }
 
 export async function readResourcesGrants(repository: GrantReadPort, kind: string, ids: readonly string[]) {

@@ -22,6 +22,7 @@ import { TRPCError } from '@trpc/server'
 import type { z } from 'zod'
 import { attributionOf } from '../../command-principal'
 import { checkIssueAccess } from '../../issue-authz'
+import { withReadScope } from '../../store/executor/read-scope'
 import { ShippingOrderAccessError } from '../shipping/service'
 import type { IssueCaller, IssueCommandAccess, IssueCommandCtx } from './command-ctx'
 import type { IssueCommandResult } from './service/reads'
@@ -301,6 +302,9 @@ function def<N extends IssueContractName, K extends IssueCommandKind, Out>(
   return {
     ...d,
     handler: async (ctx: IssueCommandCtx, input: ContractInput<(typeof ISSUE_CONTRACTS)[N]>) => {
+      // A query is one operation: one read scope, so the per-row `mayRead`
+      // checks share one batched grant read (POD-6149, server-data rule 2).
+      if (d.kind === 'query') return await withReadScope(async () => await d.handler(ctx, input))
       const result = await d.handler(ctx, input)
       return d.kind === 'mutation' ? await ctx.reports.commandResult(result) : result
     },

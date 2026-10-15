@@ -98,6 +98,11 @@ export {
   type PostCommitStep,
 } from './post-commit'
 export {
+  type OperationLoader,
+  type OperationLoaderOptions,
+  operationLoader,
+} from './operation-loader'
+export {
   currentReadScope,
   inExplicitReadScope,
   type ReadScope,

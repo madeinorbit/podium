@@ -60,6 +60,7 @@ import {
 import { IssueAttachOrchestrator } from './application/issue-attach-orchestrator'
 import { hashToken } from './auth-route'
 import { bootStage } from './boot-timing'
+import { capabilityPrincipalResolver } from './capability-principal'
 import { codexAuthorizerFor, createCodexTransport } from './codex-machine'
 import {
   type CommandPrincipal,
@@ -638,15 +639,7 @@ export class SessionRegistry {
       isFeatureEnabled(id, currentSettings)
     // Delegation is resolved from durable session ownership on every apply. This
     // lookup is available before feature construction and never snapshots rights.
-    const principalForCapability = (capability: import('@podium/model').Capability) =>
-      resolvePrincipalAsync(capability, {
-        parentSessionOf: async (candidate) =>
-          spawnedByParentSessionId(
-            (await this.store.sessions.getSession(asSessionId(candidate)))?.spawnedBy,
-          ),
-        onBehalfOfFor: async (candidate) =>
-          (await this.store.sessions.getSession(asSessionId(candidate)))?.ownerUserId,
-      })
+    const principalForCapability = capabilityPrincipalResolver(this.store.sessions)
     const workflowCallerForCapability = async (
       capability: import('@podium/model').Capability,
       overrideScope?: boolean,
@@ -1725,6 +1718,30 @@ export class SessionRegistry {
       held.ids = closed
       return closed
     }
+    // The two automation reads behind `hasScheduledWakeup`, once per READ SCOPE
+    // [POD-6149]. The backstop asks once per quiet live session, and the answer
+    // reads the same two tables each time; one host sample (its own read scope)
+    // now reads them once. Nothing in a sample writes automations.
+    const scheduledWakeupsSlot = readScopeSlot<{
+      held:
+        | Promise<{
+            lastSpawned: Awaited<ReturnType<SessionStore['automations']['lastSpawnedSessions']>>
+            automations: Awaited<ReturnType<SessionStore['automations']['list']>>
+          }>
+        | undefined
+    }>(() => ({ held: undefined }))
+    const scheduledWakeupsInScope = () => {
+      const slot = currentReadScope().slot(scheduledWakeupsSlot)
+      slot.held ??= (async () => ({
+        lastSpawned: await this.store.automations.lastSpawnedSessions(),
+        automations: await this.store.automations.list(),
+      }))()
+      // A failed read must not be remembered for the rest of the scope.
+      slot.held.catch(() => {
+        slot.held = undefined
+      })
+      return slot.held
+    }
     const hosts = new HostsService(
       {
         getSettings: async () => await this.store.settings.getSettings(),
@@ -1839,8 +1856,8 @@ export class SessionRegistry {
         parkShellSession: (input) => sessionsSvc.parkShellSession(input),
         killShellSession: (input) => sessionsSvc.killSession(input),
         hasScheduledWakeup: async (sessionId, now) => {
-          const lastSpawned = await this.store.automations.lastSpawnedSessions()
-          return (await this.store.automations.list()).some((automation) => {
+          const { lastSpawned, automations } = await scheduledWakeupsInScope()
+          return automations.some((automation) => {
             if (!automation.enabled || automation.nextRunAt === null) return false
             const target = automation.targetSessionId ?? lastSpawned.get(automation.id)
             return target === sessionId && Date.parse(automation.nextRunAt) > now

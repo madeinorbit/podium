@@ -19,7 +19,7 @@ import type {
 import { and, asc, desc, eq, isNotNull, isNull, sql } from 'drizzle-orm'
 import { automationRuns, automations } from '../migrations/schema'
 import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
-import { param, prepared } from './executor/sync-drizzle'
+import { inListOf, inListSize, inListValues, param, prepared, preparedFamily } from './executor/sync-drizzle'
 
 export type { AutomationRunOutcome } from '@podium/model'
 export type AutomationRow = AutomationWire & {
@@ -121,6 +121,28 @@ const runOwner = prepared((db: StoreDrizzle) =>
     .where(runIdIs())
     .prepare(),
 )
+
+// The batched forms of `automationOwner` / `runOwner` [POD-6149]: the same
+// unfiltered reads, keyed by id, one statement per IN-list chunk.
+const automationOwnersOfIds = preparedFamily((db: StoreDrizzle, size: number) =>
+  db
+    .select({ id: automations.id, ownerUserId: automations.ownerUserId })
+    .from(automations)
+    .where(inListOf(automations.id, size))
+    .prepare(),
+)
+
+const runOwnersOfIds = preparedFamily((db: StoreDrizzle, size: number) =>
+  db
+    .select({ id: automationRuns.id, ownerUserId: automations.ownerUserId })
+    .from(automationRuns)
+    .innerJoin(automations, eq(automations.id, automationRuns.automationId))
+    .where(inListOf(automationRuns.id, size))
+    .prepare(),
+)
+
+/** Under SQLite's bound-parameter limit, like the other batched readers. */
+const OWNER_CHUNK = 500
 
 const automationColumns = {
   name: P('name'),
@@ -332,6 +354,35 @@ export class AutomationsRepository {
    *  contract and the same reason as {@link ownerOf}. */
   async runOwnerOf(id: string): Promise<UserId | undefined> {
     return (await runOwner(this.db).get({ id: id as AutomationRunId }))?.ownerUserId
+  }
+
+  /** {@link ownerOf} for many automations in one read per 500 ids. An id with
+   *  no row is absent from the map, which callers read as "no owner". */
+  async ownersOf(ids: readonly string[]): Promise<Map<string, UserId>> {
+    const out = new Map<string, UserId>()
+    const unique = [...new Set(ids)]
+    for (let at = 0; at < unique.length; at += OWNER_CHUNK) {
+      const chunk = unique.slice(at, at + OWNER_CHUNK)
+      const size = inListSize(chunk.length)
+      for (const row of await automationOwnersOfIds(this.db, size).all(inListValues(chunk, size))) {
+        out.set(row.id, row.ownerUserId)
+      }
+    }
+    return out
+  }
+
+  /** {@link runOwnerOf} for many runs in one read per 500 ids; same contract. */
+  async runOwnersOf(ids: readonly string[]): Promise<Map<string, UserId>> {
+    const out = new Map<string, UserId>()
+    const unique = [...new Set(ids)]
+    for (let at = 0; at < unique.length; at += OWNER_CHUNK) {
+      const chunk = unique.slice(at, at + OWNER_CHUNK)
+      const size = inListSize(chunk.length)
+      for (const row of await runOwnersOfIds(this.db, size).all(inListValues(chunk, size))) {
+        out.set(row.id, row.ownerUserId)
+      }
+    }
+    return out
   }
 
   async insert(a: AutomationRow): Promise<void> {

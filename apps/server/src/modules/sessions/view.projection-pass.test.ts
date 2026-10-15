@@ -17,6 +17,7 @@ import { queryAttributionSnapshot, resetQueryAttribution } from '@podium/runtime
 import { systemPrincipal } from '../../command-principal'
 import { harnessCapabilitiesFor } from '../../harness-manifest'
 import { openTestStore } from '../../test-support/open-test-store'
+import { expectConstantStatements, type StatementPin } from '../../test-support/statement-count'
 import { SessionRepository } from './repository'
 import { Session } from './session'
 import { SessionAuthz } from './session-authz'
@@ -460,5 +461,63 @@ describe('one projection pass', () => {
     } finally {
       await f.store.close()
     }
+  })
+
+  describe('pinned statement counts at 5 and 200 sessions [POD-6149]', () => {
+    type Fixture = Awaited<ReturnType<typeof fixture>>
+    const pin = (
+      name: string,
+      run: (f: Fixture) => Promise<unknown>,
+      check: (result: unknown, size: number) => void,
+    ): StatementPin<Fixture> => ({
+      name,
+      setup: fixture,
+      target: (f) => f.store,
+      run,
+      check: (result, _f, size) => check(result, size),
+      teardown: async (f) => await f.store.close(),
+    })
+
+    it('list: issues, two grant kinds and queue counts', async () => {
+      await expectConstantStatements(
+        pin('SessionView.list', (f) => f.view.list(principal, 'rpc'), (rows, size) =>
+          expect(rows).toHaveLength((size * 4) / 5),
+        ),
+        4,
+      )
+    })
+
+    it('byIds over every session: the same four reads', async () => {
+      await expectConstantStatements(
+        pin(
+          'SessionView.byIds',
+          (f) => f.view.byIds(f.rows.map((s) => s.sessionId), principal),
+          (rows, size) => expect(rows).toHaveLength((size * 4) / 5),
+        ),
+        4,
+      )
+    })
+
+    it('listForIssue: members carry an issue, so no session-grant read', async () => {
+      await expectConstantStatements(
+        pin(
+          'SessionView.listForIssue',
+          (f) => f.view.listForIssue(null, asIssueId('projection-issue'), principal),
+          (rows, size) => expect(rows).toHaveLength(size / 5),
+        ),
+        3,
+      )
+    })
+
+    it('byId: one session costs the same whatever the fleet size', async () => {
+      await expectConstantStatements(
+        pin(
+          'SessionView.byId',
+          (f) => f.view.byId(f.rows[3]!.sessionId, principal),
+          (row) => expect(row).toMatchObject({ refSeq: 1, refLetter: 'b', queuedMessageCount: 1 }),
+        ),
+        3,
+      )
+    })
   })
 })

@@ -28,6 +28,7 @@ import {
   snoozes as snoozesTable,
   tabOrder,
 } from '../migrations/schema'
+import { operationLoader } from './executor/operation-loader'
 import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
 import {
   inListOf,
@@ -768,6 +769,22 @@ export class SessionsRepository {
   }
 
   /**
+   * {@link getSession} through the operation's loader [POD-6149]. Loads asked
+   * for in the same tick become one {@link getSessions} query, and a row already
+   * loaded is reused for the rest of the operation (its read scope). Outside an
+   * explicit scope it is exactly one `getSession`. Every session-row write below
+   * invalidates it, so a read after a write in the same operation sees the write.
+   */
+  async loadSession(sessionId: SessionId): Promise<SessionRow | undefined> {
+    return await this.sessionRows.load(sessionId)
+  }
+
+  private readonly sessionRows = operationLoader<string, SessionRow>(
+    async (ids) => await this.getSessions(ids),
+    { copy: (row) => ({ ...row }) },
+  )
+
+  /**
    * The live session a conversation resumes into, by its `resumeValue`.
    *
    * A QUERY RATHER THAN A SCAN, and that is the whole point (POD-1614). Feed
@@ -972,6 +989,7 @@ export class SessionsRepository {
       createdByOnBehalfOf: row.createdBy?.onBehalfOf ?? null,
     }
     await upsertSessionOfShape(this.db, shapeOf(values)).run(values)
+    this.sessionRows.invalidate()
   }
 
   /** Tombstone sessions without destroying their metadata or UI satellites.
@@ -991,6 +1009,7 @@ export class SessionsRepository {
       await stopRunningForTombstone(this.db).run({ id, deletedAt })
       await tombstoneSession(this.db).run({ id, deletedAt, source, deletedByIssueId })
     }
+    this.sessionRows.invalidate()
   }
 
   /** Mark sessions as deleted by an issue so restoring that issue can recover them. */
@@ -1001,6 +1020,7 @@ export class SessionsRepository {
   /** Re-expose an issue's tombstoned sessions as honestly exited runtime records. */
   async restoreDeletedForIssue(issueId: IssueId): Promise<void> {
     await restoreSessionsOfIssue(this.db).run({ issueId })
+    this.sessionRows.invalidate()
   }
 
   /**
@@ -1030,6 +1050,7 @@ export class SessionsRepository {
    */
   async detachTombstonesFromIssue(issueId: IssueId): Promise<void> {
     await detachTombstones(this.db).run({ issueId })
+    this.sessionRows.invalidate()
   }
 
   /**
@@ -1041,6 +1062,7 @@ export class SessionsRepository {
    */
   async detachDanglingIssueReferences(): Promise<number> {
     const result = await detachDanglingReferences(this.db).run()
+    this.sessionRows.invalidate()
     return Number(result.changes)
   }
 
@@ -1049,6 +1071,7 @@ export class SessionsRepository {
     await deleteCheckpointsOfSession(this.db).run({ id })
     this.purgeObservationCheckpoint(id)
     await deleteSessionRow(this.db).run({ id })
+    this.sessionRows.invalidate()
     await deletePanelPinsOf(this.db).run({ id })
     await deleteDraftOf(this.db).run({ id })
     await deleteSnoozesOf(this.db).run({ id })

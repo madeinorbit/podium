@@ -455,12 +455,15 @@ export class IssueReportsModule {
     const rootRow = await this.store.rowOrThrow(await this.store.resolveRef(ref))
     if (!(await mayRead(rootRow.id))) throw new IssueNotFound(ref)
     const byParent = new Map<string, IssueRow[]>()
-    for (const r of this.store.rows.values()) {
-      if (!(await mayRead(r.id)) || !r.parentId || r.archived) continue
-      if (r.deletedAt) continue
-      const list = byParent.get(r.parentId)
+    // Structure first, then ONE readability pass over the candidates: `mayRead`
+    // is a pure predicate, and asked together its grant reads batch (POD-6149).
+    const candidates = [...this.store.rows.values()].filter(
+      (r) => r.parentId && !r.archived && !r.deletedAt,
+    )
+    for (const r of await filterReadable(candidates, mayRead)) {
+      const list = byParent.get(r.parentId!)
       if (list) list.push(r)
-      else byParent.set(r.parentId, [r])
+      else byParent.set(r.parentId!, [r])
     }
     // ONE FACTS SNAPSHOT FOR THE WHOLE WALK, and the wiring deferred [POD-3857].
     //
@@ -478,6 +481,25 @@ export class IssueReportsModule {
     // recurses over the subtree and asked for its own row's deps at every step
     // (POD-3257).
     const batch = await this.dependencyBatch()
+    // The walk asks `mayRead` for each blocks target one node at a time; ask it
+    // for every target in the subtree together first, so those reads batch too.
+    const subtree = new Map<string, IssueRow>()
+    for (const pending = [rootRow]; pending.length > 0; ) {
+      const next = pending.pop()!
+      // A visited set, because a corrupt parent cycle must not spin here; the
+      // walk below has its own depth and node caps.
+      if (subtree.has(next.id)) continue
+      subtree.set(next.id, next)
+      pending.push(...(byParent.get(next.id) ?? []))
+    }
+    await Promise.all(
+      [...subtree.values()].flatMap((r) =>
+        (batch.depsByFrom.get(r.id) ?? []).flatMap((d) => {
+          const target = d.type === 'blocks' ? this.store.rows.get(d.toId) : undefined
+          return target ? [mayRead(target.id)] : []
+        }),
+      ),
+    )
     let count = 0
     let omitted = 0
     const node = async (row: IssueRow, depth: number): Promise<IssueTreeNode> => {
@@ -737,8 +759,10 @@ export class IssueReportsModule {
     const ids = new Set(rows.map((r) => r.id))
     const danglingDeps: DoctorReport['danglingDeps'] = []
     const adj = new Map<IssueId, IssueId[]>()
+    // One dep read for every row, not one per row (POD-6149); same per-row order.
+    const { depsByFrom } = await this.dependencyBatch()
     for (const r of rows) {
-      for (const d of await this.store.deps.store.issues.listIssueDeps(r.id)) {
+      for (const d of depsByFrom.get(r.id) ?? []) {
         if (!ids.has(d.toId)) danglingDeps.push({ from: r.id, to: d.toId, type: d.type })
         if (d.type === 'blocked-by') {
           adj.set(r.id, [...(adj.get(r.id) ?? []), d.toId])

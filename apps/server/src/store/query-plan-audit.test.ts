@@ -81,6 +81,9 @@ const FAMILY_SHAPES: ReadonlyMap<string, readonly (string | number)[]> = new Map
   ['apps/server/src/store/shipping.ts:openHoldsOfOrders', SIZES],
   ['apps/server/src/store/shipping.ts:receiptsOfOrders', SIZES],
   ['apps/server/src/store/shipping.ts:issueIdsOfOrders', SIZES],
+  ['apps/server/src/store/shipping.ts:queuedOrdersOfLanes', ['1x1', '1x4', '4x4']],
+  ['apps/server/src/store/automations.ts:automationOwnersOfIds', SIZES],
+  ['apps/server/src/store/automations.ts:runOwnersOfIds', SIZES],
   ['apps/server/src/store/users.ts:insertInvite', ['id']],
   ['apps/server/src/store/conversations/registry.ts:segmentsWithPaths', SIZES],
   ['apps/server/src/store/conversations/registry.ts:parentsOf', SIZES],
@@ -344,6 +347,10 @@ const ALLOWLIST: ReadonlyMap<string, string> = new Map([
   [
     'apps/server/src/store/shipping.ts:queuedOrdersOfLane',
     'Sorts the queued orders of one lane, found through idx_ship_orders_lane.',
+  ],
+  [
+    'apps/server/src/store/shipping.ts:queuedOrdersOfLanes',
+    'Sorts the queued orders of the listed lanes, found through idx_ship_orders_lane: the queues of the lanes in one feed batch.',
   ],
   [
     'apps/server/src/store/shipping.ts:queuedDependentsOfIds',

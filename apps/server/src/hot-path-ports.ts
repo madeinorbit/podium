@@ -27,9 +27,9 @@ export interface FeedVisibilityStore {
   >
   readonly shipping: Pick<
     SessionStore['shipping'],
-    'issueIdsForOrders' | 'laneMemberIssueIds' | 'getOrder'
+    'issueIdsForOrders' | 'laneMemberIssueIds' | 'laneMemberIssueIdsMany' | 'getOrder'
   >
-  readonly automations: Pick<SessionStore['automations'], 'ownerOf' | 'runOwnerOf'>
+  readonly automations: Pick<SessionStore['automations'], 'ownersOf' | 'runOwnersOf'>
   readonly sync: Pick<SessionStore['sync'], 'latestChangeStatesGeneration' | 'latestChangeStates'>
 }
 export type DeliveryMessages = Pick<

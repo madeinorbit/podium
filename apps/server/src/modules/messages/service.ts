@@ -2481,13 +2481,21 @@ export class MessageDeliveryService {
    * Best-effort and idempotent: a late/duplicate echo finds it already there.
    */
   async onTranscriptDelta(sessionId: SessionId, items: { id?: string; role?: string; text?: string }[]): Promise<void> {
-    for (const item of items) {
-      // Only a user turn echoes a pasted prompt; assistant/tool text quoting the
-      // id must never self-confirm a message the agent merely referenced.
-      if (item.role !== 'user' || !item.text) continue
+    // Only a user turn echoes a pasted prompt; assistant/tool text quoting the
+    // id must never self-confirm a message the agent merely referenced.
+    const echoes = items.flatMap((item) => {
+      if (item.role !== 'user' || !item.text) return []
       const id = echoedFrameId(item.text)
-      if (!id) continue
-      const row = await this.deps.messages.getMessage(id)
+      return id ? [{ item, id }] : []
+    })
+    if (echoes.length === 0) return
+    // Every echoed row in one read, not one read per item [POD-6149]. A row this
+    // loop confirms is dropped from the map, so a later echo of the same id reads
+    // it again and sees the confirmation, exactly as the per-item read did.
+    const rows = new Map<string, MessageRow | null>(echoes.map((echo) => [echo.id, null]))
+    for (const row of await this.deps.messages.getMessages([...rows.keys()])) rows.set(row.id, row)
+    for (const { item, id } of echoes) {
+      const row = rows.has(id) ? rows.get(id) : await this.deps.messages.getMessage(id)
       // `unknown` included: the echo is exactly the proof it was waiting for.
       if (!row) continue
       // Confirm ONLY a push WE made to THIS session. A row we never handed on
@@ -2507,6 +2515,7 @@ export class MessageDeliveryService {
         continue
       }
       if (!isMessageHandedOn(row.deliveryStatus)) continue
+      rows.delete(id)
       await this.markDelivered(row, sessionId, 'echo')
     }
   }

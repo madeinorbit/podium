@@ -53,9 +53,10 @@ async function fixture() {
     shipping: {
       issueIdsForOrders: async () => new Map(),
       laneMemberIssueIds: async () => [],
+      laneMemberIssueIdsMany: async (ids) => new Map([...ids].map((id) => [id, []])),
       getOrder: async () => null,
     },
-    automations: { ownerOf: async () => undefined, runOwnerOf: async () => undefined },
+    automations: { ownersOf: async () => new Map(), runOwnersOf: async () => new Map() },
     sync: store.sync,
   }
   const policy = makeFeedVisibility({

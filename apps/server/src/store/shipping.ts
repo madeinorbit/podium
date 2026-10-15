@@ -662,6 +662,25 @@ const queuedOrdersOfLane = preparedFamily((db: StoreDrizzle, size: number) =>
     .prepare(),
 )
 
+// Queued orders of SEVERAL lanes in one read [POD-6149]: every listed repo
+// crossed with every listed raw destination; callers keep only each lane's own
+// (repo, canonical destination) pairs. Keyed by the two padded list sizes.
+const queuedOrdersOfLanes = preparedFamily((db: StoreDrizzle, shape: string) => {
+  const [repoSize, destinationSize] = shape.split('x').map(Number) as [number, number]
+  return db
+    .select(orderColumns)
+    .from(shipOrders)
+    .where(
+      and(
+        inListOf(shipOrders.repoId, repoSize, 'repo'),
+        inListOf(shipOrders.destination, destinationSize, 'destination'),
+        eq(shipOrders.state, 'queued'),
+      ),
+    )
+    .orderBy(asc(shipOrders.requestedAt), asc(shipOrders.id))
+    .prepare()
+})
+
 const ordersOfIds = preparedFamily((db: StoreDrizzle, size: number) =>
   db.select(orderColumns).from(shipOrders).where(inListOf(shipOrders.id, size, 'ids')).prepare(),
 )
@@ -1776,6 +1795,46 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
     return [
       ...new Set((await this.queuedLaneOrders(lane.repoId, lane.destination)).map((order) => order.issueId)),
     ]
+  }
+
+  /**
+   * {@link laneMemberIssueIds} for many lanes in one read [POD-6149]. Each lane
+   * gets exactly the ids, in the same order, the one-lane read returns: the
+   * query is the one-lane query widened to every listed repo and raw
+   * destination, and each lane keeps only its own orders. Unparseable ids name
+   * no lane and map to `[]`.
+   */
+  async laneMemberIssueIdsMany(laneIds: Iterable<string>): Promise<Map<string, string[]>> {
+    const out = new Map<string, string[]>()
+    const lanes: { laneId: string; repoId: ShipOrderValue['repoId']; destination: string }[] = []
+    for (const laneId of new Set(laneIds)) {
+      out.set(laneId, [])
+      try {
+        lanes.push({ laneId, ...parseShipLaneId(laneId) })
+      } catch {
+        // No lane: no members.
+      }
+    }
+    if (lanes.length === 0) return out
+    const repoIds = [...new Set(lanes.map((lane) => lane.repoId))]
+    const destinations = [...new Set(lanes.flatMap((lane) => rawShippingDestinations(lane.destination)))]
+    const repoSize = inListSize(repoIds.length)
+    const destinationSize = inListSize(destinations.length)
+    const orders = (
+      await queuedOrdersOfLanes(this.db, `${repoSize}x${destinationSize}`).all(
+        inListValues(destinations, destinationSize, 'destination', inListValues(repoIds, repoSize, 'repo')),
+      )
+    ).map(mapOrder)
+    for (const lane of lanes) {
+      const members = new Set<string>()
+      for (const order of orders) {
+        if (order.repoId !== lane.repoId) continue
+        if (canonicalShippingDestination(order.destination, order.targetBranch) !== lane.destination) continue
+        members.add(order.issueId)
+      }
+      out.set(lane.laneId, [...members])
+    }
+    return out
   }
 
   async issueIdForOrder(id: string): Promise<string | null> {

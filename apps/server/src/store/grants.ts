@@ -11,6 +11,7 @@ import type { GrantVerb } from '@podium/model'
 import { GRANT_VERBS } from '@podium/model'
 import { and, asc, count, eq, type SQL, sql } from 'drizzle-orm'
 import { grantAudiences, grants } from '../migrations/schema'
+import { operationLoader } from './executor/operation-loader'
 import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
 import { inListOf, inListSize, inListValues, param, prepared, preparedFamily } from './executor/sync-drizzle'
 
@@ -189,6 +190,13 @@ const deleteGrantsOfResource = preparedFamily((db: StoreDrizzle, custody: 'retai
     )).returning().prepare(),
 )
 
+/** One loader key per `(kind, id)`; NUL cannot occur in either. */
+const resourceGrantKey = (kind: string, id: string): string => `${kind}\u0000${id}`
+const splitResourceGrantKey = (key: string): [string, string] => {
+  const at = key.indexOf('\u0000')
+  return [key.slice(0, at), key.slice(at + 1)]
+}
+
 export class GrantsRepository {
   readonly committed: CommittedRows<typeof grants.$inferSelect>
 
@@ -293,6 +301,40 @@ export class GrantsRepository {
     return out
   }
 
+  /**
+   * {@link listForResource} through the operation's loader [POD-6149].
+   *
+   * An authorization pass asks "who may read this issue?" once per row, from
+   * many call sites (`mayRead` callbacks). Asked in the same tick, those become
+   * one {@link listForResources} query per resource kind; asked again later in
+   * the same operation (read scope), they are answered from the loader. Outside
+   * an explicit scope it is exactly one live read. Every grant write below
+   * invalidates it, so an operation sees its own grant changes.
+   */
+  async loadForResource(resourceKind: string, resourceId: string): Promise<GrantRow[]> {
+    return (await this.resourceGrants.load(resourceGrantKey(resourceKind, resourceId))) ?? []
+  }
+
+  private readonly resourceGrants = operationLoader<string, GrantRow[]>(
+    async (keys) => {
+      const idsByKind = new Map<string, string[]>()
+      for (const key of keys) {
+        const [kind, id] = splitResourceGrantKey(key)
+        const ids = idsByKind.get(kind)
+        if (ids) ids.push(id)
+        else idsByKind.set(kind, [id])
+      }
+      const found = new Map<string, GrantRow[]>()
+      for (const [kind, ids] of idsByKind) {
+        const edges = await this.listForResources(kind, ids)
+        // "No edges" is an answer, and it is the one the loader must remember.
+        for (const id of ids) found.set(resourceGrantKey(kind, id), edges.get(id) ?? [])
+      }
+      return found
+    },
+    { copy: (rows) => rows.map((row) => ({ ...row })) },
+  )
+
   /** Every edge on every resource of one kind — the fleet-wide read the machine
    *  listing needs, so N machines cost one query rather than N. */
   async listForKind(resourceKind: string): Promise<GrantRow[]> {
@@ -337,6 +379,7 @@ export class GrantsRepository {
         onBehalfOf: row.onBehalfOf,
       })
     }, 'upsert')
+    this.resourceGrants.invalidate()
     this.visibilityRevisionValue += 1
   }
 
@@ -350,6 +393,7 @@ export class GrantsRepository {
       await this.noteVisibilityAudience(resourceKind, resourceId, grantee)
       return await deleteEdge(this.db).all(edge)
     }, 'delete')
+    this.resourceGrants.invalidate()
     const removed = (before?.n ?? 0) > 0
     if (removed) this.visibilityRevisionValue += 1
     return removed
@@ -359,6 +403,7 @@ export class GrantsRepository {
   async removeAllForGrantee(grantee: string): Promise<void> {
     const result = await this.committed.write(async () => await deleteGrantsOfGrantee(this.db)
       .all({ grantee }), 'delete')
+    this.resourceGrants.invalidate()
     if (result.changes > 0) this.visibilityRevisionValue += 1
   }
 
@@ -373,6 +418,7 @@ export class GrantsRepository {
   async removeAllForResource(resourceKind: string, resourceId: string, retainCustody = false): Promise<void> {
     const result = await this.committed.write(async () => await deleteGrantsOfResource(this.db, retainCustody ? 'retain' : 'all')
       .all({ resourceKind, resourceId }), 'delete')
+    this.resourceGrants.invalidate()
     if (Number(result.changes) > 0) this.visibilityRevisionValue += 1
   }
 }

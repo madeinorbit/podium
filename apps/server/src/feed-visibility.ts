@@ -505,15 +505,16 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
             async () => await store.shipping.issueIdsForOrders([...shipOrderIds]),
           )
     for (const issueId of issueIdsByShipOrder.values()) issueIds.add(issueId)
-    // Lanes are few (one per repository and destination), so one lane-scoped
-    // read each; like ship orders, they resolve to issues before the grant read.
-    const issueIdsByShipLane = new Map<string, readonly string[]>()
-    for (const laneId of shipLaneIds) {
-      const members = await measure(
-        'visibility.shipLane.memberIssueIds',
-        async () => await store.shipping.laneMemberIssueIds(laneId),
-      )
-      issueIdsByShipLane.set(laneId, members)
+    // One read for every lane (POD-6149); like ship orders, lanes resolve to
+    // issues before the grant read.
+    const issueIdsByShipLane: ReadonlyMap<string, readonly string[]> =
+      shipLaneIds.size === 0
+        ? new Map()
+        : await measure(
+            'visibility.shipLane.memberIssueIds',
+            async () => await store.shipping.laneMemberIssueIdsMany(shipLaneIds),
+          )
+    for (const members of issueIdsByShipLane.values()) {
       for (const issueId of members) issueIds.add(issueId)
     }
     const issues =
@@ -541,26 +542,25 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
     // directly, plus the ones a conversation resolved to.
     const grantedSessionIds = new Set<string>(sessionIds)
     for (const row of sessionsByResumeValue.values()) grantedSessionIds.add(row.id)
-    const automationOwners = new Map<string, UserId | undefined>()
-    for (const id of automationIds) {
-      automationOwners.set(
-        id,
-        await measure(
-          'visibility.automation.ownerOf',
-          async () => await store.automations.ownerOf(id),
-        ),
-      )
+    // One read per table for every automation and run in the batch (POD-6149).
+    // Every asked id gets an entry, `undefined` for "no owner", as before.
+    const ownersOf = async (
+      ids: ReadonlySet<string>,
+      label: BootstrapReadPhase,
+      read: (ids: readonly string[]) => Promise<ReadonlyMap<string, UserId>>,
+    ): Promise<Map<string, UserId | undefined>> => {
+      if (ids.size === 0) return new Map()
+      const found = await measure(label, async () => await read([...ids]))
+      return new Map([...ids].map((id) => [id, found.get(id)]))
     }
-    const automationRunOwners = new Map<string, UserId | undefined>()
-    for (const id of automationRunIds) {
-      automationRunOwners.set(
-        id,
-        await measure(
-          'visibility.automationRun.runOwnerOf',
-          async () => await store.automations.runOwnerOf(id),
-        ),
-      )
-    }
+    const automationOwners = await ownersOf(automationIds, 'visibility.automation.ownerOf', (ids) =>
+      store.automations.ownersOf(ids),
+    )
+    const automationRunOwners = await ownersOf(
+      automationRunIds,
+      'visibility.automationRun.runOwnerOf',
+      (ids) => store.automations.runOwnersOf(ids),
+    )
     const issueGrants = new Map([...issueIds].map((id) => [id, worldIndex.grantsFor('issue', id)]))
     const sessionGrants = new Map(
       [...grantedSessionIds].map((id) => [id, worldIndex.grantsFor('session', id)]),
@@ -747,15 +747,22 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
       canonicalShippingDestination(order.destination, order.targetBranch),
     )
     const members = await store.shipping.laneMemberIssueIds(laneId)
+    // Every member row in one read, then the same owner-or-grant rule as
+    // `mayReadIssue` for each candidate (POD-6149: no read per member).
+    const memberRows =
+      members.length === 0
+        ? new Map<string, IssueRow>()
+        : await measure(
+            'visibility.issue.getIssue',
+            async () => await readIssues(store.issues, members),
+          )
     const audience: string[] = []
     for (const userId of candidates) {
-      let readable = false
-      for (const issueId of members) {
-        if (await mayReadIssue(asUserId(userId), asIssueId(issueId))) {
-          readable = true
-          break
-        }
-      }
+      const readable = members.some(
+        (issueId) =>
+          memberRows.get(issueId)?.ownerUserId === userId ||
+          worldIndex.grantsFor('issue', issueId).some((edge) => issueGrantAdmits(edge, userId)),
+      )
       if (!readable) audience.push(userId)
     }
     return audience.length === 0
