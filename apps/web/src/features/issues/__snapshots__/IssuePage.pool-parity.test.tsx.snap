@@ -16,21 +16,21 @@ exports[`issue page rendered pool parity > preserves the list text, labels, orde
 
 exports[`issue page rendered pool parity > preserves the page text, labels, order, layout and loader results with zero legacy derivations > rendered output 1`] = `
 {
-  "bytes": 155212,
-  "sha256": "61bb453cfdc2067b547f3921f0b878b157b052c0831850892cbb6fcffbcb1cd3",
+  "bytes": 155236,
+  "sha256": "0a137e78a1330a356d3e54f3591bdd5649bde37a6d0026428d4290c77dafba29",
 }
 `;
 
 exports[`issue page rendered pool parity > preserves the panel text, labels, order, layout and loader results with zero legacy derivations > rendered output 1`] = `
 {
-  "bytes": 84125,
-  "sha256": "7ac635c65396754817b845d3f5d2d400b219c6483d7196400d92209084fc1285",
+  "bytes": 84141,
+  "sha256": "3ba80705145efbb674355edca16c7eb913c5cf0917c018278c00338853f6b9ff",
 }
 `;
 
 exports[`issue page rendered pool parity > preserves the rendered continuation after multiple spin-off hops > rendered output 1`] = `
 {
-  "bytes": 54333,
-  "sha256": "bf236b4abaf71e0ebdb254f2c936c0c5b995c22915365ffe67bf245463ea97c2",
+  "bytes": 54349,
+  "sha256": "24ad34380138abb8f281fc068750e9151c562d6033997a94fb5bb57e1814a300",
 }
 `;
