@@ -23,7 +23,7 @@
  */
 
 import { z } from 'zod'
-import { HarnessAgent } from './agent'
+import { DEFAULT_HARNESS_AGENT, HarnessAgent } from './agent'
 
 /** Lowercase slug: it is also the file name in `.podium/agents/<name>.md`. */
 export const AGENT_PROFILE_NAME_PATTERN = /^[a-z0-9][a-z0-9-]{0,62}$/
@@ -237,7 +237,7 @@ export function parseAgentProfileMarkdown(
   }
   if (rawCandidates.length === 0 && (top.has('harness') || top.has('model') || top.has('effort'))) {
     rawCandidates.push({
-      harness: top.get('harness') ?? 'claude-code',
+      harness: top.get('harness') ?? DEFAULT_HARNESS_AGENT,
       ...(top.has('model') ? { model: top.get('model') as string } : {}),
       ...(top.has('effort') ? { effort: top.get('effort') as string } : {}),
     })

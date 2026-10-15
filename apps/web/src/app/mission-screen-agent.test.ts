@@ -1,9 +1,9 @@
 import { DEFAULT_SETTINGS, nativeAccountId } from '@podium/runtime'
 import { autorun } from 'mobx'
 import { expect, it } from 'vitest'
-import { MissionScreen } from './mission-screen'
-import { MobxPool } from './pool'
-import { ingestSettings } from './requested-records'
+import { MissionScreen } from '@podium/client-graph/mission-screen'
+import { MobxPool } from '@podium/client-graph/pool'
+import { ingestSettings } from '@podium/client-graph/requested-records'
 
 it('resolves the root launch target from Settings and follows changes without using session history', () => {
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
