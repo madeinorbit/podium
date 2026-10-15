@@ -20,6 +20,15 @@ export function createWorklistPool(
       '[pool] the feed has no per-row read (RowSource.row): a lazy pool cannot load a cold row',
     )
   }
+  // A feed with a cold index withholds history rows from the pool, so only
+  // the feed's own facts index sees every session. The pool's fallback index
+  // counts only the sessions it received: residency-dependent unread and
+  // continuation (POD-6136).
+  if (source.cold !== undefined && source.issueSessionFact === undefined) {
+    throw new Error(
+      '[pool] the feed has a cold index but no session facts reader (RowSource.issueSessionFact): issue activity would count only loaded sessions',
+    )
+  }
   const pool = new MobxPool(locals.get(), undefined, {
     ...loader,
     diagnostics: source.diagnostics,

@@ -11,6 +11,8 @@ import type { ColdIndex } from './cold-index'
 import type { PendingOverlay } from '@podium/client-core/command-reducers'
 import { afterEach, expect, it, vi } from 'vitest'
 import { createWorklistPool } from '../create'
+import { NAVIGATION_SUMMARIES } from '../navigation-schema'
+import { MobxPool } from '../pool'
 import { fixedLocals } from './locals-source'
 import { createRowSource, type RowSourceOptions, type RowSourceReplica } from './row-source'
 import type { RowSourceEvent } from './source'
@@ -620,4 +622,42 @@ it('does not let later snapshots swallow pending updates or inserts and replaces
     f.update('one')
     expect(f.source.flush()!.rows[0]).toMatchObject({ kind: 'session', id: 'one', value: { title: 'changed' } })
   } finally { f.source.dispose() }
+})
+
+// POD-6136: a cold history session never reaches the pool, so only the feed's
+// facts index sees its activity. A wrapper that drops the reader is refused
+// instead of falling back to the sessions the pool happened to load.
+it('counts cold history activity through the feed and refuses a feed without its reader', () => {
+  const f = fixture()
+  // A closed continuation target, as in the 4x corpus: its exited session is
+  // cold with it, so the pool never receives the session record.
+  f.put('issueProjections', 'one', { id: 'one', title: 'Issue', stage: 'done', closedAt: '2026-09-17T10:00:00.000Z', audience: 'human',
+    repoId: 'repo', worktreePath: '/synthetic', createdAt: '2026-01-01', updatedAt: '2026-09-17T10:00:00.000Z', deps: [] })
+  f.put('repos', 'repo', { id: 'repo', path: '/synthetic', prefix: 'POD' })
+  f.put('sessions', 'history', { cwd: '/synthetic', sessionId: 'history', issueId: 'one', agentKind: 'codex', status: 'exited',
+    archived: false, stoppedAt: '2026-09-17T09:00:00.000Z', lastActiveAt: '2026-09-17T09:00:00.000Z' })
+  f.replace(); f.source.flush()
+  const locals = fixedLocals({ selectedIssueId: null, coarseNow: Date.parse('2026-10-15') }).source
+  const { issueSessionFact: _reader, ...withoutReader } = f.source.source
+  expect(() => createWorklistPool(withoutReader, locals)).toThrow(/issueSessionFact/)
+  const handle = createWorklistPool({ ...f.source.source }, locals, { summaries: NAVIGATION_SUMMARIES })
+  try {
+    const issue = handle.pool.issueObject('one')
+    expect({ cold: handle.pool.residency?.isCold('session', 'history'), resident: handle.pool.tables.session.has('history') })
+      .toEqual({ cold: true, resident: false })
+    expect(issue.lastActivityAt).toBe('2026-09-17T09:00:00.000Z')
+    expect(issue.tipActivityAt).toBe('2026-09-17T09:00:00.000Z')
+    // Control: the pool's own index, the fallback the guard now refuses for
+    // this feed, never receives the cold session and loses its activity.
+    const fallback = new MobxPool(locals.get(), undefined, { summaries: NAVIGATION_SUMMARIES, load: withoutReader.row!,
+      cold: withoutReader.cold })
+    try {
+      fallback.apply({ type: 'replace', rows: withoutReader.snapshot('worktree') })
+      expect(fallback.tables.session.has('history')).toBe(false)
+      expect(fallback.issueObject('one').lastActivityAt).toBeUndefined()
+    } finally { fallback.dispose() }
+  } finally {
+    handle.dispose()
+    f.source.dispose()
+  }
 })

@@ -214,6 +214,9 @@ export function openFenceFeeds(ctx: ScenarioEngine, mode: FenceFeedMode): FenceF
     ...(raw.source.cold
       ? { cold: (summaries) => outsideArm(() => raw.source.cold!(summaries)) }
       : {}),
+    // POD-6136: the feed's facts index covers cold history sessions; the
+    // pool's own index would count only the sessions it loaded.
+    ...(raw.source.issueSessionFact ? { issueSessionFact: raw.source.issueSessionFact } : {}),
     subscribe: (listener) =>
       raw.source.subscribe((event) => {
         for (const record of event.rows) named.add(`${record.kind}:${record.id}`)

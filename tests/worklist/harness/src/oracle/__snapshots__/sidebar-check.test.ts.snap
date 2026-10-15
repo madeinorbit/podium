@@ -135,134 +135,134 @@ exports[`sidebar differential replay > corpus and every methodology change at 1x
 
 exports[`sidebar differential replay > corpus and every methodology change at 4x > archiveIssue 1`] = `
 {
-  "bytes": 7197904,
-  "sha256": "d76af5c617c058666d1b5c872eb607f5d64464e9903fb4af1633154fe74d2c46",
+  "bytes": 7198080,
+  "sha256": "b5c16bb0b7dcc85bf04b6e4700a10d82600d19d39a92bc3d6be1d1340d817fcc",
 }
 `;
 
 exports[`sidebar differential replay > corpus and every methodology change at 4x > burst50 1`] = `
 {
-  "bytes": 7235080,
-  "sha256": "2d82efc7e6793e80d40e0340ffbbc45221d859683c725768b14c5e1655c8881d",
+  "bytes": 7236044,
+  "sha256": "d85e05ce4d24228cd2650cd57c836ff5489f7ffd289508df4a161aebd940321c",
 }
 `;
 
 exports[`sidebar differential replay > corpus and every methodology change at 4x > clockGraceCrossing 1`] = `
 {
-  "bytes": 7191110,
-  "sha256": "66d324b7d033cd13b7e86d17c3a5a8a65002ecc5fa6524c9c02649edef950616",
+  "bytes": 7191286,
+  "sha256": "bade5b848b49f508adc3c9f6cb227be5c157aa2f9bb65e378efe693a627a71bb",
 }
 `;
 
 exports[`sidebar differential replay > corpus and every methodology change at 4x > clockTick 1`] = `
 {
-  "bytes": 7191062,
-  "sha256": "4d3aa97f1e7b876babfc0a7fd1108d6784bcb59f136b3e7de5f2b855a057b876",
+  "bytes": 7191238,
+  "sha256": "4029b9b46643ea700b1e89e2aa29e2a146832e25eb3d09b86d09bc6ba2ab9f2f",
 }
 `;
 
 exports[`sidebar differential replay > corpus and every methodology change at 4x > corpus 1`] = `
 {
-  "bytes": 7196914,
-  "sha256": "1fa1663cd566f8b409e8b5b2d01713dd2e1722aea43ca540b0dd82fca42614c4",
+  "bytes": 7197066,
+  "sha256": "3ef48f27eb5839ef512c62e164c1925c97cf291fc9b2f7cd8caf79f062549adc",
 }
 `;
 
 exports[`sidebar differential replay > corpus and every methodology change at 4x > evictKeeperWithoutRevision 1`] = `
 {
-  "bytes": 7191064,
-  "sha256": "9cc97dd5d9b7534f931ec2e441c7ef813f70e56413892d15852e918eb459ca42",
+  "bytes": 7191240,
+  "sha256": "a01fdae736818d7b839e61d983177445d63348b7a999883eee05b3d13a401410",
 }
 `;
 
 exports[`sidebar differential replay > corpus and every methodology change at 4x > evictWithoutRevision 1`] = `
 {
-  "bytes": 7195518,
-  "sha256": "22b1a84fd065da718972d7db3e9768352a3475db4c7bb984dc0bcbc0eb3d15ab",
+  "bytes": 7195694,
+  "sha256": "31c190dfe9d351de975b785526586e87f8a3ca55cb1447138c27d731936b0fe4",
 }
 `;
 
 exports[`sidebar differential replay > corpus and every methodology change at 4x > newIssue 1`] = `
 {
-  "bytes": 7200420,
-  "sha256": "da9d98e59d8768623fe0c9b5e9256ce353d023a05f4fd685a978b91c56fff903",
+  "bytes": 7200596,
+  "sha256": "b6a4c1489be7ccf8be84c29a49e52d0890b4fc32495860bf932c0d5670d1c7d1",
 }
 `;
 
 exports[`sidebar differential replay > corpus and every methodology change at 4x > optimisticEcho 1`] = `
 {
-  "bytes": 7191110,
-  "sha256": "10c3b8bdff341872e9271231e6bb47716ef72a26b1efcf71dddcc193884d16fc",
+  "bytes": 7191286,
+  "sha256": "fe71979e6415832979953e9cc4943c7e65c96ed1ea27bc9c223506748aa3bd20",
 }
 `;
 
 exports[`sidebar differential replay > corpus and every methodology change at 4x > optimisticPress 1`] = `
 {
-  "bytes": 7191114,
-  "sha256": "54025ac6d73bf8fb13cc4b3632c6144d5a86d0d394b317a2a7009dc889b564ac",
+  "bytes": 7191290,
+  "sha256": "5b7bdabb8f8c00de692d6af34494dc7dffa82fd8d1f599d3f8255da84ccbefff",
 }
 `;
 
 exports[`sidebar differential replay > corpus and every methodology change at 4x > optimisticPressRejected 1`] = `
 {
-  "bytes": 7191110,
-  "sha256": "10c3b8bdff341872e9271231e6bb47716ef72a26b1efcf71dddcc193884d16fc",
+  "bytes": 7191286,
+  "sha256": "fe71979e6415832979953e9cc4943c7e65c96ed1ea27bc9c223506748aa3bd20",
 }
 `;
 
 exports[`sidebar differential replay > corpus and every methodology change at 4x > parentReassignment 1`] = `
 {
-  "bytes": 7191062,
-  "sha256": "4d3aa97f1e7b876babfc0a7fd1108d6784bcb59f136b3e7de5f2b855a057b876",
+  "bytes": 7191238,
+  "sha256": "4029b9b46643ea700b1e89e2aa29e2a146832e25eb3d09b86d09bc6ba2ab9f2f",
 }
 `;
 
 exports[`sidebar differential replay > corpus and every methodology change at 4x > rescopeBack 1`] = `
 {
-  "bytes": 7235082,
-  "sha256": "f8f2f329185fc0df3811187f3a5331b675ef337ea044ca1597322ffa0c25bd11",
+  "bytes": 7236046,
+  "sha256": "2b4e67e520313eab408654af798c8234d9573166655dfbabb05666a6e9d593d2",
 }
 `;
 
 exports[`sidebar differential replay > corpus and every methodology change at 4x > rescopeGrowth 1`] = `
 {
-  "bytes": 7259562,
-  "sha256": "306e2a5efe32192671d120a422b4e243ed39d57e71c06dcf653d629be7320285",
+  "bytes": 7260526,
+  "sha256": "0dcdbecb913e7819287bfe705ae44e330f9b5bd64ae6bb149f22467c0177c04f",
 }
 `;
 
 exports[`sidebar differential replay > corpus and every methodology change at 4x > selectionClick 1`] = `
 {
-  "bytes": 7196870,
-  "sha256": "e9dbf25fdd84884eb487b1b025ba68ee35e9e65572e5f0fc4b10700edb9c4817",
+  "bytes": 7197022,
+  "sha256": "ca77c1b220b342683c6c6144f4c18094a44b4d9ebb7a3dbd589933ff893c5389",
 }
 `;
 
 exports[`sidebar differential replay > corpus and every methodology change at 4x > stageMoveAcrossGroups 1`] = `
 {
-  "bytes": 7196940,
-  "sha256": "d50d7f15ee1e92b75d241ccf6c78e27a0518915a9c4b2de37b8bdadd41d3fa74",
+  "bytes": 7197092,
+  "sha256": "850529c80dda5ba8609d9293aba5a4829879502ebbba2e9ee98e21c0d1f30546",
 }
 `;
 
 exports[`sidebar differential replay > corpus and every methodology change at 4x > unrelatedHeartbeat 1`] = `
 {
-  "bytes": 7196914,
-  "sha256": "1fa1663cd566f8b409e8b5b2d01713dd2e1722aea43ca540b0dd82fca42614c4",
+  "bytes": 7197066,
+  "sha256": "3ef48f27eb5839ef512c62e164c1925c97cf291fc9b2f7cd8caf79f062549adc",
 }
 `;
 
 exports[`sidebar differential replay > corpus and every methodology change at 4x > visibleSessionPhaseChange 1`] = `
 {
-  "bytes": 7196866,
-  "sha256": "66012fe8534ab08bc80cdf5e24536e5d6348c8927f92246d13aa24e0f093c79a",
+  "bytes": 7197018,
+  "sha256": "fb49a36256ce0265962fd48f354ada8e7a62be9836271fd9e2af6ac55162892f",
 }
 `;
 
 exports[`sidebar differential replay > corpus and every methodology change at 4x > visibleTitleRename 1`] = `
 {
-  "bytes": 7196866,
-  "sha256": "c9f46d0a93d06f605d390b321e366d0c302016784efc0a00f1c20f73f5ff1605",
+  "bytes": 7197018,
+  "sha256": "e4e54b48637fe214b2eadb3fcaca52d7fb3f794b4b012c0e22659904ac6f21cd",
 }
 `;
 
