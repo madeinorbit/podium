@@ -44,8 +44,8 @@ exports[`rendered mission pane parity > preserves visible words, labels, order a
 
 exports[`rendered mission pane parity > preserves visible words, labels, order and layout in needs-you > rendered output 1`] = `
 {
-  "bytes": 42543,
-  "sha256": "d354c7248b2dab78ed31559cf5d4468f42a5cd4dad04c40fbdb8b438bc8f3bfa",
+  "bytes": 42542,
+  "sha256": "629c067b23bc8944da554df154c69909d2a754e69546257662863dda9b131bce",
 }
 `;
 
