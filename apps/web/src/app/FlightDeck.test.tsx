@@ -1087,6 +1087,7 @@ describe('Full task filters remain separate from deck views', () => {
     harness.sessions = [session('s1', { issueId: 't1', agentState: { phase: 'ended' } })]
     await deck()
     fireEvent.click(screen.getByRole('button', { name: 'Up next 0' }))
+    expect(screen.getByText('No tasks match this filter.')).toBeDefined()
     fireEvent.click(screen.getByRole('button', { name: 'Search this mission' }))
     fireEvent.change(screen.getByRole('textbox'), { target: { value: 'no match' } })
     await act(async () => {

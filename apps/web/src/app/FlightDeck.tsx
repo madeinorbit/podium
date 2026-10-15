@@ -2682,6 +2682,10 @@ export const FlightDeckContent = observer(function FlightDeckContent({
               <p className="shell-type-secondary px-4 py-6 text-text-dim">
                 Nothing in this mission matches that.
               </p>
+            ) : view === 'full' && screen.full.filter !== 'all' ? (
+              <p className="shell-type-secondary px-4 py-6 text-text-dim">
+                No tasks match this filter.
+              </p>
             ) : // A vacated root is not an empty spine — the region below says
             // where the work went, and it says it once.
             rootContinuation || rootSessions.length > 0 ? null : rootRetired ? (
