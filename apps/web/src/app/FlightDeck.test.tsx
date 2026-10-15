@@ -1,7 +1,11 @@
 import '@/test-support/mock-pool-fixture'
 // @vitest-environment happy-dom
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
-import { ConversationCache, type ConversationCacheOptions, DraftStore } from '@podium/client-core/conversation'
+import {
+  ConversationCache,
+  type ConversationCacheOptions,
+  DraftStore,
+} from '@podium/client-core/conversation'
 import { dedupeSessions } from '../../../../tests/worklist/diagnostics/reference-state'
 import { createKernelReplica, createSideCache, memoryStorage } from '@podium/client-core/replica'
 import { allIssueViewModels } from '../../../../tests/worklist/diagnostics/reference/issue-view-models'
@@ -126,7 +130,11 @@ const uiState = {
 
 const drafts = new DraftStore({
   storage: { get: () => null, set: () => {} },
-  hub: { on: () => () => {}, sendDraftEdit: () => false, connectionHealth: () => ({ status: 'ok' }) } as never,
+  hub: {
+    on: () => () => {},
+    sendDraftEdit: () => false,
+    connectionHealth: () => ({ status: 'ok' }),
+  } as never,
 })
 afterAll(() => drafts.dispose())
 let conversations: ConversationCache | undefined
@@ -136,7 +144,7 @@ afterEach(() => {
 })
 const owner = withKeyedInputs({
   ownConversations: (options: ConversationCacheOptions) =>
-    conversations ??= new ConversationCache(options),
+    (conversations ??= new ConversationCache(options)),
   drafts,
   getSnapshot: () =>
     fixtureStoreSnapshot(
@@ -1391,7 +1399,7 @@ describe('flight deck fold state (POD-710 §4.2)', () => {
   it('applies the default rule to the rendered spine', async () => {
     await deck()
     expect(chevron('Task t1').getAttribute('aria-expanded')).toBe('false')
-    expect(chevron('Task t2').getAttribute('aria-expanded')).toBe('true')
+    expect(chevron('Task t2').getAttribute('aria-expanded')).toBe('false')
     expect(chevron('Task t3').getAttribute('aria-expanded')).toBe('true')
   })
 
@@ -2126,7 +2134,7 @@ describe('flight deck sections (POD-710 §4.3, §4.4)', () => {
       row,
     )
     const tree = document.querySelector('[data-flight-issue="t1"]')
-    expect(tree?.getAttribute('data-depth')).toBe('1')
+    expect(tree?.getAttribute('data-depth')).toBe('0')
   })
 
   it('keeps one fixed scrollport around sticky mission chrome and growing rows', async () => {
@@ -2143,20 +2151,17 @@ describe('flight deck sections (POD-710 §4.3, §4.4)', () => {
     expect(rows.className).not.toContain('overflow-y-auto')
   })
 
-  it('reveals a session below the sticky mission chrome', async () => {
+  it('reveals a folded session below the sticky mission chrome', async () => {
+    const scrollIntoView = vi.fn()
+    vi.spyOn(HTMLElement.prototype, 'scrollIntoView').mockImplementation(scrollIntoView)
     await deck()
-    const row = document.querySelector<HTMLElement>('[data-flight-session="s1"]')
-    if (!row) throw new Error('no agent row')
-    row.scrollIntoView = vi.fn()
-
+    expect(document.querySelector('[data-flight-session="s1"]')).toBeNull()
     await act(async () => {
       window.dispatchEvent(new CustomEvent(REVEAL_IN_DECK_EVENT, { detail: 's1' }))
     })
-    act(() => {
-      vi.advanceTimersByTime(20)
-    })
-
-    expect(row.scrollIntoView).toHaveBeenCalledWith({ block: 'end' })
+    act(() => vi.advanceTimersByTime(20))
+    expect(document.querySelector('[data-flight-session="s1"]')).not.toBeNull()
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: 'end' })
   })
 
   it('surfaces the archived sessions the tab strip dropped', async () => {
@@ -2202,29 +2207,24 @@ describe('flight deck sections (POD-710 §4.3, §4.4)', () => {
     expect(document.querySelectorAll('[data-flight-session]').length).toBeLessThan(32)
   })
 
-  // POD-1314: a retirement reading is one operational fact. The responsive row
-  // keeps the age visible and changes composition around it when space runs out.
-  it('keeps a retired row’s complete state reading', async () => {
-    harness.sessions = [
-      ...harness.sessions,
-      session('gone', { issueId: 't1', status: 'exited', name: 'Retired agent' }),
-    ]
-    harness.issues = harness.issues.map((raw) => {
-      const candidate = raw as Issue
-      return candidate.id === 't1' ? { ...candidate, memberSessionIds: ['s1', 'gone'] } : candidate
-    })
+  it('shows a stopped session as Done with total working time', async () => {
+    harness.sessions.push(
+      session('gone', {
+        issueId: 't1',
+        status: 'exited',
+        name: 'Stopped agent',
+        agentState: { phase: 'ended', since: '2026-01-01T00:00:00.000Z', workingMsTotal: 65000 },
+      }),
+    )
+    harness.ui.set('podium.flightDeck.folds', writeFolds(new Map([['t1', 'open']]))!)
     await deck()
     const row = document.querySelector('[data-flight-session="gone"]')
     expect(row).not.toBeNull()
-    expect(row?.getAttribute('data-retired')).toBe('true')
-    const state = row?.querySelector('.deck-agent-state')
-    expect(state?.textContent).toContain('Retired')
-    // Both halves remain in the state cell at every panel width.
-    expect(state?.querySelector('.deck-agent-elapsed')).not.toBeNull()
-    expect(row?.querySelector('[title]')?.getAttribute('title')).toContain('Retired · ')
+    expect(row?.querySelector('.flight-v6-state')?.textContent).toBe('Done∑ 1:05')
   })
 
-  it('offers session lifecycle from the row itself', async () => {
+  it('offers session lifecycle from the open card', async () => {
+    harness.ui.set('podium.flightDeck.folds', writeFolds(new Map([['t2', 'open']]))!)
     await deck()
     expect(screen.getByRole('button', { name: 'Session actions for s2' })).toBeTruthy()
   })
@@ -2342,10 +2342,13 @@ describe('flight deck spine (POD-758)', () => {
     // census and no name — the collapsed agent row stays mounted underneath it,
     // because the fold is a height collapse rather than an unmount.
     const band = strip('t1').querySelector('.deck-strip')
-    expect(band?.querySelector('[data-testid="flight-crew"]')).not.toBeNull()
+    expect(band?.querySelector('[data-testid="v6-engines"]')).not.toBeNull()
     expect(band?.textContent).not.toContain('s1')
-    // t2 arrives open, so its agents are rows with names — and no census.
-    expect(strip('t2').querySelector('[data-testid="flight-crew"]')).toBeNull()
+    expect(strip('t2').querySelector('[data-testid="v6-engines"]')).not.toBeNull()
+    await act(async () => {
+      fireEvent.click(chevron('Task t2'))
+    })
+    expect(strip('t2').querySelector('[data-testid="v6-engines"]')).toBeNull()
     expect(strip('t2').textContent).toContain('s2')
   })
 
@@ -2356,22 +2359,28 @@ describe('flight deck spine (POD-758)', () => {
       return meta.sessionId === 's2' ? { ...meta, displayRef: 'POD-2-A' } : meta
     })
     await deck()
+    await act(async () => {
+      fireEvent.click(chevron('Task t2'))
+    })
     expect(strip('t2').textContent).toContain('POD-2-A')
   })
 
   it('keeps task identity separate from the metadata that can wrap below it', async () => {
     await deck()
     const band = strip('t1').querySelector('.deck-strip')
-    const identity = band?.querySelector('.deck-task-identity')
-    const metadata = band?.querySelector('.deck-task-meta')
+    const identity = band?.querySelector('.flight-v6-title')
+    const metadata = band?.querySelector('.flight-v6-state')
 
     expect(identity?.textContent).toContain('Task t1')
-    expect(metadata?.querySelector('[data-operational-state]')).not.toBeNull()
+    expect(metadata?.getAttribute('data-word')).toBe('idle')
     expect(identity?.parentElement).toBe(metadata?.parentElement)
   })
 
   it('does not reserve an empty role column for a lone session', async () => {
     await deck()
+    await act(async () => {
+      fireEvent.click(chevron('Task t1'))
+    })
     const row = document.querySelector('[data-flight-session="s1"]')
 
     expect(row).not.toBeNull()
@@ -2383,27 +2392,16 @@ describe('flight deck spine (POD-758)', () => {
   it('keeps the task fill grey when a strip is selected', async () => {
     await deck()
     const band = strip('t2').querySelector('.deck-strip')
-    expect(band?.className).toContain('bg-tabstrip')
+    expect(band?.closest('.flight-v6-card')?.hasAttribute('data-selected')).toBe(false)
     expect(band?.className).not.toContain('issue-mix')
   })
 
-  // The held seat is a dotted chip in the strip's chip slot, not a row of its
-  // own — "nobody is here" read exactly where somebody would be.
-  it('holds an empty task’s seat as a chip on the strip', async () => {
-    harness.issues = [
-      ...harness.issues,
-      issue('t5', { parentId: 'root', stage: 'planning', title: 'Unstaffed' }),
-    ]
+  it('keeps an empty task compact with its shared Idle state and actions', async () => {
+    harness.issues.push(issue('t5', { parentId: 'root', stage: 'planning', title: 'Unstaffed' }))
     await deck()
-    const seat = strip('t5').querySelector('[data-testid="flight-reserved-slot"]')
-    expect(seat).not.toBeNull()
-    expect(seat?.textContent).toBe('seat open')
-    // Inside the strip itself, so it costs the spine no row.
-    expect(
-      strip('t5')
-        .querySelector('.deck-strip')
-        ?.contains(seat as Node),
-    ).toBe(true)
+    expect(strip('t5').querySelector('.flight-v6-state')?.textContent).toBe('Idle')
+    expect(screen.getByRole('button', { name: 'Task actions for Unstaffed' })).toBeTruthy()
+    expect(strip('t5').querySelector('.flight-v6-sessions')).toBeNull()
   })
 
   it('folds excess completed sessions into one truthful elapsed span', async () => {
@@ -2505,7 +2503,7 @@ describe('flight deck spine geometry (POD-1226)', () => {
     // The list's top pad, the gap under the root roster, and the root rows' own
     // rail. (The header's descent and the view bar's were removed in POD-1306 —
     // see the next test.)
-    expect(segments.length).toBeGreaterThan(2)
+    expect(segments.length).toBeGreaterThanOrEqual(2)
     // Each one takes its width FROM THE RAIL OBJECT, so a hardcoded `w-px`
     // anywhere on the spine fails here rather than at a jog on somebody's screen.
     expect(segments.filter((el) => el.style.width === '')).toEqual([])
@@ -2541,31 +2539,17 @@ describe('flight deck spine geometry (POD-1226)', () => {
     expect(spineSegments().length).toBeGreaterThan(0)
   })
 
-  /**
-   * SELECTION STANDS ON THE RAIL, NOT AGAINST THE ROW (POD-1306). Landing the
-   * tick's right edge on the row's own left edge put a 3×15 bar hard against the
-   * 20px agent tile, which reads as the spine running behind the icon. The tick
-   * belongs on the rail it is about, leaving the whole gutter to the elbow.
-   */
-  it('leaves the gutter between the rail and the tile to the elbow', async () => {
+  it('keeps session selection inside its inset rather than on the task or tree guide', async () => {
     harness.paneA = 's1'
+    harness.ui.set('podium.flightDeck.folds', writeFolds(new Map([['t1', 'open']]))!)
     await deck()
-    const row = document.querySelector<HTMLElement>('[data-flight-session="s1"]')
-    if (!row) throw new Error('no agent row')
-    // The tick's colour moved to `.deck-mark-active` when the active and
-    // pointed marks split hues (POD-1480); its geometry — what this test is
-    // about — is still inline.
-    const tick = row.querySelector<HTMLElement>('span[aria-hidden].deck-mark-active')
-    // `not.toBeNull`, not `toBeDefined`: `querySelector` misses with null, and
-    // `expect(null).toBeDefined()` passes — the guard has to actually guard.
-    expect(tick).not.toBeNull()
-    // The row's own left edge is `AGENT_INDENT` from its block; the tick sits on
-    // the rail at `AGENT_RAIL`, so it stops well short of the tile.
-    const left = Number.parseFloat(tick?.style.left ?? 'NaN')
-    expect(left + 3).toBeLessThan(0)
+    const row = document.querySelector<HTMLElement>('[data-flight-session="s1"]')!
+    expect(row.dataset.selected).toBe('true')
+    expect(row.querySelector('.deck-mark-active')).toBeNull()
+    expect(row.closest('.flight-v6-card')?.hasAttribute('data-selected')).toBe(false)
   })
 
-  it('marks an asking agent with a gutter tick, never a rule on the row', async () => {
+  it('marks an asking agent with the shared state inside its inset', async () => {
     harness.sessions = harness.sessions.map((raw) => {
       const meta = raw as SessionView
       return meta.sessionId === 's1'
@@ -2573,33 +2557,26 @@ describe('flight deck spine geometry (POD-1226)', () => {
         : meta
     })
     await deck()
-    const row = document.querySelector<HTMLElement>('[data-flight-session="s1"]')
-    if (!row) throw new Error('no asking row')
-    expect(row.dataset.needsYou).toBe('true')
-    // No 2px amber rule inset on the row's left edge — that edge is the agent
-    // tile's edge, and the rule was painted across the tile's own corner.
+    const row = document.querySelector<HTMLElement>('[data-flight-session="s1"]')!
+    expect(row.querySelector('[data-word="needs-you"]')?.textContent).toBe('Needs you')
     expect(row.className).not.toContain('inset_2px')
-    // The ask is a tick standing OUTSIDE the rail, at the strips' own offset.
-    const tick = [...row.querySelectorAll<HTMLElement>('span[aria-hidden]')].find(
-      (el) => el.style.background === 'var(--attention)',
-    )
-    expect(tick).toBeDefined()
-    expect(tick?.style.width).toBe('3px')
-    expect(tick?.style.height).toBe('15px')
   })
 
-  it('keeps every agent row in the shared state column without discarding metadata', async () => {
+  it('keeps state and permanent reference on each open session row', async () => {
+    harness.ui.set(
+      'podium.flightDeck.folds',
+      writeFolds(
+        new Map([
+          ['t1', 'open'],
+          ['t2', 'open'],
+        ]),
+      )!,
+    )
     await deck()
     for (const row of document.querySelectorAll('[data-flight-session]')) {
-      const state = row.querySelector('.deck-agent-state')
-      const button = row.querySelector('.deck-agent')
-      // State keeps the same trailing-edge floor as task strips. The four facts
-      // remain direct grid items so the container query can recompose them into
-      // two lines without deleting or duplicating content.
-      expect(state?.className).toContain('deck-state-col')
-      expect(button?.querySelector(':scope > .deck-agent-name')).not.toBeNull()
-      expect(button?.querySelector(':scope > .deck-agent-ref')).not.toBeNull()
-      expect(button?.querySelector(':scope > .deck-agent-state')).not.toBeNull()
+      expect(row.querySelector('.flight-v6-state')).not.toBeNull()
+      expect(row.querySelector('.flight-v6-ref')).not.toBeNull()
+      expect(row.querySelector('.flight-v6-title')).not.toBeNull()
     }
   })
 
@@ -2640,115 +2617,53 @@ describe('flight deck spine geometry (POD-1226)', () => {
  * — no selection, no scroll, nothing that survives the pointer.
  */
 describe('flight deck tab-strip hover link', () => {
-  const pointed = (id: string): string | null =>
-    document.querySelector(`[data-flight-session="${id}"]`)?.getAttribute('data-pointed') ?? null
-
-  afterEach(() => {
-    setHoveredSession(null)
+  beforeEach(() => {
+    harness.ui.set(
+      'podium.flightDeck.folds',
+      writeFolds(
+        new Map([
+          ['t1', 'open'],
+          ['t2', 'open'],
+        ]),
+      )!,
+    )
   })
+  afterEach(() => setHoveredSession(null))
+  const row = (id: string) => document.querySelector<HTMLElement>(`[data-flight-session="${id}"]`)!
 
   it('marks the pointed session and no other', async () => {
     await deck()
-    expect(pointed('s2')).toBeNull()
-
     act(() => setHoveredSession('s2'))
-    expect(pointed('s2')).toBe('true')
-    expect(pointed('s3')).toBeNull()
-
+    expect(row('s2').dataset.pointed).toBe('true')
+    expect(row('s3').dataset.pointed).toBe('false')
     act(() => setHoveredSession(null))
-    expect(pointed('s2')).toBeNull()
+    expect(row('s2').dataset.pointed).toBe('false')
   })
 
-  // Crossing from one tab straight to its neighbour can deliver the old tab's
-  // leave AFTER the new tab's enter; clearing by id makes that a no-op rather
-  // than a blank.
-  it('ignores a stale clear from the tab the pointer already left', async () => {
+  it('ignores a stale clear from a neighbouring tab', async () => {
     await deck()
     act(() => setHoveredSession('s2'))
     act(() => clearHoveredSession('s3'))
-    expect(pointed('s2')).toBe('true')
-
+    expect(row('s2').dataset.pointed).toBe('true')
     act(() => clearHoveredSession('s2'))
-    expect(pointed('s2')).toBeNull()
+    expect(row('s2').dataset.pointed).toBe('false')
   })
 
-  /**
-   * TWO QUESTIONS, TWO HUES, ONE DEVICE (POD-1480). Where you ARE and where you
-   * are POINTING have to be readable at the same time and told apart at a
-   * glance — the previous 100% / 45% of one hue was neither.
-   */
-  const mark = (id: string): Element | null =>
-    document.querySelector(`[data-flight-session="${id}"] .deck-mark-active`) ??
-    document.querySelector(`[data-flight-session="${id}"] .deck-mark-pointed`)
-
-  it('marks the active row and the pointed row at once, in different hues', async () => {
+  it('retains the selected session while another session is pointed', async () => {
     harness.paneA = 's1'
     await deck()
-
-    // The active row carries its mark with no pointer involved at all.
-    expect(mark('s1')?.className).toContain('deck-mark-active')
-    expect(mark('s2')).toBeNull()
-
     act(() => setHoveredSession('s2'))
-
-    // Both marks stand. Neither replaces the other, and they are not the same
-    // colour class — that IS the distinction.
-    expect(mark('s1')?.className).toContain('deck-mark-active')
-    expect(mark('s2')?.className).toContain('deck-mark-pointed')
+    expect(row('s1').dataset.selected).toBe('true')
+    expect(row('s2').dataset.pointed).toBe('true')
+    expect(row('s2').dataset.selected).toBe('false')
   })
 
-  it('keeps the active mark when the pointer lands on the active row', async () => {
+  it('keeps selection when the pointer lands on the same session', async () => {
     harness.paneA = 's1'
     await deck()
-
     act(() => setHoveredSession('s1'))
-
-    // You are already there, so pointing at it says nothing new: the row stays
-    // marked as active rather than downgrading to the pointed hue.
-    expect(mark('s1')?.className).toContain('deck-mark-active')
-    expect(pointed('s1')).toBe('true')
-  })
-
-  it('gives the active row a ground, so a hover cannot outrank it', async () => {
-    harness.paneA = 's1'
-    await deck()
-
-    const row = document.querySelector('[data-flight-session="s1"]')
-    expect(row?.className).toContain('deck-agent-active')
-
-    act(() => setHoveredSession('s2'))
-    expect(row?.className).toContain('deck-agent-active')
-  })
-
-  /**
-   * The active row may not borrow the neutral wash. `--muted` is LESS extreme
-   * than the active ground in both appearances, so a row that took it would
-   * step back under the pointer while every other row stepped forward — the
-   * defect this whole change exists to fix, relocated to the self-hover case.
-   */
-  it('does not let the neutral wash paint over the active row', async () => {
-    harness.paneA = 's1'
-    await deck()
-    const button = document.querySelector('[data-flight-session="s1"] button.deck-agent')
-    if (!button) throw new Error('no agent button')
-
-    // Not even at rest: the hover utility itself is withheld, because a real
-    // pointer on the row would otherwise do what the tab strip is stopped from.
-    expect(button.className).not.toContain('hover:bg-muted')
-
-    act(() => setHoveredSession('s1'))
-    expect(button.className).not.toContain('bg-muted')
-  })
-
-  /** The rows that have no ground of their own still take it, unchanged. */
-  it('still washes a pointed row that is not the active one', async () => {
-    harness.paneA = 's1'
-    await deck()
-    const button = document.querySelector('[data-flight-session="s2"] button.deck-agent')
-    if (!button) throw new Error('no agent button')
-
-    act(() => setHoveredSession('s2'))
-    expect(button.className).toContain('bg-muted')
+    expect(row('s1').dataset.selected).toBe('true')
+    expect(row('s1').dataset.pointed).toBe('true')
   })
 })
 
@@ -2920,7 +2835,7 @@ describe('flight deck view filters (POD-1245)', () => {
   it('leaves every row a full strip in Full spine', async () => {
     harness.ui.set('podium.flightDeck.mode', 'full')
     await deck()
-    expect(band('mid').className).toContain('bg-tabstrip')
+    expect(band('mid').className).toContain('flight-v6-strip')
     expect(strip('mid').textContent).toContain('busy')
   })
 

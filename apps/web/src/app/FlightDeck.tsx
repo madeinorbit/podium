@@ -1610,6 +1610,7 @@ export const FlightDeckContent = observer(function FlightDeckContent({
   const view = screen.view
   const mode = screen.mode
   const folds = screen.folds
+  const fullReady = view === 'full' && settled(() => screen.full.ready) === true
   const IssueMenu = source.IssueMenu
   const rootId = screen.rootId
 
@@ -2368,15 +2369,15 @@ export const FlightDeckContent = observer(function FlightDeckContent({
                   variant="ghost"
                   size="icon-sm"
                   className="size-6 text-text-faint"
-                  title={(view === 'full' ? screen.full.allFolded : screen.allFolded) ? 'Expand every branch' : 'Fold every branch'}
-                  disabled={view === 'full' ? screen.full.foldableIds.length === 0 : !screen.anyFoldable}
+                  title={(view === 'full' ? fullReady && screen.full.allFolded : screen.allFolded) ? 'Expand every branch' : 'Fold every branch'}
+                  disabled={view === 'full' ? !fullReady || screen.full.foldableIds.length === 0 : !screen.anyFoldable}
                   // Both directions write EXPLICIT values for every foldable
                   // branch: "expand everything" that merely cleared the map would
                   // leave the one-session tasks closed by the default rule, which
                   // is not what the control says.
                   onClick={() => view === 'full' ? screen.full.foldAll() : screen.foldAll()}
                 >
-                  {(view === 'full' ? screen.full.allFolded : screen.allFolded) ? <ChevronsUpDown size={13} /> : <ChevronsDownUp size={13} />}
+                  {(view === 'full' ? fullReady && screen.full.allFolded : screen.allFolded) ? <ChevronsUpDown size={13} /> : <ChevronsDownUp size={13} />}
                 </Button>
               </>
             )}

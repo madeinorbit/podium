@@ -498,7 +498,7 @@ describe('mission sections read their own fields', () => {
     }
     return counts
   }
-  const LABEL_PARTS = new Set(['observerRowTitle', 'observerFoldChevron', 'observerRowActionsButton'])
+  const LABEL_PARTS = new Set(['observerFlightDeckV6TaskTitle', 'observerTaskFold', 'observerTaskBody', 'observerTaskActions'])
 
   it('a title-only change redraws only that task\'s label, and the root\'s only the header title', async () => {
     const root = issues.find(
@@ -525,7 +525,7 @@ describe('mission sections read their own fields', () => {
     )
     expect(current.container.querySelector(`[data-flight-issue="${child.id}"]`)?.textContent).toContain('Renamed task only')
     expect(current.container.querySelectorAll('[data-flight-issue]').length).toBe(strips)
-    expect(renamed.get('observerRowTitle')).toBe(1)
+    expect(renamed.get('observerFlightDeckV6TaskTitle')).toBe(1)
     expect([...renamed.keys()].filter((name) => !LABEL_PARTS.has(name))).toEqual([])
     const header = await reactionsDuring(() =>
       pool.apply({ type: 'update', rows: [{ kind: 'issue', id: root.id, value: { ...root, title: 'Renamed mission only' } }] }),

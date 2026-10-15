@@ -7,7 +7,15 @@ import type { SessionView } from '@podium/client-core/session-values'
 import { nativeSubagentRows, treeGuides } from '@podium/client-core/values'
 import { SESSION_WORD_LABEL, TASK_WORD_LABEL, type TaskWord } from '@podium/model/browser'
 import { Check, ChevronDown, ChevronRight, Ellipsis, ListTree } from 'lucide-react'
-import { useId, useLayoutEffect, useRef, useState, type MouseEvent, type RefObject } from 'react'
+import {
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type MouseEvent,
+  type RefObject,
+  type ReactNode,
+} from 'react'
 import { GhostBar } from '@/components/GhostPreview'
 import { IssueStatusPicker } from '@/features/issues/IssueStatusPicker'
 import { PhaseTimer } from '@/lib/motion'
@@ -53,7 +61,17 @@ export const FlightDeckV6Rows = observer(function FlightDeckV6Rows({
   scrollRef: RefObject<HTMLElement | null>
 }) {
   const container = useRef<HTMLDivElement>(null)
-  const pending = settled(() => full.rowIds)
+  const pending = settled(() => {
+    if (!full.ready) throw LOADING
+    // Layout needs the fold and crew as well as membership. Keep this cold
+    // boundary around all of those reads, before creating pixel estimates.
+    for (const id of full.rowIds) {
+      const task = full.task(id)
+      void task.open
+      void task.sessionIds
+    }
+    return full.rowIds
+  })
   const ids = pending === LOADING ? [] : pending
   const tasks = ids.map((id) => full.task(id))
   const guides = treeGuides(tasks)
@@ -128,7 +146,7 @@ export const FlightDeckV6Task = observer(function FlightDeckV6Task({
   window?: DeckWindow
 }) {
   const contentId = useId()
-  const ready = settled(() => task.row.drawable)
+  const ready = settled(() => task.row.drawable && (void task.word, true))
   if (ready !== true)
     return (
       <div role="status" aria-label="Loading task">
@@ -168,25 +186,7 @@ export const FlightDeckV6Task = observer(function FlightDeckV6Task({
             onContextMenu={(event) => actions.onMenu(task, event)}
             ref={window?.enabled ? window.measure(stripKey) : undefined}
           >
-            <button
-              type="button"
-              className="flight-v6-fold"
-              data-pressable
-              aria-label={`${open ? 'Collapse' : 'Expand'} ${task.row.title}`}
-              aria-expanded={open}
-              aria-controls={contentId}
-              onClick={() => task.deck.toggleFold(task.id)}
-            >
-              {task.foldable ? (
-                open ? (
-                  <ChevronDown size={12} />
-                ) : (
-                  <ChevronRight size={12} />
-                )
-              ) : (
-                <span />
-              )}
-            </button>
+            <TaskFold task={task} contentId={contentId} />
             <span className="flight-v6-ring-control">
               <IssueStatusPicker
                 issue={task.row.status}
@@ -205,25 +205,10 @@ export const FlightDeckV6Task = observer(function FlightDeckV6Task({
                 onCancel={actions.onRenameDone}
               />
             ) : (
-              <button
-                type="button"
-                className="flight-v6-task-body deck-task-content"
-                data-pressable
-                aria-label={`${open ? 'Collapse' : 'Expand'} ${task.row.displayRef} ${task.row.title}`}
-                aria-expanded={open}
-                aria-controls={contentId}
-                onClick={() => task.deck.toggleFold(task.id)}
-              >
+              <TaskBody task={task} contentId={contentId}>
                 <span className="flight-v6-ref">{task.row.displayRef}</span>
-                <span className="flight-v6-title" title={task.row.title}>
-                  {task.row.title}
-                </span>
-                {task.counter.total > 0 && (
-                  <span className="flight-v6-counter" title="Direct sub-issues done">
-                    <ListTree size={11} />
-                    {task.counter.done}/{task.counter.total}
-                  </span>
-                )}
+                <FlightDeckV6TaskTitle task={task} />
+                <TaskCounter task={task} />
                 <DependencySlot task={task} />
                 {!open && (
                   <span className="flight-v6-engines" data-testid="v6-engines">
@@ -235,20 +220,9 @@ export const FlightDeckV6Task = observer(function FlightDeckV6Task({
                 <span className="flight-v6-state" data-word={task.word}>
                   {TASK_WORD_LABEL[task.word]}
                 </span>
-              </button>
+              </TaskBody>
             )}
-            <button
-              type="button"
-              className="flight-v6-actions"
-              aria-label={`Task actions for ${task.row.title}`}
-              title="Task actions"
-              onClick={(event) => {
-                event.stopPropagation()
-                actions.onMenu(task, event)
-              }}
-            >
-              <Ellipsis size={12} />
-            </button>
+            <TaskActions task={task} onMenu={actions.onMenu} />
           </div>
         ) : (
           <DeckRowPlaceholder
@@ -274,6 +248,102 @@ export const FlightDeckV6Task = observer(function FlightDeckV6Task({
       </div>
     </div>
   )
+})
+
+const FlightDeckV6TaskTitle = observer(function FlightDeckV6TaskTitle({
+  task,
+}: {
+  task: FullDeckTask
+}) {
+  return (
+    <span className="flight-v6-title" title={task.row.title}>
+      {task.row.title}
+    </span>
+  )
+})
+const TaskFold = observer(function TaskFold({
+  task,
+  contentId,
+}: {
+  task: FullDeckTask
+  contentId: string
+}) {
+  return (
+    <button
+      type="button"
+      className="flight-v6-fold"
+      data-pressable
+      aria-label={`${task.open ? 'Collapse' : 'Expand'} ${task.row.title}`}
+      aria-expanded={task.open}
+      aria-controls={contentId}
+      onClick={() => task.deck.toggleFold(task.id)}
+    >
+      {task.foldable ? (
+        task.open ? (
+          <ChevronDown size={12} />
+        ) : (
+          <ChevronRight size={12} />
+        )
+      ) : (
+        <span />
+      )}
+    </button>
+  )
+})
+const TaskBody = observer(function TaskBody({
+  task,
+  contentId,
+  children,
+}: {
+  task: FullDeckTask
+  contentId: string
+  children: ReactNode
+}) {
+  return (
+    <button
+      type="button"
+      className="flight-v6-task-body deck-task-content"
+      data-pressable
+      aria-label={`${task.open ? 'Collapse' : 'Expand'} ${task.row.displayRef} ${task.row.title}`}
+      aria-expanded={task.open}
+      aria-controls={contentId}
+      onClick={() => task.deck.toggleFold(task.id)}
+    >
+      {children}
+    </button>
+  )
+})
+const TaskActions = observer(function TaskActions({
+  task,
+  onMenu,
+}: {
+  task: FullDeckTask
+  onMenu: Actions['onMenu']
+}) {
+  return (
+    <button
+      type="button"
+      className="flight-v6-actions"
+      aria-label={`Task actions for ${task.row.title}`}
+      title="Task actions"
+      onClick={(event) => {
+        event.stopPropagation()
+        onMenu(task, event)
+      }}
+    >
+      <Ellipsis size={12} />
+    </button>
+  )
+})
+const TaskCounter = observer(function TaskCounter({ task }: { task: FullDeckTask }) {
+  const counter = settled(() => task.counter)
+  if (counter === LOADING) return <span role="status" aria-label="Loading sub-issue count" />
+  return counter.total > 0 ? (
+    <span className="flight-v6-counter" title="Direct sub-issues done">
+      <ListTree size={11} />
+      {counter.done}/{counter.total}
+    </span>
+  ) : null
 })
 
 /** The dependency feature can extend this slot without changing the strip. */

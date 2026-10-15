@@ -41,6 +41,7 @@ const issue = (id: string, parentId: string | null, seq: number, patch: Row = {}
   stage: 'in_progress',
   audience: 'human',
   repoPath: '/synthetic',
+  repoId: 'repo',
   deps: [],
   createdAt: stamp,
   updatedAt: stamp,
@@ -92,6 +93,7 @@ async function open(
   pool.apply({
     type: 'replace',
     rows: [
+      { kind: 'repo', id: 'repo', value: { id: 'repo', repoPath: '/synthetic', prefix: 'POD' } },
       ...issues.map((value) => ({
         kind: 'issue' as const,
         id: value['id'] as string,
@@ -168,7 +170,9 @@ it('strip pointer and keyboard fold only; session pointer and keyboard open the 
 
 it('session selection tints only its own row and leaves the task surface unchanged', async () => {
   const f = await open()
-  fireEvent.click(f.fold())
+  await act(async () => {
+    fireEvent.click(f.fold())
+  })
   f.ui.rerender(
     <FlightDeckV6Rows
       full={f.full}
@@ -193,7 +197,9 @@ it('native chip starts collapsed; pointer, Enter and Space toggle a read-only ru
       },
     }),
   ])
-  fireEvent.click(f.fold())
+  await act(async () => {
+    fireEvent.click(f.fold())
+  })
   const native = within(f.agent()).getByRole('button', { name: /2 native/ })
   expect(native.getAttribute('aria-expanded')).toBe('false')
   expect(f.ui.queryByRole('list')).toBeNull()
@@ -268,7 +274,9 @@ it('hides strip chips while open and caps the closed strip at two established en
     session('b', 'task', { agentKind: 'grok' }),
   ])
   expect(f.ui.getByTestId('v6-engines').children).toHaveLength(2)
-  fireEvent.click(f.fold())
+  await act(async () => {
+    fireEvent.click(f.fold())
+  })
   expect(f.ui.queryByTestId('v6-engines')).toBeNull()
   expect(f.ui.container.querySelectorAll('[data-flight-session]')).toHaveLength(3)
   expect(f.agent('a').textContent).toContain('helper')
@@ -286,7 +294,9 @@ it.each([
   const f = await open(undefined, [session('worker', 'task', { agentKind })])
   const foldedIcon = f.ui.getByTestId('v6-engines').querySelector('svg')
   expect(foldedIcon?.getAttribute('aria-label')).toBeTruthy()
-  fireEvent.click(f.fold())
+  await act(async () => {
+    fireEvent.click(f.fold())
+  })
   expect(f.agent().querySelector('svg')?.getAttribute('aria-label')).toBe(
     foldedIcon?.getAttribute('aria-label'),
   )
@@ -320,7 +330,9 @@ it('keeps task menu, status picker and rename access independent of fold and ses
 
 it('session actions retain the shared lifecycle menu without opening the session', async () => {
   const f = await open()
-  fireEvent.click(f.fold())
+  await act(async () => {
+    fireEvent.click(f.fold())
+  })
   fireEvent.click(
     within(f.agent()).getByRole('button', { name: 'Session actions for Agent worker' }),
   )
@@ -339,7 +351,9 @@ it('uses the shared Working current-turn clock and Done cumulative working durat
       agentState: { phase: 'ended', since: stamp, workingMsTotal: 65000 },
     }),
   ])
-  fireEvent.click(f.fold())
+  await act(async () => {
+    fireEvent.click(f.fold())
+  })
   expect(f.agent().textContent).toContain('Working0:30')
   expect(f.agent().textContent).not.toContain('10:30')
   expect(f.agent('stopped').textContent).toContain('Done∑ 1:05')
@@ -358,7 +372,10 @@ it.each([
   ['done', { status: 'exited', stopReason: 'self' }],
 ] as const)('uses the shared session word %s without inline error or offer UI', async (word, patch) => {
   const f = await open(undefined, [session('worker', 'task', patch)])
-  if (f.fold().getAttribute('aria-expanded') !== 'true') fireEvent.click(f.fold())
+  if (f.fold().getAttribute('aria-expanded') !== 'true')
+    await act(async () => {
+      fireEvent.click(f.fold())
+    })
   expect(f.agent().querySelector('.flight-v6-state')?.textContent).toContain(
     SESSION_WORD_LABEL[word],
   )
@@ -420,8 +437,8 @@ it('opens Error and Needs you by default and leaves working and blocked leaves f
   const capture = process.env['PODIUM_V6_REVIEW_HTML']
   if (capture) {
     fireEvent.click(within(f.agent()).getByRole('button', { name: /1 native/ }))
-    const css = readFileSync('apps/web/src/styles.css', 'utf8').split('/* Full flight deck v6.')[1]
-    const tokens = readFileSync('apps/web/src/index.css', 'utf8')
+    const css = readFileSync('src/styles.css', 'utf8').split('/* Full flight deck v6.')[1]
+    const tokens = readFileSync('src/index.css', 'utf8')
       .split('[data-theme="podium"].dark {')[1]
       ?.split('}')[0]
     writeFileSync(
