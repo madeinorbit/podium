@@ -1761,7 +1761,7 @@ export const FlightDeckContent = observer(function FlightDeckContent({
   const dockPanelRef = useRef(rightPanel)
   dockPanelRef.current = rightPanel
   useLayoutEffect(() => {
-    if (view !== 'waterfall' && display === 'expanded') onDisplayChange('compact')
+    if (view !== 'waterfall' && view !== 'full' && display === 'expanded') onDisplayChange('compact')
   }, [display, onDisplayChange, view])
   const headerIntent = useClickIntent()
   const deckScrollerRef = useRef<HTMLElement | null>(null)
@@ -2332,7 +2332,7 @@ export const FlightDeckContent = observer(function FlightDeckContent({
     <aside
       // Keep native composer edits from repainting the mission's unchanged rows.
       // The root already scrolls and clips its children; menus use portals.
-      className="engraved-column relative overflow-y-auto [contain:layout_paint]"
+      className={cn('engraved-column relative overflow-y-auto [contain:layout_paint]', view === 'full' && 'flight-full-panel')}
       data-testid="flight-deck-scroller"
       aria-label="Flight Deck"
       ref={deckScrollerRef}
@@ -2438,7 +2438,7 @@ export const FlightDeckContent = observer(function FlightDeckContent({
             ))}
           </div>
           <div className="flex flex-none items-center gap-0.5">
-            {view === 'waterfall' && (
+            {(view === 'waterfall' || view === 'full') && (
               <Button
                 variant="ghost"
                 size="icon-sm"

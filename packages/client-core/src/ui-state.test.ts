@@ -8,6 +8,9 @@ import {
   FLIGHT_DECK_BRIEF_CUTOFF_KEY,
   FLIGHT_DECK_DISPLAY_KEY,
   FLIGHT_DECK_EXPANDED_WIDTH_KEY,
+  FLIGHT_DECK_FULL_DISPLAY_KEY,
+  FLIGHT_DECK_FULL_COMPACT_WIDTH_KEY,
+  FLIGHT_DECK_FULL_EXPANDED_WIDTH_KEY,
   type ReplicatedUiStatePort,
   readStoredDensity,
   requireReplicatedLayoutKey,
@@ -151,6 +154,9 @@ describe('workspace ui-state routing', () => {
     expect(uiStateRoute(FLIGHT_DECK_BRIEF_CUTOFF_KEY).home).toBe('device-local')
     expect(uiStateRoute(FLIGHT_DECK_DISPLAY_KEY).home).toBe('device-local')
     expect(uiStateRoute(FLIGHT_DECK_EXPANDED_WIDTH_KEY).home).toBe('device-local')
+    for (const key of [FLIGHT_DECK_FULL_DISPLAY_KEY, FLIGHT_DECK_FULL_COMPACT_WIDTH_KEY, FLIGHT_DECK_FULL_EXPANDED_WIDTH_KEY]) {
+      expect(uiStateRoute(key).home).toBe('device-local')
+    }
   })
 
   it('moves legacy replicated values once, then removes the principal-local copy', () => {

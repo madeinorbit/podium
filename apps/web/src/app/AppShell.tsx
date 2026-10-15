@@ -3,7 +3,10 @@ import { createSocketLogin, observeLiveConnection } from '@podium/client-core/li
 import {
   FLIGHT_DECK_DISPLAY_KEY,
   FLIGHT_DECK_EXPANDED_WIDTH_KEY,
+  FLIGHT_DECK_FULL_DISPLAY_KEY,
+  FLIGHT_DECK_MODE_KEY,
 } from '@podium/client-core/ui-state'
+import { readMissionScreenView } from '@podium/client-graph/mission-screen'
 import { observer } from '@podium/client-graph/react'
 import { ChevronLeft } from 'lucide-react'
 import type { CSSProperties, JSX, ReactNode } from 'react'
@@ -63,11 +66,11 @@ import { DesktopMenuHost } from './DesktopMenuHost'
 import { DensityProvider } from './density'
 import { ErrorBoundary } from './ErrorBoundary'
 import {
-  FLIGHT_DECK_COMPACT_WIDTH,
-  FLIGHT_DECK_EXPANDED_WIDTH,
+  flightDeckSizing,
   type FlightDeckDisplay,
   isComplexFlightDeckMission,
   readFlightDeckDisplay,
+  readFlightDeckWidth,
 } from './flight-deck-display'
 import { LoadingScreen } from './LoadingScreen'
 import { OperatorFocusProvider } from './operator-focus'
@@ -585,9 +588,15 @@ function AppBodyView({ syncProgress }: { syncProgress: SyncProgressStore }): JSX
   // the column's WIDTH persisted while its mode did not. Goes through the one
   // shared subscribe hook every replicated key now uses.
   const flightDeckCollapsed = usePersistedUiValue(SUPERAGENT_MODE_KEY, readFlightDeckCollapsed)
-  const flightDeckDisplay = usePersistedUiValue(FLIGHT_DECK_DISPLAY_KEY, (raw) =>
+  const developmentDeckViews = useFeature('podium-development')
+  const preferredDeckView = usePersistedUiValue(FLIGHT_DECK_MODE_KEY, readMissionScreenView)
+  const fullDeckSizing = preferredDeckView === 'full' ||
+    (!developmentDeckViews && (preferredDeckView === 'waterfall' || preferredDeckView === 'handoff'))
+  const flightDeckDisplayKey = fullDeckSizing ? FLIGHT_DECK_FULL_DISPLAY_KEY : FLIGHT_DECK_DISPLAY_KEY
+  const flightDeckDisplay = usePersistedUiValue(flightDeckDisplayKey, (raw) =>
     readFlightDeckDisplay(raw, isComplexFlightDeckMission(flightDeckMission)),
   )
+  const flightDeckSize = flightDeckSizing(fullDeckSizing, flightDeckDisplay)
   const reduceMotion = useReducedMotion()
   const flightDeckShellRef = useRef<HTMLDivElement>(null)
   const flightDeckOpenWidth = useRef(0)
@@ -641,14 +650,10 @@ function AppBodyView({ syncProgress }: { syncProgress: SyncProgressStore }): JSX
     uiState.set(SUPERAGENT_MODE_KEY, collapsed ? 'folded' : 'open')
   }
   const persistedFlightDeckWidth = (display: FlightDeckDisplay = flightDeckDisplay): number => {
-    const expanded = display === 'expanded'
-    const stored = Number(
-      uiState.get(expanded ? FLIGHT_DECK_EXPANDED_WIDTH_KEY : 'podium:superagent:width'),
-    )
-    const min = expanded ? 540 : 300
-    const max = expanded ? 760 : 620
-    const fallback = expanded ? FLIGHT_DECK_EXPANDED_WIDTH : FLIGHT_DECK_COMPACT_WIDTH
-    return Number.isFinite(stored) && stored >= min && stored <= max ? stored : fallback
+    const sizing = flightDeckSizing(fullDeckSizing, display)
+    // Seed Full from a valid old width, without ever writing back to it.
+    const legacyKey = display === 'expanded' ? FLIGHT_DECK_EXPANDED_WIDTH_KEY : 'podium:superagent:width'
+    return readFlightDeckWidth(uiState.get(sizing.storageKey) ?? uiState.get(legacyKey), fullDeckSizing, display)
   }
   const animateFlightDeckWidth = (from: number, to: number, onFinish?: () => void): void => {
     const shell = flightDeckShellRef.current
@@ -718,12 +723,12 @@ function AppBodyView({ syncProgress }: { syncProgress: SyncProgressStore }): JSX
     const target = persistedFlightDeckWidth(next)
     flightDeckOpenWidth.current = target
     if (reduceMotion || flightDeckCollapsed) {
-      uiState.set(FLIGHT_DECK_DISPLAY_KEY, next)
+      uiState.set(flightDeckDisplayKey, next)
       setFlightDeckWidth(flightDeckCollapsed ? 44 : null)
       return
     }
     flushSync(() => {
-      uiState.set(FLIGHT_DECK_DISPLAY_KEY, next)
+      uiState.set(flightDeckDisplayKey, next)
       setFlightDeckWidth(target)
     })
     animateFlightDeckWidth(measured, target, () => setFlightDeckWidth(null))
@@ -1042,21 +1047,15 @@ function AppBodyView({ syncProgress }: { syncProgress: SyncProgressStore }): JSX
                   </Suspense>
                 ) : (
                   <ResizableColumn
-                    key={flightDeckDisplay}
-                    storageKey={
-                      flightDeckDisplay === 'expanded'
-                        ? FLIGHT_DECK_EXPANDED_WIDTH_KEY
-                        : 'podium:superagent:width'
-                    }
-                    min={flightDeckDisplay === 'expanded' ? 540 : 300}
-                    max={flightDeckDisplay === 'expanded' ? 760 : 620}
-                    defaultWidth={
-                      flightDeckDisplay === 'expanded'
-                        ? FLIGHT_DECK_EXPANDED_WIDTH
-                        : FLIGHT_DECK_COMPACT_WIDTH
-                    }
+                    key={`${fullDeckSizing}:${flightDeckDisplay}`}
+                    storageKey={flightDeckSize.storageKey}
+                    min={flightDeckSize.min}
+                    max={flightDeckSize.max}
+                    defaultWidth={persistedFlightDeckWidth()}
                     handleLabel="Resize Flight Deck"
-                    className={flightDeckDisplay === 'expanded' ? 'max-w-[62vw]' : 'max-w-[45vw]'}
+                    className={flightDeckDisplay === 'expanded'
+                      ? fullDeckSizing ? 'max-w-[calc(100vw-300px)]' : 'max-w-[62vw]'
+                      : 'max-w-[45vw]'}
                   >
                     <Suspense fallback={<RouteFallback />}>
                       {/* The arrival latch and the scrolling node both belong

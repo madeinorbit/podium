@@ -249,6 +249,9 @@ export const CLIENT_DEVICE_LOCAL_UI_KEYS = [
   /** Flight Deck overview density and its separately resized overview width. */
   'podium.flightDeck.display',
   'podium:flightDeck:expandedWidth',
+  'podium.flightDeck.fullDisplay',
+  'podium:flightDeck:fullCompactWidth',
+  'podium:flightDeck:fullExpandedWidth',
   'podium:rightdock:width',
   /**
    * The phone launch sheet's local draft. Explicit choices survive dismissal;
@@ -333,6 +336,10 @@ export const FLIGHT_DECK_WATERFALL_ROW_ZOOM_KEY = 'podium.flightDeck.waterfallRo
 export const FLIGHT_DECK_WATERFALL_TASK_WIDTH_KEY = 'podium.flightDeck.waterfallTaskWidth'
 export const FLIGHT_DECK_DISPLAY_KEY = 'podium.flightDeck.display'
 export const FLIGHT_DECK_EXPANDED_WIDTH_KEY = 'podium:flightDeck:expandedWidth'
+/** Full's shell geometry must not overwrite the development views' choices. */
+export const FLIGHT_DECK_FULL_DISPLAY_KEY = 'podium.flightDeck.fullDisplay'
+export const FLIGHT_DECK_FULL_COMPACT_WIDTH_KEY = 'podium:flightDeck:fullCompactWidth'
+export const FLIGHT_DECK_FULL_EXPANDED_WIDTH_KEY = 'podium:flightDeck:fullExpandedWidth'
 export const STICKY_PROMPTS_KEY = 'podium.chat.stickyPrompts'
 export const CHAT_VERBOSITY_KEY = 'podium.chat.verbosity'
 export const DIFF_SHEET_WRAP_KEY = 'podium:diff-sheet:wrap'
