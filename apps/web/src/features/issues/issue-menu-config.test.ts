@@ -27,6 +27,15 @@ const deps = {
 }
 
 describe('declarative issue menu projections', () => {
+  it('uses Settings for the auto default row and excludes that harness from the remaining choices', () => {
+    const issue = makeIssue({ defaultAgent: 'auto' })
+    const data = createIssueMenuData({ issues: [issue], allIssues: [issue], codingHarness: 'codex',
+      eligibility: issueMenuEligibility([issue], 'palette'), surface: 'palette' })!
+    const agent = issueMenuEntries(data).find(entry => entry.id === 'agent')!
+    if (agent.kind !== 'submenu') throw new Error('missing agent menu')
+    expect(agent.options(data)[0]).toMatchObject({ value: '', label: 'Codex (default)' })
+    expect(agent.options(data).some(option => option.value === 'codex')).toBe(false)
+  })
   it('uses identical action and option keys for the menu and palette', () => {
     const issue = makeIssue({ labels: ['bug'] })
     const sibling = makeIssue({ id: asIssueId('sibling'), title: 'Sibling' })

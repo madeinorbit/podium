@@ -9,6 +9,8 @@ const api = vi.hoisted(() => ({ issues: {
   addSession: { mutate: vi.fn(async () => {}) },
   start: { mutate: vi.fn(async () => {}) },
 } }))
+const settings = vi.hoisted(() => ({ model: { codingHarness: 'codex' } }))
+vi.mock('../client/use-settings-record', () => ({ useSettingsRecord: () => settings }))
 vi.mock('../client/hooks', () => ({ useTrpc: () => api }))
 vi.mock('./BottomSheet', () => ({ BottomSheet: ({ children, footer, visible }: { children: ReactNode; footer: ReactNode; visible: boolean }) =>
   visible ? createElement('div', null, children, footer) : null }))
@@ -26,6 +28,16 @@ vi.mock('./LaunchConfigurationFields', () => ({ LaunchConfigurationFields: ({ va
 import { ConfiguredIssueLaunchSheet } from './ConfiguredIssueLaunchSheet'
 
 afterEach(() => { cleanup(); vi.clearAllMocks() })
+it('uses Settings for auto and saves a harness pin before spawning an effort override', async () => {
+  const record = observable({ id: 'iss_auto', title: 'Auto task', prefix: 'POD', seq: 2, repoPath: '/repo',
+    defaultAgent: 'auto', defaultModel: 'auto', defaultEffort: 'auto', machineId: null })
+  render(<ConfiguredIssueLaunchSheet issue={record as never} onClose={vi.fn()} />)
+  fireEvent.click(screen.getByRole('button', { name: 'Choose high' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Start agent' }))
+  await waitFor(() => expect(api.issues.addSession.mutate).toHaveBeenCalledWith({ id: record.id }))
+  expect(api.issues.update.mutate).toHaveBeenCalledExactlyOnceWith({ id: record.id,
+    patch: { defaultAgent: 'codex', defaultEffort: 'high' } })
+})
 it('keeps untouched launch values live, drops edits on reopen and saves only touched fields before spawning', async () => {
   const record = observable({ id: 'iss_draft', title: 'Draft task', prefix: 'POD', seq: 1, repoPath: '/repo',
     defaultAgent: 'codex', defaultModel: 'auto', defaultEffort: 'auto', machineId: null })

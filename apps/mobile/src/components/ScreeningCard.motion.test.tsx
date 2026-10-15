@@ -1,6 +1,7 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
 import { asIssueId } from '@podium/model'
 import { act, render } from '@testing-library/react'
+import { observable, runInAction } from 'mobx'
 import type { ReactNode } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -20,6 +21,8 @@ const motion = vi.hoisted(() => ({
 }))
 
 vi.mock('../hooks/useReduceMotion', () => ({ useReduceMotion: () => motion.reduceMotion }))
+const settings = vi.hoisted(() => ({ model: undefined as { codingHarness: string } | undefined }))
+vi.mock('../client/use-settings-record', () => ({ useSettingsRecord: () => settings }))
 vi.mock('expo-haptics', () => ({
   ImpactFeedbackStyle: { Medium: 'medium' },
   impactAsync: vi.fn(async () => {}),
@@ -99,6 +102,16 @@ vi.mock('./PressableScale', async () => {
 vi.mock('./ui', () => ({ Pill: () => null }))
 
 const { ScreeningCard } = await import('./ScreeningCard')
+
+it('shows and follows the Settings harness for an auto proposal', () => {
+  settings.model = observable({ codingHarness: 'codex' })
+  const view = render(<ScreeningCard issue={{ ...issue, defaultAgent: 'auto' }} repoName="podium" onDecide={vi.fn()} onOpen={vi.fn()} />)
+  expect(view.getByText('starts Codex on ⎇ main')).toBeTruthy()
+  act(() => runInAction(() => { settings.model!.codingHarness = 'claude-code' }))
+  expect(view.getByText('starts Claude Code on ⎇ main')).toBeTruthy()
+  view.unmount()
+  settings.model = undefined
+})
 
 const issue = {
   id: asIssueId('screening-motion'),
