@@ -16,6 +16,7 @@ import {
   asIssueId,
   isAgentComputing,
   isDecisionIssue,
+  isIssueClosed,
 } from '@podium/model'
 import { TRPCError } from '@trpc/server'
 import type { z } from 'zod'
@@ -794,12 +795,16 @@ const defs = {
           message: 'only an operator may promote a proposed issue',
         })
       }
-      const issue = await ctx.reports.get(input.id)
-      if (!issue) throw new TRPCError({ code: 'NOT_FOUND', message: `unknown issue ${input.id}` })
-      if (issue.stage !== 'proposed') {
-        throw new TRPCError({ code: 'BAD_REQUEST', message: 'issue is not proposed' })
-      }
-      return await ctx.crud.update(input.id, { stage: 'backlog' })
+      // POD-6119: the stage check runs INSIDE the ledger, so a retried promote
+      // (same mutationId) gets its receipt instead of "issue is not proposed".
+      return await ctx.withMutation(input.mutationId, async () => {
+        const issue = await ctx.reports.get(input.id)
+        if (!issue) throw new TRPCError({ code: 'NOT_FOUND', message: `unknown issue ${input.id}` })
+        if (issue.stage !== 'proposed') {
+          throw new TRPCError({ code: 'BAD_REQUEST', message: 'issue is not proposed' })
+        }
+        return await ctx.crud.update(input.id, { stage: 'backlog' })
+      })
     },
   }),
   // Agent self-organization (issue-as-workspace): re-home the calling session
@@ -1317,13 +1322,20 @@ const defs = {
       await assertNotProposedForAgent(ctx, input.id, 'close')
       await assertDecisionNotClosedByAgent(ctx, input.id, 'close')
       await assertNoWorkingSessionsForAgentClose(ctx, input.id, input.confirmInterrupt)
-      return await ctx.withMutation(
-        input.mutationId,
-        async () =>
-          await ctx.crud.close(input.id, input.reason, {
-            actorSessionId: ctx.caller.capability.actorSessionId,
-          }),
-      )
+      // `declined` is how a proposal is dismissed (POD-6119, flight deck provisional
+      // default): stored as `cancelled`, so every reader counts it as one, with the
+      // word kept in a comment — written only by the close that closed it.
+      const declined = input.reason?.trim().toLowerCase() === 'declined'
+      return await ctx.withMutation(input.mutationId, async () => {
+        const before = declined ? await ctx.reports.get(input.id) : null
+        const wasOpen = before != null && !isIssueClosed(before)
+        const closed = await ctx.crud.close(input.id, declined ? 'cancelled' : input.reason, {
+          actorSessionId: ctx.caller.capability.actorSessionId,
+        })
+        return wasOpen
+          ? await ctx.commentsMail.addCallerComment(input.id, 'Declined.', ctx.requirePrincipal())
+          : closed
+      })
     },
   }),
   supersede: def('supersede', {

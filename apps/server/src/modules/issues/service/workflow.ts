@@ -43,6 +43,30 @@ import { parseGitWorktreeList, sameWorktreePath } from './worktree-safety'
 
 const log = createLogger('server:issues')
 
+/** What `start` takes beyond the issue and an explicit harness. */
+export interface IssueStartOptions {
+  spawnedBy?: string
+  /** Client-minted identity for an optimistic first-session insert. */
+  sessionId?: SessionId
+  forceUnknownModel?: boolean
+  /** Explicit per-launch model/effort (POD-1545). Beats the issue's stored value
+   *  and PERSISTS onto the issue, so every later spawn on it agrees. */
+  model?: string
+  effort?: string
+  /** Agent profile by name or id (POD-6107); persists onto the issue. */
+  agentProfile?: string
+}
+
+/** The started issue, plus what was spawned when this start spawned a session. */
+export type IssueStartResult = IssueProjection &
+  Partial<{
+    agentId: string
+    harness: string
+    model: string | null
+    effort: string | null
+    machine: string
+  }>
+
 /** Issues whose merge axis is a live question [POD-384]: a private worktree on a
  *  branch, still in the worklist. A shared checkout has no merge axis; an issue
  *  without a worktree has nowhere to probe from; and an archived or deleted row
@@ -232,16 +256,69 @@ export class IssueGitWorkflowModule {
   }
 
   /**
+   * THE PROFILE AN ISSUE WITHOUT ONE INHERITS (POD-6119; flight deck D3/D4 and
+   * the provisional proposal default "its own, else its parent's, else the
+   * mission's"): the nearest ancestor that names a profile, ending at the
+   * mission, which is the root of the parent chain.
+   *
+   * An issue placed as its OWN issue is top level, so it has no parent chain;
+   * it falls back to the mission it was discovered from — the root above its
+   * `discovered-from` origin — and not to the origin task itself, because own
+   * placement says exactly that the work is not part of that task.
+   *
+   * Nothing here is written to the issue: the session records the profile it
+   * ran, and a later start reads the chain as it is then.
+   */
+  private async inheritedAgentProfileId(
+    row: Pick<IssueRow, 'id' | 'parentId'>,
+  ): Promise<string | null> {
+    const rows = this.store.rows
+    const seen = new Set<string>([row.id])
+    const chain = (fromId: string): IssueRow[] => {
+      const found: IssueRow[] = []
+      for (
+        let at = rows.get(fromId);
+        at && !seen.has(at.id);
+        at = at.parentId ? rows.get(at.parentId) : undefined
+      ) {
+        seen.add(at.id)
+        if (!at.deletedAt) found.push(at)
+      }
+      return found
+    }
+    if (row.parentId) {
+      return chain(row.parentId).find((ancestor) => ancestor.agentProfileId)?.agentProfileId ?? null
+    }
+    const originId = (await this.store.deps.store.issues.listIssueDeps(row.id)).find(
+      (dep) => dep.type === 'discovered-from',
+    )?.toId
+    return (originId ? chain(originId).at(-1)?.agentProfileId : null) ?? null
+  }
+
+  /**
    * WHAT AN ISSUE SESSION LAUNCHES WITH (POD-6107): the issue's agent profile
    * with the issue's own fields on top, first usable candidate picked — through
-   * the one resolver every spawn path shares. Without a profile it is exactly
-   * the issue's own fields, as before. `auto` for the harness becomes the
-   * Settings default here, because the vetting below needs a concrete harness.
+   * the one resolver every spawn path shares. Without a profile of its own the
+   * issue inherits one ({@link inheritedAgentProfileId}); with none anywhere it
+   * is exactly the issue's own fields, as before. `auto` for the harness becomes
+   * the Settings default here, because the vetting below needs a concrete harness.
+   *
+   * An inherited profile meets fields that were never chosen with it in mind. A
+   * profile-less create freezes the Settings harness into `defaultAgent`, which
+   * is indistinguishable from a pick of that same harness, so it would filter
+   * the inherited candidates down to one harness the profile may not even list.
+   * The issue's fields therefore ride on top of an inherited profile only when
+   * they carry a pick of their own: a model or effort (both `auto` unless chosen),
+   * a harness other than the Settings default, or an `explicitAgent` named for
+   * this launch. Otherwise the inherited profile decides the whole setup.
    */
   private async issueLaunch(
-    row: Pick<IssueRow, 'machineId' | 'repoPath'> & { agentProfileId?: string | null },
+    row: Pick<IssueRow, 'id' | 'parentId' | 'machineId' | 'repoPath'> & {
+      agentProfileId?: string | null
+    },
     fields: { agent: string; model: string; effort: string },
     cwd: string,
+    opts?: { explicitAgent?: boolean },
   ): Promise<{
     agent: string
     issueProfile: { agentKind: string; model: string; effort: string }
@@ -249,17 +326,35 @@ export class IssueGitWorkflowModule {
     agentProfileId?: string
   }> {
     const profiles = this.store.d.agentProfiles
+    let profileId = row.agentProfileId ?? null
+    let launchFields = fields
+    if (!profileId && profiles) {
+      profileId = await this.inheritedAgentProfileId(row)
+      if (
+        profileId &&
+        !opts?.explicitAgent &&
+        !isAgentFieldSet(fields.model) &&
+        !isAgentFieldSet(fields.effort)
+      ) {
+        const settingsAgent = resolveSpawnDefaults(await this.store.d.getSettings(), {}).agentKind
+        if (!isAgentFieldSet(fields.agent) || fields.agent === settingsAgent) {
+          launchFields = { agent: 'auto', model: 'auto', effort: 'auto' }
+        }
+      }
+    }
     const launch =
-      row.agentProfileId && profiles
+      profileId && profiles
         ? await profiles.launch({
-            profileId: row.agentProfileId,
-            fields: { ...fields, machineId: row.machineId ?? null },
+            profileId,
+            fields: { ...launchFields, machineId: row.machineId ?? null },
             cwd,
           })
         : null
     let agent = launch?.agentKind ?? fields.agent
     if (!isAgentFieldSet(agent)) {
-      agent = resolveSpawnDefaults(await this.store.d.getSettings(), { agentKind: 'auto' }).agentKind
+      agent = resolveSpawnDefaults(await this.store.d.getSettings(), {
+        agentKind: 'auto',
+      }).agentKind
     }
     return {
       agent,
@@ -273,38 +368,56 @@ export class IssueGitWorkflowModule {
     }
   }
 
-  async start(
+  /**
+   * Starts in flight, by issue id (POD-6119). A second start of the same issue —
+   * a double click, or a retry sent before the first answered — joins the first
+   * instead of racing it to a second worktree add or a second spawn.
+   */
+  private readonly startsInFlight = new Map<string, Promise<IssueStartResult>>()
+
+  async start(id: string, agentKind?: string, opts?: IssueStartOptions): Promise<IssueStartResult> {
+    const key = await this.store.resolveRef(id)
+    const running = this.startsInFlight.get(key)
+    if (running) {
+      // A joiner gets the first start's result, so it may not ask for anything else.
+      if (agentKind || opts?.model || opts?.effort || opts?.agentProfile) {
+        throw new IssueRefusal(
+          'this issue is already starting — wait for that start to finish, then use ' +
+            '`podium issue add-session` to spawn a session with a different agent or model.',
+        )
+      }
+      return await running
+    }
+    const started = this.startOnce(key, agentKind, opts)
+    this.startsInFlight.set(key, started)
+    try {
+      return await started
+    } finally {
+      if (this.startsInFlight.get(key) === started) this.startsInFlight.delete(key)
+    }
+  }
+
+  private async startOnce(
     id: string,
     agentKind?: string,
-    opts?: {
-      spawnedBy?: string
-      /** Client-minted identity for an optimistic first-session insert. */
-      sessionId?: SessionId
-      forceUnknownModel?: boolean
-      /** Explicit per-launch model/effort (POD-1545). Beats the issue's stored value
-       *  and PERSISTS onto the issue, so every later spawn on it agrees. */
-      model?: string
-      effort?: string
-      /** Agent profile by name or id (POD-6107); persists onto the issue. */
-      agentProfile?: string
-    },
-  ): Promise<
-    IssueProjection &
-      Partial<{
-        agentId: string
-        harness: string
-        model: string | null
-        effort: string | null
-        machine: string
-      }>
-  > {
+    opts?: IssueStartOptions,
+  ): Promise<IssueStartResult> {
     // `let`, because this draft does NOT survive the worktree phase below — see the
     // re-draft after it (POD-3373).
     let row = await this.store.draftOrThrow(id)
     if (isIssueStage(row.stage) && isSystemOwnedIssueStage(row.stage)) {
       throw new IssueRefusal('shipping stage is system-owned and cannot start issue work')
     }
-    if (row.worktreePath) {
+    /**
+     * A WORKTREE AND NO SESSION AT ALL is a start that cut the worktree and then
+     * failed to spawn (POD-6119). Reporting that as "already started" told a retry
+     * it had succeeded while nothing ran, so the retry finishes the start instead:
+     * the worktree phase is skipped and the spawn below runs. Any session on the
+     * issue, live or not, keeps the deliberate no-op.
+     */
+    const resumePath =
+      row.worktreePath && this.store.factsFor(row).length === 0 ? row.worktreePath : null
+    if (row.worktreePath && !resumePath) {
       // Starting a started issue is a deliberate no-op. But a caller who passed an
       // explicit --model/--effort asked for something this no-op will not do, and
       // accepting it in silence is the same failure one level up: the operator sees
@@ -339,6 +452,7 @@ export class IssueGitWorkflowModule {
       { ...row, agentProfileId: explicitProfileId ?? row.agentProfileId ?? null },
       { agent, model: stored.model, effort: stored.effort },
       row.repoPath,
+      { explicitAgent: Boolean(agentKind) },
     )
     // Where the worktree is cut: the issue's pin, else its profile's machine.
     const homeMachineId = launch.machineId ?? undefined
@@ -380,7 +494,9 @@ export class IssueGitWorkflowModule {
     let path: string
     /** What the worktree phase established, applied to the draft cut AFTER it. */
     const established: { branch?: string; machineId?: MachineId; repoPath?: string } = {}
-    if (row.branch) {
+    if (resumePath) {
+      path = resumePath
+    } else if (row.branch) {
       const ensured = await this.ensureWorktree(id)
       if (!ensured.ok || !ensured.worktreePath) {
         throw new Error(ensured.output || 'failed to recreate worktree from branch')
@@ -516,6 +632,8 @@ export class IssueGitWorkflowModule {
       // this cleared when the stamp was a column.
       await this.store.writeIssueUserState(row.id, { tuckedAt: null })
     }
+    /** What a failed spawn puts back (POD-6119), read off the draft this start writes. */
+    const before = { stage: row.stage, assignee: row.assignee ?? null }
     row.stage = 'in_progress'
     // `assignee` is a branded `UserId` by POD-361's recorded decision ('free text
     // today, inventory §9'), and an `agent:<kind>` tag is not a user. The cast is
@@ -529,11 +647,14 @@ export class IssueGitWorkflowModule {
         ...(row.parentId ? { parentId: row.parentId } : {}),
       })
     }
-    await this.store.emitEvent('issue.started', row.id, {
-      seq: row.seq,
-      branch: row.branch,
-      worktreePath: row.worktreePath,
-    })
+    // A resumed start already announced itself, unless a failed spawn had put it back.
+    if (!resumePath || before.stage !== 'in_progress') {
+      await this.store.emitEvent('issue.started', row.id, {
+        seq: row.seq,
+        branch: row.branch,
+        worktreePath: row.worktreePath,
+      })
+    }
     const existing = (await this.store.sessionsFor(row)).filter(
       (session) => !session.archived && session.status !== 'exited',
     )
@@ -564,20 +685,25 @@ export class IssueGitWorkflowModule {
     }
     // The human summary leads; the technical brief follows verbatim. [spec:SP-6144]
     const initialPrompt = [row.description.trim(), row.brief ?? ''].filter(Boolean).join('\n\n')
-    const spawned = await this.store.d.spawnSession({
-      ...(opts?.sessionId ? { sessionId: opts.sessionId } : {}),
-      cwd: path,
-      issueId: row.id,
-      agentKind: launch.agent,
-      model: selection.model,
-      effort: selection.effort,
-      ...(selection.forced ? { forceUnknownModel: true } : {}),
-      ...(initialPrompt ? { initialPrompt } : {}),
-      ...(launch.agentProfileId ? { agentProfileId: launch.agentProfileId } : {}),
-      spawnedBy: opts?.spawnedBy ?? spawnedByTag({ kind: 'issue', id: row.id }),
-      ...(row.ownerUserId ? { ownerUserId: row.ownerUserId } : {}),
-      ...(row.machineId ? { machineId: row.machineId } : {}),
-    })
+    const spawned = await this.store.d
+      .spawnSession({
+        ...(opts?.sessionId ? { sessionId: opts.sessionId } : {}),
+        cwd: path,
+        issueId: row.id,
+        agentKind: launch.agent,
+        model: selection.model,
+        effort: selection.effort,
+        ...(selection.forced ? { forceUnknownModel: true } : {}),
+        ...(initialPrompt ? { initialPrompt } : {}),
+        ...(launch.agentProfileId ? { agentProfileId: launch.agentProfileId } : {}),
+        spawnedBy: opts?.spawnedBy ?? spawnedByTag({ kind: 'issue', id: row.id }),
+        ...(row.ownerUserId ? { ownerUserId: row.ownerUserId } : {}),
+        ...(row.machineId ? { machineId: row.machineId } : {}),
+      })
+      .catch(async (err: unknown) => {
+        if (before.stage === 'proposed') await this.returnToProposals(row.id, before.assignee)
+        throw err
+      })
     return {
       ...wire,
       agentId: spawned.agentId ?? spawned.sessionId,
@@ -595,6 +721,35 @@ export class IssueGitWorkflowModule {
             : selection.effort
           : spawned.effort,
       machine: spawned.machine,
+    }
+  }
+
+  /**
+   * A PROPOSAL WHOSE START FAILED TO SPAWN GOES BACK TO PROPOSED (POD-6119).
+   *
+   * Start on a proposal is the operator's promote-and-start. If the spawn throws,
+   * nothing runs, yet the issue already reads `in_progress`: it would leave the
+   * proposals with its Start and Dismiss actions and sit in the tree as an idle
+   * task nobody chose to park. Putting the stage back keeps it where the decision
+   * is made; the worktree stays, and the next Start resumes from it (see the
+   * resume in {@link startOnce}). Best effort: the spawn's own error is what the
+   * caller must see, so a failure here is only logged.
+   */
+  private async returnToProposals(
+    id: string,
+    assignee: IssueRow['assignee'] | null,
+  ): Promise<void> {
+    try {
+      const row = await this.store.draftOrThrow(id)
+      if (row.stage !== 'in_progress' || this.store.factsFor(row).length > 0) return
+      row.stage = 'proposed'
+      row.assignee = assignee
+      await this.store.persistRow(row)
+    } catch (err) {
+      log.warn('could not return a proposal to proposed after its start failed', {
+        err,
+        issueId: id,
+      })
     }
   }
 
@@ -1579,8 +1734,13 @@ export class IssueGitWorkflowModule {
         ? null
         : await this.issueLaunch(
             row,
-            { agent: agentKind ?? row.defaultAgent, model: row.defaultModel, effort: row.defaultEffort },
+            {
+              agent: agentKind ?? row.defaultAgent,
+              model: row.defaultModel,
+              effort: row.defaultEffort,
+            },
             row.worktreePath,
+            { explicitAgent: Boolean(agentKind) },
           )
     const kind = agentKind === 'shell' ? 'shell' : (launch?.agent ?? row.defaultAgent)
     // Everything here is inherited from the issue's profile, so nothing here can

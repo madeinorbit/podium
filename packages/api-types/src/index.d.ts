@@ -7128,6 +7128,7 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
             input: {
                 expectedRevision?: number | undefined;
                 id: string;
+                mutationId?: string | undefined;
             };
             output: Output_issues_addComment;
             meta: unknown;

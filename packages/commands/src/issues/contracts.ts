@@ -381,7 +381,11 @@ export const updateInput = z.object({
  */
 export type IssueUpdatePatch = z.infer<typeof updateInput>['patch']
 
-export const promoteInput = z.object({ id: IssueIdField })
+export const promoteInput = z.object({
+  id: IssueIdField,
+  /** Replay identity (POD-6119): a retried promote returns its receipt. */
+  mutationId: z.string().max(128).pipe(MutationIdField).optional(),
+})
 
 export const attachSessionInput = z.object({
   sessionId: SessionIdField,
