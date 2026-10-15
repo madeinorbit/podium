@@ -117,7 +117,8 @@ test('issue-first hierarchy, distinct live status, and animated open/close contr
 
   const taskGroups = deck.locator('[data-flight-issue]')
   await expect(taskGroups).toHaveCount(2)
-  expect(await taskGroups.first().evaluate((el) => getComputedStyle(el).paddingBottom)).toBe('6px')
+  // The v6 task stack's spacing (`.flight-v6-task`).
+  expect(await taskGroups.first().evaluate((el) => getComputedStyle(el).paddingBottom)).toBe('3px')
   await page.screenshot({ path: resolve(ARTIFACT_DIR, 'flight-deck-open.png'), fullPage: true })
 
   const shell = page.locator('[data-flight-deck-shell]')
