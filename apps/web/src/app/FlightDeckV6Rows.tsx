@@ -1,21 +1,29 @@
+import type { SessionView } from '@podium/client-core/session-values'
+import { nativeSubagentRows, treeGuides } from '@podium/client-core/values'
+import { LOADING } from '@podium/client-graph/loading'
 import type { FullDeck, FullDeckTask } from '@podium/client-graph/mission-full-deck'
 import { settled } from '@podium/client-graph/mission-view'
 import type { SessionModel } from '@podium/client-graph/models'
 import { observer } from '@podium/client-graph/react'
-import { LOADING } from '@podium/client-graph/loading'
-import type { SessionView } from '@podium/client-core/session-values'
-import { nativeSubagentRows, treeGuides } from '@podium/client-core/values'
 import { SESSION_WORD_LABEL, TASK_WORD_LABEL, type TaskWord } from '@podium/model/browser'
-import { ArrowUpRight, Check, ChevronDown, ChevronRight, Ellipsis, ListTree, Lock } from 'lucide-react'
 import {
+  ArrowUpRight,
+  Check,
+  ChevronDown,
+  ChevronRight,
+  Ellipsis,
+  ListTree,
+  Lock,
+} from 'lucide-react'
+import {
+  type CSSProperties,
+  type MouseEvent,
+  type ReactNode,
+  type RefObject,
   useId,
   useLayoutEffect,
   useRef,
   useState,
-  type MouseEvent,
-  type CSSProperties,
-  type RefObject,
-  type ReactNode,
 } from 'react'
 import { GhostBar } from '@/components/GhostPreview'
 import { IssueStatusPicker } from '@/features/issues/IssueStatusPicker'
@@ -24,17 +32,17 @@ import { PoolSessionContextMenu } from '@/lib/PoolSessionContextMenu'
 import type { ContextMenuAnchor } from '@/lib/session-context-menu'
 import { useHarnessDescriptors } from '@/lib/use-harness-descriptors'
 import { KindIcon, SessionNameEditor, sessionDisplayName } from '@/lib/WorkerLabel'
-import { useRuntimeSelector } from './store'
-import { useSessionHovered } from './session-hover'
 import { useFullDependencyInteraction } from './FlightDeckFullDependencies'
 import {
   DeckRowPlaceholder,
+  type DeckWindow,
+  type DeckWindowRow,
   deckSessionKey,
   deckTaskKey,
   useFlightDeckWindow,
-  type DeckWindow,
-  type DeckWindowRow,
 } from './flight-deck-window'
+import { useSessionHovered } from './session-hover'
+import { useRuntimeSelector } from './store'
 
 const STRIP_HEIGHT = 32
 const SESSION_HEIGHT = 28
@@ -62,7 +70,11 @@ export const FlightDeckV6Rows = observer(function FlightDeckV6Rows({
   full: FullDeck
   revealSessionId?: string | null
   scrollRef: RefObject<HTMLElement | null>
-  renderRows?: (tasks: readonly FullDeckTask[], guides: readonly boolean[][], window: DeckWindow) => ReactNode
+  renderRows?: (
+    tasks: readonly FullDeckTask[],
+    guides: readonly boolean[][],
+    window: DeckWindow,
+  ) => ReactNode
 }) {
   const container = useRef<HTMLDivElement>(null)
   const pending = settled(() => {
@@ -110,6 +122,7 @@ export const FlightDeckV6Rows = observer(function FlightDeckV6Rows({
     if (!revealSessionId || !window.enabled) return
     const leaf = leaves.find((row) => row.key.endsWith(`:${revealSessionId}`))
     if (leaf && !window.contains(leaf.key)) window.reveal(leaf.key)
+    // biome-ignore lint/correctness/useExhaustiveDependencies: leaves is rebuilt from observables each render, so the reveal re-checks every render until its leaf exists
   }, [revealSessionId, leaves, window])
   return (
     <div ref={container} className="flight-v6-rows" data-testid="flight-deck-v6-rows">
@@ -117,8 +130,10 @@ export const FlightDeckV6Rows = observer(function FlightDeckV6Rows({
         <div role="status" aria-label="Loading tasks">
           <GhostBar />
         </div>
+      ) : renderRows ? (
+        renderRows(tasks, guides, window)
       ) : (
-        renderRows ? renderRows(tasks, guides, window) : tasks.map((task, index) => (
+        tasks.map((task, index) => (
           <FlightDeckV6Task
             key={task.id}
             task={task}
@@ -134,7 +149,9 @@ export const FlightDeckV6Rows = observer(function FlightDeckV6Rows({
 
 /** One roster primitive for task workers, phase leads and root helpers. */
 export const FlightDeckV6Crew = observer(function FlightDeckV6Crew({
-  task, window, ...actions
+  task,
+  window,
+  ...actions
 }: FlightDeckV6Actions & { task: FullDeckTask; window?: DeckWindow }) {
   return task.sessionIds.length > 0 ? (
     <div className="flight-v6-sessions">
@@ -185,12 +202,17 @@ export const FlightDeckV6Task = observer(function FlightDeckV6Task({
       <div className="flight-v6-guides" aria-hidden>
         {carries.map((carry, level) => (
           <span
+            // biome-ignore lint/suspicious/noArrayIndexKey: one guide per depth level; the level IS the identity
             key={level}
             className="flight-v6-guide"
             data-guide={
               level === carries.length - 1 ? (carry ? 'middle' : 'last') : carry ? 'carry' : 'empty'
             }
-            style={{ '--v6-guide-left': `${(task.depth - carries.length + level) * V6_DEPTH_STEP}px` } as CSSProperties}
+            style={
+              {
+                '--v6-guide-left': `${(task.depth - carries.length + level) * V6_DEPTH_STEP}px`,
+              } as CSSProperties
+            }
           />
         ))}
       </div>
@@ -204,6 +226,7 @@ export const FlightDeckV6Task = observer(function FlightDeckV6Task({
         style={{ '--v6-indent': `${task.depth * V6_DEPTH_STEP}px` } as CSSProperties}
       >
         {shown ? (
+          // biome-ignore lint/a11y/useKeyWithClickEvents lint/a11y/noStaticElementInteractions: keyboard users fold with the TaskFold button, which the strip click only duplicates for the pointer; the context menu covers the strip and its buttons provide keyboard actions
           <div
             className="flight-v6-strip deck-strip"
             data-flight-task-row={task.id}
@@ -378,8 +401,12 @@ const DependencySlot = observer(function DependencySlot({ task }: { task: FullDe
   const blocked = task.word === 'blocked'
   const short = count === 1 ? refs : `${count} tasks`
   return (
-    <span className="flight-v6-dependency" data-kind={blocked ? 'blocked' : 'waiting'}
-      data-dependency-slot={task.id} title={`${blocked ? 'Waits on' : 'After'} ${refs}`}>
+    <span
+      className="flight-v6-dependency"
+      data-kind={blocked ? 'blocked' : 'waiting'}
+      data-dependency-slot={task.id}
+      title={`${blocked ? 'Waits on' : 'After'} ${refs}`}
+    >
       {blocked && <Lock size={11} aria-hidden />}
       <span className="flight-v6-dependency-label">{blocked ? 'blocked by' : 'after'}</span>
       <span className="flight-v6-dependency-ref">{short}</span>
@@ -522,13 +549,17 @@ export const FlightDeckV6Session = observer(function FlightDeckV6Session({
                 <span className="flight-v6-title">{name}</span>
                 <span className="flight-v6-ref">{session.displayRef}</span>
                 {seat !== 'worker' && (
-                  <span className="flight-v6-role">{seat === 'phase-lead' ? 'phase lead' : 'helper'}</span>
+                  <span className="flight-v6-role">
+                    {seat === 'phase-lead' ? 'phase lead' : 'helper'}
+                  </span>
                 )}
               </>
             )}
             {natives.length > 0 && <span className="flight-v6-native-slot" />}
             <SessionState session={session} />
-            {seat === 'coordinator' && <ArrowUpRight size={14} className="flight-full-conversation-arrow" aria-hidden />}
+            {seat === 'coordinator' && (
+              <ArrowUpRight size={14} className="flight-full-conversation-arrow" aria-hidden />
+            )}
           </button>
         )}
         {natives.length > 0 && (
@@ -571,14 +602,20 @@ export const FlightDeckV6Session = observer(function FlightDeckV6Session({
         </button>
       </div>
       {natives.length > 0 && (
-        <ul id={nativeId} hidden={!nativeOpen} className="flight-v6-natives" aria-label={`Native subagents of ${name}`}>
-          {nativeOpen && natives.map((native) => (
-            <li key={native.id}>
-              <span>{native.type}</span>
-              {!native.anonymous && <span>· {native.id}</span>}
-              <span className="flight-v6-native-state">running</span>
-            </li>
-          ))}
+        <ul
+          id={nativeId}
+          hidden={!nativeOpen}
+          className="flight-v6-natives"
+          aria-label={`Native subagents of ${name}`}
+        >
+          {nativeOpen &&
+            natives.map((native) => (
+              <li key={native.id}>
+                <span>{native.type}</span>
+                {!native.anonymous && <span>· {native.id}</span>}
+                <span className="flight-v6-native-state">running</span>
+              </li>
+            ))}
         </ul>
       )}
       {menu && (

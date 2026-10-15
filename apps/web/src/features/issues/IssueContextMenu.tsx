@@ -571,7 +571,11 @@ export const IssueContextMenu = observer(function IssueContextMenu({
       return <StatusGlyph status={option.value} />
     if (entry.id === 'priority' && option.value)
       return <PriorityGlyph priority={Number(option.value)} />
-    if (entry.id === 'agent') return issueAgentIcon(option.value || issueDefaultAgentKind(first.defaultAgent, settingsRequest?.model?.codingHarness))
+    if (entry.id === 'agent')
+      return issueAgentIcon(
+        option.value ||
+          issueDefaultAgentKind(first.defaultAgent, settingsRequest?.model?.codingHarness),
+      )
     return option.icon ? renderIcon(option.icon) : null
   }
 

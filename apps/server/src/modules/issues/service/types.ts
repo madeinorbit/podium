@@ -266,7 +266,10 @@ export interface IssueDeps {
    * candidate). Optional so existing test deps literals stay valid; absent =
    * issues run their own fields exactly as before.
    */
-  agentProfiles?: Pick<import('../../agent-profiles/service').AgentProfileService, 'find' | 'launch'>
+  agentProfiles?: Pick<
+    import('../../agent-profiles/service').AgentProfileService,
+    'find' | 'launch'
+  >
   /** THE write funnel (modules/funnel): every mutation's store write + fan-out
    *  runs through it, so "durable before fan-out" holds by construction. */
   funnel: IssueFunnel

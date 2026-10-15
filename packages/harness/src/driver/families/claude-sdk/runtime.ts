@@ -882,12 +882,14 @@ export function createClaudeSdkRuntime(
             openPermission(core, request)
             return
           }
-          void askUserRefusal(host.askUserGate, core.sessionId).then(async (reason) => {
-            if (reason === null) openPermission(core, request)
-            else await child.answerPermission(request.id, { decision: 'deny', feedback: reason })
-          }).catch(() => {
-            // The turn ended under the gate read: nothing is left to answer.
-          })
+          void askUserRefusal(host.askUserGate, core.sessionId)
+            .then(async (reason) => {
+              if (reason === null) openPermission(core, request)
+              else await child.answerPermission(request.id, { decision: 'deny', feedback: reason })
+            })
+            .catch(() => {
+              // The turn ended under the gate read: nothing is left to answer.
+            })
         },
         onToolCall(call) {
           if (!core.turnOpen || core.turnEpoch !== epoch) return

@@ -105,9 +105,20 @@ const { ScreeningCard } = await import('./ScreeningCard')
 
 it('shows and follows the Settings harness for an auto proposal', () => {
   settings.model = observable({ codingHarness: 'codex' })
-  const view = render(<ScreeningCard issue={{ ...issue, defaultAgent: 'auto' }} repoName="podium" onDecide={vi.fn()} onOpen={vi.fn()} />)
+  const view = render(
+    <ScreeningCard
+      issue={{ ...issue, defaultAgent: 'auto' }}
+      repoName="podium"
+      onDecide={vi.fn()}
+      onOpen={vi.fn()}
+    />,
+  )
   expect(view.getByText('starts Codex on ⎇ main')).toBeTruthy()
-  act(() => runInAction(() => { settings.model!.codingHarness = 'claude-code' }))
+  act(() =>
+    runInAction(() => {
+      settings.model!.codingHarness = 'claude-code'
+    }),
+  )
   expect(view.getByText('starts Claude Code on ⎇ main')).toBeTruthy()
   view.unmount()
   settings.model = undefined

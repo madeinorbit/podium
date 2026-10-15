@@ -506,14 +506,22 @@ describe('seats and profiles', () => {
     const { pool, full } = await open()
     for (const id of ['root', 'build', 'admin']) {
       const marker = pool.issueObject(id).coordinatorSessionId
-      const original = mission().issues.find(row => row['id'] === id)!
-      const setMarker = (coordinatorSessionId: string | null | undefined) => pool.apply({
-        type: 'update', rows: [{ kind: 'issue', id, value: { ...original, coordinatorSessionId } as never }],
-      })
+      const original = mission().issues.find((row) => row['id'] === id)!
+      const setMarker = (coordinatorSessionId: string | null | undefined) =>
+        pool.apply({
+          type: 'update',
+          rows: [{ kind: 'issue', id, value: { ...original, coordinatorSessionId } as never }],
+        })
       setMarker(null)
       expect(tracked(() => full.task(id).leadSessionId)).toBeNull()
-      expect(tracked(() => full.task(id).helperIds)).toEqual(tracked(() => full.task(id).sessionIds))
-      expect(tracked(() => full.task(id).sessionIds.every(session => full.task(id).seat(session) === 'helper'))).toBe(true)
+      expect(tracked(() => full.task(id).helperIds)).toEqual(
+        tracked(() => full.task(id).sessionIds),
+      )
+      expect(
+        tracked(() =>
+          full.task(id).sessionIds.every((session) => full.task(id).seat(session) === 'helper'),
+        ),
+      ).toBe(true)
       if (id === 'root') expect(tracked(() => full.coordinatorSessionId)).toBeNull()
       setMarker('missing')
       expect(tracked(() => full.task(id).leadSessionId)).toBeNull()
@@ -541,14 +549,27 @@ describe('seats and profiles', () => {
 describe('dependencies', () => {
   it('keeps every tooltip reference live while legacy notes summarize multiple dependencies', async () => {
     const fixture = mission()
-    const target = fixture.issues.find(row => row['id'] === 'ext')!
-    target['deps'] = [{ id: 'outside', type: 'blocked-by' }, { id: 'audit', type: 'blocked-by' }]
+    const target = fixture.issues.find((row) => row['id'] === 'ext')!
+    target['deps'] = [
+      { id: 'outside', type: 'blocked-by' },
+      { id: 'audit', type: 'blocked-by' },
+    ]
     const { pool, full } = await open(fixture)
     const refs = () => tracked(() => full.task('ext').dependencyReferences)
-    expect(refs()).toBe(tracked(() => ['outside', 'audit'].map(id => full.task(id).row.displayRef).join(', ')))
-    const outside = fixture.issues.find(row => row['id'] === 'outside')!
-    pool.apply({ type: 'update', rows: [{ kind: 'issue', id: 'outside',
-      value: { ...outside, stage: 'done', closedAt: later } as never }] })
+    expect(refs()).toBe(
+      tracked(() => ['outside', 'audit'].map((id) => full.task(id).row.displayRef).join(', ')),
+    )
+    const outside = fixture.issues.find((row) => row['id'] === 'outside')!
+    pool.apply({
+      type: 'update',
+      rows: [
+        {
+          kind: 'issue',
+          id: 'outside',
+          value: { ...outside, stage: 'done', closedAt: later } as never,
+        },
+      ],
+    })
     expect(refs()).toBe(tracked(() => full.task('audit').row.displayRef))
   })
 

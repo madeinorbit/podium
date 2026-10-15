@@ -220,10 +220,12 @@ export class FullDeckTask {
    * legacy pill's short/full strings summarize several blockers as a count. */
   @lazy get dependencyReferences(): string {
     const reader = this.deck.screen.reader
-    return this.unmetBlockedByIds.map(id => {
-      const target = requireLoaded(reader.catalogIssue(id))
-      return target?.displayRef ?? id
-    }).join(', ')
+    return this.unmetBlockedByIds
+      .map((id) => {
+        const target = requireLoaded(reader.catalogIssue(id))
+        return target?.displayRef ?? id
+      })
+      .join(', ')
   }
   /** Unmet dependencies outside this mission: counted, never drawn as edges. */
   @lazy({ equals: compareShallow }) get externalUnmetIds(): readonly string[] {

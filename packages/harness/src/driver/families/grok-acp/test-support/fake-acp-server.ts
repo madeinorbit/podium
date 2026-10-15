@@ -481,7 +481,9 @@ export function startFakeGrokAcpServer(
         params: {
           sessionId,
           toolCallId: `tool-${id}`,
-          questions: [{ question: 'Which colour?', options: [{ label: 'Red' }, { label: 'Blue' }] }],
+          questions: [
+            { question: 'Which colour?', options: [{ label: 'Red' }, { label: 'Blue' }] },
+          ],
           mode: 'default',
         },
       })

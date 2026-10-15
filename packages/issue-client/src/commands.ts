@@ -662,7 +662,8 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
   },
   {
     name: 'deck',
-    summary: 'The user’s flight deck: deck <id> [--json] — ordered phases and tasks, shared state words, session seats, unmet blockers, proposals and leaf task counts.',
+    summary:
+      'The user’s flight deck: deck <id> [--json] — ordered phases and tasks, shared state words, session seats, unmet blockers, proposals and leaf task counts.',
     args: z.strictObject({ id: idArg }),
     positionals: ['id'],
     async run(c, a) {

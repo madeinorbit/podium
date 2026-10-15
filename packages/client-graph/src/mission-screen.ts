@@ -1,5 +1,5 @@
-import type { SessionView } from '@podium/client-core/session-values'
 import { issueDefaultAgentKind } from '@podium/client-core/agent-models'
+import type { SessionView } from '@podium/client-core/session-values'
 import {
   FLIGHT_DECK_FOLDS_KEY,
   FLIGHT_DECK_MODE_KEY,

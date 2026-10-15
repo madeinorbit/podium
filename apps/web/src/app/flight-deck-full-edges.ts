@@ -15,7 +15,11 @@ export function dependencyPoint(
   }
 }
 
-export function dependencyHook(dependency: DependencyPoint, dependent: DependencyPoint, index: number) {
+export function dependencyHook(
+  dependency: DependencyPoint,
+  dependent: DependencyPoint,
+  index: number,
+) {
   const x = Math.max(dependency.right, dependent.right) - FULL_EDGE_GUTTER + 3
   const hook = 9 + (index % 3) * 5
   return {
@@ -35,7 +39,8 @@ export function dependencyEdges(
   activeId: string | null,
 ) {
   return links.flatMap((link, index) => {
-    const source = points.get(link.dependencyId), target = points.get(link.dependentId)
+    const source = points.get(link.dependencyId),
+      target = points.get(link.dependentId)
     const highlighted = link.dependencyId === activeId || link.dependentId === activeId
     if (!source || !target || (!expanded && !highlighted)) return []
     return [{ ...link, ...dependencyHook(source, target, index), highlighted }]

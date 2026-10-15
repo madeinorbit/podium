@@ -442,9 +442,7 @@ export function TaskStrip({
                 selected ? styles.stripTitleSelected : null,
                 // Cancelled is Done in the shared words; the LABEL in the
                 // state column is what says which ending it was.
-                state.state === 'done'
-                  ? styles.stripTitleDone
-                  : null,
+                state.state === 'done' ? styles.stripTitleDone : null,
               ]}
             >
               {title}

@@ -758,7 +758,8 @@ export function resolvePlan(
   // `podium quota`: the same live harness plan limits shown in the web panel.
   if (argv[0] === 'quota') return { kind: 'quota', args: argv.slice(1) }
   // `podium profile …`: named agent setups issues and sessions start from (POD-6107).
-  if (argv[0] === 'profile' || argv[0] === 'profiles') return { kind: 'profile', args: argv.slice(1) }
+  if (argv[0] === 'profile' || argv[0] === 'profiles')
+    return { kind: 'profile', args: argv.slice(1) }
   // `podium machine [list|show]`: which machines exist, which are usable, and what
   // is registered on them — the read a coordinator needs before placing work.
   if (argv[0] === 'machine' || argv[0] === 'machines')

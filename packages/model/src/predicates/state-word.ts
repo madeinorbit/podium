@@ -83,7 +83,10 @@ export function sessionErrorFact(session: SessionWordFacts): boolean {
  * hibernated session keeps its last phase and resumes into it, an exited one
  * does not.
  */
-export function sessionAsksFact(session: SessionWordFacts, context: SessionWordContext = {}): boolean {
+export function sessionAsksFact(
+  session: SessionWordFacts,
+  context: SessionWordContext = {},
+): boolean {
   if (session.offer) return true
   if ((context.pendingInteractions ?? 0) > 0) return true
   if (session.status === 'exited') return false
@@ -179,7 +182,12 @@ export interface TaskWordParts {
 }
 
 /** Stages that mean somebody already took the work up. */
-const STARTED_STAGES: ReadonlySet<unknown> = new Set(['planning', 'in_progress', 'review', 'shipping'])
+const STARTED_STAGES: ReadonlySet<unknown> = new Set([
+  'planning',
+  'in_progress',
+  'review',
+  'shipping',
+])
 
 /**
  * One task's word (D6).
@@ -346,11 +354,17 @@ export type TaskWordTally = Record<TaskWord, number> & { readonly total: number 
 /** How many of `ids` read each word. Feed it {@link leafTasks} for the gauge,
  *  the done line and the filter totals, or {@link counterChildren} for a row's
  *  `done/total`. Abandoned closes are counted as done (D6). */
-export function tallyTaskWords<Id>(
-  ids: Iterable<Id>,
-  wordOf: (id: Id) => TaskWord,
-): TaskWordTally {
-  const tally = { error: 0, 'needs-you': 0, working: 0, idle: 0, blocked: 0, 'not-started': 0, done: 0, total: 0 }
+export function tallyTaskWords<Id>(ids: Iterable<Id>, wordOf: (id: Id) => TaskWord): TaskWordTally {
+  const tally = {
+    error: 0,
+    'needs-you': 0,
+    working: 0,
+    idle: 0,
+    blocked: 0,
+    'not-started': 0,
+    done: 0,
+    total: 0,
+  }
   for (const id of ids) {
     tally[wordOf(id)] += 1
     tally.total += 1

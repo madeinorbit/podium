@@ -56,7 +56,7 @@ function helpText(): string {
     '      --title names the child session (sidebar label) at spawn; omit to let',
     '      the child self-title. --new names the ISSUE, not the session.',
     '      --profile starts from that agent profile (see `podium profile list`);',
-    '      without it the issue\'s profile applies. --harness/--model/--effort',
+    "      without it the issue's profile applies. --harness/--model/--effort",
     '      go on top of the profile. With --workflow-run-id/--workflow-step-id',
     '      a step that names an agent profile starts from it as the run pinned it.',
     '      --model/--effort are checked against the live model catalog; pass',

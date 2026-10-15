@@ -178,7 +178,9 @@ ALTER TABLE \`sessions\` DROP COLUMN \`execution_profile_id\`;`
     expect(
       unadmitted(
         path,
-        findDestructiveDdl(`${drops}\nALTER TABLE \`sessions\` DROP COLUMN \`execution_profile_id\`;`),
+        findDestructiveDdl(
+          `${drops}\nALTER TABLE \`sessions\` DROP COLUMN \`execution_profile_id\`;`,
+        ),
       ),
     ).toHaveLength(1)
   })

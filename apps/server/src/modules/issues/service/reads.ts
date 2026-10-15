@@ -37,9 +37,9 @@ import type { SessionFacts } from '../../sessions/facts'
 import { readResourceGrants } from '../../world-index/grant-reader'
 import { issueRowToProjection } from '../projection'
 import type { IssueStore } from './core'
+import { readDeck } from './deck'
 import { countContextAwarePendingMail } from './mail-pending'
 import { IssueNotFound } from './not-found'
-import { readDeck } from './deck'
 import { resolveSeat, type SessionSeat, seatText } from './seat'
 
 export type IssueCommandResult<T> = T extends

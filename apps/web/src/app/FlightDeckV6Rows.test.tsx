@@ -1,10 +1,10 @@
 // @vitest-environment happy-dom
 import { readFileSync, writeFileSync } from 'node:fs'
-import { MissionScreen } from '@podium/client-graph/mission-screen'
-import { attachPreferenceSource } from '@podium/client-graph/preference-source'
 import type { RoutedUiState } from '@podium/client-core/ui-state'
+import { MissionScreen } from '@podium/client-graph/mission-screen'
 import { settled } from '@podium/client-graph/mission-view'
 import { MobxPool } from '@podium/client-graph/pool'
+import { attachPreferenceSource } from '@podium/client-graph/preference-source'
 import { SESSION_WORD_LABEL, TASK_WORD_LABEL, type TaskWord } from '@podium/model/browser'
 import { act, cleanup, fireEvent, render, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -13,8 +13,8 @@ import { createRef } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
 import {
   FlightDeckV6Rows,
-  FlightDeckV6Task,
   FlightDeckV6Session,
+  FlightDeckV6Task,
   V6_DEPTH_STEP,
 } from './FlightDeckV6Rows'
 
@@ -233,9 +233,11 @@ it('draws 22px guide steps with middle, last and continuing ancestor elbows beyo
   )
   expect(V6_DEPTH_STEP).toBe(22)
   expect(f.task('d').getAttribute('data-depth')).toBe('3')
-  expect((f.task('d').querySelector('.flight-v6-card') as HTMLElement).style.getPropertyValue('--v6-indent')).toBe(
-    '66px',
-  )
+  expect(
+    (f.task('d').querySelector('.flight-v6-card') as HTMLElement).style.getPropertyValue(
+      '--v6-indent',
+    ),
+  ).toBe('66px')
   expect(
     [...f.task('d').querySelectorAll('[data-guide]')].map((node) =>
       node.getAttribute('data-guide'),
@@ -247,7 +249,9 @@ it('draws 22px guide steps with middle, last and continuing ancestor elbows beyo
     ),
   ).toEqual(['carry', 'empty', 'last'])
   expect(
-    [...f.task('e').querySelectorAll<HTMLElement>('[data-guide]')].map((node) => node.style.getPropertyValue('--v6-guide-left')),
+    [...f.task('e').querySelectorAll<HTMLElement>('[data-guide]')].map((node) =>
+      node.style.getPropertyValue('--v6-guide-left'),
+    ),
   ).toEqual(['0px', '22px', '44px'])
 })
 

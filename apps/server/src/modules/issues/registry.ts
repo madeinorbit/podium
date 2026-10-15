@@ -1482,7 +1482,14 @@ const defs = {
       return {
         ...seat,
         text: seatText(seat),
-        ...(seat.kind === 'below' ? { askUserRefusal: seatRefusal(seat, 'Asking the user (a question, or plan-mode approval)') } : {}),
+        ...(seat.kind === 'below'
+          ? {
+              askUserRefusal: seatRefusal(
+                seat,
+                'Asking the user (a question, or plan-mode approval)',
+              ),
+            }
+          : {}),
       }
     },
   }),

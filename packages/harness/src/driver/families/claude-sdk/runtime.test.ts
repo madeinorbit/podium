@@ -584,12 +584,15 @@ describe('a session below a coordinator is denied the ask-the-user tools', () =>
   function gatedHost(gate: ClaudeSdkRuntimeHost['askUserGate']) {
     const { host } = hostWith(() => new Error('unused'))
     const answers: Array<{ id: string; answer: unknown }> = []
-    const permissions: Array<(request: { id: string; toolName: string; input?: unknown }) => void> = []
+    const permissions: Array<(request: { id: string; toolName: string; input?: unknown }) => void> =
+      []
     const gated: ClaudeSdkRuntimeHost = {
       ...host,
       ...(gate ? { askUserGate: gate } : {}),
       startTurn(input): ClaudeSdkTurnHandle {
-        permissions.push((request) => input.onPermission(request as Parameters<typeof input.onPermission>[0]))
+        permissions.push((request) =>
+          input.onPermission(request as Parameters<typeof input.onPermission>[0]),
+        )
         const done = new Promise<ClaudeSdkTurnResult>(() => {})
         return {
           done,
@@ -613,7 +616,9 @@ describe('a session below a coordinator is denied the ask-the-user tools', () =>
     await vi.waitFor(() => expect(w.permissions).toHaveLength(1))
     w.permissions[0]!({ id: 'perm-1', toolName, input: {} })
     const asked = (): Promise<RuntimeEvent[]> =>
-      eventsUntil(handle, (events) => events.some((e) => e.t === 'interaction' && e.ev.ev === 'asked'))
+      eventsUntil(handle, (events) =>
+        events.some((e) => e.t === 'interaction' && e.ev.ev === 'asked'),
+      )
     return { ...w, asked }
   }
 

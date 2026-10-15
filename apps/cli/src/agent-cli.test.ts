@@ -126,7 +126,10 @@ describe('podium agent spawn', () => {
 
   it('[POD-6107] --profile names an agent profile for the spawn', async () => {
     const c = client()
-    await runAgentCli(['spawn', '--issue', '#228', '--prompt', 'review it', '--profile', 'review'], c)
+    await runAgentCli(
+      ['spawn', '--issue', '#228', '--prompt', 'review it', '--profile', 'review'],
+      c,
+    )
     expect(c.messages.spawnAgent.mutate).toHaveBeenCalledWith(
       expect.objectContaining({ issue: '#228', prompt: 'review it', agentProfile: 'review' }),
     )

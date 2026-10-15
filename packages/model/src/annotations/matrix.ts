@@ -2568,7 +2568,11 @@ const COORDINATION_ROWS: readonly MatrixRow[] = [
       note: 'Instance-wide configuration that every issue and session may point at (flight deck D4: profiles are edited by people, picked by agents).',
     },
     visibility: 'deployment-substrate',
-    grants: { kind: 'none', reason: 'substrate', note: 'Write is admin-grade, and never an agent session’s.' },
+    grants: {
+      kind: 'none',
+      reason: 'substrate',
+      note: 'Write is admin-grade, and never an agent session’s.',
+    },
     attribution: { actor: 'required', onBehalfOf: 'required' },
     systemWriter: 'may-write',
     systemWriterRule: SYSTEM_WRITER_RULE,

@@ -1,9 +1,9 @@
+import { LOADING } from '@podium/client-graph/loading'
 import type { FullDeck, FullDeckTask } from '@podium/client-graph/mission-full-deck'
 import { settled } from '@podium/client-graph/mission-view'
-import { LOADING } from '@podium/client-graph/loading'
 import { observer } from '@podium/client-graph/react'
 import { GhostBar } from '@/components/GhostPreview'
-import { FlightDeckV6Crew, FlightDeckV6Session, type FlightDeckV6Actions } from './FlightDeckV6Rows'
+import { type FlightDeckV6Actions, FlightDeckV6Crew, FlightDeckV6Session } from './FlightDeckV6Rows'
 import type { DeckWindow } from './flight-deck-window'
 
 /** Always outside the task filters and folds. The same arrangement holds as
@@ -18,7 +18,12 @@ export const FlightDeckFullCoordinator = observer(function FlightDeckFullCoordin
     void full.coordinatorSessionId
     return true
   })
-  if (ready !== true) return <div role="status" aria-label="Loading coordinator"><GhostBar /></div>
+  if (ready !== true)
+    return (
+      <div role="status" aria-label="Loading coordinator">
+        <GhostBar />
+      </div>
+    )
   if (full.root.sessionIds.length === 0) return null
   return (
     <section
@@ -45,7 +50,10 @@ export const FlightDeckFullPhaseCrew = observer(function FlightDeckFullPhaseCrew
 /** Archived conversations participate in the same single selection as live
  * seats, while their existing disclosure and conversation routing stay intact. */
 export const FlightDeckFullArchivedSession = observer(function FlightDeckFullArchivedSession({
-  full, id, activeSessionId, onOpen,
+  full,
+  id,
+  activeSessionId,
+  onOpen,
 }: {
   full: FullDeck
   id: string
@@ -53,7 +61,12 @@ export const FlightDeckFullArchivedSession = observer(function FlightDeckFullArc
   onOpen: (permanent: boolean) => void
 }) {
   const session = full.screen.reader.rawSession(id)
-  if (session === LOADING) return <div role="status" aria-label="Loading session"><GhostBar /></div>
+  if (session === LOADING)
+    return (
+      <div role="status" aria-label="Loading session">
+        <GhostBar />
+      </div>
+    )
   return session ? (
     <FlightDeckV6Session
       task={full.task(session.issueId ?? full.rootId)}

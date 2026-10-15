@@ -379,8 +379,22 @@ describe('insertRun — the run and its steps in one span', () => {
     await workflows.insertRun({
       run: run('run-1'),
       steps: [
-        { id: 'a', title: 'A', instructions: 'ia', completionGuidance: 'ga', profileId: null, profile: null },
-        { id: 'b', title: 'B', instructions: 'ib', completionGuidance: 'gb', profileId: null, profile: null },
+        {
+          id: 'a',
+          title: 'A',
+          instructions: 'ia',
+          completionGuidance: 'ga',
+          profileId: null,
+          profile: null,
+        },
+        {
+          id: 'b',
+          title: 'B',
+          instructions: 'ib',
+          completionGuidance: 'gb',
+          profileId: null,
+          profile: null,
+        },
       ] as never,
     })
 
@@ -471,7 +485,14 @@ describe('run queries', () => {
         ownerUserId: OWNER,
       },
       steps: [
-        { id: 'a', title: 'A', instructions: 'i', completionGuidance: 'g', profileId: null, profile: null },
+        {
+          id: 'a',
+          title: 'A',
+          instructions: 'i',
+          completionGuidance: 'g',
+          profileId: null,
+          profile: null,
+        },
       ] as never,
     })
   }
@@ -544,8 +565,22 @@ describe('step mutation', () => {
         ownerUserId: OWNER,
       },
       steps: [
-        { id: 'a', title: 'A', instructions: 'i', completionGuidance: 'g', profileId: null, profile: null },
-        { id: 'b', title: 'B', instructions: 'i', completionGuidance: 'g', profileId: null, profile: null },
+        {
+          id: 'a',
+          title: 'A',
+          instructions: 'i',
+          completionGuidance: 'g',
+          profileId: null,
+          profile: null,
+        },
+        {
+          id: 'b',
+          title: 'B',
+          instructions: 'i',
+          completionGuidance: 'g',
+          profileId: null,
+          profile: null,
+        },
       ] as never,
     })
   })

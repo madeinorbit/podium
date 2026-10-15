@@ -55,7 +55,8 @@ export function WorkflowsView(): JSX.Element {
             Workflows
           </h1>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            Versioned instructions, optional linear steps, and the agent profile each step runs with.
+            Versioned instructions, optional linear steps, and the agent profile each step runs
+            with.
           </p>
         </div>
         <Button

@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
+  flightDeckSizing,
   isComplexFlightDeckMission,
   nextFlightDeckDisplayForSessionPick,
   readFlightDeckDisplay,
-  flightDeckSizing,
   readFlightDeckWidth,
 } from './flight-deck-display'
 
@@ -38,20 +38,39 @@ describe('Flight Deck display contract', () => {
     expect(full.max).toBe(1120)
     expect(waterfall).toMatchObject({ min: 540, max: 760, defaultWidth: 680 })
     expect(full.storageKey).not.toBe(waterfall.storageKey)
-    expect(flightDeckSizing(true, 'compact').storageKey).not.toBe(flightDeckSizing(false, 'compact').storageKey)
-    expect(flightDeckSizing(false, 'compact')).toMatchObject({ storageKey: 'podium:superagent:width', min: 300, max: 620, defaultWidth: 366 })
+    expect(flightDeckSizing(true, 'compact').storageKey).not.toBe(
+      flightDeckSizing(false, 'compact').storageKey,
+    )
+    expect(flightDeckSizing(false, 'compact')).toMatchObject({
+      storageKey: 'podium:superagent:width',
+      min: 300,
+      max: 620,
+      defaultWidth: 366,
+    })
   })
 
-  it.each([300, 320, 359, 360, 439, 440, 559, 560, 620])('preserves a valid compact width of %i', width => {
+  it.each([
+    300, 320, 359, 360, 439, 440, 559, 560, 620,
+  ])('preserves a valid compact width of %i', (width) => {
     expect(readFlightDeckWidth(String(width), true, 'compact')).toBe(width)
     expect(readFlightDeckWidth(String(width), false, 'compact')).toBe(width)
   })
 
-  it.each([540, 559, 560, 680, 760, 859, 860, 900, 1120])('preserves Full expanded width %i through reopen', width => {
+  it.each([
+    540, 559, 560, 680, 760, 859, 860, 900, 1120,
+  ])('preserves Full expanded width %i through reopen', (width) => {
     expect(readFlightDeckWidth(String(width), true, 'expanded')).toBe(width)
   })
 
-  it.each([null, '', 'NaN', 'Infinity', '-1', '299', '1121'])('rejects invalid saved widths %s', raw => {
+  it.each([
+    null,
+    '',
+    'NaN',
+    'Infinity',
+    '-1',
+    '299',
+    '1121',
+  ])('rejects invalid saved widths %s', (raw) => {
     expect(readFlightDeckWidth(raw, true, 'expanded')).toBe(900)
     expect(readFlightDeckWidth(raw, false, 'expanded')).toBe(680)
   })

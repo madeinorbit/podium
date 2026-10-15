@@ -1,11 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import {
-  EpicStatus,
-  IssueAggregate,
-  IssueGraph,
-  IssueGraphNode,
-  OrphanIssue,
-} from '../index'
+import { EpicStatus, IssueAggregate, IssueGraph, IssueGraphNode, OrphanIssue } from '../index'
 
 /**
  * KEY-ORDER PINS for the issue read projections that POD-367 re-derived from

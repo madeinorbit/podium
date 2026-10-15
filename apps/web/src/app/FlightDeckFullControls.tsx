@@ -25,6 +25,7 @@ export const FlightDeckFullControls = observer(function FlightDeckFullControls({
   return (
     <div className="flight-full-controls">
       <div className="flight-full-filter-bar" aria-busy={!ready}>
+        {/* biome-ignore lint/a11y/useSemanticElements: a toolbar of filter toggles, not a form fieldset */}
         <div className="flight-full-filters" role="group" aria-label="Task filters">
           {FILTERS.map(({ id, label }) => (
             <button
@@ -80,7 +81,11 @@ export const FlightDeckFullControls = observer(function FlightDeckFullControls({
             disabled={!ready || full.foldableIds.length === 0}
             onClick={() => full.foldAll()}
           >
-            {folded ? <ChevronsUpDown size={13} aria-hidden /> : <ChevronsDownUp size={13} aria-hidden />}
+            {folded ? (
+              <ChevronsUpDown size={13} aria-hidden />
+            ) : (
+              <ChevronsDownUp size={13} aria-hidden />
+            )}
           </button>
         </div>
       </div>

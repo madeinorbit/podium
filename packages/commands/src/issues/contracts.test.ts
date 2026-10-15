@@ -108,14 +108,17 @@ describe('sibling move input', () => {
 
   it('requires exactly one relative placement and accepts revision preconditions', () => {
     expect(input.parse({ id: 'POD-1', before: 'POD-2', expectedRevision: 3 })).toEqual({
-      id: 'POD-1', before: 'POD-2', expectedRevision: 3,
+      id: 'POD-1',
+      before: 'POD-2',
+      expectedRevision: 3,
     })
     expect(input.parse({ id: 'POD-1', after: 'POD-2' })).toEqual({ id: 'POD-1', after: 'POD-2' })
     for (const bad of [
       { id: 'POD-1' },
       { id: 'POD-1', before: 'POD-2', after: 'POD-3' },
       { id: 'POD-1', before: '' },
-    ]) expect(input.safeParse(bad).success).toBe(false)
+    ])
+      expect(input.safeParse(bad).success).toBe(false)
   })
 })
 

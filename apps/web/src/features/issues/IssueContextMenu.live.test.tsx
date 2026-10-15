@@ -104,7 +104,10 @@ const session = (over: Partial<SessionViewInput> & Pick<SessionView, 'sessionId'
     // construction site `wire-input.ts` describes.
   }) as unknown as SessionView
 
-function open(issue: IssueViewModel & { memberSessionIds?: string[] }, surface: 'board' | 'palette' = 'board'): void {
+function open(
+  issue: IssueViewModel & { memberSessionIds?: string[] },
+  surface: 'board' | 'palette' = 'board',
+): void {
   const viewIssue = {
     ...issue,
     memberSessionIds: issue.memberSessionIds?.map(asSessionId),
@@ -148,7 +151,11 @@ it('updates an open auto agent submenu when the Settings harness changes', () =>
   open(makeIssue({ defaultAgent: 'auto' }), 'palette')
   fireEvent.click(screen.getByRole('menuitem', { name: /Assign agent|Run now/ }))
   expect(screen.getByRole('menuitem', { name: 'Codex (default)' })).toBeTruthy()
-  act(() => runInAction(() => { settings.model!.codingHarness = 'claude-code' }))
+  act(() =>
+    runInAction(() => {
+      settings.model!.codingHarness = 'claude-code'
+    }),
+  )
   expect(screen.getByRole('menuitem', { name: 'Claude Code (default)' })).toBeTruthy()
 })
 

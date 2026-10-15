@@ -1427,6 +1427,7 @@ const FullDeckBrief = observer(function FullDeckBrief({
           {description ? (
             <div
               className={cn('flight-full-description-markdown', !open && 'flight-full-description-summary')}
+              // biome-ignore lint/security/noDangerouslySetInnerHtml: renderReadoutMarkdown sanitizes through DOMPurify and drops every anchor
               dangerouslySetInnerHTML={{ __html: descriptionHtml }}
             />
           ) : (
@@ -1435,7 +1436,11 @@ const FullDeckBrief = observer(function FullDeckBrief({
           {open && acceptance && (
             <section className="flight-full-description-acceptance" aria-label="Acceptance">
               <h3>Acceptance</h3>
-              <div className="flight-full-description-markdown" dangerouslySetInnerHTML={{ __html: acceptanceHtml }} />
+              <div
+                className="flight-full-description-markdown"
+                // biome-ignore lint/security/noDangerouslySetInnerHtml: renderReadoutMarkdown sanitizes through DOMPurify and drops every anchor
+                dangerouslySetInnerHTML={{ __html: acceptanceHtml }}
+              />
             </section>
           )}
         </div>
@@ -2411,6 +2416,7 @@ export const FlightDeckContent = observer(function FlightDeckContent({
         {/* Rules TOP AND BOTTOM, both in the soft tier: the bar is a band cut
           through the column, and its top rule is the seam the header no
           longer draws for itself. */}
+        {/* biome-ignore lint/a11y/useSemanticElements: a toolbar of view toggles, not a form fieldset */}
         <div
           className={cn('relative flex h-8 flex-none items-center gap-1 border-y border-hairline-soft pr-2', view === 'full' && 'flight-full-view-bar')}
           role="group"

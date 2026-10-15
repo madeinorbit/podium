@@ -3013,14 +3013,17 @@ describe('deckIssueState', () => {
   // POD-1074 gave the strip its cancel glyph. The word is Done in every count
   // (D6), but the label says what the glyph beside it says, in every spelling of
   // the cancelled category, including legacy `wontfix` rows that never migrate.
-  it.each([['cancelled'], ['duplicate'], ['superseded'], ['wontfix'], ["won't fix"]])(
-    'is Done, labelled Cancelled, for %s',
-    (reason) => {
-      const state = deckIssueState(issue('a', { closedReason: reason }), [])
-      expect(state.state).toBe('done')
-      expect(state.label).toBe('Cancelled')
-    },
-  )
+  it.each([
+    ['cancelled'],
+    ['duplicate'],
+    ['superseded'],
+    ['wontfix'],
+    ["won't fix"],
+  ])('is Done, labelled Cancelled, for %s', (reason) => {
+    const state = deckIssueState(issue('a', { closedReason: reason }), [])
+    expect(state.state).toBe('done')
+    expect(state.label).toBe('Cancelled')
+  })
 
   it.each([['done'], [undefined]])('says Done for a completed task (%s)', (reason) => {
     const target = reason ? issue('a', { closedReason: reason }) : issue('a', { stage: 'done' })
@@ -3034,15 +3037,20 @@ describe('deckIssueState', () => {
   it('rolls a sub-issue up: a parent shows its most urgent descendant (D6)', () => {
     const live = sess('s', { issueId: 'a', agentState: workingState })
     expect(deckIssueState(issue('a'), [live], { children: ['error'] }).state).toBe('error')
-    expect(deckIssueState(issue('a', { stage: 'backlog' }), [], { children: ['blocked'] }).state).toBe('blocked')
+    expect(
+      deckIssueState(issue('a', { stage: 'backlog' }), [], { children: ['blocked'] }).state,
+    ).toBe('blocked')
   })
 
   it('counts a blocked-by target the deck already sees open', () => {
-    expect(deckIssueState(issue('a', { stage: 'backlog' }), [], { unmetDependency: true }).state).toBe('blocked')
+    expect(
+      deckIssueState(issue('a', { stage: 'backlog' }), [], { unmetDependency: true }).state,
+    ).toBe('blocked')
   })
 
   describe('an agent that stopped on an error', () => {
-    const dead = (over = {}) => sess('s', { issueId: 'a', agentState: erroredState(false), ...over })
+    const dead = (over = {}) =>
+      sess('s', { issueId: 'a', agentState: erroredState(false), ...over })
 
     it('says Error instead of the stage word, with the attention dot', () => {
       const state = deckIssueState(issue('a', { stage: 'review' }), [dead()])
@@ -3100,27 +3108,141 @@ const legacyAsking = (session: SessionView): boolean =>
     Boolean(session.offer))
 
 describe('state words against the deck they replace', () => {
-  const idleDone: AgentState = { phase: 'idle', since: SINCE, nativeSubagentCount: 0, idle: { kind: 'done' } }
-  const offer = { message: 'Ready to merge', actions: [], createdAt: SINCE } as unknown as SessionViewInput['offer']
+  const idleDone: AgentState = {
+    phase: 'idle',
+    since: SINCE,
+    nativeSubagentCount: 0,
+    idle: { kind: 'done' },
+  }
+  const offer = {
+    message: 'Ready to merge',
+    actions: [],
+    createdAt: SINCE,
+  } as unknown as SessionViewInput['offer']
   const exited = (over: Partial<SessionViewInput> = {}) =>
-    sess('s', { issueId: 'a', status: 'exited', stopReason: 'self', exitCode: 0, agentState: idleDone, ...over })
+    sess('s', {
+      issueId: 'a',
+      status: 'exited',
+      stopReason: 'self',
+      exitCode: 0,
+      agentState: idleDone,
+      ...over,
+    })
   const cases: Array<[string, string, string, string, IssueNavigationModel, SessionView[]]> = [
     // [fixture, before, now, why, issue, sessions]
-    ['nobody on it', 'next', 'not-started', 'same meaning, D6 word', issue('a', { stage: 'backlog' }), []],
-    ['a proposal', 'proposed', 'not-started', 'D6 has no proposal word; the deck section says it', issue('a', { stage: 'proposed' }), []],
-    ['an agent working', 'working', 'working', 'same', issue('a'), [sess('s', { agentState: workingState })]],
-    ['an idle live agent', 'idle', 'idle', 'Standing by becomes Idle', issue('a'), [sess('s', { agentState: idleDone })]],
-    ['its agent exited', 'retired', 'idle', 'D6: started with nothing running reads Idle', issue('a'), [exited()]],
-    ['its agent asks', 'idle', 'needs-you', 'D5/D6: Needs you is a state, not only a dot', issue('a'), [sess('s', { agentState: needsUserState })]],
-    ['a standing offer', 'idle', 'needs-you', 'D5: a pending offer is Needs you', issue('a', { stage: 'review' }), [sess('s', { agentState: idleDone, offer })]],
-    ['errored beside a working agent', 'working', 'error', 'D6 overturns POD-1601', issue('a'), [sess('s', { agentState: erroredState(true) }), sess('t', { agentState: workingState })]],
-    ['its agent crashed', 'retired', 'error', 'D5: a crash is Error', issue('a'), [exited({ stopReason: 'exited', exitCode: 137 })]],
-    ['out of memory', 'retired', 'error', 'D5: out-of-memory is Error', issue('a'), [exited({ stopReason: 'oom' })]],
-    ['blocked, agent exited', 'blocked', 'blocked', 'same', issue('a', { blocked: true }), [exited()]],
-    ['an open decision', 'next', 'needs-you', 'D2/D6: a decision is Needs you', issue('a', { type: 'decision', stage: 'backlog' }), []],
+    [
+      'nobody on it',
+      'next',
+      'not-started',
+      'same meaning, D6 word',
+      issue('a', { stage: 'backlog' }),
+      [],
+    ],
+    [
+      'a proposal',
+      'proposed',
+      'not-started',
+      'D6 has no proposal word; the deck section says it',
+      issue('a', { stage: 'proposed' }),
+      [],
+    ],
+    [
+      'an agent working',
+      'working',
+      'working',
+      'same',
+      issue('a'),
+      [sess('s', { agentState: workingState })],
+    ],
+    [
+      'an idle live agent',
+      'idle',
+      'idle',
+      'Standing by becomes Idle',
+      issue('a'),
+      [sess('s', { agentState: idleDone })],
+    ],
+    [
+      'its agent exited',
+      'retired',
+      'idle',
+      'D6: started with nothing running reads Idle',
+      issue('a'),
+      [exited()],
+    ],
+    [
+      'its agent asks',
+      'idle',
+      'needs-you',
+      'D5/D6: Needs you is a state, not only a dot',
+      issue('a'),
+      [sess('s', { agentState: needsUserState })],
+    ],
+    [
+      'a standing offer',
+      'idle',
+      'needs-you',
+      'D5: a pending offer is Needs you',
+      issue('a', { stage: 'review' }),
+      [sess('s', { agentState: idleDone, offer })],
+    ],
+    [
+      'errored beside a working agent',
+      'working',
+      'error',
+      'D6 overturns POD-1601',
+      issue('a'),
+      [sess('s', { agentState: erroredState(true) }), sess('t', { agentState: workingState })],
+    ],
+    [
+      'its agent crashed',
+      'retired',
+      'error',
+      'D5: a crash is Error',
+      issue('a'),
+      [exited({ stopReason: 'exited', exitCode: 137 })],
+    ],
+    [
+      'out of memory',
+      'retired',
+      'error',
+      'D5: out-of-memory is Error',
+      issue('a'),
+      [exited({ stopReason: 'oom' })],
+    ],
+    [
+      'blocked, agent exited',
+      'blocked',
+      'blocked',
+      'same',
+      issue('a', { blocked: true }),
+      [exited()],
+    ],
+    [
+      'an open decision',
+      'next',
+      'needs-you',
+      'D2/D6: a decision is Needs you',
+      issue('a', { type: 'decision', stage: 'backlog' }),
+      [],
+    ],
     ['shipping', 'working', 'working', 'same', issue('a', { stage: 'shipping' }), []],
-    ['cancelled', 'cancelled', 'done', 'D6: counts as done, hidden', issue('a', { closedReason: 'cancelled' }), []],
-    ['closed with its agent still asking', 'done', 'done', 'same', issue('a', { closedReason: 'done' }), [sess('s', { agentState: needsUserState })]],
+    [
+      'cancelled',
+      'cancelled',
+      'done',
+      'D6: counts as done, hidden',
+      issue('a', { closedReason: 'cancelled' }),
+      [],
+    ],
+    [
+      'closed with its agent still asking',
+      'done',
+      'done',
+      'same',
+      issue('a', { closedReason: 'done' }),
+      [sess('s', { agentState: needsUserState })],
+    ],
   ]
 
   it.each(cases)('%s: was %s, is now %s (%s)', (_name, before, now, _why, target, sessions) => {
@@ -3133,14 +3255,34 @@ describe('state words against the deck they replace', () => {
     ['a question', true, true, sess('s', { agentState: needsUserState }), issue('a')],
     ['an agent error', true, true, sess('s', { agentState: erroredState(false) }), issue('a')],
     ['an offer', true, true, sess('s', { agentState: idleDone, offer }), issue('a')],
-    ['a textual question at idle', false, true, sess('s', { agentState: { ...idleDone, idle: { kind: 'question' } } }), issue('a')],
+    [
+      'a textual question at idle',
+      false,
+      true,
+      sess('s', { agentState: { ...idleDone, idle: { kind: 'question' } } }),
+      issue('a'),
+    ],
     ['a crash', false, true, exited({ stopReason: 'exited', exitCode: 1 }), issue('a')],
-    ['an offer on a closed issue', true, false, sess('s', { agentState: idleDone, offer }), issue('a', { stage: 'done' })],
-    ['a question on an exited process', true, false, exited({ agentState: needsUserState }), issue('a')],
+    [
+      'an offer on a closed issue',
+      true,
+      false,
+      sess('s', { agentState: idleDone, offer }),
+      issue('a', { stage: 'done' }),
+    ],
+    [
+      'a question on an exited process',
+      true,
+      false,
+      exited({ agentState: needsUserState }),
+      issue('a'),
+    ],
     ['working', false, false, sess('s', { agentState: workingState }), issue('a')],
   ]
 
-  it.each(sessionCases)('session with %s: asking was %s, attention is now %s', (_name, before, now, session, target) => {
+  it.each(
+    sessionCases,
+  )('session with %s: asking was %s, attention is now %s', (_name, before, now, session, target) => {
     expect(legacyAsking(session)).toBe(before)
     expect(wordWantsAttention(sessionWord(session, { issueClosed: issueClosed(target) }))).toBe(now)
   })

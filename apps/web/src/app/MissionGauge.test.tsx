@@ -209,18 +209,49 @@ describe('Flight Deck mission gauge', () => {
 // Band rendering consumes a model answer. Full header tests exercise that
 // answer on a real pool, including nested parents, phases and cancelled leaves.
 function full(tally: Partial<TaskWordTally>, active: number): FullDeck {
-  const t = { total: 0, done: 0, error: 0, 'needs-you': 0, working: 0, idle: 0,
-    blocked: 0, 'not-started': 0, ...tally }
+  const t = {
+    total: 0,
+    done: 0,
+    error: 0,
+    'needs-you': 0,
+    working: 0,
+    idle: 0,
+    blocked: 0,
+    'not-started': 0,
+    ...tally,
+  }
   return { tally: t, counts: { all: t.total, active } } as FullDeck
 }
 
 describe('Full v6 mission gauge', () => {
   it('presents the shared leaf tally in four bands, including all Active words in underway', () => {
-    render(<MissionGauge full={full({ total: 9, done: 2, error: 1, 'needs-you': 1,
-      working: 1, idle: 1, blocked: 1, 'not-started': 2 }, 4)} live={3} working={1} />)
-    expect(bands().map(band => band.getAttribute('data-s'))).toEqual(['done', 'run', 'block', 'wait'])
+    render(
+      <MissionGauge
+        full={full(
+          {
+            total: 9,
+            done: 2,
+            error: 1,
+            'needs-you': 1,
+            working: 1,
+            idle: 1,
+            blocked: 1,
+            'not-started': 2,
+          },
+          4,
+        )}
+        live={3}
+        working={1}
+      />,
+    )
+    expect(bands().map((band) => band.getAttribute('data-s'))).toEqual([
+      'done',
+      'run',
+      'block',
+      'wait',
+    ])
     expect(bands().map(label)).toEqual(['2 done', '4 underway', '1 blocked', '2 to go'])
-    expect(bands().map(band => band.style.flexGrow)).toEqual(['2', '4', '1', '2'])
+    expect(bands().map((band) => band.style.flexGrow)).toEqual(['2', '4', '1', '2'])
     expect(bands()[2]?.className).toContain('gauge-hatch')
     expect(screen.getByTestId('mission-gauge').getAttribute('aria-label')).toBe(
       '2 of 9 tasks done, 4 underway, 1 blocked, 2 to go · 1 working',
@@ -239,23 +270,31 @@ describe('Full v6 mission gauge', () => {
     expect(screen.getByTestId('mission-live-chip').textContent).toBe('1 agent')
     view.rerender(<MissionGauge full={full({ total: 1, done: 1 }, 0)} live={0} working={0} />)
     expect(bands().map(label)).toEqual(['1 done'])
-    expect(screen.getByTestId('mission-gauge').getAttribute('aria-label')).toBe('1 of 1 task done · 0 agents')
+    expect(screen.getByTestId('mission-gauge').getAttribute('aria-label')).toBe(
+      '1 of 1 task done · 0 agents',
+    )
   })
 
   it('gives an empty phase tree one neutral no-tasks band', () => {
     render(<MissionGauge full={full({}, 0)} live={0} working={0} />)
-    expect(bands().map(band => band.getAttribute('data-s'))).toEqual(['none'])
+    expect(bands().map((band) => band.getAttribute('data-s'))).toEqual(['none'])
     expect(bands()[0]?.style.flexGrow).toBe('1')
     expect(label(bands()[0])).toBe('no tasks')
-    expect(screen.getByTestId('mission-gauge').getAttribute('aria-label')).toBe('No tasks · 0 agents')
+    expect(screen.getByTestId('mission-gauge').getAttribute('aria-label')).toBe(
+      'No tasks · 0 agents',
+    )
   })
 
   it('sizes each text rung for its complete count and word, including long counts', () => {
-    render(<MissionGauge full={full({ total: 1001, done: 1, idle: 1000 }, 1000)} live={0} working={0} />)
+    render(
+      <MissionGauge full={full({ total: 1001, done: 1, idle: 1000 }, 1000)} live={0} working={0} />,
+    )
     expect(bands()[0]?.querySelector('.gauge-band-count')?.getAttribute('data-fit')).toBe('8')
     expect(bands()[0]?.querySelector('.gauge-band-word')?.getAttribute('data-fit')).toBe('40')
     expect(bands()[1]?.querySelector('.gauge-band-count')?.getAttribute('data-fit')).toBe('24')
     expect(bands()[1]?.querySelector('.gauge-band-word')?.getAttribute('data-fit')).toBe('80')
-    expect(screen.getByTestId('mission-gauge').getAttribute('aria-label')).toContain('1000 underway')
+    expect(screen.getByTestId('mission-gauge').getAttribute('aria-label')).toContain(
+      '1000 underway',
+    )
   })
 })

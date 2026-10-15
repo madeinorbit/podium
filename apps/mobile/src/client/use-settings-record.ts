@@ -8,12 +8,15 @@ import { followPhoneRequest } from './visible-request'
 export function useSettingsRecord() {
   const pool = useMobilePool()
   const trpc = useTrpc()
-  const request = useMemo(() => pool ? new SettingsRecordRequest(pool) : null, [pool])
+  const request = useMemo(() => (pool ? new SettingsRecordRequest(pool) : null), [pool])
   useEffect(() => {
     const stop = followPhoneRequest(() => {
       if (request && !request.loading) void request.read(() => trpc.settings.get.query())
     })
-    return () => { stop(); request?.close() }
+    return () => {
+      stop()
+      request?.close()
+    }
   }, [request, trpc])
   return request
 }

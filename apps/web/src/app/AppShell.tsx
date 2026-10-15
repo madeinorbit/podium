@@ -66,8 +66,8 @@ import { DesktopMenuHost } from './DesktopMenuHost'
 import { DensityProvider } from './density'
 import { ErrorBoundary } from './ErrorBoundary'
 import {
-  flightDeckSizing,
   type FlightDeckDisplay,
+  flightDeckSizing,
   isComplexFlightDeckMission,
   readFlightDeckDisplay,
   readFlightDeckWidth,
@@ -590,9 +590,13 @@ function AppBodyView({ syncProgress }: { syncProgress: SyncProgressStore }): JSX
   const flightDeckCollapsed = usePersistedUiValue(SUPERAGENT_MODE_KEY, readFlightDeckCollapsed)
   const developmentDeckViews = useFeature('podium-development')
   const preferredDeckView = usePersistedUiValue(FLIGHT_DECK_MODE_KEY, readMissionScreenView)
-  const fullDeckSizing = preferredDeckView === 'full' ||
-    (!developmentDeckViews && (preferredDeckView === 'waterfall' || preferredDeckView === 'handoff'))
-  const flightDeckDisplayKey = fullDeckSizing ? FLIGHT_DECK_FULL_DISPLAY_KEY : FLIGHT_DECK_DISPLAY_KEY
+  const fullDeckSizing =
+    preferredDeckView === 'full' ||
+    (!developmentDeckViews &&
+      (preferredDeckView === 'waterfall' || preferredDeckView === 'handoff'))
+  const flightDeckDisplayKey = fullDeckSizing
+    ? FLIGHT_DECK_FULL_DISPLAY_KEY
+    : FLIGHT_DECK_DISPLAY_KEY
   const flightDeckDisplay = usePersistedUiValue(flightDeckDisplayKey, (raw) =>
     readFlightDeckDisplay(raw, isComplexFlightDeckMission(flightDeckMission)),
   )
@@ -652,8 +656,13 @@ function AppBodyView({ syncProgress }: { syncProgress: SyncProgressStore }): JSX
   const persistedFlightDeckWidth = (display: FlightDeckDisplay = flightDeckDisplay): number => {
     const sizing = flightDeckSizing(fullDeckSizing, display)
     // Seed Full from a valid old width, without ever writing back to it.
-    const legacyKey = display === 'expanded' ? FLIGHT_DECK_EXPANDED_WIDTH_KEY : 'podium:superagent:width'
-    return readFlightDeckWidth(uiState.get(sizing.storageKey) ?? uiState.get(legacyKey), fullDeckSizing, display)
+    const legacyKey =
+      display === 'expanded' ? FLIGHT_DECK_EXPANDED_WIDTH_KEY : 'podium:superagent:width'
+    return readFlightDeckWidth(
+      uiState.get(sizing.storageKey) ?? uiState.get(legacyKey),
+      fullDeckSizing,
+      display,
+    )
   }
   const animateFlightDeckWidth = (from: number, to: number, onFinish?: () => void): void => {
     const shell = flightDeckShellRef.current
@@ -1053,9 +1062,13 @@ function AppBodyView({ syncProgress }: { syncProgress: SyncProgressStore }): JSX
                     max={flightDeckSize.max}
                     defaultWidth={persistedFlightDeckWidth()}
                     handleLabel="Resize Flight Deck"
-                    className={flightDeckDisplay === 'expanded'
-                      ? fullDeckSizing ? 'max-w-[calc(100vw-300px)]' : 'max-w-[62vw]'
-                      : 'max-w-[45vw]'}
+                    className={
+                      flightDeckDisplay === 'expanded'
+                        ? fullDeckSizing
+                          ? 'max-w-[calc(100vw-300px)]'
+                          : 'max-w-[62vw]'
+                        : 'max-w-[45vw]'
+                    }
                   >
                     <Suspense fallback={<RouteFallback />}>
                       {/* The arrival latch and the scrolling node both belong

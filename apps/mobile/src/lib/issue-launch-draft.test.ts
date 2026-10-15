@@ -1,7 +1,7 @@
 import { autorun, observable, runInAction } from 'mobx'
 import { describe, expect, it, vi } from 'vitest'
 import { IssueLaunchForm, issueLaunchDraft, patchIssueLaunchDraft } from './issue-launch-draft'
-import { launchConfigurationForIssue, selectLaunchEffort, selectLaunchModel, selectLaunchMachine } from './launch-configuration'
+import { launchConfigurationForIssue, selectLaunchEffort, selectLaunchMachine, selectLaunchModel } from './launch-configuration'
 
 describe('phone issue launch draft', () => {
   it('follows Settings until a model is chosen, then pins its harness', async () => {

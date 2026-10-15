@@ -863,10 +863,7 @@ export class IssueCrudModule {
   }
 
   /** Resolve a sibling-relative position server-side, without making callers mint keys. */
-  async move(
-    id: string,
-    placement: { before?: string; after?: string },
-  ): Promise<IssueProjection> {
+  async move(id: string, placement: { before?: string; after?: string }): Promise<IssueProjection> {
     if ((placement.before !== undefined) === (placement.after !== undefined)) {
       throw new IssueRefusal('pass exactly one of --before or --after')
     }
@@ -874,13 +871,18 @@ export class IssueCrudModule {
     return await this.store.deps.store.transact(async () => {
       const row = await this.store.rowOrThrow(await this.store.resolveRef(id))
       const reference = (placement.before ?? placement.after)!
-      const anchor = await this.store.rowOrThrow(await this.store.resolveRef(reference, row.repoPath))
+      const anchor = await this.store.rowOrThrow(
+        await this.store.resolveRef(reference, row.repoPath),
+      )
       if (row.deletedAt || anchor.deletedAt) {
         throw new IssueRefusal('deleted issues cannot be moved or used as move references')
       }
-      if (row.id === anchor.id) throw new IssueRefusal('an issue cannot be moved relative to itself')
+      if (row.id === anchor.id)
+        throw new IssueRefusal('an issue cannot be moved relative to itself')
       if (isIssueStage(row.stage) && isSystemOwnedIssueStage(row.stage)) {
-        throw new IssueRefusal('shipping stage is system-owned and cannot be changed by an issue move')
+        throw new IssueRefusal(
+          'shipping stage is system-owned and cannot be changed by an issue move',
+        )
       }
       const scope = () => this.sortKeySpaceRows(row.repoId, row.repoPath, row.parentId ?? null)
       if (!scope().some((sibling) => sibling.id === anchor.id)) {

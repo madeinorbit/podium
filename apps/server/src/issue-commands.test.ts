@@ -100,15 +100,22 @@ describe('ISSUE_COMMANDS registry', () => {
     }
   })
 
-  it.each(['before', 'after'])('move forwards --%s and renders the relative position', async (direction) => {
+  it.each([
+    'before',
+    'after',
+  ])('move forwards --%s and renders the relative position', async (direction) => {
     const { client, calls } = mockClient()
     const command = cmd('move')
     expect(command.positionals).toEqual(['id'])
     const args = command.args.parse({ id: 1, [direction]: 2 }) as Record<string, unknown>
     const result = await command.run(client, args)
-    expect(calls).toEqual([{
-      path: 'move', kind: 'mutate', input: { id: '1', [direction]: '2' },
-    }])
+    expect(calls).toEqual([
+      {
+        path: 'move',
+        kind: 'mutate',
+        input: { id: '1', [direction]: '2' },
+      },
+    ])
     expect(result.text).toBe(`1 moved ${direction} 2`)
     expect(result.data).toMatchObject({ id: 'iss_1' })
   })

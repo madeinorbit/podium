@@ -13,8 +13,18 @@ afterAll(async () => {
 async function fixture() {
   const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
   registries.push(registry)
-  await registry.sessionStore.repos.addRepo('/r', registry.sessionStore.hostMachineId, undefined, 'POD')
-  await registry.sessionStore.repos.addRepo('/other', registry.sessionStore.hostMachineId, undefined, 'OTH')
+  await registry.sessionStore.repos.addRepo(
+    '/r',
+    registry.sessionStore.hostMachineId,
+    undefined,
+    'POD',
+  )
+  await registry.sessionStore.repos.addRepo(
+    '/other',
+    registry.sessionStore.hostMachineId,
+    undefined,
+    'OTH',
+  )
   const op = appRouter.createCaller({
     registry,
     repos: {} as never,
@@ -29,9 +39,10 @@ async function fixture() {
   const b = await create('b', parent.id)
   const c = await create('c', parent.id)
   const d = await create('d', parent.id)
-  const siblings = async () => (await op.issues.list({ repoPath: '/r' }))
-    .filter((row) => row.parentId === parent.id)
-    .sort((a, b) => (a.sortKey ?? '') < (b.sortKey ?? '') ? -1 : 1)
+  const siblings = async () =>
+    (await op.issues.list({ repoPath: '/r' }))
+      .filter((row) => row.parentId === parent.id)
+      .sort((a, b) => ((a.sortKey ?? '') < (b.sortKey ?? '') ? -1 : 1))
   const order = async () => (await siblings()).map((row) => row.title)
   return { registry, op, create, parent, a, b, c, d, siblings, order }
 }
@@ -112,10 +123,15 @@ describe('sibling-relative issue moves', () => {
 
   it('compacts at the wire ceiling and keeps pinned siblings in the same key space', async () => {
     const { op, a, d, siblings, order } = await fixture()
-    await op.issues.update({ id: d.id, patch: { sortKey: `${'0'.repeat(SORT_KEY_MAX_LEN - 1)}1`, pinned: true } })
+    await op.issues.update({
+      id: d.id,
+      patch: { sortKey: `${'0'.repeat(SORT_KEY_MAX_LEN - 1)}1`, pinned: true },
+    })
     await op.issues.move({ id: a.id, before: d.id })
     expect(await order()).toEqual(['a', 'd', 'c', 'b'])
-    expect((await siblings()).every((row) => (row.sortKey?.length ?? 0) < SORT_KEY_MAX_LEN)).toBe(true)
+    expect((await siblings()).every((row) => (row.sortKey?.length ?? 0) < SORT_KEY_MAX_LEN)).toBe(
+      true,
+    )
     await op.issues.update({ id: d.id, patch: { pinned: false } })
     expect(await order()).toEqual(['a', 'd', 'c', 'b'])
   })
@@ -135,7 +151,9 @@ describe('sibling-relative issue moves', () => {
   it('honors expected revision preconditions', async () => {
     const { op, a, b, order } = await fixture()
     await op.issues.update({ id: a.id, patch: { title: 'renamed' } })
-    await expect(op.issues.move({ id: a.id, before: b.id, expectedRevision: a.revision })).rejects.toThrow(/revision|stale|conflict/i)
+    await expect(
+      op.issues.move({ id: a.id, before: b.id, expectedRevision: a.revision }),
+    ).rejects.toThrow(/revision|stale|conflict/i)
     expect(await order()).toEqual(['d', 'c', 'b', 'renamed'])
   })
 })

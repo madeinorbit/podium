@@ -7,9 +7,9 @@ import {
   type SessionWordFacts,
   sessionWord,
   TASK_WORD_FILTERS,
-  tallyTaskWords,
   type TaskWord,
   type TaskWordFacts,
+  tallyTaskWords,
   taskHidden,
   taskWord,
   type WordTree,
@@ -31,12 +31,18 @@ describe('sessionWord (D5)', () => {
 
   it('a parked or exited process is never Working, however stale its phase', () => {
     expect(sessionWord({ status: 'hibernated', agentState: { phase: 'working' } })).toBe('idle')
-    expect(sessionWord({ status: 'exited', stopReason: 'self', agentState: { phase: 'working' } })).toBe('done')
+    expect(
+      sessionWord({ status: 'exited', stopReason: 'self', agentState: { phase: 'working' } }),
+    ).toBe('done')
   })
 
   it('Idle: the turn finished and the process is alive or hibernated', () => {
-    expect(sessionWord(live('idle', { agentState: { phase: 'idle', idle: { kind: 'done' } } }))).toBe('idle')
-    expect(sessionWord(live('idle', { agentState: { phase: 'idle', idle: { kind: 'open_todos' } } }))).toBe('idle')
+    expect(
+      sessionWord(live('idle', { agentState: { phase: 'idle', idle: { kind: 'done' } } })),
+    ).toBe('idle')
+    expect(
+      sessionWord(live('idle', { agentState: { phase: 'idle', idle: { kind: 'open_todos' } } })),
+    ).toBe('idle')
     expect(sessionWord({ status: 'hibernated', agentState: { phase: 'idle' } })).toBe('idle')
   })
 
@@ -48,15 +54,23 @@ describe('sessionWord (D5)', () => {
 
   it('Needs you: a question, a permission request, or a pending offer', () => {
     expect(sessionWord(live('needs_user'))).toBe('needs-you')
-    expect(sessionWord(live('idle', { agentState: { phase: 'idle', idle: { kind: 'question' } } }))).toBe('needs-you')
+    expect(
+      sessionWord(live('idle', { agentState: { phase: 'idle', idle: { kind: 'question' } } })),
+    ).toBe('needs-you')
     expect(sessionWord(live('working', { offer: { message: 'merge?' } }))).toBe('needs-you')
     expect(sessionWord(live('idle'), { pendingInteractions: 1 })).toBe('needs-you')
-    expect(sessionWord({ status: 'hibernated', agentState: { phase: 'needs_user' } })).toBe('needs-you')
+    expect(sessionWord({ status: 'hibernated', agentState: { phase: 'needs_user' } })).toBe(
+      'needs-you',
+    )
   })
 
   it('an offer outlives the process; a question read from the phase does not', () => {
-    expect(sessionWord({ status: 'exited', stopReason: 'self', offer: { message: 'x' } })).toBe('needs-you')
-    expect(sessionWord({ status: 'exited', stopReason: 'self', agentState: { phase: 'needs_user' } })).toBe('done')
+    expect(sessionWord({ status: 'exited', stopReason: 'self', offer: { message: 'x' } })).toBe(
+      'needs-you',
+    )
+    expect(
+      sessionWord({ status: 'exited', stopReason: 'self', agentState: { phase: 'needs_user' } }),
+    ).toBe('done')
   })
 
   it('Error: an agent error, a crash, out-of-memory, or a failed start', () => {
@@ -229,8 +243,14 @@ describe('trees', () => {
 
   it('filters match the v6 mockup', () => {
     const f = TASK_WORD_FILTERS
-    expect((['error', 'needs-you', 'working'] as TaskWord[]).filter(f['needs-you'])).toEqual(['error', 'needs-you'])
+    expect((['error', 'needs-you', 'working'] as TaskWord[]).filter(f['needs-you'])).toEqual([
+      'error',
+      'needs-you',
+    ])
     expect((['idle', 'blocked', 'done'] as TaskWord[]).filter(f.active)).toEqual(['idle'])
-    expect((['blocked', 'not-started', 'idle'] as TaskWord[]).filter(f['up-next'])).toEqual(['blocked', 'not-started'])
+    expect((['blocked', 'not-started', 'idle'] as TaskWord[]).filter(f['up-next'])).toEqual([
+      'blocked',
+      'not-started',
+    ])
   })
 })
