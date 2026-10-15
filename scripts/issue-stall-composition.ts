@@ -1,6 +1,7 @@
 /** Aggregate the SQL composition of journal stall records, grouped by build.
- * Usage: journalctl --user --since ... -o cat | bun scripts/issue-stall-composition.ts
+ * Usage: journalctl --user --since ... -o cat | bun scripts/issue-stall-composition.ts [--top=N]
  * Counts are executions named in stall records, not total database traffic.
+ * `--top=N` instead lists the N statements named most often, per build (POD-6146).
  */
 export function issueStallComposition(input: string) {
   const builds = new Map<string, { first: string; last: string; stalls: number; total: number; issues: number; grants: number; messages: number }>()
@@ -33,4 +34,34 @@ export function issueStallComposition(input: string) {
       ? 100 * counts.issues / (counts.total - counts.grants - counts.messages) : null,
   }]))
 }
-if (import.meta.main) console.log(JSON.stringify(issueStallComposition(await Bun.stdin.text()), null, 2))
+/** The statements named most often in stall records, per build. A stall record names only its
+ * top few statements, with the SQL text truncated, so these are executions named in stalls,
+ * grouped by the truncated text — not total database traffic. */
+export function topStallStatements(input: string, limit: number) {
+  const builds = new Map<string, Map<string, { count: number; wallMs: number; stalls: number }>>()
+  for (const line of input.split('\n')) {
+    let record
+    try { record = JSON.parse(line) } catch { continue }
+    if (record.msg !== 'server event-loop stall' || typeof record.sql !== 'string') continue
+    const build = String(record.v ?? 'unknown')
+    const statements = builds.get(build) ?? new Map()
+    for (const statement of record.sql.split(' | ')) {
+      const match = /^(\d+)x\/(\d+(?:\.\d+)?)ms\/[^ ]+ (.*)$/.exec(statement)
+      if (!match) continue
+      const entry = statements.get(match[3]!) ?? { count: 0, wallMs: 0, stalls: 0 }
+      entry.count += Number(match[1])
+      entry.wallMs += Number(match[2])
+      entry.stalls++
+      statements.set(match[3]!, entry)
+    }
+    builds.set(build, statements)
+  }
+  return Object.fromEntries([...builds].map(([build, statements]) => [build,
+    [...statements].map(([sql, entry]) => ({ sql, ...entry }))
+      .sort((a, b) => b.count - a.count || a.sql.localeCompare(b.sql)).slice(0, limit)]))
+}
+if (import.meta.main) {
+  const top = process.argv.find(argument => argument.startsWith('--top='))
+  const input = await Bun.stdin.text()
+  console.log(JSON.stringify(top ? topStallStatements(input, Number(top.slice('--top='.length))) : issueStallComposition(input), null, 2))
+}
