@@ -106,7 +106,9 @@ test('issue-first hierarchy, distinct live status, and animated open/close contr
 
   const gauge = deck.getByTestId('mission-gauge')
   await expect(gauge).toHaveAttribute('data-running', 'true', { timeout: 20_000 })
-  await expect(gauge.locator('.row-progress-sweep')).toBeVisible()
+  // The gauge marks running work with its own `run` band; the sweep sheen stays
+  // on the sidebar meter (MissionGauge: "it marches, it does not sweep").
+  await expect(gauge.locator('[data-testid="mission-gauge-band"][data-s="run"]')).toBeVisible()
   const track = await gauge.getByTestId('mission-gauge-track').boundingBox()
   const live = await gauge.getByTestId('mission-live-chip').boundingBox()
   expect(track).not.toBeNull()
