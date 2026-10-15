@@ -1,11 +1,15 @@
 {
   "version": "7",
   "dialect": "sqlite",
-  "id": "f2f73c11-a464-4acb-9673-09f19436dd7c",
-  "prevIds": ["2b932e3e-11f8-4447-8972-ae345603ed70"],
+  "id": "49e4e424-10dc-4f9f-ac58-2de83a9c169f",
+  "prevIds": ["79b6fd82-9da3-40f2-9d23-d103ef2dc22a"],
   "ddl": [
     {
       "name": "accounts",
+      "entityType": "tables"
+    },
+    {
+      "name": "agent_profiles",
       "entityType": "tables"
     },
     {
@@ -42,10 +46,6 @@
     },
     {
       "name": "delivery_receipts",
-      "entityType": "tables"
-    },
-    {
-      "name": "execution_profiles",
       "entityType": "tables"
     },
     {
@@ -86,6 +86,10 @@
     },
     {
       "name": "issues",
+      "entityType": "tables"
+    },
+    {
+      "name": "labels",
       "entityType": "tables"
     },
     {
@@ -453,6 +457,106 @@
       "name": "created_at",
       "entityType": "columns",
       "table": "accounts"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "id",
+      "entityType": "columns",
+      "table": "agent_profiles"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "name",
+      "entityType": "columns",
+      "table": "agent_profiles"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "''",
+      "generated": null,
+      "name": "description",
+      "entityType": "columns",
+      "table": "agent_profiles"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'[]'",
+      "generated": null,
+      "name": "candidates_json",
+      "entityType": "columns",
+      "table": "agent_profiles"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "machine_id",
+      "entityType": "columns",
+      "table": "agent_profiles"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "''",
+      "generated": null,
+      "name": "instructions",
+      "entityType": "columns",
+      "table": "agent_profiles"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "created_by",
+      "entityType": "columns",
+      "table": "agent_profiles"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "updated_by",
+      "entityType": "columns",
+      "table": "agent_profiles"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "table": "agent_profiles"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "updated_at",
+      "entityType": "columns",
+      "table": "agent_profiles"
     },
     {
       "type": "text",
@@ -1446,126 +1550,6 @@
     },
     {
       "type": "text",
-      "notNull": false,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "id",
-      "entityType": "columns",
-      "table": "execution_profiles"
-    },
-    {
-      "type": "text",
-      "notNull": true,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "name",
-      "entityType": "columns",
-      "table": "execution_profiles"
-    },
-    {
-      "type": "text",
-      "notNull": true,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "account_id",
-      "entityType": "columns",
-      "table": "execution_profiles"
-    },
-    {
-      "type": "text",
-      "notNull": false,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "machine_id",
-      "entityType": "columns",
-      "table": "execution_profiles"
-    },
-    {
-      "type": "text",
-      "notNull": true,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "harness",
-      "entityType": "columns",
-      "table": "execution_profiles"
-    },
-    {
-      "type": "text",
-      "notNull": true,
-      "autoincrement": false,
-      "default": "'auto'",
-      "generated": null,
-      "name": "model",
-      "entityType": "columns",
-      "table": "execution_profiles"
-    },
-    {
-      "type": "text",
-      "notNull": true,
-      "autoincrement": false,
-      "default": "'auto'",
-      "generated": null,
-      "name": "effort",
-      "entityType": "columns",
-      "table": "execution_profiles"
-    },
-    {
-      "type": "text",
-      "notNull": true,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "created_by_kind",
-      "entityType": "columns",
-      "table": "execution_profiles"
-    },
-    {
-      "type": "text",
-      "notNull": false,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "created_by_id",
-      "entityType": "columns",
-      "table": "execution_profiles"
-    },
-    {
-      "type": "text",
-      "notNull": true,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "created_at",
-      "entityType": "columns",
-      "table": "execution_profiles"
-    },
-    {
-      "type": "text",
-      "notNull": true,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "updated_at",
-      "entityType": "columns",
-      "table": "execution_profiles"
-    },
-    {
-      "type": "text",
-      "notNull": true,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "owner_user_id",
-      "entityType": "columns",
-      "table": "execution_profiles"
-    },
-    {
-      "type": "text",
       "notNull": true,
       "autoincrement": false,
       "default": null,
@@ -1815,12 +1799,12 @@
       "table": "issue_labels"
     },
     {
-      "type": "text",
+      "type": "integer",
       "notNull": true,
       "autoincrement": false,
       "default": null,
       "generated": null,
-      "name": "label",
+      "name": "label_id",
       "entityType": "columns",
       "table": "issue_labels"
     },
@@ -2220,6 +2204,16 @@
       "autoincrement": false,
       "default": null,
       "generated": null,
+      "name": "agent_profile_id",
+      "entityType": "columns",
+      "table": "issues"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
       "name": "linear_id",
       "entityType": "columns",
       "table": "issues"
@@ -2360,27 +2354,7 @@
       "autoincrement": false,
       "default": null,
       "generated": null,
-      "name": "design",
-      "entityType": "columns",
-      "table": "issues"
-    },
-    {
-      "type": "text",
-      "notNull": false,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
       "name": "acceptance",
-      "entityType": "columns",
-      "table": "issues"
-    },
-    {
-      "type": "text",
-      "notNull": false,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "notes",
       "entityType": "columns",
       "table": "issues"
     },
@@ -2683,6 +2657,56 @@
       "name": "started_by_session",
       "entityType": "columns",
       "table": "issues"
+    },
+    {
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": true,
+      "default": null,
+      "generated": null,
+      "name": "id",
+      "entityType": "columns",
+      "table": "labels"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "name",
+      "entityType": "columns",
+      "table": "labels"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "color",
+      "entityType": "columns",
+      "table": "labels"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "description",
+      "entityType": "columns",
+      "table": "labels"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "table": "labels"
     },
     {
       "type": "integer",
@@ -5690,7 +5714,7 @@
       "autoincrement": false,
       "default": null,
       "generated": null,
-      "name": "execution_profile_id",
+      "name": "agent_profile_id",
       "entityType": "columns",
       "table": "sessions"
     },
@@ -8850,7 +8874,7 @@
       "autoincrement": false,
       "default": null,
       "generated": null,
-      "name": "execution_profile_id",
+      "name": "agent_profile_id",
       "entityType": "columns",
       "table": "workflow_run_steps"
     },
@@ -8860,7 +8884,7 @@
       "autoincrement": false,
       "default": null,
       "generated": null,
-      "name": "execution_profile_json",
+      "name": "agent_profile_json",
       "entityType": "columns",
       "table": "workflow_run_steps"
     },
@@ -9451,6 +9475,17 @@
       "table": "issue_labels"
     },
     {
+      "columns": ["label_id"],
+      "tableTo": "labels",
+      "columnsTo": ["id"],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "nameExplicit": false,
+      "name": "fk_issue_labels_label_id_labels_id_fk",
+      "entityType": "fks",
+      "table": "issue_labels"
+    },
+    {
       "columns": ["issue_id"],
       "tableTo": "issues",
       "columnsTo": ["id"],
@@ -9871,7 +9906,7 @@
       "table": "issue_deps"
     },
     {
-      "columns": ["issue_id", "label"],
+      "columns": ["issue_id", "label_id"],
       "nameExplicit": true,
       "name": "issue_labels_pk",
       "entityType": "pks",
@@ -10083,6 +10118,13 @@
     {
       "columns": ["id"],
       "nameExplicit": false,
+      "name": "agent_profiles_pk",
+      "table": "agent_profiles",
+      "entityType": "pks"
+    },
+    {
+      "columns": ["id"],
+      "nameExplicit": false,
       "name": "approval_requests_pk",
       "table": "approval_requests",
       "entityType": "pks"
@@ -10132,13 +10174,6 @@
     {
       "columns": ["id"],
       "nameExplicit": false,
-      "name": "execution_profiles_pk",
-      "table": "execution_profiles",
-      "entityType": "pks"
-    },
-    {
-      "columns": ["id"],
-      "nameExplicit": false,
       "name": "issue_comments_pk",
       "table": "issue_comments",
       "entityType": "pks"
@@ -10162,6 +10197,13 @@
       "nameExplicit": false,
       "name": "issues_pk",
       "table": "issues",
+      "entityType": "pks"
+    },
+    {
+      "columns": ["id"],
+      "nameExplicit": false,
+      "name": "labels_pk",
+      "table": "labels",
       "entityType": "pks"
     },
     {
@@ -10705,14 +10747,14 @@
     {
       "columns": [
         {
-          "value": "label",
+          "value": "label_id",
           "isExpression": false
         }
       ],
       "isUnique": false,
       "where": null,
       "origin": "manual",
-      "name": "idx_issue_labels_label",
+      "name": "idx_issue_labels_label_id",
       "entityType": "indexes",
       "table": "issue_labels"
     },
@@ -10815,6 +10857,20 @@
       "name": "idx_issues_repo",
       "entityType": "indexes",
       "table": "issues"
+    },
+    {
+      "columns": [
+        {
+          "value": "lower(\"name\")",
+          "isExpression": true
+        }
+      ],
+      "isUnique": true,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_labels_name_nocase",
+      "entityType": "indexes",
+      "table": "labels"
     },
     {
       "columns": [
@@ -12015,9 +12071,9 @@
     {
       "columns": ["name"],
       "nameExplicit": true,
-      "name": "execution_profiles_name_unique",
+      "name": "agent_profiles_name_unique",
       "entityType": "uniques",
-      "table": "execution_profiles"
+      "table": "agent_profiles"
     },
     {
       "columns": ["repo_id", "name", "session_id"],
@@ -12128,12 +12184,6 @@
       "table": "delivery_receipts"
     },
     {
-      "value": "created_by_kind IN ('operator', 'session')",
-      "name": "execution_profiles_check_15",
-      "entityType": "checks",
-      "table": "execution_profiles"
-    },
-    {
       "value": "type IN ('blocked-by', 'related', 'discovered-from', 'supersedes', 'duplicates')",
       "name": "issue_deps_type",
       "entityType": "checks",
@@ -12152,7 +12202,7 @@
       "table": "issues"
     },
     {
-      "value": "type IN ('task', 'bug', 'feature', 'chore', 'epic', 'decision', 'spike', 'story', 'milestone', 'automation')",
+      "value": "type IN ('task', 'phase', 'decision')",
       "name": "issues_check_3",
       "entityType": "checks",
       "table": "issues"

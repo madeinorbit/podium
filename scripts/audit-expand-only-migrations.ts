@@ -162,7 +162,7 @@ export const APPROVED_CONTRACT_STEPS = new Map<
     },
   ],
   [
-    'apps/server/src/migrations/drizzle/20261014173408_fixed-dependency-types/migration.sql',
+    'apps/server/src/migrations/drizzle/20261015052941_fixed-dependency-types/migration.sql',
     {
       // POD-6100 (user decision D7, 2026-10-14): dependency types become a fixed
       // list with a CHECK on `issue_deps.type`, and the copy folds the older
