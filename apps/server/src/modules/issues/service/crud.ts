@@ -879,6 +879,9 @@ export class IssueCrudModule {
         throw new IssueRefusal('deleted issues cannot be moved or used as move references')
       }
       if (row.id === anchor.id) throw new IssueRefusal('an issue cannot be moved relative to itself')
+      if (isIssueStage(row.stage) && isSystemOwnedIssueStage(row.stage)) {
+        throw new IssueRefusal('shipping stage is system-owned and cannot be changed by an issue move')
+      }
       const scope = () => this.sortKeySpaceRows(row.repoId, row.repoPath, row.parentId ?? null)
       if (!scope().some((sibling) => sibling.id === anchor.id)) {
         throw new IssueRefusal('move requires siblings with the same parent and repository')
@@ -904,7 +907,9 @@ export class IssueCrudModule {
         siblings[insertionIndex - 1]?.sortKey ?? null,
         siblings[insertionIndex]?.sortKey ?? null,
       )
-      return await this.update(row.id, { sortKey })
+      const draft = await this.store.draftOrThrow(row.id)
+      draft.sortKey = sortKey
+      return await this.store.persist(draft, { touch: false })
     })
   }
 
