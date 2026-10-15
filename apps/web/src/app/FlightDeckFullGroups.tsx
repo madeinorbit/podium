@@ -13,6 +13,7 @@ import {
   type FlightDeckV6Actions,
 } from './FlightDeckV6Rows'
 import { FlightDeckFullPhaseCrew } from './FlightDeckFullSeats'
+import { FlightDeckFullDependencies, useFullDependencyInteraction } from './FlightDeckFullDependencies'
 import { DeckRowPlaceholder, deckTaskKey, type DeckWindow } from './flight-deck-window'
 
 export type PhaseLeadSlot = (task: FullDeckTask, window: DeckWindow) => ReactNode
@@ -22,6 +23,7 @@ export type PhaseLeadSlot = (task: FullDeckTask, window: DeckWindow) => ReactNod
  * of the tree. Waterfall and Timeline keep their existing renderers. */
 export const FlightDeckFullGroups = observer(function FlightDeckFullGroups({
   full,
+  scrollRef,
   renderPhaseLead,
   ...props
 }: FlightDeckV6Actions & {
@@ -31,10 +33,11 @@ export const FlightDeckFullGroups = observer(function FlightDeckFullGroups({
   renderPhaseLead?: PhaseLeadSlot
 }) {
   return (
-    <div className="flight-full-groups" data-testid="flight-deck-full-groups">
+    <FlightDeckFullDependencies full={full} scrollRef={scrollRef}>
       <DoneLine full={full} />
       <FlightDeckV6Rows
         full={full}
+        scrollRef={scrollRef}
         {...props}
         renderRows={(tasks, guides, window) => {
           // Pixel nesting over the already-filtered, already-ordered projection.
@@ -75,7 +78,7 @@ export const FlightDeckFullGroups = observer(function FlightDeckFullGroups({
           return branch(0, tasks.length, 0)
         }}
       />
-    </div>
+    </FlightDeckFullDependencies>
   )
 })
 
@@ -136,6 +139,7 @@ const PhaseGroup = observer(function PhaseGroup({
   children: ReactNode
 }) {
   const contentId = useId()
+  const dependencies = useFullDependencyInteraction()
   const ready = settled(() => task.row.drawable && (
     void task.counter, void task.workComplete, void task.matches,
     void task.leadSessionId, void task.deck.phaseIds, true
@@ -179,7 +183,8 @@ const PhaseGroup = observer(function PhaseGroup({
         >
           {task.open && (
             <>
-              <div className="flight-full-phase-lead" data-phase-lead-slot={task.id}>
+              <div className="flight-full-phase-lead" data-phase-lead-slot={task.id}
+                data-dependency-dim={dependencies?.dimLead(task) || undefined}>
                 {renderPhaseLead ? renderPhaseLead(task, window) : (
                   <FlightDeckFullPhaseCrew task={task} window={window} {...actions} />
                 )}
@@ -197,11 +202,13 @@ const PhaseHeader = observer(function PhaseHeader({
   task, contentId, window, ...actions
 }: FlightDeckV6Actions & { task: FullDeckTask; contentId: string; window: DeckWindow }) {
   const counter = task.counter
+  const dependencies = useFullDependencyInteraction()
   return (
     <div
       className="flight-full-phase-header"
       data-flight-task-row={task.id}
       data-edge-gutter="28"
+      data-dependency-highlight={dependencies?.highlighted(task) || undefined}
       ref={window.enabled ? window.measure(deckTaskKey(task.id)) : undefined}
       onContextMenu={(event) => actions.onMenu(task, event)}
     >

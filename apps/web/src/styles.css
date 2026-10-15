@@ -13313,6 +13313,21 @@ button.waterfall-fold:hover {
 .flight-v6-dependency > svg { flex: none; }
 .flight-v6-dependency[data-kind='waiting'] { display: none; }
 .flight-v6-dependency-ref { min-width: 0; }
+.flight-v6-dependency[data-kind='blocked'] {
+  color: var(--attention); background: color-mix(in srgb, var(--attention) 12%, transparent);
+}
+.flight-full-groups { position: relative; }
+.flight-full-dependency-edges {
+  position: absolute; left: 0; top: 0; z-index: 3; overflow: hidden; pointer-events: none;
+}
+.flight-full-dependency-edges * { pointer-events: none; }
+.flight-full-dependency-edges g { stroke: var(--text-faint); }
+.flight-full-dependency-edges g[data-highlighted='true'] { stroke: var(--live); }
+.flight-full-dependency-edges circle { fill: var(--bar); }
+.flight-v6-card[data-dependency-highlight='true'], .flight-full-phase-header[data-dependency-highlight='true'] {
+  box-shadow: inset 0 0 0 1px var(--live);
+}
+.flight-v6-card[data-dependency-dim='true'], .flight-full-phase-lead[data-dependency-dim='true'] { opacity: 0.3; }
 .flight-v6-session-line { flex-wrap: wrap; padding-right: 28px; }
 .flight-v6-session-open {
   flex-wrap: wrap; height: auto; min-height: 28px; gap: 4px var(--v6-gap, 8px);

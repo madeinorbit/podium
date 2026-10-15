@@ -26,6 +26,7 @@ import { useHarnessDescriptors } from '@/lib/use-harness-descriptors'
 import { KindIcon, SessionNameEditor, sessionDisplayName } from '@/lib/WorkerLabel'
 import { useRuntimeSelector } from './store'
 import { useSessionHovered } from './session-hover'
+import { useFullDependencyInteraction } from './FlightDeckFullDependencies'
 import {
   DeckRowPlaceholder,
   deckSessionKey,
@@ -167,6 +168,7 @@ export const FlightDeckV6Task = observer(function FlightDeckV6Task({
   window?: DeckWindow
 }) {
   const contentId = useId()
+  const dependencies = useFullDependencyInteraction()
   const ready = settled(() => task.row.drawable && (void task.word, true))
   if (ready !== true)
     return (
@@ -197,6 +199,8 @@ export const FlightDeckV6Task = observer(function FlightDeckV6Task({
         data-word={task.word}
         data-open={open}
         data-context={!task.matches}
+        data-dependency-highlight={dependencies?.highlighted(task) || undefined}
+        data-dependency-dim={dependencies?.dimmed(task) || undefined}
         style={{ '--v6-indent': `${task.depth * V6_DEPTH_STEP}px` } as CSSProperties}
       >
         {shown ? (
@@ -365,18 +369,20 @@ const TaskCounter = observer(function TaskCounter({ task }: { task: FullDeckTask
   ) : null
 })
 
-/** The dependency feature can extend this slot without changing the strip. */
+/** Full uses the shared task word and unmet scheduling facts, including
+ * external references. The responsive CSS owns the pill's shedding rungs. */
 const DependencySlot = observer(function DependencySlot({ task }: { task: FullDeckTask }) {
-  const note = settled(() => task.row.presentation?.note)
-  if (!note || note === LOADING || (note.kind !== 'blocked' && note.kind !== 'waiting')) return null
+  const count = settled(() => task.unmetBlockedByIds.length)
   const refs = settled(() => task.dependencyReferences)
-  const tooltip = typeof refs === 'string' && refs ? `${note.full} · ${refs}` : note.full
+  if (!count || count === LOADING || refs === LOADING || task.word === 'done') return null
+  const blocked = task.word === 'blocked'
+  const short = count === 1 ? refs : `${count} tasks`
   return (
-    <span className="flight-v6-dependency" data-kind={note.kind}
-      data-dependency-slot={task.id} title={tooltip}>
-      {note.kind === 'blocked' && <Lock size={11} aria-hidden />}
-      <span className="flight-v6-dependency-label">{note.kind === 'waiting' ? 'after' : note.label}</span>
-      <span className="flight-v6-dependency-ref">{note.short}</span>
+    <span className="flight-v6-dependency" data-kind={blocked ? 'blocked' : 'waiting'}
+      data-dependency-slot={task.id} title={`${blocked ? 'Waits on' : 'After'} ${refs}`}>
+      {blocked && <Lock size={11} aria-hidden />}
+      <span className="flight-v6-dependency-label">{blocked ? 'blocked by' : 'after'}</span>
+      <span className="flight-v6-dependency-ref">{short}</span>
     </span>
   )
 })
