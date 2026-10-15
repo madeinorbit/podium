@@ -54,13 +54,15 @@ type SettingsSummary = ReturnType<ReturnType<typeof settingsView>['sessions']>
 it('keeps observed summary update work bounded at 1x/4x and preserves unchanged identities', async () => {
   async function measured(scale: 1 | 4) {
     const f = fixture([session('target'), ...Array.from({ length: 128 * scale }, (_, n) => session(`history-${n}`))])
+    // The opening root owns one settings reader and its cached answers.
+    const settingsReader = settingsView(f.pool)
     let shell: SessionView[] = [], settings: SettingsSummary = { rows: [], pending: 0 },
       setup: ReturnType<ReturnType<typeof settingsView>['setup']> | undefined
     const read = vi.fn(() => {
       const value = shellViews(f.pool).sessions()
       if (value && value !== LOADING) shell = value
-      settings = settingsView(f.pool).sessions()
-      setup = settingsView(f.pool).setup(['/shown'])
+      settings = settingsReader.sessions()
+      setup = settingsReader.setup(['/shown'])
     })
     const stop = autorun(read), row = vi.spyOn(f.pool, 'row'), ids = vi.spyOn(f.pool.queries, 'ids')
     const measure = (name: string, action: () => void) => measureWork(async () => insideReader(name, action), { pool: f.pool })
@@ -99,7 +101,7 @@ it('keeps observed summary update work bounded at 1x/4x and preserves unchanged 
       expect(read).not.toHaveBeenCalled()
       expect(row.mock.calls.filter(([, , mode]) => mode === 'summary-fields')).toEqual([])
       return Object.fromEntries(Object.entries({ ignored, status, recency, name, closed }).map(([key, result]) => [key, result.work]))
-    } finally { stop(); row.mockRestore(); ids.mockRestore(); f.pool.dispose() }
+    } finally { stop(); row.mockRestore(); ids.mockRestore(); settingsReader.dispose(); f.pool.dispose() }
   }
   const first = await measured(1), second = await measured(4)
   console.info('session summaries work1x4x', JSON.stringify({ first, second }))
