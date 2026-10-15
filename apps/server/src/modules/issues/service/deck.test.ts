@@ -95,6 +95,7 @@ it('orders nested phases, rolls up shared words and counts leaves without phase 
   await svc.crud.close(closed.id, 'cancelled')
   const blocked = await create('External wait', root.id)
   const external = await create('External task')
+  await svc.crud.move(blocked.id, { after: later.id })
   await svc.hierarchy.addDep(blocked.id, external.id)
   await svc.hierarchy.addDep(decision.id, closed.id)
   seat('working', crashed.id, { agentState: agentState('working') })
