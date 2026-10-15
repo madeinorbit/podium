@@ -2633,9 +2633,7 @@ describe('flight deck spine (POD-758)', () => {
     }
   })
 
-  // The mission's lead owns the spine's rail and is the one agent row with a
-  // fill; the `coord` badge it used to wear is retired.
-  it('names the mission lead with the rail and the word, not a badge', async () => {
+  it('names the mission coordinator in its own card above the task tree', async () => {
     harness.issues = harness.issues.map((raw) => {
       const candidate = raw as Issue
       return candidate.id === 'root'
@@ -2645,10 +2643,9 @@ describe('flight deck spine (POD-758)', () => {
     harness.sessions = [...harness.sessions, session('lead', { issueId: 'root', name: 'Lead' })]
     await deck()
     const row = document.querySelector('[data-flight-session="lead"]')
-    expect(row?.className).toContain('deck-lead-fill')
-    expect(row?.querySelector('[data-session-role="coordinator"]')?.textContent).toBe('coordinator')
-    // The rail its branch descends on carries the mission tone.
-    expect(document.querySelector('.deck-rail-mission')).not.toBeNull()
+    expect(row?.getAttribute('data-seat')).toBe('coordinator')
+    expect(row?.querySelector('.flight-full-coordinator-caption')?.textContent).toContain('Coordinator')
+    expect(row?.closest('[data-testid="flight-full-coordinator"]')).not.toBeNull()
   })
 })
 

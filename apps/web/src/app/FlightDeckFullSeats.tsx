@@ -12,6 +12,7 @@ export const FlightDeckFullCoordinator = observer(function FlightDeckFullCoordin
   ...actions
 }: FlightDeckV6Actions & { full: FullDeck }) {
   const ready = settled(() => {
+    if (!full.root.row.drawable) return false
     void full.root.sessionIds
     void full.coordinatorSessionId
     return true
