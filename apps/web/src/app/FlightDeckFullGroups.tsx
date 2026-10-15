@@ -3,7 +3,7 @@ import { LOADING } from '@podium/client-graph/loading'
 import { settled } from '@podium/client-graph/mission-view'
 import { observer } from '@podium/client-graph/react'
 import { CheckCircle2, ChevronDown, ChevronRight, Ellipsis } from 'lucide-react'
-import { Fragment, useId, type ReactNode, type RefObject } from 'react'
+import { useId, type ReactNode, type RefObject } from 'react'
 import { GhostBar } from '@/components/GhostPreview'
 import { SessionNameEditor } from '@/lib/WorkerLabel'
 import {
@@ -63,16 +63,9 @@ export const FlightDeckFullGroups = observer(function FlightDeckFullGroups({
                 )
               } else {
                 rows.push(
-                  <Fragment key={task.id}>
-                    <FlightDeckV6Task
-                      task={task}
-                      carries={carries}
-                      visualDepth={task.depth - baseDepth}
-                      window={window}
-                      {...props}
-                    />
+                  <TaskBranch key={task.id} task={task} carries={carries} visualDepth={task.depth - baseDepth} window={window} {...props}>
                     {branch(index + 1, next, baseDepth)}
-                  </Fragment>,
+                  </TaskBranch>,
                 )
               }
               index = next
@@ -83,6 +76,26 @@ export const FlightDeckFullGroups = observer(function FlightDeckFullGroups({
         }}
       />
     </div>
+  )
+})
+
+/** A task disclosure controls its inset crew and its descendant task path.
+ * The branch target survives a fold even though the projection drops its rows. */
+const TaskBranch = observer(function TaskBranch({
+  children, ...props
+}: FlightDeckV6Actions & {
+  task: FullDeckTask
+  carries: readonly boolean[]
+  visualDepth: number
+  window: DeckWindow
+  children: ReactNode
+}) {
+  const childContentId = useId()
+  return (
+    <>
+      <FlightDeckV6Task {...props} childContentId={childContentId} />
+      <div id={childContentId} hidden={!props.task.open}>{children}</div>
+    </>
   )
 })
 

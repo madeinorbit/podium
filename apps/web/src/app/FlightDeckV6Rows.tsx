@@ -154,6 +154,7 @@ export const FlightDeckV6Task = observer(function FlightDeckV6Task({
   task,
   carries,
   visualDepth = task.depth,
+  childContentId,
   window,
   ...actions
 }: FlightDeckV6Actions & {
@@ -161,6 +162,7 @@ export const FlightDeckV6Task = observer(function FlightDeckV6Task({
   carries: readonly boolean[]
   /** Phase rails already supply one level of the structural indentation. */
   visualDepth?: number
+  childContentId?: string
   window?: DeckWindow
 }) {
   const contentId = useId()
@@ -172,6 +174,7 @@ export const FlightDeckV6Task = observer(function FlightDeckV6Task({
       </div>
     )
   const open = task.open
+  const controlledIds = [contentId, childContentId].filter(Boolean).join(' ')
   const stripKey = deckTaskKey(task.id)
   const shown = !window?.enabled || window.contains(stripKey)
   return (
@@ -204,7 +207,7 @@ export const FlightDeckV6Task = observer(function FlightDeckV6Task({
             onContextMenu={(event) => actions.onMenu(task, event)}
             ref={window?.enabled ? window.measure(stripKey) : undefined}
           >
-            <TaskFold task={task} contentId={contentId} />
+            <TaskFold task={task} contentId={controlledIds} />
             <span className="flight-v6-ring-control">
               <IssueStatusPicker
                 issue={task.row.status}
@@ -223,7 +226,7 @@ export const FlightDeckV6Task = observer(function FlightDeckV6Task({
                 onCancel={actions.onRenameDone}
               />
             ) : (
-              <TaskBody task={task} contentId={contentId}>
+              <TaskBody task={task} contentId={controlledIds}>
                 <span className="flight-v6-ref">{task.row.displayRef}</span>
                 <FlightDeckV6TaskTitle task={task} />
                 <TaskCounter task={task} />
@@ -517,6 +520,7 @@ export const FlightDeckV6Session = observer(function FlightDeckV6Session({
           <button
             type="button"
             className="flight-v6-native-chip"
+            aria-label={`${nativeOpen ? 'Collapse' : 'Expand'} ${natives.length} native subagents of ${name}`}
             aria-expanded={nativeOpen}
             aria-controls={nativeId}
             onClick={(event) => {
@@ -551,9 +555,9 @@ export const FlightDeckV6Session = observer(function FlightDeckV6Session({
           <Ellipsis size={12} />
         </button>
       </div>
-      {nativeOpen && natives.length > 0 && (
-        <ul id={nativeId} className="flight-v6-natives" aria-label={`Native subagents of ${name}`}>
-          {natives.map((native) => (
+      {natives.length > 0 && (
+        <ul id={nativeId} hidden={!nativeOpen} className="flight-v6-natives" aria-label={`Native subagents of ${name}`}>
+          {nativeOpen && natives.map((native) => (
             <li key={native.id}>
               <span>{native.type}</span>
               {!native.anonymous && <span>· {native.id}</span>}

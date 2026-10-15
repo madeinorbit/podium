@@ -1034,6 +1034,71 @@ describe('the cold deck (POD-1112)', () => {
   })
 })
 
+describe('Full task filters remain separate from deck views', () => {
+  it('keeps the coordinator visible for every filter, Done and a search with no matches', async () => {
+    harness.issues = [
+      issue('root', { coordinatorSessionId: 'coord', memberSessionIds: ['coord'] }),
+      issue('t1', { parentId: 'root', memberSessionIds: ['s1'] }),
+      issue('t2', { parentId: 'root', stage: 'backlog' }),
+      issue('t3', { parentId: 'root', stage: 'done', closedAt: '2026-01-01T00:00:00Z' }),
+    ]
+    harness.sessions = [
+      session('coord', { issueId: 'root', agentState: { phase: 'idle' } }),
+      session('s1', { issueId: 't1', agentState: WORKING }),
+    ]
+    await deck()
+    const coordinator = () => document.querySelector('[data-flight-session="coord"]')
+    for (const name of ['All 3', 'Needs you 0', 'Active 1', 'Up next 1', 'Done 1']) {
+      await act(async () => { fireEvent.click(screen.getByRole('button', { name })) })
+      expect(coordinator()).not.toBeNull()
+      expect(harness.ui.has('podium.flightDeck.mode')).toBe(false)
+    }
+    fireEvent.click(screen.getByRole('button', { name: 'Search this mission' }))
+    fireEvent.change(screen.getByRole('textbox', { name: 'Search this mission' }), {
+      target: { value: 'no task matches' },
+    })
+    expect(coordinator()).not.toBeNull()
+    expect(screen.getByText('Nothing in this mission matches that.')).toBeDefined()
+  })
+
+  it('retains Full filters across legacy view switches and does not overwrite view or fold preferences', async () => {
+    developerFeature.enabled = true
+    harness.ui.set('podium.flightDeck.folds', JSON.stringify({ v: 2, open: ['t1'], closed: ['t3'] }))
+    await deck()
+    const controls = () => screen.getByRole('group', { name: 'Task filters' })
+    await act(async () => { fireEvent.click(within(controls()).getByRole('button', { name: /^Up next / })) })
+    const folds = harness.ui.get('podium.flightDeck.folds')
+    for (const [label, stored] of [['Waterfall', 'waterfall'], ['Timeline', 'handoff'], ['Working', 'working'], ['Needs you', 'needs-you']]) {
+      await act(async () => { fireEvent.click(within(screen.getByRole('group', { name: 'Deck view' })).getByRole('button', { name: label })) })
+      expect(harness.ui.get('podium.flightDeck.mode')).toBe(stored)
+      expect(screen.queryByRole('group', { name: 'Task filters' })).toBeNull()
+      await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Full spine' })) })
+      expect(within(controls()).getByRole('button', { name: /^Up next / }).getAttribute('aria-pressed')).toBe('true')
+      expect(harness.ui.has('podium.flightDeck.mode')).toBe(false)
+      expect(harness.ui.get('podium.flightDeck.folds')).toBe(folds)
+    }
+  })
+
+  it('reveals a finished session from a narrowed Full filter and search', async () => {
+    harness.issues = [
+      issue('root'), issue('t1', { parentId: 'root', stage: 'done',
+        closedAt: '2026-01-01T00:00:00Z', memberSessionIds: ['s1'] }),
+    ]
+    harness.sessions = [session('s1', { issueId: 't1', agentState: { phase: 'ended' } })]
+    await deck()
+    fireEvent.click(screen.getByRole('button', { name: 'Up next 0' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Search this mission' }))
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'no match' } })
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent(REVEAL_IN_DECK_EVENT, { detail: 's1' }))
+    })
+    expect(screen.getByRole('button', { name: 'All 1' }).getAttribute('aria-pressed')).toBe('true')
+    expect(screen.getByRole('button', { name: 'Done 1' }).getAttribute('aria-pressed')).toBe('true')
+    expect(screen.queryByRole('textbox')).toBeNull()
+    expect(document.querySelector('[data-flight-session="s1"]')).not.toBeNull()
+  })
+})
+
 describe('the developer Flight Deck views', () => {
   it('keeps the original list and does no Timeline reads when development is off', async () => {
     harness.ui.set('podium.flightDeck.mode', 'handoff')

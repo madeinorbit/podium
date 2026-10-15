@@ -13236,3 +13236,21 @@ button.waterfall-fold:hover {
 .flight-full-coordinator button:focus-visible { outline: 1px solid var(--live); outline-offset: -1px; }
 .flight-full-archive { --v6-state-width: 118px; }
 .flight-full-archive button:focus-visible { outline: 1px solid var(--live); outline-offset: -1px; }
+
+/* Full filter controls. View selection retains its separate preference. */
+.flight-full-filter-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 12px 8px 8px 12px; }
+.flight-full-filters { display: flex; flex-wrap: wrap; gap: 4px; }
+.flight-full-filter, .flight-full-done-toggle { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 24px; padding: 0 8px; border-radius: 6px; color: var(--text-faint); font-size: 11.5px; font-weight: 500; white-space: nowrap; }
+.flight-full-filter:hover, .flight-full-done-toggle:hover, .flight-full-tool:hover { color: var(--text-strong); background: var(--muted); }
+.flight-full-filter[aria-pressed='true'], .flight-full-done-toggle[aria-pressed='true'] { color: var(--text-strong); background: var(--muted); }
+.flight-full-filter-count { font-family: var(--font-mono); font-size: 10.5px; color: var(--text-faint); font-variant-numeric: tabular-nums; }
+.flight-full-filter-count[data-tone='error'] { color: var(--destructive); }
+.flight-full-filter-count[data-tone='needs-you'] { color: var(--attention); }
+.flight-full-tools { display: flex; align-items: center; gap: 2px; margin-left: auto; }
+.flight-full-tool { display: inline-grid; flex: none; place-items: center; width: 24px; height: 24px; border-radius: 6px; color: var(--text-faint); }
+.flight-full-controls button:disabled { opacity: .5; cursor: default; }
+.flight-full-controls button:focus-visible, .flight-full-search input:focus-visible { outline: 1px solid var(--issue); outline-offset: 1px; }
+.flight-full-search { display: flex; align-items: center; gap: 8px; min-height: 32px; margin-bottom: 4px; padding: 0 8px 0 16px; border-bottom: 1px solid var(--hairline-soft); color: var(--text-faint); }
+.flight-full-search input { flex: 1; min-width: 0; background: transparent; color: var(--foreground); font-size: 12px; outline: none; }
+.flight-full-search input::placeholder { color: var(--text-faint); }
+.flight-full-search[hidden], .flight-v6-natives[hidden] { display: none; }

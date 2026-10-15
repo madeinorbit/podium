@@ -106,6 +106,9 @@ import { FlightDeckFullGroups } from './FlightDeckFullGroups'
 import { FlightDeckProposals } from './FlightDeckProposals'
 import { FlightDeckFullArchivedSession, FlightDeckFullCoordinator } from './FlightDeckFullSeats'
 import type { FlightDeckV6Actions } from './FlightDeckV6Rows'
+
+
+import { FlightDeckFullControls } from './FlightDeckFullControls'
 import PoolFlightDeck from './FlightDeckPool'
 import { FlightDeckWaterfall } from './FlightDeckWaterfall'
 import { type FlightDeckDisplay, nextFlightDeckDisplayForSessionPick } from './flight-deck-display'
@@ -1975,6 +1978,9 @@ export const FlightDeckContent = observer(function FlightDeckContent({
       screen.setFolds(open)
       if (target.archived) screen.setArchivedOpen(true)
       if (screen.view !== 'full') screen.setView('full')
+      screen.full.setFilter('all')
+      screen.full.setShowDone(true)
+      screen.closeSearch()
       setRevealSessionId(sessionId)
     }
     window.addEventListener(REVEAL_IN_DECK_EVENT, onReveal)
@@ -2407,6 +2413,8 @@ export const FlightDeckContent = observer(function FlightDeckContent({
           longer draws for itself. */}
         <div
           className="relative flex h-8 flex-none items-center gap-1 border-y border-hairline-soft pr-2"
+          role="group"
+          aria-label="Deck view"
           style={{ paddingLeft: GUTTER }}
         >
           <div className="flex min-w-0 flex-1 gap-1 self-stretch overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
@@ -2451,7 +2459,7 @@ export const FlightDeckContent = observer(function FlightDeckContent({
                 )}
               </Button>
             )}
-            {view !== 'handoff' && (
+            {view !== 'handoff' && view !== 'full' && (
               <>
                 <Button
                   variant="ghost"
@@ -2467,21 +2475,22 @@ export const FlightDeckContent = observer(function FlightDeckContent({
                   variant="ghost"
                   size="icon-sm"
                   className="size-6 text-text-faint"
-                  title={(view === 'full' ? fullReady && screen.full.allFolded : screen.allFolded) ? 'Expand every branch' : 'Fold every branch'}
-                  disabled={view === 'full' ? !fullReady || screen.full.foldableIds.length === 0 : !screen.anyFoldable}
+                  title={screen.allFolded ? 'Expand every branch' : 'Fold every branch'}
+                  disabled={!screen.anyFoldable}
                   // Both directions write EXPLICIT values for every foldable
                   // branch: "expand everything" that merely cleared the map would
                   // leave the one-session tasks closed by the default rule, which
                   // is not what the control says.
-                  onClick={() => view === 'full' ? screen.full.foldAll() : screen.foldAll()}
+                  onClick={() => screen.foldAll()}
                 >
-                  {(view === 'full' ? fullReady && screen.full.allFolded : screen.allFolded) ? <ChevronsUpDown size={13} /> : <ChevronsDownUp size={13} />}
+                  {screen.allFolded ? <ChevronsUpDown size={13} /> : <ChevronsDownUp size={13} />}
                 </Button>
               </>
             )}
           </div>
         </div>
-        {searchOpen && view !== 'handoff' && (
+        {view === 'full' && <FlightDeckFullControls full={screen.full} />}
+        {searchOpen && view !== 'handoff' && view !== 'full' && (
           <div
             className="relative flex h-8 flex-none items-center gap-2 border-b border-hairline-soft pr-2"
             style={{ paddingLeft: GUTTER }}
@@ -2667,7 +2676,7 @@ export const FlightDeckContent = observer(function FlightDeckContent({
           className={cn('flex-none', view === 'waterfall' && 'pb-1.5')}
           data-testid="flight-deck-tail"
         >
-          {visibleRows.length === 0 &&
+          {(view === 'full' ? fullReady && screen.full.rowIds.length === 0 : visibleRows.length === 0) &&
             proposedRows.length === 0 &&
             (query ? (
               <p className="shell-type-secondary px-4 py-6 text-text-dim">
