@@ -54,7 +54,10 @@ wasted work; the remaining hot paths are then found by measurement and fixed one
 1. **Prepared once.** Every query is defined and prepared once, then reused. It is never rebuilt per
    call or per transaction.
 2. **No query inside a loop.** Data for a set of rows is loaded with one query per table
-   (`… WHERE id IN (…)`), then joined in the operation.
+   (`… WHERE id IN (…)`), then joined in the operation. Two standard tools: drizzle's relational
+   queries (`with`) when an operation loads rows with their children, and a per-operation
+   `dataloader` (the DataLoader pattern, on the existing read scope) when many call sites each
+   ask for one row by id.
 3. **Indexed lookups.** Every column used to look rows up has an index. The planner's statistics are
    kept current (`PRAGMA optimize` at boot and on a timer).
 4. **Work in SQL.** Filtering, sorting, joining and counting happen in SQL, never by loading rows
@@ -73,7 +76,8 @@ wasted work; the remaining hot paths are then found by measurement and fixed one
 ## 4. Caching
 
 - **The default is no cache.** A cache is added only after a fresh measurement shows the need. The
-  order is: build it correct, measure, then fix.
+  order is: build it correct, measure, then fix. The cache layer itself is built when the final
+  measurement shows the first real need, not before.
 - **One interface.** Every cache sits behind one interface: get, get many, set, delete by key. The
   first implementation is an in-process LRU; a Redis implementation can replace it later without
   touching callers.
@@ -126,13 +130,16 @@ The `change_latest` table stays until the later sync design decides its future.
 2. **Foundations, with no behavior change:** prepared queries everywhere, the missing indexes and
    planner statistics, the cache interface, statement-count tests and a test that every
    repository query uses an index.
-3. **Remove the copies one at a time, smallest first**, each as its own landing: users, grants,
-   machines, pending counts, the world index, the observation checkpoint map, the two sync copies, the issue map, and the session
-   map last. For each one:
+3. **Remove the copies**, each fact as its own landing, ordered only where the code overlaps:
+   the world index (users, grants, machines, pending counts, folder lookup, in that order) and the
+   observation checkpoint map in parallel; then the two sync copies; then the issue map; the
+   session map last. For each one:
    1. switch its readers to the database;
-   2. let old and new both answer and compare: for every copy in a test over the benchmark corpus
-      and edge-case fixtures; for the issue map and the session map also at runtime in development
-      builds, logging any difference, before the copy is deleted;
+   2. prove the answers did not change: for the folder → issue lookup, both sync copies, the issue
+      map and the session map, a test runs old and new over the benchmark corpus and edge-case
+      fixtures and compares; the issue map and the session map are also compared at runtime in
+      development builds before the copy is deleted. The smaller removals rely on the existing
+      tests plus new focused tests;
    3. delete the copy;
    4. measure on the benchmark against the parent commit as the control, with the two runs
       interleaved.
@@ -176,23 +183,23 @@ or 3 days.
 
 ## 11. Sub-issues
 
-| step | issue | waits on |
-|---|---|---|
-| Rules doc (`docs/agents/server-data.md`) | POD-6145 | – |
-| Benchmark and live baseline | POD-6146 | – |
-| Prepared repository queries | POD-6147 | POD-6145 |
-| Indexes and query-plan audit | POD-6148 | POD-6147 |
-| Statement-count tests | POD-6149 | POD-6148 |
-| Cache interface | POD-6150 | POD-6145 |
-| Remove users copy | POD-6151 | POD-6146, POD-6149 |
-| Remove grants copy | POD-6152 | POD-6151 |
-| Remove machine copies | POD-6153 | POD-6152 |
-| Remove pending-message counters | POD-6154 | POD-6153 |
-| Remove the world index | POD-6155 | POD-6154 |
-| Remove observation checkpoint map | POD-6159 | POD-6155 |
-| Remove raw `change_latest` copy | POD-6156 | POD-6159 |
-| Remove sync change baseline | POD-6157 | POD-6156 |
-| Remove full issue map | POD-6158 | POD-6157 |
-| Session map to running sessions | POD-6160 | POD-6158 |
-| Final measurement | POD-6161 | POD-6160 |
-| Turso spike | POD-6162 | – |
+Prefix letters are phases, numbers the order inside a phase. Blocking edges in the tracker enforce
+"waits on".
+
+| prefix | step | issue | waits on |
+|---|---|---|---|
+| A1 | Rules doc (`docs/agents/server-data.md`) | POD-6145 | – |
+| A2 | Benchmark and live baseline | POD-6146 | – |
+| A3 | Prepared repository queries (root cause first: one shared drizzle instance) | POD-6147 | – |
+| A4 | Turso spike | POD-6162 | – |
+| B1 | Indexes and query-plan audit | POD-6148 | POD-6147 (same files) |
+| B2 | Statement-count tests, relational queries and per-operation loaders | POD-6149 | POD-6148 (same files) |
+| C1 | Remove the world index (five steps) | POD-6155 | POD-6146, POD-6149 |
+| C2 | Remove observation checkpoint map | POD-6159 | POD-6146, POD-6149 |
+| C3 | Remove sync memory copies (two steps) | POD-6156 | POD-6155 (shared feed-visibility code) |
+| D1 | Remove full issue map | POD-6158 | POD-6155, POD-6156 |
+| D2 | Session map to running sessions | POD-6160 | POD-6158, POD-6159 |
+| E1 | Final measurement | POD-6161 | POD-6160 |
+| E2 | Cache interface (deferred until a measured need) | POD-6150 | POD-6161 |
+
+POD-6151 to POD-6154 were merged into POD-6155 and POD-6157 into POD-6156 (superseded).
