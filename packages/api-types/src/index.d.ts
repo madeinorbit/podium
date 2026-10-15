@@ -6903,6 +6903,13 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
             output: Output_issues_create;
             meta: unknown;
         }>;
+        "deck": TRPC.TRPCQueryProcedure<{
+            input: {
+                id: string;
+            };
+            output: _podium_model.IssueDeck;
+            meta: unknown;
+        }>;
         "defer": TRPC.TRPCMutationProcedure<{
             input: {
                 expectedRevision?: number | undefined;
