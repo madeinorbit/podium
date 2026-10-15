@@ -1,5 +1,7 @@
+import { discoveredPlacement } from '@podium/client-core/values'
+import { companion, lazy } from '@podium/mobx-helpers'
 import type { FullDeck, FullDeckTask } from '@podium/client-graph/mission-full-deck'
-import { settled } from '@podium/client-graph/mission-view'
+import { requireLoaded, settled } from '@podium/client-graph/mission-view'
 import { observer } from '@podium/client-graph/react'
 import { asIssueId, asMutationId } from '@podium/model'
 import { Check, X } from 'lucide-react'
@@ -22,7 +24,19 @@ const successLabel = { backlog: 'In backlog', start: 'Started', dismiss: 'Dismis
 
 /** UI state for this Full opening only. The pool remains the sole record store.
  * Receipts keep only the command outcome and its ID, including across publication. */
+class ProposalProvenance {
+  constructor(readonly task: FullDeckTask) {}
+  @lazy get tooltip(): string {
+    const issue = requireLoaded(this.task.deck.screen.reader.catalogIssue(this.task.id))
+    // The shared stage-independent placement reader keeps provenance on a receipt
+    // after the proposal has joined the accepted tree or left for its own issue.
+    const placement = issue ? discoveredPlacement(issue)?.placement : null
+    return `Proposed by ${this.task.proposalAuthor ?? 'an agent'} · ${placement === 'own' ? 'Own issue' : placement === 'mission' ? 'Here in this mission' : 'Placement not specified'}`
+  }
+}
+
 class ProposalSubmissions {
+  readonly provenance = companion((task: FullDeckTask) => new ProposalProvenance(task))
   readonly byId = observable.map<string, Submission>([], { deep: false })
 
   @action async submit(id: string, verb: ProposalAction, trpc: Trpc): Promise<void> {
@@ -70,15 +84,16 @@ export const FlightDeckProposals = observer(function FlightDeckProposals({
         <h2>Proposed</h2><span>{ids.length}</span><i aria-hidden="true" />
       </div>
       {ids.map(id => (
-        <FullProposal key={id} task={full.task(id)} status={submissions.byId.get(id)}
+        <FullProposal key={id} provenance={submissions.provenance(full.task(id))} task={full.task(id)} status={submissions.byId.get(id)}
           onSubmit={verb => void submissions.submit(id, verb, trpc)} {...navigation} />
       ))}
     </section>
   )
 })
 
-const FullProposal = observer(function FullProposal({ task, status, onSubmit, onSelect, onMenu }: {
+const FullProposal = observer(function FullProposal({ task, provenance, status, onSubmit, onSelect, onMenu }: {
   task: FullDeckTask
+  provenance: ProposalProvenance
   status: Submission | undefined
   onSubmit: (verb: ProposalAction) => void
 } & ProposalNavigation): JSX.Element | null {
@@ -90,9 +105,8 @@ const FullProposal = observer(function FullProposal({ task, status, onSubmit, on
   const receipt = !proposed
   if (!proposed && !status) return null
   const ref = drawable ? task.row.displayRef : ''
-  const provenance = proposed
-    ? `Proposed by ${task.proposalAuthor ?? 'an agent'} · ${task.placement === 'own' ? 'Own issue' : task.placement === 'mission' ? 'Here in this mission' : 'Placement not specified'}`
-    : undefined
+  const tooltip = settled(() => provenance.tooltip)
+  const description = typeof tooltip === 'string' ? tooltip : undefined
   const pending = status?.phase === 'pending'
   const success = status?.phase === 'success'
   return (
@@ -104,7 +118,7 @@ const FullProposal = observer(function FullProposal({ task, status, onSubmit, on
         {!receipt && <span className="flight-proposal-ring" aria-hidden="true" />}
         <Tooltip>
           <TooltipTrigger render={<button type="button" className="flight-proposal-details" />}
-            aria-description={provenance}
+            aria-description={description}
             aria-label={`Open ${ref}: ${drawable ? task.row.title : 'proposal details'}`}
             onClick={() => intent.press(() => onSelect(task, false), () => onSelect(task, true))}
             onKeyDown={event => {
@@ -115,7 +129,7 @@ const FullProposal = observer(function FullProposal({ task, status, onSubmit, on
             <span className="flight-proposal-ref">{ref}</span>
             {drawable && <span className="flight-proposal-title">{task.row.title}</span>}
           </TooltipTrigger>
-          {provenance && <TooltipContent>{provenance}</TooltipContent>}
+          {description && <TooltipContent>{description}</TooltipContent>}
         </Tooltip>
         {success || (receipt && pending) ? (
           <span className="flight-proposal-result" role="status">

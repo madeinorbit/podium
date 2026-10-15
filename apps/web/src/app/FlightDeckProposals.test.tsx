@@ -119,6 +119,7 @@ it.each(['backlog', 'start'] as const)('%s sends only the correct operator comma
   expect(f.ui.container.querySelectorAll('[data-flight-issue="proposal"]')).toHaveLength(1)
   expect(f.section()!.querySelector('[data-flight-issue="proposal"]')).toBeNull()
   expect(f.section()!.textContent).toContain(verb === 'start' ? 'Started' : 'In backlog')
+  expect(f.section()!.querySelector('.flight-proposal-details')?.getAttribute('aria-description')).toBe('Proposed by POD-7-C · Here in this mission')
   capture(`${verb} · receipt after publication, task appears once`, f.section()!)
   // Opening a fresh Full view drops receipts; normal server membership wins.
   f.ui.unmount()
@@ -146,6 +147,7 @@ it.each(['Backlog', 'Start'])('keeps own-issue provenance and sends its own ID w
   expect(f.section()!.querySelector('[data-flight-issue="spin"]')).toBeNull()
   expect(f.section()!.querySelector('[data-proposal-receipt="spin"]')?.textContent).toContain(label === 'Start' ? 'Started' : 'In backlog')
   expect(f.pool.issueObject('spin').parentId).toBeNull()
+  expect(f.section()!.querySelector('[data-proposal-receipt="spin"] .flight-proposal-details')?.getAttribute('aria-description')).toContain('Own issue')
 
 })
 
