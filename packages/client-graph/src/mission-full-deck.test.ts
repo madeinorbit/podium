@@ -301,6 +301,56 @@ describe('counting', () => {
     })
   })
 
+  describe('the Needs you tone agrees with the rows the tab lists', () => {
+    /** A parent with its own agent over two leaves; leaf totals stay D1. */
+    const parented = (own: string, leafA = 'idle', leafB = 'idle') => ({
+      issues: [
+        issue('root', 1, null),
+        issue('p', 2, 'root'),
+        issue('a', 3, 'p', { sortKey: 'a' }),
+        issue('b', 4, 'p', { sortKey: 'b' }),
+      ],
+      sessions: [
+        session('w-p', 'p', own),
+        session('w-a', 'a', leafA),
+        session('w-b', 'b', leafB),
+      ],
+    })
+    const needsYouRows = (full: FullDeck) => {
+      full.setFilter('needs-you')
+      return rows(full)
+    }
+
+    it("reads red for a parent's own Error over Idle leaves, counting no leaf", async () => {
+      const { full } = await open(parented('errored'))
+      expect(tracked(() => full.task('p').word)).toBe('error')
+      expect(tracked(() => full.counts['needs-you'])).toBe(0)
+      expect(tracked(() => full.needsYouTone)).toBe('error')
+      expect(needsYouRows(full)).toEqual(['p'])
+    })
+
+    it("reads amber for a parent's own Needs you", async () => {
+      const { full } = await open(parented('needs_user'))
+      expect(tracked(() => full.counts['needs-you'])).toBe(0)
+      expect(tracked(() => full.needsYouTone)).toBe('needs-you')
+      expect(needsYouRows(full)).toEqual(['p'])
+    })
+
+    it('reads red for a leaf Error', async () => {
+      const { full } = await open(parented('idle', 'errored'))
+      expect(tracked(() => full.counts['needs-you'])).toBe(1)
+      expect(tracked(() => full.needsYouTone)).toBe('error')
+      expect(needsYouRows(full)).toEqual(['p', 'a'])
+    })
+
+    it('reads no tone when nothing is listed', async () => {
+      const { full } = await open(parented('idle'))
+      expect(tracked(() => full.counts['needs-you'])).toBe(0)
+      expect(tracked(() => full.needsYouTone)).toBe(null)
+      expect(needsYouRows(full)).toEqual([])
+    })
+  })
+
   it('completes a phase from its work without closing the phase issue', async () => {
     const { pool, full } = await open()
     const release = full.task('release')

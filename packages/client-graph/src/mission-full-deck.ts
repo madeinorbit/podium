@@ -364,10 +364,27 @@ export class FullDeck {
       done: t.done,
     }
   }
-  /** Needs you reads red when anything has errored, else amber. */
+  /** Needs you reads red when anything it lists has errored, else amber. The
+   * tab lists a parent by its own word, whatever its leaves read, so the
+   * tone reads every row the filter would match, not only the leaf tally
+   * (which still covers a mission that is its only issue). Search never
+   * moves it. */
   @lazy get needsYouTone(): 'error' | 'needs-you' | null {
     const t = this.tally
-    return t.error > 0 ? 'error' : t['needs-you'] > 0 ? 'needs-you' : null
+    if (t.error > 0) return 'error'
+    let asks = t['needs-you'] > 0
+    const walk = (id: string): boolean => {
+      for (const child of this.task(id).childIds) {
+        const task = this.task(child)
+        if (task.kind !== 'phase' && !task.abandoned) {
+          if (task.word === 'error') return true
+          asks ||= TASK_WORD_FILTERS['needs-you'](task.word)
+        }
+        if (walk(child)) return true
+      }
+      return false
+    }
+    return walk(this.rootId) ? 'error' : asks ? 'needs-you' : null
   }
   /** Every phase in the accepted tree, at any depth, in tree order. */
   @lazy({ equals: compareShallow }) get phaseIds(): readonly string[] {

@@ -151,6 +151,20 @@ it('colors Needs you red for Error, amber for attention alone, and neutral for z
   expect(tone()).toBeUndefined()
 })
 
+it("colors Needs you red for a parent's own Error over Idle leaves, leaf totals unchanged", async () => {
+  const f = await open()
+  const tone = () => f.button(/^Needs you \d/).querySelector('[data-tone]')?.getAttribute('data-tone')
+  act(() => f.pool.apply({ type: 'update', rows: [
+    { kind: 'session', id: 'failed', value: session('failed', 'error', 'idle') as never },
+    { kind: 'issue', id: 'ask', value: issue('ask', 'parent', 'b', { type: 'decision', ...done }) as never },
+    { kind: 'session', id: 'own', value: session('own', 'parent', 'errored') as never },
+  ] }))
+  expect(f.button('Needs you 0')).toBeDefined()
+  expect(tone()).toBe('error')
+  await f.click('Needs you 0')
+  expect(f.order()).toEqual(['build', 'parent'])
+})
+
 it('shares Done state with the done line and resets filters and Done in both directions', async () => {
   const f = await open()
   await f.click('Active 4')
