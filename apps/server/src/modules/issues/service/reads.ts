@@ -1117,6 +1117,7 @@ export class IssueReportsModule {
           // it — the old `You are working on POD-N: title` taught the bare ref that
           // SELF_REF_RULE then forbade 25 lines later, and the ref won (POD-389).
           `You are working on this issue — \`${await this.niceRef(me)}\` (${me.title}). "This issue" is what you call it when you write to the user; the ref is for commands and for readers who cannot know which issue you mean.`,
+          `Read the user's flight deck: \`podium issue deck ${me.seq}\` (or \`--json\`) — phases, tasks, state words, seats, blockers and proposals.`,
           issueTitleNeedsRetitle(me.title)
             ? `This issue's title violates the 3–5 word rule. Retitle it now: \`podium issue update --id ${me.seq} --title "…"\`. Name the thing, not the activity.`
             : null,
