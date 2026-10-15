@@ -33,8 +33,8 @@ const rowExists = (row: string): boolean => OWNERSHIP_MATRIX.some((r) => (r.id a
 
 describe('the issue contract table', () => {
   it('is populated, is keyed by its own names, and every name is dotted `issues.*`', () => {
-    expect(ISSUE_CONTRACT_LIST).toHaveLength(78)
-    expect(ISSUE_COMMAND_NAMES).toHaveLength(78)
+    expect(ISSUE_CONTRACT_LIST).toHaveLength(80)
+    expect(ISSUE_COMMAND_NAMES).toHaveLength(80)
     expect([...ISSUE_COMMAND_NAMES]).toEqual([...ISSUE_COMMAND_NAMES].sort())
     for (const key of ISSUE_COMMAND_NAMES) {
       expect(ISSUE_CONTRACTS[key].name, key).toBe(`issues.${key}`)
@@ -102,6 +102,22 @@ describe('contract visibility against the ownership matrix', () => {
   })
 })
 
+describe('sibling move input', () => {
+  const input = ISSUE_CONTRACTS.move.input
+
+  it('requires exactly one relative placement and accepts revision preconditions', () => {
+    expect(input.parse({ id: 'POD-1', before: 'POD-2', expectedRevision: 3 })).toEqual({
+      id: 'POD-1', before: 'POD-2', expectedRevision: 3,
+    })
+    expect(input.parse({ id: 'POD-1', after: 'POD-2' })).toEqual({ id: 'POD-1', after: 'POD-2' })
+    for (const bad of [
+      { id: 'POD-1' },
+      { id: 'POD-1', before: 'POD-2', after: 'POD-3' },
+      { id: 'POD-1', before: '' },
+    ]) expect(input.safeParse(bad).success).toBe(false)
+  })
+})
+
 /**
  * EXPOSURE IS DEFAULT-CLOSED AND MATCHES WHAT SHIPS. The declaration↔reality check
  * against the CLI table's actual reach lives in `scripts/audit-issue-commands.ts`,
@@ -122,10 +138,10 @@ describe('transport exposure', () => {
     'subscriptionSetEnabled',
   ]
 
-  it('tRPC and relay serve all seventy-eight; CLI and MCP serve sixty-seven', () => {
+  it('tRPC and relay serve all eighty; CLI and MCP serve sixty-nine', () => {
     const onCli = ISSUE_COMMAND_NAMES.filter((n) => ISSUE_CONTRACTS[n].exposure.includes('cli'))
     const onMcp = ISSUE_COMMAND_NAMES.filter((n) => ISSUE_CONTRACTS[n].exposure.includes('mcp'))
-    expect(onCli).toHaveLength(67)
+    expect(onCli).toHaveLength(69)
     // CLI and MCP are the SAME table (issue-mcp.ts derives its tools from
     // ISSUE_COMMANDS), so they must be the same set — not merely the same size.
     expect(onCli).toEqual(onMcp)

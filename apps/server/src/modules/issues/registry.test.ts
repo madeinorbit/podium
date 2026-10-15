@@ -75,6 +75,7 @@ const EXPECTED_PROC_ACTION: Record<string, 'read' | 'write' | 'manage'> = {
   share: 'write',
   unshare: 'write',
   depRemove: 'write',
+  move: 'write',
   reparent: 'write',
   setPlacement: 'write',
   supersede: 'write',
@@ -118,6 +119,7 @@ const OLD_SCOPED_TARGET_FIELD: Record<string, 'id' | 'fromId' | 'oldId' | 'none'
   setLabels: 'id',
   share: 'id',
   unshare: 'id',
+  move: 'id',
   reparent: 'id',
   setPlacement: 'id',
   depRemove: 'fromId',
@@ -376,7 +378,7 @@ describe('guardIssueCommand authorization matrix', () => {
     ).resolves.toBeUndefined()
   })
 
-  it('the five lifecycle repairs are worker-write in subtree, confirm outside, and viewer-denied', async () => {
+  it('lifecycle repairs and sibling moves are worker-write in subtree, confirm outside, and viewer-denied', async () => {
     const reg = await fresh()
     const epic = await reg.issues.crud.create({ repoPath: '/r', title: 'Epic', startNow: false })
     const child = await reg.issues.crud.create({
@@ -394,6 +396,7 @@ describe('guardIssueCommand authorization matrix', () => {
     }
     const cases = [
       ['archive', { id: child.id }, { id: outside.id }],
+      ['move', { id: child.id, before: epic.id }, { id: outside.id, before: epic.id }],
       ['depRemove', { fromId: child.id, toId: epic.id }, { fromId: outside.id, toId: epic.id }],
       ['reparent', { id: child.id, parentId: epic.id }, { id: outside.id, parentId: epic.id }],
       ['supersede', { oldId: child.id, newId: epic.id }, { oldId: outside.id, newId: epic.id }],

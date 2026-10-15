@@ -24,6 +24,7 @@ function mockClient(overrides: Record<string, unknown> = {}): { client: IssueTrp
       comments: proc('comments'),
       create: proc('create'),
       update: proc('update'),
+      move: proc('move'),
       close: proc('close'),
       claim: proc('claim'),
       depAdd: proc('depAdd'),
@@ -79,6 +80,7 @@ describe('ISSUE_COMMANDS registry', () => {
       'duplicate',
       'dep-remove',
       'reparent',
+      'move',
       'find-duplicates',
       'graph',
       'doctor',
@@ -96,6 +98,24 @@ describe('ISSUE_COMMANDS registry', () => {
     ]) {
       expect(names, `missing verb ${v}`).toContain(v)
     }
+  })
+
+  it.each(['before', 'after'])('move forwards --%s and renders the relative position', async (direction) => {
+    const { client, calls } = mockClient()
+    const command = cmd('move')
+    expect(command.positionals).toEqual(['id'])
+    const args = command.args.parse({ id: 1, [direction]: 2 }) as Record<string, unknown>
+    const result = await command.run(client, args)
+    expect(calls).toEqual([{
+      path: 'move', kind: 'mutate', input: { id: '1', [direction]: '2' },
+    }])
+    expect(result.text).toBe(`1 moved ${direction} 2`)
+    expect(result.data).toMatchObject({ id: 'iss_1' })
+  })
+
+  it('move rejects missing or conflicting placement flags before dispatch', () => {
+    expect(cmd('move').args.safeParse({ id: 1 }).success).toBe(false)
+    expect(cmd('move').args.safeParse({ id: 1, before: 2, after: 3 }).success).toBe(false)
   })
 
   it('cleanup calls issues.cleanup.mutate with the id and reports OK/REFUSED', async () => {

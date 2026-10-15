@@ -89,7 +89,7 @@ describe('the real in-process client serves every cli/mcp-exposed contract', () 
   it('every cli/mcp-exposed contract has a live procedure on the real client', async () => {
     const client = (await fresh()).issueCommands.asIssueTrpc(OPERATOR)
     const issues = client.issues as unknown as Record<string, { query: unknown; mutate: unknown }>
-    expect(CLI_EXPOSED).toHaveLength(68)
+    expect(CLI_EXPOSED).toHaveLength(69)
     for (const name of CLI_EXPOSED) {
       expect(typeof issues[name]?.query, name).toBe('function')
       expect(typeof issues[name]?.mutate, name).toBe('function')
@@ -197,6 +197,24 @@ describe('the podium issue CLI table renders over the real surface', () => {
     const closeCmd = verb('close')
     await closeCmd?.run(client, parseArgs(closeCmd, { id }))
     expect((await reg.issues.reports.getMeta(created?.id as string))?.stage).toBe('done')
+  })
+
+  it('move executes through the CLI table and real dispatcher in both directions', async () => {
+    const reg = await fresh()
+    const client = reg.issueCommands.asIssueTrpc(OPERATOR)
+    const create = async (title: string, parentId?: string) =>
+      await reg.issues.crud.create({ repoPath: '/r', title, parentId, startNow: false })
+    const parent = await create('parent')
+    const a = await create('a', parent.id)
+    const b = await create('b', parent.id)
+    const c = await create('c', parent.id)
+    const move = ISSUE_COMMANDS.find((command) => command.name === 'move')!
+    const moved = await move.run(client, parseArgs(move, { id: a.seq, before: b.seq }))
+    expect(moved.text).toBe(`${a.seq} moved before ${b.seq}`)
+    expect((await reg.issues.reports.getMeta(a.id))!.sortKey! < b.sortKey!).toBe(true)
+    expect((await reg.issues.reports.getMeta(a.id))!.sortKey! > c.sortKey!).toBe(true)
+    await move.run(client, parseArgs(move, { id: a.id, after: b.id }))
+    expect((await reg.issues.reports.getMeta(a.id))!.sortKey! > b.sortKey!).toBe(true)
   })
 
   it('the side-effecting verbs are reachable, and are listed rather than silently skipped', async () => {

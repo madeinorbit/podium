@@ -434,7 +434,8 @@ describe('registry totality (ADR 3 D13.2 — declared per contract, never guesse
     // Shipping arbitrates on its own durable generation/custody fences rather
     // than on an issue revision, which is what 'cmd' says and why exp-rev would
     // be the wrong class for them.
-    expect(mutations).toHaveLength(49)
+    // Sibling-relative moves (POD-6109) use the same issue revision fence.
+    expect(mutations).toHaveLength(50)
   })
 
   it.each(mutations)('%s declares a conflict class', (_name, def) => {

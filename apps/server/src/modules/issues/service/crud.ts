@@ -870,37 +870,42 @@ export class IssueCrudModule {
     if ((placement.before !== undefined) === (placement.after !== undefined)) {
       throw new IssueRefusal('pass exactly one of --before or --after')
     }
-    const row = await this.store.rowOrThrow(await this.store.resolveRef(id))
-    const reference = (placement.before ?? placement.after)!
-    const anchor = await this.store.rowOrThrow(await this.store.resolveRef(reference, row.repoPath))
-    if (row.deletedAt || anchor.deletedAt) {
-      throw new IssueRefusal('deleted issues cannot be moved or used as move references')
-    }
-    if (row.id === anchor.id) throw new IssueRefusal('an issue cannot be moved relative to itself')
-    const scope = () => this.sortKeySpaceRows(row.repoId, row.repoPath, row.parentId ?? null)
-    if (!scope().some((sibling) => sibling.id === anchor.id)) {
-      throw new IssueRefusal('move requires siblings with the same parent and repository')
-    }
-    let siblings = this.orderedSortRows(scope()).filter((sibling) => sibling.id !== row.id)
-    // Old rows may lack keys, and reparenting can bring equal keys into one space.
-    // Repair only when a strict midpoint cannot represent the existing order.
-    const seen = new Set<string>()
-    if (siblings.some((sibling) => {
-      const key = sibling.sortKey
-      if (!isSortKey(key) || seen.has(key) || key.length >= SORT_KEY_MAX_LEN) return true
-      seen.add(key)
-      return false
-    })) {
-      await this.compactSortKeys(scope())
-      siblings = this.orderedSortRows(scope()).filter((sibling) => sibling.id !== row.id)
-    }
-    const anchorIndex = siblings.findIndex((sibling) => sibling.id === anchor.id)
-    const insertionIndex = anchorIndex + (placement.after !== undefined ? 1 : 0)
-    const sortKey = sortKeyBetween(
-      siblings[insertionIndex - 1]?.sortKey ?? null,
-      siblings[insertionIndex]?.sortKey ?? null,
-    )
-    return await this.update(row.id, { sortKey })
+    // Serialize neighbor reads with the write, including any key-space repair.
+    return await this.store.deps.store.transact(async () => {
+      const row = await this.store.rowOrThrow(await this.store.resolveRef(id))
+      const reference = (placement.before ?? placement.after)!
+      const anchor = await this.store.rowOrThrow(await this.store.resolveRef(reference, row.repoPath))
+      if (row.deletedAt || anchor.deletedAt) {
+        throw new IssueRefusal('deleted issues cannot be moved or used as move references')
+      }
+      if (row.id === anchor.id) throw new IssueRefusal('an issue cannot be moved relative to itself')
+      const scope = () => this.sortKeySpaceRows(row.repoId, row.repoPath, row.parentId ?? null)
+      if (!scope().some((sibling) => sibling.id === anchor.id)) {
+        throw new IssueRefusal('move requires siblings with the same parent and repository')
+      }
+      let siblings = this.orderedSortRows(scope()).filter((sibling) => sibling.id !== row.id)
+      // Old rows may lack keys, and reparenting can bring equal keys into one space.
+      // Repair only when a strict midpoint cannot represent the existing order.
+      const seen = new Set<string>()
+      if (
+        siblings.some((sibling) => {
+          const key = sibling.sortKey
+          if (!isSortKey(key) || seen.has(key) || key.length >= SORT_KEY_MAX_LEN) return true
+          seen.add(key)
+          return false
+        })
+      ) {
+        await this.compactSortKeys(scope())
+        siblings = this.orderedSortRows(scope()).filter((sibling) => sibling.id !== row.id)
+      }
+      const anchorIndex = siblings.findIndex((sibling) => sibling.id === anchor.id)
+      const insertionIndex = anchorIndex + (placement.after !== undefined ? 1 : 0)
+      const sortKey = sortKeyBetween(
+        siblings[insertionIndex - 1]?.sortKey ?? null,
+        siblings[insertionIndex]?.sortKey ?? null,
+      )
+      return await this.update(row.id, { sortKey })
+    })
   }
 
   /**
