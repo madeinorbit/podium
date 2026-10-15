@@ -590,17 +590,15 @@ describe('MachinesService.requireAgent refuses rather than falling through (POD-
   })
 })
 
-describe('the machine caches are dropped by pair/hello (POD-1479)', () => {
-  // The row caches (machineRecordsCache / machineNameCache) are derived state:
-  // every write to the machines table must invalidate them or a client keeps
-  // reading the pre-write fleet. The credential lifecycle writes that table on
-  // BOTH handshake arms, and reaches the caches only through EnrollmentHost —
-  // so these tests drive `authenticateDaemon` and read the public projections
-  // with NO manual invalidate in between. They also never `attach()`, because
-  // attach invalidates defensively and would mask the loss.
+describe('pair/hello writes are visible to the next read (POD-1479)', () => {
+  // POD-1479 found row caches that a handshake write did not refresh. The
+  // caches are gone (POD-6155): every read asks the machines table. These tests
+  // keep pinning the outcome: the credential lifecycle writes that table on
+  // BOTH handshake arms, so they drive `authenticateDaemon` and read the public
+  // projections with no manual step in between, and never `attach()`.
   //
-  // The cache is WARMED first in each case: an unwarmed read is a cache MISS
-  // that rebuilds anyway, and would pass with invalidation removed entirely.
+  // Each case reads first and again after the write, so a read that stopped
+  // seeing the table would fail.
 
   async function pairingService(): Promise<{ svc: MachinesService; store: SessionStore }> {
     const store = await openTestStore(':memory:')
@@ -631,9 +629,7 @@ describe('the machine caches are dropped by pair/hello (POD-1479)', () => {
 
   test('a paired machine is named and listed without a manual invalidate', async () => {
     const { svc } = await pairingService()
-    // Warm both caches on the pre-pair fleet: machineName populates the name map,
-    // listMachines the record list. Everything after this is served from them
-    // until something drops them.
+    // Read the pre-pair fleet first.
     await svc.machineName(MACHINE)
     const before = (await svc.listMachines()).map((m) => m.id)
     expect(before).not.toContain(MACHINE)
@@ -655,7 +651,7 @@ describe('the machine caches are dropped by pair/hello (POD-1479)', () => {
 
     expect(await svc.machineName(MACHINE)).toBe('Builder')
     expect((await svc.listMachines()).find((m) => m.id === MACHINE)?.name).toBe('Builder')
-    // Ownership reads the same cache, and it is the authorization input.
+    // Ownership reads the same table, and it is the authorization input.
     expect((await svc.effectiveOwner(MACHINE))).toBe(
       firstAdminMemberId(),
     )
@@ -688,8 +684,7 @@ describe('the machine caches are dropped by pair/hello (POD-1479)', () => {
       ownerUserId: firstAdminMemberId(),
     })
 
-    // Warm on the pre-hello row — the upsert went straight to the store, so this
-    // read is what puts the stale hostname in the cache.
+    // Read the pre-hello row first.
     expect((await svc.listMachines()).find((m) => m.id === MACHINE)?.hostname).toBe('old.local')
 
     const result = await svc.authenticateDaemon({
@@ -1011,17 +1006,16 @@ describe('MachinesService inventory persistence (#222)', () => {
 // ---------------------------------------------------------------------------
 //
 // `transferOwnership` appends to the enrollment ledger (the commit point,
-// D19.4d) and then projects: row write → invalidateMachineCache →
-// broadcastMachines. Until this suite the ONLY caller anywhere passed
-// `skipRowUpdate: true` and returned before that tail, so none of those three
-// steps had ever executed — POD-1467 confirmed it by replacing
+// D19.4d) and then projects: row write → broadcastMachines. Until this suite
+// the ONLY caller anywhere passed `skipRowUpdate: true` and returned before that
+// tail, so none of those steps had ever executed — POD-1467 confirmed it by replacing
 // `broadcastMachines` with a THROW and watching the whole lane stay green.
 //
 // So these tests do not assert that the tail is CALLED — a call spy is satisfied
 // by a no-op that still calls. They read the PROJECTION BACK through the public
-// surface, with the caches deliberately warmed on the pre-transfer fleet first,
-// and they snapshot what the fleet looked like AT BROADCAST TIME so the
-// invalidate-before-broadcast ordering is asserted rather than assumed.
+// surface, after reading the pre-transfer fleet first, and they snapshot what
+// the fleet looked like AT BROADCAST TIME so the write-before-broadcast ordering
+// is asserted rather than assumed.
 describe('ownership transfer projects onto the fleet (POD-1480)', () => {
   const OWNER_A = 'user:alice'
   const OWNER_B = 'user:bob'
@@ -1046,9 +1040,9 @@ describe('ownership transfer projects onto the fleet (POD-1480)', () => {
       userExists: (id) => known.has(id),
 
       clients: () => [{ principal: testClientPrincipal('c1'), send: () => {} }],
-      // Called once per client on every broadcast. Reading `ownershipRows()`
-      // here is the load-bearing part: it goes through the SAME record cache the
-      // transfer must have dropped, so a stale entry lands in this array.
+      // Called once per client on every broadcast. Reading the owner here is the
+      // load-bearing part: a broadcast sent before the write lands a stale
+      // entry in this array.
       machinesForPrincipal: async () => {
         broadcasts.push((await svc.effectiveOwner(MACHINE)))
         return []
@@ -1065,34 +1059,21 @@ describe('ownership transfer projects onto the fleet (POD-1480)', () => {
     return { svc, store, dir, broadcasts }
   }
 
-  // A NOTE ON THE CACHE, measured rather than assumed. `transferOwnership` calls
-  // `invalidateMachineCache` between the row write and the broadcast, and
-  // REMOVING that call does not redden anything here — deliberately reported
-  // rather than papered over. It is not "never entered" (replacing the very next
-  // statement, `broadcastMachines`, with a throw DOES redden three of these) and
-  // it is not an assertion gap that a better probe would close: it is
-  // EQUIVALENT for this write, because the record cache has exactly two readers
-  // and neither exposes a stale owner. `ownershipRows` overlays `effectiveOwner`,
-  // which reads the ledger live (D19.4d rule 4, ledger-wins); and `listMachines`
-  // carries no owner FACT of its own — POD-1495's `owned` is a viewer-relative
-  // answer supplied by the command layer, which computes it from that same
-  // ledger-live index rather than from the cached row. The invalidate is defensive — correct to
-  // keep, since a future reader of the raw cached row would need it — but no
-  // public read can currently distinguish its presence.
+  // There is no machine record cache to refresh (POD-6155): the fleet reads
+  // the machines table, so the read-back below sees the row write directly.
   test('the row is written, the fleet serves the NEW owner, and one broadcast goes out', async () => {
     const { svc, store, dir, broadcasts } = await transferWorld()
     try {
-      // Warm on the pre-transfer fleet. Without this the read-back below is a
-      // cache MISS that rebuilds anyway and would pass with the invalidate gone.
+      // Read on the pre-transfer fleet first, so the read-back is a second read.
       expect((await svc.effectiveOwner(MACHINE))).toBe(OWNER_A)
       expect(broadcasts).toHaveLength(0)
 
       await svc.transferMachineOwnership(MACHINE, asUserId(OWNER_B), asUserId(OWNER_A))
 
-      // 1 — THE ROW. Read straight from the store, past every cache.
+      // 1 — THE ROW. Read straight from the store.
       expect((await store.machines.custodian(MACHINE))).toBe(OWNER_B)
-      // 2 — THE FLEET. The same public read that was warmed above, with no
-      // manual invalidate in between.
+      // 2 — THE FLEET. The same public read as above, with no manual step in
+      // between.
       expect((await svc.effectiveOwner(MACHINE))).toBe(OWNER_B)
       // 3 — THE BROADCAST, and its ORDERING: exactly one went out, and the fleet
       // it was built from already showed the new owner — so it was emitted

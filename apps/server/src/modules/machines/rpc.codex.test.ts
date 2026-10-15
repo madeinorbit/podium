@@ -27,6 +27,7 @@ function setup() {
     resolveMachine: () => machineId,
     hasDaemon: () => true,
     machineName: async () => 'desk',
+    machineNames: async (ids) => new Map(ids.map((id) => [id, 'desk'])),
     onlineMachineIds: () => [machineId],
     getSession: () => undefined,
   })

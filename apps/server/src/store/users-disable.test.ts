@@ -4,7 +4,6 @@ import { hashPassword } from '@podium/runtime/auth-store'
 import { Hono } from 'hono'
 import { afterEach, expect, it } from 'vitest'
 import { registerAuthRoute, requestUserId } from '../auth-route'
-import { WorldIndex } from '../modules/world-index'
 import { SessionRegistry } from '../relay'
 import type { SessionStore } from '../store'
 import { openTestStore } from '../test-support/open-test-store'
@@ -31,8 +30,7 @@ it('atomically revokes all client sessions, preserves custody/shares, and re-ena
     owner: member, visibility: 'personal', actorKind: 'user', actorId: member, onBehalfOf: member, createdAt: at,
   })
   const shares = await store.grants.listForResource('machine', 'shared-machine')
-  const index = await WorldIndex.load(store)
-  const machine = index.reader.machine('shared-machine')
+  const machine = await store.machines.getMachine('shared-machine')
   for (const label of ['login', 'mobile', 'break-glass', 'upstream']) {
     await store.auth.createClientSession(label, member, future, label)
   }
@@ -42,7 +40,7 @@ it('atomically revokes all client sessions, preserves custody/shares, and re-ena
   expect(await store.users.get(member)).toBeUndefined()
   expect(await store.users.credentialFor(member)).toBeUndefined()
   expect((await store.auth.listClientSessions()).map(row => row.tokenHash)).toEqual(['other'])
-  expect(index.reader.machine('shared-machine')).toEqual(machine)
+  expect(await store.machines.getMachine('shared-machine')).toEqual(machine)
   expect(await store.grants.listForResource('machine', 'shared-machine')).toEqual(shares)
   await expect(store.auth.createClientSession('late-login', member, future)).rejects.toThrow('Member disabled')
   expect(await store.auth.getClientSession('late-login')).toBeUndefined()
@@ -53,7 +51,7 @@ it('atomically revokes all client sessions, preserves custody/shares, and re-ena
   expect((await store.users.get(member))?.role).toBe('admin')
   expect(await store.users.credentialFor(member)).toBeDefined()
   expect(await store.auth.getClientSession('login')).toBeUndefined()
-  expect(index.reader.machine('shared-machine')).toEqual(machine)
+  expect(await store.machines.getMachine('shared-machine')).toEqual(machine)
   expect(await store.settingsAudit.list()).toHaveLength(2)
 })
 

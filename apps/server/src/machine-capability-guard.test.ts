@@ -53,7 +53,6 @@ async function fleet() {
   // not the registered one (a superseded socket must not evict a fresh one).
   const laptopSocket = (): void => {}
   await registry.gateway.attachDaemon(laptop, laptopSocket)
-  registry.modules.machines.invalidateMachineCache()
   const repos = new RepoRegistry(registry, store)
   const superagent = await SuperagentService.create(registry.modules, repos, store)
   return {
@@ -64,7 +63,6 @@ async function fleet() {
     /** Take the laptop's daemon offline WITHOUT retracting its component. */
     dropLaptopDaemon: (): void => {
       registry.modules.machines.detach(laptop, laptopSocket)
-      registry.modules.machines.invalidateMachineCache()
     },
     call: appRouter.createCaller({
       registry,
@@ -94,7 +92,6 @@ describe('the component fact', () => {
   it('is additive: a coordinator that also runs a daemon keeps both', async () => {
     const { registry, coordinator } = await fleet()
     await registry.gateway.attachDaemon(coordinator, () => {})
-    registry.modules.machines.invalidateMachineCache()
     const machine = (await registry.modules.machines.listMachines()).find((m) => m.id === coordinator)
     expect(machine?.components).toEqual(['server', 'daemon'])
     // And it is then perfectly able to host a repo — the fact is about the box,

@@ -902,7 +902,7 @@ export async function startServer(
     },
     scanRepos: async (roots, opts, machineId) =>
       await registry.modules.rpc.scanRepos(roots, opts, machineId),
-    machineName: async (id) => await registry.modules.machines.machineName(id),
+    machineNames: async (ids) => await registry.modules.machines.machineNames(ids),
     localMachineId: asMachineId(hostMachineId),
     log: (message) => repoDiscoveryLog.info(message),
   })

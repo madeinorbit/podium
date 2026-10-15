@@ -19,7 +19,6 @@ import { openTestStore } from '../../test-support/open-test-store'
 import { statementBudget } from '../../test-support/statement-budget'
 import { WorldIndex } from './index'
 import { DeliveryScheduler } from '../messages/scheduler'
-import { MachinesService } from '../machines/service'
 
 const stores: SessionStore[] = []
 afterEach(async () => {
@@ -166,13 +165,12 @@ describe('world index committed facts', () => {
         [...loading.byQuery]
           .filter(([sql]) => /^select /i.test(sql))
           .reduce((sum, [, n]) => sum + n, 0),
-      ).toBe(3)
+      ).toBe(2)
     expect(await WorldIndex.load(store)).toBe(index)
     expect(index.reader).not.toHaveProperty('lease')
     const read = () => {
       expect(index.reader.issueForWorktree('/worktree')).toBe('iss_x')
       expect(index.reader.pendingCount({ kind: 'issue', id: 'iss_target' })).toBe(2)
-      expect(index.reader.machine(machine.id)?.name).toBe('First')
     }
     read()
     if (queryAttributionEnabled) expect((await statementBudget(read)).statements).toBe(0)
@@ -208,100 +206,6 @@ describe('world index committed facts', () => {
     resume()
     await caller
     expect(await store.users.get(alice)).toBeUndefined()
-  })
-
-  it('applies all twelve machine writers using the same decoder as boot', async () => {
-    const store = await setup()
-    const index = await WorldIndex.load(store)
-    const apply = vi.spyOn(index, 'apply')
-    const service = new MachinesService({ store, worldIndex: index.reader } as ConstructorParameters<
-      typeof MachinesService
-    >[0])
-    const records = () => service['machineRecords']()
-    await records()
-    const list = vi.spyOn(store.machines, 'listMachines')
-    const enroll = () => store.machines.upsertMachine(machine)
-    const releaseCustody = () => store.machines.setMachineOwner(machine.id, null)
-    const writes = [
-      enroll,
-      () => store.machines.addMachineComponent(machine.id, 'daemon'),
-      () => store.machines.setMachineInventory(machine.id, JSON.stringify({ os: 'linux', arch: 'x64', podiumVersion: '1', agents: [], tools: [] })),
-      () => store.machines.setMachineInventory(machine.id, '{"invalid":true}'),
-      () =>
-        store.machines.setMachineBuild(
-          machine.id,
-          { appVersion: 'new' },
-          ['cap'],
-          at,
-          'legacy-daemon',
-        ),
-      () =>
-        store.machines.setSupervisorPresence(
-          machine.id,
-          {},
-          [],
-          {
-            server: { policy: 'disabled', state: 'stopped', observedAt: at },
-            agentExecution: { policy: 'enabled', state: 'stopped', observedAt: at },
-            agentExecutionLockout: false,
-            crashOwner: 'desktop',
-          },
-          at,
-        ),
-      () =>
-        store.machines.setServiceAssignment(machine.id, { server: true, agentExecution: false }),
-      () => store.machines.setPresenceSource(machine.id, 'supervisor'),
-      () => store.machines.setUpdateChannel(machine.id, 'edge'),
-      () => store.machines.renameMachine(machine.id, 'Renamed'),
-      releaseCustody,
-      () => store.machines.touchMachine(machine.id, 'new-host'),
-      () => store.machines.deleteMachine(machine.id),
-    ]
-    try {
-      for (const write of writes) {
-        apply.mockClear()
-        await write()
-        // Custody lives in the grants table: releasing it writes no machine row.
-        expect(apply).toHaveBeenCalledTimes(write === releaseCustody ? 0 : 1)
-        const expected = await store.machines.getMachine(machine.id)
-        expect(index.reader.machine(machine.id)).toEqual(expected)
-        expect(await records()).toEqual(expected ? [expected] : [])
-        expect(await service.machineName(machine.id)).toBe(expected?.name ?? machine.id)
-        expect(list).not.toHaveBeenCalled()
-      }
-    } finally {
-      service.dispose()
-    }
-  })
-
-  it('maintains the existing service cache in place without invalidation reads', async () => {
-    const store = await setup()
-    await store.machines.upsertMachine(machine)
-    // machineName needs only persistence; no transport or enrollment is driven.
-    const index = await WorldIndex.load(store)
-    const service = new MachinesService({ store, worldIndex: index.reader } as ConstructorParameters<
-      typeof MachinesService
-    >[0])
-    try {
-      expect(await service.machineName(machine.id)).toBe('First')
-      await store.machines.renameMachine(machine.id, 'Fresh')
-      if (queryAttributionEnabled) {
-        const read = await statementBudget(() => service.machineName(machine.id))
-        expect(read.result).toBe('Fresh')
-        expect(read.statements).toBe(0)
-      }
-      await expect(
-        store.transact(async () => {
-          await store.machines.renameMachine(machine.id, 'aborted')
-          throw new Error('abort')
-        }),
-      ).rejects.toThrow('abort')
-      expect(await service.machineName(machine.id)).toBe('Fresh')
-      await store.machines.deleteMachine(machine.id)
-      expect(await service.machineName(machine.id)).toBe(machine.id)
-    } finally {
-      service.dispose()
-    }
   })
 
   it('resolves deepest literal prefixes and excludes tombstones at load and commit', async () => {
@@ -425,15 +329,16 @@ describe('world index committed facts', () => {
     expect(index.reader.pendingCount({ kind: 'issue', id: 'iss_target' })).toBe(0)
     expect(index.reader.issueForWorktree('/rollback')).toBeUndefined()
     await store.transact(async () => {
-      await store.machines.upsertMachine(machine)
+      await store.issues.upsertIssue(issueRow({ worktreePath: '/kept' }))
       await expect(
         store.transact(async () => {
-          await store.machines.renameMachine(machine.id, 'rolled back')
+          await store.issues.upsertIssue(issueRow({ worktreePath: '/rolled-back' }))
           throw new Error('inner')
         }),
       ).rejects.toThrow('inner')
     })
-    expect(index.reader.machine(machine.id)?.name).toBe('First')
+    expect(index.reader.issueForWorktree('/kept')).toBe('iss_x')
+    expect(index.reader.issueForWorktree('/rolled-back')).toBeUndefined()
     expect(apply).toHaveBeenCalledTimes(1)
   })
 
@@ -442,13 +347,13 @@ describe('world index committed facts', () => {
     const index = await WorldIndex.load(store)
     const observations: boolean[] = []
     store.grants.committed.subscribe(() => {
-      queueMicrotask(() => observations.push(index.reader.machine(machine.id) !== undefined))
+      queueMicrotask(() => observations.push(index.reader.issueForWorktree('/micro') !== undefined))
     })
     await store.transact(async () => {
       await store.grants.upsert(grant)
-      await store.machines.upsertMachine(machine)
+      await store.issues.upsertIssue(issueRow({ worktreePath: '/micro' }))
     })
-    expect(observations).toEqual([true, true, true])
+    expect(observations).toEqual([true])
   })
 
   it('counts every message transition and duplicate CAS without before-image reads', async () => {

@@ -80,7 +80,7 @@ function makeService(overrides: Partial<ConstructorParameters<typeof MachineRepo
       added.push({ path, machineId, ...(originUrl ? { originUrl } : {}) })
     },
     scanRepos: async () => scanResult([]),
-    machineName: async (id) => `name:${id}`,
+    machineNames: async (ids) => new Map(ids.map((id) => [id, `name:${id}`])),
     localMachineId: asMachineId('local'),
     ...overrides,
   })
@@ -337,7 +337,7 @@ describe('moved-repo heal (POD-1498)', () => {
       },
       ...(opts.pathExists ? { pathExists: opts.pathExists } : {}),
       scanRepos: async () => scanResult(opts.found ?? [{ path: NEW, originUrl: ORIGIN }]),
-      machineName: async (id) => `name:${id}`,
+      machineNames: async (ids) => new Map(ids.map((id) => [id, `name:${id}`])),
       localMachineId: asMachineId('local'),
     })
     return { svc, added, removed, rows }
@@ -412,7 +412,7 @@ describe('moved-repo heal (POD-1498)', () => {
         removed.push({ path })
       },
       scanRepos: async () => scanResult([{ path: NEW, originUrl: ORIGIN }]),
-      machineName: async (id) => `name:${id}`,
+      machineNames: async (ids) => new Map(ids.map((id) => [id, `name:${id}`])),
       localMachineId: asMachineId('local'),
     })
     await svc.scan(asMachineId('vmi'), { deep: false })
@@ -431,7 +431,7 @@ describe('moved-repo heal (POD-1498)', () => {
         return true
       },
       scanRepos: async () => scanResult([{ path: NEW, originUrl: ORIGIN }]),
-      machineName: async (id) => `name:${id}`,
+      machineNames: async (ids) => new Map(ids.map((id) => [id, `name:${id}`])),
       localMachineId: asMachineId('local'),
     })
     await svc.scan(asMachineId('vmi'), { deep: false })
@@ -467,7 +467,7 @@ it('machine paths: discovery dedupes comparison keys while preserving reported c
     listRepos: async () => [row('windows', registered)],
     addRepo,
     scanRepos: async () => scanResult([{ path: scanned }, { path: registered }]),
-    machineName: async () => 'Windows',
+    machineNames: async (ids) => new Map(ids.map((id) => [id, 'Windows'])),
     localMachineId: asMachineId('other'),
   })
   const result = await svc.scan(machineId, { deep: false })

@@ -10,9 +10,6 @@
  * - Pending counts: store/messages.ts owns INSERT and every status mutation,
  *   including read/dead-letter/refusal. Janitor observations become server-side
  *   expireObserved writes; the janitor does not mutate the messages table.
- * - Machines: store/machines.ts owns all twelve mutation statements. Daemon and
- *   supervisor reports enter MachinesService/enrollment and call this repository;
- *   those remote processes do not write the server's machines table themselves.
  * - LEASES EXCLUDED, option (b): observation checkpoints retain their documented
  *   foreign-writer freshness contract (daemon-lifecycle.ts). No lease() capability
  *   is exposed here; POD-3862 must settle that contract before switching it.
@@ -26,7 +23,7 @@
  * Migrations/heals run before loading; no cached authorization survives restart.
  *
  * COMMIT CHOICE: sync ChangeRow contains wire projections, not all owned facts.
- * All three repositories instead publish typed write RETURNING results through
+ * Both repositories instead publish typed write RETURNING results through
  * CommittedRows.write and applyAfterCommit (the same mandatory mechanism used
  * by Authority's onCommit adapter in relay.ts). This includes standalone writes,
  * changes absent from the sync log, and bulk updates. Rollback drops application;
@@ -45,10 +42,8 @@ import type { SessionStore } from '../../store'
 import type { CommittedRowChange } from '../../store/committed-rows'
 import { applyAfterCommit, spanOpen } from '../../store/executor/executor'
 import type { IssueWorktreeRow } from '../../store/issues'
-import { machineRecordFromRow } from '../../store/machines'
 import type { MessageQueueFact } from '../../store/messages'
-import type { MachineRecord } from '../../store/types'
-import type { issues, machines } from '../../migrations/schema'
+import type { issues } from '../../migrations/schema'
 
 export interface DeliveryTarget {
   readonly kind: string
@@ -57,16 +52,13 @@ export interface DeliveryTarget {
 export interface WorldIndexReader {
   issueForWorktree(path: string): IssueId | undefined
   pendingCount(target: DeliveryTarget): number
-  machine(id: string): Readonly<MachineRecord> | undefined
 }
 
 export type ChangeRow =
   | ({ readonly kind: 'issues' } & CommittedRowChange<typeof issues.$inferSelect>)
   | ({ readonly kind: 'messages' } & CommittedRowChange<MessageQueueFact>)
-  | ({ readonly kind: 'machines' } & CommittedRowChange<typeof machines.$inferSelect>)
 
 const key = (kind: string, id: string | null | undefined) => JSON.stringify([kind, id ?? null])
-const clone = <T>(value: T): T => (value === undefined ? value : structuredClone(value))
 const loaded = new WeakMap<SessionStore, Promise<WorldIndex>>()
 const compareIssues = (a: IssueWorktreeRow, b: IssueWorktreeRow) =>
   a.repoPath.localeCompare(b.repoPath) || a.seq - b.seq || a.id.localeCompare(b.id)
@@ -77,7 +69,6 @@ export class WorldIndex {
   private readonly issuesByWorktree = new Map<string, IssueId>()
   private readonly pendingByTarget = new Map<string, number>()
   private readonly queuedTargets = new Map<string, string>()
-  private readonly machineRecords = new Map<string, MachineRecord>()
   private elapsedMs = 0
   get loadMs(): number {
     return this.elapsedMs
@@ -99,7 +90,6 @@ export class WorldIndex {
     },
     pendingCount: (target: DeliveryTarget) =>
       this.pendingByTarget.get(key(target.kind, target.id)) ?? 0,
-    machine: (id: string) => clone(this.machineRecords.get(id)),
   })
 
   static load(store: SessionStore): Promise<WorldIndex> {
@@ -108,10 +98,9 @@ export class WorldIndex {
     if (existing) return existing
     const loading = store.transact(async () => {
       const started = performance.now()
-      // Three grouped/table reads, independent of the number of facts.
+      // Two grouped/table reads, independent of the number of facts.
       const issues = await store.issues.loadWorldIssuePaths()
       const pending = await store.messages.loadWorldPending()
-      const machines = await store.machines.listMachines()
       const index = new WorldIndex()
       for (const row of issues) {
         index.issuesById.set(row.id, row)
@@ -130,12 +119,10 @@ export class WorldIndex {
         index.pendingByTarget.set(target, row.count)
         for (const id of row.ids) index.queuedTargets.set(id, target)
       }
-      for (const row of machines) index.machineRecords.set(row.id, row)
       index.elapsedMs = performance.now() - started
       applyAfterCommit(() => {
         store.issues.committed.subscribe((change) => index.apply({ kind: 'issues', ...change }))
         store.messages.committed.subscribe((change) => index.apply({ kind: 'messages', ...change }))
-        store.machines.committed.subscribe((change) => index.apply({ kind: 'machines', ...change }))
       }, 'world-index:load')
       return index
     })
@@ -170,13 +157,6 @@ export class WorldIndex {
             this.queuedTargets.set(row.id, next)
             this.pendingByTarget.set(next, (this.pendingByTarget.get(next) ?? 0) + 1)
           }
-        }
-        break
-      case 'machines':
-        for (const raw of change.rows) {
-          if (change.operation === 'upsert')
-            this.machineRecords.set(raw.id, machineRecordFromRow(raw))
-          else this.machineRecords.delete(raw.id)
         }
         break
     }

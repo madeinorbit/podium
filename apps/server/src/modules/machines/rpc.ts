@@ -216,6 +216,8 @@ interface DaemonRpcDeps {
   resolveMachine(requested: string | undefined, cwd: string): string | Promise<string>
   hasDaemon(machineId: MachineId): boolean
   machineName(id: MachineId): string | Promise<string>
+  /** {@link machineName} for many machines in one read; every asked id gets an entry. */
+  machineNames(ids: readonly MachineId[]): Promise<ReadonlyMap<string, string>>
   onlineMachineIds(): MachineId[]
   getSession(sessionId: SessionId): RpcSessionView | undefined
   portableStateFence?: PortableStateWriteFence
@@ -777,10 +779,11 @@ export class DaemonRpcService {
   async agentQuotaAll(refresh?: boolean): Promise<MachineQuotaWire[]> {
     const machineIds = this.deps.onlineMachineIds()
     if (machineIds.length === 0) return []
+    const names = await this.deps.machineNames(machineIds)
     return await Promise.all(
       machineIds.map(async (machineId) => {
         const { hostname, agents } = await this.agentQuota(refresh, machineId)
-        return { machineId, machineName: await this.deps.machineName(machineId), hostname, agents }
+        return { machineId, machineName: names.get(machineId) ?? machineId, hostname, agents }
       }),
     )
   }

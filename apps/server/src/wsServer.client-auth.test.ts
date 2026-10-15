@@ -384,7 +384,6 @@ describe('/client WS auth gate', () => {
     if (!registry || !store) throw new Error('missing test registry')
     await store.machines.upsertMachine({ id: store.hostMachineId, name: 'Host', hostname: 'test', tokenHash: 'token', ownerUserId: firstAdminMemberId(), assignment: { server: true, agentExecution: true } })
     await store.machines.setServiceAssignment(store.hostMachineId, { server: true, agentExecution: true })
-    registry.modules.machines.invalidateMachineCache()
     await registry.gateway.attachDaemon(store.hostMachineId, () => {})
     const sessionId = (
       await registry.modules.sessions.createSession({

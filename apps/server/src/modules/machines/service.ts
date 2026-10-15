@@ -50,11 +50,9 @@ import type { ClientPrincipal } from '../../gateway/client-principal'
 import type { DaemonControlPeer } from '../../gateway/daemon-ports'
 import { enrollSetupMachine, readSetupEnrollment } from '../../setup-enrollment'
 import type { MachineRecord, SessionStore } from '../../store'
-import { machineRecordFromRow } from '../../store/machines'
 import type { SettingsAuditRow } from '../../store/settings-audit'
 import type { EventBus } from '../bus'
 import type { Send } from '../sessions/session'
-import type { WorldIndexReader } from '../world-index'
 import type { EnrollmentHost, MachineManagementContext } from './enrollment'
 import * as credentials from './enrollment'
 import { sha256 } from './enrollment'
@@ -232,8 +230,6 @@ export interface MachineFactsSnapshot {
 }
 
 export interface MachinesDeps {
-  /** Loaded before this service subscribes; standalone fixtures may omit it. */
-  worldIndex?: WorldIndexReader
   /** Deployment configuration only; never an owner or grant input. */
   instanceId: string
   /** Public half of the server update-signing key, sent on every successful machine hello. */
@@ -285,7 +281,7 @@ export interface MachinesDeps {
 /**
  * The daemon gateway (issue #13 Phase 2 — peeled off SessionRegistry): per-machine
  * daemon sockets + offline queueing, pairing/auth, the machines table admin, and
- * machine routing/selection (name cache, online set, repo affinity).
+ * machine routing/selection (online set, repo affinity).
  */
 const log = createLogger('server:machines')
 
@@ -382,18 +378,6 @@ export class MachinesService {
   /** The last inventory JSON persisted per machine; cleared with the incarnation. */
   private readonly lastInventoryJsonByMachine = new Map<MachineId, string>()
   /**
-   * In-memory mirror of the machines table. listSessions() resolves machineName
-   * PER SESSION (and allWire() transitively per issue), so an uncached lookup is
-   * a fresh SQLite prepare+all on the hottest path in the process — the profiled
-   * boot-storm CPU sink. Committed machine writes update these records in place. Explicit schema
-   * repair can invalidate them; the next read rebuilds lazily.
-   */
-  private machineRecordsCache: MachineRecord[] | null = null
-  /** Bumped by every committed write and schema invalidation. */
-  private machineCacheEpoch = 0
-  private machineNameCache = new Map<string, string>()
-
-  /**
    * The credential lifecycle's whole view of this service (see
    * {@link EnrollmentHost}): the injected deps plus the two inventory effects a
    * credential write has. Built once so `./enrollment.ts` never reaches the
@@ -443,16 +427,11 @@ export class MachinesService {
   private readonly unsubscribeMachineWrites: () => void
 
   constructor(private readonly deps: MachinesDeps) {
+    // Machine rows are read from the table (POD-6155); a committed write only
+    // moves this process's credential fence for live connections.
     this.unsubscribeMachineWrites = deps.store.machines.committed.subscribe((change) => {
-      this.machineCacheEpoch += 1
       for (const raw of change.rows) {
-        // WorldIndex subscribed during boot, before this service. Its committed
-        // entry is already current here; never read it inside the write span.
-        const patch = change.operation === 'delete' ? undefined
-          : deps.worldIndex ? deps.worldIndex.machine(raw.id) : machineRecordFromRow(raw)
-        if (change.operation === 'upsert' && !patch)
-          throw new Error(`Committed machine missing from world index: ${raw.id}`)
-        this.applyMachineWrite(raw.id, patch)
+        this.applyMachineWrite(raw.id, change.operation === 'delete' ? null : raw.revokedAt)
       }
     })
 
@@ -468,30 +447,18 @@ export class MachinesService {
     }
   }
 
-  /** All twelve repository writers arrive through the mandatory commit funnel.
-   * Apply the complete committed record, including cleared optional inventory.
-   * No ordinary writer needs invalidation; rollback never reaches this helper.
+  /** All twelve repository writers arrive through the mandatory commit funnel;
+   * rollback never reaches this helper. A revocation fences and retires the
+   * machine's live connections; a delete or a live row clears the fence.
    */
-  private applyMachineWrite(id: string, patch: Readonly<MachineRecord> | undefined): void {
-    if (patch?.revokedAt) {
+  private applyMachineWrite(id: string, revokedAt: string | null): void {
+    if (revokedAt) {
       if (!this.revokedMachines.has(asMachineId(id))) {
         this.revokedMachines.add(asMachineId(id))
         this.credentialEpochs.set(asMachineId(id), (this.credentialEpochs.get(asMachineId(id)) ?? 0) + 1)
       }
       this.retireIncarnation(asMachineId(id))
     } else this.revokedMachines.delete(asMachineId(id))
-    const position = this.machineRecordsCache?.findIndex((row) => row.id === id) ?? -1
-    if (!patch) {
-      if (position >= 0) this.machineRecordsCache!.splice(position, 1)
-      this.machineNameCache.delete(id)
-      return
-    }
-    if (position >= 0) {
-      const cached = this.machineRecordsCache![position]!
-      if (patch.inventory === undefined) delete cached.inventory
-      Object.assign(cached, patch)
-    } else this.machineRecordsCache?.push({ ...patch })
-    this.machineNameCache.set(id, patch.name)
   }
 
   /** Deployment label supplied by the composition root. */
@@ -539,7 +506,7 @@ export class MachinesService {
       this.clearPresenceGrace(machineId)
     }
     // The daemon may have (re-)registered/touched its machine row on the way in
-    // (pair/hello, or a test upserting directly before attaching) — drop the cache.
+    // (pair/hello, or a test upserting directly before attaching).
     await this.recordAvailability(machineId)
   }
 
@@ -560,8 +527,7 @@ export class MachinesService {
   /** Server intent returned to the parent after every supervisor attach. */
   async serviceAssignment(machineId: MachineId): Promise<MachineServiceAssignment> {
     return (
-      (await this.machineRecords()).find((machine) => machine.id === machineId)
-        ?.serviceAssignment ?? {
+      (await this.deps.store.machines.getMachine(machineId))?.serviceAssignment ?? {
         server: false,
         agentExecution: false,
       }
@@ -1005,18 +971,9 @@ export class MachinesService {
     return await credentials.effectiveOwner(this.enrollmentHost, machineId)
   }
 
-  /** The existing service cache is maintained by committed machine writes.
-   * A load overlapping a commit retries, never installs or returns stale rows. */
+  /** The fleet, read from the machines table: one row per enrolled machine. */
   private async machineRecords(): Promise<MachineRecord[]> {
-    if (this.machineRecordsCache) return this.machineRecordsCache
-    for (;;) {
-      const epoch = this.machineCacheEpoch
-      const rows = await this.deps.store.machines.listMachines()
-      if (epoch !== this.machineCacheEpoch) continue
-      this.machineNameCache = new Map(rows.map((m) => [m.id, m.name]))
-      this.machineRecordsCache = rows
-      return rows
-    }
+    return await this.deps.store.machines.listMachines()
   }
 
   dispose(): void { this.unsubscribeMachineWrites() }
@@ -1029,8 +986,7 @@ export class MachinesService {
   ): Promise<AccountId> {
     const unsuffixed = 'native:' + agentKind
     if (accountId !== unsuffixed) return accountId
-    const identity = (await this.machineRecords())
-      .find((machine) => machine.id === machineId)
+    const identity = (await this.deps.store.machines.getMachine(machineId))
       ?.inventory?.agents.find((agent) => agent.kind === agentKind)?.login.identity
     return identity?.fingerprint
       ? asAccountId('native:' + agentKind + ':' + identity.fingerprint)
@@ -1078,23 +1034,18 @@ export class MachinesService {
     const row = await this.deps.store.machines.getMachine(this.deps.hostMachineId)
     if (!row || row.revokedAt || await this.deps.store.machines.custodian(this.deps.hostMachineId) !== null) return false
     await this.deps.store.machines.setMachineOwner(this.deps.hostMachineId, ownerUserId)
-    this.invalidateMachineCache()
     return true
   }
 
-  /** Explicit schema-level repair only; ordinary writes update in place. */
-  invalidateMachineCache(): void {
-    // Bump BEFORE clearing: a read in flight compares against this counter, and
-    // must see the invalidation whichever order the two lines are observed in.
-    this.machineCacheEpoch += 1
-    this.machineRecordsCache = null
+  /** Display name for a machineId (the machines table); falls back to the id. */
+  async machineName(id: string): Promise<string> {
+    return (await this.deps.store.machines.getMachine(id))?.name ?? id
   }
 
-  /** Display name for a machineId (the machines table); falls back to the id.
-   *  Served from the cache — ZERO SQL on the listSessions hot path. */
-  async machineName(id: string): Promise<string> {
-    if (!this.machineRecordsCache) await this.machineRecords()
-    return this.machineNameCache.get(id) ?? id
+  /** {@link machineName} for many machines in one query; every asked id gets an entry. */
+  async machineNames(ids: readonly string[]): Promise<Map<string, string>> {
+    const rows = await this.deps.store.machines.getMachines(ids)
+    return new Map(ids.map((id) => [id, rows.get(id)?.name ?? id]))
   }
 
   /** machineIds with a live daemon socket right now. Public for RepoRegistry fan-out. */
@@ -1376,7 +1327,7 @@ export class MachinesService {
    * to remember that a missing pin means "ask the instance".
    */
   async updateChannel(machineId: MachineId): Promise<UpdateChannel | undefined> {
-    const machine = (await this.machineRecords()).find((candidate) => candidate.id === machineId)
+    const machine = await this.deps.store.machines.getMachine(machineId)
     if (!machine) return undefined
     return resolveMachineChannel(machine.updateChannelOverride, this.fleetChannel())
   }
@@ -1523,7 +1474,7 @@ export class MachinesService {
    * memory.
    */
   async agentLoginCondition(machineId: MachineId, agentKind: AgentKind): Promise<'logged-out' | undefined> {
-    const machine = (await this.machineRecords()).find((candidate) => candidate.id === machineId)
+    const machine = await this.deps.store.machines.getMachine(machineId)
     return machine ? agentLoginCondition(this.capabilityFacts(machine), agentKind) : undefined
   }
 
@@ -1533,15 +1484,14 @@ export class MachinesService {
    * The session projection asks four questions per row — what is this machine
    * called, is it online, which channel does it follow, and is its harness
    * logged out — and asking the service each time made a per-fleet answer out
-   * of a per-row question. A snapshot is built once per operation, from the
-   * record cache and the in-memory presence sets, and handed to the pass that
-   * walks the rows; per-row code then calls nothing.
+   * of a per-row question. A snapshot is built once per operation, from one
+   * read of the machines table and the in-memory presence sets, and handed to
+   * the pass that walks the rows; per-row code then calls nothing.
    *
    * IT IS A SNAPSHOT, AND THAT IS THE POINT: it answers for the fleet as it
    * stood when it was taken. Take it inside the operation that uses it, and do
    * not hold one across an await that could let a machine attach, detach or be
-   * written — {@link invalidateMachineCache} refreshes the SERVICE, not a
-   * snapshot somebody already took.
+   * written — the next read sees the new rows, a snapshot already taken does not.
    *
    * A machine it was not built from answers "not known" — never a default that
    * reads like a live, named, logged-in host.
@@ -1603,8 +1553,9 @@ export class MachinesService {
    *
    * Separate from {@link listMachines} because that one builds the WIRE
    * projection: a client sees a machine's name, liveness and inventory, and does
-   * not need to be told who owns it in order to be refused. Served from the same
-   * cache, which every committed write to the table updates in place.
+   * not need to be told who owns it in order to be refused. One read of the
+   * machines table per call; `ownershipSnapshotFromMachines` takes it once
+   * per decision.
    */
   async ownershipRows(): Promise<{ id: MachineId; name: string; revokedAt: string | null; daemonAssigned: boolean; daemonAvailable: boolean }[]> {
     return (await this.machineRecords()).map((m) => ({

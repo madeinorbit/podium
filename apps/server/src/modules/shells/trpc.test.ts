@@ -30,7 +30,6 @@ async function makeShellsOracle(): Promise<Oracle> {
     ownerUserId: await firstAdminMemberId(o.store),
     assignment: { server: true, agentExecution: true },
   })
-  o.reg.modules.machines.invalidateMachineCache()
   return o
 }
 

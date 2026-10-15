@@ -525,7 +525,6 @@ describe('stopSession [spec:SP-9904]', () => {
       ownerUserId: null,
     })
     await reg.sessionStore.machines.addMachineComponent('machine-remote', 'daemon')
-    reg.modules.machines.invalidateMachineCache()
     const issue = await reg.modules.issues.crud.create({
       repoPath: '/r',
       title: 'Remote free',

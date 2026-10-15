@@ -164,11 +164,7 @@ describe('fleet default update channel', () => {
       tokenHash: `${id}-token`,
       ownerUserId: firstAdminMemberId(),
     })
-    // This writes STRAIGHT TO THE STORE, behind the service, so the service's
-    // machine cache cannot know. It used to not matter because boot left that
-    // cache cold; boot now completes its reads, so the cache is warm by the time
-    // a test writes here and the new row would be invisible to listMachines.
-    registry.modules.machines.invalidateMachineCache()
+    // A direct store write: the service reads the machines table, so it sees it.
   }
 
   it('resolves an unpinned machine onto the fleet default', async () => {
@@ -270,8 +266,6 @@ describe('one default channel', () => {
       tokenHash: `${id}-token`,
       ownerUserId: firstAdminMemberId(),
     })
-    // Direct store write, behind the service: tell its cache. See above.
-    registry.modules.machines.invalidateMachineCache()
   }
 
   it('resolves an unpinned machine identically through channelOf and both fleet handlers', async () => {

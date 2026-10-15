@@ -721,7 +721,6 @@ export class SessionRegistry {
       publishMachineProjection: async (id, value) => {
         await this.ledger.capture([{ entity: 'machine', id, op: 'upsert', value }])
       },
-      worldIndex: this.worldIndex,
       instanceId,
       ...(options.updatePubkey ? { updatePubkey: options.updatePubkey } : {}),
       ...(options.updateKeyRotations ? { updateKeyRotations: options.updateKeyRotations } : {}),
@@ -1185,6 +1184,7 @@ export class SessionRegistry {
       resolveMachine: async (requested, cwd) => await machines.resolveMachine(requested, cwd),
       hasDaemon: (machineId) => machines.hasDaemon(machineId),
       machineName: async (id) => await machines.machineName(id),
+      machineNames: async (ids) => await machines.machineNames(ids),
       onlineMachineIds: () => machines.onlineMachineIds(),
       portableStateFence,
       getSession: (sessionId) => {

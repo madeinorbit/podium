@@ -650,10 +650,9 @@ describe('handshake order at the real gateway', () => {
 })
 
 describe('recovery-only daemon handshake verification', () => {
-  it('accepts an existing unrevoked token without touching or invalidating its row', async () => {
+  it('accepts an existing unrevoked token without touching its row', async () => {
     const world = await enrollmentHandshakeWorld()
     const touch = vi.spyOn(world.store.machines, 'touchMachine')
-    const invalidate = vi.spyOn(world.machines, 'invalidateMachineCache')
     try {
       expect(await receiveHello(world.machines, world.machineId, world.token, true)).toMatchObject({
         kind: 'established',
@@ -661,7 +660,6 @@ describe('recovery-only daemon handshake verification', () => {
         name: 'Durable machine',
       })
       expect(touch).not.toHaveBeenCalled()
-      expect(invalidate).not.toHaveBeenCalled()
       expect((await world.store.machines.getMachine(world.machineId))?.hostname).toBe(
         'stored.local',
       )

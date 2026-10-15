@@ -1,8 +1,4 @@
 {
-  "apps/server/src/modules/accounts/queries.ts :: ACCOUNT_QUERIES :: machines.listMachines": {
-    "count": 1,
-    "reason": "Machine enrollment, service, or inventory reader retained pending its transaction and full-record requirements audit."
-  },
   "apps/server/src/modules/issues/service/core.ts :: hydrate :: issues.listIssueRows": {
     "count": 1,
     "reason": "Boot/reload hydration of the single full IssueStore row map, loaded under the transaction that installs its repository commit subscription."
@@ -11,46 +7,6 @@
     "count": 1,
     "reason": "Sequence allocation requires the live repository maximum, including rows created in the enclosing mutation span; the committed map cannot allocate ids."
   },
-  "apps/server/src/modules/machines/enrollment.ts :: authenticateDaemon :: machines.getMachine": {
-    "count": 1,
-    "reason": "Machine enrollment, service, or inventory reader retained pending its transaction and full-record requirements audit."
-  },
-  "apps/server/src/modules/machines/enrollment.ts :: effectiveOwner :: machines.getMachine": {
-    "count": 1,
-    "reason": "Machine enrollment, service, or inventory reader retained pending its transaction and full-record requirements audit."
-  },
-  "apps/server/src/modules/machines/enrollment.ts :: machine :: machines.getMachine": {
-    "count": 2,
-    "reason": "Machine enrollment, service, or inventory reader retained pending its transaction and full-record requirements audit."
-  },
-  "apps/server/src/modules/machines/enrollment.ts :: row :: machines.getMachine": {
-    "count": 3,
-    "reason": "Machine enrollment, service, or inventory reader retained pending its transaction and full-record requirements audit."
-  },
-  "apps/server/src/modules/machines/login-propagation.ts :: machines :: machines.listMachines": {
-    "count": 1,
-    "reason": "Machine enrollment, service, or inventory reader retained pending its transaction and full-record requirements audit."
-  },
-  "apps/server/src/modules/machines/login-propagation.ts :: target :: machines.getMachine": {
-    "count": 1,
-    "reason": "Machine enrollment, service, or inventory reader retained pending its transaction and full-record requirements audit."
-  },
-  "apps/server/src/modules/machines/service.ts :: existing :: machines.getMachine": {
-    "count": 1,
-    "reason": "Machine enrollment, service, or inventory reader retained pending its transaction and full-record requirements audit."
-  },
-  "apps/server/src/modules/machines/service.ts :: machine :: machines.getMachine": {
-    "count": 3,
-    "reason": "Machine enrollment, service, or inventory reader retained pending its transaction and full-record requirements audit."
-  },
-  "apps/server/src/modules/machines/service.ts :: rows :: machines.listMachines": {
-    "count": 1,
-    "reason": "Machine enrollment, service, or inventory reader retained pending its transaction and full-record requirements audit."
-  },
-  "apps/server/src/modules/maintenance/service.ts :: machine :: machines.getMachine": {
-    "count": 1,
-    "reason": "Machine enrollment, service, or inventory reader retained pending its transaction and full-record requirements audit."
-  },
   "apps/server/src/modules/messages/scheduler.ts :: queueIsEmpty :: messages.countQueued": {
     "count": 1,
     "reason": "Global queued total is not the per-target indexed counter; retain until its separate semantics are covered."
@@ -58,10 +14,6 @@
   "apps/server/src/modules/world-index/index.ts :: issues :: issues.loadWorldIssuePaths": {
     "count": 1,
     "reason": "Boot worktree-key snapshot load under the transaction that installs commit subscriptions; full rows remain owned by IssueStore."
-  },
-  "apps/server/src/modules/world-index/index.ts :: machines :: machines.listMachines": {
-    "count": 1,
-    "reason": "Boot snapshot load under the transaction that installs commit subscriptions."
   },
   "apps/server/src/modules/world-index/index.ts :: pending :: messages.loadWorldPending": {
     "count": 1,
@@ -90,10 +42,6 @@
   "apps/server/src/modules/world-index/issue-reader.ts :: readIssues :: issues.getIssues": {
     "count": 1,
     "reason": "Live read-your-writes fallback inside mutation spans, before IssueStore boot binding, or when boot quarantine prevents equivalent snapshot reads."
-  },
-  "apps/server/src/server.ts :: devPublisher :: machines.listMachines": {
-    "count": 2,
-    "reason": "Machine enrollment, service, or inventory reader retained pending its transaction and full-record requirements audit."
   },
   "apps/server/src/store.ts :: issuesMissing :: issues.issuesMissingRepoId": {
     "count": 1,

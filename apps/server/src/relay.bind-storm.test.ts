@@ -13,7 +13,8 @@ import { openTestStore } from './test-support/open-test-store'
 // machineName() -> store.machines.listMachines() (a fresh SQLite prepare+all) per session —
 // ~15.8k SQL round trips per bind, x66 binds ≈ 21-27s of CPU inside the 30s
 // systemd watchdog window. These tests pin all three fixes:
-//   1. machine names come from the registry cache (zero SQL on the hot path),
+//   1. a bind never lists the fleet (the machine name cache is gone since
+//      POD-6155; a name is one primary-key read where one is needed),
 //   2. multi-issue serialization computes the session list once per pass,
 //   3. the broadcast pipeline coalesces a bind burst into ~2 runs, not one per bind.
 describe('bind-storm regression', () => {
@@ -111,8 +112,8 @@ describe('bind-storm regression', () => {
       sessionChanges(inbox).filter((change) => change.entity === 'issueProjection').length,
     ).toBe(0)
 
-    // (a) Machine names never hit SQLite during the storm (cache built in setup,
-    // nothing invalidated it). Pre-fix this was issues x sessions x binds calls.
+    // (a) The storm never lists the fleet. Pre-fix this was issues x sessions x
+    // binds calls.
     expect(listMachines).toHaveBeenCalledTimes(0)
 
     // (b) The session list is computed once per pipeline stage, not per issue:

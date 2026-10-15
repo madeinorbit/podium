@@ -126,7 +126,8 @@ export interface RepoDiscoveryDeps {
     opts: { includeHome?: boolean; maxDepth?: number },
     machineId: MachineId,
   ): Promise<ScanReposResult>
-  machineName(machineId: MachineId): Promise<string> | string
+  /** Display names for many machines in one read; every asked id gets an entry. */
+  machineNames(machineIds: readonly MachineId[]): Promise<ReadonlyMap<string, string>>
   localMachineId: MachineId
   log?: (message: string) => void
   now?: () => number
@@ -212,7 +213,7 @@ export class MachineRepoDiscovery {
       registeredHere.add(newKey)
       healed = true
       this.deps.log?.(
-        `repo moved on ${await this.deps.machineName(machineId)}: ${rowPath} is gone, re-registered at ${newPath}`,
+        `repo moved on ${(await this.deps.machineNames([machineId])).get(machineId) ?? machineId}: ${rowPath} is gone, re-registered at ${newPath}`,
       )
     }
     return healed
@@ -333,6 +334,9 @@ export class MachineRepoDiscovery {
     // copy — with several, the user must pick which copy is "the" repo here, so
     // all of them stay candidates (POD-779 feedback: a ~/bak_podium clone got
     // registered over the real one).
+    // Every machine name this classification can print, in one read (rule 2).
+    const names = await this.deps.machineNames([...new Set([machineId, ...rows.map((r) => r.machineId)])])
+    const nameOf = (id: MachineId) => names.get(id) ?? id
     const foundByOrigin = new Map<string, number>()
     for (const repo of found.values()) {
       const origin = canonicalizeRepoOrigin(repo.originUrl ?? null)
@@ -346,11 +350,7 @@ export class MachineRepoDiscovery {
       const elsewhere = (origin ? (byOrigin.get(origin) ?? []) : []).filter(
         (r) => r.machineId !== machineId,
       )
-      const alsoOn = [
-        ...new Set(
-          await Promise.all(elsewhere.map(async (r) => await this.deps.machineName(r.machineId))),
-        ),
-      ]
+      const alsoOn = [...new Set(elsewhere.map((r) => nameOf(r.machineId)))]
       const copiesHere = origin ? (foundByOrigin.get(origin) ?? 0) : 0
       // A copy of this origin is already registered on this machine (under any
       // path) — a second copy must never be auto-added next to it.
@@ -364,7 +364,7 @@ export class MachineRepoDiscovery {
         await this.deps.addRepo(path, machineId, repo.originUrl)
         status = 'auto-registered'
         this.deps.log?.(
-          `auto-registered ${path} on ${await this.deps.machineName(machineId)} (same origin as ${alsoOn.join(', ')})`,
+          `auto-registered ${path} on ${nameOf(machineId)} (same origin as ${alsoOn.join(', ')})`,
         )
       } else {
         status = 'candidate'

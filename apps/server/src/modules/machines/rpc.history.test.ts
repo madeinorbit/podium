@@ -26,7 +26,7 @@ function setup(opts?: { predecessors?: boolean; online?: boolean }) {
   const rpc = new DaemonRpcService({
     memory, toMachine, hasDaemon: online,
     defaultMachine: () => machineId, resolveMachine: () => machineId,
-    machineName: async () => 'machine', onlineMachineIds: () => [machineId],
+    machineName: async () => 'machine', machineNames: async (ids) => new Map(ids.map((id) => [id, 'machine'])), onlineMachineIds: () => [machineId],
     getSession: () => session,
   })
   const answerDaemon = (items: TranscriptItem[]) => {

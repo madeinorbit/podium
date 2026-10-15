@@ -7,7 +7,6 @@ import { join, relative } from 'node:path'
 export const factMethods = {
   messages: ['countPending', 'countPendingForSession', 'countQueued', 'loadWorldPending'],
   issues: ['getIssue', 'getIssues', 'listIssueRows', 'listIssueCwdRows', 'loadWorldIssuePaths', 'closedIssueIds', 'listIssueParentEdges', 'nextIssueSeq', 'issuesMissingRepoId', 'legacyWorktreeSkippedQuery'],
-  machines: ['getMachine', 'listMachines'],
 } as const
 
 export function sourceFiles(root: string): string[] {
