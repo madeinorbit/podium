@@ -215,6 +215,25 @@ if (nativeLoginHome) {
   )
   chmodSync(codex, 0o755)
 }
+// Without real agents every harness spawn is the keyecho jig (see `launch`), but
+// the in-process daemon still reports the box's REAL inventory, and a start is
+// refused when the resolved harness is not installed there. A box with no agent
+// CLIs (the polaris-agents test VM) then fails every startNow with "claude-code
+// is not installed". Stand-ins that answer only the version probe go at the END
+// of PATH: a box that has the real CLI keeps reporting it exactly as before.
+if (!REAL_AGENTS) {
+  const binDir = join(stateDir, 'agent-stand-ins')
+  mkdirSync(binDir, { recursive: true })
+  for (const [name, version] of [
+    ['claude', '2.1.300 (Claude Code)'],
+    ['codex', 'codex-cli 0.162.1'],
+  ] as const) {
+    const stub = join(binDir, name)
+    writeFileSync(stub, `#!/bin/sh\n[ "$1" = "--version" ] || exit 2\necho '${version}'\n`)
+    chmodSync(stub, 0o755)
+  }
+  process.env.PATH = [process.env.PATH, binDir].filter(Boolean).join(':')
+}
 // Real Codex must never see the developer's rollout history: otherwise the
 // connect-time discovery snapshot publishes thousands of unrelated threads and
 // repeatedly stalls this in-process harness. The private home copies only auth.
