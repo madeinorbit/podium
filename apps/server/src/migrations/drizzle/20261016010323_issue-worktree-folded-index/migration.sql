@@ -1,0 +1,1 @@
+CREATE INDEX `idx_issues_worktree_folded` ON `issues` (lower(replace("worktree_path", '/', '\'))) WHERE "issues"."worktree_path" IS NOT NULL AND "issues"."deleted_at" IS NULL;

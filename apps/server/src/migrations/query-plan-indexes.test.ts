@@ -189,8 +189,8 @@ function counts(db: SqlDatabase): Record<string, number> {
 }
 
 describe('POD-6148 — the query-plan indexes migration', () => {
-  it('is the newest migration in the chain', () => {
-    expect(THIS).toBe(DRIZZLE_MIGRATIONS.length - 1)
+  it('is in the chain', () => {
+    expect(THIS).toBeGreaterThan(0)
   })
 
   it('creates every index on a fresh database', () => {
@@ -209,7 +209,8 @@ describe('POD-6148 — the query-plan indexes migration', () => {
     plantRows(db)
     const before = counts(db)
 
-    expect(runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)).toEqual([DRIZZLE_MIGRATIONS[THIS]!.name])
+    // Up to and including this migration; later ones have their own tests.
+    expect(runDrizzleMigrations(db, DRIZZLE_MIGRATIONS.slice(0, THIS + 1))).toEqual([DRIZZLE_MIGRATIONS[THIS]!.name])
     expectMigrated(db)
     expect(counts(db)).toEqual(before)
     expect(db.prepare('PRAGMA integrity_check').get()).toEqual({ integrity_check: 'ok' })
@@ -236,7 +237,7 @@ describe('POD-6148 — the query-plan indexes migration', () => {
       planOf(db, "SELECT seq FROM issues WHERE agent_profile_id = 'p' AND deleted_at IS NULL"),
     ).toContain('idx_issues_agent_profile')
 
-    expect(runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)).toEqual([])
+    expect(runDrizzleMigrations(db, DRIZZLE_MIGRATIONS.slice(0, THIS + 1))).toEqual([])
     expectMigrated(db)
     expect(counts(db)).toEqual(before)
     db.close()

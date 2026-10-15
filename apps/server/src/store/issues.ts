@@ -13,10 +13,13 @@ import {
   Attribution,
   asIssueId,
   type IssueId,
+  isValidMachinePath,
   IssueStage,
   IssueUserState,
   isIssueClosed,
   isIssueColorSlot,
+  machinePathAncestors,
+  machinePathSeparator,
   type MachineId,
   type RepoId,
   type UserId,
@@ -157,6 +160,66 @@ const issueRowsOfRepo = prepared((db: StoreDrizzle) =>
 const allIssueRows = prepared((db: StoreDrizzle) =>
   db.select().from(issues).orderBy(asc(issues.repoPath), asc(issues.seq)).prepare(),
 )
+
+/**
+ * The worktree paths that could contain a folder, as stored keys (POD-6155).
+ *
+ * `literal` answers POSIX-style roots, whose membership is literal
+ * (`isMachinePathWithinRoot`): the folder itself and every prefix that ends
+ * just before or just after a `/`. `folded` answers Windows-style roots, whose
+ * membership ignores ASCII case and separator spelling: the folder's
+ * normalized ancestors, ASCII-lowercased, each with and without a trailing
+ * backslash, matched against `lower(replace(worktree_path, '/', '\'))`.
+ * Both are candidates only; the caller decides membership with `isMemberCwd`.
+ */
+export function folderOwnerKeys(cwd: string): { literal: string[]; folded: string[] } {
+  const literal = new Set<string>([cwd])
+  for (let at = cwd.indexOf('/'); at >= 0; at = cwd.indexOf('/', at + 1)) {
+    if (at > 0) literal.add(cwd.slice(0, at))
+    literal.add(cwd.slice(0, at + 1))
+  }
+  const folded = new Set<string>()
+  if (machinePathSeparator(cwd) === '\\' && isValidMachinePath(cwd)) {
+    for (const ancestor of machinePathAncestors(cwd)) {
+      const key = ancestor.replace(/[A-Z]/g, (char) => char.toLowerCase())
+      folded.add(key)
+      if (!key.endsWith('\\')) folded.add(`${key}\\`)
+    }
+  }
+  return { literal: [...literal], folded: [...folded] }
+}
+
+const foldedWorktreePath = sql`lower(replace(${issues.worktreePath}, '/', '\\'))`
+
+/** Live issues at any of the candidate keys: one index search per arm, no
+ *  sort (the caller orders the few rows). Both arms share one IN-list size, so
+ *  the family has one shape per size bucket. */
+const worktreeOwnersOf = preparedFamily((db: StoreDrizzle, size: number) => {
+  const columns = {
+    id: issues.id,
+    repoPath: issues.repoPath,
+    seq: issues.seq,
+    worktreePath: issues.worktreePath,
+    archived: issues.archived,
+  }
+  const literal = db
+    .select(columns)
+    .from(issues)
+    .where(and(inListOf(issues.worktreePath, size, 'lit'), isNull(issues.deletedAt)))
+  const folded = db
+    .select(columns)
+    .from(issues)
+    .where(and(
+      inArray(foldedWorktreePath, Array.from({ length: size }, (_, index) => sql.placeholder(`fold${index}`))),
+      isNotNull(issues.worktreePath),
+      isNull(issues.deletedAt),
+    ))
+  return literal.unionAll(folded).prepare()
+})
+
+/** Candidate keys per statement and arm; two arms stay far below SQLite's
+ *  bound-parameter limit. */
+const WORKTREE_OWNER_CHUNK = 2048
 
 const issueWorktreeRows = prepared((db: StoreDrizzle) =>
   db
@@ -839,6 +902,23 @@ interface IssueRowsWrite {
 /** RETAINED EXTERNAL-INPUT BRAND CASTS: compatibility methods accept raw issue
  * ids and repo-path resolution still returns a string. Query/write casts decode
  * those inputs; selected issue fields are schema-branded. */
+/** A live issue that may own a folder: what membership and its tie-break read. */
+export interface WorktreeOwnerRow {
+  id: IssueId
+  repoPath: string
+  seq: number
+  worktreePath: string | null
+  archived: boolean
+}
+
+/** `ORDER BY repo_path, seq` in SQLite's BINARY collation: UTF-8 bytes, then
+ *  sequence. Each repo path is encoded once per row, not per comparison. */
+function byRepoPathThenSeq<T extends { repoPath: string; seq: number }>(rows: Iterable<T>): T[] {
+  const keyed = Array.from(rows, (row) => ({ row, key: Buffer.from(row.repoPath) }))
+  keyed.sort((a, b) => Buffer.compare(a.key, b.key) || a.row.seq - b.row.seq)
+  return keyed.map(({ row }) => row)
+}
+
 export type IssueWorktreeRow = Pick<
   IssueRow,
   'id' | 'repoPath' | 'seq' | 'worktreePath' | 'deletedAt'
@@ -1401,6 +1481,41 @@ export class IssuesRepository {
 
   /** The full issue rows already belong to IssueStore's boot projection.
    * This one statement loads only the additional worktree lookup keys. */
+  /**
+   * The live issues whose worktree could contain any of these folders, in
+   * repository order (`repo_path`, then `seq`; BINARY collation) — the
+   * candidates `isMemberCwd` then decides on (POD-6155). One statement for up to
+   * 2048 candidate keys per arm, served by `idx_issues_worktree` and
+   * `idx_issues_worktree_folded`; never a whole-table read.
+   */
+  async worktreeOwnerCandidates(cwds: Iterable<string>): Promise<WorktreeOwnerRow[]> {
+    const literal = new Set<string>()
+    const folded = new Set<string>()
+    for (const cwd of cwds) {
+      const keys = folderOwnerKeys(cwd)
+      for (const key of keys.literal) literal.add(key)
+      for (const key of keys.folded) folded.add(key)
+    }
+    const literalKeys = [...literal]
+    const foldedKeys = [...folded]
+    const byId = new Map<string, WorktreeOwnerRow>()
+    for (let at = 0; at < Math.max(literalKeys.length, foldedKeys.length); at += WORKTREE_OWNER_CHUNK) {
+      const literalChunk = literalKeys.slice(at, at + WORKTREE_OWNER_CHUNK)
+      const foldedChunk = foldedKeys.slice(at, at + WORKTREE_OWNER_CHUNK)
+      const size = inListSize(Math.max(literalChunk.length, foldedChunk.length, 1))
+      // An empty arm is padded with '': no live worktree is the empty path.
+      const values = inListValues(literalChunk.length ? literalChunk : [''], size, 'lit')
+      inListValues(foldedChunk.length ? foldedChunk : [''], size, 'fold', values)
+      for (const row of await worktreeOwnersOf(this.db, size).all(values)) {
+        // The structural quarantine every cwd reader applies.
+        if (typeof row.id !== 'string' || typeof row.repoPath !== 'string') continue
+        byId.set(row.id, { id: asIssueId(row.id), repoPath: row.repoPath, seq: row.seq,
+          worktreePath: row.worktreePath, archived: row.archived })
+      }
+    }
+    return byRepoPathThenSeq(byId.values())
+  }
+
   async loadWorldIssuePaths(): Promise<IssueWorktreeRow[]> {
     return await issueWorktreeRows(this.db).all()
   }

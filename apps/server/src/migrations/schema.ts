@@ -1574,10 +1574,12 @@ export const issues = sqliteTable(
   },
   (table) => [
     index('idx_issues_deleted_at').on(table.deletedAt),
-    // COVERS the finished-work projection [POD-1931]. `closedIssueIds()` reads
-    // four narrow columns off every issue and has no WHERE to narrow with — the
-    // predicate is `isIssueClosed`'s and stays in TypeScript so there is one
-    // definition of finished. Without this the scan still walks the full row,
+    // COVERS the finished-work projection [POD-1931]. It used to read four
+    // narrow columns off EVERY issue; since POD-6155 `closedIssueIdsAmong()`
+    // reads them for the asked ids only, and leading with `id` this index
+    // answers that without touching a row. The predicate is `isIssueClosed`'s
+    // and stays in TypeScript so there is one definition of finished. Before
+    // this index the whole-table scan walked the full row,
     // dragging description/brief/acceptance through the page cache:
     // 6.5MB of table pages against 123KB of index, a 53x difference in bytes
     // read. It only became the top line when the box lost its page cache and
@@ -1601,6 +1603,12 @@ export const issues = sqliteTable(
     // IS NULL` for SQLite to use it.
     index('idx_issues_worktree')
       .on(table.worktreePath)
+      .where(sql`${table.worktreePath} IS NOT NULL AND ${table.deletedAt} IS NULL`),
+    // The same lookup for Windows-style roots (POD-6155): their membership
+    // ignores ASCII case and separator spelling, so the reader asks for the
+    // folded, backslashed path. A reader must repeat this expression exactly.
+    index('idx_issues_worktree_folded')
+      .on(sql`lower(replace(${table.worktreePath}, '/', '\\'))`)
       .where(sql`${table.worktreePath} IS NOT NULL AND ${table.deletedAt} IS NULL`),
     // The ON DELETE SET NULL of `superseded_by` and `duplicate_of`: without
     // these, deleting one issue scanned every issue twice (POD-6148).

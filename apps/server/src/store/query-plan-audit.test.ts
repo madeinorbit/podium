@@ -92,6 +92,7 @@ const FAMILY_SHAPES: ReadonlyMap<string, readonly (string | number)[]> = new Map
   ['apps/server/src/store/transcript-costs.ts:costsOfIssues', SIZES],
   ['apps/server/src/store/grants.ts:grantsOfResources', SIZES],
   ['apps/server/src/store/machines.ts:machinesByIds', SIZES],
+  ['apps/server/src/store/issues.ts:worktreeOwnersOf', SIZES],
   ['apps/server/src/store/grants.ts:upsertGrant', ['set', 'keep']],
   ['apps/server/src/store/grants.ts:deleteGrantsOfResource', ['retain', 'all']],
   ['apps/server/src/store/sessions.ts:bindingOwnersOfIds', SIZES],
