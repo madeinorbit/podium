@@ -169,12 +169,12 @@ export class FullDeckTask {
   get sessionIds(): readonly string[] {
     return this.row.crewIds
   }
-  /** The session holding this issue's seat: its coordinator marker when that
-   * session is on the roster, else the first session on it. */
+  /** A seat exists only when the issue explicitly names a roster member.
+   * Roster ordering and the original conversation never assign a seat. */
   @lazy get leadSessionId(): string | null {
     const crew = this.sessionIds,
       marker = this.entity.coordinatorSessionId
-    return marker && crew.includes(marker) ? marker : (crew[0] ?? null)
+    return marker && crew.includes(marker) ? marker : null
   }
   /** The lead was named by the issue's own coordinator marker. */
   @lazy get leadExplicit(): boolean {

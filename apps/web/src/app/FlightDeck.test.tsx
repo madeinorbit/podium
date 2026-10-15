@@ -69,6 +69,9 @@ const harness = vi.hoisted(() => ({
   codingHarness: 'claude-code' as 'claude-code' | 'codex',
   selectedIssueId: null as string | null,
   paneA: null as string | null,
+  paneB: null as string | null,
+  split: false,
+  focusedPane: 'A' as 'A' | 'B',
   coarseNow: Date.parse('2026-01-01T00:10:00.000Z'),
   display: 'compact' as 'compact' | 'expanded',
   onDisplayChange: vi.fn(),
@@ -184,8 +187,9 @@ vi.mock('./store', () => ({
       repos: harness.repos,
       selectedIssueId: harness.selectedIssueId,
       paneA: harness.paneA,
-      paneB: null,
-      split: false,
+      paneB: harness.paneB,
+      split: harness.split,
+      focusedPane: harness.focusedPane,
       coarseNow: harness.coarseNow,
       uiState,
       setSelectedWorktree: vi.fn(),
@@ -329,6 +333,9 @@ beforeEach(() => {
   harness.codingHarness = 'claude-code'
   harness.selectedIssueId = 'root'
   harness.paneA = null
+  harness.paneB = null
+  harness.split = false
+  harness.focusedPane = 'A'
   harness.coarseNow = Date.parse('2026-01-01T00:10:00.000Z')
   developerFeature.enabled = false
   harness.display = 'compact'
@@ -2687,30 +2694,18 @@ describe('flight deck spine geometry (POD-1226)', () => {
   /** A segment's INK, not its positioning — the segments are anchored
    *  differently (`bottom-0 h-4`, `inset-y-0`, an explicit height) and only the
    *  tone and the width are the thing that must agree. */
-  const toneOf = (el: HTMLElement): string =>
-    [...el.classList].find((c) => c.startsWith('deck-rail-') || c.startsWith('bg-')) ?? ''
-
-  it('draws the whole spine — chrome and rows — from one rail', async () => {
+  it('keeps the Full coordinator above the tree without a legacy root rail', async () => {
     withLead()
     await deck()
     const segments = spineSegments()
-    // The list's top pad, the gap under the root roster, and the root rows' own
-    // rail. (The header's descent and the view bar's were removed in POD-1306 —
-    // see the next test.)
-    expect(segments.length).toBeGreaterThanOrEqual(2)
-    // Each one takes its width FROM THE RAIL OBJECT, so a hardcoded `w-px`
-    // anywhere on the spine fails here rather than at a jog on somebody's screen.
-    expect(segments.filter((el) => el.style.width === '')).toEqual([])
-    expect([...new Set(segments.map((el) => el.style.width))]).toEqual(['2px'])
-    expect([...new Set(segments.map(toneOf))]).toEqual(['deck-rail-mission'])
+    expect(segments).toEqual([])
+    expect(screen.getByTestId('flight-full-coordinator').closest('.deck-chrome')).not.toBeNull()
   })
 
-  it('falls back to one hairline spine on a mission with no lead', async () => {
+  it('leaves the Full tree without a legacy root rail when there is no lead', async () => {
     await deck()
     const segments = spineSegments()
-    expect(segments.filter((el) => el.style.width === '')).toEqual([])
-    expect([...new Set(segments.map((el) => el.style.width))]).toEqual(['1px'])
-    expect([...new Set(segments.map(toneOf))]).toEqual(['bg-hairline-soft'])
+    expect(segments).toEqual([])
   })
 
   /**
@@ -2728,9 +2723,7 @@ describe('flight deck spine geometry (POD-1226)', () => {
     if (!rows) throw new Error('no rows list')
     const above = spineSegments().filter((el) => !rows.contains(el))
     expect(above).toEqual([])
-    // And the list itself still opens with one, so the tree starts on a rail
-    // rather than on an elbow arriving out of nothing.
-    expect(spineSegments().length).toBeGreaterThan(0)
+    expect(document.querySelector('.flight-v6-guides')).not.toBeNull()
   })
 
   it('keeps session selection inside its inset rather than on the task or tree guide', async () => {
@@ -2798,10 +2791,8 @@ describe('flight deck spine geometry (POD-1226)', () => {
     // a genuinely exceptional value has to wrap in the narrow composition.
     expect(button?.getAttribute('title')).toContain('POD-1-A')
     expect(button?.getAttribute('title')).toContain('Needs you')
-    expect(button?.getAttribute('title')).toMatch(/ago|just now/)
-    expect(button?.querySelector('[data-session-role="coordinator"]')?.textContent).toBe(
-      'coordinator',
-    )
+    expect(button?.getAttribute('title')).toContain('coordinator')
+    expect(button?.querySelector('.flight-full-coordinator-caption')?.textContent).toContain('Coordinator')
   })
 })
 
@@ -3142,6 +3133,165 @@ describe('flight deck view filters (POD-1245)', () => {
   })
 })
 
+
+describe('Full coordinator and session seats', () => {
+  const row = (id: string) => document.querySelector<HTMLElement>(`[data-flight-session="${id}"]`)!
+  const button = (id: string) => row(id).querySelector<HTMLButtonElement>('.deck-agent')!
+  const selected = () => [...document.querySelectorAll('[data-flight-session][data-selected="true"]')]
+    .map(node => node.getAttribute('data-flight-session'))
+  const fixtures = () => {
+    harness.issues = [
+      issue('root', { title: 'Mission', coordinatorSessionId: 'coord' }),
+      issue('phase', { parentId: 'root', type: 'phase', title: 'Build', coordinatorSessionId: 'lead' }),
+      issue('task', { parentId: 'phase', title: 'Build storage', coordinatorSessionId: 'worker' }),
+    ]
+    harness.sessions = [
+      session('root-helper', { issueId: 'root' }),
+      session('phase-helper', { issueId: 'phase' }),
+      session('task-helper', { issueId: 'task' }),
+      session('coord', { issueId: 'root', displayRef: 'POD-1-C', agentState: WORKING }),
+      session('lead', { issueId: 'phase', agentState: WORKING }),
+      session('worker', { issueId: 'task', agentState: { phase: 'needs_user' } }),
+    ]
+  }
+
+  it('selects exactly the focused pane session across coordinator, leads and every helper', async () => {
+    fixtures()
+    harness.split = true
+    harness.paneA = 'coord'
+    harness.paneB = 'lead'
+    harness.focusedPane = 'B'
+    const view = await deck()
+    expect(selected()).toEqual(['lead'])
+    expect(row('coord').dataset.seat).toBe('coordinator')
+    expect(row('lead').dataset.seat).toBe('phase-lead')
+    expect(row('worker').dataset.seat).toBe('worker')
+    for (const id of ['root-helper', 'phase-helper', 'task-helper']) expect(row(id).dataset.seat).toBe('helper')
+    const phase = document.querySelector('[data-phase-lead-slot="phase"]')!
+    expect(phase.querySelector('[data-flight-session]')?.getAttribute('data-flight-session')).toBe('lead')
+    expect(row('lead').textContent).toContain('phase lead')
+    for (const id of ['coord', 'root-helper', 'phase-helper', 'worker', 'task-helper']) {
+      harness.paneB = id
+      view.rerender(<DeckHarness />)
+      expect(selected()).toEqual([id])
+    }
+    harness.focusedPane = 'A'
+    view.rerender(<DeckHarness />)
+    expect(selected()).toEqual(['coord'])
+    captureSeats('Mission · coordinator focused', view.container)
+    harness.focusedPane = 'B'
+    harness.paneB = 'file:readme'
+    view.rerender(<DeckHarness />)
+    expect(selected()).toEqual([])
+    expect(document.querySelector('.flight-v6-card[data-selected], .flight-v6-strip[data-selected]')).toBeNull()
+    expect(document.querySelectorAll('[data-flight-session]')).toHaveLength(6)
+  })
+
+  it('routes click, double click, Enter and Space through the existing conversation handler for all seats', async () => {
+    fixtures()
+    await deck()
+    for (const id of ['coord', 'root-helper', 'lead', 'phase-helper', 'worker', 'task-helper']) {
+      fireEvent.click(button(id))
+      expect(harness.openSessionTab).toHaveBeenLastCalledWith(id, { permanent: false })
+      fireEvent.doubleClick(button(id))
+      expect(harness.openSessionTab).toHaveBeenLastCalledWith(id, { permanent: true })
+      fireEvent.keyDown(button(id), { key: 'Enter' })
+      expect(harness.openSessionTab).toHaveBeenLastCalledWith(id, { permanent: true })
+      fireEvent.keyDown(button(id), { key: ' ' })
+      expect(harness.openSessionTab).toHaveBeenLastCalledWith(id, { permanent: true })
+    }
+    expect(harness.openSessionTab).toHaveBeenCalledTimes(24)
+    expect(screen.getByRole('button', { name: 'Session actions for coord' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Phase actions for Build' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Task actions for Build storage' })).toBeTruthy()
+  })
+
+  it('keeps a simple issue, its pending offer and selected helper stable as child tasks and phases arrive', async () => {
+    const offer = { message: 'Approve the design', createdAt: '2026-01-01T00:00:00.000Z', actions: [] }
+    harness.issues = [issue('root', { title: 'Sync comparison', coordinatorSessionId: 'coord' })]
+    harness.sessions = [session('coord', { issueId: 'root', offer, agentState: { phase: 'idle' } })]
+    harness.paneA = 'coord'
+    const view = await deck()
+    const coordinator = row('coord')
+    expect(coordinator.dataset.word).toBe('needs-you')
+    expect(coordinator.textContent).toContain('Needs you')
+    expect(coordinator.textContent).not.toContain(offer.message)
+    expect(selected()).toEqual(['coord'])
+    expect(document.querySelector('[data-flight-issue="root"]')).toBeNull()
+    captureSeats('Simple issue · pending offer opens in conversation', view.container)
+    fireEvent.click(button('coord'))
+    expect(harness.openSessionTab).toHaveBeenLastCalledWith('coord', { permanent: false })
+    harness.sessions = [...harness.sessions, session('helper', { issueId: 'root', agentState: { phase: 'idle' } })]
+    harness.paneA = 'helper'
+    harness.issues = [
+      ...harness.issues,
+      issue('child', { parentId: 'root', title: 'Check sync', stage: 'backlog' }),
+      issue('proposal', { parentId: 'root', title: 'Suggested follow-up', stage: 'proposed' }),
+    ]
+    view.rerender(<DeckHarness />)
+    await waitFor(() => expect(row('helper')).not.toBeNull())
+    expect(row('coord')).toBe(coordinator)
+    expect(selected()).toEqual(['helper'])
+    expect(document.querySelector('[data-flight-issue="child"]')).not.toBeNull()
+    expect(document.querySelector('[data-flight-issue="root"]')).toBeNull()
+    expect(screen.getByTestId('flight-proposed').textContent).toContain('Suggested follow-up')
+    expect((harness.sessions[0] as SessionView).offer).toBe(offer)
+    captureSeats('Simple issue · helper focused and flat child', view.container)
+    harness.issues = [...harness.issues, issue('phase', { parentId: 'root', type: 'phase', title: 'Verify' })]
+    view.rerender(<DeckHarness />)
+    await waitFor(() => expect(document.querySelector('[data-flight-phase="phase"]')).not.toBeNull())
+    expect(row('coord')).toBe(coordinator)
+    expect(row('coord').dataset.word).toBe('needs-you')
+    expect(selected()).toEqual(['helper'])
+    const card = screen.getByTestId('flight-full-coordinator')
+    const mode = screen.getByRole('button', { name: 'Full spine' })
+    expect(card.compareDocumentPosition(mode) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('does not assign a coordinator or phase lead from the first or original conversation', async () => {
+    harness.issues = [issue('root'), issue('phase', { parentId: 'root', type: 'phase' })]
+    harness.sessions = [
+      session('original', { issueId: 'root' }),
+      session('other', { issueId: 'root' }),
+      session('unmarked-lead', { issueId: 'phase' }),
+    ]
+    harness.paneA = 'other'
+    await deck()
+    expect(document.querySelector('[data-seat="coordinator"], [data-seat="phase-lead"]')).toBeNull()
+    expect(row('original').dataset.seat).toBe('helper')
+    expect(row('other').dataset.seat).toBe('helper')
+    expect(row('unmarked-lead').dataset.seat).toBe('helper')
+    expect(selected()).toEqual(['other'])
+    expect(document.querySelector('.flight-full-phase-content')?.getAttribute('data-has-lead')).toBe('false')
+  })
+
+  it('keeps the existing empty state with no live sessions and puts stopped sessions in the archive', async () => {
+    harness.issues = [issue('root', { coordinatorSessionId: 'stopped' })]
+    harness.sessions = [session('stopped', { issueId: 'root', status: 'exited', exitCode: 0, archived: true })]
+    await deck()
+    expect(screen.queryByTestId('flight-full-coordinator')).toBeNull()
+    expect(screen.getByTestId('flight-deck-tail').textContent).toContain('Agent left · choose a handoff')
+    expect(screen.getByRole('button', { name: /archived session/i })).toBeTruthy()
+  })
+})
+
+// Review evidence comes from the actual rendered acceptance fixtures and the
+// source CSS. It is deliberately static: routing is covered hermetically above.
+const seatCaptures: { title: string; html: string }[] = []
+function captureSeats(title: string, node: HTMLElement) {
+  if (process.env['PODIUM_FULL_SEATS_REVIEW_HTML']) seatCaptures.push({ title, html: node.innerHTML })
+}
+afterAll(() => {
+  const path = process.env['PODIUM_FULL_SEATS_REVIEW_HTML']
+  if (!path) return
+  const css = readFileSync('src/styles.css', 'utf8').split('/* Full flight deck v6.')[1]
+  const tokens = readFileSync('src/index.css', 'utf8').split('[data-theme="podium"].dark {')[1]?.split('}')[0]
+  writeFileSync(path, `<!doctype html><html lang="en"><meta charset="utf-8"><title>Full coordinator and session seats</title><style>
+  :root{${tokens} --font-mono:ui-monospace,monospace;--motion-working:#6f9dff;--motion-total:#848a94}
+  *{box-sizing:border-box}body{margin:0;padding:24px;background:#16171a;color:#d7dae0;font:13px system-ui}main{max-width:980px;margin:auto}h1{font-size:18px}h2{font-size:14px;margin-top:28px}p{color:#949aa4;line-height:1.5}button{font:inherit;color:inherit;background:none;border:0;padding:0}svg{flex:none}.size-5{width:20px;height:20px}.size-4{width:16px;height:16px}.flex{display:flex}.flex-none{flex:none}.items-center{align-items:center}.justify-center{justify-content:center}.border{border:1px solid #3a3f48}.rounded{border-radius:4px}.rounded-\\[6px\\]{border-radius:6px}.deck-header{padding:12px}.deck-chrome{background:#1e2025}.deck-chrome>div:not(.deck-header){padding:6px 12px}.deck-header button{margin-right:10px}.deck-rows{padding:8px}.deck-chrome>div>div{display:flex;gap:8px}
+  /* Full flight deck v6.${css}
+  </style><main><h1>Full coordinator and session seats</h1><p>Actual rendered acceptance fixtures. The focused pane selects one session. The coordinator stays above filters; phase leads sit first inside their phases. Offers open in the conversation. Static captures.</p>${seatCaptures.map(c => `<article><h2>${c.title}</h2>${c.html}</article>`).join('')}</main></html>`)
+})
 
 describe('Full phase sections', () => {
   it('puts done restoration above unphased work and phase sections while retaining the tail', async () => {

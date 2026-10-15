@@ -3,6 +3,7 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import type { FullDeckTask } from '@podium/client-graph/mission-full-deck'
 import { MissionScreen } from '@podium/client-graph/mission-screen'
 import { settled } from '@podium/client-graph/mission-view'
+import { coldMissionRowFixture } from '@podium/client-graph/mission-row-loading.test.fixture'
 import { MobxPool } from '@podium/client-graph/pool'
 import { attachPreferenceSource } from '@podium/client-graph/preference-source'
 import type { RoutedUiState } from '@podium/client-core/ui-state'
@@ -12,6 +13,7 @@ import { autorun } from 'mobx'
 import { createRef } from 'react'
 import { afterAll, afterEach, expect, it, vi } from 'vitest'
 import { FlightDeckFullGroups } from './FlightDeckFullGroups'
+import { FlightDeckFullCoordinator } from './FlightDeckFullSeats'
 
 vi.mock('./store', () => ({
   useRuntimeSelector: (read: (value: unknown) => unknown) => read({ renameSession: vi.fn() }),
@@ -253,6 +255,56 @@ it('uses task dependency notes without inventing a phase waiting gate', async ()
   expect(f.task('waiting')?.querySelector('.flight-v6-dependency')?.textContent).toContain('POD-7')
   expect(f.group('second')?.querySelector('.flight-full-phase-header')?.textContent).not.toContain('Starts when')
   expect(f.full.task('second').open).toBe(true)
+})
+
+it('keeps coordinator and helpers visible above the groups through filters, search and fold-all', async () => {
+  const f = await open([
+    issue('root', null, 'a', { coordinatorSessionId: 'coord' }),
+    issue('task', 'root', 'a'),
+  ], ['helper', 'coord'].map(id => ({
+    sessionId: id, issueId: 'root', name: id, title: id, agentKind: 'codex',
+    status: 'live', cwd: '/synthetic', createdAt: stamp, lastActiveAt: stamp,
+    agentState: { phase: 'idle' },
+  })))
+  f.ui.rerender(<>
+    <FlightDeckFullCoordinator {...f.props} activeSessionId="helper" />
+    <FlightDeckFullGroups {...f.props} />
+  </>)
+  for (const filter of ['needs-you', 'active', 'up-next', 'all'] as const) {
+    act(() => f.full.setFilter(filter))
+    expect(f.ui.getByTestId('flight-full-coordinator').querySelectorAll('[data-flight-session]')).toHaveLength(2)
+    expect(f.ui.container.querySelectorAll('[data-flight-session][data-selected="true"]')).toHaveLength(1)
+  }
+  act(() => { f.screen.setQuery('no-match'); f.full.foldAll() })
+  expect(f.ui.getByTestId('flight-full-coordinator').querySelectorAll('[data-flight-session]')).toHaveLength(2)
+  expect(f.ui.container.querySelector('[data-flight-issue="task"]')).toBeNull()
+})
+
+it('uses the existing loading placeholder until the coordinator roster settles', async () => {
+  const f = coldMissionRowFixture()
+  const screen = new MissionScreen(f.pool, 'cold-task')
+  screen.open()
+  try {
+    const actions = {
+      full: screen.full, activeSessionId: 'cold-agent-0', renameTarget: null,
+      onSelectSession: vi.fn(), onMenu: vi.fn(), onStatusPick: vi.fn(),
+      onRename: vi.fn(), onRenameDone: vi.fn(),
+    }
+    const ui = render(<FlightDeckFullCoordinator {...actions} />)
+    expect(ui.getByRole('status', { name: 'Loading coordinator' })).toBeDefined()
+    expect(ui.container.querySelector('[data-flight-session]')).toBeNull()
+    await act(async () => { f.pool.hydrate() })
+    await waitFor(() => expect(ui.queryByRole('status')).toBeNull())
+    // Stopped sessions retain their shared Done word and conversation access.
+    const coordinator = ui.container.querySelector('[data-seat="coordinator"]')!
+    expect(coordinator.textContent).toContain('Done')
+    fireEvent.click(coordinator.querySelector('.deck-agent')!)
+    expect(actions.onSelectSession).toHaveBeenCalled()
+  } finally {
+    cleanup()
+    screen.close()
+    f.close()
+  }
 })
 
 // Review evidence is the actual tested DOM with its source CSS, captured only

@@ -105,6 +105,8 @@ import { useClickIntent } from './click-intent'
 import { FlightDeckHandoff } from './FlightDeckHandoff'
 import { FlightDeckFullGroups } from './FlightDeckFullGroups'
 import { FlightDeckProposals } from './FlightDeckProposals'
+import { FlightDeckFullCoordinator } from './FlightDeckFullSeats'
+import type { FlightDeckV6Actions } from './FlightDeckV6Rows'
 import PoolFlightDeck from './FlightDeckPool'
 import { FlightDeckWaterfall } from './FlightDeckWaterfall'
 import { type FlightDeckDisplay, nextFlightDeckDisplayForSessionPick } from './flight-deck-display'
@@ -1684,6 +1686,7 @@ export const FlightDeckContent = observer(function FlightDeckContent({
     paneA,
     paneB,
     split,
+    focusedPane,
     setSelectedWorktree,
     setSelectedIssueId,
     openSessionTab,
@@ -1704,6 +1707,7 @@ export const FlightDeckContent = observer(function FlightDeckContent({
       paneA: store.paneA,
       paneB: store.paneB,
       split: store.split,
+      focusedPane: store.focusedPane,
       setSelectedWorktree: store.setSelectedWorktree,
       // POD-679's departure ticks RE-ROOT the deck: a departed spin-off is not a
       // member of this mission any more, so focusing it would resolve to nothing.
@@ -1793,7 +1797,9 @@ export const FlightDeckContent = observer(function FlightDeckContent({
    * wrong thing) whenever a file was open. In split view the session being
    * worked may be the one in pane B.
    */
-  const activeSessionId = useFocusedSessionId(paneA, split ? paneB : null)
+  const activeSessionId = useFocusedSessionId(
+    paneA, split ? paneB : null, view === 'full' ? (split ? focusedPane : 'A') : undefined,
+  )
   // Resolved against the UNFILTERED mission membership, exactly as RightDock
   // does: resolving against the mode-filtered rows let a switch to "Needs you"
   // silently move the highlight — and the Task dock with it — to the root.
@@ -2250,6 +2256,15 @@ export const FlightDeckContent = observer(function FlightDeckContent({
       <ChevronLeft size={14} aria-hidden="true" />
     </Button>
   )
+  const fullActions: FlightDeckV6Actions = {
+    activeSessionId,
+    renameTarget,
+    onSelectSession: (task, session, permanent) => selectSession(asIssueId(task.id), session, { permanent }),
+    onMenu: (task, event) => openIssueMenu(asIssueId(task.id), event),
+    onStatusPick: (task, value) => pickRowStatus(task.id, value),
+    onRename: (task, title) => renameIssue(task.id, title, renameTarget?.id === task.id ? renameTarget.seed : task.row.title),
+    onRenameDone: () => setRenameTarget(null),
+  }
   const proposedSection = (flat: boolean): ReactNode =>
     proposedRows.length > 0 ? (
       <DeckSection
@@ -2380,6 +2395,7 @@ export const FlightDeckContent = observer(function FlightDeckContent({
             />
           </div>
         </div>
+        {view === 'full' && <FlightDeckFullCoordinator full={screen.full} {...fullActions} />}
         {/* Rules TOP AND BOTTOM, both in the soft tier: the bar is a band cut
           through the column, and its top rule is the seam the header no
           longer draws for itself. */}
@@ -2545,8 +2561,8 @@ export const FlightDeckContent = observer(function FlightDeckContent({
           />
         ) : (
           <>
-            <div className="relative h-1.5">{spineSegment('inset-y-0')}</div>
-            {rootRow && (
+            {view !== 'full' && <div className="relative h-1.5">{spineSegment('inset-y-0')}</div>}
+            {view !== 'full' && rootRow && (
               <>
                 <HungRows
                   model={rootRow}
@@ -2580,13 +2596,7 @@ export const FlightDeckContent = observer(function FlightDeckContent({
               full={screen.full}
               revealSessionId={revealSessionId}
               scrollRef={deckScrollerRef}
-              activeSessionId={activeSessionId}
-              renameTarget={renameTarget}
-              onSelectSession={(task, session, permanent) => selectSession(asIssueId(task.id), session, { permanent })}
-              onMenu={(task, event) => openIssueMenu(asIssueId(task.id), event)}
-              onStatusPick={(task, value) => pickRowStatus(task.id, value)}
-              onRename={(task, title) => renameIssue(task.id, title, renameTarget?.id === task.id ? renameTarget.seed : task.row.title)}
-              onRenameDone={() => setRenameTarget(null)}
+              {...fullActions}
             /> : visibleRows.map((row, index) => {
               const block = spineGeometry.blocks.get(row.key)!
               if (
@@ -2754,17 +2764,21 @@ export const FlightDeckContent = observer(function FlightDeckContent({
 })
 
 /** The session pane A (or pane B in a split) shows, when that tab is a session. */
-function useFocusedSessionId(paneA: string | null, paneB: string | null): SessionId | null {
+function useFocusedSessionId(
+  paneA: string | null,
+  paneB: string | null,
+  focusedPane?: 'A' | 'B',
+): SessionId | null {
   const read = useCallback(
     (pool: MobxPool): SessionId | null => {
-      for (const id of [paneA, paneB]) {
+      for (const id of focusedPane ? [focusedPane === 'B' ? paneB : paneA] : [paneA, paneB]) {
         if (!id) continue
         const exists = settled(() => pool.sessionObject(id).exists)
         if (exists === true) return id as SessionId
       }
       return null
     },
-    [paneA, paneB],
+    [paneA, paneB, focusedPane],
   )
   return useWorklistPoolProjection(read, null)
 }

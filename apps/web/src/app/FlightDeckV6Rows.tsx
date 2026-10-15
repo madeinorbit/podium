@@ -6,7 +6,7 @@ import { LOADING } from '@podium/client-graph/loading'
 import type { SessionView } from '@podium/client-core/session-values'
 import { nativeSubagentRows, treeGuides } from '@podium/client-core/values'
 import { SESSION_WORD_LABEL, TASK_WORD_LABEL, type TaskWord } from '@podium/model/browser'
-import { Check, ChevronDown, ChevronRight, Ellipsis, ListTree } from 'lucide-react'
+import { ArrowUpRight, Check, ChevronDown, ChevronRight, Ellipsis, ListTree } from 'lucide-react'
 import {
   useId,
   useLayoutEffect,
@@ -91,7 +91,7 @@ export const FlightDeckV6Rows = observer(function FlightDeckV6Rows({
       for (const id of task.sessionIds)
         leaves.push({
           key: deckSessionKey(task.id, id),
-          size: SESSION_HEIGHT,
+          size: task.seat(id) === 'phase-lead' ? 32 : SESSION_HEIGHT,
           get text() {
             const session = task.deck.screen.reader.rawSession(id)
             return session && session !== LOADING
@@ -130,14 +130,14 @@ export const FlightDeckV6Rows = observer(function FlightDeckV6Rows({
   )
 })
 
-/** Shared inset roster, also the phase-lead slot until the seat-card child lands. */
+/** One roster primitive for task workers, phase leads and root helpers. */
 export const FlightDeckV6Crew = observer(function FlightDeckV6Crew({
   task, window, ...actions
 }: FlightDeckV6Actions & { task: FullDeckTask; window?: DeckWindow }) {
   return task.sessionIds.length > 0 ? (
     <div className="flight-v6-sessions">
       {task.sessionIds.map((id) => (
-        <SessionSlot key={id} task={task} id={id} window={window} {...actions} />
+        <FlightDeckV6SessionSlot key={id} task={task} id={id} window={window} {...actions} />
       ))}
     </div>
   ) : null
@@ -386,7 +386,7 @@ const SessionEngine = observer(function SessionEngine({
   return <KindIcon kind={session.agentKind} served={served} compact={compact} chip={!compact} />
 })
 
-const SessionSlot = observer(function SessionSlot({
+export const FlightDeckV6SessionSlot = observer(function FlightDeckV6SessionSlot({
   task,
   id,
   window,
@@ -399,7 +399,7 @@ const SessionSlot = observer(function SessionSlot({
         window={window}
         row={{
           key,
-          size: SESSION_HEIGHT,
+          size: task.seat(id) === 'phase-lead' ? 32 : SESSION_HEIGHT,
           get text() {
             const session = task.deck.screen.reader.rawSession(id)
             return session && session !== LOADING ? sessionDisplayName(session) : ''
@@ -446,6 +446,7 @@ export const FlightDeckV6Session = observer(function FlightDeckV6Session({
   const pointed = useSessionHovered(session.sessionId)
   const natives = nativeSubagentRows(session)
   const name = sessionDisplayName(session)
+  const seat = task.seat(session.sessionId)
   return (
     <div
       ref={measure}
@@ -453,6 +454,8 @@ export const FlightDeckV6Session = observer(function FlightDeckV6Session({
       className="flight-v6-session"
       data-selected={active}
       data-pointed={pointed}
+      data-seat={seat}
+      data-word={session.word}
     >
       <div className="flight-v6-session-line">
         {editing ? (
@@ -470,7 +473,7 @@ export const FlightDeckV6Session = observer(function FlightDeckV6Session({
             className="flight-v6-session-open deck-agent"
             data-pressable
             aria-pressed={active}
-            title={[name, session.displayRef, task.seat(session.sessionId)]
+            title={[name, session.displayRef, seat, SESSION_WORD_LABEL[session.word]]
               .filter(Boolean)
               .join(' · ')}
             onClick={() => onOpen(false)}
@@ -488,13 +491,26 @@ export const FlightDeckV6Session = observer(function FlightDeckV6Session({
             }}
           >
             <SessionEngine session={session} />
-            <span className="flight-v6-title">{name}</span>
-            <span className="flight-v6-ref">{session.displayRef}</span>
-            {task.seat(session.sessionId) === 'helper' && (
-              <span className="flight-v6-role">helper</span>
+            {seat === 'coordinator' ? (
+              <span className="flight-full-coordinator-identity">
+                <span className="flight-v6-title">{name}</span>
+                <span className="flight-full-coordinator-caption">
+                  <span>Coordinator</span>
+                  <span className="flight-v6-ref">{session.displayRef}</span>
+                </span>
+              </span>
+            ) : (
+              <>
+                <span className="flight-v6-title">{name}</span>
+                <span className="flight-v6-ref">{session.displayRef}</span>
+                {seat !== 'worker' && (
+                  <span className="flight-v6-role">{seat === 'phase-lead' ? 'phase lead' : 'helper'}</span>
+                )}
+              </>
             )}
             {natives.length > 0 && <span className="flight-v6-native-slot" />}
             <SessionState session={session} />
+            {seat === 'coordinator' && <ArrowUpRight size={14} className="flight-full-conversation-arrow" aria-hidden />}
           </button>
         )}
         {natives.length > 0 && (

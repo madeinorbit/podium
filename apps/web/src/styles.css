@@ -13209,3 +13209,28 @@ button.waterfall-fold:hover {
   .flight-proposal-line, .flight-proposal-details { gap:5px; }
   .flight-proposal-line { padding-left:6px; }
 }
+
+/* Full coordinator and phase seats. Session selection belongs to one row,
+   including the root helpers; task surfaces never inherit this treatment. */
+.flight-full-coordinator { --v6-state-width: 118px; margin: 0 12px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--card); overflow: hidden; }
+.flight-full-coordinator > .flight-v6-sessions { margin: 0; padding: 0 4px 6px; background: transparent; }
+.flight-full-coordinator .flight-v6-session[data-seat='helper'] { margin-left: 40px; }
+.flight-full-coordinator[data-has-coordinator='false'] .flight-v6-session { margin-left: 0; }
+.flight-full-coordinator .flight-v6-session[data-seat='coordinator'] { margin: -1px -5px 4px; border: 1px solid var(--border); border-radius: 8px; }
+.flight-full-coordinator .flight-v6-session[data-seat='coordinator'][data-word='needs-you'] { border-color: color-mix(in srgb, var(--attention) 45%, transparent); }
+.flight-full-coordinator .flight-v6-session[data-seat='coordinator'][data-selected='true'] { border-color: color-mix(in srgb, var(--live) 70%, transparent); }
+.flight-v6-session[data-seat='coordinator'] > .flight-v6-session-line { min-height: 56px; border-radius: 7px; }
+.flight-v6-session[data-seat='coordinator'] .flight-v6-session-open { height: 56px; padding: 10px 28px 10px 10px; gap: 10px; }
+.flight-v6-session[data-seat='coordinator'] .flight-v6-session-open > span:first-child { width: 28px; height: 28px; border-radius: 7px; }
+.flight-v6-session[data-seat='coordinator'] .flight-v6-session-open > span:first-child svg { width: 16px; height: 16px; }
+.flight-full-coordinator-identity { display: flex; flex: 1; flex-direction: column; gap: 2px; min-width: 0; }
+.flight-full-coordinator-identity .flight-v6-title { font-size: 13px; font-weight: 600; }
+.flight-full-coordinator-caption { display: flex; align-items: center; gap: 6px; color: var(--text-dim); font-size: 11.5px; }
+.flight-full-conversation-arrow { flex: none; color: var(--text-faint); }
+.flight-v6-session[data-seat='coordinator'] .flight-v6-actions { top: 16px; }
+.flight-v6-session[data-seat='coordinator'] .flight-v6-native-chip { top: 20px; right: calc(var(--v6-state-width) + 56px); }
+.flight-v6-session[data-seat='phase-lead'] { margin-bottom: 2px; border-radius: 6px; background: var(--bar); }
+.flight-v6-session[data-seat='phase-lead'] .flight-v6-session-open { height: 32px; padding-left: 7px; }
+.flight-v6-session[data-seat='phase-lead'] .flight-v6-title { font-weight: 600; }
+.flight-full-phase-lead > .flight-v6-sessions { margin: 0 0 2px; padding: 0; background: transparent; }
+.flight-full-coordinator button:focus-visible { outline: 1px solid var(--live); outline-offset: -1px; }

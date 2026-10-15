@@ -7,12 +7,12 @@ import { Fragment, useId, type ReactNode, type RefObject } from 'react'
 import { GhostBar } from '@/components/GhostPreview'
 import { SessionNameEditor } from '@/lib/WorkerLabel'
 import {
-  FlightDeckV6Crew,
   FlightDeckV6Rows,
   FlightDeckV6Task,
   V6_DEPTH_STEP,
   type FlightDeckV6Actions,
 } from './FlightDeckV6Rows'
+import { FlightDeckFullPhaseCrew } from './FlightDeckFullSeats'
 import { DeckRowPlaceholder, deckTaskKey, type DeckWindow } from './flight-deck-window'
 
 export type PhaseLeadSlot = (task: FullDeckTask, window: DeckWindow) => ReactNode
@@ -167,7 +167,7 @@ const PhaseGroup = observer(function PhaseGroup({
             <>
               <div className="flight-full-phase-lead" data-phase-lead-slot={task.id}>
                 {renderPhaseLead ? renderPhaseLead(task, window) : (
-                  <FlightDeckV6Crew task={task} window={window} {...actions} />
+                  <FlightDeckFullPhaseCrew task={task} window={window} {...actions} />
                 )}
               </div>
               {children}

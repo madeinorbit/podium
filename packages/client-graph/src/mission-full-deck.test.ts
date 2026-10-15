@@ -446,13 +446,34 @@ describe('seats and profiles', () => {
     expect(tracked(() => full.task('admin').sessionIds)).toEqual(['w-admin', 'h-admin'])
     expect(tracked(() => full.task('admin').seat('w-admin'))).toBe('worker')
     expect(tracked(() => full.task('admin').seat('h-admin'))).toBe('helper')
-    // No marker: the first session holds the seat, and says so.
+    // No marker: array position never assigns a worker.
     expect(
       tracked(() => ({
         lead: full.task('audit').leadSessionId,
         explicit: full.task('audit').leadExplicit,
       })),
-    ).toEqual({ lead: 'w-audit', explicit: false })
+    ).toEqual({ lead: null, explicit: false })
+    expect(tracked(() => full.task('audit').seat('w-audit'))).toBe('helper')
+  })
+
+  it('requires a roster member marker for root, phase and task seats', async () => {
+    const { pool, full } = await open()
+    for (const id of ['root', 'build', 'admin']) {
+      const marker = pool.issueObject(id).coordinatorSessionId
+      const original = mission().issues.find(row => row['id'] === id)!
+      const setMarker = (coordinatorSessionId: string | null | undefined) => pool.apply({
+        type: 'update', rows: [{ kind: 'issue', id, value: { ...original, coordinatorSessionId } as never }],
+      })
+      setMarker(null)
+      expect(tracked(() => full.task(id).leadSessionId)).toBeNull()
+      expect(tracked(() => full.task(id).helperIds)).toEqual(tracked(() => full.task(id).sessionIds))
+      expect(tracked(() => full.task(id).sessionIds.every(session => full.task(id).seat(session) === 'helper'))).toBe(true)
+      if (id === 'root') expect(tracked(() => full.coordinatorSessionId)).toBeNull()
+      setMarker('missing')
+      expect(tracked(() => full.task(id).leadSessionId)).toBeNull()
+      setMarker(marker)
+      expect(tracked(() => full.task(id).leadSessionId)).toBe(marker)
+    }
   })
 
   it('reads the role profile from the session that runs, else the issue default', async () => {
