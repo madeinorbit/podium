@@ -56,7 +56,9 @@ test('issue-first hierarchy, distinct live status, and animated open/close contr
   page,
   request,
 }) => {
-  await page.setViewportSize({ width: 1440, height: 900 })
+  // Above SIDEBARS_RESTORE_AT (1680): narrower, the shell folds the work list
+  // away and the issue row this test opens the deck from is not rendered.
+  await page.setViewportSize({ width: 1760, height: 900 })
   await mkdir(ARTIFACT_DIR, { recursive: true })
   const repos = await rpc<string[]>(request, 'repos.list', undefined, 'get')
   const repoPath = repos[0]
