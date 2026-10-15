@@ -557,6 +557,12 @@ export const cancelShipInput = z.object({ orderId: ShipOrderIdField })
 /** Immutable delivery proof is addressed through its owning order. */
 export const deliveryReceiptInput = z.object({ orderId: ShipOrderIdField })
 
+export const moveInput = z.object({
+  id: IssueIdField,
+  before: IssueIdField.optional(),
+  after: IssueIdField.optional(),
+})
+
 export const reparentInput = z.object({ id: IssueIdField, parentId: IssueIdField.nullable() })
 
 /**
@@ -1598,6 +1604,24 @@ export const issueClearNeedsHumanContract = {
   conflict: 'exp-rev',
 } as const satisfies MutatingCommandContract
 
+export const issueMoveContract = {
+  name: 'issues.move',
+  version: 1,
+  visibility: ISSUE_VISIBILITY,
+  input: moveInput.merge(EXPECTED_REVISION).refine(
+    (input) => (input.before !== undefined) !== (input.after !== undefined),
+    'pass exactly one of --before or --after',
+  ),
+  policy: WRITE_POLICY,
+  exposure: SERVED_EVERYWHERE,
+  delivery: WRITE_DELIVERY,
+  redaction: ISSUE_REDACTION,
+  ownership: CREATES_NOTHING,
+  attribution: ISSUE_ATTRIBUTION,
+  errorConsistency: TARGETED_ERRORS,
+  conflict: 'exp-rev',
+} as const satisfies MutatingCommandContract
+
 export const issueReparentContract = {
   name: 'issues.reparent',
   version: 1,
@@ -2073,6 +2097,7 @@ export const ISSUE_CONTRACTS = {
   mailSend: issueMailSendContract,
   markRead: issueMarkReadContract,
   markUnread: issueMarkUnreadContract,
+  move: issueMoveContract,
   orphans: issueOrphansContract,
   panelApply: issuePanelApplyContract,
   preflight: issuePreflightContract,

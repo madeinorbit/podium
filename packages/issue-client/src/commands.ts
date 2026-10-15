@@ -1611,6 +1611,27 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
     },
   },
   {
+    name: 'move',
+    summary:
+      'Reorder siblings: move <id> --before <ref> | --after <ref>. Both issues must share a parent (and repository at the top level). Agents: confirm outside your subtree with --outside-scope.',
+    args: z.strictObject({ id: idArg, before: idArg.optional(), after: idArg.optional() }).refine(
+      (a) => (a.before !== undefined) !== (a.after !== undefined),
+      'pass exactly one of --before or --after',
+    ),
+    positionals: ['id'],
+    async run(c, a) {
+      const i = await c.issues.move.mutate({
+        id: a.id as string,
+        ...(a.before !== undefined ? { before: a.before as string } : {}),
+        ...(a.after !== undefined ? { after: a.after as string } : {}),
+      })
+      return {
+        text: `${a.id} moved ${a.before !== undefined ? `before ${a.before}` : `after ${a.after}`}`,
+        data: i,
+      }
+    },
+  },
+  {
     name: 'reparent',
     summary:
       "Set/clear an issue's parent: reparent <id> [--parentId <id>] (omit parentId to clear). Agents: in-subtree, or confirm with --outside-scope.",

@@ -1198,6 +1198,11 @@ const defs = {
     target: targetId,
     handler: async (ctx, input) => await ctx.attention.clearNeedsHuman(input.id),
   }),
+  move: def('move', {
+    kind: 'mutation',
+    target: targetId,
+    handler: async (ctx, input) => await ctx.crud.move(input.id, input),
+  }),
   reparent: def('reparent', {
     kind: 'mutation',
     // Agent posture: allow in subtree; require --outside-scope confirmation.

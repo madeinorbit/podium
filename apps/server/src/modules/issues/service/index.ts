@@ -23,6 +23,7 @@ export type IssueCrudCapability = Pick<
   | 'panelArtifactRead'
   | 'create'
   | 'update'
+  | 'move'
   | 'markIssueRead'
   | 'markIssueUnread'
   | 'setIssueTucked'

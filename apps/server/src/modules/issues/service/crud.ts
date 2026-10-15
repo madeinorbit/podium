@@ -22,6 +22,7 @@ import {
   type RepoId,
   type SessionId,
   SORT_KEY_COMPACT_LEN,
+  SORT_KEY_MAX_LEN,
   sortKeyBetween,
   spreadSortKeys,
   type UserId,
@@ -847,6 +848,61 @@ export class IssueCrudModule {
     return min
   }
 
+  private orderedSortRows(scope: readonly IssueRow[]): IssueRow[] {
+    return [...scope].sort((a, b) => {
+      const ka = isSortKey(a.sortKey) ? a.sortKey : null
+      const kb = isSortKey(b.sortKey) ? b.sortKey : null
+      if (ka !== null && kb !== null && ka !== kb) return ka < kb ? -1 : 1
+      if (ka !== null && kb === null) return -1
+      if (ka === null && kb !== null) return 1
+      const dt = Date.parse(b.createdAt) - Date.parse(a.createdAt)
+      if (dt) return dt
+      if (a.seq !== b.seq) return b.seq - a.seq
+      return a.id.localeCompare(b.id)
+    })
+  }
+
+  /** Resolve a sibling-relative position server-side, without making callers mint keys. */
+  async move(
+    id: string,
+    placement: { before?: string; after?: string },
+  ): Promise<IssueProjection> {
+    if ((placement.before !== undefined) === (placement.after !== undefined)) {
+      throw new IssueRefusal('pass exactly one of --before or --after')
+    }
+    const row = await this.store.rowOrThrow(await this.store.resolveRef(id))
+    const reference = (placement.before ?? placement.after)!
+    const anchor = await this.store.rowOrThrow(await this.store.resolveRef(reference, row.repoPath))
+    if (row.deletedAt || anchor.deletedAt) {
+      throw new IssueRefusal('deleted issues cannot be moved or used as move references')
+    }
+    if (row.id === anchor.id) throw new IssueRefusal('an issue cannot be moved relative to itself')
+    const scope = () => this.sortKeySpaceRows(row.repoId, row.repoPath, row.parentId ?? null)
+    if (!scope().some((sibling) => sibling.id === anchor.id)) {
+      throw new IssueRefusal('move requires siblings with the same parent and repository')
+    }
+    let siblings = this.orderedSortRows(scope()).filter((sibling) => sibling.id !== row.id)
+    // Old rows may lack keys, and reparenting can bring equal keys into one space.
+    // Repair only when a strict midpoint cannot represent the existing order.
+    const seen = new Set<string>()
+    if (siblings.some((sibling) => {
+      const key = sibling.sortKey
+      if (!isSortKey(key) || seen.has(key) || key.length >= SORT_KEY_MAX_LEN) return true
+      seen.add(key)
+      return false
+    })) {
+      await this.compactSortKeys(scope())
+      siblings = this.orderedSortRows(scope()).filter((sibling) => sibling.id !== row.id)
+    }
+    const anchorIndex = siblings.findIndex((sibling) => sibling.id === anchor.id)
+    const insertionIndex = anchorIndex + (placement.after !== undefined ? 1 : 0)
+    const sortKey = sortKeyBetween(
+      siblings[insertionIndex - 1]?.sortKey ?? null,
+      siblings[insertionIndex]?.sortKey ?? null,
+    )
+    return await this.update(row.id, { sortKey })
+  }
+
   /**
    * Renumber a whole key space with fresh evenly-spread keys, in the order it
    * already renders (POD-1102).
@@ -871,17 +927,7 @@ export class IssueCrudModule {
    * its own change append. Batched, the same repair is ~2s.
    */
   private async compactSortKeys(scope: readonly IssueRow[]): Promise<void> {
-    const ordered = [...scope].sort((a, b) => {
-      const ka = isSortKey(a.sortKey) ? a.sortKey : null
-      const kb = isSortKey(b.sortKey) ? b.sortKey : null
-      if (ka !== null && kb !== null && ka !== kb) return ka < kb ? -1 : 1
-      if (ka !== null && kb === null) return -1
-      if (ka === null && kb !== null) return 1
-      const dt = Date.parse(b.createdAt) - Date.parse(a.createdAt)
-      if (dt) return dt
-      if (a.seq !== b.seq) return b.seq - a.seq
-      return a.id.localeCompare(b.id)
-    })
+    const ordered = this.orderedSortRows(scope)
     const keys = spreadSortKeys(ordered.length)
     const changed: IssueRow[] = []
     for (const [i, row] of ordered.entries()) {
