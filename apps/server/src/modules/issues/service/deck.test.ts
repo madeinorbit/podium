@@ -21,6 +21,7 @@ async function fixture() {
   const store = await openTestStore(':memory:')
   stores.push(store)
   await store.repos.addRepo('/repo', store.hostMachineId)
+  await store.repos.setRepoPrefix(store.hostMachineId, '/repo', 'POD')
   const sessions: SessionMeta[] = []
   const hiddenSessions = new Set<SessionId>()
   const ports = sessionReadPorts(() => sessions)
@@ -53,6 +54,7 @@ async function fixture() {
       agentKind: 'codex',
       title: id,
       cwd: '/repo',
+      machineId: store.hostMachineId,
       status: 'live',
       controllerId: null,
       geometry: { cols: 80, rows: 24 },
@@ -157,7 +159,7 @@ it('shows marker-derived seats and shared session words, excluding non-roster se
 it('lists formal and provenance proposals with author and placement, excluding departed discoveries', async () => {
   const { svc, create, seat } = await fixture()
   const root = await create('Mission')
-  const author = seat('author', root.id, { displayRef: 'POD-1-A' })
+  const author = seat('author', root.id, { refIssueId: root.id, refLetter: 'A' })
   const proposal = await svc.crud.create({
     repoPath: '/repo',
     title: 'Own proposal',
@@ -250,4 +252,21 @@ it('cannot expose a private session through a seat, word, or provenance proposal
   expect(deck.root.word).toBe('not-started')
   expect(deck.root.sessions).toEqual([])
   expect(deck.proposals).toEqual([])
+})
+
+it('collapses parked twins across deck boundaries without letting a private twin hide a seat', async () => {
+  const { svc, create, seat, hiddenSessions } = await fixture()
+  const root = await create('Mission')
+  const elsewhere = await create('Other mission')
+  const resume = { kind: 'codex', value: 'one-conversation' }
+  const old = seat('old', root.id, { status: 'hibernated', resume, refIssueId: root.id, refLetter: 'A', lastActiveAt: '2026-10-14T00:00:00Z' })
+  const current = seat('current', elsewhere.id, { status: 'hibernated', resume })
+  await svc.crud.create({ repoPath: '/repo', title: 'Formal proposal', stage: 'proposed', parentId: root.id, startedBySession: old.sessionId, startNow: false })
+  const deck = await svc.reports.deck(root.id)
+  expect(deck.root.sessions).toEqual([])
+  expect(deck.proposals[0]?.proposedBy).toBeNull()
+  hiddenSessions.add(current.sessionId)
+  const privateTwin = await svc.reports.deck(root.id)
+  expect(privateTwin.root.sessions).toEqual([expect.objectContaining({ sessionId: old.sessionId, displayRef: 'POD-1-A' })])
+  expect(privateTwin.proposals[0]?.proposedBy).toEqual({ sessionId: old.sessionId, displayRef: 'POD-1-A' })
 })

@@ -2235,6 +2235,7 @@ const NON_MUTATING_NAMES = [
   'closeEligibleEpics',
   'comments',
   'count',
+  'deck',
   'depReport',
   'deliveryReceipt',
   'doctor',

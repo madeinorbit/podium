@@ -139,7 +139,7 @@ describe('transport exposure', () => {
     'subscriptionSetEnabled',
   ]
 
-  it('tRPC and relay serve all eighty; CLI and MCP serve sixty-nine', () => {
+  it('tRPC and relay serve every contract; CLI and MCP serve the public subset', () => {
     const onCli = ISSUE_COMMAND_NAMES.filter((n) => ISSUE_CONTRACTS[n].exposure.includes('cli'))
     const onMcp = ISSUE_COMMAND_NAMES.filter((n) => ISSUE_CONTRACTS[n].exposure.includes('mcp'))
     expect(onCli).toHaveLength(70)

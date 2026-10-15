@@ -7,6 +7,7 @@ import {
   type IssueDeckSession,
   type IssueId,
   leafTasks,
+  resumeKey,
   rollUpTaskWords,
   type SessionId,
   type SessionMeta,
@@ -16,6 +17,7 @@ import {
   toIssueTreeSession,
 } from '@podium/model'
 import type { IssueRow } from '../../../store'
+import { readSessionRefs } from '../../sessions/refs'
 import type { IssueStore } from './core'
 import { IssueNotFound } from './not-found'
 
@@ -58,6 +60,15 @@ export async function readDeck(
   // not cwd containment. Project only candidates; unreadable sessions can
   // neither appear in a seat nor supply a provenance graft.
   const facts = store.deps.sessionFacts()
+  const factsById = new Map(facts.map((s) => [s.sessionId, s]))
+  const resumeTwins = new Map<string, SessionId[]>()
+  for (const s of facts) {
+    if (!s.resume || s.headless) continue
+    const key = resumeKey(s.resume.kind, s.resume.value)
+    const twins = resumeTwins.get(key) ?? []
+    twins.push(s.sessionId)
+    resumeTwins.set(key, twins)
+  }
   const projected = new Map<SessionId, SessionMeta>()
   const requested = new Set<SessionId>()
   // The pool breaks exact parked-resume ties by stable session id.
@@ -70,9 +81,20 @@ export async function readDeck(
   )
   let grew = true
   while (grew) {
-    const ids = facts
-      .filter((s) => s.issueId && admitted.has(s.issueId) && !requested.has(s.sessionId))
-      .map((s) => s.sessionId)
+    const candidates = new Set(facts.filter((s) => s.issueId && admitted.has(s.issueId)).map((s) => s.sessionId))
+    for (const id of admitted) {
+      const row = rows.get(id)!
+      if (row.stage === 'proposed' && row.startedBySession) candidates.add(row.startedBySession)
+    }
+    // Resume collapse is global in the UI. Read only these candidates' twins,
+    // including ones outside the deck, and let the projection apply visibility
+    // before picking the winner. A private twin cannot hide a visible seat.
+    for (const id of candidates) {
+      const s = factsById.get(id)
+      if (!s?.resume || s.headless) continue
+      for (const twin of resumeTwins.get(resumeKey(s.resume.kind, s.resume.value)) ?? []) candidates.add(twin)
+    }
+    const ids = [...candidates].filter((id) => !requested.has(id))
     for (const id of ids) requested.add(id)
     for (const session of await store.deps.sessionsById(ids))
       projected.set(session.sessionId, session)
@@ -142,9 +164,11 @@ export async function readDeck(
     if (projected.has(ask.sessionId))
       pending.set(ask.sessionId, (pending.get(ask.sessionId) ?? 0) + 1)
   }
+  const sessionRefs = await readSessionRefs(store.deps.store, facts.filter((s) => projected.has(s.sessionId)))
+  const kept = new Map(senders().map((s) => [s.sessionId, s]))
   const seats = new Map<IssueId, IssueDeckSession[]>()
-  for (const s of senders()) {
-    if (!s.issueId || s.archived || s.headless || s.agentKind === 'shell') continue
+  for (const s of kept.values()) {
+    if (!s.issueId || !admitted.has(s.issueId) || s.archived || s.headless || s.agentKind === 'shell') continue
     const row = rows.get(s.issueId)
     if (!row) continue
     const coordinator = row.coordinatorSessionId === s.sessionId
@@ -153,6 +177,7 @@ export async function readDeck(
         ...s,
         model: s.observedModel ?? s.model,
         effort: s.observedEffort ?? s.effort,
+        ...(sessionRefs.has(s.sessionId) ? { displayRef: sessionRefs.get(s.sessionId)! } : {}),
         coordinator,
       }),
       seat: !coordinator
@@ -212,13 +237,13 @@ export async function readDeck(
   }
   const proposals: IssueDeckProposal[] = [...proposalIds].map((id) => {
     const row = rows.get(id)!,
-      author = row.startedBySession ? projected.get(row.startedBySession) : undefined
+      author = row.startedBySession ? kept.get(row.startedBySession) : undefined
     return {
       ...build(id),
       proposedBy: author
         ? {
             sessionId: author.sessionId,
-            ...(author.displayRef ? { displayRef: author.displayRef } : {}),
+            ...(sessionRefs.has(author.sessionId) ? { displayRef: sessionRefs.get(author.sessionId)! } : {}),
           }
         : null,
       placement: row.parentId && admitted.has(row.parentId) ? 'here' : 'own-issue',
