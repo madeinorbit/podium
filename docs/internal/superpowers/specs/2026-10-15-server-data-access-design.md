@@ -193,7 +193,7 @@ Prefix letters are phases, numbers the order inside a phase. Blocking edges in t
 | A3 | Prepared repository queries (root cause first: one shared drizzle instance) | POD-6147 | – |
 | A4 | Turso spike | POD-6162 | – |
 | B1 | Indexes and query-plan audit | POD-6148 | POD-6147 (same files) |
-| B2 | Statement-count tests, relational queries and per-operation loaders | POD-6149 | POD-6148 (same files) |
+| B2 | Statement-count tests, relational queries and per-operation loaders | POD-6149 | – (parallel with B1, split file ownership) |
 | C1 | Remove the world index (five steps) | POD-6155 | POD-6146, POD-6149 |
 | C2 | Remove observation checkpoint map | POD-6159 | POD-6146, POD-6149 |
 | C3 | Remove sync memory copies (two steps) | POD-6156 | POD-6155 (shared feed-visibility code) |
