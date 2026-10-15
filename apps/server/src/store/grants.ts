@@ -11,6 +11,7 @@ import type { GrantVerb } from '@podium/model'
 import { GRANT_VERBS } from '@podium/model'
 import { and, asc, count, eq, type SQL, sql } from 'drizzle-orm'
 import { grantAudiences, grants } from '../migrations/schema'
+import { spanOpen } from './executor/executor'
 import { operationLoader } from './executor/operation-loader'
 import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
 import { inListOf, inListSize, inListValues, param, prepared, preparedFamily } from './executor/sync-drizzle'
@@ -309,9 +310,11 @@ export class GrantsRepository {
    * one {@link listForResources} query per resource kind; asked again later in
    * the same operation (read scope), they are answered from the loader. Outside
    * an explicit scope it is exactly one live read. Every grant write below
-   * invalidates it, so an operation sees its own grant changes.
+   * invalidates it, so an operation sees its own grant changes. Inside a write
+   * span it reads live, so a rolled-back write is never remembered.
    */
   async loadForResource(resourceKind: string, resourceId: string): Promise<GrantRow[]> {
+    if (spanOpen()) return await this.listForResource(resourceKind, resourceId)
     return (await this.resourceGrants.load(resourceGrantKey(resourceKind, resourceId))) ?? []
   }
 
