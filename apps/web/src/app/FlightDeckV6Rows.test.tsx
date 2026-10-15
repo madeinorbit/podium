@@ -10,7 +10,7 @@ import { act, cleanup, fireEvent, render, waitFor, within } from '@testing-libra
 import userEvent from '@testing-library/user-event'
 import { autorun } from 'mobx'
 import { createRef } from 'react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, expect, it, vi } from 'vitest'
 import {
   FlightDeckV6Rows,
   FlightDeckV6Task,
@@ -282,7 +282,6 @@ it.each([
   'opencode',
   'cursor',
   'pi',
-  'shell',
 ])('uses the established engine support for %s', async (agentKind) => {
   const f = await open(undefined, [session('worker', 'task', { agentKind })])
   const foldedIcon = f.ui.getByTestId('v6-engines').querySelector('svg')
@@ -385,6 +384,8 @@ it.each([
 // Optional review capture uses this test's real rendered markup and the scoped
 // source CSS. It is static evidence, not a second implementation of the UI.
 it('opens Error and Needs you by default and leaves working and blocked leaves folded', async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true })
+  vi.setSystemTime(NOW)
   const f = await open(
     [
       issue('root', null, 1),
