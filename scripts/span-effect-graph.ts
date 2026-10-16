@@ -673,6 +673,64 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
     kind: 'contained',
     why: 'a read scope slot key: pure',
   },
+  // POD-6147/6149/6155 (prepared queries, per-operation loaders, world index
+  // removal): the members below were added by those lanes and judged here.
+  'packages/sync/src/adapters/sqlite/prepared.ts#<module>.build': {
+    kind: 'opaque',
+    why: 'the caller-supplied builder of a prepared query or query family; current definitions only build drizzle statements, but the generic callback is judged at each declaration rather than assumed pure here',
+  },
+  'packages/sync/src/adapters/sqlite/prepared.ts#<module>.<anonymous>': {
+    kind: 'opaque',
+    why: 'the memoising wrapper around a caller-supplied prepared-query builder; it adds no I/O of its own, and the builder is judged at its declaration',
+  },
+  'apps/server/src/store/executor/operation-loader.ts#OperationLoader.invalidate': {
+    kind: 'contained',
+    why: 'drops the per-operation loader cache held in the read scope; no I/O or publication, so a rollback leaves nothing outside this process changed',
+  },
+  'apps/server/src/store/issues.ts#IssueRowsWrite.all': {
+    kind: 'contained',
+    why: "runs a prepared issues-table write against the store's own database inside the span; the transaction's rollback undoes it",
+  },
+  'apps/server/src/store/issues.ts#IssuesRepository.upsert': {
+    kind: 'contained',
+    why: "the repository's cached prepared issue upsert, run on the store's own database inside the span; rollback undoes it",
+  },
+  'apps/server/src/store/issues.ts#IssuesRepository.remove': {
+    kind: 'contained',
+    why: "the repository's cached prepared issue delete, run on the store's own database inside the span; rollback undoes it",
+  },
+  'apps/server/src/store/issues.ts#IssuesRepository.seq': {
+    kind: 'contained',
+    why: "the repository's cached prepared sequence write, run on the store's own database inside the span; rollback undoes it",
+  },
+  'apps/server/src/store/issues.ts#IssuesRepository.shippingStage': {
+    kind: 'contained',
+    why: "the repository's cached prepared shipping-stage transition, run on the store's own database inside the span; rollback undoes it",
+  },
+  'apps/server/src/store/issues.ts#IssuesRepository.repoIdAndSeq': {
+    kind: 'contained',
+    why: "the repository's cached prepared repo-id and sequence backfill, run on the store's own database inside the span; rollback undoes it",
+  },
+  'apps/server/src/store/issues.ts#IssuesRepository.legacyMachine': {
+    kind: 'contained',
+    why: "the repository's cached prepared legacy-machine backfill, run on the store's own database inside the span; rollback undoes it",
+  },
+  'apps/server/src/store/messages.ts#MoveSpec.set': {
+    kind: 'contained',
+    why: 'builds the SET clause of a prepared message move; pure statement construction, no I/O',
+  },
+  'apps/server/src/store/messages.ts#MoveSpec.where': {
+    kind: 'contained',
+    why: 'builds the WHERE guard of a prepared message move; pure statement construction, no I/O',
+  },
+  'apps/server/src/store/messages.ts#MoveWrite.all': {
+    kind: 'contained',
+    why: "runs a prepared message move against the store's own database inside the span; rollback undoes it",
+  },
+  'apps/server/src/store/messages.ts#MessagesRepository.<anonymous>': {
+    kind: 'contained',
+    why: 'the per-(variant, target) builder of a prepared message move statement; it prepares a drizzle statement and performs no I/O itself',
+  },
 
   /* --- pure resolvers and predicates a method hands back ------------------ */
   'apps/server/src/store/issues.ts#IssuesRepository.resolveRepoIdForPath': {
