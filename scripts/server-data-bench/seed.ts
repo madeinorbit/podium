@@ -16,6 +16,19 @@ import { dirname, join } from 'node:path'
 import type { BenchCorpus } from './corpus-export'
 
 /** Deterministic UUID-shaped id, so the same corpus always seeds the same ids. */
+
+/**
+ * The corpus carries live dependency spellings that the fixed-dependency-types
+ * migration (POD-6100 D7) folds onto its list and the `issue_deps.type` CHECK
+ * now refuses: `waits-on` and one `bogus` edge in cell h1a1 (POD-6189). Seed
+ * them as the migration rewrites them, so both arms get the same edges.
+ */
+const FOLDED_DEP_TYPES: Readonly<Record<string, string>> = {
+  blocks: 'blocked-by', 'waits-on': 'blocked-by', duplicate: 'duplicates',
+  tracks: 'related', 'caused-by': 'related', validates: 'related',
+}
+const DEP_TYPES = new Set(['blocked-by', 'related', 'discovered-from', 'supersedes', 'duplicates'])
+
 export function benchUuid(seed: number, kind: string, id: string): string {
   const hex = createHash('sha256').update(`${seed}:${kind}:${id}`).digest('hex')
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-a${hex.slice(17, 20)}-${hex.slice(20, 32)}`
@@ -139,7 +152,11 @@ async function seed(args: Record<string, string>): Promise<BenchFixture> {
   await store.transact(async () => {
     for (const dep of corpus.deps) {
       if (!known.has(dep.fromId) || !known.has(dep.toId)) continue
-      await store.issues.addIssueDep(issueId(dep.fromId), issueId(dep.toId), dep.type)
+      const type = FOLDED_DEP_TYPES[dep.type] ?? dep.type
+      // An edge whose type the fixed list does not know is dropped, as the
+      // migration drops it; a database without the list's CHECK keeps the rest.
+      if (!DEP_TYPES.has(type)) continue
+      await store.issues.addIssueDep(issueId(dep.fromId), issueId(dep.toId), type)
       deps++
     }
   })
