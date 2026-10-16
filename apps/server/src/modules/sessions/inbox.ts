@@ -463,7 +463,7 @@ export interface SessionInboxDeps {
   /** Seed/restore the server-persisted composer draft without a client echo. */
   setSessionDraft?(input: { sessionId: SessionId; text: string }): Promise<void>
   /** Read the current draft so automatic recovery never overwrites a human edit. */
-  draftText?(sessionId: SessionId): string | undefined
+  draftText?(sessionId: SessionId): Promise<string | undefined>
   /**
    * REQUEST a wake for a parked target; it does not perform one.
    *
@@ -1447,7 +1447,7 @@ export class SessionInbox {
     const sessionId = session.sessionId
     this.reportedPromptFailures.delete(row.id)
     if (row.sourceMessageId) await this.deps.authorization.applied({ sessionId, sourceMessageId: row.sourceMessageId })
-    if (this.deps.draftText?.(sessionId) === row.text) await this.deps.setSessionDraft?.({ sessionId, text: '' })
+    if ((await this.deps.draftText?.(sessionId)) === row.text) await this.deps.setSessionDraft?.({ sessionId, text: '' })
     await this.deps.queue.delete(row.id)
     this.forwardedRows.get(sessionId)?.ids.delete(row.id)
   }
@@ -1654,7 +1654,7 @@ export class SessionInbox {
             ? event.cause
             : 'delivery-failed'
       if (sentByAPerson(row)) {
-        const draft = this.deps.draftText?.(sessionId)
+        const draft = await this.deps.draftText?.(sessionId)
         if (draft === undefined || draft === '' || draft === row.text) {
           await this.deps.setSessionDraft?.({ sessionId, text: row.text })
         }
@@ -1825,7 +1825,7 @@ export class SessionInbox {
     if (this.reportedPromptFailures.has(head.id)) return
     if (!(await this.deps.queue.list(session.sessionId)).some((row) => row.id === head.id)) return
     this.reportedPromptFailures.add(head.id)
-    const draft = this.deps.draftText?.(session.sessionId)
+    const draft = await this.deps.draftText?.(session.sessionId)
     if (sentByAPerson(head) && (draft === undefined || draft === '' || draft === head.text)) {
       await this.deps.setSessionDraft?.({ sessionId: session.sessionId, text: head.text })
     }

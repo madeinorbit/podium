@@ -202,14 +202,16 @@ const DRAFT_WRITE_DEBOUNCE_MS = 750
 const DRAFT_SEND_SUPPRESS_MS = 1_000
 
 export class SessionStateService {
-  private readonly overlays = new Map<
-    UserId,
-    { readAt: Record<string, string | null>; snoozes: Record<string, string | null> }
-  >()
-
+  /**
+   * Draft documents of the sessions whose draft was used in this process
+   * (POD-6160): read from `session_drafts` on first use ({@link docOf}), never
+   * loaded at boot, and dropped with the session.
+   */
   private readonly draftDocs = new Map<SessionId, DraftDoc>()
   private readonly draftEdits = new Map<SessionId, { tail: Promise<void>; cancelled: boolean }>()
-  private readonly draftTimes = new Map<SessionId, string>()
+  /** Draft times read for sessions about to be installed, consumed by
+   *  {@link installSession} (POD-6160: one batched read, not every draft). */
+  private readonly stagedDraftTimes = new Map<SessionId, string>()
   private readonly draftDocWriteTimers = new Map<SessionId, ReturnType<typeof setTimeout>>()
   private readonly draftInjectTimers = new Map<SessionId, ReturnType<typeof setTimeout>>()
   private readonly draftSendSuppressUntil = new Map<SessionId, number>()
@@ -250,59 +252,38 @@ export class SessionStateService {
   }
 
   /**
-   * Hydrate shared draft documents. Per-user rows remain lazy per principal.
+   * Forget what this process holds about drafts. Nothing is loaded: a draft
+   * document is read when its session's draft is used (POD-6160).
    *
    * `session_drafts` is ONE row per session, and the versioning columns sit
-   * beside the text column older builds wrote. So a draft persisted before this
-   * change loads here as an ordinary document at rev 0 — nothing has to migrate
-   * it, and nothing has to know whether it was written before or after.
+   * beside the text column older builds wrote. So a draft persisted before the
+   * versioned columns reads as an ordinary document at rev 0.
    */
   async loadFromStore(): Promise<void> {
     for (const queue of this.draftEdits.values()) queue.cancelled = true
     this.draftEdits.clear()
     this.draftDocs.clear()
-    this.draftTimes.clear()
-    for (const [rawSessionId, updatedAt] of Object.entries(
-      await this.ports.store.sessions.loadDraftTimes(),
-    )) {
-      this.draftTimes.set(rawSessionId as SessionId, updatedAt)
-    }
-    for (const [rawSessionId, stored] of Object.entries(
-      await this.ports.store.sessions.loadDraftDocs(),
-    )) {
-      const sessionId = rawSessionId as SessionId
-      this.draftDocs.set(sessionId, {
-        sessionId,
-        text: stored.text,
-        rev: stored.rev,
-        origin: stored.origin ?? 'seed',
-        editedAt: stored.updatedAt,
-        history: stored.history,
-      })
-    }
-    this.invalidateAllOverlays()
+    this.stagedDraftTimes.clear()
   }
 
-  /** Read restored drafts before commit; install only those sessions after commit. */
+  /** Read the draft times of sessions about to be installed, in one read; each
+   *  {@link installSession} then seeds its session's DRAFT stamp. */
+  async stageDraftTimes(sessionIds: readonly SessionId[]): Promise<void> {
+    for (const [sessionId, updatedAt] of await this.ports.store.sessions.draftTimesOf(sessionIds)) {
+      this.stagedDraftTimes.set(sessionId, updatedAt)
+    }
+  }
+
+  /** Read restored drafts before commit; install only those sessions after
+   *  commit. A cached document of a restored session is dropped, so its next
+   *  use reads the restored row. */
   async prepareStoredDrafts(sessionIds: readonly SessionId[]): Promise<() => void> {
-    const times = await this.ports.store.sessions.loadDraftTimes()
-    const docs = await this.ports.store.sessions.loadDraftDocs()
+    const times = await this.ports.store.sessions.draftTimesOf(sessionIds)
     return () => {
       for (const sessionId of sessionIds) {
-        this.draftTimes.delete(sessionId)
         this.draftDocs.delete(sessionId)
-        const updatedAt = times[sessionId]
-        if (updatedAt !== undefined) this.draftTimes.set(sessionId, updatedAt)
-        const stored = docs[sessionId]
-        if (stored)
-          this.draftDocs.set(sessionId, {
-            sessionId,
-            text: stored.text,
-            rev: stored.rev,
-            origin: stored.origin ?? 'seed',
-            editedAt: stored.updatedAt,
-            history: stored.history,
-          })
+        const updatedAt = times.get(sessionId)
+        if (updatedAt !== undefined) this.stagedDraftTimes.set(sessionId, updatedAt)
       }
     }
   }
@@ -310,8 +291,30 @@ export class SessionStateService {
   /** Attach off-row draft metadata to a newly installed runtime session. */
   installSession(sessionId: SessionId): void {
     const session = this.ports.getSession(sessionId)
-    const updatedAt = this.draftTimes.get(sessionId)
+    const updatedAt = this.stagedDraftTimes.get(sessionId)
+    this.stagedDraftTimes.delete(sessionId)
     if (session && updatedAt !== undefined) session.draftUpdatedAt = updatedAt
+  }
+
+  /** A session's draft document: the one this process holds, else its row. */
+  private async docOf(sessionId: SessionId): Promise<DraftDoc | undefined> {
+    const held = this.draftDocs.get(sessionId)
+    if (held) return held
+    const stored = await this.ports.store.sessions.draftDocOf(sessionId)
+    // An edit that landed while the row was read wins over the row.
+    const raced = this.draftDocs.get(sessionId)
+    if (raced) return raced
+    if (!stored) return undefined
+    const doc: DraftDoc = {
+      sessionId,
+      text: stored.text,
+      rev: stored.rev,
+      origin: stored.origin ?? 'seed',
+      editedAt: stored.updatedAt,
+      history: stored.history,
+    }
+    this.draftDocs.set(sessionId, doc)
+    return doc
   }
 
   removeSession(sessionId: SessionId): void {
@@ -319,7 +322,7 @@ export class SessionStateService {
     if (queue) queue.cancelled = true
     this.draftEdits.delete(sessionId)
     this.draftDocs.delete(sessionId)
-    this.draftTimes.delete(sessionId)
+    this.stagedDraftTimes.delete(sessionId)
     this.lastPriority.delete(sessionId)
     this.lastHeldAt.delete(sessionId)
     this.lastUnwatchedAt.delete(sessionId)
@@ -328,7 +331,6 @@ export class SessionStateService {
     if (versioned) clearTimeout(versioned)
     this.draftDocWriteTimers.delete(sessionId)
     this.cancelDraftInject(sessionId)
-    this.invalidateAllOverlays()
   }
 
   // -------------------------------------------------------------------------
@@ -390,44 +392,27 @@ export class SessionStateService {
     return visible
   }
 
-  private async cachedOverlay(userId: UserId): Promise<{
-    readAt: Record<string, string | null>
-    snoozes: Record<string, string | null>
-  }> {
-    let cached = this.overlays.get(userId)
-    if (!cached) {
-      cached = {
-        readAt: await this.ports.store.sessions.listReadAt(userId),
-        snoozes: await this.ports.store.sessions.listSnoozes(userId),
-      }
-      this.overlays.set(userId, cached)
-    }
-    return cached
-  }
-
-  /** Projection overlay for a caller already proven able to see the session. */
+  /**
+   * Projection overlay for a caller already proven able to see the session:
+   * the reader's own read marker and snooze, read from the database
+   * (POD-6160; there is no per-user cache to drop on every write).
+   */
   async overlay(userId: UserId, sessionId: SessionId): Promise<SessionUserOverlay> {
-    const cached = await this.cachedOverlay(userId)
-    return {
-      readAt: cached.readAt[sessionId] ?? null,
-      snoozedUntil: sessionId in cached.snoozes ? cached.snoozes[sessionId] : undefined,
-    }
+    return (await this.overlaySnapshot(userId, [sessionId])).get(sessionId) ?? { readAt: null, snoozedUntil: undefined }
   }
 
-  /** Capture the reader cache once; the returned overlays have no service access. */
+  /** One reader's overlays of a set of sessions, read together; the returned
+   *  overlays have no service access. */
   async overlaySnapshot(
     userId: UserId,
     sessionIds: readonly SessionId[],
   ): Promise<ReadonlyMap<SessionId, SessionUserOverlay>> {
-    const cached = await this.cachedOverlay(userId)
+    const rows = await this.ports.store.sessions.userStateOf(userId, sessionIds)
     return new Map(
-      sessionIds.map((id) => [
-        id,
-        {
-          readAt: cached.readAt[id] ?? null,
-          snoozedUntil: id in cached.snoozes ? cached.snoozes[id] : undefined,
-        },
-      ]),
+      sessionIds.map((id) => {
+        const row = rows.get(id)
+        return [id, { readAt: row?.readAt ?? null, snoozedUntil: row && 'snoozedUntil' in row ? row.snoozedUntil : undefined }]
+      }),
     )
   }
 
@@ -443,34 +428,19 @@ export class SessionStateService {
     return (await this.overlay(userId, sessionId)).snoozedUntil !== undefined
   }
 
-  private invalidateOverlay(userId: UserId): void {
-    this.overlays.delete(userId)
-  }
-
-  invalidateAllOverlays(): void {
-    this.overlays.clear()
-  }
-
   private async persistPerUser(
     userId: UserId,
     sessionId: SessionId,
     write: () => void | Promise<void>,
   ): Promise<boolean> {
     if (!this.ports.getSession(sessionId)) return false
-    try {
-      await this.ports.persistSession(
-        sessionId,
-        async () => {
-          await write()
-          this.invalidateOverlay(userId)
-        },
-        () => this.userStateChanges(sessionId, [userId]),
-      )
-    } finally {
-      // The projection read inside persist may cache a value whose transaction
-      // later rolls back. A second invalidation prevents serving that ghost row.
-      this.invalidateOverlay(userId)
-    }
+    await this.ports.persistSession(
+      sessionId,
+      async () => {
+        await write()
+      },
+      () => this.userStateChanges(sessionId, [userId]),
+    )
     this.ports.broadcastSessions()
     return true
   }
@@ -519,18 +489,13 @@ export class SessionStateService {
   async rearmUnreadForAll(sessionId: SessionId): Promise<void> {
     if (!this.ports.getSession(sessionId)) return
     let users: UserId[] = []
-    try {
-      await this.ports.persistSession(
-        sessionId,
-        async () => {
-          users = await this.ports.store.sessions.clearAllReadAt(sessionId)
-          this.invalidateAllOverlays()
-        },
-        () => this.userStateChanges(sessionId, users),
-      )
-    } finally {
-      this.invalidateAllOverlays()
-    }
+    await this.ports.persistSession(
+      sessionId,
+      async () => {
+        users = await this.ports.store.sessions.clearAllReadAt(sessionId)
+      },
+      () => this.userStateChanges(sessionId, users),
+    )
     this.ports.broadcastSessions()
   }
 
@@ -561,18 +526,13 @@ export class SessionStateService {
     if (!this.ports.getSession(sessionId)) return
     if (!(await this.ports.store.sessions.hasAnySnooze(sessionId))) return
     let users: UserId[] = []
-    try {
-      await this.ports.persistSession(
-        sessionId,
-        async () => {
-          users = await this.ports.store.sessions.clearAllSnoozes(sessionId)
-          this.invalidateAllOverlays()
-        },
-        () => this.userStateChanges(sessionId, users),
-      )
-    } finally {
-      this.invalidateAllOverlays()
-    }
+    await this.ports.persistSession(
+      sessionId,
+      async () => {
+        users = await this.ports.store.sessions.clearAllSnoozes(sessionId)
+      },
+      () => this.userStateChanges(sessionId, users),
+    )
     this.ports.broadcastSessions()
   }
 
@@ -773,14 +733,14 @@ export class SessionStateService {
   // Shared composer document
   // -------------------------------------------------------------------------
 
-  draftRevision(sessionId: SessionId): number | undefined {
-    return this.draftDocs.get(sessionId)?.rev
+  async draftRevision(sessionId: SessionId): Promise<number | undefined> {
+    return (await this.docOf(sessionId))?.rev
   }
 
   /** The current server-side composer text, used only to avoid clobbering a
    * human edit while automatic prompt recovery restores or clears its seed. */
-  draftText(sessionId: SessionId): string | undefined {
-    return this.draftDocs.get(sessionId)?.text
+  async draftText(sessionId: SessionId): Promise<string | undefined> {
+    return (await this.docOf(sessionId))?.text
   }
 
   /**
@@ -825,9 +785,9 @@ export class SessionStateService {
     }
   }
 
-  maybeCatchupInject(sessionId: SessionId, machineId: MachineId): void {
+  async maybeCatchupInject(sessionId: SessionId, machineId: MachineId): Promise<void> {
     if (!this.draftSyncEnabled_) return
-    const doc = this.draftDocs.get(sessionId)
+    const doc = await this.docOf(sessionId)
     if (!doc?.text) return
     const lastLive = this.ports.getSession(sessionId)?.lastActiveAt
     if (lastLive && doc.editedAt <= lastLive) return
@@ -848,15 +808,32 @@ export class SessionStateService {
     principal: SessionStatePrincipal,
     send: (message: LiveServerMessage) => void,
   ): Promise<void> {
+    // Every stored draft (a row exists only while its text is not empty), with
+    // the documents this process holds taking precedence (POD-6160). The stored
+    // ones are not cached: a draft is held once its session uses it.
+    const stored = await this.ports.store.sessions.loadDraftDocs()
+    const candidates = new Set<SessionId>([...(Object.keys(stored) as SessionId[]), ...this.draftDocs.keys()])
     const visibleIds: SessionId[] = []
-    for (const sessionId of this.draftDocs.keys()) {
+    for (const sessionId of candidates) {
       if (await this.canReadSession(principal, sessionId)) visibleIds.push(sessionId)
     }
     // No await may separate reading a document from sending it. Live edits can
     // replace draftDocs during authorization; replaying a captured older rev
     // afterward would overwrite the client's newer text (POD-3539).
     for (const sessionId of visibleIds) {
-      const doc = this.draftDocs.get(sessionId)
+      const row = stored[sessionId]
+      const doc =
+        this.draftDocs.get(sessionId) ??
+        (row
+          ? {
+              sessionId,
+              text: row.text,
+              rev: row.rev,
+              origin: row.origin ?? 'seed',
+              editedAt: row.updatedAt,
+              history: row.history,
+            }
+          : undefined)
       if (doc?.text) send(this.draftWire(doc))
     }
   }
@@ -892,7 +869,7 @@ export class SessionStateService {
     edit: { baseRev?: number; text: string; origin: string },
     fromClientId?: string,
   ): Promise<void> {
-    const current = this.draftDocs.get(sessionId) ?? emptyDraftDoc(sessionId)
+    const current = (await this.docOf(sessionId)) ?? emptyDraftDoc(sessionId)
     const result = applyDraftEdit(current, {
       baseRev: edit.baseRev ?? current.rev,
       text: edit.text,
@@ -913,7 +890,6 @@ export class SessionStateService {
     }
     const doc = result.doc
     this.draftDocs.set(sessionId, doc)
-    this.draftTimes.set(sessionId, doc.editedAt)
     const session = this.ports.getSession(sessionId)
     const draftNonemptyChanged = session && (session.draftUpdatedAt !== undefined) !== !!doc.text
     const editedAt = doc.text ? doc.editedAt : undefined
@@ -1021,10 +997,10 @@ export class SessionStateService {
     if (!this.draftSyncEnabled_) return
     const session = this.ports.getSession(sessionId)
     if (!session?.hasBoundDriver) {
-      this.maybeCatchupInject(sessionId, machineId)
+      await this.maybeCatchupInject(sessionId, machineId)
       return
     }
-    const before = this.draftDocs.get(sessionId)
+    const before = await this.docOf(sessionId)
     const revision = before?.rev
     if (
       before &&

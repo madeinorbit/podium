@@ -472,7 +472,7 @@ describe('the composer draft rejects a stale revision instead of overwriting', (
     })
     const { sessionId } = await reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/p' })
     const svc = reg.modules.sessions as unknown as {
-      draftRevision: (id: string) => number | undefined
+      draftRevision: (id: string) => Promise<number | undefined>
     }
     return { sessionState, sessionId, svc, owner: soleHumanSessionStatePrincipal(OPERATOR) }
   }
@@ -492,7 +492,7 @@ describe('the composer draft rejects a stale revision instead of overwriting', (
     ).toBe('applied')
     // The instrument check: a revision now EXISTS, so the stale test below has
     // something real to be stale against.
-    expect(typeof svc.draftRevision(sessionId)).toBe('number')
+    expect(typeof (await svc.draftRevision(sessionId))).toBe('number')
   })
 
   it('an edit at the CURRENT revision applies, and one at a STALE revision is rejected', async () => {
@@ -503,7 +503,7 @@ describe('the composer draft rejects a stale revision instead of overwriting', (
       owner,
       'ws',
     )
-    const revision = svc.draftRevision(sessionId)
+    const revision = await svc.draftRevision(sessionId)
     expect(revision).toBeGreaterThan(0)
 
     // Fresh: accepted.
@@ -519,7 +519,7 @@ describe('the composer draft rejects a stale revision instead of overwriting', (
     // STALE: a second writer composing against an older revision. Rejected with a
     // reason the author can see — NOT silently applied over the first writer's text,
     // which is the one promise the op-stream reservation makes today (§3.3/§4).
-    const staleAt = svc.draftRevision(sessionId)
+    const staleAt = await svc.draftRevision(sessionId)
     expect(staleAt).toBeGreaterThan(0)
     const stale = await sessionState.execute(
       'sessions.setDraft',
@@ -530,6 +530,6 @@ describe('the composer draft rejects a stale revision instead of overwriting', (
     expect(stale.outcome).toBe('applied') // the command ran; its EDIT was refused
     expect(stale.value).toMatchObject({ ok: false, reason: 'stale-revision' })
     // The refusal is the point: the clobbering text never reached the document.
-    expect(svc.draftRevision(sessionId)).toBe(staleAt)
+    expect(await svc.draftRevision(sessionId)).toBe(staleAt)
   })
 })

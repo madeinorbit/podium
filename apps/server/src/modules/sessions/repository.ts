@@ -998,6 +998,9 @@ export class SessionRepository {
     let installMs = 0
     const runtimeSessions = await this.store.events.runtimeTranscriptSessionIds()
     const storedRows = await this.store.sessions.loadSessions()
+    // The DRAFT stamps of the sessions installed below, in one read (POD-6160:
+    // draft documents themselves load when used, never at boot).
+    await this.state.stageDraftTimes(storedRows.map((r) => r.id))
     for (const r of storedRows) {
       let rowStarted = performance.now()
       const session = await this.sessionFromStoredRow(r, 'boot', runtimeSessions.has(r.id))

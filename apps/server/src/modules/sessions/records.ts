@@ -442,11 +442,16 @@ export class SessionRecords {
       // Moved or removed while the records were read: nothing to compare.
       if (!resident || isRunningStatus(resident.status) || !this.ports.settled(id)) continue
       const record = records.get(id)
+      // A session's turn state is durable only through its observation
+      // checkpoint. A runtime-driven session's state lives on the resident
+      // session alone (a restart loses it as well), so when the record has
+      // none, the map's is not compared.
+      const agentState = record?.agentState !== undefined
       compareWithSessionMap(
         `sessionRecord.${reader}`,
         id,
-        () => durableView(resident),
-        record ? durableView(record) : undefined,
+        () => durableView(resident, { agentState }),
+        record ? durableView(record, { agentState }) : undefined,
       )
     }
   }
@@ -533,10 +538,14 @@ function rowFields(row: SessionRow): SelectionFields {
 
 /** What a stopped session's record must agree with the map on: its facts and
  *  its wire projection without the live plane (see `LIVE_PLANE_META_FIELDS`). */
-export function durableView(subject: SessionSubject): unknown {
+export function durableView(subject: SessionSubject, options: { agentState?: boolean } = {}): unknown {
   const meta: Record<string, unknown> = { ...subjectMeta(subject) }
   for (const field of LIVE_PLANE_META_FIELDS) delete meta[field]
   const { busy: _busy, observedModel: _model, observedEffort: _effort, contextUsagePercent: _context, ...facts } =
     subjectFacts(subject)
+  if (options.agentState === false) {
+    delete meta.agentState
+    delete (facts as Record<string, unknown>).agentState
+  }
   return { meta, facts }
 }

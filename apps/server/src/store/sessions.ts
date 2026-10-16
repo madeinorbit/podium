@@ -736,6 +736,31 @@ const deleteAllReadAtOf = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
+/** One user's read markers for a set of sessions (POD-6160). */
+const readAtOfUserSessions = preparedFamily((db: StoreDrizzle, size: number) =>
+  db
+    .select({ sessionId: sessionUserState.sessionId, readAt: sessionUserState.readAt })
+    .from(sessionUserState)
+    .where(
+      and(
+        eq(sessionUserState.userId, param(sessionUserState.userId, 'userId')),
+        inListOf(sessionUserState.sessionId, size),
+      ),
+    )
+    .prepare(),
+)
+
+/** One user's snoozes for a set of sessions (POD-6160). */
+const snoozesOfUserSessions = preparedFamily((db: StoreDrizzle, size: number) =>
+  db
+    .select({ sessionId: snoozesTable.sessionId, snoozedUntil: snoozesTable.snoozedUntil })
+    .from(snoozesTable)
+    .where(
+      and(eq(snoozesTable.userId, param(snoozesTable.userId, 'userId')), inListOf(snoozesTable.sessionId, size)),
+    )
+    .prepare(),
+)
+
 const snoozesOfUser = prepared((db: StoreDrizzle) =>
   db
     .select({ sessionId: snoozesTable.sessionId, snoozedUntil: snoozesTable.snoozedUntil })
@@ -912,6 +937,15 @@ const upsertDraftText = prepared((db: StoreDrizzle) =>
 )
 
 const allDraftRows = prepared((db: StoreDrizzle) => db.select().from(sessionDrafts).prepare())
+
+/** One session's versioned draft document (POD-6160: drafts load on use). */
+const draftRowOf = prepared((db: StoreDrizzle) =>
+  db
+    .select()
+    .from(sessionDrafts)
+    .where(eq(sessionDrafts.sessionId, param(sessionDrafts.sessionId, 'sessionId')))
+    .prepare(),
+)
 
 const upsertDraftDoc = prepared((db: StoreDrizzle) =>
   db
@@ -1470,6 +1504,37 @@ export class SessionsRepository {
     return out
   }
 
+  /**
+   * ONE USER'S OVERLAY OF A SET OF SESSIONS (POD-6160): the read marker and
+   * the snooze of each, two indexed statements per 500 ids. A snooze that has
+   * expired reads as absent, as `listSnoozes` reads it; deleting it is left to
+   * that listing, so this read never writes.
+   */
+  async userStateOf(
+    userId: UserId,
+    sessionIds: readonly SessionId[],
+    now: number = Date.now(),
+  ): Promise<Map<SessionId, { readAt: string | null; snoozedUntil?: string | null }>> {
+    requireUserId(userId)
+    const out = new Map<SessionId, { readAt: string | null; snoozedUntil?: string | null }>()
+    const unique = [...new Set(sessionIds)]
+    for (const id of unique) out.set(id, { readAt: null })
+    for (const chunk of chunked(unique)) {
+      const size = inListSize(chunk.length)
+      const values = { userId, ...inListValues(chunk, size) }
+      for (const r of await readAtOfUserSessions(this.db, size).all(values)) {
+        const entry = out.get(r.sessionId as SessionId)
+        if (entry) entry.readAt = r.readAt
+      }
+      for (const r of await snoozesOfUserSessions(this.db, size).all(values)) {
+        if (r.snoozedUntil !== null && Date.parse(r.snoozedUntil) <= now) continue
+        const entry = out.get(r.sessionId as SessionId)
+        if (entry) entry.snoozedUntil = r.snoozedUntil
+      }
+    }
+    return out
+  }
+
   async getReadAt(userId: UserId, sessionId: SessionId): Promise<string | null> {
     requireUserId(userId)
     const row = await readAtOfUserSession(this.db).get({
@@ -1751,16 +1816,14 @@ export class SessionsRepository {
   async loadDraftDocs(): Promise<Record<SessionId, StoredDraftDoc>> {
     const rows = await allDraftRows(this.db).all()
     const out: Record<string, StoredDraftDoc> = {}
-    for (const r of rows) {
-      out[r.sessionId] = {
-        text: r.text,
-        updatedAt: r.updatedAt,
-        rev: r.rev ?? 0,
-        origin: r.origin ?? null,
-        history: parseHistory(r.history ?? null),
-      }
-    }
+    for (const r of rows) out[r.sessionId] = storedDraftDoc(r)
     return out
+  }
+
+  /** One session's draft document, or undefined when it has none (POD-6160). */
+  async draftDocOf(sessionId: SessionId): Promise<StoredDraftDoc | undefined> {
+    const row = (await draftRowOf(this.db).all({ sessionId }))[0]
+    return row ? storedDraftDoc(row) : undefined
   }
 
   /** Upsert (non-empty) or delete (empty text) a versioned draft doc. Empty text
@@ -1788,6 +1851,16 @@ export class SessionsRepository {
 
 /** The 500-row chunks every batched id reader here shares. They stay below
  *  SQLite's variable limit while keeping one repository call per pass. */
+function storedDraftDoc(r: typeof sessionDrafts.$inferSelect): StoredDraftDoc {
+  return {
+    text: r.text,
+    updatedAt: r.updatedAt,
+    rev: r.rev ?? 0,
+    origin: r.origin ?? null,
+    history: parseHistory(r.history ?? null),
+  }
+}
+
 /** One stored offer, or undefined for a row with corrupt JSON actions, which is
  *  dropped rather than failing the read. */
 function offerOfRow(r: typeof offersTable.$inferSelect): OfferMap[string] | undefined {

@@ -67,7 +67,7 @@ async function fixture(file = ':memory:') {
     sessionRemovalSpecs: vi.fn(),
     sessionTeardown: { tryAutoArchiveStoppedObserved: vi.fn() },
     state: {
-      prepareStoredDrafts: vi.fn(async () => vi.fn()), invalidateAllOverlays: vi.fn(),
+      prepareStoredDrafts: vi.fn(async () => vi.fn()),
       setSnooze: vi.fn(), clearSnooze: vi.fn(), markRead: vi.fn(), markUnread: vi.fn(),
       setWorkState: vi.fn(), setArchived: vi.fn(), clearAllSnoozes: vi.fn(), suppressNativeDraft: vi.fn(),
     },

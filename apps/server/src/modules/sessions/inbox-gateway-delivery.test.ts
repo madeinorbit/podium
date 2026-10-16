@@ -209,7 +209,7 @@ function harness(
     setSessionDraft: vi.fn(async ({ text }: { sessionId: SessionId; text: string }) => {
       draft = text || undefined
     }),
-    draftText: () => draft,
+    draftText: async () => draft,
     resurrect: vi.fn(),
     contractAnswer: async (input: unknown) => {
       contractAnswers.push(input)

@@ -1572,7 +1572,7 @@ describe('a delivery report is a fact about one message (POD-4796)', () => {
       await route('late-failure', { ...replayed, outcome: 'failed', reason: 'late' })
       expect(acks('replay-2')).toEqual([expect.objectContaining({ outcome: 'committed' })])
       expect(acks('late-failure')).toEqual([expect.objectContaining({ outcome: 'committed' })])
-      expect(registry.modules.sessions.state.draftText(sessionId) ?? '').toBe('')
+      expect((await registry.modules.sessions.state.draftText(sessionId)) ?? '').toBe('')
 
       // Off the activity timeline: nothing logged, the checkpoint unmoved.
       expect(await store.events.listRuntimeEvents(sessionId)).toHaveLength(logged)
@@ -1601,7 +1601,7 @@ it('projects draft changes after a completed turn without recording agent activi
     const before = (await registry.modules.sessions.sessionById(sessionId))?.lastActiveAt
     const event = { ...turnEvent({ at: '2026-09-16T00:00:00.000Z', seq: 3, turnEpoch: 1, ev: 'completed' }), t: 'draft' as const, text: 'next prompt' }
     expect(await registry.modules.sessions.runtimeGateway.record(store.hostMachineId, { sessionId, event })).toMatchObject({ kind: 'accepted' })
-    expect(registry.modules.sessions.state.draftText(sessionId)).toBe('next prompt')
+    expect(await registry.modules.sessions.state.draftText(sessionId)).toBe('next prompt')
     expect((await registry.modules.sessions.sessionById(sessionId))?.lastActiveAt).toBe(before)
     expect(await registry.modules.sessions.runtimeGateway.record(store.hostMachineId, { sessionId, event })).toMatchObject({ kind: 'duplicate' })
   } finally {

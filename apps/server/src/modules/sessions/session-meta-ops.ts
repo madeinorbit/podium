@@ -44,7 +44,7 @@ export interface SessionMetaOpsPorts {
   sessionRemovalSpecs(sessionId: SessionId): EntityChangeSpec[]
   sessionTeardown: Pick<SessionTeardown, 'tryAutoArchiveStoppedObserved'>
   sessions: Map<SessionId, Session>
-  state: Pick<SessionStateService, 'setSnooze' | 'clearSnooze' | 'markRead' | 'markUnread' | 'setWorkState' | 'setArchived' | 'clearAllSnoozes' | 'suppressNativeDraft' | 'prepareStoredDrafts' | 'invalidateAllOverlays'>
+  state: Pick<SessionStateService, 'setSnooze' | 'clearSnooze' | 'markRead' | 'markUnread' | 'setWorkState' | 'setArchived' | 'clearAllSnoozes' | 'suppressNativeDraft' | 'prepareStoredDrafts'>
   store: SessionStore
   toPtyInput: MachinesService['toPtyInput']
   /**
@@ -514,8 +514,6 @@ export class SessionMetaOps {
       apply: (changes, ledgerCursor) => {
         installDrafts()
         for (const install of installs) install.apply()
-        // Restored sessions may carry per-user rows; the overlay is read fresh.
-        this.ports.state.invalidateAllOverlays()
         this.ports.repository.publishSessionProjection(changes, ledgerCursor)
       },
     }

@@ -153,6 +153,8 @@ const FAMILY_SHAPES: ReadonlyMap<string, readonly (string | number)[]> = new Map
   ['apps/server/src/store/sessions.ts:liveSessionsOfStatuses', SIZES],
   ['apps/server/src/store/sessions.ts:liveSessionsOfBirthLetter', SIZES],
   ['apps/server/src/store/sessions.ts:liveSessionsSpawnedBy', SIZES],
+  ['apps/server/src/store/sessions.ts:readAtOfUserSessions', SIZES],
+  ['apps/server/src/store/sessions.ts:snoozesOfUserSessions', SIZES],
   ['apps/server/src/store/sessions.ts:upsertSessionsOfShape', ['2|id', '4|id']],
   ['apps/server/src/store/superagent.ts:setThreadBinding', ['podiumSessionId,updatedAt']],
   ['apps/server/src/store/machines.ts:rotateCredentialOf', ['null', 'key']],

@@ -347,7 +347,7 @@ const REGISTRATIONS: Record<string, Registration> = {
       // write, byte-for-byte.
       const baseRevision = typeof input.baseRevision === 'number' ? input.baseRevision : undefined
       if (baseRevision !== undefined) {
-        const current = deps.state.draftRevision(sessionIdOf(input.sessionId))
+        const current = await deps.state.draftRevision(sessionIdOf(input.sessionId))
         if (current !== undefined && current !== baseRevision) {
           return { ok: false, reason: 'stale-revision', revision: current }
         }

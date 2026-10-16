@@ -303,7 +303,7 @@ function harness(
     prepareSend: options.prepareSend ?? vi.fn(async () => {}),
     ownerOf: options.ownerOf ?? (async () => (options.owner === undefined ? ALICE : options.owner)),
     setSessionDraft,
-    draftText: () => draft,
+    draftText: async () => draft,
     resurrect,
     ...(options.contractConfigure
       ? {

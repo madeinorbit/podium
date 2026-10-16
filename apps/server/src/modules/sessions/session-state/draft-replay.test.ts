@@ -20,7 +20,9 @@ describe('draft replay ordering', () => {
       return { owner: firstAdminMemberId(), grants: [] }
     })
     const state = new SessionStateService({
-      store: { sessions: { setDraftDoc: vi.fn() } } as unknown as SessionStatePorts['store'],
+      store: {
+        sessions: { setDraftDoc: vi.fn(), draftDocOf: async () => undefined, loadDraftDocs: async () => ({}) },
+      } as unknown as SessionStatePorts['store'],
       now: Date.now,
       getSession: () => undefined,
       sessionIds: () => [],
@@ -43,7 +45,8 @@ describe('draft replay ordering', () => {
         { userId: firstAdminMemberId(), capability: OPERATOR, humanDirect: true },
         send,
       )
-      expect(sessionOwner).toHaveBeenCalledOnce()
+      // The replay reads the stored drafts first (POD-6160), then authorizes.
+      await vi.waitFor(() => expect(sessionOwner).toHaveBeenCalledOnce())
       expect(received).toEqual([])
 
       // The real versioned edit broadcasts to this client while replay is paused.
@@ -83,7 +86,8 @@ function runtimeDraftWorld() {
     deliverToClient = vi.fn(),
     setDraftDoc = vi.fn()
   const state = new SessionStateService({
-    store: { sessions: { setDraftDoc } },
+    // No stored draft: documents start in this process (POD-6160 reads on use).
+    store: { sessions: { setDraftDoc, draftDocOf: async () => undefined, loadDraftDocs: async () => ({}) } },
     now: Date.now,
     getSession: () => session,
     sessionIds: () => [sessionId],
@@ -123,7 +127,7 @@ describe('draft acknowledgements', () => {
     w.state.setDraftSyncEnabled(false)
     try {
       await w.state.setDraft({ sessionId: w.sessionId, text })
-      const rev = w.state.draftRevision(w.sessionId) ?? 0
+      const rev = (await w.state.draftRevision(w.sessionId)) ?? 0
       w.broadcastToClients.mockClear()
       w.deliverToClient.mockClear()
       w.setDraftDoc.mockClear()
@@ -142,7 +146,7 @@ describe('draft acknowledgements', () => {
       )
       expect(w.broadcastToClients).not.toHaveBeenCalled()
       expect(w.setDraftDoc).not.toHaveBeenCalled()
-      expect(w.state.draftRevision(w.sessionId) ?? 0).toBe(rev)
+      expect((await w.state.draftRevision(w.sessionId)) ?? 0).toBe(rev)
     } finally {
       w.state.removeSession(w.sessionId)
     }
@@ -154,10 +158,10 @@ describe('runtime draft bootstrap', () => {
     const w = runtimeDraftWorld()
     try {
       await w.state.initializeRuntimeDraft(w.sessionId, w.session.machineId as never)
-      expect(w.state.draftText(w.sessionId)).toBe('from snapshot')
+      expect(await w.state.draftText(w.sessionId)).toBe('from snapshot')
       w.runtimeSnapshot.mockResolvedValue({ result: { snapshot: { draft: '' } } })
       await w.state.initializeRuntimeDraft(w.sessionId, w.session.machineId as never)
-      expect(w.state.draftText(w.sessionId)).toBe('')
+      expect(await w.state.draftText(w.sessionId)).toBe('')
       expect(w.runtimeDraft).not.toHaveBeenCalled()
     } finally {
       w.state.removeSession(w.sessionId)
@@ -169,7 +173,7 @@ describe('runtime draft bootstrap', () => {
     w.runtimeSnapshot.mockResolvedValue({ result: { snapshot: {} } } as never)
     try {
       await w.state.initializeRuntimeDraft(w.sessionId, w.session.machineId as never)
-      expect(w.state.draftText(w.sessionId)).toBe('from get')
+      expect(await w.state.draftText(w.sessionId)).toBe('from get')
       expect(w.runtimeDraft).toHaveBeenCalledWith(
         { sessionId: w.sessionId, operation: { verb: 'get' } },
         w.session.machineId,
@@ -193,7 +197,7 @@ describe('runtime draft bootstrap', () => {
       await w.state.setDraft({ sessionId: w.sessionId, text: 'new local edit' })
       resolve({ result: { snapshot: { draft: 'old remote text' } } })
       await pending
-      expect(w.state.draftText(w.sessionId)).toBe('new local edit')
+      expect(await w.state.draftText(w.sessionId)).toBe('new local edit')
     } finally {
       w.state.removeSession(w.sessionId)
     }

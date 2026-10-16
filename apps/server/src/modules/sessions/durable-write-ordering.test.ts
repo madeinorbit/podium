@@ -309,7 +309,7 @@ describe('async session port boundaries', () => {
   it('a draft revision is published only after its DRAFT-tag commit', async () => {
     const f = fixture()
     const state = new SessionStateService({
-      store: { sessions: { setDraftDoc: async () => {} } },
+      store: { sessions: { setDraftDoc: async () => {}, draftDocOf: async () => undefined } },
       getSession: () => f.session,
       writeSession: async (_id: Parameters<SessionStatePorts['writeSession']>[0], mutate: Parameters<SessionStatePorts['writeSession']>[1]) => {
         await f.repository.write(f.session, mutate)
@@ -334,7 +334,12 @@ describe('async session port boundaries', () => {
     const f = fixture()
     const persisted: string[] = []
     const state = new SessionStateService({
-      store: { sessions: { setDraftDoc: async (_id: string, doc: { text: string }) => { persisted.push(doc.text) } } },
+      store: {
+        sessions: {
+          setDraftDoc: async (_id: string, doc: { text: string }) => { persisted.push(doc.text) },
+          draftDocOf: async () => undefined,
+        },
+      },
       getSession: () => f.session,
       writeSession: async (_id: Parameters<SessionStatePorts['writeSession']>[0], mutate: Parameters<SessionStatePorts['writeSession']>[1]) => { await f.repository.write(f.session, mutate) },
       broadcastToClients() {},
@@ -346,7 +351,7 @@ describe('async session port boundaries', () => {
       const clear = state.setDraft({ sessionId: f.session.sessionId, text: '' })
       f.commit.resolve()
       await Promise.all([older, clear])
-      expect(state.draftText(f.session.sessionId)).toBe('')
+      expect(await state.draftText(f.session.sessionId)).toBe('')
       expect(f.session.draftUpdatedAt).toBeUndefined()
       expect(persisted.at(-1)).toBe('')
     } finally {
