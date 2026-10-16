@@ -59,10 +59,10 @@ export class IssueAssistantDigestModule {
     if (!(await this.store.d.getSettings()).issues?.assistantEnabled) return
     const sess = await this.store.d.sessionById(sessionId)
     if (!sess) return
-    const row = [...this.store.rows.values()].find(
-      (r) =>
-        r.worktreePath &&
-        (isMachinePathWithinRoot(r.worktreePath, sess.cwd)),
+    // The live issues whose worktree could contain the session's folder, one
+    // indexed read (POD-6192); the first that does, in repository order.
+    const row = (await this.store.deps.store.issues.worktreeOwnerCandidates([sess.cwd])).find(
+      (r) => r.worktreePath && isMachinePathWithinRoot(r.worktreePath, sess.cwd),
     )
     if (!row) return
     const prev = this.assistantTimers.get(row.id)
@@ -91,9 +91,17 @@ export class IssueAssistantDigestModule {
       this.store.d.repoOp('status', row.worktreePath).catch(() => ({ ok: false, output: '' })),
       this.store.d.repoOp('log', row.worktreePath).catch(() => ({ ok: false, output: '' })),
     ])
-    const inScope = await this.store.repoScopeFilter(row.repoPath)
-    const others = [...this.store.rows.values()]
-      .filter((r) => r.id !== row.id && inScope(r) && !r.archived && !r.deletedAt)
+    // The repository's other live, unarchived issues, in one SQL listing.
+    const scope = (await this.store.deps.store.repos.issueRepoIdResolver())(row.repoPath)
+    const others = (
+      scope === null
+        ? []
+        : await this.store.deps.store.issues.listIssueRowsWhere(
+            { repo: true, readable: false, live: true, unarchived: true, order: 'repo-seq' },
+            { repoId: scope },
+          )
+    )
+      .filter((r) => r.id !== row.id)
       .map((r) => ({ seq: r.seq, title: r.title, stage: r.stage, branch: r.branch }))
     const ctx = {
       issue: {

@@ -29,14 +29,15 @@ export class IssueHierarchyModule {
   }
 
   /** Containment-only parent path. */
-  private containmentPath(startId: string, targetId: string): string[] | null {
+  private async containmentPath(startId: string, targetId: string): Promise<string[] | null> {
     const path = [startId]
     const seen = new Set<string>()
     let current: string | null | undefined = startId
     while (current && !seen.has(current)) {
       if (current === targetId) return path
       seen.add(current)
-      current = this.store.rows.get(current)?.parentId
+      // One row per level, from the database (POD-6192); the depth bounds it.
+      current = (await this.store.row(current))?.parentId
       if (current) path.push(current)
     }
     return null
@@ -93,7 +94,7 @@ export class IssueHierarchyModule {
     if (newParentId === row.parentId) return
     if (newParentId) {
       await this.store.rowOrThrow(newParentId)
-      const returnPath = this.containmentPath(newParentId, row.id)
+      const returnPath = await this.containmentPath(newParentId, row.id)
       if (returnPath) {
         throw new IssueRefusal(
           `reparent ${row.id} -> ${newParentId} would create a containment cycle: ${[row.id, ...returnPath].join(' -> ')}`,
@@ -129,11 +130,11 @@ export class IssueHierarchyModule {
   async ancestorIds(id: string): Promise<string[]> {
     const out: string[] = []
     const seen = new Set<string>()
-    let cur = this.store.rows.get(await this.store.resolveRef(id))?.parentId ?? null
+    let cur = (await this.store.row(await this.store.resolveRef(id)))?.parentId ?? null
     while (cur && !seen.has(cur)) {
       seen.add(cur)
       out.push(cur)
-      cur = this.store.rows.get(cur)?.parentId ?? null
+      cur = (await this.store.row(cur))?.parentId ?? null
     }
     return out
   }
@@ -141,15 +142,14 @@ export class IssueHierarchyModule {
   async inProposedSubtree(id: string): Promise<boolean> {
     let row: IssueRow | undefined
     try {
-      row = this.store.rows.get(await this.store.resolveRef(id))
+      row = await this.store.row(await this.store.resolveRef(id))
     } catch {
       row = undefined
     }
     if (!row) return true
     if (row.stage === 'proposed') return true
-    return (await this.ancestorIds(row.id)).some(
-      (ancestor) => this.store.rows.get(ancestor)?.stage === 'proposed',
-    )
+    const ancestors = await this.store.rowsByIds(await this.ancestorIds(row.id))
+    return [...ancestors.values()].some((ancestor) => ancestor.stage === 'proposed')
   }
 
   async supersede(oldRef: string, newRef: string): Promise<IssueProjection> {

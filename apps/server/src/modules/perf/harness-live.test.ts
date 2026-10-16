@@ -75,6 +75,10 @@ async function drive(): Promise<{ registry: SessionRegistry; inbox: unknown[] }>
   // A real write through the real funnel, then the deterministic flush seam.
   await registry.issues.crud.create({ repoPath: '/r', title: 'switch-latency probe', startNow: false })
   registry.modules.funnel.flushDeltas()
+  // The feed's publish runs after the flush, asynchronously; since issue reads
+  // come from the database (POD-6158) it can still be in flight here. Wait for
+  // its frame phase rather than race it: a publish that never comes still fails.
+  await expect.poll(() => perf.snapshot().phases['feedPublish.frame']?.count ?? 0).toBeGreaterThan(0)
   return { registry, inbox }
 }
 

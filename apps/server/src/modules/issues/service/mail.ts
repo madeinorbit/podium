@@ -88,7 +88,7 @@ export class IssueCommentsMailModule {
       case 'agent': {
         const scope = principal.capability.scope
         if (scope.kind !== 'subtree') return 'agent'
-        const root = this.store.rows.get(scope.rootId)
+        const root = await this.store.row(scope.rootId)
         return root ? `issue:#${root.seq}` : 'agent'
       }
       case 'system':

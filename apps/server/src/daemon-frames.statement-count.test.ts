@@ -41,6 +41,12 @@ import {
 // 29 -> 27; flushActivity is C3's 4. `expectGrantReads` pins one read per
 // resource: the binding's second is the runtime board projection, a drain that
 // serves several frames and runs each record as its own operation.
+//
+// RE-PINNED FOR POD-6192 (D1c of the issue map removal), measured on the
+// polaris VM. A frame's session-access check walks the subtree scope's
+// ancestors (`session-access.ts` -> `IssueHierarchyModule.ancestorIds`), which
+// read the issue's parent off the in-memory issue map and now reads the issue's
+// row: +1 for runtimeEvent 35 -> 36, agentExit 26 -> 27, agentState 28 -> 29.
 
 /**
  * Reads of the `grants` table in one tally [POD-6189]. Statement keys keep
@@ -203,7 +209,7 @@ describe('daemon frames: pinned statement counts at 5 and 200', () => {
         ),
         setup: async (size) => await fixture(size, true),
       },
-      35,
+      36,
     )
     expectGrantReads(counts, 1)
   })
@@ -237,7 +243,7 @@ describe('daemon frames that read an observation checkpoint: pinned at 5 and 200
     const counts = await expectConstantStatements(
       pin('agentExit', async (f) =>
         await route(f, { type: 'agentExit', sessionId: f.ids[0], code: 0, observerGeneration: 1 })),
-      26,
+      27,
     )
     expectGrantReads(counts, 1)
   })
@@ -283,7 +289,7 @@ describe('daemon frames that read an observation checkpoint: pinned at 5 and 200
   it('agentState (legacy, unfenced) of one session among many', async () => {
     const counts = await expectConstantStatements(
       pin('agentState', async (f) => await route(f, { type: 'agentState', sessionId: f.ids[0], state: idle })),
-      28,
+      29,
     )
     expectGrantReads(counts, 1)
   })

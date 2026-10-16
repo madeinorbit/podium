@@ -76,6 +76,7 @@ import {
   liveChildrenOf,
   perChunk,
   readableAmong,
+  sortScopeOf,
 } from './issue-listings'
 import { operationLoader } from './executor/operation-loader'
 import { currentReadScope, readScopeSlot } from './executor/read-scope'
@@ -1649,6 +1650,21 @@ export class IssuesRepository {
     const rows = await deferralsOf(this.db, listingKey(shape)).all(listingValues(shape, input))
     return rows.flatMap((r) => typeof r.deferUntil === 'string'
       ? [{ id: r.id as IssueId, deferUntil: r.deferUntil, ready: Number(r.ready) === 1 }] : [])
+  }
+
+  /** The narrow rows of one manual-order key space (`issue-listings.ts`
+   *  sortScopeOf): a parent's live children, or a repository's live top-level
+   *  issues, without the viewer's pinned ones when a viewer is given. */
+  async sortScope(
+    scope: { parentId: IssueId } | { repoId: RepoId; unpinnedFor?: UserId },
+  ): Promise<{ id: IssueId; sortKey: string | null; createdAt: string; seq: number }[]> {
+    const rows = 'parentId' in scope
+      ? await sortScopeOf(this.db, 'parent').all({ parentId: scope.parentId })
+      : scope.unpinnedFor
+        ? await sortScopeOf(this.db, 'top-unpinned').all({ repoId: scope.repoId, viewer: scope.unpinnedFor })
+        : await sortScopeOf(this.db, 'top').all({ repoId: scope.repoId })
+    return rows.flatMap((r) => typeof r.id === 'string'
+      ? [{ id: r.id as IssueId, sortKey: r.sortKey ?? null, createdAt: r.createdAt, seq: r.seq }] : [])
   }
 
   /** Labels of these issues, each issue's in name order. */

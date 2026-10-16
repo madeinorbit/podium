@@ -30,11 +30,12 @@ import {
 import { resolveSpawnDefaults } from '@podium/runtime'
 import type { EntityChangeSpec } from '@podium/sync'
 import type { IssueRow } from '../../../store'
-import { afterCommit, followUpAfterCommit } from '../../../store/executor/executor'
+import { afterCommit, followUpAfterCommit, spanOpen } from '../../../store/executor/executor'
 import { type StoredIssue, toStorage } from '../../../store/issue-storage'
 import type { SessionFacts } from '../../sessions/facts'
 import { readIssue } from '../issue-reader'
 import type { IssueStore } from './core'
+import { compareWithIssueMap } from './map-parity'
 import { IssueNotFound } from './not-found'
 import { IssueRefusal } from './refusal'
 import type { CreateIssueInput, IssueDeps, IssuePanelOp, IssuePatch } from './types'
@@ -173,6 +174,14 @@ export interface ShippingIssueMutation {
  * labels/comments/panel/state, and the attention-state event emissions that
  * update() detects. Every mutation ends in persist()/broadcastList() (core).
  */
+/** The columns a manual-order key space is ordered and measured by. */
+interface SortScopeRow {
+  id: IssueId
+  sortKey: string | null
+  createdAt: string
+  seq: number
+}
+
 interface IssueCrudHierarchyPort {
   reparent(id: string, parentId: string | null): Promise<IssueProjection>
   setParentForUpdate(row: IssueRow, parentId: import('@podium/model').IssueId | null): Promise<void>
@@ -707,10 +716,15 @@ export class IssueCrudModule {
       const inScope = await this.store.repoScopeFilter(closed.repoPath)
       const ready: IssueRow[] = []
       const dependents = await this.store.deps.store.issues.listDependents(closed.id)
+      // The blocked dependents and their readiness, each read once for the set.
+      const rows = await this.store.rowsByIds(
+        dependents.filter((dep) => dep.type === 'blocked-by').map((dep) => dep.fromId),
+      )
+      const readyIds = await this.store.readyAmong([...rows.values()].filter((row) => inScope(row)))
       for (const dep of dependents) {
         if (dep.type !== 'blocked-by') continue
-        const row = this.store.rows.get(dep.fromId)
-        if (row && inScope(row) && (await this.store.isReady(row))) ready.push(row)
+        const row = rows.get(dep.fromId)
+        if (row && readyIds.has(row.id)) ready.push(row)
       }
       if (ready.length === 0) return
 
@@ -744,12 +758,13 @@ export class IssueCrudModule {
   ): Promise<void> {
     sessionList ??= this.store.deps.sessionFacts()
     const skipped: Array<{ seq: number; why: string }> = []
-    for (const child of this.store.rows.values()) {
-      if (child.parentId !== parentId || child.archived || child.deletedAt) continue
+    const children = await this.store.childRows(parentId, { live: true, unarchived: true })
+    const markers = await this.store.issueUserStates(children.map((child) => child.id))
+    for (const child of children) {
       if (!this.store.isClosed(child)) continue // open work is never swept by a parent close
       // Per-user read state (POD-1076): the sweep asks the broadcast viewer,
       // which is what "the operator has seen it" meant when this was a column.
-      if (this.store.mapIssueOverlay(child.id).readAt == null) {
+      if ((markers.get(child.id)?.readAt ?? null) == null) {
         skipped.push({ seq: child.seq, why: 'unread' })
         continue
       }
@@ -767,7 +782,7 @@ export class IssueCrudModule {
       await this.update(child.id, { archived: true }, { cascadeArchive: false })
     }
     if (skipped.length) {
-      const parent = this.store.rows.get(parentId)
+      const parent = await this.store.row(parentId)
       if (parent) {
         await this.store.emitEvent('issue.cascade_skipped', parentId, { seq: parent.seq, skipped })
       }
@@ -781,8 +796,7 @@ export class IssueCrudModule {
    *  through each child's own `update({ archived: true })` so session teardown
    *  and events stay on the same path as a direct archive. */
   private async archiveLivingDescendants(parentId: string): Promise<void> {
-    for (const child of this.store.rows.values()) {
-      if (child.parentId !== parentId || child.archived || child.deletedAt) continue
+    for (const child of await this.store.childRows(parentId, { live: true, unarchived: true })) {
       await this.update(child.id, { archived: true })
     }
   }
@@ -809,37 +823,54 @@ export class IssueCrudModule {
    *    to a subset preserves that subset's order, so renumbering the UNION keeps
    *    both the pinned section's internal order and the list's.
    */
-  private sortScopeRows(
+  private async sortScopeRows(
     repoId: RepoId | null | undefined,
     repoPath: string,
     parentId: string | null,
     opts?: { includePinned?: boolean },
-  ): IssueRow[] {
-    const rows: IssueRow[] = []
-    for (const r of this.store.rows.values()) {
-      if (r.deletedAt) continue
-      const sameScope = parentId
-        ? r.parentId === parentId
-        : r.parentId == null &&
-          (opts?.includePinned === true || !this.store.mapIssueOverlay(r.id).pinned) &&
-          (r.repoId ? r.repoId === repoId : r.repoPath === repoPath)
-      if (sameScope) rows.push(r)
+  ): Promise<SortScopeRow[]> {
+    // One narrow read of the key space (POD-6192): every stored issue has a
+    // repository id, so the top level is the repository's issues without a
+    // parent; the viewer's pins are left out in SQL.
+    const issues = this.store.deps.store.issues
+    const rows = parentId
+      ? await issues.sortScope({ parentId: asIssueId(parentId) })
+      : repoId
+        ? await issues.sortScope({
+            repoId,
+            ...(opts?.includePinned === true ? {} : { unpinnedFor: await this.store.broadcastViewer() }),
+          })
+        : []
+    if (!spanOpen()) {
+      compareWithIssueMap('sortScopeRows', [repoId ?? null, parentId, opts?.includePinned === true], () => {
+        const old: SortScopeRow[] = []
+        for (const r of this.store.rows.values()) {
+          if (r.deletedAt) continue
+          const sameScope = parentId
+            ? r.parentId === parentId
+            : r.parentId == null &&
+              (opts?.includePinned === true || !this.store.mapIssueOverlay(r.id).pinned) &&
+              (r.repoId ? r.repoId === repoId : r.repoPath === repoPath)
+          if (sameScope) old.push({ id: r.id, sortKey: r.sortKey ?? null, createdAt: r.createdAt, seq: r.seq })
+        }
+        return old.sort((a, b) => (a.id < b.id ? -1 : 1))
+      }, [...rows].sort((a, b) => (a.id < b.id ? -1 : 1)))
     }
     return rows
   }
 
   /** The rows a compaction of this scope must renumber — the whole key space,
    *  pinned rows included. See {@link sortScopeRows}. */
-  private sortKeySpaceRows(
+  private async sortKeySpaceRows(
     repoId: RepoId | null | undefined,
     repoPath: string,
     parentId: string | null,
-  ): IssueRow[] {
-    return this.sortScopeRows(repoId, repoPath, parentId, { includePinned: true })
+  ): Promise<SortScopeRow[]> {
+    return await this.sortScopeRows(repoId, repoPath, parentId, { includePinned: true })
   }
 
   /** The scope's current top key, corrupt/legacy keys ignored. */
-  private minSortKey(scope: readonly IssueRow[]): string | null {
+  private minSortKey(scope: readonly SortScopeRow[]): string | null {
     let min: string | null = null
     for (const r of scope) {
       const k = r.sortKey
@@ -848,7 +879,7 @@ export class IssueCrudModule {
     return min
   }
 
-  private orderedSortRows(scope: readonly IssueRow[]): IssueRow[] {
+  private orderedSortRows<T extends SortScopeRow>(scope: readonly T[]): T[] {
     return [...scope].sort((a, b) => {
       const ka = isSortKey(a.sortKey) ? a.sortKey : null
       const kb = isSortKey(b.sortKey) ? b.sortKey : null
@@ -884,11 +915,12 @@ export class IssueCrudModule {
           'shipping stage is system-owned and cannot be changed by an issue move',
         )
       }
-      const scope = () => this.sortKeySpaceRows(row.repoId, row.repoPath, row.parentId ?? null)
-      if (!scope().some((sibling) => sibling.id === anchor.id)) {
+      const keySpace = async () => await this.sortKeySpaceRows(row.repoId, row.repoPath, row.parentId ?? null)
+      let scope = await keySpace()
+      if (!scope.some((sibling) => sibling.id === anchor.id)) {
         throw new IssueRefusal('move requires siblings with the same parent and repository')
       }
-      let siblings = this.orderedSortRows(scope()).filter((sibling) => sibling.id !== row.id)
+      let siblings = this.orderedSortRows(scope).filter((sibling) => sibling.id !== row.id)
       // Old rows may lack keys, and reparenting can bring equal keys into one space.
       // Repair only when a strict midpoint cannot represent the existing order.
       const seen = new Set<string>()
@@ -900,8 +932,9 @@ export class IssueCrudModule {
           return false
         })
       ) {
-        await this.compactSortKeys(scope())
-        siblings = this.orderedSortRows(scope()).filter((sibling) => sibling.id !== row.id)
+        await this.compactSortKeys(scope)
+        scope = await keySpace()
+        siblings = this.orderedSortRows(scope).filter((sibling) => sibling.id !== row.id)
       }
       const anchorIndex = siblings.findIndex((sibling) => sibling.id === anchor.id)
       const insertionIndex = anchorIndex + (placement.after !== undefined ? 1 : 0)
@@ -938,15 +971,21 @@ export class IssueCrudModule {
    * measured — because each row paid its own transaction, its own `toWire` and
    * its own change append. Batched, the same repair is ~2s.
    */
-  private async compactSortKeys(scope: readonly IssueRow[]): Promise<void> {
+  private async compactSortKeys(scope: readonly SortScopeRow[]): Promise<void> {
     const ordered = this.orderedSortRows(scope)
     const keys = spreadSortKeys(ordered.length)
-    const changed: IssueRow[] = []
-    for (const [i, row] of ordered.entries()) {
+    const moving = ordered.flatMap((row, i) => {
       const next = keys[i]
-      if (next === undefined || row.sortKey === next) continue
-      // The scope is read straight off the map, so each row that actually moves
-      // is drafted before its key is written [POD-3259].
+      return next === undefined || row.sortKey === next ? [] : [{ id: row.id, next }]
+    })
+    if (moving.length === 0) return
+    // The scope is read narrow; each row that actually moves is read whole once
+    // and drafted before its key is written [POD-3259].
+    const full = await this.store.rowsByIds(moving.map((m) => m.id))
+    const changed: IssueRow[] = []
+    for (const { id, next } of moving) {
+      const row = full.get(id)
+      if (!row) continue
       const draft = this.store.draftOf(row)
       draft.sortKey = next
       changed.push(draft)
@@ -977,10 +1016,10 @@ export class IssueCrudModule {
   ): Promise<string> {
     // Measured over the unpinned rows, renumbered over the whole key space —
     // see `sortScopeRows` for why those two sets differ.
-    let min = this.minSortKey(this.sortScopeRows(repoId, repoPath, parentId))
+    let min = this.minSortKey(await this.sortScopeRows(repoId, repoPath, parentId))
     if (min !== null && min.length >= SORT_KEY_COMPACT_LEN) {
-      await this.compactSortKeys(this.sortKeySpaceRows(repoId, repoPath, parentId))
-      min = this.minSortKey(this.sortScopeRows(repoId, repoPath, parentId))
+      await this.compactSortKeys(await this.sortKeySpaceRows(repoId, repoPath, parentId))
+      min = this.minSortKey(await this.sortScopeRows(repoId, repoPath, parentId))
     }
     return sortKeyBetween(null, min)
   }
@@ -1152,7 +1191,7 @@ export class IssueCrudModule {
     } catch {}
     if (input.parentId) wire = await this.hierarchy().reparent(row.id, input.parentId)
     if (input.labels?.length) wire = await this.setLabels(row.id, input.labels)
-    const parentId = this.store.rows.get(row.id)?.parentId
+    const parentId = (await this.store.row(row.id))?.parentId
     if (parentId && input.startedBySession) {
       await this.takeCoordinatorOnFirstChild(parentId, row.id, input.startedBySession)
     }
@@ -1509,20 +1548,12 @@ export class IssueCrudModule {
 
   /** The cursor that covers everything currently visible on this issue's row. */
   private async coveringReadAt(row: IssueRow): Promise<string> {
-    const ids = new Set<string>([row.id])
-    let grew = true
-    while (grew) {
-      grew = false
-      for (const other of this.store.rows.values()) {
-        if (other.parentId && ids.has(other.parentId) && !ids.has(other.id)) {
-          ids.add(other.id)
-          grew = true
-        }
-      }
-    }
+    // The issue and every descendant, deleted ones included, read from the
+    // database one level per statement (POD-6192).
+    const self = await this.store.row(row.id)
+    const covered = [...(self ? [self] : []), ...(await this.store.descendantRows(row.id))]
     let latest = this.store.now()
-    for (const other of this.store.rows.values()) {
-      if (!ids.has(other.id)) continue
+    for (const other of covered) {
       if (other.updatedAt > latest) latest = other.updatedAt
       for (const session of await this.store.sessionsFor(other)) {
         if (session.lastActiveAt > latest) latest = session.lastActiveAt
@@ -1870,7 +1901,7 @@ export class IssueCrudModule {
      *  re-flag replaces the WHOLE pending question, metadata included. */
     meta?: { options?: string[]; askedBy?: SessionId; attribution?: Attribution },
   ): Promise<IssueProjection> {
-    const wasFlagged = this.store.rows.get(await this.store.resolveRef(id))?.needsHuman === true
+    const wasFlagged = (await this.store.row(await this.store.resolveRef(id)))?.needsHuman === true
     const options = meta?.options?.map((o) => o.trim()).filter(Boolean) ?? []
     const wire = await this.update(id, {
       needsHuman: true,
@@ -1882,7 +1913,7 @@ export class IssueCrudModule {
     })
     // Emit only on the false→true flip — a re-flag must not duplicate the event.
     if (!wasFlagged) {
-      const parentId = this.store.rows.get(wire.id)?.parentId
+      const parentId = (await this.store.row(wire.id))?.parentId
       await this.store.emitEvent('issue.needs_human', wire.id, {
         seq: wire.seq,
         question: question ?? null,
@@ -1896,7 +1927,7 @@ export class IssueCrudModule {
   }
 
   async clearNeedsHuman(id: string): Promise<IssueProjection> {
-    const wasFlagged = this.store.rows.get(await this.store.resolveRef(id))?.needsHuman === true
+    const wasFlagged = (await this.store.row(await this.store.resolveRef(id)))?.needsHuman === true
     const wire = await this.update(id, {
       needsHuman: false,
       humanQuestion: null,
@@ -1919,7 +1950,7 @@ export class IssueCrudModule {
     childId: IssueId,
     sessionId: SessionId,
   ): Promise<void> {
-    const parent = this.store.rows.get(parentId)
+    const parent = await this.store.row(parentId)
     if (!parent || parent.coordinatorSessionId) return
     if (!this.store.factsFor(parent).some((s) => s.sessionId === sessionId)) return
     await this.setCoordinator(parent.id, sessionId, { cause: 'first-child', childId })
@@ -1944,7 +1975,7 @@ export class IssueCrudModule {
     why: { cause: 'first-child'; childId: IssueId } | { cause: 'set' } = { cause: 'set' },
   ): Promise<IssueProjection> {
     const before =
-      this.store.rows.get(await this.store.resolveRef(id))?.coordinatorSessionId ?? null
+      (await this.store.row(await this.store.resolveRef(id)))?.coordinatorSessionId ?? null
     const wire = await this.update(id, { coordinatorSessionId: sessionId })
     if (before !== sessionId) {
       await this.store.emitEvent('issue.coordinator_set', wire.id, {

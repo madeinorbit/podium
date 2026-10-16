@@ -155,6 +155,7 @@ const FAMILY_SHAPES: ReadonlyMap<string, readonly (string | number)[]> = new Map
   ['apps/server/src/store/issue-listings.ts:commentCountsOfIssues', SIZES],
   ['apps/server/src/store/issue-listings.ts:liveChildrenOf', SIZES],
   ['apps/server/src/store/issue-listings.ts:readableAmong', SIZES],
+  ['apps/server/src/store/issue-listings.ts:sortScopeOf', ['parent', 'top', 'top-unpinned']],
   ['apps/server/src/store/issues.ts:labelsNamed', SIZES],
   ['apps/server/src/store/issues.ts:patchLabel', ['color', 'description', 'color,description']],
   ['apps/server/src/store/issues.ts:commentSearch', ['all', 'limited']],

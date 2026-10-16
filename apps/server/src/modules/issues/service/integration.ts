@@ -112,7 +112,7 @@ export class IssueEpicIntegrationModule {
       issue: await this.store.projection(row),
     })
     // Preconditions: the target must have children, ≥1 of them closed with a branch.
-    const children = [...this.store.rows.values()].filter((r) => r.parentId === row.id)
+    const children = await this.store.childRows(row.id)
     if (children.length === 0) {
       return await refuse(`refusing integrate: #${row.seq} has no children`)
     }
@@ -150,7 +150,7 @@ export class IssueEpicIntegrationModule {
         )
       }
       const approvedHeadSha = tip.output.trim()
-      const nested = this.descendantsOf(child.id)
+      const nested = await this.descendantsOf(child.id)
       let provenDescendants: DescendantTip[] = []
       if (nested.length > 0) {
         const nestedTips: DescendantTip[] = []
@@ -316,19 +316,9 @@ export class IssueEpicIntegrationModule {
   /** Current non-deleted descendant closure. Tips from this traversal are never
    * attested directly: they only validate a matching immutable child receipt,
    * whose proven descendants are then flattened into the new root receipt. */
-  private descendantsOf(rootIssueId: IssueId): IssueRow[] {
-    const descendants: IssueRow[] = []
-    const visit = (parentId: IssueId): void => {
-      const children = [...this.store.rows.values()]
-        .filter((candidate) => candidate.parentId === parentId && !candidate.deletedAt)
-        .sort((left, right) => left.seq - right.seq)
-      for (const child of children) {
-        descendants.push(child)
-        visit(child.id)
-      }
-    }
-    visit(rootIssueId)
-    return descendants
+  private async descendantsOf(rootIssueId: IssueId): Promise<IssueRow[]> {
+    // Depth first, each level by sequence, from the database (POD-6192).
+    return await this.store.descendantRows(rootIssueId, { live: true })
   }
 
   /** Topological order over blocks-deps AMONG the given children (a dep on an issue

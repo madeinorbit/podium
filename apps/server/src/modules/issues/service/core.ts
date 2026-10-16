@@ -746,6 +746,111 @@ export class IssueStore {
     return isIssueBlocked(row, blocksTargets)
   }
 
+  // ---- hierarchy reads from the database (POD-6192) ------------------------
+
+  /**
+   * A parent's children from the database, in the boot map's order (repository
+   * path, then sequence). `live` leaves out deleted ones, `unarchived`
+   * archived ones. Compared with the map outside a save.
+   */
+  async childRows(parentId: string, opts: { live?: boolean; unarchived?: boolean } = {}): Promise<IssueRow[]> {
+    const rows = await this.deps.store.issues.listIssueRowsWhere(
+      {
+        repo: false,
+        readable: false,
+        live: opts.live === true,
+        ...(opts.unarchived ? { unarchived: true } : {}),
+        parents: 1,
+        order: 'path-seq',
+      },
+      { parents: [parentId] },
+    )
+    this.compareRowSet('childRows', [parentId, opts], () =>
+      [...this.rows.values()].filter(
+        (r) => r.parentId === parentId && (!opts.live || !r.deletedAt) && (!opts.unarchived || !r.archived),
+      ), rows)
+    return rows
+  }
+
+  /**
+   * Every descendant of `rootId`, read one level per statement (the depth
+   * bounds the count, not the number of issues), depth first with each level in
+   * sequence order. `live` leaves out deleted ones and their subtrees. Parent
+   * cycles stop at the first repeat.
+   */
+  async descendantRows(rootId: string, opts: { live?: boolean } = {}): Promise<IssueRow[]> {
+    const byParent = new Map<string, IssueRow[]>()
+    const seen = new Set<string>([rootId])
+    let level = [rootId]
+    while (level.length > 0) {
+      const rows = await this.deps.store.issues.listIssueRowsWhere(
+        { repo: false, readable: false, live: opts.live === true, parents: 1, order: 'path-seq' },
+        { parents: level },
+      )
+      level = []
+      for (const row of rows) {
+        if (seen.has(row.id)) continue
+        seen.add(row.id)
+        const siblings = byParent.get(row.parentId!)
+        if (siblings) siblings.push(row)
+        else byParent.set(row.parentId!, [row])
+        level.push(row.id)
+      }
+    }
+    const out: IssueRow[] = []
+    const walk = (parentId: string): void => {
+      for (const child of [...(byParent.get(parentId) ?? [])].sort((a, b) => a.seq - b.seq)) {
+        out.push(child)
+        walk(child.id)
+      }
+    }
+    walk(rootId)
+    this.compareRowSet('descendantRows', [rootId, opts], () => {
+      const found: IssueRow[] = []
+      const ids = new Set<string>([rootId])
+      for (let grew = true; grew; ) {
+        grew = false
+        for (const r of this.rows.values()) {
+          if (!r.parentId || !ids.has(r.parentId) || ids.has(r.id) || (opts.live && r.deletedAt)) continue
+          ids.add(r.id)
+          found.push(r)
+          grew = true
+        }
+      }
+      return found
+    }, out)
+    return out
+  }
+
+  /**
+   * Which of these rows are ready (`isReady`), with their dependencies and
+   * their blockers' closure read once for the set (POD-6192).
+   */
+  async readyAmong(rows: readonly IssueRow[]): Promise<Set<string>> {
+    const issues = this.deps.store.issues
+    const deps = await issues.depsFromIssues(rows.map((row) => row.id))
+    const closure = await issues.closureOf(deps.filter((d) => d.type === 'blocked-by').map((d) => d.toId))
+    const ready = new Set<string>()
+    for (const row of rows) {
+      const blocked = isIssueBlocked(
+        row,
+        deps.filter((d) => d.fromId === row.id && d.type === 'blocked-by').map((d) => closure.get(d.toId)),
+      )
+      if (isIssueStage(row.stage) && isReadyIssueStage(row.stage) && !this.isClosed(row) && !this.isDeferred(row) && !blocked) {
+        ready.add(row.id)
+      }
+    }
+    return ready
+  }
+
+  /** A set of rows read from the database against the map's, by id, outside a
+   *  save (inside one the map lags the save's own writes). */
+  private compareRowSet(name: string, key: unknown, mapRows: () => IssueRow[], rows: readonly IssueRow[]): void {
+    if (spanOpen()) return
+    const byId = (list: readonly IssueRow[]) => [...list].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+    compareWithIssueMap(name, key, () => byId(mapRows()), byId(rows))
+  }
+
   /** Only this issue's own fields and labels enter its publication. */
   async projection(row: IssueRow): Promise<IssueProjection> {
     return issueRowToProjection(row, await this.deps.store.issues.getIssueLabels(row.id))

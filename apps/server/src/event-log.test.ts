@@ -627,10 +627,11 @@ describe('IssueService event emission', () => {
     await svc.hierarchy.addDep(c.id, a.id, 'blocked-by')
 
     // Both clones share a repo identity, so the fanout checks both dependents'
-    // outgoing blockers. Fail the second read after the first dependent is ready:
-    // no issue.ready may append until all readiness reads have completed.
+    // outgoing blockers. Since POD-6192 that is one read for the set: fail it
+    // after the close committed. No issue.ready may append until every
+    // readiness read has completed.
     const origAppend = store.events.appendEvent.bind(store.events)
-    const origIssueDeps = store.issues.listIssueDeps.bind(store.issues)
+    const origDepsFrom = store.issues.depsFromIssues.bind(store.issues)
     let armed = false
     let fanoutDepReads = 0
     vi.spyOn(store.events, 'appendEvent').mockImplementation(async (event, options) => {
@@ -638,11 +639,12 @@ describe('IssueService event emission', () => {
       if (event.kind === 'issue.closed') armed = true
       return id
     })
-    vi.spyOn(store.issues, 'listIssueDeps').mockImplementation(async (issueId) => {
-      if (armed && (issueId === b.id || issueId === c.id) && ++fanoutDepReads === 2) {
+    vi.spyOn(store.issues, 'depsFromIssues').mockImplementation(async (issueIds) => {
+      if (armed && issueIds.includes(b.id) && issueIds.includes(c.id)) {
+        fanoutDepReads++
         throw new Error('second dependency read failed')
       }
-      return await origIssueDeps(issueId)
+      return await origDepsFrom(issueIds)
     })
 
     let caught: unknown
@@ -656,7 +658,7 @@ describe('IssueService event emission', () => {
     expect((caught as PostCommitError).committed).toBe(true)
     expect((caught as PostCommitError).mechanism).toBe('follow-up')
     expect((caught as PostCommitError).cause).toMatchObject({ message: 'second dependency read failed' })
-    expect(fanoutDepReads).toBe(2)
+    expect(fanoutDepReads).toBe(1)
     expect((await store.issues.getIssue(a.id))?.stage).toBe('done')
     expect((await store.events.listEventsSince(0, { kinds: ['issue.closed'] })).length).toBe(1)
     expect(await store.events.listEventsSince(0, { kinds: ['issue.ready'] })).toEqual([])
