@@ -744,7 +744,7 @@ export class IssueReportsModule {
     // unchanged — `sessionsById` runs the same `canReadSession` per candidate
     // that the full list ran, so a session the reader may not see is dropped
     // exactly where it was dropped before.
-    const sessionList = this.store.deps.sessionFacts()
+    const sessionList = await this.store.deps.readSessionFacts()
     const wiring: Array<{ node: IssueTreeNode; members: SessionFacts[]; row: IssueRow }> = []
     const subtree = [rootRow, ...[...byParent.values()].flat()]
     // One dep read for the subtree, and the blockers' rows and closure with it.
@@ -1370,14 +1370,17 @@ export class IssueReportsModule {
   /** This session's seat (POD-6108): may it talk to the user, or which
    *  coordinator does it ask? `issueId` defaults to the session's attachment. */
   async seatFor(sessionId: SessionId, issueId?: IssueId | null): Promise<SessionSeat> {
-    const sessions = this.store.deps.sessionFacts()
-    const self = sessions.find((s) => s.sessionId === sessionId)
+    // This session and the coordinators the walk meets, each read by id
+    // (POD-6160), not every session on the box.
+    const self = await this.store.deps.readSessionFactsById(sessionId)
     const own = issueId ?? self?.issueId ?? (self ? await this.issueForCwd(self.cwd) : null)
-    const live = new Set(sessions.filter((s) => !s.archived).map((s) => s.sessionId))
     return await resolveSeat(sessionId, own, {
       row: async (id) => await this.store.row(id),
       isClosed: (row) => this.store.isClosed(row),
-      sessionLive: (id) => live.has(id),
+      sessionLive: async (id) => {
+        const facts = await this.store.deps.readSessionFactsById(id)
+        return facts !== undefined && !facts.archived
+      },
       ref: async (row) => await this.niceRef(row),
     })
   }

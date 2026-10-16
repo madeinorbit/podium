@@ -32,7 +32,6 @@ import type { EntityChangeSpec } from '@podium/sync'
 import type { IssueRow } from '../../../store'
 import { afterCommit, followUpAfterCommit, spanOpen } from '../../../store/executor/executor'
 import { type StoredIssue, toStorage } from '../../../store/issue-storage'
-import type { SessionFacts } from '../../sessions/facts'
 import { readIssue } from '../issue-reader'
 import type { IssueStore } from './core'
 import { compareWithIssueMap } from './map-parity'
@@ -752,11 +751,7 @@ export class IssueCrudModule {
    *  work, unread results, and running agents are skipped (and surfaced via a
    *  single issue.cascade_skipped event on the parent) instead of vanishing
    *  from the live views out from under the operator. */
-  private async archiveClosedSubtree(
-    parentId: string,
-    sessionList?: SessionFacts[],
-  ): Promise<void> {
-    sessionList ??= this.store.deps.sessionFacts()
+  private async archiveClosedSubtree(parentId: string): Promise<void> {
     const skipped: Array<{ seq: number; why: string }> = []
     const children = await this.store.childRows(parentId, { live: true, unarchived: true })
     const markers = await this.store.issueUserStates(children.map((child) => child.id))
@@ -768,14 +763,16 @@ export class IssueCrudModule {
         skipped.push({ seq: child.seq, why: 'unread' })
         continue
       }
-      const live = sessionList.some(
+      // The sessions attached to this child, from the database (POD-6160): with
+      // no worktree path, membership is exactly `issueId === child.id`.
+      const live = (await this.store.deps.readSessionFactsByIssue(null, child.id)).some(
         (s) => s.issueId === child.id && !s.archived && s.status !== 'exited',
       )
       if (live) {
         skipped.push({ seq: child.seq, why: 'live session' })
         continue
       }
-      await this.archiveClosedSubtree(child.id, sessionList)
+      await this.archiveClosedSubtree(child.id)
       // Close-sweep must not take the explicit-archive descendant walk: an
       // open grandchild of a qualifying child has to stay live. The operator
       // archive path below is the one that dismisses the whole subtree.
@@ -1952,7 +1949,7 @@ export class IssueCrudModule {
   ): Promise<void> {
     const parent = await this.store.row(parentId)
     if (!parent || parent.coordinatorSessionId) return
-    if (!this.store.factsFor(parent).some((s) => s.sessionId === sessionId)) return
+    if (!(await this.store.factsFor(parent)).some((s) => s.sessionId === sessionId)) return
     await this.setCoordinator(parent.id, sessionId, { cause: 'first-child', childId })
   }
 

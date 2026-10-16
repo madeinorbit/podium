@@ -1962,6 +1962,13 @@ export class SessionRegistry {
       // The cheap fleet read [POD-3857]: the issue service's own reasoning —
       // worktree occupancy, the close cascade, auto-archive — runs on facts.
       sessionFacts: () => sessionsSvc.sessionFacts(),
+      // The issue service's session reads since POD-6160: running sessions from
+      // memory, everything else from the database.
+      runningSessionFacts: () => sessionsSvc.runningSessionFacts(),
+      readSessionFacts: async () => await sessionsSvc.readSessionFacts(),
+      readSessionFactsById: async (sessionId) => await sessionsSvc.readSessionFactsById(sessionId),
+      readSessionFactsByIssue: async (worktreePath, issueId) =>
+        await sessionsSvc.readSessionFactsByIssue(worktreePath, issueId),
       // The by-id read [POD-1646]: one session, not the full pass.
       sessionById: async (sessionId) => await sessionsSvc.sessionById(sessionId),
       // The narrow read [POD-1639]: an issue mutation asks for ITS sessions, not

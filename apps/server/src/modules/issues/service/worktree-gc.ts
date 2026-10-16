@@ -43,7 +43,7 @@ export class IssueWorktreeGcModule {
     const row = await this.store.rowOrThrow(id)
     const worktreePath = row.worktreePath
     if (!worktreePath) return { freed: false }
-    const stillUsing = liveSessionsUsingWorktree(worktreePath, this.store.d.sessionFacts())
+    const stillUsing = liveSessionsUsingWorktree(worktreePath, this.store.d.runningSessionFacts())
     if (stillUsing.length > 0) {
       return await this.refuseRelease(
         row,
@@ -66,7 +66,7 @@ export class IssueWorktreeGcModule {
   async listReclaimableWorktrees(nowMs: number = Date.now(), machineId?: MachineId) {
     const { afterDays } = (await this.store.d.getSettings()).worktreeGc
     const targetMachineId = machineId ?? this.store.d.store.hostMachineId
-    const live = this.store.d.sessionFacts()
+    const live = this.store.d.runningSessionFacts()
     const repoRows = await this.store.d.store.repos.listRepos(targetMachineId)
     const discovered = new Map<
       string,
@@ -218,7 +218,7 @@ export class IssueWorktreeGcModule {
     if ((row.closedAt ?? null) !== observed.closedAt) return { outcome: 'precondition' as const }
     if (row.deletedAt || !this.store.isClosed(row)) return { outcome: 'precondition' as const }
     if (!this.isCandidate(row, nowMs, policy.afterDays)) return { outcome: 'not-due' as const }
-    if (liveSessionsUsingWorktree(row.worktreePath, this.store.d.sessionFacts()).length > 0) {
+    if (liveSessionsUsingWorktree(row.worktreePath, this.store.d.runningSessionFacts()).length > 0) {
       return { outcome: 'precondition' as const }
     }
     if (observed.mode === 'propose') {

@@ -28,7 +28,7 @@ import {
 } from '@podium/model'
 import { parseIssueRef } from '@podium/protocol'
 import { type EntityChangeSpec, StagedOverlay } from '@podium/sync'
-import { sessionsForIssue, slugifyBranch } from '../../../issue-util'
+import { slugifyBranch } from '../../../issue-util'
 import type { IssueRow, StoredIssueUserState } from '../../../store'
 import { afterCommit, applyAfterCommit, spanOpen } from '../../../store/executor/executor'
 import { currentOperation, operationSlot } from '../../../store/executor/operation-scope'
@@ -246,11 +246,12 @@ export class IssueStore {
     return await this.deps.listSessionsForIssue(row.worktreePath, row.id)
   }
 
-  /** The same membership question, answered from memory — see
-   *  {@link SessionFacts}. No visibility check, no wire fields, no I/O. */
-  factsFor(row: Pick<IssueRow, 'id' | 'worktreePath' | 'stage'>): SessionFacts[] {
+  /** The same membership question as facts — see {@link SessionFacts}. No
+   *  visibility check and no wire fields; read from the database since
+   *  POD-6160, so it answers for sessions that are not resident. */
+  async factsFor(row: Pick<IssueRow, 'id' | 'worktreePath' | 'stage'>): Promise<SessionFacts[]> {
     if (isIssueStage(row.stage) && isSystemOwnedIssueStage(row.stage)) return []
-    return sessionsForIssue(row.worktreePath, this.deps.sessionFacts(), row.id)
+    return await this.deps.readSessionFactsByIssue(row.worktreePath, row.id)
   }
 
   /** One issue's markers for the broadcast viewer, as the wire wants them. */

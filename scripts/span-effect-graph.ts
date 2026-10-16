@@ -843,6 +843,10 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
     kind: 'contained',
     why: 'a session read',
   },
+  'apps/server/src/modules/issues/service/types.ts#IssueDeps.readSessionFactsByIssue': {
+    kind: 'contained',
+    why: "POD-6158: one issue's member sessions' facts, read from the session records (POD-6160); a read, it publishes nothing",
+  },
   'apps/server/src/modules/issues/service/types.ts#IssueDeps.listSessionsForIssue': {
     kind: 'contained',
     why: 'a session read',

@@ -35,6 +35,10 @@ const ledger = new Ledger({
 const issues = await IssueService.create({
   store,
   sessionFacts: () => [],
+  runningSessionFacts: () => [],
+  readSessionFacts: async () => [],
+  readSessionFactsById: async () => undefined,
+  readSessionFactsByIssue: async () => [],
   sessionById: async () => undefined,
   listSessionsForIssue: async () => [],
   sessionsById: async () => [],

@@ -396,7 +396,7 @@ export class IssueGitWorkflowModule {
      * issue, live or not, keeps the deliberate no-op.
      */
     const resumePath =
-      row.worktreePath && this.store.factsFor(row).length === 0 ? row.worktreePath : null
+      row.worktreePath && (await this.store.factsFor(row)).length === 0 ? row.worktreePath : null
     if (row.worktreePath && !resumePath) {
       // Starting a started issue is a deliberate no-op. But a caller who passed an
       // explicit --model/--effort asked for something this no-op will not do, and
@@ -722,7 +722,7 @@ export class IssueGitWorkflowModule {
   ): Promise<void> {
     try {
       const row = await this.store.draftOrThrow(id)
-      if (row.stage !== 'in_progress' || this.store.factsFor(row).length > 0) return
+      if (row.stage !== 'in_progress' || (await this.store.factsFor(row)).length > 0) return
       row.stage = 'proposed'
       row.assignee = assignee
       await this.store.persistRow(row)

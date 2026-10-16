@@ -11,7 +11,8 @@ import { CLOSED_ISSUE_SWEEP_INTERVAL_MS } from './issue-session-lifecycle'
  *
  * The registry arms the sweep as it builds, so the test drives the interval it
  * armed rather than starting a second one. The probe re-enters from inside
- * `issues.reports.list` — the sweep's first act — and the count that matters is
+ * `issues.reports.closedWithWork` — the sweep's listing, since POD-6191 read in
+ * SQL rather than filtered from `reports.list` — and the count that matters is
  * how many times the listing is asked for.
  */
 describe('IssueSessionLifecycle closed-issue sweep single-flight (POD-3258)', () => {
@@ -19,7 +20,7 @@ describe('IssueSessionLifecycle closed-issue sweep single-flight (POD-3258)', ()
     const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     let calls = 0
     let onList: () => void = () => {}
-    const spy = vi.spyOn(registry.modules.issues.reports, 'list').mockImplementation(async () => {
+    const spy = vi.spyOn(registry.modules.issues.reports, 'closedWithWork').mockImplementation(async () => {
       calls += 1
       onList()
       return []

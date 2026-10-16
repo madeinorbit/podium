@@ -9,10 +9,9 @@ import {
   type SystemCommandPrincipal,
   systemPrincipal,
 } from '../../../command-principal'
-import { isMemberCwd, sessionsForIssue } from '../../../issue-util'
+import { isMemberCwd } from '../../../issue-util'
 import type { IssueRow, Subscription } from '../../../store'
 import { afterCommit, spanOpen } from '../../../store/executor/executor'
-import type { SessionFacts } from '../../sessions/facts'
 import type { IssueStore } from './core'
 import type { IssueCrudModule } from './crud'
 import { compareWithIssueMap } from './map-parity'
@@ -561,7 +560,6 @@ export class IssueAttentionModule {
   ): Promise<IssueProjection[]> {
     const cutoffReadMs = nowMs - AUTO_ARCHIVE_READ_WINDOW_MS
     const out: IssueProjection[] = []
-    let sessionList: SessionFacts[] | undefined // taken lazily — only if a row clears the cheap gates
     // The closed, live, unarchived top-level issues in one SQL listing, and the
     // viewer's markers for them in one read (POD-6193); they used to be found by
     // scanning the issue map with one marker read per closed issue.
@@ -589,8 +587,8 @@ export class IssueAttentionModule {
       if (!Number.isFinite(readMs) || readMs > cutoffReadMs) continue // read too recently
       // Post-read activity re-marks the issue unread (the operator hasn't seen it):
       // honour that here so a re-touched done issue isn't archived out from under them.
-      sessionList ??= this.store.deps.sessionFacts()
-      const sessions = sessionsForIssue(row.worktreePath, sessionList, row.id)
+      // Only a row that clears the cheap gates asks for its sessions (POD-6160).
+      const sessions = await this.store.deps.readSessionFactsByIssue(row.worktreePath, row.id)
       if (this.store.computeUnread(row, sessions, viewerReadAt)) continue
       out.push(await this.autoArchive(row, principal))
     }

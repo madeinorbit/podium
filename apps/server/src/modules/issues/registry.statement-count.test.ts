@@ -130,6 +130,10 @@ async function fixture(size: number): Promise<Fixture> {
     store,
     applyCommit: { spanOpen, onCommit: applyAfterCommit },
     sessionFacts: () => [],
+    runningSessionFacts: () => [],
+    readSessionFacts: async () => [],
+    readSessionFactsById: async () => undefined,
+    readSessionFactsByIssue: async () => [],
     sessionsById: async () => [],
   } as unknown as IssueDeps).init()
   return { store, reports: new IssueReportsModule(issues) }

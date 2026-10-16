@@ -17,6 +17,11 @@ async function harness() {
   const deps: IssueDeps = {
     store,
     sessionFacts,
+    // Every fleet read goes through the one spy, so "not called" covers them all.
+    runningSessionFacts: sessionFacts,
+    readSessionFacts: async () => sessionFacts(),
+    readSessionFactsById: async () => undefined,
+    readSessionFactsByIssue: async () => [],
     sessionById: async () => undefined,
     listSessionsForIssue: async () => [],
     sessionsById: async () => [],

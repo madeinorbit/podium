@@ -39,7 +39,7 @@ import type { Capability } from '../../issue-authz'
 import type { SessionStore } from '../../store'
 import { sessionsForIssue } from '../../issue-util'
 import { openTestStore } from '../../test-support/open-test-store'
-import { metaAsFacts } from '../../test-support/session-facts'
+import { metaAsFacts, sessionReadPorts } from '../../test-support/session-facts'
 import { type IssueDeps, IssueService } from '../issues/service'
 import { issueTestPlumbing } from '../issues/service/test-plumbing'
 import { readMessageRecords } from '../message-feed/records'
@@ -266,9 +266,14 @@ export async function mailHarness(opts?: HarnessOptions): Promise<MailHarness> {
   let polls = 0
   const now = (): string => new Date(nowMs).toISOString()
 
+  const factReads = sessionReadPorts(() => sessions)
   const issueDeps: IssueDeps = {
     store,
     sessionFacts: () => sessions.map(metaAsFacts),
+    runningSessionFacts: factReads.runningSessionFacts,
+    readSessionFacts: factReads.readSessionFacts,
+    readSessionFactsById: factReads.readSessionFactsById,
+    readSessionFactsByIssue: factReads.readSessionFactsByIssue,
     sessionById: async (sessionId) => sessions.find((s) => s.sessionId === sessionId),
     listSessionsForIssue: async (worktreePath, issueId) =>
       sessionsForIssue(worktreePath, sessions, issueId),

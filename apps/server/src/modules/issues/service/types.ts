@@ -159,12 +159,23 @@ export interface IssueDeps {
    */
   applyCommit?: BaselineFoldPort
   /**
-   * THE CHEAP FLEET READ [POD-3857] — every session as in-memory facts, with no
-   * visibility check and no I/O. This is what the issue service's own reasoning
-   * runs on: worktree occupancy, the close cascade's live-session guard, the
-   * auto-archive sweep, boot totalization. None of them read a projected field.
+   * THE CHEAP FLEET READ [POD-3857] — every resident session as in-memory
+   * facts, with no visibility check and no I/O. Since POD-6160 only the flight
+   * deck (deck.ts, being rewritten) still reads it; the issue service's own
+   * reasoning reads the async facts below, which answer for every session
+   * once the resident map holds only running ones.
    */
   sessionFacts(): SessionFacts[]
+  /** The resident RUNNING sessions' facts (live, starting, reconnecting):
+   *  synchronous and free of I/O, for the worktree occupancy guards (POD-6160). */
+  runningSessionFacts(): SessionFacts[]
+  /** Every live (not deleted) session's facts, from the database (POD-6160). */
+  readSessionFacts(): Promise<SessionFacts[]>
+  /** One session's facts, from the database where it is not resident. */
+  readSessionFactsById(sessionId: SessionId): Promise<SessionFacts | undefined>
+  /** The member sessions of ONE issue, from the database (`sessionsForIssue`'s
+   *  membership: its id, or a cwd in its worktree for an unattached session). */
+  readSessionFactsByIssue(worktreePath: string | null, issueId: IssueId | undefined): Promise<SessionFacts[]>
   /** ONE session by id, without the full reader-scoped pass [POD-1646]. */
   sessionById(sessionId: SessionId): Promise<SessionMeta | undefined>
   /** The member sessions of ONE issue, WIRED [POD-1639] — for the two reads

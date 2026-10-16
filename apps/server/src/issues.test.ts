@@ -6630,14 +6630,15 @@ describe('POD-3500 — async guards behind void ports', () => {
  * the meaningful mutation sites (removing only `return await` is equivalent).
  */
 describe('POD-3504 — promise-only issue ports', () => {
-  it('sessionFacts + sessionsById: tree includes the resolved member list', async () => {
+  it('readSessionFacts + sessionsById: tree includes the resolved member list', async () => {
     const { svc, deps } = await harness()
     const issue = await svc.crud.create({ repoPath: '/r', title: 'Members', startNow: false })
     await svc.crud.update(issue.id, { stage: 'planning' })
     const member = { ...sess('/elsewhere'), issueId: issue.id }
-    // The tree SELECTS members from the synchronous facts read and WIRES only
-    // those [POD-3857], so both halves have to answer for a member to appear.
-    deps.sessionFacts = vi.fn(() => metasAsFacts([member]))
+    // The tree SELECTS members from the facts read (from the database since
+    // POD-6160) and WIRES only those [POD-3857], so both halves have to answer
+    // for a member to appear.
+    deps.readSessionFacts = vi.fn(async () => metasAsFacts([member]))
     deps.sessionsById = vi.fn(async () => [member])
 
     expect((await svc.reports.tree(issue.id)).root.sessions).toEqual([
@@ -6654,12 +6655,16 @@ describe('POD-3504 — promise-only issue ports', () => {
     deps.sessionFacts = vi.fn(() => {
       throw new Error('unexpected fleet enumeration')
     })
+    deps.readSessionFacts = vi.fn(async () => {
+      throw new Error('unexpected fleet enumeration')
+    })
 
     await svc.gitWorkflow.onSessionAttention(member.sessionId)
 
     expect(deps.sessionById).toHaveBeenCalledWith(member.sessionId)
     expect((await svc.reports.get(issue.id))!.deferred).toBe(false)
     expect(deps.sessionFacts).not.toHaveBeenCalled()
+    expect(deps.readSessionFacts).not.toHaveBeenCalled()
   })
 
   it('listSessionsForIssue: start reuses resolved members without spawning', async () => {

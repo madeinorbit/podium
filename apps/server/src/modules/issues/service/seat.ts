@@ -34,8 +34,8 @@ export interface SeatFacts {
   /** One row by id; the database's answer since POD-6158, so it may await. */
   row(id: IssueId): IssueRow | undefined | Promise<IssueRow | undefined>
   isClosed(row: IssueRow): boolean
-  /** The session still exists and is not archived. */
-  sessionLive(sessionId: SessionId): boolean
+  /** The session still exists and is not archived; read by id since POD-6160. */
+  sessionLive(sessionId: SessionId): boolean | Promise<boolean>
   ref(row: IssueRow): Promise<string>
 }
 
@@ -55,7 +55,7 @@ export async function resolveSeat(
     seen.add(row.id)
     const marker = row.coordinatorSessionId
     if (!marker || marker === sessionId) continue
-    if (facts.isClosed(row) || !facts.sessionLive(marker)) continue
+    if (facts.isClosed(row) || !(await facts.sessionLive(marker))) continue
     return {
       kind: 'below',
       coordinates,

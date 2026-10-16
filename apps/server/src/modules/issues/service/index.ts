@@ -263,7 +263,7 @@ class IssueServiceRoot implements IssueTrackerCapabilities {
     const setSessionIssueId = store.deps.setSessionIssueId
     if (setSessionIssueId) {
       let totalized = 0
-      for (const session of store.deps.sessionFacts()) {
+      for (const session of await store.deps.readSessionFacts()) {
         if (session.issueId != null) continue
         const issueId = await this.reports.soleOwnerForCwd(session.cwd)
         if (!issueId) continue
