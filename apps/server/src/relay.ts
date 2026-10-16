@@ -965,6 +965,7 @@ export class SessionRegistry {
       store: this.store,
       audienceResourceIds: (kind) => this.store.grants.visibilityAudienceResourceIds(kind),
       audienceFor: (kind, id) => this.store.grants.visibilityAudienceFor(kind, id),
+      audiencesFor: (kind, ids) => this.store.grants.visibilityAudiencesFor(kind, ids),
       authorizationRevision: () => this.store.grants.visibilityRevision(),
       issueEventSubjects: (issueId) => issueEventFeed?.subjectsFor(issueId) ?? [],
     })

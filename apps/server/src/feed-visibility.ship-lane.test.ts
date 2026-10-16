@@ -23,11 +23,16 @@ import {
   type EntityRef,
   GrantEdgeVisibilityPolicy,
   NoDelegationsGranted,
+  type VisibilityAnchorPort,
 } from '@podium/sync'
 import { afterEach, describe, expect, it } from 'vitest'
 import { makeFeedVisibility } from './feed-visibility'
 import type { SessionStore } from './store'
 import { openTestStore } from './test-support/open-test-store'
+
+/** One row's edge through the batched anchor port. */
+const edgeOf = async (anchors: VisibilityAnchorPort, ref: EntityRef) =>
+  (await anchors.visibilityEdges([ref]))[0] ?? null
 
 const owner = asUserId('owner')
 const reader = asUserId('reader')
@@ -163,6 +168,7 @@ async function fixture() {
     store,
     audienceResourceIds: (kind) => store.grants.visibilityAudienceResourceIds(kind),
     audienceFor: (kind, id) => store.grants.visibilityAudienceFor(kind, id),
+    audiencesFor: (kind, ids) => store.grants.visibilityAudiencesFor(kind, ids),
     authorizationRevision: () => store.grants.visibilityRevision(),
   })
   const authority = new Authority({
@@ -222,7 +228,7 @@ describe('POD-4974 O2 lane visibility', () => {
     ])
     // A queued order moves nobody's view of its lane.
     expect(
-      await policy.anchors.visibilityEdge({ entity: 'shipOrder', entityId: 'order-shared' }),
+      await edgeOf(policy.anchors, { entity: 'shipOrder', entityId: 'order-shared' }),
     ).toBeNull()
 
     const cursor = await authority.cursor()
@@ -233,7 +239,7 @@ describe('POD-4974 O2 lane visibility', () => {
       '2026-08-12T11:00:00.000Z',
     )
     expect(
-      await policy.anchors.visibilityEdge({ entity: 'shipOrder', entityId: 'order-shared' }),
+      await edgeOf(policy.anchors, { entity: 'shipOrder', entityId: 'order-shared' }),
     ).toEqual({
       audience: [reader],
       subjects: [LANE],
@@ -272,7 +278,7 @@ describe('POD-4974 O2 lane visibility', () => {
       },
     ])
     await grant('iss_private', stranger)
-    const edge = await policy.anchors.visibilityEdge({
+    const edge = await edgeOf(policy.anchors, {
       entity: 'issueProjection',
       entityId: 'iss_private',
     })

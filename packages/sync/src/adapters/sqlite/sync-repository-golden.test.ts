@@ -365,6 +365,58 @@ describe('the installed world', () => {
   })
 })
 
+describe('the installed world, read by key [POD-6156]', () => {
+  beforeEach(async () => {
+    await repo.appendChanges(
+      [
+        change('issueDep', 'a|b|blocked-by', 'upsert', '"ab"'),
+        change('issueDep', 'a|c|related', 'upsert', '"ac"'),
+        change('issueDep', 'ab|c|related', 'upsert', '"abc"'),
+        change('issueDep', 'a\\|x|y|related', 'upsert', '"escaped"'),
+        change('issueDep', 'a|gone|related', 'upsert', '"gone"'),
+        change('issueProjection', 'a', 'upsert', '"issue"'),
+        change('issueDep', 'a|gone|related', 'remove', null),
+      ],
+      1,
+    )
+  })
+
+  it('returns the installed rows of the asked keys only, once each', async () => {
+    const rows = await repo.installedStates([
+      { entity: 'issueProjection', entityId: 'a' },
+      { entity: 'issueDep', entityId: 'a|c|related' },
+      { entity: 'issueDep', entityId: 'a|c|related' },
+      { entity: 'issueDep', entityId: 'a|gone|related' },
+      { entity: 'issueProjection', entityId: 'missing' },
+      // Same id, other kind: a key is the pair.
+      { entity: 'issueGitState', entityId: 'a' },
+    ])
+    expect(rows.sort((x, y) => x.seq - y.seq)).toEqual([
+      { seq: 2, entity: 'issueDep', entityId: 'a|c|related', op: 'upsert', payload: '"ac"' },
+      { seq: 6, entity: 'issueProjection', entityId: 'a', op: 'upsert', payload: '"issue"' },
+    ])
+    expect(await repo.installedStates([])).toEqual([])
+  })
+
+  it('reads more keys than one statement holds', async () => {
+    const keys = Array.from({ length: 600 }, (_, i) => ({ entity: 'issueProjection', entityId: `k${i}` }))
+    expect(await repo.installedStates([...keys, { entity: 'issueProjection', entityId: 'a' }])).toEqual([
+      { seq: 6, entity: 'issueProjection', entityId: 'a', op: 'upsert', payload: '"issue"' },
+    ])
+  })
+
+  it('returns the ids under each prefix and no others, with their seqs', async () => {
+    const ids = await repo.installedIdsWithPrefixes('issueDep', ['a|', 'a\\|x|'])
+    expect(ids.sort((x, y) => x.seq - y.seq)).toEqual([
+      { entityId: 'a|b|blocked-by', seq: 1 },
+      { entityId: 'a|c|related', seq: 2 },
+      { entityId: 'a\\|x|y|related', seq: 4 },
+    ])
+    expect(await repo.installedIdsWithPrefixes('issueProjection', ['a|'])).toEqual([])
+    expect(await repo.installedIdsWithPrefixes('issueDep', [])).toEqual([])
+  })
+})
+
 describe('the applied-mutation receipts', () => {
   const id = asMutationId('mut-1')
 

@@ -31,6 +31,7 @@ import {
   asUserId,
   canonicalShippingDestination,
   type IssueId,
+  issueDepFromPrefix,
   parseInteractionRowId,
   parseIssueDepId,
   parseIssueEventRowId,
@@ -48,6 +49,7 @@ import type {
   ChangeLogReadRow,
   EntityRef,
   VisibilityAnchorPort,
+  VisibilityEdge,
   VisibilityStatePort,
 } from '@podium/sync'
 import type { FeedVisibilityStore, GrantRow, IssueRow, SessionRow } from './hot-path-ports'
@@ -159,6 +161,11 @@ export interface FeedVisibilityDeps {
    * them. These existing memory-only signals remain owned by the grant writer. */
   readonly audienceResourceIds: (kind: string) => Promise<string[]>
   readonly audienceFor: (kind: string, id: string) => Promise<readonly string[]>
+  /** The same audiences for many resources of one kind, every asked id present. */
+  readonly audiencesFor: (
+    kind: string,
+    ids: readonly string[],
+  ) => Promise<ReadonlyMap<string, readonly string[]>>
   readonly authorizationRevision: () => Promise<number>
   /**
    * The `issueEvent` rows the feed currently carries for one issue (POD-1772).
@@ -180,6 +187,9 @@ export interface FeedVisibility {
   readonly state: VisibilityStatePort
   /** The kernel's anchor port — what the `Ledger` scopes issue fan-out with. */
   readonly anchors: VisibilityAnchorPort
+  /** The anchors as answered from the whole-table read cache, kept only until
+   *  the parity test has compared them with {@link anchors} (POD-6156). */
+  readonly legacyAnchors: VisibilityAnchorPort
   /** Open a read-attribution frame for one bootstrap. */
   readonly beginBootstrapRead: () => void
   /** Close it and record every phase it accumulated against `principal`. */
@@ -788,8 +798,8 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
       : { audience, subjects: [{ entity: 'shipLane', entityId: laneId }] }
   }
 
-  const anchors: VisibilityAnchorPort = {
-    visibilityEdge: async (ref) => {
+  const legacyAnchor = {
+    visibilityEdge: async (ref: EntityRef): Promise<VisibilityEdge | null> => {
       if (ref.entity === 'shipOrder') return await laneDepartureEdge(ref.entityId)
       // An issue write is the audience-change edge for its normalized companions.
       if (ref.entity !== 'issueProjection') return null
@@ -828,12 +838,241 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
       ]
       return { audience, subjects }
     },
-    currentValueOf: async (ref) => await durableChangeValueOf(ref),
+    currentValueOf: async (ref: EntityRef) => await durableChangeValueOf(ref),
+  }
+  const legacyAnchors: VisibilityAnchorPort = {
+    visibilityEdges: async (refs) => await Promise.all(refs.map((ref) => legacyAnchor.visibilityEdge(ref))),
+    currentValuesOf: async (refs) => {
+      const values: unknown[] = []
+      for (const ref of refs) values.push(await legacyAnchor.currentValueOf(ref))
+      return values
+    },
+  }
+
+  /** One JSON value, or `undefined` for a corrupt payload, as the bootstrap reads it. */
+  const parsedPayload = (payload: string): unknown => {
+    try {
+      return JSON.parse(payload)
+    } catch {
+      return undefined
+    }
+  }
+
+  /**
+   * THE ROWS AN ISSUE'S AUDIENCE CHANGE RE-SCOPES, for every issue in a batch at
+   * once [POD-6156].
+   *
+   * Read from the database for exactly these issues, where it used to be read
+   * out of an index built over the whole installed world (every row of
+   * `change_latest`) and rebuilt after every append. Each list is in the order
+   * that index gave it: installed rows by seq, sessions in the order the
+   * indexed `issue_id IN (…)` read returns them.
+   *
+   *   sessions        one indexed read of the issues' live sessions;
+   *   dependencies    one primary-key range per issue over the installed
+   *                   `issueDep` ids that start with the issue's escaped id
+   *                   (`issueDepFromPrefix`), kept only where the id parses to it;
+   *   ship orders     the issues' orders from `idx_ship_orders_issue` (orders
+   *                   are never deleted and never change issue), then their
+   *                   installed rows by key. The issue and the lane come from
+   *                   the installed payload, as they always did.
+   */
+  const issueEdgeRows = async (issueIds: readonly string[]) => {
+    const sessionsByIssue = new Map<string, SessionRow[]>()
+    const depsByIssue = new Map<string, IssueDepSubject[]>()
+    const ordersByIssue = new Map<string, ShipOrderSubject[]>()
+    const lanesByIssue = new Map<string, ShipLaneSubject[]>()
+    if (issueIds.length === 0) return { sessionsByIssue, depsByIssue, ordersByIssue, lanesByIssue }
+    const wanted = new Set(issueIds)
+    const [sessionRows, depRows, orderIds] = await Promise.all([
+      store.sessions.findSessionsByIssueIds(issueIds.map((id) => asIssueId(id))),
+      store.sync.installedIdsWithPrefixes('issueDep', issueIds.map((id) => issueDepFromPrefix(id))),
+      store.shipping.orderIdsForIssues(issueIds),
+    ])
+    for (const row of sessionRows) {
+      if (row.issueId == null) continue
+      const bucket = sessionsByIssue.get(row.issueId)
+      if (bucket) bucket.push(row)
+      else sessionsByIssue.set(row.issueId, [row])
+    }
+    for (const row of [...depRows].sort((a, b) => a.seq - b.seq)) {
+      const dep = parseIssueDepId(row.entityId)
+      if (dep === null || !wanted.has(dep.fromId)) continue
+      const subjects = depsByIssue.get(dep.fromId) ?? []
+      subjects.push({ entity: 'issueDep', entityId: row.entityId })
+      depsByIssue.set(dep.fromId, subjects)
+    }
+    const orderRows =
+      orderIds.length === 0
+        ? []
+        : await store.sync.installedStates(
+            orderIds.map((id) => ({ entity: 'shipOrder' as const, entityId: id })),
+          )
+    for (const row of [...orderRows].sort((a, b) => a.seq - b.seq)) {
+      if (row.payload === null) continue
+      const payload = parsedPayload(row.payload) as
+        | {
+            issueId?: unknown
+            repoId?: unknown
+            destination?: unknown
+            targetBranch?: unknown
+            state?: unknown
+          }
+        | null
+        | undefined
+      // A malformed change cannot supply a visibility anchor.
+      if (payload === null || typeof payload !== 'object') continue
+      if (typeof payload.issueId !== 'string' || !wanted.has(payload.issueId)) continue
+      const subjects = ordersByIssue.get(payload.issueId) ?? []
+      subjects.push({ entity: 'shipOrder', entityId: row.entityId })
+      ordersByIssue.set(payload.issueId, subjects)
+      if (
+        payload.state === 'queued' &&
+        typeof payload.repoId === 'string' &&
+        typeof payload.destination === 'string' &&
+        typeof payload.targetBranch === 'string'
+      ) {
+        const lanes = lanesByIssue.get(payload.issueId) ?? []
+        lanes.push({
+          entity: 'shipLane',
+          entityId: shipLaneId(
+            payload.repoId as RepoId,
+            canonicalShippingDestination(payload.destination, payload.targetBranch),
+          ),
+        })
+        lanesByIssue.set(payload.issueId, lanes)
+      }
+    }
+    return { sessionsByIssue, depsByIssue, ordersByIssue, lanesByIssue }
+  }
+
+  /**
+   * {@link laneDepartureEdge} for every order in a batch, in a fixed number of
+   * grouped reads [POD-6156]: the orders, their issues' owners and audiences,
+   * every lane's members, and those members' rows and grants. Each order gets
+   * the answer the one-order version gives.
+   */
+  const laneDepartureEdges = async (
+    orderIds: readonly string[],
+  ): Promise<Map<string, VisibilityEdge | null>> => {
+    const out = new Map<string, VisibilityEdge | null>(orderIds.map((id) => [id, null]))
+    if (orderIds.length === 0) return out
+    const departed = (await store.shipping.ordersByIds(orderIds)).filter((order) => order.state !== 'queued')
+    if (departed.length === 0) return out
+    const departedIssueIds = [...new Set(departed.map((order) => order.issueId))]
+    const [owners, audiences] = await Promise.all([
+      measure('visibility.issue.getIssue', async () => await readIssues(store.issues, departedIssueIds)),
+      deps.audiencesFor('issue', departedIssueIds),
+    ])
+    const laneOf = new Map(
+      departed.map((order) => [
+        order.id,
+        shipLaneId(order.repoId, canonicalShippingDestination(order.destination, order.targetBranch)),
+      ]),
+    )
+    const membersByLane = await store.shipping.laneMemberIssueIdsMany(laneOf.values())
+    const memberIds = [...new Set([...membersByLane.values()].flat())]
+    const [memberRows, memberGrants] =
+      memberIds.length === 0
+        ? [new Map<string, IssueRow>(), new Map<string, GrantRow[]>()]
+        : await Promise.all([
+            measure('visibility.issue.getIssue', async () => await readIssues(store.issues, memberIds)),
+            measure(
+              'visibility.grants.listForResources',
+              async () => await store.grants.listForResources('issue', memberIds),
+            ),
+          ])
+    for (const order of departed) {
+      const owner = owners.get(order.issueId)?.ownerUserId
+      const candidates = [
+        ...new Set([...(owner ? [owner] : []), ...(audiences.get(order.issueId) ?? [])]),
+      ]
+      if (candidates.length === 0) continue
+      const laneId = laneOf.get(order.id) as string
+      const members = membersByLane.get(laneId) ?? []
+      const audience: string[] = []
+      for (const userId of candidates) {
+        const readable = members.some(
+          (issueId) =>
+            memberRows.get(issueId)?.ownerUserId === userId ||
+            (memberGrants.get(issueId) ?? []).some((edge) => issueGrantAdmits(edge, userId)),
+        )
+        if (!readable) audience.push(userId)
+      }
+      if (audience.length > 0) {
+        out.set(order.id, { audience, subjects: [{ entity: 'shipLane', entityId: laneId }] })
+      }
+    }
+    return out
+  }
+
+  const anchors: VisibilityAnchorPort = {
+    visibilityEdges: async (refs) => {
+      // An issue write is the audience-change edge for its normalized companions;
+      // a ship order leaving its queue can take a lane away. Nothing else anchors.
+      const issueIds = [
+        ...new Set(refs.filter((ref) => ref.entity === 'issueProjection').map((ref) => ref.entityId)),
+      ]
+      const orderIds = [
+        ...new Set(refs.filter((ref) => ref.entity === 'shipOrder').map((ref) => ref.entityId)),
+      ]
+      const [audiences, departures] = await Promise.all([
+        issueIds.length === 0
+          ? new Map<string, readonly string[]>()
+          : deps.audiencesFor('issue', issueIds),
+        laneDepartureEdges(orderIds),
+      ])
+      // Only an issue with an audience can produce an edge; read for those only.
+      const anchored = issueIds.filter((id) => (audiences.get(id) ?? []).length > 0)
+      const rows = await issueEdgeRows(anchored)
+      return refs.map((ref): VisibilityEdge | null => {
+        if (ref.entity === 'shipOrder') return departures.get(ref.entityId) ?? null
+        if (ref.entity !== 'issueProjection') return null
+        const audience = audiences.get(ref.entityId) ?? []
+        if (audience.length === 0) return null
+        const issueSessions = rows.sessionsByIssue.get(ref.entityId) ?? []
+        return {
+          audience,
+          subjects: [
+            { entity: 'issueProjection' as const, entityId: ref.entityId },
+            { entity: 'issueGitState' as const, entityId: ref.entityId },
+            ...issueSessions.map((session) => ({ entity: 'session' as const, entityId: session.id })),
+            ...issueSessions.flatMap((session) =>
+              session.resumeValue
+                ? [{ entity: 'conversation' as const, entityId: session.resumeValue }]
+                : [],
+            ),
+            ...(rows.depsByIssue.get(ref.entityId) ?? []),
+            // The issue's feed history rides its audience (POD-1772): a grant that
+            // hands somebody the issue and none of its events would give them a
+            // chat pane that starts at the moment they were let in.
+            ...(deps.issueEventSubjects?.(asIssueId(ref.entityId)) ?? []),
+            ...(rows.ordersByIssue.get(ref.entityId) ?? []),
+            // The lanes of its queued orders: a grant can make a lane readable and a
+            // revoke can take the last readable order in it away (POD-4974 O2).
+            ...(rows.lanesByIssue.get(ref.entityId) ?? []),
+          ],
+        }
+      })
+    },
+    /** Every subject's installed value in one grouped read (POD-6156). */
+    currentValuesOf: async (refs) => {
+      if (refs.length === 0) return []
+      const byKey = new Map<string, string>()
+      for (const row of await store.sync.installedStates(refs)) {
+        if (row.payload !== null) byKey.set(`${row.entity}\u0000${row.entityId}`, row.payload)
+      }
+      return refs.map((ref) => {
+        const payload = byKey.get(`${ref.entity}\u0000${ref.entityId}`)
+        return payload === undefined ? undefined : parsedPayload(payload)
+      })
+    },
   }
 
   return {
     state: makeVisibilityState(),
     anchors,
+    legacyAnchors,
     beginBootstrapRead,
     finishBootstrapRead,
     authorizationRevision: deps.authorizationRevision,

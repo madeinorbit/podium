@@ -27,13 +27,21 @@
 
 import type { MutationId, SessionId } from '@podium/model'
 import type { ObservationInputOrigin } from '@podium/protocol'
-import { and, asc, count, eq, gt, inArray, isNull, lt, lte, max, min, sql } from 'drizzle-orm'
+import { and, asc, count, eq, gt, gte, inArray, isNull, lt, lte, max, min, or, sql } from 'drizzle-orm'
 import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 import type { ChangeLogReadRow, ChangeLogWriteRow } from '../../authority/change-lifecycle'
 import type { ChangePrunePlan } from '../../change-log'
 import { appliedMutations, changeLatest, changes, feedIdentity } from './schema'
 import type { QueuedMessagesTable, SyncServerTables, UpstreamOutboxTable } from './server-tables'
-import { inListOf, inListSize, inListValues, param, prepared, preparedFamily } from './prepared'
+import {
+  inListOf,
+  inListSize,
+  inListValues,
+  param,
+  prefixUpperBound,
+  prepared,
+  preparedFamily,
+} from './prepared'
 import type { StoreQueries, StoreDrizzle, TransactionRunner } from './store-queries'
 
 /**
@@ -201,6 +209,64 @@ const installedWorld = prepared((db: StoreDrizzle) =>
     .from(changeLatest)
     .prepare(),
 )
+
+/**
+ * Installed rows by key, `size` keys per statement [POD-6156]: one primary-key
+ * seek per `(entity, entity_id)` pair. Each arm of the OR names both key
+ * columns, so every arm is a seek on the primary key and the arms are read
+ * together (SQLite's multi-index OR, a bitmap OR on Postgres). Never built at
+ * size 0: an OR of nothing is no condition at all.
+ */
+const installedRowsOfKeys = preparedFamily((db: StoreDrizzle, size: number) =>
+  db
+    .select({
+      seq: changeLatest.seq,
+      entity: changeLatest.entity,
+      entityId: changeLatest.entityId,
+      payload: changeLatest.payload,
+    })
+    .from(changeLatest)
+    .where(
+      or(
+        ...Array.from({ length: Math.max(size, 1) }, (_, i) =>
+          and(
+            eq(changeLatest.entity, param(changeLatest.entity, `entity${i}`)),
+            eq(changeLatest.entityId, param(changeLatest.entityId, `entityId${i}`)),
+          ),
+        ),
+      ),
+    )
+    .prepare(),
+)
+
+/**
+ * Installed ids of one kind under `size` key prefixes [POD-6156]: one primary-key
+ * range per prefix, `entity = ? AND entity_id >= prefix AND entity_id < bound`,
+ * the same OR-of-seeks shape as {@link installedRowsOfKeys}. Keys and seqs only;
+ * no payload is read.
+ */
+const installedIdsUnderPrefixes = preparedFamily((db: StoreDrizzle, size: number) =>
+  db
+    .select({ seq: changeLatest.seq, entityId: changeLatest.entityId })
+    .from(changeLatest)
+    .where(
+      or(
+        ...Array.from({ length: Math.max(size, 1) }, (_, i) =>
+          and(
+            eq(changeLatest.entity, param(changeLatest.entity, `entity${i}`)),
+            gte(changeLatest.entityId, param(changeLatest.entityId, `from${i}`)),
+            lt(changeLatest.entityId, param(changeLatest.entityId, `below${i}`)),
+          ),
+        ),
+      ),
+    )
+    .prepare(),
+)
+
+/** Pairs per grouped key read: two parameters each, under SQLite's 999. */
+const KEY_CHUNK = 250
+/** Prefixes per grouped range read: three parameters each. */
+const PREFIX_CHUNK = 160
 
 const appliedMutationResult = prepared((db: StoreDrizzle) =>
   db
@@ -675,6 +741,65 @@ export class SyncRepository {
     rows.sort((a, b) => a.seq - b.seq)
     this.latestChangeStatesCache = rows.map((r) => mapChangeLogReadRow({ ...r, op: 'upsert' }))
     return this.latestChangeStatesCache
+  }
+
+  /**
+   * THE INSTALLED ROWS FOR THESE KEYS, and nothing else [POD-6156].
+   *
+   * What a visibility check reads after a write: the current value of each
+   * subject it re-scopes. Grouped, so a batch of any size costs one statement per
+   * {@link KEY_CHUNK} keys, never one per key. A key with no installed row is
+   * simply absent; the rows come back in no particular order.
+   */
+  async installedStates(
+    keys: readonly { readonly entity: string; readonly entityId: string }[],
+  ): Promise<ChangeLogReadRow[]> {
+    const distinct = [...new Map(keys.map((key) => [`${key.entity}\u0000${key.entityId}`, key])).values()]
+    const out: ChangeLogReadRow[] = []
+    for (let start = 0; start < distinct.length; start += KEY_CHUNK) {
+      const chunk = distinct.slice(start, start + KEY_CHUNK)
+      const size = inListSize(chunk.length)
+      const values: Record<string, unknown> = {}
+      for (let i = 0; i < size; i++) {
+        // Padding repeats the last key: a duplicate arm matches nothing new.
+        const key = chunk[Math.min(i, chunk.length - 1)] as (typeof chunk)[number]
+        values[`entity${i}`] = key.entity
+        values[`entityId${i}`] = key.entityId
+      }
+      const rows = await installedRowsOfKeys(this.db, size).all(values)
+      for (const row of rows) out.push(mapChangeLogReadRow({ ...row, op: 'upsert' }))
+    }
+    return out
+  }
+
+  /**
+   * The installed ids of one kind that start with any of these prefixes, with
+   * their seqs [POD-6156]. Each prefix must end in an ASCII separator (see
+   * {@link prefixUpperBound}); the caller still checks that a returned id parses
+   * the way it expects, since a prefix only bounds the range.
+   */
+  async installedIdsWithPrefixes(
+    entity: string,
+    prefixes: readonly string[],
+  ): Promise<{ entityId: string; seq: number }[]> {
+    const distinct = [...new Set(prefixes)]
+    const out: { entityId: string; seq: number }[] = []
+    for (let start = 0; start < distinct.length; start += PREFIX_CHUNK) {
+      const chunk = distinct.slice(start, start + PREFIX_CHUNK)
+      const size = inListSize(chunk.length)
+      const values: Record<string, unknown> = {}
+      for (let i = 0; i < size; i++) {
+        const prefix = chunk[Math.min(i, chunk.length - 1)] as string
+        values[`entity${i}`] = entity
+        values[`from${i}`] = prefix
+        values[`below${i}`] = prefixUpperBound(prefix)
+      }
+      // Overlapping prefixes would return a key twice; the map keeps it once.
+      for (const row of await installedIdsUnderPrefixes(this.db, size).all(values)) {
+        out.push({ entityId: row.entityId, seq: row.seq })
+      }
+    }
+    return [...new Map(out.map((row) => [row.entityId, row])).values()]
   }
 
   private async invalidateLatestChangeStatesCache(): Promise<void> {

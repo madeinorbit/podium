@@ -126,6 +126,7 @@ describe('snapshot bootstrap producer', () => {
         store,
         audienceResourceIds: forbidden,
         audienceFor: forbidden,
+        audiencesFor: forbidden,
         issueEventSubjects: forbidden,
         authorizationRevision: forbidden,
       })

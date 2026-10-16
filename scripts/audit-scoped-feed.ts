@@ -402,8 +402,8 @@ export async function runtimeChecks(kernel: KernelUnderTest): Promise<Finding[]>
     mayRead: (user: string, ref: { entity: string; entityId: string }) =>
       grants.get(user)?.has(`${ref.entity}:${ref.entityId}`) === true,
     keyedUserOf: () => null,
-    visibilityEdge: () => null,
-    currentValueOf: () => undefined,
+    visibilityEdges: async (refs: readonly unknown[]) => refs.map(() => null),
+    currentValuesOf: async (refs: readonly unknown[]) => refs.map(() => undefined),
   }
   const authority = new Authority({
     store,

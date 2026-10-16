@@ -12,6 +12,7 @@ import {
   type EntityRef,
   GrantEdgeVisibilityPolicy,
   NoDelegationsGranted,
+  type VisibilityAnchorPort,
 } from '@podium/sync'
 import { afterEach, describe, expect, expectTypeOf, it } from 'vitest'
 import { makeFeedVisibility } from './feed-visibility'
@@ -19,6 +20,10 @@ import type { FeedVisibilityStore, IssueRow, SessionRow } from './hot-path-ports
 import type { SessionStore } from './store'
 import type { GrantRow } from './store/grants'
 import { openTestStore } from './test-support/open-test-store'
+
+/** One row's edge through the batched anchor port. */
+const edgeOf = async (anchors: VisibilityAnchorPort, ref: EntityRef) =>
+  (await anchors.visibilityEdges([ref]))[0] ?? null
 
 const owner = asUserId('owner')
 const reader = asUserId('reader')
@@ -53,6 +58,8 @@ async function fixture() {
       laneMemberIssueIds: async () => [],
       laneMemberIssueIdsMany: async (ids) => new Map([...ids].map((id) => [id, []])),
       getOrder: async () => null,
+      ordersByIds: async () => [],
+      orderIdsForIssues: async () => [],
     },
     automations: { ownersOf: async () => new Map(), runOwnersOf: async () => new Map() },
     grants: store.grants,
@@ -62,6 +69,7 @@ async function fixture() {
     store: rows,
     audienceResourceIds: (kind) => store.grants.visibilityAudienceResourceIds(kind),
     audienceFor: (kind, id) => store.grants.visibilityAudienceFor(kind, id),
+    audiencesFor: (kind, ids) => store.grants.visibilityAudiencesFor(kind, ids),
     authorizationRevision: () => store.grants.visibilityRevision(),
   })
   const grant = async (kind: string, grantee: string, verb: GrantRow['verb']) =>
@@ -144,7 +152,7 @@ describe('feed visibility grant semantics', () => {
     expect(state.mayRead(reader, git)).toBe(true)
     expect(state.mayRead(stranger, git)).toBe(false)
     expect(
-      (await policy.anchors.visibilityEdge({ entity: 'issueProjection', entityId: 'shared' }))
+      (await edgeOf(policy.anchors, { entity: 'issueProjection', entityId: 'shared' }))
         ?.subjects,
     ).toContainEqual(git)
   })
@@ -200,7 +208,7 @@ describe('feed visibility grant semantics', () => {
     expect(await policy.mayReadIssue(revoked, asIssueId('shared'))).toBe(false)
     // Revoked readers remain in the historical audience so they receive removals.
     expect(
-      (await policy.anchors.visibilityEdge({ entity: 'issueProjection', entityId: 'shared' }))
+      (await edgeOf(policy.anchors, { entity: 'issueProjection', entityId: 'shared' }))
         ?.audience,
     ).toEqual([reader, revoked])
   })
@@ -304,7 +312,7 @@ describe('the issue anchor edge reads the normalized record', () => {
     })
     if (delta?.kind !== 'batch') throw new Error('expected a delta batch')
     expect(delta.changes.filter((change) => change.entity === 'issueProjection')).toHaveLength(2)
-    const edge = await policy.anchors.visibilityEdge({
+    const edge = await edgeOf(policy.anchors, {
       entity: 'issueProjection',
       entityId: 'shared',
     })

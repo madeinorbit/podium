@@ -46,6 +46,7 @@ export function bootstrapVisibility(database: SqlDatabase) {
     },
     audienceResourceIds: kind => grants.visibilityAudienceResourceIds(kind),
     audienceFor: (kind, id) => grants.visibilityAudienceFor(kind, id),
+    audiencesFor: (kind, ids) => grants.visibilityAudiencesFor(kind, ids),
     // A job-local cache lives only as long as this immutable read snapshot.
     authorizationRevision: () => sync.maxChangeSeq(),
     issueEventSubjects: issueId => eventSubjects.get(issueId) ?? [],

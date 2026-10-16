@@ -96,6 +96,7 @@ async function fixture() {
     store,
     audienceResourceIds: forbidden,
     audienceFor: forbidden,
+    audiencesFor: forbidden,
     issueEventSubjects: forbidden,
     authorizationRevision: forbidden,
   })
@@ -463,6 +464,7 @@ describe('snapshot delta producer', () => {
         store,
         audienceResourceIds: (kind) => store.grants.visibilityAudienceResourceIds(kind),
         audienceFor: (kind, id) => store.grants.visibilityAudienceFor(kind, id),
+        audiencesFor: (kind, ids) => store.grants.visibilityAudiencesFor(kind, ids),
         authorizationRevision: () => store.grants.visibilityRevision(),
         issueEventSubjects: (id) =>
           id === 'shared' ? [{ entity: 'issueEvent', entityId: eventId }] : [],

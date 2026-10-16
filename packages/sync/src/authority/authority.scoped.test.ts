@@ -122,8 +122,8 @@ function state() {
     classOf: (entity) => classes.get(entity) ?? null,
     mayRead: (user, ref) => grants.get(user)?.has(key(ref)) === true,
     keyedUserOf: (ref) => keyedUsers.get(key(ref)) ?? null,
-    visibilityEdge: async (ref) => edges.get(key(ref)) ?? null,
-    currentValueOf: async (ref) => values.get(key(ref)),
+    visibilityEdges: async (refs) => refs.map((ref) => edges.get(key(ref)) ?? null),
+    currentValuesOf: async (refs) => refs.map((ref) => values.get(key(ref))),
     // DEFAULT-CLOSED for a delegation nobody minted: an empty key set. `all`
     // here would make every A2 case pass without the scope doing any work.
     scopeOf: (delegation) => scopes.get(delegation) ?? { kind: 'entities', keys: new Set() },

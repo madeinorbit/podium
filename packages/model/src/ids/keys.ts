@@ -394,6 +394,18 @@ export const issueDepId = (fromId: string, toId: string, type: string): IssueDep
 }
 
 /**
+ * The prefix every {@link issueDepId} from `fromId` starts with, and that no
+ * other parseable dep id starts with [POD-6156]: the escaped `fromId` and the
+ * raw separator. The escaping is strict (see `splitEscaped`), so an id whose
+ * {@link parseIssueDepId} names `fromId` has exactly this prefix; a foreign id
+ * under it still fails to parse and must be checked by the caller.
+ */
+export const issueDepFromPrefix = (fromId: string): string => {
+  requireNonEmpty(fromId, 'issue dep fromId')
+  return `${escapePart(fromId, ISSUE_DEP_SEP)}${ISSUE_DEP_SEP}`
+}
+
+/**
  * Inverse of {@link issueDepId}. `null` — never a throw and never a partial
  * answer — when the id was not composed by {@link issueDepId}: ids reach this
  * function from a hub mirror and from caller-supplied `input.id` on create,

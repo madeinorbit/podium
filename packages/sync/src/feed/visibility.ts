@@ -277,30 +277,37 @@ export interface VisibilityStatePort {
  * `scoped-feed`'s audit and `authority.scoped.test.ts` both pin this: flipping
  * only the policy flips the op, and no input shape can name one.
  */
+/** What one durable row moved: the humans whose view changed, and the rows whose
+ *  visibility changed with it. */
+export interface VisibilityEdge {
+  readonly audience: readonly UserRef[]
+  readonly subjects: readonly EntityRef[]
+}
+
 export interface VisibilityAnchorPort {
   /**
-   * Did this durable row change who may see what? `null` for an ordinary entity
-   * change, which is the overwhelmingly common answer.
+   * Did each durable row change who may see what? Answered positionally, `null`
+   * for an ordinary entity change, which is the overwhelmingly common answer.
    *
    * `audience` names the HUMANS whose view moved — not "everyone", because
    * telling an unaffected principal that an entity was evicted reveals the entity
    * exists (`docs/multi-user-readiness.md` §3.1.2's existence-leak class). An
    * unaffected principal sees that seq as a watermark, which is D14.3's own
    * prescription.
+   *
+   * A WHOLE BATCH PER CALL [POD-6156]: the port reads what the batch needs in a
+   * fixed number of grouped queries, never one per row (server-data rule 2).
    */
-  visibilityEdge(ref: EntityRef): Promise<{
-    readonly audience: readonly UserRef[]
-    readonly subjects: readonly EntityRef[]
-  } | null>
+  visibilityEdges(refs: readonly EntityRef[]): Promise<readonly (VisibilityEdge | null)[]>
   /**
-   * The entity's CURRENT wire value, for a re-admitting `upsert` (D14.2), or
-   * `undefined` when the entity no longer exists — in which case nothing is
-   * re-admitted, because there is nothing to re-admit.
+   * Each entity's CURRENT wire value, positionally, for a re-admitting `upsert`
+   * (D14.2), or `undefined` when the entity no longer exists — in which case
+   * nothing is re-admitted, because there is nothing to re-admit.
    *
    * D14.2's point restated, because it looks wrong: the entity's `revision` does
    * not move. An upsert whose revision has not moved is still a valid upsert.
    */
-  currentValueOf(ref: EntityRef): Promise<unknown | undefined>
+  currentValuesOf(refs: readonly EntityRef[]): Promise<readonly unknown[]>
 }
 
 /**
@@ -554,11 +561,11 @@ export class NoDelegationsGranted implements DelegationScopePort {
 }
 
 export class DeviceGradeNoAnchors implements VisibilityAnchorPort {
-  async visibilityEdge(): Promise<null> {
-    return null
+  async visibilityEdges(refs: readonly EntityRef[]): Promise<null[]> {
+    return refs.map(() => null)
   }
 
-  async currentValueOf(): Promise<undefined> {
-    return undefined
+  async currentValuesOf(refs: readonly EntityRef[]): Promise<undefined[]> {
+    return refs.map(() => undefined)
   }
 }

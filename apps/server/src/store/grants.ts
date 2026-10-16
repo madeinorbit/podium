@@ -82,6 +82,16 @@ const audienceOf = prepared((db: StoreDrizzle) =>
     .orderBy(asc(grantAudiences.grantee)).prepare(),
 )
 
+/** {@link audienceOf} for many resources of one kind, in primary-key order [POD-6156]. */
+const audiencesOf = preparedFamily((db: StoreDrizzle, size: number) =>
+  db.select({ resourceId: grantAudiences.resourceId, grantee: grantAudiences.grantee }).from(grantAudiences)
+    .where(and(
+      eq(grantAudiences.resourceKind, param(grantAudiences.resourceKind, 'resourceKind')),
+      inListOf(grantAudiences.resourceId, size, 'resourceIds'),
+    ))
+    .orderBy(asc(grantAudiences.resourceId), asc(grantAudiences.grantee)).prepare(),
+)
+
 const audienceResourceIdsOf = prepared((db: StoreDrizzle) =>
   db.selectDistinct({ resourceId: grantAudiences.resourceId }).from(grantAudiences)
     .where(eq(grantAudiences.resourceKind, param(grantAudiences.resourceKind, 'resourceKind')))
@@ -213,6 +223,29 @@ export class GrantsRepository {
   async visibilityAudienceFor(resourceKind: string, resourceId: string): Promise<readonly string[]> {
     const rows = await audienceOf(this.db).all({ resourceKind, resourceId })
     return rows.map(row => row.grantee)
+  }
+
+  /**
+   * {@link visibilityAudienceFor} for many resources in one read per 500 ids
+   * [POD-6156]. Every asked id gets an entry, `[]` for "no audience", each in
+   * the same grantee order the one-resource read returns.
+   */
+  async visibilityAudiencesFor(
+    resourceKind: string,
+    resourceIds: readonly string[],
+  ): Promise<Map<string, readonly string[]>> {
+    const out = new Map<string, string[]>()
+    const unique = [...new Set(resourceIds)]
+    for (const id of unique) out.set(id, [])
+    for (let offset = 0; offset < unique.length; offset += 500) {
+      const chunk = unique.slice(offset, offset + 500)
+      const size = inListSize(chunk.length)
+      const rows = await audiencesOf(this.db, size).all(
+        inListValues(chunk, size, 'resourceIds', { resourceKind }),
+      )
+      for (const row of rows) out.get(row.resourceId)?.push(row.grantee)
+    }
+    return out
   }
 
   /** Historical resource ids, including resources whose last grant was revoked. */

@@ -26,11 +26,19 @@ export interface FeedVisibilityStore {
   >
   readonly shipping: Pick<
     SessionStore['shipping'],
-    'issueIdsForOrders' | 'laneMemberIssueIds' | 'laneMemberIssueIdsMany' | 'getOrder'
+    | 'issueIdsForOrders'
+    | 'laneMemberIssueIds'
+    | 'laneMemberIssueIdsMany'
+    | 'getOrder'
+    | 'ordersByIds'
+    | 'orderIdsForIssues'
   >
   readonly automations: Pick<SessionStore['automations'], 'ownersOf' | 'runOwnersOf'>
   readonly grants: Pick<SessionStore['grants'], 'loadForResource' | 'listForResources'>
-  readonly sync: Pick<SessionStore['sync'], 'latestChangeStatesGeneration' | 'latestChangeStates'>
+  readonly sync: Pick<
+    SessionStore['sync'],
+    'latestChangeStatesGeneration' | 'latestChangeStates' | 'installedStates' | 'installedIdsWithPrefixes'
+  >
 }
 export type DeliveryMessages = Pick<
   SessionStore['messages'],

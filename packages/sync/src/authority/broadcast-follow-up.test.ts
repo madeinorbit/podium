@@ -74,12 +74,12 @@ const PREPARATION_FAILED = 'the visibility state could not be read'
 /** An anchor port whose edge lookup REJECTS — the yielding half of preparation
  *  failing, which is the whole reason the port had to be widened. */
 class UnreachableAnchors implements VisibilityAnchorPort {
-  async visibilityEdge(): Promise<never> {
+  async visibilityEdges(): Promise<never> {
     throw new Error(PREPARATION_FAILED)
   }
 
-  async currentValueOf(): Promise<undefined> {
-    return undefined
+  async currentValuesOf(refs: readonly EntityRef[]): Promise<undefined[]> {
+    return refs.map(() => undefined)
   }
 }
 
@@ -88,16 +88,16 @@ class UnreachableAnchors implements VisibilityAnchorPort {
 class AnchorsFailingOnce implements VisibilityAnchorPort {
   private failed = false
 
-  async visibilityEdge(): Promise<null> {
+  async visibilityEdges(refs: readonly EntityRef[]): Promise<null[]> {
     if (!this.failed) {
       this.failed = true
       throw new Error(PREPARATION_FAILED)
     }
-    return null
+    return refs.map(() => null)
   }
 
-  async currentValueOf(): Promise<undefined> {
-    return undefined
+  async currentValuesOf(refs: readonly EntityRef[]): Promise<undefined[]> {
+    return refs.map(() => undefined)
   }
 }
 
@@ -115,15 +115,15 @@ class GatedAnchors implements VisibilityAnchorPort {
     this.gate = gate
   }
 
-  async visibilityEdge(): Promise<null> {
+  async visibilityEdges(refs: readonly EntityRef[]): Promise<null[]> {
     const gate = this.gate
     this.gate = null
     if (gate) await gate
-    return null
+    return refs.map(() => null)
   }
 
-  async currentValueOf(): Promise<undefined> {
-    return undefined
+  async currentValuesOf(refs: readonly EntityRef[]): Promise<undefined[]> {
+    return refs.map(() => undefined)
   }
 }
 

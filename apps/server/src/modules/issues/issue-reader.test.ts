@@ -91,6 +91,7 @@ describe.each([false, true])('issue authority, bound=%s', bound => {
     const feed = makeFeedVisibility({ store,
       audienceResourceIds: kind => store.grants.visibilityAudienceResourceIds(kind),
       audienceFor: (kind, id) => store.grants.visibilityAudienceFor(kind, id),
+      audiencesFor: (kind, ids) => store.grants.visibilityAudiencesFor(kind, ids),
       authorizationRevision: () => store.grants.visibilityRevision() })
     const allowed = async (id: typeof alice, issue = 'iss_x') => {
       const memory = await policy.mayRead({ kind: 'user', id }, { class: 'issue', id: issue })

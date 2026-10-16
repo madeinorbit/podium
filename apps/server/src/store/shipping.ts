@@ -768,6 +768,15 @@ const issueIdsOfOrders = preparedFamily((db: StoreDrizzle, size: number) =>
     .prepare(),
 )
 
+/** Every order of these issues, in any state, on `idx_ship_orders_issue` [POD-6156]. */
+const orderIdsOfIssues = preparedFamily((db: StoreDrizzle, size: number) =>
+  db
+    .select({ id: shipOrders.id, issueId: shipOrders.issueId })
+    .from(shipOrders)
+    .where(inListOf(shipOrders.issueId, size, 'issueIds'))
+    .prepare(),
+)
+
 /** The lane custody an order's issue holds (createOrder, recordNativeStackEdge). */
 const issueLaneCustody = prepared((db: StoreDrizzle) =>
   db
@@ -1855,6 +1864,26 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
         inListValues(chunk.map(asShipOrderId), size, 'ids'),
       )
       for (const row of rows) out.set(row.id, row.issueId)
+    }
+    return out
+  }
+
+  /**
+   * The ids of every order of these issues, in any state [POD-6156]. Orders are
+   * never deleted and never change issue, so this is every order the feed can
+   * carry for them.
+   */
+  async orderIdsForIssues(issueIds: readonly string[]): Promise<string[]> {
+    const out: string[] = []
+    const unique = [...new Set(issueIds)]
+    const chunkSize = 500
+    for (let offset = 0; offset < unique.length; offset += chunkSize) {
+      const chunk = unique.slice(offset, offset + chunkSize)
+      const size = inListSize(chunk.length)
+      const rows = await orderIdsOfIssues(this.db, size).all(
+        inListValues(chunk.map(asIssueId), size, 'issueIds'),
+      )
+      for (const row of rows) out.push(row.id)
     }
     return out
   }

@@ -188,7 +188,7 @@ describe('POD-1614 — a bootstrap does not re-read the sessions table per row',
       await loadSessionsCallsDuringBootstrap(small),
     )
   })
-  it('memoizes authorization snapshots across anchored issue refs and refreshes after append', async () => {
+  it('reads only the anchored rows for a delivery, afresh after each append', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const { ledger, store } = internals(reg)
     for (const issueId of ['i1', 'i2']) {
@@ -206,6 +206,7 @@ describe('POD-1614 — a bootstrap does not re-read the sessions table per row',
       })
     }
     const latestStates = vi.spyOn(store.sync, 'latestChangeStates')
+    const installedReads = vi.spyOn(store.sync, 'installedStates')
     // RE-POINTED, NOT RELAXED [POD-3261]. The conserved quantity this test names
     // is ONE SESSION READ per generation, however many anchored issue refs the
     // batch carries; only the read changed. It was `loadSessions()` — every live
@@ -230,10 +231,13 @@ describe('POD-1614 — a bootstrap does not re-read the sessions table per row',
     if (first === null || first.kind !== 'batch') {
       throw new Error('expected the first scoped delivery to be a batch')
     }
-    // Before the fix, this fixture made 5 latest-state folds (one anchor scan
-    // plus current values) and 2 full session loads. The conserved quantities
-    // are now one fold and one session read.
-    expect(latestStates).toHaveBeenCalledTimes(1)
+    // Before POD-3261 this fixture made 5 latest-state folds (one anchor scan
+    // plus current values) and 2 full session loads; until POD-6156 it made one
+    // fold of the whole installed world per append. Now nothing reads the whole
+    // world: the subjects' values are one grouped read by key, and the issues'
+    // sessions one indexed read.
+    expect(latestStates).toHaveBeenCalledTimes(0)
+    expect(installedReads).toHaveBeenCalledTimes(1)
     expect(sessionLoads).toHaveBeenCalledTimes(1)
     expect(wholeTableLoads).toHaveBeenCalledTimes(0)
     expect(
@@ -271,9 +275,10 @@ describe('POD-1614 — a bootstrap does not re-read the sessions table per row',
     if (second === null || second.kind !== 'batch') {
       throw new Error('expected the refreshed scoped delivery to be a batch')
     }
-    // A durable append changes the generation before evaluation, so current
-    // values cannot come from the previous authorization snapshot.
-    expect(latestStates).toHaveBeenCalledTimes(2)
+    // Each delivery reads the database afresh, so current values cannot come
+    // from the previous delivery.
+    expect(latestStates).toHaveBeenCalledTimes(0)
+    expect(installedReads).toHaveBeenCalledTimes(2)
     expect(sessionLoads).toHaveBeenCalledTimes(2)
     expect(second.changes).toContainEqual(
       expect.objectContaining({

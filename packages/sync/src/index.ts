@@ -55,6 +55,7 @@ export {
   type FeedScopingGrade,
   type FeedVisibilityPolicy,
   type VisibilityAnchorPort,
+  type VisibilityEdge,
   type VisibilityDecision,
   type VisibilityReason,
   type VisibilityStatePort,

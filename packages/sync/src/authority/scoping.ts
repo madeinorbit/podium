@@ -51,6 +51,7 @@ import type {
   EntityRef,
   FeedVisibilityPolicy,
   VisibilityAnchorPort,
+  VisibilityEdge,
 } from '../feed/visibility'
 import { humanOf } from '../feed/visibility'
 import type { ScopedChange, SequencedChange } from './change-lifecycle'
@@ -105,7 +106,7 @@ export const DEFAULT_RESCOPE_THRESHOLD = 32
  * Two things in {@link scopeBatch} do not depend on the principal, and both were
  * being redone per principal:
  *
- *   THE VISIBILITY EDGE. `anchors.visibilityEdge(change)` answers "did this row
+ *   THE VISIBILITY EDGE. `anchors.visibilityEdges(changes)` answers "did this row
  *   move anyone's visibility", and its answer — an audience and a subject list —
  *   is a property of the row and the tables, not of who is asking. The
  *   per-principal test is the `audience.includes(human)` line below, which is
@@ -117,7 +118,7 @@ export const DEFAULT_RESCOPE_THRESHOLD = 32
  *   separate pass rather than a memo.
  *
  * The subject refs are included in the prefetch, not just the changes: an
- * anchored row's `decide` and `currentValueOf` reach rows the batch never
+ * anchored row's `decide` and `currentValuesOf` reach rows the batch never
  * mentions, and a prefetch that stopped at the changes would leave exactly the
  * grant-driven fan-out unbatched.
  *
@@ -132,8 +133,8 @@ export interface PreparedBatch {
   /** The policy the whole batch is decided through: prefetched where the port
    *  can prefetch, the ordinary policy where it cannot. */
   readonly policy: FeedVisibilityPolicy
-  /** `visibilityEdge` per change, positionally. `null` is the common answer. */
-  readonly edges: readonly (Awaited<ReturnType<VisibilityAnchorPort['visibilityEdge']>>)[]
+  /** `visibilityEdges` per change, positionally. `null` is the common answer. */
+  readonly edges: readonly (VisibilityEdge | null)[]
   /** Current values per edge subject, aligned with `edges`; resolved before the
    * synchronous per-principal loop starts. */
   readonly currentValues: readonly (readonly unknown[])[]
@@ -143,21 +144,30 @@ export async function prepareBatch(
   deps: Pick<ScopingDeps, 'policy' | 'anchors'>,
   changes: readonly SequencedChange[],
 ): Promise<PreparedBatch> {
-  const edges = await Promise.all(changes.map((change) => deps.anchors.visibilityEdge(change)))
+  const edges = await deps.anchors.visibilityEdges(
+    changes.map(({ entity, entityId }) => ({ entity, entityId })),
+  )
   const refs: EntityRef[] = changes.map(({ entity, entityId }) => ({ entity, entityId }))
+  const subjects: EntityRef[] = []
   for (const edge of edges) {
     if (edge === null) continue
-    for (const subject of edge.subjects) refs.push(subject)
+    for (const subject of edge.subjects) {
+      refs.push(subject)
+      subjects.push(subject)
+    }
   }
   const prepared = deps.policy.forBatch?.(refs)
   const policy = prepared === undefined ? deps.policy : await prepared
+  // Every subject's value in one call, then dealt back to its edge in order.
+  const values = subjects.length === 0 ? [] : await deps.anchors.currentValuesOf(subjects)
   const currentValues: unknown[][] = []
+  let next = 0
   for (const edge of edges) {
-    const values: unknown[] = []
+    const own: unknown[] = []
     if (edge !== null) {
-      for (const subject of edge.subjects) values.push(await deps.anchors.currentValueOf(subject))
+      for (let i = 0; i < edge.subjects.length; i++) own.push(values[next++])
     }
-    currentValues.push(values)
+    currentValues.push(own)
   }
   return { policy, edges, currentValues }
 }
