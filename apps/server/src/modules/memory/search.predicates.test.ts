@@ -103,7 +103,7 @@ async function build() {
     'id' in ref ? ref.id === 'allowed' : 'nativeId' in ref && ref.nativeId === 'allowed',
   )
   vi.spyOn(store.sessions, 'loadSessions').mockResolvedValue([])
-  vi.spyOn(store.issues, 'listIssueRows').mockResolvedValue([])
+  vi.spyOn(store.issues, 'listIssueRowsWhere').mockResolvedValue([])
   vi.spyOn(store.issues, 'searchIssueComments').mockResolvedValue([])
   vi.spyOn(store.superagent, 'listSuperagentThreads').mockResolvedValue([])
   vi.spyOn(store.conversations.index, 'searchCandidates').mockResolvedValue([])
@@ -129,7 +129,9 @@ describe('async predicate regression: memory selection', () => {
 
   it('excludes denied and deleted issues from search results', async () => {
     const { store, search } = await build()
-    vi.mocked(store.issues.listIssueRows).mockResolvedValue([
+    // The search's issue listing (POD-6195); the deleted row is still
+    // excluded by the search itself.
+    vi.mocked(store.issues.listIssueRowsWhere).mockResolvedValue([
       { ...issue(), id: asIssueId('denied'), title: 'needle private' },
       { ...issue(), id: asIssueId('allowed'), title: 'needle visible' },
       { ...issue(), id: asIssueId('deleted'), title: 'needle deleted', deletedAt: 't1' },

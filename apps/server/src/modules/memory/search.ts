@@ -1,4 +1,3 @@
-import { readIssueRows } from '../issues/issue-reader'
 import { asIssueId, asMachineId, machineScopedKey } from '@podium/model'
 import type { SearchResultWire } from '@podium/protocol'
 import type { SessionStore } from '../../store'
@@ -121,7 +120,24 @@ export class MemorySearchService {
       })
     }
 
-    const issues = await readIssueRows(this.store.issues)
+    // The live issues whose text contains the query, filtered in SQL for ASCII
+    // text (SQLite folds ASCII case only; other text reads every live issue and
+    // is matched below, as before), and the live issues of the comments that
+    // match, by id (POD-6195). Both used to be found in every issue at once.
+    const ascii = /^[\x00-\x7f]*$/.test(lower)
+    const textIssues = await this.store.issues.listIssueRowsWhere(
+      { repo: false, readable: false, live: true, ...(ascii ? { text: true } : {}), order: 'path-seq' },
+      ascii ? { text: lower } : {},
+    )
+    const comments = await this.store.issues.searchIssueComments(text, null)
+    const listed = new Set<string>(textIssues.map((row) => row.id))
+    const commented = comments.map((comment) => comment.issueId).filter((id) => !listed.has(id))
+    const issues = [
+      ...textIssues,
+      ...(commented.length > 0
+        ? [...(await this.store.issues.getIssues(commented)).values()].filter((row) => !row.deletedAt)
+        : []),
+    ]
     // As with session visibility, no authorization result outlives this request.
     const issueReadable = await Promise.all(issues.map(async (row) =>
       !row.deletedAt && await visibility.mayRead(reader, { class: 'issue', id: row.id }),
@@ -145,7 +161,7 @@ export class MemorySearchService {
       })
       issueHits.add(row.id)
     }
-    for (const comment of await this.store.issues.searchIssueComments(text, null)) {
+    for (const comment of comments) {
       const issue = visibleIssues.get(asIssueId(comment.issueId))
       if (!issue || issueHits.has(issue.id)) continue
       out.push({

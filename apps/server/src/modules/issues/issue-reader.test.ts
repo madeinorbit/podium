@@ -136,7 +136,7 @@ describe.each([false, true])('issue authority, bound=%s', bound => {
   })
 })
 
-it('serves committed point/batch/list reads without SQL and returns private copies', async () => {
+it('reads the database, returns private copies, and agrees with the bound map (POD-6195)', async () => {
   const { store, index } = await setup(true)
   const point = vi.spyOn(store.issues, 'getIssue')
   const batch = vi.spyOn(store.issues, 'getIssues')
@@ -149,9 +149,9 @@ it('serves committed point/batch/list reads without SQL and returns private copi
   expect(await readIssue(store.issues, 'absent')).toBeNull()
   expect([...(await readIssues(store.issues, ['iss_x', 'absent', 'iss_x'])).keys()]).toEqual(['iss_x'])
   expect((await readIssueRows(store.issues)).map(row => row.id)).toEqual(['iss_x'])
-  expect(point).not.toHaveBeenCalled()
-  expect(batch).not.toHaveBeenCalled()
-  expect(list).not.toHaveBeenCalled()
+  expect(point).toHaveBeenCalled()
+  expect(batch).toHaveBeenCalledOnce()
+  expect(list).toHaveBeenCalledOnce()
   await store.issues.upsertIssue(issueRow({ ownerUserId: bob, title: 'direct write' }))
   expect(index?.rows.get('iss_x')?.title).toBe('direct write')
   // The returned durable row preserves the original owner on ordinary upsert.
@@ -239,6 +239,6 @@ it('orders by repo-path bytes like SQL, and batches folder owners identically (P
   expect((await readIssueRows(store.issues)).map(row => row.id)).toEqual(before.rows)
   expect(await Promise.all(cwds.map(cwd => access.issueForCwd(cwd)))).toEqual(before.owners)
   expect([...(await access.issuesForCwds([...cwds, '/w'])).entries()]).toEqual(cwds.map((cwd, i) => [cwd, before.owners[i]]))
-  expect(list).not.toHaveBeenCalled()
+  expect(list).toHaveBeenCalledOnce()
   expect(await access.issuesForCwds([])).toEqual(new Map())
 })

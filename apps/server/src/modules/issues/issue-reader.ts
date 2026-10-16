@@ -1,9 +1,22 @@
 import type { IssuesRepository } from '../../store/issues'
 import type { IssueRow } from '../../store/types'
 import { spanOpen } from '../../store/executor/executor'
+import { compareWithIssueMap } from './service/map-parity'
+
+/**
+ * ISSUE READS FOR CODE OUTSIDE THE ISSUE MODULE (feed visibility, session
+ * projection and authorization, memory, cost, the relay).
+ *
+ * They used to borrow IssueStore's in-memory map outside a save and ask SQL
+ * inside one. Since POD-6195 they ask the repository every time (its read
+ * scope memoises a row for an operation, as before inside a save). Until the
+ * map is deleted (D1g, POD-6196) the map IssueStore binds here is asked beside
+ * each read outside a save, for the old/new comparison (`map-parity.ts`); it
+ * never answers.
+ */
 
 type IssueReadPort = Pick<IssuesRepository, 'getIssue' | 'getIssues'>
-// Repository identity isolates instances and unbound repositories remain live. The callback borrows IssueStore's existing map.
+// Repository identity isolates instances; an unbound repository is not compared.
 interface CommittedIssueReader {
   rows(): ReadonlyMap<string, IssueRow>
 }
@@ -13,29 +26,33 @@ export function bindCommittedIssueReader(repository: IssueReadPort, rows: Commit
   else committedReaders.delete(repository)
 }
 
-function copy(row: IssueRow): IssueRow {
-  return { ...row, blockedBy: [...row.blockedBy],
-    humanQuestionOptions: row.humanQuestionOptions ? [...row.humanQuestionOptions] : row.humanQuestionOptions }
+/** The bound map, outside a save only: inside one it lags the save's writes. */
+function mapOf(repository: IssueReadPort): ReadonlyMap<string, IssueRow> | undefined {
+  if (spanOpen()) return undefined
+  return committedReaders.get(repository)?.rows()
 }
 
-/** Never answer read-your-writes from the committed snapshot. */
 export async function readIssue(repository: IssueReadPort, id: string): Promise<IssueRow | null> {
-  const reader = !spanOpen() && committedReaders.get(repository)
-  if (!reader) return await repository.getIssue(id)
-  const row = reader.rows().get(id)
-  return row ? copy(row) : null
+  const row = await repository.getIssue(id)
+  const map = mapOf(repository)
+  if (map) compareWithIssueMap('readIssue', id, () => map.get(id) ?? null, row)
+  return row
 }
 
 export async function readIssues(repository: IssueReadPort, ids: readonly string[]): Promise<Map<string, IssueRow>> {
-  const reader = !spanOpen() && committedReaders.get(repository)
-  if (!reader) return await repository.getIssues(ids)
-  const rows = reader.rows()
-  const result = new Map<string, IssueRow>()
-  for (const id of ids) {
-    const row = rows.get(id)
-    if (row) result.set(id, copy(row))
+  const rows = await repository.getIssues(ids)
+  const map = mapOf(repository)
+  if (map) {
+    compareWithIssueMap('readIssues', ids, () => {
+      const found = new Map<string, IssueRow>()
+      for (const id of new Set(ids)) {
+        const row = map.get(id)
+        if (row) found.set(id, row)
+      }
+      return found
+    }, rows)
   }
-  return result
+  return rows
 }
 
 /**
@@ -49,16 +66,23 @@ function byRepoPathThenSeq<T extends { repoPath: string; seq: number }>(rows: It
   return keyed.map(({ row }) => row)
 }
 
-/** Whole-row readers retain the repository's repo-path/sequence ordering. */
+/** Every issue row, in the repository's repo-path/sequence order. */
 export async function readIssueRows(repository: IssueReadPort & Pick<IssuesRepository, 'listIssueRows'>): Promise<IssueRow[]> {
-  const reader = !spanOpen() && committedReaders.get(repository)
-  if (!reader) return await repository.listIssueRows()
-  return byRepoPathThenSeq(reader.rows().values()).map(copy)
+  const rows = await repository.listIssueRows()
+  const map = mapOf(repository)
+  if (map) compareWithIssueMap('readIssueRows', null, () => byRepoPathThenSeq(map.values()), rows)
+  return rows
 }
 
 export async function readIssueParentEdges(repository: IssueReadPort & Pick<IssuesRepository, 'listIssueParentEdges'>) {
-  const reader = !spanOpen() && committedReaders.get(repository)
-  if (!reader) return await repository.listIssueParentEdges()
-  return [...reader.rows().values()].filter(row => row.deletedAt == null)
-    .map(({ id, parentId }) => ({ id, parentId }))
+  const edges = await repository.listIssueParentEdges()
+  const map = mapOf(repository)
+  if (map) {
+    const byId = (list: readonly { id: string; parentId: string | null }[]) =>
+      [...list].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+    compareWithIssueMap('readIssueParentEdges', null, () =>
+      byId([...map.values()].filter((row) => row.deletedAt == null).map(({ id, parentId }) => ({ id, parentId }))),
+    byId(edges))
+  }
+  return edges
 }
