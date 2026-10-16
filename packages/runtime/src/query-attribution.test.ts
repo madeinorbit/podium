@@ -24,9 +24,25 @@ describe('queryKey', () => {
 
   it('truncates to keep a stall line readable, preserving the identifying prefix', () => {
     const key = queryKey('SELECT ' + 'a, '.repeat(100) + 'z FROM t', 40)
-    expect(key).toHaveLength(40)
     expect(key.startsWith('SELECT a, a,')).toBe(true)
-    expect(key.endsWith('…')).toBe(true)
+    expect(key.slice(0, 40)).toMatch(/…$/)
+  })
+
+  // POD-6189: a cut select lost its table, so C1's extra grant reads were
+  // reported as "select (table cut off)" and could not be attributed.
+  it('keeps the table of a cut select and tells statements with one prefix apart', () => {
+    const columns = 'SELECT ' + '"c", '.repeat(40) + '"z" FROM "grants" WHERE '
+    const one = queryKey(columns + '"resource_id" = ?')
+    const many = queryKey(columns + '"resource_id" IN (?, ?)')
+    expect(one).toMatch(/… FROM "grants" #[0-9a-f]{8}$/)
+    expect(many).toMatch(/… FROM "grants" #[0-9a-f]{8}$/)
+    expect(one).not.toBe(many)
+    expect(queryKey(columns + '"resource_id" = ?')).toBe(one)
+  })
+
+  it('appends no table when the cut already holds one', () => {
+    const key = queryKey('INSERT INTO "sessions" (' + '"c", '.repeat(40) + '"z") VALUES (?)')
+    expect(key).toMatch(/^INSERT INTO "sessions" .*… #[0-9a-f]{8}$/)
   })
 })
 

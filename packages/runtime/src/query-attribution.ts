@@ -48,10 +48,32 @@ const costs = new Map<string, QueryCost>()
  * query written across several lines aggregates as one, and the key is truncated
  * because a stall line has to stay readable — the leading clause is what
  * identifies the offender.
+ *
+ * A CUT KEY KEEPS ITS TABLE AND STAYS UNIQUE [POD-6189]. A builder select lists
+ * every column before its `FROM`, so a cut at 120 characters dropped the table:
+ * POD-6155's A/B could only report +11.5k/min of "select (table cut off)", and
+ * every select of the same column list (one resource's grants, many resources',
+ * a whole kind's) collapsed into ONE key. So when the cut loses the first
+ * `FROM <table>`, that clause is appended after the cut, and every cut key ends
+ * in a short hash of the whole statement. The prefix still reads as before.
  */
 export function queryKey(sql: string, maxLength = 120): string {
   const folded = sql.replace(/\s+/g, ' ').trim()
-  return folded.length <= maxLength ? folded : folded.slice(0, maxLength - 1) + '…'
+  if (folded.length <= maxLength) return folded
+  const head = folded.slice(0, maxLength - 1)
+  const tableInHead = /\b(?:from|into)\s+["`]?\w|^\s*update\s/i.test(head)
+  const from = tableInHead ? undefined : /\bfrom\s+["`]?[\w.]+["`]?/i.exec(folded)?.[0]
+  return `${head}…${from ? ` ${from}` : ''} #${fnv1a(folded)}`
+}
+
+/** 32-bit FNV-1a as 8 hex digits: a short, stable name for one statement text. */
+function fnv1a(text: string): string {
+  let hash = 0x811c9dc5
+  for (let i = 0; i < text.length; i++) {
+    hash ^= text.charCodeAt(i)
+    hash = Math.imul(hash, 0x01000193)
+  }
+  return (hash >>> 0).toString(16).padStart(8, '0')
 }
 
 /**

@@ -5,7 +5,7 @@
  *
  *   bun --conditions=@podium/source scripts/server-data-bench/run.ts --a=<rev> --b=<rev>
  *     [--rounds=3] [--cell=h1a1] [--seed=4443] [--load=1x|10x] [--minutes=4] [--clients=4]
- *     [--root=$HOME/server-data-bench] [--label=<name>] [--max-new-rounds=2]
+ *     [--root=$HOME/server-data-bench] [--label=<name>] [--max-new-rounds=2] [--profile=attribution|full]
  *   bun --conditions=@podium/source scripts/server-data-bench/run.ts --resume=<run dir> [--max-new-rounds=2]
  *
  * `--max-new-rounds` stops a call after that many rounds, so one A/B pair fits in one
@@ -27,7 +27,7 @@ import { createInterface } from 'node:readline'
 import { fileURLToPath } from 'node:url'
 import {
   type Cost, diffTotals, interleavedOrder, type LoopMinuteRecord, median, minuteMetrics,
-  minuteSpans, minutesInside, nextMinuteBoundary, windowRates, type RoundResult, sideBySide, statementsByKind,
+  minuteSpans, minutesInside, nextMinuteBoundary, windowRates, type RoundResult, sideBySide, statementKind, statementsByKind,
 } from './report'
 import { parseArgs } from './seed'
 
@@ -42,8 +42,14 @@ export const LIVE_FRAMES_PER_MINUTE = 28_000
 export const SESSION_WRITES_PER_MINUTE = 1_860
 export const ISSUE_WRITES_PER_MINUTE = 220
 
-/** A whitelist, so no ambient relay, supervisor, credential or instance override leaks in. */
-export function benchEnvironment(root: string): NodeJS.ProcessEnv {
+/**
+ * A whitelist, so no ambient relay, supervisor, credential or instance override leaks in.
+ *
+ * `profile` is the server's `PODIUM_LOOP_PROFILE`. `full` also records a caller
+ * stack per statement (POD-6189): it names WHO issued a statement kind, at a CPU
+ * cost that makes its times useless, so an A/B keeps the default `attribution`.
+ */
+export function benchEnvironment(root: string, profile = 'attribution'): NodeJS.ProcessEnv {
   return {
     PATH: process.env.PATH,
     HOME: join(root, 'home'),
@@ -69,7 +75,7 @@ export function benchEnvironment(root: string): NodeJS.ProcessEnv {
     PODIUM_TRANSCRIPT_LAKE: 'off',
     PODIUM_NO_RELAY: '1',
     PODIUM_NO_SCOPE: '1',
-    PODIUM_LOOP_PROFILE: 'attribution',
+    PODIUM_LOOP_PROFILE: profile,
     PODIUM_PASSWORD: PASSWORD,
     ABDUCO_SOCKET_DIR: join(root, 'abduco'),
   }
@@ -114,13 +120,17 @@ interface Server {
   listenMs: () => number | undefined
   /** `loop minute` records logged so far (the minute file's records, plus their write time). */
   minutes: () => LoopMinuteRecord[]
-  totals: (label: string) => Promise<{ queries: Record<string, Cost>; tasks: Record<string, Cost>; rssBytes: number; heapUsedBytes: number }>
+  totals: (label: string) => Promise<{
+    queries: Record<string, Cost>; tasks: Record<string, Cost>; rssBytes: number; heapUsedBytes: number
+    /** Caller stacks per statement key, lifetime; present under `--profile=full`. */
+    stacks?: Record<string, { count: number; stack: string }[]>
+  }>
   stop: () => Promise<void>
 }
 
-export function startBenchServer(checkout: string, root: string, logPath: string): Server {
+export function startBenchServer(checkout: string, root: string, logPath: string, profile?: string): Server {
   const child = spawn(BUN, ['--conditions=@podium/source', join(HERE, 'serve.ts'), `--checkout=${checkout}`], {
-    cwd: checkout, env: benchEnvironment(root), detached: true, stdio: ['pipe', 'pipe', 'pipe'],
+    cwd: checkout, env: benchEnvironment(root, profile), detached: true, stdio: ['pipe', 'pipe', 'pipe'],
   })
   const log: string[] = []
   let listenMs: number | undefined
@@ -193,7 +203,7 @@ async function template(sha: string, checkout: string, corpusPath: string, root:
 async function round(opts: {
   arm: 'A' | 'B'; index: number; sha: string; checkout: string; templateDir: string; fixture: string
   outDir: string; minutes: number; framesPerMinute: number; clients: number
-  sessionWritesPerMinute: number; issueWritesPerMinute: number
+  sessionWritesPerMinute: number; issueWritesPerMinute: number; profile: string
 }): Promise<{ result: RoundResult; detail: Record<string, unknown> }> {
   const dir = join(opts.outDir, `${opts.arm}-r${opts.index}`)
   rmSync(dir, { recursive: true, force: true })
@@ -203,7 +213,7 @@ async function round(opts: {
     await pause(10_000)
   }
   const loadAtStart = readFileSync('/proc/loadavg', 'utf8').split(' ')[0]
-  const server = startBenchServer(opts.checkout, dir, join(dir, 'server.ndjson'))
+  const server = startBenchServer(opts.checkout, dir, join(dir, 'server.ndjson'), opts.profile)
   let succeeded = false
   try {
     const ready = await server.ready
@@ -245,10 +255,22 @@ async function round(opts: {
     // Overload shows up here first: the server drops daemons it cannot keep up with.
     metrics.daemonReconnects = Number(drive.reconnects ?? 0)
     metrics.framesDroppedPerMin = (Object.values((drive.dropped ?? {}) as Record<string, number>).reduce((n, v) => n + v, 0) * 60_000) / (windowEnd - windowStart + 12_000)
+    const windowMinutes = (windowEnd - windowStart) / 60_000
+    // The hottest statements by their own key, not only by kind: two statements of
+    // one kind (one resource's grants, many resources') are different questions.
+    const topStatements = Object.entries(queries).sort((a, b) => b[1].count - a[1].count).slice(0, 40)
+      .map(([sql, cost]) => ({ sql, kind: statementKind(sql), perMin: cost.count / windowMinutes, wallMsPerMin: cost.wallMs / windowMinutes }))
+    if (end.stacks) {
+      // Who issued each hot statement. Lifetime samples (boot included), so read the
+      // shares, not the counts, against the window's rates.
+      const stacks = Object.fromEntries(topStatements.map(({ sql }) => [sql, (end.stacks![sql] ?? []).slice(0, 12)]))
+      writeFileSync(join(dir, 'stacks.json'), JSON.stringify(stacks, null, 2))
+    }
     const detail = {
       arm: opts.arm, round: opts.index, sha: opts.sha, windowStart: new Date(windowStart).toISOString(),
-      windowEnd: new Date(windowEnd).toISOString(), loadAtStart, metrics, drive,
-      statementsByKind: statementsByKind(queries, (windowEnd - windowStart) / 60_000).slice(0, 25),
+      windowEnd: new Date(windowEnd).toISOString(), loadAtStart, profile: opts.profile, metrics, drive,
+      statementsByKind: statementsByKind(queries, windowMinutes).slice(0, 25),
+      topStatements,
       topTasks: Object.entries(tasks).sort((a, b) => b[1].wallMs - a[1].wallMs).slice(0, 25)
         .map(([label, cost]) => ({ label, perMin: (cost.count * 60_000) / (windowEnd - windowStart), wallMsPerMin: (cost.wallMs * 60_000) / (windowEnd - windowStart) })),
     }
@@ -309,6 +331,7 @@ async function main(): Promise<void> {
   const issueWritesPerMinute = Number(args['issue-writes-per-minute'] ?? ISSUE_WRITES_PER_MINUTE)
   const minutes = Number(args.minutes ?? 4)
   const clients = Number(args.clients ?? 4)
+  const profile = args.profile ?? 'attribution'
   const maxNewRounds = Number(cli['max-new-rounds'] ?? Number.POSITIVE_INFINITY)
   const shas = saved?.shas ?? (resumeDir ? shasFromRounds(resumeDir) : undefined)
     ?? { A: git('rev-parse', `${args.a}^{commit}`), B: git('rev-parse', `${args.b}^{commit}`) }
@@ -345,7 +368,7 @@ async function main(): Promise<void> {
     const t = (step.arm === 'B' ? templates.B : undefined) ?? templates.A
     const { result, detail } = await round({
       arm: step.arm, index: step.round, sha: shas[step.arm], checkout: checkouts[step.arm],
-      templateDir: t.dir, fixture: t.fixture, outDir, minutes, framesPerMinute, clients, sessionWritesPerMinute, issueWritesPerMinute,
+      templateDir: t.dir, fixture: t.fixture, outDir, minutes, framesPerMinute, clients, sessionWritesPerMinute, issueWritesPerMinute, profile,
     })
     results.push(result)
     details.push(detail)

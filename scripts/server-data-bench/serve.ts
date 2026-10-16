@@ -8,6 +8,7 @@
  * of the load window without a profiler (SIGUSR2 also starts a CPU profile):
  *
  *   `totals <label>` → one stdout line `{"benchTotals": <label>, queries, tasks, rssBytes, heapUsedBytes}`
+ *                      (plus `stacks`, caller stacks per statement, under `PODIUM_LOOP_PROFILE=full`)
  *   `stop`           → closes the server and exits 0
  *
  * Usage: bun --conditions=@podium/source <harness>/scripts/server-data-bench/serve.ts --checkout=<arm>
@@ -49,6 +50,8 @@ for await (const line of lines) {
       benchTotals: label ?? '',
       queries: Object.fromEntries(queries.queryAttributionTotals()),
       tasks: Object.fromEntries(tasks.taskAttributionTotals()),
+      // Caller stacks per statement key: recorded only under PODIUM_LOOP_PROFILE=full.
+      ...(queries.queryCallerStacksEnabled ? { stacks: Object.fromEntries(queries.queryCallerStacks()) } : {}),
       rssBytes: now.rss,
       heapUsedBytes: now.heapUsed,
     }))
