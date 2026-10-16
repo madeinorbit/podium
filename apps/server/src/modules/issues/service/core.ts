@@ -45,7 +45,7 @@ import {
   issueRowToProjection,
   repoProjectionRows,
 } from '../projection'
-import { compareOutcomeWithIssueMap, compareWithIssueMap } from './map-parity'
+import { compareOutcomeWithIssueMap, compareWithIssueMap, issueMapParityMode } from './map-parity'
 import { IssueNotFound } from './not-found'
 import { IssueRefusal } from './refusal'
 import type { IssueDeps } from './types'
@@ -1215,11 +1215,20 @@ export class IssueStore {
    * recovery path. Boot removes prior-process git observations; purge removes
    * personal rows whose issue was deleted. */
   async reconcileCompanions(): Promise<void> {
-    const gitRows = [...this.rows.values()].flatMap((row) => {
-      const change = this.gitStateChange(row)
-      return change.op === 'upsert' ? [{ id: change.id, value: change.value }] : []
+    // The observed issues are read by id, in the boot load's order, and diffed
+    // in the same span (POD-6158: they used to be every row of the issue map).
+    await this.deps.store.transact(async () => {
+      const observed = await this.deps.store.issues.getIssues([...this.gitStates.keys()])
+      const gitRows = inBootOrder([...observed.values()], (row) => row).flatMap((row) => {
+        const change = this.gitStateChange(row)
+        return change.op === 'upsert' ? [{ id: change.id, value: change.value }] : []
+      })
+      compareWithIssueMap('issueGitStateTruth', null, () => byId([...this.rows.values()].flatMap((row) => {
+        const change = this.gitStateChange(row)
+        return change.op === 'upsert' ? [{ id: change.id, value: change.value }] : []
+      })), byId(gitRows))
+      await this.deps.ledger.reconcile('issueGitState', gitRows)
     })
-    await this.deps.ledger.reconcile('issueGitState', gitRows)
     const states = await this.deps.store.issues.listIssueUserStateRows()
     await this.deps.ledger.reconcile(
       'issueUserState',
@@ -1235,10 +1244,38 @@ export class IssueStore {
    *  on why that is all-or-nothing). Flag off returns EMPTY, not undefined, and
    *  the difference is the rollback — see {@link EMPTY_NORMALIZED_TRUTH}.
    *
-   *  Used only by boot reconciliation and explicit normalized truth reads. */
+   *  Used only by boot reconciliation and explicit normalized truth reads.
+   *
+   *  Read from the database a page at a time, each page's labels by id, and
+   *  returned in the boot load's order (POD-6158: it used to project every row
+   *  of the issue map). Still a read of every issue; {@link reconcileProjections}
+   *  reads and diffs in one span. */
   async allProjections(): Promise<{ id: string; value: IssueProjection }[] | undefined> {
-    const labelsByIssue = await this.deps.store.issues.listIssueLabelsByIssue()
-    return issueProjectionRows(this.rows.values(), (id) => labelsByIssue.get(id) ?? [])
+    const projected: { row: IssueRow; projection: { id: IssueId; value: IssueProjection } }[] = []
+    const labelsSeen = issueMapParityMode() === 'off' ? undefined : new Map<string, string[]>()
+    for await (const page of this.deps.store.issues.issueRowPages()) {
+      const labels = await this.deps.store.issues.labelsOfIssues(page.map((row) => row.id))
+      const projections = issueProjectionRows(page, (id) => labels.get(id) ?? [])
+      if (!projections) return undefined
+      projections.forEach((projection, index) => projected.push({ row: page[index]!, projection }))
+      if (labelsSeen) for (const [id, names] of labels) labelsSeen.set(id, names)
+    }
+    const truth = inBootOrder(projected, (entry) => entry.row).map((entry) => entry.projection)
+    compareWithIssueMap('issueProjectionTruth', null, () => {
+      const old = issueProjectionRows(this.rows.values(), (id) => labelsSeen?.get(id) ?? [])
+      return old ? byId(old) : old
+    }, byId(truth))
+    return truth
+  }
+
+  /** Reconcile the issueProjection kind against the database's full truth,
+   *  read and diffed in one span, so no write commits between the read and the
+   *  diff it would undo. */
+  async reconcileProjections(): Promise<void> {
+    await this.deps.store.transact(async () => {
+      const projections = await this.allProjections()
+      if (projections) await this.deps.ledger.reconcile('issueProjection', projections)
+    })
   }
 
   // ---- The two kinds the replica JOINS against [POD-822] ----
@@ -1320,8 +1357,7 @@ export class IssueStore {
 
   /** Reconcile own rows and companions at boot or after a hard delete. */
   async reconcileAndPublish(): Promise<void> {
-    const projections = await this.allProjections()
-    if (projections) await this.deps.ledger.reconcile('issueProjection', projections)
+    await this.reconcileProjections()
     await this.reconcileCompanions()
     // The edges reconcile on the same full-truth passes [POD-822], for the same
     // reason the projections do: this path exists to catch what no write
@@ -1561,4 +1597,37 @@ export class IssueStore {
     return this.deps
   }
   slug = slugifyBranch
+}
+
+/**
+ * The boot load's order, `ORDER BY repo_path, seq` in SQLite's BINARY
+ * collation (UTF-8 byte order), then id: the order the full-truth reconcile
+ * appended in when it read the issue map (POD-6158).
+ */
+function inBootOrder<T>(entries: readonly T[], rowOf: (entry: T) => IssueRow): T[] {
+  const keyed = entries.map((entry) => ({ entry, row: rowOf(entry) }))
+  keyed.sort((a, b) =>
+    byCodePoint(a.row.repoPath, b.row.repoPath) || a.row.seq - b.row.seq || byCodePoint(a.row.id, b.row.id))
+  return keyed.map(({ entry }) => entry)
+}
+
+/** UTF-8 byte order, which is code point order. UTF-16 code units differ from
+ *  it only where a surrogate (a code point above U+FFFF) meets U+E000..U+FFFF. */
+function byCodePoint(a: string, b: string): number {
+  const shared = Math.min(a.length, b.length)
+  for (let i = 0; i < shared; i++) {
+    const x = a.charCodeAt(i)
+    const y = b.charCodeAt(i)
+    if (x === y) continue
+    const xSurrogate = x >= 0xd800 && x <= 0xdfff
+    const ySurrogate = y >= 0xd800 && y <= 0xdfff
+    if (xSurrogate !== ySurrogate) return xSurrogate ? 1 : -1
+    return x - y
+  }
+  return a.length - b.length
+}
+
+/** Truth rows in id order, so the old/new comparison ignores append order. */
+function byId<T extends { id: string }>(rows: readonly T[]): T[] {
+  return [...rows].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
 }

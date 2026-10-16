@@ -713,6 +713,10 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
     kind: 'contained',
     why: "POD-6192: perChunk's per-chunk callback, a prepared read of issue rows or their joins on the store's own database (inside a span, on the span's connection); no write or publication",
   },
+  'apps/server/src/modules/issues/service/core.ts#<module>.rowOf': {
+    kind: 'contained',
+    why: "POD-6158: inBootOrder's accessor from a truth entry to the issue row it was read from; pure, no I/O",
+  },
   'apps/server/src/modules/issues/service/core.ts#<module>.resolve': {
     kind: 'contained',
     why: "POD-6158: the repository registry's path-to-repo-id resolver, a pure function over the roots it read; no I/O of its own",

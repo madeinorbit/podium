@@ -106,6 +106,14 @@ const ACCEPTED: readonly AcceptedFinding[] = [
     key: 'packages/sync/src/authority/ports.ts#ChangeSubscriber.ChangeSubscriber@packages/sync/src/authority/authority.ts:250',
     why: "THE SAME BRANCH, from the Authority's OWN span rather than through the attach orchestrator's — `deps.transact` at authority.ts:247, finalize at :562, broadcast at :634, `subscription.deliver` at :643. Adjudicated against ledger §A row 3 and it stands for the reason the row itself gives: `AuthorityDeps.postCommit` is OPTIONAL, and unset MEANS immediate because that is what every client adapter and every unit test wants. relay.ts is what sets it in the server, so the immediate arm is unreachable there — a wiring fact, which is exactly the kind of fact a type checker cannot have. Making the arm unreachable in the type system would mean making the port required, which row 3 rules out in as many words. Two rows for one code path is not duplication: an ACCEPTED key names a capability AND the span root that reaches it, so the second root has to be adjudicated on its own or it reads as a new finding, which is what it did at the tip [POD-3518].",
   },
+  {
+    key: 'packages/sync/src/authority/ports.ts#ChangeSubscriber.ChangeSubscriber@apps/server/src/modules/issues/service/core.ts:1220',
+    why: "The issue git-state reconcile [POD-6158]: `Ledger.reconcile` inside `SessionStore.transact` reaches Authority.finalize, whose immediate-delivery arm is the one the message feed's reconcile row adjudicates — unreachable in the server because relay.ts wires `AuthorityDeps.postCommit`, so delivery waits for the commit. The reconcile is in a span on purpose: it reads the observed issues from the database (no longer from the issue map) and diffs them as one unit, so a delete that commits between the read and the diff cannot have its git state re-published.",
+  },
+  {
+    key: 'packages/sync/src/authority/ports.ts#ChangeSubscriber.ChangeSubscriber@apps/server/src/modules/issues/service/core.ts:1275',
+    why: "The issue projection reconcile [POD-6158]: the same arm, reached the same way, unreachable in the server for the same reason. The span is there for the same reason too: every issue is read from the database a page at a time (no longer from the issue map) and diffed as one unit, so a write that commits between two pages, or between the read and the diff, cannot be undone by a stale projection.",
+  },
 ]
 
 interface Options {

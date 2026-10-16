@@ -275,8 +275,7 @@ class IssueServiceRoot implements IssueTrackerCapabilities {
       }
     }
     try {
-      const projections = await store.allProjections()
-      if (projections) await store.deps.ledger.reconcile('issueProjection', projections)
+      await store.reconcileProjections()
       await store.reconcileCompanions()
       const depProjections = await store.allDepProjections()
       if (depProjections) await store.deps.ledger.reconcile('issueDep', depProjections)

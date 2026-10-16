@@ -525,6 +525,7 @@
         "src/modules/issues/service/addComment-principal.test.ts",
         "src/modules/issues/service/assistant.ts",
         "src/modules/issues/service/attention.ts",
+        "src/modules/issues/service/boot-reconcile-parity.test.ts",
         "src/modules/issues/service/composition.test.ts",
         "src/modules/issues/service/core.ts",
         "src/modules/issues/service/crud.ts",

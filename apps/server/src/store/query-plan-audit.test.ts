@@ -165,6 +165,7 @@ const FAMILY_SHAPES: ReadonlyMap<string, readonly (string | number)[]> = new Map
   ['apps/server/src/store/issues.ts:labelsNamed', SIZES],
   ['apps/server/src/store/issues.ts:patchLabel', ['color', 'description', 'color,description']],
   ['apps/server/src/store/issues.ts:commentSearch', ['all', 'limited']],
+  ['apps/server/src/store/issues.ts:issueRowsPage', ['start', 'after']],
   ['apps/server/src/store/issues.ts:IssuesRepository.upsert', [shapeOf(issueRowFixture())]],
   [
     'apps/server/src/store/events.ts:eventsSince',

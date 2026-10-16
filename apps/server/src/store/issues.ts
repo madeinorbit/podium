@@ -32,6 +32,7 @@ import {
   desc,
   eq,
   exists,
+  gt,
   gte,
   inArray,
   isNotNull,
@@ -185,6 +186,22 @@ const issueRowsOfRepo = prepared((db: StoreDrizzle) =>
 
 const allIssueRows = prepared((db: StoreDrizzle) =>
   db.select().from(issues).orderBy(asc(issues.repoPath), asc(issues.seq)).prepare(),
+)
+
+/**
+ * One page of every issue row, in id order: from the first id (`start`, which
+ * includes an empty id) or after the last one read (`after`). The full-truth
+ * reconcile walks the whole table this way through the primary key instead of
+ * reading the issue map (POD-6158).
+ */
+const issueRowsPage = preparedFamily((db: StoreDrizzle, from: 'start' | 'after') =>
+  db
+    .select()
+    .from(issues)
+    .where(from === 'start' ? gte(issues.id, param(issues.id, 'id')) : gt(issues.id, param(issues.id, 'id')))
+    .orderBy(asc(issues.id))
+    .limit(sql.placeholder('limit'))
+    .prepare(),
 )
 
 /**
@@ -1864,6 +1881,38 @@ export class IssuesRepository {
       }
     }
     return out
+  }
+
+  /**
+   * Every issue row, a page at a time in id order, with the quarantine of
+   * {@link listIssueRows} (POD-6158). Each page is one statement through the
+   * primary key; the walk as a whole reads the table, which is what a
+   * full-truth reconcile needs. A caller that needs one consistent view walks
+   * inside a span.
+   */
+  async *issueRowPages(pageSize = 500): AsyncGenerator<IssueRow[]> {
+    let after: string | null = null
+    for (;;) {
+      const rows: (typeof issues.$inferSelect)[] = after === null
+        ? await issueRowsPage(this.db, 'start').all({ id: asIssueId(''), limit: pageSize })
+        : await issueRowsPage(this.db, 'after').all({ id: asIssueId(after), limit: pageSize })
+      const page: IssueRow[] = []
+      for (const r of rows) {
+        try {
+          if (!structurallySound(r)) {
+            throw new Error('structurally corrupt row (non-string id/repo_path/stage/title)')
+          }
+          page.push(await issueFromRow(r))
+        } catch (err) {
+          log.error('quarantined a corrupt issue row — skipped', { issueId: r.id ?? null, err })
+        }
+      }
+      if (page.length > 0) yield page
+      // `id >= ''` leaves out NULL and numeric ids (quarantined either way), so
+      // the cursor is never NULL.
+      if (rows.length < pageSize) return
+      after = rows[rows.length - 1]!.id
+    }
   }
 
   /** The full issue rows already belong to IssueStore's boot projection.
