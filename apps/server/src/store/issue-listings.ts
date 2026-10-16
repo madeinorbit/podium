@@ -88,6 +88,8 @@ export interface IssueListingShape {
   deferred?: boolean
   /** Has a worktree recorded. */
   hasWorktree?: boolean
+  /** Has no parent. */
+  topLevel?: boolean
   /** Search equalities, each against its own parameter. */
   stage?: boolean
   priority?: boolean
@@ -103,7 +105,7 @@ export interface IssueListingShape {
 }
 
 const FLAGS = [
-  'unarchived', 'updatedBefore', 'completeParent', 'deferred', 'hasWorktree', 'stage', 'priority', 'type',
+  'unarchived', 'updatedBefore', 'completeParent', 'deferred', 'hasWorktree', 'topLevel', 'stage', 'priority', 'type',
   'assignee', 'parent', 'label', 'text',
 ] as const
 
@@ -163,6 +165,7 @@ function listingWhere(shape: IssueListingShape): SQL | undefined {
   }
   if (shape.deferred) where.push(isNotNull(issues.deferUntil))
   if (shape.hasWorktree) where.push(isNotNull(issues.worktreePath))
+  if (shape.topLevel) where.push(isNull(issues.parentId))
   if (shape.stage) where.push(eq(issues.stage, param(issues.stage, 'stage')))
   if (shape.priority) where.push(eq(issues.priority, param(issues.priority, 'priority')))
   if (shape.type) where.push(eq(issues.type, param(issues.type, 'type')))

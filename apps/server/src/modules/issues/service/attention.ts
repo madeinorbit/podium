@@ -11,10 +11,11 @@ import {
 } from '../../../command-principal'
 import { isMemberCwd, sessionsForIssue } from '../../../issue-util'
 import type { IssueRow, Subscription } from '../../../store'
-import { afterCommit } from '../../../store/executor/executor'
+import { afterCommit, spanOpen } from '../../../store/executor/executor'
 import type { SessionFacts } from '../../sessions/facts'
 import type { IssueStore } from './core'
 import type { IssueCrudModule } from './crud'
+import { compareWithIssueMap } from './map-parity'
 import type { IssueReportsModule } from './reads'
 import { IssueRefusal } from './refusal'
 import { AUTO_ARCHIVE_READ_WINDOW_MS } from './types'
@@ -129,7 +130,7 @@ export class IssueAttentionModule {
     let target: IssueRow | undefined
     const newIssue = opts.newSubissue ?? opts.newSpinoff
     if (newIssue) {
-      const prev = prevId ? this.store.rows.get(prevId) : undefined
+      const prev = prevId ? await this.store.row(prevId) : undefined
       // A native subagent inherits its parent's relay, so an unconfirmed attach
       // could silently re-home the parent session [spec:SP-bab8].
       if (prev && !prev.draft && !opts.confirmRehome) {
@@ -205,7 +206,7 @@ export class IssueAttentionModule {
       // issue session-less so it drops out of the sidebar. Only the draft→issue
       // flow (naming a fresh vessel) may move between issues; from a real issue
       // the sanctioned move is `--subissue`, which keeps the subtree intact.
-      const prev = prevId && prevId !== target.id ? this.store.rows.get(prevId) : undefined
+      const prev = prevId && prevId !== target.id ? await this.store.row(prevId) : undefined
       if (prev && !prev.draft) {
         throw new IssueRefusal(
           `attach blocked: this session already belongs to ${await this.reports().niceRef(prev)} (a real issue). ` +
@@ -298,24 +299,30 @@ export class IssueAttentionModule {
       row.stage !== 'proposed' &&
       !this.store.isClosed(row) &&
       normalized(row.title) === wanted
-    const candidates = [...this.store.rows.values()].filter(eligible)
+    // The repository's open, live, unarchived top-level issues in one SQL
+    // listing (POD-6193); the title rule stays here, where it is defined.
+    const candidates = (
+      anchor.repoId
+        ? await this.store.deps.store.issues.listIssueRowsWhere(
+            { repo: true, readable: false, live: true, unarchived: true, state: 'open', topLevel: true, order: 'seq' },
+            { repoId: anchor.repoId },
+          )
+        : []
+    ).filter(eligible)
+    if (!spanOpen()) {
+      compareWithIssueMap('acceptedSpinoff.candidates', [anchor.id, wanted],
+        () => [...this.store.rows.values()].filter(eligible).map((row) => row.id).sort(),
+        candidates.map((row) => row.id).sort())
+    }
     // Provenance can be removed, so retaining a positive across attaches would
     // permit unrelated reuse. Resolve anew for this attach; missing evidence denies.
-    const dependencies = new Map(
-      await Promise.all(
-        candidates.map(
-          async (row) =>
-            [row.id, await this.store.deps.store.issues.listIssueDeps(row.id)] as const,
+    // One read of every candidate's dependencies.
+    const dependencies = await this.store.deps.store.issues.depsFromIssues(candidates.map((row) => row.id))
+    return candidates
+      .filter((row) =>
+        dependencies.some(
+          (dep) => dep.fromId === row.id && dep.toId === anchor.id && dep.type === 'discovered-from',
         ),
-      ),
-    )
-    return [...this.store.rows.values()]
-      .filter(
-        (row) =>
-          eligible(row) &&
-          dependencies
-            .get(row.id)
-            ?.some((dep) => dep.toId === anchor.id && dep.type === 'discovered-from') === true,
       )
       .sort((a, b) => a.seq - b.seq)[0]
   }
@@ -417,9 +424,9 @@ export class IssueAttentionModule {
    *  liveness is deliberately irrelevant: exited sessions remain resumable, and
    *  their draft is the sidebar route back to that recovery UI. */
   private async deleteIfEmptyDraft(id: string): Promise<void> {
-    const row = this.store.rows.get(id)
+    const row = await this.store.row(id)
     if (!row || row.deletedAt || !row.draft || row.worktreePath) return
-    if ([...this.store.rows.values()].some((r) => r.parentId === id)) return
+    if ((await this.store.childRows(id)).length > 0) return
     if ((await this.store.sessionsFor(row)).some((session) => session.issueId === id)) return
     await this.crud().purgeEmptyDraft(id)
   }
@@ -429,9 +436,9 @@ export class IssueAttentionModule {
    *  the zero-session check prevents a late spawn failure from deleting a draft
    *  once the session has been registered and made recoverable. */
   async discardUnlaunchedDraft(id: IssueId): Promise<boolean> {
-    const row = this.store.rows.get(id)
+    const row = await this.store.row(id)
     if (!row || row.deletedAt || !row.draft || row.worktreePath) return false
-    if ([...this.store.rows.values()].some((candidate) => candidate.parentId === id)) return false
+    if ((await this.store.childRows(id)).length > 0) return false
     if ((await this.store.sessionsFor(row)).some((session) => session.issueId === id)) return false
     await this.crud().purgeEmptyDraft(id)
     return true
@@ -555,19 +562,28 @@ export class IssueAttentionModule {
     const cutoffReadMs = nowMs - AUTO_ARCHIVE_READ_WINDOW_MS
     const out: IssueProjection[] = []
     let sessionList: SessionFacts[] | undefined // taken lazily — only if a row clears the cheap gates
-    for (const row of this.store.rows.values()) {
+    // The closed, live, unarchived top-level issues in one SQL listing, and the
+    // viewer's markers for them in one read (POD-6193); they used to be found by
+    // scanning the issue map with one marker read per closed issue.
+    const closed = await this.store.deps.store.issues.listIssueRowsWhere({
+      repo: false, readable: false, live: true, unarchived: true, state: 'closed', topLevel: true, order: 'path-seq',
+    })
+    if (!spanOpen()) {
+      compareWithIssueMap('sweepAutoArchive.candidates', null,
+        () => [...this.store.rows.values()]
+          .filter((row) => !row.archived && !row.deletedAt && this.store.isClosed(row) && !row.parentId)
+          .map((row) => row.id).sort(),
+        closed.map((row) => row.id).sort())
+    }
+    const markers = await this.store.issueUserStates(closed.map((row) => row.id))
+    for (const row of closed) {
       if (row.archived || row.deletedAt) continue // idempotent: never re-archive deleted work
       if (!this.store.isClosed(row) || row.parentId) continue // only closed top-level work ages out [spec:SP-6144]
       // "Read" is now a fact about a READER, so the sweep asks the broadcast
       // viewer (POD-1076). Behaviour is unchanged on a one-person instance; the
       // open question "auto-archived because WHO read it?" is POD-1136's, and it
       // is now askable because the value has an owner.
-      const viewerReadAt = (
-        await this.store.deps.store.issues.getIssueUserState(
-          await this.store.broadcastViewer(),
-          row.id,
-        )
-      )?.readAt
+      const viewerReadAt = markers.get(row.id)?.readAt
       if (viewerReadAt == null) continue // never read → still unread, leave it
       const readMs = Date.parse(viewerReadAt)
       if (!Number.isFinite(readMs) || readMs > cutoffReadMs) continue // read too recently
@@ -598,7 +614,8 @@ export class IssueAttentionModule {
     nowMs: number = Date.parse(this.store.now()),
     principal?: SystemCommandPrincipal,
   ): Promise<'applied' | 'precondition' | 'not-due'> {
-    const row = this.store.rows.get(observed.issueId)
+    // Revalidated against the row as stored now (POD-6193).
+    const row = await this.store.liveRow(observed.issueId)
     if (!row) return 'precondition'
     if (row.archived || row.deletedAt) return 'precondition'
     if (row.stage !== observed.stage || (row.closedReason ?? null) !== observed.closedReason) {

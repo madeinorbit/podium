@@ -95,6 +95,12 @@ const LISTING_BASES: readonly Omit<IssueListingShape, 'repo' | 'readable'>[] = [
     label: true, text: true, order: 'priority-seq',
   },
   { live: true, deferred: true, order: 'priority-seq' },
+  { live: true, unarchived: true, state: 'open', topLevel: true, order: 'seq' },
+  { live: true, unarchived: true, state: 'closed', topLevel: true, order: 'path-seq' },
+  { live: false, hasWorktree: true, order: 'path-seq' },
+  { live: true, deferred: true, order: 'path-seq' },
+  { live: true, unarchived: true, hasWorktree: true, order: 'path-seq' },
+  { live: true, text: true, order: 'path-seq' },
 ]
 const LISTING_KEYS = LISTING_BASES.flatMap((base) => [
   listingKey({ ...base, repo: true, readable: true }),
