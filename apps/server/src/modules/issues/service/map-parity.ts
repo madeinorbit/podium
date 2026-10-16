@@ -14,6 +14,10 @@
  * - `throw`: under vitest, so every existing test of a switched reader is also
  *   an old/new comparison and a difference fails the test that found it.
  *
+ * `PODIUM_ISSUE_MAP_PARITY=off|log` overrides the build's mode outside vitest:
+ * the server-data bench sets `off`, so an A/B measures the database reads and
+ * not the comparison, and `log` to measure the comparison itself.
+ *
  * The comparison is by value, not identity: object keys in any order, and a
  * `null` or `undefined` property the same as an absent one. The map holds
  * installed drafts, which leave out the nullable columns a create never set;
@@ -27,16 +31,21 @@ const log = createLogger('server:issue-map-parity')
 
 export type IssueMapParityMode = 'off' | 'log' | 'throw'
 
-function defaultMode(): IssueMapParityMode {
-  if (process.env.VITEST) return 'throw'
+/** The mode a process starts in; exported for its test. */
+export function defaultIssueMapParityMode(
+  env: Readonly<Record<string, string | undefined>> = process.env,
   // The literal `process.env.PODIUM_APP_VERSION` is what the packaged build
   // rewrites (see features.ts); absent means a source run, which is development.
-  const version = process.env.PODIUM_APP_VERSION
+  version: string | undefined = process.env.PODIUM_APP_VERSION,
+): IssueMapParityMode {
+  if (env.VITEST) return 'throw'
+  const forced = env.PODIUM_ISSUE_MAP_PARITY
+  if (forced === 'off' || forced === 'log') return forced
   if (version === undefined || version === 'dev') return 'log'
   return isDevChannelVersion(version) ? 'log' : 'off'
 }
 
-let mode: IssueMapParityMode = defaultMode()
+let mode: IssueMapParityMode = defaultIssueMapParityMode()
 let differences = 0
 
 export function issueMapParityMode(): IssueMapParityMode {

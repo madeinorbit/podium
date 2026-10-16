@@ -124,6 +124,8 @@
         "src/modules/issues/id-schema-drift.test.ts",
         "src/modules/issues/relay-gate.test.ts",
         "src/modules/issues/relay-gate.ts",
+        "src/modules/issues/service/map-parity.test.ts",
+        "src/modules/issues/service/map-parity.ts",
         "src/modules/logs/fleet-director.test.ts",
         "src/modules/logs/fleet-director.ts",
         "src/modules/logs/fleet-store.test.ts",
