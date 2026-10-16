@@ -140,6 +140,8 @@ export type IssueReportsCapability = Pick<
   | 'stats'
   | 'get'
   | 'getMeta'
+  | 'getBySeq'
+  | 'closedWithWork'
   | 'preloadIssues'
   | 'has'
   | 'ownedTarget'

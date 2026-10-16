@@ -3,19 +3,19 @@
  * number of issues [POD-6149, server-data rule 8].
  *
  * No WorldIndex is bound, so grants come from the database — the state the
- * world-index removal (POD-6155) leaves behind. The rows a listing scans still
- * come from the hydrated issue map until POD-6191 moves listings into SQL.
+ * world-index removal (POD-6155) leaves behind.
  *
- * Since POD-6190 the point reads come from the database too, which adds a
- * fixed number of statements whatever the number of issues. The reports add
- * four: the broadcast viewer (two `users` reads, once per operation), the
- * per-row authorization's issue rows (one batched `IN (...)` read) and the
- * viewer's markers (one batched `issue_user_state` read). `tree` reads issue
- * rows in three batches (the root, then its children as authorization asks for
- * them) and `doctor` in one; neither reads markers.
+ * Since POD-6191 a listing is one SQL statement that filters, applies the
+ * reader's visibility and orders; the joins a report needs are read for the
+ * listed rows only: labels, both dependency directions, live children,
+ * comment counts, the broadcast viewer's markers (after the viewer itself,
+ * two `users` reads once per operation) and the closure of the rows'
+ * blockers when there are any. Before, every listing read the whole label,
+ * dependency and comment tables and one grant set per row from the issue map's
+ * rows; `doctor` reads only its listing and the dependencies now.
  */
 import { asIssueId, asUserId, firstAdminMemberId } from '@podium/model'
-import { describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import type { IssueRow, SessionStore } from '../../store'
 import { applyAfterCommit, spanOpen } from '../../store/executor/executor'
 import { OPERATOR } from '../../test-support/capabilities'
@@ -25,6 +25,7 @@ import { IssueCommandCtx } from './command-ctx'
 import { issueRegistry } from './registry'
 import { IssueStore } from './service/core'
 import { IssueReportsModule } from './service/reads'
+import { type IssueMapParityMode, setIssueMapParityMode } from './service/map-parity'
 import type { IssueDeps } from './service/types'
 
 const reader = asUserId('reader')
@@ -164,26 +165,37 @@ const pin = (
 const lengthOf = (value: unknown) => (value as unknown[]).length
 
 describe('issue listings: pinned statement counts at 5 and 200 issues', () => {
+  // The pins count what production runs. The old/new comparison asks the
+  // issue map's code beside every listing in development builds and tests
+  // (POD-6158), and its legacy side has statements of its own.
+  let parity: IssueMapParityMode
+  beforeAll(() => {
+    parity = setIssueMapParityMode('off')
+  })
+  afterAll(() => {
+    setIssueMapParityMode(parity)
+  })
+
   it('list: labels, deps, comment counts and one grant read (was 9 at 5 issues, 204 at 200)', async () => {
     await expectConstantStatements(
       pin('issues.list', (f) => call(f, 'list', {}), (rows, size) =>
         expect(lengthOf(rows)).toBe(readableChildren(size) + 1),
       ),
-      8,
+      10,
     )
   })
 
   it('ready', async () => {
     await expectConstantStatements(
       pin('issues.ready', (f) => call(f, 'ready', {}), (rows) => expect(lengthOf(rows)).toBeGreaterThan(0)),
-      8,
+      9,
     )
   })
 
   it('blocked (was 5 at 5 issues, 102 at 200)', async () => {
     await expectConstantStatements(
       pin('issues.blocked', (f) => call(f, 'blocked', {}), (rows) => expect(lengthOf(rows)).toBeGreaterThan(0)),
-      8,
+      10,
     )
   })
 
@@ -192,7 +204,7 @@ describe('issue listings: pinned statement counts at 5 and 200 issues', () => {
       pin('issues.graph', (f) => call(f, 'graph', {}), (graph, size) =>
         expect((graph as { nodes: unknown[] }).nodes).toHaveLength(readableChildren(size) + 1),
       ),
-      8,
+      12,
     )
   })
 
@@ -206,7 +218,7 @@ describe('issue listings: pinned statement counts at 5 and 200 issues', () => {
             readableChildren(size),
           ),
       ),
-      6,
+      8,
     )
   })
 
@@ -215,14 +227,14 @@ describe('issue listings: pinned statement counts at 5 and 200 issues', () => {
       pin('issues.doctor', (f) => call(f, 'doctor', {}), (report) =>
         expect(report).toMatchObject({ cycles: [] }),
       ),
-      6,
+      3,
     )
   })
 
   it('one issue report (unbatched report())', async () => {
     await expectConstantStatements(
       pin('issues.get', (f) => f.reports.get('iss_2'), (report) => expect(report).toMatchObject({ seq: 2 })),
-      8,
+      10,
     )
   })
 })

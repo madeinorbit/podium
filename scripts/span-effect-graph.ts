@@ -705,6 +705,10 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
     kind: 'contained',
     why: "POD-6158: the database side of the old/new comparison: the issue read itself, on the store's own database (inside a span, on the span's connection); no write or publication",
   },
+  'apps/server/src/modules/issues/service/map-parity.ts#<module>.canonical': {
+    kind: 'contained',
+    why: "POD-6191: sorts a copy of an answer into one total order for the old/new comparison; pure, no I/O",
+  },
   'apps/server/src/modules/issues/service/core.ts#<module>.resolve': {
     kind: 'contained',
     why: "POD-6158: the repository registry's path-to-repo-id resolver, a pure function over the roots it read; no I/O of its own",

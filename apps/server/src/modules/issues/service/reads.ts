@@ -11,14 +11,19 @@ import {
   type IssueReport,
   type IssueSearchFilter,
   type IssueStats,
+  isIssueBlocked,
+  isIssueClosed,
   isIssueColorSlot,
   isIssueStage,
+  issueOverlayOf,
   isReadyIssueStage,
   isSystemOwnedIssueStage,
   machinePathKey,
   type OrphanIssue,
+  type RepoId,
   type SessionId,
   toIssueTreeSession,
+  type UserId,
 } from '@podium/model'
 import {
   DELEGATION_RULE,
@@ -32,7 +37,8 @@ import {
 } from '@podium/protocol'
 import { jaccard, tokenize } from '../../../issue-similarity'
 import { sessionsForIssue } from '../../../issue-util'
-import type { IssueRow, SessionStore } from '../../../store'
+import type { IssueRow, SessionStore, StoredIssueUserState } from '../../../store'
+import type { IssueListingInput, IssueListingShape } from '../../../store/issue-listings'
 import type { SessionFacts } from '../../sessions/facts'
 import { deepestOwner, soleOwner } from '../folder-owner'
 import { issueRowToProjection } from '../projection'
@@ -40,6 +46,8 @@ import type { IssueStore } from './core'
 import { readDeck } from './deck'
 import { countContextAwarePendingMail } from './mail-pending'
 import { IssueNotFound } from './not-found'
+import { compareOutcomeWithIssueMap } from './map-parity'
+import { LegacyIssueReportsModule } from './reads-legacy'
 import { resolveSeat, type SessionSeat, seatText } from './seat'
 
 export type IssueCommandResult<T> = T extends
@@ -59,16 +67,119 @@ export type IssueCommandResult<T> = T extends
         ? { [K in keyof T]: IssueCommandResult<T[K]> }
         : T
 
+/** The closure columns `isIssueClosed` and `IssueStore.isClosed` read. */
+interface ClosureFacts {
+  stage: string
+  closedReason: string | null
+  deletedAt: string | null
+}
+
 interface IssueReportBatch {
-  commentCounts: Map<string, number>
-  labelsByIssue: Map<string, string[]>
-  depsByFrom: Map<string, { toId: IssueId; type: string }[]>
-  dependentsByTo: Map<string, { fromId: IssueId; type: string }[]>
-  childrenByParent: Map<string, IssueRow[]>
-  prefixesByRepoPath: Map<string, string | null>
+  commentCounts: ReadonlyMap<string, number>
+  labelsByIssue: ReadonlyMap<string, string[]>
+  depsByFrom: ReadonlyMap<string, { toId: IssueId; type: string }[]>
+  dependentsByTo: ReadonlyMap<string, { fromId: IssueId; type: string }[]>
+  childrenByParent: ReadonlyMap<string, ({ id: IssueId } & ClosureFacts)[]>
+  markers: ReadonlyMap<string, StoredIssueUserState | undefined>
+  /** Every `blocked-by` target of the batch's rows; a target with no row is absent. */
+  closure: ReadonlyMap<string, ClosureFacts>
+  prefixOf: (repoPath: string) => string | null
 }
 
 type IssueReadPredicate = (id: string) => boolean | Promise<boolean>
+
+/**
+ * WHO A REPORT IS FOR (POD-6191). A listing filters by visibility in SQL, so it
+ * needs the reader's user; a per-issue check (a blocker, a parent) asks
+ * `mayRead`. Both apply one rule: the user owns the issue or holds a
+ * read-covering grant on it (`IssueCommandCtx.mayReadIssue`).
+ */
+export interface IssueReader {
+  /** The user a listing is filtered for, or `null` for the server's own,
+   *  unrestricted reads. Throws when the caller has no user, as `mayRead`
+   *  does. */
+  readonly readableBy: () => UserId | null
+  readonly mayRead: IssueReadPredicate
+}
+
+/** The server's own reads: every issue. */
+export const UNRESTRICTED_READER: IssueReader = { readableBy: () => null, mayRead: () => true }
+
+/** A live child, a blocker or any row: finished by deletion, stage or reason. */
+function finished(row: ClosureFacts): boolean {
+  return !!row.deletedAt || isIssueClosed(row)
+}
+
+/** `IssueStore.computeBlocked` over a batch: open, with an open blocker. */
+function blockedBy(
+  row: IssueRow,
+  outgoing: readonly { toId: IssueId; type: string }[],
+  closure: ReadonlyMap<string, ClosureFacts>,
+): boolean {
+  return isIssueBlocked(
+    row,
+    outgoing.filter((dep) => dep.type === 'blocked-by').map((dep) => closure.get(dep.toId)),
+  )
+}
+
+/**
+ * The comparison's view of a priority-ordered listing: rows equal in priority
+ * and sequence (two repositories' issue 7) were in the map's insertion order
+ * and are in repository-path order now, so both sides are compared in one
+ * total order. Any other difference still shows.
+ */
+function byPriorityThenSeq(rows: readonly IssueReport[]): IssueReport[] {
+  const text2 = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
+  return [...rows].sort(
+    (a, b) => a.priority - b.priority || a.seq - b.seq || text2(a.repoPath, b.repoPath) || text2(a.id, b.id),
+  )
+}
+
+const text = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
+
+/**
+ * The comparison's view of an answer whose order among equals came from the
+ * map's insertion order (rows created after boot came last, in creation
+ * order); the database orders such ties by repository path or id. Each sorts
+ * a copy into one total order; any other difference still shows.
+ */
+const canonical = {
+  graph: (graph: IssueGraph) => ({
+    nodes: [...graph.nodes].sort((a, b) => text(a.id, b.id)),
+    edges: [...graph.edges].sort((a, b) => text(a.from, b.from) || text(a.to, b.to) || text(a.type, b.type)),
+  }),
+  bySeqThenId: <T extends { seq: number; id: string }>(rows: readonly T[]) =>
+    [...rows].sort((a, b) => a.seq - b.seq || text(a.id, b.id)),
+  byId: <T extends { id: string }>(rows: readonly T[]) => [...rows].sort((a, b) => text(a.id, b.id)),
+  duplicates: (pairs: readonly DuplicateCandidate[]) =>
+    [...pairs].sort((x, y) => y.score - x.score || text(x.a, y.a) || text(x.b, y.b)),
+  stale: (rows: readonly IssueReport[]) =>
+    [...rows].sort((a, b) => Date.parse(a.updatedAt) - Date.parse(b.updatedAt) || text(a.id, b.id)),
+  doctor: (report: DoctorReport) => ({
+    ...report,
+    danglingDeps: [...report.danglingDeps].sort((a, b) => text(a.from, b.from) || text(a.to, b.to)),
+    // A cycle found from another member is the same cycle: rotate each to
+    // start at its smallest id.
+    cycles: report.cycles
+      .map((cycle) => {
+        const ring = cycle.slice(0, -1)
+        const start = ring.indexOf([...ring].sort(text)[0]!)
+        return [...ring.slice(start), ...ring.slice(0, start)].join('>')
+      })
+      .sort(),
+  }),
+}
+
+function groupBy<T, K, V>(items: readonly T[], key: (item: T) => K, value: (item: T) => V): Map<K, V[]> {
+  const out = new Map<K, V[]>()
+  for (const item of items) {
+    const k = key(item)
+    const list = out.get(k)
+    if (list) list.push(value(item))
+    else out.set(k, [value(item)])
+  }
+  return out
+}
 
 async function filterReadable<T extends { id: string }>(
   rows: readonly T[],
@@ -116,34 +227,28 @@ function issueTitleNeedsRetitle(title: string): boolean {
  * agent prime context. Pure reads — no store writes, no broadcasts.
  */
 export class IssueReportsModule {
-  // Committed rows are immutable; staged edits get new row objects. Cache only
-  // the own-row mapping, never joins or personal state. A label-only write is
-  // detected by its values because labels live in their own relation.
-  private readonly projections = new WeakMap<
-    IssueRow,
-    { labels: readonly string[]; projection: IssueProjection }
-  >()
-
-  private projection(row: IssueRow, labels: string[]): IssueProjection {
-    const cached = this.projections.get(row)
-    if (
-      cached &&
-      cached.labels.length === labels.length &&
-      cached.labels.every((label, index) => label === labels[index])
-    )
-      return cached.projection
-    const projection = issueRowToProjection(row, labels)
-    this.projections.set(row, { labels: [...labels], projection })
-    return projection
-  }
+  /** The map-backed reports, the old side of the comparison until the map is
+   *  deleted (D1g, POD-6196). */
+  private readonly legacy: LegacyIssueReportsModule
 
   constructor(
     readonly store: IssueStore,
     readonly visibilityPolicy: Readonly<IssueReportVisibilityPolicy> = DEFAULT_ISSUE_REPORT_VISIBILITY,
-  ) {}
+  ) {
+    this.legacy = new LegacyIssueReportsModule(store, visibilityPolicy)
+  }
 
   /** Convert only requested command results. The mutation/publish path never builds reports. */
   async commandResult<T>(value: T): Promise<IssueCommandResult<T>> {
+    return await compareOutcomeWithIssueMap(
+      'reports.commandResult',
+      null,
+      async () => await this.legacy.commandResult(value),
+      async () => await this.commandResultFromDb(value),
+    )
+  }
+
+  private async commandResultFromDb<T>(value: T): Promise<IssueCommandResult<T>> {
     const projections = new Map<string, IssueProjection>()
     const collect = (item: unknown): void => {
       if (!item || typeof item !== 'object') return
@@ -160,13 +265,16 @@ export class IssueReportsModule {
     }
     collect(value)
     if (projections.size === 0) return value as IssueCommandResult<T>
-    const batch = projections.size > 1 ? await this.reportBatch() : undefined
-    const reports = new Map<string, IssueReport>()
     const rows = await this.store.rowsByIds(projections.keys())
-    for (const projection of projections.values()) {
-      const row = rows.get(projection.id)
-      if (row) reports.set(projection.id, await this.report(row, batch, projection))
-    }
+    const found = [...projections.values()].flatMap((own) => {
+      const row = rows.get(own.id)
+      return row ? [{ row, own }] : []
+    })
+    const built = await this.reportsFor(
+      found.map((entry) => entry.row),
+      found.map((entry) => entry.own),
+    )
+    const reports = new Map<string, IssueReport>(found.map((entry, index) => [entry.row.id, built[index]!] as const))
     const replace = (item: unknown): unknown => {
       if (Array.isArray(item)) return item.map(replace)
       if (!item || typeof item !== 'object') return item
@@ -182,27 +290,96 @@ export class IssueReportsModule {
     return replace(value) as IssueCommandResult<T>
   }
 
-  async list(repoPath?: string): Promise<IssueReport[]> {
-    const batch = await this.reportBatch()
-    const inScope = await this.store.repoScopeFilter(repoPath)
-    const rows = [...this.store.rows.values()].filter(inScope).sort((a, b) => {
-      const ga = a.repoId ?? a.repoPath
-      const gb = b.repoId ?? b.repoPath
-      return ga === gb ? a.seq - b.seq : ga.localeCompare(gb)
-    })
-    return Promise.all(rows.map((row) => this.report(row, batch)))
+  async list(repoPath?: string, reader: IssueReader = UNRESTRICTED_READER): Promise<IssueReport[]> {
+    return await this.compared(
+      'reports.list',
+      [repoPath ?? null],
+      async () => await filterReadable(await this.legacy.list(repoPath), reader.mayRead),
+      async () => await this.reportsFor(await this.listed(repoPath, reader, { live: false, order: 'repo-seq' })),
+    )
+  }
+
+  /**
+   * The rows a listing reports on, from one SQL listing: scoped to the
+   * repository `repoPath` resolves to, visible to the reader, filtered and
+   * ordered by `shape` (POD-6191).
+   */
+  private async listed(
+    repoPath: string | undefined,
+    reader: IssueReader,
+    shape: Omit<IssueListingShape, 'repo' | 'readable'>,
+    input: IssueListingInput = {},
+  ): Promise<IssueRow[]> {
+    const scope = await this.scopeOf(repoPath)
+    if (scope === null) return []
+    return await this.visible(reader, async (user) =>
+      await this.store.deps.store.issues.listIssueRowsWhere(
+        { ...shape, repo: scope !== undefined, readable: user !== undefined },
+        { ...input, ...(scope !== undefined ? { repoId: scope } : {}), ...(user ? { reader: user } : {}) },
+      ),
+    )
+  }
+
+  /**
+   * The repository a listing is scoped to: `undefined` for every repository,
+   * `null` for a path no repository owns (nothing is in scope), as
+   * {@link IssueStore.repoScopeFilter} decides it. Every stored issue has a
+   * repository id (the store refuses to boot otherwise), so the scope is that id.
+   */
+  private async scopeOf(repoPath: string | undefined): Promise<RepoId | null | undefined> {
+    if (!repoPath) return undefined
+    return (await this.store.deps.store.repos.issueRepoIdResolver())(repoPath)
+  }
+
+  /**
+   * Run a listing for a reader. A reader that names a user is filtered in SQL;
+   * the server's own reads are unrestricted. A caller with no user is refused
+   * only when there is a row to refuse it, which is when the per-row check this
+   * replaces (`IssueCommandCtx.mayReadIssue`) refused it.
+   */
+  private async visible<T>(
+    reader: IssueReader,
+    run: (user: UserId | undefined) => Promise<T[]>,
+  ): Promise<T[]> {
+    let user: UserId | null
+    try {
+      user = reader.readableBy()
+    } catch (refusal) {
+      if ((await run(undefined)).length > 0) throw refusal
+      return []
+    }
+    return await run(user ?? undefined)
+  }
+
+  /** Old and new side by side (`map-parity.ts`); the database answers. */
+  private async compared<T>(
+    name: string,
+    key: unknown,
+    legacy: () => Promise<T>,
+    db: () => Promise<T>,
+    canonical?: (value: T) => unknown,
+  ): Promise<T> {
+    return await compareOutcomeWithIssueMap(name, key, legacy, db, canonical)
+  }
+
+  /** Reports for these rows, with every join read once for the set. */
+  private async reportsFor(
+    rows: readonly IssueRow[],
+    own?: readonly (IssueProjection | undefined)[],
+  ): Promise<IssueReport[]> {
+    if (rows.length === 0) return []
+    const batch = await this.reportBatchFor(rows)
+    return await Promise.all(rows.map(async (row, index) => await this.report(row, batch, own?.[index])))
   }
 
   /** Joins only for a requested report. No publication path calls this method. */
   private async report(
     row: IssueRow,
-    batch?: IssueReportBatch,
+    batch: IssueReportBatch,
     own?: IssueProjection,
   ): Promise<IssueReport> {
-    const labels = batch
-      ? (batch.labelsByIssue.get(row.id) ?? [])
-      : await this.store.deps.store.issues.getIssueLabels(row.id)
-    const projection = own ?? this.projection(row, labels)
+    const labels = batch.labelsByIssue.get(row.id) ?? []
+    const projection = own ?? issueRowToProjection(row, labels)
     const {
       asked,
       intentOrigin,
@@ -214,24 +391,11 @@ export class IssueReportsModule {
       ...facts
     } = projection
     const question = asked
-    const children = batch
-      ? (batch.childrenByParent.get(row.id) ?? [])
-      : [...this.store.rows.values()].filter(
-          (child) => child.parentId === row.id && !child.deletedAt,
-        )
-    const outgoing = batch
-      ? (batch.depsByFrom.get(row.id) ?? [])
-      : await this.store.deps.store.issues.listIssueDeps(row.id)
-    const incoming = batch
-      ? (batch.dependentsByTo.get(row.id) ?? [])
-      : await this.store.deps.store.issues.listDependents(row.id)
-    let prefix = batch?.prefixesByRepoPath.get(row.repoPath)
-    if (prefix === undefined) {
-      prefix = await this.store.deps.store.repos.prefixForPath(row.repoPath)
-      batch?.prefixesByRepoPath.set(row.repoPath, prefix)
-    }
-    const graph = batch ?? { depsByFrom: new Map([[row.id, outgoing]]) }
-    const blocked = await this.store.computeBlocked(row, graph)
+    const children = batch.childrenByParent.get(row.id) ?? []
+    const outgoing = batch.depsByFrom.get(row.id) ?? []
+    const incoming = batch.dependentsByTo.get(row.id) ?? []
+    const prefix = batch.prefixOf(row.repoPath)
+    const blocked = blockedBy(row, outgoing, batch.closure)
     const deferred = this.store.isDeferred(row)
     return {
       ...facts,
@@ -244,10 +408,8 @@ export class IssueReportsModule {
       humanQuestionOptions: question?.options,
       humanQuestionAskedBy: question?.by,
       humanQuestionAskedAt: question?.at,
-      commentCount: batch
-        ? (batch.commentCounts.get(row.id) ?? 0)
-        : await this.store.deps.store.issues.countIssueComments(row.id),
-      ...(await this.store.issueOverlay(row.id)),
+      commentCount: batch.commentCounts.get(row.id) ?? 0,
+      ...issueOverlayOf(batch.markers.get(row.id)),
       repoPath: row.repoPath,
       ...(prefix ? { prefix } : {}),
       displayRef: prefix ? formatIssueRef(prefix, row.seq) : `#${row.seq}`,
@@ -268,47 +430,36 @@ export class IssueReportsModule {
         !blocked,
       deferred,
       childCount: children.length,
-      childDoneCount: children.filter((child) => this.store.isClosed(child)).length,
+      childDoneCount: children.filter(finished).length,
       ...(row.deletedAt ? {} : { gitState: this.store.gitStates.get(row.id) }),
     }
   }
 
-  private async dependencyBatch() {
-    const depsByFrom = new Map<string, { toId: IssueId; type: string }[]>()
-    const dependentsByTo = new Map<string, { fromId: IssueId; type: string }[]>()
-    for (const dep of await this.store.deps.store.issues.listAllIssueDeps()) {
-      const outgoing = depsByFrom.get(dep.fromId)
-      if (outgoing) outgoing.push({ toId: dep.toId, type: dep.type })
-      else depsByFrom.set(dep.fromId, [{ toId: dep.toId, type: dep.type }])
-      const incoming = dependentsByTo.get(dep.toId)
-      if (incoming) incoming.push({ fromId: dep.fromId, type: dep.type })
-      else dependentsByTo.set(dep.toId, [{ fromId: dep.fromId, type: dep.type }])
-    }
-    return { depsByFrom, dependentsByTo }
-  }
-
-  private async reportBatch(): Promise<IssueReportBatch> {
-    const labelsByIssue = await this.store.deps.store.issues.listIssueLabelsByIssue()
-    const deps = await this.dependencyBatch()
-    const childrenByParent = new Map<string, IssueRow[]>()
-    for (const row of this.store.rows.values()) {
-      if (!row.parentId || row.deletedAt) continue
-      const children = childrenByParent.get(row.parentId)
-      if (children) children.push(row)
-      else childrenByParent.set(row.parentId, [row])
-    }
+  /** Every join a report needs, read for these rows only (POD-6191): their
+   *  labels, both edge directions, comment counts, live children, markers and
+   *  the closure of their blockers. */
+  private async reportBatchFor(rows: readonly IssueRow[]): Promise<IssueReportBatch> {
+    const ids = rows.map((row) => row.id)
+    const issues = this.store.deps.store.issues
+    const labelsByIssue = await issues.labelsOfIssues(ids)
+    const depsByFrom = groupBy(await issues.depsFromIssues(ids), (dep) => dep.fromId, (dep) => ({ toId: dep.toId, type: dep.type }))
+    const dependentsByTo = groupBy(await issues.depsToIssues(ids), (dep) => dep.toId, (dep) => ({ fromId: dep.fromId, type: dep.type }))
+    const childrenByParent = groupBy(await issues.liveChildrenOf(ids), (child) => child.parentId, (child) => child)
+    const commentCounts = await issues.commentCountsOfIssues(ids)
+    const markers = await this.store.issueUserStates(ids)
+    const blockers = [...depsByFrom.values()].flatMap((deps) =>
+      deps.flatMap((dep) => (dep.type === 'blocked-by' ? [dep.toId] : [])),
+    )
+    const closure = blockers.length > 0 ? await issues.closureOf(blockers) : new Map()
     return {
-      commentCounts: await this.store.deps.store.issues.countIssueCommentsByIssue(),
       labelsByIssue,
-      ...deps,
+      depsByFrom,
+      dependentsByTo,
       childrenByParent,
-      prefixesByRepoPath: new Map(
-        await Promise.all(
-          [...new Set([...this.store.rows.values()].map((row) => row.repoPath))].map(
-            async (path) => [path, await this.store.deps.store.repos.prefixForPath(path)] as const,
-          ),
-        ),
-      ),
+      commentCounts,
+      markers,
+      closure,
+      prefixOf: await this.store.deps.store.repos.prefixResolver(),
     }
   }
 
@@ -331,86 +482,200 @@ export class IssueReportsModule {
   unreadFor(...args: Parameters<IssueStore['unreadFor']>): ReturnType<IssueStore['unreadFor']> {
     return this.store.unreadFor(...args)
   }
-  async readyList(
-    repoPath?: string,
-    mayRead: IssueReadPredicate = () => true,
-  ): Promise<IssueReport[]> {
-    const batch = await this.reportBatch()
-    const inScope = await this.store.repoScopeFilter(repoPath)
-    const wires = await Promise.all(
-      (
-        await filterReadable(
-          [...this.store.rows.values()].filter((r) => !r.deletedAt && inScope(r)),
-          mayRead,
-        )
-      ).map(async (r) => await this.report(r, batch)),
+  /**
+   * One repository's issue number `seq` as a report, deleted or not, as `list`
+   * would show it; for a caller that knows the number (the steward's notes).
+   * One indexed lookup instead of a report for every issue (POD-6191).
+   */
+  async getBySeq(repoPath: string, seq: number): Promise<IssueReport | undefined> {
+    return await this.compared(
+      'reports.getBySeq',
+      [repoPath, seq],
+      async () => (await this.legacy.list(repoPath)).find((w) => w.seq === seq),
+      async () => {
+        const scope = await this.scopeOf(repoPath)
+        if (scope === null) return undefined
+        const issues = this.store.deps.store.issues
+        const refs = scope === undefined
+          ? await issues.issueRefsAt(seq)
+          : (await issues.issueRefsAt(seq, scope)).filter((ref) => ref.repoId === scope)
+        const first = refs.sort((a, b) => ((a.repoId ?? '') < (b.repoId ?? '') ? -1 : 1))[0]
+        return first ? ((await this.get(first.id)) ?? undefined) : undefined
+      },
     )
-    return wires
-      .filter((w) => w.ready)
-      .sort((a, b) => (a.priority !== b.priority ? a.priority - b.priority : a.seq - b.seq))
   }
 
-  async blockedList(repoPath?: string): Promise<IssueReport[]> {
-    const batch = await this.reportBatch()
-    const inScope = await this.store.repoScopeFilter(repoPath)
-    const wires = await Promise.all(
-      [...this.store.rows.values()]
-        .filter((r) => !r.deletedAt && inScope(r))
-        .map(async (r) => await this.report(r, batch)),
-    )
-    return wires
-      .filter((w) => w.blocked)
-      .sort((a, b) => (a.priority !== b.priority ? a.priority - b.priority : a.seq - b.seq))
-  }
-
-  async graph(repoPath?: string, mayRead: IssueReadPredicate = () => true): Promise<IssueGraph> {
-    const inScope = await this.store.repoScopeFilter(repoPath)
-    const rows = await filterReadable(
-      [...this.store.rows.values()].filter((r) => !r.deletedAt && inScope(r)),
-      mayRead,
-    )
-    const batch = await this.reportBatch()
-    const nodes = await Promise.all(
-      rows.map(async (r) => {
-        const w = await this.report(r, batch)
-        return {
-          id: r.id,
-          seq: r.seq,
-          title: r.title,
-          stage: r.stage as IssueGraph['nodes'][number]['stage'],
-          priority: r.priority,
-          type: r.type as IssueGraph['nodes'][number]['type'],
-          ready: w.ready,
-          blocked: w.blocked,
+  /**
+   * The closed-issue sweep's candidates (POD-3845): closed, not deleted, and
+   * with a worktree still recorded or a member among `withMembers`, in `list`
+   * order. Two indexed reads instead of a report for every issue (POD-6191).
+   */
+  async closedWithWork(withMembers: ReadonlySet<string>): Promise<IssueId[]> {
+    return await this.compared(
+      'reports.closedWithWork',
+      [...withMembers].sort(),
+      async () =>
+        (await this.legacy.list())
+          .filter((i) => !i.deletedAt && isIssueClosed(i) && (i.worktreePath || withMembers.has(i.id)))
+          .map((i) => i.id),
+      async () => {
+        const issues = this.store.deps.store.issues
+        const byId = new Map<string, IssueRow>()
+        const shape = { repo: false, live: true, readable: false, state: 'closed', order: 'repo-seq' } as const
+        for (const row of await issues.listIssueRowsWhere({ ...shape, hasWorktree: true })) byId.set(row.id, row)
+        if (withMembers.size > 0) {
+          for (const row of await issues.listIssueRowsWhere({ ...shape, ids: 1 }, { ids: [...withMembers] })) {
+            byId.set(row.id, row)
+          }
         }
-      }),
+        const text = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
+        return [...byId.values()]
+          .filter((row) => row.worktreePath || withMembers.has(row.id))
+          .sort((a, b) => text(a.repoId ?? '', b.repoId ?? '') || a.seq - b.seq)
+          .map((row) => row.id)
+      },
     )
-    // Real dependency edges from the store + the hierarchy edge synthesized
-    // from parent_id (single parent storage, #164).
-    const edges = rows.flatMap((r) => [
-      ...(batch.depsByFrom.get(r.id) ?? []).map((d) => ({ from: r.id, to: d.toId, type: d.type })),
-      ...(r.parentId ? [{ from: r.id, to: r.parentId, type: 'parent-child' }] : []),
-    ])
-    return { nodes, edges }
   }
 
-  async epicStatus(id: string, mayRead: IssueReadPredicate = () => true): Promise<EpicStatus> {
-    const row = await this.store.rowOrThrow(id)
-    const children = await filterReadable(
-      [...this.store.rows.values()].filter((r) => r.parentId === row.id && !r.deletedAt),
-      mayRead,
+  async readyList(repoPath?: string, reader: IssueReader = UNRESTRICTED_READER): Promise<IssueReport[]> {
+    return await this.compared(
+      'reports.readyList',
+      [repoPath ?? null],
+      async () => await this.legacy.readyList(repoPath, reader.mayRead),
+      async () =>
+        await this.reportsFor(
+          (await this.listed(repoPath, reader, { live: true, state: 'ready', order: 'priority-seq' })).filter(
+            (row) => !this.store.isDeferred(row),
+          ),
+        ),
+      byPriorityThenSeq,
     )
-    const childDoneCount = children.filter((c) => this.store.isClosed(c)).length
-    return {
-      id: row.id,
-      childCount: children.length,
-      childDoneCount,
-      complete: children.length > 0 && childDoneCount === children.length,
+  }
+
+  async blockedList(repoPath?: string, reader: IssueReader = UNRESTRICTED_READER): Promise<IssueReport[]> {
+    return await this.compared(
+      'reports.blockedList',
+      [repoPath ?? null],
+      async () => await filterReadable(await this.legacy.blockedList(repoPath), reader.mayRead),
+      async () =>
+        await this.reportsFor(await this.listed(repoPath, reader, { live: true, state: 'blocked', order: 'priority-seq' })),
+      byPriorityThenSeq,
+    )
+  }
+
+  async graph(repoPath?: string, reader: IssueReader = UNRESTRICTED_READER): Promise<IssueGraph> {
+    return await this.compared(
+      'reports.graph',
+      [repoPath ?? null],
+      async () => await this.legacy.graph(repoPath, reader.mayRead),
+      async () => {
+        const rows = await this.listed(repoPath, reader, { live: true, order: 'repo-seq' })
+        if (rows.length === 0) return { nodes: [], edges: [] }
+        const batch = await this.reportBatchFor(rows)
+        const nodes = await Promise.all(
+          rows.map(async (r) => {
+            const w = await this.report(r, batch)
+            return {
+              id: r.id,
+              seq: r.seq,
+              title: r.title,
+              stage: r.stage as IssueGraph['nodes'][number]['stage'],
+              priority: r.priority,
+              type: r.type as IssueGraph['nodes'][number]['type'],
+              ready: w.ready,
+              blocked: w.blocked,
+            }
+          }),
+        )
+        // Real dependency edges from the store + the hierarchy edge synthesized
+        // from parent_id (single parent storage, #164).
+        const edges = rows.flatMap((r) => [
+          ...(batch.depsByFrom.get(r.id) ?? []).map((d) => ({ from: r.id, to: d.toId, type: d.type })),
+          ...(r.parentId ? [{ from: r.id, to: r.parentId, type: 'parent-child' }] : []),
+        ])
+        return { nodes, edges }
+      },
+      canonical.graph,
+    )
+  }
+
+  async epicStatus(id: string, reader: IssueReader = UNRESTRICTED_READER): Promise<EpicStatus> {
+    return await this.compared(
+      'reports.epicStatus',
+      [id],
+      async () => await this.legacy.epicStatus(id, reader.mayRead),
+      async () => {
+        const row = await this.store.rowOrThrow(id)
+        const children = await this.childrenOf([row.id], reader, { live: true })
+        const childDoneCount = children.filter((c) => this.store.isClosed(c)).length
+        return {
+          id: row.id,
+          childCount: children.length,
+          childDoneCount,
+          complete: children.length > 0 && childDoneCount === children.length,
+        }
+      },
+    )
+  }
+
+  async deck(ref: string, reader: IssueReader = UNRESTRICTED_READER) {
+    return await readDeck(this.store, ref, reader.mayRead, async (row) => await this.niceRef(row))
+  }
+
+  /** The children of these parents the reader sees, in the boot map's order. */
+  private async childrenOf(
+    parents: readonly string[],
+    reader: IssueReader,
+    shape: { live: boolean; unarchived?: boolean },
+  ): Promise<IssueRow[]> {
+    if (parents.length === 0) return []
+    return await this.listed(undefined, reader, { ...shape, parents: 1, order: 'path-seq' }, { parents })
+  }
+
+  /**
+   * A whole subtree under `rootId`, read one level per statement (the depth
+   * bounds the count, not the number of issues), as `parent -> children` in the
+   * boot map's order. A child the reader may not see is left out with its
+   * subtree, as the old per-row walk left it out. Parent cycles stop at the
+   * first repeat.
+   */
+  private async subtreeOf(
+    rootId: string,
+    reader: IssueReader,
+    shape: { live: boolean; unarchived?: boolean },
+    depth = Number.POSITIVE_INFINITY,
+  ): Promise<Map<string, IssueRow[]>> {
+    const byParent = new Map<string, IssueRow[]>()
+    const seen = new Set<string>([rootId])
+    let level = [rootId]
+    for (let at = 0; at < depth && level.length > 0; at++) {
+      const next: string[] = []
+      for (const row of await this.childrenOf(level, reader, shape)) {
+        if (seen.has(row.id)) continue
+        seen.add(row.id)
+        const siblings = byParent.get(row.parentId!)
+        if (siblings) siblings.push(row)
+        else byParent.set(row.parentId!, [row])
+        next.push(row.id)
+      }
+      level = next
     }
+    return byParent
   }
 
-  async deck(ref: string, mayRead: IssueReadPredicate = () => true) {
-    return await readDeck(this.store, ref, mayRead, async (row) => await this.niceRef(row))
+  /** Depth-first over a subtree, each level in the order it was read. */
+  private static depthFirst(byParent: ReadonlyMap<string, IssueRow[]>, rootId: string, recursive: boolean): IssueRow[] {
+    const out: IssueRow[] = []
+    const walk = (pid: string, seen: Set<string>): void => {
+      for (const row of byParent.get(pid) ?? []) {
+        if (seen.has(row.id)) continue
+        seen.add(row.id)
+        out.push(row)
+        if (recursive) walk(row.id, seen)
+      }
+    }
+    walk(rootId, new Set([rootId]))
+    return out
   }
 
   /** Subissues of an issue — direct children, or the whole subtree with
@@ -419,21 +684,19 @@ export class IssueReportsModule {
   async children(
     id: string,
     recursive = false,
-    mayRead: IssueReadPredicate = () => true,
+    reader: IssueReader = UNRESTRICTED_READER,
   ): Promise<IssueReport[]> {
-    const root = await this.store.rowOrThrow(id)
-    const batch = await this.reportBatch()
-    const rows: IssueRow[] = []
-    const walk = async (pid: string): Promise<void> => {
-      for (const row of batch.childrenByParent.get(pid) ?? []) {
-        if (!(await mayRead(row.id))) continue
-        rows.push(row)
-        if (recursive) await walk(row.id)
-      }
-    }
-    await walk(root.id)
-    return await Promise.all(
-      rows.sort((a, b) => a.seq - b.seq).map(async (r) => await this.report(r, batch)),
+    return await this.compared(
+      'reports.children',
+      [id, recursive],
+      async () => await this.legacy.children(id, recursive, reader.mayRead),
+      async () => {
+        const root = await this.store.rowOrThrow(id)
+        const byParent = await this.subtreeOf(root.id, reader, { live: true }, recursive ? undefined : 1)
+        const rows = IssueReportsModule.depthFirst(byParent, root.id, recursive)
+        return await this.reportsFor(rows.sort((a, b) => a.seq - b.seq))
+      },
+      canonical.bySeqThenId,
     )
   }
 
@@ -449,23 +712,28 @@ export class IssueReportsModule {
   async tree(
     ref: string,
     opts: { maxDepth?: number; maxNodes?: number } = {},
-    mayRead: IssueReadPredicate = () => true,
+    reader: IssueReader = UNRESTRICTED_READER,
+  ): Promise<IssueTree> {
+    return await this.compared(
+      'reports.tree',
+      [ref, opts.maxDepth ?? null, opts.maxNodes ?? null],
+      async () => await this.legacy.tree(ref, opts, reader.mayRead),
+      async () => await this.treeFromDb(ref, opts, reader),
+    )
+  }
+
+  private async treeFromDb(
+    ref: string,
+    opts: { maxDepth?: number; maxNodes?: number },
+    reader: IssueReader,
   ): Promise<IssueTree> {
     const maxDepth = opts.maxDepth ?? ISSUE_TREE_DEFAULT_MAX_DEPTH
     const maxNodes = opts.maxNodes ?? ISSUE_TREE_DEFAULT_MAX_NODES
     const rootRow = await this.store.rowOrThrow(await this.store.resolveRef(ref))
-    if (!(await mayRead(rootRow.id))) throw new IssueNotFound(ref)
-    const byParent = new Map<string, IssueRow[]>()
-    // Structure first, then ONE readability pass over the candidates: `mayRead`
-    // is a pure predicate, and asked together its grant reads batch (POD-6149).
-    const candidates = [...this.store.rows.values()].filter(
-      (r) => r.parentId && !r.archived && !r.deletedAt,
-    )
-    for (const r of await filterReadable(candidates, mayRead)) {
-      const list = byParent.get(r.parentId!)
-      if (list) list.push(r)
-      else byParent.set(r.parentId!, [r])
-    }
+    if (!(await reader.mayRead(rootRow.id))) throw new IssueNotFound(ref)
+    // The subtree the walk can reach, one level per statement, the reader's
+    // visibility applied in SQL (POD-6191).
+    const byParent = await this.subtreeOf(rootRow.id, reader, { live: true, unarchived: true })
     // ONE FACTS SNAPSHOT FOR THE WHOLE WALK, and the wiring deferred [POD-3857].
     //
     // The tree DOES hand sessions to a reader — `displayRef` is on them — so it
@@ -478,42 +746,38 @@ export class IssueReportsModule {
     // exactly where it was dropped before.
     const sessionList = this.store.deps.sessionFacts()
     const wiring: Array<{ node: IssueTreeNode; members: SessionFacts[]; row: IssueRow }> = []
-    // ...and one dep read for the whole walk, for the same reason: `node` below
-    // recurses over the subtree and asked for its own row's deps at every step
-    // (POD-3257).
-    const batch = await this.dependencyBatch()
-    // The walk asks `mayRead` for each blocks target one node at a time; ask it
-    // for every target in the subtree together first, so those reads batch too.
-    const subtree = new Map<string, IssueRow>()
-    for (const pending = [rootRow]; pending.length > 0; ) {
-      const next = pending.pop()!
-      // A visited set, because a corrupt parent cycle must not spin here; the
-      // walk below has its own depth and node caps.
-      if (subtree.has(next.id)) continue
-      subtree.set(next.id, next)
-      pending.push(...(byParent.get(next.id) ?? []))
-    }
-    await Promise.all(
-      [...subtree.values()].flatMap((r) =>
-        (batch.depsByFrom.get(r.id) ?? []).flatMap((d) => {
-          const target = d.type === 'blocks' ? this.store.rows.get(d.toId) : undefined
-          return target ? [mayRead(target.id)] : []
-        }),
-      ),
+    const subtree = [rootRow, ...[...byParent.values()].flat()]
+    // One dep read for the subtree, and the blockers' rows and closure with it.
+    const depsByFrom = groupBy(
+      await this.store.deps.store.issues.depsFromIssues(subtree.map((r) => r.id)),
+      (dep) => dep.fromId,
+      (dep) => ({ toId: dep.toId, type: dep.type }),
+    )
+    const blockerIds = [...depsByFrom.values()].flatMap((deps) =>
+      deps.flatMap((d) => (d.type === 'blocked-by' ? [d.toId] : [])),
+    )
+    const blockers = await this.store.rowsByIds(blockerIds)
+    // Asked together, the blockers' visibility checks batch (POD-6149).
+    const visibleBlockers = new Set(
+      (await filterReadable([...blockers.values()], reader.mayRead)).map((row) => row.id),
     )
     let count = 0
     let omitted = 0
     const node = async (row: IssueRow, depth: number): Promise<IssueTreeNode> => {
       count++
       const closed = this.store.isClosed(row)
-      const blocked = await this.store.computeBlocked(row, batch)
+      const outgoing = depsByFrom.get(row.id) ?? []
+      const blocked = isIssueBlocked(
+        row,
+        outgoing.filter((d) => d.type === 'blocked-by').map((d) => blockers.get(d.toId)),
+      )
       const blocksDeps: number[] = []
-      for (const d of batch.depsByFrom.get(row.id) ?? []) {
+      for (const d of outgoing) {
         if (d.type !== 'blocked-by') continue
-        const target = this.store.rows.get(d.toId)
-        if (target && (await mayRead(target.id))) blocksDeps.push(target.seq)
+        const target = blockers.get(d.toId)
+        if (target && visibleBlockers.has(target.id)) blocksDeps.push(target.seq)
       }
-      const kids = (byParent.get(row.id) ?? []).sort((a, b) => a.seq - b.seq)
+      const kids = [...(byParent.get(row.id) ?? [])].sort((a, b) => a.seq - b.seq)
       const children: IssueTreeNode[] = []
       let omittedChildren = 0
       for (const k of kids) {
@@ -593,100 +857,100 @@ export class IssueReportsModule {
    *  what is ready, what blocks what, and why something is not ready. */
   async depReport(
     opts: { id?: string; repoPath?: string } = {},
-    mayRead: IssueReadPredicate = () => true,
+    reader: IssueReader = UNRESTRICTED_READER,
+  ): Promise<DepReportEntry[]> {
+    return await this.compared(
+      'reports.depReport',
+      [opts.id ?? null, opts.repoPath ?? null],
+      async () => await this.legacy.depReport(opts, reader.mayRead),
+      async () => await this.depReportFromDb(opts, reader),
+      canonical.bySeqThenId,
+    )
+  }
+
+  private async depReportFromDb(
+    opts: { id?: string; repoPath?: string },
+    reader: IssueReader,
   ): Promise<DepReportEntry[]> {
     let members: IssueRow[]
     if (opts.id) {
       const root = await this.store.rowOrThrow(opts.id)
-      if (!(await mayRead(root.id))) throw new IssueNotFound(opts.id)
-      members = [root]
-      const walk = async (pid: string): Promise<void> => {
-        for (const r of this.store.rows.values()) {
-          if (!(await mayRead(r.id)) || r.parentId !== pid) continue
-          if (r.deletedAt) continue
-          members.push(r)
-          await walk(r.id)
-        }
-      }
-      await walk(root.id)
+      if (!(await reader.mayRead(root.id))) throw new IssueNotFound(opts.id)
+      const byParent = await this.subtreeOf(root.id, reader, { live: true })
+      members = [root, ...IssueReportsModule.depthFirst(byParent, root.id, true)]
     } else {
-      const inScope = await this.store.repoScopeFilter(opts.repoPath)
-      members = await filterReadable(
-        [...this.store.rows.values()].filter((r) => !r.deletedAt && inScope(r)),
-        mayRead,
-      )
+      members = await this.listed(opts.repoPath, reader, { live: true, order: 'repo-seq' })
     }
-    const batch = await this.reportBatch()
+    const ids = members.map((r) => r.id)
+    const issues = this.store.deps.store.issues
+    const outgoing = groupBy(await issues.depsFromIssues(ids), (d) => d.fromId, (d) => d)
+    const incoming = groupBy(await issues.depsToIssues(ids), (d) => d.toId, (d) => d)
+    const ends = await this.store.rowsByIds([
+      ...[...outgoing.values()].flat().map((d) => d.toId),
+      ...[...incoming.values()].flat().map((d) => d.fromId),
+    ])
+    const visible = new Set((await filterReadable([...ends.values()], reader.mayRead)).map((r) => r.id))
     const ref = (row: IssueRow, type: string): DepReportRef => ({
       seq: row.seq,
       title: row.title,
       type,
       closed: this.store.isClosed(row),
     })
-    return await Promise.all(
-      members
-        .sort((a, b) => a.seq - b.seq)
-        .map(async (row) => {
-          const closed = this.store.isClosed(row)
-          const blocked = await this.store.computeBlocked(row, batch)
-          // Hierarchy is not scheduling: parent-child never appears here — it
-          // lives in issues.parent_id, not in issue_deps (#164).
-          const deps = (
-            await Promise.all(
-              (batch.depsByFrom.get(row.id) ?? []).map(async (d) => {
-                const target = this.store.rows.get(d.toId)
-                return target && (await mayRead(target.id)) ? [ref(target, d.type)] : []
-              }),
-            )
-          ).flat()
-          const dependents = (
-            await Promise.all(
-              (batch.dependentsByTo.get(row.id) ?? []).map(async (d) => {
-                const source = this.store.rows.get(d.fromId)
-                return source && (await mayRead(source.id)) ? [ref(source, d.type)] : []
-              }),
-            )
-          ).flat()
-          return {
-            id: row.id,
-            seq: row.seq,
-            title: row.title,
-            stage: row.stage,
-            priority: row.priority,
-            closed,
-            blocked,
-            ready:
-              isIssueStage(row.stage) &&
-              isReadyIssueStage(row.stage) &&
-              !closed &&
-              !this.store.isDeferred(row) &&
-              !blocked,
-            deps,
-            dependents,
-          }
-        }),
-    )
+    return members
+      .sort((a, b) => a.seq - b.seq)
+      .map((row) => {
+        const closed = this.store.isClosed(row)
+        const out = outgoing.get(row.id) ?? []
+        const blocked = isIssueBlocked(
+          row,
+          out.filter((d) => d.type === 'blocked-by').map((d) => ends.get(d.toId)),
+        )
+        // Hierarchy is not scheduling: parent-child never appears here — it
+        // lives in issues.parent_id, not in issue_deps (#164).
+        const deps = out.flatMap((d) => {
+          const target = ends.get(d.toId)
+          return target && visible.has(target.id) ? [ref(target, d.type)] : []
+        })
+        const dependents = (incoming.get(row.id) ?? []).flatMap((d) => {
+          const source = ends.get(d.fromId)
+          return source && visible.has(source.id) ? [ref(source, d.type)] : []
+        })
+        return {
+          id: row.id,
+          seq: row.seq,
+          title: row.title,
+          stage: row.stage,
+          priority: row.priority,
+          closed,
+          blocked,
+          ready:
+            isIssueStage(row.stage) &&
+            isReadyIssueStage(row.stage) &&
+            !closed &&
+            !this.store.isDeferred(row) &&
+            !blocked,
+          deps,
+          dependents,
+        }
+      })
   }
 
   /** Open parents whose every child is done. There is no `epic` type any more
    *  (POD-6106, D2): any issue with children is a parent, a phase included. */
   async closeEligibleEpics(
     repoPath?: string,
-    mayRead: IssueReadPredicate = () => true,
+    reader: IssueReader = UNRESTRICTED_READER,
   ): Promise<IssueReport[]> {
-    const batch = await this.reportBatch()
-    const inScope = await this.store.repoScopeFilter(repoPath)
-    const rows = [...this.store.rows.values()]
-    const parents = new Set(rows.flatMap((r) => (r.parentId && !r.deletedAt ? [r.parentId] : [])))
-    const candidates = await filterReadable(
-      rows.filter((r) => inScope(r) && parents.has(r.id) && !this.store.isClosed(r)),
-      mayRead,
+    return await this.compared(
+      'reports.closeEligibleEpics',
+      [repoPath ?? null],
+      async () => await this.legacy.closeEligibleEpics(repoPath, reader.mayRead),
+      async () =>
+        await this.reportsFor(
+          await this.listed(repoPath, reader, { live: true, state: 'open', completeParent: true, order: 'repo-seq' }),
+        ),
+      canonical.byId,
     )
-    const statuses = await Promise.all(
-      candidates.map(async (r) => await this.epicStatus(r.id, mayRead)),
-    )
-    const eligible = candidates.filter((_, index) => statuses[index]?.complete)
-    return await Promise.all(eligible.map(async (r) => await this.report(r, batch)))
   }
 
   /** The label vocabulary (POD-6106): what an agent may apply without
@@ -705,28 +969,30 @@ export class IssueReportsModule {
   async findDuplicates(
     repoPath?: string,
     threshold = 0.6,
-    mayRead: IssueReadPredicate = () => true,
+    reader: IssueReader = UNRESTRICTED_READER,
   ): Promise<DuplicateCandidate[]> {
-    const inScope = await this.store.repoScopeFilter(repoPath)
-    const open = (
-      await filterReadable(
-        [...this.store.rows.values()].filter((r) => inScope(r) && !this.store.isClosed(r)),
-        mayRead,
-      )
-    ).sort((a, b) => a.seq - b.seq)
-    const toks = new Map(open.map((r) => [r.id, tokenize(`${r.title} ${r.description}`)]))
-    const out: DuplicateCandidate[] = []
-    for (const [i, a] of open.entries()) {
-      const ta = toks.get(a.id)
-      if (!ta) continue
-      for (const b of open.slice(i + 1)) {
-        const tb = toks.get(b.id)
-        if (!tb) continue
-        const score = jaccard(ta, tb)
-        if (score >= threshold) out.push({ a: a.id, b: b.id, score })
-      }
-    }
-    return out.sort((x, y) => y.score - x.score)
+    return await this.compared(
+      'reports.findDuplicates',
+      [repoPath ?? null, threshold],
+      async () => await this.legacy.findDuplicates(repoPath, threshold, reader.mayRead),
+      async () => {
+        const open = await this.listed(repoPath, reader, { live: true, state: 'open', order: 'seq' })
+        const toks = new Map(open.map((r) => [r.id, tokenize(`${r.title} ${r.description}`)]))
+        const out: DuplicateCandidate[] = []
+        for (const [i, a] of open.entries()) {
+          const ta = toks.get(a.id)
+          if (!ta) continue
+          for (const b of open.slice(i + 1)) {
+            const tb = toks.get(b.id)
+            if (!tb) continue
+            const score = jaccard(ta, tb)
+            if (score >= threshold) out.push({ a: a.id, b: b.id, score })
+          }
+        }
+        return out.sort((x, y) => y.score - x.score)
+      },
+      canonical.duplicates,
+    )
   }
 
   /** Open issues whose `updatedAt` is older than `days` days before `nowMs`,
@@ -735,33 +1001,52 @@ export class IssueReportsModule {
     repoPath?: string,
     days = 30,
     nowMs = Date.now(),
-    mayRead: IssueReadPredicate = () => true,
+    reader: IssueReader = UNRESTRICTED_READER,
   ): Promise<IssueReport[]> {
-    const cutoff = nowMs - days * 24 * 60 * 60 * 1000
-    const batch = await this.reportBatch()
-    const inScope = await this.store.repoScopeFilter(repoPath)
-    const rows = (
-      await filterReadable(
-        [...this.store.rows.values()].filter((r) => inScope(r) && !this.store.isClosed(r)),
-        mayRead,
-      )
+    return await this.compared(
+      'reports.staleList',
+      [repoPath ?? null, days, nowMs],
+      async () => await this.legacy.staleList(repoPath, days, nowMs, reader.mayRead),
+      async () => await this.reportsFor(await this.staleRows(repoPath, days, nowMs, reader)),
+      canonical.stale,
     )
-      .filter((r) => Date.parse(r.updatedAt) < cutoff)
-      .sort((a, b) => Date.parse(a.updatedAt) - Date.parse(b.updatedAt))
-    return await Promise.all(rows.map(async (r) => await this.report(r, batch)))
   }
 
-  async doctor(repoPath?: string, mayRead: IssueReadPredicate = () => true): Promise<DoctorReport> {
-    const inScope = await this.store.repoScopeFilter(repoPath)
-    const rows = await filterReadable(
-      [...this.store.rows.values()].filter((r) => !r.deletedAt && inScope(r)),
-      mayRead,
+  private async staleRows(repoPath: string | undefined, days: number, nowMs: number, reader: IssueReader) {
+    const cutoff = nowMs - days * 24 * 60 * 60 * 1000
+    // SQL narrows by julianday; the exact rule stays Date.parse's.
+    return (
+      await this.listed(
+        repoPath,
+        reader,
+        { live: true, state: 'open', updatedBefore: true, order: 'updated' },
+        { before: new Date(cutoff).toISOString() },
+      )
+    ).filter((r) => Date.parse(r.updatedAt) < cutoff)
+  }
+
+  async doctor(repoPath?: string, reader: IssueReader = UNRESTRICTED_READER): Promise<DoctorReport> {
+    return await this.compared(
+      'reports.doctor',
+      [repoPath ?? null],
+      async () => await this.legacy.doctor(repoPath, reader.mayRead),
+      async () => await this.doctorFromDb(repoPath, reader),
+      canonical.doctor,
     )
+  }
+
+  private async doctorFromDb(repoPath: string | undefined, reader: IssueReader): Promise<DoctorReport> {
+    // The boot map's order: the cycle walk starts from the rows in this order.
+    const rows = await this.listed(repoPath, reader, { live: true, order: 'path-seq' })
     const ids = new Set(rows.map((r) => r.id))
     const danglingDeps: DoctorReport['danglingDeps'] = []
     const adj = new Map<IssueId, IssueId[]>()
-    // One dep read for every row, not one per row (POD-6149); same per-row order.
-    const { depsByFrom } = await this.dependencyBatch()
+    // One dep read for the listed rows, in the same per-row order.
+    const depsByFrom = groupBy(
+      await this.store.deps.store.issues.depsFromIssues([...ids]),
+      (d) => d.fromId,
+      (d) => d,
+    )
     for (const r of rows) {
       for (const d of depsByFrom.get(r.id) ?? []) {
         if (!ids.has(d.toId)) danglingDeps.push({ from: r.id, to: d.toId, type: d.type })
@@ -789,48 +1074,54 @@ export class IssueReportsModule {
     return {
       cycles,
       danglingDeps,
-      staleCount: (await this.staleList(repoPath, 30, Date.now(), mayRead)).length,
+      staleCount: (await this.staleRows(repoPath, 30, Date.now(), reader)).length,
     }
   }
 
   async preflight(
     repoPath?: string,
-    mayRead: IssueReadPredicate = () => true,
+    reader: IssueReader = UNRESTRICTED_READER,
   ): Promise<{ ok: boolean; report: DoctorReport }> {
-    const report = await this.doctor(repoPath, mayRead)
+    const report = await this.doctor(repoPath, reader)
     return { ok: report.cycles.length === 0 && report.danglingDeps.length === 0, report }
   }
 
   async orphans(
     repoPath: string,
-    mayRead: IssueReadPredicate = () => true,
+    reader: IssueReader = UNRESTRICTED_READER,
   ): Promise<OrphanIssue[]> {
     const res = await this.store.deps
       .repoOp('log', repoPath)
       .catch(() => ({ ok: false, output: '' }))
-    if (!res.ok || !res.output) return []
-    const log = res.output
-    const out: OrphanIssue[] = []
-    const inScope = await this.store.repoScopeFilter(repoPath)
-    for (const r of this.store.rows.values()) {
-      if (!(await mayRead(r.id)) || !inScope(r) || this.store.isClosed(r)) continue
-      // Reference forms: the branch stem `issue/<seq>-`, or a `#<seq>` token.
-      if (r.deletedAt) continue
-      const hashRef = new RegExp(`#${r.seq}\\b`).exec(log)?.[0]
-      const branchRef = log.includes(`issue/${r.seq}-`) ? `issue/${r.seq}-` : undefined
-      const ref = hashRef ?? branchRef
-      if (ref) out.push({ id: r.id, seq: r.seq, title: r.title, ref })
-    }
-    return out.sort((a, b) => a.seq - b.seq)
+    return await this.compared(
+      'reports.orphans',
+      [repoPath],
+      async () => await this.legacy.orphans(repoPath, reader.mayRead, res),
+      async () => {
+        if (!res.ok || !res.output) return []
+        const log = res.output
+        const out: OrphanIssue[] = []
+        for (const r of await this.listed(repoPath, reader, { live: true, state: 'open', order: 'seq' })) {
+          // Reference forms: the branch stem `issue/<seq>-`, or a `#<seq>` token.
+          const hashRef = new RegExp(`#${r.seq}\\b`).exec(log)?.[0]
+          const branchRef = log.includes(`issue/${r.seq}-`) ? `issue/${r.seq}-` : undefined
+          const ref = hashRef ?? branchRef
+          if (ref) out.push({ id: r.id, seq: r.seq, title: r.title, ref })
+        }
+        return out
+      },
+      canonical.bySeqThenId,
+    )
   }
 
   /** Normalized durable search hits plus the reference label. This additive
    * endpoint preserves the existing filtering, ordering and authorization. */
-  async searchNormalized(filter: IssueSearchFilter, mayRead: IssueReadPredicate = () => true) {
-    const hits = await this.search(filter, mayRead)
+  async searchNormalized(filter: IssueSearchFilter, reader: IssueReader = UNRESTRICTED_READER) {
+    const hits = await this.search(filter, reader)
+    const rows = await this.store.rowsByIds(hits.map((hit) => hit.id))
     return await Promise.all(
       hits.map(async (hit) => {
-        const row = this.store.rows.get(hit.id)
+        const row = rows.get(hit.id)
         if (!row) throw new IssueNotFound(hit.id)
         const projection = await this.store.projection(row)
         return { ...projection, displayRef: hit.displayRef ?? `#${hit.seq}` }
@@ -840,86 +1131,131 @@ export class IssueReportsModule {
 
   async search(
     filter: IssueSearchFilter,
-    mayRead: IssueReadPredicate = () => true,
+    reader: IssueReader = UNRESTRICTED_READER,
   ): Promise<IssueReport[]> {
-    const text = filter.text?.toLowerCase()
-    const batch = await this.reportBatch()
-    const inScope = await this.store.repoScopeFilter(filter.repoPath)
-    const wires = await Promise.all(
-      (
-        await filterReadable(
-          [...this.store.rows.values()].filter((r) => inScope(r)),
-          mayRead,
-        )
-      ).map(async (r) => await this.report(r, batch)),
+    return await this.compared(
+      'reports.search',
+      filter,
+      async () => await this.legacy.search(filter, reader.mayRead),
+      async () => await this.searchFromDb(filter, reader),
+      byPriorityThenSeq,
     )
-    return wires
-      .filter((r) => !r.deletedAt)
-      .filter((w) => {
-        if (filter.stage && w.stage !== filter.stage) return false
-        if (filter.priority != null && w.priority !== filter.priority) return false
-        if (filter.type && w.type !== filter.type) return false
-        if (filter.assignee && w.assignee !== filter.assignee) return false
-        if (filter.parentId && w.parentId !== filter.parentId) return false
-        if (filter.label && !w.labels.includes(filter.label)) return false
-        if (filter.status === 'open' && (w.stage === 'done' || w.closedReason)) return false
-        if (filter.status === 'closed' && !(w.stage === 'done' || w.closedReason)) return false
-        if (filter.status === 'ready' && !w.ready) return false
-        if (filter.status === 'blocked' && !w.blocked) return false
-        if (filter.status === 'deferred' && !w.deferred) return false
-        if (text) {
-          const hay = `${w.title} ${w.description} ${w.brief ?? ''}`.toLowerCase()
+  }
+
+  private async searchFromDb(filter: IssueSearchFilter, reader: IssueReader): Promise<IssueReport[]> {
+    const text = filter.text?.toLowerCase()
+    // SQLite folds ASCII case only: other text is matched here, exactly.
+    const asciiText = text !== undefined && /^[\x00-\x7f]*$/.test(text)
+    const state =
+      filter.status === 'open' ? 'open'
+        : filter.status === 'closed' ? 'closed'
+          : filter.status === 'ready' ? 'ready'
+            : filter.status === 'blocked' ? 'blocked'
+              : undefined
+    const rows = await this.listed(
+      filter.repoPath,
+      reader,
+      {
+        live: true,
+        ...(state ? { state } : {}),
+        ...(filter.status === 'deferred' ? { deferred: true } : {}),
+        ...(filter.stage ? { stage: true } : {}),
+        ...(filter.priority != null ? { priority: true } : {}),
+        ...(filter.type ? { type: true } : {}),
+        ...(filter.assignee ? { assignee: true } : {}),
+        ...(filter.parentId ? { parent: true } : {}),
+        ...(filter.label ? { label: true } : {}),
+        ...(text && asciiText ? { text: true } : {}),
+        order: 'priority-seq',
+      },
+      {
+        ...(filter.stage ? { stage: filter.stage } : {}),
+        ...(filter.priority != null ? { priority: filter.priority } : {}),
+        ...(filter.type ? { type: filter.type } : {}),
+        ...(filter.assignee ? { assignee: filter.assignee } : {}),
+        ...(filter.parentId ? { parent: filter.parentId } : {}),
+        ...(filter.label ? { label: filter.label } : {}),
+        ...(text && asciiText ? { text } : {}),
+      },
+    )
+    return await this.reportsFor(
+      rows.filter((row) => {
+        if (filter.status === 'ready' && this.store.isDeferred(row)) return false
+        if (filter.status === 'deferred' && !this.store.isDeferred(row)) return false
+        if (text && !asciiText) {
+          const hay = `${row.title} ${row.description} ${row.brief ?? ''}`.toLowerCase()
           if (!hay.includes(text)) return false
         }
         return true
-      })
-      .sort((a, b) => (a.priority !== b.priority ? a.priority - b.priority : a.seq - b.seq))
-  }
-
-  async count(repoPath?: string, mayRead: IssueReadPredicate = () => true): Promise<IssueCount> {
-    const inScope = await this.store.repoScopeFilter(repoPath)
-    const rows = await filterReadable(
-      [...this.store.rows.values()].filter((r) => !r.deletedAt && inScope(r)),
-      mayRead,
+      }),
     )
-    const c: IssueCount = { byStage: {}, byPriority: {}, byType: {}, byAssignee: {} }
-    const bump = (m: Record<string, number>, k: string): void => {
-      m[k] = (m[k] ?? 0) + 1
-    }
-    for (const r of rows) {
-      bump(c.byStage, r.stage)
-      bump(c.byPriority, String(r.priority))
-      bump(c.byType, r.type)
-      bump(c.byAssignee, r.assignee || '(unassigned)')
-    }
-    return c
   }
 
-  async stats(repoPath?: string, mayRead: IssueReadPredicate = () => true): Promise<IssueStats> {
-    const batch = await this.reportBatch()
-    const inScope = await this.store.repoScopeFilter(repoPath)
-    const wires = await Promise.all(
-      (
-        await filterReadable(
-          [...this.store.rows.values()].filter((r) => !r.deletedAt && inScope(r)),
-          mayRead,
+  async count(repoPath?: string, reader: IssueReader = UNRESTRICTED_READER): Promise<IssueCount> {
+    return await this.compared(
+      'reports.count',
+      [repoPath ?? null],
+      async () => await this.legacy.count(repoPath, reader.mayRead),
+      async () => {
+        const c: IssueCount = { byStage: {}, byPriority: {}, byType: {}, byAssignee: {} }
+        const scope = await this.scopeOf(repoPath)
+        if (scope === null) return c
+        const groups = await this.visible(reader, async (user) =>
+          await this.store.deps.store.issues.countIssueGroups(
+            { live: true, order: 'path-seq', repo: scope !== undefined, readable: user !== undefined },
+            { ...(scope !== undefined ? { repoId: scope } : {}), ...(user ? { reader: user } : {}) },
+          ),
         )
-      ).map(async (r) => await this.report(r, batch)),
+        const bump = (m: Record<string, number>, k: string, n: number): void => {
+          m[k] = (m[k] ?? 0) + n
+        }
+        for (const g of groups) {
+          bump(c.byStage, g.stage, g.n)
+          bump(c.byPriority, String(g.priority), g.n)
+          bump(c.byType, g.type, g.n)
+          bump(c.byAssignee, g.assignee || '(unassigned)', g.n)
+        }
+        return c
+      },
     )
-    const closed = wires.filter((w) => w.stage === 'done' || w.closedReason).length
-    return {
-      total: wires.length,
-      closed,
-      open: wires.length - closed,
-      ready: wires.filter((w) => w.ready).length,
-      blocked: wires.filter((w) => w.blocked).length,
-      deferred: wires.filter((w) => w.deferred).length,
-    }
+  }
+
+  async stats(repoPath?: string, reader: IssueReader = UNRESTRICTED_READER): Promise<IssueStats> {
+    return await this.compared(
+      'reports.stats',
+      [repoPath ?? null],
+      async () => await this.legacy.stats(repoPath, reader.mayRead),
+      async () => {
+        const scope = await this.scopeOf(repoPath)
+        if (scope === null) return { total: 0, closed: 0, open: 0, ready: 0, blocked: 0, deferred: 0 }
+        const shape = (user: UserId | undefined): IssueListingShape => ({
+          live: true, order: 'path-seq', repo: scope !== undefined, readable: user !== undefined,
+        })
+        const input = (user: UserId | undefined): IssueListingInput => ({
+          ...(scope !== undefined ? { repoId: scope } : {}), ...(user ? { reader: user } : {}),
+        })
+        const issues = this.store.deps.store.issues
+        const [totals] = await this.visible(reader, async (user) => [await issues.issueStatTotals(shape(user), input(user))])
+        if (!totals) return { total: 0, closed: 0, open: 0, ready: 0, blocked: 0, deferred: 0 }
+        // Deferral is Date.parse's rule, so it is decided over the few rows that
+        // carry one.
+        const deferrals = (await this.visible(reader, async (user) => await issues.deferralsIn(shape(user), input(user))))
+          .filter((d) => this.store.isDeferred({ deferUntil: d.deferUntil } as IssueRow))
+        return {
+          total: totals.total,
+          closed: totals.closed,
+          open: totals.total - totals.closed,
+          ready: totals.ready - deferrals.filter((d) => d.ready).length,
+          blocked: totals.blocked,
+          deferred: deferrals.length,
+        }
+      },
+    )
   }
 
   async get(id: string): Promise<IssueReport | null> {
     const r = await this.store.row(await this.store.resolveRef(id))
-    return r ? await this.report(r) : null
+    return r ? ((await this.reportsFor([r]))[0] ?? null) : null
   }
 
   /**
@@ -1024,7 +1360,7 @@ export class IssueReportsModule {
    *  `POD` when the bound issue's repo (or the supplied path) has none. */
   async primePrefix(opts: { repoPath?: string; boundIssueId?: IssueId | null }): Promise<string> {
     const boundPath = opts.boundIssueId
-      ? this.store.rows.get(opts.boundIssueId)?.repoPath
+      ? (await this.store.row(opts.boundIssueId))?.repoPath
       : undefined
     const repoPath = boundPath ?? opts.repoPath
     if (!repoPath) return FALLBACK_ISSUE_PREFIX
@@ -1039,7 +1375,7 @@ export class IssueReportsModule {
     const own = issueId ?? self?.issueId ?? (self ? await this.issueForCwd(self.cwd) : null)
     const live = new Set(sessions.filter((s) => !s.archived).map((s) => s.sessionId))
     return await resolveSeat(sessionId, own, {
-      row: (id) => this.store.rows.get(id),
+      row: async (id) => await this.store.row(id),
       isClosed: (row) => this.store.isClosed(row),
       sessionLive: (id) => live.has(id),
       ref: async (row) => await this.niceRef(row),
@@ -1051,8 +1387,21 @@ export class IssueReportsModule {
    *  rules — system-pointer policy is not restated. */
   async prime(
     opts: { repoPath?: string; boundIssueId?: IssueId | null; sessionId?: SessionId },
-    mayRead: IssueReadPredicate = () => true,
+    reader: IssueReader = UNRESTRICTED_READER,
   ): Promise<string> {
+    return await this.compared(
+      'reports.prime',
+      [opts.repoPath ?? null, opts.boundIssueId ?? null, opts.sessionId ?? null],
+      async () => await this.legacy.prime(opts, reader.mayRead),
+      async () => await this.primeFromDb(opts, reader),
+    )
+  }
+
+  private async primeFromDb(
+    opts: { repoPath?: string; boundIssueId?: IssueId | null; sessionId?: SessionId },
+    reader: IssueReader,
+  ): Promise<string> {
+    const mayRead = reader.mayRead
     // Static tail: only what the always-on system pointer does NOT already carry.
     // Stages, discovered-from, spin-off litmus, general title doctrine,
     // description-vs-brief, --outside-scope, mail-send, artifacts, and offers
@@ -1080,17 +1429,19 @@ export class IssueReportsModule {
     if (opts.boundIssueId) {
       const me = (await mayRead(opts.boundIssueId)) ? await this.get(opts.boundIssueId) : null
       if (me) {
-        const kids = await filterReadable(
-          (await this.list(me.repoPath)).filter(
-            (i) => i.parentId === me.id && i.stage !== 'done' && !i.closedReason,
-          ),
-          mayRead,
+        // The open children in its repository, in listing order (POD-6191).
+        const kids = await this.listed(
+          me.repoPath,
+          reader,
+          { live: false, state: 'open', parents: 1, order: 'repo-seq' },
+          { parents: [me.id] },
         )
         // Match computeBlocked: only blocked-by deps whose TARGET is open (not closed)
         // actually block — a resolved blocker must not be listed under "Blocked by:".
-        const blockerRows = (me.deps ?? [])
-          .filter((d) => d.type === 'blocked-by')
-          .map((d) => this.store.rows.get(d.id))
+        const blockerIds = (me.deps ?? []).filter((d) => d.type === 'blocked-by').map((d) => d.id)
+        const blockerById = await this.store.rowsByIds(blockerIds)
+        const blockerRows = blockerIds
+          .map((id) => blockerById.get(id))
           .filter((b): b is IssueRow => b != null && !this.store.isClosed(b))
         const blockers = await Promise.all(
           (await filterReadable(blockerRows, mayRead)).map(
@@ -1181,10 +1532,9 @@ export class IssueReportsModule {
           .join('\n')
       }
     }
-    const ready = await filterReadable(
-      (await this.list(opts.repoPath)).filter((i) => i.ready),
-      mayRead,
-    )
+    const ready = (
+      await this.listed(opts.repoPath, reader, { live: true, state: 'ready', order: 'repo-seq' })
+    ).filter((row) => !this.store.isDeferred(row))
     return [
       'No issue bound to this session.',
       ready.length

@@ -358,7 +358,7 @@ export interface StewardDeps {
    *  steward's own nudge for the same fact would just be a duplicate? */
   messages: Pick<SessionStore['messages'], 'alreadyCommunicated'>
   issues: {
-    readonly reports: Pick<IssueService['reports'], 'get' | 'getMeta' | 'list' | 'comments'>
+    readonly reports: Pick<IssueService['reports'], 'get' | 'getMeta' | 'getBySeq' | 'list' | 'comments'>
     readonly commentsMail: Pick<IssueService['commentsMail'], 'addComment'>
     readonly hierarchy: Pick<IssueService['hierarchy'], 'ancestorIds'>
   }
@@ -1008,9 +1008,7 @@ export class StewardService {
       const already = (await this.deps.issues.reports.comments(dependent.id)).some(
         (c) => c.author === 'steward' && c.body.includes(marker),
       )
-      const closed = (await this.deps.issues.reports.list(e.repoPath ?? dependent.repoPath)).find(
-        (w) => w.seq === closedSeq,
-      )
+      const closed = await this.deps.issues.reports.getBySeq(e.repoPath ?? dependent.repoPath, closedSeq)
       if (!already) {
         const note = completionNote(
           closed,
@@ -1194,9 +1192,7 @@ export class StewardService {
         (c) => c.author === 'steward' && c.body.includes(marker),
       )
       if (already) continue
-      const child = (await this.deps.issues.reports.list(e.repoPath ?? parent.repoPath)).find(
-        (w) => w.seq === childSeq,
-      )
+      const child = await this.deps.issues.reports.getBySeq(e.repoPath ?? parent.repoPath, childSeq)
       // Empty excerpt (no note / question) → bare marker, no trailing space.
       // The marker keeps its colon so replay dedup still matches.
       const excerpt = sub.excerpt(e, child, child ? await this.deps.issues.reports.comments(child.id) : [])
@@ -1220,9 +1216,7 @@ export class StewardService {
     const remaining = Math.max(0, total - (fresh?.childDoneCount ?? 0))
     // Resolved once for the already-communicated check below — the child whose
     // transition drove this coalesced nudge.
-    const lastChild = (await this.deps.issues.reports.list(parent.repoPath)).find(
-      (w) => w.seq === lastChildSeq,
-    )
+    const lastChild = await this.deps.issues.reports.getBySeq(parent.repoPath, lastChildSeq)
     const candidates = sessionsForIssue(
       parent.worktreePath,
       this.deps.sessionFacts(),

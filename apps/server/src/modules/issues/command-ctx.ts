@@ -23,7 +23,7 @@
  * signature), so the table contributes no runtime edge back to this module.
  */
 
-import { asSessionId } from '@podium/model'
+import { asSessionId, asUserId } from '@podium/model'
 import type { SessionId, SessionMeta, IssueId, MutationId } from '@podium/model'
 import type { MutationLedgerPort } from '@podium/sync'
 import { TRPCError } from '@trpc/server'
@@ -41,6 +41,7 @@ import type {
   IssueTrackerCapabilities,
 } from './service'
 import type { ShippingService } from '../shipping'
+import type { IssueReader } from './service/reads'
 
 /** Who is calling (authz identity) — the same pair the router Context carries. */
 export interface IssueCaller {
@@ -220,6 +221,18 @@ export class IssueCommandCtx {
     const target = await this.reports.ownedTarget(id, 'read')
     const user = this.readerUser()
     return target !== undefined && (target.owner === user || target.grants.includes(user))
+  }
+
+  /**
+   * The caller as a report reader (POD-6191): a listing filters by its user in
+   * SQL with the rule {@link mayReadIssue} applies per row, and asks
+   * `mayRead` for the single issues it shows beside them.
+   */
+  issueReader(): IssueReader {
+    return {
+      readableBy: () => asUserId(this.readerUser()),
+      mayRead: async (id) => await this.mayReadIssue(id),
+    }
   }
 
   async requireReadableIssue(id: string): Promise<void> {

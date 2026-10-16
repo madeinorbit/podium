@@ -210,11 +210,11 @@ it('filters hidden issues, dependency targets and sessions before deriving state
   const visible = await create('Visible task', root.id)
   await svc.hierarchy.addDep(visible.id, hidden.id)
   seat('private-session', hidden.id, { agentState: agentState('errored') })
-  const deck = await svc.reports.deck(root.id, (id) => id !== hidden.id)
+  const deck = await svc.reports.deck(root.id, { readableBy: () => null, mayRead: (id) => id !== hidden.id })
   expect(deck.counts).toMatchObject({ total: 1, 'not-started': 1, error: 0, blocked: 0 })
   expect(JSON.stringify(deck)).not.toContain('Private')
   expect(JSON.stringify(deck)).not.toContain('private-session')
-  await expect(svc.reports.deck(root.id, () => false)).rejects.toThrow()
+  await expect(svc.reports.deck(root.id, { readableBy: () => null, mayRead: () => false })).rejects.toThrow()
 })
 
 it('includes pending permission asks in session and task words', async () => {

@@ -266,6 +266,19 @@ export class IssueStore {
     return state
   }
 
+  /** {@link issueUserState} for many issues: one batched read (POD-6191). */
+  async issueUserStates(ids: Iterable<string>): Promise<Map<string, StoredIssueUserState | undefined>> {
+    const unique = [...new Set(ids)]
+    const states = await this.deps.store.issues.loadIssueUserStates(await this.broadcastViewer(), unique)
+    compareWithIssueMap(
+      'issueUserStates',
+      unique,
+      () => new Map(unique.map((id) => [id, this.issueUserStateFromMap(asIssueId(id))] as const)),
+      states,
+    )
+    return states
+  }
+
   /**
    * The viewer map's markers, for the readers that still scan the issue map
    * (POD-6158 switches them group by group; the map and this go together).

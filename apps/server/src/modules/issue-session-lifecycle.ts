@@ -1,5 +1,5 @@
 import { createLogger } from '@podium/logger'
-import { type IssueId, type IssueProjection, type IssueReport, isIssueClosed } from '@podium/model'
+import { type IssueId, type IssueProjection, isIssueClosed } from '@podium/model'
 import type { Ledger } from '@podium/sync'
 import { systemPrincipal } from '../command-principal'
 import { afterCommit } from '../store/executor/executor'
@@ -168,14 +168,14 @@ export class IssueSessionLifecycle {
     if (this.sweepingClosedIssues) return
     this.sweepingClosedIssues = true
     try {
-      let issues: IssueReport[]
+      let candidates: IssueId[]
       try {
-        issues = await this.deps.issues.reports.list()
+        candidates = await this.closedIssueSweepCandidates()
       } catch (error) {
         log.warn('closed issue sweep could not list issues', { err: error, reason })
         return
       }
-      for (const issueId of this.closedIssueSweepCandidates(issues)) {
+      for (const issueId of candidates) {
         await this.stopClosedIssueNow({ issueId, reason })
       }
     } finally {
@@ -209,23 +209,19 @@ export class IssueSessionLifecycle {
    * the live registry map, no I/O at all — so the set is built once and the
    * issue loop is then a lookup.
    */
-  private closedIssueSweepCandidates(issues: readonly IssueReport[]): IssueId[] {
+  private async closedIssueSweepCandidates(): Promise<IssueId[]> {
     const unparked = new Set<string>()
     for (const facts of this.deps.sessions.sessionFacts()) {
       if (!facts.issueId) continue
       if (facts.status === 'hibernated' || facts.status === 'exited') continue
       unparked.add(facts.issueId)
     }
-    const candidates: IssueId[] = []
-    for (const issue of issues) {
-      // The snapshot decides CANDIDACY only. `stopClosedIssueNow` still re-reads
-      // the row immediately before acting, so an issue reopened since the list
-      // is still not stopped — that re-read is the authority, not this filter.
-      if (issue.deletedAt || !isIssueClosed(issue)) continue
-      if (!issue.worktreePath && !unparked.has(issue.id)) continue
-      candidates.push(issue.id)
-    }
-    return candidates
+    // The snapshot decides CANDIDACY only. `stopClosedIssueNow` still re-reads
+    // the row immediately before acting, so an issue reopened since the list
+    // is still not stopped — that re-read is the authority, not this filter.
+    // Since POD-6191 the closed issues with a worktree or one of these members
+    // are read in SQL, not filtered out of a report for every issue.
+    return await this.deps.issues.reports.closedWithWork(unparked)
   }
 
   /** Start the boot pass and the bounded periodic backstop exactly once. */

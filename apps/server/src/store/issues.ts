@@ -60,6 +60,23 @@ import {
   sessions,
 } from '../migrations/schema'
 import { applyAfterCommit, spanOpen } from './executor/executor'
+import {
+  commentCountsOfIssues,
+  deferralsOf,
+  depsFromIssues,
+  depsToIssues,
+  issueCountGroups,
+  issueListing,
+  type IssueListingInput,
+  type IssueListingShape,
+  issueStatTotals,
+  labelsOfIssues,
+  listingKey,
+  listingValues,
+  liveChildrenOf,
+  perChunk,
+  readableAmong,
+} from './issue-listings'
 import { operationLoader } from './executor/operation-loader'
 import { currentReadScope, readScopeSlot } from './executor/read-scope'
 import type { StoreDrizzle, StoreQueries, TransactionRunner } from './executor/sync-drizzle'
@@ -979,6 +996,26 @@ interface IssueRowsWrite {
  * ids and repo-path resolution still returns a string. Query/write casts decode
  * those inputs; selected issue fields are schema-branded. */
 /** A live issue that may own a folder: what membership and its tie-break read. */
+function chunked<T>(items: readonly T[], size: number): T[][] {
+  const out: T[][] = []
+  for (let at = 0; at < items.length; at += size) out.push(items.slice(at, at + size))
+  return out
+}
+
+/** A listing's order, for merging the chunks of a long IN-list. */
+function sortListing(rows: IssueRow[], order: IssueListingShape['order']): IssueRow[] {
+  const text = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
+  return rows.sort((a, b) => {
+    if (order === 'repo-seq') return text(a.repoId ?? '', b.repoId ?? '') || a.seq - b.seq
+    if (order === 'path-seq') return text(a.repoPath, b.repoPath) || a.seq - b.seq || text(a.id, b.id)
+    if (order === 'updated') return Date.parse(a.updatedAt) - Date.parse(b.updatedAt) || text(a.repoPath, b.repoPath) || a.seq - b.seq
+    if (order === 'priority-seq') {
+      return a.priority - b.priority || a.seq - b.seq || text(a.repoPath, b.repoPath) || text(a.id, b.id)
+    }
+    return a.seq - b.seq || text(a.repoPath, b.repoPath) || text(a.id, b.id)
+  })
+}
+
 /**
  * The boot load's structural quarantine (see {@link IssuesRepository.listIssueRows}):
  * a row whose id, repository path, stage or title is not a string poisons every
@@ -1551,6 +1588,136 @@ export class IssuesRepository {
             ...(await legacyIssueRefsAtSeq(this.db).all({ seq })),
           ],
     )
+  }
+
+  // ---- listings in SQL (POD-6191) -------------------------------------------
+
+  /**
+   * The issue rows of one listing shape (`issue-listings.ts`): filtered, made
+   * visible to `reader` and ordered in SQL. `parents`/`ids` lists longer than
+   * one statement's 500 are read in chunks and merged in the shape's order.
+   * Structurally corrupt rows are skipped, as the boot load skips them.
+   */
+  async listIssueRowsWhere(
+    shape: IssueListingShape,
+    input: IssueListingInput = {},
+  ): Promise<IssueRow[]> {
+    const list = input.parents ?? input.ids
+    const key = shape.parents !== undefined ? 'parents' : shape.ids !== undefined ? 'ids' : undefined
+    const chunks = key && list ? chunked([...new Set(list)], 500) : [undefined]
+    const raw: (typeof issues.$inferSelect)[] = []
+    for (const chunk of chunks) {
+      if (chunk !== undefined && chunk.length === 0) continue
+      const sized: IssueListingShape = chunk === undefined ? shape
+        : { ...shape, [key!]: inListSize(chunk.length) }
+      raw.push(...(await issueListing(this.db, listingKey(sized)).all(
+        listingValues(sized, { ...input, ...(chunk ? { [key!]: chunk } : {}) }),
+      )))
+    }
+    const rows = await this.mapQuarantined(raw)
+    return chunks.length > 1 ? sortListing(rows, shape.order) : rows
+  }
+
+  /** Per (stage, priority, type, assignee): how many issues of a listing shape,
+   *  in the order the groups first appear in (repository path, sequence). */
+  async countIssueGroups(
+    shape: IssueListingShape,
+    input: IssueListingInput = {},
+  ): Promise<{ stage: string; priority: number; type: string; assignee: string | null; n: number }[]> {
+    const rows = await issueCountGroups(this.db, listingKey(shape)).all(listingValues(shape, input))
+    return rows
+      .sort((a, b) => (a.first < b.first ? -1 : a.first > b.first ? 1 : 0))
+      .map(({ stage, priority, type, assignee, n }) => ({ stage, priority, type, assignee, n }))
+  }
+
+  /** Totals over a listing shape for `issues.stats` (deferral: {@link deferralsIn}). */
+  async issueStatTotals(
+    shape: IssueListingShape,
+    input: IssueListingInput = {},
+  ): Promise<{ total: number; closed: number; ready: number; blocked: number }> {
+    const row = await issueStatTotals(this.db, listingKey(shape)).get(listingValues(shape, input))
+    return { total: row?.total ?? 0, closed: Number(row?.closed ?? 0), ready: Number(row?.ready ?? 0),
+      blocked: Number(row?.blocked ?? 0) }
+  }
+
+  /** The rows of a listing shape that carry a deferral, and whether each would
+   *  otherwise be ready. */
+  async deferralsIn(
+    shape: IssueListingShape,
+    input: IssueListingInput = {},
+  ): Promise<{ id: IssueId; deferUntil: string; ready: boolean }[]> {
+    const rows = await deferralsOf(this.db, listingKey(shape)).all(listingValues(shape, input))
+    return rows.flatMap((r) => typeof r.deferUntil === 'string'
+      ? [{ id: r.id as IssueId, deferUntil: r.deferUntil, ready: Number(r.ready) === 1 }] : [])
+  }
+
+  /** Labels of these issues, each issue's in name order. */
+  async labelsOfIssues(ids: readonly string[]): Promise<Map<string, string[]>> {
+    const out = new Map<string, string[]>()
+    for (const r of await perChunk(ids, async (size, values) => await labelsOfIssues(this.db, size).all(values))) {
+      const names = out.get(r.issueId)
+      if (names) names.push(r.label)
+      else out.set(r.issueId, [r.label])
+    }
+    return out
+  }
+
+  /** The dependency edges FROM these issues, in (from, to, type) order. */
+  async depsFromIssues(ids: readonly string[]): Promise<{ fromId: IssueId; toId: IssueId; type: string }[]> {
+    return await perChunk(ids, async (size, values) => await depsFromIssues(this.db, size).all(values))
+  }
+
+  /** The dependency edges TO these issues, in (to, from, type) order. */
+  async depsToIssues(ids: readonly string[]): Promise<{ fromId: IssueId; toId: IssueId; type: string }[]> {
+    return await perChunk(ids, async (size, values) => await depsToIssues(this.db, size).all(values))
+  }
+
+  async commentCountsOfIssues(ids: readonly string[]): Promise<Map<string, number>> {
+    const rows = await perChunk(ids, async (size, values) => await commentCountsOfIssues(this.db, size).all(values))
+    return new Map(rows.map((r) => [r.issueId, r.n]))
+  }
+
+  /** Live children of these parents with their closure columns, in the boot
+   *  map's order. */
+  async liveChildrenOf(parentIds: readonly string[]): Promise<
+    { id: IssueId; parentId: IssueId; stage: string; closedReason: string | null; deletedAt: string | null }[]
+  > {
+    // A parent's children all come back in its own chunk, in their order.
+    const rows = await perChunk(parentIds, async (size, values) => await liveChildrenOf(this.db, size).all(values))
+    return rows.flatMap((r) => typeof r.id === 'string' && r.parentId
+      ? [{ id: r.id as IssueId, parentId: r.parentId as IssueId, stage: r.stage, closedReason: r.closedReason, deletedAt: r.deletedAt }]
+      : [])
+  }
+
+  /** Which of these issues `reader` may see (owner or read-covering grant). */
+  async readableAmong(ids: readonly string[], reader: UserId): Promise<Set<string>> {
+    const rows = await perChunk(ids, async (size, values) =>
+      await readableAmong(this.db, size).all({ ...values, reader }))
+    return new Set(rows.map((r) => r.id))
+  }
+
+  /** The closure columns of these issues (stage, close reason, deletion). */
+  async closureOf(ids: readonly string[]): Promise<Map<string, { stage: string; closedReason: string | null; deletedAt: string | null }>> {
+    const out = new Map<string, { stage: string; closedReason: string | null; deletedAt: string | null }>()
+    for (const r of await perChunk(ids, async (size, values) => await issueClosureRowsOf(this.db, size).all(values))) {
+      if (typeof r.id !== 'string') continue
+      out.set(r.id, { stage: typeof r.stage === 'string' ? r.stage : '', closedReason: r.closedReason, deletedAt: r.deletedAt })
+    }
+    return out
+  }
+
+  /** Map raw rows, skipping (and logging) the structurally corrupt ones. */
+  private async mapQuarantined(rows: readonly (typeof issues.$inferSelect)[]): Promise<IssueRow[]> {
+    const out: IssueRow[] = []
+    for (const r of rows) {
+      try {
+        if (!structurallySound(r)) throw new Error('structurally corrupt row (non-string id/repo_path/stage/title)')
+        out.push(await issueFromRow(r))
+      } catch (err) {
+        log.error('quarantined a corrupt issue row — skipped', { issueId: r.id ?? null, err })
+      }
+    }
+    return out
   }
 
   /**
@@ -2303,6 +2470,16 @@ export class IssuesRepository {
   async loadIssueUserState(userId: UserId, issueId: IssueId): Promise<StoredIssueUserState | undefined> {
     requireUserId(userId)
     return await this.userStateLoader.load(`${userId}\u0000${issueId}`)
+  }
+
+  /** {@link loadIssueUserState} for many issues, in one batch per 500. */
+  async loadIssueUserStates(
+    userId: UserId,
+    issueIds: readonly string[],
+  ): Promise<Map<string, StoredIssueUserState | undefined>> {
+    requireUserId(userId)
+    const loaded = await this.userStateLoader.loadMany(issueIds.map((id) => `${userId}\u0000${id}`))
+    return new Map(issueIds.map((id) => [id, loaded.get(`${userId}\u0000${id}`)] as const))
   }
 
   async getIssueUserState(

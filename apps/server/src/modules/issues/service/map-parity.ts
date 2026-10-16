@@ -150,6 +150,9 @@ export async function compareOutcomeWithIssueMap<T>(
   key: unknown,
   mapAnswer: () => T | Promise<T>,
   dbAnswer: () => Promise<T>,
+  /** Both answers as compared, when the order of equal elements is not part
+   *  of the answer (see the caller). */
+  canonical: (value: T) => unknown = (value) => value,
 ): Promise<T> {
   if (mode === 'off') return await dbAnswer()
   let mapOutcome: { value: T } | { error: unknown }
@@ -164,7 +167,9 @@ export async function compareOutcomeWithIssueMap<T>(
   } catch (error) {
     dbOutcome = { error }
   }
-  compareWithIssueMap(reader, key, () => mapOutcome, dbOutcome)
+  const view = (outcome: { value: T } | { error: unknown }) =>
+    'error' in outcome ? outcome : { value: canonical(outcome.value) }
+  compareWithIssueMap(reader, key, () => view(mapOutcome), view(dbOutcome))
   if ('error' in dbOutcome) throw dbOutcome.error
   return dbOutcome.value
 }

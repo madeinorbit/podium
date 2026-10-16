@@ -1861,11 +1861,9 @@ export class SuperagentService {
 
   /** An issue by id, across every registered repo (ids are globally unique). */
   private async issueById(issueId: IssueId): Promise<IssueReport | undefined> {
-    for (const repoPath of await this.repos.list()) {
-      const found = (await this.modules.issues.reports.list(repoPath)).find((i) => i.id === issueId)
-      if (found) return found
-    }
-    return undefined
+    // One read by id (POD-6191); it used to build every registered repository's
+    // listing to find it.
+    return (await this.modules.issues.reports.get(issueId)) ?? undefined
   }
 
   /** The [USER VIEW] block for a turn: client-reported ids, resolved server-side

@@ -39,6 +39,7 @@ import { fileURLToPath } from 'node:url'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import type { SessionStore } from '../store'
 import { LEGACY_WORKTREE_MIGRATION } from './issues'
+import { type IssueListingShape, listingKey } from './issue-listings'
 import { openTestStore } from '../test-support/open-test-store'
 import {
   censusScope,
@@ -70,6 +71,40 @@ const SIZES = [1, 4] as const
  * plan can see (each optional filter on its own, each principal shape). A
  * family missing here fails the audit.
  */
+/**
+ * The issue listing shapes the reports use (POD-6191, `modules/issues/service/
+ * reads.ts`), each scoped to a repository and filtered for a reader, and each
+ * across every repository unrestricted; the search shape with every filter.
+ */
+const LISTING_BASES: readonly Omit<IssueListingShape, 'repo' | 'readable'>[] = [
+  { live: false, order: 'repo-seq' },
+  { live: true, state: 'ready', order: 'priority-seq' },
+  { live: true, state: 'blocked', order: 'priority-seq' },
+  { live: true, order: 'path-seq' },
+  { live: true, parents: 1, order: 'path-seq' },
+  { live: true, unarchived: true, parents: 1, order: 'path-seq' },
+  { live: true, state: 'open', completeParent: true, order: 'path-seq' },
+  { live: true, state: 'open', order: 'seq' },
+  { live: true, state: 'open', updatedBefore: true, order: 'updated' },
+  { live: false, state: 'open', parents: 1, order: 'repo-seq' },
+  { live: true, state: 'ready', order: 'repo-seq' },
+  { live: true, state: 'closed', hasWorktree: true, order: 'repo-seq' },
+  { live: true, state: 'closed', ids: 1, order: 'repo-seq' },
+  {
+    live: true, state: 'open', stage: true, priority: true, type: true, assignee: true, parent: true,
+    label: true, text: true, order: 'priority-seq',
+  },
+  { live: true, deferred: true, order: 'priority-seq' },
+]
+const LISTING_KEYS = LISTING_BASES.flatMap((base) => [
+  listingKey({ ...base, repo: true, readable: true }),
+  listingKey({ ...base, repo: false, readable: false }),
+])
+const SCOPE_KEYS = [
+  listingKey({ live: true, order: 'path-seq', repo: true, readable: true }),
+  listingKey({ live: true, order: 'path-seq', repo: false, readable: false }),
+]
+
 const FAMILY_SHAPES: ReadonlyMap<string, readonly (string | number)[]> = new Map<
   string,
   readonly (string | number)[]
@@ -110,6 +145,16 @@ const FAMILY_SHAPES: ReadonlyMap<string, readonly (string | number)[]> = new Map
   ['apps/server/src/store/issues.ts:issuesByIds', SIZES],
   ['apps/server/src/store/issues.ts:issueUserStatesOf', SIZES],
   ['apps/server/src/store/issues.ts:issueRefsAtSeqsOf', SIZES],
+  ['apps/server/src/store/issue-listings.ts:issueListing', LISTING_KEYS],
+  ['apps/server/src/store/issue-listings.ts:issueCountGroups', SCOPE_KEYS],
+  ['apps/server/src/store/issue-listings.ts:issueStatTotals', SCOPE_KEYS],
+  ['apps/server/src/store/issue-listings.ts:deferralsOf', SCOPE_KEYS],
+  ['apps/server/src/store/issue-listings.ts:labelsOfIssues', SIZES],
+  ['apps/server/src/store/issue-listings.ts:depsFromIssues', SIZES],
+  ['apps/server/src/store/issue-listings.ts:depsToIssues', SIZES],
+  ['apps/server/src/store/issue-listings.ts:commentCountsOfIssues', SIZES],
+  ['apps/server/src/store/issue-listings.ts:liveChildrenOf', SIZES],
+  ['apps/server/src/store/issue-listings.ts:readableAmong', SIZES],
   ['apps/server/src/store/issues.ts:labelsNamed', SIZES],
   ['apps/server/src/store/issues.ts:patchLabel', ['color', 'description', 'color,description']],
   ['apps/server/src/store/issues.ts:commentSearch', ['all', 'limited']],
@@ -236,6 +281,14 @@ const SMALL_TABLES: ReadonlyMap<string, string> = new Map([
  * sort of one key's few rows, a one-time repair behind its receipt.
  */
 const ALLOWLIST: ReadonlyMap<string, string> = new Map([
+  [
+    'apps/server/src/store/issue-listings.ts:labelsOfIssues',
+    "Sorts the labels of the issues a report lists, by the issue's primary key, then the label name: a few labels per listed issue (POD-6191).",
+  ],
+  [
+    'apps/server/src/store/issue-listings.ts:liveChildrenOf',
+    'Sorts the live children of the parents asked for (their own index lookup), in the boot order a report shows them: a few rows per parent (POD-6191).',
+  ],
   [
     'apps/server/src/store/messages.ts:ledger',
     'Each UNION arm reads its index newest first and SQLite merges them, stopping at the limit; the temporary B-tree orders only rows tied on (created_at, id), which is unique, so every sort group is one row.',
@@ -413,6 +466,22 @@ const ALLOWLIST: ReadonlyMap<string, string> = new Map([
  * shrink.
  */
 const WHOLE_TABLE_READS: ReadonlyMap<string, string> = new Map([
+  [
+    'apps/server/src/store/issue-listings.ts:issueListing',
+    "Whole-table read (POD-6172): an unpaged issue listing reads every issue in its scope (one repository by its index, or all of them) and sorts it; it replaces the issue map's scan of every issue (POD-6191), and paging with a cursor bounds it.",
+  ],
+  [
+    'apps/server/src/store/issue-listings.ts:issueCountGroups',
+    'Whole-table read (POD-6172): counts every issue in a listing scope by stage, priority, type and assignee, in SQL rather than over the issue map (POD-6191).',
+  ],
+  [
+    'apps/server/src/store/issue-listings.ts:issueStatTotals',
+    'Whole-table read (POD-6172): totals over every issue in a listing scope, in SQL rather than over the issue map (POD-6191).',
+  ],
+  [
+    'apps/server/src/store/issue-listings.ts:deferralsOf',
+    'Whole-table read (POD-6172): the deferred issues of a listing scope; a deferral is decided by Date.parse, so the scope is read for the rows that carry one (POD-6191).',
+  ],
   [
     'apps/server/src/store/issues.ts:liveIssueParentEdges',
     "Whole-table read (POD-6172): every live issue's parent edge, for the issue tree.",

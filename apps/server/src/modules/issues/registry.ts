@@ -350,7 +350,7 @@ const defs = {
 
   list: def('list', {
     kind: 'query',
-    handler: async (ctx, input) => ctx.visibleRows(await ctx.reports.list(input.repoPath)),
+    handler: async (ctx, input) => await ctx.reports.list(input.repoPath, ctx.issueReader()),
   }),
   prime: def('prime', {
     kind: 'query',
@@ -367,20 +367,21 @@ const defs = {
             ? { sessionId: ctx.caller.capability.actorSessionId }
             : {}),
         },
-        async (id) => await ctx.mayReadIssue(id),
+        ctx.issueReader(),
       ),
   }),
   ready: def('ready', {
     kind: 'query',
-    handler: async (ctx, input) => ctx.visibleRows(await ctx.reports.readyList(input.repoPath)),
+    handler: async (ctx, input) => await ctx.reports.readyList(input.repoPath, ctx.issueReader()),
   }),
   blocked: def('blocked', {
     kind: 'query',
-    handler: async (ctx, input) => ctx.visibleRows(await ctx.reports.blockedList(input.repoPath)),
+    handler: async (ctx, input) => await ctx.reports.blockedList(input.repoPath, ctx.issueReader()),
   }),
   graph: def('graph', {
     kind: 'query',
-    handler: async (ctx, input) => await ctx.visibleGraph(await ctx.reports.graph(input.repoPath)),
+    handler: async (ctx, input) =>
+      await ctx.visibleGraph(await ctx.reports.graph(input.repoPath, ctx.issueReader())),
   }),
   epicStatus: def('epicStatus', {
     kind: 'query',
@@ -388,7 +389,7 @@ const defs = {
       await ctx.readIssue(
         input.id,
         async () =>
-          await ctx.reports.epicStatus(input.id, async (id) => await ctx.mayReadIssue(id)),
+          await ctx.reports.epicStatus(input.id, ctx.issueReader()),
       ),
   }),
   children: def('children', {
@@ -400,7 +401,7 @@ const defs = {
           await ctx.reports.children(
             input.id,
             input.recursive ?? false,
-            async (id) => await ctx.mayReadIssue(id),
+            ctx.issueReader(),
           ),
       ),
   }),
@@ -413,25 +414,25 @@ const defs = {
           ...(input.maxDepth != null ? { maxDepth: input.maxDepth } : {}),
           ...(input.maxNodes != null ? { maxNodes: input.maxNodes } : {}),
         },
-        async (id) => await ctx.mayReadIssue(id),
+        ctx.issueReader(),
       ),
   }),
   deck: def('deck', {
     kind: 'query',
     handler: async (ctx, input) =>
-      await ctx.reports.deck(input.id, async (id) => await ctx.mayReadIssue(id)),
+      await ctx.reports.deck(input.id, ctx.issueReader()),
   }),
   depReport: def('depReport', {
     kind: 'query',
     handler: async (ctx, input) =>
-      await ctx.reports.depReport(input, async (id) => await ctx.mayReadIssue(id)),
+      await ctx.reports.depReport(input, ctx.issueReader()),
   }),
   closeEligibleEpics: def('closeEligibleEpics', {
     kind: 'query',
     handler: async (ctx, input) =>
       await ctx.reports.closeEligibleEpics(
         input.repoPath,
-        async (id) => await ctx.mayReadIssue(id),
+        ctx.issueReader(),
       ),
   }),
   labelList: def('labelList', {
@@ -444,7 +445,7 @@ const defs = {
       await ctx.reports.findDuplicates(
         input.repoPath,
         input.threshold,
-        async (id) => await ctx.mayReadIssue(id),
+        ctx.issueReader(),
       ),
   }),
   stale: def('stale', {
@@ -454,18 +455,18 @@ const defs = {
         input.repoPath,
         input.days,
         Date.now(),
-        async (id) => await ctx.mayReadIssue(id),
+        ctx.issueReader(),
       ),
   }),
   doctor: def('doctor', {
     kind: 'query',
     handler: async (ctx, input) =>
-      await ctx.reports.doctor(input.repoPath, async (id) => await ctx.mayReadIssue(id)),
+      await ctx.reports.doctor(input.repoPath, ctx.issueReader()),
   }),
   preflight: def('preflight', {
     kind: 'query',
     handler: async (ctx, input) =>
-      await ctx.reports.preflight(input.repoPath, async (id) => await ctx.mayReadIssue(id)),
+      await ctx.reports.preflight(input.repoPath, ctx.issueReader()),
   }),
   deliveryReceipt: def('deliveryReceipt', {
     kind: 'query',
@@ -483,27 +484,27 @@ const defs = {
   search: def('search', {
     kind: 'query',
     handler: async (ctx, input) =>
-      await ctx.reports.search(input, async (id) => await ctx.mayReadIssue(id)),
+      await ctx.reports.search(input, ctx.issueReader()),
   }),
   searchNormalized: def('searchNormalized', {
     kind: 'query',
     handler: async (ctx, input) =>
-      await ctx.reports.searchNormalized(input, async (id) => await ctx.mayReadIssue(id)),
+      await ctx.reports.searchNormalized(input, ctx.issueReader()),
   }),
   count: def('count', {
     kind: 'query',
     handler: async (ctx, input) =>
-      await ctx.reports.count(input.repoPath, async (id) => await ctx.mayReadIssue(id)),
+      await ctx.reports.count(input.repoPath, ctx.issueReader()),
   }),
   stats: def('stats', {
     kind: 'query',
     handler: async (ctx, input) =>
-      await ctx.reports.stats(input.repoPath, async (id) => await ctx.mayReadIssue(id)),
+      await ctx.reports.stats(input.repoPath, ctx.issueReader()),
   }),
   orphans: def('orphans', {
     kind: 'query',
     handler: async (ctx, input) =>
-      await ctx.reports.orphans(input.repoPath, async (id) => await ctx.mayReadIssue(id)),
+      await ctx.reports.orphans(input.repoPath, ctx.issueReader()),
   }),
   get: def('get', {
     kind: 'query',

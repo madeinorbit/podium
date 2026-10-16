@@ -11,13 +11,20 @@
  * plants a difference to prove the comparison is armed.
  */
 
-import { fileURLToPath } from 'node:url'
-import { asIssueId, asMachineId, firstAdminMemberId } from '@podium/model'
+import { asIssueId, firstAdminMemberId } from '@podium/model'
 import { afterEach, describe, expect, it } from 'vitest'
-import type { IssueRow, SessionStore } from '../../../store'
+import type { SessionStore } from '../../../store'
 import { applyAfterCommit, spanOpen } from '../../../store/executor/executor'
-import { issueRowFixture } from '../../../test-support/issue-row'
-import { openTestStore } from '../../../test-support/open-test-store'
+import {
+  type CorpusDep,
+  type CorpusIssue,
+  exportedCorpus,
+  foldedDeps,
+  prefixOf,
+  rawSql,
+  rowOf,
+  seededStore,
+} from '../../../test-support/issue-corpus'
 import { IssueStore } from './core'
 import { IssueMapParityError, issueMapParityMode } from './map-parity'
 import { IssueRefusal } from './refusal'
@@ -28,84 +35,9 @@ afterEach(async () => {
   for (const store of stores.splice(0)) await store.close()
 })
 
-interface CorpusIssue {
-  id: string
-  seq: number
-  repoPath: string | null
-  worktreePath: string | null
-  parentId: string | null
-  stage: string
-  archived: boolean
-  deletedAt: string | null
-}
-
-async function exportedCorpus(): Promise<{ issues: CorpusIssue[]; deps: { fromId: string; toId: string; type: string }[]; repos: string[] }> {
-  const module = fileURLToPath(new URL('../../../../../../scripts/server-data-bench/corpus-export.ts', import.meta.url))
-  const { exportCorpus } = (await import(module)) as {
-    exportCorpus(cell: string, seed: number): Promise<{
-      issues: CorpusIssue[]
-      deps: { fromId: string; toId: string; type: string }[]
-      repos: string[]
-    }>
-  }
-  return await exportCorpus('h1a1', 4443)
-}
-
-/** Two capital letters per repository index: AA, AB, ... */
-const prefixOf = (index: number) =>
-  String.fromCharCode(65 + Math.floor(index / 26) % 26) + String.fromCharCode(65 + (index % 26))
-
-function rowOf(issue: CorpusIssue, repoPath: string, machineId: string): IssueRow {
-  return {
-    ...issueRowFixture({
-      id: issue.id,
-      repoPath,
-      seq: issue.seq,
-      ownerUserId: firstAdminMemberId(),
-      createdByActor: firstAdminMemberId(),
-      createdByOnBehalfOf: firstAdminMemberId(),
-    }),
-    repoId: undefined,
-    machineId: asMachineId(machineId),
-    parentId: issue.parentId ? asIssueId(issue.parentId) : null,
-    worktreePath: issue.worktreePath,
-    stage: issue.stage as IssueRow['stage'],
-    archived: issue.archived,
-    deletedAt: issue.deletedAt,
-    revision: undefined,
-  } as IssueRow
-}
-
-async function harness(issues: readonly CorpusIssue[], repos: readonly string[], deps: { fromId: string; toId: string; type: string }[] = []) {
-  const store = await openTestStore(':memory:')
+async function harness(issues: readonly CorpusIssue[], repos: readonly string[], deps: readonly CorpusDep[] = []) {
+  const store = await seededStore(issues, repos, deps)
   stores.push(store)
-  await store.transact(async () => {
-    for (const [index, path] of repos.entries()) {
-      await store.repos.addRepo(path, store.hostMachineId, undefined, prefixOf(index))
-    }
-  })
-  // Parents are a foreign key: every row first, then the parent links.
-  for (let start = 0; start < issues.length; start += 500) {
-    await store.transact(async () => {
-      for (const issue of issues.slice(start, start + 500)) {
-        await store.issues.upsertIssue(
-          rowOf({ ...issue, parentId: null }, issue.repoPath ?? repos[0]!, store.hostMachineId),
-        )
-      }
-    })
-  }
-  const ids = new Set(issues.map((issue) => issue.id))
-  await store.transact(async () => {
-    for (const issue of issues) {
-      if (!issue.parentId || !ids.has(issue.parentId)) continue
-      const row = (await store.issues.getIssue(issue.id))!
-      row.parentId = asIssueId(issue.parentId)
-      await store.issues.upsertIssue(row)
-    }
-  })
-  await store.transact(async () => {
-    for (const dep of deps) await store.issues.addIssueDep(asIssueId(dep.fromId), asIssueId(dep.toId), dep.type)
-  })
   return store
 }
 
@@ -113,10 +45,7 @@ function storeOf(store: SessionStore): Promise<IssueStore> {
   return new IssueStore({ store, applyCommit: { spanOpen, onCommit: applyAfterCommit } } as IssueDeps).init()
 }
 
-const raw = (store: SessionStore, statement: string, ...args: unknown[]) =>
-  (store as unknown as { db: { prepare(q: string): { run(...a: unknown[]): unknown } } }).db
-    .prepare(statement)
-    .run(...args)
+const raw = rawSql
 
 /** Every reference spelling a row can be asked by, plus some that name nothing. */
 function refsOf(rows: readonly { seq: number; repoPath: string }[], prefixes: ReadonlyMap<string, string>): string[] {
@@ -164,16 +93,10 @@ describe('issue point reads: the database answers as the issue map', () => {
     const repos = [...new Set([...corpus.repos, ...corpus.issues.flatMap((row) => (row.repoPath ? [row.repoPath] : []))])]
     const rows = corpus.issues.map((row) => ({ ...row, id: `iss_${row.id}`, parentId: row.parentId ? `iss_${row.parentId}` : null }))
     const ids = new Set(rows.map((row) => row.id))
-    // The corpus's older dependency spellings, folded as the fixed-types
-    // migration and the bench seeder fold them; anything else is dropped.
-    const folded: Readonly<Record<string, string>> = {
-      blocks: 'blocked-by', 'waits-on': 'blocked-by', duplicate: 'duplicates',
-      tracks: 'related', 'caused-by': 'related', validates: 'related',
-    }
-    const types = new Set(['blocked-by', 'related', 'discovered-from', 'supersedes', 'duplicates'])
-    const deps = corpus.deps
-      .map((dep) => ({ fromId: `iss_${dep.fromId}`, toId: `iss_${dep.toId}`, type: folded[dep.type] ?? dep.type }))
-      .filter((dep) => ids.has(dep.fromId) && ids.has(dep.toId) && types.has(dep.type))
+    const deps = foldedDeps(
+      corpus.deps.map((dep) => ({ ...dep, fromId: `iss_${dep.fromId}`, toId: `iss_${dep.toId}` })),
+      ids,
+    )
     const store = await harness(rows, repos, deps)
     const viewer = await firstAdminMemberId(store)
     await store.transact(async () => {
