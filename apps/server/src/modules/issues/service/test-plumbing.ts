@@ -1,6 +1,7 @@
 import type { MetadataChange } from '@podium/protocol'
 import { Ledger, type LedgerDeps, type StoredChangeRow } from '@podium/sync'
 import type { IssueDeps } from './types'
+import { installedWorldOver } from '@podium/sync/testing'
 
 /**
  * TEST-ONLY funnel/ledger/publish plumbing for IssueDeps (issues #190, #255):
@@ -84,10 +85,10 @@ export function memoryChangeLogStore(): LedgerDeps['repo'] {
       rows.filter((r) => r.seq > from && r.seq <= through).slice(0, limit),
     planChangePrune: async () => ({ thresholdSeq: 0 }),
     pruneChangeBatch: async () => 0,
-    latestChangeStates: async () => {
+    ...installedWorldOver(async () => {
       const latest = new Map<string, Row>()
       for (const r of rows) latest.set(`${r.entity} ${r.entityId}`, r)
       return [...latest.values()]
-    },
+    }),
   }
 }

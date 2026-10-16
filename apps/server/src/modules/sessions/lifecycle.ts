@@ -888,7 +888,7 @@ export class SessionLifecycle {
       automations: values('automation'),
       automationRuns: values('automationRun'),
       diagnostics:
-        principal === DEVICE_GRADE_PRINCIPAL ? (await this.deps.snapshotTail()).diagnostics : [],
+        principal === DEVICE_GRADE_PRINCIPAL ? await this.deps.snapshotDiagnostics() : [],
       cursor: sourceCursor,
       ...identity,
     }

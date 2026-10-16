@@ -1093,22 +1093,16 @@ export class SessionRegistry {
       serving: feedServing,
       onPublished: (seq) => this.bus.emit('feed.published', { seq }),
     })
-    const snapshotTail = async (): Promise<SnapshotTail> => ({
-      issueProjections: (await ledger.authority.snapshot(
-        'issueProjection',
-      )) as SnapshotTail['issueProjections'],
-      issueDeps: (await ledger.authority.snapshot('issueDep')) as SnapshotTail['issueDeps'],
-      repos: repoProjectionRows(await this.store.repos.listRepos()).map((row) => row.value),
-      shipOrders: (await ledger.authority.snapshot('shipOrder')) as SnapshotTail['shipOrders'],
-      conversations: (await ledger.authority.snapshot(
-        'conversation',
-      )) as SnapshotTail['conversations'],
-      automations: (await ledger.authority.snapshot('automation')) as SnapshotTail['automations'],
-      automationRuns: (await ledger.authority.snapshot(
-        'automationRun',
-      )) as SnapshotTail['automationRuns'],
-      diagnostics: [...conversationDiagnostics.current],
-    })
+    // What a device-grade snapshot adds, and what auto-archive checks: each read
+    // for itself (POD-6156), where both used to come from one read of every
+    // issue, dependency, order, conversation and automation.
+    const snapshotDiagnostics = async (): Promise<SnapshotTail['diagnostics']> => [
+      ...conversationDiagnostics.current,
+    ]
+    const installedIssueProjection = async (issueId: string) =>
+      (await ledger.authority.installedValues('issueProjection', [issueId])).get(issueId) as
+        | { id: string; parentId?: string | null }
+        | undefined
     // Spec factory only (POD-1576). The `publishIssueList` reconcile tail that
     // used to be wired here — issue + issueProjection + issueDep full-truth
     // reconciles for write-less republishes — had no trigger left once POD-1574
@@ -1648,7 +1642,8 @@ export class SessionRegistry {
         }),
       memory,
       issueAccess,
-      snapshotTail,
+      snapshotDiagnostics,
+      installedIssueProjection,
       onWorktreesChanged: broadcastWorktreesChanged,
       instructionsForStart: (input) => sessionInstructions.prepare(input),
       agentLaunch: async (input) => await agentProfiles.launch(input),

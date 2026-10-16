@@ -310,6 +310,7 @@
         "src/application/issue-attach-orchestrator.ts",
         "src/auth-route.test.ts",
         "src/auth-route.ts",
+        "src/authority-dedup-replay.test.ts",
         "src/authz-matrix.test.ts",
         "src/auto-continue.ts",
         "src/boot-timing.ts",

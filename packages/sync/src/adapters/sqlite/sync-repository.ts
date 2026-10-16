@@ -263,6 +263,20 @@ const installedIdsUnderPrefixes = preparedFamily((db: StoreDrizzle, size: number
     .prepare(),
 )
 
+/** Every installed row of one kind: a range of the primary key's first column [POD-6156]. */
+const installedRowsOfKind = prepared((db: StoreDrizzle) =>
+  db
+    .select({
+      seq: changeLatest.seq,
+      entity: changeLatest.entity,
+      entityId: changeLatest.entityId,
+      payload: changeLatest.payload,
+    })
+    .from(changeLatest)
+    .where(eq(changeLatest.entity, param(changeLatest.entity, 'entity')))
+    .prepare(),
+)
+
 /** Pairs per grouped key read: two parameters each, under SQLite's 999. */
 const KEY_CHUNK = 250
 /** Prefixes per grouped range read: three parameters each. */
@@ -748,6 +762,18 @@ export class SyncRepository {
       for (const row of rows) out.push(mapChangeLogReadRow({ ...row, op: 'upsert' }))
     }
     return out
+  }
+
+  /**
+   * Every installed row of one entity kind, in seq order [POD-6156]: what the
+   * Authority reconciles a kind's full truth against, and what a feed
+   * publisher seeds its carried set from. Sorted here, as
+   * {@link latestChangeStates} is, so the read walks the primary key.
+   */
+  async installedStatesOf(entity: string): Promise<ChangeLogReadRow[]> {
+    const rows = await installedRowsOfKind(this.db).all({ entity })
+    rows.sort((a, b) => a.seq - b.seq)
+    return rows.map((r) => mapChangeLogReadRow({ ...r, op: 'upsert' }))
   }
 
   /**

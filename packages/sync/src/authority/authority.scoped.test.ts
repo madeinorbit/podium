@@ -57,6 +57,7 @@ import {
   type VisibilityStatePort,
 } from '../feed/visibility'
 import type { VisibilityClass } from '@podium/model'
+import { installedWorldOver } from '../conformance/installed-reads'
 
 function memoryStore(): ChangeLogStore {
   const rows: ChangeLogReadRow[] = []
@@ -84,11 +85,11 @@ function memoryStore(): ChangeLogStore {
     // overwrites an earlier one in the fold) and became wrong the moment
     // `bootstrap` read it as a world: every historical write reappeared as its
     // own row, and a deleted entity came back alive under its stale upsert.
-    latestChangeStates: async () => {
+    ...installedWorldOver(async () => {
       const latest = new Map<string, (typeof rows)[number]>()
       for (const r of rows) latest.set(`${r.entity}/${r.entityId}`, r)
       return [...latest.values()]
-    },
+    }),
   }
 }
 

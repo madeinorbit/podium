@@ -219,12 +219,12 @@ describe('Ledger', () => {
       young,
     )
     // Boot with "now" past row 1's age budget but within row 2's: readiness
-    // waits for the full sliced prune before the constructor folds the baseline.
+    // waits for the full sliced prune.
     await prepareLedgerBoot({ repo, now: () => young + 1 })
     const ledger = new Ledger({ repo, now: () => young + 1, transact: passthrough })
     expect(await repo.minChangeSeq()).toBe(2)
     expect(await repo.maxChangeSeq()).toBe(2)
-    // The surviving row still seeds the dedup baseline: re-committing it is a no-op.
+    // The surviving installed row still dedups: re-committing it is a no-op.
     expect(
       (
         await commit(ledger, [
@@ -234,7 +234,7 @@ describe('Ledger', () => {
     ).toEqual([])
   })
 
-  it('does not fold the baseline between the first boot-prune slice and readiness', async () => {
+  it('reads no installed row at boot, before or after the prune [POD-6156]', async () => {
     const inner = createTestSyncRepository()
     const calls: string[] = []
     let monotonicMs = 0
@@ -283,8 +283,8 @@ describe('Ledger', () => {
       monotonicNow: () => monotonicMs,
     }).then(() => new Ledger({ repo, now: Date.now, transact: passthrough }))
 
-    // The async delete is in flight: folding must stay behind readiness,
-    // regardless of how many microtasks planning and deletion require.
+    // The async delete is in flight. Nothing reads the installed world at boot
+    // any more (the baseline it used to seed is gone), before or after it.
     await firstDelete
     try {
       expect(calls).toEqual(['plan', 'delete'])
@@ -292,7 +292,7 @@ describe('Ledger', () => {
       releaseDelete()
     }
     await ready
-    expect(calls).toEqual(['plan', 'delete', 'delete', 'fold'])
+    expect(calls).toEqual(['plan', 'delete', 'delete'])
   })
 
   it('[POD-925] append cadence no longer prunes — janitor owns ongoing retention', async () => {

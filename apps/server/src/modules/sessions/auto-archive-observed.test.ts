@@ -234,11 +234,16 @@ describe('SessionService.tryAutoArchiveStoppedObserved — the issue record it r
   /** Empty one kind in the snapshot the check reads; every other kind passes. */
   const withoutKind = (reg: SessionRegistry, entity: 'issue' | 'issueProjection') => {
     // The registry exposes its Authority through a narrowed port; the object is
-    // the Authority the snapshot tail reads.
+    // the Authority the parent check reads.
     const authority = reg.syncDelta.authority as unknown as Authority
     const snapshot = authority.snapshot.bind(authority)
     vi.spyOn(authority, 'snapshot').mockImplementation(async (kind) =>
       kind === entity ? [] : await snapshot(kind),
+    )
+    // The parent check reads the one issue by key (POD-6156).
+    const installedValues = authority.installedValues.bind(authority)
+    vi.spyOn(authority, 'installedValues').mockImplementation(async (kind, ids) =>
+      kind === entity ? new Map() : await installedValues(kind, ids),
     )
   }
   const attempt = async (fixture: Awaited<ReturnType<typeof stoppedAndRead>>) => {

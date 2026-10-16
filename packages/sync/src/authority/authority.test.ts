@@ -15,6 +15,7 @@ import {
   DEVICE_GRADE_PRINCIPAL,
 } from '../feed/visibility'
 import type { ChangeLogStore } from '../change-log'
+import { installedWorldOver } from '../conformance/installed-reads'
 
 const rowWith = (rule: string): string => {
   const row = (OWNERSHIP_MATRIX as readonly MatrixRow[]).find((r) => r.conflict === rule)
@@ -54,11 +55,11 @@ function memoryStore() {
       rows.filter((r) => r.seq > from && r.seq <= through).slice(0, limit),
     planChangePrune: async () => ({ thresholdSeq: 0 }),
     pruneChangeBatch: async () => 0,
-    latestChangeStates: async () => {
+    ...installedWorldOver(async () => {
       const latest = new Map<string, (typeof rows)[number]>()
       for (const r of rows) latest.set(`${r.entity}/${r.entityId}`, r)
       return [...latest.values()]
-    },
+    }),
   }
   const transact = async <T>(fn: () => Promise<T>): Promise<T> => {
     const snapshot = rows.slice()

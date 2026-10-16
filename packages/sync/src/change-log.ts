@@ -50,6 +50,14 @@ export interface ChangeLogStore {
    *  the row budget bounds what `changesSince` can serve, never what exists. Only
    *  `upsert` rows come back — a removed entity is not in the world. */
   latestChangeStates(): Promise<readonly ChangeLogReadRow[]>
+  /** The installed rows of these keys, in no particular order; a key with no
+   *  installed row is absent. One grouped read: what a commit's dedup reads
+   *  inside its own span [POD-6156]. */
+  installedStates(
+    keys: readonly { readonly entity: string; readonly entityId: string }[],
+  ): Promise<readonly ChangeLogReadRow[]>
+  /** Every installed row of one entity kind, in seq order [POD-6156]. */
+  installedStatesOf(entity: string): Promise<readonly ChangeLogReadRow[]>
 }
 
 /** Retention: keep the newest 20k rows, and nothing older than 3 days —

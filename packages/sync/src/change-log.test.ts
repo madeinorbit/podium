@@ -7,6 +7,7 @@ import {
   DeviceGradeNoAnchors,
   DeviceGradeUnscopedPolicy,
 } from './feed/visibility'
+import { installedWorldOver } from './conformance/installed-reads'
 
 const row = (seq: number): ChangeLogReadRow => ({
   seq,
@@ -40,7 +41,7 @@ function fixture(count = 3) {
       afterRead()
       return page
     }),
-    latestChangeStates: async () => [],
+    ...installedWorldOver(async () => []),
     planChangePrune: async () => ({ thresholdSeq: 0 }),
     pruneChangeBatch: async () => 0,
   }

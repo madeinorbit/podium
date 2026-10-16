@@ -26,6 +26,7 @@ import {
 } from '@podium/sync'
 import { describe, expect, it } from 'vitest'
 import { LayoutService } from './service'
+import { installedWorldOver } from '@podium/sync/testing'
 
 const ALICE: UserId = asUserId('user:alice')
 const BOB: UserId = asUserId('user:bob')
@@ -74,11 +75,11 @@ function memoryStore(): AuthorityStore {
       rows.filter((r) => r.seq > from && r.seq <= through).slice(0, limit),
     planChangePrune: async () => ({ thresholdSeq: 0 }),
     pruneChangeBatch: async () => 0,
-    latestChangeStates: async () => {
+    ...installedWorldOver(async () => {
       const latest = new Map<string, (typeof rows)[number]>()
       for (const r of rows) latest.set(`${r.entity}/${r.entityId}`, r)
       return [...latest.values()]
-    },
+    }),
   } as AuthorityStore
 }
 

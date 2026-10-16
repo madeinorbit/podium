@@ -116,10 +116,24 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
       startNow: false,
     })
     const sessions = registry.modules.sessions
-    const append = vi
-      .spyOn(registry.sessionStore.sync, 'appendChanges')
-      .mockRejectedValueOnce(new Error('attach failed'))
+    // Fail the append that carries THIS session's row, and only that one: other
+    // writers (the issue create's feed captures) may still be appending.
+    const sync = registry.sessionStore.sync
+    const realAppend = sync.appendChanges.bind(sync)
+    const appended: string[][] = []
+    let failed = false
+    const append = vi.spyOn(sync, 'appendChanges').mockImplementation(async (rows, eventTime) => {
+      appended.push(rows.map((row) => `${row.entity}:${row.entityId}`))
+      if (!failed && rows.some((row) => row.entity === 'session' && row.entityId === sessionId)) {
+        failed = true
+        throw new Error('attach failed')
+      }
+      return await realAppend(rows, eventTime)
+    })
     await expect(sessions.setSessionIssueId(sessionId, issue.id)).rejects.toThrow('attach failed')
+    // The rejected append was this session's: the issue create's event capture
+    // may come first, and must not be the one that fails.
+    expect(appended.flat()).toContain(`session:${sessionId}`)
     expect(sessions.getSessionIssueId(sessionId)).toBeNull()
     append.mockRestore()
     await sessions.setSessionIssueId(sessionId, issue.id)

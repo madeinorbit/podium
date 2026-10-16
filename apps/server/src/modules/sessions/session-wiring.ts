@@ -1137,7 +1137,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     toMachine: (machineId, message) => bag.toMachine(machineId, message),
     broadcastSessions: () => bag.broadcastSessions(),
     issueAccess: bag.deps.issueAccess,
-    snapshotTail: () => bag.deps.snapshotTail(),
+    installedIssueProjection: (issueId) => bag.deps.installedIssueProjection(issueId),
     killSession: (input) => bag.sessionKill.killSession(input),
     failMessagesToRemovedSessions: failMessagesToRemovedSessions(bag.deps),
   })

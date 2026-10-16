@@ -50,6 +50,7 @@ import {
 import { DeviceGradeNoAnchors, DeviceGradeUnscopedPolicy } from '../feed'
 import { Authority } from './authority'
 import type { StagedChangeSpec } from './change-lifecycle'
+import { installedWorldOver } from '../conformance/installed-reads'
 
 /**
  * ONE in-memory instantiation of the kernel's storage ports: a change log, a real
@@ -83,11 +84,11 @@ function instantiateKernelPorts(name: string) {
       rows.filter((r) => r.seq > from && r.seq <= through).slice(0, limit),
     planChangePrune: async () => ({ thresholdSeq: 0 }),
     pruneChangeBatch: async () => 0,
-    latestChangeStates: async () => {
+    ...installedWorldOver(async () => {
       const latest = new Map<string, (typeof rows)[number]>()
       for (const r of rows) latest.set(`${r.entity}/${r.entityId}`, r)
       return [...latest.values()]
-    },
+    }),
   }
 
   // A REAL span: it snapshots and restores, so an atomicity claim here is measured

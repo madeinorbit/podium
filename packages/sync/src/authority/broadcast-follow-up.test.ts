@@ -33,6 +33,7 @@ import {
   DEVICE_GRADE_PRINCIPAL,
 } from '../feed/visibility'
 import type { EntityRef, FeedVisibilityPolicy, VisibilityAnchorPort } from '../feed/visibility'
+import { installedWorldOver } from '../conformance/installed-reads'
 
 /** The in-memory log of `authority.test.ts`, narrowed to what these cases need:
  *  they are about the BROADCAST side of a commit, so the transaction is a
@@ -57,7 +58,7 @@ function memoryStore() {
       rows.filter((r) => r.seq > from && r.seq <= through).slice(0, limit),
     planChangePrune: async () => ({ thresholdSeq: 0 }),
     pruneChangeBatch: async () => 0,
-    latestChangeStates: async () => rows,
+    ...installedWorldOver(async () => rows),
   }
   return store
 }

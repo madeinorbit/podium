@@ -393,6 +393,13 @@ export async function runtimeChecks(kernel: KernelUnderTest): Promise<Finding[]>
       for (const r of rows) latest.set(`${r.entity}/${r.entityId}`, r)
       return [...latest.values()].filter((r) => r.op === 'upsert')
     },
+    // The installed rows by key and by kind (POD-6156), from the same fold.
+    installedStates: async (keys) => {
+      const wanted = new Set(keys.map((k) => `${k.entity}/${k.entityId}`))
+      return (await store.latestChangeStates()).filter((r) => wanted.has(`${r.entity}/${r.entityId}`))
+    },
+    installedStatesOf: async (entity) =>
+      (await store.latestChangeStates()).filter((r) => r.entity === entity),
   }
 
   // Ada may see `mine`; Grace holds nothing. No privileged principal exists.
