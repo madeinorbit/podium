@@ -126,10 +126,7 @@ const FAMILY_SHAPES: ReadonlyMap<string, readonly (string | number)[]> = new Map
   ['apps/server/src/store/messages.ts:messagesWithIds', SIZES],
   ['apps/server/src/store/messages.ts:messagesAddressedTo', ['no-id', 'id']],
   ['apps/server/src/store/messages.ts:ledger', ['issue', 'session', 'both']],
-  [
-    'apps/server/src/store/messages.ts:pendingPage',
-    ['no-id', 'id', 'no-id|after', 'id|after'],
-  ],
+  ['apps/server/src/store/messages.ts:pendingPages', SIZES],
   [
     'apps/server/src/store/messages.ts:pendingSummaryOf',
     ['no-id', 'id', 'session', 'session-blank'],
@@ -149,6 +146,8 @@ const FAMILY_SHAPES: ReadonlyMap<string, readonly (string | number)[]> = new Map
   ['apps/server/src/store/messages.ts:swapHarnessRef', ['null', 'text']],
   ['apps/server/src/store/messages.ts:openBoundTo', ['1', '4', '1|issue', '4|issue']],
   ['apps/server/src/store/messages.ts:queuedPage', ['start', 'after']],
+  ['apps/server/src/store/messages.ts:wakeCooldownsOf', SIZES],
+  ['apps/server/src/store/messages.ts:pendingDeliveredToPage', ['start', 'after']],
   ['packages/sync/src/adapters/sqlite/sync-repository.ts:insertChangeRows', SIZES],
   [
     'packages/sync/src/adapters/sqlite/sync-repository.ts:serverTableQueries.queuedCounts',

@@ -306,12 +306,14 @@ describe('the drop-legacy-message-status migration', () => {
     await repo.countQueued()
     for (const to of recipients) {
       await repo.listMessagesFor(to)
-      await repo.pendingForPage(to)
       await repo.listPendingSenders(to)
       await repo.pendingSummary(to)
       await repo.countPending(to)
       await repo.alreadyCommunicated('iss_from', to, '2026-07-01T00:00:00.000Z')
     }
+    await repo.pendingForPages(
+      recipients.flatMap((to) => (to.kind === 'operator' ? [] : [{ to: { kind: to.kind, id: to.id } }])),
+    )
     await repo.pendingSummaryForSession(issue, session)
     await repo.countPendingForSession(issue, session)
     await repo.listPendingSendersForSession(issue, session)

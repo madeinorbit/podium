@@ -565,6 +565,16 @@ const MAY_HAVE_ARRIVED: ReadonlySet<MessageDeliveryStatus> = new Set([
 ])
 const NOBODY_HOLDS_IT = 'Nobody else holds that conversation; do not wait for a reply.'
 
+/** A wake whose sender the wake cooldown brakes: the rows a retry checks the
+ *  cooldown of before attempting, and arms a retry for after. */
+const checksWakeCooldown = (m: MessageRow): boolean =>
+  m.lifecycle === 'wake' && !exemptFromWakeCooldown(principalOfRow(m))
+
+/** A row a delivery pass attempts AND checks the cooldown of: one the server
+ *  still holds ({@link MessageDeliveryService.prepareQueuedAttempt}). */
+const passChecksWakeCooldown = (m: MessageRow): boolean =>
+  m.toKind !== 'operator' && m.deliveryStatus === 'stored' && checksWakeCooldown(m)
+
 /** The task a person (or a job) started a session with (POD-4846): its
  *  failure is the inbox's prompt-failed attention, not a notice. */
 const isOwnersSpawnPrompt = (m: MessageRow): boolean =>
@@ -781,12 +791,36 @@ export class MessageDeliveryService {
     return {
       targetOf: (message) => this.deliveryTargetOf(message),
       nowMs: () => this.nowMs(),
-      attemptOne: async (message) => {
-        if (!await this.prepareQueuedAttemptSafely(message)) return
-        await this.attemptDelivery(message, { viaSweep: true })
-        await this.scheduleQueuedWakeRetry(message)
+      attemptPass: async (messages, failed) => {
+        // The cooldown key of every wake row, with the brake's cold reads
+        // answered in one read [POD-6174].
+        const wakeKeys = await this.wakeKeysOf(messages)
+        // A row the cooldown held back had its retry armed by the check itself;
+        // only the attempted ones are read back afterwards.
+        const attempted: MessageRow[] = []
+        for (const message of messages) {
+          try {
+            if (!await this.prepareQueuedAttemptSafely(message, wakeKeys.get(message.id))) continue
+            attempted.push(message)
+            await this.attemptDelivery(message, { viaSweep: true })
+          } catch (error) {
+            failed(message, error)
+          }
+        }
+        await this.scheduleQueuedWakeRetries(attempted)
       },
     }
+  }
+
+  /** The cooldown key of each row {@link prepareQueuedAttempt} checks, keyed by
+   *  message id, after priming the brake with all of them in one read. */
+  private async wakeKeysOf(messages: readonly MessageRow[]): Promise<Map<string, string>> {
+    const keys = new Map<string, string>()
+    for (const message of messages.filter(passChecksWakeCooldown)) {
+      keys.set(message.id, await this.wakeKeyOfRow(message))
+    }
+    await this.brakes.primeWakeCooldowns(keys.values())
+    return keys
   }
 
   /** Begin a bounded startup walk. The session→issue before-state is this
@@ -833,9 +867,9 @@ export class MessageDeliveryService {
     await this.scheduler.queueDeliveryTarget(target)
   }
 
-  private async prepareQueuedAttemptSafely(message: MessageRow): Promise<boolean> {
+  private async prepareQueuedAttemptSafely(message: MessageRow, wakeKey?: string): Promise<boolean> {
     try {
-      return await this.prepareQueuedAttempt(message)
+      return await this.prepareQueuedAttempt(message, wakeKey)
     } catch (error) {
       this.scheduler.recordTriggerFailure(`prepare message ${message.id}`, error)
       return false
@@ -1292,7 +1326,10 @@ export class MessageDeliveryService {
         })
       }
     } else {
-      const issue = await this.deps.issues.reports.get(message.toId ?? '')
+      // The row, not the report: delivery reads only the row's own fields, and
+      // a report joins labels, both dependency directions and the comment
+      // count for each attempt [POD-6174].
+      const issue = await this.deps.issues.reports.getMeta(message.toId ?? '')
       if (!issue) {
         return await this.deadLetter(message, 'issue no longer exists', {
           notifySender,
@@ -1389,7 +1426,7 @@ export class MessageDeliveryService {
           // copies issue.machineId). Gate it before trySpawn, same M2 boundary.
           const denied = await this.refuseWakeUnlessUsable(
             message,
-            issue.machineId,
+            issue.machineId ?? undefined,
             opts?.viaSweep === true,
           )
           if (denied) return denied
@@ -1444,7 +1481,7 @@ export class MessageDeliveryService {
       // instead (issue.machineId), so re-check against that placement target.
       const issueId =
         (await this.issueForSession(target)) ?? (message.toId ? asIssueId(message.toId) : null)
-      const issueMachine = issueId ? (await this.deps.issues.reports.get(issueId))?.machineId : undefined
+      const issueMachine = issueId ? (await this.deps.issues.reports.getMeta(issueId))?.machineId ?? undefined : undefined
       if (issueMachine && issueMachine !== target.machineId) {
         const denied = await this.refuseWakeUnlessUsable(message, issueMachine, opts?.viaSweep === true)
         if (denied) return denied
@@ -1906,12 +1943,13 @@ export class MessageDeliveryService {
   async onWakeUnavailable(sessionId: SessionId, reason: string): Promise<void> {
     let after: MessagePageCursor | undefined
     while (true) {
-      const page = await this.deps.messages.listQueuedPage({
+      // Only this session's rows, by its `delivered_to` index; it used to page
+      // the whole pending queue and drop the others here [POD-6174].
+      const page = await this.deps.messages.pendingDeliveredToPage(sessionId, {
         ...(after ? { after } : {}),
         limit: DELIVERY_TARGET_PAGE_LIMIT,
       })
       for (const message of page) {
-        if (message.deliveredTo !== sessionId) continue
         await this.needsAttention(message, `wake did not happen (${reason}); message stays queued`)
       }
       if (page.length < DELIVERY_TARGET_PAGE_LIMIT) break
@@ -1982,7 +2020,7 @@ export class MessageDeliveryService {
   /** Shared idempotency/cooldown gate for every event-triggered or sweep retry.
    *  Duplicate eligibility events cannot re-push a handed-on row, and a stored
    *  wake gets a one-shot retry at the exact durable cooldown boundary. */
-  private async prepareQueuedAttempt(message: MessageRow): Promise<boolean> {
+  private async prepareQueuedAttempt(message: MessageRow, wakeKey?: string): Promise<boolean> {
     if (message.toKind === 'operator') return false
     // A row already handed on is never pushed again on a timer [POD-4661]. The
     // server cannot see whether the agent is still working on it, so any window
@@ -1991,8 +2029,8 @@ export class MessageDeliveryService {
     // it to the session's queue, and the echo, a turn boundary or an inbox read
     // confirm it. Only a row the server still holds is ever pushed.
     if (message.deliveryStatus !== 'stored') return false
-    if (message.lifecycle === 'wake' && !exemptFromWakeCooldown(principalOfRow(message))) {
-      const key = await this.wakeKeyOfRow(message)
+    if (checksWakeCooldown(message)) {
+      const key = wakeKey ?? await this.wakeKeyOfRow(message)
       if (await this.brakes.isWakeHot(key)) {
         this.scheduleWakeRetry(key, message)
         return false
@@ -2004,11 +2042,19 @@ export class MessageDeliveryService {
   /** If an attempted wake is still stored (not handed on), arm its next allowed
    *  attempt. Successful queue/spawn paths dispatch it and need no timer. */
   private async scheduleQueuedWakeRetry(message: MessageRow): Promise<void> {
-    if (message.lifecycle !== 'wake' || exemptFromWakeCooldown(principalOfRow(message))) return
-    const current = await this.deps.messages.getMessage(message.id)
-    if (!current || current.deliveryStatus !== 'stored') return
-    const key = await this.wakeKeyOfRow(current)
-    if (await this.brakes.isWakeHot(key)) this.scheduleWakeRetry(key, current)
+    await this.scheduleQueuedWakeRetries([message])
+  }
+
+  /** {@link scheduleQueuedWakeRetry} for a whole delivery pass: the rows that
+   *  are still stored are read back in one read, not one per row [POD-6174]. */
+  private async scheduleQueuedWakeRetries(messages: readonly MessageRow[]): Promise<void> {
+    const ids = messages.filter(checksWakeCooldown).map((message) => message.id)
+    if (ids.length === 0) return
+    for (const current of await this.deps.messages.getMessages(ids)) {
+      if (current.deliveryStatus !== 'stored') continue
+      const key = await this.wakeKeyOfRow(current)
+      if (await this.brakes.isWakeHot(key)) this.scheduleWakeRetry(key, current)
+    }
   }
 
   // ---- acks & reads (#237 phase 3) [spec:SP-34d7 acks] ----

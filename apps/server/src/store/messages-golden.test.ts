@@ -518,18 +518,29 @@ describe('queued projections for a principal', () => {
     expect(await messages.queuedPositionForSession(READER, 'done')).toBeUndefined()
   })
 
-  it('pendingForPage pages forward by keyset', async () => {
+  it('pendingForPages pages each target forward by its own keyset', async () => {
     for (const id of ['a', 'b', 'c', 'd']) await add({ id, createdAt: `t-${id}` })
+    await add({ id: 'other-1', toId: 'iss_other', createdAt: 't-a' })
+    await add({ id: 'other-2', toId: 'iss_other', createdAt: 't-b' })
     const to = { kind: 'issue' as const, id: TARGET }
+    const other = { kind: 'issue' as const, id: 'iss_other' }
+    const nobody = { kind: 'session' as const, id: 'sess_nobody' }
 
-    const first = await messages.pendingForPage(to, { limit: 2 })
-    expect(first.map((m) => m.id)).toEqual(['a', 'b'])
+    const first = await messages.pendingForPages([{ to }, { to: other }, { to: nobody }], 2)
+    expect(first.map((page) => page.map((m) => m.id))).toEqual([['a', 'b'], ['other-1', 'other-2'], []])
 
-    const next = await messages.pendingForPage(to, {
-      after: { createdAt: 't-b', id: 'b' },
-      limit: 2,
-    })
-    expect(next.map((m) => m.id)).toEqual(['c', 'd'])
+    const next = await messages.pendingForPages(
+      [{ to, after: { createdAt: 't-b', id: 'b' } }, { to: other, after: { createdAt: 't-a', id: 'other-1' } }],
+      2,
+    )
+    expect(next.map((page) => page.map((m) => m.id))).toEqual([['c', 'd'], ['other-2']])
+  })
+
+  it('pendingForPages reads more targets than one statement holds', async () => {
+    const targets = Array.from({ length: 300 }, (_, i) => ({ kind: 'issue' as const, id: `iss_${i}` }))
+    for (const [i, target] of targets.entries()) await add({ id: `m-${i}`, toId: target.id, createdAt: `t-${i}` })
+    const pages = await messages.pendingForPages(targets.map((to) => ({ to })))
+    expect(pages.map((page) => page.map((m) => m.id))).toEqual(targets.map((_, i) => [`m-${i}`]))
   })
 
   it('latestPendingOperatorForSession breaks a same-tick tie by rowid, not by id', async () => {

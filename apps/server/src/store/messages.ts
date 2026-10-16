@@ -462,18 +462,55 @@ const queuedAheadOf = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
-/** Keyed by the principal's shape and whether a cursor is given (`|after`). */
-const pendingPage = preparedFamily((db: StoreDrizzle, key: `${AddressShape}${'' | '|after'}`) => {
-  const [shape, after] = key.split('|') as [AddressShape, string | undefined]
-  const where = [...addressedTo(shape), pending()]
-  if (after !== undefined) where.push(afterCursor())
-  return db
-    .select()
-    .from(messagesTable)
-    .where(and(...where))
-    .orderBy(...DELIVERY_ORDER)
-    .limit(sql.placeholder('limit'))
-    .prepare()
+/** Most targets one {@link pendingPages} statement reads. Under SQLite's limit
+ *  of 500 terms in one compound SELECT; a larger set is split into several
+ *  statements, one per this many targets [POD-6174]. */
+const PENDING_PAGES_MAX_TARGETS = 256
+
+/** The cursor of a target with none: it sorts before every row, so the arm
+ *  pages from the start. One shape for both cases keeps the family keyed by
+ *  size alone. */
+const FROM_START: MessagePageCursor = { createdAt: '', id: '' }
+
+/**
+ * ONE PAGE OF EACH OF `size` TARGETS, IN ONE STATEMENT [POD-6174].
+ *
+ * One arm per target, each a keyset page of that recipient's pending rows
+ * with its own cursor and LIMIT, joined by `UNION ALL`. A window function over all the targets
+ * would be one arm, but it reads every pending row of every target before
+ * cutting each to the limit, and a held issue can have thousands; each arm
+ * here reads only its page, by the recipient index in delivery order. The
+ * LIMIT sits in a subquery because a compound SELECT allows ORDER BY and
+ * LIMIT only on the whole. Arm `i` reads the `toKind{i}`, `toId{i}`,
+ * `afterCreatedAt{i}` and `afterId{i}` placeholders; `limit` is shared.
+ */
+const pendingPages = preparedFamily((db: StoreDrizzle, size: number) => {
+  const arm = (i: number) =>
+    db.select().from(
+      db
+        .select()
+        .from(messagesTable)
+        .where(
+          and(
+            eq(messagesTable.toKind, param(messagesTable.toKind, `toKind${i}`)),
+            eq(messagesTable.toId, param(messagesTable.toId, `toId${i}`)),
+            pending(),
+            or(
+              gt(messagesTable.createdAt, param(messagesTable.createdAt, `afterCreatedAt${i}`)),
+              and(
+                eq(messagesTable.createdAt, param(messagesTable.createdAt, `afterCreatedAt${i}`)),
+                gt(messagesTable.id, param(messagesTable.id, `afterId${i}`)),
+              ),
+            ),
+          ),
+        )
+        .orderBy(...DELIVERY_ORDER)
+        .limit(sql.placeholder('limit'))
+        .as(`page${i}`),
+    )
+  let union = arm(0).$dynamic()
+  for (let i = 1; i < size; i++) union = union.unionAll(arm(i)).$dynamic()
+  return union.prepare()
 })
 
 const latestPendingOperator = prepared((db: StoreDrizzle) =>
@@ -981,6 +1018,37 @@ const wakeCooldownOf = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
+/** Keyed by the IN list's prepared size ({@link inListSize}); the keys are `keys0`, `keys1`, ... */
+const wakeCooldownsOf = preparedFamily((db: StoreDrizzle, size: number) =>
+  db
+    .select({ key: messageWakeCooldowns.key, attemptedAt: messageWakeCooldowns.attemptedAt })
+    .from(messageWakeCooldowns)
+    .where(inListOf(messageWakeCooldowns.key, size, 'keys'))
+    .prepare(),
+)
+
+/**
+ * Pending rows handed to the `sessionId` placeholder, a keyset page in delivery
+ * order, read through `idx_messages_delivered_to_time` [POD-6174]. The unary
+ * `+` keeps the status IN list out of index selection, as in
+ * {@link confirmedInto}: the session's own rows are the walk, never the whole
+ * pending queue.
+ */
+const pendingDeliveredToPage = preparedFamily((db: StoreDrizzle, from: 'start' | 'after') => {
+  const where: SQL[] = [
+    eq(messagesTable.deliveredTo, param(messagesTable.deliveredTo, 'sessionId')),
+    sql`+${messagesTable.deliveryStatus} in ${[...MESSAGE_PENDING]}`,
+  ]
+  if (from === 'after') where.push(afterCursor())
+  return db
+    .select()
+    .from(messagesTable)
+    .where(and(...where))
+    .orderBy(...DELIVERY_ORDER)
+    .limit(sql.placeholder('limit'))
+    .prepare()
+})
+
 const stampAckOnce = prepared((db: StoreDrizzle) =>
   db
     .update(messagesTable)
@@ -1223,18 +1291,46 @@ export class MessagesRepository {
     return Number(ahead?.n ?? 0)
   }
 
-  /** One bounded keyset page of pending rows for a principal. */
-  async pendingForPage(
-    to: MessagePrincipalRef,
-    opts: { after?: MessagePageCursor; limit?: number } = {},
-  ): Promise<MessageRow[]> {
-    const shape = addressShape(to)
-    return (await pendingPage(this.db, opts.after ? `${shape}|after` : shape).all({
-      ...addressValues(to),
-      ...(opts.after ? afterCursorValues(opts.after) : {}),
-      limit: boundedLimit(opts.limit, 200, 500),
-    }))
-      .map(mapMessage)
+  /**
+   * One bounded keyset page of pending rows for EACH target, in one statement
+   * per {@link PENDING_PAGES_MAX_TARGETS} targets [POD-6174]. `pages[i]` is
+   * `targets[i]`'s pending rows after its cursor (from the start without
+   * one), oldest first, at most `limit`. The targets must be distinct.
+   */
+  async pendingForPages(
+    targets: readonly { to: { kind: MessageToKind; id: string }; after?: MessagePageCursor }[],
+    limit?: number,
+  ): Promise<MessageRow[][]> {
+    const byTarget = new Map<string, MessageRow[]>()
+    const keyOf = (kind: string, id: string | null) => `${kind}\u0000${id ?? ''}`
+    for (let start = 0; start < targets.length; start += PENDING_PAGES_MAX_TARGETS) {
+      const chunk = targets.slice(start, start + PENDING_PAGES_MAX_TARGETS)
+      const size = inListSize(chunk.length)
+      const values: Record<string, unknown> = { limit: boundedLimit(limit, 200, 500) }
+      for (let i = 0; i < size; i++) {
+        // Padding arms name no recipient, so their index seek finds nothing.
+        const target = chunk[i]
+        const after = target?.after ?? FROM_START
+        values[`toKind${i}`] = target?.to.kind ?? ''
+        values[`toId${i}`] = target?.to.id ?? ''
+        values[`afterCreatedAt${i}`] = after.createdAt
+        values[`afterId${i}`] = after.id
+      }
+      for (const row of await pendingPages(this.db, size).all(values)) {
+        const message = mapMessage(row)
+        const key = keyOf(message.toKind, message.toId)
+        const page = byTarget.get(key)
+        if (page) page.push(message)
+        else byTarget.set(key, [message])
+      }
+    }
+    // UNION ALL promises no output order across or within arms. Each arm's
+    // LIMIT already chose its rows, so ordering one page here reads nothing more.
+    return targets.map(({ to }) =>
+      (byTarget.get(keyOf(to.kind, to.id)) ?? []).sort(
+        (a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id),
+      ),
+    )
   }
 
   /** Most recently inserted operator chat send still held for one session.
@@ -1795,6 +1891,33 @@ export class MessagesRepository {
   async getWakeCooldown(key: string): Promise<string | null> {
     const row = await wakeCooldownOf(this.db).get({ key })
     return row?.attemptedAt ?? null
+  }
+
+  /** The last wake attempt of each key, in one read; a key never woken is
+   *  absent. The caller bounds how many it asks for [POD-6174]. */
+  async getWakeCooldowns(keys: readonly string[]): Promise<Map<string, string>> {
+    const out = new Map<string, string>()
+    if (keys.length === 0) return out
+    const unique = [...new Set(keys)]
+    const size = inListSize(unique.length)
+    for (const row of await wakeCooldownsOf(this.db, size).all(inListValues(unique, size, 'keys'))) {
+      out.set(row.key, row.attemptedAt)
+    }
+    return out
+  }
+
+  /** One keyset page of the pending rows handed to `sessionId` (its
+   *  `delivered_to`), oldest first [POD-6174]. */
+  async pendingDeliveredToPage(
+    sessionId: SessionId,
+    opts: { after?: MessagePageCursor; limit?: number } = {},
+  ): Promise<MessageRow[]> {
+    return (await pendingDeliveredToPage(this.db, opts.after ? 'after' : 'start').all({
+      sessionId,
+      ...(opts.after ? afterCursorValues(opts.after) : {}),
+      limit: boundedLimit(opts.limit, 200, 500),
+    }))
+      .map(mapMessage)
   }
 
   /** Apply one janitor-observed expiry only if every observed durable fact is

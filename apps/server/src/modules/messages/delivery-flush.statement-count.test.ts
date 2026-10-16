@@ -1,0 +1,137 @@
+/**
+ * A coalesced delivery flush, through the real delivery service, runs a fixed
+ * number of statements however many messages and targets are waiting
+ * [POD-6174, server-data rule 8]. It used to read one page per target, the
+ * issue report of each issue-addressed row and a wake cooldown per row.
+ */
+import { asIssueId, asSessionId, asThreadId, type IssueId } from '@podium/model'
+import { describe, expect, it } from 'vitest'
+import type { MessageRow } from '../../store'
+import { expectConstantStatements } from '../../test-support/statement-count'
+import { type MailHarness, mailHarness } from './characterization-support'
+
+const SENDER = asSessionId('sFrom')
+
+const row = (id: string, toId: IssueId, lifecycle: MessageRow['lifecycle'], createdAt: string): MessageRow => ({
+  id,
+  threadId: asThreadId(id),
+  inReplyTo: null,
+  fromKind: 'agent',
+  fromSession: SENDER,
+  fromIssue: null,
+  toKind: 'issue',
+  toId,
+  kind: 'message',
+  urgency: 'fyi',
+  lifecycle,
+  body: id,
+  expiresAt: null,
+  createdAt,
+  deliveryStatus: 'stored',
+  deliveredAt: null,
+  deliveredTo: null,
+  ackedBy: null,
+  hop: 0,
+  clampedFrom: null,
+  remindedAt: null,
+  expectsResponse: false,
+})
+
+interface Fixture {
+  h: MailHarness
+  issueIds: IssueId[]
+}
+
+/** `size` open issues with no session, one stored `lifecycle` message to each,
+ *  every target queued for the next flush. */
+async function heldMail(size: number, lifecycle: MessageRow['lifecycle']): Promise<Fixture> {
+  const h = await mailHarness()
+  const issueIds: IssueId[] = []
+  for (let i = 0; i < size; i++) {
+    const { id } = await h.createIssue({ title: `target ${i}` })
+    issueIds.push(id)
+    const at = new Date(Date.parse('2026-07-20T11:00:00.000Z') + i).toISOString()
+    await h.store.messages.addMessage(row(`m-${i}`, id, lifecycle, at))
+    // Woken a minute ago: the cooldown is hot, and only the durable row knows
+    // it — this service's brake has never seen the key, as after a restart.
+    if (lifecycle === 'wake') {
+      await h.store.messages.recordWakeCooldown(`agent:${SENDER}|${id}`, '2026-07-20T11:59:00.000Z')
+    }
+  }
+  await h.svc.onIssuesEligibilityChanged(issueIds)
+  return { h, issueIds }
+}
+
+const flush = async ({ h }: Fixture) => {
+  const queued = h.svc.deliveryStats().pendingTargetCount
+  await h.svc.flushDeliveryTriggers()
+  return { queued, pushes: h.pushes.length }
+}
+
+const teardown = async ({ h }: Fixture) => {
+  h.svc.dispose()
+  await h.store.close()
+}
+
+describe('delivery flush through the service: pinned statement counts at 5 and 200 targets', () => {
+  it('held issue mail: one read of every page', async () => {
+    await expectConstantStatements<Fixture>(
+      {
+        name: 'flushDeliveryTriggers (held)',
+        setup: async (size) => await heldMail(size, 'wait'),
+        target: ({ h }) => h.store,
+        run: flush,
+        check: async (result, { h, issueIds }, size) => {
+          expect(result).toEqual({ queued: size, pushes: 0 })
+          // Still held: an issue with no session keeps its mail for the next one.
+          expect((await h.svc.message('m-0'))?.deliveryStatus).toBe('stored')
+          expect(issueIds).toHaveLength(size)
+        },
+        teardown,
+      },
+      1,
+    )
+  })
+
+  it('wake mail inside a cold cooldown: one read of the pages, one of the cooldowns', async () => {
+    await expectConstantStatements<Fixture>(
+      {
+        name: 'flushDeliveryTriggers (wake, cooling down)',
+        setup: async (size) => await heldMail(size, 'wake'),
+        target: ({ h }) => h.store,
+        run: flush,
+        check: async (result, { h }, size) => {
+          // Nothing woke and nothing spawned: every key is still cooling down.
+          expect(result).toEqual({ queued: size, pushes: 0 })
+          expect(h.wakeSpawns).toHaveLength(0)
+          expect((await h.svc.message(`m-${size - 1}`))?.deliveryStatus).toBe('stored')
+        },
+        teardown,
+      },
+      2,
+    )
+  })
+})
+
+describe('onWakeUnavailable', () => {
+  it('flags only the rows handed to that session', async () => {
+    const h = await mailHarness()
+    try {
+      const issue = asIssueId((await h.createIssue({ title: 'target' })).id)
+      const woken = asSessionId('sWoken')
+      await h.store.messages.addMessage({ ...row('handed', issue, 'wake', '2026-07-20T11:00:00.000Z'), deliveredTo: woken })
+      await h.store.messages.addMessage({
+        ...row('elsewhere', issue, 'wake', '2026-07-20T11:00:01.000Z'),
+        deliveredTo: asSessionId('sOther'),
+      })
+      await h.store.messages.addMessage(row('unhanded', issue, 'wake', '2026-07-20T11:00:02.000Z'))
+      expect((await h.store.messages.pendingDeliveredToPage(woken)).map((m) => m.id)).toEqual(['handed'])
+      await h.svc.onWakeUnavailable(woken, 'machine offline')
+      const flagged = (await h.events(['message.needs_attention'])).map((e) => (e.payload as { messageId?: string }).messageId)
+      expect(flagged).toEqual(['handed'])
+    } finally {
+      h.svc.dispose()
+      await h.store.close()
+    }
+  })
+})

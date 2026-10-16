@@ -591,6 +591,7 @@
         "src/modules/messages/characterization.delivery.receipts.test.ts",
         "src/modules/messages/characterization.delivery.refusals.test.ts",
         "src/modules/messages/characterization.delivery.test.ts",
+        "src/modules/messages/delivery-flush.statement-count.test.ts",
         "src/modules/messages/gate-agent.test.ts",
         "src/modules/messages/gate.ts",
         "src/modules/messages/handlers/ask.ts",

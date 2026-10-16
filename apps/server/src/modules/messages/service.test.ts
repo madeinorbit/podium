@@ -90,7 +90,10 @@ function fakeIssues(
           ...(coord ? { coordinatorSessionId: coord } : {}),
         }
       },
+      // Delivery's per-row issue lookup since POD-6174. It takes no session list
+      // at all, so it records the absence the `get` spy above checks for.
       getMeta: (id: string) => {
+        getSessionLists?.push(undefined)
         const base = byId.get(asIssueId(id))
         if (!base) return undefined
         const coord = coordinatorByIssue?.get(id)
@@ -2198,7 +2201,10 @@ describe('server-owned delivery retry backstop [spec:SP-c29e]', () => {
     // why threading one mattered; POD-797 took the session embed off the wire and
     // `toWire` stopped reading sessions at all. `undefined` here is the stronger
     // property — not "the one listing was threaded" but "no listing is needed".
-    expect(issueGetLists).toEqual([undefined])
+    // Since POD-6174 the delivery lookup is the issue row, so it records beside
+    // the send's other row reads; none of them takes a list.
+    expect(issueGetLists.length).toBeGreaterThan(0)
+    for (const list of issueGetLists) expect(list).toBeUndefined()
   })
 
   // POD-817 round 2 asked the sweep to THREAD its one session listing into every

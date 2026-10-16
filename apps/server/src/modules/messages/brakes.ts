@@ -40,7 +40,7 @@ export const SPAWN_BUDGET_PER_DAY = 10
  * signature here cannot drift from the repository it stands for.
  */
 export interface DeliveryBrakeDeps {
-  messages: Pick<MessagesRepository, 'getWakeCooldown' | 'recordWakeCooldown'>
+  messages: Pick<MessagesRepository, 'getWakeCooldown' | 'getWakeCooldowns' | 'recordWakeCooldown'>
   events: Pick<EventsRepository, 'listEventsSince'>
   now(): string
   /** A cooldown expired: these targets were waiting on it and may be retried
@@ -84,6 +84,21 @@ export class DeliveryBrakes {
     const derived = Number.isFinite(parsed) ? parsed : 0
     this.lastWakeAt.set(key, derived)
     return derived > cutoff
+  }
+
+  /** Answer the cold read of every key {@link isWakeHot} has not seen, in one
+   *  read, so a delivery pass over many wake rows does not read them one by
+   *  one [POD-6174]. */
+  async primeWakeCooldowns(keys: Iterable<string>): Promise<void> {
+    const cold = [...new Set(keys)].filter((key) => !this.lastWakeAt.has(key))
+    if (cold.length === 0) return
+    const found = await this.deps.messages.getWakeCooldowns(cold)
+    for (const key of cold) {
+      // A concurrent recordWake while the read was out is newer than the row.
+      if (this.lastWakeAt.has(key)) continue
+      const parsed = Date.parse(found.get(key) ?? '')
+      this.lastWakeAt.set(key, Number.isFinite(parsed) ? parsed : 0)
+    }
   }
 
   /** Arm one timer for every queued target sharing a sender+issue cooldown key.

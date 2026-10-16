@@ -60,12 +60,21 @@ const pin = (
 })
 
 describe('message delivery: pinned statement counts at 5 and 200 queued messages', () => {
-  it('pendingForPage: one keyset page of a target', async () => {
+  it('pendingForPages: one keyset page of every target', async () => {
     await expectConstantStatements(
       pin(
-        'pendingForPage',
-        (store) => store.messages.pendingForPage({ kind: 'issue', id: 'iss_busy' }, { limit: 500 }),
-        (rows, size) => expect(rows).toHaveLength(size),
+        'pendingForPages',
+        (store, size) =>
+          store.messages.pendingForPages(
+            [{ kind: 'issue' as const, id: 'iss_busy' }, ...Array.from({ length: size }, (_, i) => ({ kind: 'issue' as const, id: `iss_${i}` }))]
+              .map((to) => ({ to })),
+            500,
+          ),
+        (pages, size) => {
+          const [busy, ...spread] = pages as MessageRow[][]
+          expect(busy).toHaveLength(size)
+          expect(spread.map((page) => page.length)).toEqual(Array.from({ length: size }, () => 1))
+        },
       ),
       1,
     )
@@ -89,29 +98,41 @@ describe('message delivery: pinned statement counts at 5 and 200 queued messages
     )
   })
 
-  // POD-6174: the flush reads one page per delivery target (and attempts each
-  // message on its own), so its count grows with the number of targets.
-  it.skip('delivery flush: one page read for every waiting target (POD-6174)', async () => {
-    await expectConstantStatements(
-      pin(
-        'flushDeliveryTriggers',
-        async (store, size) => {
+  // A trigger's own count (one per queueDeliveryTarget) is pinned in
+  // pending-count-parity.test.ts; the targets are queued in setup, so this
+  // counts the coalesced flush alone.
+  it('delivery flush: one read for every waiting target', async () => {
+    await expectConstantStatements<{ store: SessionStore; scheduler: DeliveryScheduler; attempted: string[] }>(
+      {
+        name: 'flushDeliveryTriggers',
+        setup: async (size) => {
+          const store = await fixture(size)
           const attempted: string[] = []
           const scheduler = new DeliveryScheduler({
             messages: store.messages,
             now: () => '2026-10-15T01:00:00.000Z',
             runner: {
               targetOf: (row) => ({ kind: 'issue', id: row.toId ?? '' }),
-              attemptOne: (row) => void attempted.push(row.id),
+              attemptPass: (rows) => void attempted.push(...rows.map((row) => row.id)),
               nowMs: () => 0,
             },
           })
+          await scheduler.queueDeliveryTarget({ kind: 'issue', id: 'iss_busy' })
           for (let i = 0; i < size; i++) await scheduler.queueDeliveryTarget({ kind: 'issue', id: `iss_${i}` })
-          await scheduler.flushDeliveryTriggers()
-          return attempted
+          return { store, scheduler, attempted }
         },
-        (attempted, size) => expect(attempted).toHaveLength(size),
-      ),
+        target: ({ store }) => store,
+        run: async ({ scheduler, attempted }) => {
+          await scheduler.flushDeliveryTriggers()
+          // At 200 the busy target's page is full, so it is queued again for its next page.
+          const requeued = scheduler.deliveryStats().pendingTargetCount
+          scheduler.dispose()
+          return { attempted: attempted.length, requeued }
+        },
+        check: (result, _fixture, size) =>
+          expect(result).toEqual({ attempted: size * 2, requeued: size === 200 ? 1 : 0 }),
+        teardown: async ({ store }) => await store.close(),
+      },
       1,
     )
   })

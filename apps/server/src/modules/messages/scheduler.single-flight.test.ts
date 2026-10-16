@@ -9,7 +9,7 @@ import { DeliveryScheduler } from './scheduler'
  * next — `runRetryBackstopPage` nulls it on entry. So for the whole of every
  * page body the fence was open, and the pass was protected only by the page
  * running to completion in one synchronous turn. Re-entering from inside
- * `attemptOne` is that open window, and it is where an awaited store call will
+ * `attemptPass` is that open window, and it is where an awaited store call will
  * park once the store is async.
  *
  * `listQueuedPage` is the count that matters: it is the first thing a pass does.
@@ -50,12 +50,12 @@ describe('DeliveryScheduler.sweep single-flight (POD-3258)', () => {
           listQueuedPageCalls += 1
           return [row('msg_1')]
         },
-        pendingForPage: async () => [],
+        pendingForPages: async () => [],
       },
       now: () => '2026-07-13T00:00:00.000Z',
       runner: {
         targetOf: () => null,
-        attemptOne: () => onAttempt(),
+        attemptPass: () => onAttempt(),
         nowMs: () => 1_000_000,
       },
     })
@@ -102,12 +102,12 @@ describe('DeliveryScheduler.sweep single-flight (POD-3258)', () => {
           calls += 1
           throw new Error('store is gone')
         },
-        pendingForPage: async () => [],
+        pendingForPages: async () => [],
       },
       now: () => '2026-07-13T00:00:00.000Z',
       runner: {
         targetOf: () => null,
-        attemptOne: () => {},
+        attemptPass: () => {},
         nowMs: () => 1_000_000,
       },
     })

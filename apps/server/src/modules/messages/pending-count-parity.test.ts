@@ -150,7 +150,7 @@ describe('pending counts come from SQL', () => {
           const scheduler = new DeliveryScheduler({
             messages: store.messages,
             now: () => at,
-            runner: { targetOf: () => null, nowMs: () => 0, attemptOne: () => {} },
+            runner: { targetOf: () => null, nowMs: () => 0, attemptPass: () => {} },
           })
           return { store, scheduler }
         },

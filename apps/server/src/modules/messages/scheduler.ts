@@ -69,12 +69,16 @@ export interface DeliveryRunner {
   /** The durable target a row is addressed to, or null when it has none
    *  (operator-addressed rows are not queued against a target). */
   targetOf(message: MessageRow): DeliveryTarget | null
-  /** One row, attempted. Takes NO session listing [POD-1653]: delivery resolves
-   *  its recipient through the narrow by-id / by-issue reads, so the scheduler
-   *  no longer builds (and this no longer carries) a full reader-scoped pass. */
-  attemptOne(message: MessageRow, nowMs: number): void | Promise<void>
-  /** ONE clock read per pass, shared by every row in it — as it was when all of
-   *  this lived in one object. */
+  /** One finite snapshot of rows, attempted in order. Takes NO session listing
+   *  [POD-1653]: delivery resolves each recipient through the narrow by-id /
+   *  by-issue reads. One call per snapshot, not per row, so the runner can read
+   *  what every row of it needs together [POD-6174]. A row whose attempt throws
+   *  is handed to `failed` and the pass goes on. */
+  attemptPass(
+    messages: readonly MessageRow[],
+    failed: (message: MessageRow, error: unknown) => void,
+  ): void | Promise<void>
+  /** The clock job ages are measured on. */
   nowMs(): number
 }
 
@@ -105,7 +109,6 @@ export class DeliveryScheduler {
   // ---- entry path 1: the coalesced trigger queue ---------------------------
 
   async queueDeliveryTarget(target: DeliveryTarget, after?: MessagePageCursor): Promise<void> {
-    const key = deliveryTargetKey(target)
     try {
       // One indexed count of the target's pending rows; nothing to deliver, no job.
       if ((await this.deps.messages.countPending(target)) === 0) return
@@ -113,7 +116,12 @@ export class DeliveryScheduler {
       this.recordTriggerFailure(`target count ${deliveryTargetKey(target)}`, error)
       return
     }
+    this.enqueue(target, after)
+  }
 
+  /** Add or coalesce one target's job, with no count: the caller knows it has rows. */
+  private enqueue(target: DeliveryTarget, after?: MessagePageCursor): void {
+    const key = deliveryTargetKey(target)
     const existing = this.pendingDeliveryTargets.get(key)
     if (existing) {
       this.coalescedTriggerCount += 1
@@ -154,32 +162,39 @@ export class DeliveryScheduler {
     this.pendingDeliveryTargets.clear()
     const selected = new Map<string, MessageRow>()
 
-    for (const work of works) {
-      let page: MessageRow[]
-      try {
-        page = await this.deps.messages.pendingForPage(work.target, {
-          ...(work.after ? { after: work.after } : {}),
-          limit: DELIVERY_TARGET_PAGE_LIMIT,
-        })
-      } catch (error) {
-        this.recordTriggerFailure(`target page ${deliveryTargetKey(work.target)}`, error)
-        continue
-      }
-      const pageCursor = page.length > 0 ? cursorOf(page.at(-1)!) : undefined
-      if (page.length === DELIVERY_TARGET_PAGE_LIMIT && pageCursor) {
-        await this.queueDeliveryTarget(work.target, pageCursor)
-      }
-      for (const message of page) selected.set(message.id, message)
+    // Every target's page in one read [POD-6174]; it used to be one per target.
+    let pages: MessageRow[][]
+    try {
+      pages = await this.deps.messages.pendingForPages(
+        works.map((work) => ({ to: work.target, ...(work.after ? { after: work.after } : {}) })),
+        DELIVERY_TARGET_PAGE_LIMIT,
+      )
+    } catch (error) {
+      this.recordTriggerFailure(`target pages (${works.length} targets)`, error)
+      return
     }
+    works.forEach((work, index) => {
+      const page = pages[index] ?? []
+      // A full page may have more behind it. The next flush reads it with the
+      // other targets' pages, so it needs no count of its own: an empty page
+      // there costs nothing.
+      if (page.length === DELIVERY_TARGET_PAGE_LIMIT) this.enqueue(work.target, cursorOf(page.at(-1)!))
+      for (const message of page) selected.set(message.id, message)
+    })
 
     if (selected.size === 0) return
-    const nowMs = this.runner.nowMs()
-    for (const message of selected.values()) {
-      try {
-        await this.runner.attemptOne(message, nowMs)
-      } catch (error) {
-        this.recordTriggerFailure(`message ${message.id}`, error)
-      }
+    await this.attemptPass([...selected.values()], 'message')
+  }
+
+  /** Hand one snapshot to the runner; every failure is counted here. */
+  private async attemptPass(messages: readonly MessageRow[], context: string): Promise<void> {
+    if (messages.length === 0) return
+    try {
+      await this.runner.attemptPass(messages, (message, error) =>
+        this.recordTriggerFailure(`${context} ${message.id}`, error),
+      )
+    } catch (error) {
+      this.recordTriggerFailure(`${context} pass (${messages.length} rows)`, error)
     }
   }
 
@@ -209,9 +224,10 @@ export class DeliveryScheduler {
       this.recordTriggerFailure('startup page query', error)
       return
     }
+    // Every row of the page is pending, so its target needs no count.
     for (const message of page) {
       const target = this.runner.targetOf(message)
-      if (target) await this.queueDeliveryTarget(target)
+      if (target) this.enqueue(target)
     }
     await this.flushDeliveryTriggers()
     if (page.length < DELIVERY_RECONCILE_PAGE_LIMIT) return
@@ -258,14 +274,7 @@ export class DeliveryScheduler {
       return
     }
 
-    const nowMs = this.runner.nowMs()
-    for (const message of page) {
-      try {
-        await this.runner.attemptOne(message, nowMs)
-      } catch (error) {
-        this.recordTriggerFailure(`retry message ${message.id}`, error)
-      }
-    }
+    await this.attemptPass(page, 'retry message')
     this.retryPagesProcessed += 1
 
     if (page.length < DELIVERY_RETRY_BACKSTOP_LIMIT) {
