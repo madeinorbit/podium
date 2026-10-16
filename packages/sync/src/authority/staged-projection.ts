@@ -286,9 +286,9 @@ export class StagedOverlay<K, V> {
   }
 
   /**
-   * Stage several writes under ONE token — the batch case
-   * `ChangeBaseline.stagePending` needs, where a single commit's rows must
-   * promote together or not at all.
+   * Stage several writes under ONE token — the batch case, where a single
+   * commit's rows must promote together or not at all (written for the change
+   * baseline's pending batches, which POD-6156 removed).
    *
    * With no span open this IS the outermost commit, so every entry is made
    * durable at once, which is where it happens today.

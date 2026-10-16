@@ -704,10 +704,8 @@ export class SyncRepository {
   }
 
   /**
-   * THE INSTALLED WORLD — the latest state per (entity, id): the boot seed for the
-   * Ledger's dedup baseline (so a restart emits deltas for anything that changed
-   * while the server was down instead of silently rebasing) and the bootstrap read
-   * a client's whole world is built from.
+   * THE INSTALLED WORLD — the latest state per (entity, id): the bootstrap read a
+   * client's whole world is built from.
    *
    * Read from `change_latest`, NOT folded from `changes` (POD-678). The fold over
    * the log was only ever as complete as retention left it, and retention is a
@@ -718,13 +716,13 @@ export class SyncRepository {
    * depending on how recently it was written.
    *
    * ONLY LIVE UPSERTS come back, where the fold used to also return `remove`
-   * tombstones. No consumer read them: the bootstrap and the baseline seed both
-   * skip non-upsert rows before doing anything.
+   * tombstones. No consumer read them: the bootstrap skips non-upsert rows
+   * before doing anything.
    *
    * READ AFRESH ON EVERY CALL [POD-6156]. It used to be kept in memory between
-   * appends for the visibility anchors, a raw copy of the whole wire world; they
-   * now read the rows they need by key ({@link installedStates}), and the two
-   * remaining callers read it once per bootstrap and once at boot.
+   * appends for the visibility anchors, and parsed whole at boot into the
+   * Authority's dedup baseline. The anchors and dedup now read the rows they
+   * need by key ({@link installedStates}); the bootstrap is the one caller left.
    */
   async latestChangeStates(): Promise<ChangeLogReadRow[]> {
     const rows = await installedWorld(this.db).all()

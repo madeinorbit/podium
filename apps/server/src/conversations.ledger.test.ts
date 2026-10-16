@@ -345,7 +345,7 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
     ).toBeUndefined()
   })
 
-  it('(d) restart: the baseline folds from the retained log — no boot reconcile, and the first scan dedups', async () => {
+  it('(d) restart: dedup reads the installed rows — no boot reconcile, and the first scan dedups', async () => {
     const store = await openTestStore(':memory:')
     const first = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     await first.gateway.attachDaemon('m1', () => {})

@@ -5,24 +5,22 @@ import { applyAfterCommit, spanOpen } from './store/executor/executor'
 import { openTestStore } from './test-support/open-test-store'
 
 /**
- * THE BASELINE FOLD IS A COMMIT APPLICATION, NOT A SAVEPOINT RELEASE (POD-3328,
+ * DEDUP FOLLOWS THE OUTERMOST COMMIT, NOT A SAVEPOINT RELEASE (POD-3328,
  * spec §3.3 mechanism 1).
  *
  * A `ledger.commit` nested inside an enclosing `store.transact` is a SAVEPOINT.
  * Releasing that savepoint is not a commit: the enclosing span can still roll
- * back, and when it does the database forgets the change rows. The in-memory
- * baseline has to forget them too, or process memory outlives the truth and
- * keeps claiming rows the database never kept until something reseeds it.
+ * back, and when it does the database forgets the change rows. Dedup must forget
+ * them too.
  *
- * WHAT THESE TESTS ASSERT ON, deliberately: the baseline itself, through
- * `authority.snapshot` (its `current` map) and through the DEDUP DECISION it
- * drives (a re-commit of the rolled-back value must append, because a baseline
- * that still remembers the value would dedup it away). Both are reads of
- * process memory. Nothing here reloads the store, reseeds a baseline or
- * re-reads the database between the rollback and the assertion — the whole
- * point is to observe the state a reload would paper over.
+ * These tests were written against the in-memory baseline that dedup used to
+ * read, and its pending layer. Since POD-6156 dedup reads the stored rows inside
+ * the span, so the database itself gives every answer below; the tests stay as
+ * the regression for those answers: what `authority.snapshot` shows after a
+ * rollback, and the DEDUP DECISION (a re-commit of the rolled-back value must
+ * append).
  */
-describe('the baseline fold waits for the outermost commit (POD-3328)', () => {
+describe('dedup follows the outermost commit (POD-3328)', () => {
   const conversationRow = (id: string) => ({
     id,
     agentKind: 'claude-code' as const,
@@ -76,7 +74,7 @@ describe('the baseline fold waits for the outermost commit (POD-3328)', () => {
     // The database forgot the row and the change append.
     expect((await store.conversations.index.search({})).map((r) => r.id)).not.toContain('c-rolled-back')
     expect(await ledger.cursor()).toBe(cursorBefore)
-    // THE MECHANISM: so must the in-memory baseline.
+    // THE MECHANISM: so does what dedup reads.
     expect(await baselineIds(ledger)).not.toContain('c-rolled-back')
   })
 

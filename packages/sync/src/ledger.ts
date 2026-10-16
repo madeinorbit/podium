@@ -122,10 +122,9 @@ export interface LedgerDeps {
    */
   postCommit?: PostCommitFollowUpPort
   /**
-   * Where the baseline fold waits for the OUTERMOST commit [POD-3328]. Passed
-   * straight to the Authority — see `AuthorityDeps.applyCommit`. Unset means the
-   * fold applies as soon as the append returns, which is what a pass-through
-   * `transact` in a unit test wants.
+   * Where a commit's `apply` waits for the OUTERMOST commit [POD-3328]. Unset
+   * means it applies as soon as the commit returns, which is what a
+   * pass-through `transact` in a unit test wants.
    */
   applyCommit?: BaselineFoldPort
   /** Monotonic clock seam for deterministic maintenance scheduling tests. */
@@ -224,7 +223,6 @@ export class Ledger {
       now: deps.now,
       transact: deps.transact,
       ...(deps.postCommit === undefined ? {} : { postCommit: deps.postCommit }),
-      ...(deps.applyCommit === undefined ? {} : { applyCommit: deps.applyCommit }),
       // THE DEVICE-GRADE HALF, DECLARED RATHER THAN DEFAULTED (POD-1077).
       //
       // POD-1075 landed real `UserAccount`s, per-user `client_sessions` and grant
@@ -337,8 +335,7 @@ export class Ledger {
     const changes = outcome.changes.map(toWireChange)
     if (op.apply) {
       // Asked AFTER the commit, when `spanOpen()` answers about the CALLER's
-      // span rather than this commit's own — the same moment, and the same
-      // question, `Authority.finalize` asks of the baseline fold.
+      // span rather than this commit's own.
       const apply = op.apply
       const fold = this.deps.applyCommit
       if (fold?.spanOpen()) {

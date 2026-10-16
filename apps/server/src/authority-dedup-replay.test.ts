@@ -2,10 +2,13 @@
  * The Authority decides "unchanged, skip it" from the database exactly as it did
  * from its in-memory baseline (POD-6156 step 2).
  *
- * A generated write sequence is replayed through two Authorities on two stores:
- * one deduplicating against the baseline (every installed row, parsed at boot
- * and folded on every append), one reading the stored rows of each commit's keys
- * inside its span. The sequence covers every entity kind, unchanged writes,
+ * At the commit that added this file, a generated write sequence was replayed
+ * through two Authorities on two stores: one deduplicating against the baseline
+ * (every installed row, parsed at boot and folded on every append), one reading
+ * the stored rows of each commit's keys inside its span. Each sequence's
+ * emitted changes, change log and world were byte-identical, and the baseline's
+ * output was recorded as a fingerprint per sequence. The baseline is gone; the
+ * database path is held to those fingerprints. The sequence covers every entity kind, unchanged writes,
  * conversation writes that move only the fields detection ignores, several
  * specs for one key in one batch, removes of absent ids, savepoint rollbacks,
  * nested spans, full-truth reconciles, restarts and corrupt stored rows. The
@@ -18,9 +21,9 @@
  * written after the others were installed. The removed rows, the seq range they
  * take and the world they leave are the same; which removed id gets which seq
  * inside that range is not. Removes of different entities are independent, so a
- * replica that applies the batch ends in the same state. The comparison below
- * holds every reconcile's removes as one group, and counts the groups whose
- * order differed so the difference stays visible.
+ * replica that applies the batch ends in the same state. The fingerprint holds
+ * every reconcile's removes as one group (4 to 6 groups per sequence differed
+ * in order when the two were compared).
  */
 
 import { createHash } from 'node:crypto'
@@ -34,9 +37,9 @@ import {
 } from '@podium/sync'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { SessionStore } from './store'
-import { afterCommit, applyAfterCommit, spanOpen } from './store/executor/executor'
+import { afterCommit } from './store/executor/executor'
 import { openTestStore } from './test-support/open-test-store'
-import { expectConstantStatements, measureAtSizes, type StatementPin } from './test-support/statement-count'
+import { expectConstantStatements, type StatementPin } from './test-support/statement-count'
 
 const stores: SessionStore[] = []
 afterEach(async () => {
@@ -148,8 +151,8 @@ function generate(seed: number, length: number): Op[] {
 
 const ROLLBACK = new Error('roll this span back')
 
-/** One arm: a store and an Authority over it, rebuilt on `restart`. */
-async function arm(dedupFrom: 'baseline' | 'database') {
+/** A store and an Authority over it, rebuilt on `restart`. */
+async function arm() {
   const store = await openTestStore(':memory:')
   stores.push(store)
   let clock = 1_000
@@ -159,10 +162,8 @@ async function arm(dedupFrom: 'baseline' | 'database') {
       now: () => clock++,
       transact: async (fn) => await store.transact(fn),
       postCommit: (step, label) => afterCommit(step, label),
-      applyCommit: { spanOpen, onCommit: applyAfterCommit },
       visibility: new DeviceGradeUnscopedPolicy(),
       anchors: new DeviceGradeNoAnchors(),
-      dedupFrom,
     })
   let authority = build()
   const record: unknown[] = []
@@ -189,8 +190,6 @@ async function arm(dedupFrom: 'baseline' | 'database') {
           changes.filter((c) => c.op !== 'remove').map(row),
           removes.map((c) => c.seq),
           removes.map((c) => `${c.entity}:${c.entityId}`).sort(),
-          // The raw order, compared separately and only counted.
-          { order: removes.map((c) => c.entityId) },
         ])
         return
       }
@@ -216,8 +215,8 @@ async function arm(dedupFrom: 'baseline' | 'database') {
         authority = build()
         return
       case 'corrupt':
-        // Written past the Authority, then a restart: the baseline only ever saw
-        // stored rows through its seed, so that is when it can see this one.
+        // Written past the Authority, then a restart (the baseline only ever saw
+        // stored rows through its seed, so that is when it could see this one).
         await store.sync.appendChanges(
           [{ entity: op.entity, entityId: op.id, op: 'upsert', payload: op.payload }],
           clock++,
@@ -240,12 +239,8 @@ async function arm(dedupFrom: 'baseline' | 'database') {
     store,
     /** The record without the raw remove order. */
     get record() {
-      return record.map((entry) =>
-        Array.isArray(entry) && entry[0] === 'reconcile' ? entry.slice(0, 4) : entry,
-      )
+      return record
     },
-    removeOrders: () =>
-      record.filter((entry) => Array.isArray(entry) && entry[0] === 'reconcile').map((entry) => (entry as unknown[])[4]),
     /** The change log, each reconcile's removes sorted inside their own seq range. */
     log: async () => {
       const rows = (await store.sync.changesSince(0, 100_000)).map(
@@ -268,36 +263,34 @@ async function arm(dedupFrom: 'baseline' | 'database') {
   }
 }
 
-describe('Authority dedup: the database answers like the baseline', () => {
+/** What the baseline emitted for each sequence, recorded when the two were compared. */
+const BASELINE_FINGERPRINTS: Record<number, string> = {
+  1: '459e0ffb0aeb751b74be0108cb6b475cfbb216ac09982fb5aec7c0b8d20a10be',
+  2: '643d3a69c88c984816872156ebb69a494161bdd701339d48ac7a1caf103b6042',
+  3: '2a02d376044978c17d210c1bfe74b38016dcee220a717cbefca8c6fa801b0006',
+  4: '4ad6be9dd7f335719dd6d325d65cdc1d327e015b66f9ccab7a71d2197606e9d6',
+  5: '8c3b22f53e59ec5df7719512f0d92e1efbc2d913cbd13f96de2b6f5520eabc2b',
+  6: '83615cb2ad82db4de92938bd29bb6c616a2677842befb16e398e49877e6f94d7',
+}
+
+describe('Authority dedup: the database answers like the baseline did', () => {
   for (const seed of [1, 2, 3, 4, 5, 6]) {
-    it(`replays generated write sequence ${seed} to byte-identical changes`, async () => {
-      const ops = generate(seed, 400)
-      const old = await arm('baseline')
-      const current = await arm('database')
-      for (const op of ops) {
-        await old.run(op)
-        await current.run(op)
-      }
-      expect(current.record).toEqual(old.record)
-      expect(await current.log()).toEqual(await old.log())
-      expect(await current.world()).toEqual(await old.world())
-      const oldOrders = old.removeOrders()
-      const reordered = current.removeOrders().filter((order, i) => JSON.stringify(order) !== JSON.stringify(oldOrders[i])).length
-      // What the baseline emitted, as one fingerprint the database path is held
-      // to once the baseline is gone.
-      const fingerprint = createHash('sha256')
-        .update(JSON.stringify([old.record, await old.log(), await old.world()]))
-        .digest('hex')
-      console.log(
-        `[replay] seed ${seed}: ${(await old.log()).length} log rows, ${oldOrders.length} reconciles, ` +
-          `${reordered} with removes in another order, fingerprint ${fingerprint}`,
-      )
+    it(`replays generated write sequence ${seed} to the baseline's bytes`, async () => {
+      const current = await arm()
+      for (const op of generate(seed, 400)) await current.run(op)
       // The sequence is live: it appended, deduped, rolled back and reconciled.
-      expect((await old.log()).length).toBeGreaterThan(100)
-      expect(old.record.filter((entry) => (entry as unknown[])[0] === 'rolled back').length).toBeGreaterThan(0)
+      expect((await current.log()).length).toBeGreaterThan(100)
+      expect(current.record.filter((entry) => (entry as unknown[])[0] === 'rolled back').length).toBeGreaterThan(0)
+      const fingerprint = createHash('sha256')
+        .update(JSON.stringify([current.record, await current.log(), await current.world()]))
+        .digest('hex')
+      expect(fingerprint).toBe(BASELINE_FINGERPRINTS[seed])
     }, 120_000)
   }
 })
+
+/** Statements one commit of three specs runs (one more than the baseline's). */
+const PINNED_COMMIT_STATEMENTS = 4
 
 describe('Authority dedup: statements per commit', () => {
   /** `size` installed rows of each of three kinds, then one commit of three specs:
@@ -306,8 +299,8 @@ describe('Authority dedup: statements per commit', () => {
     store: SessionStore
     authority: Authority
   }
-  const pinFor = (dedupFrom: 'baseline' | 'database'): StatementPin<Fixture> => ({
-    name: `commit (${dedupFrom})`,
+  const pin: StatementPin<Fixture> = {
+    name: 'commit',
     setup: async (size: number) => {
       const store = await openTestStore(':memory:')
       const rows = (['issueProjection', 'session', 'conversation'] as const).flatMap((entity) =>
@@ -324,13 +317,9 @@ describe('Authority dedup: statements per commit', () => {
         now: () => 2,
         transact: async (fn) => await store.transact(fn),
         postCommit: (step, label) => afterCommit(step, label),
-        applyCommit: { spanOpen, onCommit: applyAfterCommit },
         visibility: new DeviceGradeUnscopedPolicy(),
         anchors: new DeviceGradeNoAnchors(),
-        dedupFrom,
       })
-      // The baseline arm reads every installed row once, at boot: not the commit's.
-      await authority.snapshot('issueProjection')
       return { store, authority }
     },
     target: (f) => f.store,
@@ -351,12 +340,12 @@ describe('Authority dedup: statements per commit', () => {
       ])
     },
     teardown: async (f) => await f.store.close(),
-  })
+  }
 
   it('reads the stored rows of a commit in one grouped read, whatever the data size', async () => {
-    const baseline = await measureAtSizes(pinFor('baseline'))
-    // The span, the change rows and the installed world's two row writes, plus
-    // ONE grouped read of the three keys.
-    await expectConstantStatements(pinFor('database'), baseline.small.statements + 1)
+    // ONE grouped read of the three keys, then the change rows and the
+    // installed world's two row writes: one statement more than the baseline
+    // ran when the two were compared.
+    await expectConstantStatements(pin, PINNED_COMMIT_STATEMENTS)
   })
 })

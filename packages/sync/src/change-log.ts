@@ -1,12 +1,10 @@
 import { type MetadataChange, MetadataEntityKind } from '@podium/protocol'
 import { runTimeBudgetedJob, type TimeBudgetedJobMetrics } from '@podium/runtime/time-budget'
 import type { ChangeLogReadRow, ChangeLogWriteRow } from './authority/change-lifecycle'
-import type { BaselineFoldPort } from './authority/ports'
-import { StagedOverlay } from './authority/staged-projection'
 
 /**
- * Internals of the durable metadata change log [spec:SP-3fe2] (#253): the
- * dedup baseline, the conversation significance projection, the retention
+ * Internals of the durable metadata change log [spec:SP-3fe2] (#253): change
+ * detection against the stored rows, the conversation significance projection, the retention
  * policy, and the cursor read path. Consumed by the write-seam {@link Ledger}
  * — the log's single writer since P2f deleted the legacy broadcast-seam
  * oplog (#258). Internal module: not exported from the package index.
@@ -44,8 +42,8 @@ export interface ChangeLogStore {
   }): Promise<ChangePrunePlan>
   /** Delete one bounded, indexed head batch from a fixed plan. */
   pruneChangeBatch(plan: ChangePrunePlan, batchSize: number): Promise<number>
-  /** THE INSTALLED WORLD — the latest live state per (entity, id): the boot seed
-   *  for the baseline, and the bootstrap read (see
+  /** THE INSTALLED WORLD — the latest live state per (entity, id): the bootstrap
+   *  read (see
    *  `ChangeStorePort.latestChangeStates`). Independent of retention (POD-678):
    *  the row budget bounds what `changesSince` can serve, never what exists. Only
    *  `upsert` rows come back — a removed entity is not in the world. */
@@ -142,238 +140,38 @@ export function detectionKey(entity: MetadataEntityKind, value: unknown, json: s
 }
 
 /**
- * One folded row, as the baseline records it. Carries the detection key rather
- * than recomputing it, so a staged row and the row eventually folded into the
- * committed maps cannot disagree about what "changed" means.
+ * The detection key of a stored payload, or `undefined` for a corrupt one: a
+ * payload that does not parse, or one the entity's projection cannot read. A
+ * corrupt row counts as "not there" [POD-6156]: its next upsert re-records it
+ * and a remove of it is dropped.
  */
-export type BaselineFold =
-  | {
-      readonly entity: MetadataEntityKind
-      readonly id: string
-      readonly op: 'upsert'
-      readonly value: unknown
-      readonly key: string
-    }
-  | { readonly entity: MetadataEntityKind; readonly id: string; readonly op: 'remove' }
+export function storedKeyOf(entity: MetadataEntityKind, payload: string | undefined): string | undefined {
+  if (payload === undefined) return undefined
+  try {
+    return detectionKey(entity, JSON.parse(payload), payload)
+  } catch {
+    return undefined
+  }
+}
 
 /**
- * The in-memory dedup baseline: per (entity, id), the serialized wire JSON of
- * the last recorded state — plus, for conversations, the stable-field
- * projection that is the actual change-detection key for that entity.
- *
- * Owned by exactly one writer at a time; callers mutate it only AFTER the
- * durable append committed, so a throw mid-append never desyncs it from the
- * log.
- *
- * THE PENDING LAYER (POD-3328). "After the append committed" is not the same
- * moment as "after the append's span returned". A write nested inside an
- * enclosing unit of work returns when its SAVEPOINT is released, and a released
- * savepoint is not a commit: the enclosing span can still roll back and take
- * the rows with it. So rows staged inside an open span go into
- * {@link stagePending} and reach the committed maps only through
- * {@link promotePending}, which the writer registers as a commit application on
- * the OUTERMOST commit (spec §3.3 mechanism 1). A batch whose span rolled back
- * is never promoted, and {@link discardPending} clears whatever a rollback left
- * behind the next time the writer is called with no span open.
- *
- * READS SEE THE PENDING LAYER, and that is not a convenience. `Authority.stage`
- * dedups against this baseline and DROPS a remove whose id the baseline does not
- * hold; a baseline that could not see the span's own earlier writes would drop
- * the remove half of a create-then-delete inside one span, leaving the log
- * claiming a row the transaction deleted. Deferring the fold without the overlay
- * would trade one divergence for another. This was the FIRST of four distinct
- * in-window readers the programme found, and the count is the argument: a
- * read-through layer is what deferring an install COSTS, every time, rather
- * than a trick that happened to work here.
- *
- * THE LAYER IS NO LONGER HAND-ROLLED HERE [POD-3366]. A shared
- * {@link StagedOverlay} owns the staging, the promotion and the drop-on-the-way
- * -in; this class keeps only what is its own, which is what a fold MEANS for
- * its two committed maps. Two things came with that. The overlay asks the fold
- * port itself, so "is a span open?" is decided in ONE place instead of here and
- * in `Authority` both; and its promotion closes over the rows it staged instead
- * of looking the batch up again at drain time, which is the silent lost write
- * the copy this replaced would have had the first time a co-batched commit
- * application read the baseline before it.
+ * Would upserting `value` (serialized as `json`) change the stored row? Byte
+ * equality on the detection key, read from the stored payload [POD-6156]. A
+ * full-JSON key needs no parse: an equal payload is unchanged and any other
+ * payload is changed. Only a projected key (a conversation's stable fields)
+ * parses the stored payload.
  */
-export class ChangeBaseline {
-  /** entity -> id -> DETECTION KEY of the last recorded state (see
-   *  {@link detectionKey}: the stable-field projection for projected entities,
-   *  else the serialized wire JSON). */
-  private readonly last = new Map<MetadataEntityKind, Map<string, string>>()
-  private readonly current = new Map<MetadataEntityKind, Map<string, unknown>>()
-  /**
-   * Rows staged against the open span: ONE overlay per entity kind, keyed by
-   * plain id. Empty whenever no span is open, which is every top-level commit.
-   *
-   * PER-ENTITY RATHER THAN ONE OVERLAY UNDER A COMPOSITE KEY, and the reason is
-   * not style. A composite key means a second `entityOverlayKey`, and this
-   * module cannot import the Authority's — `authority.ts` imports THIS file, so
-   * the import would be a cycle — which leaves declaring a second one. Its own
-   * doc says why that is the wrong trade: two spellings are one edit away from
-   * two separators and the failure mode is a silent key collision. The
-   * committed maps here are already nested per entity, so the overlay simply
-   * matches them and the question does not arise [POD-3366].
-   */
-  private readonly pending = new Map<MetadataEntityKind, StagedOverlay<string, BaselineFold>>()
-
-  /**
-   * @param applyCommit where a staged fold waits for the OUTERMOST commit.
-   *   Unset means every fold applies as soon as it is staged — which is what a
-   *   unit test with a pass-through `transact` wants, and what an adapter with
-   *   no notion of a commit boundary gets.
-   */
-  constructor(private readonly applyCommit?: BaselineFoldPort) {}
-
-  /** The staged overlay for one entity kind, created on first use. */
-  private pendingFor(entity: MetadataEntityKind): StagedOverlay<string, BaselineFold> {
-    let overlay = this.pending.get(entity)
-    if (!overlay) {
-      overlay = new StagedOverlay<string, BaselineFold>(
-        this.applyCommit,
-        (_id, row) => {
-          if (row) this.apply(row)
-        },
-        `change-baseline-fold:${entity}`,
-      )
-      this.pending.set(entity, overlay)
-    }
-    return overlay
-  }
-
-  private byEntity(entity: MetadataEntityKind): Map<string, string> {
-    let m = this.last.get(entity)
-    if (!m) {
-      m = new Map()
-      this.last.set(entity, m)
-    }
-    return m
-  }
-
-  private currentEntity(entity: MetadataEntityKind): Map<string, unknown> {
-    let rows = this.current.get(entity)
-    if (!rows) {
-      rows = new Map()
-      this.current.set(entity, rows)
-    }
-    return rows
-  }
-
-  /** Boot fold: seed from the latest retained upsert per (entity, id), so the
-   *  first record after a restart emits deltas for anything that changed while
-   *  the server was down. A corrupt payload seeds no baseline for its id —
-   *  the first sighting then re-upserts it. */
-  async seed(store: Pick<ChangeLogStore, 'latestChangeStates'>): Promise<void> {
-    for (const row of await store.latestChangeStates()) {
-      if (
-        row.op !== 'upsert' ||
-        row.payload == null ||
-        !MetadataEntityKind.safeParse(row.entity).success
-      )
-        continue
-      try {
-        const entity = row.entity as MetadataEntityKind
-        const value: unknown = JSON.parse(row.payload)
-        this.byEntity(entity).set(row.entityId, detectionKey(entity, value, row.payload))
-        this.currentEntity(entity).set(row.entityId, value)
-      } catch {} // corrupt payload -> no baseline; first record re-upserts it
-    }
-  }
-
-  /** Would upserting (id, value) change anything? Byte-equality on the
-   *  entity's detection key (see {@link detectionKey}). */
-  upsertChanged(entity: MetadataEntityKind, id: string, value: unknown, json: string): boolean {
-    const staged = this.staged(entity, id)
-    const key = detectionKey(entity, value, json)
-    if (staged) return staged.op === 'remove' || staged.key !== key
-    return this.byEntity(entity).get(id) !== key
-  }
-
-  has(entity: MetadataEntityKind, id: string): boolean {
-    const staged = this.staged(entity, id)
-    if (staged) return staged.op === 'upsert'
-    return this.byEntity(entity).has(id)
-  }
-
-  /** Ids currently present in the baseline for one entity kind (remove-diff input). */
-  ids(entity: MetadataEntityKind): string[] {
-    const ids = new Set(this.byEntity(entity).keys())
-    for (const [, row] of this.pendingFor(entity).entries()) {
-      if (!row) continue
-      if (row.op === 'upsert') ids.add(row.id)
-      else ids.delete(row.id)
-    }
-    return [...ids]
-  }
-
-  applyUpsert(entity: MetadataEntityKind, id: string, value: unknown, json: string): void {
-    this.byEntity(entity).set(id, detectionKey(entity, value, json))
-    this.currentEntity(entity).set(id, structuredClone(value))
-  }
-
-  applyRemove(entity: MetadataEntityKind, id: string): void {
-    this.byEntity(entity).delete(id)
-    this.currentEntity(entity).delete(id)
-  }
-
-  /** Current durable projection for global snapshot assembly. */
-  values(entity: MetadataEntityKind): readonly unknown[] {
-    const rows = new Map(this.currentEntity(entity))
-    for (const [, row] of this.pendingFor(entity).entries()) {
-      if (!row) continue
-      if (row.op === 'upsert') rows.set(row.id, row.value)
-      else rows.delete(row.id)
-    }
-    return [...rows.values()].map((value) => structuredClone(value))
-  }
-
-  // -------------------------------------------------------------------------
-  // The pending layer (POD-3328, shared since POD-3366)
-  // -------------------------------------------------------------------------
-
-  /**
-   * Fold a batch of rows, waiting for the OUTERMOST commit if a span is open.
-   *
-   * ONE CALL WHERE THERE WERE THREE. The writer used to ask whether a span was
-   * open, then stage, then register a promotion, then separately discard what a
-   * rollback left — four decisions it had to get right in the right order. The
-   * overlay makes all four here, so `Authority.finalize` says what it means
-   * ("fold these rows") and nothing about when.
-   */
-  /**
-   * Drop what a rolled-back span left staged, asked BEFORE the caller opens its
-   * own span. See {@link StagedOverlay.freshen} for why the lazy check inside
-   * the overlay is not enough and which test proves it.
-   */
-  freshen(): void {
-    for (const overlay of this.pending.values()) overlay.freshen()
-  }
-
-  fold(rows: readonly BaselineFold[]): void {
-    const byEntity = new Map<MetadataEntityKind, (readonly [string, BaselineFold])[]>()
-    for (const row of rows) {
-      const batch = byEntity.get(row.entity) ?? []
-      batch.push([row.id, row] as const)
-      byEntity.set(row.entity, batch)
-    }
-    for (const [entity, batch] of byEntity) this.pendingFor(entity).stage(batch)
-  }
-
-  /** Fold a row that is already durable. */
-  apply(row: BaselineFold): void {
-    if (row.op === 'upsert') {
-      this.byEntity(row.entity).set(row.id, row.key)
-      this.currentEntity(row.entity).set(row.id, structuredClone(row.value))
-    } else {
-      this.byEntity(row.entity).delete(row.id)
-      this.currentEntity(row.entity).delete(row.id)
-    }
-  }
-
-  /** The last staged state for (entity, id), or undefined if none is staged. */
-  private staged(entity: MetadataEntityKind, id: string): BaselineFold | undefined {
-    return this.pendingFor(entity).peek(id)?.value
-  }
+export function differsFromStored(
+  entity: MetadataEntityKind,
+  payload: string | undefined,
+  value: unknown,
+  json: string,
+): boolean {
+  if (payload === undefined) return true
+  if (payload === json) return false
+  const key = detectionKey(entity, value, json)
+  if (key === json) return true
+  return storedKeyOf(entity, payload) !== key
 }
 
 /**

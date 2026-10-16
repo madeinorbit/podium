@@ -585,11 +585,6 @@ export class SessionRegistry {
     const registry = new SessionRegistry(resolvedStore, notificationPushers, options, {
       settings: await resolvedStore.settings.getSettings(),
     })
-    // The Authority starts reading its baseline (all of `change_latest`) when it
-    // is built; wait for it here so that read is not charged to session recovery.
-    const baselineStarted = performance.now()
-    await registry.ledger.authority.seeded()
-    bootStage('ledger baseline read', baselineStarted)
     await registry.hydrate(options.rehearseBoot)
     return registry
   }
@@ -1087,8 +1082,7 @@ export class SessionRegistry {
       onPublicationIdle: (listener) => this.store.onPublicationIdle(listener),
       bus: this.bus,
       // THE SAME Authority the Ledger facade wraps, not a second one (POD-305):
-      // two over one store would each keep their own dedup baseline and their
-      // own ordered broadcast queue.
+      // two over one store would each keep their own ordered broadcast queue.
       authority: ledger.authority,
       serving: feedServing,
       onPublished: (seq) => this.bus.emit('feed.published', { seq }),
@@ -1976,7 +1970,7 @@ export class SessionRegistry {
       // The issue row map is the authoritative in-memory projection and it is
       // installed behind a `ledger.commit` that may be a savepoint inside a
       // wider span, so it waits for the OUTERMOST commit through the same port
-      // the baseline fold does [POD-3366, spec §3.3 mechanism 1].
+      // the ledger's commit applications do [POD-3366, spec §3.3 mechanism 1].
       applyCommit: { spanOpen, onCommit: applyAfterCommit },
       artifacts: issueArtifacts,
       // The cheap fleet read [POD-3857]: the issue service's own reasoning —
@@ -3032,8 +3026,8 @@ export class SessionRegistry {
       repository: this.store.shipping,
       // The lease projection is process-owned memory installed behind a
       // `ledger.commit` that may be a savepoint inside a wider span, so it waits
-      // for the OUTERMOST commit through the same port the baseline fold does
-      // [POD-3366, spec §3.3 mechanism 1].
+      // for the OUTERMOST commit through the same port the ledger's commit
+      // applications do [POD-3366, spec §3.3 mechanism 1].
       applyCommit: { spanOpen, onCommit: applyAfterCommit },
       issues: {
         get: async (id) => {

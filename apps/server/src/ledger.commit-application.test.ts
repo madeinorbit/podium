@@ -107,8 +107,8 @@ describe("Ledger.commit's apply arm runs on the outermost commit (POD-3366)", ()
   })
 
   it('runs even when every declared change dedups away', async () => {
-    // WHY THIS TEST EXISTS, and why the arm cannot live in `Authority.finalize`
-    // beside the baseline fold: `finalize` returns early on an empty row set. A
+    // WHY THIS TEST EXISTS, and why the arm cannot live in `Authority.finalize`:
+    // `finalize` returns early on an empty row set. A
     // fully-deduped commit still ran `write()` and still made whatever durable
     // change the caller owes an install for, so the arm hangs off the COMMIT
     // and not off the appended rows.
@@ -128,9 +128,10 @@ describe("Ledger.commit's apply arm runs on the outermost commit (POD-3366)", ()
     expect(applied).toEqual(['applied'])
   })
 
-  it('runs after the baseline fold, inside a span and outside one alike', async () => {
-    // The caller's projection may read the ledger's own baseline, so the two
-    // commit applications have an order and it is the same in both worlds.
+  it('runs after the commit is visible to the ledger, inside a span and outside one alike', async () => {
+    // The caller's projection may read what the ledger holds (since POD-6156 the
+    // stored rows), so the application runs once the commit is there to read,
+    // and the order is the same in both worlds.
     const store = await openTestStore(':memory:')
     const ledger = makeLedger(store)
     const seen: string[] = []

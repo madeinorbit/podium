@@ -10,7 +10,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { ChangeBaseline, detectionKey } from './change-log'
+import { detectionKey, differsFromStored } from './change-log'
 
 /** A normalized issue row, in the shape the server publishes. */
 const projection = {
@@ -51,16 +51,23 @@ describe('change detection for the normalized issue record (POD-4971)', () => {
   })
 
   it('records a normalized change and drops only a byte-identical repeat', () => {
-    const baseline = new ChangeBaseline()
     const json = JSON.stringify(projection)
-    expect(baseline.upsertChanged('issueProjection', projection.id, projection, json)).toBe(true)
-    baseline.applyUpsert('issueProjection', projection.id, projection, json)
-    expect(baseline.upsertChanged('issueProjection', projection.id, { ...projection }, json)).toBe(
-      false,
-    )
+    // Nothing stored yet: a change. Then the stored payload is this value's JSON.
+    expect(differsFromStored('issueProjection', undefined, projection, json)).toBe(true)
+    expect(differsFromStored('issueProjection', json, { ...projection }, json)).toBe(false)
     const moved = { ...projection, worktreePath: '/r/.worktrees/b' }
-    expect(
-      baseline.upsertChanged('issueProjection', projection.id, moved, JSON.stringify(moved)),
-    ).toBe(true)
+    expect(differsFromStored('issueProjection', json, moved, JSON.stringify(moved))).toBe(true)
+  })
+
+  it('compares a conversation on its stable fields, and a corrupt stored row as absent', () => {
+    const conversation = { id: 'c', title: 'one', updatedAt: 't1', messageCount: 1, statusHint: 'idle' }
+    const stored = JSON.stringify(conversation)
+    const churned = { ...conversation, updatedAt: 't2', messageCount: 2, statusHint: 'busy' }
+    expect(differsFromStored('conversation', stored, churned, JSON.stringify(churned))).toBe(false)
+    const renamed = { ...conversation, title: 'two' }
+    expect(differsFromStored('conversation', stored, renamed, JSON.stringify(renamed))).toBe(true)
+    for (const corrupt of ['{not json', 'null']) {
+      expect(differsFromStored('conversation', corrupt, conversation, stored)).toBe(true)
+    }
   })
 })
