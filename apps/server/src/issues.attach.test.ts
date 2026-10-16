@@ -58,7 +58,7 @@ async function harness(
     broadcast,
     ...issueTestPlumbing((msg) => broadcast(msg)),
     now: () => '2026-07-06T00:00:00.000Z',
-    getSessionIssueId: (sessionId) => issueBySession.get(sessionId) ?? null,
+    readSessionIssueId: async (sessionId) => issueBySession.get(sessionId) ?? null,
     setSessionIssueId: (sessionId, issueId) => {
       issueBySession.set(sessionId, issueId)
     },

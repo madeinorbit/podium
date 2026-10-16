@@ -287,9 +287,10 @@ export interface IssueDeps {
   ledger: IssueLedger
   /** Publish-spec factory (modules/issues/publish) for the funnel's tail. */
   now?(): string
-  /** The session's explicit issue attachment (issue-as-workspace). Injected by
-   *  the relay; optional so existing test deps literals stay valid. */
-  getSessionIssueId?(sessionId: SessionId): IssueId | null
+  /** The session's explicit issue attachment (issue-as-workspace), read from
+   *  its record (POD-6160). Injected by the relay; optional so existing test
+   *  deps literals stay valid. */
+  readSessionIssueId?(sessionId: SessionId): Promise<IssueId | null>
   /** Move a session's explicit issue attachment (persist + sessions broadcast). */
   setSessionIssueId?(sessionId: SessionId, issueId: IssueId | null): void | Promise<void>
   /** Restamp a session cwd (hopscotch start onto a freshly minted worktree). */

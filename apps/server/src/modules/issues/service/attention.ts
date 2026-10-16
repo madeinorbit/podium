@@ -118,14 +118,15 @@ export class IssueAttentionModule {
     confirmRehome?: boolean
     principal?: Exclude<CommandPrincipal, { kind: 'system' }>
   }): Promise<IssueProjection> {
-    const { getSessionIssueId, setSessionIssueId } = this.store.deps
-    if (!getSessionIssueId || !setSessionIssueId) {
+    const { readSessionIssueId, setSessionIssueId } = this.store.deps
+    if (!readSessionIssueId || !setSessionIssueId) {
       throw new Error('attachSession unavailable: session registry hooks not injected')
     }
     if (opts.newSubissue && opts.newSpinoff) {
       throw new IssueRefusal('attach takes --subissue or --spinoff, not both')
     }
-    const prevId = getSessionIssueId(opts.sessionId)
+    // The session's attachment from its record (POD-6160), resident or not.
+    const prevId = await readSessionIssueId(opts.sessionId)
     let target: IssueRow | undefined
     const newIssue = opts.newSubissue ?? opts.newSpinoff
     if (newIssue) {

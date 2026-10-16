@@ -2055,7 +2055,7 @@ export class SessionRegistry {
       // repository the target ALREADY has, and must keep the refusal when it has none.
       findRepoOnMachine: async (repoPath, machineId) =>
         await sessionsSvc.workspace.findRepoOnMachine(repoPath, machineId),
-      getSessionIssueId: (sessionId) => sessionsSvc.getSessionIssueId(sessionId),
+      readSessionIssueId: async (sessionId) => await sessionsSvc.readSessionIssueId(sessionId),
       setSessionIssueId: (sessionId, issueId) => sessionsSvc.setSessionIssueId(sessionId, issueId),
       setSessionCwd: (sessionId, cwd) => sessionsSvc.setSessionCwd(sessionId, cwd),
       setSessionArchived: (sessionId, archived) => sessionsSvc.setArchived({ sessionId, archived }),

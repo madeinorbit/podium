@@ -859,9 +859,9 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
     kind: 'contained',
     why: 'a session read',
   },
-  'apps/server/src/modules/issues/service/types.ts#IssueDeps.getSessionIssueId': {
+  'apps/server/src/modules/issues/service/types.ts#IssueDeps.readSessionIssueId': {
     kind: 'contained',
-    why: 'a session read',
+    why: "POD-6158: a session's explicit issue attachment, read from its record (POD-6160); a read, it publishes nothing",
   },
   'apps/server/src/modules/issues/service/types.ts#IssueDeps.resolveMachine': {
     kind: 'contained',
