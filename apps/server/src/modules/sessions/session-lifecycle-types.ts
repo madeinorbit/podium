@@ -232,6 +232,11 @@ export interface SessionLifecycleDeps {
   /** Shared live-session registry, constructed before every reader. Lifecycle
    * remains its sole mutation owner. */
   sessions?: Map<SessionId, Session>
+  /**
+   * WHICH PARKED SESSIONS STAY IN MEMORY (POD-6160 D2f, `residency.ts`). Absent:
+   * none is evicted, so the map holds every session (until D2g turns it on).
+   */
+  residency?: { evictParked?: boolean; sweepIntervalMs?: number }
   machines: MachinesService
   rpc: DaemonRpcService
   /** Start-path notification; the propagation service decides whether login is needed. */

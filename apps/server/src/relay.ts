@@ -288,6 +288,8 @@ interface SessionRegistryOptions {
   recoveryOnly?: boolean
   /** Run durable hydration on a fenced rehearsal copy without background dispatch. */
   rehearseBoot?: boolean
+  /** Which parked sessions stay in memory (POD-6160 D2f); absent keeps them all. */
+  sessionResidency?: { evictParked?: boolean; sweepIntervalMs?: number }
 }
 
 /** The composed module set (issue #13 Phase 2): the typed seam every caller —
@@ -1166,8 +1168,11 @@ export class SessionRegistry {
       machineNames: async (ids) => await machines.machineNames(ids),
       onlineMachineIds: () => machines.onlineMachineIds(),
       portableStateFence,
-      getSession: (sessionId) => {
-        const session = liveSessions.get(sessionId)
+      // A parked session is restored from its row for the read (POD-6160 D2f);
+      // the view closes over the object, which stays readable if it is evicted.
+      getSession: async (sessionId) => {
+        const session = liveSessions.get(sessionId) ?? (await sessionsSvc.residency.ensure(sessionId, 'rpc'))
+        session?.freshenDurable()
         return session
           ? {
               id: session.sessionId,
@@ -1520,6 +1525,7 @@ export class SessionRegistry {
     })
     const sessionsSvc = new SessionLifecycle({
       durableLabelFor: (sessionId) => durableSessionLabel(sessionId, instanceId),
+      ...(options.sessionResidency ? { residency: options.sessionResidency } : {}),
       store: this.store,
       now: () => this.now(),
       bus: this.bus,
@@ -1898,8 +1904,10 @@ export class SessionRegistry {
           [...clientRegistry.values()].filter(
             (client) => ownerUserId === undefined || client.principal.user === ownerUserId,
           ),
-        sessionInfo: (sessionId) => {
-          const s = sessionsSvc.sessions.get(sessionId)
+        // A prompt-failed notice can name an exited session (POD-6160): its
+        // facts are read from the database when it is not resident.
+        sessionInfo: async (sessionId) => {
+          const s = sessionsSvc.sessions.get(sessionId) ?? (await sessionsSvc.readSessionFactsById(sessionId))
           return s ? noticeInfo(s) : undefined
         },
         // The not-exited sessions, running or hibernated (POD-6160): a stopped

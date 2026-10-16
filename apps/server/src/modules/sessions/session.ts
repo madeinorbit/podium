@@ -1046,7 +1046,22 @@ export class Session {
    * their own records. This projection carries only session facts.
    */
   toMeta(d: SessionDurableFields = this): SessionMeta {
+    this.freshenDurable()
     return projectSessionMeta(this, d, this.liveView())
+  }
+
+  private durableRepair: (() => void) | undefined
+  /** The repository's repair of fields a rolled-back span installed (POD-6160 D2f). */
+  setDurableRepair(repair: () => void): void {
+    this.durableRepair = repair
+  }
+  /**
+   * Before this session's durable fields are read for someone outside the span
+   * that wrote them: put back what a rolled-back span left on them. Cheap when
+   * there is nothing to repair.
+   */
+  freshenDurable(): void {
+    this.durableRepair?.()
   }
 
   /** What the wire reads off the terminal and the bound driver right now. */

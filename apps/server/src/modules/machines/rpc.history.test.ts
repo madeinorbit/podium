@@ -27,7 +27,7 @@ function setup(opts?: { predecessors?: boolean; online?: boolean }) {
     memory, toMachine, hasDaemon: online,
     defaultMachine: () => machineId, resolveMachine: () => machineId,
     machineName: async () => 'machine', machineNames: async (ids) => new Map(ids.map((id) => [id, 'machine'])), onlineMachineIds: () => [machineId],
-    getSession: () => session,
+    getSession: async () => session,
   })
   const answerDaemon = (items: TranscriptItem[]) => {
     toMachine.mockImplementation((machine, message) => {

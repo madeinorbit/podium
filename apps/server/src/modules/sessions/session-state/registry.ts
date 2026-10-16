@@ -123,7 +123,8 @@ export interface SessionStateDeps {
   sessions: Pick<
     SessionLifecycle,
     'renameSession' | 'setAgentName' | 'setSessionIssueId' | 'sessionOwner' | 'dismissOffer'
-  >
+  > &
+    Partial<Pick<SessionLifecycle, 'residency'>>
   state: SessionStateService
   /**
    * FRAMEWORK IDEMPOTENCY (POD-382) — `@podium/sync`'s `MutationLedger`, the ONE
@@ -412,9 +413,15 @@ export class SessionStateRegistry {
     //    seam to omit it from.
     const mutationId =
       typeof input.mutationId === 'string' ? asMutationId(input.mutationId) : undefined
-    const applied = await this.deps.mutations.apply(mutationId, name, () =>
-      registration.handler(input, principal, this.deps),
-    )
+    const run = async () =>
+      await this.deps.mutations.apply(mutationId, name, () => registration.handler(input, principal, this.deps))
+    // The command's session is resident while it runs (POD-6160 D2f): a parked
+    // one is restored from its row and may leave memory once the command settles.
+    const residency = this.deps.sessions.residency
+    const applied =
+      typeof input.sessionId === 'string' && residency
+        ? await residency.withSession(asSessionId(input.sessionId), name, run)
+        : await run()
     return { outcome: applied.outcome, value: applied.value }
   }
 

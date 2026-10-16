@@ -34,6 +34,8 @@ export interface SessionWorkspacePorts {
   machines: MachinesService
   issueAccess: DurableIssueAccessIndex
   getSession: SessionLookup
+  /** A session restored from its row when it is parked out of memory (POD-6160 D2f). */
+  readSession?(sessionId: SessionId): Promise<Session | undefined>
   settingsViewer(): UserId | Promise<UserId>
   onWorktreesChanged(repoPath: string, machineId?: MachineId): void
 }
@@ -401,7 +403,8 @@ export class SessionWorkspace {
     headSha: string
     dirty: boolean
   }> {
-    const source = this.ports.getSession(input.sourceSessionId)
+    const source =
+      this.ports.getSession(input.sourceSessionId) ?? (await this.ports.readSession?.(input.sourceSessionId))
     if (!source) throw new Error('unknown source session')
     const caller = this.ports.getSession(input.callerSessionId)
     if (!caller) throw new Error('unknown calling session')

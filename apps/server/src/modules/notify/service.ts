@@ -88,8 +88,9 @@ export interface NotifyDeps {
   }): void
   now(): number
   clients(ownerUserId?: UserId): Iterable<{ send(msg: ServerMessage): void; visible: boolean }>
-  /** Resolve the notice projection for a session (undefined = unknown session). */
-  sessionInfo(sessionId: SessionId): SessionNoticeInfo | undefined
+  /** Resolve the notice projection for a session (undefined = unknown session),
+   *  from the database where it is not resident (POD-6160). */
+  sessionInfo(sessionId: SessionId): SessionNoticeInfo | undefined | Promise<SessionNoticeInfo | undefined>
   /** Runtime state per not-exited session (running or hibernated) —
    *  notifyAttentionForNewExternalTargets replays the current blocked states to
    *  a freshly configured external target. From the database where a session
@@ -135,17 +136,17 @@ export class NotifyService {
     private readonly pushers: NotificationPushers = DEFAULT_NOTIFICATION_PUSHERS,
     bus: EventBus,
   ) {
-    bus.on('session.stateChanged', ({ sessionId, ownerUserId, prev, next, observation }) => {
+    bus.on('session.stateChanged', async ({ sessionId, ownerUserId, prev, next, observation }) => {
       // No ambient operator fallback: unresolved ownership means no recipient.
       if (!ownerUserId) return
-      const info = this.deps.sessionInfo(sessionId)
+      const info = await this.deps.sessionInfo(sessionId)
       // Bus delivery is deferred past commit. A stop that won that interval
       // must not turn an earlier state projection into a fresh terminal notice.
       if (!info || info.status === 'hibernated' || info.status === 'exited') return
       return this.notifyAttention(ownerUserId, info, prev, next, observation)
     })
-    bus.on('attention.raised', ({ sessionId, ownerUserId, title, body }) => {
-      const info = this.deps.sessionInfo(sessionId)
+    bus.on('attention.raised', async ({ sessionId, ownerUserId, title, body }) => {
+      const info = await this.deps.sessionInfo(sessionId)
       if (!info) return
       // The session wiring persists the failure before raising this live-only
       // attention event. Keeping persistence out of this listener means an

@@ -317,6 +317,29 @@ export class SessionStateService {
     return doc
   }
 
+  /**
+   * Unfinished draft work for this session lives in this process only: an edit
+   * queued or running, a document write or an inject waiting on its timer
+   * (POD-6160 D2f: such a session stays resident until it settles).
+   */
+  holdsWork(sessionId: SessionId): boolean {
+    return (
+      this.draftEdits.has(sessionId) ||
+      this.draftDocWriteTimers.has(sessionId) ||
+      this.draftInjectTimers.has(sessionId)
+    )
+  }
+
+  /**
+   * The session leaves memory without leaving the database (POD-6160 D2f): its
+   * draft document is its row again, read on the next use. The view-history
+   * stamps stay; they describe the clients, not the session's residency.
+   */
+  evictSession(sessionId: SessionId): void {
+    this.draftDocs.delete(sessionId)
+    this.stagedDraftTimes.delete(sessionId)
+  }
+
   removeSession(sessionId: SessionId): void {
     const queue = this.draftEdits.get(sessionId)
     if (queue) queue.cancelled = true

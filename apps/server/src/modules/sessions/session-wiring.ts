@@ -101,6 +101,7 @@ import { SessionTerminalProof } from './terminal-proof'
 import { TurnPreviewAccumulator } from './turn-preview'
 import { turnPreviewEnabled } from './turn-preview-flag'
 import { SessionRecords } from './records'
+import { SessionResidency } from './residency'
 import { SessionView } from './view'
 import { SessionWorkspace } from './workspace'
 
@@ -237,6 +238,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
 
   bag.workspace = new SessionWorkspace({
     store,
+    readSession: (sessionId) => bag.residency.ensure(sessionId, 'workspace'),
     rpc: bag.rpc,
     machines,
     issueAccess: bag.deps.issueAccess,
@@ -285,7 +287,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     store,
     sessions: bag.sessions,
     settled: (sessionId) => bag.repository.settled(sessionId),
-    mapHoldsEverySession: true,
+    mapHoldsEverySession: deps.residency?.evictParked !== true,
   })
   bag.view = new SessionView({
     records: bag.records,
@@ -317,6 +319,27 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     now: () => bag.now(),
     appliedMutationMaxAgeMs: APPLIED_MUTATIONS_MAX_AGE_MS,
     onRoutingChanged: (sessionId, previous) => bag.bus.emit('session.routingChanged', { sessionId, previous }),
+  })
+  // Which parked sessions stay in memory (POD-6160 D2f): those an operation
+  // leases or a client views. Eviction is off unless the deps turn it on.
+  bag.residency = new SessionResidency({
+    sessions: bag.sessions,
+    store,
+    materialize: (row) => bag.repository.materializeStoredSession(row),
+    settled: (sessionId) => bag.repository.settled(sessionId),
+    viewed: (sessionId) => {
+      for (const client of bag.clients.values()) {
+        if (client.attached.has(sessionId) || client.transcriptSubs.has(sessionId)) return true
+      }
+      return false
+    },
+    holdsWork: (sessionId) =>
+      bag.state.holdsWork(sessionId) ||
+      bag.inbox?.holdsWork(sessionId) === true ||
+      bag.sessionRevival?.resurrecting(sessionId) === true,
+    evict: (session) => bag.repository.evictResident(session),
+    evictParked: deps.residency?.evictParked === true,
+    ...(deps.residency?.sweepIntervalMs !== undefined ? { sweepIntervalMs: deps.residency.sweepIntervalMs } : {}),
   })
   // CONSTRUCTED HERE, NOT EARLIER, AND THE POSITION IS LOAD-BEARING.
   // SessionStart takes view, repository and state as direct references, so it
@@ -662,18 +685,22 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     // Late-bound for the same reason the two above it are.
     contractConfigure: (input) => bag.runtimeGateway.configure(input),
   })
-  bag.sendText = (input: any) => bag.inbox.sendText(input)
+  // A send to a parked session holds it resident while the send is handled
+  // (POD-6160 D2f): the queue, the wake it asks for and the receipt read it.
+  const leased = <T>(sessionId: SessionId, reason: string, fn: () => Promise<T>): Promise<T> =>
+    bag.residency.withSession(sessionId, reason, fn)
+  bag.sendText = (input: any) => leased(input.sessionId, 'sendText', () => bag.inbox.sendText(input))
   bag.interruptText = (input: any) => bag.inbox.interruptText(input)
   bag.interruptTurn = (input: any) => bag.inbox.interruptTurn(input)
   bag.configureSession = (input: any) => bag.inbox.configureSession(input)
-  bag.queueText = (input: any) => bag.inbox.queueText(input)
+  bag.queueText = (input: any) => leased(input.sessionId, 'queueText', () => bag.inbox.queueText(input))
   bag.retractQueuedMessage = (sessionId: SessionId, sourceMessageId: string) =>
-    bag.inbox.retract(sessionId, sourceMessageId)
+    leased(sessionId, 'retract', () => bag.inbox.retract(sessionId, sourceMessageId))
   bag.hasQueuedMessage = (sessionId: SessionId, sourceMessageId: string) =>
     bag.inbox.hasQueuedMessage(sessionId, sourceMessageId)
   bag.queuedMessagePosition = (sessionId: SessionId, sourceMessageId: string) =>
     bag.inbox.queuedMessagePosition(sessionId, sourceMessageId)
-  bag.resumeAndSend = (input: any) => bag.inbox.resumeAndSend(input)
+  bag.resumeAndSend = (input: any) => leased(input.sessionId, 'resumeAndSend', () => bag.inbox.resumeAndSend(input))
   bag.answerAskUserQuestion = (input: any) =>
     bag.inbox.answerAskUserQuestion({
       ...input,
@@ -685,6 +712,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
   bag.inbox = inbox
   bag.clientControl = new SessionClientControl({
     sessions: bag.sessions,
+    residency: bag.residency,
     state: bag.state,
     inbox,
     machinesForPrincipal: async (principal) =>
@@ -1129,6 +1157,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
   // No dispose: this module owns no timer, loop, or async work.
   bag.sessionTeardown = new SessionTeardown({
     store,
+    residency: bag.residency,
     view: bag.view,
     repository: bag.repository,
     state: bag.state,

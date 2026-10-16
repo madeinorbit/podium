@@ -218,6 +218,30 @@ export class SessionRepository {
    * the shared promotion closes over its value instead.
    */
   private readonly stagedSessionStates: StagedOverlay<SessionId, SessionDurableState>
+  /**
+   * THE LIVE OBJECT'S INSTALLS INSIDE AN OPEN SPAN (POD-6160 D2f), per session,
+   * each with the commit registration that says whether its span will commit
+   * and the durable fields it changed.
+   *
+   * A persist installs its draft on the live `Session` as soon as its write
+   * returns, also inside an enclosing span, because code later in the same span
+   * reads the session's fields. The baseline waits for the outermost commit
+   * (above); the live object cannot, and the executor has no abort hook. So a
+   * span that rolled back used to leave its fields on the live object, and the
+   * next unrelated persist cut its draft from there and wrote them back.
+   *
+   * {@link repairRolledBack} finds an install whose span rolled back (its
+   * registration is dead) and puts the fields it changed back to the committed
+   * baseline, keeping volatile fields that changed since. It runs, cheaply,
+   * wherever a session's durable fields are read for someone outside the span:
+   * a draft or persist, `settled()`, and every projection (`Session.toMeta`, its
+   * facts, the daemon RPC view), which reach it through the session's
+   * `freshenDurable` hook. A commit drops the entry.
+   */
+  private readonly liveInstalls = new Map<
+    SessionId,
+    { registration: ReturnType<BaselineFoldPort['onCommit']>; fields: readonly (keyof SessionDurableState)[] }[]
+  >()
   /** True while an activity flush is running — see {@link flushActivity}. */
   private flushingActivity = false
   private activityMutationVersion = 0
@@ -251,6 +275,63 @@ export class SessionRepository {
     this.dirtyActivitySessions.delete(session.sessionId)
     this.sessions.set(session.sessionId, session)
     this.observeSessionActivity(session)
+    session.setDurableRepair(() => this.repairRolledBack(session))
+  }
+
+  /**
+   * Put back what a rolled-back span installed on this live session (see
+   * {@link liveInstalls}). A no-op unless one of its in-span installs belongs to
+   * a span that will not commit.
+   */
+  repairRolledBack(session: Session): void {
+    const installs = this.liveInstalls.get(session.sessionId)
+    if (!installs || installs.every((install) => install.registration.live())) return
+    const dead = installs.filter((install) => !install.registration.live())
+    const alive = installs.filter((install) => install.registration.live())
+    if (alive.length > 0) this.liveInstalls.set(session.sessionId, alive)
+    else this.liveInstalls.delete(session.sessionId)
+    // The baseline the rollback left: what the surviving spans staged, else the
+    // committed one (the overlay dropped the dead span's own staging).
+    const baseline = this.durableBaselineFor(session.sessionId)
+    if (!baseline) return
+    const fields = new Set(dead.flatMap((install) => install.fields))
+    const repaired = { ...session.captureDurableState() } as Record<string, unknown>
+    for (const field of fields) repaired[field] = (baseline as unknown as Record<string, unknown>)[field]
+    session.restoreDurableState(
+      repaired as unknown as SessionDurableState,
+      this.pendingVolatileSessions.get(session.sessionId)?.preserve,
+    )
+    log.info('repaired the fields a rolled-back span installed on a live session', {
+      sessionId: session.sessionId,
+      fields: [...fields],
+    })
+  }
+
+  /** Remember an install made inside an open span (see {@link liveInstalls}). */
+  private trackLiveInstall(
+    sessionId: SessionId,
+    before: SessionDurableState | undefined,
+    installed: SessionDurableState,
+    preserved: ReadonlySet<string> | undefined,
+  ): void {
+    const fold = this.ports.applyCommit
+    if (!fold?.spanOpen()) return
+    const fields = (Object.keys(installed) as (keyof SessionDurableState)[]).filter(
+      (field) =>
+        !preserved?.has(field) && JSON.stringify(installed[field]) !== JSON.stringify(before?.[field]),
+    )
+    if (fields.length === 0) return
+    const entry = {
+      registration: undefined as unknown as ReturnType<BaselineFoldPort['onCommit']>,
+      fields,
+    }
+    entry.registration = fold.onCommit(() => {
+      const installs = this.liveInstalls.get(sessionId)
+      const rest = installs?.filter((install) => install !== entry) ?? []
+      if (rest.length > 0) this.liveInstalls.set(sessionId, rest)
+      else this.liveInstalls.delete(sessionId)
+    }, 'session-live-install')
+    this.liveInstalls.set(sessionId, [...(this.liveInstalls.get(sessionId) ?? []), entry])
   }
 
   private get sessions(): Map<SessionId, Session> {
@@ -610,14 +691,15 @@ export class SessionRepository {
     // Capture INSIDE the per-session queue [POD-3720]: a persist that sampled
     // live state before a sibling write installed would restate the previous
     // snapshot and clobber it.
-    await this.enqueueSessionWrite(session.sessionId, () =>
-      this.persistDraftUnlocked(
+    await this.enqueueSessionWrite(session.sessionId, () => {
+      this.repairRolledBack(session)
+      return this.persistDraftUnlocked(
         session,
         session.captureDurableState(),
         additionalWrite,
         additionalChanges,
-      ),
-    )
+      )
+    })
   }
 
   /**
@@ -634,6 +716,7 @@ export class SessionRepository {
    * a field this writer changed from one it merely copied [POD-3720].
    */
   draft(session: Session): SessionDurableState {
+    this.repairRolledBack(session)
     const draft = session.captureDurableState()
     this.draftOrigins.set(draft, { ...draft })
     return draft
@@ -790,10 +873,9 @@ export class SessionRepository {
           cwd: session.cwd,
         })
       }
-      session.installDurableState(
-        persisted,
-        raced !== undefined && raced.version > installedVersion ? raced.preserve : undefined,
-      )
+      const preserved = raced !== undefined && raced.version > installedVersion ? raced.preserve : undefined
+      this.trackLiveInstall(session.sessionId, this.durableBaselineFor(session.sessionId), persisted, preserved)
+      session.installDurableState(persisted, preserved)
       this.commitDurableBaseline(session.sessionId, persisted)
     })
     this.publishSessionProjection(changes)
@@ -982,6 +1064,43 @@ export class SessionRepository {
     install.apply()
   }
 
+  /**
+   * RESTORE ONE PARKED SESSION FROM ITS ROW AND INSTALL IT (POD-6160 D2f): what
+   * the boot load does for a row, with the satellites read for this session
+   * alone, so the object a lease gets is the one a restart would have built
+   * (and the one its durable record describes). It writes nothing: a stale
+   * offer is not adopted (the boot load also clears its row; a record reads it
+   * as absent either way), and a parked row's status is the one it restores.
+   * A session that became resident while this read wins and is returned.
+   */
+  async materializeStoredSession(r: SessionRow): Promise<Session | undefined> {
+    const ids = [r.id]
+    const offers = await this.store.sessions.offersOf(ids)
+    const checkpoint = (await this.store.observationCheckpoints.checkpointsOf(ids)).get(r.id)
+    const turnState = (await this.store.events.runtimeTurnStatesOf(ids)).get(r.id)
+    await this.state.stageDraftTimes(ids)
+    const session = await this.sessionFromStoredRow(r, 'boot')
+    if (!session) return undefined
+    const install = await this.prepareStoredSessionInstall(session, offers)
+    const raced = this.sessions.get(r.id)
+    if (raced) return raced
+    install.apply()
+    if (checkpoint) session.applyObservationCheckpoint(checkpoint)
+    if (turnState) applyRuntimeTurnStateTo(session, turnState)
+    return session
+  }
+
+  /** Drop a resident session from the process (POD-6160 D2f): memory only. */
+  evictResident(session: Session): void {
+    if (this.sessions.get(session.sessionId) !== session) return
+    session.terminal.setActivityDirtyListener(undefined)
+    session.terminal.detachAll()
+    this.sessions.delete(session.sessionId)
+    this.dirtyActivitySessions.delete(session.sessionId)
+    this.state.evictSession(session.sessionId)
+    this.forget(session.sessionId)
+  }
+
   async loadFromStore(): Promise<void> {
     const recoveryStarted = performance.now()
     const checkpoints = await this.store.observationCheckpoints.checkpointsOfLiveSessions()
@@ -1103,6 +1222,8 @@ export class SessionRepository {
    * the object holds.
    */
   settled(sessionId: SessionId): boolean {
+    const session = this.sessions.get(sessionId)
+    if (session) this.repairRolledBack(session)
     return (
       !this.sessionWriteTail.has(sessionId) &&
       !this.pendingVolatileSessions.has(sessionId) &&
@@ -1112,6 +1233,7 @@ export class SessionRepository {
   }
 
   forget(sessionId: SessionId): void {
+    this.liveInstalls.delete(sessionId)
     this.pendingVolatileSessions.delete(sessionId)
     this.capturedSessionStates.delete(sessionId)
     // Memory-only, and the staged layer goes with it: this drops a session from

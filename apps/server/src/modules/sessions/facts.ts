@@ -122,6 +122,7 @@ export interface SessionFacts {
 /** One live session's facts. Pure field copies — see the class doc on why this
  *  may never grow a call into the store or another service. */
 export function sessionFactsOf(session: Session): SessionFacts {
+  session.freshenDurable()
   return factsOf(session, session.terminal.busy === true)
 }
 

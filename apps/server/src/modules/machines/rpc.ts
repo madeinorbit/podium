@@ -219,7 +219,7 @@ interface DaemonRpcDeps {
   /** {@link machineName} for many machines in one read; every asked id gets an entry. */
   machineNames(ids: readonly MachineId[]): Promise<ReadonlyMap<string, string>>
   onlineMachineIds(): MachineId[]
-  getSession(sessionId: SessionId): RpcSessionView | undefined
+  getSession(sessionId: SessionId): Promise<RpcSessionView | undefined>
   portableStateFence?: PortableStateWriteFence
 }
 
@@ -1387,7 +1387,7 @@ export class DaemonRpcService {
   }): Promise<{ path: string; error?: string }> {
     // The upload is written to (and read back by) the machine that runs the session,
     // so the returned path is valid in that session's prompt.
-    const session = this.deps.getSession(input.sessionId)
+    const session = await this.deps.getSession(input.sessionId)
     const write = async () =>
       await this.request(
         IMAGE_UPLOAD,
@@ -1442,7 +1442,7 @@ export class DaemonRpcService {
       recordTotal()
       return { items: [], hasMore: false }
     }
-    const session = this.deps.getSession(input.sessionId)
+    const session = await this.deps.getSession(input.sessionId)
     if (!session) {
       recordTotal()
       return { items: [], hasMore: false }
@@ -1578,7 +1578,7 @@ export class DaemonRpcService {
       | { machineId?: MachineId; root: string; path: string },
   ): Promise<Omit<FileReadResultMessage, 'type' | 'requestId'>> {
     if ('sessionId' in input) {
-      const session = this.deps.getSession(input.sessionId)
+      const session = await this.deps.getSession(input.sessionId)
       if (!session) return await Promise.resolve({ ok: false, path: input.path, error: 'no session' })
       const knownPath = knownPathsFor(session.transcriptItems()).has(input.path)
       return await this.request(
@@ -1623,7 +1623,7 @@ export class DaemonRpcService {
         },
   ): Promise<Omit<FileAssetResultMessage, 'type' | 'requestId'>> {
     if ('sessionId' in input) {
-      const session = this.deps.getSession(input.sessionId)
+      const session = await this.deps.getSession(input.sessionId)
       if (!session) return await Promise.resolve({ ok: false, path: input.path, error: 'no session' })
       const knownPath = knownPathsFor(session.transcriptItems()).has(input.path)
       return await this.request(
@@ -1677,7 +1677,7 @@ export class DaemonRpcService {
       ...(input.baseHash ? { baseHash: input.baseHash } : {}),
     })
     if ('sessionId' in input) {
-      const session = this.deps.getSession(input.sessionId)
+      const session = await this.deps.getSession(input.sessionId)
       if (!session) return await Promise.resolve({ ok: false, error: 'no session' })
       return await this.request(
         FILE_WRITE,

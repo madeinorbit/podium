@@ -108,6 +108,11 @@ export class SessionRevival {
   private readonly pendingResurrections = new Map<SessionId, Promise<ResurrectionResult>>()
   constructor(private readonly ports: SessionRevivalPorts) {}
 
+  /** A resurrection of this session is in flight (POD-6160 D2f). */
+  resurrecting(sessionId: SessionId): boolean {
+    return this.pendingResurrections.has(sessionId)
+  }
+
   async resumeSession(
     input: {
       ownerUserId?: UserId

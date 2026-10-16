@@ -1286,6 +1286,12 @@ export class SessionInbox {
   private readonly forwardedRows = new Map<SessionId, { session: Session; machineId: string; ids: Set<string> }>()
   private readonly forwarding = new Map<SessionId, Promise<void>>()
 
+  /** A drain or a contract forward is running for this session (POD-6160 D2f:
+   *  it stays resident until they settle). */
+  holdsWork(sessionId: SessionId): boolean {
+    return this.activeDrains.has(sessionId) || this.forwarding.has(sessionId)
+  }
+
   /** Admission only: no readiness, confirmation, retry clocks or delivery polling. */
   private async forwardContractRows(session: Session, justBound: boolean): Promise<void> {
     const sessionId = session.sessionId

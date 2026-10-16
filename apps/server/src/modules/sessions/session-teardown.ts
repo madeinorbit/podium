@@ -31,6 +31,7 @@
  * bus emits are fire-and-forget through ports.
  */
 
+import type { SessionResidency } from './residency'
 import type { SessionId, SessionMeta, MachineId, IssueId, UserId } from '@podium/model'
 import { isIssueClosed } from '@podium/model'
 import { AUTO_ARCHIVE_READ_WINDOW_MS } from '@podium/protocol'
@@ -62,6 +63,8 @@ import type { SessionView } from './view'
  */
 export interface SessionTeardownPorts {
   store: SessionStore
+  /** Holds a parked member resident while it is stopped (POD-6160 D2f). */
+  residency: Pick<SessionResidency, 'withSession'>
   view: SessionView
   repository: SessionRepository
   state: SessionStateService
@@ -571,7 +574,7 @@ export class SessionTeardown {
       ...members.filter((m) => m.sessionId === input.callerSessionId),
     ]
     for (const m of ordered) {
-      const r = await this.stopSession(
+      const r = await this.ports.residency.withSession(m.sessionId, 'stopIssue', () => this.stopSession(
         {
           sessionId: m.sessionId,
           force: input.force,
@@ -581,7 +584,7 @@ export class SessionTeardown {
           principal,
         },
         issues,
-      )
+      ))
       if (!r.ok) {
         return {
           ok: false,

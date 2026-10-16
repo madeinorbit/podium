@@ -29,7 +29,7 @@ function setup() {
     machineName: async () => 'desk',
     machineNames: async (ids) => new Map(ids.map((id) => [id, 'desk'])),
     onlineMachineIds: () => [machineId],
-    getSession: () => undefined,
+    getSession: async () => undefined,
   })
   return { rpc, sent }
 }

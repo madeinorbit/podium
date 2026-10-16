@@ -108,6 +108,7 @@ import type { SessionTeardown } from './session-teardown'
 import { wireSessionLifecycle } from './session-wiring'
 import type { SessionTerminalProof, TerminalProofStatus } from './terminal-proof'
 import type { SessionRecords } from './records'
+import type { SessionResidency } from './residency'
 import type { SessionListCaller, SessionView } from './view'
 import type { SessionWorkspace } from './workspace'
 
@@ -120,6 +121,16 @@ export type {
 } from './session-lifecycle-types'
 
 import type { SessionLifecycleDeps, SessionRestorePlan } from './session-lifecycle-types'
+
+/** Daemon frames that may concern a parked session (POD-6160 D2f). */
+const DAEMON_FRAMES_FOR_PARKED: ReadonlySet<string> = new Set([
+  'runtimeEvent',
+  'runtimeQueueDrainAbandoned',
+  'agentExit',
+  'bind',
+  'reattachFailed',
+  'sessionKillResult',
+])
 
 /** Session lifecycle runtime + composition boundary (POD-1396 facade). */
 export class SessionLifecycle {
@@ -224,11 +235,12 @@ export class SessionLifecycle {
     input: ReceiptSendInput,
     onReceipt?: (receipt: TurnReceipt) => void,
   ): Promise<{ ok: boolean; queued?: boolean; position?: number; reason?: string }> =>
-    await this.receiptSender.send(
-      via,
-      input,
-      onReceipt ? (receipt) => onReceipt(receipt) : undefined,
-    )
+    await this.leased(input.sessionId, 'receiptSend', () =>
+      this.receiptSender.send(
+        via,
+        input,
+        onReceipt ? (receipt) => onReceipt(receipt) : undefined,
+      ))
   /**
    * THE PROTOCOL ASK SINK (POD-2023), assigned by the composition root once the
    * interactions aggregate exists.
@@ -276,6 +288,8 @@ export class SessionLifecycle {
   readonly repository!: SessionRepository
   /** Durable session records read from the database (POD-6160). */
   readonly records!: SessionRecords
+  /** Which parked sessions stay in memory: leases and viewers (POD-6160 D2f). */
+  readonly residency!: SessionResidency
   readonly broadcasts!: SessionBroadcastCoordinator
   private readonly browserOpen!: BrowserOpenGateway
   private readonly bindingReceipts!: SessionBindingReceipts
@@ -309,6 +323,7 @@ export class SessionLifecycle {
     // Ahead of everything else: it owns coalescing timers, and a timer that
     // fires into a half-disposed registry publishes into sessions that are gone.
     this.turnPreviews?.dispose()
+    this.residency.dispose()
     // Same hazard, one step further out (POD-2842): the outbox drain re-arms
     // itself on a timer and every wake-up reads the queue table, so a shutdown
     // taken while a row is in flight woke into the store `server.ts` closes
@@ -536,10 +551,10 @@ export class SessionLifecycle {
   // origin/causation/mutation identity (packages/model/src/provenance), and the
   // reserved node-peer capabilities (packages/protocol/src/handshake).
   setSnooze(input: { userId: UserId; sessionId: SessionId; until: string | null }): Promise<void> {
-    return this.sessionMetaOps.setSnooze(input)
+    return this.leased(input.sessionId, 'setSnooze', () => this.sessionMetaOps.setSnooze(input))
   }
   clearSnooze(userId: UserId, sessionId: SessionId): Promise<void> {
-    return this.sessionMetaOps.clearSnooze(userId, sessionId)
+    return this.leased(sessionId, 'clearSnooze', () => this.sessionMetaOps.clearSnooze(userId, sessionId))
   }
   /**
    * SPELLED OUT, NOT `(...args: any[]): any` [POD-3507].
@@ -571,13 +586,22 @@ export class SessionLifecycle {
     return this.sessionAuthz.authorizeClientDrive(principal, sessionId)
   }
   setOffer(...args: Parameters<SessionMetaOps['setOffer']>): Promise<void> {
-    return this.sessionMetaOps.setOffer(...args)
+    return this.leased(args[0].sessionId, 'setOffer', () => this.sessionMetaOps.setOffer(...args))
   }
   clearOffer(sessionId: SessionId): Promise<void> {
-    return this.sessionMetaOps.clearOffer(sessionId)
+    return this.leased(sessionId, 'clearOffer', () => this.sessionMetaOps.clearOffer(sessionId))
   }
   dismissOffer(sessionId: SessionId, offerCreatedAt: string): Promise<boolean> {
-    return this.sessionMetaOps.dismissOffer(sessionId, offerCreatedAt)
+    return this.leased(sessionId, 'dismissOffer', () => this.sessionMetaOps.dismissOffer(sessionId, offerCreatedAt))
+  }
+  /**
+   * Run `fn` with this session resident (POD-6160 D2f, `residency.ts`): a parked
+   * session out of memory is restored from its row for the operation, and may
+   * leave again once the operation has settled. Leases nest, so an operation
+   * that calls another leased one holds the session twice, never loads it twice.
+   */
+  private leased<T>(sessionId: SessionId, reason: string, fn: () => Promise<T>): Promise<T> {
+    return this.residency.withSession(sessionId, reason, () => fn())
   }
 
   async createSession(input: Parameters<SessionStart['create']>[0]): Promise<SessionSpawnResult> {
@@ -634,38 +658,39 @@ export class SessionLifecycle {
   private mutateSessionMeta(
     ...args: Parameters<SessionMetaOps['mutateSessionMeta']>
   ): Promise<void> {
-    return this.sessionMetaOps.mutateSessionMeta(...args)
+    return this.leased(args[0], 'mutateSessionMeta', () => this.sessionMetaOps.mutateSessionMeta(...args))
   }
   renameSession(input: { sessionId: SessionId; name: string }): Promise<void> {
-    return this.naming.rename(input)
+    return this.leased(input.sessionId, 'rename', () => this.naming.rename(input))
   }
   /** The AGENT names its own session; refused against a user-set name. */
   setAgentName(input: {
     sessionId: SessionId
     name: string
   }): ReturnType<SessionNaming['setAgentName']> {
-    return this.naming.setAgentName(input)
+    return this.leased(input.sessionId, 'setAgentName', () => this.naming.setAgentName(input))
   }
   setArchived(...args: Parameters<SessionMetaOps['setArchived']>): Promise<void> {
-    return this.sessionMetaOps.setArchived(...args)
+    return this.leased(args[0].sessionId, 'setArchived', () => this.sessionMetaOps.setArchived(...args))
   }
   private parkArchivedSession(sessionId: SessionId): Promise<void> {
     return this.sessionTeardown.parkArchivedSession(sessionId)
   }
   tryAutoArchiveStoppedObserved(...args: any[]): any {
-    return (this.sessionMetaOps as any).tryAutoArchiveStoppedObserved(...args)
+    return this.leased(args[0].sessionId, 'autoArchive', async () =>
+      await (this.sessionMetaOps as any).tryAutoArchiveStoppedObserved(...args))
   }
   markSessionRead(userId: UserId, sessionId: SessionId): Promise<void> {
-    return this.sessionMetaOps.markSessionRead(userId, sessionId)
+    return this.leased(sessionId, 'markRead', () => this.sessionMetaOps.markSessionRead(userId, sessionId))
   }
   markSessionUnread(userId: UserId, sessionId: SessionId): Promise<void> {
-    return this.sessionMetaOps.markSessionUnread(userId, sessionId)
+    return this.leased(sessionId, 'markUnread', () => this.sessionMetaOps.markSessionUnread(userId, sessionId))
   }
   private async rearmUnread(sessionId: SessionId): Promise<void> {
     await this.state.rearmUnreadForAll(sessionId)
   }
   setSessionIssueId(...args: Parameters<SessionMetaOps['setSessionIssueId']>): Promise<void> {
-    return this.sessionMetaOps.setSessionIssueId(...args)
+    return this.leased(args[0], 'setSessionIssueId', () => this.sessionMetaOps.setSessionIssueId(...args))
   }
   /** A session's explicit issue, running or parked (POD-6160: from its row
    *  where it is not resident). */
@@ -673,10 +698,10 @@ export class SessionLifecycle {
     return (await this.records.ownershipOf(sessionId, 'sessionIssueId'))?.issueId ?? null
   }
   setSessionCwd(...args: Parameters<SessionMetaOps['setSessionCwd']>): Promise<void> {
-    return this.sessionMetaOps.setSessionCwd(...args)
+    return this.leased(args[0], 'setSessionCwd', () => this.sessionMetaOps.setSessionCwd(...args))
   }
   setWorkState(...args: Parameters<SessionMetaOps['setWorkState']>): Promise<void> {
-    return this.sessionMetaOps.setWorkState(...args)
+    return this.leased(args[0].sessionId, 'setWorkState', () => this.sessionMetaOps.setWorkState(...args))
   }
   async stopSession(
     input: {
@@ -694,10 +719,10 @@ export class SessionLifecycle {
     worktreeFreed?: boolean
     deferredKill?: boolean
   }> {
-    return await this.sessionTeardown.stopSession(input, issues)
+    return await this.leased(input.sessionId, 'stop', () => this.sessionTeardown.stopSession(input, issues))
   }
   finalizeDeferredStopKill(sessionId: SessionId): Promise<void> {
-    return this.sessionTeardown.finalizeDeferredStopKill(sessionId)
+    return this.leased(sessionId, 'deferredStopKill', () => this.sessionTeardown.finalizeDeferredStopKill(sessionId))
   }
   async stopIssue(
     input: {
@@ -807,7 +832,7 @@ export class SessionLifecycle {
     caller: HandoffCaller,
     issues: SessionIssueWorkflowPort,
   ): Promise<{ ok: true; newCwd: string }> {
-    return await this.sessionRevival.handoffSession(input, caller, issues)
+    return await this.leased(input.sessionId, 'handoff', () => this.sessionRevival.handoffSession(input, caller, issues))
   }
   /** HOW A CALLER'S `use` RIGHTS ON A MACHINE ARE RESOLVED — the seam, deliberately */
   machineUseGate: (caller: HandoffCaller) => Promise<AssertMachineUse> = async (caller) =>
@@ -838,7 +863,7 @@ export class SessionLifecycle {
     },
     issues: SessionIssueWorkflowPort,
   ): ReturnType<SessionRevival['resurrectSession']> {
-    return await this.sessionRevival.resurrectSession(input, issues)
+    return await this.leased(input.sessionId, 'resurrect', () => this.sessionRevival.resurrectSession(input, issues))
   }
   private sessionRemovalSpecs(sessionId: SessionId): EntityChangeSpec[] {
     return this.sessionKill.sessionRemovalSpecs(sessionId)
@@ -858,7 +883,7 @@ export class SessionLifecycle {
     await this.sessionKill.removeSessionRuntime(sessionId, terminalRetirement)
   }
   async killSession(input: { sessionId: SessionId }): Promise<void> {
-    await this.sessionKill.killSession(input)
+    await this.leased(input.sessionId, 'kill', () => this.sessionKill.killSession(input))
   }
   private async emitSessionExited(
     sessionId: SessionId,
@@ -904,7 +929,19 @@ export class SessionLifecycle {
     return this.sessionClientPlane.onSessionClientInput(...args)
   }
   async onSessionDaemonFrame(principal: MachinePrincipal, msg: SessionsDaemonFrame): Promise<void> {
-    await this.daemonLifecycle.handle(principal, msg)
+    // A frame that can concern a parked session holds it while it is handled
+    // (POD-6160 D2f): a runtime event the gate admits for a stopped session, a
+    // late exit, a reattach or kill result, a bind reviving it. A resident one
+    // is held without an await, so a bind still reaches it before yielding.
+    const sessionId = DAEMON_FRAMES_FOR_PARKED.has(msg.type) ? (msg as { sessionId?: SessionId }).sessionId : undefined
+    const held =
+      sessionId !== undefined &&
+      (this.residency.hold(sessionId) || (await this.residency.acquire(sessionId, `daemon.${msg.type}`)) !== undefined)
+    try {
+      await this.daemonLifecycle.handle(principal, msg)
+    } finally {
+      if (held && sessionId !== undefined) this.residency.release(sessionId)
+    }
   }
   onSessionDaemonOutput(principal: MachinePrincipal, batch: DaemonPtyOutputBatch): void {
     this.daemonLifecycle.handleOutput(principal, batch)

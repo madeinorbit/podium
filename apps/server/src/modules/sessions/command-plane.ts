@@ -111,7 +111,9 @@ export type SessionCommandServices = Pick<
   // every handler that takes this bundle.
   | 'sessionById'
 > &
-  Pick<IssueSessionLifecycle, 'resumeSession' | 'resurrectSession' | 'stopSession'>
+  Pick<IssueSessionLifecycle, 'resumeSession' | 'resurrectSession' | 'stopSession'> &
+  // POD-6160 D2f: the command's session stays resident while it runs.
+  Partial<Pick<SessionLifecycle, 'residency'>>
 
 /**
  * THE SUBSTRATE BOTH CHAT PATHS RIDE (#237) [spec:SP-34d7] — as a dispatch of
@@ -903,11 +905,20 @@ export async function dispatchSessionCommand<K extends SessionCommandKey>(
   // ledger's own documented no-dedup case — so this is behaviour-identical for the
   // six lifecycle commands and identical-by-construction for the three that do.
   const mutationId = (input as { mutationId?: unknown }).mutationId
-  return await ctx.deps.mutations.once(
-    typeof mutationId === 'string' ? asMutationId(mutationId) : undefined,
-    name,
-    () => handler(ctx, input),
-  ) as Awaited<SessionCommandResult<K>>
+  const run = async () =>
+    await ctx.deps.mutations.once(
+      typeof mutationId === 'string' ? asMutationId(mutationId) : undefined,
+      name,
+      () => handler(ctx, input),
+    ) as Awaited<SessionCommandResult<K>>
+  // THE COMMAND'S SESSION IS RESIDENT WHILE IT RUNS (POD-6160 D2f): a parked
+  // session is restored from its row for the command, gates included, and may
+  // leave memory again once the command has settled.
+  const sessionId = (input as { sessionId?: unknown }).sessionId
+  const residency = ctx.deps.sessions().residency
+  return typeof sessionId === 'string' && residency
+    ? await residency.withSession(sessionId as SessionId, name, run)
+    : await run()
 }
 
 /** Is this proc one of the migrated command-plane commands? */

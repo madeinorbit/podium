@@ -22,11 +22,19 @@ import {
   mayWatch,
   type SessionControlContext,
 } from './session-control-policy'
+import type { SessionResidency } from './residency'
 import { sessionStatePrincipalFor } from './session-state/registry'
 import type { SessionStateService } from './session-state/service'
 
 export interface SessionClientControlPorts {
   sessions: ReadonlyMap<SessionId, Session>
+  /**
+   * Which parked sessions stay in memory (POD-6160 D2f). A frame that opens a
+   * view or edits a draft holds its session while it is handled; the view then
+   * keeps it (`viewed`), and a view closing lets it go. Absent in unit
+   * fixtures whose map is all there is.
+   */
+  residency?: Pick<SessionResidency, 'acquire' | 'release' | 'tryEvict'>
   state: SessionStateService
   inbox: SessionInbox
   machinesForPrincipal(principal: ClientPrincipal): Promise<MachineListing[]>
@@ -77,6 +85,12 @@ export interface SessionClientControlPorts {
 }
 
 /** Client control-plane adapter; transport framing remains in gateway/client-mux. */
+/** Frames that open a view of, or edit, one session: it is held resident while
+ *  they are handled (POD-6160 D2f). */
+const HOLDING_FRAMES: ReadonlySet<string> = new Set(['attach', 'transcriptSubscribe', 'setSessionDraft', 'draftEdit'])
+/** Frames that close a view: the session may leave memory after them. */
+const RELEASING_FRAMES: ReadonlySet<string> = new Set(['detach', 'transcriptUnsubscribe'])
+
 export class SessionClientControl {
   constructor(private readonly ports: SessionClientControlPorts) {}
 
@@ -135,6 +149,24 @@ export class SessionClientControl {
   }
 
   async onFrame(
+    principal: ClientPrincipal,
+    client: ClientConn,
+    message: SessionsClientFrame,
+  ): Promise<void> {
+    const leased = HOLDING_FRAMES.has(message.type) ? (message as { sessionId?: SessionId }).sessionId : undefined
+    const held = leased && this.ports.residency ? await this.ports.residency.acquire(leased, `client.${message.type}`) : undefined
+    try {
+      await this.handleFrame(principal, client, message)
+    } finally {
+      if (held && leased) this.ports.residency?.release(leased)
+    }
+    // A view that closed may have been the last thing using a parked session.
+    if (RELEASING_FRAMES.has(message.type)) {
+      this.ports.residency?.tryEvict((message as { sessionId: SessionId }).sessionId)
+    }
+  }
+
+  private async handleFrame(
     principal: ClientPrincipal,
     client: ClientConn,
     message: SessionsClientFrame,
