@@ -57,7 +57,7 @@ function harness(input: { routeAvailable: boolean; cwd?: string }) {
     now: () => NOW,
     clients: () => [],
     sessionInfo: () => input.cwd ? { ...info(), name: '', title: '', cwd: input.cwd } : info(),
-    sessionStates: () => [],
+    sessionStates: async () => [],
   }
   const bus = new EventBus()
   const service = new NotifyService(
@@ -178,7 +178,7 @@ describe('NotifyService under the async store (POD-3820)', () => {
       now: () => NOW,
       clients: () => [],
       sessionInfo: () => info(),
-      sessionStates: () => [],
+      sessionStates: async () => [],
     }
     const service = new NotifyService(deps, { ntfy: () => {}, telegram: () => {} }, new EventBus())
     return { service, store, requested }

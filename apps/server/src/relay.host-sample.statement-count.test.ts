@@ -136,6 +136,9 @@ const pin = (
 // is not resident is answered from the database) where the map answered with a
 // miss: +2. The second retirement's pending-mail count, which that reaction
 // runs after the read, now lands after the sample returns: -1. Backstop 49 -> 50.
+// D2d: a retired shell's removal reports the routing it had
+// (`session.routingChanged`), and mail routing reads the issue that owned its
+// folder to requeue that issue's mail: one folder-owner read each, +2: 52.
 describe('host sample: pinned statement counts at 5 and 200 live shells', () => {
   it('a sample with nothing to retire', async () => {
     await expectConstantStatements(
@@ -179,7 +182,7 @@ describe('host sample: pinned statement counts at 5 and 200 live shells', () => 
           .poll(async () => (await f.store.sessions.loadSessions()).some((s) => s.id === f.ids.at(-1)))
           .toBe(false)
       }),
-      50,
+      52,
     )
   })
 })

@@ -35,9 +35,9 @@ async function harness(opts?: {
     funnel: { run: (op) => op.write() },
     now: () => nowMs,
     resolveRepoId: (repoPath) => asRepoId(`repo:${repoPath}`),
-    sessionAlive: (sessionId) => alive.has(sessionId),
+    sessionAlive: async (sessionId) => alive.has(sessionId),
     sessionRunning: (sessionId) => alive.has(sessionId) && !hibernated.has(sessionId),
-    sessionWorkspace: (sessionId) => workspace.get(sessionId) ?? null,
+    sessionWorkspace: async (sessionId) => workspace.get(sessionId) ?? null,
     sendMail,
     appendEvent,
   })

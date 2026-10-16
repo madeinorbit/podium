@@ -102,6 +102,7 @@ function harness(issueForCwd: () => Promise<string | null> = async () => null) {
               ...(s.spawnedBy ? { spawnedBy: s.spawnedBy } : {}),
               machineId: s.machineId,
               status: s.status,
+              agentKind: s.agentKind,
             }
           : undefined
       },

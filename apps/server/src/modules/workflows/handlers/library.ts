@@ -187,7 +187,7 @@ export async function assignHandler(
     // `targetId` is polymorphic by `targetKind` (a session id here, an issue id on
     // the other arm), so the brand is recovered INSIDE the narrowed branch — the
     // same rule POD-362 applies to MessageRow.toId and EntityChangeSpec.id.
-    await access.assertMayPlaceOn(caller, access.machineForSession(asSessionId(input.targetId)))
+    await access.assertMayPlaceOn(caller, await access.machineForSession(asSessionId(input.targetId)))
   }
   const now = deps.now()
   const binding = await deps.store.setBinding({

@@ -615,7 +615,7 @@ describe('MessagingService', () => {
 
     it('sends typing into the bound topic when the session enters working', async () => {
       const h = await makeHarness({
-        sessionIssueId: (id) => (id === asSessionId('s_agent') ? asIssueId('iss_bound') : null),
+        sessionIssueId: async (id) => (id === asSessionId('s_agent') ? asIssueId('iss_bound') : null),
       })
       const { sessionId, threadRef } = await bindTopic(h)
       h.bus.emit('session.stateChanged', {
@@ -630,7 +630,7 @@ describe('MessagingService', () => {
 
     it('does not start ambient typing on compacting (only phase===working)', async () => {
       const h = await makeHarness({
-        sessionIssueId: (id) => (id === asSessionId('s_agent') ? asIssueId('iss_bound') : null),
+        sessionIssueId: async (id) => (id === asSessionId('s_agent') ? asIssueId('iss_bound') : null),
       })
       const { sessionId } = await bindTopic(h)
       h.bus.emit('session.stateChanged', {
@@ -646,7 +646,7 @@ describe('MessagingService', () => {
     it(`refreshes ambient typing every ${TYPING_REFRESH_MS}ms while working`, async () => {
       vi.useFakeTimers()
       const h = await makeHarness({
-        sessionIssueId: (id) => (id === asSessionId('s_agent') ? asIssueId('iss_bound') : null),
+        sessionIssueId: async (id) => (id === asSessionId('s_agent') ? asIssueId('iss_bound') : null),
       })
       const { sessionId } = await bindTopic(h)
       h.bus.emit('session.stateChanged', {
@@ -672,7 +672,7 @@ describe('MessagingService', () => {
     ] as const)('stops ambient typing on %s', async (phase) => {
       vi.useFakeTimers()
       const h = await makeHarness({
-        sessionIssueId: (id) => (id === asSessionId('s_agent') ? asIssueId('iss_bound') : null),
+        sessionIssueId: async (id) => (id === asSessionId('s_agent') ? asIssueId('iss_bound') : null),
       })
       const { sessionId } = await bindTopic(h)
       h.bus.emit('session.stateChanged', {
@@ -697,7 +697,7 @@ describe('MessagingService', () => {
     it('stops ambient typing on session.exited', async () => {
       vi.useFakeTimers()
       const h = await makeHarness({
-        sessionIssueId: (id) => (id === asSessionId('s_agent') ? asIssueId('iss_bound') : null),
+        sessionIssueId: async (id) => (id === asSessionId('s_agent') ? asIssueId('iss_bound') : null),
       })
       const { sessionId } = await bindTopic(h)
       h.bus.emit('session.stateChanged', {
@@ -716,7 +716,7 @@ describe('MessagingService', () => {
     it('does not indicate for sessions without a bound topic', async () => {
       vi.useFakeTimers()
       const h = await makeHarness({
-        sessionIssueId: () => asIssueId('iss_unbound'),
+        sessionIssueId: async () => asIssueId('iss_unbound'),
       })
       h.bus.emit('session.stateChanged', {
         sessionId: asSessionId('s_unbound'),
@@ -732,7 +732,7 @@ describe('MessagingService', () => {
     it('does not double-fire when superagent-turn typing already covers the topic', async () => {
       vi.useFakeTimers()
       const h = await makeHarness({
-        sessionIssueId: (id) => (id === asSessionId('s_agent') ? asIssueId('iss_bound') : null),
+        sessionIssueId: async (id) => (id === asSessionId('s_agent') ? asIssueId('iss_bound') : null),
       })
       const { sessionId, threadRef } = await bindTopic(h, { threadRef: '9001' })
       await h.topics.upsert({
@@ -773,7 +773,7 @@ describe('MessagingService', () => {
     it('keeps a single refresh cadence when ambient starts before the turn', async () => {
       vi.useFakeTimers()
       const h = await makeHarness({
-        sessionIssueId: (id) => (id === asSessionId('s_agent') ? asIssueId('iss_bound') : null),
+        sessionIssueId: async (id) => (id === asSessionId('s_agent') ? asIssueId('iss_bound') : null),
       })
       const { sessionId, threadRef } = await bindTopic(h, { threadRef: '9001' })
       h.bus.emit('session.stateChanged', {
@@ -1131,7 +1131,7 @@ describe('MessagingService', () => {
 
   it('sendNotice with sessionId routes to the bound issue forum topic', async () => {
     const h = await makeHarness({
-      sessionIssueId: (sessionId) =>
+      sessionIssueId: async (sessionId) =>
         sessionId === asSessionId('s_pod') ? asIssueId('iss_pod') : null,
     })
     await h.topics.upsert({
@@ -1162,7 +1162,7 @@ describe('MessagingService', () => {
 
   it('sendNotice with sessionId falls back to main chat when the issue has no bound topic', async () => {
     const h = await makeHarness({
-      sessionIssueId: () => asIssueId('iss_unbound'),
+      sessionIssueId: async () => asIssueId('iss_unbound'),
     })
     h.inbound('in topic', { threadRef: '77' })
     await h.service.sendNotice(

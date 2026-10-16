@@ -119,6 +119,12 @@ export interface SessionRepositoryPorts {
   listSessionsForBootBaseline(): Promise<SessionMeta[]>
   now(): number
   appliedMutationMaxAgeMs: number
+  /**
+   * A committed write changed what delivery routing reads off the session —
+   * its explicit issue or its cwd (POD-6160). `previous` is what the row said
+   * before the write; the wiring publishes it as `session.routingChanged`.
+   */
+  onRoutingChanged?(sessionId: SessionId, previous: { issueId?: IssueId; cwd: string }): void
 }
 
 export class SessionRepository {
@@ -777,6 +783,13 @@ export class SessionRepository {
       // draft — which is exactly what assigning onto the live object did before.
       const raced = this.pendingVolatileSessions.get(session.sessionId)
       const persisted = toPersist[index]!
+      // The live object still holds the previous committed routing fields.
+      if (persisted.issueId !== session.issueId || persisted.cwd !== session.cwd) {
+        this.ports.onRoutingChanged?.(session.sessionId, {
+          ...(session.issueId ? { issueId: session.issueId } : {}),
+          cwd: session.cwd,
+        })
+      }
       session.installDurableState(
         persisted,
         raced !== undefined && raced.version > installedVersion ? raced.preserve : undefined,

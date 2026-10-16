@@ -11,7 +11,7 @@ import { type MessageDeliveryDeps, MessageDeliveryService } from './service'
 import { makeSpawnOnWake, spawnedByForMessage } from './spawn'
 import { openTestStore } from '../../test-support/open-test-store'
 import { metasAsFacts } from '../../test-support/session-facts'
-import { sessionsForIssue } from '../../issue-util'
+import { isMemberCwd, sessionsForIssue } from '../../issue-util'
 
 const ISSUE = {
   id: 'iss_a',
@@ -145,8 +145,10 @@ describe('wake → spawn → first prompt (service integration)', () => {
       events: store.events,
       issues: fakeIssues(),
       sessions: {
-        sessionFacts: () => metasAsFacts(sessions),
-        sessionFactsById: (id) => metasAsFacts(sessions).find((s) => s.sessionId === id),
+        readSessionFactsByIssue: async (worktreePath, issueId) =>
+          sessionsForIssue(worktreePath, metasAsFacts(sessions), issueId),
+        readSessionFactsByWorktree: async (worktreePath) =>
+          worktreePath ? metasAsFacts(sessions).filter((s) => isMemberCwd(worktreePath, s.cwd)) : [],
         sessionById: async (sessionId) => sessions.find((s) => s.sessionId === sessionId),
         listSessionsForIssue: async (worktreePath, issueId) =>
           sessionsForIssue(worktreePath, sessions, issueId),

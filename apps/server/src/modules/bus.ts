@@ -59,6 +59,16 @@ export interface EventMap {
   'session.created': { sessionId: SessionId; agentKind: AgentKind; issueId?: IssueId }
   /** A session's process ended (agentExit / reattachFailed death). */
   'session.exited': { sessionId: SessionId; code: number }
+  /**
+   * A committed session write changed what its delivery routing reads — its
+   * explicit issue or its cwd (POD-6160). `previous` is what the row said
+   * before the write, so mail routing can requeue the issue the session
+   * resolved to before without keeping a copy of every session's routing.
+   */
+  'session.routingChanged': {
+    sessionId: SessionId
+    previous: { issueId?: IssueId; cwd: string }
+  }
   /** Durable queued input requested a best-effort asynchronous wake. */
   'session.wakeRequested': { sessionId: SessionId; principal: InboxPrincipalReference }
   /** System derived-field maintenance driven by committed/live session facts. */
@@ -106,6 +116,17 @@ export interface EventMap {
   'issue.created': { issueId: IssueId; title: string; ownerUserId: UserId }
   /** One issue changed and was published (single-issue fast path, issue #22). */
   'issue.updated': { issue: IssueProjection }
+  /**
+   * A committed issue write changed the issue's worktree path (set, moved or
+   * cleared) (POD-6160). Mail routing asks which sessions sit under the OLD
+   * path as well as the new one: an unattached session under the old path was
+   * this issue's member and now belongs to another issue or none.
+   */
+  'issue.worktreeMoved': {
+    issueId: IssueId
+    previousWorktreePath: string | null
+    worktreePath: string | null
+  }
   /** An issue reached the closed stage. */
   'issue.closed': { issueId: IssueId }
   /** A closed issue was reopened. */

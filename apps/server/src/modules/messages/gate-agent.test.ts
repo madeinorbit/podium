@@ -21,7 +21,7 @@ import { SPAWN_BUDGET_PER_DAY } from './brakes'
 import { MessageGate, type MessageGateDeps } from './gate'
 import { MessageDeliveryService } from './service'
 import { metasAsFacts } from '../../test-support/session-facts'
-import { sessionsForIssue } from '../../issue-util'
+import { isMemberCwd, sessionsForIssue } from '../../issue-util'
 
 const ISSUE = {
   id: 'iss_a',
@@ -123,8 +123,10 @@ async function harness(opts?: {
     events: store.events,
     issues: fakeIssues(),
     sessions: {
-      sessionFacts: () => metasAsFacts(sessions),
-        sessionFactsById: (id) => metasAsFacts(sessions).find((s) => s.sessionId === id),
+      readSessionFactsByIssue: async (worktreePath, issueId) =>
+        sessionsForIssue(worktreePath, metasAsFacts(sessions), issueId),
+      readSessionFactsByWorktree: async (worktreePath) =>
+        worktreePath ? metasAsFacts(sessions).filter((s) => isMemberCwd(worktreePath, s.cwd)) : [],
       sessionById: async (sessionId) => sessions.find((s) => s.sessionId === sessionId),
       listSessionsForIssue: async (worktreePath, issueId) =>
         sessionsForIssue(worktreePath, sessions, issueId),

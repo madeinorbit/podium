@@ -931,7 +931,7 @@ export async function startServer(
     issues: registry.modules.issues.reports,
     sessions: registry.modules.sessions,
     topics: store.messagingTopics,
-    sessionIssueId: (sessionId) => registry.modules.sessions.getSessionIssueId(sessionId),
+    sessionIssueId: async (sessionId) => await registry.modules.sessions.readSessionIssueId(sessionId),
     // Issue-topic entry recap [spec:SP-62c3]: last messages from the bound
     // superagent (or btw origin) session transcript.
     topicRecap: {

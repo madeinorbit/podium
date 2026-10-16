@@ -109,7 +109,7 @@ export interface MessagingDeps {
   /** Forum-topic bindings (SQLite). */
   topics?: MessagingTopicsPort
   /** Session → explicit issue attachment for notice topic routing. */
-  sessionIssueId?: (sessionId: SessionId) => IssueId | null
+  sessionIssueId?: (sessionId: SessionId) => Promise<IssueId | null>
   /** Bound-thread transcript for entry recaps [spec:SP-62c3]. */
   topicRecap?: TopicRecapPort
   /** Clock for inactivity gating (tests inject a fixed/advanceable now). */
@@ -421,7 +421,7 @@ export class MessagingService implements TelegramNoticePort {
     sessionId?: SessionId,
   ): Promise<string | undefined> {
     if (sessionId) {
-      const issueId = this.deps.sessionIssueId?.(sessionId)
+      const issueId = await this.deps.sessionIssueId?.(sessionId)
       if (!issueId) return undefined
       return (
         (await this.deps.topics?.getByIssue(chatId, issueId))?.threadRef ??

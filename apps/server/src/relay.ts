@@ -396,7 +396,9 @@ export interface RegistryModules {
 }
 
 /** Projection of a Session to the fields an attention notice needs. */
-function noticeInfo(session: Session): SessionNoticeInfo {
+function noticeInfo(
+  session: Pick<Session, 'sessionId' | 'status' | 'name' | 'title' | 'cwd' | 'agentKind'>,
+): SessionNoticeInfo {
   return {
     sessionId: session.sessionId,
     status: session.status,
@@ -1900,12 +1902,17 @@ export class SessionRegistry {
           const s = sessionsSvc.sessions.get(sessionId)
           return s ? noticeInfo(s) : undefined
         },
-        sessionStates: () =>
-          [...sessionsSvc.sessions.values()].map((s) => ({
-            info: noticeInfo(s),
-            state: s.agentState,
-            ownerUserId: s.ownerUserId,
-          })),
+        // The not-exited sessions, running or hibernated (POD-6160): a stopped
+        // session's last state is not replayed, as the live path above already
+        // suppresses notices for stopped sessions.
+        sessionStates: async () =>
+          (await sessionsSvc.readSessionFactsWithStatuses(['starting', 'live', 'reconnecting', 'hibernated'])).map(
+            (s) => ({
+              info: noticeInfo(s),
+              state: s.agentState,
+              ownerUserId: s.ownerUserId,
+            }),
+          ),
         notificationsEnabled: () => featureEnabled('notifications'),
       },
       notificationPushers,
@@ -2196,11 +2203,14 @@ export class SessionRegistry {
     // identities are handled before these callbacks; a lookup miss here is how
     // the unknown-relay sentinel gets pruned from a queue (see LockSessionKey's
     // note). So the map is probed as a plain key.
-    const lockSessionRow = (sessionId: string): { cwd?: string; status: string } | undefined =>
-      (liveSessions as ReadonlyMap<string, { cwd?: string; status: string }>).get(sessionId)
-    const sessionWorkspace = (sessionId: SessionId): string | null => {
+    // A lock holder's session, running or parked (POD-6160): the resident
+    // session, else its row read once per operation. `sessionsSvc` is built
+    // above; a sentinel holder id names no session and reads as absent.
+    const lockSessionRow = async (sessionId: string) =>
+      await sessionsSvc.records.ownershipOf(asSessionId(sessionId), 'lock')
+    const sessionWorkspace = async (sessionId: SessionId): Promise<string | null> => {
       // LockSessionKey may be a sentinel; miss → null (no co-location key).
-      const s = lockSessionRow(sessionId)
+      const s = await lockSessionRow(sessionId)
       if (!s || s.status === 'exited' || !s.cwd) return null
       return s.cwd
     }
@@ -2212,15 +2222,16 @@ export class SessionRegistry {
       resolveRepoId: async (repoPath) => await this.store.repos.resolveRepoIdForPath(repoPath),
       // HOLDER liveness: does the row still exist? A hibernated holder is
       // parked, not dead, and keeps its lease (session-exit.test.ts).
-      sessionAlive: (sessionId) => {
-        const s = lockSessionRow(sessionId)
+      sessionAlive: async (sessionId) => {
+        const s = await lockSessionRow(sessionId)
         return !!s && s.status !== 'exited'
       },
       // WAITER liveness: can it take a grant? A hibernated session polls
       // nothing, so it is pruned like an exited one (POD-3807) and re-queues
-      // itself when it wakes.
+      // itself when it wakes. Only a running session can, and a running
+      // session is resident, so memory answers.
       sessionRunning: (sessionId) => {
-        const s = lockSessionRow(sessionId)
+        const s = liveSessions.get(asSessionId(sessionId))
         return !!s && s.status !== 'exited' && s.status !== 'hibernated'
       },
       sessionWorkspace,
@@ -2373,12 +2384,34 @@ export class SessionRegistry {
       }
       await messagesSvc.onIssuesEligibilityChanged(changedIssueIds)
     })
+    // The routing before-state arrives with the change (POD-6160): what a
+    // moved session resolved to before, and the worktree a moved issue left.
+    this.bus.on('session.routingChanged', async ({ previous }) => {
+      await messagesSvc.onSessionRoutingChanged(previous)
+    })
+    this.bus.on('issue.worktreeMoved', async ({ issueId, previousWorktreePath }) => {
+      await messagesSvc.onIssuesEligibilityChanged([issueId], new Map([[issueId, previousWorktreePath]]))
+    })
     const workflows = new WorkflowService(
       {
         store: this.store.workflows,
         now: () => new Date(this.now()).toISOString(),
+        // The caller's own session: a calling agent runs, so it is resident.
         session: (sessionId) => {
           const s = liveSessions.get(sessionId)
+          return s
+            ? {
+                sessionId: s.sessionId,
+                cwd: s.cwd,
+                ...(s.issueId ? { issueId: s.issueId } : {}),
+                agentKind: s.agentKind,
+                machineId: s.machineId,
+              }
+            : undefined
+        },
+        // Any session, running or parked (POD-6160).
+        readSession: async (sessionId) => {
+          const s = await sessionsSvc.records.ownershipOf(sessionId, 'workflows')
           return s
             ? {
                 sessionId: s.sessionId,

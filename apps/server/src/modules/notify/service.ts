@@ -90,13 +90,15 @@ export interface NotifyDeps {
   clients(ownerUserId?: UserId): Iterable<{ send(msg: ServerMessage): void; visible: boolean }>
   /** Resolve the notice projection for a session (undefined = unknown session). */
   sessionInfo(sessionId: SessionId): SessionNoticeInfo | undefined
-  /** Runtime state per session — notifyAttentionForNewExternalTargets replays the
-   *  current blocked states to a freshly configured external target. */
-  sessionStates(): Iterable<{
+  /** Runtime state per not-exited session (running or hibernated) —
+   *  notifyAttentionForNewExternalTargets replays the current blocked states to
+   *  a freshly configured external target. From the database where a session
+   *  is not resident (POD-6160). */
+  sessionStates(): Promise<Iterable<{
     info: SessionNoticeInfo
     state: AgentRuntimeState | undefined
     ownerUserId?: UserId
-  }>
+  }>>
   /** Per-user route lookup and asynchronous delivery request. */
   telegramRouteAvailable?(ownerUserId: UserId): boolean | Promise<boolean>
   /**
@@ -216,7 +218,7 @@ export class NotifyService {
     if (!sendNtfy && !sendTelegram) return
 
     const telegram = telegramConfig(next, botToken)
-    for (const { info, state, ownerUserId } of this.deps.sessionStates()) {
+    for (const { info, state, ownerUserId } of await this.deps.sessionStates()) {
       if (!ownerUserId) continue
       if (!state) continue
       const notice = attentionNotice(this.attentionNoticeName(info), undefined, state)

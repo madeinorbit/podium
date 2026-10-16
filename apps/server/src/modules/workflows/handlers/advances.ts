@@ -148,7 +148,7 @@ export async function assignStepHandler(
   // the apply-time half runs when the step is checkpointed. Both are needed
   // because a run is long-lived and a `use` grant can be revoked between them.
   if (input.sessionId !== null) {
-    await access.assertMayPlaceOn(caller, access.machineForSession(input.sessionId))
+    await access.assertMayPlaceOn(caller, await access.machineForSession(input.sessionId))
   }
   await deps.store.assignStep(run.id, input.stepId, input.sessionId)
   await deps.store.appendEvent({
@@ -244,7 +244,7 @@ export async function adoptHandler(
   if (current.status !== 'active' && current.status !== 'blocked')
     throw new Error('only an active workflow run may adopt a revision')
   const coordinatorSessionId = caller.actor.id ?? current.coordinatorSessionId
-  const session = deps.session(coordinatorSessionId)
+  const session = await deps.readSession(coordinatorSessionId)
   if (!session) throw new Error('coordinator session no longer exists')
   const revision = await deps.store.getRevision(input.revisionId)
   if (!revision) throw new Error(unknownRevision(input.revisionId))

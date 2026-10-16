@@ -667,6 +667,11 @@ export class SessionLifecycle {
   setSessionIssueId(...args: Parameters<SessionMetaOps['setSessionIssueId']>): Promise<void> {
     return this.sessionMetaOps.setSessionIssueId(...args)
   }
+  /** A session's explicit issue, running or parked (POD-6160: from its row
+   *  where it is not resident). */
+  async readSessionIssueId(sessionId: SessionId): Promise<IssueId | null> {
+    return (await this.records.ownershipOf(sessionId, 'sessionIssueId'))?.issueId ?? null
+  }
   getSessionIssueId(...args: any[]): any {
     return (this.sessionMetaOps as any).getSessionIssueId(...args)
   }

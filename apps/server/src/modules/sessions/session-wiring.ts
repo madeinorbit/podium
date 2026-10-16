@@ -316,6 +316,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     listSessionsForBootBaseline: () => bag.view.list(undefined, 'bootstrap'),
     now: () => bag.now(),
     appliedMutationMaxAgeMs: APPLIED_MUTATIONS_MAX_AGE_MS,
+    onRoutingChanged: (sessionId, previous) => bag.bus.emit('session.routingChanged', { sessionId, previous }),
   })
   // CONSTRUCTED HERE, NOT EARLIER, AND THE POSITION IS LOAD-BEARING.
   // SessionStart takes view, repository and state as direct references, so it

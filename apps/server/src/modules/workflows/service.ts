@@ -114,7 +114,13 @@ type IssueInfo = Pick<IssueRow, 'worktreePath'>
 export interface WorkflowServiceDeps {
   store: WorkflowsRepository
   now(): string
+  /** The CALLER's own session. An agent that is calling runs, and a running
+   *  session is resident (POD-6160), so memory answers; any other session is
+   *  {@link readSession}. */
   session(sessionId: SessionId): SessionInfo | undefined
+  /** Any session, running or parked: from the database where it is not
+   *  resident (POD-6160). */
+  readSession(sessionId: SessionId): Promise<SessionInfo | undefined>
   issue(issueId: IssueId): IssueInfo | undefined | Promise<IssueInfo | undefined>
   repoIdForPath(path: string): Promise<string | null>
   /** An agent profile by id or name (POD-6114); a run pins what this returns. */
@@ -338,7 +344,7 @@ export class WorkflowService implements WorkflowEngine {
   async liveRunForSession(sessionId: SessionId): Promise<WorkflowRunRow | null> {
     const direct = await this.deps.store.findLiveRunForSession(sessionId)
     if (direct) return direct
-    const issueId = this.deps.session(sessionId)?.issueId
+    const issueId = (await this.deps.readSession(sessionId))?.issueId
     return issueId ? await this.deps.store.findLiveRun('issue', issueId) : null
   }
 

@@ -15,7 +15,7 @@ import {
 } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import type { Capability } from '../../issue-authz'
-import { sessionsForIssue } from '../../issue-util'
+import { isMemberCwd, sessionsForIssue } from '../../issue-util'
 import type { IssueRow, MessageRow, SessionStore } from '../../store'
 import { NotificationArbiter } from '../../store/notification-facts'
 import { captureLogs } from '../../test-support/capture-logs'
@@ -276,11 +276,11 @@ async function harness(sessions: SessionMeta[] = [], opts?: HarnessOpts) {
       // what remains is the in-memory facts read, and the scaling assertions
       // below are stated over that — a sweep must not walk the fleet per row,
       // cheaply or otherwise.
-      sessionFactsById: (id) => metasAsFacts(sessions).find((s) => s.sessionId === id),
-      sessionFacts: () => {
-        listCalls.n += 1
-        return metasAsFacts(sessions)
-      },
+      // The narrow membership reads (POD-6160); a fleet read would count here.
+      readSessionFactsByIssue: async (worktreePath, issueId) =>
+        sessionsForIssue(worktreePath, metasAsFacts(sessions), issueId),
+      readSessionFactsByWorktree: async (worktreePath) =>
+        worktreePath ? metasAsFacts(sessions).filter((s) => isMemberCwd(worktreePath, s.cwd)) : [],
       // The narrow reads production wires [POD-1653]. They are counted
       // SEPARATELY so a test can assert the thing that actually costs.
       sessionById: async (sessionId) => {
@@ -4586,6 +4586,9 @@ describe('event-driven delivery review boundaries [POD-842] [spec:SP-c29e]', () 
       expect(queued).toHaveLength(0)
 
       const changed = transition.apply(sessions)
+      // What the session write (or removal) reports as `session.routingChanged`
+      // (POD-6160): the routing the row had before.
+      await svc.onSessionRoutingChanged(transition.initial)
       await svc.onSessionEligibilityChanged(asSessionId('moving'), changed)
       await svc.flushDeliveryTriggers()
 
@@ -4699,11 +4702,16 @@ describe('event-driven delivery review boundaries [POD-842] [spec:SP-c29e]', () 
     ]
     const { svc, listCalls } = await harness(sessions)
     await svc.reconcileQueued()
-    const resolve = vi.spyOn(svc as unknown as { issueForSession: (s: SessionMeta) => string | null }, 'issueForSession')
+    const owners = vi.spyOn(
+      svc as unknown as { issuesForSessions: (s: readonly SessionMeta[]) => Promise<Map<string, string | null>> },
+      'issuesForSessions',
+    )
     const before = listCalls.n
     await svc.onIssueEligibilityChanged(ISSUE.id)
-    expect(resolve).toHaveBeenCalledTimes(1)
-    expect(resolve.mock.calls[0]?.[0].sessionId).toBe('inferred')
+    // One resolution of the members together; the explicitly attached session
+    // on the same path is not a member, and nothing walks the fleet.
+    expect(owners).toHaveBeenCalledTimes(1)
+    expect(owners.mock.calls[0]?.[0].map((s) => s.sessionId)).toEqual(['inferred'])
     expect(listCalls.n).toBe(before)
   })
 
@@ -4720,16 +4728,22 @@ describe('event-driven delivery review boundaries [POD-842] [spec:SP-c29e]', () 
       return id === SENDER_ISSUE.id ? nested && row ? { ...row, worktreePath: `${ISSUE.worktreePath}/nested` } : null : row
     })
     await svc.reconcileQueued()
-    const resolve = vi.spyOn(svc as unknown as { issueForSession: (s: SessionMeta) => string | null }, 'issueForSession')
+    const queuedTargets: string[] = []
+    vi.spyOn(svc as unknown as { queueDeliveryTarget: (t: { kind: string; id: string }) => Promise<void> }, 'queueDeliveryTarget')
+      .mockImplementation(async (target) => { queuedTargets.push(`${target.kind}:${target.id}`) })
     const before = listCalls.n
+    // Creation: the session under the new nested worktree is revisited, with
+    // its new issue, and the issue that owned its folder before.
     nested = true
     await svc.onIssueEligibilityChanged(SENDER_ISSUE.id)
-    expect(resolve).toHaveBeenCalledTimes(1)
-    expect(await resolve.mock.results[0]?.value).toBe(SENDER_ISSUE.id)
+    expect(queuedTargets).toEqual(expect.arrayContaining(['issue:' + SENDER_ISSUE.id, 'session:nested']))
+    // Deletion: the worktree is gone, so the session is found under the
+    // previous path that `issue.worktreeMoved` reports, and requeued with the
+    // issue it falls back to.
+    queuedTargets.length = 0
     nested = false
-    await svc.onIssueEligibilityChanged(SENDER_ISSUE.id)
-    expect(resolve).toHaveBeenCalledTimes(2)
-    expect(await resolve.mock.results[1]?.value).toBe(ISSUE.id)
+    await svc.onIssuesEligibilityChanged([SENDER_ISSUE.id], new Map([[SENDER_ISSUE.id, `${ISSUE.worktreePath}/nested`]]))
+    expect(queuedTargets).toEqual(expect.arrayContaining(['issue:' + SENDER_ISSUE.id, 'session:nested', 'issue:' + ISSUE.id]))
     expect(listCalls.n).toBe(before)
   })
 
@@ -4811,7 +4825,9 @@ describe('delivery trigger isolation and observability [POD-842]', () => {
       pendingTargetCount: 0,
       triggerFailures: 1,
     })
-    expect(svc.deliveryStats().coalescedTriggerCount).toBeGreaterThan(0)
+    // The startup walk queues each pending target once: nothing coalesces
+    // (POD-6160; it used to queue every session first to seed a routing copy).
+    expect(svc.deliveryStats().coalescedTriggerCount).toBe(0)
     svc.dispose()
   })
 })

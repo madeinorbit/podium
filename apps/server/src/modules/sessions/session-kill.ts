@@ -115,12 +115,20 @@ export class SessionKill {
     terminalRetirement?: { retiredAt: string },
   ): Promise<() => void> {
     const session = this.ports.sessions.get(sessionId)
-    const machineId = session?.machineId ??
-      (await this.ports.store.sessions.getSession(sessionId))?.machineId ??
-      await this.ports.machines.defaultMachine()
+    const row = session ? undefined : await this.ports.store.sessions.getSession(sessionId)
+    const machineId = session?.machineId ?? row?.machineId ?? await this.ports.machines.defaultMachine()
+    // What delivery routing resolved this session to, for the requeue of that
+    // issue once it is gone (POD-6160: no routing copy remembers it).
+    const routed = session ?? row
     return () => {
       // Notify while membership/cwd are still resolvable, before removal.
       this.ports.bus.emit('issue.sessionDerived', { kind: 'removedOrArchived', sessionId })
+      if (routed) {
+        this.ports.bus.emit('session.routingChanged', {
+          sessionId,
+          previous: { ...(routed.issueId ? { issueId: routed.issueId } : {}), cwd: routed.cwd },
+        })
+      }
 
       if (!terminalRetirement) this.ports.toMachine(machineId, {
         type: 'kill', sessionId,

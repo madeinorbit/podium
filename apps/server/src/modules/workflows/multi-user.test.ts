@@ -164,6 +164,7 @@ async function makeHarness(policy: Policy) {
       store: store.workflows,
       now: () => NOW,
       session: (id) => SESSIONS.get(id),
+      readSession: async (id) => SESSIONS.get(id),
       issue: () => undefined,
       repoIdForPath: async (path) =>
         path.startsWith('/repo-a') ? 'repo-a' : path.startsWith('/repo-b') ? 'repo-b' : null,
@@ -216,6 +217,7 @@ describe('ownership resolved per pass', () => {
         store: store.workflows,
         now: () => NOW,
         session: (id) => SESSIONS.get(id),
+        readSession: async (id) => SESSIONS.get(id),
         issue: () => undefined,
         repoIdForPath: async () => null,
         agentProfile: async () => null,

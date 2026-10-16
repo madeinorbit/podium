@@ -252,6 +252,7 @@ async function makeHarness(
       store: store.workflows,
       now: () => clock.value,
       session: (id) => SESSIONS.get(id),
+      readSession: async (id) => SESSIONS.get(id),
       issue: (id) => ISSUES.get(id),
       repoIdForPath: async (path) =>
         path.startsWith('/repo-a') ? 'repo-a' : path.startsWith('/repo-b') ? 'repo-b' : null,

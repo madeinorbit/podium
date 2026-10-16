@@ -57,7 +57,7 @@ export interface LockCommandDeps {
    * Live session workspace root (cwd) for co-location refuse + status display.
    * Unknown / operator → null.
    */
-  sessionWorkspace?(sessionId: LockHolderId): string | null
+  sessionWorkspace?(sessionId: LockHolderId): Promise<string | null>
 }
 
 /** Per-call execution context: caller identity + the LockService. */
@@ -94,7 +94,7 @@ export class LockCommandCtx {
     }
     const workspace =
       sessionId != null && sessionId !== UNKNOWN_RELAY_SESSION
-        ? (this.deps.sessionWorkspace?.(sessionId) ?? null)
+        ? ((await this.deps.sessionWorkspace?.(sessionId)) ?? null)
         : null
     return { sessionId, issueId, label, workspace }
   }

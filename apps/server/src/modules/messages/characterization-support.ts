@@ -37,7 +37,7 @@ import type { TurnReceipt } from '@podium/protocol/daemon'
 import { normalizeSettings } from '@podium/runtime'
 import type { Capability } from '../../issue-authz'
 import type { SessionStore } from '../../store'
-import { sessionsForIssue } from '../../issue-util'
+import { isMemberCwd, sessionsForIssue } from '../../issue-util'
 import { openTestStore } from '../../test-support/open-test-store'
 import { metaAsFacts, sessionReadPorts } from '../../test-support/session-facts'
 import { type IssueDeps, IssueService } from '../issues/service'
@@ -360,8 +360,10 @@ export async function mailHarness(opts?: HarnessOptions): Promise<MailHarness> {
     events: store.events,
     issues,
     sessions: {
-      sessionFacts: () => sessions.map(metaAsFacts),
-      sessionFactsById: (id) => sessions.map(metaAsFacts).find((s) => s.sessionId === id),
+      readSessionFactsByIssue: async (worktreePath, issueId) =>
+        sessionsForIssue(worktreePath, sessions.map(metaAsFacts), issueId),
+      readSessionFactsByWorktree: async (worktreePath) =>
+        worktreePath ? sessions.map(metaAsFacts).filter((s) => isMemberCwd(worktreePath, s.cwd)) : [],
       sessionById: async (sessionId) => sessions.find((s) => s.sessionId === sessionId),
       listSessionsForIssue: async (worktreePath, issueId) =>
         sessionsForIssue(worktreePath, sessions, issueId),

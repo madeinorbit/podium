@@ -56,6 +56,7 @@ describe('WorkflowService', () => {
         store: store.workflows,
         now: () => '2026-07-13T12:00:00.000Z',
         session: (id) => sessions.get(id),
+        readSession: async (id) => sessions.get(id),
         issue: (id) =>
           id === 'issue-1'
             ? { id, repoId: 'repo-1', repoPath: '/repo', worktreePath: '/repo/wt' }
@@ -80,6 +81,7 @@ describe('WorkflowService', () => {
       store: store.workflows,
       now: () => '2026-07-13T12:00:00.000Z',
       session: id => sessions.get(id),
+      readSession: async (id) => sessions.get(id),
       issue: id => ({ id, repoId: 'repo-1', repoPath: '/repo', worktreePath: worktree }),
       repoIdForPath: async () => 'repo-1',
       agentProfile: async () => null,

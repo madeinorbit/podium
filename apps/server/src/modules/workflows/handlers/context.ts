@@ -655,7 +655,7 @@ export class WorkflowAccess {
   }
 
   /** The machine a session sits on, for the assign-time placement check. */
-  machineForSession(sessionId: SessionId | null): MachineId | undefined {
-    return sessionId ? this.deps.session(sessionId)?.machineId : undefined
+  async machineForSession(sessionId: SessionId | null): Promise<MachineId | undefined> {
+    return sessionId ? (await this.deps.readSession(sessionId))?.machineId : undefined
   }
 }

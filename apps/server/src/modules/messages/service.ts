@@ -193,56 +193,6 @@ interface InboxDeliveryInput {
   sourceMessageId: string
 }
 
-/** Membership candidates maintained by the same session events as the routing
- * before-state. Cwd nodes contain only unattached sessions; explicit attachments
- * never become candidates merely because their directory matches another issue.
- * Each node retains descendant IDs so an issue change reads its members directly.
- */
-class RoutingMembership {
-  private readonly byIssue = new Map<string, Set<SessionId>>()
-  private readonly byPath = new Map<string, Set<SessionId>>()
-  private readonly members = new Map<SessionId, { issueId: IssueId | null; paths: string[] }>()
-
-  update(id: SessionId, session: Pick<SessionFacts, 'cwd' | 'issueId'> | undefined, issueId: IssueId | null): void {
-    const old = this.members.get(id)
-    const remove = (map: Map<string, Set<SessionId>>, key: string) => {
-      const ids = map.get(key)
-      ids?.delete(id)
-      if (!ids?.size) map.delete(key)
-    }
-    if (old?.issueId) remove(this.byIssue, old.issueId)
-    for (const path of old?.paths ?? []) remove(this.byPath, path)
-    this.members.delete(id)
-    if (!session) return
-    const add = (map: Map<string, Set<SessionId>>, key: string) => {
-      let ids = map.get(key)
-      if (!ids) map.set(key, (ids = new Set()))
-      ids.add(id)
-    }
-    const paths: string[] = []
-    if (!session.issueId) {
-      let end = session.cwd.length
-      while (end > 0) {
-        const path = session.cwd.slice(0, end)
-        paths.push(path)
-        add(this.byPath, path)
-        end = session.cwd.lastIndexOf('/', end - 1)
-      }
-    }
-    if (issueId) add(this.byIssue, issueId)
-    this.members.set(id, { issueId, paths })
-  }
-
-  has(id: SessionId): boolean { return this.members.has(id) }
-
-  candidates(issueId: string, worktreePath: string | null | undefined): Set<SessionId> {
-    return new Set([
-      ...(this.byIssue.get(issueId) ?? []),
-      ...(worktreePath ? this.byPath.get(worktreePath) ?? [] : []),
-    ])
-  }
-}
-
 export type DeliveryContradictionEvidence =
   | { kind: 'wrapped-frame'; frameId: string; transcriptItem?: TranscriptItemRef }
   | { kind: 'driver-id'; transcriptItem: TranscriptItemRef; harnessRef: HarnessRef }
@@ -276,11 +226,11 @@ export interface MessageDeliveryDeps {
       worktreePath: string | null,
       issueId: IssueId,
     ): Promise<SessionMeta[]>
-    /** The whole fleet as cheap in-memory facts [POD-3857] — what the two
-     *  membership sweeps below actually read. Generalizes POD-2322's
-     *  `sessionRoutingFacts`. */
-    sessionFacts(): SessionFacts[]
-    sessionFactsById(sessionId: SessionId): SessionFacts | undefined
+    /** The member sessions of one issue, as cheap facts [POD-3857], read from
+     *  the database where they are not resident (POD-6160). */
+    readSessionFactsByIssue(worktreePath: string | null, issueId: IssueId): Promise<SessionFacts[]>
+    /** Every session at or below a path, whatever issue it is on (POD-6160). */
+    readSessionFactsByWorktree(worktreePath: string | null): Promise<SessionFacts[]>
     /** Live position in the SessionInbox FIFO for a ledger row already handed
      * to it by a receipt/queue delivery. */
     queuedMessagePosition?(
@@ -711,75 +661,94 @@ export class MessageDeliveryService {
     return await this.render.renderFor(message, receiverSessionId)
   }
 
-  /** Last resolved issue per session. This is the before-state needed for detach,
-   * reassignment, inferred-cwd movement, and remove events. */
-  private readonly sessionIssueTargets = new Map<SessionId, IssueId>()
-  private readonly routingMembership = new RoutingMembership()
-  private routingMembershipReady = false
-
-  private rememberMembership(sessionId: SessionId, session: Pick<SessionFacts, 'cwd' | 'issueId'> | undefined, issueId: IssueId | null): void {
-    this.routingMembership.update(sessionId, session, issueId)
-    if (issueId) this.sessionIssueTargets.set(sessionId, issueId)
-    else this.sessionIssueTargets.delete(sessionId)
-  }
-
-  private async seedMembership(sessions: readonly SessionFacts[], preserveKnown = false): Promise<void> {
-    const pending = sessions.filter((session) => !(preserveKnown && this.routingMembership.has(session.sessionId)))
-    const owners = await this.issuesForSessions(pending)
-    for (const session of pending) {
-      this.rememberMembership(session.sessionId, session, owners.get(session.sessionId) ?? null)
-    }
-    this.routingMembershipReady = true
-  }
-
-  /** Queue the session principal plus both sides of its issue-resolution change. */
+  /**
+   * DELIVERY ELIGIBILITY AFTER A SESSION OR ISSUE CHANGE [spec:SP-c29e].
+   *
+   * A change can make pending mail deliverable (or move it to another member),
+   * so it queues the targets whose answer may have moved: the session
+   * principal, the issue it resolves to now and the issue it resolved to
+   * before. Each queue is one count and nothing more when the target has no
+   * pending row.
+   *
+   * NO COPY OF THE FLEET'S ROUTING (POD-6160). This service used to keep every
+   * session's last resolved issue and a membership index seeded with every
+   * session at boot, to know "before". The before-state now arrives with the
+   * change: a session write that moves the session reports what its row said
+   * before (`session.routingChanged`), and an issue write that moves its
+   * worktree reports the old path (`issue.worktreeMoved`), so the sessions
+   * under the old path are found by the same indexed query as those under the
+   * new one.
+   */
   async onSessionEligibilityChanged(sessionId: SessionId, changed?: SessionMeta): Promise<void> {
-    await this.requeueSessionTargets(sessionId, changed ?? await this.deps.sessions.sessionById(sessionId))
-  }
-
-  private async requeueSessionTargets(
-    sessionId: SessionId,
-    session: Pick<SessionFacts, 'cwd' | 'issueId'> | undefined,
-    resolved?: IssueId | null,
-  ): Promise<void> {
-    const previousIssueId = this.sessionIssueTargets.get(sessionId)
-    const nextIssueId = resolved !== undefined ? resolved : await this.issueForSession(session)
-    this.rememberMembership(sessionId, session, nextIssueId)
-
+    const session = changed ?? (await this.deps.sessions.sessionById(sessionId))
     await this.queueDeliveryTarget({ kind: 'session', id: sessionId })
-    if (previousIssueId && previousIssueId !== nextIssueId) {
-      await this.queueDeliveryTarget({ kind: 'issue', id: previousIssueId })
-    }
-    if (nextIssueId) await this.queueDeliveryTarget({ kind: 'issue', id: nextIssueId })
+    const issueId = await this.issueForSession(session)
+    if (issueId) await this.queueDeliveryTarget({ kind: 'issue', id: issueId })
   }
 
-  /** Issue-side target changes can alter inferred session membership and the
-   * cooldown key of session-addressed wakes. Recompute affected sessions and
-   * queue their principals plus both old/new issues. */
+  /** A committed session write moved the session: queue the issue it resolved
+   *  to before the write. */
+  async onSessionRoutingChanged(previous: Pick<SessionMeta, 'issueId' | 'cwd'>): Promise<void> {
+    const issueId = await this.issueForSession(previous)
+    if (issueId) await this.queueDeliveryTarget({ kind: 'issue', id: issueId })
+  }
+
   async onIssueEligibilityChanged(issueId: IssueId): Promise<void> {
     await this.onIssuesEligibilityChanged([issueId])
   }
 
-  /** Issue events revisit previous owners plus unattached sessions under the
-   * current worktree. This includes both sides of rehome/deletion and newly
-   * introduced nested worktrees, without resolving unrelated sessions. The
-   * initial seed is a boot-only fleet read; ordinary session events update one
-   * member and issue events use the reverse indexes.
+  /**
+   * Issue events revisit the issue's members — sessions attached to it and
+   * unattached sessions under its worktree, and under its PREVIOUS worktree
+   * when the change moved it (`previousWorktrees`, from `issue.worktreeMoved`)
+   * — each with the issue it resolves to now. The issue each of them resolved
+   * to before is the changed issue (queued here) or, for a session the issue's
+   * new worktree took over, the issue owning that worktree's parent folder.
    */
-  async onIssuesEligibilityChanged(issueIds: readonly string[]): Promise<void> {
+  async onIssuesEligibilityChanged(
+    issueIds: readonly string[],
+    previousWorktrees: ReadonlyMap<string, string | null> = new Map(),
+  ): Promise<void> {
     const changed = new Set(issueIds)
     if (changed.size === 0) return
-    if (!this.routingMembershipReady) await this.seedMembership(this.deps.sessions.sessionFacts(), true)
-    const candidates = new Set<SessionId>()
+    const candidates = new Map<SessionId, SessionFacts>()
+    const parents = new Map<string, string>()
     for (const issueId of changed) {
       await this.queueDeliveryTarget({ kind: 'issue', id: issueId })
       const issue = await this.deps.issues.reports.getMeta(issueId)
-      for (const id of this.routingMembership.candidates(issueId, issue?.worktreePath)) candidates.add(id)
+      const worktreePath = issue?.worktreePath ?? null
+      for (const session of await this.deps.sessions.readSessionFactsByIssue(worktreePath, asIssueId(issueId))) {
+        candidates.set(session.sessionId, session)
+      }
+      const previous = previousWorktrees.get(issueId)
+      if (previous && previous !== worktreePath) {
+        for (const session of await this.deps.sessions.readSessionFactsByWorktree(previous)) {
+          if (!session.issueId) candidates.set(session.sessionId, session)
+        }
+      }
+      const parent = worktreePath ? parentFolder(worktreePath) : null
+      if (parent) parents.set(issueId, parent)
     }
-    for (const id of candidates) {
-      const session = this.deps.sessions.sessionFactsById(id)
-      if (session) await this.requeueSessionTargets(session.sessionId, session)
-      else this.rememberMembership(id, undefined, null)
+    const owners = await this.issuesForSessions([...candidates.values()])
+    // The issues that owned the new worktrees' folders before: one read.
+    const formerOwners = new Set<IssueId>()
+    if (parents.size > 0) {
+      let byFolder = new Map<string, IssueId | null>()
+      try {
+        byFolder = await this.deps.issues.reports.issuesForCwds([...new Set(parents.values())])
+      } catch {}
+      for (const parent of parents.values()) {
+        const owner = byFolder.get(parent)
+        if (owner) formerOwners.add(asIssueId(owner))
+      }
+    }
+    for (const session of candidates.values()) {
+      await this.queueDeliveryTarget({ kind: 'session', id: session.sessionId })
+      const issueId = owners.get(session.sessionId)
+      if (issueId && !changed.has(issueId)) await this.queueDeliveryTarget({ kind: 'issue', id: issueId })
+    }
+    for (const issueId of formerOwners) {
+      if (!changed.has(issueId)) await this.queueDeliveryTarget({ kind: 'issue', id: issueId })
     }
   }
 
@@ -835,20 +804,9 @@ export class MessageDeliveryService {
   /** Begin a bounded startup walk. The session→issue before-state is this
    *  service's to restore; the walk itself is the scheduler's. */
   async reconcileQueued(): Promise<void> {
-    const sessions = this.deps.sessions.sessionFacts()
-    if (await this.scheduler.queueIsEmpty()) {
-      // Preserve the before-state needed by detach/reassign events without
-      // issuing two principal COUNTs per live session on the overwhelmingly
-      // common empty-queue boot path.
-      await this.seedMembership(sessions)
-      return
-    }
-    // Every session's owning issue in one read, not one per session (POD-6155).
-    const owners = await this.issuesForSessions(sessions)
-    for (const session of sessions) {
-      await this.requeueSessionTargets(session.sessionId, session, owners.get(session.sessionId) ?? null)
-    }
-    this.routingMembershipReady = true
+    // The walk queues the target of every pending row, page by page; there is
+    // no routing before-state to restore (POD-6160), so nothing else to do.
+    if (await this.scheduler.queueIsEmpty()) return
     await this.scheduler.reconcile()
   }
 
@@ -869,7 +827,6 @@ export class MessageDeliveryService {
   dispose(): void {
     this.scheduler.dispose()
     this.brakes.dispose()
-    this.sessionIssueTargets.clear()
   }
 
   private async queueDeliveryTarget(target: DeliveryTarget): Promise<void> {
@@ -3152,4 +3109,11 @@ export class MessageDeliveryService {
       log.warn('message transition recording failed', { err: error, messageId: message.id, kind })
     }
   }
+}
+
+/** The folder a worktree sits in, in the path's own separator; null at a root. */
+function parentFolder(path: string): string | null {
+  const trimmed = path.replace(/[\\/]+$/, '')
+  const at = Math.max(trimmed.lastIndexOf('/'), trimmed.lastIndexOf('\\'))
+  return at > 0 ? trimmed.slice(0, at) : null
 }

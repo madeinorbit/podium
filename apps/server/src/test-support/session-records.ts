@@ -39,6 +39,7 @@ export function residentRecords(sessions: ReadonlyMap<SessionId, Session>): Sess
             ...(s.spawnedBy ? { spawnedBy: s.spawnedBy } : {}),
             machineId: s.machineId,
             status: s.status,
+            agentKind: s.agentKind,
           }
         : undefined
     },

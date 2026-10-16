@@ -69,7 +69,7 @@ export interface LockServiceDeps {
    *  the unknown-relay sentinel gets pruned from a queue (see its doc in
    *  registry.ts). Narrowing this to `SessionId` would force a cast at the one
    *  call site and hide that mechanism. */
-  sessionAlive(sessionId: LockHolderId): boolean
+  sessionAlive(sessionId: LockHolderId): Promise<boolean>
   /**
    * Is the session RUNNING — able to notice a grant and then release it?
    * Waiter pruning keys on this, not on `sessionAlive` (POD-3807). A hibernated
@@ -77,14 +77,16 @@ export interface LockServiceDeps {
    * burns a full TTL and the queue behind it never drains — one waiter parked
    * since the previous day kept the `test:heavy` queue cycling. A parked
    * waiter is dropped like an exited one and re-queues itself when it wakes.
-   * Same key type, and the same sentinel rules, as `sessionAlive`.
+   * Same key type, and the same sentinel rules, as `sessionAlive`. Synchronous:
+   * a running session is always resident (POD-6160), so this asks memory.
    */
   sessionRunning(sessionId: LockHolderId): boolean
   /**
    * Live session workspace root (cwd) for addressability + co-location refuse.
-   * Unknown / exited / sentinels → null. Same key type as sessionAlive.
+   * Unknown / exited / sentinels → null. Same key type as sessionAlive. Async:
+   * a hibernated holder is read from its row (POD-6160).
    */
-  sessionWorkspace(sessionId: LockHolderId): string | null
+  sessionWorkspace(sessionId: LockHolderId): Promise<string | null>
   /**
    * Best-effort notice to an issue, as a message from `system:<from>`
    * (systemIssueNotice, POD-4846); never throws.
@@ -127,29 +129,28 @@ export class LockService {
   /** The sentinel rules both liveness questions share: operator and in-process
    *  system jobs are live for their lease; unknown-relay is always dead. Only a
    *  real session reaches `probe`. */
-  private principalLiveness(
-    sessionId: LockHolderId | null,
-    probe: (id: LockHolderId) => boolean,
-  ): boolean {
+  /** The liveness answer for the identities that are not sessions, or
+   *  undefined when the session itself has to be asked. */
+  private nonSessionLiveness(sessionId: LockHolderId | null): boolean | undefined {
     if (sessionId == null || sessionId === OPERATOR_LOCK_SESSION || isSystemLockSession(sessionId))
       return true
     if (sessionId === 'unknown-session') return false
-    return probe(sessionId)
+    return undefined
   }
 
   /** Does this principal still exist? What a HOLDER is judged by: a parked
    *  session keeps the lease it already holds. */
-  private isAlive(sessionId: LockHolderId | null): boolean {
-    return this.principalLiveness(sessionId, (id) => this.deps.sessionAlive(id))
+  private async isAlive(sessionId: LockHolderId | null): Promise<boolean> {
+    return this.nonSessionLiveness(sessionId) ?? (await this.deps.sessionAlive(sessionId!))
   }
 
   /** Can this principal actually take a grant? What a WAITER is judged by, so
    *  hibernated and exited are pruned alike (POD-3807). */
   private isRunning(sessionId: LockHolderId | null): boolean {
-    return this.principalLiveness(sessionId, (id) => this.deps.sessionRunning(id))
+    return this.nonSessionLiveness(sessionId) ?? this.deps.sessionRunning(sessionId!)
   }
 
-  private workspaceOf(sessionId: LockHolderId | null): string | null {
+  private async workspaceOf(sessionId: LockHolderId | null): Promise<string | null> {
     if (
       sessionId == null ||
       sessionId === OPERATOR_LOCK_SESSION ||
@@ -158,37 +159,41 @@ export class LockService {
     ) {
       return null
     }
-    return normalizeWorkspace(this.deps.sessionWorkspace(sessionId))
+    return normalizeWorkspace(await this.deps.sessionWorkspace(sessionId))
   }
 
   /** `role` picks the liveness question: a waiter that the next advance would
    *  prune must read `alive: false` here, or status lies about who is next. */
-  private principalWire(
+  private async principalWire(
     sessionId: LockHolderId | null,
     issueId: IssueId | null,
     label: string,
     role: 'holder' | 'waiter',
-  ): LockHolderWire {
+  ): Promise<LockHolderWire> {
     return {
       sessionId,
       issueId,
       label,
-      alive: role === 'holder' ? this.isAlive(sessionId) : this.isRunning(sessionId),
-      workspace: this.workspaceOf(sessionId),
+      alive: role === 'holder' ? await this.isAlive(sessionId) : this.isRunning(sessionId),
+      workspace: await this.workspaceOf(sessionId),
     }
   }
 
   private async toWire(lock: LockRow): Promise<LockWire> {
-    const queue = (await this.deps.locks.listWaiters(lock.repoId, lock.name)).map((w, i) => ({
-      position: i + 1,
-      ...this.principalWire(w.sessionId, w.issueId, w.label, 'waiter'),
-      sessionId: w.sessionId,
-      enqueuedAt: w.enqueuedAt,
-    }))
+    // Asked together, so the waiters' session rows are one read (the session
+    // loader batches loads asked in the same tick).
+    const queue = await Promise.all(
+      (await this.deps.locks.listWaiters(lock.repoId, lock.name)).map(async (w, i) => ({
+        position: i + 1,
+        ...(await this.principalWire(w.sessionId, w.issueId, w.label, 'waiter')),
+        sessionId: w.sessionId,
+        enqueuedAt: w.enqueuedAt,
+      })),
+    )
     return {
       repoId: lock.repoId,
       name: lock.name,
-      holder: this.principalWire(
+      holder: await this.principalWire(
         lock.holderSessionId,
         lock.holderIssueId,
         lock.holderLabel,
@@ -222,12 +227,12 @@ export class LockService {
   } | null> {
     const callerKey = this.sessionKey(caller)
     const callerWorkspace =
-      normalizeWorkspace(caller.workspace) ?? this.workspaceOf(caller.sessionId)
+      normalizeWorkspace(caller.workspace) ?? (await this.workspaceOf(caller.sessionId))
 
-    const matches = (
+    const matches = async (
       otherSessionId: LockHolderId | null,
       otherIssueId: IssueId | null,
-    ): 'issue' | 'workspace' | null => {
+    ): Promise<'issue' | 'workspace' | null> => {
       if (otherSessionId === caller.sessionId) return null
       // Operator (null session) is never a "sibling" of an agent.
       if (caller.sessionId == null || otherSessionId == null) return null
@@ -242,13 +247,13 @@ export class LockService {
         return 'issue'
       }
       if (callerWorkspace != null) {
-        const otherWs = this.workspaceOf(otherSessionId)
+        const otherWs = await this.workspaceOf(otherSessionId)
         if (otherWs != null && otherWs === callerWorkspace) return 'workspace'
       }
       return null
     }
 
-    const holderReason = matches(lock.holderSessionId, lock.holderIssueId)
+    const holderReason = await matches(lock.holderSessionId, lock.holderIssueId)
     if (holderReason) {
       return {
         kind: 'holder',
@@ -261,7 +266,7 @@ export class LockService {
     for (let i = 0; i < waiters.length; i++) {
       const w = waiters[i]!
       if (w.sessionId === callerKey) continue
-      const reason = matches(w.sessionId === OPERATOR_LOCK_SESSION ? null : w.sessionId, w.issueId)
+      const reason = await matches(w.sessionId === OPERATOR_LOCK_SESSION ? null : w.sessionId, w.issueId)
       if (reason) {
         return {
           kind: 'waiter',
@@ -356,7 +361,7 @@ export class LockService {
           sessionId: w.sessionId === OPERATOR_LOCK_SESSION ? null : w.sessionId,
           issueId: w.issueId,
           label: w.label,
-          workspace: this.workspaceOf(w.sessionId === OPERATOR_LOCK_SESSION ? null : w.sessionId),
+          workspace: await this.workspaceOf(w.sessionId === OPERATOR_LOCK_SESSION ? null : w.sessionId),
         },
         w.ttlSeconds,
         w.note,
@@ -480,7 +485,7 @@ export class LockService {
           return {
             released: true as const,
             next: next
-              ? this.principalWire(
+              ? await this.principalWire(
                   next.holderSessionId,
                   next.holderIssueId,
                   next.holderLabel,
@@ -578,7 +583,7 @@ export class LockService {
           const existing = await this.deps.locks.getLock(repoId, input.name)
           const previousHolder: LockHolderWire | null =
             existing && !this.sameHolder(existing, caller)
-              ? this.principalWire(
+              ? await this.principalWire(
                   existing.holderSessionId,
                   existing.holderIssueId,
                   existing.holderLabel,

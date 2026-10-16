@@ -165,7 +165,7 @@ export class SessionRecords {
   /**
    * WHO A SESSION ACTS FOR, AND WHERE (POD-6160 D2c): the fields an
    * authorization, principal or liveness check reads — owner, explicit issue,
-   * cwd, creator, machine, status. The resident session's as it stands when asked; otherwise its row,
+   * cwd, creator, machine, status, agent kind. The resident session's as it stands when asked; otherwise its row,
    * through the operation's session loader (one read, shared with every other
    * check in the operation, and invalidated by every write of the row), never
    * a full record. A deleted or unknown session has none. Until the map
@@ -461,6 +461,7 @@ export interface SessionOwnership {
   spawnedBy?: string
   machineId: MachineId
   status: Session['status']
+  agentKind: string
 }
 
 function ownershipFields(s: {
@@ -471,6 +472,7 @@ function ownershipFields(s: {
   spawnedBy?: string | undefined
   machineId: MachineId
   status: Session['status']
+  agentKind: string
 }): SessionOwnership {
   return {
     sessionId: s.sessionId,
@@ -480,6 +482,7 @@ function ownershipFields(s: {
     ...(s.spawnedBy ? { spawnedBy: s.spawnedBy } : {}),
     machineId: s.machineId,
     status: s.status,
+    agentKind: s.agentKind,
   }
 }
 
@@ -492,6 +495,7 @@ function rowOwnership(row: SessionRow) {
     spawnedBy: row.spawnedBy ?? undefined,
     machineId: row.machineId,
     status: row.status,
+    agentKind: row.agentKind,
   }
 }
 

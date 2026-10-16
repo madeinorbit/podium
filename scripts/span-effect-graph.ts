@@ -825,7 +825,15 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
   },
   'apps/server/src/modules/lock/service.ts#LockServiceDeps.sessionAlive': {
     kind: 'contained',
-    why: 'an in-process liveness read',
+    why: "a liveness read: the resident session's status, else its row through the operation's session loader (POD-6160). It writes nothing.",
+  },
+  'apps/server/src/modules/lock/service.ts#LockServiceDeps.sessionWorkspace': {
+    kind: 'contained',
+    why: "a session's cwd for co-location: the resident session's, else its row through the operation's session loader (POD-6160, async since then, which is when the lint began to see it). It writes nothing.",
+  },
+  'apps/server/src/modules/sessions/repository.ts#SessionRepositoryPorts.onRoutingChanged': {
+    kind: 'contained',
+    why: "publishes `session.routingChanged` on the event bus (POD-6160), which runs its listeners OUTSIDE the emitter's span, after the outermost commit (bus.ts emit, POD-3806); inside the span it only hands the payload over.",
   },
   'apps/server/src/modules/lock/service.ts#LockServiceDeps.sessionRunning': {
     kind: 'contained',
