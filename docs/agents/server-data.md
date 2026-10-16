@@ -71,7 +71,7 @@ Each rule has the reason for it and an example from this repository.
    - the committed table writes that remove its entries.
 
    A test proves that a write removes the entry.
-4. **Removed key by key, after commit.** A write removes only the entries it changed, and only once its transaction has committed. Never throw the whole cache away on a write. (Today `latestChangeStatesCache` in `packages/sync/src/adapters/sqlite/sync-repository.ts` is dropped whole on every append and read again in full on the next visibility check.)
+4. **Removed key by key, after commit.** A write removes only the entries it changed, and only once its transaction has committed. Never throw the whole cache away on a write. (The raw copy of `change_latest` that POD-6156 removed was dropped whole on every append and read again in full on the next visibility check; the visibility anchors now read the rows a batch names by key, `SyncRepository.installedStates`.)
 5. **Never read inside a save.** A save always reads the database.
 6. **Never a whole-table copy.** There is no exception for small tables: with several users or tenants, "small" is multiplied, and several processes cannot share one in-memory copy.
 

@@ -43,8 +43,7 @@ const initialCheckpoint = checkpointDb.query('PRAGMA wal_checkpoint(TRUNCATE)').
 if (initialCheckpoint.busy) throw new Error('fixture checkpoint busy before measurement')
 const feed = makeFeedVisibility({
   store,
-  audienceResourceIds: () => [],
-  audienceFor: () => [],
+  audiencesFor: async (_kind, ids) => new Map(ids.map((id) => [id, []])),
   issueEventSubjects: () => [],
   authorizationRevision: () => 0,
 })

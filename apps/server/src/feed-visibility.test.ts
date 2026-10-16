@@ -55,9 +55,7 @@ async function fixture() {
     },
     shipping: {
       issueIdsForOrders: async () => new Map(),
-      laneMemberIssueIds: async () => [],
       laneMemberIssueIdsMany: async (ids) => new Map([...ids].map((id) => [id, []])),
-      getOrder: async () => null,
       ordersByIds: async () => [],
       orderIdsForIssues: async () => [],
     },
@@ -67,8 +65,6 @@ async function fixture() {
   }
   const policy = makeFeedVisibility({
     store: rows,
-    audienceResourceIds: (kind) => store.grants.visibilityAudienceResourceIds(kind),
-    audienceFor: (kind, id) => store.grants.visibilityAudienceFor(kind, id),
     audiencesFor: (kind, ids) => store.grants.visibilityAudiencesFor(kind, ids),
     authorizationRevision: () => store.grants.visibilityRevision(),
   })

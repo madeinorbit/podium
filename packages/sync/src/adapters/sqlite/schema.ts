@@ -149,7 +149,7 @@ export const changes = sqliteTable(
  *
  * ONLY LIVE UPSERTS. A `remove` deletes the row rather than storing a tombstone,
  * because every consumer of the fold — the bootstrap read, the dedup baseline
- * seed, the visibility read cache — already skips non-upsert rows. A tombstone
+ * seed, the visibility anchors' reads by key — already skips non-upsert rows. A tombstone
  * would be a row that exists so that everyone can ignore it, and would grow
  * without bound in exactly the dimension this table has to stay small in.
  *

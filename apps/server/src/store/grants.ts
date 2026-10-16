@@ -73,16 +73,7 @@ export function grantFromRow(r: GrantSelection): GrantRow | undefined {
 
 // Every query this repository runs, prepared once per store [POD-6147].
 
-const audienceOf = prepared((db: StoreDrizzle) =>
-  db.select({ grantee: grantAudiences.grantee }).from(grantAudiences)
-    .where(and(
-      eq(grantAudiences.resourceKind, param(grantAudiences.resourceKind, 'resourceKind')),
-      eq(grantAudiences.resourceId, param(grantAudiences.resourceId, 'resourceId')),
-    ))
-    .orderBy(asc(grantAudiences.grantee)).prepare(),
-)
-
-/** {@link audienceOf} for many resources of one kind, in primary-key order [POD-6156]. */
+/** The historical audiences of many resources of one kind, in primary-key order [POD-6156]. */
 const audiencesOf = preparedFamily((db: StoreDrizzle, size: number) =>
   db.select({ resourceId: grantAudiences.resourceId, grantee: grantAudiences.grantee }).from(grantAudiences)
     .where(and(
@@ -90,12 +81,6 @@ const audiencesOf = preparedFamily((db: StoreDrizzle, size: number) =>
       inListOf(grantAudiences.resourceId, size, 'resourceIds'),
     ))
     .orderBy(asc(grantAudiences.resourceId), asc(grantAudiences.grantee)).prepare(),
-)
-
-const audienceResourceIdsOf = prepared((db: StoreDrizzle) =>
-  db.selectDistinct({ resourceId: grantAudiences.resourceId }).from(grantAudiences)
-    .where(eq(grantAudiences.resourceKind, param(grantAudiences.resourceKind, 'resourceKind')))
-    .orderBy(asc(grantAudiences.resourceId)).prepare(),
 )
 
 const noteAudience = prepared((db: StoreDrizzle) =>
@@ -220,15 +205,10 @@ export class GrantsRepository {
     return this.visibilityRevisionValue
   }
 
-  async visibilityAudienceFor(resourceKind: string, resourceId: string): Promise<readonly string[]> {
-    const rows = await audienceOf(this.db).all({ resourceKind, resourceId })
-    return rows.map(row => row.grantee)
-  }
-
   /**
-   * {@link visibilityAudienceFor} for many resources in one read per 500 ids
-   * [POD-6156]. Every asked id gets an entry, `[]` for "no audience", each in
-   * the same grantee order the one-resource read returns.
+   * The historical audience of each resource, revoked readers included, in one
+   * read per 500 ids [POD-6156]. Every asked id gets an entry, `[]` for "no
+   * audience", its grantees in order.
    */
   async visibilityAudiencesFor(
     resourceKind: string,
@@ -246,12 +226,6 @@ export class GrantsRepository {
       for (const row of rows) out.get(row.resourceId)?.push(row.grantee)
     }
     return out
-  }
-
-  /** Historical resource ids, including resources whose last grant was revoked. */
-  async visibilityAudienceResourceIds(resourceKind: string): Promise<string[]> {
-    const rows = await audienceResourceIdsOf(this.db).all({ resourceKind })
-    return rows.map(row => row.resourceId)
   }
 
   private async noteVisibilityAudience(resourceKind: string, resourceId: string, grantee: string): Promise<void> {

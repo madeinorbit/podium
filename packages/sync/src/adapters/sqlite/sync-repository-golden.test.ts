@@ -10,8 +10,7 @@
  * the existing suites found `resetQueuedAttempts` with no test at all, and
  * `recordAppliedMutation`, `pruneAppliedMutations`, `queuedMessageCounts`,
  * `deleteQueuedMessage`, `bumpQueuedAttempts`, `deleteQueuedMessagesForSession`,
- * `listParkedUpstreamMutations` and `latestChangeStatesGeneration` reached from
- * one file each.
+ * and `listParkedUpstreamMutations` reached from one file each.
  *
  * SO EVERY METHOD IS PINNED HERE, and the arms chosen are the ones a conversion
  * can silently move: the value a column DEFAULT supplies (spec rule 43), the
@@ -353,15 +352,6 @@ describe('the installed world', () => {
       ['i2', 2],
       ['i1', 3],
     ])
-  })
-
-  it('bumps the generation on append and NOT on prune', async () => {
-    const before = await repo.latestChangeStatesGeneration()
-    await repo.appendChanges([change('issueProjection', 'i1', 'upsert', '{}')], 1)
-    const afterAppend = await repo.latestChangeStatesGeneration()
-    expect(afterAppend).toBeGreaterThan(before)
-    await repo.pruneChangeBatch({ thresholdSeq: 1 })
-    expect(await repo.latestChangeStatesGeneration()).toBe(afterAppend)
   })
 })
 

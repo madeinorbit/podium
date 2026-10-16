@@ -326,6 +326,7 @@
         "src/enrollment-ledger-import.ts",
         "src/enrollment-ledger.ts",
         "src/features.ts",
+        "src/feed-visibility-anchors-parity.test.ts",
         "src/feed-visibility.ship-lane.test.ts",
         "src/feed-visibility.statement-count.test.ts",
         "src/feed-visibility.test.ts",

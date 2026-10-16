@@ -18,8 +18,7 @@ const require = createRequire(resolve(root, 'apps/server/package.json'))
 const { Hono } = require('hono')
 const store = await openTestStore(dbPath)
 const feed = makeFeedVisibility({ store,
-  audienceResourceIds: kind => store.grants.visibilityAudienceResourceIds(kind),
-  audienceFor: (kind, id) => store.grants.visibilityAudienceFor(kind, id),
+  audiencesFor: (kind, ids) => store.grants.visibilityAudiencesFor(kind, ids),
   authorizationRevision: () => store.grants.visibilityRevision(), issueEventSubjects: () => [] })
 const authority = new Authority({ store: store.sync, now: Date.now, transact: fn => store.transact(fn),
   visibility: new GrantEdgeVisibilityPolicy(feed.state, new NoDelegationsGranted()), anchors: feed.anchors })

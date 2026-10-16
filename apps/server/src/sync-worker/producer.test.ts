@@ -124,8 +124,6 @@ describe('snapshot bootstrap producer', () => {
       }
       const feed = makeFeedVisibility({
         store,
-        audienceResourceIds: forbidden,
-        audienceFor: forbidden,
         audiencesFor: forbidden,
         issueEventSubjects: forbidden,
         authorizationRevision: forbidden,

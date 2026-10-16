@@ -147,8 +147,6 @@ async function fixture(size: number): Promise<Fixture> {
   })
   const policy = makeFeedVisibility({
     store,
-    audienceResourceIds: (kind) => store.grants.visibilityAudienceResourceIds(kind),
-    audienceFor: (kind, id) => store.grants.visibilityAudienceFor(kind, id),
     audiencesFor: (kind, ids) => store.grants.visibilityAudiencesFor(kind, ids),
     authorizationRevision: () => store.grants.visibilityRevision(),
   })

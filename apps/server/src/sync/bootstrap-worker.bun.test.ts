@@ -94,8 +94,6 @@ async function fixture() {
   }
   const feed = makeFeedVisibility({
     store,
-    audienceResourceIds: forbidden,
-    audienceFor: forbidden,
     audiencesFor: forbidden,
     issueEventSubjects: forbidden,
     authorizationRevision: forbidden,
@@ -462,8 +460,6 @@ describe('snapshot delta producer', () => {
       const through = await store.sync.maxChangeSeq()
       const feed = makeFeedVisibility({
         store,
-        audienceResourceIds: (kind) => store.grants.visibilityAudienceResourceIds(kind),
-        audienceFor: (kind, id) => store.grants.visibilityAudienceFor(kind, id),
         audiencesFor: (kind, ids) => store.grants.visibilityAudiencesFor(kind, ids),
         authorizationRevision: () => store.grants.visibilityRevision(),
         issueEventSubjects: (id) =>

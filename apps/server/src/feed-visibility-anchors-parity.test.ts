@@ -2,29 +2,33 @@
  * The visibility anchors answer from the database exactly as they answered from
  * the whole-table read cache (POD-6156 step 1).
  *
- * `legacyAnchors` is the old path: an index built over every installed row of
- * `change_latest` per append generation, plus the sessions of every issue that
- * has an audience. `anchors` reads only the rows the batch needs. Both are run
- * over the benchmark corpus (POD-6146: cell h1a1, seed 4443) with grants,
- * revoked audiences, ship orders and lanes laid over it, and over edge cases,
- * and must agree on every edge and every current value.
+ * The cache was an index built over every installed row of `change_latest` per
+ * append generation, plus the sessions of every issue with an audience. At the
+ * commit that added this file, the old and the new anchors were compared over
+ * the benchmark corpus (POD-6146: cell h1a1, seed 4443) with grants, revoked
+ * audiences, ship orders and lanes laid over it, and over these edge cases.
+ * What stays is the edge-case part, as a regression test against an oracle that
+ * runs the old algorithm over a whole-table read of the fixture: escaped and
+ * prefix-sharing issue ids, foreign dependency ids, deleted sessions, removed,
+ * missing and corrupt installed rows, and orders in and out of their queue.
  */
 
 import { createHash } from 'node:crypto'
-import { fileURLToPath } from 'node:url'
 import {
   asIssueId,
   asRepoId,
+  canonicalShippingDestination,
   asShipOrderId,
   asUserId,
   firstAdminMemberId,
   type IssueId,
   issueDepId,
   issueEventRowId,
+  parseIssueDepId,
   type ShipOrder,
   shipLaneId,
 } from '@podium/model'
-import type { EntityRef, VisibilityAnchorPort } from '@podium/sync'
+import type { EntityRef, VisibilityAnchorPort, VisibilityEdge } from '@podium/sync'
 import { afterEach, describe, expect, it } from 'vitest'
 import { makeFeedVisibility } from './feed-visibility'
 import type { SessionStore } from './store'
@@ -239,13 +243,115 @@ async function build(world: World) {
 
   const visibility = makeFeedVisibility({
     store,
-    audienceResourceIds: (kind) => store.grants.visibilityAudienceResourceIds(kind),
-    audienceFor: (kind, id) => store.grants.visibilityAudienceFor(kind, id),
     audiencesFor: (kind, ids) => store.grants.visibilityAudiencesFor(kind, ids),
     authorizationRevision: () => store.grants.visibilityRevision(),
     issueEventSubjects: (issueId: IssueId) => world.events.get(issueId) ?? [],
   })
-  return { store, visibility }
+  return { store, visibility, oracle: oracleAnchors(store, world) }
+}
+
+/**
+ * THE OLD ALGORITHM, over a whole-table read: what the anchors answered
+ * from the generation's read cache, with the old one-order lane departure.
+ */
+function oracleAnchors(store: SessionStore, world: World): VisibilityAnchorPort {
+  const issueGrantAdmits = (grantee: string, verb: string, userId: string) =>
+    grantee === userId && (verb === 'read' || verb === 'write' || verb === 'manage')
+  const index = async () => {
+    const latest = new Map<string, string>()
+    const depsByIssue = new Map<string, EntityRef[]>()
+    const ordersByIssue = new Map<string, EntityRef[]>()
+    const lanesByIssue = new Map<string, EntityRef[]>()
+    const push = (map: Map<string, EntityRef[]>, key: string, ref: EntityRef) =>
+      map.set(key, [...(map.get(key) ?? []), ref])
+    for (const row of await store.sync.latestChangeStates()) {
+      if (row.payload !== null) latest.set(`${row.entity}\u0000${row.entityId}`, row.payload)
+      if (row.entity === 'issueDep') {
+        const dep = parseIssueDepId(row.entityId)
+        if (dep) push(depsByIssue, dep.fromId, { entity: 'issueDep', entityId: row.entityId })
+      }
+      if (row.entity === 'shipOrder' && row.payload !== null) {
+        try {
+          const p = JSON.parse(row.payload) as Record<string, unknown>
+          if (typeof p.issueId !== 'string') continue
+          push(ordersByIssue, p.issueId, { entity: 'shipOrder', entityId: row.entityId })
+          if (p.state === 'queued' && typeof p.repoId === 'string' && typeof p.destination === 'string' && typeof p.targetBranch === 'string') {
+            push(lanesByIssue, p.issueId, {
+              entity: 'shipLane',
+              entityId: shipLaneId(asRepoId(p.repoId), canonicalShippingDestination(p.destination, p.targetBranch)),
+            })
+          }
+        } catch {
+          // A malformed change cannot supply a visibility anchor.
+        }
+      }
+    }
+    return { latest, depsByIssue, ordersByIssue, lanesByIssue }
+  }
+  const audienceOf = async (issueId: string) =>
+    (await store.grants.visibilityAudiencesFor('issue', [issueId])).get(issueId) ?? []
+  const edge = async (ref: EntityRef): Promise<VisibilityEdge | null> => {
+    if (ref.entity === 'shipOrder') {
+      const order = await store.shipping.getOrder(ref.entityId)
+      if (!order || order.state === 'queued') return null
+      const owner = (await store.issues.getIssue(order.issueId))?.ownerUserId
+      const candidates = [...new Set([...(owner ? [owner] : []), ...(await audienceOf(order.issueId))])]
+      if (candidates.length === 0) return null
+      const laneId = shipLaneId(order.repoId, canonicalShippingDestination(order.destination, order.targetBranch))
+      const members = await store.shipping.laneMemberIssueIds(laneId)
+      const audience: string[] = []
+      for (const userId of candidates) {
+        let readable = false
+        for (const issueId of members) {
+          if ((await store.issues.getIssue(issueId))?.ownerUserId === userId) readable = true
+          for (const grant of await store.grants.listForResource('issue', issueId)) {
+            if (issueGrantAdmits(grant.grantee, grant.verb, userId)) readable = true
+          }
+        }
+        if (!readable) audience.push(userId)
+      }
+      return audience.length === 0 ? null : { audience, subjects: [{ entity: 'shipLane', entityId: laneId }] }
+    }
+    if (ref.entity !== 'issueProjection') return null
+    const audience = await audienceOf(ref.entityId)
+    if (audience.length === 0) return null
+    const cache = await index()
+    const sessions = await store.sessions.findSessionsByIssueIds([asIssueId(ref.entityId)])
+    return {
+      audience,
+      subjects: [
+        { entity: 'issueProjection', entityId: ref.entityId },
+        { entity: 'issueGitState', entityId: ref.entityId },
+        ...sessions.map((session): EntityRef => ({ entity: 'session', entityId: session.id })),
+        ...sessions.flatMap((session): EntityRef[] =>
+          session.resumeValue ? [{ entity: 'conversation', entityId: session.resumeValue }] : [],
+        ),
+        ...(cache.depsByIssue.get(ref.entityId) ?? []),
+        ...(world.events.get(ref.entityId) ?? []),
+        ...(cache.ordersByIssue.get(ref.entityId) ?? []),
+        ...(cache.lanesByIssue.get(ref.entityId) ?? []),
+      ],
+    }
+  }
+  return {
+    visibilityEdges: async (refs) => {
+      const out: (VisibilityEdge | null)[] = []
+      for (const ref of refs) out.push(await edge(ref))
+      return out
+    },
+    currentValuesOf: async (refs) => {
+      const { latest } = await index()
+      return refs.map((ref) => {
+        const payload = latest.get(`${ref.entity}\u0000${ref.entityId}`)
+        if (payload === undefined) return undefined
+        try {
+          return JSON.parse(payload) as unknown
+        } catch {
+          return undefined
+        }
+      })
+    },
+  }
 }
 
 /** Every ref a write batch can carry that anchors anything, plus a few that never do. */
@@ -266,110 +372,24 @@ function refsOf(world: World): EntityRef[] {
  * installed row and refs whose payload is corrupt added.
  */
 async function expectSameAnswers(
-  legacy: VisibilityAnchorPort,
+  oracle: VisibilityAnchorPort,
   current: VisibilityAnchorPort,
   refs: readonly EntityRef[],
   extraValueRefs: readonly EntityRef[],
 ) {
-  let at = performance.now()
-  const legacyEdges = await legacy.visibilityEdges(refs)
-  console.log(`[parity] old edges ${Math.round(performance.now() - at)} ms`)
-  at = performance.now()
+  const oracleEdges = await oracle.visibilityEdges(refs)
   const edges = await current.visibilityEdges(refs)
-  console.log(`[parity] new edges ${Math.round(performance.now() - at)} ms`)
-  expect(edges).toEqual(legacyEdges)
+  expect(edges).toEqual(oracleEdges)
   for (let start = 0; start < refs.length; start += 7) {
     const slice = refs.slice(start, start + 7)
-    expect(await current.visibilityEdges(slice)).toEqual(legacyEdges.slice(start, start + 7))
+    expect(await current.visibilityEdges(slice)).toEqual(oracleEdges.slice(start, start + 7))
   }
-  const subjects = [...legacyEdges.flatMap((edge) => edge?.subjects ?? []), ...extraValueRefs]
-  expect(await current.currentValuesOf(subjects)).toEqual(await legacy.currentValuesOf(subjects))
-  return { edges: legacyEdges, subjects }
+  const subjects = [...oracleEdges.flatMap((edge) => edge?.subjects ?? []), ...extraValueRefs]
+  expect(await current.currentValuesOf(subjects)).toEqual(await oracle.currentValuesOf(subjects))
+  return { edges: oracleEdges, subjects }
 }
 
-interface CorpusShape {
-  issues: { id: string; repoPath: string | null; deletedAt: string | null }[]
-  deps: { fromId: string; toId: string; type: string }[]
-  sessions: { id: string; issueId: string | null; resumeValue: string | null }[]
-  repos: string[]
-}
-
-async function exportedCorpus(): Promise<CorpusShape> {
-  const module = fileURLToPath(new URL('../../../scripts/server-data-bench/corpus-export.ts', import.meta.url))
-  const { exportCorpus } = (await import(module)) as {
-    exportCorpus(cell: string, seed: number): Promise<CorpusShape>
-  }
-  return await exportCorpus('h1a1', 4443)
-}
-
-/** The corpus with grants, revoked audiences, ship orders, lanes and an event window laid over it. */
-function corpusWorld(corpus: CorpusShape): World {
-  const repoFallback = corpus.repos[0] ?? '/r'
-  const issues: WorldIssue[] = corpus.issues.map((row) => ({
-    id: `iss_${row.id}`,
-    owner: OWNERS[bucketOf(row.id, OWNERS.length)] as string,
-    repoPath: row.repoPath ?? repoFallback,
-  }))
-  const known = new Set(issues.map((issue) => issue.id))
-  const deps = corpus.deps
-    .filter((dep) => known.has(`iss_${dep.fromId}`))
-    .map((dep) => ({
-      id: issueDepId(`iss_${dep.fromId}`, `iss_${dep.toId}`, dep.type),
-      removed: bucketOf(`${dep.fromId}:${dep.toId}:removed`, 10) === 0,
-    }))
-  const sessions: WorldSession[] = corpus.sessions.map((row) => ({
-    id: `ses_${row.id}`,
-    issueId: row.issueId && known.has(`iss_${row.issueId}`) ? `iss_${row.issueId}` : null,
-    resumeValue: row.resumeValue,
-    deleted: bucketOf(`${row.id}:deleted`, 12) === 0,
-  }))
-  const grants: World['grants'] = []
-  const orders: WorldOrder[] = []
-  const events = new Map<string, { entity: 'issueEvent'; entityId: string }[]>()
-  let eventId = 1
-  for (const issue of issues) {
-    const g = bucketOf(`${issue.id}:grant`, 6)
-    if (g === 0) grants.push({ issueId: issue.id, grantee: READER, revoked: false })
-    if (g === 1) grants.push({ issueId: issue.id, grantee: REVOKED, revoked: true })
-    if (g === 2) {
-      grants.push({ issueId: issue.id, grantee: READER, revoked: false })
-      grants.push({ issueId: issue.id, grantee: REVOKED, revoked: true })
-    }
-    const o = bucketOf(`${issue.id}:order`, 5)
-    const repo = `repo-${bucketOf(`${issue.id}:lane`, 4)}`
-    const installed = (['row', 'row', 'row', 'removed', 'none'] as const)[bucketOf(`${issue.id}:installed`, 5)] ?? 'row'
-    if (o === 0 || o === 2) orders.push({ id: `order-${issue.id}-a`, issueId: issue.id, repo, state: 'cancelled', installed })
-    if (o === 1 || o === 2) orders.push({ id: `order-${issue.id}-b`, issueId: issue.id, repo, state: 'queued', installed: 'row' })
-    if (bucketOf(`${issue.id}:events`, 8) === 0 && eventId <= 200) {
-      events.set(issue.id, [
-        { entity: 'issueEvent', entityId: issueEventRowId(eventId++, issue.id) },
-        { entity: 'issueEvent', entityId: issueEventRowId(eventId++, issue.id) },
-      ])
-    }
-  }
-  return { issues, deps, sessions, grants, orders, extra: [], events }
-}
-
-describe('visibility anchors: database reads answer like the whole-table read cache', () => {
-  it('over the benchmark corpus (h1a1, seed 4443)', async () => {
-    const started = performance.now()
-    const lap = (label: string) => console.log(`[parity] ${label} at ${Math.round(performance.now() - started)} ms`)
-    const world = corpusWorld(await exportedCorpus())
-    lap(`corpus: ${world.issues.length} issues, ${world.sessions.length} sessions, ${world.deps.length} deps, ${world.orders.length} orders, ${world.grants.length} grants`)
-    const { visibility } = await build(world)
-    lap('store built')
-    const { edges } = await expectSameAnswers(visibility.legacyAnchors, visibility.anchors, refsOf(world), [
-      { entity: 'issueProjection', entityId: 'iss_missing' },
-    ])
-    // The corpus exercises every kind of subject, so the comparison is not vacuous.
-    const kinds = new Set(edges.flatMap((edge) => edge?.subjects.map((subject) => subject.entity) ?? []))
-    expect([...kinds].sort()).toEqual(
-      ['conversation', 'issueDep', 'issueEvent', 'issueGitState', 'issueProjection', 'session', 'shipLane', 'shipOrder'].sort(),
-    )
-    expect(edges.filter((edge) => edge !== null).length).toBeGreaterThan(50)
-    lap(`compared ${edges.length} refs, ${edges.filter((edge) => edge !== null).length} edges`)
-  }, 900_000)
-
+describe('visibility anchors: database reads answer like the old whole-table index', () => {
   it('over edge cases: escaped and prefix-sharing ids, foreign dep ids, removed and corrupt rows', async () => {
     const issues: WorldIssue[] = [
       'iss_1',
@@ -432,8 +452,8 @@ describe('visibility anchors: database reads answer like the whole-table read ca
         ['iss|pipe', [{ entity: 'issueEvent' as const, entityId: issueEventRowId(2, 'iss|pipe') }]],
       ]),
     }
-    const { visibility } = await build(world)
-    const { edges } = await expectSameAnswers(visibility.legacyAnchors, visibility.anchors, refsOf(world), [
+    const { visibility, oracle } = await build(world)
+    const { edges } = await expectSameAnswers(oracle, visibility.anchors, refsOf(world), [
       { entity: 'issueProjection', entityId: 'iss_corrupt' },
       { entity: 'shipOrder', entityId: 'order-null-payload' },
       { entity: 'issueDep', entityId: issueDepId('iss_1', 'iss|pipe', 'related') },

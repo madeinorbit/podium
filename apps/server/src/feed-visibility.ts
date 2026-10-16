@@ -10,11 +10,11 @@ import { readIssue, readIssues } from './modules/issues/issue-reader'
  * read which row, and how few queries it takes to answer — live inside a
  * constructor whose entire claim is that it decides nothing and only wires.
  *
- * It is one job with one piece of protected state each: `traces` is the stack a
- * bootstrap pushes so every store read it causes is attributed to a phase, and
- * `readCache` is the generation-keyed index the anchor port walks. Neither
- * escapes this module, and nothing here reaches back into a service — the whole
- * surface is store reads.
+ * It is one job with one piece of protected state: `traces` is the stack a
+ * bootstrap pushes so every store read it causes is attributed to a phase. It
+ * does not escape this module, and nothing here reaches back into a service —
+ * the whole surface is store reads. Since POD-6156 nothing here holds rows
+ * either: the anchor port reads the rows a batch names from the database.
  *
  * WHY IT ALSO REPAIRED THE CONSTRUCTION-ORDER GATE. `forBootstrap` declares a
  * local `const issues` for the prefetched issue rows. Inside the root that name
@@ -46,7 +46,6 @@ import {
 } from '@podium/model'
 import type { Principal } from '@podium/protocol'
 import type {
-  ChangeLogReadRow,
   EntityRef,
   VisibilityAnchorPort,
   VisibilityEdge,
@@ -118,50 +117,12 @@ type ShipLaneSubject = {
   entityId: string
 }
 
-type BootstrapReadCache = {
-  generation: number
-  latestByRef: Map<string, Map<string, ChangeLogReadRow>>
-  issueDepsByFromId: Map<string, IssueDepSubject[]>
-  shipOrdersByIssueId: Map<string, ShipOrderSubject[]>
-  /** The lane of each issue's QUEUED order, from the latest order rows: a grant
-   * on the issue moves who may read that lane (POD-4974 decision 2). */
-  shipLanesByIssueId: Map<string, ShipLaneSubject[]>
-  /**
-   * The sessions bound to each anchorable issue, filled in ONE query [POD-3261].
-   *
-   * It used to be the WHOLE `sessions` table — `loadSessions()`, 49 columns of
-   * every live row, mapped into objects — filtered in memory to the handful
-   * bound to the issue in hand. Same generation key, same cached lifetime, and
-   * the same conserved quantity of ONE session read per generation; what changed
-   * is that the read is the indexed `issue_id IN (…)` lookup that answers the
-   * question actually being asked.
-   *
-   * ITS SIZE COMES FROM THE AUDIENCE MAP, not from the batch. Only an issue with
-   * a non-empty visibility audience can produce an edge at all — the caller
-   * returns `null` above otherwise — so the ids worth fetching are exactly
-   * `audienceResourceIds('issue')`, which is an in-memory read
-   * and costs nothing. `covered` records which ids that fill covered, because an
-   * absent entry has to mean "this issue has no sessions" and not "the fill
-   * happened before this issue had an audience"; an uncovered id falls through
-   * to its own point read.
-   *
-   * `findSessionsByIssueIds` applies exactly the `deleted_at IS NULL` filter
-   * `loadSessions` applied, so the row set is the one the filter returned.
-   */
-  sessionsByIssue?: Promise<{
-    readonly covered: Set<string>
-    readonly byIssueId: Map<string, SessionRow[]>
-  }>
-}
-
 /** The store surface this policy reads. Nothing here writes. */
 export interface FeedVisibilityDeps {
   readonly store: FeedVisibilityStore
-  /** Historical audiences include revoked readers; current edges cannot replace
-   * them. These existing memory-only signals remain owned by the grant writer. */
-  readonly audienceResourceIds: (kind: string) => Promise<string[]>
-  readonly audienceFor: (kind: string, id: string) => Promise<readonly string[]>
-  /** The same audiences for many resources of one kind, every asked id present. */
+  /** The historical audience of each resource, every asked id present, `[]` for
+   * none. It includes revoked readers, which current grant edges cannot replace;
+   * the grant writer owns it. */
   readonly audiencesFor: (
     kind: string,
     ids: readonly string[],
@@ -187,9 +148,6 @@ export interface FeedVisibility {
   readonly state: VisibilityStatePort
   /** The kernel's anchor port — what the `Ledger` scopes issue fan-out with. */
   readonly anchors: VisibilityAnchorPort
-  /** The anchors as answered from the whole-table read cache, kept only until
-   *  the parity test has compared them with {@link anchors} (POD-6156). */
-  readonly legacyAnchors: VisibilityAnchorPort
   /** Open a read-attribution frame for one bootstrap. */
   readonly beginBootstrapRead: () => void
   /** Close it and record every phase it accumulated against `principal`. */
@@ -606,249 +564,6 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
     })
   }
 
-  let readCache: { generation: number; value: Promise<BootstrapReadCache> } | undefined
-  const currentBootstrapReadCache = async (): Promise<BootstrapReadCache> => {
-    const generation = await store.sync.latestChangeStatesGeneration()
-    if (readCache?.generation === generation) return readCache.value
-    // Publish the in-flight fill before concurrent anchors can start another.
-    const value = buildBootstrapReadCache(generation)
-    const entry = { generation, value }
-    readCache = entry
-    try {
-      return await value
-    } catch (error) {
-      if (readCache === entry) readCache = undefined
-      throw error
-    }
-  }
-  const buildBootstrapReadCache = async (generation: number): Promise<BootstrapReadCache> => {
-    const latestByRef = new Map<string, Map<string, ChangeLogReadRow>>()
-    const issueDepsByFromId = new Map<string, IssueDepSubject[]>()
-    const shipOrdersByIssueId = new Map<string, ShipOrderSubject[]>()
-    const shipLanesByIssueId = new Map<string, ShipLaneSubject[]>()
-    for (const row of await store.sync.latestChangeStates()) {
-      const byEntity = latestByRef.get(row.entity) ?? new Map<string, ChangeLogReadRow>()
-      byEntity.set(row.entityId, row)
-      latestByRef.set(row.entity, byEntity)
-      if (row.entity === 'issueDep' && row.op === 'upsert') {
-        const dep = parseIssueDepId(row.entityId)
-        if (dep !== null) {
-          const subjects = issueDepsByFromId.get(dep.fromId) ?? []
-          subjects.push({ entity: 'issueDep', entityId: row.entityId })
-          issueDepsByFromId.set(dep.fromId, subjects)
-        }
-      }
-      if (row.entity === 'shipOrder' && row.op === 'upsert' && row.payload !== null) {
-        try {
-          const payload = JSON.parse(row.payload) as {
-            issueId?: unknown
-            repoId?: unknown
-            destination?: unknown
-            targetBranch?: unknown
-            state?: unknown
-          }
-          if (typeof payload.issueId !== 'string') continue
-          const subjects = shipOrdersByIssueId.get(payload.issueId) ?? []
-          subjects.push({ entity: 'shipOrder', entityId: row.entityId })
-          shipOrdersByIssueId.set(payload.issueId, subjects)
-          if (
-            payload.state === 'queued' &&
-            typeof payload.repoId === 'string' &&
-            typeof payload.destination === 'string' &&
-            typeof payload.targetBranch === 'string'
-          ) {
-            const lanes = shipLanesByIssueId.get(payload.issueId) ?? []
-            lanes.push({
-              entity: 'shipLane',
-              entityId: shipLaneId(
-                payload.repoId as RepoId,
-                canonicalShippingDestination(payload.destination, payload.targetBranch),
-              ),
-            })
-            shipLanesByIssueId.set(payload.issueId, lanes)
-          }
-        } catch {
-          // A malformed change cannot supply a visibility anchor.
-        }
-      }
-    }
-    return {
-      generation,
-      latestByRef,
-      issueDepsByFromId,
-      shipOrdersByIssueId,
-      shipLanesByIssueId,
-    }
-  }
-  /**
-   * The sessions bound to one issue, from the generation's one fill.
-   *
-   * See {@link BootstrapReadCache.sessionsByIssue}: the fill is sized by the
-   * audience map, so the fall-through below is reached only by an issue that
-   * gained an audience after the fill — rare, and a point read rather than a
-   * refill because refilling would re-read every anchorable issue to learn about
-   * one.
-   */
-  const sessionsForIssue = async (
-    cache: BootstrapReadCache,
-    issueId: string,
-  ): Promise<SessionRow[]> => {
-    // Anchors resolve concurrently; share the pending session query as well.
-    if (cache.sessionsByIssue === undefined) {
-      cache.sessionsByIssue = (async () => {
-        const anchorable = await deps.audienceResourceIds('issue')
-        const byIssueId = new Map<string, SessionRow[]>()
-        const rows =
-          anchorable.length === 0
-            ? []
-            : await store.sessions.findSessionsByIssueIds(anchorable.map((id) => asIssueId(id)))
-        for (const row of rows) {
-          const boundTo = row.issueId
-          if (boundTo == null) continue
-          const bucket = byIssueId.get(boundTo)
-          if (bucket) bucket.push(row)
-          else byIssueId.set(boundTo, [row])
-        }
-        return { covered: new Set(anchorable), byIssueId }
-      })()
-    }
-    const fill = cache.sessionsByIssue
-    let held: Awaited<typeof fill>
-    try {
-      held = await fill
-    } catch (error) {
-      if (cache.sessionsByIssue === fill) cache.sessionsByIssue = undefined
-      throw error
-    }
-    const known = held.byIssueId.get(issueId)
-    if (known !== undefined) return known
-    if (held.covered.has(issueId)) return []
-    const rows = await store.sessions.findSessionsByIssueIds([asIssueId(issueId)])
-    held.covered.add(issueId)
-    held.byIssueId.set(issueId, rows)
-    return rows
-  }
-
-  const durableChangeValueOf = async (ref: {
-    entity: string
-    entityId: string
-  }): Promise<unknown> => {
-    const row = (await currentBootstrapReadCache()).latestByRef.get(ref.entity)?.get(ref.entityId)
-    if (row?.op !== 'upsert' || row.payload === null) return undefined
-    try {
-      return JSON.parse(row.payload)
-    } catch {
-      return undefined
-    }
-  }
-
-  /**
-   * WHO LOST A LANE when this order left its queue (POD-4974 O2).
-   *
-   * A lane is readable by whoever may read one of its queued orders, so an order
-   * that ships, starts, is held or is cancelled can take the LAST readable
-   * member away from someone. The lane's own change cannot reach them — they no
-   * longer pass `mayRead` — so the order's change anchors an evict for exactly
-   * the people who could read this order and can read no order left in the
-   * lane. Everyone else is left out of the audience: telling them the lane moved
-   * would only re-send a row they already receive.
-   */
-  const laneDepartureEdge = async (
-    orderId: string,
-  ): Promise<{ audience: readonly string[]; subjects: readonly ShipLaneSubject[] } | null> => {
-    const order = await store.shipping.getOrder(orderId)
-    if (!order || order.state === 'queued') return null
-    const owner = (await readIssue(store.issues, order.issueId))?.ownerUserId
-    const candidates = [
-      ...new Set([...(owner ? [owner] : []), ...(await deps.audienceFor('issue', order.issueId))]),
-    ]
-    if (candidates.length === 0) return null
-    const laneId = shipLaneId(
-      order.repoId,
-      canonicalShippingDestination(order.destination, order.targetBranch),
-    )
-    const members = await store.shipping.laneMemberIssueIds(laneId)
-    // Every member row in one read, then the same owner-or-grant rule as
-    // `mayReadIssue` for each candidate (POD-6149: no read per member).
-    const memberRows =
-      members.length === 0
-        ? new Map<string, IssueRow>()
-        : await measure(
-            'visibility.issue.getIssue',
-            async () => await readIssues(store.issues, members),
-          )
-    const memberGrants =
-      members.length === 0
-        ? new Map<string, GrantRow[]>()
-        : await measure(
-            'visibility.grants.listForResources',
-            async () => await store.grants.listForResources('issue', members),
-          )
-    const audience: string[] = []
-    for (const userId of candidates) {
-      const readable = members.some(
-        (issueId) =>
-          memberRows.get(issueId)?.ownerUserId === userId ||
-          (memberGrants.get(issueId) ?? []).some((edge) => issueGrantAdmits(edge, userId)),
-      )
-      if (!readable) audience.push(userId)
-    }
-    return audience.length === 0
-      ? null
-      : { audience, subjects: [{ entity: 'shipLane', entityId: laneId }] }
-  }
-
-  const legacyAnchor = {
-    visibilityEdge: async (ref: EntityRef): Promise<VisibilityEdge | null> => {
-      if (ref.entity === 'shipOrder') return await laneDepartureEdge(ref.entityId)
-      // An issue write is the audience-change edge for its normalized companions.
-      if (ref.entity !== 'issueProjection') return null
-      const audience = await deps.audienceFor('issue', ref.entityId)
-      if (audience.length === 0) return null
-      const cache = await currentBootstrapReadCache()
-      // BY QUERY, NEVER BY SCAN [POD-3261], the same lesson the `conversation`
-      // arm learned at POD-1614. See {@link BootstrapReadCache.sessionsByIssue}.
-      const issueSessions = await sessionsForIssue(cache, ref.entityId)
-      const subjects = [
-        { entity: 'issueProjection' as const, entityId: ref.entityId },
-        { entity: 'issueGitState' as const, entityId: ref.entityId },
-        ...issueSessions.map((session) => ({
-          entity: 'session' as const,
-          entityId: session.id,
-        })),
-        ...issueSessions.flatMap((session) =>
-          session.resumeValue
-            ? [
-                {
-                  entity: 'conversation' as const,
-                  entityId: session.resumeValue,
-                },
-              ]
-            : [],
-        ),
-        ...(cache.issueDepsByFromId.get(ref.entityId) ?? []),
-        // The issue's feed history rides its audience (POD-1772): a grant that
-        // hands somebody the issue and none of its events would give them a
-        // chat pane that starts at the moment they were let in.
-        ...(deps.issueEventSubjects?.(asIssueId(ref.entityId)) ?? []),
-        ...(cache.shipOrdersByIssueId.get(ref.entityId) ?? []),
-        // The lanes of its queued orders: a grant can make a lane readable and a
-        // revoke can take the last readable order in it away (POD-4974 O2).
-        ...(cache.shipLanesByIssueId.get(ref.entityId) ?? []),
-      ]
-      return { audience, subjects }
-    },
-    currentValueOf: async (ref: EntityRef) => await durableChangeValueOf(ref),
-  }
-  const legacyAnchors: VisibilityAnchorPort = {
-    visibilityEdges: async (refs) => await Promise.all(refs.map((ref) => legacyAnchor.visibilityEdge(ref))),
-    currentValuesOf: async (refs) => {
-      const values: unknown[] = []
-      for (const ref of refs) values.push(await legacyAnchor.currentValueOf(ref))
-      return values
-    },
-  }
-
   /** One JSON value, or `undefined` for a corrupt payload, as the bootstrap reads it. */
   const parsedPayload = (payload: string): unknown => {
     try {
@@ -947,10 +662,19 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
   }
 
   /**
-   * {@link laneDepartureEdge} for every order in a batch, in a fixed number of
-   * grouped reads [POD-6156]: the orders, their issues' owners and audiences,
-   * every lane's members, and those members' rows and grants. Each order gets
-   * the answer the one-order version gives.
+   * WHO LOST A LANE when an order left its queue (POD-4974 O2).
+   *
+   * A lane is readable by whoever may read one of its queued orders, so an order
+   * that ships, starts, is held or is cancelled can take the LAST readable
+   * member away from someone. The lane's own change cannot reach them — they no
+   * longer pass `mayRead` — so the order's change anchors an evict for exactly
+   * the people who could read this order and can read no order left in the
+   * lane. Everyone else is left out of the audience: telling them the lane moved
+   * would only re-send a row they already receive.
+   *
+   * Every order of a batch at once, in a fixed number of grouped reads
+   * (POD-6156): the orders, their issues' owners and audiences, every lane's
+   * members, and those members' rows and grants.
    */
   const laneDepartureEdges = async (
     orderIds: readonly string[],
@@ -1072,7 +796,6 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
   return {
     state: makeVisibilityState(),
     anchors,
-    legacyAnchors,
     beginBootstrapRead,
     finishBootstrapRead,
     authorizationRevision: deps.authorizationRevision,

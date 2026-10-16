@@ -277,6 +277,11 @@ export class Authority implements AuthorityPort {
     }
   }
 
+  /** Resolves once the boot baseline has been read, so boot can time that read. */
+  async seeded(): Promise<void> {
+    await this.ready
+  }
+
   async capture(specs: readonly StagedChangeSpec[]): Promise<readonly SequencedChange[]> {
     await this.ready
     this.baseline.freshen()

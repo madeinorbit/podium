@@ -501,16 +501,6 @@ function mapChangeLogReadRow(r: {
 
 export class SyncRepository {
   /**
-   * The latest-state fold is a snapshot of the retained change log. Visibility
-   * callbacks can ask for several rows during one synchronous delivery, so
-   * retaining the materialized rows avoids folding the same table once per
-   * subject. The generation is also exposed to the composition root: a
-   * re-entrant append must make its next authorization read build a new view.
-   */
-  private latestChangeStatesCache: ChangeLogReadRow[] | undefined
-  private latestChangeStatesGenerationValue = 0
-
-  /**
    * The two server-owned tables, as the drizzle objects the composition root
    * hands in rather than spelled out in the SQL below. That is the whole point of
    * the injection: this file no longer names a table `apps/server` owns, so the
@@ -585,7 +575,6 @@ export class SyncRepository {
         await this.applyLatestChangeStates(chunk, first)
       }
     })
-    await this.invalidateLatestChangeStatesCache()
     return seqs
   }
 
@@ -625,20 +614,6 @@ export class SyncRepository {
         await deleteLatestChangeState(this.db).run({ entity: row.entity, entityId: row.entityId })
       }
     }
-  }
-
-  /**
-   * Monotonic generation for the installed-world view. It changes after every
-   * append; callers use it to bound a larger per-pass index without caching
-   * authorization data across a durable change.
-   *
-   * A PRUNE NO LONGER BUMPS IT (POD-678), because a prune no longer alters what
-   * `latestChangeStates` returns — retention deletes from `changes`, and the world
-   * lives in `change_latest`. Invalidating on prune would only throw away a valid
-   * read cache on a timer.
-   */
-  async latestChangeStatesGeneration(): Promise<number> {
-    return this.latestChangeStatesGenerationValue
   }
 
   /** Highest assigned seq ever (survives head-pruning via sqlite_sequence). 0 = none. */
@@ -729,18 +704,21 @@ export class SyncRepository {
    * depending on how recently it was written.
    *
    * ONLY LIVE UPSERTS come back, where the fold used to also return `remove`
-   * tombstones. No consumer read them: the bootstrap, the baseline seed and the
-   * visibility read cache all skip non-upsert rows before doing anything.
+   * tombstones. No consumer read them: the bootstrap and the baseline seed both
+   * skip non-upsert rows before doing anything.
+   *
+   * READ AFRESH ON EVERY CALL [POD-6156]. It used to be kept in memory between
+   * appends for the visibility anchors, a raw copy of the whole wire world; they
+   * now read the rows they need by key ({@link installedStates}), and the two
+   * remaining callers read it once per bootstrap and once at boot.
    */
   async latestChangeStates(): Promise<ChangeLogReadRow[]> {
-    if (this.latestChangeStatesCache !== undefined) return this.latestChangeStatesCache
     const rows = await installedWorld(this.db).all()
     // Read payload pages in table order. ORDER BY seq chooses change_latest_seq
     // and scatters a full-world read across the DB (14.9s on the 1GB incident
     // copy). Preserve the public sequence order with an in-memory numeric sort.
     rows.sort((a, b) => a.seq - b.seq)
-    this.latestChangeStatesCache = rows.map((r) => mapChangeLogReadRow({ ...r, op: 'upsert' }))
-    return this.latestChangeStatesCache
+    return rows.map((r) => mapChangeLogReadRow({ ...r, op: 'upsert' }))
   }
 
   /**
@@ -802,10 +780,6 @@ export class SyncRepository {
     return [...new Map(out.map((row) => [row.entityId, row])).values()]
   }
 
-  private async invalidateLatestChangeStatesCache(): Promise<void> {
-    this.latestChangeStatesCache = undefined
-    this.latestChangeStatesGenerationValue++
-  }
 
   // ---- outbox write path (docs/spec/outbox-write-path.md) ----
 

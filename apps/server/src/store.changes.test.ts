@@ -231,42 +231,4 @@ describe('SessionStore changes table', () => {
     // resurrect as a delta range either: a replica must still re-bootstrap.
     expect(await store.sync.changesSince(0)).toEqual([])
   })
-
-  it('reuses latest-state materialization until the next append', async () => {
-    const store = await openTestStore(':memory:')
-    const initialGeneration = await store.sync.latestChangeStatesGeneration()
-    await store.sync.appendChanges(
-      [
-        { entity: 'issueProjection', entityId: 'i1', op: 'upsert', payload: '{"v":1}' },
-        { entity: 'issueProjection', entityId: 'i2', op: 'upsert', payload: '{"v":1}' },
-      ],
-      1000,
-    )
-    expect(await store.sync.latestChangeStatesGeneration()).toBe(initialGeneration + 1)
-    const first = await store.sync.latestChangeStates()
-    expect(await store.sync.latestChangeStates()).toBe(first)
-
-    await store.sync.appendChanges(
-      [{ entity: 'issueProjection', entityId: 'i1', op: 'upsert', payload: '{"v":2}' }],
-      1000,
-    )
-    expect(await store.sync.latestChangeStatesGeneration()).toBe(initialGeneration + 2)
-    const second = await store.sync.latestChangeStates()
-    expect(second).not.toBe(first)
-    expect(second).toContainEqual({
-      seq: 3,
-      entity: 'issueProjection',
-      entityId: 'i1',
-      op: 'upsert',
-      payload: '{"v":2}',
-    })
-    expect(await store.sync.latestChangeStates()).toBe(second)
-
-    // A prune changes nothing the world can see (POD-678), so it must NOT bump
-    // the generation: doing so would throw away a still-valid authorization read
-    // cache on a retention timer.
-    expect(await pruneChanges(store, { keepRows: 0, maxAgeMs: 0, now: 10_000 })).toBe(3)
-    expect(await store.sync.latestChangeStatesGeneration()).toBe(initialGeneration + 2)
-    expect(await store.sync.latestChangeStates()).toBe(second)
-  })
 })

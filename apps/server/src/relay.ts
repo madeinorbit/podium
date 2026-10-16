@@ -582,14 +582,14 @@ export class SessionRegistry {
     options: SessionRegistryOptions,
   ): Promise<SessionRegistry> {
     const resolvedStore = store ?? (await SessionStore.open(':memory:'))
-    const baselineStarted = performance.now()
-    // Warm the shared repository cache explicitly; Authority consumes it below.
-    // Otherwise this queued read is silently charged to session recovery.
-    await resolvedStore.sync.latestChangeStates()
-    bootStage('ledger baseline read', baselineStarted)
     const registry = new SessionRegistry(resolvedStore, notificationPushers, options, {
       settings: await resolvedStore.settings.getSettings(),
     })
+    // The Authority starts reading its baseline (all of `change_latest`) when it
+    // is built; wait for it here so that read is not charged to session recovery.
+    const baselineStarted = performance.now()
+    await registry.ledger.authority.seeded()
+    bootStage('ledger baseline read', baselineStarted)
     await registry.hydrate(options.rehearseBoot)
     return registry
   }
@@ -963,8 +963,6 @@ export class SessionRegistry {
     let issueEventFeed: IssueEventFeedPublisher | undefined
     const feedVisibility = makeFeedVisibility({
       store: this.store,
-      audienceResourceIds: (kind) => this.store.grants.visibilityAudienceResourceIds(kind),
-      audienceFor: (kind, id) => this.store.grants.visibilityAudienceFor(kind, id),
       audiencesFor: (kind, ids) => this.store.grants.visibilityAudiencesFor(kind, ids),
       authorizationRevision: () => this.store.grants.visibilityRevision(),
       issueEventSubjects: (issueId) => issueEventFeed?.subjectsFor(issueId) ?? [],
