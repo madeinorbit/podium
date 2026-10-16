@@ -31,7 +31,6 @@ registry.sessionStore.machines.setServiceAssignment(machineId, {
   agentExecution: false,
 })
 registry.sessionStore.machines.setUpdateChannel(machineId, 'dev')
-machines.invalidateMachineCache()
 const target: UpdateTarget = {
   version: '2.0.0',
   critical: false,

@@ -27,7 +27,6 @@ const { Authority, GrantEdgeVisibilityPolicy, NoDelegationsGranted, FeedIdentity
   await load('packages/sync/src/index.ts')
 const { SubscriptionRegistry } = await load('packages/protocol/src/index.ts')
 const { makeFeedVisibility } = await load('apps/server/src/feed-visibility.ts')
-const { WorldIndex } = await load('apps/server/src/modules/world-index/index.ts')
 const { FeedServing } = await load('apps/server/src/gateway/feed-serving.ts')
 const { userClientPrincipal } = await load('apps/server/src/gateway/client-principal.ts')
 const { CLIENT_PLANE_LIVENESS } = await load('apps/server/src/gateway/plane-liveness.ts')
@@ -38,14 +37,12 @@ const { OrderedClientSend } = await load('apps/server/src/gateway/ordered-client
 const { WriteFunnel } = await load('apps/server/src/modules/funnel.ts')
 const { EventBus } = await load('apps/server/src/modules/bus.ts')
 const store = await openTestStore(dbPath)
-const world = await WorldIndex.load(store)
 const { Database } = await import('bun:sqlite')
 const checkpointDb = new Database(dbPath)
 const initialCheckpoint = checkpointDb.query('PRAGMA wal_checkpoint(TRUNCATE)').get()
 if (initialCheckpoint.busy) throw new Error('fixture checkpoint busy before measurement')
 const feed = makeFeedVisibility({
   store,
-  worldIndex: world.reader,
   audienceResourceIds: () => [],
   audienceFor: () => [],
   issueEventSubjects: () => [],

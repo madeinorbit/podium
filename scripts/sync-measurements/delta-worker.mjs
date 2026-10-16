@@ -12,14 +12,12 @@ const manifest = await generateCorpus(root, dbPath)
 const { openTestStore } = await import('../../apps/server/src/test-support/open-test-store.ts')
 const { Authority, GrantEdgeVisibilityPolicy, NoDelegationsGranted, DEVICE_GRADE_PRINCIPAL } = await import('../../packages/sync/src/index.ts')
 const { makeFeedVisibility } = await import('../../apps/server/src/feed-visibility.ts')
-const { WorldIndex } = await import('../../apps/server/src/modules/world-index/index.ts')
 const { SyncWorkerClient } = await import('../../apps/server/src/sync-worker/worker-client.ts')
 const { registerSyncRoutes } = await import(baselinePath ? pathToFileURL(resolve(baselinePath)).href : '../../apps/server/src/sync/routes.ts')
 const require = createRequire(resolve(root, 'apps/server/package.json'))
 const { Hono } = require('hono')
 const store = await openTestStore(dbPath)
-const world = await WorldIndex.load(store)
-const feed = makeFeedVisibility({ store, worldIndex: world.reader,
+const feed = makeFeedVisibility({ store,
   audienceResourceIds: kind => store.grants.visibilityAudienceResourceIds(kind),
   audienceFor: (kind, id) => store.grants.visibilityAudienceFor(kind, id),
   authorizationRevision: () => store.grants.visibilityRevision(), issueEventSubjects: () => [] })
