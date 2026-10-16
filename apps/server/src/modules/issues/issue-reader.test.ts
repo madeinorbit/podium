@@ -8,6 +8,7 @@ import type { IssueDeps } from '../issues/service/types'
 import { DurableIssueAccessIndex } from '../issues/access-index'
 import { MemoryVisibilityPolicy } from '../memory/visibility'
 import { readIssue, readIssues, readIssueRows, readIssueParentEdges } from './issue-reader'
+import { withOperation } from '../../store/executor/operation-scope'
 
 const stores: SessionStore[] = []
 afterEach(async () => { for (const store of stores.splice(0)) await store.close() })
@@ -138,8 +139,8 @@ describe.each([false, true])('issue authority, bound=%s', bound => {
 
 it('reads the database, returns private copies, and agrees with the bound map (POD-6195)', async () => {
   const { store, index } = await setup(true)
-  const point = vi.spyOn(store.issues, 'getIssue')
-  const batch = vi.spyOn(store.issues, 'getIssues')
+  const point = vi.spyOn(store.issues, 'loadIssue')
+  const batch = vi.spyOn(store.issues, 'loadIssues')
   const list = vi.spyOn(store.issues, 'listIssueRows')
   const row = (await readIssue(store.issues, 'iss_x'))!
   row.ownerUserId = bob
@@ -204,9 +205,29 @@ it('disables the snapshot when boot quarantines a row', async () => {
   const raw = (store as unknown as { db: { prepare(sql: string): { run(): void } } }).db
   raw.prepare("INSERT INTO issues (id, owner_user_id, created_by_actor, repo_path, seq, title, stage, default_agent, created_at, updated_at) VALUES (NULL, 'alice', 'alice', '/r', 99, 'bad', 'backlog', 'claude-code', 't', 't')").run()
   await new IssueStore({ store } as IssueDeps).init()
-  const point = vi.spyOn(store.issues, 'getIssue')
+  const point = vi.spyOn(store.issues, 'loadIssue')
   expect((await readIssue(store.issues, 'iss_x'))?.ownerUserId).toBe(alice)
   expect(point).toHaveBeenCalledOnce()
+})
+
+it('reads each issue once per operation, and again after a write (POD-6158)', async () => {
+  const { store } = await setup(false)
+  const reads = vi.spyOn(store.issues as unknown as { readIssuesByIds(ids: readonly string[]): Promise<unknown> }, 'readIssuesByIds')
+  await withOperation(async () => {
+    // Session authorization and the session projection both ask, in one frame.
+    expect((await readIssue(store.issues, 'iss_x'))?.ownerUserId).toBe(alice)
+    expect((await readIssues(store.issues, ['iss_x'])).get('iss_x')?.ownerUserId).toBe(alice)
+    expect((await readIssue(store.issues, 'iss_x'))?.ownerUserId).toBe(alice)
+    expect(reads).toHaveBeenCalledOnce()
+    await store.issues.upsertIssue(issueRow({ title: 'renamed' }))
+    expect((await readIssue(store.issues, 'iss_x'))?.title).toBe('renamed')
+    expect(reads).toHaveBeenCalledTimes(2)
+  })
+  // A new operation reads again.
+  await withOperation(async () => {
+    expect((await readIssue(store.issues, 'iss_x'))?.title).toBe('renamed')
+  })
+  expect(reads).toHaveBeenCalledTimes(3)
 })
 
 it('orders by repo-path bytes like SQL, and batches folder owners identically (POD-5941, POD-6155)', async () => {

@@ -8,14 +8,19 @@ import { compareWithIssueMap } from './service/map-parity'
  * projection and authorization, memory, cost, the relay).
  *
  * They used to borrow IssueStore's in-memory map outside a save and ask SQL
- * inside one. Since POD-6195 they ask the repository every time (its read
- * scope memoises a row for an operation, as before inside a save). Until the
+ * inside one. Since POD-6195 they ask the repository, through its
+ * per-operation row loader: one daemon frame or tRPC call reads each issue
+ * once, however many of these readers ask (session authorization and the
+ * session projection both do), and the loader's version moves on every issue
+ * write and commit, so a read after a write sees it. Until the
  * map is deleted (D1g, POD-6196) the map IssueStore binds here is asked beside
  * each read outside a save, for the old/new comparison (`map-parity.ts`); it
  * never answers.
  */
 
-type IssueReadPort = Pick<IssuesRepository, 'getIssue' | 'getIssues'>
+// The repository always has the loader; a narrowed port (a test's fake) may
+// offer only the plain reads, which then answer.
+type IssueReadPort = Pick<IssuesRepository, 'getIssue' | 'getIssues'> & Partial<Pick<IssuesRepository, 'loadIssue' | 'loadIssues'>>
 // Repository identity isolates instances; an unbound repository is not compared.
 interface CommittedIssueReader {
   rows(): ReadonlyMap<string, IssueRow>
@@ -33,14 +38,14 @@ function mapOf(repository: IssueReadPort): ReadonlyMap<string, IssueRow> | undef
 }
 
 export async function readIssue(repository: IssueReadPort, id: string): Promise<IssueRow | null> {
-  const row = await repository.getIssue(id)
+  const row = repository.loadIssue ? ((await repository.loadIssue(id)) ?? null) : await repository.getIssue(id)
   const map = mapOf(repository)
   if (map) compareWithIssueMap('readIssue', id, () => map.get(id) ?? null, row)
   return row
 }
 
 export async function readIssues(repository: IssueReadPort, ids: readonly string[]): Promise<Map<string, IssueRow>> {
-  const rows = await repository.getIssues(ids)
+  const rows = repository.loadIssues ? await repository.loadIssues(ids) : await repository.getIssues(ids)
   const map = mapOf(repository)
   if (map) {
     compareWithIssueMap('readIssues', ids, () => {
