@@ -421,7 +421,12 @@ export class RuntimeEventGate {
           },
           { announce: false },
         )
-        await this.ports.events.saveRuntimeEventCheckpoint(next)
+        // The session's turn state rides on the checkpoint row, in this same
+        // transaction (POD-6160 D2h): what a parked or restarted session shows.
+        await this.ports.events.saveRuntimeEventCheckpoint({
+          ...next,
+          turnState: draft.agentState ?? current?.turnState ?? null,
+        })
       },
     )
     if (stoppedBeforeWrite) return { kind: 'rejected', reason: 'session-not-running' }

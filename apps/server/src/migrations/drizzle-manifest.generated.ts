@@ -136,6 +136,7 @@ export const DRIZZLE_MIGRATIONS: DrizzleMigration[] = [
   { name: "20261016010323_issue-worktree-folded-index", sql: "CREATE INDEX `idx_issues_worktree_folded` ON `issues` (lower(replace(\"worktree_path\", '/', '\\'))) WHERE \"issues\".\"worktree_path\" IS NOT NULL AND \"issues\".\"deleted_at\" IS NULL;" },
   { name: "20261016073255_issue-seq-index", sql: "CREATE INDEX `idx_issues_seq` ON `issues` (`seq`,`repo_path`,`id`);" },
   { name: "20261016140809_session-lookup-indexes", sql: "CREATE INDEX `idx_sessions_cwd` ON `sessions` (`cwd`);--> statement-breakpoint\nCREATE INDEX `idx_sessions_cwd_folded` ON `sessions` (lower(replace(\"cwd\", '/', '\\')));--> statement-breakpoint\nCREATE INDEX `idx_sessions_spawned_by` ON `sessions` (`spawned_by`);--> statement-breakpoint\nCREATE INDEX `idx_sessions_ref_draft` ON `sessions` (`ref_draft`);--> statement-breakpoint\nCREATE INDEX `idx_sessions_status` ON `sessions` (`status`);" },
+  { name: "20261016172101_runtime-turn-state", sql: "ALTER TABLE `runtime_event_checkpoints` ADD `turn_state_json` text;" },
 ]
 
 /**

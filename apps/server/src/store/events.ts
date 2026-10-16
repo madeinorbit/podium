@@ -5,7 +5,7 @@
  * event-subscriptions design Phase B).
  */
 
-import type { SessionId } from '@podium/model'
+import { AgentRuntimeState, type SessionId } from '@podium/model'
 import { ISSUE_EVENTS_DEFAULT_LIMIT, ProviderCursor } from '@podium/protocol'
 import { RuntimeEvent } from '@podium/protocol/daemon'
 import { and, asc, desc, eq, gt, inArray, lt, lte, max, not, or, type SQL, sql } from 'drizzle-orm'
@@ -115,9 +115,19 @@ const checkpointOf = prepared((db: StoreDrizzle) =>
       turnEpoch: runtimeEventCheckpoints.turnEpoch,
       closedTurnEpoch: runtimeEventCheckpoints.closedTurnEpoch,
       updatedAt: runtimeEventCheckpoints.updatedAt,
+      turnStateJson: runtimeEventCheckpoints.turnStateJson,
     })
     .from(runtimeEventCheckpoints)
     .where(eq(runtimeEventCheckpoints.sessionId, param(runtimeEventCheckpoints.sessionId, 'sessionId')))
+    .prepare(),
+)
+
+/** The recorded turn states of a set of sessions (POD-6160 D2h). */
+const turnStatesOfIds = preparedFamily((db: StoreDrizzle, size: number) =>
+  db
+    .select({ sessionId: runtimeEventCheckpoints.sessionId, turnStateJson: runtimeEventCheckpoints.turnStateJson })
+    .from(runtimeEventCheckpoints)
+    .where(inListOf(runtimeEventCheckpoints.sessionId, size))
     .prepare(),
 )
 
@@ -131,6 +141,7 @@ const upsertCheckpoint = prepared((db: StoreDrizzle) =>
       turnEpoch: sql.placeholder('turnEpoch'),
       closedTurnEpoch: sql.placeholder('closedTurnEpoch'),
       updatedAt: sql.placeholder('updatedAt'),
+      turnStateJson: sql.placeholder('turnStateJson'),
     })
     .onConflictDoUpdate({
       target: runtimeEventCheckpoints.sessionId,
@@ -140,6 +151,7 @@ const upsertCheckpoint = prepared((db: StoreDrizzle) =>
         turnEpoch: sql.placeholder('turnEpoch'),
         closedTurnEpoch: sql.placeholder('closedTurnEpoch'),
         updatedAt: sql.placeholder('updatedAt'),
+        turnStateJson: sql.placeholder('turnStateJson'),
       },
     })
     .prepare(),
@@ -524,6 +536,8 @@ export interface RuntimeEventCheckpoint {
   turnEpoch: number
   closedTurnEpoch: number | null
   updatedAt: string
+  /** The session's turn state as of this event (POD-6160 D2h); null = none. */
+  turnState?: AgentRuntimeState | null
 }
 
 export interface RuntimeEventLogRecord {
@@ -592,6 +606,7 @@ export class EventsRepository {
         // `Number(null)` is 0, which reads as "turn 0 closed".
         closedTurnEpoch: row.closedTurnEpoch ?? null,
         updatedAt: row.updatedAt,
+        turnState: parseTurnState(row.turnStateJson),
       }
     } catch {
       // A corrupt cursor quarantines the WHOLE checkpoint: the session looks
@@ -608,7 +623,23 @@ export class EventsRepository {
       turnEpoch: checkpoint.turnEpoch,
       closedTurnEpoch: checkpoint.closedTurnEpoch,
       updatedAt: checkpoint.updatedAt,
+      turnStateJson: checkpoint.turnState ? JSON.stringify(checkpoint.turnState) : null,
     })
+  }
+
+  /** The recorded turn state of each of these sessions that has one
+   *  (POD-6160 D2h), one statement per 500 ids. */
+  async runtimeTurnStatesOf(sessionIds: readonly SessionId[]): Promise<Map<SessionId, AgentRuntimeState>> {
+    const out = new Map<SessionId, AgentRuntimeState>()
+    for (let at = 0; at < sessionIds.length; at += 500) {
+      const chunk = sessionIds.slice(at, at + 500)
+      const size = inListSize(chunk.length)
+      for (const row of await turnStatesOfIds(this.db, size).all(inListValues(chunk, size))) {
+        const state = parseTurnState(row.turnStateJson)
+        if (state) out.set(row.sessionId as SessionId, state)
+      }
+    }
+    return out
   }
 
   async listRuntimeEvents(sessionId: SessionId, limit = 64): Promise<RuntimeEvent[]> {
@@ -1017,5 +1048,17 @@ export class EventsRepository {
     // and `changes > 0` keeps meaning exactly what it meant.
     const r = await insertDeliveryIfNew(this.db).run({ subscriptionId, eventId })
     return Number(r.changes) > 0
+  }
+}
+
+/** A stored turn state, or null when absent or corrupt (a corrupt one is read
+ *  as none recorded, never as a reason to drop the checkpoint). */
+function parseTurnState(raw: string | null | undefined): AgentRuntimeState | null {
+  if (!raw) return null
+  try {
+    const parsed = AgentRuntimeState.safeParse(JSON.parse(raw))
+    return parsed.success ? parsed.data : null
+  } catch {
+    return null
   }
 }

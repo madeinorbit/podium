@@ -181,6 +181,7 @@ describe('EventsRepository: saveRuntimeEventCheckpoint (executed, never named)',
       turnEpoch: 5,
       closedTurnEpoch: 4,
       updatedAt: 't2',
+      turnState: { phase: 'needs_user', since: 't2', nativeSubagentCount: 0 },
     })
 
     expect(await store.events.runtimeEventCheckpoint(sessionId)).toEqual({
@@ -190,6 +191,7 @@ describe('EventsRepository: saveRuntimeEventCheckpoint (executed, never named)',
       turnEpoch: 5,
       closedTurnEpoch: 4,
       updatedAt: 't2',
+      turnState: { phase: 'needs_user', since: 't2', nativeSubagentCount: 0 },
     })
     await store.close()
   })

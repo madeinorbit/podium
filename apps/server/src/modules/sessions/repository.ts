@@ -38,7 +38,7 @@ export interface SessionProjectionEvent {
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { createLogger } from '@podium/logger'
 import { Session, type SessionDurableState, type SessionVolatileField } from './session'
-import { storedSessionInit } from './session-record'
+import { applyRuntimeTurnStateTo, storedSessionInit } from './session-record'
 import type { SessionStatePrincipal, SessionStateService } from './session-state/service'
 import type { SessionView } from './view'
 import { runtimeTranscriptDeltaFromEvent } from './runtime-transcript'
@@ -1001,6 +1001,9 @@ export class SessionRepository {
     // The DRAFT stamps of the sessions installed below, in one read (POD-6160:
     // draft documents themselves load when used, never at boot).
     await this.state.stageDraftTimes(storedRows.map((r) => r.id))
+    // A runtime-driven session's turn state, recorded with its last runtime
+    // event (POD-6160 D2h): one read for the sessions installed below.
+    const runtimeTurnStates = await this.store.events.runtimeTurnStatesOf(storedRows.map((r) => r.id))
     for (const r of storedRows) {
       let rowStarted = performance.now()
       const session = await this.sessionFromStoredRow(r, 'boot', runtimeSessions.has(r.id))
@@ -1025,6 +1028,8 @@ export class SessionRepository {
           this.autoContinue.onSessionRestored(session.sessionId, checkpoint.turnState)
         }
       }
+      const turnState = runtimeTurnStates.get(r.id)
+      if (turnState) applyRuntimeTurnStateTo(session, turnState)
       if (r.status !== session.status) await this.persist(session)
     }
     log.info('boot session recovery breakdown', { sessions: storedRows.length, rowReadMs, installMs })

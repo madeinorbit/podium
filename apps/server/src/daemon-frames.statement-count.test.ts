@@ -54,7 +54,8 @@ import {
 // the map (`modules/sessions/map-parity.ts`, on under vitest and in development
 // builds, off in a packaged one). The exited session is such a read: its row,
 // offer, draft time, checkpoint and runtime-transcript presence, +5 for
-// agentExit 27 -> 32. Constant in the number of sessions.
+// agentExit 27 -> 32. Constant in the number of sessions. D2h adds the runtime
+// turn state to the satellites a record reads: 33.
 
 /**
  * Reads of the `grants` table in one tally [POD-6189]. Statement keys keep
@@ -251,7 +252,7 @@ describe('daemon frames that read an observation checkpoint: pinned at 5 and 200
     const counts = await expectConstantStatements(
       pin('agentExit', async (f) =>
         await route(f, { type: 'agentExit', sessionId: f.ids[0], code: 0, observerGeneration: 1 })),
-      32,
+      33,
     )
     expectGrantReads(counts, 1)
   })

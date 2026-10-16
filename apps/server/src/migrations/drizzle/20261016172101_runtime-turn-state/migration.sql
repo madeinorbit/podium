@@ -1,0 +1,1 @@
+ALTER TABLE `runtime_event_checkpoints` ADD `turn_state_json` text;

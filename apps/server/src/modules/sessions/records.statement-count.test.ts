@@ -4,7 +4,8 @@
  *
  * Each selection reads its candidate rows with one indexed query (two for a
  * Windows-style path), then the satellites of all of them with one query per
- * table. The fixture's sessions are not resident (an empty map), so every
+ * table (offers, draft times, observation checkpoints, runtime transcript
+ * presence, runtime turn states since D2h). The fixture's sessions are not resident (an empty map), so every
  * answer comes from the database: the shape the map has once it holds running
  * sessions only.
  */
@@ -118,41 +119,41 @@ function pin(
 
 describe('durable session records: constant statements', () => {
   it('reads every live session in a fixed number of statements', async () => {
-    await expectConstantStatements(pin('records.all', (f) => f.records.all('pin'), (size) => size), 6)
+    await expectConstantStatements(pin('records.all', (f) => f.records.all('pin'), (size) => size), 7)
   })
 
   it('reads a set of sessions by id in a fixed number of statements', async () => {
     await expectConstantStatements(
       pin('records.resolve', (f) => f.records.resolve(f.ids, 'pin'), (size) => size),
-      6,
+      7,
     )
   })
 
   it("reads one issue's member sessions in a fixed number of statements", async () => {
     await expectConstantStatements(
       pin('records.issueMembers', (f) => f.records.issueMembers(WORKTREE, ISSUE, 'pin'), () => 2),
-      7,
+      8,
     )
   })
 
   it('reads the sessions under a path in a fixed number of statements', async () => {
     await expectConstantStatements(
       pin('records.underPath', (f) => f.records.underPath(WORKTREE, 'pin'), () => 2),
-      6,
+      7,
     )
   })
 
   it("reads a machine's sessions in a fixed number of statements", async () => {
     await expectConstantStatements(
       pin('records.onMachine', (f) => f.records.onMachine(f.store.hostMachineId, 'pin'), (size) => size),
-      6,
+      7,
     )
   })
 
   it("reads a session's children in a fixed number of statements", async () => {
     await expectConstantStatements(
       pin('records.childrenOf', (f) => f.records.childrenOf([PARENT], 'pin'), () => 2),
-      6,
+      7,
     )
   })
 
@@ -173,7 +174,7 @@ describe('durable session records: constant statements', () => {
   it('reads the sessions of an id prefix in a fixed number of statements', async () => {
     await expectConstantStatements(
       pin('records.withIdPrefix', (f) => f.records.withIdPrefix('rec-', 'pin'), (size) => size - 1),
-      6,
+      7,
     )
   })
 })

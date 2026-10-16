@@ -1,6 +1,7 @@
 import {
   type AccountId,
   AgentKind,
+  type AgentRuntimeState,
   type Attribution,
   type Geometry,
   type HarnessAgent,
@@ -369,6 +370,16 @@ export function applyObservationCheckpointTo(
   // if no `sessionResumeRef` ever reached us — this is the arm that closes the
   // gap for a harness whose id we learn only through the observation plane.
   if (checkpoint.providerSessionId) markConversationBound(d)
+}
+
+/**
+ * Restore a runtime-driven session's turn state (POD-6160 D2h): the phase and
+ * working time its runtime checkpoint recorded with its last event. Its
+ * working total is the row's already; the state is what a restart lost.
+ */
+export function applyRuntimeTurnStateTo(d: SessionDurableFields, state: AgentRuntimeState): void {
+  d.agentState = state
+  d.incomingWorkingMsTotal = undefined
 }
 
 /** THE wire projection of a session's shared facts (S6): identity, durable

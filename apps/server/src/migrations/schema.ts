@@ -1311,6 +1311,11 @@ export const runtimeEventCheckpoints = sqliteTable('runtime_event_checkpoints', 
   turnEpoch: integer('turn_epoch').notNull(),
   closedTurnEpoch: integer('closed_turn_epoch'),
   updatedAt: text('updated_at').notNull(),
+  // THE SESSION'S TURN STATE as of this event (POD-6160 D2h): the phase and
+  // working time a runtime-driven session shows. Written with the checkpoint
+  // in the event's transaction, so a session that leaves memory, or a server
+  // that restarts, restores what it showed. Null = none recorded yet.
+  turnStateJson: text('turn_state_json'),
 })
 
 /** Durable consumption head for each coarse-event oplog projector. */

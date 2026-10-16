@@ -14,6 +14,7 @@ import { compareWithSessionMap, LIVE_PLANE_META_FIELDS, sessionMapParityMode } f
 import { Session } from './session'
 import {
   applyObservationCheckpointTo,
+  applyRuntimeTurnStateTo,
   isRunningStatus,
   markConversationBound,
   projectSessionMeta,
@@ -374,12 +375,13 @@ export class SessionRecords {
     if (records.length === 0) return records
     const ids = records.map((record) => record.sessionId)
     const store = this.ports.store
-    const [offers, draftTimes, checkpoints, transcripts, conversations] = await Promise.all([
+    const [offers, draftTimes, checkpoints, transcripts, conversations, turnStates] = await Promise.all([
       store.sessions.offersOf(ids),
       store.sessions.draftTimesOf(ids),
       store.observationCheckpoints.checkpointsOf(ids),
       store.events.runtimeTranscriptAvailableOf(ids),
       this.conversationIds(records),
+      store.events.runtimeTurnStatesOf(ids),
     ])
     for (const record of records) {
       // The order of the boot load (`SessionRepository.loadFromStore`): the row
@@ -402,6 +404,8 @@ export class SessionRecords {
       if (draftUpdatedAt !== undefined) record.draftUpdatedAt = draftUpdatedAt
       const checkpoint = checkpoints.get(record.sessionId)
       if (checkpoint) applyObservationCheckpointTo(record, checkpoint)
+      const turnState = turnStates.get(record.sessionId)
+      if (turnState) applyRuntimeTurnStateTo(record, turnState)
     }
     return records
   }
