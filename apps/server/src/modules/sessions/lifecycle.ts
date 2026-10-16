@@ -592,7 +592,7 @@ export class SessionLifecycle {
   async inboxPrincipalForSession(
     sessionId: SessionId,
   ): Promise<InboxPrincipalReference | undefined> {
-    return this.sessions.has(sessionId)
+    return (await this.records.ownershipOf(sessionId, 'inboxPrincipalForSession'))
       ? await this.inboxPrincipalForCapability(await this.capabilityForSession(sessionId))
       : undefined
   }

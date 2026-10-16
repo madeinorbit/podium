@@ -89,6 +89,23 @@ function harness(issueForCwd: () => Promise<string | null> = async () => null) {
     sessionById: get,
     machines: { ownershipRows: () => [{ id: MACHINE }], grantsForMachine: () => [{ grantee: USER, verb: 'use' }, { grantee: USER, verb: 'manage', custody: true }] },
     sessions: { get },
+    // Who each session acts for, off the same rows (POD-6160).
+    records: {
+      ownershipOf: async (sessionId: SessionId) => {
+        const s = get(sessionId)
+        return s
+          ? {
+              sessionId: s.sessionId,
+              ownerUserId: s.ownerUserId,
+              ...(s.issueId ? { issueId: s.issueId } : {}),
+              cwd: s.cwd,
+              ...(s.spawnedBy ? { spawnedBy: s.spawnedBy } : {}),
+              machineId: s.machineId,
+              status: s.status,
+            }
+          : undefined
+      },
+    },
     store: {
       sessions: { getSession: get },
       users: { get: (id: string) => (id === USER ? { id } : undefined), roleOf: () => 'admin' },

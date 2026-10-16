@@ -21,6 +21,7 @@ import { machineUseDecision, ownershipSnapshotFromMachines } from '../../machine
 import { spawnedByParentSessionId } from '@podium/model'
 import { granteesOf } from './session-state/grantees'
 import type { SessionStore } from '../../store'
+import type { SessionRecords } from './records'
 import type { SessionLifecycleDeps } from './session-lifecycle-types'
 import type { SessionAccessDeps } from './session-access'
 import { SUPERAGENT_AGENT_IDENTITY } from '../messages/types'
@@ -51,6 +52,9 @@ export interface SessionAuthzPorts {
   /** Complete session registry, including parked sessions; the same map the
    * view projects. A missing id may still be resolved from durable storage. */
   sessions: { get(sessionId: SessionId): Session | undefined }
+  /** Who a session acts for, read from the database where it is not resident
+   *  (POD-6160): one row read per operation, never the whole map. */
+  records: Pick<SessionRecords, 'ownershipOf'>
   store: SessionAuthzStorePort
 }
 
@@ -63,7 +67,7 @@ export class SessionAuthz {
     sourceMessageId: string | null
   }): Promise<{ ok: true } | { ok: false; reason: string }> {
     const refused = { ok: false, reason: 'session no longer exists' } as const
-    const target = this.ports.sessions.get(input.sessionId)
+    const target = await this.ports.records.ownershipOf(input.sessionId, 'queuedInputAtApply')
     const ownership = await this.sessionOwner(input.sessionId)
     if (!target || !ownership) return refused
 
@@ -254,7 +258,7 @@ export class SessionAuthz {
    *  worktree it runs in (subtree), else 'none' (may read + create, but writing an existing
    *  issue needs --outside-scope). Unknown session → most-restricted. */
   async capabilityForSession(sessionId: SessionId): Promise<Capability> {
-    const s = this.ports.sessions.get(sessionId)
+    const s = await this.ports.records.ownershipOf(sessionId, 'capability')
     if (!s) return { role: 'worker', scope: { kind: 'none' } }
     const attribution = { onBehalfOf: s.ownerUserId }
     // Explicit attachment wins over cwd containment (issue-as-workspace): an
@@ -410,8 +414,8 @@ export class SessionAuthz {
   async inboxPrincipalForCapability(capability: Capability): Promise<InboxPrincipalReference> {
     return inboxPrincipalFromCommand(
       await resolvePrincipalAsync(capability, {
-        parentSessionOf: (sessionId) =>
-          spawnedByParentSessionId(this.ports.sessions.get(sessionId)?.spawnedBy),
+        parentSessionOf: async (sessionId) =>
+          spawnedByParentSessionId((await this.ports.records.ownershipOf(sessionId, 'inboxPrincipal'))?.spawnedBy),
         onBehalfOfFor: async (sessionId) => (await this.sessionOwner(sessionId))?.owner ?? undefined,
       }),
     )

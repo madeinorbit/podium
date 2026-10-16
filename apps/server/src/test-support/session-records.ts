@@ -28,6 +28,20 @@ export function residentRecords(sessions: ReadonlyMap<SessionId, Session>): Sess
       return where((s) => s.spawnedBy !== undefined && values.has(s.spawnedBy))
     },
     // The map's order, as the full list has it.
+    ownershipOf: async (sessionId) => {
+      const s = sessions.get(sessionId)
+      return s
+        ? {
+            sessionId: s.sessionId,
+            ownerUserId: s.ownerUserId,
+            ...(s.issueId ? { issueId: s.issueId } : {}),
+            cwd: s.cwd,
+            ...(s.spawnedBy ? { spawnedBy: s.spawnedBy } : {}),
+            machineId: s.machineId,
+            status: s.status,
+          }
+        : undefined
+    },
     resolve: async (ids) => {
       const wanted = new Set(ids)
       return new Map(where((s) => wanted.has(s.sessionId)).map((s) => [s.sessionId, s]))

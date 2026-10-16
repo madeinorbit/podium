@@ -1185,6 +1185,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     sessionById: (sessionId: SessionId) => bag.view.byId(sessionId),
     machines,
     sessions: bag.sessions,
+    records: bag.records,
     store,
   })
   bag.sessionMetaOps = new SessionMetaOps({

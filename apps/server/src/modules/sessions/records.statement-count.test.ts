@@ -156,6 +156,20 @@ describe('durable session records: constant statements', () => {
     )
   })
 
+  it("reads who a session acts for in one statement (D2c)", async () => {
+    await expectConstantStatements(
+      {
+        name: 'records.ownershipOf',
+        setup: fixture,
+        target: (f) => f.store,
+        run: async (f) => await f.records.ownershipOf(f.ids.at(-1)!, 'pin'),
+        check: (result) => expect(result).toMatchObject({ cwd: expect.any(String) }),
+        teardown: async (f) => await f.store.close(),
+      },
+      1,
+    )
+  })
+
   it('reads the sessions of an id prefix in a fixed number of statements', async () => {
     await expectConstantStatements(
       pin('records.withIdPrefix', (f) => f.records.withIdPrefix('rec-', 'pin'), (size) => size - 1),

@@ -1371,26 +1371,12 @@ export class SessionRegistry {
       rpc,
       now: () => this.now(),
     })
-    const capabilityForLiveSession = async (sessionId: SessionId) => {
-      const session = liveSessions.get(sessionId)
-      if (!session) return { role: 'worker', scope: { kind: 'none' } } as const
-      const issueId = session.issueId ?? (await issueAccess.issueForCwd(session.cwd))
-      return issueId
-        ? {
-            role: 'worker' as const,
-            scope: { kind: 'subtree' as const, rootId: issueId },
-            actorSessionId: sessionId,
-            onBehalfOf: session.ownerUserId,
-          }
-        : {
-            role: 'worker' as const,
-            scope: { kind: 'none' as const },
-            actorSessionId: sessionId,
-            onBehalfOf: session.ownerUserId,
-          }
-    }
+    // A mail sender's capability and a session ref's owner, from who the session
+    // acts for (POD-6160: the resident session, else its row, read once per
+    // operation). `sessionsSvc` is built below; these run only once it exists.
+    const capabilityForLiveSession = async (sessionId: SessionId) => await sessionsSvc.capabilityForSession(sessionId)
     const liveSessionOwnership = async (sessionId: SessionId) => {
-      const session = liveSessions.get(sessionId)
+      const session = await sessionsSvc.records.ownershipOf(sessionId, 'mailSessionRef')
       if (!session) return undefined
       return {
         owner: session.ownerUserId,

@@ -295,6 +295,12 @@ describe('durable session records: the database answers as the session map', () 
       expect(durableView((await sessions.records.read([id])).get(id)!)).toEqual(durableView(map.get(id)!))
     }
     expect(isRunningStatus(map.get(running)!.status)).toBe(true)
+    // D2c: who each session acts for, and the capability built from it.
+    for (const id of ids) {
+      expect(await sessions.records.ownershipOf(id, 'test')).toMatchObject({ sessionId: id, cwd: map.get(id)!.cwd })
+      expect((await sessions.capabilityForSession(id)).actorSessionId).toBe(id)
+    }
+    expect(await sessions.records.ownershipOf(asSessionId('nope'), 'test')).toBeUndefined()
 
     // After a reboot the map is the boot restore: full equality.
     await reg.dispose()

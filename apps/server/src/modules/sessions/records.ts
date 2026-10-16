@@ -94,6 +94,7 @@ export type SessionRecordReads = Pick<
   | 'birthRefCandidates'
   | 'childrenOf'
   | 'withStatuses'
+  | 'ownershipOf'
 >
 
 export class SessionRecords {
@@ -159,6 +160,29 @@ export class SessionRecords {
       const subject = resident.get(row.id) ?? restored.get(row.id)
       return subject ? [subject] : []
     })
+  }
+
+  /**
+   * WHO A SESSION ACTS FOR, AND WHERE (POD-6160 D2c): the fields an
+   * authorization, principal or liveness check reads — owner, explicit issue,
+   * cwd, creator, machine, status. The resident session's as it stands when asked; otherwise its row,
+   * through the operation's session loader (one read, shared with every other
+   * check in the operation, and invalidated by every write of the row), never
+   * a full record. A deleted or unknown session has none. Until the map
+   * shrinks, a resident session that does not run and has settled is also
+   * read from its row and compared.
+   */
+  async ownershipOf(sessionId: SessionId, reader = 'ownership'): Promise<SessionOwnership | undefined> {
+    const resident = this.ports.sessions.get(sessionId)
+    if (resident && (this.mapOnly() || isRunningStatus(resident.status) || !this.ports.settled(sessionId))) {
+      return ownershipFields(resident)
+    }
+    if (!resident && this.mapOnly()) return undefined
+    const row = await this.ports.store.sessions.loadSession(sessionId)
+    const stored = row && !row.deletedAt ? ownershipFields(rowOwnership(row)) : undefined
+    if (!resident) return stored
+    compareWithSessionMap(`sessionOwnership.${reader}`, sessionId, () => ownershipFields(resident), stored)
+    return ownershipFields(resident)
   }
 
   // ---- SELECTIONS (POD-6160 D2b) ----
@@ -425,6 +449,49 @@ export class SessionRecords {
         record ? durableView(record) : undefined,
       )
     }
+  }
+}
+
+/** The fields an authorization or principal check reads off a session. */
+export interface SessionOwnership {
+  sessionId: SessionId
+  ownerUserId: UserId
+  issueId?: IssueId
+  cwd: string
+  spawnedBy?: string
+  machineId: MachineId
+  status: Session['status']
+}
+
+function ownershipFields(s: {
+  sessionId: SessionId
+  ownerUserId: UserId
+  issueId?: IssueId | undefined
+  cwd: string
+  spawnedBy?: string | undefined
+  machineId: MachineId
+  status: Session['status']
+}): SessionOwnership {
+  return {
+    sessionId: s.sessionId,
+    ownerUserId: s.ownerUserId,
+    ...(s.issueId ? { issueId: s.issueId } : {}),
+    cwd: s.cwd,
+    ...(s.spawnedBy ? { spawnedBy: s.spawnedBy } : {}),
+    machineId: s.machineId,
+    status: s.status,
+  }
+}
+
+function rowOwnership(row: SessionRow) {
+  return {
+    sessionId: row.id,
+    ownerUserId: row.ownerUserId as UserId,
+    issueId: row.issueId ?? undefined,
+    cwd: row.cwd,
+    spawnedBy: row.spawnedBy ?? undefined,
+    machineId: row.machineId,
+    status: row.status,
   }
 }
 
