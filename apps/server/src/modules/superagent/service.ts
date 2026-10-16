@@ -1483,11 +1483,12 @@ export class SuperagentService {
     return { threadId, isNew: true }
   }
 
-  /** The fleet as cheap in-memory facts [POD-3857]. Both readers below filter
-   *  on `status`/`archived`/`headless`/`cwd` and then report a label, a kind and
-   *  a phase — nothing the reader-scoped projection adds. */
-  private sessionFacts() {
-    return this.modules.sessions.sessionFacts()
+  /** The fleet's not-exited sessions as cheap facts [POD-3857]: running and
+   *  hibernated, read by status from the database (POD-6160). Both readers below
+   *  filter on `archived`/`headless`/`cwd` and then report a label, a kind and a
+   *  phase — nothing the reader-scoped projection adds. */
+  private async notExitedSessionFacts() {
+    return await this.modules.sessions.readSessionFactsWithStatuses(['starting', 'live', 'reconnecting', 'hibernated'])
   }
   /** ONE session, without wiring the other 1100 [POD-1646]. */
   private async sessionById(sessionId: SessionId) {
@@ -1816,7 +1817,7 @@ export class SuperagentService {
       })
     }
     const sessions: ConciergeSessionInfo[] = await Promise.all(
-      this.sessionFacts()
+      (await this.notExitedSessionFacts())
         .filter((s) => s.status !== 'exited' && !s.archived && !s.headless)
         .map(
           async (s) =>
@@ -1914,7 +1915,7 @@ export class SuperagentService {
     const issues = this.modules.issues
     const all = await issues.reports.list(repoPath)
     const byWorktree = new Map(all.filter((i) => i.worktreePath).map((i) => [machinePathKey(i.worktreePath!), i]))
-    const sessions: ConciergeSessionInfo[] = this.sessionFacts()
+    const sessions: ConciergeSessionInfo[] = (await this.notExitedSessionFacts())
       .filter(
         (s) =>
           s.status !== 'exited' &&

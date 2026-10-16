@@ -13,6 +13,7 @@ import { openTestStore } from '../../test-support/open-test-store'
 import { Session } from './session'
 import { SessionAuthz, type SessionAuthzPorts } from './session-authz'
 import { SessionView, type SessionViewPorts } from './view'
+import { residentRecords } from '../../test-support/session-records'
 
 const stores: SessionStore[] = []
 afterEach(async () => {
@@ -46,7 +47,7 @@ it('session authorization and projection deny an in-span revocation, including p
   })
   const authz = new SessionAuthz({ store, sessions: new Map([[session, target]]) } as unknown as SessionAuthzPorts)
   const view = new SessionView({
-    store, sessions: new Map([[session, target]]),
+    store, records: residentRecords(new Map([[session, target]])),
     machines: { factsSnapshot: async () => ({ name: () => 'box', loginCondition: () => undefined }) },
     state: { overlaySnapshot: async () => new Map() },
   } as unknown as SessionViewPorts)

@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest'
 import type { IssueService } from '../issues/service'
 import type { MessageDeliveryService } from '../messages/service'
 import { READ_LINE_CAP, SessionReadToolkit } from './read-toolkit'
-import { metasAsFacts } from '../../test-support/session-facts'
+import { sessionReadPorts } from '../../test-support/session-facts'
 import { readSessionRefs } from './refs'
 
 function session(over: Partial<SessionMetaInput> & { displayRef?: string; machineName?: string }): SessionMeta {
@@ -47,7 +47,7 @@ function harness(opts?: { sessions?: SessionMeta[]; items?: TranscriptItem[]; ha
     repos: { prefixForRepoId: async () => 'POD' },
   } as unknown as Parameters<typeof readSessionRefs>[0]
   const toolkit = new SessionReadToolkit({
-    sessionFacts: () => metasAsFacts(all()),
+    ...sessionReadPorts(() => all()),
     sessionById: async (sessionId) => all().find((s) => s.sessionId === sessionId && !opts?.hidden?.has(s.sessionId)),
     sessionsById: async (sessionIds) => {
       const wanted = new Set(sessionIds)

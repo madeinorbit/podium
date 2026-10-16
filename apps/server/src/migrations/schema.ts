@@ -309,6 +309,21 @@ export const sessions = sqliteTable(
       .on(table.refIssueId)
       .where(sql`${table.refIssueId} IS NOT NULL`),
     index('idx_sessions_machine').on(table.machineId),
+    // Sessions under a worktree (POD-6160): issue membership by cwd and the
+    // free/GC guards ask for a path and everything below it, as a key range on
+    // the literal cwd, and for Windows-style roots on the folded, backslashed
+    // cwd (their membership ignores ASCII case and separator spelling). A
+    // reader must repeat the folded expression exactly.
+    index('idx_sessions_cwd').on(table.cwd),
+    index('idx_sessions_cwd_folded').on(sql`lower(replace(${table.cwd}, '/', '\\'))`),
+    // A session's children (POD-6160): subagent trees and the steward's parent
+    // wake walk `spawned_by = 'session:<id>'`, and a draft birth ref
+    // (`POD-DRAFT-3`) names its session by `ref_draft`.
+    index('idx_sessions_spawned_by').on(table.spawnedBy),
+    index('idx_sessions_ref_draft').on(table.refDraft),
+    // Sessions by status (POD-6160): the running ones a boot restores, the
+    // not-exited ones the concierge digest reports.
+    index('idx_sessions_status').on(table.status),
     check(
       'sessions_stop_reason_check',
       sql`stop_reason IS NULL OR stop_reason IN ('self', 'parent', 'forced', 'exited')`,

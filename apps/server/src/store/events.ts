@@ -197,6 +197,33 @@ const runtimeTranscriptPayloads = prepared((db: StoreDrizzle) => {
     .prepare()
 })
 
+/**
+ * WHICH OF THESE SESSIONS HAS A RUNTIME TRANSCRIPT (POD-6160): items since the
+ * session's last `transcript-reset`, counting the reset's own items. It is the
+ * one fact the boot replay of {@link runtimeTranscriptPayloads} sets on a
+ * restored session (`transcriptAvailable`), asked for a set of durable records
+ * without replaying their items. One statement per 500 ids.
+ *
+ * The newest reset and whether it carried items are one aggregate: its id
+ * doubled, plus one when its `items` are not empty.
+ */
+const runtimeTranscriptSubjectsOfIds = preparedFamily((db: StoreDrizzle, size: number) => {
+  const type = sql`json_extract(${podiumEvents.payload}, '$.t')`
+  const newestReset = sql`coalesce(max(CASE WHEN ${type} = 'transcript-reset'
+    THEN ${podiumEvents.id} * 2 + (coalesce(json_array_length(${podiumEvents.payload}, '$.items'), 0) > 0) END), 0)`
+  return db
+    .select({ subject: podiumEvents.subject })
+    .from(podiumEvents)
+    .where(and(eq(podiumEvents.kind, RUNTIME_EVENT_LOG_KIND), inListOf(podiumEvents.subject, size)))
+    .groupBy(podiumEvents.subject)
+    .having(
+      sql`max(CASE WHEN ${type} = 'item' AND json_extract(${podiumEvents.payload}, '$.item.kind') = 'complete'
+          THEN ${podiumEvents.id} * 2 END) > ${newestReset}
+        OR ${newestReset} % 2 = 1`,
+    )
+    .prepare()
+})
+
 const liveTurnFailure = prepared((db: StoreDrizzle) =>
   db
     .select({ present: sql<number>`1` })
@@ -599,6 +626,20 @@ export class EventsRepository {
   async runtimeTranscriptSessionIds(): Promise<Set<string>> {
     const rows = await runtimeEventSubjects(this.db).all()
     return new Set(rows.map((row) => row.subject))
+  }
+
+  /** The sessions among these whose runtime transcript has items since its last
+   *  reset — see {@link runtimeTranscriptSubjectsOfIds}. */
+  async runtimeTranscriptAvailableOf(sessionIds: readonly SessionId[]): Promise<Set<SessionId>> {
+    const out = new Set<SessionId>()
+    for (let at = 0; at < sessionIds.length; at += 500) {
+      const chunk = sessionIds.slice(at, at + 500)
+      const size = inListSize(chunk.length)
+      for (const row of await runtimeTranscriptSubjectsOfIds(this.db, size).all(inListValues(chunk, size))) {
+        if (row.subject) out.add(row.subject as SessionId)
+      }
+    }
+    return out
   }
 
   /** Read complete transcript items committed by a runtime driver. */

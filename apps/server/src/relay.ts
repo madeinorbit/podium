@@ -2299,7 +2299,7 @@ export class SessionRegistry {
       machineName: async (id) =>
         (await machines.listMachines()).find((m) => m.id === id)?.name ?? id,
       programVersion: async (sessionId, program) => {
-        const session = sessionsSvc.sessionFactsById(sessionId)
+        const session = await sessionsSvc.readSessionFactsById(sessionId)
         if (!session) return undefined
         const machine = await this.store.machines.getMachine(session.machineId)
         return machine?.harnessVersions?.find((report) => report.harness === program)?.version
@@ -2656,8 +2656,14 @@ export class SessionRegistry {
       mail.gateOptions,
     )
     const readToolkit = new SessionReadToolkit({
-      // Select on facts, wire only the survivors [POD-3857].
-      sessionFacts: () => sessionsSvc.sessionFacts(),
+      // Select on facts, wire only the survivors [POD-3857]; every selection is
+      // a narrow read of the sessions it can name (POD-6160).
+      readSessionFactsByIds: async (ids) => await sessionsSvc.readSessionFactsByIds(ids),
+      readSessionFactsByIdPrefix: async (prefix) => await sessionsSvc.readSessionFactsByIdPrefix(prefix),
+      readSessionFactsByBirthRef: async (ref) => await sessionsSvc.readSessionFactsByBirthRef(ref),
+      readSessionFactsByIssue: async (worktreePath, issueId) =>
+        await sessionsSvc.readSessionFactsByIssue(worktreePath, issueId),
+      readSessionFactsSpawnedBy: async (parentIds) => await sessionsSvc.readSessionFactsSpawnedBy(parentIds),
       sessionById: async (sessionId) => await sessionsSvc.sessionById(sessionId),
       sessionsById: async (sessionIds) => await sessionsSvc.sessionsById(sessionIds),
       issues,
@@ -2708,13 +2714,7 @@ export class SessionRegistry {
         await issues.crud.update(issue.id, { stage: 'in_progress' })
         return { id: issue.id }
       },
-      liveSessionIds: async () =>
-        new Set(
-          sessionsSvc
-            .sessionFacts()
-            .filter((s) => s.status !== 'exited' && s.status !== 'hibernated')
-            .map((s) => s.sessionId),
-        ),
+      liveSessionIds: async () => new Set(sessionsSvc.runningSessionFacts().map((s) => s.sessionId)),
       principalForOwner: async (ownerUserId) => {
         const role = await this.store.users.roleOf(ownerUserId)
         return role ? userCommandPrincipal(ownerUserId, role) : undefined
@@ -3706,8 +3706,10 @@ export class SessionRegistry {
       facts: this.store.notificationFacts,
       messages: this.store.messages,
       issues,
-      // The cheap fleet read [POD-3857]: the steward nudges from facts.
-      sessionFacts: () => sessionsSvc.sessionFacts(),
+      // The cheap fleet read [POD-3857]: the steward nudges running sessions
+      // from facts and looks parked ones up by id (POD-6160).
+      runningSessionFacts: () => sessionsSvc.runningSessionFacts(),
+      readSessionFactsByIds: async (sessionIds) => await sessionsSvc.readSessionFactsByIds(sessionIds),
       // The by-id read [POD-1646]: one session, not the full pass.
       sessionById: async (sessionId) => await sessionsSvc.sessionById(sessionId),
       sessionOwner: async (sessionId) => (await sessionsSvc.sessionOwner(sessionId))?.owner,

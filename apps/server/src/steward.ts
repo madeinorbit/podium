@@ -366,9 +366,13 @@ export interface StewardDeps {
    * THE CHEAP FLEET READ [POD-3857]. The steward decides who to nudge from
    * `issueId`, `cwd`, `status`, `agentKind`, `spawnedBy` and a label — none of
    * which the reader-scoped projection adds anything to. It used to take the
-   * projection, four times per tick.
+   * projection, four times per tick. Every nudge target is a RUNNING session,
+   * so membership reads only the resident running ones (POD-6160).
    */
-  sessionFacts: () => SessionFacts[]
+  runningSessionFacts: () => SessionFacts[]
+  /** These sessions' facts, running or parked, from the database where they
+   *  are not resident (POD-6160). Unknown and deleted ids are absent. */
+  readSessionFactsByIds: (sessionIds: readonly SessionId[]) => Promise<SessionFacts[]>
   /** ONE session by id, without the full reader-scoped pass [POD-1646]. */
   sessionById: (sessionId: SessionId) => Promise<SessionMeta | undefined>
   /** Widened to a PROMISE, not to `UserId | undefined | Promise<...>` [POD-3507,
@@ -593,7 +597,11 @@ export class StewardService {
     // fact retirement. Even a genuine pre-stop phase is history once stopped:
     // a lagging cursor must not announce it hours later as a fresh settlement
     // (POD-5128). Keep the row and advance past it, as in POD-4992.
-    const sessions = this.deps.sessionFacts()
+    const sessions = await this.deps.readSessionFactsByIds([
+      ...new Set(
+        readEvents.flatMap((event) => (event.kind === 'session.phase' ? [asSessionId(event.subject)] : [])),
+      ),
+    ])
     const events = readEvents.filter((event) => {
       if (event.kind !== 'session.phase') return true
       const session = sessions.find((s) => s.sessionId === event.subject)
@@ -801,7 +809,14 @@ export class StewardService {
   private async dispatchSubscriptions(events: StewardEvent[]): Promise<void> {
     const subs = await this.deps.store.listEnabledSubscriptions()
     if (subs.length === 0) return
-    const sessions = this.deps.sessionFacts()
+    // Every lookup here is by id (an event's session, a session subscriber)
+    // except the nudge targets, which are running members of an issue.
+    const sessions = await this.factsFor([
+      ...events.flatMap((e) =>
+        e.kind === 'session.phase' || e.kind === 'session.exited' ? [asSessionId(e.subject)] : [],
+      ),
+      ...subs.flatMap((sub) => (sub.subscriberKind === 'session' ? [asSessionId(sub.subscriberId)] : [])),
+    ])
     for (const e of events) {
       const kinds = subscriptionEventKinds(e)
       if (kinds.length === 0) continue
@@ -832,6 +847,14 @@ export class StewardService {
    *  - relationship source: resolved against the SUBSCRIBER's issue — 'my-children'
    *    (event issue's parent is the subscriber) / 'my-subtree' (subscriber is an
    *    ancestor). 'my-blockers'/'my-parent' are not yet resolvable here (TODO). */
+  /** The running sessions plus these sessions by id, running or parked. */
+  private async factsFor(sessionIds: readonly SessionId[]): Promise<SessionFacts[]> {
+    const running = this.deps.runningSessionFacts()
+    const resident = new Set(running.map((s) => s.sessionId))
+    const wanted = [...new Set(sessionIds)].filter((id) => !resident.has(id))
+    return [...running, ...(wanted.length ? await this.deps.readSessionFactsByIds(wanted) : [])]
+  }
+
   private async sourceMatches(
     sub: Subscription,
     ev: { isSession: boolean; subject: string; srcIssueId: IssueId | null },
@@ -1029,7 +1052,7 @@ export class StewardService {
       // the note lives in the issue comment only.
       const candidates = sessionsForIssue(
         dependent.worktreePath,
-        this.deps.sessionFacts(),
+        this.deps.runningSessionFacts(),
         dependent.id,
       ).filter(
         (s) =>
@@ -1106,8 +1129,7 @@ export class StewardService {
     const first = batch[0]
     const last = batch[batch.length - 1]
     if (!first || !last) return
-    const sessions = this.deps.sessionFacts()
-    const child = sessions.find((s) => s.sessionId === childSessionId)
+    const [child] = await this.deps.readSessionFactsByIds([childSessionId])
     // Prefer live meta; fall back to the event payload (session.exited stamps
     // spawnedBy so a race that drops the row still finds the parent).
     const spawnedBy = child?.spawnedBy ?? (last.payload as { spawnedBy?: string } | null)?.spawnedBy
@@ -1115,7 +1137,7 @@ export class StewardService {
     if (!parentId) return
     // Never self-wake (a mis-tagged spawnedBy).
     if (parentId === childSessionId) return
-    const parent = sessions.find((s) => s.sessionId === parentId)
+    const [parent] = await this.deps.readSessionFactsByIds([parentId])
     // Parent must still exist as a session row (parked is fine — the wake resurrects it).
     // Unknown / fully deleted parent: nothing to wake.
     if (!parent) return
@@ -1219,7 +1241,7 @@ export class StewardService {
     const lastChild = await this.deps.issues.reports.getBySeq(parent.repoPath, lastChildSeq)
     const candidates = sessionsForIssue(
       parent.worktreePath,
-      this.deps.sessionFacts(),
+      this.deps.runningSessionFacts(),
       parent.id,
     ).filter(
       (s) =>

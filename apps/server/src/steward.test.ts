@@ -24,7 +24,7 @@ import type { SessionStore } from './store'
 import { NotificationArbiter } from './store/notification-facts'
 import { captureLogs } from './test-support/capture-logs'
 import { openTestStore } from './test-support/open-test-store'
-import { metasAsFacts, sessionReadPorts } from './test-support/session-facts'
+import { sessionReadPorts } from './test-support/session-facts'
 
 /** The fixture's caller. `addComment` requires a principal (POD-1315) — these
  *  tests exercise the operator seam, so they say so rather than defaulting. */
@@ -76,7 +76,8 @@ async function harness(
     facts: store.notificationFacts,
     messages: store.messages,
     issues,
-    sessionFacts: () => metasAsFacts(sessions),
+    runningSessionFacts: () => sessionReadPorts(() => sessions).runningSessionFacts(),
+    readSessionFactsByIds: async (ids) => await sessionReadPorts(() => sessions).readSessionFactsByIds(ids),
     sessionById: async (sessionId) => sessions.find((s) => s.sessionId === sessionId),
     sendNotice,
     notify,

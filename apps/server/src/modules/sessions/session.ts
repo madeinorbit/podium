@@ -16,27 +16,27 @@ import {
   type SessionOrigin,
   type UserId,
   type WorkState,
-  WorkState as WorkStateSchema,
 } from '@podium/model'
 import type { DaemonPtyInputBatch, SessionObservationCheckpointV1 } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { driverFamilyForId } from '../../harness-manifest'
 import type { ConversationBinding, SessionRow } from '../../store'
+import {
+  applyObservationCheckpointTo,
+  durableStateFromInit,
+  identityFromInit,
+  isNeverBound,
+  markConversationBound,
+  oomExplainsExit,
+  parseWorkState,
+  projectSessionMeta,
+  type SessionLiveView,
+} from './session-record'
 import { SessionTerminal } from './terminal'
 import { turnPreviewEnabled } from './turn-preview-flag'
 
 const log = createLogger('server:sessions')
 
-/**
- * How close a kernel OOM kill has to be to a process death to be called its
- * cause (POD-2413).
- *
- * Wide enough for the supervisor's sampling lag in one direction and a slow
- * death in the other; narrow enough that a build OOM-killed inside a session
- * that keeps working for another few minutes never renames that session's
- * eventual, unrelated exit.
- */
-const OOM_ATTRIBUTION_WINDOW_MS = 60_000
 
 export type Send<T> = (msg: T) => void
 
@@ -467,35 +467,24 @@ export class Session {
   readonly terminal: SessionTerminal
 
   constructor(init: SessionInit) {
-    this.sessionId = init.sessionId
-    this.ownerUserId = init.ownerUserId
-    this.agentKind = init.agentKind
-    this.cwd = init.cwd
-    this.title = init.title
-    this.origin = init.origin
-    this.createdAt = init.createdAt
-    this.spawnedBy = init.spawnedBy
-    this.delegation = init.delegation
-    this.createdBy = init.createdBy
-    this.model = init.model
-    this.effort = init.effort
-    this.requestedModel = init.requestedModel
-    this.requestedEffort = init.requestedEffort
-    this.accountId = init.accountId
-    this.loginHarness = init.loginHarness
-    this.workflowRunId = init.workflowRunId
-    this.workflowStepId = init.workflowStepId
-    this.agentProfileId = init.agentProfileId
-    this.headless = init.headless ?? false
-    // Restored from the row on a server restart, which is the entire point of
-    // persisting it: without this line the rehydrated session is family-unknown
-    // and the panel falls back to "assume a terminal" (POD-2290 round 2).
-    this.selectedDriverId = init.selectedDriverId
-    this.requestedDriverId = init.requestedDriverId
-    this.issueId = init.issueId
-    this.refIssueId = init.refIssueId ?? null
-    this.refLetter = init.refLetter ?? null
-    this.refDraft = init.refDraft ?? null
+    const identity = identityFromInit(init)
+    this.sessionId = identity.sessionId
+    this.ownerUserId = identity.ownerUserId
+    this.agentKind = identity.agentKind
+    this.origin = identity.origin
+    this.createdAt = identity.createdAt
+    this.durableLabel = identity.durableLabel
+    this.spawnedBy = identity.spawnedBy
+    this.delegation = identity.delegation
+    this.createdBy = identity.createdBy
+    this.model = identity.model
+    this.effort = identity.effort
+    this.accountId = identity.accountId
+    this.loginHarness = identity.loginHarness
+    this.workflowRunId = identity.workflowRunId
+    this.workflowStepId = identity.workflowStepId
+    this.agentProfileId = identity.agentProfileId
+    this.headless = identity.headless
     this.terminal = new SessionTerminal({
       sessionId: init.sessionId,
       agentKind: init.agentKind,
@@ -520,27 +509,37 @@ export class Session {
       },
       turnPreviewEnabled: init.turnPreviewEnabled ?? turnPreviewEnabled(),
     })
-    this.machineId = init.machineId
-    this.durableLabel = init.durableLabel
-    // BEFORE `resume`, which promotes: a stated ref is itself the proof of a
-    // conversation, and must not be overwritten by the stored claim.
-    this.conversationBinding = init.conversationBinding
-    this.resume = init.resume
-    this.lastActiveAt = init.lastActiveAt ?? init.createdAt
-    this.workingMsTotal = init.workingMsTotal
-    if (init.status) this.status = init.status
-    if (init.exitCode !== undefined) this.exitCode = init.exitCode
-    if (init.spawnFailure !== undefined) this.spawnFailure = init.spawnFailure
-    if (init.name) this.name = init.name
-    if (init.nameSource) this.nameSource = init.nameSource
-    if (init.archived) this.archived = init.archived
-    this.stoppedAt = init.stoppedAt ?? undefined
-    this.stopReason = init.stopReason ?? undefined
-    this.oomKilledAt = init.oomKilledAt ?? undefined
-    // A row read back as `exited` with a kill beside it is an OOM death; the
-    // window check is the same one the live path applies.
-    if (this.oomKilledAt) this.recordOomKill(this.oomKilledAt)
-    if (init.workState) this.workState = init.workState
+    // THE ONE DEFINITION of how a birth or a row becomes durable state, shared
+    // with the durable records read from the database (`session-record.ts`):
+    // the stored driver selection (POD-2290 round 2), the resume ref promoting
+    // the stored conversation claim, an exited row with a kernel kill beside it
+    // read as an OOM death (POD-2413).
+    const d = durableStateFromInit(init)
+    this.selectedDriverId = d.selectedDriverId
+    this.requestedDriverId = d.requestedDriverId
+    this.cwd = d.cwd
+    this.issueId = d.issueId
+    this.refIssueId = d.refIssueId
+    this.refLetter = d.refLetter
+    this.refDraft = d.refDraft
+    this.machineId = d.machineId
+    this.resumeRef = d.resume
+    this.conversationBinding = d.conversationBinding
+    this.lastActiveAt = d.lastActiveAt
+    this.title = d.title
+    this.name = d.name
+    this.nameSource = d.nameSource
+    this.archived = d.archived
+    this.stoppedAt = d.stoppedAt
+    this.stopReason = d.stopReason
+    this.oomKilledAt = d.oomKilledAt
+    this.workState = d.workState
+    this.status = d.status
+    this.exitCode = d.exitCode
+    this.spawnFailure = d.spawnFailure
+    this.workingMsTotal = d.workingMsTotal
+    this.requestedModel = d.requestedModel
+    this.requestedEffort = d.requestedEffort
     this.onUnreadRearm = init.onUnreadRearm
   }
 
@@ -551,7 +550,7 @@ export class Session {
    * object is not the only thing that can write the row.
    */
   markConversationBound(d: SessionDurableFields = this): void {
-    d.conversationBinding = 'bound'
+    markConversationBound(d)
   }
 
   /**
@@ -569,7 +568,7 @@ export class Session {
 
   /** {@link neverBound} over any durable source, so a DRAFT answers it too. */
   static isNeverBound(d: SessionDurableFields): boolean {
-    return d.conversationBinding === 'never' && d.resume === undefined
+    return isNeverBound(d)
   }
 
   /**
@@ -610,10 +609,7 @@ export class Session {
   /** Was a kernel OOM kill observed close enough to `exitedAtMs` to be its
    *  cause? Absorbing in both directions — see {@link recordOomKill}. */
   private oomExplainsExit(exitedAtMs: number, d: SessionDurableFields = this): boolean {
-    if (!d.oomKilledAt) return false
-    const killed = Date.parse(d.oomKilledAt)
-    if (!Number.isFinite(killed) || !Number.isFinite(exitedAtMs)) return false
-    return Math.abs(exitedAtMs - killed) <= OOM_ATTRIBUTION_WINDOW_MS
+    return oomExplainsExit(exitedAtMs, d)
   }
 
   onExit(code: number, d: SessionDurableFields = this): void {
@@ -672,16 +668,7 @@ export class Session {
     advanceRecency = true,
     d: SessionDurableFields = this,
   ): void {
-    const state = checkpoint.turnState
-    d.workingMsTotal = state.workingMsTotal
-    d.incomingWorkingMsTotal = undefined
-    d.agentState = state
-    const providerAt = checkpoint.providerAt
-    if (advanceRecency && providerAt && providerAt > d.lastActiveAt) d.lastActiveAt = providerAt
-    // An observer bound to a concrete provider thread is a conversation, even
-    // if no `sessionResumeRef` ever reached us — this is the arm that closes the
-    // gap for a harness whose id we learn only through the observation plane.
-    if (checkpoint.providerSessionId) this.markConversationBound(d)
+    applyObservationCheckpointTo(d, checkpoint, advanceRecency)
   }
 
   /** Advance the board/sidebar recency projection from one accepted coarse runtime event. */
@@ -1059,108 +1046,28 @@ export class Session {
    * their own records. This projection carries only session facts.
    */
   toMeta(d: SessionDurableFields = this): SessionMeta {
-    // BOUND WINS OVER SELECTED, and both beat nothing (POD-2290). The selection
-    // is what the daemon decided before it started the harness; the binding is
-    // what it ended up with. They agree on every path that works, and where
-    // they can differ — a launch that failed and fell back — the one that
-    // describes a running session has to win.
-    const driverFamily = driverFamilyForId(this.driverId ?? d.selectedDriverId ?? '')
+    return projectSessionMeta(this, d, this.liveView())
+  }
+
+  /** What the wire reads off the terminal and the bound driver right now. */
+  liveView(): SessionLiveView {
     return {
-      sessionId: this.sessionId,
-      agentKind: this.agentKind,
-      ...(this.model ? { model: this.model } : {}),
-      ...(this.effort ? { effort: this.effort } : {}),
-      ...(this.accountId ? { accountId: this.accountId } : {}),
-      title: d.title,
-      ...(d.name ? { name: d.name } : {}),
-      ...(d.name && d.nameSource ? { nameSource: d.nameSource } : {}),
-      cwd: d.cwd,
-      status: d.status,
-      ...(d.exitCode !== undefined ? { exitCode: d.exitCode } : {}),
-      ...(d.spawnFailure ? { spawnFailure: d.spawnFailure } : {}),
-      ...(d.agentState ? { agentState: d.agentState } : {}),
       controllerId: this.terminal.controllerId,
-      geometry: { ...this.terminal.geometry },
-      // Only when there is something to report (POD-3239 B6).
-      ...(this.terminal.requestsGated > 0 ? { requestsGated: this.terminal.requestsGated } : {}),
+      geometry: this.terminal.geometry,
+      requestsGated: this.terminal.requestsGated,
       epoch: this.terminal.epoch,
       clientCount: this.terminal.clientCount,
-      createdAt: this.createdAt,
-      lastActiveAt: d.lastActiveAt,
-      // Last human (controller) input — the offer-artifact freshness fallback
-      // [POD-120] compares issue-artifact addedAt against this on the client.
-      ...(this.terminal.lastInputAtMs > 0
-        ? { lastInputAt: new Date(this.terminal.lastInputAtMs).toISOString() }
-        : {}),
-      origin: this.origin,
-      archived: d.archived,
-      ...(d.stoppedAt ? { stoppedAt: d.stoppedAt } : {}),
-      ...(d.stopReason ? { stopReason: d.stopReason } : {}),
-      machineId: d.machineId,
-      ...(d.workState ? { workState: d.workState } : {}),
-      ...(d.resume ? { resumable: true, resume: d.resume } : {}),
-      // ONLY when proven. A recovery surface reads this to offer starting the
-      // agent again instead of removing the row, so its absence has to stay the
-      // safe answer for every session whose history we cannot vouch for.
-      ...(Session.isNeverBound(d) ? { neverBound: true as const } : {}),
-      ...(d.transcriptAvailable ? { transcriptAvailable: true } : {}),
-      ...(this.terminal.busy ? { busy: true } : {}),
-      ...(d.agentColor ? { agentColor: d.agentColor } : {}),
-      ...(d.observedModel ? { observedModel: d.observedModel } : {}),
-      ...(d.observedEffort ? { observedEffort: d.observedEffort } : {}),
-      ...(d.requestedModel ? { requestedModel: d.requestedModel } : {}),
-      ...(d.requestedEffort ? { requestedEffort: d.requestedEffort } : {}),
-      // POD-3087. Published even when EMPTY, because empty is an answer — "this
-      // driver changes nothing" — and a client that could not tell it from
-      // "nobody told me" would hide the control on both.
-      ...(this.configureFields ? { configureFields: [...this.configureFields] } : {}),
-      ...(this.attachKinds ? { attachKinds: [...this.attachKinds] } : {}),
-      ...(d.contextUsagePercent !== undefined
-        ? { contextUsagePercent: d.contextUsagePercent }
-        : {}),
-      ...(d.draftUpdatedAt !== undefined ? { draftUpdatedAt: d.draftUpdatedAt } : {}),
-      ...(this.draftSyncEngine ? { draftSyncEngine: true } : {}),
-      ...(d.offer !== undefined ? { offer: d.offer } : {}), // [spec:SP-c7f1]
-      ...(d.handoffTargetMachineId ? { handoffTargetMachineId: d.handoffTargetMachineId } : {}),
-      ...(this.driverId ? { driverId: this.driverId } : {}),
-      ...(d.requestedDriverId ? { requestedDriverId: d.requestedDriverId } : {}),
-      // The bound driver's FAMILY, so a client can pick a surface without
-      // learning driver ids (POD-2290). Resolved through the manifests — the
-      // same lookup the reap guard uses — and omitted when the id is absent or
-      // no manifest claims it, because for this field absent means UNKNOWN and
-      // every client reads unknown as "assume a terminal".
-      //
-      // THIS ASSIGNMENT IS ALSO THE ONLY THING KEEPING THE TWO SPELLINGS OF THE
-      // TAXONOMY IN SYNC. `DriverFamily` lives in `@podium/harness` beside the
-      // manifest axis that declares it; the wire field is a zod enum in
-      // `@podium/model`, which may not import harness. Nothing reconciles them
-      // except this line, where a `DriverFamily` flows into the enum's type — so
-      // a fourth family added to the manifests fails HERE, at typecheck, rather
-      // than being silently dropped from every client's view.
-      ...(driverFamily ? { driverFamily } : {}),
-      ...(d.conversationPodiumId ? { conversationPodiumId: d.conversationPodiumId } : {}),
-      ...(this.spawnedBy ? { spawnedBy: this.spawnedBy } : {}),
-      // THE ATTRIBUTION PAIR ON THE WIRE (POD-1516). Server-stamped and read-only:
-      // it is projected from the durable pair, and nothing a client sends reaches
-      // it. Omitted when none was ever recorded — which is the ONLY thing its
-      // absence means, because the spawn path always stamps one.
-      ...(this.delegation ? { delegation: this.delegation } : {}),
-      ...(this.createdBy ? { createdBy: this.createdBy } : {}),
-      ...(this.headless ? { headless: true } : {}),
-      ...(d.issueId ? { issueId: d.issueId } : {}),
-      ...(d.refIssueId ? { refIssueId: d.refIssueId } : {}),
-      ...(d.refLetter ? { refLetter: d.refLetter } : {}),
-      ...(d.refDraft != null ? { refDraft: d.refDraft } : {}),
-      ...(this.workflowRunId ? { workflowRunId: this.workflowRunId } : {}),
-      ...(this.workflowStepId ? { workflowStepId: this.workflowStepId } : {}),
-      ...(this.agentProfileId ? { agentProfileId: this.agentProfileId } : {}),
+      lastInputAtMs: this.terminal.lastInputAtMs,
+      busy: this.terminal.busy,
+      configureFields: this.configureFields,
+      attachKinds: this.attachKinds,
+      draftSyncEngine: this.draftSyncEngine,
+      driverId: this.driverId,
     }
   }
 
   /** Parse a persisted work_state column; unknown strings read as unsorted. */
   static parseWorkState(raw: string | null): WorkState | undefined {
-    if (raw === null) return undefined
-    const parsed = WorkStateSchema.safeParse(raw)
-    return parsed.success ? parsed.data : undefined
+    return parseWorkState(raw)
   }
 }

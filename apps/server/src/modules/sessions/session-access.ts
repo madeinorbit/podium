@@ -74,13 +74,13 @@ export interface SessionAccessDeps {
   sessionById(
     sessionId: SessionId,
   ): Promise<SessionTargetRow | undefined>
-  /** ALL live session ids, for unambiguous prefix resolution only.
-   *  OPTIONAL so narrow fixtures that never exercise a prefix keep working.
-   *  Production wires it from the cheap in-memory facts read — ids only, never
-   *  the full reader-scoped projection POD-3857 deleted. It is consulted ONLY
-   *  after the exact-match fast path misses, so a full uuid never pays for a
-   *  scan. */
-  listSessionIds?: () => Promise<readonly SessionId[]> | readonly SessionId[]
+  /** The live session ids that start with `prefix`, for unambiguous prefix
+   *  resolution only. OPTIONAL so narrow fixtures that never exercise a prefix
+   *  keep working. Production answers it with a range read on the primary key
+   *  (POD-6160) — ids only, never the full reader-scoped projection POD-3857
+   *  deleted. It is consulted ONLY after the exact-match fast path misses, so a
+   *  full uuid never pays for it. */
+  sessionIdsWithPrefix?: (prefix: string) => Promise<readonly SessionId[]> | readonly SessionId[]
   /** Issue index for the subtree gate, and cwd → issue derivation. */
   /** `issueForCwd` is `string | null` on IssueService and `undefined` on the
    *  narrow test fixtures; both spellings mean "no issue owns this cwd". */
@@ -136,9 +136,8 @@ export async function resolveSessionTarget(
     const visible = await (deps.visibility ?? everythingVisible)(principal, session)
     return visible ? { kind: 'visible', session } : { kind: 'absent' }
   }
-  if (!sessionId || !deps.listSessionIds) return { kind: 'absent' }
-  const allIds = await deps.listSessionIds()
-  const prefixed = allIds.filter((id) => id.startsWith(sessionId))
+  if (!sessionId || !deps.sessionIdsWithPrefix) return { kind: 'absent' }
+  const prefixed = (await deps.sessionIdsWithPrefix(sessionId)).filter((id) => id.startsWith(sessionId))
   if (prefixed.length === 0) return { kind: 'absent' }
   const visibleRows: SessionTargetRow[] = []
   const visibleIds: SessionId[] = []

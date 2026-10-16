@@ -17,6 +17,7 @@ import { queryAttributionSnapshot, resetQueryAttribution } from '@podium/runtime
 import { systemPrincipal } from '../../command-principal'
 import { harnessCapabilitiesFor } from '../../harness-manifest'
 import { openTestStore } from '../../test-support/open-test-store'
+import { residentRecords } from '../../test-support/session-records'
 import { expectConstantStatements, type StatementPin } from '../../test-support/statement-count'
 import { SessionRepository } from './repository'
 import { Session } from './session'
@@ -156,7 +157,7 @@ async function fixture(count: number) {
     machineName: async () => 'Build box',
     agentLoginCondition: async () => 'logged-out' as const,
   }
-  const view = new SessionView({ sessions, store, state, sessionOccupancyCount: () => 3 })
+  const view = new SessionView({ records: residentRecords(sessions), store, state, sessionOccupancyCount: () => 3 })
   // Reader-scoped calls still use their admitted principal; feed projection needs none.
   vi.spyOn(view, 'defaultPrincipal').mockResolvedValue(principal)
   return { store, rows, sessions, authz, state, machines, view }

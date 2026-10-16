@@ -104,7 +104,7 @@ export interface MessagingDeps {
    *  `issueId`, `archived`, `headless`, `status` and `lastActiveAt`, and the
    *  only thing done with its answer is to start a thread on that session. */
   sessions?: {
-    sessionFactsByIssue(worktreePath: string | null, issueId: IssueId): SessionFacts[]
+    readSessionFactsByIssue(worktreePath: string | null, issueId: IssueId): Promise<SessionFacts[]>
   }
   /** Forum-topic bindings (SQLite). */
   topics?: MessagingTopicsPort
@@ -453,7 +453,7 @@ export class MessagingService implements TelegramNoticePort {
 
   private async resolveIssueThread(issue: IssueReport, ownerUserId: UserId): Promise<ThreadId> {
     const sessions =
-      this.deps.sessions?.sessionFactsByIssue(issue.worktreePath ?? null, issue.id) ?? []
+      (await this.deps.sessions?.readSessionFactsByIssue(issue.worktreePath ?? null, issue.id)) ?? []
     const session = pickIssueSession(issue, sessions)
     if (session) {
       return (
@@ -467,7 +467,7 @@ export class MessagingService implements TelegramNoticePort {
 
   private async issueThreadNote(issue: IssueReport): Promise<string> {
     const sessions =
-      this.deps.sessions?.sessionFactsByIssue(issue.worktreePath ?? null, issue.id) ?? []
+      (await this.deps.sessions?.readSessionFactsByIssue(issue.worktreePath ?? null, issue.id)) ?? []
     const session = pickIssueSession(issue, sessions)
     if (session) {
       return `Agent session ${session.name ?? session.title} is wired to this topic.`

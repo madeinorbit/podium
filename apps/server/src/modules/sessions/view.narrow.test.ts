@@ -13,6 +13,7 @@ import { firstAdminMemberId } from '@podium/model'
 import { asIssueId, asMachineId, asSessionId, type IssueId, type SessionId, type SessionMeta } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import { openTestStore } from '../../test-support/open-test-store'
+import { residentRecords } from '../../test-support/session-records'
 import { sessionsForIssue } from '../../issue-util'
 import type { StewardDeps } from '../../steward'
 import type { IssueCommandDeps } from '../issues/command-ctx'
@@ -54,9 +55,9 @@ function session(id: string, cwd: string, issueId?: string, spawnedBy?: string):
 function viewOver(sessions: Session[], hidden: Set<string> = new Set()) {
   const canReadCalls: string[] = []
   const ports: SessionViewPorts = {
-    sessions: new Map(sessions.map((s) => [s.sessionId, s])),
+    records: residentRecords(new Map(sessions.map((s) => [s.sessionId, s]))),
     store: {
-      grants: { listForResources: async () => new Map() },
+      grants: { loadForResources: async () => new Map() },
       sync: { queuedMessageCounts: async () => new Map() },
       users: { roleOf: () => 'admin' },
       issues: { getIssue: () => undefined, getIssues: async () => new Map() },
@@ -269,9 +270,9 @@ describe('displayRef implies the parts it is formatted from [POD-3857]', () => {
     const row = session('ref-bearer', `${REPO}/wt`)
     mutate(row)
     const ports: SessionViewPorts = {
-      sessions: new Map([[row.sessionId, row]]),
+      records: residentRecords(new Map([[row.sessionId, row]])),
       store: {
-        grants: { listForResources: async () => new Map() },
+        grants: { loadForResources: async () => new Map() },
         sync: { queuedMessageCounts: async () => new Map() },
         users: { roleOf: async () => 'admin' },
         issues: { getIssue: async () => ISSUE_ROW, getIssues: async (ids: string[]) => new Map(ids.map(id => [id, ISSUE_ROW])) },
@@ -386,14 +387,37 @@ describe('SessionFactsReader [POD-3857]', () => {
   const readerOver = (sessions: Session[]) =>
     new SessionFactsReader(new Map(sessions.map((row) => [row.sessionId, row])))
 
-  it('takes the registry map and NOTHING else', () => {
-    // The cost guarantee is structural, and this is where it is stated: a
-    // reader that cannot be handed a store, a machines service or a session
-    // state service cannot read from one. Compare `SessionViewPorts`, which
-    // takes all three. Adding a second constructor parameter — which is how
-    // this would be given a way to make a query — fails here.
-    expect(SessionFactsReader.length).toBe(1)
+  it('reads the database only through the records it is handed (POD-6160)', async () => {
+    // The cost guarantee is structural, and this is where it is stated: the
+    // synchronous reads touch the resident map and nothing else, and every
+    // read of a session that may not be resident goes through the session
+    // records (indexed repository queries), never a store or a service the
+    // reader reaches by itself.
+    expect(SessionFactsReader.length).toBe(2)
     expect(new SessionFactsReader(new Map()).all()).toEqual([])
+    expect(new SessionFactsReader(new Map()).running()).toEqual([])
+    await expect(new SessionFactsReader(new Map()).readAll()).rejects.toThrow('no session records')
+    const sessions = new Map(CORPUS().map((row) => [row.sessionId, row]))
+    const reader = new SessionFactsReader(sessions, residentRecords(sessions))
+    expect((await reader.readAll()).map((f) => f.sessionId)).toEqual(reader.all().map((f) => f.sessionId))
+    expect(await reader.readByIssue(WORKTREE, asIssueId(ISSUE))).toEqual(reader.byIssue(WORKTREE, asIssueId(ISSUE)))
+    expect(await reader.readByWorktree(WORKTREE)).toEqual(reader.byWorktree(WORKTREE))
+    expect(await reader.readByMachine(MACHINE)).toEqual(reader.byMachine(MACHINE))
+  })
+
+  it('reads the running sessions off the map, synchronously', () => {
+    const corpus = CORPUS()
+    corpus[0]!.status = 'live'
+    corpus[1]!.status = 'hibernated'
+    corpus[2]!.status = 'exited'
+    corpus[3]!.status = 'reconnecting'
+    const reader = readerOver(corpus)
+    expect(reader.running().map((f) => f.sessionId)).toEqual([
+      'mine-explicit',
+      'other-issue-same-path',
+      'sibling-prefix',
+      'unrelated',
+    ])
   })
 
   it('answers every read from the map alone', () => {
@@ -552,9 +576,9 @@ describe('SessionView visibility is awaited [POD-3534]', () => {
     const perSessionGrantReads: string[] = []
     const key = (id: string) => `session:${id}`
     const ports: SessionViewPorts = {
-      sessions: new Map(sessions.map((s) => [s.sessionId, s])),
+      records: residentRecords(new Map(sessions.map((s) => [s.sessionId, s]))),
       store: {
-        grants: { listForResources: async () => new Map() },
+        grants: { loadForResources: async () => new Map() },
         sync: { queuedMessageCounts: async () => new Map() },
         users: { roleOf: async () => 'admin' },
         issues: { getIssue: async () => undefined, getIssues: async () => new Map() },

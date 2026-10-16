@@ -107,6 +107,7 @@ import type { SessionStatePrincipal, SessionStateService } from './session-state
 import type { SessionTeardown } from './session-teardown'
 import { wireSessionLifecycle } from './session-wiring'
 import type { SessionTerminalProof, TerminalProofStatus } from './terminal-proof'
+import type { SessionRecords } from './records'
 import type { SessionListCaller, SessionView } from './view'
 import type { SessionWorkspace } from './workspace'
 
@@ -273,6 +274,8 @@ export class SessionLifecycle {
   readonly workspace!: SessionWorkspace
   readonly view!: SessionView
   readonly repository!: SessionRepository
+  /** Durable session records read from the database (POD-6160). */
+  readonly records!: SessionRecords
   readonly broadcasts!: SessionBroadcastCoordinator
   private readonly browserOpen!: BrowserOpenGateway
   private readonly bindingReceipts!: SessionBindingReceipts
@@ -454,11 +457,72 @@ export class SessionLifecycle {
     return this.facts.byMachine(machineId)
   }
 
+  /**
+   * THE RUNNING SESSIONS' FACTS (POD-6160): the resident sessions whose process
+   * runs or is expected back. Synchronous and free of I/O: a running session is
+   * always resident. For the readers that only ever act on running sessions
+   * (nudge targets, worktree guards, live counts).
+   */
+  runningSessionFacts(): SessionFacts[] {
+    return this.facts.running()
+  }
+
+  /** Every live (not deleted) session's facts, from the database (POD-6160). */
+  async readSessionFacts(): Promise<SessionFacts[]> {
+    return await this.facts.readAll()
+  }
+
+  /** These sessions' facts, from the database where they are not resident;
+   *  unknown and deleted ids are absent (POD-6160). */
+  async readSessionFactsByIds(sessionIds: Iterable<SessionId>): Promise<SessionFacts[]> {
+    return await this.facts.readByIds(sessionIds)
+  }
+
+  async readSessionFactsById(sessionId: SessionId): Promise<SessionFacts | undefined> {
+    return (await this.facts.readByIds([sessionId]))[0]
+  }
+
+  /** The member sessions of ONE issue, from the database (POD-6160). */
+  async readSessionFactsByIssue(worktreePath: string | null, issueId: IssueId | undefined): Promise<SessionFacts[]> {
+    return await this.facts.readByIssue(worktreePath, issueId)
+  }
+
+  /** Every session at or below a path, whatever issue it is on (POD-6160). */
+  async readSessionFactsByWorktree(worktreePath: string | null): Promise<SessionFacts[]> {
+    return await this.facts.readByWorktree(worktreePath)
+  }
+
+  async readSessionFactsByMachine(machineId: MachineId): Promise<SessionFacts[]> {
+    return await this.facts.readByMachine(machineId)
+  }
+
+  /** Sessions in one of these statuses, from the database (POD-6160). */
+  async readSessionFactsWithStatuses(statuses: readonly SessionFacts['status'][]): Promise<SessionFacts[]> {
+    return await this.facts.readWithStatuses(statuses)
+  }
+
+  /** Sessions whose id starts with a short id (POD-4536), from the database. */
+  async readSessionFactsByIdPrefix(prefix: string): Promise<SessionFacts[]> {
+    return await this.facts.readByIdPrefix(prefix)
+  }
+
+  /** The candidates a birth ref can name, from the database (POD-6160). */
+  async readSessionFactsByBirthRef(
+    ref: { seq: number; letter: string } | { draft: number },
+  ): Promise<SessionFacts[]> {
+    return await this.facts.readBirthRefCandidates(ref)
+  }
+
+  /** The sessions spawned by any of these sessions, from the database. */
+  async readSessionFactsSpawnedBy(parentIds: readonly SessionId[]): Promise<SessionFacts[]> {
+    return await this.facts.readChildren(parentIds)
+  }
+
   /** Built lazily: `sessions` is assigned by the wiring pass, so a field
    *  initializer here would capture `undefined`. */
   private factsReader: SessionFactsReader | undefined
   private get facts(): SessionFactsReader {
-    this.factsReader ??= new SessionFactsReader(this.sessions)
+    this.factsReader ??= new SessionFactsReader(this.sessions, this.records)
     return this.factsReader
   }
   // RETIRED at POD-309 (ADR 5 D8): the hub-mirror apply path lived here —

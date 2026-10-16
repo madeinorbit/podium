@@ -288,7 +288,7 @@ async function makeHarness(
     },
     topics,
     sessions: {
-      sessionFactsByIssue: (_worktreePath, issueId) =>
+      readSessionFactsByIssue: async (_worktreePath, issueId) =>
         metasAsFacts([
         {
           sessionId: 'sess_1',

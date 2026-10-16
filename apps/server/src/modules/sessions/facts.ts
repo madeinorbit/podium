@@ -11,7 +11,9 @@ import type {
   WorkState,
 } from '@podium/model'
 import { isIssueMember, isMemberCwd } from '../../issue-util'
-import type { Session } from './session'
+import type { SessionRecordReads } from './records'
+import { Session, type SessionDurableFields } from './session'
+import { isRunningStatus, type SessionIdentity, type SessionRecord } from './session-record'
 
 /**
  * THE CHEAP SESSION READ — WHAT THE SERVER KNOWS ABOUT ITSELF [POD-3857].
@@ -120,6 +122,21 @@ export interface SessionFacts {
 /** One live session's facts. Pure field copies — see the class doc on why this
  *  may never grow a call into the store or another service. */
 export function sessionFactsOf(session: Session): SessionFacts {
+  return factsOf(session, session.terminal.busy === true)
+}
+
+/** A durable record's facts (POD-6160): nothing runs it, so nothing is busy. */
+export function recordFactsOf(record: SessionRecord): SessionFacts {
+  return factsOf(record, record.live.busy)
+}
+
+/** Either answer's facts: a resident session's or a durable record's. */
+export function subjectFacts(subject: Session | SessionRecord): SessionFacts {
+  return subject instanceof Session ? sessionFactsOf(subject) : recordFactsOf(subject)
+}
+
+/** THE facts projection, over a live session or a durable record. */
+function factsOf(session: SessionIdentity & SessionDurableFields, busy: boolean): SessionFacts {
   return {
     sessionId: session.sessionId,
     ownerUserId: session.ownerUserId,
@@ -138,7 +155,7 @@ export function sessionFactsOf(session: Session): SessionFacts {
     ...(session.stoppedAt ? { stoppedAt: session.stoppedAt } : {}),
     ...(session.exitCode !== undefined ? { exitCode: session.exitCode } : {}),
     ...(session.agentState ? { agentState: session.agentState } : {}),
-    busy: session.terminal.busy === true,
+    busy,
     ...(session.resume ? { resume: session.resume } : {}),
     ...(session.workState ? { workState: session.workState } : {}),
     ...(session.model ? { model: session.model } : {}),
@@ -159,19 +176,82 @@ export function sessionFactsOf(session: Session): SessionFacts {
 }
 
 /**
- * The facts reads, over the live registry map.
+ * The facts reads.
  *
  * The narrowed reads are here rather than left to the caller for the same
  * reason `SessionView` owns `listForIssue` and `byId`: the SELECTION RULE has
- * to have one definition. `byIssue` delegates to {@link isIssueMember} and
- * `byWorktree` to {@link isMemberCwd} — the same predicates the projection's
- * narrow reads use — so a facts read and a wired read of the same question can
- * never select different sets.
+ * to have one definition. The selections live in `SessionRecords`
+ * (`isIssueMember`, `isMemberCwd`), shared with the projection's narrow reads,
+ * so a facts read and a wired read of the same question can never select
+ * different sets.
+ *
+ * TWO KINDS OF READ (POD-6160). `running()` is the resident running sessions,
+ * synchronous and free of I/O. The `read*` methods answer for every live
+ * session, resident or not, from the database. The synchronous whole-map reads
+ * (`all`, `byId`, `byIssue`, `byWorktree`, `byMachine`) answer only while the
+ * map still holds every session, and go when it shrinks (D2g).
  */
 export class SessionFactsReader {
-  constructor(private readonly sessions: Map<SessionId, Session>) {}
+  constructor(
+    private readonly sessions: ReadonlyMap<SessionId, Session>,
+    private readonly records?: SessionRecordReads,
+  ) {}
 
-  /** Every live session in the registry, in insertion order. */
+  /** The resident sessions that run, in insertion order. */
+  running(): SessionFacts[] {
+    const out: SessionFacts[] = []
+    for (const session of this.sessions.values()) {
+      if (isRunningStatus(session.status)) out.push(sessionFactsOf(session))
+    }
+    return out
+  }
+
+  async readAll(): Promise<SessionFacts[]> {
+    return (await this.required().all('facts.all')).map(subjectFacts)
+  }
+
+  async readByIds(sessionIds: Iterable<SessionId>): Promise<SessionFacts[]> {
+    return [...(await this.required().resolve(sessionIds, 'facts.byIds')).values()].map(subjectFacts)
+  }
+
+  async readByIssue(worktreePath: string | null, issueId: IssueId | undefined): Promise<SessionFacts[]> {
+    return (await this.required().issueMembers(worktreePath, issueId, 'facts.byIssue')).map(subjectFacts)
+  }
+
+  async readByWorktree(worktreePath: string | null): Promise<SessionFacts[]> {
+    return (await this.required().underPath(worktreePath, 'facts.byWorktree')).map(subjectFacts)
+  }
+
+  async readByMachine(machineId: MachineId): Promise<SessionFacts[]> {
+    return (await this.required().onMachine(machineId, 'facts.byMachine')).map(subjectFacts)
+  }
+
+  /** Sessions in one of these statuses. */
+  async readWithStatuses(statuses: readonly SessionFacts['status'][]): Promise<SessionFacts[]> {
+    return (await this.required().withStatuses(statuses, 'facts.withStatuses')).map(subjectFacts)
+  }
+
+  /** Sessions whose id starts with a short id. */
+  async readByIdPrefix(prefix: string): Promise<SessionFacts[]> {
+    return (await this.required().withIdPrefix(prefix, 'facts.byIdPrefix')).map(subjectFacts)
+  }
+
+  /** The candidates for a birth ref (see `SessionRecords.birthRefCandidates`). */
+  async readBirthRefCandidates(ref: { seq: number; letter: string } | { draft: number }): Promise<SessionFacts[]> {
+    return (await this.required().birthRefCandidates(ref, 'facts.birthRef')).map(subjectFacts)
+  }
+
+  /** The sessions spawned by any of these sessions. */
+  async readChildren(parentIds: readonly SessionId[]): Promise<SessionFacts[]> {
+    return (await this.required().childrenOf(parentIds, 'facts.children')).map(subjectFacts)
+  }
+
+  private required(): SessionRecordReads {
+    if (!this.records) throw new Error('SessionFactsReader: no session records to read from')
+    return this.records
+  }
+
+  /** Every session in the registry, in insertion order. */
   all(): SessionFacts[] {
     const out: SessionFacts[] = []
     for (const session of this.sessions.values()) out.push(sessionFactsOf(session))

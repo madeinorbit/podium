@@ -1506,12 +1506,7 @@ export async function startServer(
       // lease, not wait for a server restart (POD-564).
       worktreeGcPolicy: async () => (await store.settings.getSettings()).worktreeGc,
       liveSessionIds: async () =>
-        new Set(
-          registry.modules.sessions
-            .sessionFacts()
-            .filter((s) => s.status !== 'exited' && s.status !== 'hibernated')
-            .map((s) => s.sessionId),
-        ),
+        new Set(registry.modules.sessions.runningSessionFacts().map((s) => s.sessionId)),
       stewardTick: async () => await registry.runStewardTick(),
       connectScan: async (machineId) => {
         void (await repoDiscovery.scan(machineId, { deep: false }))

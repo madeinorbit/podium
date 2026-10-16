@@ -12,11 +12,12 @@ import {
   asSessionId,
   type IssueId,
   type MachineId,
+  machinePathSeparator,
   type SessionId,
   type UserId,
   type SessionUserStateWire,
 } from '@podium/model'
-import { and, asc, eq, getTableColumns, inArray, isNotNull, isNull, or, type Placeholder, type SQL, sql } from 'drizzle-orm'
+import { and, asc, eq, getTableColumns, gte, inArray, isNotNull, isNull, lt, or, type Placeholder, type SQL, sql } from 'drizzle-orm'
 import {
   issues as issuesTable,
   offers as offersTable,
@@ -41,6 +42,7 @@ import {
   shapeOf,
 } from './executor/sync-drizzle'
 import { requireUserId } from './helpers'
+import { prefixUpperBound } from './prefix-range'
 import type {
   OfferMap,
   OfferRecord,
@@ -107,6 +109,16 @@ function sessionsWhere(db: StoreDrizzle, where: SQL | undefined) {
 }
 
 /**
+ * The selections the durable session records ask (POD-6160): a predicate and
+ * NO ordering. Their caller merges them with the resident sessions and orders
+ * the few rows itself, so an ORDER BY here would only add a sort to an index
+ * read.
+ */
+function sessionsMatching(db: StoreDrizzle, where: SQL | undefined) {
+  return db.select().from(sessionsTable).where(where).prepare()
+}
+
+/**
  * THE MOST-EXECUTED SESSION STATEMENT, PREPARED ONCE [POD-3854].
  *
  * `getSession` reads one row by id with the ordering every session read shares
@@ -145,6 +157,93 @@ const liveSessionsOfResumeValues = preparedFamily((db: StoreDrizzle, size: numbe
 
 const liveSessionsOfIssueIds = preparedFamily((db: StoreDrizzle, size: number) =>
   sessionsWhere(db, and(inListOf(sessionsTable.issueId, size), isNull(sessionsTable.deletedAt))),
+)
+
+/** The folded cwd `idx_sessions_cwd_folded` indexes; repeat it exactly. */
+const foldedCwd = sql`lower(replace(${sessionsTable.cwd}, '/', '\\'))`
+
+/** Live sessions whose literal cwd lies in the key range [lo, hi) (POD-6160). */
+const liveSessionsInCwdRange = prepared((db: StoreDrizzle) =>
+  sessionsMatching(
+    db,
+    and(
+      gte(sessionsTable.cwd, param(sessionsTable.cwd, 'lo')),
+      lt(sessionsTable.cwd, param(sessionsTable.cwd, 'hi')),
+      isNull(sessionsTable.deletedAt),
+    ),
+  ),
+)
+
+/** The same over the folded cwd, for Windows-style roots (POD-6160). */
+const liveSessionsInFoldedCwdRange = prepared((db: StoreDrizzle) =>
+  sessionsMatching(
+    db,
+    and(
+      sql`${foldedCwd} >= ${sql.placeholder('lo')}`,
+      sql`${foldedCwd} < ${sql.placeholder('hi')}`,
+      isNull(sessionsTable.deletedAt),
+    ),
+  ),
+)
+
+/** Live sessions in one of these statuses (POD-6160). */
+const liveSessionsOfStatuses = preparedFamily((db: StoreDrizzle, size: number) =>
+  sessionsMatching(db, and(inListOf(sessionsTable.status, size), isNull(sessionsTable.deletedAt))),
+)
+
+/** Live sessions whose id lies in the key range [lo, hi): a short-id prefix (POD-6160). */
+const liveSessionsInIdRange = prepared((db: StoreDrizzle) =>
+  sessionsMatching(
+    db,
+    and(
+      gte(sessionsTable.id, param(sessionsTable.id, 'lo')),
+      lt(sessionsTable.id, param(sessionsTable.id, 'hi')),
+      isNull(sessionsTable.deletedAt),
+    ),
+  ),
+)
+
+/** Live sessions born on one of these issues with this letter (POD-6160). */
+const liveSessionsOfBirthLetter = preparedFamily((db: StoreDrizzle, size: number) =>
+  sessionsMatching(
+    db,
+    and(
+      inListOf(sessionsTable.refIssueId, size),
+      eq(sessionsTable.refLetter, param(sessionsTable.refLetter, 'letter')),
+      isNull(sessionsTable.deletedAt),
+    ),
+  ),
+)
+
+/** Live sessions with this draft ordinal, in any repository (POD-6160). */
+const liveSessionsOfDraft = prepared((db: StoreDrizzle) =>
+  sessionsMatching(
+    db,
+    and(eq(sessionsTable.refDraft, param(sessionsTable.refDraft, 'draft')), isNull(sessionsTable.deletedAt)),
+  ),
+)
+
+/** Live sessions spawned by one of these parents (`spawned_by` values) (POD-6160). */
+const liveSessionsSpawnedBy = preparedFamily((db: StoreDrizzle, size: number) =>
+  sessionsMatching(db, and(inListOf(sessionsTable.spawnedBy, size), isNull(sessionsTable.deletedAt))),
+)
+
+/** The issues with this sequence number, in any repository: the issue half of
+ *  a birth ref (`POD-13-A`), before its prefix is checked (POD-6160). */
+const issueIdsOfSeq = prepared((db: StoreDrizzle) =>
+  db
+    .select({ id: issuesTable.id })
+    .from(issuesTable)
+    .where(eq(issuesTable.seq, param(issuesTable.seq, 'seq')))
+    .prepare(),
+)
+
+/** A machine's live sessions (POD-6160). */
+const liveSessionsOnMachine = prepared((db: StoreDrizzle) =>
+  sessionsMatching(
+    db,
+    and(eq(sessionsTable.machineId, param(sessionsTable.machineId, 'machineId')), isNull(sessionsTable.deletedAt)),
+  ),
 )
 
 const liveSessions = prepared((db: StoreDrizzle) =>
@@ -692,6 +791,10 @@ const deleteAllSnoozesOf = prepared((db: StoreDrizzle) =>
 
 const allOffers = prepared((db: StoreDrizzle) => db.select().from(offersTable).prepare())
 
+const offersOfIds = preparedFamily((db: StoreDrizzle, size: number) =>
+  db.select().from(offersTable).where(inListOf(offersTable.sessionId, size)).prepare(),
+)
+
 const upsertOffer = prepared((db: StoreDrizzle) =>
   db
     .insert(offersTable)
@@ -782,6 +885,14 @@ const draftTimes = prepared((db: StoreDrizzle) =>
   db
     .select({ sessionId: sessionDrafts.sessionId, updatedAt: sessionDrafts.updatedAt })
     .from(sessionDrafts)
+    .prepare(),
+)
+
+const draftTimesOfIds = preparedFamily((db: StoreDrizzle, size: number) =>
+  db
+    .select({ sessionId: sessionDrafts.sessionId, updatedAt: sessionDrafts.updatedAt })
+    .from(sessionDrafts)
+    .where(inListOf(sessionDrafts.sessionId, size))
     .prepare(),
 )
 
@@ -1035,6 +1146,79 @@ export class SessionsRepository {
   }
 
   /** All session tombstones, for repository-level inspection and maintenance. */
+  /**
+   * THE CANDIDATES FOR "SESSIONS AT OR BELOW THIS PATH" (POD-6160): every live
+   * session whose cwd starts with `root`, by its literal spelling and, for a
+   * Windows-style root, by its folded one. A superset: `root-2` starts with
+   * `root` too, so the caller keeps only what `isMemberCwd` admits. Two index
+   * range reads, never a whole-table read; rows unordered.
+   */
+  async sessionsUnderPath(root: string): Promise<SessionRow[]> {
+    if (!root) return []
+    const byId = new Map<string, SessionSelect>()
+    for (const row of await liveSessionsInCwdRange(this.db).all({ lo: root, hi: prefixUpperBound(root) })) {
+      byId.set(row.id, row)
+    }
+    if (machinePathSeparator(root) === '\\') {
+      const folded = root.replace(/\//g, '\\').replace(/[A-Z]/g, (char) => char.toLowerCase())
+      for (const row of await liveSessionsInFoldedCwdRange(this.db).all({ lo: folded, hi: prefixUpperBound(folded) })) {
+        byId.set(row.id, row)
+      }
+    }
+    return [...byId.values()].map(mapSession)
+  }
+
+  /** Live sessions whose id starts with `prefix` (a short id), by a range on the
+   *  primary key (POD-6160). */
+  async sessionsWithIdPrefix(prefix: string): Promise<SessionRow[]> {
+    if (!prefix) return []
+    return (await liveSessionsInIdRange(this.db).all({ lo: prefix, hi: prefixUpperBound(prefix) })).map(mapSession)
+  }
+
+  /** Live sessions in one of these statuses, unordered (POD-6160). */
+  async sessionsWithStatuses(statuses: readonly SessionStatusPersisted[]): Promise<SessionRow[]> {
+    const unique = [...new Set(statuses)]
+    if (unique.length === 0) return []
+    const size = inListSize(unique.length)
+    return (await liveSessionsOfStatuses(this.db, size).all(inListValues(unique, size))).map(mapSession)
+  }
+
+  /** The issue ids with this sequence number, in any repository (POD-6160). */
+  async issueIdsWithSeq(seq: number): Promise<IssueId[]> {
+    return (await issueIdsOfSeq(this.db).all({ seq })).map((row) => row.id as IssueId)
+  }
+
+  /** Live sessions born on one of these issues with this letter (POD-6160). */
+  async sessionsOfBirthLetter(issueIds: readonly IssueId[], letter: string): Promise<SessionRow[]> {
+    const out: SessionRow[] = []
+    for (const chunk of chunked(issueIds)) {
+      const size = inListSize(chunk.length)
+      const rows = await liveSessionsOfBirthLetter(this.db, size).all({ letter, ...inListValues(chunk, size) })
+      out.push(...rows.map(mapSession))
+    }
+    return out
+  }
+
+  /** Live sessions with this draft ordinal, in any repository (POD-6160). */
+  async sessionsOfDraft(draft: number): Promise<SessionRow[]> {
+    return (await liveSessionsOfDraft(this.db).all({ draft })).map(mapSession)
+  }
+
+  /** Live sessions spawned by one of these `spawned_by` values (POD-6160). */
+  async sessionsSpawnedBy(spawnedBy: readonly string[]): Promise<SessionRow[]> {
+    const out: SessionRow[] = []
+    for (const chunk of chunked([...new Set(spawnedBy)])) {
+      const size = inListSize(chunk.length)
+      out.push(...(await liveSessionsSpawnedBy(this.db, size).all(inListValues(chunk, size))).map(mapSession))
+    }
+    return out
+  }
+
+  /** A machine's live sessions, unordered (POD-6160). */
+  async sessionsOnMachine(machineId: MachineId): Promise<SessionRow[]> {
+    return (await liveSessionsOnMachine(this.db).all({ machineId })).map(mapSession)
+  }
+
   async loadDeletedSessions(): Promise<SessionRow[]> {
     return (await deletedSessions(this.db).all()).map(mapSession)
   }
@@ -1386,30 +1570,23 @@ export class SessionsRepository {
   /** Every live offer, keyed by session — replayed onto SessionMeta at boot. A
    *  row with corrupt JSON actions is dropped rather than failing the load. */
   async listOffers(): Promise<OfferMap> {
-    const rows = await allOffers(this.db).all()
     const out: OfferMap = {}
-    for (const r of rows) {
-      try {
-        const actions = JSON.parse(r.actions)
-        if (!Array.isArray(actions)) continue
-        // A corrupt artifacts column degrades to "no artifacts", not "no offer".
-        let artifacts: string[] | undefined
-        if (r.artifacts != null) {
-          try {
-            const parsed = JSON.parse(r.artifacts)
-            if (Array.isArray(parsed) && parsed.every((p) => typeof p === 'string')) {
-              artifacts = parsed
-            }
-          } catch {}
-        }
-        out[r.sessionId] = {
-          message: r.message,
-          actions,
-          ...(artifacts && artifacts.length > 0 ? { artifacts } : {}),
-          createdAt: r.createdAt,
-        }
-      } catch {
-        // corrupt row -> treat as no offer
+    for (const r of await allOffers(this.db).all()) {
+      const offer = offerOfRow(r)
+      if (offer) out[r.sessionId] = offer
+    }
+    return out
+  }
+
+  /** {@link listOffers} for a known set of sessions (POD-6160): the offers a
+   *  set of durable session records carries, one statement per 500 ids. */
+  async offersOf(sessionIds: readonly SessionId[]): Promise<OfferMap> {
+    const out: OfferMap = {}
+    for (const chunk of chunked(sessionIds)) {
+      const size = inListSize(chunk.length)
+      for (const r of await offersOfIds(this.db, size).all(inListValues(chunk, size))) {
+        const offer = offerOfRow(r)
+        if (offer) out[r.sessionId] = offer
       }
     }
     return out
@@ -1524,6 +1701,18 @@ export class SessionsRepository {
     return out
   }
 
+  /** {@link loadDraftTimes} for a known set of sessions (POD-6160). */
+  async draftTimesOf(sessionIds: readonly SessionId[]): Promise<Map<SessionId, string>> {
+    const out = new Map<SessionId, string>()
+    for (const chunk of chunked(sessionIds)) {
+      const size = inListSize(chunk.length)
+      for (const r of await draftTimesOfIds(this.db, size).all(inListValues(chunk, size))) {
+        out.set(r.sessionId as SessionId, r.updatedAt)
+      }
+    }
+    return out
+  }
+
   /** Set (non-empty) or clear (empty/whitespace-only persists as a deleted row) a
    *  session's draft. Returns the new updated_at when set, or undefined when cleared
    *  — the registry mirrors it onto `Session.draftUpdatedAt`. */
@@ -1599,6 +1788,33 @@ export class SessionsRepository {
 
 /** The 500-row chunks every batched id reader here shares. They stay below
  *  SQLite's variable limit while keeping one repository call per pass. */
+/** One stored offer, or undefined for a row with corrupt JSON actions, which is
+ *  dropped rather than failing the read. */
+function offerOfRow(r: typeof offersTable.$inferSelect): OfferMap[string] | undefined {
+  try {
+    const actions = JSON.parse(r.actions)
+    if (!Array.isArray(actions)) return undefined
+    // A corrupt artifacts column degrades to "no artifacts", not "no offer".
+    let artifacts: string[] | undefined
+    if (r.artifacts != null) {
+      try {
+        const parsed = JSON.parse(r.artifacts)
+        if (Array.isArray(parsed) && parsed.every((p) => typeof p === 'string')) {
+          artifacts = parsed
+        }
+      } catch {}
+    }
+    return {
+      message: r.message,
+      actions,
+      ...(artifacts && artifacts.length > 0 ? { artifacts } : {}),
+      createdAt: r.createdAt,
+    }
+  } catch {
+    return undefined
+  }
+}
+
 function* chunked<T>(values: readonly T[]): Generator<T[]> {
   const unique = [...new Set(values)]
   const CHUNK = 500

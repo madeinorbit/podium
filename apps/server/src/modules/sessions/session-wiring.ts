@@ -100,6 +100,7 @@ import { SessionTeardown } from './session-teardown'
 import { SessionTerminalProof } from './terminal-proof'
 import { TurnPreviewAccumulator } from './turn-preview'
 import { turnPreviewEnabled } from './turn-preview-flag'
+import { SessionRecords } from './records'
 import { SessionView } from './view'
 import { SessionWorkspace } from './workspace'
 
@@ -279,8 +280,15 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
       await bag.parkArchivedSession(sessionId)
     },
   })
-  bag.view = new SessionView({
+  // The durable records of sessions read from the database (POD-6160).
+  bag.records = new SessionRecords({
+    store,
     sessions: bag.sessions,
+    settled: (sessionId) => bag.repository.settled(sessionId),
+    mapHoldsEverySession: true,
+  })
+  bag.view = new SessionView({
+    records: bag.records,
     store,
     state: bag.state,
     sessionOccupancyCount: bag.deps.sessionOccupancyCount
@@ -1131,7 +1139,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     machines,
     rpc: bag.rpc,
     now: () => bag.now(),
-    sessionFacts: () => life.sessionFacts(),
+    runningSessionFacts: () => life.runningSessionFacts(),
     setArchived: (input) => bag.setArchived(input),
     rearmUnread: (sessionId) => bag.rearmUnread(sessionId),
     toMachine: (machineId, message) => bag.toMachine(machineId, message),
@@ -1212,7 +1220,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     sessions: bag.sessions,
     machines,
     rpc: bag.rpc,
-    sessionFacts: () => life.sessionFacts(),
+    readSessionFactsByMachine: async (machineId) => await life.readSessionFactsByMachine(machineId),
     broadcastSessions: () => bag.broadcastSessions(),
     toMachine: (machineId, message) => bag.toMachine(machineId, message),
     spawn: (input) => bag.sessionStart.spawn(input),

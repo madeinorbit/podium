@@ -38,6 +38,20 @@ const podiumIdOfSegment = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
+/** One machine's podium ids for a set of native ids (POD-6160). */
+const podiumIdsOfSegments = preparedFamily((db: StoreDrizzle, size: number) =>
+  db
+    .select({ nativeId: conversationSegments.nativeId, podiumId: conversationSegments.podiumId })
+    .from(conversationSegments)
+    .where(
+      and(
+        eq(conversationSegments.machineId, param(conversationSegments.machineId, 'machineId')),
+        inListOf(conversationSegments.nativeId, size),
+      ),
+    )
+    .prepare(),
+)
+
 /** The batch reads below are keyed by the chunk's prepared IN-list size; values are `in0`, `in1`, ... */
 const segmentsWithPaths = preparedFamily((db: StoreDrizzle, size: number) =>
   db
@@ -397,15 +411,17 @@ export class ConversationRegistryRepository {
     return podiumId
   }
 
-  async podiumIds(machineId: MachineId, nativeIds: string[]): Promise<Map<string, ConversationId>> {
+  /** {@link podiumId} for many native ids on one machine: the map is keyed by
+   *  the ids asked for and a missing row stays missing. One statement per 500
+   *  ids (POD-6160: the durable session records of a listing ask together). */
+  async podiumIds(machineId: MachineId, nativeIds: readonly string[]): Promise<Map<string, ConversationId>> {
     const out = new Map<string, ConversationId>()
-    // ONE STATEMENT PER NATIVE ID, exactly as before. Batching this is a
-    // behaviour question rather than a rewrite — the caller's map is keyed by
-    // the ids it asked for and a missing row must stay missing — so it is left
-    // for the read-scope work (B0.6) rather than decided in a conversion.
-    for (const nativeId of nativeIds) {
-      const row = await podiumIdOfSegment(this.db).get({ machineId, nativeId })
-      if (row) out.set(nativeId, row.podiumId)
+    const unique = [...new Set(nativeIds)]
+    for (let at = 0; at < unique.length; at += 500) {
+      const chunk = unique.slice(at, at + 500)
+      const size = inListSize(chunk.length)
+      const rows = await podiumIdsOfSegments(this.db, size).all({ machineId, ...inListValues(chunk, size) })
+      for (const row of rows) out.set(row.nativeId, row.podiumId)
     }
     return out
   }

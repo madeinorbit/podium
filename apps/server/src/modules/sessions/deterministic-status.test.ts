@@ -6,7 +6,7 @@ import type { IssueService } from '../issues/service'
 import type { MessageDeliveryService } from '../messages/service'
 import { SessionReadToolkit } from './read-toolkit'
 import { openTestStore } from '../../test-support/open-test-store'
-import { metasAsFacts } from '../../test-support/session-facts'
+import { sessionReadPorts } from '../../test-support/session-facts'
 import { attachHostDaemon } from '../../test-support/host-daemon'
 import { readSessionRefs } from './refs'
 
@@ -85,7 +85,7 @@ it('captures spawn values instead of drifting issue defaults in row, meta, and s
   })
 
   const toolkit = new SessionReadToolkit({
-    sessionFacts: () => metasAsFacts([meta as SessionMeta]),
+    ...sessionReadPorts(() => [meta as SessionMeta]),
     sessionById: async (sessionId) =>
       sessionId === (meta as SessionMeta).sessionId ? (meta as SessionMeta) : undefined,
     sessionsById: async (sessionIds) => {

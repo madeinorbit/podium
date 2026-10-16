@@ -1,6 +1,6 @@
 import { bootStage } from '../../boot-timing'
 import type { IssueId, MachineId, SessionId, SessionMeta, SessionUserStateWire } from '@podium/model'
-import { AgentKind, sessionUserStateRowId } from '@podium/model'
+import { sessionUserStateRowId } from '@podium/model'
 
 /**
  * WHO a session wire projection is being built for — the explicit argument
@@ -38,6 +38,7 @@ export interface SessionProjectionEvent {
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { createLogger } from '@podium/logger'
 import { Session, type SessionDurableState, type SessionVolatileField } from './session'
+import { storedSessionInit } from './session-record'
 import type { SessionStatePrincipal, SessionStateService } from './session-state/service'
 import type { SessionView } from './view'
 import { runtimeTranscriptDeltaFromEvent } from './runtime-transcript'
@@ -881,41 +882,25 @@ export class SessionRepository {
    *  Restored tombstones always come back as exited: deletion killed their runtime,
    *  so retaining a prior live/starting status would claim a PTY that no longer exists. */
   async sessionFromStoredRow(r: SessionRow, mode: 'boot' | 'restore', hasRuntimeTranscript = true): Promise<Session | null> {
-    const kind = AgentKind.safeParse(r.agentKind)
-    if (!kind.success) {
+    const init = storedSessionInit(
+      r,
+      mode,
+      r.ownerUserId ?? (await firstAdminMemberId(this.store)),
+    )
+    if (!init) {
       log.warn('skipping a persisted session with an invalid agentKind', {
         sessionId: r.id,
         agentKind: r.agentKind,
       })
       return null
     }
-    const reloadStatus =
-      mode === 'restore'
-        ? 'exited'
-        : r.headless
-          ? r.status
-          : r.status === 'live' || r.status === 'starting'
-            ? 'reconnecting'
-            : r.status
-    const exitCode = mode === 'restore' || r.status !== 'exited' ? null : r.exitCode
     if (r.originKind === 'resume' && !r.conversationId) {
       log.warn('a persisted resume session has no conversationId', { sessionId: r.id })
     }
     const machineId = r.machineId
     let session!: Session
     session = new Session({
-      sessionId: r.id,
-      ownerUserId: r.ownerUserId ?? (await firstAdminMemberId(this.store)),
-      agentKind: kind.data,
-      cwd: r.cwd,
-      title: r.title,
-      origin:
-        r.originKind === 'resume'
-          ? { kind: 'resume', conversationId: r.conversationId ?? '' }
-          : { kind: 'spawn' },
-      createdAt: r.createdAt,
-      geometry: { ...(r.geometry ?? { cols: 80, rows: 24 }) },
-      machineId,
+      ...init,
       toDaemon: (msg) => this.toMachine(this.sessions.get(r.id)?.machineId ?? machineId, msg),
       sendInput: (input) =>
         this.ports.toPtyInput(this.sessions.get(r.id)?.machineId ?? machineId, input),
@@ -931,77 +916,6 @@ export class SessionRepository {
             }),
           )
       },
-      durableLabel: r.durableLabel,
-      lastActiveAt: r.lastActiveAt,
-      ...(r.workingMsTotal != null ? { workingMsTotal: r.workingMsTotal } : {}),
-      inputCount: r.inputCount ?? 0,
-      outputCount: r.outputCount ?? 0,
-      activityCount: r.activityCount ?? 0,
-      lastOutputAt: r.lastOutputAt,
-      lastInputAt: r.lastInputAt,
-      lastResumedAt: r.lastResumedAt,
-      status: reloadStatus,
-      exitCode: exitCode ?? undefined,
-      ...(exitCode === -1 && r.spawnFailure ? { spawnFailure: r.spawnFailure } : {}),
-      ...(r.name ? { name: r.name } : {}),
-      // Survives a restart — otherwise a reboot would forget that the USER named this
-      // session and the next agent title would sail straight through (#490).
-      ...(r.name && r.nameSource ? { nameSource: r.nameSource } : {}),
-      ...(r.model ? { model: r.model } : {}),
-      ...(r.effort ? { effort: r.effort } : {}),
-      /**
-       * THE RUNTIME REQUEST SURVIVES THE RESTART (POD-3081). Without this line
-       * the columns are written and never read back, which is worse than not
-       * having them: a reconfigured session comes back displaying the model it
-       * was LAUNCHED with while its driver — whose own journal did survive —
-       * goes on answering as the one it was configured to. That is the
-       * requested-vs-observed split saying the thing it exists to prevent.
-       *
-       * Absent on the row = never configured, which is different from
-       * "configured back to the launch value" and must stay different.
-       */
-      ...(r.requestedModel ? { requestedModel: r.requestedModel } : {}),
-      ...(r.requestedEffort ? { requestedEffort: r.requestedEffort } : {}),
-      ...(r.accountId ? { accountId: r.accountId } : {}),
-      ...(r.loginHarness ? { loginHarness: r.loginHarness } : {}),
-      ...(r.spawnedBy ? { spawnedBy: r.spawnedBy } : {}),
-      // The pair survives a restart. Absent on the row = none was ever recorded
-      // (a session from before the columns existed); it is not reconstructed here
-      // from ownerUserId or spawnedBy, which would invent one.
-      ...(r.delegation ? { delegation: r.delegation } : {}),
-      ...(r.createdBy ? { createdBy: r.createdBy } : {}),
-      ...(r.headless ? { headless: true } : {}),
-      ...(r.issueId ? { issueId: r.issueId } : {}),
-      ...(r.refIssueId ? { refIssueId: r.refIssueId } : {}),
-      ...(r.refLetter ? { refLetter: r.refLetter } : {}),
-      ...(r.refDraft != null ? { refDraft: r.refDraft } : {}),
-      ...(r.workflowRunId ? { workflowRunId: r.workflowRunId } : {}),
-      ...(r.workflowStepId ? { workflowStepId: r.workflowStepId } : {}),
-      ...(r.agentProfileId ? { agentProfileId: r.agentProfileId } : {}),
-      archived: r.archived,
-      stoppedAt: r.stoppedAt ?? null,
-      stopReason: r.stopReason ?? null,
-      ...(Session.parseWorkState(r.workState)
-        ? { workState: Session.parseWorkState(r.workState) }
-        : {}),
-      ...(r.resumeKind && r.resumeValue
-        ? { resume: { kind: r.resumeKind, value: r.resumeValue } }
-        : {}),
-      /**
-       * THE FIX THIS COLUMN EXISTS FOR (POD-2290 round 2). `reloadStatus` above
-       * turns a persisted live/starting row into `reconnecting`, and a
-       * reconnecting row with no driver family is exactly where the panel falls
-       * back to "assume a terminal" — the original bug's screen, driven live by
-       * the reviewer with the daemon held down. `driverId` is deliberately NOT
-       * restored beside it: that one names a live handle, and this row has none
-       * until a daemon rebinds.
-       */
-      ...(r.selectedDriverId ? { selectedDriverId: r.selectedDriverId } : {}),
-      ...(r.requestedDriverId ? { requestedDriverId: r.requestedDriverId } : {}),
-      // Passed through, never defaulted: a row from before this column exists
-      // makes no claim about whether its launch ever had a conversation, and
-      // inventing `'never'` for it would authorize discarding one.
-      ...(r.conversationBinding ? { conversationBinding: r.conversationBinding } : {}),
     })
     // Re-seed runtime-backed transcript items before the session reaches clients.
     // Terminal drivers use this durable bridge when the legacy observation path
@@ -1159,6 +1073,21 @@ export class SessionRepository {
     )
     this.publishSessionProjection(recovered)
     bootStage('sessions baseline', baselineStarted)
+  }
+
+  /**
+   * NOTHING ABOUT THIS SESSION STILL WAITS TO REACH ITS ROW (POD-6160): no write
+   * queued or in flight, no baseline staged against an open span, no volatile
+   * capture and no activity flush pending. A durable record read now is what
+   * the object holds.
+   */
+  settled(sessionId: SessionId): boolean {
+    return (
+      !this.sessionWriteTail.has(sessionId) &&
+      !this.pendingVolatileSessions.has(sessionId) &&
+      !this.dirtyActivitySessions.has(sessionId) &&
+      this.stagedSessionStates.peek(sessionId) === undefined
+    )
   }
 
   forget(sessionId: SessionId): void {

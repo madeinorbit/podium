@@ -205,15 +205,15 @@ export class IssueSessionLifecycle {
    *
    * ONE PASS, NOT ONE QUESTION PER ISSUE. Asking the session map per issue
    * reintroduces exactly the per-issue cost being removed (~4,100 sessions x
-   * ~2,500 issues). `sessionFacts()` is the cheap read — plain field copies off
-   * the live registry map, no I/O at all — so the set is built once and the
+   * ~2,500 issues). `runningSessionFacts()` is the cheap read — plain field
+   * copies off the resident running sessions, no I/O at all (an unparked
+   * session is a running one, POD-6160) — so the set is built once and the
    * issue loop is then a lookup.
    */
   private async closedIssueSweepCandidates(): Promise<IssueId[]> {
     const unparked = new Set<string>()
-    for (const facts of this.deps.sessions.sessionFacts()) {
+    for (const facts of this.deps.sessions.runningSessionFacts()) {
       if (!facts.issueId) continue
-      if (facts.status === 'hibernated' || facts.status === 'exited') continue
       unparked.add(facts.issueId)
     }
     // The snapshot decides CANDIDACY only. `stopClosedIssueNow` still re-reads

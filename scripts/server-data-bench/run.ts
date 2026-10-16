@@ -7,6 +7,7 @@
  *     [--rounds=3] [--cell=h1a1] [--seed=4443] [--load=1x|10x] [--minutes=4] [--clients=4]
  *     [--root=$HOME/server-data-bench] [--label=<name>] [--max-new-rounds=2] [--profile=attribution|full]
  *     [--issue-map-parity=off|log] [--issue-map-parity-a=off|log] [--issue-map-parity-b=off|log]
+ *     [--session-map-parity=off|log] [--session-map-parity-a=off|log] [--session-map-parity-b=off|log]
  *   bun --conditions=@podium/source scripts/server-data-bench/run.ts --resume=<run dir> [--max-new-rounds=2]
  *
  * `--max-new-rounds` stops a call after that many rounds, so one A/B pair fits in one
@@ -53,8 +54,15 @@ export const ISSUE_WRITES_PER_MINUTE = 220
  * `issueMapParity` is the server's `PODIUM_ISSUE_MAP_PARITY` (POD-6158): `off`
  * by default, so a source run measures the issue reads and not the old/new
  * comparison a development build adds; `log` measures the comparison.
+ * `sessionMapParity` is `PODIUM_SESSION_MAP_PARITY` (POD-6160), the same for
+ * the session map's comparison.
  */
-export function benchEnvironment(root: string, profile = 'attribution', issueMapParity = 'off'): NodeJS.ProcessEnv {
+export function benchEnvironment(
+  root: string,
+  profile = 'attribution',
+  issueMapParity = 'off',
+  sessionMapParity = 'off',
+): NodeJS.ProcessEnv {
   return {
     PATH: process.env.PATH,
     HOME: join(root, 'home'),
@@ -82,6 +90,7 @@ export function benchEnvironment(root: string, profile = 'attribution', issueMap
     PODIUM_NO_SCOPE: '1',
     PODIUM_LOOP_PROFILE: profile,
     PODIUM_ISSUE_MAP_PARITY: issueMapParity,
+    PODIUM_SESSION_MAP_PARITY: sessionMapParity,
     PODIUM_PASSWORD: PASSWORD,
     ABDUCO_SOCKET_DIR: join(root, 'abduco'),
   }
@@ -134,9 +143,16 @@ interface Server {
   stop: () => Promise<void>
 }
 
-export function startBenchServer(checkout: string, root: string, logPath: string, profile?: string, issueMapParity?: string): Server {
+export function startBenchServer(
+  checkout: string,
+  root: string,
+  logPath: string,
+  profile?: string,
+  issueMapParity?: string,
+  sessionMapParity?: string,
+): Server {
   const child = spawn(BUN, ['--conditions=@podium/source', join(HERE, 'serve.ts'), `--checkout=${checkout}`], {
-    cwd: checkout, env: benchEnvironment(root, profile, issueMapParity), detached: true, stdio: ['pipe', 'pipe', 'pipe'],
+    cwd: checkout, env: benchEnvironment(root, profile, issueMapParity, sessionMapParity), detached: true, stdio: ['pipe', 'pipe', 'pipe'],
   })
   const log: string[] = []
   let listenMs: number | undefined
@@ -210,6 +226,7 @@ async function round(opts: {
   arm: 'A' | 'B'; index: number; sha: string; checkout: string; templateDir: string; fixture: string
   outDir: string; minutes: number; framesPerMinute: number; clients: number
   sessionWritesPerMinute: number; issueWritesPerMinute: number; profile: string; issueMapParity: string
+  sessionMapParity: string
 }): Promise<{ result: RoundResult; detail: Record<string, unknown> }> {
   const dir = join(opts.outDir, `${opts.arm}-r${opts.index}`)
   rmSync(dir, { recursive: true, force: true })
@@ -219,7 +236,9 @@ async function round(opts: {
     await pause(10_000)
   }
   const loadAtStart = readFileSync('/proc/loadavg', 'utf8').split(' ')[0]
-  const server = startBenchServer(opts.checkout, dir, join(dir, 'server.ndjson'), opts.profile, opts.issueMapParity)
+  const server = startBenchServer(
+    opts.checkout, dir, join(dir, 'server.ndjson'), opts.profile, opts.issueMapParity, opts.sessionMapParity,
+  )
   let succeeded = false
   try {
     const ready = await server.ready
@@ -274,7 +293,8 @@ async function round(opts: {
     }
     const detail = {
       arm: opts.arm, round: opts.index, sha: opts.sha, windowStart: new Date(windowStart).toISOString(),
-      windowEnd: new Date(windowEnd).toISOString(), loadAtStart, profile: opts.profile, issueMapParity: opts.issueMapParity, metrics, drive,
+      windowEnd: new Date(windowEnd).toISOString(), loadAtStart, profile: opts.profile, issueMapParity: opts.issueMapParity,
+      sessionMapParity: opts.sessionMapParity, metrics, drive,
       statementsByKind: statementsByKind(queries, windowMinutes).slice(0, 25),
       topStatements,
       topTasks: Object.entries(tasks).sort((a, b) => b[1].wallMs - a[1].wallMs).slice(0, 25)
@@ -342,6 +362,13 @@ async function main(): Promise<void> {
     A: args['issue-map-parity-a'] ?? args['issue-map-parity'] ?? 'off',
     B: args['issue-map-parity-b'] ?? args['issue-map-parity'] ?? 'off',
   }
+  const sessionMapParity = {
+    A: args['session-map-parity-a'] ?? args['session-map-parity'] ?? 'off',
+    B: args['session-map-parity-b'] ?? args['session-map-parity'] ?? 'off',
+  }
+  for (const value of Object.values(sessionMapParity)) {
+    if (value !== 'off' && value !== 'log') throw new Error(`--session-map-parity must be off or log, not ${value}`)
+  }
   for (const value of Object.values(issueMapParity)) {
     if (value !== 'off' && value !== 'log') throw new Error(`--issue-map-parity must be off or log, not ${value}`)
   }
@@ -383,6 +410,7 @@ async function main(): Promise<void> {
       arm: step.arm, index: step.round, sha: shas[step.arm], checkout: checkouts[step.arm],
       templateDir: t.dir, fixture: t.fixture, outDir, minutes, framesPerMinute, clients, sessionWritesPerMinute, issueWritesPerMinute, profile,
       issueMapParity: issueMapParity[step.arm],
+      sessionMapParity: sessionMapParity[step.arm],
     })
     results.push(result)
     details.push(detail)
@@ -394,7 +422,7 @@ async function main(): Promise<void> {
     '',
     `As of ${new Date().toISOString()} on ${hostname()}. A = ${shas.A}, B = ${shas.B}.`,
     `Cell ${cell} seed ${seed} (${fixture.counts.issues} issues, ${fixture.counts.sessions} sessions, ${fixture.counts.liveSessions} live on ${fixture.counts.machines} machines).`,
-    `Load ${load}: ${framesPerMinute} daemon frames/min, ${sessionWritesPerMinute} session + ${issueWritesPerMinute} issue writes/min, ${clients} clients; ${minutes} measured minutes per round, ${rounds} rounds per arm, order ${interleavedOrder(rounds).map((s) => s.arm).join(' ')}; issue-map comparison A ${issueMapParity.A}, B ${issueMapParity.B} (PODIUM_ISSUE_MAP_PARITY).`,
+    `Load ${load}: ${framesPerMinute} daemon frames/min, ${sessionWritesPerMinute} session + ${issueWritesPerMinute} issue writes/min, ${clients} clients; ${minutes} measured minutes per round, ${rounds} rounds per arm, order ${interleavedOrder(rounds).map((s) => s.arm).join(' ')}; issue-map comparison A ${issueMapParity.A}, B ${issueMapParity.B} (PODIUM_ISSUE_MAP_PARITY); session-map comparison A ${sessionMapParity.A}, B ${sessionMapParity.B} (PODIUM_SESSION_MAP_PARITY).`,
     'Per-round values are medians over that round\'s whole minutes; the table shows the median over rounds and the min–max over rounds.',
     `Round windows (start UTC): ${details.map((d) => `${d.arm}${d.round} ${String(d.windowStart).slice(11, 16)}`).join(', ')}${roundGaps(details)}.`,
     '',

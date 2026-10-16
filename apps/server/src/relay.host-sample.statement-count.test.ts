@@ -129,6 +129,13 @@ const pin = (
 // polaris VM: finding a folder-only session's issue (`issueForSession`, on the
 // retirement's git refresh) scanned the in-memory issue map and is now the
 // indexed folder-owner query, `worktree_path IN (...)`: backstop 48 -> 49.
+//
+// RE-PINNED FOR POD-6160 (D2a/D2b of the session map removal), measured on the
+// polaris VM: each retired shell's eligibility reaction asks for it by id after
+// it has left the session map, which is now one read of its row (a session that
+// is not resident is answered from the database) where the map answered with a
+// miss: +2. The second retirement's pending-mail count, which that reaction
+// runs after the read, now lands after the sample returns: -1. Backstop 49 -> 50.
 describe('host sample: pinned statement counts at 5 and 200 live shells', () => {
   it('a sample with nothing to retire', async () => {
     await expectConstantStatements(
@@ -172,7 +179,7 @@ describe('host sample: pinned statement counts at 5 and 200 live shells', () => 
           .poll(async () => (await f.store.sessions.loadSessions()).some((s) => s.id === f.ids.at(-1)))
           .toBe(false)
       }),
-      49,
+      50,
     )
   })
 })

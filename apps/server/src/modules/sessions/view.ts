@@ -11,12 +11,13 @@ import {
 } from '@podium/model'
 import { userCommandPrincipal } from '../../command-principal'
 import { harnessCapabilitiesFor } from '../../harness-manifest'
-import { isIssueMember } from '../../issue-util'
 import type { SessionStore } from '../../store'
 import type { IssueRow } from '../../store/types'
 import { DEPLOYMENT, perf } from '../perf/registry'
 import { granteesOf } from './session-state/grantees'
 import type { Session, SessionDurableFields } from './session'
+import { isResident, type SessionRecordReads, type SessionSubject } from './records'
+import { projectSessionMeta, type SessionIdentity, type SessionRecord } from './session-record'
 import { sessionStatePrincipalFor } from './session-state/registry'
 import type { SessionStatePrincipal, SessionStateService } from './session-state/service'
 
@@ -30,7 +31,8 @@ export interface ProjectionPass {
 }
 
 export interface SessionViewPorts {
-  sessions: Map<SessionId, Session>
+  /** Resident sessions and durable records (POD-6160): every candidate set. */
+  records: Pick<SessionRecordReads, 'all' | 'issueMembers' | 'resolve'>
   store: SessionStore
   state: SessionStateService
   /**
@@ -74,7 +76,7 @@ export class SessionView {
   ): Promise<SessionMeta[]> {
     const startedAt = performance.now()
     try {
-      return await this.project([...this.ports.sessions.values()], forPrincipal)
+      return await this.project(await this.ports.records.all(`list.${caller}`), forPrincipal)
     } finally {
       perf.record('phase', 'sessionView.list', performance.now() - startedAt, DEPLOYMENT)
       perf.record('phase', `sessionView.list.${caller}`, performance.now() - startedAt, DEPLOYMENT)
@@ -92,9 +94,10 @@ export class SessionView {
    *
    * The narrowing is legitimate because membership is decided by two fields that
    * live on the session itself — `issueId` and `cwd` — and the projection copies
-   * both through unchanged. So {@link isIssueMember} against the live objects
-   * selects the same set the post-filter would, and only that set is visibility-
-   * checked and wired. Visibility is NOT narrowed: the surviving members still go
+   * both through unchanged. So `isIssueMember`, asked of the resident sessions
+   * and of the rows an indexed query finds (`SessionRecords.issueMembers`,
+   * POD-6160), selects the same set the post-filter would, and only that set is
+   * visibility-checked and wired. Visibility is NOT narrowed: the surviving members still go
    * through `canReadSession` for the same principal, so a caller sees exactly the
    * sessions it saw before.
    */
@@ -105,9 +108,7 @@ export class SessionView {
   ): Promise<SessionMeta[]> {
     const startedAt = performance.now()
     try {
-      const members = [...this.ports.sessions.values()].filter((session) =>
-        isIssueMember(worktreePath, issueId, session),
-      )
+      const members = await this.ports.records.issueMembers(worktreePath, issueId, 'listForIssue')
       return await this.project(members, forPrincipal)
     } finally {
       perf.record('phase', 'sessionView.listForIssue', performance.now() - startedAt, DEPLOYMENT)
@@ -121,15 +122,15 @@ export class SessionView {
    * them on the authorization path — so a by-id lookup paid a full reader-scoped
    * pass on essentially every request. The narrowing is sound for the same
    * reason `listForIssue`'s is: the deciding field is the session's OWN id, and
-   * `ports.sessions` is the very map `list()` enumerates, keyed by `sessionId`
-   * at every writer. Visibility is NOT narrowed — the one candidate still goes
+   * the resident object or the durable record of that id is exactly what
+   * `list()` would have projected for it. Visibility is NOT narrowed — the one candidate still goes
    * through `canReadSession` for the same principal, so a caller sees `undefined`
    * in exactly the cases the post-filter left it empty.
    */
   async byId(sessionId: SessionId, forPrincipal?: SessionStatePrincipal): Promise<SessionMeta | undefined> {
     const startedAt = performance.now()
     try {
-      const session = this.ports.sessions.get(sessionId)
+      const session = (await this.ports.records.resolve([sessionId], 'byId')).get(sessionId)
       if (!session) return undefined
       return (await this.project([session], forPrincipal))[0]
     } finally {
@@ -140,7 +141,7 @@ export class SessionView {
   /**
    * A KNOWN SET of sessions by id, without wiring the rest [POD-2322].
    *
-   * Candidates are selected in the live map's insertion order, exactly as
+   * Candidates come in `list()`'s order (created first), exactly as
    * `list().filter(...)` would return them. Visibility and projection still
    * use the shared path; duplicate and absent ids add no work.
    */
@@ -149,9 +150,7 @@ export class SessionView {
     try {
       const wanted = new Set(sessionIds)
       if (wanted.size === 0) return []
-      const candidates = [...this.ports.sessions.values()].filter((session) =>
-        wanted.has(session.sessionId),
-      )
+      const candidates = [...(await this.ports.records.resolve(wanted, 'byIds')).values()]
       return await this.project(candidates, forPrincipal)
     } finally {
       perf.record('phase', 'sessionView.byIds', performance.now() - startedAt, DEPLOYMENT)
@@ -171,7 +170,7 @@ export class SessionView {
   async spawnedByOf(sessionId: SessionId, forPrincipal?: SessionStatePrincipal): Promise<string | undefined> {
     const startedAt = performance.now()
     try {
-      const session = this.ports.sessions.get(sessionId)
+      const session = (await this.ports.records.resolve([sessionId], 'spawnedByOf')).get(sessionId)
       if (!session) return undefined
       const principal = forPrincipal ?? await this.defaultPrincipal()
       if (!principal) return undefined
@@ -187,7 +186,7 @@ export class SessionView {
   /** The reader-scoped projection over a candidate set — the body `list()`,
    *  `listForIssue()` and `byId()` share so the visibility rule and the memo
    *  lifetime have exactly one definition. */
-  private async project(candidates: Session[], forPrincipal?: SessionStatePrincipal): Promise<SessionMeta[]> {
+  private async project(candidates: SessionSubject[], forPrincipal?: SessionStatePrincipal): Promise<SessionMeta[]> {
     const principal = forPrincipal ?? await this.defaultPrincipal()
     if (!principal) return []
     const pass = await this.buildProjectionPass(candidates)
@@ -196,7 +195,7 @@ export class SessionView {
     )
     const readable = candidates.filter(session => visible.has(session.sessionId))
     if (readable.length === 0) return []
-    return readable.map(session => this.wire(session, pass))
+    return readable.map(session => (isResident(session) ? this.wire(session, pass) : wireRecord(session, pass)))
   }
 
   /** Build after any transaction writes; drafts supply the fields being committed. */
@@ -299,7 +298,20 @@ export function wireSession(
   pass: ProjectionPass,
   d: SessionDurableFields = session,
 ): SessionMeta {
-  const meta = session.toMeta(d)
+  return wireProjected(session, session.toMeta(d), d, pass)
+}
+
+/** {@link wireSession} for a durable record read from the database (POD-6160). */
+export function wireRecord(record: SessionRecord, pass: ProjectionPass): SessionMeta {
+  return wireProjected(record, projectSessionMeta(record, record, record.live), record, pass)
+}
+
+function wireProjected(
+  session: Pick<SessionIdentity, 'sessionId' | 'agentKind'>,
+  meta: SessionMeta,
+  d: SessionDurableFields,
+  pass: ProjectionPass,
+): SessionMeta {
   const queuedMessageCount = pass.queuedMessageCounts.get(session.sessionId) ?? 0
   const occupancy = pass.occupancy.get(session.sessionId)
   const harnessCapabilities = harnessCapabilitiesFor(session.agentKind)

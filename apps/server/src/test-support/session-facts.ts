@@ -2,10 +2,11 @@ import {
   asMachineId,
   firstAdminMemberId,
   type IssueId,
+  type MachineId,
   type SessionId,
   type SessionMeta,
 } from '@podium/model'
-import { sessionsForIssue } from '../issue-util'
+import { isMemberCwd, sessionsForIssue } from '../issue-util'
 import type { SessionFacts } from '../modules/sessions/facts'
 
 /**
@@ -71,26 +72,63 @@ export const metasAsFacts = (metas: readonly SessionMeta[]): SessionFacts[] =>
   metas.map(metaAsFacts)
 
 /**
- * THE FOUR SESSION READS a fixture used to satisfy with `listSessions` alone.
+ * THE SESSION READS a fixture used to satisfy with `listSessions` alone.
  *
  * Spread into a deps literal — `...sessionReadPorts(() => sessions)` — it wires
- * facts plus the three narrow projections over one fixture array. Every one is
- * derived from the SAME source, which is what the single `listSessions` port
- * gave a fixture for free and what a hand-written stub of four ports can
- * silently lose.
+ * the facts reads plus the three narrow projections over one fixture array.
+ * Every one is derived from the SAME source, which is what the single
+ * `listSessions` port gave a fixture for free and what a hand-written stub of
+ * many ports can silently lose.
  *
- * `sessionFacts` is synchronous because the production read is: it touches a
- * `Map` and returns. A fixture that wants to observe reads can still wrap the
+ * `sessionFacts` and `runningSessionFacts` are synchronous because the
+ * production reads are: they touch the resident map and return. The `read*`
+ * facts reads are asynchronous because production answers them from the
+ * database (POD-6160). A fixture that wants to observe reads can still wrap the
  * supplier.
  */
 export function sessionReadPorts(source: () => readonly SessionMeta[]): {
   sessionFacts(): SessionFacts[]
+  runningSessionFacts(): SessionFacts[]
+  readSessionFacts(): Promise<SessionFacts[]>
+  readSessionFactsByIds(sessionIds: Iterable<SessionId>): Promise<SessionFacts[]>
+  readSessionFactsById(sessionId: SessionId): Promise<SessionFacts | undefined>
+  readSessionFactsByIssue(worktreePath: string | null, issueId: IssueId | undefined): Promise<SessionFacts[]>
+  readSessionFactsByWorktree(worktreePath: string | null): Promise<SessionFacts[]>
+  readSessionFactsByMachine(machineId: MachineId): Promise<SessionFacts[]>
+  readSessionFactsWithStatuses(statuses: readonly SessionFacts['status'][]): Promise<SessionFacts[]>
+  readSessionFactsByIdPrefix(prefix: string): Promise<SessionFacts[]>
+  readSessionFactsByBirthRef(ref: { seq: number; letter: string } | { draft: number }): Promise<SessionFacts[]>
+  readSessionFactsSpawnedBy(parentIds: readonly SessionId[]): Promise<SessionFacts[]>
   sessionById(sessionId: SessionId): Promise<SessionMeta | undefined>
   listSessionsForIssue(worktreePath: string | null, issueId: IssueId): Promise<SessionMeta[]>
   sessionsById(sessionIds: Iterable<SessionId>): Promise<SessionMeta[]>
 } {
+  const facts = () => metasAsFacts(source())
+  const running = (s: SessionFacts) => s.status === 'live' || s.status === 'starting' || s.status === 'reconnecting'
   return {
-    sessionFacts: () => metasAsFacts(source()),
+    sessionFacts: facts,
+    runningSessionFacts: () => facts().filter(running),
+    readSessionFacts: async () => facts(),
+    readSessionFactsByIds: async (sessionIds) => {
+      const byId = new Map(facts().map((s) => [s.sessionId, s]))
+      return [...new Set(sessionIds)].flatMap((id) => {
+        const found = byId.get(id)
+        return found ? [found] : []
+      })
+    },
+    readSessionFactsById: async (sessionId) => facts().find((s) => s.sessionId === sessionId),
+    readSessionFactsByIssue: async (worktreePath, issueId) => sessionsForIssue(worktreePath, facts(), issueId),
+    readSessionFactsByWorktree: async (worktreePath) =>
+      worktreePath ? facts().filter((s) => isMemberCwd(worktreePath, s.cwd)) : [],
+    readSessionFactsByMachine: async (machineId) => facts().filter((s) => s.machineId === machineId),
+    readSessionFactsWithStatuses: async (statuses) => facts().filter((s) => statuses.includes(s.status)),
+    readSessionFactsByIdPrefix: async (prefix) => (prefix ? facts().filter((s) => s.sessionId.startsWith(prefix)) : []),
+    readSessionFactsByBirthRef: async (ref) =>
+      facts().filter((s) => ('draft' in ref ? s.refDraft === ref.draft : s.refLetter === ref.letter)),
+    readSessionFactsSpawnedBy: async (parentIds) => {
+      const values = new Set(parentIds.map((id) => `session:${id}`))
+      return facts().filter((s) => s.spawnedBy !== undefined && values.has(s.spawnedBy))
+    },
     sessionById: async (sessionId) => source().find((s) => s.sessionId === sessionId),
     listSessionsForIssue: async (worktreePath, issueId) =>
       sessionsForIssue(worktreePath, [...source()], issueId),

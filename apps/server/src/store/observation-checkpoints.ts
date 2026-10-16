@@ -9,7 +9,7 @@ import {
   sessionTerminalCandidates,
 } from '../migrations/schema'
 import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
-import { param, prepared } from './executor/sync-drizzle'
+import { inListOf, inListSize, inListValues, param, prepared, preparedFamily } from './executor/sync-drizzle'
 import type {
   ObservationLeaseRecord,
   TerminalCandidateFacts,
@@ -114,6 +114,17 @@ const checkpointedLiveLeases = prepared((db: StoreDrizzle) =>
     .from(ck)
     .innerJoin(sessions, eq(sessions.id, ck.sessionId))
     .where(and(isNull(sessions.deletedAt), isNotNull(ck.checkpointJson)))
+    .prepare(),
+)
+
+/** The checkpoints of a known set of sessions (POD-6160); tombstones excluded
+ *  exactly as {@link checkpointedLiveLeases} excludes them. */
+const checkpointedLeasesOfIds = preparedFamily((db: StoreDrizzle, size: number) =>
+  db
+    .select(LEASE_COLUMNS)
+    .from(ck)
+    .innerJoin(sessions, eq(sessions.id, ck.sessionId))
+    .where(and(inListOf(ck.sessionId, size), isNull(sessions.deletedAt), isNotNull(ck.checkpointJson)))
     .prepare(),
 )
 
@@ -405,6 +416,25 @@ export class ObservationCheckpointsRepository {
     for (const row of rows) {
       const lease = await this.mapRow(row)
       if (lease?.checkpoint) checkpoints.set(lease.sessionId, lease.checkpoint)
+    }
+    return checkpoints
+  }
+
+  /**
+   * {@link checkpointsOfLiveSessions} for a known set of sessions (POD-6160):
+   * what a durable session record is restored with, one statement per 500 ids.
+   */
+  async checkpointsOf(
+    sessionIds: readonly SessionId[],
+  ): Promise<Map<SessionId, SessionObservationCheckpointV1>> {
+    const checkpoints = new Map<SessionId, SessionObservationCheckpointV1>()
+    for (let at = 0; at < sessionIds.length; at += 500) {
+      const chunk = sessionIds.slice(at, at + 500)
+      const size = inListSize(chunk.length)
+      for (const row of await checkpointedLeasesOfIds(this.db, size).all(inListValues(chunk, size))) {
+        const lease = await this.mapRow(row)
+        if (lease?.checkpoint) checkpoints.set(lease.sessionId, lease.checkpoint)
+      }
     }
     return checkpoints
   }

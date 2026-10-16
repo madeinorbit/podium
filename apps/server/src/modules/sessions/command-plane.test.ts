@@ -146,7 +146,8 @@ async function ctxFor(
     issueOwner: async () => undefined,
     access: {
       sessionById: async (sessionId) => await modules.sessions.sessionById(sessionId),
-      listSessionIds: () => modules.sessions.sessionFacts().map((s) => s.sessionId),
+      sessionIdsWithPrefix: async (prefix) =>
+        (await modules.sessions.readSessionFactsByIdPrefix(prefix)).map((s) => s.sessionId),
       issues: asyncSessionIssueAccess(modules.issues),
       ...(opts.visibility ? { visibility: opts.visibility } : {}),
     },
@@ -893,11 +894,11 @@ describe('attribution and ownership come from the principal', () => {
 describe('session id prefix (POD-4536)', () => {
   function prefixAccess(
     rows: Map<SessionId, SessionTargetRow>,
-    opts?: { listSpy?: SessionAccessDeps['listSessionIds'] & { mock?: unknown } },
+    opts?: { listSpy?: SessionAccessDeps['sessionIdsWithPrefix'] & { mock?: unknown } },
   ): SessionAccessDeps {
     return {
       sessionById: async (id) => rows.get(id),
-      listSessionIds: opts?.listSpy ?? (() => [...rows.keys()]),
+      sessionIdsWithPrefix: opts?.listSpy ?? ((prefix: string) => [...rows.keys()].filter((id) => id.startsWith(prefix))),
       issues: { has: () => false, ancestorIds: () => [], issueForCwd: async () => null },
     }
   }
@@ -958,7 +959,7 @@ describe('session id prefix (POD-4536)', () => {
     const rows = new Map<SessionId, SessionTargetRow>([
       [full, { sessionId: full, cwd: '/p', status: 'live', archived: false, agentKind: 'shell' } as SessionTargetRow],
     ])
-    const listSpy = vi.fn(() => [...rows.keys()]) as SessionAccessDeps['listSessionIds'] & {
+    const listSpy = vi.fn(() => [...rows.keys()]) as SessionAccessDeps['sessionIdsWithPrefix'] & {
       mock: unknown
     }
     const access = prefixAccess(rows, { listSpy })

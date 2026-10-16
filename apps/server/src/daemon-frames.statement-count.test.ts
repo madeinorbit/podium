@@ -47,6 +47,14 @@ import {
 // ancestors (`session-access.ts` -> `IssueHierarchyModule.ancestorIds`), which
 // read the issue's parent off the in-memory issue map and now reads the issue's
 // row: +1 for runtimeEvent 35 -> 36, agentExit 26 -> 27, agentState 28 -> 29.
+//
+// RE-PINNED FOR POD-6160 (D2a/D2b of the session map removal), measured on the
+// polaris VM. Until the session map shrinks to running sessions, a read of a
+// session that does not run also reads its durable record and compares it with
+// the map (`modules/sessions/map-parity.ts`, on under vitest and in development
+// builds, off in a packaged one). The exited session is such a read: its row,
+// offer, draft time, checkpoint and runtime-transcript presence, +5 for
+// agentExit 27 -> 32. Constant in the number of sessions.
 
 /**
  * Reads of the `grants` table in one tally [POD-6189]. Statement keys keep
@@ -243,7 +251,7 @@ describe('daemon frames that read an observation checkpoint: pinned at 5 and 200
     const counts = await expectConstantStatements(
       pin('agentExit', async (f) =>
         await route(f, { type: 'agentExit', sessionId: f.ids[0], code: 0, observerGeneration: 1 })),
-      27,
+      32,
     )
     expectGrantReads(counts, 1)
   })

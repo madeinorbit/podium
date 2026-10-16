@@ -75,8 +75,9 @@ export interface SessionTeardownPorts {
   rpc: DaemonRpcService
   now(): number
   /** Worktree occupancy, from memory [POD-3857]: the free guard asks which
-   *  live sessions sit inside a path, which is `status` and `cwd`. */
-  sessionFacts(): SessionFacts[]
+   *  RUNNING sessions sit inside a path, and every running session is resident
+   *  (POD-6160). */
+  runningSessionFacts(): SessionFacts[]
   setArchived(input: { sessionId: SessionId; archived: boolean }): Promise<void>
   rearmUnread(sessionId: SessionId): Promise<void>
   toMachine(machineId: MachineId, message: ControlMessage): void
@@ -403,7 +404,7 @@ export class SessionTeardown {
     if (issueId && worktreePath) {
       const stillUsing = liveSessionsUsingWorktree(
         worktreePath,
-        this.ports.sessionFacts(),
+        this.ports.runningSessionFacts(),
         input.sessionId,
       )
       if (stillUsing.length === 0) {
@@ -597,7 +598,7 @@ export class SessionTeardown {
     const current = await this.ports.issueAccess.getMeta(input.issueId)
     const wt = current?.worktreePath ?? null
     if (wt) {
-      const stillUsing = liveSessionsUsingWorktree(wt, this.ports.sessionFacts())
+      const stillUsing = liveSessionsUsingWorktree(wt, this.ports.runningSessionFacts())
       if (stillUsing.length === 0) {
         const freed = await issues.freeWorktreeKeepBranch(input.issueId, principal, {
           force: input.force === true,

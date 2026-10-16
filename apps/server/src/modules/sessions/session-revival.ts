@@ -71,10 +71,10 @@ export interface SessionRevivalPorts {
   machines: MachinesService
   rpc: DaemonRpcService
   /** THE CHEAP FLEET READ [POD-3857]. Revival's only fleet question is the
-   *  handoff occupancy guard below — `machineId`, `cwd`, `status` — so it no
-   *  longer takes the reader-scoped projection, and being synchronous it can no
-   *  longer be the un-awaited promise POD-3507 had to widen this port for. */
-  sessionFacts(): SessionFacts[]
+   *  handoff occupancy guard below — a target machine's sessions, running or
+   *  parked — so it reads that machine's sessions, not the reader-scoped
+   *  projection (POD-6160: from the database where they are not resident). */
+  readSessionFactsByMachine(machineId: MachineId): Promise<SessionFacts[]>
   broadcastSessions(): void
   toMachine(machineId: MachineId, message: ControlMessage): void
   /** Fresh-mint path of resume — owned by SessionStart. */
@@ -244,8 +244,8 @@ export class SessionRevival {
     const ports: HandoffPorts = {
       rpc: this.ports.rpc,
       getSession: (sessionId) => this.ports.sessions.get(sessionId),
-      sessionFacts: () =>
-        this.ports.sessionFacts().map((facts) => ({
+      sessionsOnMachine: async (machineId) =>
+        (await this.ports.readSessionFactsByMachine(machineId)).map((facts) => ({
           sessionId: facts.sessionId,
           machineId: facts.machineId,
           cwd: facts.cwd,

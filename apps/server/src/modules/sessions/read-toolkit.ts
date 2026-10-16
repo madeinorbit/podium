@@ -13,6 +13,7 @@
  */
 
 import type {
+  IssueId,
   SessionId,
   SessionMeta,
   SessionReadResult,
@@ -26,7 +27,7 @@ import {
   parseSessionRef,
   type SessionIdentifierResolution,
 } from '@podium/protocol'
-import { selectMailNudgeSession, sessionsForIssue } from '../../issue-util'
+import { selectMailNudgeSession } from '../../issue-util'
 import type { EventsRepository } from '../../store/events'
 import type { ReadWatermarksRepository } from '../../store/read-watermarks'
 import type { IssueService } from '../issues/service'
@@ -63,7 +64,17 @@ export interface SessionReadToolkitDeps {
    * live registry already holds. Only the sessions that SURVIVE those decisions
    * are wired, through the two narrow reads below.
    */
-  sessionFacts(): SessionFacts[]
+  /** These sessions' facts (POD-6160: from the database where they are not
+   *  resident); unknown ids are absent. */
+  readSessionFactsByIds(sessionIds: readonly SessionId[]): Promise<SessionFacts[]>
+  /** Sessions whose id starts with a short id. */
+  readSessionFactsByIdPrefix(prefix: string): Promise<SessionFacts[]>
+  /** The candidates a birth ref can name. */
+  readSessionFactsByBirthRef(ref: { seq: number; letter: string } | { draft: number }): Promise<SessionFacts[]>
+  /** The member sessions of one issue. */
+  readSessionFactsByIssue(worktreePath: string | null, issueId: IssueId): Promise<SessionFacts[]>
+  /** The sessions spawned by any of these sessions. */
+  readSessionFactsSpawnedBy(parentIds: readonly SessionId[]): Promise<SessionFacts[]>
   /** ONE session by id, wired [POD-1646]. */
   sessionById(sessionId: SessionId): Promise<SessionMeta | undefined>
   /** A KNOWN SET, wired [POD-2322] — the subagent tree, once it is known. */
@@ -134,20 +145,26 @@ export class SessionReadToolkit {
    * from the source rows through the same helper as typed-ref resolution.
    */
   private async subagentsOf(target: { sessionId: SessionId }): Promise<SessionStatusSubagent[]> {
-    const all = this.deps.sessionFacts()
     const found: Array<{ child: SessionFacts; parentSessionId: SessionId }> = []
     const seen = new Set([target.sessionId])
-    const queue: SessionId[] = [target.sessionId]
-    while (queue.length > 0) {
-      const parentSessionId = queue.shift()
-      if (!parentSessionId) break
-      for (const child of all) {
-        if (seen.has(child.sessionId)) continue
-        if (child.spawnedBy !== `session:${parentSessionId}`) continue
-        seen.add(child.sessionId)
-        queue.push(child.sessionId)
-        found.push({ child, parentSessionId })
+    // One read per LEVEL of the tree, never per session: each level's children
+    // are asked for together, then queued under their parents in level order.
+    let level: SessionId[] = [target.sessionId]
+    while (level.length > 0) {
+      const children = (await this.deps.readSessionFactsSpawnedBy(level)).filter(
+        (child) => !seen.has(child.sessionId),
+      )
+      const next: SessionId[] = []
+      for (const parentSessionId of level) {
+        for (const child of children) {
+          if (seen.has(child.sessionId)) continue
+          if (child.spawnedBy !== `session:${parentSessionId}`) continue
+          seen.add(child.sessionId)
+          next.push(child.sessionId)
+          found.push({ child, parentSessionId })
+        }
       }
+      level = next
     }
     if (found.length === 0) return []
     const wired = new Map(
@@ -212,11 +229,8 @@ export class SessionReadToolkit {
    * visibility-checked, then their refs are read from those sources. Matching
    * keeps the protocol's trimmed, exact comparison.
    */
-  private async resolveFacts(
-    identifier: string,
-    all: readonly SessionFacts[],
-  ): Promise<SessionFacts | undefined> {
-    const match = await this.matchFacts(identifier, all)
+  private async resolveFacts(identifier: string): Promise<SessionFacts | undefined> {
+    const match = await this.matchFacts(identifier)
     if (match.kind === 'ambiguous') {
       throw new Error(ambiguousSessionPrefixMessage(identifier, match.candidates))
     }
@@ -226,22 +240,19 @@ export class SessionReadToolkit {
   /** {@link resolveFacts}' rule with the ambiguous outcome as a VALUE, so a link
    *  resolver can say "ambiguous" without parsing an error string (POD-4637).
    *  There is one rule; the throwing form above is this plus a throw. */
-  private async matchFacts(
-    identifier: string,
-    all: readonly SessionFacts[],
-  ): Promise<
+  private async matchFacts(identifier: string): Promise<
     | { kind: 'session'; facts: SessionFacts }
     | { kind: 'ambiguous'; candidates: SessionId[] }
     | { kind: 'absent' }
   > {
-    const direct = all.find((session) => session.sessionId === identifier)
+    const [direct] = identifier ? await this.deps.readSessionFactsByIds([identifier as SessionId]) : []
     if (direct) return { kind: 'session', facts: direct }
     // Unambiguous id PREFIX (POD-4536) — the short id the UI shows. Exact first
     // so a full uuid never scans; a prefix matching exactly one session resolves,
     // several is ambiguous naming the candidates (never silently picks), none
     // falls through to the birth-ref / issue-ref arms below.
     if (identifier) {
-      const prefixed = all.filter((session) => session.sessionId.startsWith(identifier))
+      const prefixed = await this.deps.readSessionFactsByIdPrefix(identifier)
       if (prefixed.length === 1 && prefixed[0]) return { kind: 'session', facts: prefixed[0] }
       if (prefixed.length > 1) {
         return { kind: 'ambiguous', candidates: prefixed.map((s) => s.sessionId) }
@@ -249,10 +260,10 @@ export class SessionReadToolkit {
     }
     const parsed = parseSessionRef(identifier)
     if (!parsed) return { kind: 'absent' }
-    const candidates = all.filter((session) =>
-      parsed.letter !== undefined
-        ? session.refLetter === parsed.letter
-        : session.refDraft === parsed.draft,
+    const candidates = await this.deps.readSessionFactsByBirthRef(
+      parsed.letter !== undefined && parsed.seq !== undefined
+        ? { seq: parsed.seq, letter: parsed.letter }
+        : { draft: parsed.draft ?? -1 },
     )
     if (candidates.length === 0) return { kind: 'absent' }
     const wired = await this.deps.sessionsById(candidates.map((c) => c.sessionId))
@@ -273,7 +284,7 @@ export class SessionReadToolkit {
    * (the tRPC arm filters by the reader), since facts carry none.
    */
   async resolveIdentifier(identifier: string): Promise<SessionIdentifierResolution> {
-    const match = await this.matchFacts(identifier, this.deps.sessionFacts())
+    const match = await this.matchFacts(identifier)
     if (match.kind === 'session') return { kind: 'session', sessionId: match.facts.sessionId }
     if (match.kind === 'absent') return match
     const candidates = [...match.candidates].sort()
@@ -298,7 +309,7 @@ export class SessionReadToolkit {
    * transcript text, which can carry secrets.
    */
   private async resolveVisible(identifier: string): Promise<SessionMeta | undefined> {
-    const found = await this.resolveFacts(identifier, this.deps.sessionFacts())
+    const found = await this.resolveFacts(identifier)
     return found ? await this.deps.sessionById(found.sessionId) : undefined
   }
 
@@ -306,8 +317,7 @@ export class SessionReadToolkit {
    *  (#N/seq/id) whose best member session (live preferred, else most recent
    *  agent) is picked. */
   async resolveTarget(ref: string): Promise<SessionFacts | undefined> {
-    const all = this.deps.sessionFacts()
-    const direct = await this.resolveFacts(ref, all)
+    const direct = await this.resolveFacts(ref)
     if (direct) return direct
     let issueId: string
     try {
@@ -317,7 +327,7 @@ export class SessionReadToolkit {
     }
     const issue = await this.deps.issues.reports.getMeta(issueId)
     if (!issue) return undefined
-    const members = sessionsForIssue(issue.worktreePath ?? null, all, issue.id)
+    const members = await this.deps.readSessionFactsByIssue(issue.worktreePath ?? null, issue.id)
     const live = selectMailNudgeSession(members)
     if (live) return members.find((s) => s.sessionId === live)
     return [...members]
