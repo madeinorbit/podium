@@ -136,3 +136,19 @@ export async function expectConstantStatements<Fixture>(
   ).toBe(expected)
   return counts
 }
+
+/**
+ * Stop the Shipping scheduler and finish its recovery pass before counting
+ * [POD-6183]. A registry starts a 2-second scheduler tick when it is created
+ * and a recovery pass when the host daemon connects, and awaits neither. At
+ * the large size the setup outlasts one interval, so their order reads fell
+ * inside the counted window on some runs and not others. The operations these
+ * pins count never ship, so a fixture stops the timer and awaits one pass
+ * (which runs after the connect pass on the executor's queue).
+ */
+export async function quietShipping(reg: {
+  readonly shipping: { dispose(): void; reconcile(): Promise<void> }
+}): Promise<void> {
+  reg.shipping.dispose()
+  await reg.shipping.reconcile()
+}

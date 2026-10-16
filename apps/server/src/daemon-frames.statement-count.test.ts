@@ -11,7 +11,7 @@ import { SessionRegistry } from './relay'
 import type { SessionStore } from './store'
 import { attachHostDaemon } from './test-support/host-daemon'
 import { openTestStore } from './test-support/open-test-store'
-import { expectConstantStatements, type StatementPin } from './test-support/statement-count'
+import { expectConstantStatements, quietShipping, type StatementPin } from './test-support/statement-count'
 
 interface Fixture {
   store: SessionStore
@@ -24,6 +24,7 @@ async function fixture(size: number, contract = false): Promise<Fixture> {
   const store = await openTestStore(':memory:')
   const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
   await attachHostDaemon(reg, () => {})
+  await quietShipping(reg)
   const ids: SessionId[] = []
   for (let i = 0; i < size; i++) {
     const { sessionId } = await reg.modules.sessions.createSession({ agentKind: 'codex', cwd: `/w${i}` })
