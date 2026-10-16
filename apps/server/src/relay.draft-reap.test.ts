@@ -93,7 +93,7 @@ describe('draft retention on session death', () => {
     const { draft, sessionId } = await draftWithSession(reg)
     await reg.modules.sessions.setArchived({ sessionId, archived: true })
     expect(await reg.issues.reports.get(draft.id)).not.toBeNull()
-    expect(reg.modules.sessions.getSessionIssueId(sessionId)).toBe(draft.id)
+    expect(await reg.modules.sessions.readSessionIssueId(sessionId)).toBe(draft.id)
   })
 
   it('keeps a fresh Codex draft attached after an updater exit, including across boot', async () => {
@@ -111,7 +111,7 @@ describe('draft retention on session death', () => {
     })
 
     expect(await reg.issues.reports.get(draft.id)).not.toBeNull()
-    expect(reg.modules.sessions.getSessionIssueId(sessionId)).toBe(draft.id)
+    expect(await reg.modules.sessions.readSessionIssueId(sessionId)).toBe(draft.id)
     expect(await reg.modules.sessions.listSessions(undefined, 'rpc')).toContainEqual(
       expect.objectContaining({ sessionId, status: 'exited', issueId: draft.id }),
     )
@@ -120,7 +120,7 @@ describe('draft retention on session death', () => {
       instanceId: 'default',
     })
     expect(await restarted.issues.reports.get(draft.id)).not.toBeNull()
-    expect(restarted.modules.sessions.getSessionIssueId(sessionId)).toBe(draft.id)
+    expect(await restarted.modules.sessions.readSessionIssueId(sessionId)).toBe(draft.id)
     expect(await restarted.modules.sessions.listSessions(undefined, 'rpc')).toContainEqual(
       expect.objectContaining({ sessionId, status: 'exited', issueId: draft.id }),
     )
@@ -144,7 +144,7 @@ describe('draft retention on session death', () => {
       code: 0,
     })
     expect(await reg.issues.reports.get(draft.id)).not.toBeNull()
-    expect(reg.modules.sessions.getSessionIssueId(sessionId)).toBe(draft.id)
+    expect(await reg.modules.sessions.readSessionIssueId(sessionId)).toBe(draft.id)
   })
 
   it('draft with a second live session is kept when one dies', async () => {
@@ -158,7 +158,7 @@ describe('draft retention on session death', () => {
     await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(second))
     await reg.modules.sessions.killSession({ sessionId })
     expect(await reg.issues.reports.get(draft.id)).not.toBeNull()
-    expect(reg.modules.sessions.getSessionIssueId(second)).toBe(draft.id)
+    expect(await reg.modules.sessions.readSessionIssueId(second)).toBe(draft.id)
   })
 
   it('non-draft issue is never reaped', async () => {
@@ -192,7 +192,7 @@ describe('explicit rehome draft cleanup', () => {
     await reg.issues.attention.attachSession({ sessionId, targetId: target.id })
 
     expect(await reg.issues.reports.get(draft.id)).toBeNull()
-    expect(reg.modules.sessions.getSessionIssueId(sessionId)).toBe(target.id)
+    expect(await reg.modules.sessions.readSessionIssueId(sessionId)).toBe(target.id)
   })
 
   it('keeps the draft and exited sibling attached when its live session is rehomed', async () => {
@@ -214,7 +214,7 @@ describe('explicit rehome draft cleanup', () => {
     await reg.issues.attention.attachSession({ sessionId: liveSessionId, targetId: target.id })
 
     expect(await reg.issues.reports.get(exited.draft.id)).not.toBeNull()
-    expect(reg.modules.sessions.getSessionIssueId(exited.sessionId)).toBe(exited.draft.id)
+    expect(await reg.modules.sessions.readSessionIssueId(exited.sessionId)).toBe(exited.draft.id)
     expect(await reg.modules.sessions.listSessions(undefined, 'rpc')).toContainEqual(
       expect.objectContaining({
         sessionId: exited.sessionId,
@@ -222,7 +222,7 @@ describe('explicit rehome draft cleanup', () => {
         issueId: exited.draft.id,
       }),
     )
-    expect(reg.modules.sessions.getSessionIssueId(liveSessionId)).toBe(target.id)
+    expect(await reg.modules.sessions.readSessionIssueId(liveSessionId)).toBe(target.id)
   })
 })
 
@@ -259,7 +259,7 @@ describe('boot-time draft retention', () => {
     await store.close()
     const reg2 = await SessionRegistry.create(await openTestStore(file), undefined, { instanceId: 'default' })
     expect(await reg2.issues.reports.get(draft.id)).not.toBeNull()
-    expect(reg2.modules.sessions.getSessionIssueId(sessionId)).toBe(draft.id)
+    expect(await reg2.modules.sessions.readSessionIssueId(sessionId)).toBe(draft.id)
   })
 
   it('keeps drafts with live (reconnecting) or hibernated sessions across boot', async () => {

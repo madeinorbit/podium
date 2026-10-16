@@ -134,7 +134,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     // The rejected append was this session's: the issue create's event capture
     // may come first, and must not be the one that fails.
     expect(appended.flat()).toContain(`session:${sessionId}`)
-    expect(sessions.getSessionIssueId(sessionId)).toBeNull()
+    expect(await sessions.readSessionIssueId(sessionId)).toBeNull()
     append.mockRestore()
     await sessions.setSessionIssueId(sessionId, issue.id)
     const attached = await registry.sessionStore.sessions.getSession(sessionId)

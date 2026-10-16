@@ -184,7 +184,7 @@ describe('draft launch compensation', () => {
         entry: 'mock.png',
       }),
     ])
-    expect(o.reg.modules.sessions.getSessionIssueId(created.sessionId)).toBe(draft?.id)
+    expect(await o.reg.modules.sessions.readSessionIssueId(created.sessionId)).toBe(draft?.id)
     expect((await o.reg.issues.crud.panelArtifactRead(draft?.id ?? '', { index: 1 })).dataBase64).toBe(
       'UE5H',
     )
@@ -203,7 +203,7 @@ describe('draft launch compensation', () => {
     })
 
     expect((await o.reg.issues.reports.list('/p')).filter((candidate) => candidate.draft)).toEqual([])
-    expect(o.reg.modules.sessions.getSessionIssueId(created.sessionId)).toBe(issue.id)
+    expect(await o.reg.modules.sessions.readSessionIssueId(created.sessionId)).toBe(issue.id)
   })
 
   it('purges only the placeholder created for a session spawn that throws', async () => {

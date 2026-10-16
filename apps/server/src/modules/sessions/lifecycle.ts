@@ -672,9 +672,6 @@ export class SessionLifecycle {
   async readSessionIssueId(sessionId: SessionId): Promise<IssueId | null> {
     return (await this.records.ownershipOf(sessionId, 'sessionIssueId'))?.issueId ?? null
   }
-  getSessionIssueId(...args: any[]): any {
-    return (this.sessionMetaOps as any).getSessionIssueId(...args)
-  }
   setSessionCwd(...args: Parameters<SessionMetaOps['setSessionCwd']>): Promise<void> {
     return this.sessionMetaOps.setSessionCwd(...args)
   }

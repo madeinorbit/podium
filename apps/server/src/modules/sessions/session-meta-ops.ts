@@ -274,11 +274,6 @@ export class SessionMetaOps {
     this.ports.broadcastSessions()
   }
 
-  /** The session's explicit issue attachment (issue-as-workspace), if any. */
-  getSessionIssueId(sessionId: SessionId): IssueId | null {
-    return this.ports.sessions.get(sessionId)?.issueId ?? null
-  }
-
   /** Restamp the session's cwd after a hopscotch start minted a new checkout. */
   setSessionCwd(sessionId: SessionId, cwd: string): Promise<void> {
     if (!cwd) return Promise.resolve()
