@@ -826,11 +826,17 @@ const deleteCommentsOf = prepared((db: StoreDrizzle) =>
 )
 
 /**
- * The columns `upsertIssue`'s conflict branch rewrites. The eight it omits — id,
- * owner_user_id, visibility, created_by_actor, created_by_on_behalf_of,
- * repo_path, seq and created_at — are the row's identity and its provenance.
+ * The columns `upsertIssue`'s conflict branch rewrites. The seven it omits — id,
+ * owner_user_id, visibility, created_by_actor, created_by_on_behalf_of, seq and
+ * created_at — are the row's identity and its provenance.
+ *
+ * `repo_path` is rewritten (POD-6158). A start or resume that moves an issue
+ * onto another machine moves its repository path with its worktree (POD-1461),
+ * and that move used to reach only the in-memory issue map: the stored row kept
+ * the old path and a restart put it back.
  */
 const UPSERT_ISSUE_SET_COLUMNS = [
+  'repoPath',
   'repoId',
   'title',
   'description',
@@ -1113,10 +1119,10 @@ export class IssuesRepository {
     row.revision = (current?.revision ?? 0) + 1
     // The column set is the schema's, and the two halves are deliberately
     // different: `values` carries every column, `set` carries only the columns a
-    // SECOND write may change. The eight the update omits — id, owner_user_id,
-    // visibility, created_by_actor, created_by_on_behalf_of, repo_path, seq and
-    // created_at — are the row's identity and its provenance, and the upsert has
-    // never rewritten them.
+    // SECOND write may change. The seven the update omits — id, owner_user_id,
+    // visibility, created_by_actor, created_by_on_behalf_of, seq and created_at —
+    // are the row's identity and its provenance, and the upsert has never
+    // rewritten them (see UPSERT_ISSUE_SET_COLUMNS on repo_path).
     const values = {
       id: row.id,
       ownerUserId: row.ownerUserId,
