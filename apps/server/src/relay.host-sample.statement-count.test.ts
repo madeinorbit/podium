@@ -98,13 +98,18 @@ const pin = (
   },
 })
 
+// RE-PINNED AFTER C1 (POD-6183; measured per commit on the polaris VM): the
+// sample reads machine rows from the `machines` table (steady +1, backstop +3),
+// grants from the `grants` table (backstop +4) and pending mail counts in SQL
+// (steady +1, backstop +3), where the world index held copies. None depends on
+// the number of shells.
 describe('host sample: pinned statement counts at 5 and 200 live shells', () => {
   it('a sample with nothing to retire', async () => {
     await expectConstantStatements(
       pin('host sample (steady)', false, async (f) => {
         expect((await f.store.sessions.loadSessions()).map((s) => s.id).sort()).toEqual([...f.ids].sort())
       }),
-      5,
+      7,
     )
   })
 
@@ -116,7 +121,7 @@ describe('host sample: pinned statement counts at 5 and 200 live shells', () => 
           .poll(async () => (await f.store.sessions.loadSessions()).some((s) => s.id === f.ids.at(-1)))
           .toBe(false)
       }),
-      38,
+      48,
     )
   })
 })
