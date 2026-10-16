@@ -749,7 +749,7 @@ export class IssueCrudModule {
       if (!this.store.isClosed(child)) continue // open work is never swept by a parent close
       // Per-user read state (POD-1076): the sweep asks the broadcast viewer,
       // which is what "the operator has seen it" meant when this was a column.
-      if (this.store.issueOverlay(child.id).readAt == null) {
+      if (this.store.mapIssueOverlay(child.id).readAt == null) {
         skipped.push({ seq: child.seq, why: 'unread' })
         continue
       }
@@ -821,7 +821,7 @@ export class IssueCrudModule {
       const sameScope = parentId
         ? r.parentId === parentId
         : r.parentId == null &&
-          (opts?.includePinned === true || !this.store.issueOverlay(r.id).pinned) &&
+          (opts?.includePinned === true || !this.store.mapIssueOverlay(r.id).pinned) &&
           (r.repoId ? r.repoId === repoId : r.repoPath === repoPath)
       if (sameScope) rows.push(r)
     }
@@ -1266,7 +1266,7 @@ export class IssueCrudModule {
     // Attention-state before-values (issue #124): every pin/defer/archive path funnels
     // through update() (dedicated methods just call it), so a single before/after diff
     // here is the one place these transitions are detected and their events emitted.
-    const prevPinned = this.store.issueOverlay(row.id).pinned
+    const prevPinned = (await this.store.issueOverlay(row.id)).pinned
     const prevArchived = row.archived
     const prevDeferUntil = row.deferUntil
     const prevParentBranch = row.parentBranch
@@ -1298,7 +1298,7 @@ export class IssueCrudModule {
 
     if (pinnedPatch !== undefined) {
       // Re-pinning keeps the ORIGINAL stamp, same rule as the tuck-away.
-      const prevPinnedAt = this.store.issueUserState(row.id)?.pinnedAt ?? null
+      const prevPinnedAt = (await this.store.issueUserState(row.id))?.pinnedAt ?? null
       await this.store.writeIssueUserState(row.id, {
         pinnedAt: pinnedPatch ? (prevPinnedAt ?? this.store.now()) : null,
       })
@@ -1438,7 +1438,7 @@ export class IssueCrudModule {
     }
     // Attention-state transitions S3 renders (issue #124). Emit only on an actual
     // change so a re-pin / re-archive / re-defer-to-same-time never duplicates.
-    const nowPinned = this.store.issueOverlay(row.id).pinned
+    const nowPinned = (await this.store.issueOverlay(row.id)).pinned
     if (nowPinned !== prevPinned) {
       await this.store.emitEvent('issue.pinned', row.id, { seq: row.seq, pinned: nowPinned })
     }
@@ -1562,7 +1562,7 @@ export class IssueCrudModule {
     // Re-tucking keeps the ORIGINAL stamp: a retried outbox entry (or a second
     // client pressing the same control) must not move the dismissal moment.
     // PER-USER (POD-1076): my fold is mine — tucking never hides your copy.
-    const prev = this.store.issueOverlay(row.id).tuckedAt
+    const prev = (await this.store.issueOverlay(row.id)).tuckedAt
     await this.store.writeIssueUserState(row.id, {
       tuckedAt: tucked ? (prev ?? this.store.now()) : null,
     })

@@ -30,7 +30,9 @@ import { parseIssueRef } from '@podium/protocol'
 import { type EntityChangeSpec, StagedOverlay } from '@podium/sync'
 import { sessionsForIssue, slugifyBranch } from '../../../issue-util'
 import type { IssueRow, StoredIssueUserState } from '../../../store'
-import { afterCommit, applyAfterCommit } from '../../../store/executor/executor'
+import { afterCommit, applyAfterCommit, spanOpen } from '../../../store/executor/executor'
+import { currentOperation, operationSlot } from '../../../store/executor/operation-scope'
+import { readScopeSlot, currentReadScope } from '../../../store/executor/read-scope'
 import { decodePanel } from '../../../store/issue-storage'
 import { issueFromRow } from '../../../store/issues'
 import type { SessionFacts } from '../../sessions/facts'
@@ -43,6 +45,7 @@ import {
   issueRowToProjection,
   repoProjectionRows,
 } from '../projection'
+import { compareOutcomeWithIssueMap, compareWithIssueMap } from './map-parity'
 import { IssueNotFound } from './not-found'
 import { IssueRefusal } from './refusal'
 import type { IssueDeps } from './types'
@@ -90,6 +93,28 @@ class IssueReferenceIndex {
   orderOf(id: string): number | undefined {
     return this.order.get(id)
   }
+}
+
+/** The columns a repository-scope test reads off a row. */
+type IssueScopeRow = Pick<IssueRow, 'repoId' | 'repoPath' | 'machineId'>
+
+/** A reference's row inside one repository: the row stamped with its id, or a
+ *  legacy row (no repo id yet) whose path resolves to it. First by repository
+ *  path, then id. */
+function referenceInRepoOf(
+  atSeq: readonly { id: IssueId; repoId: string | null; repoPath: string; machineId: MachineId | null }[],
+  repoId: string,
+  resolve: ((path: string, machineId?: MachineId | null) => string | null) | undefined,
+): IssueId | null {
+  const matches = atSeq.filter(
+    (row) =>
+      row.repoId === repoId ||
+      (row.repoId === null && resolve !== undefined && resolve(row.repoPath, row.machineId) === repoId),
+  )
+  matches.sort((a, b) =>
+    a.repoPath === b.repoPath ? (a.id < b.id ? -1 : 1) : Buffer.compare(Buffer.from(a.repoPath), Buffer.from(b.repoPath)),
+  )
+  return matches[0]?.id ?? null
 }
 
 /**
@@ -191,8 +216,16 @@ export class IssueStore {
    * body with the request's principal; every caller already asks the question.
    */
   async broadcastViewer(): Promise<UserId> {
-    return await firstAdminMemberId(this.deps.store)
+    // Asked once per row by a report pass and before and after a marker write;
+    // one answer per operation (or read pass). Only a change of administrators
+    // moves it, which no issue operation makes.
+    const held = currentOperation()?.slot(this.viewerOfOperation) ?? currentReadScope().slot(this.viewerSlot)
+    held.viewer ??= firstAdminMemberId(this.deps.store)
+    return await held.viewer
   }
+
+  private readonly viewerSlot = readScopeSlot<{ viewer?: Promise<UserId> }>(() => ({}))
+  private readonly viewerOfOperation = operationSlot<{ viewer?: Promise<UserId> }>(() => ({}))
 
   /**
    * THE MEMBER SESSIONS OF ONE ISSUE — the narrow read [POD-1639].
@@ -221,12 +254,28 @@ export class IssueStore {
   }
 
   /** One issue's markers for the broadcast viewer, as the wire wants them. */
-  issueOverlay(issueId: IssueId): IssueUserOverlay {
-    return issueOverlayOf(this.issueUserState(issueId))
+  async issueOverlay(issueId: IssueId): Promise<IssueUserOverlay> {
+    return issueOverlayOf(await this.issueUserState(issueId))
   }
 
-  /** The stored markers, for callers that need `pinnedAt` rather than `pinned`. */
-  issueUserState(issueId: IssueId): StoredIssueUserState | undefined {
+  /** The stored markers, for callers that need `pinnedAt` rather than `pinned`.
+   *  Read from the database, batched per operation (POD-6158). */
+  async issueUserState(issueId: IssueId): Promise<StoredIssueUserState | undefined> {
+    const state = await this.deps.store.issues.loadIssueUserState(await this.broadcastViewer(), issueId)
+    compareWithIssueMap('issueUserState', issueId, () => this.issueUserStateFromMap(issueId), state)
+    return state
+  }
+
+  /**
+   * The viewer map's markers, for the readers that still scan the issue map
+   * (POD-6158 switches them group by group; the map and this go together).
+   */
+  mapIssueOverlay(issueId: IssueId): IssueUserOverlay {
+    return issueOverlayOf(this.issueUserStateFromMap(issueId))
+  }
+
+  /** The viewer map's answer, for the old/new comparison until it is deleted. */
+  private issueUserStateFromMap(issueId: IssueId): StoredIssueUserState | undefined {
     const staged = this.stagedViewerState.peek(issueId)
     return staged ? staged.value : this.requireHydrated().viewerState.get(issueId)
   }
@@ -367,8 +416,61 @@ export class IssueStore {
 
   /** A draft of the committed row for `id`, or undefined when there is none. */
   async draft(id: string): Promise<IssueRow | undefined> {
-    const committed = this.rows.get(await this.resolveRef(id))
+    const committed = await this.liveRow(await this.resolveRef(id))
     return committed ? this.draftOf(committed) : undefined
+  }
+
+  /**
+   * One issue row from the database, read now (POD-6158): the row a write is
+   * drafted from or a command acts on. Never the operation's memo, so a draft
+   * is cut from the latest commit exactly as the issue map served it.
+   */
+  async liveRow(id: string): Promise<IssueRow | undefined> {
+    const row = (await this.deps.store.issues.getIssueLive(id)) ?? undefined
+    compareWithIssueMap('liveRow', id, () => this.mapRowBeside(id, row), row)
+    return row
+  }
+
+  /**
+   * The map's row for the old/new comparison (POD-6158).
+   *
+   * Inside a save, the database already shows the rows that save wrote; the
+   * map installs them only after the commit. That window is the change the
+   * design makes on purpose (one way to read a fact), so a row whose stored
+   * revision moved inside the open save is not a difference. Outside a save
+   * the two must agree exactly.
+   */
+  private mapRowBeside(id: string, db: IssueRow | undefined): IssueRow | undefined {
+    const map = this.rows.get(id)
+    if (spanOpen() && (map?.revision ?? null) !== (db?.revision ?? null)) return db
+    return map
+  }
+
+  /**
+   * One issue row for a READ (POD-6158): batched with the other loads of its
+   * tick and memoized for the operation, write spans included (the loader is
+   * exact across writes, POD-6189). Deleted rows included, as the map held them.
+   */
+  async row(id: string): Promise<IssueRow | undefined> {
+    const row = await this.deps.store.issues.loadIssue(id)
+    compareWithIssueMap('row', id, () => this.mapRowBeside(id, row), row)
+    return row
+  }
+
+  /** {@link row} for many ids in one statement per 500; absent ids are absent. */
+  async rowsByIds(ids: Iterable<string>): Promise<Map<string, IssueRow>> {
+    const unique = [...new Set(ids)]
+    const rows = await this.deps.store.issues.loadIssues(unique)
+    compareWithIssueMap(
+      'rowsByIds',
+      unique,
+      () => new Map(unique.flatMap((id) => {
+        const row = this.mapRowBeside(id, rows.get(id))
+        return row ? [[id, row] as const] : []
+      })),
+      rows,
+    )
+    return rows
   }
 
   /** {@link draft}, refusing an unknown issue the way {@link rowOrThrow} does. */
@@ -576,7 +678,7 @@ export class IssueStore {
   computeUnread(
     row: IssueRow,
     sessions: readonly { lastActiveAt: string }[],
-    readAt = this.issueOverlay(row.id).readAt,
+    readAt: string | null | undefined,
   ): boolean {
     if (row.deletedAt) return false
     if (readAt == null) return true
@@ -608,10 +710,10 @@ export class IssueStore {
    * Returns false for an issue this service does not hold.
    */
   async unreadFor(id: IssueId): Promise<boolean> {
-    const row = this.rows.get(id)
+    const row = await this.row(id)
     if (row === undefined) return false
     const sessions = await this.sessionsFor(row)
-    return this.computeUnread(row, sessions)
+    return this.computeUnread(row, sessions, (await this.issueOverlay(row.id)).readAt)
   }
 
   /** blocked = open AND ≥1 `blocked-by` dep whose target issue is not closed. */
@@ -660,7 +762,7 @@ export class IssueStore {
   /** True when `row` belongs to the repo identified by `repoPath`, compared by the
    *  stable `repo_id` so every checkout of one origin unifies (#140); falls back to
    *  path equality only when a repo_id can't be resolved. `undefined` scope matches all. */
-  async inRepoScope(row: IssueRow, repoPath: string | undefined): Promise<boolean> {
+  async inRepoScope(row: IssueScopeRow, repoPath: string | undefined): Promise<boolean> {
     return (await this.repoScopeFilter(repoPath))(row)
   }
 
@@ -681,11 +783,11 @@ export class IssueStore {
    *
    * `inRepoScope` is the single-row case of this one, so the two cannot drift.
    */
-  async repoScopeFilter(repoPath: string | undefined): Promise<(row: IssueRow) => boolean> {
+  async repoScopeFilter(repoPath: string | undefined): Promise<(row: IssueScopeRow) => boolean> {
     if (!repoPath) return () => true
     const resolve = await this.deps.store.repos.issueRepoIdResolver()
     const scope = resolve(repoPath)
-    return (row: IssueRow) =>
+    return (row: IssueScopeRow) =>
       scope !== null && (row.repoId ?? resolve(row.repoPath, row.machineId)) === scope
   }
 
@@ -746,6 +848,58 @@ export class IssueStore {
    * Prefix queries are indexed in storage and shared within the batch; issue
    * lookups use the maintained repo/seq index rather than an issue-row pass. */
   async resolveRefs(refs: readonly string[]): Promise<Array<{ ref: string; id: IssueId | null }>> {
+    // Inside a save the index lags the save's own repository writes until the
+    // commit; references are compared outside saves only (POD-6158).
+    if (spanOpen()) return await this.resolveRefsFromDb(refs)
+    return await compareOutcomeWithIssueMap(
+      'resolveRefs',
+      refs,
+      async () => await this.resolveRefsFromMap(refs),
+      async () => await this.resolveRefsFromDb(refs),
+    )
+  }
+
+  /**
+   * The chip batch from the database (POD-6158): one statement for every
+   * sequence number the batch names, then each ref is decided over the rows at
+   * its number, as {@link resolveRefsFromMap} decides it over the index.
+   */
+  private async resolveRefsFromDb(
+    refs: readonly string[],
+  ): Promise<Array<{ ref: string; id: IssueId | null }>> {
+    const parsed = [...new Set(refs)].map((ref) => {
+      const nice = parseIssueRef(ref.trim().toUpperCase())
+      const numeric = nice ? null : /^#(\d+)$/.exec(ref.trim())
+      return { ref, nice, seq: nice ? nice.seq : numeric ? Number(numeric[1]) : undefined }
+    })
+    const seqs = parsed.flatMap((entry) => (entry.seq === undefined ? [] : [entry.seq]))
+    const bySeq = await this.deps.store.issues.issueRefsAtSeqs(seqs)
+    const prefixes = new Map<string, ReturnType<IssueDeps['store']['repos']['repoForPrefix']>>()
+    let resolver: Promise<Awaited<ReturnType<IssueDeps['store']['repos']['issueRepoIdResolver']>>> | undefined
+    return await Promise.all(
+      parsed.map(async ({ ref, nice, seq }) => {
+        const atSeq = seq === undefined ? [] : (bySeq.get(seq) ?? [])
+        if (nice) {
+          let lookup = prefixes.get(nice.prefix)
+          if (!lookup) {
+            lookup = this.deps.store.repos.repoForPrefix(nice.prefix)
+            prefixes.set(nice.prefix, lookup)
+          }
+          const repo = await lookup
+          if (!repo) return { ref, id: null }
+          const legacy = atSeq.some((row) => row.repoId === null)
+          const resolve = legacy ? await (resolver ??= this.deps.store.repos.issueRepoIdResolver()) : undefined
+          return { ref, id: referenceInRepoOf(atSeq, repo.repoId, resolve) }
+        }
+        return { ref, id: atSeq.length === 1 ? (atSeq[0]?.id ?? null) : null }
+      }),
+    )
+  }
+
+  /** The reference index's answer, for the old/new comparison until it is deleted. */
+  private async resolveRefsFromMap(
+    refs: readonly string[],
+  ): Promise<Array<{ ref: string; id: IssueId | null }>> {
     const prefixes = new Map<string, ReturnType<IssueDeps['store']['repos']['repoForPrefix']>>()
     return await Promise.all(
       [...new Set(refs)].map(async (ref) => {
@@ -786,6 +940,69 @@ export class IssueStore {
    *  which id SPACE a value belongs to, never that the row exists — existence is
    *  the throw's job, not the type's. */
   async resolveRef(ref: string, scopeRepoPath?: string): Promise<IssueId> {
+    // The internal id needs no lookup on either side.
+    if (ref.startsWith('iss_')) return asIssueId(ref)
+    // Compared outside saves only, as in resolveRefs.
+    if (spanOpen()) return await this.resolveRefFromDb(ref, scopeRepoPath)
+    return await compareOutcomeWithIssueMap(
+      'resolveRef',
+      [ref, scopeRepoPath ?? null],
+      async () => await this.resolveRefFromMap(ref, scopeRepoPath),
+      async () => await this.resolveRefFromDb(ref, scopeRepoPath),
+    )
+  }
+
+  /** {@link resolveRef} from the database (POD-6158): the same branches, over
+   *  the rows at the reference's sequence number. */
+  private async resolveRefFromDb(ref: string, scopeRepoPath?: string): Promise<IssueId> {
+    if (await this.deps.store.issues.hasIssue(ref)) return asIssueId(ref)
+    const nice = parseIssueRef(ref.trim().toUpperCase())
+    if (nice) {
+      const repo = await this.deps.store.repos.repoForPrefix(nice.prefix)
+      if (repo) {
+        const atSeq = await this.deps.store.issues.issueRefsAt(nice.seq, repo.repoId)
+        const resolve = atSeq.some((row) => row.repoId === null)
+          ? await this.deps.store.repos.issueRepoIdResolver()
+          : undefined
+        const id = referenceInRepoOf(atSeq, repo.repoId, resolve)
+        if (id) return id
+      }
+    }
+    const qualified = /^(.+)#(\d+)$/.exec(ref.trim())
+    if (qualified) {
+      const [, repo, seqStr] = qualified
+      const seq = Number(seqStr)
+      const matches = (await this.deps.store.issues.issueRefsAt(seq)).filter(
+        (r) => machinePathHasSuffix(r.repoPath, repo!) || r.repoId === repo,
+      )
+      if (matches.length === 1) return matches[0]!.id
+      if (matches.length > 1) {
+        const where = matches.map((r) => `${r.repoPath}#${r.seq} (${r.id})`).join(', ')
+        throw new IssueRefusal(`ambiguous issue ref ${ref} (matches ${where})`)
+      }
+      return asIssueId(ref)
+    }
+    const m = /^#?(\d+)$/.exec(ref.trim())
+    if (!m) return asIssueId(ref)
+    const seq = Number(m[1])
+    let matches = await this.deps.store.issues.issueRefsAt(seq)
+    if (matches.length > 1 && scopeRepoPath) {
+      const inScope = await this.repoScopeFilter(scopeRepoPath)
+      const scoped = matches.filter((r) => inScope(r))
+      if (scoped.length > 0) matches = scoped
+    }
+    if (matches.length === 1) return matches[0]!.id
+    if (matches.length > 1) {
+      const where = matches.map((r) => `${r.repoPath}#${r.seq}`).join(', ')
+      throw new IssueRefusal(
+        `ambiguous issue ref #${seq} (matches ${where}); qualify it as <repoPath>#${seq}`,
+      )
+    }
+    return asIssueId(ref)
+  }
+
+  /** The reference index's answer, for the old/new comparison until it is deleted. */
+  private async resolveRefFromMap(ref: string, scopeRepoPath?: string): Promise<IssueId> {
     const staged = this.stagedRows.peek(ref)
     if (
       ref.startsWith('iss_') ||
@@ -1003,7 +1220,7 @@ export class IssueStore {
         ts: this.now(),
         kind,
         subject,
-        repoPath: this.rows.get(subject)?.repoPath ?? null,
+        repoPath: (await this.row(subject))?.repoPath ?? null,
         payload,
       })
     } catch {}
@@ -1162,6 +1379,9 @@ export class IssueStore {
           )
           committedExtraChanges = await extraChanges(result)
           const committedEvents = await events(result)
+          const undrafted = await this.rowsByIds(
+            committedEvents.flatMap((event) => (drafted.has(event.subject) ? [] : [event.subject])),
+          )
           eventIds = await Promise.all(
             committedEvents.map(
               async (event) =>
@@ -1172,7 +1392,7 @@ export class IssueStore {
                     subject: event.subject,
                     repoPath:
                       drafted.get(event.subject)?.repoPath ??
-                      this.rows.get(event.subject)?.repoPath ??
+                      undrafted.get(event.subject)?.repoPath ??
                       null,
                     payload: event.payload,
                   },
@@ -1210,7 +1430,7 @@ export class IssueStore {
 
   /** @internal */
   async rowOrThrow(id: string): Promise<IssueRow> {
-    const r = this.rows.get(await this.resolveRef(id))
+    const r = await this.liveRow(await this.resolveRef(id))
     if (!r) throw new IssueNotFound(id)
     return r
   }

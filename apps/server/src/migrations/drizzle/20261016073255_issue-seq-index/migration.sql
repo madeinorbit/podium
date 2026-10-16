@@ -1,0 +1,1 @@
+CREATE INDEX `idx_issues_seq` ON `issues` (`seq`,`repo_path`,`id`);

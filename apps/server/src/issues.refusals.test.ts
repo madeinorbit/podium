@@ -126,7 +126,7 @@ describe('definitive issue refusals (POD-5429)', () => {
       `issue ${issue.id} is deleted and cannot be updated`,
     )
     expect(await registry.issues.crud.store.rowOrThrow(issue.id)).toEqual(before)
-    expect(registry.issues.crud.store.issueUserState(issue.id)?.pinnedAt ?? null).toBeNull()
+    expect((await registry.issues.crud.store.issueUserState(issue.id))?.pinnedAt ?? null).toBeNull()
   })
 
   it('refuses entering shipping through an ordinary update', async () => {

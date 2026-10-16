@@ -7,6 +7,7 @@ import { openTestStore } from '../../test-support/open-test-store'
 import { IssueCommandCtx } from './command-ctx'
 import { issueRegistry } from './registry'
 import { IssueStore } from './service/core'
+import { setIssueMapParityMode } from './service/map-parity'
 import { IssueReportsModule } from './service/reads'
 import type { IssueDeps } from './service/types'
 
@@ -80,44 +81,6 @@ async function harness(initial: IssueRow[] = []) {
   return { store, issues, reports: new IssueReportsModule(issues) }
 }
 
-/** Count actual visits to the hydrated map, including an accidental map copy.
- * Successful point reads are counted separately from iteration over rows. */
-function countRows(issues: IssueStore) {
-  const rows = issues.rows
-  const counts = { scanned: 0, hits: 0 }
-  const values = rows.values.bind(rows)
-  vi.spyOn(rows, 'values').mockImplementation(function* (): Generator<IssueRow, undefined> {
-    for (const row of values()) {
-      counts.scanned++
-      yield row
-    }
-    return undefined
-  })
-  const entries = rows.entries.bind(rows)
-  const countedEntries = function* (): Generator<[string, IssueRow], undefined> {
-    for (const entry of entries()) {
-      counts.scanned++
-      yield entry
-    }
-    return undefined
-  }
-  vi.spyOn(rows, 'entries').mockImplementation(countedEntries)
-  vi.spyOn(rows, Symbol.iterator).mockImplementation(countedEntries)
-  vi.spyOn(rows, 'forEach').mockImplementation((callback) => {
-    for (const [id, row] of entries()) {
-      counts.scanned++
-      callback(row, id, rows)
-    }
-  })
-  const get = rows.get.bind(rows)
-  vi.spyOn(rows, 'get').mockImplementation((id) => {
-    const row = get(id)
-    if (row) counts.hits++
-    return row
-  })
-  return counts
-}
-
 describe('batched chip identities', () => {
   it('deduplicates a bounded indexed batch and hides unreadable identities from two principals', async () => {
     const alice = asUserId('alice'),
@@ -154,7 +117,7 @@ describe('batched chip identities', () => {
     ).toBe(true)
   })
 
-  it('visits only the hit for a single lookup and 50 hits for a batch, with no issue-row scan', async () => {
+  it('answers one ref with one indexed lookup and a batch of 50 with one, never a whole-table read', async () => {
     const { store, issues, reports } = await harness(
       Array.from({ length: 1000 }, (_, i) => row(i + 1)),
     )
@@ -169,32 +132,35 @@ describe('batched chip identities', () => {
           }),
         )
     })
-    const counts = countRows(issues)
-    const reloads = vi.spyOn(store.issues, 'listIssueRows')
-    const prefixes = vi.spyOn(store.repos, 'repoForPrefix')
-    expect(await issues.resolveRef('POD-1')).toBe('iss_1')
-    console.log('reference-index single', JSON.stringify({ rows: 1050, ...counts }))
-    expect.soft(counts.scanned).toBe(0)
-    expect.soft(counts.hits).toBe(1)
-    counts.scanned = counts.hits = 0
-    prefixes.mockClear()
-    const refs = Array.from({ length: 50 }, (_, i) => `POD-${i + 1}`)
-    expect(await reports.resolveRefs([...refs, 'POD-1'])).toEqual(
-      refs.map((ref, i) => ({ ref, id: `iss_${i + 1}` })),
-    )
-    console.log('reference-index batch', JSON.stringify({ rows: 1050, refs: 50, ...counts }))
-    expect.soft(counts.scanned).toBe(0)
-    expect.soft(counts.hits).toBe(50)
-    expect(prefixes).toHaveBeenCalledTimes(1)
-    expect(reloads).not.toHaveBeenCalled()
-    counts.scanned = counts.hits = 0
-    expect(await issues.resolveRef('POD-9999')).toBe('POD-9999')
-    expect(await reports.resolveRefs(['POD-9999', 'ZZZ-1', 'garbage'])).toEqual([
-      { ref: 'POD-9999', id: null },
-      { ref: 'ZZZ-1', id: null },
-      { ref: 'garbage', id: null },
-    ])
-    expect(counts).toEqual({ scanned: 0, hits: 0 })
+    // The database path alone (POD-6158); the old index is compared elsewhere.
+    const previous = setIssueMapParityMode('off')
+    try {
+      const reloads = vi.spyOn(store.issues, 'listIssueRows')
+      const prefixes = vi.spyOn(store.repos, 'repoForPrefix')
+      const single = vi.spyOn(store.issues, 'issueRefsAt')
+      const batch = vi.spyOn(store.issues, 'issueRefsAtSeqs')
+      expect(await issues.resolveRef('POD-1')).toBe('iss_1')
+      expect(single).toHaveBeenCalledTimes(1)
+      expect(prefixes).toHaveBeenCalledTimes(1)
+      single.mockClear()
+      prefixes.mockClear()
+      const refs = Array.from({ length: 50 }, (_, i) => `POD-${i + 1}`)
+      expect(await reports.resolveRefs([...refs, 'POD-1'])).toEqual(
+        refs.map((ref, i) => ({ ref, id: `iss_${i + 1}` })),
+      )
+      expect(batch).toHaveBeenCalledTimes(1)
+      expect(single).not.toHaveBeenCalled()
+      expect(prefixes).toHaveBeenCalledTimes(1)
+      expect(await issues.resolveRef('POD-9999')).toBe('POD-9999')
+      expect(await reports.resolveRefs(['POD-9999', 'ZZZ-1', 'garbage'])).toEqual([
+        { ref: 'POD-9999', id: null },
+        { ref: 'ZZZ-1', id: null },
+        { ref: 'garbage', id: null },
+      ])
+      expect(reloads).not.toHaveBeenCalled()
+    } finally {
+      setIssueMapParityMode(previous)
+    }
   })
 
   it('keeps the batch numeric grammar and returns null for ambiguous #N', async () => {
@@ -310,32 +276,31 @@ describe('maintained issue reference index', () => {
     const remote = asMachineId('remote-fixture')
     await store.repos.addRepo('/shared', store.hostMachineId, 'https://example.test/one.git', 'ONE')
     await store.repos.addRepo('/shared', remote, 'https://example.test/two.git', 'TWO')
-    issues.installRow(
-      'iss_one',
-      row(7, {
-        id: asIssueId('iss_one'),
-        repoPath: '/shared',
-        repoId: null,
-        machineId: store.hostMachineId,
-      }),
+    // Legacy rows carry no repo id; only a database from before POD-1360 has
+    // them, so they are planted with SQL, and the old index reloads to match.
+    await store.issues.upsertIssue(
+      row(7, { id: asIssueId('iss_one'), repoPath: '/shared', machineId: store.hostMachineId }),
     )
-    issues.installRow(
-      'iss_two',
-      row(7, { id: asIssueId('iss_two'), repoPath: '/shared', repoId: null, machineId: remote }),
+    await store.issues.upsertIssue(
+      row(7, { id: asIssueId('iss_two'), repoPath: '/shared', machineId: remote }),
     )
+    const sql = (statement: string, ...args: unknown[]) =>
+      (store as unknown as { db: { prepare(q: string): { run(...a: unknown[]): unknown } } }).db
+        .prepare(statement)
+        .run(...args)
+    sql('UPDATE issues SET repo_id = NULL WHERE id IN (?, ?)', 'iss_one', 'iss_two')
+    await issues.reload()
     expect(await issues.resolveRef('ONE-7')).toBe('iss_one')
     expect(await issues.resolveRef('TWO-7')).toBe('iss_two')
     expect(await reports.resolveRefs(['ONE-7', 'TWO-7'])).toEqual([
       { ref: 'ONE-7', id: 'iss_one' },
       { ref: 'TWO-7', id: 'iss_two' },
     ])
-    issues.installRow('iss_two', null)
+    await store.issues.deleteIssue('iss_two')
     await store.repos.addRepo('/later', remote, 'https://example.test/one.git')
     expect(await issues.resolveRef('#7', '/later')).toBe('iss_one')
-    issues.installRow(
-      'iss_one',
-      row(7, { id: asIssueId('iss_one'), repoPath: '/shared', repoId: null, machineId: remote }),
-    )
+    sql('UPDATE issues SET machine_id = ? WHERE id = ?', remote, 'iss_one')
+    await issues.reload()
     expect(await issues.resolveRef('ONE-7')).toBe('ONE-7')
     expect(await issues.resolveRef('TWO-7')).toBe('iss_one')
     await store.repos.removeRepo('/shared', remote)
@@ -368,38 +333,34 @@ describe('maintained issue reference index', () => {
     expect(await issues.resolveRef('POD-3')).toBe('iss_3')
   })
 
-  it('indexes staged rekeys and new rows without copying committed rows, then drops rolled-back entries', async () => {
+  it('sees the rekeys, new rows and deletions of an open save, and none after a rollback', async () => {
+    // Inside a save the database already shows the save's writes (POD-6158);
+    // after a rollback nothing of them remains.
     const { store, issues, reports } = await harness([row(1)])
     await store.repos.addRepo('/other', store.hostMachineId, undefined, 'OTH')
     const target = await store.repos.resolveRepoIdForPath('/other')
-    const original = issues.rows.get('iss_1')
-    if (!original) throw new Error('fixture issue missing')
-    const counts = countRows(issues)
     await expect(
       store.transact(async () => {
-        issues.installRow('iss_1', { ...original, seq: 9, repoId: target })
-        issues.installRow('iss_new', row(10, { id: asIssueId('iss_new'), repoId: target }))
+        await store.issues.assignRepoIdToIssuesUnder(target, '/repo')
+        await store.issues.upsertIssue(row(10, { id: asIssueId('iss_new'), repoPath: '/other' }))
         expect(await issues.resolveRef('POD-1')).toBe('POD-1')
-        expect(await issues.resolveRef('OTH-9')).toBe('iss_1')
-        expect(await reports.resolveRefs(['OTH-9', 'OTH-10'])).toEqual([
-          { ref: 'OTH-9', id: 'iss_1' },
+        expect(await issues.resolveRef('OTH-1')).toBe('iss_1')
+        expect(await reports.resolveRefs(['OTH-1', 'OTH-10'])).toEqual([
+          { ref: 'OTH-1', id: 'iss_1' },
           { ref: 'OTH-10', id: 'iss_new' },
         ])
-        issues.installRow('iss_1', null)
-        expect(await issues.resolveRef('OTH-9')).toBe('OTH-9')
-        expect(counts.scanned).toBe(0)
+        await store.issues.deleteIssue('iss_1')
+        expect(await issues.resolveRef('OTH-1')).toBe('OTH-1')
         throw new Error('rollback rows')
       }),
     ).rejects.toThrow('rollback rows')
     expect(await issues.resolveRef('POD-1')).toBe('iss_1')
-    expect(await reports.resolveRefs(['OTH-9', 'OTH-10'])).toEqual([
-      { ref: 'OTH-9', id: null },
+    expect(await reports.resolveRefs(['OTH-1', 'OTH-10'])).toEqual([
+      { ref: 'OTH-1', id: null },
       { ref: 'OTH-10', id: null },
     ])
-    await store.transact(async () => {
-      issues.installRow('iss_1', { ...original, seq: 9, repoId: target })
-    })
-    expect(await issues.resolveRef('OTH-9')).toBe('iss_1')
+    await store.issues.assignRepoIdToIssuesUnder(target, '/repo')
+    expect(await issues.resolveRef('OTH-1')).toBe('iss_1')
     expect(await issues.resolveRef('POD-1')).toBe('POD-1')
   })
 })

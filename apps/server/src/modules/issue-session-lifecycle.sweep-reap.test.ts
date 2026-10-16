@@ -59,6 +59,11 @@ interface Fixture {
    *  timer installed here would have no armed interval of its own to advance.
    *  The timer wiring itself is pinned by the single-flight test next door. */
   periodicSweep: () => Promise<void>
+  /** Wait until every close's own cleanup has finished. A close starts it
+   *  after its commit without waiting (`stopClosedIssue`), and since issue reads
+   *  come from the database (POD-6158) it can still be running when the test's
+   *  next step starts; the cases below are about the sweep, not that race. */
+  settleCloses: () => Promise<void>
 }
 
 async function makeFixture(): Promise<Fixture> {
@@ -100,6 +105,14 @@ async function makeFixture(): Promise<Fixture> {
           sweepClosedIssues(reason: 'startup' | 'periodic'): Promise<void>
         }
       ).sweepClosedIssues('periodic'),
+    settleCloses: async () => {
+      const stops = (
+        reg.modules.issueSessionLifecycle as unknown as { closedIssueStops: Map<string, Promise<void>> }
+      ).closedIssueStops
+      // The cleanup registers itself one turn after the commit.
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      while (stops.size > 0) await Promise.allSettled([...stops.values()])
+    },
   }
 }
 
@@ -128,6 +141,7 @@ describe('closed-issue sweep does not re-reap parked sessions (POD-3845)', () =>
       startNow: false,
     })
     await f.reg.modules.issues.crud.close(issue.id, 'done')
+    await f.settleCloses()
     const parked = await parkedSession(f.reg, issue.id)
     // A second, still-running member keeps the issue a sweep CANDIDATE, so the
     // parked session's quiet is the fix and not the filter skipping the issue.
@@ -176,6 +190,7 @@ describe('closed-issue sweep does not re-reap parked sessions (POD-3845)', () =>
       startNow: false,
     })
     await f.reg.modules.issues.crud.close(settled.id, 'done')
+    await f.settleCloses()
     await parkedSession(f.reg, settled.id)
 
     const busy = await f.reg.modules.issues.crud.create({
@@ -184,6 +199,7 @@ describe('closed-issue sweep does not re-reap parked sessions (POD-3845)', () =>
       startNow: false,
     })
     await f.reg.modules.issues.crud.close(busy.id, 'done')
+    await f.settleCloses()
     await f.reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/r',

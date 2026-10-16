@@ -651,7 +651,7 @@ export class IssueAttentionModule {
     const wire = await this.store.persist(draft)
     await this.store.emitEvent('issue.auto_archived', draft.id, {
       seq: draft.seq,
-      readAt: this.store.issueOverlay(draft.id).readAt,
+      readAt: (await this.store.issueOverlay(draft.id)).readAt,
       ...(principal ? { attribution: attributionOf(principal) } : {}),
     })
     // Same teardown as the manual archive path — the sweep must not leave a

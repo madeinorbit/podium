@@ -3,6 +3,10 @@
  * number of statements however many messages and targets are waiting
  * [POD-6174, server-data rule 8]. It used to read one page per target, the
  * issue report of each issue-addressed row and a wake cooldown per row.
+ *
+ * Since issue rows come from the database (POD-6158) the pass reads every
+ * target issue once, together, before its attempts; that is the second
+ * statement of the held case and the third of the wake case.
  */
 import { asIssueId, asSessionId, asThreadId, type IssueId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
@@ -89,7 +93,7 @@ describe('delivery flush through the service: pinned statement counts at 5 and 2
         },
         teardown,
       },
-      1,
+      2,
     )
   })
 
@@ -108,7 +112,7 @@ describe('delivery flush through the service: pinned statement counts at 5 and 2
         },
         teardown,
       },
-      2,
+      3,
     )
   })
 })

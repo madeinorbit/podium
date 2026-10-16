@@ -1596,6 +1596,10 @@ export const issues = sqliteTable(
     ),
     uniqueIndex('idx_issues_repo_id_seq').on(table.repoId, table.seq),
     index('idx_issues_parent').on(table.parentId),
+    // A bare `#N` reference names every repository's issue N (POD-6158); with
+    // the repository path and id after it, the matches come back in the order
+    // they are reported without a sort.
+    index('idx_issues_seq').on(table.seq, table.repoPath, table.id),
     index('idx_issues_repo').on(table.repoPath),
     // WHICH LIVE ISSUE OWNS THIS FOLDER (POD-6148): the lookup that replaces the
     // world index's in-memory folder scan (POD-6140). Only live issues with a

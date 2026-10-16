@@ -23,6 +23,7 @@ import { normalizeSettings } from '@podium/runtime'
 import type { LedgerDeps } from '@podium/sync'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SessionStore } from '../../../store'
+import { runAtRoot } from '../../../store/executor/context'
 import { applyAfterCommit, spanOpen } from '../../../store/executor/executor'
 import { StaleIssueRevisionError } from '../../../store/issue-revision'
 import { openTestStore } from '../../../test-support/open-test-store'
@@ -143,24 +144,33 @@ describe('draft-then-install: two updates to the same issue', () => {
     expect(stored?.title).toBe('from the inner write')
   })
 
-  it('leaves the map row untouched while a write is open, and after it fails', async () => {
-    // The rollback case, with nothing to roll back. Asserted DURING the span as
-    // well as after it: a draft installed eagerly would be observable here and
-    // restored by the time the throw arrives, which is indistinguishable from
-    // correct if you only look at the end state.
+  it('no outside reader sees a write that is open, or one that failed', async () => {
+    // The rollback case, with nothing to roll back. Issue reads come from the
+    // database (POD-6158), and a reader outside the save is queued behind it on
+    // the store's one connection: it is ASKED while the write is open and
+    // answered only after the rollback, with the settled row.
     harness = await open()
     const { svc } = harness
     const id = (await svc.crud.create({ repoPath: '/repo', title: 'settled', startNow: false })).id
     const before = await svc.reports.get(id)
 
-    let observedDuringWrite: string | undefined
+    let answeredWhileOpen = true
+    let outside: Promise<string | undefined> | undefined
     harness.duringNextWrite(async () => {
-      observedDuringWrite = (await svc.reports.get(id))?.title
+      let answered = false
+      outside = runAtRoot(async () => {
+        const title = (await svc.reports.get(id))?.title
+        answered = true
+        return title
+      })
+      await new Promise((resolve) => setTimeout(resolve, 20))
+      answeredWhileOpen = answered
     }, 'after')
     harness.failNextWrite()
     await expect(svc.crud.update(id, { title: 'never committed' })).rejects.toThrow('commit failed')
 
-    expect(observedDuringWrite, 'no reader sees the uncommitted title').toBe('settled')
+    expect(answeredWhileOpen, 'the outside reader waits for the save').toBe(false)
+    expect(await outside, 'no reader sees the uncommitted title').toBe('settled')
     expect((await svc.reports.get(id))?.title).toBe('settled')
     expect((await svc.reports.get(id))?.revision).toBe(before?.revision)
   })
@@ -201,20 +211,38 @@ describe('draft-then-install: a rollback racing a successful update', () => {
   })
 })
 
-describe('draft-then-install: an in-memory read while a write is open', () => {
-  it('serves the committed row, never the draft', async () => {
+describe('draft-then-install: a read while a write is open', () => {
+  it('an outside reader waits for the commit; the save itself reads its own write', async () => {
+    // Since POD-6158 issue reads come from the database. An outside reader asked
+    // while the write is open waits for the commit and gets the committed row,
+    // never a draft; inside the save the database already shows the save's own
+    // write, with no special case (design §2, one way to read a fact).
     harness = await open()
     const { svc } = harness
     const id = (await svc.crud.create({ repoPath: '/repo', title: 'committed', startNow: false })).id
 
-    const observed: (string | undefined)[] = []
+    let answeredWhileOpen = true
+    const inside: (string | undefined)[] = []
+    let outside: Promise<(string | undefined)[]> | undefined
     harness.duringNextWrite(async () => {
-      observed.push((await svc.reports.get(id))?.title)
-      observed.push((await svc.reports.list()).find((issue) => issue.id === id)?.title)
+      inside.push((await svc.reports.get(id))?.title)
+      let answered = false
+      outside = runAtRoot(async () => {
+        const titles = [
+          (await svc.reports.get(id))?.title,
+          (await svc.reports.list()).find((issue) => issue.id === id)?.title,
+        ]
+        answered = true
+        return titles
+      })
+      await new Promise((resolve) => setTimeout(resolve, 20))
+      answeredWhileOpen = answered
     }, 'after')
     await svc.crud.update(id, { title: 'in flight' })
 
-    expect(observed, 'both read paths see the committed value').toEqual(['committed', 'committed'])
+    expect(inside, 'the save reads its own write').toEqual(['in flight'])
+    expect(answeredWhileOpen, 'the outside reader waits for the save').toBe(false)
+    expect(await outside, 'both read paths see the committed value').toEqual(['in flight', 'in flight'])
     expect((await svc.reports.get(id))?.title).toBe('in flight')
   })
 })

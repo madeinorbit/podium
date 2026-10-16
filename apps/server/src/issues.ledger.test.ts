@@ -282,7 +282,7 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
       expect(
         await store.issues.getIssueUserState(await firstAdminMemberId(store), issue.id),
       ).toBeUndefined()
-      expect(svc.reports.store.issueOverlay(issue.id).pinned).toBe(false)
+      expect((await svc.reports.store.issueOverlay(issue.id)).pinned).toBe(false)
       expect(await ledger.cursor()).toBe(before)
     } finally {
       await store.close()
@@ -296,7 +296,7 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
       await expect(
         store.transact(async () => {
           await svc.reports.store.writeIssueUserState(issue.id, { pinnedAt: '2026-07-02' })
-          expect(svc.reports.store.issueOverlay(issue.id).pinned).toBe(true)
+          expect((await svc.reports.store.issueOverlay(issue.id)).pinned).toBe(true)
           expect((await svc.reports.list()).find((row) => row.id === issue.id)?.pinned).toBe(true)
           throw new Error('enclosing span failed')
         }),
@@ -305,7 +305,7 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
         await store.issues.getIssueUserState(await firstAdminMemberId(store), issue.id),
       ).toBeUndefined()
       expect(await ledger.cursor()).toBe(before)
-      expect(svc.reports.store.issueOverlay(issue.id).pinned).toBe(false)
+      expect((await svc.reports.store.issueOverlay(issue.id)).pinned).toBe(false)
       expect((await svc.reports.list()).find((row) => row.id === issue.id)?.pinned).toBe(false)
       await svc.reports.store.writeIssueUserState(issue.id, { pinnedAt: '2026-07-03' })
       expect((await svc.reports.list()).find((row) => row.id === issue.id)?.pinned).toBe(true)

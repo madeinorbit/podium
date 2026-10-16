@@ -186,6 +186,11 @@ describe('stopSession answers the policy from the mapping (step 3)', () => {
    * A live sibling session occupies the worktree so the stop never frees it:
    * the free would remove the mapping first and hand row 8 the same verdict
    * through `worktreeFreed`, proving nothing about the mapping.
+   *
+   * The occupant belongs to issue B, so the close of A's own cleanup (started
+   * after the commit, without waiting) cannot stop it as a member of A and
+   * refuses to free the worktree; the setup waits for that cleanup to finish
+   * rather than racing it (POD-6158 made its issue reads asynchronous).
    */
   async function setupMappedStop(mapped: boolean) {
     const { reg, store } = await makeRegistry(async () => ({ ok: true, output: '## issue/a\n' }))
@@ -201,7 +206,7 @@ describe('stopSession answers the policy from the mapping (step 3)', () => {
       startNow: false,
     })
     // A live occupant blocks the free so the verdict can only come from the mapping.
-    await reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: WT })
+    await reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: WT, issueId: issueB.id })
     const shell = await reg.modules.sessions.createSession({
       agentKind: 'shell',
       cwd: '/r',
@@ -211,6 +216,11 @@ describe('stopSession answers the policy from the mapping (step 3)', () => {
     await vi.waitFor(async () => {
       expect((await reg.modules.issues.reports.getMeta(issueA.id))?.stage).toBe('done')
     })
+    const closeCleanups = (
+      reg.modules.issueSessionLifecycle as unknown as { closedIssueStops: Map<string, Promise<void>> }
+    ).closedIssueStops
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    while (closeCleanups.size > 0) await Promise.allSettled([...closeCleanups.values()])
     // The close must have kept the worktree (occupied) and therefore the mapping.
     expect((await reg.modules.issues.reports.getMeta(issueA.id))?.worktreePath).toBe(WT)
     if (mapped) {

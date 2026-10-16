@@ -359,21 +359,22 @@ describe('POD-98 git-state service wiring', () => {
 // by tracking the one ref such a merge must move — the parent branch.
 describe('POD-384 parent-branch movement watch', () => {
   /** Row-level private worktree, no git: the merge axis is only live for an
-   *  issue that owns a checkout and a branch. */
-  function giveWorktree(svc: IssueService, id: string, parentBranch = 'main'): void {
-    const rows = (
-      svc.reports.store as unknown as {
-        rows: Map<
-          string,
-          { seq: number; worktreePath: string | null; branch: string | null; parentBranch: string }
-        >
-      }
-    ).rows
-    const row = rows.get(id)
+   *  issue that owns a checkout and a branch. Planted in the store, which the
+   *  issue map follows (POD-6158). */
+  async function giveWorktree(
+    svc: IssueService,
+    id: string,
+    parentBranch = 'main',
+    patch: { branch?: string | null } = {},
+  ): Promise<void> {
+    const issues = svc.reports.store.deps.store.issues
+    const row = await issues.getIssue(id)
     if (!row) throw new Error(`no row for ${id}`)
     row.worktreePath = `/repo/wt-${row.seq}`
     row.branch = `issue/${row.seq}`
     row.parentBranch = parentBranch
+    if (patch.branch !== undefined) row.branch = patch.branch
+    await issues.upsertIssue(row)
   }
 
   /** A branch one commit ahead of `main`, whose reflog proves the tip has moved
@@ -397,7 +398,7 @@ describe('POD-384 parent-branch movement watch', () => {
     const script = unlandedScript()
     const { svc, repoOp } = await harness([], script)
     const id = (await svc.crud.create({ repoPath: '/repo', title: 'one', startNow: false })).id
-    giveWorktree(svc, id)
+    await giveWorktree(svc, id)
 
     await svc.gitWorkflow.sweepParentBranchMovement()
 
@@ -409,7 +410,7 @@ describe('POD-384 parent-branch movement watch', () => {
     const script = unlandedScript()
     const { svc } = await harness([], script)
     const id = (await svc.crud.create({ repoPath: '/repo', title: 'one', startNow: false })).id
-    giveWorktree(svc, id)
+    await giveWorktree(svc, id)
     await svc.gitWorkflow.sweepParentBranchMovement()
 
     // The snapshot that strands the row: one unlanded commit, no merged verdict.
@@ -432,8 +433,8 @@ describe('POD-384 parent-branch movement watch', () => {
     const { svc, repoOp } = await harness([], script)
     const a = (await svc.crud.create({ repoPath: '/repo', title: 'a', startNow: false })).id
     const b = (await svc.crud.create({ repoPath: '/repo', title: 'b', startNow: false })).id
-    giveWorktree(svc, a)
-    giveWorktree(svc, b)
+    await giveWorktree(svc, a)
+    await giveWorktree(svc, b)
     await svc.gitWorkflow.sweepParentBranchMovement()
     expect(repoOp.mock.calls.filter(([op]) => op === 'revParseVerify')).toHaveLength(1)
 
@@ -450,7 +451,7 @@ describe('POD-384 parent-branch movement watch', () => {
     const script = unlandedScript()
     const { svc, repoOp } = await harness([], script)
     const id = (await svc.crud.create({ repoPath: '/repo', title: 'one', startNow: false })).id
-    giveWorktree(svc, id)
+    await giveWorktree(svc, id)
     await svc.gitWorkflow.sweepParentBranchMovement()
     repoOp.mockClear()
 
@@ -463,7 +464,7 @@ describe('POD-384 parent-branch movement watch', () => {
     const script = unlandedScript()
     const { svc, repoOp } = await harness([], script)
     const id = (await svc.crud.create({ repoPath: '/repo', title: 'one', startNow: false })).id
-    giveWorktree(svc, id)
+    await giveWorktree(svc, id)
     await svc.gitWorkflow.sweepParentBranchMovement()
 
     // Machine offline / ref not there: no observation, so no recorded tip either.
@@ -485,10 +486,7 @@ describe('POD-384 parent-branch movement watch', () => {
     const branchless = (
       await svc.crud.create({ repoPath: '/repo', title: 'branchless', startNow: false })
     ).id
-    giveWorktree(svc, branchless)
-    ;(svc.reports.store as unknown as { rows: Map<string, { branch: string | null }> }).rows.get(
-      branchless,
-    )!.branch = null
+    await giveWorktree(svc, branchless, 'main', { branch: null })
 
     await svc.gitWorkflow.sweepParentBranchMovement()
 
@@ -513,7 +511,7 @@ describe('POD-384 parent-branch movement watch', () => {
     }
     const { svc, repoOp } = await harness([], script)
     const id = (await svc.crud.create({ repoPath: '/repo', title: 'stacked', startNow: false })).id
-    giveWorktree(svc, id, 'issue/520-parent')
+    await giveWorktree(svc, id, 'issue/520-parent')
 
     // First sight of both watched refs: record, do not probe.
     await svc.gitWorkflow.sweepParentBranchMovement()
@@ -563,7 +561,7 @@ describe('POD-384 parent-branch movement watch', () => {
     delete script['revListCount:main..HEAD']
     const { svc } = await harness([], script)
     const id = (await svc.crud.create({ repoPath: '/repo', title: 'stacked', startNow: false })).id
-    giveWorktree(svc, id, 'issue/520-parent')
+    await giveWorktree(svc, id, 'issue/520-parent')
 
     await svc.gitWorkflow.refreshGitState(id)
     expect((await svc.reports.get(id))?.gitState).toMatchObject({ ahead: 9 })
@@ -604,7 +602,7 @@ describe('POD-384 parent-branch movement watch', () => {
     delete script['revListCount:main..HEAD']
     const { svc, store } = await harness([], script, { storeBackedSettings: true })
     const id = (await svc.crud.create({ repoPath: '/repo', title: 'stacked', startNow: false })).id
-    giveWorktree(svc, id, 'issue/520-parent')
+    await giveWorktree(svc, id, 'issue/520-parent')
 
     await svc.gitWorkflow.refreshGitState(id)
     expect((await svc.reports.get(id))?.gitState).toMatchObject({ ahead: 9 })

@@ -162,8 +162,9 @@ export class IssueReportsModule {
     if (projections.size === 0) return value as IssueCommandResult<T>
     const batch = projections.size > 1 ? await this.reportBatch() : undefined
     const reports = new Map<string, IssueReport>()
+    const rows = await this.store.rowsByIds(projections.keys())
     for (const projection of projections.values()) {
-      const row = this.store.rows.get(projection.id)
+      const row = rows.get(projection.id)
       if (row) reports.set(projection.id, await this.report(row, batch, projection))
     }
     const replace = (item: unknown): unknown => {
@@ -246,7 +247,7 @@ export class IssueReportsModule {
       commentCount: batch
         ? (batch.commentCounts.get(row.id) ?? 0)
         : await this.store.deps.store.issues.countIssueComments(row.id),
-      ...this.store.issueOverlay(row.id),
+      ...(await this.store.issueOverlay(row.id)),
       repoPath: row.repoPath,
       ...(prefix ? { prefix } : {}),
       displayRef: prefix ? formatIssueRef(prefix, row.seq) : `#${row.seq}`,
@@ -917,25 +918,35 @@ export class IssueReportsModule {
   }
 
   async get(id: string): Promise<IssueReport | null> {
-    const r = this.store.rows.get(await this.store.resolveRef(id))
+    const r = await this.store.row(await this.store.resolveRef(id))
     return r ? await this.report(r) : null
+  }
+
+  /**
+   * Read these issues now, in one statement per 500 ids, so the getMeta/get
+   * calls an operation makes for them one at a time come from its memo
+   * (POD-6158). For a caller that knows its set but asks per item, such as a
+   * delivery pass; outside an operation (or read scope) it saves nothing.
+   */
+  async preloadIssues(ids: Iterable<string>): Promise<void> {
+    await this.store.rowsByIds(ids)
   }
 
   /** Raw issue metadata for server-side readers that do not need the wire
    *  projection. This deliberately avoids toWire() and session enumeration.
    *  [spec:SP-fb7e] [spec:SP-c29e] */
   async getMeta(id: string): Promise<IssueRow | null> {
-    return this.store.rows.get(await this.store.resolveRef(id)) ?? null
+    return (await this.store.row(await this.store.resolveRef(id))) ?? null
   }
 
   /** Session-free existence check for server-side issue references. [spec:SP-fb7e] */
   async has(id: string): Promise<boolean> {
-    return this.store.rows.has(await this.store.resolveRef(id))
+    return (await this.store.row(await this.store.resolveRef(id))) !== undefined
   }
 
   /** Live authorization target: owner plus grantees whose verb covers this action. */
   async ownedTarget(id: string, action: import('@podium/model').IssueAction) {
-    const row = this.store.rows.get(await this.store.resolveRef(id))
+    const row = await this.store.row(await this.store.resolveRef(id))
     if (!row) return undefined
     const covers = (verb: string): boolean =>
       action === 'read'

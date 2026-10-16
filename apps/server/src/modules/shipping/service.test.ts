@@ -1342,7 +1342,7 @@ describe('ShippingService enqueue transaction', () => {
     let cancellation: Promise<unknown> | undefined
     const resourceAdmission = {
       acquire: vi.fn(
-        (
+        async (
           input: Parameters<
             NonNullable<
               ConstructorParameters<typeof ShippingService>[0]['resourceAdmission']
@@ -1356,6 +1356,10 @@ describe('ShippingService enqueue transaction', () => {
               requestedBy: approval.requestedBy,
               overrideScope: false,
             })
+            // "Immediately beforehand": the cancellation is durable before the
+            // dispatch fence runs. Its issue read is a database read since
+            // POD-6158, so without the wait its commit could land after it.
+            await cancellation
           }
           return true
         },

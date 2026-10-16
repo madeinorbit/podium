@@ -59,6 +59,8 @@ import {
   meta,
   sessions,
 } from '../migrations/schema'
+import { applyAfterCommit, spanOpen } from './executor/executor'
+import { operationLoader } from './executor/operation-loader'
 import { currentReadScope, readScopeSlot } from './executor/read-scope'
 import type { StoreDrizzle, StoreQueries, TransactionRunner } from './executor/sync-drizzle'
 import {
@@ -297,6 +299,80 @@ const issueIdAtSeq = prepared((db: StoreDrizzle) =>
     .select({ id: issues.id })
     .from(issues)
     .where(and(eq(issues.repoId, param(issues.repoId, 'repoId')), eq(issues.seq, param(issues.seq, 'seq'))))
+    .prepare(),
+)
+
+/**
+ * The reference columns of the issues at one sequence number (POD-6158).
+ * Deleted rows are included: a reference names a row, whatever its state, as
+ * the boot map's reference index always did. Ordered by repository path, then
+ * id, which is the boot map's order for rows it loaded.
+ */
+const issueRefColumns = {
+  id: issues.id,
+  repoId: issues.repoId,
+  repoPath: issues.repoPath,
+  machineId: issues.machineId,
+  seq: issues.seq,
+  // Read only for the structural quarantine.
+  stage: issues.stage,
+  title: issues.title,
+}
+
+const issueRefsAtSeq = prepared((db: StoreDrizzle) =>
+  db
+    .select(issueRefColumns)
+    .from(issues)
+    .where(eq(issues.seq, param(issues.seq, 'seq')))
+    .orderBy(asc(issues.repoPath), asc(issues.id))
+    .prepare(),
+)
+
+/** {@link issueRefsAtSeq} for several numbers; one shape per IN-list size. */
+const issueRefsAtSeqsOf = preparedFamily((db: StoreDrizzle, size: number) =>
+  db
+    .select(issueRefColumns)
+    .from(issues)
+    .where(inListOf(issues.seq, size, 'seqs'))
+    .orderBy(asc(issues.seq), asc(issues.repoPath), asc(issues.id))
+    .prepare(),
+)
+
+/** At most one row: `(repo_id, seq)` is unique. */
+const issueRefAtRepoSeq = prepared((db: StoreDrizzle) =>
+  db
+    .select(issueRefColumns)
+    .from(issues)
+    .where(and(eq(issues.repoId, param(issues.repoId, 'repoId')), eq(issues.seq, param(issues.seq, 'seq'))))
+    .prepare(),
+)
+
+/** Rows the repo-id heal has not stamped yet; their repo is resolved by path.
+ *  Unordered: the caller orders the union with the stamped row. */
+const legacyIssueRefsAtSeq = prepared((db: StoreDrizzle) =>
+  db
+    .select(issueRefColumns)
+    .from(issues)
+    .where(and(eq(issues.seq, param(issues.seq, 'seq')), isNull(issues.repoId)))
+    .prepare(),
+)
+
+/** One user's markers for a set of issues; one shape per IN-list size. */
+const issueUserStatesOf = preparedFamily((db: StoreDrizzle, size: number) =>
+  db
+    .select({
+      issueId: issueUserState.issueId,
+      readAt: issueUserState.readAt,
+      tuckedAt: issueUserState.tuckedAt,
+      pinnedAt: issueUserState.pinnedAt,
+    })
+    .from(issueUserState)
+    .where(
+      and(
+        eq(issueUserState.userId, param(issueUserState.userId, 'userId')),
+        inListOf(issueUserState.issueId, size, 'ids'),
+      ),
+    )
     .prepare(),
 )
 
@@ -903,6 +979,45 @@ interface IssueRowsWrite {
  * ids and repo-path resolution still returns a string. Query/write casts decode
  * those inputs; selected issue fields are schema-branded. */
 /** A live issue that may own a folder: what membership and its tie-break read. */
+/**
+ * The boot load's structural quarantine (see {@link IssuesRepository.listIssueRows}):
+ * a row whose id, repository path, stage or title is not a string poisons every
+ * consumer, so it is skipped and logged. The point reads that replace the issue
+ * map apply the same rule, so a quarantined row stays absent (POD-6158).
+ */
+function structurallySound(r: { id: unknown; repoPath: unknown; stage: unknown; title: unknown }): boolean {
+  return (
+    typeof r.id === 'string' &&
+    typeof r.repoPath === 'string' &&
+    typeof r.stage === 'string' &&
+    typeof r.title === 'string'
+  )
+}
+
+/** The columns a reference is resolved over (POD-6158). */
+export interface IssueRefRow {
+  id: IssueId
+  repoId: RepoId | null
+  repoPath: string
+  machineId: MachineId | null
+  seq: number
+}
+
+/** Structurally corrupt rows are skipped, as the boot load quarantines them. */
+function issueRefRows(
+  rows: readonly {
+    id: unknown; repoId: string | null; repoPath: unknown; machineId: string | null; seq: number
+    stage: unknown; title: unknown
+  }[],
+): IssueRefRow[] {
+  return rows.flatMap((row) =>
+    structurallySound(row)
+      ? [{ id: asIssueId(row.id as string), repoId: (row.repoId ?? null) as RepoId | null,
+          repoPath: row.repoPath as string, machineId: (row.machineId ?? null) as MachineId | null, seq: row.seq }]
+      : [],
+  )
+}
+
 export interface WorktreeOwnerRow {
   id: IssueId
   repoPath: string
@@ -970,6 +1085,43 @@ export class IssuesRepository {
     readonly rows: Map<string, IssueRow | null>
     disabled: boolean
   }>(() => ({ rows: new Map(), disabled: false }))
+  /**
+   * The broadcast viewer's markers, one row per issue, batched per operation
+   * (POD-6158). Keyed `userId NUL issueId`; a report pass over many issues asks
+   * for each in the same tick and this sends one `IN (...)` query per user.
+   */
+  private readonly userStateLoader = operationLoader<string, StoredIssueUserState>(async (keys) => {
+    const byUser = new Map<string, IssueId[]>()
+    for (const key of keys) {
+      const at = key.indexOf('\u0000')
+      const user = key.slice(0, at)
+      const ids = byUser.get(user) ?? []
+      ids.push(asIssueId(key.slice(at + 1)))
+      byUser.set(user, ids)
+    }
+    const found = new Map<string, StoredIssueUserState>()
+    for (const [user, ids] of byUser) {
+      const size = inListSize(ids.length)
+      const values = inListValues(ids, size, 'ids')
+      values.userId = user
+      for (const r of await issueUserStatesOf(this.db, size).all(values)) {
+        found.set(`${user}\u0000${r.issueId}`, { readAt: r.readAt, tuckedAt: r.tuckedAt, pinnedAt: r.pinnedAt })
+      }
+    }
+    return found
+  }, { copy: (state) => ({ ...state }), perOperation: true })
+  /**
+   * Issue rows by id, batched per operation (POD-6158): the per-row reads of a
+   * listing's authorization pass, asked together, are one `IN (...)` query.
+   * Shares {@link getIssues}' mapping and quarantine; every caller gets its
+   * own copy.
+   */
+  private readonly rowLoader = operationLoader<string, IssueRow>(
+    async (ids) => await this.readIssuesByIds(ids),
+    { copy: (row) => ({ ...row, blockedBy: [...row.blockedBy],
+      humanQuestionOptions: row.humanQuestionOptions ? [...row.humanQuestionOptions] : row.humanQuestionOptions }),
+      perOperation: true },
+  )
   private readonly rootDb: StoreDrizzle
   protected readonly createOrJoinTransaction: TransactionRunner
 
@@ -1003,6 +1155,11 @@ export class IssuesRepository {
     ) => string | Promise<string>,
   ) {
     this.committed = new CommittedRows(queries.createOrJoinTransaction, 'issues')
+    // The per-operation loaders are invalidated after each write (rowsWritten)
+    // AND after each commit of one, which makes their memos exact inside write
+    // spans (POD-6189, operation-loader.ts). Deleting an issue cascades to its
+    // markers, so the marker loader follows the issue feed too.
+    this.committed.subscribe(() => this.rowsWritten())
     this.rootDb = queries.rootDb
     this.createOrJoinTransaction = queries.createOrJoinTransaction
   }
@@ -1031,6 +1188,29 @@ export class IssuesRepository {
     const held = currentReadScope().slot(this.rowCacheSlot)
     held.rows.clear()
     held.disabled = true
+    this.rowsWritten()
+  }
+
+  /** Every `issues` write goes through here: the commit feed, then the
+   *  per-operation loaders invalidated after the write (POD-6158). */
+  private async writeRows(
+    query: () => Promise<(typeof issues.$inferSelect)[]>,
+    operation: 'upsert' | 'delete',
+  ): Promise<{ changes: number }> {
+    const result = await this.committed.write(query, operation)
+    this.rowsWritten()
+    return result
+  }
+
+  private rowsWritten(): void {
+    this.rowLoader.invalidate()
+    this.userStateLoader.invalidate()
+  }
+
+  /** A marker write: invalidated after it and, inside a span, after its commit. */
+  private userStateWritten(): void {
+    this.userStateLoader.invalidate()
+    if (spanOpen()) applyAfterCommit(() => this.userStateLoader.invalidate(), 'issue-user-state:loader')
   }
 
   /** The current scope's cache, opened on first use and discarded when the
@@ -1213,7 +1393,7 @@ export class IssuesRepository {
         .returning()
         .prepare()
     }))
-    await this.committed.write(
+    await this.writeRows(
       async () => await upsert(this.db, shapeOf(values)).all(values),
       'upsert',
     )
@@ -1258,7 +1438,7 @@ export class IssuesRepository {
         .returning()
         .prepare(),
     ))
-    const result = await this.committed.write(
+    const result = await this.writeRows(
       async () => await transition(this.db).all({ id, expectedStage, nextStage, updatedAt }),
       'upsert',
     )
@@ -1278,6 +1458,99 @@ export class IssuesRepository {
     const mapped = r ? await issueFromRow(r) : null
     cache?.set(id, mapped)
     return mapped === null ? null : { ...mapped }
+  }
+
+  /** One issue row, batched with the other loads of this tick and memoized for
+   *  the operation (POD-6158). Deleted rows included. */
+  async loadIssue(id: string): Promise<IssueRow | undefined> {
+    return await this.rowLoader.load(id)
+  }
+
+  /** {@link loadIssue} for many ids; absent ids are absent from the map. */
+  async loadIssues(ids: Iterable<string>): Promise<Map<string, IssueRow>> {
+    const out = new Map<string, IssueRow>()
+    for (const [id, row] of await this.rowLoader.loadMany(ids)) if (row) out.set(id, row)
+    return out
+  }
+
+  /** The loader's batch: rows by id in one statement per 500, quarantined. */
+  private async readIssuesByIds(ids: readonly string[]): Promise<Map<string, IssueRow>> {
+    const out = new Map<string, IssueRow>()
+    for (let i = 0; i < ids.length; i += 500) {
+      const chunk = ids.slice(i, i + 500)
+      const size = inListSize(chunk.length)
+      for (const r of await issuesByIds(this.db, size).all(inListValues(chunk.map(asIssueId), size, 'ids'))) {
+        try {
+          if (!structurallySound(r)) {
+            log.error('quarantined a corrupt issue row — skipped', { issueId: r.id ?? null })
+            continue
+          }
+          out.set(r.id, await issueFromRow(r))
+        } catch (err) {
+          log.error('quarantined a corrupt issue row — skipped', { issueId: r.id ?? null, err })
+        }
+      }
+    }
+    return out
+  }
+
+  /**
+   * One issue row, read now, never from the read scope's memo (POD-6158).
+   *
+   * For the rows a write is drafted from. A memo inside an operation could hand
+   * back a row read before another operation's commit, and the draft's
+   * revision pin would then refuse a write the issue map used to accept; the
+   * map always held the latest commit, and so does this read.
+   */
+  async getIssueLive(id: string): Promise<IssueRow | null> {
+    const r = await issueById(this.db).get({ id: asIssueId(id) })
+    if (!r) return null
+    if (!structurallySound(r)) {
+      log.error('quarantined a corrupt issue row — skipped', { issueId: r.id ?? null })
+      return null
+    }
+    return await issueFromRow(r)
+  }
+
+
+  /** Does a row with this id exist, deleted or not (POD-6158)? */
+  async hasIssue(id: string): Promise<boolean> {
+    return (await issueRevision(this.db).get({ id: asIssueId(id) })) !== undefined
+  }
+
+  /** {@link issueRefsAt} for several sequence numbers in one statement per 500,
+   *  keyed by number (POD-6158). */
+  async issueRefsAtSeqs(seqs: Iterable<number>): Promise<Map<number, IssueRefRow[]>> {
+    const unique = [...new Set(seqs)]
+    const out = new Map<number, IssueRefRow[]>()
+    for (let at = 0; at < unique.length; at += 500) {
+      const chunk = unique.slice(at, at + 500)
+      const size = inListSize(chunk.length)
+      for (const row of issueRefRows(await issueRefsAtSeqsOf(this.db, size).all(inListValues(chunk, size, 'seqs')))) {
+        const rows = out.get(row.seq) ?? []
+        rows.push(row)
+        out.set(row.seq, rows)
+      }
+    }
+    return out
+  }
+
+  /**
+   * The issues a reference with this sequence number can name (POD-6158): every
+   * repository's row at `seq`, or, given a repository, its row plus the legacy
+   * rows the repo-id heal has not stamped (their repository is decided by the
+   * caller's path resolver). Rows whose id or repository path is not a string
+   * are skipped, as the boot load quarantines them.
+   */
+  async issueRefsAt(seq: number, repoId?: RepoId): Promise<IssueRefRow[]> {
+    return issueRefRows(
+      repoId === undefined
+        ? await issueRefsAtSeq(this.db).all({ seq })
+        : [
+            ...(await issueRefAtRepoSeq(this.db).all({ repoId, seq })),
+            ...(await legacyIssueRefsAtSeq(this.db).all({ seq })),
+          ],
+    )
   }
 
   /**
@@ -1398,12 +1671,7 @@ export class IssuesRepository {
         // Load-bearing TEXT columns must actually be strings: a NULL id (SQLite
         // allows NULL in a TEXT PRIMARY KEY) or NULL stage/title row would poison
         // every downstream consumer — quarantine it instead of mapping it.
-        if (
-          typeof r.id !== 'string' ||
-          typeof r.repoPath !== 'string' ||
-          typeof r.stage !== 'string' ||
-          typeof r.title !== 'string'
-        ) {
+        if (!structurallySound(r)) {
           throw new Error('structurally corrupt row (non-string id/repo_path/stage/title)')
         }
         out.push(await issueFromRow(r))
@@ -1476,7 +1744,7 @@ export class IssuesRepository {
         .returning()
         .prepare(),
     ))
-    await this.committed.write(
+    await this.writeRows(
       async () => await remove(this.db).all({ id: asIssueId(id) }),
       'delete',
     )
@@ -1563,7 +1831,7 @@ export class IssuesRepository {
     ))
     await this.createOrJoinTransaction(async () => {
       for (const u of updates) {
-        await this.committed.write(
+        await this.writeRows(
           async () => await setSeq(this.db).all({ id: u.id, seq: u.seq }),
           'upsert',
         )
@@ -1619,7 +1887,7 @@ export class IssuesRepository {
             },
           )
         }
-        await this.committed.write(
+        await this.writeRows(
           async () => await setRepoIdAndSeq(this.db).all({ id: r.id, repoId, seq }),
           'upsert',
         )
@@ -1680,7 +1948,7 @@ export class IssuesRepository {
       }))
       const backfilled = Number(
         (
-          await this.committed.write(
+          await this.writeRows(
             async () => await backfill(this.db).all({ hostMachineId }),
             'upsert',
           )
@@ -2030,6 +2298,13 @@ export class IssuesRepository {
     return out
   }
 
+  /** {@link getIssueUserState}, batched with the other loads of this tick and
+   *  memoized for the operation (POD-6158). */
+  async loadIssueUserState(userId: UserId, issueId: IssueId): Promise<StoredIssueUserState | undefined> {
+    requireUserId(userId)
+    return await this.userStateLoader.load(`${userId}\u0000${issueId}`)
+  }
+
   async getIssueUserState(
     userId: UserId,
     issueId: IssueId,
@@ -2066,6 +2341,7 @@ export class IssuesRepository {
     }
     if (next.readAt === null && next.tuckedAt === null && next.pinnedAt === null) {
       await deleteIssueUserStateOne(this.db).run({ userId, issueId })
+      this.userStateWritten()
       return
     }
     await upsertIssueUserState(this.db).run({
@@ -2075,6 +2351,7 @@ export class IssuesRepository {
       tuckedAt: next.tuckedAt,
       pinnedAt: next.pinnedAt,
     })
+    this.userStateWritten()
   }
 
   /** Drop every user's per-user rows for an issue. Called from the issue's own
@@ -2082,6 +2359,7 @@ export class IssuesRepository {
    *  hard-deleted issue leaves them addressing nothing. */
   async purgeIssueUserState(issueId: IssueId): Promise<void> {
     await deleteIssueUserStateOf(this.db).run({ issueId })
+    this.userStateWritten()
   }
 
   /** Atomic claim: exactly one caller wins; a second claim on the same message

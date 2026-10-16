@@ -105,6 +105,9 @@ function fakeIssues(
         }
       },
       has: (id: string) => byId.has(asIssueId(id)),
+      // The delivery pass reads its target issues together first (POD-6158);
+      // this fake answers each getMeta from memory, so there is nothing to load.
+      preloadIssues: async () => {},
       ownedTarget: () => undefined,
       niceRef: (row: { seq: number }) => (prefix ? `${prefix}-${row.seq}` : `#${row.seq}`),
       issueForCwd: async (cwd: string) => ownerOf(cwd),

@@ -4145,13 +4145,11 @@ describe('IssueService worktree reconciliation and root safety (POD-2662)', () =
     const issue = await prepared(h)
     await expect(h.svc.crud.update(issue.id, { worktreePath: '/r' })).rejects.toThrow(/repository root/)
 
-    const row = (
-      h.svc.reports.store as never as {
-        rows: Map<string, { worktreePath: string | null; branch: string | null }>
-      }
-    ).rows.get(issue.id)!
+    // A historical row the write seam would now refuse, planted in the store.
+    const row = (await h.store.issues.getIssue(issue.id))!
     row.worktreePath = '/r'
     row.branch = null
+    await h.store.issues.upsertIssue(row)
     h.deps.repoOp = vi.fn(async (op) => {
       if (op === 'worktreeList') {
         return {
@@ -4177,13 +4175,11 @@ describe('IssueService worktree reconciliation and root safety (POD-2662)', () =
     // The harness reports /r so the issue can be created (2b803efb5); this case is
     // about a free with NO repos-table match, so the report is withdrawn first.
     await h.store.repos.removeRepo('/r', h.store.hostMachineId)
-    const row = (
-      h.svc.reports.store as never as {
-        rows: Map<string, { worktreePath: string | null; branch: string | null }>
-      }
-    ).rows.get(issue.id)!
+    // A historical row the write seam would now refuse, planted in the store.
+    const row = (await h.store.issues.getIssue(issue.id))!
     row.worktreePath = '/r'
     row.branch = null
+    await h.store.issues.upsertIssue(row)
     const calls: string[] = []
     h.deps.repoOp = vi.fn(async (op) => {
       calls.push(op)

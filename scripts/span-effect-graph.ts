@@ -687,6 +687,28 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
     kind: 'contained',
     why: "POD-6189: reads rows through the loader's batch on the store's own database (inside a span, on the span's connection) and memoises them for the operation in this process; no publication, and a rollback leaves no memo behind (a span that wrote the rows reads into a frame memo)",
   },
+  // POD-6158 (issue map removal, D1a): the point reads that replace the map,
+  // and the old/new comparison beside them until the map is deleted.
+  'apps/server/src/store/executor/operation-loader.ts#OperationLoader.load': {
+    kind: 'contained',
+    why: "POD-6158: reads one row through the loader's batch on the store's own database (inside a span, on the span's connection) and memoises it for the operation in this process, as loadMany does; no publication, and a rollback leaves no memo behind",
+  },
+  'apps/server/src/store/executor/operation-scope.ts#OperationScope.slot': {
+    kind: 'contained',
+    why: "POD-6158: an operation's memo slot (the broadcast viewer's id), held in this process and dropped when the operation ends; no I/O or publication",
+  },
+  'apps/server/src/modules/issues/service/map-parity.ts#<module>.mapAnswer': {
+    kind: 'contained',
+    why: "POD-6158: the issue map's side of the old/new comparison: reads the in-memory map and, for a reference, the repository registry on the store's own database; a difference is only logged (or thrown under vitest), nothing is written or published",
+  },
+  'apps/server/src/modules/issues/service/map-parity.ts#<module>.dbAnswer': {
+    kind: 'contained',
+    why: "POD-6158: the database side of the old/new comparison: the issue read itself, on the store's own database (inside a span, on the span's connection); no write or publication",
+  },
+  'apps/server/src/modules/issues/service/core.ts#<module>.resolve': {
+    kind: 'contained',
+    why: "POD-6158: the repository registry's path-to-repo-id resolver, a pure function over the roots it read; no I/O of its own",
+  },
   'apps/server/src/store/executor/operation-loader.ts#OperationLoader.invalidate': {
     kind: 'contained',
     why: 'drops the per-operation loader cache held in the read scope; no I/O or publication, so a rollback leaves nothing outside this process changed',

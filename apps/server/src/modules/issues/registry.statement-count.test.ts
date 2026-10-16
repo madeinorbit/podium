@@ -3,8 +3,16 @@
  * number of issues [POD-6149, server-data rule 8].
  *
  * No WorldIndex is bound, so grants come from the database — the state the
- * world-index removal (POD-6155) leaves behind. Issue rows themselves still come
- * from the hydrated issue map, which is why a listing's own rows cost nothing.
+ * world-index removal (POD-6155) leaves behind. The rows a listing scans still
+ * come from the hydrated issue map until POD-6191 moves listings into SQL.
+ *
+ * Since POD-6190 the point reads come from the database too, which adds a
+ * fixed number of statements whatever the number of issues. The reports add
+ * four: the broadcast viewer (two `users` reads, once per operation), the
+ * per-row authorization's issue rows (one batched `IN (...)` read) and the
+ * viewer's markers (one batched `issue_user_state` read). `tree` reads issue
+ * rows in three batches (the root, then its children as authorization asks for
+ * them) and `doctor` in one; neither reads markers.
  */
 import { asIssueId, asUserId, firstAdminMemberId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
@@ -161,21 +169,21 @@ describe('issue listings: pinned statement counts at 5 and 200 issues', () => {
       pin('issues.list', (f) => call(f, 'list', {}), (rows, size) =>
         expect(lengthOf(rows)).toBe(readableChildren(size) + 1),
       ),
-      4,
+      8,
     )
   })
 
   it('ready', async () => {
     await expectConstantStatements(
       pin('issues.ready', (f) => call(f, 'ready', {}), (rows) => expect(lengthOf(rows)).toBeGreaterThan(0)),
-      4,
+      8,
     )
   })
 
   it('blocked (was 5 at 5 issues, 102 at 200)', async () => {
     await expectConstantStatements(
       pin('issues.blocked', (f) => call(f, 'blocked', {}), (rows) => expect(lengthOf(rows)).toBeGreaterThan(0)),
-      4,
+      8,
     )
   })
 
@@ -184,7 +192,7 @@ describe('issue listings: pinned statement counts at 5 and 200 issues', () => {
       pin('issues.graph', (f) => call(f, 'graph', {}), (graph, size) =>
         expect((graph as { nodes: unknown[] }).nodes).toHaveLength(readableChildren(size) + 1),
       ),
-      4,
+      8,
     )
   })
 
@@ -198,7 +206,7 @@ describe('issue listings: pinned statement counts at 5 and 200 issues', () => {
             readableChildren(size),
           ),
       ),
-      3,
+      6,
     )
   })
 
@@ -207,14 +215,14 @@ describe('issue listings: pinned statement counts at 5 and 200 issues', () => {
       pin('issues.doctor', (f) => call(f, 'doctor', {}), (report) =>
         expect(report).toMatchObject({ cycles: [] }),
       ),
-      5,
+      6,
     )
   })
 
   it('one issue report (unbatched report())', async () => {
     await expectConstantStatements(
       pin('issues.get', (f) => f.reports.get('iss_2'), (report) => expect(report).toMatchObject({ seq: 2 })),
-      4,
+      8,
     )
   })
 })

@@ -83,6 +83,7 @@ import type { EventsRepository } from '../../store/events'
 import { type MessagePageCursor, type MessagesRepository, moved } from '../../store/messages'
 import { afterCommit } from '../../store/executor/executor'
 import { withReadScope } from '../../store/executor/read-scope'
+import { withOwnOperation } from '../../store/executor/operation-scope'
 import type { NotificationFactsRepository } from '../../store/notification-facts'
 import { NotificationArbiter } from '../../store/notification-facts'
 import type { IssueService } from '../issues/service'
@@ -791,7 +792,15 @@ export class MessageDeliveryService {
     return {
       targetOf: (message) => this.deliveryTargetOf(message),
       nowMs: () => this.nowMs(),
-      attemptPass: async (messages, failed) => {
+      // One operation of its own (a drained queue serves many senders): the
+      // target issues are read once, together, and each attempt's own read of
+      // its issue is answered from the operation's memo (POD-6158).
+      attemptPass: async (messages, failed) => await withOwnOperation(async () => {
+        await this.deps.issues.reports.preloadIssues(
+          messages.flatMap((message) =>
+            message.toKind === 'issue' && message.toId ? [message.toId] : [],
+          ),
+        )
         // The cooldown key of every wake row, with the brake's cold reads
         // answered in one read [POD-6174].
         const wakeKeys = await this.wakeKeysOf(messages)
@@ -808,7 +817,7 @@ export class MessageDeliveryService {
           }
         }
         await this.scheduleQueuedWakeRetries(attempted)
-      },
+      }),
     }
   }
 
