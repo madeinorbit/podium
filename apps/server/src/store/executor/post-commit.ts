@@ -35,6 +35,7 @@
  */
 
 import { runAtRoot } from './context'
+import { holdOperation } from './operation-scope'
 import { PostCommitError, StaleTransactionError, StoreUnhealthyError } from './errors'
 
 export type PostCommitStep = () => void | Promise<void>
@@ -277,6 +278,9 @@ export class PostCommitRunner {
     )
     this.inFlightEffects.set(tracked, entry.label)
     void tracked.finally(() => this.inFlightEffects.delete(tracked))
+    // The effect finishes the operation that committed (its publication): the
+    // operation's memos stay with it until it settles (POD-6189).
+    holdOperation(tracked)
   }
 
   /**

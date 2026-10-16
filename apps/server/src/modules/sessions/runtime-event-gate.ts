@@ -10,6 +10,7 @@ import {
   type RuntimeEventCheckpoint,
   type RuntimeEventLogRecord,
 } from '../../store/events'
+import { withOwnOperation } from '../../store/executor/operation-scope'
 
 const log = createLogger('server:runtime-event-gate')
 const BOARD_PROJECTOR = 'runtime.board.v1'
@@ -523,7 +524,10 @@ export class RuntimeEventGate {
       const batch = await this.ports.events.listRuntimeEventsAfter(cursor, 128)
       if (batch.length === 0) return
       for (const record of batch) {
-        await this.projectBoard(record)
+        // One record is one operation of its own (POD-6189): its span, owner
+        // check and publication read a row once. Never the operation of the
+        // frame that started the drain: the drain also serves other frames.
+        await withOwnOperation(async () => await this.projectBoard(record))
         await this.ports.events.saveRuntimeEventProjectionCursor(
           BOARD_PROJECTOR,
           record.id,

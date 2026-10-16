@@ -10,7 +10,6 @@ import type { GrantVerb } from '@podium/model'
 import { GRANT_VERBS } from '@podium/model'
 import { and, asc, count, eq, type SQL, sql } from 'drizzle-orm'
 import { grantAudiences, grants } from '../migrations/schema'
-import { spanOpen } from './executor/executor'
 import { operationLoader } from './executor/operation-loader'
 import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
 import { inListOf, inListSize, inListValues, param, prepared, preparedFamily } from './executor/sync-drizzle'
@@ -236,6 +235,9 @@ export class GrantsRepository {
 
   constructor(queries: StoreQueries) {
     this.committed = new CommittedRows(queries.createOrJoinTransaction, 'grants')
+    // The loader is invalidated after each write below AND after each commit of
+    // one, which is what makes its memo exact inside write spans (POD-6189).
+    this.committed.subscribe(() => this.resourceGrants.invalidate())
     this.rootDb = queries.rootDb
     this.createOrJoinTransaction = queries.createOrJoinTransaction
   }
@@ -308,13 +310,32 @@ export class GrantsRepository {
    * many call sites (`mayRead` callbacks). Asked in the same tick, those become
    * one {@link listForResources} query per resource kind; asked again later in
    * the same operation (read scope), they are answered from the loader. Outside
-   * an explicit scope it is exactly one live read. Every grant write below
-   * invalidates it, so an operation sees its own grant changes. Inside a write
-   * span it reads live, so a rolled-back write is never remembered.
+   * an explicit scope and outside a write span it is exactly one live read.
+   * Every grant write below invalidates it, so an operation sees its own grant
+   * changes.
+   *
+   * FOR THE WHOLE OPERATION, WRITE SPANS INCLUDED [POD-6189]. A daemon frame or
+   * a tRPC call asked about the same session three to five times (an access
+   * check before its span, the projection inside it, reprojections after it),
+   * each a statement. The loader now memoises for the operation
+   * (`operation-scope.ts`). Every grant write goes through this repository and
+   * invalidates the loader after the write and after its commit, so an answer
+   * the loader holds is what the table holds now; a span's own writes move its
+   * later reads to a memo on the span frame, so a savepoint rollback takes them
+   * with it (`operation-loader.ts`). Nothing outlives the operation.
    */
   async loadForResource(resourceKind: string, resourceId: string): Promise<GrantRow[]> {
-    if (spanOpen()) return await this.listForResource(resourceKind, resourceId)
     return (await this.resourceGrants.load(resourceGrantKey(resourceKind, resourceId))) ?? []
+  }
+
+  /**
+   * {@link loadForResource} for several resources of one kind at once: the
+   * operation's memo answers the ones it holds, and the rest are one
+   * {@link listForResources} query. Every asked id has an entry, `[]` for none.
+   */
+  async loadForResources(resourceKind: string, resourceIds: readonly string[]): Promise<Map<string, GrantRow[]>> {
+    const loaded = await this.resourceGrants.loadMany(resourceIds.map((id) => resourceGrantKey(resourceKind, id)))
+    return new Map(resourceIds.map((id) => [id, loaded.get(resourceGrantKey(resourceKind, id)) ?? []]))
   }
 
   private readonly resourceGrants = operationLoader<string, GrantRow[]>(
@@ -334,7 +355,7 @@ export class GrantsRepository {
       }
       return found
     },
-    { copy: (rows) => rows.map((row) => ({ ...row })) },
+    { copy: (rows) => rows.map((row) => ({ ...row })), perOperation: true },
   )
 
   /** Every edge on every resource of one kind — the fleet-wide read the machine

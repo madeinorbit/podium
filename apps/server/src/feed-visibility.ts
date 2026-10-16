@@ -530,7 +530,9 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
       (ids) => store.automations.runOwnersOf(ids),
     )
     // One grouped read per resource kind for the whole batch; every asked id
-    // gets an entry, `[]` for "no edges".
+    // gets an entry, `[]` for "no edges". Through the operation's loader
+    // (POD-6189): a batch published inside the operation that wrote it asks
+    // about the rows that operation already checked.
     const grantsOf = async (
       kind: 'issue' | 'session',
       ids: ReadonlySet<string>,
@@ -538,7 +540,7 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
       if (ids.size === 0) return new Map()
       const found = await measure(
         'visibility.grants.listForResources',
-        async () => await store.grants.listForResources(kind, [...ids]),
+        async () => await store.grants.loadForResources(kind, [...ids]),
       )
       return new Map([...ids].map((id) => [id, found.get(id) ?? []]))
     }

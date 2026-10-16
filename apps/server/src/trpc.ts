@@ -19,6 +19,7 @@ import type { RegistryModules, SessionRegistry } from './relay'
 import type { MachineRepoDiscovery } from './repo-discovery'
 import type { RepoRegistry } from './repo-registry'
 import type { ServerRoleConfig } from './roles'
+import { withOperation } from './store/executor/operation-scope'
 import type { UsersRepository } from './store/users'
 
 const log = createLogger('server:trpc')
@@ -234,9 +235,14 @@ const rpcTiming = core.middleware(async ({ path, next }) => {
   }
 })
 
+/** One call is one operation [POD-6189]: memos that opt in (the grants loader)
+ *  answer a row once for the whole call, before, inside and after its write
+ *  spans. See `store/executor/operation-scope.ts`. */
+const oneOperation = core.middleware(async ({ next }) => await withOperation(async () => await next()))
+
 /** The shared tRPC core: identical to `initTRPC.create()` except `procedure`
- *  carries the always-on timing middleware. */
+ *  carries the always-on timing middleware and the operation scope. */
 export const t = {
   ...core,
-  procedure: core.procedure.use(rpcTiming),
+  procedure: core.procedure.use(rpcTiming).use(oneOperation),
 }

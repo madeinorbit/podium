@@ -369,13 +369,13 @@ export type OpenerExemption = SourceSite & { readonly why: string }
 export const NOT_A_SPAN_OPENER: readonly OpenerExemption[] = [
   {
     file: 'apps/server/src/store/executor/executor.ts',
-    line: 199,
-    why: "the ASYNC executor's own transact, declared on StoreExecutor. It is the MACHINERY under a span, not the span's mouth: after the flip every repository opens its unit of work through `createOrJoinTransaction`, whose implementation in sync-drizzle.ts calls this. Naming it as well would attribute each repository span twice, once at the call site and once at a body argument that arrives here as a parameter and is therefore opaque. (Was 70, then 81; POD-3498's SpanScopeDrizzle comment moved it once and POD-3802's async-store fallout — `afterCommit`, the refusal reporting and the scheduler types now above it — moved it again. The lint REPORTED each move rather than following it silently, which is what pinning by line is for.)",
+    line: 212,
+    why: "the ASYNC executor's own transact, declared on StoreExecutor. It is the MACHINERY under a span, not the span's mouth: after the flip every repository opens its unit of work through `createOrJoinTransaction`, whose implementation in sync-drizzle.ts calls this. Naming it as well would attribute each repository span twice, once at the call site and once at a body argument that arrives here as a parameter and is therefore opaque. (Was 70, then 81; POD-3498's SpanScopeDrizzle comment moved it once and POD-3802's async-store fallout — `afterCommit`, the refusal reporting and the scheduler types now above it — moved it again. The lint REPORTED each move rather than following it silently, which is what pinning by line is for. Then 212: POD-6189's `openSpanFrame` above it.)",
   },
   {
     file: 'apps/server/src/store/executor/executor.ts',
-    line: 1013,
-    why: "the same declaration's implementation. (Was 676, then 680, then 678; POD-3345's idle-gap clock, the flip's own edits and POD-3802's async-store fallout moved it. Reported each time.)",
+    line: 1026,
+    why: "the same declaration's implementation. (Was 676, then 680, then 678; POD-3345's idle-gap clock, the flip's own edits and POD-3802's async-store fallout moved it. Reported each time. Then 1026: POD-6189's `openSpanFrame`.)",
   },
   {
     file: 'packages/sync/src/authority/authority.ts',
@@ -682,6 +682,10 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
   'packages/sync/src/adapters/sqlite/prepared.ts#<module>.<anonymous>': {
     kind: 'opaque',
     why: 'the memoising wrapper around a caller-supplied prepared-query builder; it adds no I/O of its own, and the builder is judged at its declaration',
+  },
+  'apps/server/src/store/executor/operation-loader.ts#OperationLoader.loadMany': {
+    kind: 'contained',
+    why: "POD-6189: reads rows through the loader's batch on the store's own database (inside a span, on the span's connection) and memoises them for the operation in this process; no publication, and a rollback leaves no memo behind (a span that wrote the rows reads into a frame memo)",
   },
   'apps/server/src/store/executor/operation-loader.ts#OperationLoader.invalidate': {
     kind: 'contained',

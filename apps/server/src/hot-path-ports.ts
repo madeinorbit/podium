@@ -29,7 +29,7 @@ export interface FeedVisibilityStore {
     'issueIdsForOrders' | 'laneMemberIssueIdsMany' | 'ordersByIds' | 'orderIdsForIssues'
   >
   readonly automations: Pick<SessionStore['automations'], 'ownersOf' | 'runOwnersOf'>
-  readonly grants: Pick<SessionStore['grants'], 'loadForResource' | 'listForResources'>
+  readonly grants: Pick<SessionStore['grants'], 'loadForResource' | 'loadForResources' | 'listForResources'>
   readonly sync: Pick<SessionStore['sync'], 'installedStates' | 'installedIdsWithPrefixes'>
 }
 export type DeliveryMessages = Pick<

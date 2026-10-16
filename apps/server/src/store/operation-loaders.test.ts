@@ -7,10 +7,12 @@
 import { asMachineId, asSessionId, asUserId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { SessionStore } from '../store'
+import { withOperation } from './executor/operation-scope'
 import { withReadScope } from './executor/read-scope'
 import { openTestStore } from '../test-support/open-test-store'
 import { countStatements } from '../test-support/statement-count'
-import type { GrantRow } from './grants'
+import type { StoreQueries } from './executor/sync-drizzle'
+import { type GrantRow, GrantsRepository } from './grants'
 import type { SessionRow } from './types'
 
 const owner = asUserId('owner')
@@ -94,6 +96,161 @@ describe('GrantsRepository.loadForResource', () => {
         await store.grants.remove('issue', 'iss_a', 'alice', 'read')
         expect(await store.grants.loadForResource('issue', 'iss_a')).toEqual([])
       })
+    })
+  })
+})
+
+// POD-6189: inside a write span the loader used to read live on every check.
+// It now memoises there too; these pin the read-your-writes and lifetime rules.
+describe('GrantsRepository.loadForResource inside a write span', () => {
+  const grantees = (rows: GrantRow[]) => rows.map((row) => row.grantee)
+
+  it('one read per resource for repeated checks, and sees its own grant and revoke', async () => {
+    await withStore(async (store) => {
+      await store.grants.upsert(grant('iss_b', 'bob'))
+      await store.transact(async () => {
+        const check = () =>
+          Promise.all(['iss_a', 'iss_b', 'iss_a'].map((id) => store.grants.loadForResource('issue', id)))
+        expect((await countStatements(store, check)).statements).toBe(1)
+        expect((await countStatements(store, check)).statements).toBe(0)
+        // A savepoint of a span that has not written grants shares its memo.
+        await store.transact(async () => expect((await countStatements(store, check)).statements).toBe(0))
+        await store.grants.upsert(grant('iss_a', 'alice'))
+        expect(grantees(await store.grants.loadForResource('issue', 'iss_a'))).toEqual(['alice'])
+        await store.grants.remove('issue', 'iss_a', 'alice', 'read')
+        expect(await store.grants.loadForResource('issue', 'iss_a')).toEqual([])
+        expect(grantees(await store.grants.loadForResource('issue', 'iss_b'))).toEqual(['bob'])
+      })
+    })
+  })
+
+  it('reuses nothing across operations; inside one operation, an answer from before its span', async () => {
+    await withStore(async (store) => {
+      const once = () => store.grants.loadForResource('issue', 'iss_a')
+      await store.transact(async () => expect((await countStatements(store, once)).statements).toBe(1))
+      await store.transact(async () => expect((await countStatements(store, once)).statements).toBe(1))
+      await withReadScope(async () => {
+        expect((await countStatements(store, once)).statements).toBe(1)
+        await store.transact(async () => expect((await countStatements(store, once)).statements).toBe(0))
+        expect((await countStatements(store, once)).statements).toBe(0)
+      })
+      await withReadScope(async () => expect((await countStatements(store, once)).statements).toBe(1))
+    })
+  })
+
+  it('a second operation sees a grant the first one memoised the absence of', async () => {
+    await withStore(async (store) => {
+      await withReadScope(async () => {
+        await store.transact(async () => expect(await store.grants.loadForResource('issue', 'iss_a')).toEqual([]))
+      })
+      await store.grants.upsert(grant('iss_a', 'alice'))
+      await withReadScope(async () => {
+        await store.transact(async () =>
+          expect(grantees(await store.grants.loadForResource('issue', 'iss_a'))).toEqual(['alice']))
+      })
+    })
+  })
+
+  it('forgets a grant written in a savepoint that rolled back', async () => {
+    await withStore(async (store) => {
+      await withReadScope(async () => {
+        await store.transact(async () => {
+          expect(await store.grants.loadForResource('issue', 'iss_a')).toEqual([])
+          await expect(store.transact(async () => {
+            await store.grants.upsert(grant('iss_a', 'alice'))
+            expect(grantees(await store.grants.loadForResource('issue', 'iss_a'))).toEqual(['alice'])
+            throw new Error('roll the savepoint back')
+          })).rejects.toThrow('roll the savepoint back')
+          expect(await store.grants.loadForResource('issue', 'iss_a')).toEqual([])
+        })
+        // The operation's memo after the span holds nothing the rollback undid.
+        expect(await store.grants.loadForResource('issue', 'iss_a')).toEqual([])
+      })
+      expect(await store.grants.loadForResource('issue', 'iss_a')).toEqual([])
+    })
+  })
+
+  it('forgets what a span read after its own grant write when the span rolls back', async () => {
+    await withStore(async (store) => {
+      await withReadScope(async () => {
+        await expect(store.transact(async () => {
+          await store.grants.upsert(grant('iss_a', 'alice'))
+          expect(grantees(await store.grants.loadForResource('issue', 'iss_a'))).toEqual(['alice'])
+          throw new Error('roll the span back')
+        })).rejects.toThrow('roll the span back')
+        expect(await store.grants.loadForResource('issue', 'iss_a')).toEqual([])
+      })
+    })
+  })
+})
+
+// POD-6189: one operation (a daemon frame, a tRPC call) reads a resource's
+// grants once across all its phases, and no further.
+describe('GrantsRepository.loadForResource for a whole operation', () => {
+  const grantees = (rows: GrantRow[]) => rows.map((row) => row.grantee)
+
+  it('one read before, inside and after its write span; none shared with the next operation', async () => {
+    await withStore(async (store) => {
+      const once = () => store.grants.loadForResource('issue', 'iss_a')
+      const phases = async () => {
+        await once()
+        await store.transact(async () => {
+          await once()
+          await store.transact(async () => await once())
+        })
+        await once()
+        await store.grants.loadForResources('issue', ['iss_a'])
+      }
+      expect((await countStatements(store, () => withOperation(phases))).statements).toBe(1)
+      expect((await countStatements(store, () => withOperation(phases))).statements).toBe(1)
+      // With no operation, the spans read once each and the plain reads live.
+      expect((await countStatements(store, phases)).statements).toBe(4)
+    })
+  })
+
+  it('sees its own grant and revoke, across the span boundary too', async () => {
+    await withStore(async (store) => {
+      await withOperation(async () => {
+        expect(await store.grants.loadForResource('issue', 'iss_a')).toEqual([])
+        await store.transact(async () => {
+          expect(await store.grants.loadForResource('issue', 'iss_a')).toEqual([])
+          await store.grants.upsert(grant('iss_a', 'alice'))
+          expect(grantees(await store.grants.loadForResource('issue', 'iss_a'))).toEqual(['alice'])
+        })
+        expect(grantees(await store.grants.loadForResource('issue', 'iss_a'))).toEqual(['alice'])
+        await store.grants.remove('issue', 'iss_a', 'alice', 'read')
+        expect(await store.grants.loadForResource('issue', 'iss_a')).toEqual([])
+      })
+    })
+  })
+
+  it('forgets an answer a rolled-back savepoint read after its write', async () => {
+    await withStore(async (store) => {
+      await withOperation(async () => {
+        await store.transact(async () => {
+          expect(await store.grants.loadForResource('issue', 'iss_a')).toEqual([])
+          await expect(store.transact(async () => {
+            await store.grants.upsert(grant('iss_a', 'alice'))
+            expect(grantees(await store.grants.loadForResource('issue', 'iss_a'))).toEqual(['alice'])
+            throw new Error('roll the savepoint back')
+          })).rejects.toThrow('roll the savepoint back')
+          expect(await store.grants.loadForResource('issue', 'iss_a')).toEqual([])
+        })
+        expect(await store.grants.loadForResource('issue', 'iss_a')).toEqual([])
+      })
+    })
+  })
+
+  it('a second operation does not see the first one\'s answer', async () => {
+    await withStore(async (store) => {
+      await withOperation(async () => expect(await store.grants.loadForResource('issue', 'iss_a')).toEqual([]))
+      // Written through a SECOND repository over the same database, whose
+      // invalidation does not reach the store's loader: a reused answer would
+      // still say "no grants".
+      const queries = (store as unknown as { queries: StoreQueries }).queries
+      await new GrantsRepository(queries).upsert(grant('iss_a', 'mallory'))
+      await withOperation(async () =>
+        expect(grantees(await store.grants.loadForResource('issue', 'iss_a'))).toEqual(['mallory']))
     })
   })
 })

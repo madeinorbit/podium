@@ -21,17 +21,46 @@
  * next load in ANY open scope starts a new DataLoader, so a read after a write
  * in the same operation sees the write. A load already in flight when the write
  * happened still resolves for its caller, who asked before the write.
+ *
+ * PER OPERATION, ACROSS WRITE SPANS, WHEN THE LOADER ASKS FOR IT [POD-6189].
+ * A loader declared with `perOperation` keeps its memo for the whole OPERATION
+ * (`operation-scope.ts`: a daemon frame, a tRPC call), before, inside and after
+ * its write spans, so an operation that checks the same row in each phase reads
+ * it once. Its rows must be written ONLY through the repository, which calls
+ * `invalidate()` after each write AND after each commit of a write. Then an
+ * answer held at the current version is what the database holds now, in any
+ * scope: every write since it was read has moved the version, and so has every
+ * commit, which closes the window in which a read on another connection saw
+ * the state just before a write that was about to commit. What remains is the
+ * span's own uncommitted writes, and that decides where the memo lives:
+ *   - in a span that has NOT written these rows, the memo is the operation's
+ *     (or, with no operation open, the explicit read scope's; with neither,
+ *     the span's transaction unit, shared by its savepoints and gone with it);
+ *   - once the span HAS written these rows, every later read goes to a memo on
+ *     the innermost FRAME. A savepoint is its own frame, so a savepoint that
+ *     rolls back takes its answers with it; its parent's answers are already
+ *     stale by version, because the write moved it, and are read again. Nothing
+ *     read after an uncommitted write reaches a memo that outlives the span.
+ * Nothing is kept past the operation: an operation's memo ends with it, a read
+ * scope with its pass, a unit or frame with its span. A loader without the
+ * option keeps the read-scope behaviour everywhere.
  */
 
 import DataLoader from 'dataloader'
-import { currentReadScope, readScopeSlot } from './read-scope'
+import { currentScope, type TransactionUnit } from './context'
+import { openSpanFrame } from './executor'
+import { currentOperation, operationSlot } from './operation-scope'
+import { currentReadScope, inExplicitReadScope, readScopeSlot } from './read-scope'
 
 export interface OperationLoader<K, V> {
   /** One row by key, or `undefined` when none exists. Batched within a tick. */
   load(key: K): Promise<V | undefined>
-  /** Several rows by key, in one batch with any other loads of this tick. */
+  /** Several rows by key: one batch (with `perOperation`, sent at once, not on the next tick). */
   loadMany(keys: Iterable<K>): Promise<Map<K, V | undefined>>
-  /** Forget every loaded row in every open scope. Call from each write. */
+  /**
+   * Forget every loaded row in every open scope. Call from each write; a loader
+   * with `perOperation` also from each commit of a write (see the file header).
+   */
   invalidate(): void
 }
 
@@ -48,6 +77,12 @@ export interface OperationLoaderOptions<V> {
    * get, pass a copy function so one caller cannot change another's answer.
    */
   readonly copy?: (value: V) => V
+  /**
+   * Memoise for the whole operation, write spans included (see the file
+   * header). Only for rows whose EVERY write calls
+   * {@link OperationLoader.invalidate}, after the write and after its commit.
+   */
+  readonly perOperation?: boolean
 }
 
 /**
@@ -63,11 +98,8 @@ export function operationLoader<K, V>(
   let version = 0
   // The slot holds a mutable box: a slot's value is created once per scope, and
   // a write must be able to replace the loader inside a scope that stays open.
-  const slot = readScopeSlot<{ version: number; loader: DataLoader<K, V | undefined> | null }>(
-    () => ({ version, loader: null }),
-  )
-  const loader = (): DataLoader<K, V | undefined> => {
-    const held = currentReadScope().slot(slot)
+  type Held = { version: number; loader: DataLoader<K, V | undefined> | null }
+  const fresh = (held: Held): DataLoader<K, V | undefined> => {
     if (held.loader !== null && held.version === version) return held.loader
     held.version = version
     held.loader = new DataLoader<K, V | undefined>(
@@ -79,25 +111,135 @@ export function operationLoader<K, V>(
     )
     return held.loader
   }
+  const slot = readScopeSlot<Held>(() => ({ version, loader: null }))
   const copy = options.copy ?? ((value: V) => value)
   const out = (value: V | undefined) => (value === undefined ? undefined : copy(value))
+
+  if (!options.perOperation) {
+    return {
+      async load(key) {
+        return out(await fresh(currentReadScope().slot(slot)).load(key))
+      },
+      async loadMany(keys) {
+        const distinct = [...new Set(keys)]
+        const values = await fresh(currentReadScope().slot(slot)).loadMany(distinct)
+        const result = new Map<K, V | undefined>()
+        distinct.forEach((key, index) => {
+          const value = values[index]
+          if (value instanceof Error) throw value
+          result.set(key, out(value))
+        })
+        return result
+      },
+      invalidate() {
+        version += 1
+      },
+    }
+  }
+
+  // PER OPERATION. Two layers, and keeping them apart is what makes it safe.
+  // ANSWERS are shared: the operation's memo (or the read scope's, or a span
+  // unit's when neither is open) keeps each RESOLVED answer at the version it
+  // was read at. FETCHES are not: a miss goes out through a DataLoader owned by
+  // the EXECUTION CONTEXT it runs in: the transaction unit of any lane (or, once
+  // a write unit has written these rows, the frame), the post-commit drain, or,
+  // at the root, the memo's own. A DataLoader dispatches its batch in the
+  // context of the FIRST caller, so one shared across contexts runs a second
+  // caller's keys in the first caller's context: inside a span that may be
+  // closed by then, or at the root while the second caller holds the lease the
+  // root statement waits for, which deadlocks until the store closes (POD-6189
+  // hit both in one host sample).
+  type Memo = { version: number; answers: Map<K, V | undefined>; held: Held }
+  const newMemo = (): Memo => ({ version, answers: new Map(), held: { version, loader: null } })
+  const memoSlot = readScopeSlot<Memo>(newMemo)
+  const operationMemo = operationSlot<Memo>(newMemo)
+  // Keyed weakly by the unit or frame that owns them, so an ended span's go
+  // with it; and the units that have written these rows.
+  const spans = new WeakMap<object, Memo>()
+  const written = new WeakSet<TransactionUnit>()
+  const memoOn = (owner: object): Memo => {
+    const held = spans.get(owner)
+    if (held) return held
+    const opened = newMemo()
+    spans.set(owner, opened)
+    return opened
+  }
+  const current = (memo: Memo): Memo => {
+    if (memo.version !== version) {
+      memo.version = version
+      memo.answers.clear()
+    }
+    return memo
+  }
+  // Where this call's answers are shared and its misses fetched, resolved ONCE
+  // per call: outside every scope a read scope is fresh per ask, and resolving
+  // it per key would split one call's batch into a statement per key.
+  type Context = { shared: Memo | undefined; fetcher: Held }
+  const context = (): Context => {
+    const frame = openSpanFrame()
+    if (frame && written.has(frame.unit)) {
+      // After the span's own write: this frame only, gone if it rolls back.
+      return { shared: undefined, fetcher: current(memoOn(frame)).held }
+    }
+    const operation = currentOperation()
+    const shared = current(
+      operation
+        ? operation.slot(operationMemo)
+        : frame && !inExplicitReadScope()
+          ? memoOn(frame.unit)
+          : currentReadScope().slot(memoSlot),
+    )
+    const scope = currentScope()
+    const fetcher =
+      scope.kind === 'transaction' ? current(memoOn(scope.frame.unit)).held
+        : scope.kind === 'post-commit' ? current(memoOn(scope)).held
+          : shared.held
+    return { shared, fetcher }
+  }
+  const loadOne = async ({ shared, fetcher }: Context, key: K): Promise<V | undefined> => {
+    if (shared?.answers.has(key)) return shared.answers.get(key)
+    const askedAt = version
+    const value = await fresh(fetcher).load(key)
+    // Kept only if nothing was written meanwhile: then it is still the answer.
+    if (shared && version === askedAt && shared.version === askedAt) shared.answers.set(key, value)
+    return value
+  }
   return {
     async load(key) {
-      return out(await loader().load(key))
+      return out(await loadOne(context(), key))
     },
+    // A caller that knows its set needs no tick to collect it: the memo answers
+    // what it holds and the misses go out NOW, as one statement per
+    // `maxBatchSize`, in the caller's own context. Deferring them to the next
+    // tick, as DataLoader does, let a writer queue for the lease in between, and
+    // a root read queued behind a writer that waits on it never runs (POD-6189).
     async loadMany(keys) {
+      const { shared } = context()
       const distinct = [...new Set(keys)]
-      const values = await loader().loadMany(distinct)
       const result = new Map<K, V | undefined>()
-      distinct.forEach((key, index) => {
-        const value = values[index]
-        if (value instanceof Error) throw value
-        result.set(key, out(value))
+      const misses = distinct.filter((key) => {
+        if (!shared?.answers.has(key)) return true
+        result.set(key, shared.answers.get(key))
+        return false
       })
-      return result
+      const askedAt = version
+      const size = options.maxBatchSize ?? 500
+      for (let at = 0; at < misses.length; at += size) {
+        const chunk = misses.slice(at, at + size)
+        const found = await batch(chunk)
+        for (const key of chunk) result.set(key, found.get(key))
+      }
+      if (shared && version === askedAt && shared.version === askedAt) {
+        for (const key of misses) shared.answers.set(key, result.get(key))
+      }
+      return new Map(distinct.map((key) => [key, out(result.get(key))] as const))
     },
     invalidate() {
       version += 1
+      // A write inside a span: its later reads must not reach a memo that
+      // outlives a rollback. A commit's call runs after the span: no frame.
+      const frame = openSpanFrame()
+      if (frame) written.add(frame.unit)
     },
   }
 }

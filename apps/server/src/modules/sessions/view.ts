@@ -215,7 +215,9 @@ export class SessionView {
         kind === 'issue' ? (s.issueId ? [s.issueId] : []) : (!s.issueId ? [s.sessionId] : []),
       ))]
       if (!resources.length) continue
-      const edges = await this.ports.store.grants.listForResources(kind, resources)
+      // Through the operation's loader (POD-6189): the access check before a
+      // session write and the reprojections after it ask about the same session.
+      const edges = await this.ports.store.grants.loadForResources(kind, resources)
       for (const id of resources) grants.set(`${kind}:${id}`, granteesOf(edges.get(id) ?? []))
     }
     const paths = new Set(sessions.flatMap(s => {

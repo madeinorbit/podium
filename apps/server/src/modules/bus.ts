@@ -18,6 +18,7 @@ import type { AgentObservation, MetadataChange, SessionOpenUrlMessage } from '@p
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { runAtRoot } from '../store/executor/context'
 import { afterCommit } from '../store/executor/executor'
+import { holdOperation } from '../store/executor/operation-scope'
 import type { InboxPrincipalReference } from './sessions/inbox'
 import type { HarnessErrorKind } from './superagent/harness-error'
 
@@ -260,9 +261,11 @@ export class EventBus {
       runAtRoot(() => {
         for (const listener of listeners) {
           try {
-            void Promise.resolve(listener(payload)).catch((err) =>
+            const reaction = Promise.resolve(listener(payload)).catch((err) =>
               log.warn('event listener rejected', { err, event }),
             )
+            // A reaction finishes handling the operation that emitted (POD-6189).
+            holdOperation(reaction)
           } catch (err) {
             log.warn('event listener threw', { err, event })
           }

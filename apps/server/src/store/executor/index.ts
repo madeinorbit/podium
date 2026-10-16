@@ -103,6 +103,13 @@ export {
   operationLoader,
 } from './operation-loader'
 export {
+  currentOperation,
+  type OperationScope,
+  type OperationSlotKey,
+  operationSlot,
+  withOperation,
+} from './operation-scope'
+export {
   currentReadScope,
   inExplicitReadScope,
   type ReadScope,

@@ -127,10 +127,12 @@ describe('grant reads answer what the writes say', () => {
     model.remove('issue', 'iss_edge', users[4]!, 'read')
     await expectAnswers(store, ids, model)
 
-    // Inside a write span reads are live: the revocation denies at once, and
-    // the rollback leaves nothing behind in any reader.
+    // Inside a write span the loader memoises per span (POD-6189), and the
+    // revocation still denies at once, though the edge was read (and memoised)
+    // first; the rollback leaves nothing behind in any reader.
     await expect(
       store.transact(async () => {
+        expect(normal(await store.grants.loadForResource('issue', 'iss_edge'))).toEqual(normal(model.edges('issue', 'iss_edge')))
         await store.grants.remove('issue', 'iss_edge', users[1]!, 'read')
         const without = model.edges('issue', 'iss_edge')
           .filter((row) => !(row.grantee === users[1] && row.verb === 'read'))

@@ -11,7 +11,13 @@ import { SessionRegistry } from './relay'
 import type { SessionStore } from './store'
 import { attachHostDaemon } from './test-support/host-daemon'
 import { openTestStore } from './test-support/open-test-store'
-import { expectConstantStatements, quietShipping, type StatementPin } from './test-support/statement-count'
+import {
+  expectConstantStatements,
+  type PinnedCounts,
+  quietShipping,
+  type StatementPin,
+  type StatementTally,
+} from './test-support/statement-count'
 
 // RE-PINNED AFTER C1 (POD-6183; measured per commit on the polaris VM). Each
 // frame now reads grants from the `grants` table where the world index held a
@@ -21,6 +27,37 @@ import { expectConstantStatements, quietShipping, type StatementPin } from './te
 // Neither depends on the number of sessions. The step that answers "which
 // issue owns this folder" with one indexed query (POD-6155 step 5) adds that
 // query once to every frame that resolves its session's issue: +1.
+//
+// RE-PINNED FOR B6 (POD-6189), measured on the polaris VM. A frame is one
+// operation now (`store/executor/operation-scope.ts`), holding the post-commit
+// effects and bus reactions it starts, and the grants loader memoises for the
+// whole of it: the projection inside the frame's write span, the session-owner
+// check and the reprojections after it, and the publication read a resource's
+// grants ONCE. Frames drop by the repeats, against the integration tip they
+// were rebased on (e1db4b96b6, whose C3 dedup against stored rows adds one
+// statement per commit and was not re-pinned there): agentObservation 13 -> 12,
+// transcriptDelta 11 -> 10, runtimeEvent 39 -> 35, agentExit 28 -> 26,
+// agentObservationRebind 21 -> 20, agentState 32 -> 28, runtimeEvent binding
+// 29 -> 27; flushActivity is C3's 4. `expectGrantReads` pins one read per
+// resource: the binding's second is the runtime board projection, a drain that
+// serves several frames and runs each record as its own operation.
+
+/**
+ * Reads of the `grants` table in one tally [POD-6189]. Statement keys keep
+ * their table since POD-6189, so a cut builder select still says `FROM "grants"`.
+ */
+const grantReads = (tally: StatementTally): number =>
+  [...tally.byQuery].reduce((n, [key, count]) => (/^select\b.*\bfrom "grants"/i.test(key) ? n + count : n), 0)
+
+/**
+ * A frame reads each resource's grants at most once [POD-6189]: its access
+ * checks go through the per-operation loader, inside its write spans too, so
+ * `resources` is the number of distinct resources the frame's work checks.
+ */
+const expectGrantReads = (counts: PinnedCounts, resources: number): void => {
+  expect(grantReads(counts.small), 'grant reads at the small size').toBe(resources)
+  expect(grantReads(counts.large), 'grant reads at the large size').toBe(resources)
+}
 
 interface Fixture {
   store: SessionStore
@@ -107,10 +144,11 @@ const pin = (name: string, run: (f: Fixture, size: number) => Promise<unknown>):
 
 describe('daemon frames: pinned statement counts at 5 and 200', () => {
   it('agentFrame (terminal output) touches no table; activity is flushed later', async () => {
-    await expectConstantStatements(
+    const counts = await expectConstantStatements(
       pin('agentFrame', async (f) => await route(f, { type: 'agentFrame', sessionId: f.ids[0], seq: 0, data: 'QQ==' })),
       0,
     )
+    expectGrantReads(counts, 0)
   })
 
   it('agentObservation (idle snapshot) of one session among many', async () => {
@@ -119,12 +157,13 @@ describe('daemon frames: pinned statement counts at 5 and 200', () => {
       12,
     )
     expect(counts.small.statements).toBeGreaterThan(0)
+    expectGrantReads(counts, 1)
   })
 
   // The echo confirmation behind this frame reads its rows together; that loop is
   // pinned where it runs, in modules/messages/transcript-echo.statement-count.test.ts.
   it('transcriptDelta with as many user items as the size', async () => {
-    await expectConstantStatements(
+    const counts = await expectConstantStatements(
       pin('transcriptDelta', async (f, size) =>
         await route(f, {
           type: 'transcriptDelta',
@@ -140,10 +179,11 @@ describe('daemon frames: pinned statement counts at 5 and 200', () => {
       ),
       10,
     )
+    expectGrantReads(counts, 1)
   })
 
   it('runtimeEvent (contract session start) of one session among many', async () => {
-    await expectConstantStatements(
+    const counts = await expectConstantStatements(
       {
         ...pin('runtimeEvent', async (f) =>
           await route(f, {
@@ -163,8 +203,9 @@ describe('daemon frames: pinned statement counts at 5 and 200', () => {
         ),
         setup: async (size) => await fixture(size, true),
       },
-      38,
+      35,
     )
+    expectGrantReads(counts, 1)
   })
 
   // Every busy session is written in one commit [POD-6175]: one many-row
@@ -172,7 +213,7 @@ describe('daemon frames: pinned statement counts at 5 and 200', () => {
   // change is appended: output counters live in the row, not in the session's
   // wire meta, so every change dedups away.
   it('activity flush after output on every session', async () => {
-    await expectConstantStatements(
+    const counts = await expectConstantStatements(
       {
         ...pin('flushActivity', async (f) => await f.reg.modules.sessions.flushActivity()),
         setup: async (size) => {
@@ -181,8 +222,9 @@ describe('daemon frames: pinned statement counts at 5 and 200', () => {
           return f
         },
       },
-      3,
+      4,
     )
+    expectGrantReads(counts, 1)
   })
 })
 
@@ -192,15 +234,16 @@ describe('daemon frames: pinned statement counts at 5 and 200', () => {
 // check in the daemon lifecycle and the binding gate), so it reads twice.
 describe('daemon frames that read an observation checkpoint: pinned at 5 and 200', () => {
   it('agentExit of the fenced observer', async () => {
-    await expectConstantStatements(
+    const counts = await expectConstantStatements(
       pin('agentExit', async (f) =>
         await route(f, { type: 'agentExit', sessionId: f.ids[0], code: 0, observerGeneration: 1 })),
-      27,
+      26,
     )
+    expectGrantReads(counts, 1)
   })
 
   it('agentObservationRebind onto a new provider thread', async () => {
-    await expectConstantStatements(
+    const counts = await expectConstantStatements(
       pin('agentObservationRebind', async (f) =>
         await route(f, {
           type: 'agentObservationRebind',
@@ -215,10 +258,11 @@ describe('daemon frames that read an observation checkpoint: pinned at 5 and 200
         })),
       20,
     )
+    expectGrantReads(counts, 1)
   })
 
   it('agentObserverLiveConfirmation without a terminal fence', async () => {
-    await expectConstantStatements(
+    const counts = await expectConstantStatements(
       pin('agentObserverLiveConfirmation', async (f) =>
         await route(f, {
           type: 'agentObserverLiveConfirmation',
@@ -233,17 +277,19 @@ describe('daemon frames that read an observation checkpoint: pinned at 5 and 200
         })),
       1,
     )
+    expectGrantReads(counts, 0)
   })
 
   it('agentState (legacy, unfenced) of one session among many', async () => {
-    await expectConstantStatements(
+    const counts = await expectConstantStatements(
       pin('agentState', async (f) => await route(f, { type: 'agentState', sessionId: f.ids[0], state: idle })),
-      31,
+      28,
     )
+    expectGrantReads(counts, 1)
   })
 
   it('runtimeEvent binding of a contract session', async () => {
-    await expectConstantStatements(
+    const counts = await expectConstantStatements(
       {
         ...pin('runtimeEvent binding', async (f) =>
           await route(f, {
@@ -268,5 +314,6 @@ describe('daemon frames that read an observation checkpoint: pinned at 5 and 200
       },
       27,
     )
+    expectGrantReads(counts, 2)
   })
 })

@@ -53,6 +53,7 @@ import { asMachineId, type MachineId } from '@podium/model'
 import type { DaemonPtyOutputBatch, MachinePrincipal } from '@podium/protocol'
 import { asCapabilityRef, asDeviceId } from '@podium/protocol'
 import type { DaemonMessage } from '@podium/protocol/daemon'
+import { withOperation } from '../store/executor/operation-scope'
 import {
   type DaemonPortId,
   daemonPlaneClassFor,
@@ -370,7 +371,10 @@ export class DaemonMux {
     ) => void | Promise<void>
     // Production ingress deliberately does not wait. Return the catch-handled
     // completion so tests can observe handler effects without timers or polling.
-    const routed = Promise.resolve(dispatch(this.deps.ports, principal, msg))
+    // One frame is one operation: memos that opt in (the grants loader) answer
+    // a row once for all its phases, before, inside and after its write spans
+    // (POD-6189, `store/executor/operation-scope.ts`).
+    const routed = Promise.resolve(withOperation(() => dispatch(this.deps.ports, principal, msg)))
     return routed.catch((err: unknown) => {
       log.error('a daemon frame handler failed', { frameType: msg.type, err })
     })

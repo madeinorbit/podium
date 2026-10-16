@@ -141,8 +141,21 @@ export async function followUpAfterCommit(step: PostCommitStep, label: string): 
  * wait for.
  */
 export function spanOpen(): boolean {
+  return openSpanFrame() !== undefined
+}
+
+/**
+ * The frame of the open write span {@link spanOpen} answers about, or undefined.
+ *
+ * The innermost one: a savepoint is its own frame. That is what lets a memo
+ * keyed on it die with a savepoint that rolls back, while its parent's memo
+ * survives (`operation-loader.ts`, POD-6189).
+ */
+export function openSpanFrame(): TransactionFrame | undefined {
   const scope = currentScope()
   return scope.kind === 'transaction' && scope.frame.lane !== 'read' && addressable(scope.frame)
+    ? scope.frame
+    : undefined
 }
 
 /**

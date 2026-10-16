@@ -75,6 +75,11 @@ async function fixture(size: number, quiet: boolean): Promise<Fixture> {
     live.terminal.inputAtMs_ = at
     live.terminal.outputAtMs_ = at
   })
+  // Let the binds' unawaited reactions finish before the sample is counted
+  // (POD-6189): their reads used to land in the counted window or not
+  // depending on how fast setup ran, which made 8 and 49 below include setup.
+  for (let i = 0; i < 20; i++) await new Promise((resolve) => setImmediate(resolve))
+  await new Promise((resolve) => setTimeout(resolve, 50))
   return { store, reg, ids }
 }
 
@@ -111,13 +116,21 @@ const pin = (
 // grants from the `grants` table (backstop +4) and pending mail counts in SQL
 // (steady +1, backstop +3), where the world index held copies. None depends on
 // the number of shells.
+//
+// RE-PINNED FOR B6 (POD-6189), measured on the polaris VM. The fixture now lets
+// the binds' unawaited reactions finish before the sample is counted; before,
+// their reads fell inside the window (base with that settle: steady 8 -> 6,
+// backstop 49 -> 47). The backstop then reads grants once per resource through
+// the grants loader, where it read one retired shell's twice: 47 -> 46. C3's
+// dedup against stored rows (e1db4b96b6) adds one statement to each of the
+// retirement's two commits: 48.
 describe('host sample: pinned statement counts at 5 and 200 live shells', () => {
   it('a sample with nothing to retire', async () => {
     await expectConstantStatements(
       pin('host sample (steady)', false, async (f) => {
         expect((await f.store.sessions.loadSessions()).map((s) => s.id).sort()).toEqual([...f.ids].sort())
       }),
-      8,
+      6,
     )
   })
 
@@ -154,7 +167,7 @@ describe('host sample: pinned statement counts at 5 and 200 live shells', () => 
           .poll(async () => (await f.store.sessions.loadSessions()).some((s) => s.id === f.ids.at(-1)))
           .toBe(false)
       }),
-      49,
+      48,
     )
   })
 })
