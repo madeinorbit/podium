@@ -427,6 +427,9 @@ export class IssueStore {
    * this write just committed. See {@link StaleIssueRevisionError}.
    */
   private readonly draftOrigins = new WeakMap<IssueRow, number | null>()
+  /** Where each draft's issue had its worktree when the draft was cut (or
+   *  last committed), so a write can tell that it moved one (POD-6158). */
+  private readonly draftWorktrees = new WeakMap<IssueRow, string | null>()
 
   /** A draft of the committed row for `id`, or undefined when there is none. */
   async draft(id: string): Promise<IssueRow | undefined> {
@@ -506,6 +509,7 @@ export class IssueStore {
         : {}),
     }
     this.draftOrigins.set(copy, committed.revision ?? null)
+    this.draftWorktrees.set(copy, worktreeOf(committed))
     return copy
   }
 
@@ -514,7 +518,35 @@ export class IssueStore {
    *  overwriting the first. */
   registerNewDraft(row: IssueRow): IssueRow {
     this.draftOrigins.set(row, null)
+    this.draftWorktrees.set(row, null)
     return row
+  }
+
+  /** Where this row's issue had its worktree before the write in flight: the
+   *  draft's record, or, for a row that was not drafted, the database's. */
+  private async worktreeBefore(row: IssueRow): Promise<string | null> {
+    const drafted = this.draftWorktrees.get(row)
+    if (drafted !== undefined) return drafted
+    const current = await this.deps.store.issues.getIssueLive(row.id)
+    return current ? worktreeOf(current) : null
+  }
+
+  /**
+   * Announce that a write in this span moved an issue's worktree (POD-6158,
+   * for POD-6160's message routing). The hook runs after the OUTERMOST commit,
+   * so a write that rolls back announces nothing. Nothing when the worktree
+   * did not change.
+   */
+  announceWorktreeMove(issueId: IssueId, previous: string | null, next: string | null): void {
+    const hook = this.deps.onIssueWorktreeMoved
+    if (!hook || previous === next) return
+    afterCommit(async () => {
+      try {
+        hook({ issueId, previousWorktreePath: previous, worktreePath: next })
+      } catch (err) {
+        log.warn('issue worktree move announcement failed', { issueId, err })
+      }
+    }, 'issue-worktree-moved')
   }
 
   /** The revision this row was drafted from, or undefined when the caller built
@@ -574,7 +606,10 @@ export class IssueStore {
     // that is three writes stale. If the enclosing span then rolls back, the pin
     // is ahead of the restored row and the draft's NEXT write is refused by its
     // own precondition — fail-closed, which is the safe direction.
-    if (pin !== undefined) this.draftOrigins.set(row, row.revision ?? null)
+    if (pin !== undefined) {
+      this.draftOrigins.set(row, row.revision ?? null)
+      this.draftWorktrees.set(row, worktreeOf(row))
+    }
   }
 
   /** Explicit hydration, run by `IssueService.create` before any reader exists
@@ -1444,10 +1479,12 @@ export class IssueStore {
       await this.deps.ledger.commit({
         write: async () => {
           await extraWrite?.()
+          const worktreeWas = await this.worktreeBefore(row)
           await this.deps.store.issues.upsertIssue(
             row,
             pin === undefined ? undefined : { expectedRevision: pin },
           )
+          this.announceWorktreeMove(row.id, worktreeWas, worktreeOf(row))
           // The projection depends only on the committed draft and its labels.
           const committedWire = await this.projection(row)
           committedProjectionChanges = await this.companionChanges(row, committedWire)
@@ -1523,10 +1560,12 @@ export class IssueStore {
           result = await write()
           for (const row of rows) {
             const pin = pins.get(row.id)
+            const worktreeWas = await this.worktreeBefore(row)
             await this.deps.store.issues.upsertIssue(
               row,
               pin === undefined ? undefined : { expectedRevision: pin },
             )
+            this.announceWorktreeMove(row.id, worktreeWas, worktreeOf(row))
           }
           wires = await Promise.all(rows.map((row) => this.projection(row)))
           committedProjectionChanges = await Promise.all(
@@ -1631,4 +1670,10 @@ function byCodePoint(a: string, b: string): number {
 /** Truth rows in id order, so the old/new comparison ignores append order. */
 function byId<T extends { id: string }>(rows: readonly T[]): T[] {
   return [...rows].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+}
+
+/** Where an issue's worktree is, for the move announcement: a deleted issue
+ *  has none (POD-6158). */
+export function worktreeOf(row: Pick<IssueRow, 'worktreePath' | 'deletedAt'>): string | null {
+  return row.deletedAt ? null : (row.worktreePath ?? null)
 }

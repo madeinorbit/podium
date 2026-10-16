@@ -1270,6 +1270,7 @@
         "src/modules/issues/service/types.ts",
         "src/modules/issues/service/workflow.ts",
         "src/modules/issues/service/worktree-gc.ts",
+        "src/modules/issues/service/worktree-moved.test.ts",
         "src/modules/issues/service/worktree-safety.ts",
         "src/modules/issues/trpc.ts",
         "src/modules/layout/authz.test.ts",

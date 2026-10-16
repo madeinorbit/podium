@@ -335,6 +335,13 @@ export interface IssueDeps {
    * Best-effort: the call site swallows a throw.
    */
   onIssueCreated?(event: { issueId: IssueId; title: string; ownerUserId: UserId }): void
+  /**
+   * A committed write changed an issue's worktree (set, moved, cleared, or the
+   * issue deleted or restored with one; a deleted issue has none). Called after
+   * the outermost commit, never for a write that rolled back (POD-6158, for
+   * POD-6160's message routing).
+   */
+  onIssueWorktreeMoved?(event: { issueId: IssueId; previousWorktreePath: string | null; worktreePath: string | null }): void
   /** Shell lifetime verbs for the worktree-free trigger (POD-4525). The free
    *  removes the dock mapping, then parks/kills each freed shell per the same
    *  rule the stop path uses (teardown inputs with worktreeFreed true). Live

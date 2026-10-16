@@ -2072,6 +2072,7 @@ export class SessionRegistry {
       funnel,
       ledger: issueArbitration.ledger,
       onIssueCreated: (event) => this.bus.emit('issue.created', event),
+      onIssueWorktreeMoved: (event) => this.bus.emit('issue.worktreeMoved', event),
       onIssueClosed: async (input) => await stopClosedIssue?.(input),
     })
     const applySessionDerived = async (event: EventMap['issue.sessionDerived']): Promise<void> => {

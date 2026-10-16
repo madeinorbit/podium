@@ -121,6 +121,8 @@ export interface EventMap {
    * cleared) (POD-6160). Mail routing asks which sessions sit under the OLD
    * path as well as the new one: an unattached session under the old path was
    * this issue's member and now belongs to another issue or none.
+   * A delete or restore counts as a move: a deleted issue has no worktree.
+   * The issue service emits it after the outermost commit (POD-6158).
    */
   'issue.worktreeMoved': {
     issueId: IssueId

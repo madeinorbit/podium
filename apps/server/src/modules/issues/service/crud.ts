@@ -33,7 +33,7 @@ import type { IssueRow } from '../../../store'
 import { afterCommit, followUpAfterCommit, spanOpen } from '../../../store/executor/executor'
 import { type StoredIssue, toStorage } from '../../../store/issue-storage'
 import { readIssue } from '../issue-reader'
-import type { IssueStore } from './core'
+import { type IssueStore, worktreeOf } from './core'
 import { compareWithIssueMap } from './map-parity'
 import { IssueNotFound } from './not-found'
 import { IssueRefusal } from './refusal'
@@ -1629,6 +1629,7 @@ export class IssueCrudModule {
         await this.store.deps.store.issues.upsertIssue(row, {
           expectedRevision: current.revision ?? null,
         })
+        this.store.announceWorktreeMove(row.id, worktreeOf(current), worktreeOf(row))
         // THE EVENT APPEND IS A DURABLE WRITE, SO IT RIDES THIS TRANSACTION
         // [POD-3505]. It used to sit in `apply()` behind an `await`, and
         // `apply()` is called from a SYNCHRONOUS commit-application callback
@@ -1667,7 +1668,7 @@ export class IssueCrudModule {
    *  and never reaches this method. */
   async purgeEmptyDraft(ref: string): Promise<void> {
     const id = await this.store.resolveRef(ref)
-    await this.store.rowOrThrow(id)
+    const purged = await this.store.rowOrThrow(id)
     await this.store.deps.ledger.commit({
       write: async () => {
         // Explicit draft rehome detaches every session it can SEE before calling
@@ -1678,6 +1679,7 @@ export class IssueCrudModule {
         // a half-deleted issue must never be observable.
         await this.store.deps.store.sessions.detachTombstonesFromIssue(id)
         await this.store.deps.store.issues.deleteIssue(id)
+        this.store.announceWorktreeMove(purged.id, worktreeOf(purged), null)
       },
       changes: () => [{ entity: 'issueProjection', id, op: 'remove' }],
     })
@@ -1767,6 +1769,7 @@ export class IssueCrudModule {
         await this.store.deps.store.issues.upsertIssue(row, {
           expectedRevision: current.revision ?? null,
         })
+        this.store.announceWorktreeMove(row.id, worktreeOf(current), worktreeOf(row))
         // Same as prepareSoftDelete, in the other direction: the append is a
         // durable write and belongs inside the span [POD-3505].
         await this.store.deps.store.events.appendEvent({
