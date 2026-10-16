@@ -289,4 +289,35 @@ describe('SessionsRepository.loadSession', () => {
       })
     })
   })
+
+  // POD-6197. The read scope's one DataLoader took a root load and a span's load
+  // of the same tick into one batch, dispatched at the root. That statement
+  // waits for the lease the span holds, and the span waits for the batch: both
+  // hung until the store closed ("scheduler is draining").
+  it('a root load and a span load of the same tick neither share a batch nor deadlock', async () => {
+    await withStore(async (store) => {
+      await store.sessions.upsertSession(session('s1'))
+      await store.sessions.upsertSession(session('s2'))
+      const loads = withReadScope(async () =>
+        await Promise.all([
+          store.sessions.loadSession(asSessionId('s1')).then((row) => row?.id),
+          store.transact(async () => (await store.sessions.loadSession(asSessionId('s2')))?.id),
+          store.transact(async () => (await store.sessions.loadSession(asSessionId('s1')))?.id),
+        ]))
+      expect(await withinSeconds(loads, 5)).toEqual(['s1', 's2', 's1'])
+    })
+  })
 })
+
+/** `work`, or a rejection naming the hang once `seconds` have passed. */
+async function withinSeconds<T>(work: Promise<T>, seconds: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const hung = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`still waiting after ${seconds} s: deadlocked`)), seconds * 1000)
+  })
+  try {
+    return await Promise.race([work, hung])
+  } finally {
+    clearTimeout(timer)
+  }
+}

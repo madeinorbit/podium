@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { currentScope, runInScope, type StoreScope } from './context'
 import { operationLoader } from './operation-loader'
 import { withReadScope } from './read-scope'
 
@@ -94,6 +95,58 @@ describe('operationLoader', () => {
       first!.name = 'changed by one caller'
       expect(await loader.load('a')).toEqual({ name: 'a' })
     })
+  })
+
+  // POD-6197. A DataLoader runs its batch in the context of the batch's FIRST
+  // load, so one batch shared by a root read and a span read ran the span's
+  // keys at the root (or the root's inside the span). Each context fetches its
+  // own misses, in its own context; the answers are still shared.
+  it('never puts loads from two execution contexts in one batch', async () => {
+    const batches: { keys: string[]; scope: StoreScope }[] = []
+    const loader = operationLoader<string, string>(async (keys) => {
+      batches.push({ keys: [...keys], scope: currentScope() })
+      return new Map(keys.map((key) => [key, key]))
+    })
+    // Only what the loader reads of a scope: a span's unit, a drain's identity.
+    const span = () => ({ kind: 'transaction', frame: { unit: {} } }) as unknown as StoreScope
+    const first = span()
+    const second = span()
+    const drain = { kind: 'post-commit' } as unknown as StoreScope
+    await withReadScope(async () => {
+      await Promise.all([
+        loader.load('root'),
+        runInScope(first, () => loader.load('first-a')),
+        runInScope(second, () => loader.load('second')),
+        runInScope(first, () => loader.load('first-b')),
+        runInScope(drain, () => loader.load('drain')),
+      ])
+      expect(batches.map(({ keys, scope }) => [keys, scope.kind])).toEqual([
+        [['root'], 'root'],
+        [['first-a', 'first-b'], 'transaction'],
+        [['second'], 'transaction'],
+        [['drain'], 'post-commit'],
+      ])
+      expect(batches[1]!.scope).toBe(first)
+      expect(batches[2]!.scope).toBe(second)
+      expect(batches[3]!.scope).toBe(drain)
+      // The answers are the read scope's, whichever context read them.
+      await runInScope(span(), async () => {
+        expect(await loader.load('first-a')).toBe('first-a')
+        expect(await loader.loadMany(['root', 'drain'])).toEqual(new Map([['root', 'root'], ['drain', 'drain']]))
+      })
+      expect(await loader.load('second')).toBe('second')
+    })
+    expect(batches).toHaveLength(4)
+  })
+
+  it('reuses nothing across loads outside an explicit scope, inside a span too', async () => {
+    const { loader, batches } = tableLoader({ a: { name: 'A' } })
+    const span = { kind: 'transaction', frame: { unit: {} } } as unknown as StoreScope
+    await runInScope(span, async () => {
+      await loader.load('a')
+      await loader.load('a')
+    })
+    expect(batches).toEqual([['a'], ['a']])
   })
 
   it('does not keep a failed batch: the next load asks again', async () => {
