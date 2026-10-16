@@ -4,7 +4,9 @@ import type { WorktreeGcObservation } from '@podium/protocol'
 import type { CommandPrincipal } from '../../../command-principal'
 import { liveSessionsUsingWorktree } from '../../../issue-util'
 import type { IssueRow } from '../../../store'
+import { spanOpen } from '../../../store/executor/executor'
 import type { IssueStore } from './core'
+import { compareWithIssueMap } from './map-parity'
 
 import { parseGitWorktreeList } from './worktree-safety'
 
@@ -117,18 +119,30 @@ export class IssueWorktreeGcModule {
     // promises in `claimed` (so no membership test could ever match, and claimed
     // worktrees would be swept as reclaimable) and would make the machine filter
     // compare a promise to an id — always unequal, dropping every candidate.
+    //
+    // Only issues with a worktree recorded (deleted ones included: their path is
+    // still claimed) are read, in one SQL listing (POD-6194); they used to be
+    // found by scanning the issue map, with a machine resolved for every issue.
+    const withWorktrees = await this.store.deps.store.issues.listIssueRowsWhere({
+      repo: false, readable: false, live: false, hasWorktree: true, order: 'path-seq',
+    })
+    if (!spanOpen()) {
+      compareWithIssueMap('worktreeGc.withWorktrees', null,
+        () => [...this.store.rows.values()].filter((row) => row.worktreePath).map((row) => row.id).sort(),
+        withWorktrees.filter((row) => row.worktreePath).map((row) => row.id).sort())
+    }
     const machineByRow = new Map<IssueId, MachineId>()
-    for (const row of this.store.rows.values()) {
+    for (const row of withWorktrees) {
       machineByRow.set(row.id, await this.store.resolveWorktreeMachine(row.machineId, row.repoPath))
     }
     const rowMachine = (row: IssueRow): MachineId =>
       machineByRow.get(row.id) ?? this.store.deps.store.hostMachineId
     const claimed = new Set<string>()
-    for (const row of this.store.rows.values()) {
+    for (const row of withWorktrees) {
       if (!row.worktreePath) continue
       claimed.add(`${rowMachine(row)}\0${machinePathKey(row.worktreePath!)}`)
     }
-    const candidates = [...this.store.rows.values()]
+    const candidates = withWorktrees
       .filter((row) => this.isCandidate(row, nowMs, afterDays))
       .filter((row) => rowMachine(row) === targetMachineId)
       .filter((row) => liveSessionsUsingWorktree(row.worktreePath, live).length === 0)
@@ -194,7 +208,8 @@ export class IssueWorktreeGcModule {
     ) {
       return { outcome: 'precondition' as const }
     }
-    const row = this.store.rows.get(observed.issueId)
+    // Revalidated against the row as stored now (POD-6194).
+    const row = await this.store.liveRow(observed.issueId)
     if (!row) return { outcome: 'precondition' as const }
     if (row.worktreePath !== observed.worktreePath) return { outcome: 'precondition' as const }
     if (row.stage !== observed.stage || (row.closedReason ?? null) !== observed.closedReason) {

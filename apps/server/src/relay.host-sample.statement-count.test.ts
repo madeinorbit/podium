@@ -124,6 +124,11 @@ const pin = (
 // the grants loader, where it read one retired shell's twice: 47 -> 46. C3's
 // dedup against stored rows (e1db4b96b6) adds one statement to each of the
 // retirement's two commits: 48.
+//
+// RE-PINNED FOR POD-6194 (D1e of the issue map removal), measured on the
+// polaris VM: finding a folder-only session's issue (`issueForSession`, on the
+// retirement's git refresh) scanned the in-memory issue map and is now the
+// indexed folder-owner query, `worktree_path IN (...)`: backstop 48 -> 49.
 describe('host sample: pinned statement counts at 5 and 200 live shells', () => {
   it('a sample with nothing to retire', async () => {
     await expectConstantStatements(
@@ -167,7 +172,7 @@ describe('host sample: pinned statement counts at 5 and 200 live shells', () => 
           .poll(async () => (await f.store.sessions.loadSessions()).some((s) => s.id === f.ids.at(-1)))
           .toBe(false)
       }),
-      48,
+      49,
     )
   })
 })

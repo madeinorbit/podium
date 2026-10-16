@@ -296,6 +296,11 @@ describe('POD-98 git-state service wiring', () => {
     }
     expect(statusCalls).toBe(1)
     await svc.gitWorkflow.recordSessionGitActivity(asSessionId('sess-1'), { commits: ['late-sha'] })
+    // Recording is fire-and-forget and finds the session's issue in the
+    // database (POD-6194): wait until it has asked the active refresh for a
+    // trailing probe, which is the case under test, before the probe settles.
+    const refreshes = (svc.gitWorkflow as unknown as { gitRefreshes: Map<string, { rerun: boolean }> }).gitRefreshes
+    await vi.waitFor(() => expect(refreshes.get(id)?.rerun).toBe(true))
     releaseStatus()
     await initial
 

@@ -214,7 +214,7 @@ export class IssueGitWorkflowModule {
    * renumber the issue into another repo.
    */
   async rehome(id: string, to: IssueRehomeTarget): Promise<IssueProjection | null> {
-    const row = this.store.rows.get(await this.store.resolveRef(id))
+    const row = await this.store.row(await this.store.resolveRef(id))
     if (!row) return null
     if (isIssueStage(row.stage) && isSystemOwnedIssueStage(row.stage)) {
       throw new IssueRefusal('shipping stage is system-owned and cannot rehome issue work')
@@ -273,14 +273,14 @@ export class IssueGitWorkflowModule {
   private async inheritedAgentProfileId(
     row: Pick<IssueRow, 'id' | 'parentId'>,
   ): Promise<string | null> {
-    const rows = this.store.rows
     const seen = new Set<string>([row.id])
-    const chain = (fromId: string): IssueRow[] => {
+    // One row per level, from the database (POD-6194); the depth bounds it.
+    const chain = async (fromId: string): Promise<IssueRow[]> => {
       const found: IssueRow[] = []
       for (
-        let at = rows.get(fromId);
+        let at = await this.store.row(fromId);
         at && !seen.has(at.id);
-        at = at.parentId ? rows.get(at.parentId) : undefined
+        at = at.parentId ? await this.store.row(at.parentId) : undefined
       ) {
         seen.add(at.id)
         if (!at.deletedAt) found.push(at)
@@ -288,12 +288,12 @@ export class IssueGitWorkflowModule {
       return found
     }
     if (row.parentId) {
-      return chain(row.parentId).find((ancestor) => ancestor.agentProfileId)?.agentProfileId ?? null
+      return (await chain(row.parentId)).find((ancestor) => ancestor.agentProfileId)?.agentProfileId ?? null
     }
     const originId = (await this.store.deps.store.issues.listIssueDeps(row.id)).find(
       (dep) => dep.type === 'discovered-from',
     )?.toId
-    return (originId ? chain(originId).at(-1)?.agentProfileId : null) ?? null
+    return (originId ? (await chain(originId)).at(-1)?.agentProfileId : null) ?? null
   }
 
   /**
@@ -1167,7 +1167,7 @@ export class IssueGitWorkflowModule {
         ...(live.issueId ? { issueId: live.issueId } : {}),
       },
     )
-    const ownerRow = ownerIssueId ? this.store.rows.get(ownerIssueId) : undefined
+    const ownerRow = ownerIssueId ? await this.store.row(ownerIssueId) : undefined
     const issueClosed = ownerRow ? this.store.isClosed(ownerRow) : false
     const decision = decideShellLifetime(
       buildShellLifetimeInputs({
@@ -1779,7 +1779,11 @@ export class IssueGitWorkflowModule {
   async onSessionAttention(sessionId: SessionId): Promise<void> {
     const sess = await this.store.d.sessionById(sessionId)
     if (!sess) return
-    for (const row of [...this.store.rows.values()]) {
+    // The live issues carrying a deferral, in one SQL listing (POD-6194).
+    const deferred = await this.store.deps.store.issues.listIssueRowsWhere({
+      repo: false, readable: false, live: true, deferred: true, order: 'path-seq',
+    })
+    for (const row of deferred) {
       if (row.deferUntil !== DEFER_NEXT_MESSAGE || row.deletedAt) continue
       if (sessionsForIssue(row.worktreePath, [sess], row.id).length > 0)
         await this.crud().defer(row.id, null)
@@ -1892,9 +1896,19 @@ export class IssueGitWorkflowModule {
   ): Promise<{ row: IssueRow; sess: SessionMeta } | null> {
     const sess = await this.store.d.sessionById(sessionId)
     if (!sess) return null
-    const row = [...this.store.rows.values()].find(
-      (r) => !r.deletedAt && sessionsForIssue(r.worktreePath, [sess], r.id).length > 0,
-    )
+    // Membership is the session's explicit attachment, or, without one, its
+    // folder inside the issue's worktree (`isIssueMember`): the attached row, or
+    // the indexed folder-owner candidates (POD-6194).
+    let row: IssueRow | undefined
+    if (sess.issueId) {
+      const attached = await this.store.row(sess.issueId)
+      row = attached && !attached.deletedAt ? attached : undefined
+    } else {
+      const owner = (await this.store.deps.store.issues.worktreeOwnerCandidates([sess.cwd])).find(
+        (candidate) => sessionsForIssue(candidate.worktreePath, [sess], candidate.id).length > 0,
+      )
+      row = owner ? await this.store.row(owner.id) : undefined
+    }
     return row ? { row, sess } : null
   }
 
@@ -1925,7 +1939,7 @@ export class IssueGitWorkflowModule {
         changed = (await this.probeGitStateOnce(id, refresh.fallbackCwd)) || changed
       } while (refresh.rerun)
       if (changed) {
-        const current = this.store.rows.get(id)
+        const current = await this.store.row(id)
         if (current && !current.deletedAt) await this.store.broadcastIssue(current)
       }
     })().finally(() => {
@@ -1982,7 +1996,11 @@ export class IssueGitWorkflowModule {
         })
       }
     }
-    for (const row of this.store.rows.values()) {
+    // The live, unarchived issues with a worktree, in one SQL listing (POD-6194).
+    const watched = await this.store.deps.store.issues.listIssueRowsWhere({
+      repo: false, readable: false, live: true, unarchived: true, hasWorktree: true, order: 'path-seq',
+    })
+    for (const row of watched) {
       if (!watchesParentBranch(row)) continue
       addToGroup(row, row.parentBranch)
       // Stacked issue: also watch the landing base, because that is the ref the
@@ -2033,7 +2051,7 @@ export class IssueGitWorkflowModule {
 
   /** Run one coalesced probe and retain its issue's final state for publication. */
   private async probeGitStateOnce(id: string, fallbackCwd?: string): Promise<boolean> {
-    const row = this.store.rows.get(id)
+    const row = await this.store.row(id)
     if (!row || row.deletedAt) return false
     const shared = row.worktreePath === null
     const cwd = row.worktreePath ?? fallbackCwd
