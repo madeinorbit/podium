@@ -25,10 +25,13 @@ import { OPERATOR } from './test-support/capabilities'
 import { attachHostDaemon } from './test-support/host-daemon'
 import { openTestStore } from './test-support/open-test-store'
 import {
+  describeGrowth,
   expectArmed,
   expectConstantStatements,
+  measureAtSizes,
   quietShipping,
   type StatementPin,
+  type StatementTally,
 } from './test-support/statement-count'
 
 type RelayResult = Extract<ControlMessage, { type: 'agentRelayResult' }>
@@ -202,7 +205,9 @@ describe('mail send: pinned statement counts at 5 and 200 (held issue mail: 5 an
   // on the polaris VM for POD-6227 before POD-6219 landed. POD-6229 reads the
   // members once per pass and leaves the machines out of the apply check. At
   // 150: with 200 held, their page of 200 is full and the pass asks for the
-  // next, one statement per page.
+  // next, one statement per page. POD-6218: an account is memoised per
+  // operation, not per read scope, so the pass (an operation of its own) reads
+  // an account the send had already read: 69 -> 70, relay 60 -> 61.
   const heldIssueMail = (name: string, run: (f: Fixture) => Promise<unknown>) => ({
     ...pin(name, run),
     sizes: [5, 150] as const,
@@ -212,7 +217,7 @@ describe('mail send: pinned statement counts at 5 and 200 (held issue mail: 5 an
     await expectConstantStatements(
       heldIssueMail('tRPC messages.send to a session, issue mail held', async (f) =>
         await f.call.messages.send({ to: f.target, body: 'counted' })),
-      69,
+      70,
     )
   })
 
@@ -220,8 +225,36 @@ describe('mail send: pinned statement counts at 5 and 200 (held issue mail: 5 an
     await expectConstantStatements(
       heldIssueMail('relayed messages.send to a session, issue mail held', async (f) =>
         await relay(f, 'send', { to: f.target, body: 'counted' })),
-      60,
+      61,
     )
+  })
+
+  // POD-6218: the pass must read the held mail's sender account once, whatever
+  // the number of held messages from that sender (account reads go through the
+  // per-operation loader). Here the held mail comes from one agent; the pins
+  // above cover the pass's whole count.
+  it('over tRPC, the delivery pass reads the held mail\'s one sender once', async () => {
+    const counts = await measureAtSizes({
+      ...pin(
+        'tRPC messages.send to a session, issue mail from one sender held',
+        async (f) => await f.call.messages.send({ to: f.target, body: 'counted' }),
+        async (size) => {
+          // The held mail comes from one agent: the sender session, relayed.
+          const f = await fixture(size, false)
+          for (let i = 0; i < size; i++) {
+            const sent = await relay(f, 'send', { to: f.issueId, body: `held ${i}` })
+            expect(sent.ok, JSON.stringify(sent.error)).toBe(true)
+          }
+          await settle(f.reg)
+          return f
+        },
+      ),
+      sizes: [5, 150],
+    })
+    const usersReads = (tally: StatementTally) =>
+      [...tally.byQuery].reduce((n, [key, count]) => (/^select\b.*\bfrom "users"/i.test(key) ? n + count : n), 0)
+    expect(usersReads(counts.large), describeGrowth(counts.small, counts.large)).toBe(usersReads(counts.small))
+    expect(usersReads(counts.small)).toBe(HELD_PASS_USERS_READS)
   })
 
   it('over tRPC, to an issue', async () => {
@@ -259,3 +292,6 @@ describe('mail send: pinned statement counts at 5 and 200 (held issue mail: 5 an
     )
   })
 })
+
+// Measured on the polaris VM (POD-6218).
+const HELD_PASS_USERS_READS = 1

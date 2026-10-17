@@ -34,7 +34,8 @@ const readProbe = (store: SessionStore): (() => number) => {
     // occurs. Widened rather than replaced: an unconverted caller still emits the
     // old form and a builder-only matcher would go blind on it. Patch shape from
     // POD-3393, which mutation-checked it against the real file.
-    if (/from\s+"?users"?\s+where\s+(?:"users"\.)?"?id"?\s*=/i.test(observation.sql)) reads += 1
+    // Since POD-6218 the read is the per-operation loader's `id IN (…)` batch.
+    if (/from\s+"?users"?\s+where\s+(?:"users"\.)?"?id"?\s*(?:=|in\s*\()/i.test(observation.sql)) reads += 1
   })
   return () => reads
 }

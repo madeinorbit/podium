@@ -27,9 +27,8 @@ import { and, asc, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm'
 import { clientSessions, grants, memberInvites, settingsAuditEvents, userCredentials, users } from '../migrations/schema'
 import { applyAfterCommit, spanOpen } from './executor/executor'
 import { operationLoader } from './executor/operation-loader'
-import { currentReadScope, readScopeSlot } from './executor/read-scope'
 import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
-import { param, placeholdersFor, prepared, preparedFamily, shapeOf } from './executor/sync-drizzle'
+import { inListOf, inListSize, inListValues, param, placeholdersFor, prepared, preparedFamily, shapeOf } from './executor/sync-drizzle'
 
 // Every query this repository runs, prepared once per store [POD-6147].
 
@@ -47,6 +46,11 @@ import { param, placeholdersFor, prepared, preparedFamily, shapeOf } from './exe
  */
 const accountById = prepared((db: StoreDrizzle) =>
   db.select().from(users).where(eq(users.id, param(users.id, 'id'))).prepare(),
+)
+
+/** The accounts of a set of ids: the per-operation loader's batch [POD-6218]. */
+const accountsByIds = preparedFamily((db: StoreDrizzle, size: number) =>
+  db.select().from(users).where(inListOf(users.id, size)).prepare(),
 )
 
 // Two rows are enough to tell "exactly one" from "more than one".
@@ -305,7 +309,6 @@ export class UsersRepository {
     private readonly grantsRepository = new GrantsRepository(queries),
   ) {
     this.committed = new CommittedRows(queries.createOrJoinTransaction, 'users')
-    this.committed.subscribe(() => { this.accountsVersion += 1 })
     this.rootDb = queries.rootDb
     this.createOrJoinTransaction = queries.createOrJoinTransaction
   }
@@ -316,46 +319,39 @@ export class UsersRepository {
   }
 
   /**
-   * THE FRAME READ CACHE [POD-1931].
+   * THE ACCOUNT READ, ONCE PER OPERATION [POD-1931, POD-6218].
    *
    * Every authorization decision asks who the principal is, so the account read
    * rides the publish fan-out: one event-loop frame was measured issuing 1,221
-   * `SELECT * FROM users WHERE id = ?` statements — against a table holding ONE
-   * row. The answer was identical 1,221 times.
+   * `SELECT * FROM users WHERE id = ?` statements against a table holding ONE
+   * row (POD-1931). That became a read-scope cache (POD-3261); since POD-6218
+   * it is a per-operation loader, like the grants loader: an id asked again in
+   * the same operation (a daemon frame, a tRPC call, a delivery pass), before,
+   * inside or after its write spans, is answered from the operation's memo, and
+   * ids asked in the same tick are one `IN (…)` read. A delivery pass read the
+   * sender's account once per held row (POD-6229).
    *
-   * Repeated reads share a scope cache until a member write commits. The commit
-   * version invalidates older scopes too, so a suspended authentication pass
-   * cannot retain an enabled member after disablement.
-   *
-   * WHAT CHANGED [POD-3261]. The lifetime used to be a `queueMicrotask` — sound
-   * only because a microtask cannot run inside a synchronous turn, which is to
-   * say sound only while the store is synchronous, and dropped by the first
-   * `await` anywhere in the fan-out this exists for. It is a {@link ReadScope}
-   * slot now: a pass opens a scope around itself and the cache lives for the
-   * scope across awaits. Unscoped reads get a fresh cache per read.
-   *
-   * THE ACCOUNT READ IS AN AUTHORIZATION INPUT, and reading it through a slot
-   * is the PER-PASS form of spec rule 18's open question. It is legitimate here
-   * for a reason that does not extend to grants: `create` and `setEmail` both
-   * clear this scope cache, so account reads after either write observe the
-   * committed identity. A caller still gets its own object per call;
-   * `undefined` is cached as an answer too, because "no account" is the verdict
-   * every caller acts on.
+   * THE ACCOUNT READ IS AN AUTHORIZATION INPUT, so the memo must be exact: every
+   * write of `users` below invalidates it after the write and after its commit
+   * ({@link accountsWritten}), so a read after a create, a disable or a profile
+   * write sees it, and a rolled-back span's reads go with it. Outside an
+   * operation and an explicit read scope each call is one live read. A caller
+   * gets its own object per call; "no account" is memoised too, because it is
+   * the verdict every caller acts on.
    */
-  private accountsVersion = 0
-  private readonly accountsSlot = readScopeSlot(() => ({
-    version: this.accountsVersion,
-    accounts: new Map<string, UserAccountRow | undefined>(),
-  }))
-
-  private frameCache(): Map<string, UserAccountRow | undefined> {
-    const cached = currentReadScope().slot(this.accountsSlot)
-    if (cached.version !== this.accountsVersion) {
-      cached.accounts.clear()
-      cached.version = this.accountsVersion
-    }
-    return cached.accounts
-  }
+  private readonly accounts = operationLoader<string, UserAccountRow>(
+    async (ids) => {
+      const size = inListSize(ids.length)
+      const rows = await accountsByIds(this.db, size).all(inListValues(ids, size))
+      const found = new Map<string, UserAccountRow>()
+      for (const row of rows) {
+        const account = userFromRow(row)
+        if (account) found.set(row.id, account)
+      }
+      return found
+    },
+    { copy: (row) => ({ ...row }), perOperation: true },
+  )
 
   /**
    * One account, or `undefined` when there is no row, the row is unreadable, or
@@ -364,27 +360,7 @@ export class UsersRepository {
    * to get wrong is how one of them ends up permissive.
    */
   async get(userId: UserId): Promise<UserAccountRow | undefined> {
-    for (;;) {
-      const cache = this.frameCache()
-      if (cache.has(userId)) {
-        const hit = cache.get(userId)
-        return hit === undefined ? undefined : { ...hit }
-      }
-      const version = this.accountsVersion
-      const account = await this.read(userId)
-      // A read that yielded across a commit must not refill a current cache
-      // with the older member row.
-      if (version !== this.accountsVersion) continue
-      cache.set(userId, account)
-      return account === undefined ? undefined : { ...account }
-    }
-  }
-
-
-  private async read(userId: UserId): Promise<UserAccountRow | undefined> {
-    const r = await accountById(this.db).get({ id: userId })
-    if (!r) return undefined
-    return userFromRow(r)
+    return await this.accounts.load(userId)
   }
 
   /** The account role, or `undefined` for an account that cannot act. */
@@ -416,9 +392,11 @@ export class UsersRepository {
    * is the whole point of retiring the constant.
    */
   async earliestAdmin(): Promise<UserAccountRow | undefined> {
+    const readAt = this.accounts.version
     const account = await this.earliestAdminOfOperation.load(EARLIEST_ADMIN)
-    // Readers that ask for the same member by id next find it in their scope.
-    if (account) this.frameCache().set(account.id, { ...account })
+    // The caller usually asks for this member by id next (its role, its
+    // principal): hand the row to the account loader unless a write came between.
+    if (account) this.accounts.prime(account.id, { ...account }, readAt)
     return account
   }
 
@@ -442,8 +420,13 @@ export class UsersRepository {
 
   /** A `users` write: invalidated after it and, inside a span, after its commit. */
   private accountsWritten(): void {
+    this.accountsInvalidated()
+    if (spanOpen()) applyAfterCommit(() => this.accountsInvalidated(), 'users:account-loaders')
+  }
+
+  private accountsInvalidated(): void {
+    this.accounts.invalidate()
     this.earliestAdminOfOperation.invalidate()
-    if (spanOpen()) applyAfterCommit(() => this.earliestAdminOfOperation.invalidate(), 'users:earliest-admin')
   }
 
   async byEmail(email: string): Promise<UserAccountRow | undefined> {
@@ -456,18 +439,17 @@ export class UsersRepository {
   async setEmail(userId: UserId, email: string): Promise<void> {
     const normalized = LoginEmail.parse(email)
     if (!(await this.get(userId))) throw new Error(`unknown user: ${userId}`)
-    try {
-      await setUserEmail(this.db).run({ id: userId, email: normalized })
-      this.accountsWritten()
-    } finally {
-      currentReadScope().clear(this.accountsSlot)
-    }
+    await setUserEmail(this.db).run({ id: userId, email: normalized })
+    this.accountsWritten()
   }
 
   async list(): Promise<UserAccountRow[]> {
     const rows = await userIdsByCreation(this.db).all()
-    const accounts = await Promise.all(rows.map(async (row) => await this.get(row.id)))
-    return accounts.filter((account): account is UserAccountRow => account !== undefined)
+    const accounts = await this.accounts.loadMany(rows.map((row) => row.id))
+    return rows.flatMap((row) => {
+      const account = accounts.get(row.id)
+      return account ? [account] : []
+    })
   }
 
   /** The only enabled, readable member, or `undefined` when there are none or several. */
@@ -545,34 +527,27 @@ export class UsersRepository {
     account: Omit<UserAccountRow, 'email'> & { email?: string | null },
     passwordHash: string,
   ): Promise<void> {
-    // Account writes drop the scope's cache, so the read after a mint
-    // sees the account rather than the "no account" this scope had cached.
-    currentReadScope().clear(this.accountsSlot)
-    try {
-      await this.createOrJoinTransaction(async () => {
-        ;await this.committed.write(async () => await insertUserReturning(this.db).all({
-            // EXTERNAL INPUT BRAND DECODE: UserAccountRow is the account-import
-            // boundary and deliberately carries its source id as a string.
-            id: asUserId(account.id),
-            displayName: account.displayName,
-            email: account.email == null ? null : LoginEmail.parse(account.email),
-            role: account.role,
-            createdAt: account.createdAt,
-          }), 'upsert')
-        this.accountsWritten()
-        ;await insertCredential(this.db).run({
-            // Same external account id, branded independently for this write.
-            userId: asUserId(account.id),
-            passwordHash,
-            updatedAt: account.createdAt,
-          })
-      })
-    } finally {
-      // And again on the way out — in a `finally`, because the case that needs
-      // it is the ROLLBACK. A read taken inside the transaction would otherwise
-      // outlive it and hold an account that does not exist.
-      currentReadScope().clear(this.accountsSlot)
-    }
+    // The write invalidates the account loaders, so the read after a mint sees
+    // the account rather than a memoised "no account"; a rollback takes what
+    // the span read after it with it (see `accounts`).
+    await this.createOrJoinTransaction(async () => {
+      ;await this.committed.write(async () => await insertUserReturning(this.db).all({
+          // EXTERNAL INPUT BRAND DECODE: UserAccountRow is the account-import
+          // boundary and deliberately carries its source id as a string.
+          id: asUserId(account.id),
+          displayName: account.displayName,
+          email: account.email == null ? null : LoginEmail.parse(account.email),
+          role: account.role,
+          createdAt: account.createdAt,
+        }), 'upsert')
+      this.accountsWritten()
+      ;await insertCredential(this.db).run({
+          // Same external account id, branded independently for this write.
+          userId: asUserId(account.id),
+          passwordHash,
+          updatedAt: account.createdAt,
+        })
+    })
   }
 
   async setPasswordHash(userId: UserId, passwordHash: string, updatedAt: string): Promise<void> {
@@ -594,12 +569,7 @@ export class UsersRepository {
   }
   /** Runs invite consumption and identity writes in the same transaction. */
   async claimTransaction<T>(run: () => Promise<T>): Promise<T> {
-    currentReadScope().clear(this.accountsSlot)
-    try {
-      return await this.createOrJoinTransaction(run)
-    } finally {
-      currentReadScope().clear(this.accountsSlot)
-    }
+    return await this.createOrJoinTransaction(run)
   }
 
   async createUnclaimed(account: UserAccountRow): Promise<void> {
@@ -611,7 +581,6 @@ export class UsersRepository {
       createdAt: account.createdAt,
     })
     this.accountsWritten()
-    currentReadScope().clear(this.accountsSlot)
   }
 
   async findMemberByAccount(accountId: string): Promise<UserAccountRow | undefined> {
@@ -621,19 +590,14 @@ export class UsersRepository {
 
   async writeProfile(userId: UserId, name: string, avatar: string | null): Promise<void> {
     if (!(await this.get(userId))) throw new Error('Member unavailable')
-    try {
-      await setUserProfile(this.db).run({ id: userId, displayName: name, avatar })
-      this.accountsWritten()
-    } finally {
-      currentReadScope().clear(this.accountsSlot)
-    }
+    await setUserProfile(this.db).run({ id: userId, displayName: name, avatar })
+    this.accountsWritten()
   }
 
   async attachAccount(userId: UserId, accountId: string): Promise<void> {
     const result = await claimUserAccount(this.db).run({ id: userId, cloudAccountId: accountId })
     this.accountsWritten()
     if (Number(result.changes) !== 1) throw new Error('Member is already claimed or unavailable')
-    currentReadScope().clear(this.accountsSlot)
   }
 
   async removeMember(userId: UserId, actor: UserId): Promise<void> {

@@ -414,6 +414,76 @@ describe('UsersRepository.earliestAdmin for a whole operation', () => {
   })
 })
 
+// POD-6218 / POD-6229: a delivery pass read the sender's account once per held row.
+describe('UsersRepository.get for a whole operation', () => {
+  const member = (id: string) => ({ id, displayName: id, role: 'member' as const, createdAt: '2026-01-01T00:00:00.000Z', disabledAt: null })
+
+  it('one read before, inside and after its write span; ids of a tick in one read; none shared with the next operation', async () => {
+    await withStore(async (store) => {
+      const admin = asUserId((await store.users.earliestAdmin())!.id)
+      await store.users.create(member('mem_1BBBBBBBBBBBBBBBBBBBBBBBBBB'), 'scrypt:hash')
+      const other = asUserId('mem_1BBBBBBBBBBBBBBBBBBBBBBBBBB')
+      const phases = async () => {
+        const first = await Promise.all([store.users.get(admin), store.users.get(other), store.users.get(asUserId('absent'))])
+        await store.transact(async () => {
+          await store.users.roleOf(admin)
+        })
+        await store.users.get(other)
+        return first.map((account) => account?.id)
+      }
+      const counted = await countStatements(store, () => withOperation(phases))
+      expect(counted.statements).toBe(1)
+      expect(counted.result).toEqual([admin, other, undefined])
+      expect((await countStatements(store, () => withOperation(phases))).statements).toBe(1)
+    })
+  })
+
+  it('sees a disable, a profile write and a create made in the same operation, across its span', async () => {
+    await withStore(async (store) => {
+      const other = asUserId('mem_1BBBBBBBBBBBBBBBBBBBBBBBBBB')
+      await withOperation(async () => {
+        expect(await store.users.get(other)).toBeUndefined()
+        await store.users.create(member(other), 'scrypt:hash')
+        expect((await store.users.get(other))?.displayName).toBe(other)
+        await store.users.writeProfile(other, 'Renamed', null)
+        expect((await store.users.get(other))?.displayName).toBe('Renamed')
+        await store.transact(async () => {
+          await store.users.disable(other, '2026-10-17T00:00:00.000Z')
+          expect(await store.users.get(other)).toBeUndefined()
+        })
+        expect(await store.users.get(other)).toBeUndefined()
+      })
+    })
+  })
+
+  it('the earliest admin\'s row answers the next read of that member by id', async () => {
+    await withStore(async (store) => {
+      const counted = await countStatements(store, () => withOperation(async () => {
+        const admin = (await store.users.earliestAdmin())!
+        return [admin.id, (await store.users.get(asUserId(admin.id)))?.id, await store.users.roleOf(asUserId(admin.id))]
+      }))
+      expect(counted.statements).toBe(1)
+      expect(counted.result[0]).toBe(counted.result[1])
+      expect(counted.result[2]).toBe('admin')
+    })
+  })
+
+  it('forgets an account a rolled-back span created', async () => {
+    await withStore(async (store) => {
+      const other = asUserId('mem_1BBBBBBBBBBBBBBBBBBBBBBBBBB')
+      await withOperation(async () => {
+        expect(await store.users.get(other)).toBeUndefined()
+        await expect(store.transact(async () => {
+          await store.users.create(member(other), 'scrypt:hash')
+          expect((await store.users.get(other))?.id).toBe(other)
+          throw new Error('roll the span back')
+        })).rejects.toThrow('roll the span back')
+        expect(await store.users.get(other)).toBeUndefined()
+      })
+    })
+  })
+})
+
 describe('SettingsRepository.getSettingsFor for a whole operation', () => {
   const at = '2026-10-17T00:00:00.000Z'
 

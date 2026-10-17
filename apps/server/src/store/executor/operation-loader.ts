@@ -63,6 +63,16 @@ export interface OperationLoader<K, V> {
   /** Several rows by key: one batch per `maxBatchSize`, sent at once, not on the next tick. */
   loadMany(keys: Iterable<K>): Promise<Map<K, V | undefined>>
   /**
+   * Remember `value` for `key` where this call's answers are shared, as if it
+   * had been loaded: for a row another query of the same repository just read
+   * (POD-6218: the earliest admin's row, which the account loader is asked for
+   * next). The caller must know nothing was written since that read; an
+   * answer the version has moved past is not kept.
+   */
+  prime(key: K, value: V | undefined, readAt: number): void
+  /** The version an answer read now is current at, for {@link prime}. */
+  readonly version: number
+  /**
    * Forget every loaded row in every open scope. Call from each write; a loader
    * with `perOperation` also from each commit of a write (see the file header).
    */
@@ -236,6 +246,13 @@ export function operationLoader<K, V>(
         for (const key of misses) shared.answers.set(key, result.get(key))
       }
       return new Map(distinct.map((key) => [key, out(result.get(key))] as const))
+    },
+    get version() {
+      return version
+    },
+    prime(key, value, readAt) {
+      const { shared } = context()
+      if (shared && version === readAt && shared.version === readAt) shared.answers.set(key, value)
     },
     invalidate() {
       version += 1
