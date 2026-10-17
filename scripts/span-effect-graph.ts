@@ -374,8 +374,8 @@ export const NOT_A_SPAN_OPENER: readonly OpenerExemption[] = [
   },
   {
     file: 'apps/server/src/store/executor/executor.ts',
-    line: 1026,
-    why: "the same declaration's implementation. (Was 676, then 680, then 678; POD-3345's idle-gap clock, the flip's own edits and POD-3802's async-store fallout moved it. Reported each time. Then 1026: POD-6189's `openSpanFrame`.)",
+    line: 1036,
+    why: "the same declaration's implementation. (Was 676, then 680, then 678; POD-3345's idle-gap clock, the flip's own edits and POD-3802's async-store fallout moved it. Reported each time. Then 1026: POD-6189's `openSpanFrame`. Then 1036: POD-6226's root `effect` on RootStoreExecutor.)",
   },
   {
     file: 'packages/sync/src/authority/authority.ts',

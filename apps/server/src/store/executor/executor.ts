@@ -244,6 +244,16 @@ export interface RootStoreExecutor<TClient = QueryClient> extends StoreExecutor<
   readonly diagnostics: StoreDiagnostics
   /** Every external effect started on any lease so far has settled. */
   effectsSettled(): Promise<void>
+  /**
+   * Mechanism 3 from wherever the caller stands [POD-6226]. Inside a write span
+   * it registers on that span, exactly as {@link afterCommit} does. At the root
+   * the caller is already past its commit, so it starts now, but on a span
+   * effect's terms rather than afterCommit's bare `void step()`: retained
+   * through the drain, isolated to the effect sink, and waited for by `close()`.
+   * Without that, an effect still reading when `close()` began draining had its
+   * read refused, and the refusal surfaced as an unhandled rejection.
+   */
+  effect(step: PostCommitStep, label: string): void
   close(persist?: () => Promise<void>): Promise<void>
 }
 
@@ -1145,6 +1155,19 @@ export function createStoreExecutor<TClient>(
     },
     async effectsSettled() {
       await Promise.all([...runners].map((runner) => runner.effectsSettled()))
+    },
+    effect(step, label) {
+      const scope = currentScope()
+      if (scope.kind === 'transaction' && scope.frame.lane !== 'read' && addressable(scope.frame)) {
+        scope.frame.postCommit.effect(step, label)
+        return
+      }
+      const registry = new PostCommitRegistry()
+      registry.effect(step, label)
+      // Effects are dispatched, never awaited, so the drain cannot fail; the
+      // runner stays owned until they settle, which is what close() counts.
+      const runner = newRunner(() => true)
+      void runner.drain(registry).finally(() => retire(runner)).catch(() => undefined)
     },
     async close(persist) {
       if (currentScope().kind !== 'root') {
