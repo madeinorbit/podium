@@ -1137,6 +1137,21 @@ const openTrainsOfLane = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
+/** The leaders of the open trains whose leader already shipped (POD-6207).
+ *  Walks the partial index idx_ship_train_manifests_open_lane (named with
+ *  INDEXED BY), so the cost follows the open trains, never the shipped
+ *  history. */
+const shippedLeadersOfOpenTrains = prepared((db: StoreDrizzle) =>
+  db
+    // A column chunk rather than the column: the FROM is an INDEXED BY clause,
+    // not the table object.
+    .select({ leaderOrderId: sql<ShipOrderValue['id']>`${shipTrainManifests.leaderOrderId}` })
+    .from(sql`${shipTrainManifests} INDEXED BY idx_ship_train_manifests_open_lane`)
+    .innerJoin(shipOrders, eq(shipOrders.id, shipTrainManifests.leaderOrderId))
+    .where(and(isNull(shipTrainManifests.releasedAt), eq(shipOrders.state, 'shipped')))
+    .prepare(),
+)
+
 const activeMembersOfTrain = prepared((db: StoreDrizzle) =>
   db
     .select({
@@ -2604,6 +2619,15 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
       if (manifest) manifests.set(manifest.id, manifest)
     }
     return [...manifests.values()]
+  }
+
+  /** The shipped leaders of trains not yet released: the only trains whose
+   *  covered prefix can still need settling. A released train refuses
+   *  settlement (`completeCoveredOrder`), and an unshipped leader has no
+   *  proof to settle from. Normally none (POD-6207). */
+  async shippedLeadersOfOpenTrains(): Promise<ShipOrderValue['id'][]> {
+    const rows = await shippedLeadersOfOpenTrains(this.db).all()
+    return [...new Set(rows.map((row) => row.leaderOrderId))]
   }
 
   async releaseTrain(trainId: ShipTrainManifestValue['id'], releasedAt: string, reason: string): Promise<void> {
