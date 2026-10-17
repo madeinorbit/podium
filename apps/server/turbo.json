@@ -2263,6 +2263,7 @@
         "src/server.janitor.test.ts",
         "src/server.open-mode.test.ts",
         "src/server.plugin-auth.test.ts",
+        "src/server.request-credential.statement-count.test.ts",
         "src/server.role.test.ts",
         "src/server.setup-password.test.ts",
         "src/server.ts",

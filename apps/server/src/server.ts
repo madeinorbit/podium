@@ -96,9 +96,9 @@ import {
   clientAuthGuard,
   isSecureRequest,
   maintainClientCredentialByHash,
+  perRequestCredential,
   registerAuthRoute,
   requestUserId,
-  resolveClientCredential,
 } from './auth-route'
 import { captureServerBuildVersion, serverBuildSourceDigest } from './build-version'
 import { updateParticipantSkip, updateParticipantSkipNote } from './update-participant-skip'
@@ -1584,16 +1584,21 @@ export async function startServer(
     }
     return resolved
   }
+  // ...and one credential resolution per request (POD-6220): the guard resolves it, the
+  // principal behind it reads the same answer instead of the session row again.
+  const requestCredential = perRequestCredential(store.auth)
   const credentialPrincipal = async (headers: ClientCredentialHeaders, request?: Request) => {
     const supplied = request ? await sourcePrincipal(request) : undefined
     if (supplied === false) return undefined
     if (supplied) return userCommandPrincipal(asUserId(supplied.memberId), supplied.role)
-    const credentialed = await requestUserId(
-      store.auth,
-      headers.cookieHeader,
-      Date.now(),
-      headers.authorizationHeader,
-    )
+    const credentialed = request
+      ? (await requestCredential(request))?.session.userId
+      : await requestUserId(
+          store.auth,
+          headers.cookieHeader,
+          Date.now(),
+          headers.authorizationHeader,
+        )
     if (credentialed === undefined) return undefined
     const account = await store.users.get(asUserId(credentialed))
     return account ? userCommandPrincipal(asUserId(credentialed), account.role) : undefined
@@ -1613,6 +1618,7 @@ export async function startServer(
   const guard = clientAuthGuard({
     principalForRequest: sourcePrincipal,
     store: store.auth,
+    credentialForRequest: requestCredential,
     users: store.users,
     loginRequired: credentialsRequired,
     trustedProxyHops,
@@ -2029,8 +2035,9 @@ export async function startServer(
                 : {}),
             }
           }
-          const credential = await resolveClientCredential(store.auth, headers)
-          const principal = await requestPrincipal(headers, observedRequest(request))
+          const observed = observedRequest(request)
+          const credential = await requestCredential(observed)
+          const principal = await requestPrincipal(headers, observed)
           if (!principal) return undefined
           const userRole = await store.users.roleOf(principal.user)
           if (!userRole) return undefined
