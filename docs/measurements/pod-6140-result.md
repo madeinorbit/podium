@@ -10,6 +10,12 @@ against the fresh baseline in [pod-6140-baseline.md](pod-6140-baseline.md).
 - **B** = `ae0361d75f4c25e05037a94d65c896d0592bb49f`, the integration tip once POD-6210 and POD-6214 had landed: every copy removed.
 - **As of:** bench runs 2026-10-17T09:11Z to 11:09Z on the polaris agents VM (4 CPU, 12 GB); the live half is pending (§2).
 
+**Re-measured after the F lanes (§5, POD-6230):** the same A against B = `7c3a9e912b`, every F lane landed.
+The busy share is now better than A's (43.4% against 44.7% on the small corpus, 42.9% against 52.0% on the large one),
+SQL is down 14% in statements and 36% in wall time, and memory, boot and stalls stay better. Every design §9 measurement
+criterion is met on the bench; what is still open is boot's whole-table reads (POD-6221) and the live half.
+Sections 1–4 are the first result and are kept as they were.
+
 ## Summary
 
 - **Memory no longer grows with data.** B's server RSS at the end of the load window is 326 MiB on the
@@ -191,3 +197,161 @@ per runtime event across separate operations, so a per-operation memo may not be
 fix, it would be the first cache through the cache interface (POD-6150), declared with key = the instance's earliest
 active admin, one entry per instance, removed after a committed write to `users`. Every other hot path is a query
 or batching fix.
+
+## 5. Re-measure after the F lanes (POD-6230)
+
+The F lanes (POD-6216 to POD-6231, design §11) fixed the hot paths of §4. This section repeats §1's bench
+against the same A, with every F lane landed.
+
+- **A** = `e05eeaf1688f92878974d4ce17b3e4104f119179`, as in §1.
+- **B** = `7c3a9e912b0d8fde40054fdab5f322159fd95e02`, the integration tip once F1–F5, F7–F11, F13 and F14 had landed.
+- **As of:** bench runs 2026-10-17T22:07Z to 23:24Z on the polaris agents VM (4 CPU, 12 GB). The live half is still
+  pending (§2).
+- **Template:** since a10462026a (POD-6223) the bench seeds an analysed template (`-t2`) and B drops the statistics
+  of tables under 1,000 rows. Each arm boots its own template of the same corpus, so compare these numbers only
+  within this A/B, not with §1.
+
+### What was run
+
+The recipe of §1, at 1x load, 4 measured minutes per round, realistic session-write targeting (95% to live sessions).
+One `polaris-lane` call per round; no gap between rounds was over 5 minutes.
+
+| run | corpus | rounds | round windows (UTC, start–end) | evidence on the VM (`~/server-data-bench/runs/…`) |
+|---|---|---|---|---|
+| 1 (main) | h1a1 | 3 per arm, A B A B A B | A1 22:07, B1 22:13, A2 22:19, B2 22:25, A3 22:31, B3 22:37–22:42 | `2026-10-17T22-05-30-788Z-final2-h1a1-running` |
+| 2 | h10a1 | 1 per arm | A1 22:49, B1 22:55–23:00 | `2026-10-17T22-43-21-774Z-final2-h10a1-running` |
+| 3 | h1a1, plus 120 mails/min to 5 live sessions | 1 per arm | A1 23:01, B1 23:07–23:12 | `2026-10-17T23-00-14-743Z-final2-h1a1-running-mail` |
+| 4 | h1a1, `--profile=full` (caller stacks; its times are not comparable) | 1 per arm | A1 23:13, B1 23:19–23:24 | `2026-10-17T23-12-20-402Z-final2-profile-h1a1-running` |
+
+### Run 1: small corpus (the main result)
+
+| metric | A e05eeaf168 median (min–max) | B 7c3a9e912b median (min–max) | B vs A | noise band | what it counts |
+|---|---:|---:|---:|---:|---|
+| bootListenMs | 2,064 (1,912–2,069) | 1,741 (1,705–1,743) | −15.6% | ±8% | process start to the `listen` boot stage, ms |
+| rssAfterBootMiB | 521 (512–522) | 355 (316–355) | −32.0% | ±9% | server RSS when `startServer` resolved |
+| rssEndMiB | 465 (452–497) | 320 (313–329) | −31.2% | ±9% | server RSS at the end of the load window |
+| heapEndMiB | 129 (122–130) | 70.1 (66.4–79.6) | −45.8% | ±12% | server heap used at the end of the load window |
+| utilizationPct | 44.7 (44.5–45.9) | 43.4 (42.6–44.5) | **−2.9%** | ±1.5% | event-loop utilization, median of window minutes |
+| blockedPct | 23.8 (23.7–26.2) | 20.3 (20.2–21.3) | −14.8% | ±2% | share of the minute the loop was blocked |
+| stallsPerMin | 5.94 (4.96–6.44) | 0.00 (0.00–0.00) | −100% | ±40% | stalls per 60 s of wall time |
+| minuteSpanS | 60.6 (60.5–60.6) | 60.4 (60.4–60.4) | −0.3% | – | wall seconds per loop minute |
+| sqlStatementsPerMin | 69,119 (69,114–69,139) | 59,516 (59,497–59,524) | −13.9% | ±0.5% | SQL statements per minute, exact window |
+| sqlWallMsPerMin | 8,604 (8,490–8,796) | 5,492 (5,471–5,582) | −36.2% | ±1.5% | SQL wall ms per minute, exact window |
+| daemonFramesPerMin | 28,070 (28,070–28,071) | 28,071 (28,071–28,073) | +0.0% | (load) | daemon frames handled per minute |
+| daemonWallMsPerMin | 1,209 (1,201–1,219) | 1,238 (1,222–1,251) | +2.4% | ±3% | ms per minute in daemon frame tasks (synchronous part) |
+| sqlPerDaemonFrame | 2.46 | 2.12 | −13.9% | ±0.5% | SQL statements per daemon frame (the live figure's definition) |
+
+### Runs 2 and 3, the main metrics
+
+| metric | run 2 h10a1 A | B | B vs A | run 3 mail A | B | B vs A |
+|---|---:|---:|---:|---:|---:|---:|
+| bootListenMs | 20,772 | 8,618 | −58.5% | 2,033 | 1,765 | −13.2% |
+| rssEndMiB | 1,207 | 347 | −71.3% | 483 | 342 | −29.3% |
+| heapEndMiB | 464 | 66.5 | −85.7% | 139 | 79.3 | −43.1% |
+| utilizationPct | 52.0 | 42.9 | −17.6% | 48.3 | 44.1 | −8.7% |
+| blockedPct | 32.7 | 20.9 | −36.1% | 27.9 | 22.6 | −19.2% |
+| stallsPerMin | 14.8 | 0.00 | −100% | 5.92 | 0.00 | −100% |
+| sqlStatementsPerMin | 68,983 | 59,719 | −13.4% | 75,082 | 65,139 | −13.2% |
+| sqlWallMsPerMin | 8,090 | 5,518 | −31.8% | 10,254 | 6,370 | −37.9% |
+| daemonWallMsPerMin | 1,148 | 1,203 | +4.8% | 1,103 | 1,125 | +1.9% |
+
+Mail adds about 50 statements per message in A and 47 in B (run 3 against run 1, at 120 messages/min).
+Statements per minute still do not grow with data: B runs 59,516 on h1a1 and 59,719 on h10a1 (+0.3%).
+
+### The daemon wall rise: the loop is less busy, not more work per frame
+
+POD-6219 and POD-6223 saw `daemonWallMsPerMin` +3–5% in their own A/B runs. It shows here too (+2.4%, +4.8%, +1.9%),
+so I took the profiled pair (run 4) and compared every run on this VM. The cause is that **the time per daemon frame
+falls as the loop gets busier with other work**, and B's loop is the least busy. B does no extra work per frame.
+
+Daemon frame time per frame (daemon wall / frames handled, µs), the same code with and without mail load:
+
+| build | h1a1 | h1a1 + 120 mails/min | h10a1 | SQL wall ms/min, h1a1 |
+|---|---:|---:|---:|---:|
+| A `e05eeaf168` (this run) | 43.1 (42.8–43.4) | 39.3 | 40.9 | 8,604 |
+| B `7c3a9e912b` (this run) | 44.1 (43.5–44.6) | 40.1 | 42.9 | 5,492 |
+| B `ae0361d75f` (§1) | 37.9 (37.7–38.4) | 34.9 | 38.7 | 9,956 |
+
+- **Same code, busier loop, cheaper frames.** Mail adds no daemon frames (28,069–28,071/min in every round), yet it
+  cuts the time per frame by 8–9% in all three builds. The larger corpus does the same for A, whose loop is busier there.
+- **Across builds it follows the load.** The §1 B was the busiest build (10.0 s of SQL per minute) and had the lowest
+  time per frame; this B is the least busy (5.5 s) and has the highest. A's own figure is stable across runs
+  (1,206 ms/min in §1, 1,209 here).
+- **The lanes' readings fit.** POD-6223's run was repeated with the arms swapped and both times the build that removed
+  2.6 s/min of SQL (the slow runtime-event list read) had 5–7% more daemon wall (`…T14-52-23-533Z-dc82fc3c-f8007289`,
+  `…T16-37-27-583Z-f8007289-dc82fc3c`). POD-6222, whose change runs only at boot, also read +7%
+  (`…T14-37-14-277Z-pod6222-ref-backfill`). A lane's ±5% on this metric is not evidence of new work by itself.
+- **The profile shows no new work inside a frame.** Under `--profile=full`, the only statement whose caller stack
+  runs synchronously inside the daemon frame task is the observation checkpoint read, with the same count in both
+  arms (5,785). Task wall counts only a callback's synchronous part, so SQL after the first `await` is not in this figure.
+- **Not proven:** why one frame costs more on an idler loop. A likely reason is that a frame is more often handled
+  alone, from cold caches, than back to back with others. It does not change the verdict: total utilization is what
+  fell.
+
+### The `setTimeout(0)` jump: the coalesced delivery flush (POD-6219)
+
+| | A median (min–max) | B median (min–max) |
+|---|---:|---:|
+| `setTimeout(0) <anonymous>` tasks/min | 1,750 (1,749–1,765) | 3,417 (3,412–3,421) |
+| their wall ms/min | 10 | 63 |
+| flush target checks (`MessagesRepository.pendingTargets`) per min | 0 | 1,497 (1,488–1,499) |
+| their SQL wall ms/min | 0 | 99 |
+
+The extra timers are the delivery flush. Before POD-6219 (197ab798ca) a trigger counted its target's pending mail
+and armed nothing when the count was 0. Now every trigger queues without a read and arms the zero-delay flush
+(`DeliveryScheduler.scheduleDeliveryFlush`, `modules/messages/scheduler.ts:154`). It does coalesce: one timer for
+every target queued in the same task, then one check statement for all of them (2 or more targets per check here).
+So about 1,500 flushes per minute, one per write that queued targets, against +1,667 timers per minute. Cost: +53 ms/min
+of timer wall and 99 ms/min of check SQL, in place of the ~8,000 counts per minute that the triggers ran before (§4 rank 5).
+Not filed.
+
+### The sixth `podium_events` index: append cost
+
+003daba66d (POD-6224) added `idx_podium_events_kind_subject_id (kind, subject, id)`. Per append, run 1 (all six rounds):
+
+| | A | B |
+|---|---:|---:|
+| `insert into podium_events` per minute | 1,671 | 1,671 |
+| µs per insert, per round | 449, 442, 454 | 499, 502, 534 |
+| SQL wall ms/min, median | 751 | 839 |
+
+An append costs about 53 µs more (+12%), 88 ms per minute at this rate. The read the index serves (a session's newest
+runtime events) went from 2,238 calls at 1,274 µs (2,851 ms/min) in A to 1,119 calls at 131 µs (146 ms/min) in B;
+POD-6216 also halved its calls. The append is the most expensive statement in both arms, at about 0.5 ms each.
+
+### Where B's SQL time goes now
+
+Run 1, B round 2: 5,471 ms/min of SQL wall, 59,516 statements/min. No statement takes more than 15%.
+
+| statement | per min | ms/min | µs each | in A (per min / ms/min) |
+|---|---:|---:|---:|---|
+| `insert into podium_events` | 1,671 | 839 | 502 | 1,671 / 739 |
+| `insert into changes` (the change log) | 3,342 | 563 | 168 | 3,342 / 205 |
+| issue row by id | 3,301 | 460 | 139 | 3,238 / 393 |
+| `insert into sessions` (session upsert) | 3,121 | 449 | 144 | 3,541 / 410 |
+| grants read, one per session rename | 1,860 | 438 | 235 | other shapes in A |
+| session row by id | 3,216 | 328 | 102 | 3,121 / 288 |
+| earliest admin with its row (POD-6218) | 1,346 | 203 | 151 | 4,489 / 408 (id only) |
+| grants read, a second shape | 2,853 | 186 | 65 | other shapes in A |
+
+**Looked at, not filed:**
+- *The change-log insert is slower per row in B:* 168 µs against 61 µs, at the same 3,342 per minute (+358 ms/min).
+  The §1 B already had it (142 µs against 63 µs), so it came with the sync copy removals (C3), not with the F lanes.
+  The table and its indexes are identical in both templates (13,333 rows; `changes_entity`, `changes_event_time`).
+  The cause is not known. It is a sync-system write path (out of POD-6140's scope; POD-6228 covers the latest-state
+  writes, not this insert), and it is 10% of B's SQL wall.
+- *The earliest admin cache* (§4 "Caches"): after POD-6218 it is one read of 1,346 per minute at 203 ms/min, 3.7% of SQL
+  wall. No cache is needed.
+
+### Design §9, re-checked
+
+| # | criterion (design §9) | verdict now | evidence |
+|---|---|---|---|
+| 1 | No whole-table copy in memory; memory grows with live activity; boot loads no whole table | **Partly met (unchanged).** No copy is left and memory is flat; boot still reads whole tables | End RSS in B: 320 MiB (h1a1) and 347 MiB (h10a1); A: 465 and 1,207. Heap in B 70 and 67 MiB; A 129 and 464. Boot still grows with the corpus, 1.7 s → 8.6 s in B, from the boot reconcile's whole-table reads: POD-6221, deferred (sync scope, the operator decides). |
+| 2 | Every operation's statement count is pinned by a test and does not grow with data | **Met** | 23 statement-count test files. No pin is skipped: §3's skipped pin (POD-6229, mail to an issue holding queued mail) runs since 798f8b30c0, and the sender pin skipped there runs since 7c3a9e912b (POD-6231). The open growth is POD-6228 (one `change_latest` upsert per discovered conversation), deferred (sync scope). On the bench, statements per minute do not grow with data (59,516 → 59,719, +0.3%, h1a1 → h10a1). Boot is not pinned (criterion 1). |
+| 3 | Every repository query is served by an index | **Met, with listed exceptions (unchanged)** | `store/query-plan-audit.test.ts` as in §3. Since a10462026a (POD-6223) the server also drops the planner statistics of tables analysed while under 1,000 rows, so a table analysed while tiny does not mislead the planner when it grows. |
+| 4 | The old-versus-new comparison stays clean for each removed copy | **Met for the tests.** The development-build runtime checks can no longer run | The parity tests of §3 stand. `PODIUM_ISSUE_MAP_PARITY` and `PODIUM_SESSION_MAP_PARITY` are gone from the server source along with the copies they compared, so no soak result can be added now; the parity tests are the record. |
+| 5 | Measured against the baseline: memory, boot time, busy share and stalls no worse, and better at the end | **Met on the bench.** Live pending | All three runs, B against A: end RSS −29% to −71%, boot −13% to −59%, stalls 5–15 per minute → 0, utilization −2.9% (h1a1, outside the ±1.5% band), −17.6% (h10a1) and −8.7% (mail), blocked −15% to −36%. §1's small-corpus busy share regression (+6.3%) is gone. Daemon frame wall is +2–5%, a side effect of the idler loop (above). Live: §2, pending the operator's deploy. |
+
+**Sub-issues:** none filed. Every criterion that is not met is already filed (POD-6221 boot whole-table reads, POD-6228 change
+log upserts, both deferred to the operator) or waits on the operator (the live half, §2).
