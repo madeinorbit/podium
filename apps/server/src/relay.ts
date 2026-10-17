@@ -197,7 +197,7 @@ import { readIssue } from './modules/issues/issue-reader'
 import { inferRepoFromRoots } from './repo-registry'
 import { JANITOR_STEWARD_EVENT_LIMIT, StewardService, stewardNoticeSender } from './steward'
 import { SessionStore } from './store'
-import { afterCommit, applyAfterCommit, spanOpen } from './store/executor/executor'
+import { applyAfterCommit, spanOpen } from './store/executor/executor'
 import { currentReadScope, readScopeSlot } from './store/executor/read-scope'
 import type { SyncDeltaPorts } from './sync/route-support'
 import { autoContinueSender, systemIssueNotice } from './system-notices'
@@ -979,9 +979,11 @@ export class SessionRegistry {
       transact: async (fn) => await this.store.transact(fn),
       // Subscriber delivery waits for the OUTERMOST commit, not for the nested
       // savepoint this commit may be [POD-3260, spec §3.3 mechanism 3]. With no
-      // span open — the common case, a top-level ledger.commit — `afterCommit`
-      // runs the delivery at once, which is exactly where it happens today.
-      postCommit: (step, label) => afterCommit(step, label),
+      // span open — the common case, a top-level ledger.commit — it runs at
+      // once, as a tracked effect rather than a floating promise: its
+      // visibility pass reads sessions, and a delivery still reading when the
+      // store began to close had that read refused, unhandled [POD-6226].
+      postCommit: (step, label) => this.store.effect(step, label),
       // The BASELINE FOLD is mechanism 1 on the same commit, and it is a
       // separate port because it is a separate contract: an outer rollback must
       // take the fold with it, or process memory keeps claiming rows the

@@ -693,6 +693,13 @@ export class SessionStore {
     return await this.executor.transact(async () => fn())
   }
 
+  /** An external effect after the caller's commit: on the open span, or at once
+   *  when none is open, retained, isolated and waited for by {@link close} either
+   *  way [POD-6226]. */
+  effect(step: () => void | Promise<void>, label: string): void {
+    this.executor.effect(step, label)
+  }
+
   /** Subscribe to publication idle; release explicitly or when this store closes. */
   onPublicationIdle(listener: () => void): () => void {
     const stop = this.executor.scheduler.onIdle(listener)

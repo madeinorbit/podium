@@ -29,7 +29,7 @@ import {
   TransactionPoisonedError,
   WriteInsideReadLeaseError,
 } from './errors'
-import { createStoreExecutor, postCommit, type StoreExecutor } from './executor'
+import { afterCommit, createStoreExecutor, postCommit, type StoreExecutor } from './executor'
 import { createFrameFlusher } from './frame-flusher'
 import {
   asyncFakeDriver,
@@ -2255,6 +2255,57 @@ describe('shutdown', () => {
       SchedulerClosedError,
     )
     harness = undefined
+  })
+
+  // A ledger delivery committed at the root and still reading (its visibility
+  // pass) when close() begins draining [POD-6226]. As a bare afterCommit step
+  // it ran outside the drain's permission, so the read was refused and the
+  // refusal had no catch.
+  async function readDuringClose(start: (step: () => Promise<void>) => void): Promise<unknown> {
+    const h = open()
+    await h.executor.transact(async (tx) => {
+      await tx.drizzle.run(insert, 'committed')
+    })
+    const reading = barrier()
+    let outcome: unknown
+    start(async () => {
+      await reading.wait()
+      try {
+        outcome = await noteBodies(h.db)
+      } catch (error) {
+        outcome = error
+      }
+    })
+    await reading.reached()
+    const closing = h.executor.close()
+    reading.release()
+    await closing
+    await settle()
+    harness = undefined
+    return outcome
+  }
+
+  it('lets a root effect still reading when close begins finish before the driver closes', async () => {
+    expect(await readDuringClose((step) => harness!.executor.effect(step, 'delivery'))).toEqual([
+      'committed',
+    ])
+  })
+
+  it('control arm: the same read from a bare afterCommit step is refused by the drain', async () => {
+    const refused = await readDuringClose((step) => afterCommit(step, 'delivery'))
+    const chain: unknown[] = []
+    for (let error = refused; error instanceof Error; error = error.cause) chain.push(error)
+    expect(chain.some((error) => error instanceof SchedulerClosedError)).toBe(true)
+  })
+
+  it('reports a root effect that fails to the effect sink instead of rejecting', async () => {
+    const effectSink = vi.fn()
+    const h = open({ effectSink })
+    h.executor.effect(async () => {
+      throw new Error('subscriber socket closed')
+    }, 'delivery')
+    await h.executor.effectsSettled()
+    expect(effectSink).toHaveBeenCalledWith(expect.objectContaining({ message: 'subscriber socket closed' }), 'delivery')
   })
 })
 
