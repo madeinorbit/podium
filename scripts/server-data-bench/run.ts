@@ -8,7 +8,7 @@
  *     [--root=$HOME/server-data-bench] [--label=<name>] [--max-new-rounds=2] [--profile=attribution|full]
  *     [--issue-map-parity=off|log] [--issue-map-parity-a=off|log] [--issue-map-parity-b=off|log]
  *     [--session-map-parity=off|log] [--session-map-parity-a=off|log] [--session-map-parity-b=off|log]
- *     [--session-write-targeting=running|uniform]
+ *     [--session-write-targeting=running|uniform] [--mail-per-minute=0] [--mail-targets=5]
  *   bun --conditions=@podium/source scripts/server-data-bench/run.ts --resume=<run dir> [--max-new-rounds=2]
  *
  * `--max-new-rounds` stops a call after that many rounds, so one A/B pair fits in one
@@ -228,7 +228,7 @@ async function round(opts: {
   arm: 'A' | 'B'; index: number; sha: string; checkout: string; templateDir: string; fixture: string
   outDir: string; minutes: number; framesPerMinute: number; clients: number
   sessionWritesPerMinute: number; issueWritesPerMinute: number; profile: string; issueMapParity: string
-  sessionMapParity: string; sessionWriteTargeting: string
+  sessionMapParity: string; sessionWriteTargeting: string; mailPerMinute: number; mailTargets: number
 }): Promise<{ result: RoundResult; detail: Record<string, unknown> }> {
   const dir = join(opts.outDir, `${opts.arm}-r${opts.index}`)
   rmSync(dir, { recursive: true, force: true })
@@ -254,7 +254,7 @@ async function round(opts: {
       `--start-at=${windowStart - 10_000}`, `--duration-ms=${windowEnd - windowStart + 12_000}`,
       `--frames-per-minute=${opts.framesPerMinute}`, `--session-writes-per-minute=${opts.sessionWritesPerMinute}`,
       `--issue-writes-per-minute=${opts.issueWritesPerMinute}`, `--clients=${opts.clients}`,
-      `--session-write-targeting=${opts.sessionWriteTargeting}`],
+      `--session-write-targeting=${opts.sessionWriteTargeting}`, `--mail-per-minute=${opts.mailPerMinute}`, `--mail-targets=${opts.mailTargets}`],
     { cwd: HARNESS, stdio: ['ignore', 'pipe', 'pipe'] })
     let driverOut = ''
     driver.stdout!.on('data', (bytes) => { driverOut += bytes })
@@ -365,6 +365,8 @@ async function main(): Promise<void> {
   const sessionWriteTargeting = args['session-write-targeting'] ?? (saved ? 'uniform' : 'running')
   if (sessionWriteTargeting !== 'running' && sessionWriteTargeting !== 'uniform') throw new Error(`--session-write-targeting must be running or uniform, not ${sessionWriteTargeting}`)
   args['session-write-targeting'] = sessionWriteTargeting
+  const mailPerMinute = Number(args['mail-per-minute'] ?? 0)
+  const mailTargets = Number(args['mail-targets'] ?? 5)
   const issueMapParity = {
     A: args['issue-map-parity-a'] ?? args['issue-map-parity'] ?? 'off',
     B: args['issue-map-parity-b'] ?? args['issue-map-parity'] ?? 'off',
@@ -417,7 +419,7 @@ async function main(): Promise<void> {
       arm: step.arm, index: step.round, sha: shas[step.arm], checkout: checkouts[step.arm],
       templateDir: t.dir, fixture: t.fixture, outDir, minutes, framesPerMinute, clients, sessionWritesPerMinute, issueWritesPerMinute, profile,
       issueMapParity: issueMapParity[step.arm],
-      sessionMapParity: sessionMapParity[step.arm], sessionWriteTargeting,
+      sessionMapParity: sessionMapParity[step.arm], sessionWriteTargeting, mailPerMinute, mailTargets,
     })
     results.push(result)
     details.push(detail)
@@ -429,7 +431,7 @@ async function main(): Promise<void> {
     '',
     `As of ${new Date().toISOString()} on ${hostname()}. A = ${shas.A}, B = ${shas.B}.`,
     `Cell ${cell} seed ${seed} (${fixture.counts.issues} issues, ${fixture.counts.sessions} sessions, ${fixture.counts.liveSessions} live on ${fixture.counts.machines} machines).`,
-    `Load ${load}: ${framesPerMinute} daemon frames/min, ${sessionWritesPerMinute} session + ${issueWritesPerMinute} issue writes/min (session writes targeted ${sessionWriteTargeting === 'running' ? `${RUNNING_WRITE_SHARE * 100}% to live sessions` : 'uniformly over all sessions'}), ${clients} clients; ${minutes} measured minutes per round, ${rounds} rounds per arm, order ${interleavedOrder(rounds).map((s) => s.arm).join(' ')}; issue-map comparison A ${issueMapParity.A}, B ${issueMapParity.B} (PODIUM_ISSUE_MAP_PARITY); session-map comparison A ${sessionMapParity.A}, B ${sessionMapParity.B} (PODIUM_SESSION_MAP_PARITY).`,
+    `Load ${load}: ${framesPerMinute} daemon frames/min, ${sessionWritesPerMinute} session + ${issueWritesPerMinute} issue writes/min (session writes targeted ${sessionWriteTargeting === 'running' ? `${RUNNING_WRITE_SHARE * 100}% to live sessions` : 'uniformly over all sessions'})${mailPerMinute > 0 ? `, ${mailPerMinute} mails/min to ${mailTargets} live sessions` : ''}, ${clients} clients; ${minutes} measured minutes per round, ${rounds} rounds per arm, order ${interleavedOrder(rounds).map((s) => s.arm).join(' ')}; issue-map comparison A ${issueMapParity.A}, B ${issueMapParity.B} (PODIUM_ISSUE_MAP_PARITY); session-map comparison A ${sessionMapParity.A}, B ${sessionMapParity.B} (PODIUM_SESSION_MAP_PARITY).`,
     'Per-round values are medians over that round\'s whole minutes; the table shows the median over rounds and the min–max over rounds.',
     `Round windows (start UTC): ${details.map((d) => `${d.arm}${d.round} ${String(d.windowStart).slice(11, 16)}`).join(', ')}${roundGaps(details)}.`,
     '',

@@ -12,12 +12,15 @@
  *   `--session-write-targeting` picks the renamed session: `running` (default) sends
  *   RUNNING_WRITE_SHARE of them to live sessions and the rest to parked ones; `uniform`
  *   picks over the whole table, as the first bench did (~2% live at h1a1).
+ * - MAIL (optional, `--mail-per-minute`, default 0): tRPC `messages.send` to the first
+ *   `--mail-targets` live sessions in turn, so a few busy recipients each hold a queue
+ *   that every delivery flush works through (POD-6161: per-attempt recipient reads).
  *
  * Prints one JSON line with what it sent and received. Usage (see run.ts):
  *   bun --conditions=@podium/source drive.ts --checkout=<arm> --fixture=<fixture.json>
  *     --port=<n> --password=<pw> --start-at=<epoch ms> --duration-ms=<n>
  *     --frames-per-minute=<n> --session-writes-per-minute=<n> --issue-writes-per-minute=<n> --clients=<n>
- *     [--session-write-targeting=running|uniform]
+ *     [--session-write-targeting=running|uniform] [--mail-per-minute=<n>] [--mail-targets=<n>]
  */
 import { randomUUID } from 'node:crypto'
 import { readFileSync } from 'node:fs'
@@ -254,6 +257,9 @@ async function main(): Promise<void> {
   const liveSet = new Set(liveIds)
   const parkedIds = fixture.sessionIds.filter((id) => !liveSet.has(id))
   let liveWrites = 0
+  const mailRate = Number(args['mail-per-minute'] ?? 0)
+  const mailTargets = liveIds.slice(0, Math.max(1, Number(args['mail-targets'] ?? 5)))
+  let mails = 0
   const inflight = new Set<Promise<void>>()
   while (Date.now() - begin < durationMs) {
     const elapsed = Date.now() - begin
@@ -288,13 +294,18 @@ async function main(): Promise<void> {
       const call = rpc('issues.update', { id, patch: { priority: issueWrites % 4 } }).finally(() => inflight.delete(call))
       inflight.add(call)
     }
+    for (; mails < framesDue(mailRate, elapsed); mails++) {
+      const to = mailTargets[mails % mailTargets.length]!
+      const call = rpc('messages.send', { to, body: `Bench mail ${mails}`, urgency: 'fyi' }).finally(() => inflight.delete(call))
+      inflight.add(call)
+    }
     await pause(50)
   }
   await Promise.allSettled([...inflight])
   finished = true
   for (const daemon of daemons) daemon.socket?.close()
   for (const client of clients) client.close()
-  console.log(JSON.stringify({ benchDrive: true, wallMs: Date.now() - begin, sessionWrites, liveWrites, targeting, issueWrites, ...counters }))
+  console.log(JSON.stringify({ benchDrive: true, wallMs: Date.now() - begin, sessionWrites, liveWrites, targeting, issueWrites, mails, ...counters }))
 }
 
 if (import.meta.main) await main()
