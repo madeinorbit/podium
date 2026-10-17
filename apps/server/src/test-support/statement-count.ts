@@ -55,11 +55,14 @@ export async function countStatements<T>(
   } finally {
     detach()
   }
+  return { result, ...tallyOf(seen.map((observation) => observation.key)) }
+}
+
+/** A tally of statements given by their keys, one entry per execution. */
+export function tallyOf(keys: readonly string[]): StatementTally {
   const byQuery = new Map<string, number>()
-  for (const observation of seen) {
-    byQuery.set(observation.key, (byQuery.get(observation.key) ?? 0) + 1)
-  }
-  return { result, statements: seen.length, byQuery }
+  for (const key of keys) byQuery.set(key, (byQuery.get(key) ?? 0) + 1)
+  return { statements: keys.length, byQuery }
 }
 
 /** One operation measured at a given data size. */
@@ -72,6 +75,12 @@ export interface StatementPin<Fixture> {
   setup(size: number): Promise<Fixture>
   /** The connection to count on, read from the fixture. */
   target(fixture: Fixture): ProbeTarget
+  /**
+   * Count `run` some other way than on {@link target}'s connection: for an
+   * operation that opens a connection of its own (the sync worker's read-only
+   * snapshot), which the fixture cannot hand over before it runs [POD-6227].
+   */
+  count?(fixture: Fixture, run: () => unknown): Promise<{ result: unknown } & StatementTally>
   /** The operation. Only its statements are counted. */
   run(fixture: Fixture, size: number): unknown
   /** Optional result check at each size, so a pin cannot pass by doing nothing. */
@@ -91,7 +100,10 @@ export async function measureAtSizes<Fixture>(pin: StatementPin<Fixture>): Promi
   const once = async (size: number): Promise<StatementTally> => {
     const fixture = await pin.setup(size)
     try {
-      const counted = await countStatements(pin.target(fixture), () => pin.run(fixture, size))
+      const run = () => pin.run(fixture, size)
+      const counted = pin.count
+        ? await pin.count(fixture, run)
+        : await countStatements(pin.target(fixture), run)
       await pin.check?.(counted.result, fixture, size)
       return counted
     } finally {
@@ -135,6 +147,44 @@ export async function expectConstantStatements<Fixture>(
     `${pin.name}: pinned at ${expected} statements, ran ${counts.small.statements}\n${detail}`,
   ).toBe(expected)
   return counts
+}
+
+/**
+ * Prove a pin ARMED [POD-6227]: the same pin with a query per row planted on
+ * the operation's own path must fail it.
+ *
+ * A pin passes trivially when its fixture's size never reaches the rows the
+ * operation walks, or when the operation runs outside the counted window.
+ * `plant` installs a spy on something the operation calls (a repository read,
+ * a handler) that also runs one statement per row of the fixture, and returns
+ * its restore. The pin must then fail with the growth message, which names a
+ * size-dependent count, so the planted loop ran inside the window and the
+ * fixture's size reached it.
+ */
+export async function expectArmed<Fixture>(
+  pin: StatementPin<Fixture>,
+  expected: number,
+  plant: (fixture: Fixture, size: number) => () => void,
+): Promise<void> {
+  const planted: StatementPin<Fixture> = {
+    ...pin,
+    name: `${pin.name} (planted per-row loop)`,
+    run: async (fixture, size) => {
+      const restore = plant(fixture, size)
+      try {
+        return await pin.run(fixture, size)
+      } finally {
+        restore()
+      }
+    },
+    // The planted loop is the point; a result check could fail first for a
+    // reason that says nothing about the pin.
+    check: undefined,
+  }
+  const [smallSize, largeSize] = pin.sizes ?? [5, 200]
+  await expect(expectConstantStatements(planted, expected)).rejects.toThrow(
+    new RegExp(`statements at ${smallSize} rows, \\d+ at ${largeSize}\\n`),
+  )
 }
 
 /**
