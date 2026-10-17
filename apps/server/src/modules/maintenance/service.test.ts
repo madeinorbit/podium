@@ -349,17 +349,7 @@ describe('MaintenanceService [spec:SP-c29e]', () => {
     ).toMatchObject({ status: 'stale', reason: 'not-due' })
   })
 
-  it('[spec:SP-6144] stopped-session auto-archive revalidates via sessions seam', async () => {
-    const tryAutoArchiveStoppedObserved = vi.fn(
-      (): 'applied' | 'precondition' | 'not-due' => 'applied',
-    )
-    service = new MaintenanceService(
-      store,
-      { run: <T>({ write }: { write: () => T }): T => write() },
-      { now: () => nowMs, sessions: { tryAutoArchiveStoppedObserved } },
-    )
-    const lease = await handshake('gen_session_archive')
-    if (lease.status !== 'ready') throw new Error('expected lease')
+  describe('stopped-session auto-archive [spec:SP-6144]', () => {
     const observed = {
       sessionId: asSessionId('ses_done'),
       issueId: null,
@@ -367,16 +357,76 @@ describe('MaintenanceService [spec:SP-c29e]', () => {
       readerUserId: firstAdminMemberId(),
       archived: false as const,
     }
-    const command = {
-      protocolVersion: MAINTENANCE_PROTOCOL_VERSION,
-      schemaVersion: MAINTENANCE_SCHEMA_VERSION,
-      jobKind: 'session-auto-archive' as const,
-      runKey: sessionAutoArchiveRunKey(observed),
-      fencingToken: lease.fencingToken,
-      observed,
+    const withSessions = async (
+      tryAutoArchiveStoppedObserved: (
+        o: typeof observed,
+        now: number,
+      ) => Promise<'applied' | 'precondition' | 'not-due'>,
+    ) => {
+      service = new MaintenanceService(
+        store,
+        { run: <T>({ write }: { write: () => T }): T => write() },
+        { now: () => nowMs, sessions: { tryAutoArchiveStoppedObserved } },
+      )
+      const lease = await handshake('gen_session_archive')
+      if (lease.status !== 'ready') throw new Error('expected lease')
+      return {
+        protocolVersion: MAINTENANCE_PROTOCOL_VERSION,
+        schemaVersion: MAINTENANCE_SCHEMA_VERSION,
+        jobKind: 'session-auto-archive' as const,
+        runKey: sessionAutoArchiveRunKey(observed),
+        fencingToken: lease.fencingToken,
+        observed,
+      }
     }
-    expect(await service.apply(command)).toMatchObject({ status: 'applied' })
-    expect(tryAutoArchiveStoppedObserved).toHaveBeenCalledWith(observed, nowMs)
+
+    it('revalidates via the sessions seam and records the applied run', async () => {
+      const tryAutoArchiveStoppedObserved = vi.fn(async () => 'applied' as const)
+      const command = await withSessions(tryAutoArchiveStoppedObserved)
+      expect(await service.apply(command)).toMatchObject({ status: 'applied' })
+      expect(tryAutoArchiveStoppedObserved).toHaveBeenCalledWith(observed, nowMs)
+      expect(await store.maintenance.getCommand('session-auto-archive', command.runKey)).toBeDefined()
+    })
+
+    // POD-6206: the seam is async. Compared un-awaited, a Promise never equals
+    // 'not-due' or 'precondition', so every refusal was recorded as applied.
+    it.each(['not-due', 'precondition'] as const)(
+      'a %s refusal is stale and records nothing',
+      async (reason) => {
+        const command = await withSessions(async () => reason)
+        expect(await service.apply(command)).toMatchObject({ status: 'stale', reason })
+        expect(
+          await store.maintenance.getCommand('session-auto-archive', command.runKey),
+        ).toBeUndefined()
+      },
+    )
+
+    it('answers only once the archive has settled', async () => {
+      let settle!: (outcome: 'applied') => void
+      const command = await withSessions(
+        () => new Promise((resolve) => (settle = resolve)),
+      )
+      let replied = false
+      const reply = service.apply(command).then((r) => {
+        replied = true
+        return r
+      })
+      await vi.waitFor(() => expect(settle).toBeTypeOf('function'))
+      await new Promise((resolve) => setTimeout(resolve, 10))
+      expect(replied).toBe(false)
+      settle('applied')
+      expect(await reply).toMatchObject({ status: 'applied' })
+    })
+
+    it('a failed archive rejects the command and records nothing', async () => {
+      const command = await withSessions(async () => {
+        throw new Error('archive failed')
+      })
+      await expect(service.apply(command)).rejects.toThrow('archive failed')
+      expect(
+        await store.maintenance.getCommand('session-auto-archive', command.runKey),
+      ).toBeUndefined()
+    })
   })
 
   it('[POD-925] maintenance_commands prune deletes aged rows in batches', async () => {

@@ -57,7 +57,7 @@ export interface MaintenanceServiceOptions {
     tryAutoArchiveStoppedObserved(
       observed: Extract<MaintenanceCommand, { jobKind: 'session-auto-archive' }>['observed'],
       nowMs: number,
-    ): 'applied' | 'precondition' | 'not-due'
+    ): Promise<'applied' | 'precondition' | 'not-due'>
   }
   automations?: Pick<AutomationsService, 'applyObservedOccurrence'>
   /** The worktree-GC policy as settings have it — read fresh on every handshake
@@ -176,7 +176,8 @@ export class MaintenanceService {
       command.jobKind === 'automation-fire' ||
       command.jobKind === 'steward-poll' ||
       command.jobKind === 'connect-scan' ||
-      command.jobKind === 'worktree-gc'
+      command.jobKind === 'worktree-gc' ||
+      command.jobKind === 'session-auto-archive'
     ) {
       const gate = await this.write(async () => await this.gateCommand(command))
       if (gate) return gate
@@ -189,6 +190,9 @@ export class MaintenanceService {
       }
       if (command.jobKind === 'worktree-gc') {
         return await this.applyWorktreeGc(command, nowMs)
+      }
+      if (command.jobKind === 'session-auto-archive') {
+        return await this.applySessionAutoArchive(command, nowMs)
       }
       return await this.applyConnectScan(command, nowMs)
     }
@@ -208,8 +212,6 @@ export class MaintenanceService {
           return await this.applyMaintenanceCommandsPrune(command)
         case 'issue-auto-archive':
           return await this.applyIssueAutoArchive(command, nowMs)
-        case 'session-auto-archive':
-          return await this.applySessionAutoArchive(command, nowMs)
       }
     })
   }
@@ -390,6 +392,14 @@ export class MaintenanceService {
     return applied
   }
 
+  /**
+   * Archive one stopped, read session (POD-6206). A SIDE-EFFECTING job: the
+   * archive leases the session (loading a parked one), writes through the
+   * session funnel and parks any process, none of which belongs inside this
+   * service's transaction. So it runs between the fence and the record, and is
+   * AWAITED: its refusal decides the reply, and a failure is logged and rejects
+   * the command, which stays unrecorded for the next sweep to retry.
+   */
   private async applySessionAutoArchive(
     command: Extract<MaintenanceCommand, { jobKind: 'session-auto-archive' }>,
     nowMs: number,
@@ -399,20 +409,19 @@ export class MaintenanceService {
       return this.stale(command, 'invalid-run-key')
     }
     if (!this.sessions) return this.stale(command, 'precondition')
-    const result = this.sessions.tryAutoArchiveStoppedObserved(observed, nowMs)
+    const result = await this.sessions
+      .tryAutoArchiveStoppedObserved(observed, nowMs)
+      .catch((err: unknown) => {
+        log.warn('session auto-archive failed', { err, sessionId: observed.sessionId })
+        throw err
+      })
     if (result === 'not-due') return this.stale(command, 'not-due')
     if (result === 'precondition') return this.stale(command, 'precondition')
-    const applied: MaintenanceCommandReply = {
+    return await this.recordIfStillFenced(command, {
       status: 'applied',
       jobKind: command.jobKind,
       runKey: command.runKey,
-    }
-    await this.store.maintenance.recordCommand(
-      applied,
-      command.fencingToken,
-      new Date(nowMs).toISOString(),
-    )
-    return applied
+    })
   }
 
   /**
