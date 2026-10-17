@@ -57,7 +57,9 @@ const walk = (dir: string): string[] =>
  * matched: they project a bounded set and are the supported way to get a wired
  * session.
  */
-const FULL_LIST_CALL = /(?<![A-Za-z])(?:listSessions|view\.list|listSessionsForBootBaseline)\s*\(/
+// `view.listInPages` is the same full projection read a page at a time (the
+// boot baseline since POD-6160).
+const FULL_LIST_CALL = /(?<![A-Za-z])(?:listSessions|view\.list|view\.listInPages|listSessionsForBootBaseline)\s*\(/
 
 /**
  * WHO MAY BUILD IT, and why each one genuinely needs a reader-scoped wire
@@ -110,7 +112,7 @@ describe('full session projection call sites [POD-3857]', () => {
     expect(FULL_LIST_CALL.test('await deps.listSessionsForIssue(path, id)')).toBe(false)
     expect(FULL_LIST_CALL.test('await deps.sessionsById(ids)')).toBe(false)
     expect(FULL_LIST_CALL.test('await deps.sessionById(id)')).toBe(false)
-    expect(FULL_LIST_CALL.test('this.deps.sessionFacts()')).toBe(false)
+    expect(FULL_LIST_CALL.test('await this.deps.readSessionFacts()')).toBe(false)
   })
 
   it('production builds the full projection only at the named surfaces', () => {

@@ -269,7 +269,6 @@ export async function mailHarness(opts?: HarnessOptions): Promise<MailHarness> {
   const factReads = sessionReadPorts(() => sessions)
   const issueDeps: IssueDeps = {
     store,
-    sessionFacts: () => sessions.map(metaAsFacts),
     runningSessionFacts: factReads.runningSessionFacts,
     readSessionFacts: factReads.readSessionFacts,
     readSessionFactsById: factReads.readSessionFactsById,

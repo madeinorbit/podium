@@ -1971,9 +1971,6 @@ export class SessionRegistry {
     const issues = IssueService.compose({
       store: this.store,
       artifacts: issueArtifacts,
-      // The cheap fleet read [POD-3857]: the issue service's own reasoning —
-      // worktree occupancy, the close cascade, auto-archive — runs on facts.
-      sessionFacts: () => sessionsSvc.sessionFacts(),
       // The issue service's session reads since POD-6160: running sessions from
       // memory, everything else from the database.
       runningSessionFacts: () => sessionsSvc.runningSessionFacts(),

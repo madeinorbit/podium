@@ -146,14 +146,6 @@ export interface SpawnedSessionResult {
  * coverage because a promise can be inspected without awaiting its value. */
 export interface IssueDeps {
   store: SessionStore
-  /**
-   * THE CHEAP FLEET READ [POD-3857] — every resident session as in-memory
-   * facts, with no visibility check and no I/O. Since POD-6160 only the flight
-   * deck (deck.ts, being rewritten) still reads it; the issue service's own
-   * reasoning reads the async facts below, which answer for every session
-   * once the resident map holds only running ones.
-   */
-  sessionFacts(): SessionFacts[]
   /** The resident RUNNING sessions' facts (live, starting, reconnecting):
    *  synchronous and free of I/O, for the worktree occupancy guards (POD-6160). */
   runningSessionFacts(): SessionFacts[]

@@ -6651,9 +6651,6 @@ describe('POD-3504 — promise-only issue ports', () => {
     await svc.crud.defer(issue.id, 'next-message')
     const member = { ...sess('/elsewhere', 'awaiting_input'), issueId: issue.id }
     deps.sessionById = vi.fn(async () => member)
-    deps.sessionFacts = vi.fn(() => {
-      throw new Error('unexpected fleet enumeration')
-    })
     deps.readSessionFacts = vi.fn(async () => {
       throw new Error('unexpected fleet enumeration')
     })
@@ -6662,7 +6659,6 @@ describe('POD-3504 — promise-only issue ports', () => {
 
     expect(deps.sessionById).toHaveBeenCalledWith(member.sessionId)
     expect((await svc.reports.get(issue.id))!.deferred).toBe(false)
-    expect(deps.sessionFacts).not.toHaveBeenCalled()
     expect(deps.readSessionFacts).not.toHaveBeenCalled()
   })
 

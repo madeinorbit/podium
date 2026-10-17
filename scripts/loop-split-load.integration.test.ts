@@ -98,7 +98,7 @@ describe('loop split representative load [spec:SP-c29e]', () => {
         )
       }
       registry.modules.sessions.flushBroadcasts()
-      expect(registry.modules.sessions.sessionFacts()).toHaveLength(SESSION_COUNT)
+      expect(await registry.modules.sessions.readSessionFacts()).toHaveLength(SESSION_COUNT)
       expect(await registry.modules.issues.reports.list()).toHaveLength(ISSUE_COUNT)
 
       const clients: Array<{

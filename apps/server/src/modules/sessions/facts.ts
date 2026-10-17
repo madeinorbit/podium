@@ -250,15 +250,4 @@ export class SessionFactsReader {
     if (!this.records) throw new Error('SessionFactsReader: no session records to read from')
     return this.records
   }
-
-  /**
-   * Every RESIDENT session's facts, in insertion order: the running ones and
-   * those in use (POD-6160). Its last caller (the issue deck) waits for the
-   * operator's decision to read `readAll()` instead.
-   */
-  all(): SessionFacts[] {
-    const out: SessionFacts[] = []
-    for (const session of this.sessions.values()) out.push(sessionFactsOf(session))
-    return out
-  }
 }
