@@ -499,9 +499,7 @@ export class IssueAttentionModule {
   }
 
   async subscriptionRemove(id: string): Promise<{ removed: boolean }> {
-    const existed = (await this.store.deps.store.events.listSubscriptions()).some(
-      (s) => s.id === id,
-    )
+    const existed = (await this.store.deps.store.events.getSubscription(id)) !== undefined
     await this.store.deps.funnel.run({
       write: async () => await this.store.deps.store.events.removeSubscription(id),
     })

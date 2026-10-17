@@ -685,6 +685,51 @@ const ordersOfIds = preparedFamily((db: StoreDrizzle, size: number) =>
   db.select(orderColumns).from(shipOrders).where(inListOf(shipOrders.id, size, 'ids')).prepare(),
 )
 
+/**
+ * Every ACTIVE order (not shipped, not cancelled), FIFO (POD-6172): the
+ * scheduler's input. The term is the literal WHERE of the partial index
+ * `idx_ship_orders_one_active_issue` and the index is named with INDEXED BY, so
+ * the walk covers active orders only, never the shipped history.
+ */
+// The same projection as `orderColumns`, named by bare column so the select
+// does not need the table object in its FROM, which here is an INDEXED BY clause.
+const indexedOrderColumns = {
+  ...Object.fromEntries(
+    Object.entries(getTableColumns(shipOrders)).map(([key, column]) => [
+      key,
+      sql`${sql.identifier(column.name)}`.mapWith(column),
+    ]),
+  ),
+  validationProfile: sql<string | null>`${sql.identifier('validation_profile')}`,
+} as unknown as typeof orderColumns
+
+const activeOrdersFifo = prepared((db: StoreDrizzle) =>
+  db
+    .select(indexedOrderColumns)
+    .from(sql`${shipOrders} INDEXED BY idx_ship_orders_one_active_issue`)
+    .where(sql.raw(ACTIVE_SHIP_ORDER_TERM)) // CONSTANT-IDENTIFIER STATEMENT POD-5612
+    .orderBy(asc(shipOrders.requestedAt), asc(shipOrders.id))
+    .prepare(),
+)
+
+/** The active orders of one repository under any of the listed raw
+ *  destinations, through `idx_ship_orders_lane` (POD-6172). Keyed by the
+ *  bucketed size of the destination list. */
+const activeOrdersOfLane = preparedFamily((db: StoreDrizzle, size: number) =>
+  db
+    .select(orderColumns)
+    .from(shipOrders)
+    .where(
+      and(
+        eq(shipOrders.repoId, param(shipOrders.repoId, 'repoId')),
+        inListOf(shipOrders.destination, size, 'destination'),
+        sql.raw(ACTIVE_SHIP_ORDER_TERM), // CONSTANT-IDENTIFIER STATEMENT POD-5612
+      ),
+    )
+    .orderBy(asc(shipOrders.requestedAt), asc(shipOrders.id))
+    .prepare(),
+)
+
 /** See {@link ShippingRepository.queuedDependentsOf}; keyed by the bucketed id count. */
 const queuedDependentsOfIds = preparedFamily((db: StoreDrizzle, size: number) =>
   db
@@ -727,16 +772,6 @@ const allStackEdgesOrdered = prepared((db: StoreDrizzle) =>
     })
     .from(shipOrderStackEdges)
     .orderBy(asc(shipOrderStackEdges.upperOrderId), asc(shipOrderStackEdges.lowerOrderId))
-    .prepare(),
-)
-
-const allStackEdges = prepared((db: StoreDrizzle) =>
-  db
-    .select({
-      upperOrderId: shipOrderStackEdges.upperOrderId,
-      lowerOrderId: shipOrderStackEdges.lowerOrderId,
-    })
-    .from(shipOrderStackEdges)
     .prepare(),
 )
 
@@ -888,10 +923,12 @@ const latestAttemptOfOrder = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
-const allAttempts = prepared((db: StoreDrizzle) =>
+/** One order's attempts, oldest first, through `idx_ship_attempts_order` (POD-6172). */
+const attemptsOfOrder = prepared((db: StoreDrizzle) =>
   db
     .select()
     .from(shipAttempts)
+    .where(eq(shipAttempts.orderId, param(shipAttempts.orderId, 'orderId')))
     .orderBy(asc(shipAttempts.startedAt), asc(shipAttempts.id))
     .prepare(),
 )
@@ -1519,7 +1556,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
    * Kept as one aggregate read rather than `max()` over a mapped list, because
    * the zero case is the aggregate's, not the caller's.
    */
-  private async highestHoldGeneration(orderId: ShipOrderValue['id']): Promise<number> {
+  async highestHoldGeneration(orderId: ShipOrderValue['id']): Promise<number> {
     const row = await highestHoldGenerationOf(this.db).get({ orderId })
     return row?.generation ?? 0
   }
@@ -1681,8 +1718,30 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
     return row ? mapOrder(row) : null
   }
 
+  /** Every order, FIFO: the boot and reconcile full truth and the queue
+   *  listing only. The scheduler reads {@link activeOrders}. */
   async listOrders(): Promise<ShipOrderValue[]> {
     return (await allOrders(this.db).all()).map(mapOrder)
+  }
+
+  /** Every active order (not shipped, not cancelled), FIFO; the shipped and
+   *  cancelled history is never read (POD-6172). */
+  async activeOrders(): Promise<ShipOrderValue[]> {
+    return (await activeOrdersFifo(this.db).all()).map(mapOrder)
+  }
+
+  /** The active orders of one repository under these RAW destination
+   *  spellings, FIFO, read through the lane index (POD-6172). */
+  async activeOrdersOfLane(
+    repoId: ShipOrderValue['repoId'],
+    destinations: readonly string[],
+  ): Promise<ShipOrderValue[]> {
+    const unique = [...new Set(destinations)]
+    if (unique.length === 0) return []
+    const size = inListSize(unique.length)
+    return (await activeOrdersOfLane(this.db, size).all(
+      inListValues(unique, size, 'destination', { repoId }),
+    )).map(mapOrder)
   }
 
   /**
@@ -2082,8 +2141,9 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
     return row ? mapAttempt(row) : null
   }
 
-  async listAttempts(): Promise<ShipAttemptValue[]> {
-    return (await allAttempts(this.db).all()).map(mapAttempt)
+  /** One order's attempts, oldest first. */
+  async attemptsForOrder(orderId: ShipOrderValue['id']): Promise<ShipAttemptValue[]> {
+    return (await attemptsOfOrder(this.db).all({ orderId })).map(mapAttempt)
   }
 
   async claimTrain(input: {
@@ -2163,7 +2223,12 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
       if (!laneRevisionRow || laneRevisionRow.revision < 1) {
         throw new Error('ship train lane has no durable revision')
       }
-      const occupiedLane = (await this.listOrders()).find(
+      // The lane's own active orders, never the whole order history (POD-6172):
+      // `compatible` requires the leader's repository and canonical destination,
+      // and every raw spelling of that destination is asked for.
+      const occupiedLane = (
+        await this.activeOrdersOfLane(leaderOrder.repoId, rawShippingDestinations(laneDestination))
+      ).find(
         (order) =>
           compatible(order) &&
           !isTerminalShipOrderState(order.state) &&
@@ -2175,7 +2240,12 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
           `ship train lane is already occupied by earlier ${occupiedLane.state} order ${occupiedLane.id}`,
         )
       }
-      const stackEdges = await allStackEdges(this.db).all()
+      const laneOrders = (await this.queuedLaneOrders(leaderOrder.repoId, laneDestination)).filter(
+        (order) => order.state === 'queued' && compatible(order),
+      )
+      // Only the lane's queued orders are asked for their dependencies, so only
+      // their stack edges and the orders they name are read.
+      const stackEdges = await this.nativeStackEdgesFrom(laneOrders.map((order) => order.id))
       const stackLower = new Map<ShipOrderValue['id'], ShipOrderValue['id'][]>()
       for (const edge of stackEdges) {
         const lower = stackLower.get(edge.upperOrderId) ?? []
@@ -2184,10 +2254,9 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
       }
       const dependencies = (order: ShipOrderValue): ShipOrderValue['deliveryDependsOn'] =>
         [...new Set([...order.deliveryDependsOn, ...(stackLower.get(order.id) ?? [])])].sort()
-      const laneOrders = (await this.listOrders()).filter(
-        (order) => order.state === 'queued' && compatible(order),
+      const allOrders = new Map(
+        (await this.ordersByIds(laneOrders.flatMap((order) => dependencies(order)))).map((order) => [order.id, order]),
       )
-      const allOrders = new Map((await this.listOrders()).map((order) => [order.id, order]))
       const remaining = new Map(laneOrders.map((order) => [order.id, order]))
       const topological: ShipOrderValue[] = []
       while (remaining.size > 0) {

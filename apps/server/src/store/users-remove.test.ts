@@ -83,7 +83,10 @@ it('removes an already-disabled member without implicitly transferring custody',
 
 it('rolls back custody, grants, credentials, invites, sessions, audits and live publication together', async () => {
   const store = await setup()
-  const allGrants = async () => [...await store.grants.listForKind('machine'), ...await store.grants.listForKind('session')]
+  const allGrants = async () => [
+    ...(await store.grants.listForResources('machine', ['owned', 'shared', 'other-owned', 'unowned'])).values(),
+    ...(await store.grants.listForResources('session', ['historical'])).values(),
+  ].flat()
   const grants = await allGrants()
   await expect(store.transact(async () => {
     await store.users.removeMember(member, admin)

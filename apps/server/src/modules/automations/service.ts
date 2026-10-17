@@ -209,10 +209,6 @@ export class AutomationsService {
     return automation?.ownerUserId === userId ? await this.deps.store.listRuns(automationId, limit) : []
   }
 
-  async allRuns(): Promise<AutomationRunRow[]> {
-    return await this.deps.store.listAllRuns()
-  }
-
   private ownerFor(principal: CommandPrincipal): UserId {
     const owner = onBehalfOfUser(principal)
     if (owner === null) throw new Error('automation writes require a human principal')
@@ -348,10 +344,7 @@ export class AutomationsService {
     const current = await this.deps.store.get(id)
     if (!current) return { removed: false }
     this.assertOwner(principal, current)
-    const runIds = (await this.deps.store
-      .listAllRuns())
-      .filter((run) => run.automationId === id)
-      .map((run) => run.id)
+    const runIds = await this.deps.store.liveRunIdsOf(current.id)
     // The store TOMBSTONES rather than deletes (POD-1509) — the clock stays
     // injected here rather than reaching into the store, so a test that freezes
     // time still controls what a deletion is stamped with.
@@ -556,7 +549,7 @@ export class AutomationsService {
           scheduleKind: automation.scheduleKind,
           cron: automation.cron,
           nextRunAt: nextRunAtForDecide,
-          lastSessionId: (await this.deps.store.lastSpawnedSessions()).get(automation.id) ?? null,
+          lastSessionId: (await this.deps.store.lastSpawnedSessionOf(automation.id)) ?? null,
         },
       ],
       liveSessionIds: input.liveSessionIds,
@@ -609,7 +602,7 @@ export class AutomationsService {
     }
     if (automation.targetSessionId !== null || automation.sessionMode === 'resume') {
       const previousSessionId =
-        automation.targetSessionId ?? (await this.deps.store.lastSpawnedSessions()).get(automation.id)
+        automation.targetSessionId ?? (await this.deps.store.lastSpawnedSessionOf(automation.id))
       if (previousSessionId) {
         const resumed = await this.deps.deliverPrompt({
           automationId: automation.id,

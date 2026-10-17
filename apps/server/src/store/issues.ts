@@ -567,15 +567,6 @@ const labelsOf = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
-const distinctLabels = prepared((db: StoreDrizzle) =>
-  db
-    .selectDistinct({ label: labels.name })
-    .from(labels)
-    .innerJoin(issueLabels, eq(issueLabels.labelId, labels.id))
-    .orderBy(asc(labels.name))
-    .prepare(),
-)
-
 const insertDep = prepared((db: StoreDrizzle) =>
   db
     .insert(issueDeps)
@@ -2262,11 +2253,6 @@ export class IssuesRepository {
 
   async getIssueLabels(issueId: IssueId): Promise<string[]> {
     return (await labelsOf(this.db).all({ issueId })).map((r) => r.label)
-  }
-
-  /** Names of the labels at least one issue carries. */
-  async listAllLabels(): Promise<string[]> {
-    return (await distinctLabels(this.db).all()).map((r) => r.label)
   }
 
   // ---- deps ----

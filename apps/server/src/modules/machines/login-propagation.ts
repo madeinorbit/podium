@@ -178,7 +178,8 @@ export class LoginPropagationService {
     // columns through the same mapper with no filter, so an owner read from this
     // map is the row `getMachine` would have returned.
     const machines = await this.deps.store.machines.listMachines()
-    const ownerByMachineId = new Map((await this.deps.store.grants.listForKind('machine'))
+    const machineGrants = await this.deps.store.grants.listForResources('machine', machines.map((machine) => machine.id))
+    const ownerByMachineId = new Map([...machineGrants.values()].flat()
       .filter((edge) => edge.custody && edge.verb === 'manage')
       .map((edge) => [edge.resourceId, edge.grantee]))
     const catalog = buildLoginCatalog(machines)

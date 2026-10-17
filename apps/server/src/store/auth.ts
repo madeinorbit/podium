@@ -51,7 +51,8 @@ const replaceClientSession = prepared((db: StoreDrizzle) =>
   ),
 )
 
-const clientSessionsNewestFirst = prepared((db: StoreDrizzle) =>
+/** One person's sign-ins, newest first, through `idx_client_sessions_user` (POD-6172). */
+const clientSessionsOfUserNewestFirst = prepared((db: StoreDrizzle) =>
   db
     .select({
       tokenHash: clientSessions.tokenHash,
@@ -66,6 +67,7 @@ const clientSessionsNewestFirst = prepared((db: StoreDrizzle) =>
       lastSeenAt: clientSessions.lastSeenAt,
     })
     .from(clientSessions)
+    .where(eq(clientSessions.userId, param(clientSessions.userId, 'userId')))
     .orderBy(desc(clientSessions.createdAt))
     .prepare(),
 )
@@ -218,10 +220,10 @@ export class AuthRepository {
     })
   }
 
-  /** Every session row, newest first — the read behind `podium auth sessions`. Returns
-   *  hashes, never tokens: the plaintext is not stored and cannot be recovered. */
-  async listClientSessions(): Promise<ClientSessionRow[]> {
-    const rows = await clientSessionsNewestFirst(this.db).all()
+  /** One person's session rows, newest first. Returns hashes, never tokens: the
+   *  plaintext is not stored and cannot be recovered. */
+  async listClientSessionsOfUser(userId: UserId): Promise<ClientSessionRow[]> {
+    const rows = await clientSessionsOfUserNewestFirst(this.db).all({ userId })
     return rows.map((r) => ({
       tokenHash: r.tokenHash,
       userId: r.userId,
@@ -273,9 +275,7 @@ export class AuthRepository {
   }
 
   async listMobileClientSessions(userId: UserId): Promise<ClientSessionRow[]> {
-    return (await this.listClientSessions()).filter(
-      (session) => session.userId === userId && session.label === 'mobile',
-    )
+    return (await this.listClientSessionsOfUser(userId)).filter((session) => session.label === 'mobile')
   }
 
   async deleteOwnedMobileClientSession(sessionId: string, userId: UserId): Promise<string | undefined> {

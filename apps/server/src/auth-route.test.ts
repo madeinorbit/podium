@@ -817,7 +817,7 @@ describe('break-glass session mint (@podium/runtime ⇄ clientAuthGuard)', () =>
     })
     expect(res.status).toBe(200)
 
-    const row = (await mintStore.auth.listClientSessions()).find(
+    const row = (await mintStore.auth.listClientSessionsOfUser(firstAdminMemberId())).find(
       (s) => s.label === BREAK_GLASS_LABEL,
     )
     expect(row?.expiresAt).toBe(minted.expiresAt)

@@ -860,11 +860,7 @@ export class ShippingService {
     await this.recoverCoveredPrefixes()
     const now = Date.now()
     const orders = await this.ordersWithNativeStackEdges()
-    const schedule = shippingSchedule(
-      orders,
-      await this.deps.repository.listReceipts(),
-      Date.parse(this.now()),
-    )
+    const schedule = shippingSchedule(orders, [], Date.parse(this.now()))
     const trains = [...schedule.trains].sort(
       (left, right) =>
         right.orders.length - left.orders.length ||
@@ -1963,15 +1959,17 @@ export class ShippingService {
   }
 
   private async coveredDependencies(covering: ShipOrder): Promise<ShipOrder[]> {
-    const byId = new Map(
-      (await this.deps.repository.listOrders()).map((order) => [order.id, order]),
-    )
+    // Walked a level at a time, each level's dependencies read by id (POD-6172),
+    // never the whole order history.
     const covered = new Map<ShipOrderId, ShipOrder>()
-    const visit = (order: ShipOrder): void => {
-      for (const id of order.deliveryDependsOn) {
-        const dependency = byId.get(id)
-        if (!dependency || covered.has(dependency.id)) continue
+    let frontier: readonly ShipOrder[] = [covering]
+    while (frontier.length > 0) {
+      const named = [...new Set(frontier.flatMap((order) => order.deliveryDependsOn))]
+        .filter((id) => !covered.has(id))
+      const next: ShipOrder[] = []
+      for (const dependency of await this.deps.repository.ordersByIds(named)) {
         if (
+          covered.has(dependency.id) ||
           dependency.repoId !== covering.repoId ||
           dependency.destination !== covering.destination ||
           dependency.targetBranch !== covering.targetBranch ||
@@ -1980,10 +1978,10 @@ export class ShippingService {
           continue
         }
         covered.set(dependency.id, dependency)
-        visit(dependency)
+        next.push(dependency)
       }
+      frontier = next
     }
-    visit(covering)
     return [...covered.values()].sort(
       (left, right) =>
         left.requestedAt.localeCompare(right.requestedAt) || left.id.localeCompare(right.id),
@@ -2124,7 +2122,9 @@ export class ShippingService {
     const invalidating = new Set<ShipOrderId>(landedOrders.map((order) => order.id))
     const invalidatedBy = landedOrders.at(-1)?.id
     if (!invalidatedBy) return []
-    const remaining = await this.deps.repository.listOrders()
+    // Only a queued order is ever invalidated (the state check below), so only
+    // the active orders are read, never the shipped history (POD-6172).
+    const remaining = (await this.deps.repository.activeOrders()).filter((order) => order.state === 'queued')
     const pending: { order: ShipOrder; hold: ShipHold; invalidatedBy: ShipOrderId }[] = []
     let advanced = true
     while (advanced) {
@@ -2157,13 +2157,7 @@ export class ShippingService {
         ) {
           continue
         }
-        const generation =
-          Math.max(
-            0,
-            ...(await this.deps.repository.listHolds())
-              .filter((hold) => hold.orderId === order.id)
-              .map((hold) => hold.generation),
-          ) + 1
+        const generation = (await this.deps.repository.highestHoldGeneration(order.id)) + 1
         const raisedAt = this.now()
         const hold: ShipHold = {
           id: asShipHoldId(`hold:${order.id}:${generation}`),
@@ -2252,8 +2246,16 @@ export class ShippingService {
     }
   }
 
+  /**
+   * The scheduler's input: every ACTIVE order with its inferred native-stack
+   * edges merged in, then every order an active one names that is not itself
+   * active, read by id (POD-6172). The schedule asks nothing else of the
+   * shipped and cancelled history, so it is never read: a lane's ranks and
+   * blockers need only its queued members and the orders they name, and the
+   * shipped or cancelled orders it leaves out are entries the tick never picks.
+   */
   private async ordersWithNativeStackEdges(): Promise<ShipOrder[]> {
-    const orders = await this.deps.repository.listOrders()
+    const orders = await this.deps.repository.activeOrders()
     const queued = orders.filter((order) => order.state === 'queued')
     const inferred = new Map<ShipOrderId, ShipOrderId[]>()
     const discovered: { upper: ShipOrder; lowerOrderId: ShipOrderId; recordedAt: string }[] = []
@@ -2345,7 +2347,7 @@ export class ShippingService {
         )
       }
     }
-    const result = (await this.deps.repository.listOrders()).map((order) => {
+    const active = (await this.deps.repository.activeOrders()).map((order) => {
       const edges = inferred.get(order.id)
       return edges?.length
         ? {
@@ -2354,7 +2356,12 @@ export class ShippingService {
           }
         : order
     })
-    return result
+    const activeIds = new Set(active.map((order) => order.id))
+    const named = active.flatMap((order) => order.deliveryDependsOn).filter((id) => !activeIds.has(id))
+    const dependencies = (await this.deps.repository.ordersByIds(named)).filter(
+      (order) => !activeIds.has(order.id),
+    )
+    return [...active, ...dependencies]
   }
 
   /** Freeze the nearest authorized native Git-stack predecessors as delivery
@@ -2367,7 +2374,7 @@ export class ShippingService {
     approvedHeadSha: string,
     declared: readonly ShipOrderId[],
   ): Promise<ShipOrderId[]> {
-    const candidates = (await this.deps.repository.listOrders()).filter(
+    const candidates = (await this.deps.repository.activeOrdersOfLane(repoId, [destination])).filter(
       (order) =>
         order.issueId !== issue.id &&
         order.repoId === repoId &&
@@ -3050,9 +3057,7 @@ export class ShippingService {
 
   private async replayDaemonAcknowledgements(order: ShipOrder): Promise<void> {
     const issue = await this.deps.issues.get(order.issueId)
-    for (const attempt of (await this.deps.repository.listAttempts()).filter(
-      (candidate) => candidate.orderId === order.id,
-    )) {
+    for (const attempt of await this.deps.repository.attemptsForOrder(order.id)) {
       const repairCandidates = await this.deps.repository.repairCandidatesForAttempt(attempt.id)
       for (const step of await this.deps.repository.stepsForAttempt(attempt.id)) {
         if (!terminalStep(step)) continue
@@ -3111,13 +3116,7 @@ export class ShippingService {
     actions: ShipHoldAction[] = ['retry', 'return-to-issue'],
     preserveAttempt = false,
   ): Promise<void> {
-    const generation =
-      Math.max(
-        0,
-        ...(await this.deps.repository.listHolds())
-          .filter((item) => item.orderId === order.id)
-          .map((item) => item.generation),
-      ) + 1
+    const generation = (await this.deps.repository.highestHoldGeneration(order.id)) + 1
     const raisedAt = this.now()
     const hold: ShipHold = {
       id: asShipHoldId(`hold:${order.id}:${generation}`),

@@ -312,13 +312,13 @@ describe('needs_human data layer (P4)', () => {
 })
 
 describe('issue labels (P1)', () => {
-  it('sets, reads (sorted), and lists distinct labels', async () => {
+  it('sets and reads (sorted) labels', async () => {
     const store = await openIssueStore()
     await seedIssues(store, 'iss_a', 'iss_b')
     await store.issues.setIssueLabels(asIssueId('iss_a'), ['ui', 'backend', 'ui'])
     await store.issues.setIssueLabels(asIssueId('iss_b'), ['backend'])
     expect(await store.issues.getIssueLabels(asIssueId('iss_a'))).toEqual(['backend', 'ui'])
-    expect(await store.issues.listAllLabels()).toEqual(['backend', 'ui'])
+    expect(await store.issues.getIssueLabels(asIssueId('iss_b'))).toEqual(['backend'])
   })
 
   it('setIssueLabels replaces the prior set', async () => {

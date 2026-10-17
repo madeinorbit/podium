@@ -133,6 +133,7 @@ const FAMILY_SHAPES: ReadonlyMap<string, readonly (string | number)[]> = new Map
   ['apps/server/src/store/conversations/registry.ts:pathsOfNativeIds', SIZES],
   ['apps/server/src/store/transcript-costs.ts:costsOfIssues', SIZES],
   ['apps/server/src/store/grants.ts:grantsOfResources', SIZES],
+  ['apps/server/src/store/shipping.ts:activeOrdersOfLane', SIZES],
   ['apps/server/src/store/grants.ts:audiencesOf', SIZES],
   ['apps/server/src/store/machines.ts:machinesByIds', SIZES],
   ['apps/server/src/store/issues.ts:worktreeOwnersOf', SIZES],
@@ -150,6 +151,7 @@ const FAMILY_SHAPES: ReadonlyMap<string, readonly (string | number)[]> = new Map
   ['apps/server/src/store/observation-checkpoints.ts:checkpointedLeasesOfIds', SIZES],
   ['apps/server/src/store/events.ts:runtimeTranscriptSubjectsOfIds', SIZES],
   ['apps/server/src/store/conversations/registry.ts:podiumIdsOfSegments', SIZES],
+  ['apps/server/src/store/conversations/index.ts:curatedConversationsOf', SIZES],
   ['apps/server/src/store/sessions.ts:liveSessionsOfStatuses', SIZES],
   ['apps/server/src/store/sessions.ts:liveSessionsOfBirthLetter', SIZES],
   ['apps/server/src/store/sessions.ts:liveSessionsReferencingIssues', SIZES],
@@ -302,6 +304,14 @@ const SMALL_TABLES: ReadonlyMap<string, string> = new Map([
  */
 const ALLOWLIST: ReadonlyMap<string, string> = new Map([
   [
+    'apps/server/src/store/auth.ts:clientSessionsOfUserNewestFirst',
+    "Sorts one person's sign-ins, found through idx_client_sessions_user: a row per signed-in device or login (POD-6172).",
+  ],
+  [
+    'apps/server/src/store/automations.ts:lastSpawnedRuns',
+    "Walks the automations (a small table: schedules people define by hand) and finds each one's newest spawned run through idx_automation_runs_automation, never the runs of the whole table (POD-6172).",
+  ],
+  [
     'apps/server/src/store/issue-listings.ts:labelsOfIssues',
     "Sorts the labels of the issues a report lists, by the issue's primary key, then the label name: a few labels per listed issue (POD-6191).",
   ],
@@ -435,6 +445,15 @@ const ALLOWLIST: ReadonlyMap<string, string> = new Map([
     'Reads only active orders, through the partial index idx_ship_orders_one_active_issue, and sorts them.',
   ],
   ['apps/server/src/store/shipping.ts:latestAttemptOfOrder', "Sorts one order's attempts: a few."],
+  ['apps/server/src/store/shipping.ts:attemptsOfOrder', "Sorts one order's attempts: a few (POD-6172)."],
+  [
+    'apps/server/src/store/shipping.ts:activeOrdersFifo',
+    'Walks the partial index idx_ship_orders_one_active_issue (named with INDEXED BY) and sorts what it holds: the active orders only, never the shipped or cancelled history (POD-6172). The plan is asserted below.',
+  ],
+  [
+    'apps/server/src/store/shipping.ts:activeOrdersOfLane',
+    'Sorts the active orders of one lane, found through idx_ship_orders_lane (POD-6172).',
+  ],
   [
     'apps/server/src/store/shipping.ts:activeClaimOrdersOfLane',
     "Sorts the claims of one lane's open trains, found through idx_ship_train_manifests_open_lane.",
@@ -504,11 +523,11 @@ const WHOLE_TABLE_READS: ReadonlyMap<string, string> = new Map([
   ],
   [
     'apps/server/src/store/issues.ts:liveIssueParentEdges',
-    "Whole-table read (POD-6172): every live issue's parent edge, for the issue tree.",
+    "Whole-table read (POD-6172): every live issue's parent edge, for the cost sheet's rollups (CostService.task and tasks), which fold each costed task into its ancestors over the whole tree.",
   ],
   [
     'apps/server/src/store/issues.ts:issueRowsOfRepo',
-    'Whole-table read (POD-6172): every issue of one repository, for listings.',
+    'Whole-table read (POD-6172): every issue of one repository, the repository-scoped arm of listIssueRows, which only tests and the statement census call since the issue map went (POD-6158); listings read issue-listings.ts (POD-6191).',
   ],
   [
     'apps/server/src/store/issues.ts:allIssueRows',
@@ -516,27 +535,23 @@ const WHOLE_TABLE_READS: ReadonlyMap<string, string> = new Map([
   ],
   [
     'apps/server/src/store/issues.ts:issueSeqRows',
-    'Whole-table read (POD-6172): the seq repair sweep over every issue.',
-  ],
-  [
-    'apps/server/src/store/issues.ts:distinctLabels',
-    'Whole-table read (POD-6172): every distinct label, for the label picker.',
+    'Whole-table read (POD-6172): the boot repair that renumbers colliding issue sequence numbers walks every issue once per boot (store.ts boot heal).',
   ],
   [
     'apps/server/src/store/issues.ts:allDeps',
-    'Whole-table read (POD-6172): boot load of every dependency edge.',
+    'Whole-table read (POD-6172): every dependency edge, for the issueDep full-truth reconcile (boot, write-less rebroadcast: it is what notices edges an ON DELETE CASCADE removed) and for the deck (deck.ts), which joins the edges of the issues it shows.',
   ],
   [
     'apps/server/src/store/issues.ts:commentCountsByIssue',
-    'Whole-table read (POD-6172): comment counts of every issue.',
+    'Whole-table read (POD-6172): countIssueCommentsByIssue is a test oracle only; no production code calls it since the legacy report batch went with the issue map (POD-6158).',
   ],
   [
     'apps/server/src/store/issues.ts:allIssueUserStateRows',
-    "Whole-table read (POD-6172): boot load of every person's issue state.",
+    "Whole-table read (POD-6172): every person's issue state for the issueUserState full-truth reconcile at boot (IssueService.reconcileCompanions).",
   ],
   [
     'apps/server/src/store/issues.ts:deleteOrphanRefLetters',
-    'Whole-table read (POD-6172): sweep for ref letters whose issue is gone.',
+    'Whole-table read (POD-6172): the per-boot heal (store.ts healDanglingIssueReferences) drops ref-letter counters whose issue was hard-purged; one sweep per boot, idempotent.',
   ],
   [
     'apps/server/src/store/sessions.ts:liveSessions',
@@ -544,124 +559,99 @@ const WHOLE_TABLE_READS: ReadonlyMap<string, string> = new Map([
   ],
   [
     'apps/server/src/store/sessions.ts:deletedSessions',
-    'Whole-table read (POD-6172): every deleted session, for the archive view.',
+    "Whole-table read (POD-6172): loadDeletedSessions is a test oracle only; no production code calls it (the archive view reads one issue's tombstones, loadDeletedSessionsForIssue).",
   ],
   [
     'apps/server/src/store/sessions.ts:detachDanglingReferences',
-    'Whole-table read (POD-6172): boot sweep for session references to deleted issues.',
+    'Whole-table read (POD-6172): the per-boot heal (store.ts healDanglingIssueReferences) clears session pointers to hard-purged issues; one sweep per boot, idempotent.',
   ],
   [
     'apps/server/src/store/sessions.ts:allUserStateRows',
-    "Whole-table read (POD-6172): boot load of every person's session state.",
+    "Whole-table read (POD-6172): every person's session state for the sessionUserState full-truth reconcile at boot (modules/sessions/repository.ts), which diffs it against the replica's snapshot.",
   ],
   [
     'apps/server/src/store/sessions.ts:allSnoozeRows',
-    'Whole-table read (POD-6172): boot load of every snooze.',
+    'Whole-table read (POD-6172): every snooze, read with the session states for the same boot reconcile.',
   ],
   [
     'apps/server/src/store/sessions.ts:draftTexts',
-    'Whole-table read (POD-6172): boot load of every draft.',
+    'Whole-table read (POD-6172): loadDrafts is a test oracle only; no production code calls it.',
   ],
   [
     'apps/server/src/store/sessions.ts:draftTimes',
-    'Whole-table read (POD-6172): boot load of every draft time.',
+    'Whole-table read (POD-6172): loadDraftTimes is a test oracle only; production reads the times of a known set of sessions (POD-6160).',
   ],
   [
     'apps/server/src/store/sessions.ts:allDraftRows',
-    'Whole-table read (POD-6172): boot load of every draft.',
+    'Whole-table read (POD-6172): every stored draft, replayed to a connecting client (session-state replayDrafts); a row exists only while its text is not empty, so it grows with unsent drafts, not with history.',
   ],
   [
     'packages/sync/src/adapters/sqlite/sync-repository.ts:installedWorld',
     'Whole-table read (POD-6172): the sync bootstrap of change_latest (sync behaviour, out of POD-6148 scope).',
   ],
   [
-    'apps/server/src/store/auth.ts:clientSessionsNewestFirst',
-    'Whole-table read (POD-6172): every device, for the devices settings page.',
-  ],
-  [
     'apps/server/src/store/automations.ts:allLiveRuns',
-    'Whole-table read (POD-6172): boot load of every automation run.',
-  ],
-  [
-    'apps/server/src/store/automations.ts:lastSpawnedRuns',
-    'Whole-table read (POD-6172): the last spawned run of every automation.',
-  ],
-  [
-    'apps/server/src/store/conversations/index.ts:curatedConversations',
-    'Whole-table read (POD-6172): every named conversation.',
+    'Whole-table read (POD-6172): every live automation run for the automationRun full-truth reconcile at boot (AutomationsService.reconcileFromStore); nothing else reads it.',
   ],
   [
     'apps/server/src/store/conversations/index.ts:searchConversations [all|any]',
-    'Whole-table read (POD-6172): every conversation, newest first, when no search term is given.',
+    'Whole-table read (POD-6172): memory search with no term reads every top-level conversation newest first, because memory/search.ts filters visibility and scores in JS before its limit; paging it is POD-6209.',
   ],
   [
     'apps/server/src/store/conversations/index.ts:searchConversations [all|posix]',
-    'Whole-table read (POD-6172): every conversation under a folder, newest first.',
+    'Whole-table read (POD-6172): memory search with no term under a folder reads its conversations newest first, filtered and scored in JS before the limit; paging it is POD-6209.',
   ],
   [
     'apps/server/src/store/conversations/index.ts:searchConversations [all|windows]',
-    'Whole-table read (POD-6172): every conversation under a folder, newest first.',
+    'Whole-table read (POD-6172): memory search with no term under a folder reads its conversations newest first, filtered and scored in JS before the limit; paging it is POD-6209.',
   ],
   [
     'apps/server/src/store/conversations/registry.ts:clearStraySubagentPaths',
-    'Whole-table read (POD-6172): boot repair over every segment path.',
+    'Whole-table read (POD-6172): one boot repair UPDATE (memory repairSubagentEvidence) clears subagent paths stored on conversation segments; a LIKE on a path built from the row, once per boot.',
   ],
   [
     'apps/server/src/store/events.ts:allSubscriptions',
-    'Whole-table read (POD-6172): boot load of every subscription.',
+    "Whole-table read (POD-6172): the operator's unfiltered subscription listing (subscriptionList with scope all); a person or agent lists its own through idx_subscriptions_subscriber. Paging it is POD-6208.",
   ],
   [
     'apps/server/src/store/events.ts:enabledSubscriptions',
-    'Whole-table read (POD-6172): every enabled subscription.',
-  ],
-  [
-    'apps/server/src/store/grants.ts:grantsOfKind',
-    'Whole-table read (POD-6172): every grant of one resource kind.',
+    'Whole-table read (POD-6172): the steward reads every enabled subscription on each poll that has events and matches them in memory; reading only the ones that can match is POD-6208.',
   ],
   [
     'apps/server/src/store/machines.ts:legacySentinelScan',
     'Whole-table read (POD-6172): boot check that no row in any table still names a retired machine sentinel; a sweep by design.',
   ],
   [
-    'apps/server/src/store/observation-checkpoints.ts:checkpointedLiveLeases',
-    'Whole-table read (POD-6172): boot restore of the session map, which loads every live session row itself until it is removed (POD-6159, design §6).',
-  ],
-  [
     'apps/server/src/store/shipping.ts:allOrders',
-    'Whole-table read (POD-6172): boot load of every ship order.',
+    "Whole-table read (POD-6172): every ship order, for the order-plane full truth at boot (relay, ShippingService.reconcile, recoverDescendantInvalidations), the queue listing (ShippingService.queue, paging is POD-6209) and the scheduler's covered-prefix recovery (POD-6207). The scheduler and train claims read active orders, lanes and ids.",
   ],
   [
     'apps/server/src/store/shipping.ts:allStackEdgesOrdered',
-    'Whole-table read (POD-6172): every stack edge.',
+    "Whole-table read (POD-6172): every recorded native-stack edge, for the order-plane full truth at boot (relay and ShippingService.fullProjection) only; a train claim reads its lane's edges.",
   ],
   [
-    'apps/server/src/store/shipping.ts:allStackEdges',
-    'Whole-table read (POD-6172): every stack edge.',
+    'apps/server/src/store/shipping.ts:allHolds',
+    "Whole-table read (POD-6172): every ship hold, for the order-plane full truth at boot (relay and ShippingService.fullProjection) only; a new hold's generation is one order's MAX through its index.",
   ],
-  [
-    'apps/server/src/store/shipping.ts:allAttempts',
-    'Whole-table read (POD-6172): every ship attempt.',
-  ],
-  ['apps/server/src/store/shipping.ts:allHolds', 'Whole-table read (POD-6172): every ship hold.'],
   [
     'apps/server/src/store/shipping.ts:allReceipts',
-    'Whole-table read (POD-6172): every delivery receipt.',
+    'Whole-table read (POD-6172): every delivery receipt, for the order-plane full truth at boot and the queue listing (ShippingService.queue; paging is POD-6209). The scheduler no longer reads it.',
   ],
   [
     'apps/server/src/store/transcript-costs.ts:attributedCosts',
-    'Whole-table read (POD-6172): every attributed transcript cost.',
+    'Whole-table read (POD-6172): the cost sheet ranks every costed task (CostService.tasks); tokens are summed from a JSON column, so the ranking cannot be paged in SQL.',
   ],
   [
     'apps/server/src/store/transcript-costs.ts:ownCohortFolds',
-    'Whole-table read (POD-6172): the cost folds of every live issue.',
+    "Whole-table read (POD-6172): the rate cohort is a statistic over every qualifying, surviving issue: one grouped SQL aggregate, read when one task's comparison is asked for.",
   ],
   [
     'apps/server/src/store/transcript-costs.ts:costCount',
-    'Whole-table read (POD-6172): count of every transcript cost row.',
+    'Whole-table read (POD-6172): countAll is a test oracle only; no production code calls it.',
   ],
   [
     'apps/server/src/store/workflows.ts:allRuns',
-    'Whole-table read (POD-6172): every workflow run.',
+    'Whole-table read (POD-6172): the workflow run history listing (WorkflowService.runs with includeTerminal); the default reads live runs only, through workflow_runs_status. Paging the history is POD-6209.',
   ],
 ])
 
@@ -1112,6 +1102,15 @@ describe('POD-6148 — every repository query is served by an index', () => {
     const openChat = audited.filter((entry) => entry.key === 'apps/server/src/store/messages.ts:openChat')
     expect(openChat.map((entry) => entry.plan)).toEqual([
       ['SCAN messages USING INDEX idx_messages_open_chat'],
+    ])
+  })
+
+  it('reads the active ship orders through their partial index (POD-6172)', () => {
+    const { keyed } = keyedDefinitions(trackedSources())
+    const { audited } = auditDefinitions(keyed)
+    const active = audited.filter((entry) => entry.key === 'apps/server/src/store/shipping.ts:activeOrdersFifo')
+    expect(active.map((entry) => entry.plan)).toEqual([
+      ['SCAN ship_orders USING INDEX idx_ship_orders_one_active_issue', 'USE TEMP B-TREE FOR ORDER BY'],
     ])
   })
 

@@ -2,7 +2,7 @@ import { asMachineId, type MachineId, machinePathKey, machinePathSeparator } fro
 import { and, eq, isNotNull, or, sql } from 'drizzle-orm'
 import { conversations } from '../../migrations/schema'
 import type { StoreDrizzle, StoreQueries, TransactionRunner } from '../executor/sync-drizzle'
-import { executeRaw, param, prepared, preparedFamily } from '../executor/sync-drizzle'
+import { executeRaw, inListOf, inListSize, inListValues, param, prepared, preparedFamily } from '../executor/sync-drizzle'
 import type { ConversationIndexRow } from '../types'
 
 // Every query this repository runs, prepared once per store [POD-6147].
@@ -102,11 +102,12 @@ const deleteMachineConversations = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
-const curatedConversations = prepared((db: StoreDrizzle) =>
+/** The curated names and summaries of the conversations asked for, by primary key (POD-6172). */
+const curatedConversationsOf = preparedFamily((db: StoreDrizzle, size: number) =>
   db
     .select({ id: conversations.id, name: conversations.name, summary: conversations.summary })
     .from(conversations)
-    .where(or(isNotNull(conversations.name), isNotNull(conversations.summary)))
+    .where(and(inListOf(conversations.id, size), or(isNotNull(conversations.name), isNotNull(conversations.summary))))
     .prepare(),
 )
 
@@ -291,8 +292,15 @@ export class ConversationIndexRepository {
     return rows.map((row) => row.id)
   }
 
-  async curatedMeta(): Promise<Map<string, { name?: string; summary?: string }>> {
-    const rows = await curatedConversations(this.db).all()
+  /** The curated name and summary of each of these conversations that has one. */
+  async curatedMetaOf(ids: readonly string[]): Promise<Map<string, { name?: string; summary?: string }>> {
+    const unique = [...new Set(ids)]
+    const rows: { id: string; name: string | null; summary: string | null }[] = []
+    for (let i = 0; i < unique.length; i += 500) {
+      const chunk = unique.slice(i, i + 500)
+      const size = inListSize(chunk.length)
+      rows.push(...(await curatedConversationsOf(this.db, size).all(inListValues(chunk, size))))
+    }
     return new Map(
       rows.map((row) => [
         row.id,

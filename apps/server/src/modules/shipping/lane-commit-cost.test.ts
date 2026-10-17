@@ -38,7 +38,7 @@ const requestedBy = {
   onBehalfOf: firstAdminMemberId(),
 }
 
-async function world(outside: number, laneSize: number) {
+async function world(outside: number, laneSize: number, outsideQueued = true) {
   const store = await openTestStore(':memory:')
   stores.push(store)
   const ledger = new Ledger({
@@ -134,7 +134,7 @@ async function world(outside: number, laneSize: number) {
   // in other repositories' lanes.
   const history = await issueIn('/history', 'history')
   for (let index = 0; index < outside; index += 1) {
-    if (index % 10 === 9) {
+    if (outsideQueued && index % 10 === 9) {
       const other = await issueIn(`/other-${index}`, `other-${index}`)
       await order(other.id, other.repoId!, `/other-${index}`, `outside-${index}`)
     } else {
@@ -195,6 +195,22 @@ describe('POD-4974 O2 commit cost against orders outside the lane', () => {
       const { store, service, lane } = await world(outside, 4)
       counts.push(
         await rowsRead(store, async () => await service['transition'](lane[0]!, 'preflight')),
+      )
+      service.dispose()
+    }
+    expect(counts[0]).toBeGreaterThan(0)
+    expect(counts).toEqual([counts[0], counts[0], counts[0]])
+  }, 120_000)
+
+  // POD-6172: the scheduler pass builds its schedule from the active orders and
+  // the orders they name, never from the shipped or cancelled history. Against
+  // the code before, which read every order, the count grows with the history.
+  it('builds the schedule from the same rows at 10, 100 and 1,000 cancelled orders', async () => {
+    const counts: number[] = []
+    for (const outside of [10, 100, 1_000]) {
+      const { store, service } = await world(outside, 4, false)
+      counts.push(
+        await rowsRead(store, async () => await service['ordersWithNativeStackEdges']()),
       )
       service.dispose()
     }

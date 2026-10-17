@@ -20,7 +20,7 @@ describe('SessionRegistry metadata deltas', () => {
 
   it('O1 boot reconciliation does not scan shipping attempts', async () => {
     const store = await openTestStore(':memory:')
-    const attempts = vi.spyOn(store.shipping, 'listAttempts')
+    const attempts = vi.spyOn(store.shipping, 'attemptsForOrder')
     try {
       const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
       registries.push(registry)
