@@ -1,7 +1,8 @@
 # Server data access and caching — design
 
-POD-6140, agreed with the operator on 2026-10-15. Status (2026-10-17): built on the integration branch; every
-memory copy in section 6 is removed; the final measurement (E1) is running. See section 11.
+POD-6140, agreed with the operator on 2026-10-15. Status (2026-10-18): built on the integration branch; every
+memory copy in section 6 is removed; measured (E1, docs/measurements/pod-6140-result.md); the measured hot paths
+are fixed (F lanes); the re-measure (E3) is running. See section 11.
 Evidence behind every claim: [pod-6140-research.md](../../pod-6140-research.md).
 
 ## 1. Goal and scope
@@ -214,10 +215,26 @@ Prefix letters are phases, numbers the order inside a phase. Blocking edges in t
 | D8 | Paged history listings | POD-6209 | done, e4140918a5 |
 | D9 | Bug: search batch reads (also on dev/mw 0c37f9eb50) | POD-6214 | done, ae0361d75f |
 | D10 | Bug: per-row conversation segment reads | POD-6215 | done, 0225cfa214 |
-| E1 | Final measurement | POD-6161 | running |
-| E2 | Cache interface (deferred until a measured need) | POD-6150 | deferred |
+| E1 | Final measurement | POD-6161 | done, 957c797722 |
+| F1 | Board projection drain (cursor write per batch, then only after an effect) | POD-6216 | done, 2d389d87b5, 11ab04ade0 |
+| F2 | Grant reads once per change | POD-6217 | done, e617c446a5 |
+| F3 | Earliest admin, settings and account reads once per operation | POD-6218 | done, d40ed2cc78, b3155cc330 |
+| F4 | Delivery triggers read nothing; the flush checks targets | POD-6219 | done, 197ab798ca |
+| F5 | Login credential once per request | POD-6220 | done, dc82fc3c44 |
+| F6 | Boot whole-table reconcile | POD-6221 | deferred (sync scope, operator decides) |
+| F7 | Boot ref backfill reads only candidates | POD-6222 | done, d7b4eb2f87 |
+| F8 | Planner statistics floor for tables analysed while tiny | POD-6223 | done, a10462026a |
+| F9 | Three unexplained test failures (two fixture bugs, one shutdown race) | POD-6226 | done, 08b8f422e8, 84c5715e0d, 0b510d72ad |
+| F10 | Statement-count coverage of the remaining operations | POD-6227 | done, 606dca28a4 |
+| F11 | Delivery pass reads an issue's members once | POD-6229 | done, 798f8b30c0 |
+| F12 | Change log latest-state writes | POD-6228 | deferred (sync scope, operator decides) |
+| F13 | Runtime payload reads in id order | POD-6224 | done, 003daba66d |
+| F14 | Delivery pass reads its sender once (pin) | POD-6231 | done, 7c3a9e912b |
+| E3 | Re-measure after the F lanes | POD-6230 | running |
+| E2 | Cache interface (deferred until a measured need) | POD-6150 | deferred; no lane measured a need |
 
-D4 to D10 were found while building; each was filed with its evidence and landed on its own.
+D4 to D10 and F1 to F14 were found while building or measuring; each was filed with its evidence and landed on its
+own.
 dev/mw holds the integration branch up to 0c37f9eb50 (D2f); everything after it waits for the
 operator's go-ahead.
 
