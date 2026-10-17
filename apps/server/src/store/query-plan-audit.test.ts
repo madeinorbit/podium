@@ -380,6 +380,10 @@ const ALLOWLIST: ReadonlyMap<string, string> = new Map([
     'Sorts the sessions one issue deleted: a few.',
   ],
   [
+    'apps/server/src/store/sessions.ts:refBackfillCandidates',
+    "Sorts the boot ref backfill's candidates (POD-6222): the ref-less sessions that can still get a birth ref, read by index ranges; a few once the first boot named them.",
+  ],
+  [
     'apps/server/src/store/sessions.ts:pinsOfUser',
     "Sorts one person's pins by when they were made.",
   ],
@@ -572,6 +576,10 @@ const WHOLE_TABLE_READS: ReadonlyMap<string, string> = new Map([
   [
     'apps/server/src/store/sessions.ts:liveSessions',
     'Whole-table read (POD-6172): the full session listing (sessions.list, the list tool). Boot no longer reads it (POD-6160).',
+  ],
+  [
+    'apps/server/src/store/sessions.ts:liveSessionsWithoutRef',
+    "Whole-table read of the ref-less sessions (POD-6222): the boot ref backfill's fallback, only while a repo prefix no registered root explains (a removed repo's, or one set on an unregistered path) could name any of them; logged when it runs. Otherwise the backfill reads refBackfillCandidates.",
   ],
   [
     'apps/server/src/store/sessions.ts:deletedSessions',
@@ -1094,6 +1102,29 @@ describe('POD-6148 — every repository query is served by an index', () => {
     const openChat = audited.filter((entry) => entry.key === 'apps/server/src/store/messages.ts:openChat')
     expect(openChat.map((entry) => entry.plan)).toEqual([
       ['SCAN messages USING INDEX idx_messages_open_chat'],
+    ])
+  })
+
+  it('reads the boot ref backfill candidates by index ranges on the ref-less partial indexes (POD-6222)', () => {
+    const { keyed } = keyedDefinitions(trackedSources())
+    const { audited } = auditDefinitions(keyed)
+    const candidates = audited.filter((entry) => entry.key === 'apps/server/src/store/sessions.ts:refBackfillCandidates')
+    expect(candidates.map((entry) => entry.plan)).toEqual([
+      [
+        'SEARCH sessions USING INTEGER PRIMARY KEY (rowid=?)',
+        'LIST SUBQUERY 4',
+        'COMPOUND QUERY',
+        'LEFT-MOST SUBQUERY',
+        'SCAN b VIRTUAL TABLE INDEX 1:',
+        'SEARCH s USING INDEX idx_sessions_refless_place (machine_id=? AND cwd>? AND cwd<?)',
+        'UNION ALL',
+        'SCAN o VIRTUAL TABLE INDEX 1:',
+        'SEARCH s USING INDEX idx_sessions_refless_place (machine_id=? AND cwd>?)',
+        'UNION ALL',
+        'SEARCH s USING INDEX idx_sessions_refless_issue (issue_id>?)',
+        'SEARCH i EXISTS USING COVERING INDEX sqlite_autoindex_issues_1 (id=?)',
+        'USE TEMP B-TREE FOR ORDER BY',
+      ],
     ])
   })
 

@@ -1371,6 +1371,7 @@
         "src/modules/sessions/archive-park.test.ts",
         "src/modules/sessions/auto-archive-observed.test.ts",
         "src/modules/sessions/binding-mint.ts",
+        "src/modules/sessions/boot-ref-backfill.statement-count.test.ts",
         "src/modules/sessions/broadcast-issue-skip.test.ts",
         "src/modules/sessions/client-control.ts",
         "src/modules/sessions/command-ctx.ts",

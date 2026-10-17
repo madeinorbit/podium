@@ -15,6 +15,7 @@ import { repoDraftSeq, repoPrefixes, repos } from '../migrations/schema'
 import { deriveRepoId, isPathFallbackRepoId, readLocalOriginUrl } from '../repo-id'
 import type { StoreDrizzle, StoreQueries, TransactionRunner } from './executor/sync-drizzle'
 import { executeRaw, param, prepared } from './executor/sync-drizzle'
+import { prefixUpperBound } from './prefix-range'
 import type { TableWrites } from './table-writes'
 
 export function normalizeRepoPath(path: string): string {
@@ -22,6 +23,15 @@ export function normalizeRepoPath(path: string): string {
   if (machinePathSeparator(trimmed) === '\\') return normalizeMachinePath(trimmed)
   if (/^\/+$/u.test(trimmed)) return '/'
   return trimmed.replace(/\/+$/u, '')
+}
+
+/**
+ * Session places by cwd key range, per machine: `bounded` entries read
+ * `from <= cwd < to`, `open` entries read `cwd >= from`.
+ */
+export interface RepoPlaces {
+  readonly bounded: readonly (readonly [MachineId, string, string])[]
+  readonly open: readonly (readonly [MachineId, string])[]
 }
 
 /** Is `path` the normalized root `root` or under it? Both already normalized. */
@@ -690,6 +700,55 @@ export class ReposRepository {
     const id = (await this.issueRepoIdResolver())(repoPath, machineId)
     if (!id) throw new Error(`no reporting machine for repo path ${repoPath}; choose a machine or wait for discovery`)
     return id
+  }
+
+  /**
+   * WHERE {@link repoIdResolver} CAN ANSWER A PREFIXED REPO, as cwd key ranges per
+   * machine (POD-6222). The boot ref backfill reads only the ref-less sessions in
+   * these ranges instead of probing every ref-less session in history, so the
+   * ranges must hold EVERY (machine, cwd) whose resolved repo has a prefix. They
+   * may hold more: the backfill still asks `prepareRefAllocation` per row.
+   *
+   * Why they cover the rule:
+   *  - A cwd inside a same-machine root answers the longest such root's id. Every
+   *    root whose id has a prefix (or has no id, which derives) contributes its key
+   *    range. A POSIX cwd keeps its literal spelling, so it lies in the range of
+   *    any root it is under; a cwd that does not start with `/` (Windows-style, or
+   *    leading whitespace that `normalizeRepoPath` trims) is read for every
+   *    machine that has such a root, and a Windows-style root reads its whole
+   *    machine, since its membership folds case and separators.
+   *  - A cwd under no same-machine root derives `(machine, cwd)`. That id has a
+   *    prefix only if some prefix row holds it. A prefix id that a current root
+   *    explains (its origin id, or its own path id) cannot be derived by a cwd
+   *    outside that root; any other prefix id (a removed root's, or one set on an
+   *    unregistered path) could be, so then the answer is `'everywhere'`.
+   */
+  async prefixedPlaces(): Promise<RepoPlaces | 'everywhere'> {
+    const { prefixes } = await this.registry()
+    const explained = new Set<string>()
+    const bounded: [MachineId, string, string][] = []
+    const wholeMachines = new Set<MachineId>()
+    const posixMachines = new Set<MachineId>()
+    for (const root of await this.listRepos()) {
+      explained.add(deriveRepoId({ machineId: root.machineId, path: root.path }))
+      if (root.originUrl) explained.add(deriveRepoId({ originUrl: root.originUrl, machineId: root.machineId, path: root.path }))
+      const key = machinePathKey(normalizeRepoPath(root.path))
+      if (machinePathSeparator(key) === '\\' || !key.startsWith('/') || !(key.charCodeAt(key.length - 1) < 0x7f)) {
+        wholeMachines.add(root.machineId)
+        continue
+      }
+      if (root.repoId !== null && !prefixes.has(root.repoId)) continue
+      bounded.push([root.machineId, key, prefixUpperBound(key)])
+      posixMachines.add(root.machineId)
+    }
+    for (const repoId of prefixes.keys()) if (!explained.has(repoId)) return 'everywhere'
+    const open: [MachineId, string][] = [...wholeMachines].map((machineId) => [machineId, ''])
+    for (const machineId of posixMachines) {
+      if (wholeMachines.has(machineId)) continue
+      bounded.push([machineId, '', '/'])
+      open.push([machineId, '0'])
+    }
+    return { bounded, open }
   }
 
   /** Registered roots, normalized and longest-first — the one snapshot both resolvers read. */

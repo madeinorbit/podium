@@ -320,6 +320,10 @@ export class SessionView {
    * caller's `issueId` — which the caller has just set on the draft and nowhere
    * else — so passing the live session here would decide against the PREVIOUS
    * attachment and allocate the wrong ref, or none.
+   *
+   * The boot backfill reads only the ref-less rows this can say yes to (an
+   * existing issue, or `ReposRepository.prefixedPlaces`, POD-6222): a new way
+   * to get a ref here has to be added there too.
    */
   async prepareRefAllocation(session: SessionDurableFields): Promise<(() => Promise<void>) | undefined> {
     if (session.refIssueId || session.refDraft != null) return

@@ -44,6 +44,7 @@ import {
 } from './executor/sync-drizzle'
 import { requireUserId } from './helpers'
 import { prefixUpperBound } from './prefix-range'
+import type { RepoPlaces } from './repos'
 import type {
   OfferMap,
   OfferRecord,
@@ -280,12 +281,49 @@ const liveSessionsPage = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
-/** Live sessions with no birth ref yet: the boot's one-shot ref backfill (#474). */
+/** Live sessions with no birth ref yet, in the boot ref backfill's order
+ *  (#474): created_at, then id. */
 const liveSessionsWithoutRef = prepared((db: StoreDrizzle) =>
-  sessionsMatching(
-    db,
-    and(isNull(sessionsTable.refIssueId), isNull(sessionsTable.refDraft), isNull(sessionsTable.deletedAt)),
-  ),
+  db
+    .select()
+    .from(sessionsTable)
+    .where(and(isNull(sessionsTable.refIssueId), isNull(sessionsTable.refDraft), isNull(sessionsTable.deletedAt)))
+    .orderBy(asc(sessionsTable.createdAt), asc(sessionsTable.id))
+    .prepare(),
+)
+
+/** The ref-less live terms, spelled as `idx_sessions_refless_*` declare them so
+ *  the planner can use those partial indexes. */
+const REFLESS = sql.raw('s.ref_issue_id IS NULL AND s.ref_draft IS NULL AND s.deleted_at IS NULL')
+
+/**
+ * THE BOOT REF BACKFILL'S CANDIDATES (POD-6222): ref-less live sessions in one
+ * of the place ranges ({@link RepoPlaces}), or bound to an issue that exists, in
+ * the backfill's order. Each range is driven from `json_each` (CROSS JOIN keeps
+ * it the outer loop) as one index range on `idx_sessions_refless_place`, and the
+ * issue half reads `idx_sessions_refless_issue`, named with INDEXED BY because
+ * without statistics the planner prefers `ref_draft IS NULL` on
+ * `idx_sessions_ref_draft`, which holds every session. So the statement touches
+ * the rows that can still get a ref, not every ref-less session in history.
+ */
+const refBackfillCandidates = prepared((db: StoreDrizzle) =>
+  db
+    .select()
+    .from(sessionsTable)
+    .where(sql`${sessionsTable}.rowid IN (
+      SELECT s.rowid FROM json_each(${sql.placeholder('bounded')}) AS b CROSS JOIN ${sessionsTable} AS s
+        WHERE ${REFLESS} AND s.machine_id = json_extract(b.value, '$[0]')
+          AND s.cwd >= json_extract(b.value, '$[1]') AND s.cwd < json_extract(b.value, '$[2]')
+      UNION ALL
+      SELECT s.rowid FROM json_each(${sql.placeholder('open')}) AS o CROSS JOIN ${sessionsTable} AS s
+        WHERE ${REFLESS} AND s.machine_id = json_extract(o.value, '$[0]') AND s.cwd >= json_extract(o.value, '$[1]')
+      UNION ALL
+      SELECT s.rowid FROM ${sessionsTable} AS s INDEXED BY idx_sessions_refless_issue
+        WHERE ${REFLESS} AND s.issue_id IS NOT NULL
+          AND EXISTS (SELECT 1 FROM ${issuesTable} AS i WHERE i.id = s.issue_id)
+    )`)
+    .orderBy(asc(sessionsTable.createdAt), asc(sessionsTable.id))
+    .prepare(),
 )
 
 const deletedSessions = prepared((db: StoreDrizzle) =>
@@ -1090,10 +1128,23 @@ export class SessionsRepository {
     return (await liveSessionsPage(this.db).all({ after, limit })).map(mapSession)
   }
 
-  /** Live sessions with no birth ref (POD-6160 D2g: the boot backfill reads
-   *  these instead of walking every session in memory). */
+  /** Every live session with no birth ref, in created_at, id order: the boot
+   *  backfill's fallback when a prefix no registered root explains could name
+   *  any of them (POD-6222, `ReposRepository.prefixedPlaces`). */
   async sessionsWithoutRef(): Promise<SessionRow[]> {
     return (await liveSessionsWithoutRef(this.db).all()).map(mapSession)
+  }
+
+  /** The live ref-less sessions that can still get a birth ref: in `places`, or
+   *  bound to an existing issue, in created_at, id order (POD-6222). A superset;
+   *  the backfill asks `prepareRefAllocation` per row. */
+  async refBackfillCandidates(places: RepoPlaces): Promise<SessionRow[]> {
+    return (
+      await refBackfillCandidates(this.db).all({
+        bounded: JSON.stringify(places.bounded),
+        open: JSON.stringify(places.open),
+      })
+    ).map(mapSession)
   }
 
   /** One durable row, including a tombstone, for scoped delete visibility. */

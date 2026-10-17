@@ -1,0 +1,2 @@
+CREATE INDEX `idx_sessions_refless_place` ON `sessions` (`machine_id`,`cwd`) WHERE "sessions"."ref_issue_id" IS NULL AND "sessions"."ref_draft" IS NULL AND "sessions"."deleted_at" IS NULL;--> statement-breakpoint
+CREATE INDEX `idx_sessions_refless_issue` ON `sessions` (`issue_id`) WHERE "sessions"."ref_issue_id" IS NULL AND "sessions"."ref_draft" IS NULL AND "sessions"."deleted_at" IS NULL AND "sessions"."issue_id" IS NOT NULL;

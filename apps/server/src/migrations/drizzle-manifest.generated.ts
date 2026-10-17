@@ -141,6 +141,7 @@ export const DRIZZLE_MIGRATIONS: DrizzleMigration[] = [
   { name: "20261016200904_headless-index", sql: "CREATE INDEX `idx_sessions_headless` ON `sessions` (`headless`) WHERE \"sessions\".\"headless\" = 1;" },
   { name: "20261017055535_subscription-match-indexes", sql: "DROP INDEX IF EXISTS `idx_subscriptions_subscriber`;--> statement-breakpoint\nCREATE INDEX `idx_subscriptions_subscriber_event` ON `subscriptions` (`subscriber_id`,`source_kind`,`event`);--> statement-breakpoint\nCREATE INDEX `idx_subscriptions_match` ON `subscriptions` (`event`,`source_kind`,`source_ref`);--> statement-breakpoint\nCREATE INDEX `idx_subscriptions_created` ON `subscriptions` (`created_at`,`id`);" },
   { name: "20261017073921_history-page-indexes", sql: "CREATE INDEX `idx_conversations_top_level_updated` ON `conversations` (`updated_at`,`id`) WHERE \"conversations\".\"parent_conversation_id\" IS NULL;--> statement-breakpoint\nCREATE INDEX `workflow_runs_started` ON `workflow_runs` (`started_at`,`id`);" },
+  { name: "20261017113143_refless-session-indexes", sql: "CREATE INDEX `idx_sessions_refless_place` ON `sessions` (`machine_id`,`cwd`) WHERE \"sessions\".\"ref_issue_id\" IS NULL AND \"sessions\".\"ref_draft\" IS NULL AND \"sessions\".\"deleted_at\" IS NULL;--> statement-breakpoint\nCREATE INDEX `idx_sessions_refless_issue` ON `sessions` (`issue_id`) WHERE \"sessions\".\"ref_issue_id\" IS NULL AND \"sessions\".\"ref_draft\" IS NULL AND \"sessions\".\"deleted_at\" IS NULL AND \"sessions\".\"issue_id\" IS NOT NULL;" },
 ]
 
 /**

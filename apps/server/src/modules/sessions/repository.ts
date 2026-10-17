@@ -1153,6 +1153,43 @@ export class SessionRepository {
   }
 
   /**
+   * One-shot boot backfill (#474): name pre-upgrade historical sessions at a
+   * deliberate point instead of burst-allocating inside the first listSessions.
+   * The candidates are read in created_at, id order so allocation is
+   * deterministic (POD-6160: from the table, not the map); a parked one is
+   * restored only when it does get a ref.
+   *
+   * ONLY THE ROWS THAT CAN STILL GET A REF ARE READ (POD-6222). A ref-less row
+   * gets one from an existing issue or from a cwd whose repo has a prefix; the
+   * rest (sessions in removed worktrees, on another machine than the repo) never
+   * do, and reading them on every boot grew with history. The candidates are a
+   * superset (`ReposRepository.prefixedPlaces`), so each is still asked here.
+   */
+  async backfillBirthRefs(): Promise<void> {
+    const places = await this.store.repos.prefixedPlaces()
+    // Logged so a deployment shows whether the fallback ever runs.
+    if (places === 'everywhere') log.info('boot ref backfill reads every ref-less session: a repo prefix no registered root explains')
+    const candidates = places === 'everywhere'
+      ? await this.store.sessions.sessionsWithoutRef()
+      : await this.store.sessions.refBackfillCandidates(places)
+    for (const row of candidates) {
+      const probe = { refIssueId: null, refDraft: null, issueId: row.issueId ?? undefined, cwd: row.cwd, machineId: row.machineId }
+      if (!(await this.view.prepareRefAllocation(probe as unknown as SessionDurableState))) continue
+      const allocate = async (session: Session | undefined) => {
+        if (!session) return
+        // Against the DRAFT [POD-3330]: the allocation assigns the ref inside the
+        // transaction, so it has to assign into the state `toRow` reads.
+        const draft = this.draft(session)
+        const additionalWrite = await this.view.prepareRefAllocation(draft)
+        if (additionalWrite) await this.persistDraft(session, draft, additionalWrite)
+      }
+      const resident = this.sessions.get(row.id)
+      if (resident || !this.ports.withSession) await allocate(resident)
+      else await this.ports.withSession(row.id, 'bootRefBackfill', allocate)
+    }
+  }
+
+  /**
    * BOOT RESTORES THE SESSIONS THAT RUN, AND NOTHING ELSE (POD-6160 D2g): the
    * rows whose status says a process runs or is expected back (and the headless
    * ones, which stay resident while their row exists), with their
@@ -1221,28 +1258,7 @@ export class SessionRepository {
     log.info('boot session recovery breakdown', { sessions: storedRows.length, rowReadMs, installMs })
     bootStage('sessions row recovery', rowsStarted)
     const baselineStarted = performance.now()
-    // One-shot boot backfill (#474): name pre-upgrade historical sessions at a
-    // deliberate point instead of burst-allocating inside the first listSessions.
-    // The candidates are the rows with no ref, read in created_at order so
-    // allocation is deterministic (POD-6160: from the table, not the map); a
-    // parked one is restored only when it does get a ref.
-    for (const row of (await this.store.sessions.sessionsWithoutRef()).sort(
-      (a, b) => a.createdAt.localeCompare(b.createdAt) || (a.id < b.id ? -1 : 1),
-    )) {
-      const probe = { refIssueId: null, refDraft: null, issueId: row.issueId ?? undefined, cwd: row.cwd, machineId: row.machineId }
-      if (!(await this.view.prepareRefAllocation(probe as unknown as SessionDurableState))) continue
-      const allocate = async (session: Session | undefined) => {
-        if (!session) return
-        // Against the DRAFT [POD-3330]: the allocation assigns the ref inside the
-        // transaction, so it has to assign into the state `toRow` reads.
-        const draft = this.draft(session)
-        const additionalWrite = await this.view.prepareRefAllocation(draft)
-        if (additionalWrite) await this.persistDraft(session, draft, additionalWrite)
-      }
-      const resident = this.sessions.get(row.id)
-      if (resident || !this.ports.withSession) await allocate(resident)
-      else await this.ports.withSession(row.id, 'bootRefBackfill', allocate)
-    }
+    await this.backfillBirthRefs()
     bootStage('sessions ref backfill', baselineStarted)
     const queuesStarted = performance.now()
     // Queued rows survive a restart (that's their point) and are counted from
