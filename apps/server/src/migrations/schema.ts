@@ -331,6 +331,17 @@ export const sessions = sqliteTable(
     // (`POD-DRAFT-3`) names its session by `ref_draft`.
     index('idx_sessions_spawned_by').on(table.spawnedBy),
     index('idx_sessions_ref_draft').on(table.refDraft),
+    // The boot ref backfill's candidates (POD-6222): live sessions with no birth
+    // ref, by place (a cwd range on a machine) and by issue. Partial, so a boot
+    // reads the few that can still get a ref, not every ref-less one in history.
+    index('idx_sessions_refless_place')
+      .on(table.machineId, table.cwd)
+      .where(sql`${table.refIssueId} IS NULL AND ${table.refDraft} IS NULL AND ${table.deletedAt} IS NULL`),
+    index('idx_sessions_refless_issue')
+      .on(table.issueId)
+      .where(
+        sql`${table.refIssueId} IS NULL AND ${table.refDraft} IS NULL AND ${table.deletedAt} IS NULL AND ${table.issueId} IS NOT NULL`,
+      ),
     // Sessions by status (POD-6160): the running ones a boot restores, the
     // not-exited ones the concierge digest reports.
     index('idx_sessions_status').on(table.status),
