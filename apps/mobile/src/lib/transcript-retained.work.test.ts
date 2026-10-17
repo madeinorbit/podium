@@ -18,8 +18,7 @@ it('bounds the canonical phone producer, observed rows and open Find at 1x/4x hi
     let page = { items, head: items[0]!.cursor, hasMore: true }
     const drafts = draftsForProbe()
     const conversation = new MobileConversation({ sessionId: asSessionId('phone-probe'), drafts,
-      transcript: { source: { read: async () => page, subscribe: () => () => {} }, retainHistory: () => true,
-        cache: { maxItems: 200, read: () => undefined, write: () => {} } },
+      transcript: { source: { read: async () => page, subscribe: () => () => {} }, retainHistory: () => true },
       sends: { createDeliveryId: () => 'delivery', deliver: async () => ({ state: 'sent' as const }) },
     })
     await conversation.start()

@@ -1,6 +1,10 @@
 import { asSessionId, type MessageRecordWire, type TranscriptItem } from '@podium/model'
 import { autorun, configure, isObservable, reaction } from 'mobx'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import {
+  fakeTranscriptCache,
+  storedReadSettled,
+} from '@podium/client-core/test-support/transcript-cache'
 import { Sends } from './sends'
 import { TranscriptLog } from './transcript-log'
 
@@ -16,7 +20,7 @@ afterEach(() => {
   configure({ enforceActions: 'observed' })
 })
 
-function log(items: TranscriptItem[] = []) {
+async function log(items: TranscriptItem[] = []) {
   const source = {
     read: vi.fn(async () => ({ items, hasMore: false })),
     subscribe: vi.fn(() => vi.fn()),
@@ -24,16 +28,17 @@ function log(items: TranscriptItem[] = []) {
   const model = new TranscriptLog({
     sessionId: id,
     source,
-    cache: { read: () => ({ items, savedAt: 12 }), write: vi.fn() },
+    cache: fakeTranscriptCache({ items, savedAt: 12 }),
   })
   cleanup.push(() => model.dispose())
+  await storedReadSettled()
   return { model, source }
 }
 
 describe('conversation observation boundaries', () => {
-  it('keeps items and nested payloads frozen and outside MobX', () => {
+  it('keeps items and nested payloads frozen and outside MobX', async () => {
     const item = { ...row('a', 'partial'), tags: [{ kind: 'file' as const, label: 'a.ts' }] }
-    const { model } = log([item])
+    const { model } = await log([item])
     expect(isObservable(model.ids)).toBe(true)
     expect(isObservable(model.byId)).toBe(true)
     expect(model.byId.get('a')).toBe(item)
@@ -44,9 +49,9 @@ describe('conversation observation boundaries', () => {
     expect(Object.isFrozen(item.tags[0])).toBe(true)
   })
 
-  it('replaces only the addressed row without notifying ids or another row', () => {
+  it('replaces only the addressed row without notifying ids or another row', async () => {
     configure({ enforceActions: 'always' })
-    const { model } = log([row('a', 'first'), row('b', 'partial')])
+    const { model } = await log([row('a', 'first'), row('b', 'partial')])
     const order = vi.fn(),
       first = vi.fn(),
       last = vi.fn()
@@ -67,8 +72,8 @@ describe('conversation observation boundaries', () => {
     expect(last).toHaveBeenCalledTimes(1)
   })
 
-  it('seeds cached messages synchronously before starting any network read', () => {
-    const { model, source } = log([row('cached', 'offline text')])
+  it('paints stored messages before starting any network read', async () => {
+    const { model, source } = await log([row('cached', 'offline text')])
     expect(source.read).not.toHaveBeenCalled()
     expect(model.ids.slice()).toEqual(['cached'])
     expect(model.byId.get('cached')?.text).toBe('offline text')
@@ -171,7 +176,7 @@ describe('conversation observation boundaries', () => {
   })
 
   it('keeps captured send actions inert after disposal without rearming a timer', async () => {
-    const { model: transcript } = log()
+    const { model: transcript } = await log()
     const deliver = vi.fn(async () => {
       throw new Error('offline')
     })
@@ -217,8 +222,8 @@ describe('conversation observation boundaries', () => {
     expect(clearTimer).toHaveBeenCalled()
   })
 
-  it('makes echo membership reactive without a transcript scan', () => {
-    const { model } = log([row('echo', 'typed prompt', 'user')])
+  it('makes echo membership reactive without a transcript scan', async () => {
+    const { model } = await log([row('echo', 'typed prompt', 'user')])
     const answer = vi.fn()
     cleanup.push(reaction(() => model.hasUserEcho('typed prompt'), answer))
     model.merge([row('echo', 'changed prompt', 'user')])

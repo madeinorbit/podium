@@ -8,7 +8,6 @@ import {
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { randomUUID } from '@podium/client-core/id'
 import { useConversation as useOwnedConversation, useStoreHandle } from '@podium/client-core/react'
-import { REPLICA_TRANSCRIPT_ITEM_CAP } from '@podium/client-core/replica'
 import {
   chatSendRoute,
   composerState,
@@ -241,15 +240,7 @@ export function createWebConversation(
           },
           subscribe: (id, since, listener) => hub.subscribeTranscript(id, since, listener),
         },
-        ...(replica
-          ? {
-              cache: {
-                maxItems: REPLICA_TRANSCRIPT_ITEM_CAP,
-                read: (id) => replica.transcriptWindow(id),
-                write: (id, items) => replica.putTranscriptWindow(id, [...items]),
-              },
-            }
-          : {}),
+        ...(replica?.transcripts ? { cache: replica.transcripts } : {}),
       },
       onTranscriptChange: (change) => conversation?.changed(change),
       ...(mount.superThread

@@ -15,6 +15,7 @@ import { asClientPrincipal, type ClientPrincipal } from '../principal'
 import {
   createKernelReplica,
   createSideCache,
+  eraseLegacyTranscriptKeys,
   FeedSink,
   parseReplicaNamespaceKey,
   preparePrincipalNamespace,
@@ -22,6 +23,13 @@ import {
   type StorageApi,
 } from '../replica'
 import type { FeedSinkPort } from '../socket-transport'
+import {
+  createStoreTranscriptCache,
+  createTranscriptStore,
+  type StoreTranscriptCache,
+  type TranscriptStore,
+  type TranscriptStoreBackend,
+} from '../transcript-store'
 import {
   createSyncTransferTelemetry,
   HttpBootstrapSource,
@@ -58,6 +66,19 @@ export interface ReplicaSettings {
 
 export type ReplicaDegradation = { kind: 'store-not-adopted'; reason: string }
 
+/**
+ * Chat history's own database, per signed-in user (POD-5801): IndexedDB on web and
+ * desktop, an expo-sqlite file on the phone. Never the entity store.
+ */
+export interface TranscriptDatabases {
+  open(principal: string): Promise<TranscriptStoreBackend>
+  /** Delete a user's database without opening it (sign-out, eviction). */
+  erase(principal: string): Promise<void>
+  /** Run the age/size sweep once the app is idle after startup. Defaults to a
+   *  timer followed by `requestIdleCallback` where the host has one. */
+  whenIdle?(run: () => void): () => void
+}
+
 export interface OpenReplicaAssemblyOptions<T extends ReplicaDataStore> {
   readonly openStore: (onDegraded: (detail: unknown) => void) => Promise<T>
   readonly settings: ReplicaSettings
@@ -73,6 +94,8 @@ export interface OpenReplicaAssemblyOptions<T extends ReplicaDataStore> {
   readonly now?: () => number
   /** An app may keep its own event-to-phase mapping on the shared store. */
   readonly createProgress?: (now: () => number) => SyncProgressStore
+  /** Absent: chats keep no history on the device and read the server. */
+  readonly transcripts?: TranscriptDatabases
 }
 
 export interface ReplicaAssembly<T extends ReplicaDataStore = ReplicaDataStore> {
@@ -83,6 +106,8 @@ export interface ReplicaAssembly<T extends ReplicaDataStore = ReplicaDataStore> 
   readonly createOutboxFn: CreateEngineOutbox
   readonly store: T
   readonly progress: SyncProgressStore
+  /** This user's chat history store, when the host provides one. */
+  readonly transcripts?: TranscriptStore
   settled(): Promise<void>
   erasePrincipalData(): Promise<void>
   dispose(): Promise<void>
@@ -120,14 +145,24 @@ export async function openReplicaAssembly<T extends ReplicaDataStore>(
   }
   let side: ReturnType<typeof createSideCache> | undefined
   let kernel: KernelReplica | undefined
+  let transcriptStore: TranscriptStore | undefined
+  let transcriptCache: StoreTranscriptCache | undefined
   try {
+    const eraseTranscripts = (principal: string): Promise<void> =>
+      principal === options.principal && transcriptStore
+        ? transcriptStore.erase()
+        : (options.transcripts?.erase(principal) ?? Promise.resolve())
     const erasePrincipal = async (
       namespace: { keyPrefix: string; erase(): void },
       principal: string,
     ): Promise<void> => {
       try {
         namespace.erase()
-        await Promise.all([store.erasePrincipal(principal), flushSettings()])
+        await Promise.all([
+          store.erasePrincipal(principal),
+          eraseTranscripts(principal),
+          flushSettings(),
+        ])
         if (settings.enumerateKeys().some((key) => key.startsWith(`${namespace.keyPrefix}.`))) {
           throw new Error('principal settings could not be erased')
         }
@@ -157,8 +192,12 @@ export async function openReplicaAssembly<T extends ReplicaDataStore>(
       await cleanup.complete()
     }
     const namespace = preparePrincipalNamespace({ ...settings, principal: options.principal, now })
-    for (const stalePrincipal of namespace.evictedPrincipals)
+    for (const stalePrincipal of namespace.evictedPrincipals) {
       await store.erasePrincipal(stalePrincipal)
+      await eraseTranscripts(stalePrincipal)
+    }
+    // Chat history left the shared key space; its old keys go, unread.
+    eraseLegacyTranscriptKeys(settings.storage, safeKeys(settings))
     if (!namespace.durable) throw storageFailure('principal namespace marker is unavailable')
     await flushSettings()
     settings.storage.removeItem('podium-kernel-identity-ledger')
@@ -194,11 +233,27 @@ export async function openReplicaAssembly<T extends ReplicaDataStore>(
       adoptLegacyOutbox: false,
       onDegraded: options.onDegraded,
     })
+    if (options.transcripts) {
+      const databases = options.transcripts
+      transcriptStore = createTranscriptStore({
+        backend: databases.open(options.principal),
+        now,
+        deleteDatabase: () => databases.erase(options.principal),
+        onDegraded: (detail) => options.onDegraded?.(detail),
+      })
+      transcriptCache = createStoreTranscriptCache(transcriptStore)
+    }
     const facade = createKernelReplica({
       cache: view.cache,
       side,
       exits: (entity, entityId) => kernel?.exitKind(entity, entityId),
+      ...(transcriptCache ? { transcripts: transcriptCache } : {}),
     })
+    const cancelSweep = transcriptStore
+      ? (options.transcripts?.whenIdle ?? whenIdleAfterStartup)(() => {
+          void transcriptStore?.sweep()
+        })
+      : undefined
     const progress = options.createProgress?.(now) ?? new SyncProgressStore(now)
     let stopped = false
     let disposed = false
@@ -319,12 +374,15 @@ export async function openReplicaAssembly<T extends ReplicaDataStore>(
       },
     }
     const settled = async (): Promise<void> => {
-      await Promise.all([store.settled(), flushSettings()])
+      transcriptCache?.flush()
+      await Promise.all([store.settled(), flushSettings(), transcriptStore?.settled()])
     }
     const stop = (): void => {
       stopped = true
       replicaKernel.disconnect()
       side?.dispose()
+      cancelSweep?.()
+      transcriptCache?.dispose()
     }
     return {
       principal: asClientPrincipal(asUserId(memberId), identity?.syncBoundaryId),
@@ -344,6 +402,7 @@ export async function openReplicaAssembly<T extends ReplicaDataStore>(
       createOutboxFn,
       store,
       progress,
+      ...(transcriptStore ? { transcripts: transcriptStore } : {}),
       settled,
       erasePrincipalData: async () => {
         erased = true
@@ -358,12 +417,15 @@ export async function openReplicaAssembly<T extends ReplicaDataStore>(
           await settled()
         } finally {
           store.close()
+          transcriptStore?.close()
         }
       },
     }
   } catch (error) {
     kernel?.disconnect()
     side?.dispose()
+    transcriptCache?.dispose()
+    transcriptStore?.close()
     store.close()
     throw error instanceof ReplicaGateError ? error : storageFailure(error)
   }
@@ -373,4 +435,35 @@ function storageFailure(error: unknown): ReplicaGateError {
   return new ReplicaGateError(error instanceof Error ? error.message : String(error), {
     kind: 'replica-blocked',
   })
+}
+
+function safeKeys(settings: ReplicaSettings): string[] {
+  try {
+    return settings.enumerateKeys()
+  } catch {
+    return []
+  }
+}
+
+/** First paint first: wait a few seconds, then for an idle moment where the host has one. */
+const SWEEP_DELAY_MS = 5_000
+
+function whenIdleAfterStartup(run: () => void): () => void {
+  let cancelled = false
+  let idle: number | undefined
+  const host = globalThis as {
+    requestIdleCallback?: (cb: () => void) => number
+    cancelIdleCallback?: (id: number) => void
+  }
+  const timer = setTimeout(() => {
+    if (cancelled) return
+    if (typeof host.requestIdleCallback === 'function') idle = host.requestIdleCallback(run)
+    else run()
+  }, SWEEP_DELAY_MS)
+  ;(timer as { unref?: () => void }).unref?.()
+  return () => {
+    cancelled = true
+    clearTimeout(timer)
+    if (idle !== undefined) host.cancelIdleCallback?.(idle)
+  }
 }

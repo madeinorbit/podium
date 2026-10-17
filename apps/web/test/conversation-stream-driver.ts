@@ -1,5 +1,6 @@
-import type { TranscriptItem } from '@podium/model/browser'
+import type { SessionId, TranscriptItem } from '@podium/model/browser'
 import { asSessionId } from '@podium/model/browser'
+import { fakeTranscriptCache } from '@podium/client-core/test-support/transcript-cache'
 import { createHeaderFixture } from './header-fixture'
 
 export type RenderWork = { frame: number; row: number; composer: number; shell: number }
@@ -26,11 +27,11 @@ export function createStreamFixture() {
     fixture, id, errors, listeners,
     replica() {
       const replica = fixture.newReplica()
-      replica.putTranscriptWindow(id, items)
       retained = items.length
-      const write = replica.putTranscriptWindow.bind(replica)
-      replica.putTranscriptWindow = (key, next) => { retained = next.length; write(key, next) }
-      return replica
+      const stored = fakeTranscriptCache({ items, savedAt: Date.now() })
+      return Object.assign(replica, {
+        transcripts: { ...stored, write: (key: SessionId, window: () => readonly TranscriptItem[]) => { retained = window().length; stored.write(key, window) } },
+      })
     },
     corpus: () => ({ messages: items.length, retained, visibleRows: document.querySelectorAll('[data-row-key]').length }),
     emit(seq: number) {

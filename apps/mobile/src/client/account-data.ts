@@ -2,6 +2,7 @@ import { createAccountEraser, eraseAccountData } from '@podium/client-core/accou
 import { createAsyncStorageReplicaStorage, REPLICA_KEY_PREFIX } from '@podium/client-core/replica'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { openMobileEntityStore } from './mobile-entity-store'
+import { mobileTranscriptDatabases } from './mobile-transcript-store'
 import { MOBILE_REPLICA_DB } from './replica-storage-constants'
 
 export const mobileAccountEraser = createAccountEraser(async (principal) => {
@@ -17,6 +18,7 @@ export const mobileAccountEraser = createAccountEraser(async (principal) => {
       eraseEntities: (key) => store.erasePrincipal(key),
       flush: bridge.flushDurable,
     })
+    await mobileTranscriptDatabases.erase(principal)
   } finally {
     store.close()
   }

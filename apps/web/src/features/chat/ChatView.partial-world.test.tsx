@@ -69,8 +69,6 @@ let exits: Record<string, 'removed' | 'evicted'> = {}
 
 const fakeReplica = {
   available: false,
-  transcriptWindow: () => undefined,
-  putTranscriptWindow: () => {},
   exitKind: (_entity: string, id: string) => exits[id],
 }
 

@@ -110,6 +110,11 @@
       "types": "./src/transcript/index.ts",
       "import": "./src/transcript/index.ts"
     },
+    "./transcript-store": {
+      "@podium/source": "./src/transcript-store/index.ts",
+      "types": "./src/transcript-store/index.ts",
+      "import": "./src/transcript-store/index.ts"
+    },
     "./conversation": {
       "@podium/source": "./src/conversation/index.ts",
       "types": "./src/conversation/index.ts",
@@ -194,6 +199,11 @@
       "@podium/source": "./src/live-connection/server-follow.ts",
       "types": "./src/live-connection/server-follow.ts",
       "import": "./src/live-connection/server-follow.ts"
+    },
+    "./test-support/transcript-cache": {
+      "@podium/source": "./test-support/transcript-cache.ts",
+      "types": "./test-support/transcript-cache.ts",
+      "import": "./test-support/transcript-cache.ts"
     },
     "./test-support/local-store": {
       "@podium/source": "./test-support/local-store.ts",

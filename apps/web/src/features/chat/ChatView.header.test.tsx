@@ -77,8 +77,6 @@ const fakeReplica = {
   applyChanges: () => {},
   getCursor: () => null,
   setCursor: () => {},
-  transcriptWindow: () => undefined,
-  putTranscriptWindow: () => {},
 }
 
 // Every chat send runs the REAL outbox, draining into `fakeTrpc` (POD-4762).

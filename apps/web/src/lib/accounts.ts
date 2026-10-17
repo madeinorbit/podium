@@ -9,7 +9,11 @@ import {
 } from '@podium/client-core/accounts'
 import { retainReplicaEntity } from '@podium/client-core/replica'
 import { IndexedDbSyncStore, type IdbFactoryLike } from '@podium/sync/adapters/indexeddb'
-import { KERNEL_REPLICA_DB, KERNEL_SIDE_CACHE_PREFIX } from './kernelReplica'
+import {
+  eraseTranscriptDatabase,
+  KERNEL_REPLICA_DB,
+  KERNEL_SIDE_CACHE_PREFIX,
+} from './kernelReplica'
 import { eraseAllQuotes } from './quote/quote-store'
 import { currentWorkspaceSlug, workspaceFetch } from './workspace-request'
 
@@ -42,6 +46,7 @@ export const webAccountEraser = createAccountEraser(async (principal) => {
     })
     // Staged quote passages are not keyed by principal; they all go.
     eraseAllQuotes()
+    await eraseTranscriptDatabase(principal)
   } finally {
     store.close()
   }

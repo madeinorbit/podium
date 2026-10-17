@@ -50,11 +50,12 @@ function fixture() {
   const presentation = new ConversationPresentation()
   const conversation = new WebConversation({
     sessionId: id, drafts,
-    transcript: { cache: { read: () => ({ items, savedAt: 1 }), write: () => {} },
+    transcript: {
       source: { read: async () => ({ items, hasMore: false }), subscribe: () => () => {} } },
     sends: { createDeliveryId: () => 'test-send', deliver: async () => ({ state: 'sent' }) },
     onTranscriptChange: change => presentation.changed(change),
   }, { sources: { view: () => ({ session: () => undefined }) } } as never, { drafts } as never, {}, presentation)
+  conversation.transcript.merge(items)
   owners.push({ conversation, drafts })
   const chat = {
     conversation,

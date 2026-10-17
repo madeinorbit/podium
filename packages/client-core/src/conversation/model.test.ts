@@ -2,6 +2,10 @@ import { asSessionId, type TranscriptItem } from '@podium/model'
 import type { TurnPreviewMessage } from '@podium/protocol'
 import { autorun, observable, runInAction, spy } from 'mobx'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import {
+  fakeTranscriptCache,
+  storedReadSettled,
+} from '@podium/client-core/test-support/transcript-cache'
 import type { SocketHub } from '../socket-transport/socket-hub'
 import {
   Conversation,
@@ -351,14 +355,15 @@ describe('Conversation real-time intake and ownership', () => {
     f.dispose()
   })
 
-  it('seeds cached messages synchronously before starting network work', () => {
+  it('paints stored messages before starting network work', async () => {
     const read = vi.fn(async () => ({ items: [], hasMore: false }))
     const f = fixture({
       transcript: {
         source: { read, subscribe: vi.fn(() => vi.fn()) },
-        cache: { read: () => ({ items: [row('cached')], savedAt: 10 }), write: vi.fn() },
+        cache: fakeTranscriptCache({ items: [row('cached')], savedAt: 10 }),
       },
     })
+    await storedReadSettled()
     expect(read).not.toHaveBeenCalled()
     expect(f.conversation.transcript.ids.slice()).toEqual(['cached'])
     expect(f.conversation.transcript.byId.get('cached')?.text).toBe('cached')

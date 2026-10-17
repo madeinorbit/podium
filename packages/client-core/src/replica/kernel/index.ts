@@ -30,7 +30,8 @@ export {
 } from './kinds'
 export {
   createSideCache,
-  isTranscriptWindowStorageKey,
+  eraseLegacyTranscriptKeys,
+  isLegacyTranscriptStorageKey,
   type SideCache,
   type SideCacheInit,
 } from './side-cache'

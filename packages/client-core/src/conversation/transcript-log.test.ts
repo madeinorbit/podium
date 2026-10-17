@@ -6,6 +6,10 @@ const createTranscriptLog = (options: TranscriptLogOptions) => new TranscriptLog
 import { asSessionId, type TranscriptItem } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import {
+  fakeTranscriptCache,
+  storedReadSettled,
+} from '@podium/client-core/test-support/transcript-cache'
+import {
   mergeTranscriptFrame,
   TRANSCRIPT_ACTIVITY_SETTLE_MS,
   TRANSCRIPT_LIVE_HEARTBEAT_MS,
@@ -151,19 +155,20 @@ describe.each(clients)('$name transcript contract', ({ initialLimit, pageLimit }
   it('bounds a marathon live window, updates retained ids, and recovers trimmed history by its native anchor', async () => {
     const io = source()
     let reading = false
-    const write = vi.fn()
+    const cache = fakeTranscriptCache()
     const controller = createTranscriptLog({
       sessionId: asSessionId('s1'),
       source: io.port,
       initialLimit,
       pageLimit,
       retainHistory: () => reading,
-      cache: { read: () => undefined, write },
+      cache,
     })
     const all = Array.from({ length: 10_000 }, (_, index) =>
       item(`row-${index}`, `cursor-${index}`),
     )
     const starting = controller.start()
+    await storedReadSettled()
     io.pending[0]?.resolve({
       items: all.slice(0, initialLimit),
       head: 'authority-head',
@@ -179,11 +184,12 @@ describe.each(clients)('$name transcript contract', ({ initialLimit, pageLimit }
     const first = 10_000 - initialLimit * 2
     expect(controller.items).toEqual(all.slice(first))
     expect(controller).toMatchObject({ head: `cursor-${first}`, hasMoreOlder: true })
-    expect(write.mock.lastCall?.[1]).toHaveLength(initialLimit * 2)
+    expect(cache.lastWindow()).toHaveLength(initialLimit * 2)
     io.emit([item(`row-${first}`, `cursor-${first}`, 'updated retained row')])
     expect(controller.items[0]?.text).toBe('updated retained row')
     reading = true
     const older = controller.loadOlder()
+    await storedReadSettled()
     expect(io.reads[1]?.anchor).toBe(`cursor-${first}`)
     io.pending[1]?.resolve({
       items: all.slice(first - pageLimit, first),
@@ -202,19 +208,17 @@ describe.each(clients)('$name transcript contract', ({ initialLimit, pageLimit }
   })
   it('hydrates cache, reads, pages, replaces a same-id record, and writes through', async () => {
     const io = source()
-    const write = vi.fn()
+    const cache = fakeTranscriptCache({ items: [item('cached', 'c1', 'saved')], savedAt: 10 })
     const controller = createTranscriptLog({
       sessionId: asSessionId('s1'),
       source: io.port,
       initialLimit,
       pageLimit,
-      cache: {
-        read: () => ({ items: [item('cached', 'c1', 'saved')], savedAt: 10 }),
-        write,
-      },
+      cache,
     })
 
     const starting = controller.start()
+    await storedReadSettled()
     expect(controller).toMatchObject({
       items: [item('cached', 'c1', 'saved')],
       subscriptionHealthy: false,
@@ -236,6 +240,7 @@ describe.each(clients)('$name transcript contract', ({ initialLimit, pageLimit }
     expect(controller.items.map((entry) => entry.text)).toEqual(['a', 'complete'])
 
     const paging = controller.loadOlder()
+    await storedReadSettled()
     expect(io.reads[1]).toMatchObject({ anchor: 'c1', limit: pageLimit })
     io.pending[1]?.resolve({
       items: [item('older', 'c0'), item('a', 'c1-history')],
@@ -245,7 +250,7 @@ describe.each(clients)('$name transcript contract', ({ initialLimit, pageLimit }
     })
     await paging
     expect(controller.items.map((entry) => entry.cursor)).toEqual(['c0', 'c1', 'c2-updated'])
-    expect(write).toHaveBeenCalled()
+    expect(cache.writes.length).toBeGreaterThan(0)
     controller.dispose()
   })
 
@@ -427,7 +432,7 @@ describe('transcript lifecycle boundaries', () => {
     const controller = createTranscriptLog({
       sessionId: asSessionId('s1'),
       source: io.port,
-      cache: { read: () => ({ items: [item('saved', 'c0')], savedAt: 42 }), write: vi.fn() },
+      cache: fakeTranscriptCache({ items: [item('saved', 'c0')], savedAt: 42 }),
       connection: {
         connected: () => connected,
         subscribe(listener) {
@@ -441,6 +446,7 @@ describe('transcript lifecycle boundaries', () => {
     const starting = controller.start()
     connected = true
     connectionListener?.(true)
+    await storedReadSettled()
     io.pending[1]?.resolve({
       items: [item('fresh', 'c2')],
       head: 'c2',
@@ -468,9 +474,10 @@ describe('transcript lifecycle boundaries', () => {
     const controller = createTranscriptLog({
       sessionId: asSessionId('s1'),
       source: io.port,
-      cache: { read: () => ({ items: [item('a', 'c1')], savedAt: 42 }), write: vi.fn() },
+      cache: fakeTranscriptCache({ items: [item('a', 'c1')], savedAt: 42 }),
     })
     const starting = controller.start()
+    await storedReadSettled()
     io.pending[0]?.reject(new Error('offline'))
     await starting
     expect(controller).toMatchObject({
@@ -585,9 +592,10 @@ describe('transcript lifecycle boundaries', () => {
     const controller = createTranscriptLog({
       sessionId: asSessionId('s1'),
       source: io.port,
-      cache: { read: () => ({ items: [item('saved', 'c1')], savedAt: 42 }), write: vi.fn() },
+      cache: fakeTranscriptCache({ items: [item('saved', 'c1')], savedAt: 42 }),
     })
     const starting = controller.start()
+    await storedReadSettled()
     expect(controller.freshness).toBe('checking')
     io.pending[0]?.resolve({
       items: [item('fresh', 'c2')],
@@ -638,18 +646,23 @@ describe('history paging and reset boundaries', () => {
 
   it('an empty reset removes held rows and saved rows even when refresh fails', async () => {
     const io = source()
-    const write = vi.fn()
+    const cache = fakeTranscriptCache()
     const controller = createTranscriptLog({
       sessionId: asSessionId('s1'),
       source: io.port,
-      cache: { read: () => undefined, write },
+      cache,
     })
     const starting = controller.start()
+    await storedReadSettled()
     io.pending[0]?.resolve({ items: [item('stale', 'native-old')], hasMore: false })
     await starting
     io.emit([], true)
     expect(controller.items).toEqual([])
-    expect(write).toHaveBeenLastCalledWith(asSessionId('s1'), [])
+    expect(cache.writes.at(-1)).toEqual({
+      sessionId: asSessionId('s1'),
+      items: [],
+      options: { replace: true },
+    })
     io.pending[1]?.reject(new Error('offline'))
     await Promise.resolve()
     await Promise.resolve()
@@ -864,16 +877,14 @@ it('keeps an addressed boundary through stream and newest-read trimming, then ap
     sessionId: asSessionId('boundary'),
     initialLimit: 2,
     source: { read: async () => page, subscribe: () => () => {} },
-    cache: {
-      read: () => ({
-        items: Array.from({ length: 6 }, (_, n) => item(`i${n}`, `c${n}`)),
-        savedAt: 0,
-      }),
-      write: () => {},
-    },
+    cache: fakeTranscriptCache({
+      items: Array.from({ length: 6 }, (_, n) => item(`i${n}`, `c${n}`)),
+      savedAt: 0,
+    }),
     retainFrom: () => keep,
   })
   try {
+    await storedReadSettled()
     log.merge([item('i6', 'c6')])
     expect([...log.ids]).toEqual(['i2', 'i3', 'i4', 'i5', 'i6'])
     await log.refresh()

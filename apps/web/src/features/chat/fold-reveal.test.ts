@@ -2,6 +2,10 @@ import { TranscriptLog } from '@podium/client-core/conversation'
 import type { ChatRow } from '@podium/client-core/values'
 import { asSessionId, type TranscriptItem } from '@podium/model'
 import { afterEach, expect, it, vi } from 'vitest'
+import {
+  fakeTranscriptCache,
+  storedReadSettled,
+} from '@podium/client-core/test-support/transcript-cache'
 import { ConversationPresentation, RENDER_WINDOW } from './conversation-presentation'
 import { revealFoldedRow } from './fold-reveal'
 
@@ -30,7 +34,7 @@ const turn = (n: number): TranscriptItem[] => [
   { id: `a${n}`, role: 'assistant', text: `answer ${n}`, answer: true },
 ]
 
-function fixture(items: TranscriptItem[]) {
+async function fixture(items: TranscriptItem[]) {
   const client = {
     usesWorker: false,
     computeGraphOnMain(
@@ -47,10 +51,11 @@ function fixture(items: TranscriptItem[]) {
   const log: TranscriptLog = new TranscriptLog({
     sessionId: asSessionId('fold-reveal'),
     source: { read: async () => ({ items: log.items, hasMore: false }), subscribe: () => () => {} },
-    cache: { read: () => ({ items, savedAt: 1 }), write: () => {} },
+    cache: fakeTranscriptCache({ items, savedAt: 1 }),
     retainHistory: () => presentation.retainHistory,
     onChange: (change) => presentation.changed(change),
   })
+  await storedReadSettled()
   presentation.bind(log)
   stops.push(() => {
     presentation.dispose()
@@ -59,8 +64,8 @@ function fixture(items: TranscriptItem[]) {
   return { presentation, log }
 }
 
-function setup() {
-  const { presentation, log } = fixture(Array.from({ length: 100 }, (_, n) => turn(n)).flat())
+async function setup() {
+  const { presentation, log } = await fixture(Array.from({ length: 100 }, (_, n) => turn(n)).flat())
   expect(presentation.rowCount).toBeGreaterThan(RENDER_WINDOW)
   presentation.folds.prime()
   // The fold whose work is the window's first row: where a slide hurts most.
@@ -102,8 +107,8 @@ function setup() {
   return { presentation, log, target, index, ports, scroll, calls, flush }
 }
 
-it('releases following before it waits, holds the window through a delivery, and lands on the row by key', () => {
-  const { presentation, log, target, index, ports, calls, flush } = setup()
+it('releases following before it waits, holds the window through a delivery, and lands on the row by key', async () => {
+  const { presentation, log, target, index, ports, calls, flush } = await setup()
   const cancel = revealFoldedRow(ports, index)
   expect(cancel).toBeDefined()
   expect(calls).toEqual(['release'])
@@ -117,15 +122,15 @@ it('releases following before it waits, holds the window through a delivery, and
   expect(presentation.anchorRow(target.memberKeys[0]!)).toBe(index)
 })
 
-it('does nothing for a row that is not folded', () => {
-  const { presentation, ports, scroll } = setup()
+it('does nothing for a row that is not folded', async () => {
+  const { presentation, ports, scroll } = await setup()
   const prompt = presentation.turnFolds.folds[0]!.start - 1
   expect(revealFoldedRow(ports, prompt)).toBeUndefined()
   expect(scroll.scrollToBlock).not.toHaveBeenCalled()
 })
 
-it('lands nowhere once its owner cancels it', () => {
-  const { index, ports, scroll, flush } = setup()
+it('lands nowhere once its owner cancels it', async () => {
+  const { index, ports, scroll, flush } = await setup()
   const cancel = revealFoldedRow(ports, index)!
   cancel()
   flush()

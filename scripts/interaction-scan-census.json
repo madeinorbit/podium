@@ -134,24 +134,22 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "apps/mobile/src/client/test-support.tsx",
-      "holder": "renderWithMobileStore",
-      "rule": "helper-consumer",
-      "tokens": "8f150a3a7b33aa1064faae54a2b4d25c62fb8f870f54f17a3959a552e3079542",
-      "gate": [
-        "then:340050db2368d08922eee549b81b405b8afd7f6857e8dc18875cb9e8e9cd8f23"
-      ],
+      "file": "apps/mobile/src/client/test-replica.ts",
+      "holder": "createMobileTestReplica/replica",
+      "rule": "reader-summary",
+      "tokens": "50426e727a79d5404cec9ce9d53f5f9c32f37faba9eb5214d0a92efa5f8158fb",
+      "gate": [],
       "origin": [
-        "241a0331a71588c9cfd9dee4a0d372658006f11d0778e6476f836b12089cb86f"
+        "6a38dd81c5dae2ff245d1a2187718e0367d4b389f2610fbbf87b1b2efaae894a"
       ],
-      "fingerprint": "11c839e9c7add82f9867f276e49afce13c5ae98fc42a669f3ad765a2aac5c944",
+      "fingerprint": "5427ca305967a8b7039ab5b6c40a19668f2e6bddb8518944e9371aa82b4ff471",
       "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of renderWithMobileStore",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+      "classification": "bounded local work",
+      "owner": "POD-5801",
+      "trigger": "Opening a signed-in user's replica assembly, building a replica, or mounting one chat.",
+      "bound": "Constant work: the per-user chat history store is created once and handed on by reference; no transcript collection is read or iterated at this site.",
+      "reason": "The scan follows transcript-named ports (TranscriptStore, the replica's transcripts cache) through composition and erase wiring; nothing here enumerates messages.",
+      "guard": "assembly.test.ts \"chat history database (POD-5801)\" opens one database per user and erases it on sign-out; transcript-log.stored.test.ts drives the wired cache end to end."
     },
     {
       "file": "apps/mobile/src/client/test-support.tsx",
@@ -172,6 +170,47 @@
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "apps/mobile/src/client/test-support.tsx",
+      "holder": "renderWithMobileStore",
+      "rule": "helper-consumer",
+      "tokens": "8f150a3a7b33aa1064faae54a2b4d25c62fb8f870f54f17a3959a552e3079542",
+      "gate": [
+        "then:340050db2368d08922eee549b81b405b8afd7f6857e8dc18875cb9e8e9cd8f23"
+      ],
+      "origin": [
+        "241a0331a71588c9cfd9dee4a0d372658006f11d0778e6476f836b12089cb86f",
+        "6a38dd81c5dae2ff245d1a2187718e0367d4b389f2610fbbf87b1b2efaae894a"
+      ],
+      "fingerprint": "dbc92a5f71a5c8a1ca4e84d03777756cbbbd7ce18cc07770a422b69bcfc95f66",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of renderWithMobileStore",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "apps/mobile/src/client/test-support.tsx",
+      "holder": "renderWithMobileStore/seededReplica",
+      "rule": "reader-summary",
+      "tokens": "e470cef93fa15c2d78a68fc875e9cd7d2e0b015781cdd8f258e981e14af18985",
+      "gate": [
+        "else:e8cb473f5eef818c4a2d248734317a1647c73223144f6ccc674875069a25818e"
+      ],
+      "origin": [
+        "6a38dd81c5dae2ff245d1a2187718e0367d4b389f2610fbbf87b1b2efaae894a"
+      ],
+      "fingerprint": "ff4e45e3d6f2d44719d87cfd38ab14b5019d023af6abf39c0afeb953ddba700c",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5801",
+      "trigger": "Opening a signed-in user's replica assembly, building a replica, or mounting one chat.",
+      "bound": "Constant work: the per-user chat history store is created once and handed on by reference; no transcript collection is read or iterated at this site.",
+      "reason": "The scan follows transcript-named ports (TranscriptStore, the replica's transcripts cache) through composition and erase wiring; nothing here enumerates messages.",
+      "guard": "assembly.test.ts \"chat history database (POD-5801)\" opens one database per user and erases it on sign-out; transcript-log.stored.test.ts drives the wired cache end to end."
     },
     {
       "file": "apps/mobile/src/client/use-inbox-data.ts",
@@ -423,7 +462,24 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "fingerprint": "c16ee512ccde1a47c1d76aa8777b443a579e7a9e507f17f28be45f9bd5e7b04e",
+      "file": "apps/mobile/src/components/SessionConversation.tsx",
+      "holder": "SessionConversation/model/useConversation:callback/transcript",
+      "rule": "spread",
+      "tokens": "2f2d699d1c5a215c1ecaeec233f83e8cf639a583bc31c1dc8fc56831b452e389",
+      "gate": [],
+      "origin": [
+        "670cf6d01773089accc70bbd1b4633f52cb9322ee07604e7432099ba8883a2fb"
+      ],
+      "fingerprint": "099b4e9c4f249ce9d65498bf6be4f4213b93072da9178c13a541943644e13e44",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5801",
+      "trigger": "Opening a signed-in user's replica assembly, building a replica, or mounting one chat.",
+      "bound": "Constant work: the per-user chat history store is created once and handed on by reference; no transcript collection is read or iterated at this site.",
+      "reason": "The scan follows transcript-named ports (TranscriptStore, the replica's transcripts cache) through composition and erase wiring; nothing here enumerates messages.",
+      "guard": "assembly.test.ts \"chat history database (POD-5801)\" opens one database per user and erases it on sign-out; transcript-log.stored.test.ts drives the wired cache end to end."
+    },
+    {
       "file": "apps/mobile/src/components/task-detail/IssueSharedSection.tsx",
       "holder": "IssueSharedSection/IssueSharedSection",
       "rule": "consume:map",
@@ -436,6 +492,7 @@
         "87ab53a903211519780a668dee6814884c9850ee8361fbcfca29e46f1191553b",
         "a4cd9d6f9d01bf7a9ee6925c0a8fc3cc1b13459ae632b7f41963c42985b1ab7a"
       ],
+      "fingerprint": "c16ee512ccde1a47c1d76aa8777b443a579e7a9e507f17f28be45f9bd5e7b04e",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-6297",
@@ -445,7 +502,6 @@
       "guard": "apps/mobile/harness/shared-tasks-shots.mjs and packages/client-graph/src/issue-shared-detail.test.ts (POD-6297)"
     },
     {
-      "fingerprint": "e575fe293d28651deda7fa568068aaceba347a6ed1c4ab0638463f7207ff91f5",
       "file": "apps/mobile/src/components/task-detail/IssueSharedSection.tsx",
       "holder": "IssueSharedSection/IssueSharedSection/collaborators",
       "rule": "consume:map",
@@ -457,6 +513,7 @@
         "87ab53a903211519780a668dee6814884c9850ee8361fbcfca29e46f1191553b",
         "a4cd9d6f9d01bf7a9ee6925c0a8fc3cc1b13459ae632b7f41963c42985b1ab7a"
       ],
+      "fingerprint": "e575fe293d28651deda7fa568068aaceba347a6ed1c4ab0638463f7207ff91f5",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-6297",
@@ -466,7 +523,6 @@
       "guard": "apps/mobile/harness/shared-tasks-shots.mjs and packages/client-graph/src/issue-shared-detail.test.ts (POD-6297)"
     },
     {
-      "fingerprint": "bf09a98afa43316f580118e762c042ecae9cd234c6a31121d387d3af1a3eec59",
       "file": "apps/mobile/src/components/task-detail/IssueSharedSection.tsx",
       "holder": "IssueSharedSection/IssueSharedSection/detail",
       "rule": "reader-summary",
@@ -476,6 +532,7 @@
         "87ab53a903211519780a668dee6814884c9850ee8361fbcfca29e46f1191553b",
         "a4cd9d6f9d01bf7a9ee6925c0a8fc3cc1b13459ae632b7f41963c42985b1ab7a"
       ],
+      "fingerprint": "bf09a98afa43316f580118e762c042ecae9cd234c6a31121d387d3af1a3eec59",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-6297",
@@ -485,7 +542,6 @@
       "guard": "apps/mobile/harness/shared-tasks-shots.mjs and packages/client-graph/src/issue-shared-detail.test.ts (POD-6297)"
     },
     {
-      "fingerprint": "bbd657100398cf6adf0eacd19e4a517412a51611cb2c6a490aa637dfe8f16b35",
       "file": "apps/mobile/src/components/task-detail/IssueSharedSection.tsx",
       "holder": "IssueSharedSection/IssueSharedSection/others",
       "rule": "helper-consumer",
@@ -497,6 +553,7 @@
         "87ab53a903211519780a668dee6814884c9850ee8361fbcfca29e46f1191553b",
         "a4cd9d6f9d01bf7a9ee6925c0a8fc3cc1b13459ae632b7f41963c42985b1ab7a"
       ],
+      "fingerprint": "bbd657100398cf6adf0eacd19e4a517412a51611cb2c6a490aa637dfe8f16b35",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-6297",
@@ -506,7 +563,6 @@
       "guard": "apps/mobile/harness/shared-tasks-shots.mjs and packages/client-graph/src/issue-shared-detail.test.ts (POD-6297)"
     },
     {
-      "fingerprint": "77cd9fd95e2a8811e6c214025c7da25905c162b53e0de414ea58b27d7bcb590c",
       "file": "apps/mobile/src/components/task-detail/IssueSharedSection.tsx",
       "holder": "IssueSharedSection/IssueSharedSection/others",
       "rule": "reader-summary",
@@ -518,6 +574,7 @@
         "87ab53a903211519780a668dee6814884c9850ee8361fbcfca29e46f1191553b",
         "a4cd9d6f9d01bf7a9ee6925c0a8fc3cc1b13459ae632b7f41963c42985b1ab7a"
       ],
+      "fingerprint": "77cd9fd95e2a8811e6c214025c7da25905c162b53e0de414ea58b27d7bcb590c",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-6297",
@@ -771,8 +828,8 @@
       "owner": "POD-5530",
       "trigger": "Invocation or observation of MobileSearchSections/native/next/map:callback",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
-      "reason": "Native SectionList descriptors moved from the retained model bundle to the UI boundary; the same section metadata is still materialized. Predecessor: 6c4f9ff2de74e7e29bc23bc516817d31531956c1737ea139a878c24eba3b4152."
+      "reason": "Native SectionList descriptors moved from the retained model bundle to the UI boundary; the same section metadata is still materialized. Predecessor: 6c4f9ff2de74e7e29bc23bc516817d31531956c1737ea139a878c24eba3b4152.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
       "file": "apps/mobile/src/lib/work-sections.ts",
@@ -791,8 +848,8 @@
       "owner": "POD-5530",
       "trigger": "Invocation or observation of MobileSearchSections/native/next/map:callback/data",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
-      "reason": "The native boundary maps a persistent source answer on demand; publishing it visits no members. Mapping work follows the output positions consumed by the caller. Section descriptors and first-demand source initialization retain their collection debt; no cardinality cap is claimed. Predecessor: b02d3d8203813a345799ce7ca6309d69f21118f307449d45ac4e789bdb14829d. Predecessor: 88e6378b2245f2d560b8b94f939ad0210f7520e14b679a19feba120d950dc572."
+      "reason": "The native boundary maps a persistent source answer on demand; publishing it visits no members. Mapping work follows the output positions consumed by the caller. Section descriptors and first-demand source initialization retain their collection debt; no cardinality cap is claimed. Predecessor: b02d3d8203813a345799ce7ca6309d69f21118f307449d45ac4e789bdb14829d. Predecessor: 88e6378b2245f2d560b8b94f939ad0210f7520e14b679a19feba120d950dc572.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
       "file": "apps/mobile/src/lib/work-sections.ts",
@@ -811,8 +868,8 @@
       "owner": "POD-5530",
       "trigger": "Invocation or observation of MobileSearchSections/native/next/map:callback/native",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
-      "reason": "The native descriptor copies the former section bundle at the UI boundary. This removes retained model bundles, not unbounded section metadata work. Predecessor: 6c4f9ff2de74e7e29bc23bc516817d31531956c1737ea139a878c24eba3b4152."
+      "reason": "The native descriptor copies the former section bundle at the UI boundary. This removes retained model bundles, not unbounded section metadata work. Predecessor: 6c4f9ff2de74e7e29bc23bc516817d31531956c1737ea139a878c24eba3b4152.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
       "file": "apps/mobile/src/lib/work-sections.ts",
@@ -831,8 +888,8 @@
       "owner": "POD-5530",
       "trigger": "Invocation or observation of MobileSearchSections/native/next/map:callback/source",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
-      "reason": "A native descriptor now reads canonical per-section fields instead of a section bundle. The underlying group ID lists are unchanged. Predecessor: 6c4f9ff2de74e7e29bc23bc516817d31531956c1737ea139a878c24eba3b4152."
+      "reason": "A native descriptor now reads canonical per-section fields instead of a section bundle. The underlying group ID lists are unchanged. Predecessor: 6c4f9ff2de74e7e29bc23bc516817d31531956c1737ea139a878c24eba3b4152.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
       "file": "apps/mobile/src/screens/PulseScreen.tsx",
@@ -1030,25 +1087,6 @@
     },
     {
       "file": "apps/mobile/src/screens/SuperagentScreen.tsx",
-      "holder": "SuperagentScreen/SuperagentScreen",
-      "rule": "reader-summary",
-      "tokens": "a16053b7dc536dcd5f6b05a5d8d2028b47e98083e6da83ec4bcc16de0ed9e6e9",
-      "gate": [],
-      "origin": [
-        "68e3937b5ddc0e3225b88b6d2c8452c91e69bf5f15e60db36fd51bd6fccaaa54",
-        "d7d1283b420779e4456f3da32f99f6ffa2bd5ae35362572cca620bd871c3821d"
-      ],
-      "fingerprint": "ad8b4dc67a47697d7e0928fb817786e119e1dd3bd9996e67926d1ffa383baf4a",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Superagent screen reads its existing pool superagent slice.",
-      "bound": "The existing superagentState reader still enumerates its thread catalogue; no new bound is claimed.",
-      "reason": "Moving backend and history reader options off the runtime binding changes this fingerprint; the existing superagent thread catalogue demand remains unproven. POD-5872: Record facts now come from shared models and the remaining machinery is a warm service read through a per-opening view model; existing collection demand is unchanged. Predecessor: 33e3b0dec3ad1af3b2763a3faa27d4fd262bc35b65e4e3f197fbab0feb1a0ad9. Predecessor: 7bf1b836f04afac8025cce546ab8017e31e35d323d4a7894c84a62c984388288 (POD-6419: the superagent's writes go through sync.submit with the old route as fallback; collection demand is unchanged).",
-      "guard": "Exact fingerprint and multiplicity only. This entry preserves existing catalogue debt and does not establish bounded work."
-    },
-    {
-      "file": "apps/mobile/src/screens/SuperagentScreen.tsx",
       "holder": "SuperagentScreen/SuperagentScreen/attachments",
       "rule": "reader-summary",
       "tokens": "0a50186b1554198b96dafa9430f450e0aa3032ea2c08fa6b5ec30a3fdfcb34a9",
@@ -1066,6 +1104,26 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
+      "file": "apps/mobile/src/screens/SuperagentScreen.tsx",
+      "holder": "SuperagentScreen/SuperagentScreen",
+      "rule": "reader-summary",
+      "tokens": "dc5c5af452498d5c94768c50b8caf22b21166101a0faf3d58517c1484ef2b8c7",
+      "gate": [],
+      "origin": [
+        "68e3937b5ddc0e3225b88b6d2c8452c91e69bf5f15e60db36fd51bd6fccaaa54",
+        "d7d1283b420779e4456f3da32f99f6ffa2bd5ae35362572cca620bd871c3821d",
+        "f916189f23c60cdc94e4c4d0d59c05245ef18d38d7c66d809aa41229eb15d818"
+      ],
+      "fingerprint": "2c64fb46fb27891e251d0dd40671dbfc1cc0c39039ac322ef4c2361f6d074214",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Superagent screen reads its existing pool superagent slice.",
+      "bound": "The existing superagentState reader still enumerates its thread catalogue; no new bound is claimed.",
+      "reason": "Moving backend and history reader options off the runtime binding changes this fingerprint; the existing superagent thread catalogue demand remains unproven. POD-5872: Record facts now come from shared models and the remaining machinery is a warm service read through a per-opening view model; existing collection demand is unchanged. Predecessor: 33e3b0dec3ad1af3b2763a3faa27d4fd262bc35b65e4e3f197fbab0feb1a0ad9. Predecessor: 7bf1b836f04afac8025cce546ab8017e31e35d323d4a7894c84a62c984388288 (POD-6419: the superagent's writes go through sync.submit with the old route as fallback; collection demand is unchanged).",
+      "guard": "Exact fingerprint and multiplicity only. This entry preserves existing catalogue debt and does not establish bounded work."
+    },
+    {
       "file": "apps/mobile/src/screens/WorkScreen.tsx",
       "holder": "PoolWorkScreen/PoolWorkScreen/layout",
       "rule": "reader-summary",
@@ -1080,8 +1138,8 @@
       "owner": "POD-5530",
       "trigger": "Invocation or observation of PoolWorkScreen/PoolWorkScreen/layout",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
-      "reason": "The observed phone root reads section keys and counts directly instead of the layout bundle. Section descriptor preparation remains uncapped metadata work. Predecessor: 6c4f9ff2de74e7e29bc23bc516817d31531956c1737ea139a878c24eba3b4152."
+      "reason": "The observed phone root reads section keys and counts directly instead of the layout bundle. Section descriptor preparation remains uncapped metadata work. Predecessor: 6c4f9ff2de74e7e29bc23bc516817d31531956c1737ea139a878c24eba3b4152.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
       "file": "apps/mobile/src/screens/settings-machine-readers.ts",
@@ -1481,11 +1539,11 @@
       "fingerprint": "d1e6352340fea7d47a9f6e268a387874f3e42c202872020391b9eb37dbc05802",
       "count": 1,
       "classification": "bounded local work",
+      "owner": "POD-5633",
       "trigger": "Fit All click only",
       "bound": "The operator-requested mission domain, once per click",
       "reason": "The expensive all-history question is on request; pan, zoom, clock and activity never call it.",
-      "guard": "waterfall-work.test.tsx and waterfall-view.parity.test.ts",
-      "owner": "POD-5633"
+      "guard": "waterfall-work.test.tsx and waterfall-view.parity.test.ts"
     },
     {
       "file": "apps/web/src/app/FlightDeckWaterfall.tsx",
@@ -2956,11 +3014,11 @@
       "fingerprint": "c6092179cc867a6850fcb2e19003dcb80531de33d9092f45fdd43612883d0deb",
       "count": 1,
       "classification": "bounded local work",
+      "owner": "POD-5633",
       "trigger": "Explicit caller-supplied visible session ID window or its response",
       "bound": "The supplied visible window and its requested activity samples",
       "reason": "Membership uses a lazy shallow-equal ID list; there is no crew signature, phase fingerprint or minute refetch. Mission bars use per-session companions.",
-      "guard": "utility-readers.test.tsx and waterfall-work.test.tsx",
-      "owner": "POD-5633"
+      "guard": "utility-readers.test.tsx and waterfall-work.test.tsx"
     },
     {
       "file": "apps/web/src/app/waterfall-activity.ts",
@@ -2974,11 +3032,11 @@
       "fingerprint": "5b472310d94b3e5c22671a560258a0224bb4e542daa91873e77abb91ee8ac3e8",
       "count": 1,
       "classification": "bounded local work",
+      "owner": "POD-5633",
       "trigger": "Explicit caller-supplied visible session ID window or its response",
       "bound": "The supplied visible window and its requested activity samples",
       "reason": "Membership uses a lazy shallow-equal ID list; there is no crew signature, phase fingerprint or minute refetch. Mission bars use per-session companions.",
-      "guard": "utility-readers.test.tsx and waterfall-work.test.tsx",
-      "owner": "POD-5633"
+      "guard": "utility-readers.test.tsx and waterfall-work.test.tsx"
     },
     {
       "file": "apps/web/src/app/waterfall-activity.ts",
@@ -2992,11 +3050,11 @@
       "fingerprint": "7f56b9514ceb7e14aea2bc6f98c1edc38f66680d3d02c0835956cdd6879ce382",
       "count": 1,
       "classification": "bounded local work",
+      "owner": "POD-5633",
       "trigger": "Explicit caller-supplied visible session ID window or its response",
       "bound": "The supplied visible window and its requested activity samples",
       "reason": "Membership uses a lazy shallow-equal ID list; there is no crew signature, phase fingerprint or minute refetch. Mission bars use per-session companions.",
-      "guard": "utility-readers.test.tsx and waterfall-work.test.tsx",
-      "owner": "POD-5633"
+      "guard": "utility-readers.test.tsx and waterfall-work.test.tsx"
     },
     {
       "file": "apps/web/src/app/waterfall-activity.ts",
@@ -3013,11 +3071,11 @@
       "fingerprint": "dafe28eebd54f9af8d405b489d0d1b5ff2892990d8097699d3b3cbe46310cfb4",
       "count": 1,
       "classification": "bounded local work",
+      "owner": "POD-5633",
       "trigger": "Explicit caller-supplied visible session ID window or its response",
       "bound": "The supplied visible window and its requested activity samples",
       "reason": "Membership uses a lazy shallow-equal ID list; there is no crew signature, phase fingerprint or minute refetch. Mission bars use per-session companions.",
-      "guard": "utility-readers.test.tsx and waterfall-work.test.tsx",
-      "owner": "POD-5633"
+      "guard": "utility-readers.test.tsx and waterfall-work.test.tsx"
     },
     {
       "file": "apps/web/src/app/waterfall-activity.ts",
@@ -3034,11 +3092,11 @@
       "fingerprint": "ef9847a1410a05530955c2871dc187fd5c69836904b6e8a1887d81ad34bdc4b2",
       "count": 1,
       "classification": "bounded local work",
+      "owner": "POD-5633",
       "trigger": "Explicit caller-supplied visible session ID window or its response",
       "bound": "The supplied visible window and its requested activity samples",
       "reason": "Membership uses a lazy shallow-equal ID list; there is no crew signature, phase fingerprint or minute refetch. Mission bars use per-session companions.",
-      "guard": "utility-readers.test.tsx and waterfall-work.test.tsx",
-      "owner": "POD-5633"
+      "guard": "utility-readers.test.tsx and waterfall-work.test.tsx"
     },
     {
       "file": "apps/web/src/app/waterfall-view.ts",
@@ -3092,11 +3150,11 @@
       "fingerprint": "06cbc584bb155d99f3521efdce51ecad07e4d80cb682752435be4a5721a0a73b",
       "count": 1,
       "classification": "bounded local work",
+      "owner": "POD-5633",
       "trigger": "Demanded visible session history response",
       "bound": "One addressed session\u2019s activity samples",
       "reason": "Request answers belong to the opening, are fenced against stale responses, and never refresh on minute ticks.",
-      "guard": "waterfall-view.parity.test.ts: history demand and closed/superseded response fences",
-      "owner": "POD-5633"
+      "guard": "waterfall-view.parity.test.ts: history demand and closed/superseded response fences"
     },
     {
       "file": "apps/web/src/app/waterfall-view.ts",
@@ -3114,11 +3172,11 @@
       "fingerprint": "1e64ae486611e830b84e8be6a38b413ac004985997720938917066ef77c41800",
       "count": 1,
       "classification": "bounded local work",
+      "owner": "POD-5633",
       "trigger": "Demanded visible session history response",
       "bound": "One addressed session\u2019s activity samples",
       "reason": "Request answers belong to the opening, are fenced against stale responses, and never refresh on minute ticks.",
-      "guard": "waterfall-view.parity.test.ts: history demand and closed/superseded response fences",
-      "owner": "POD-5633"
+      "guard": "waterfall-view.parity.test.ts: history demand and closed/superseded response fences"
     },
     {
       "file": "apps/web/src/app/waterfall-view.ts",
@@ -3134,11 +3192,11 @@
       "fingerprint": "45e62fa4785a59a3b51f7465d192e6b95df444aed3ca866ed86d13a2ed7b8089",
       "count": 1,
       "classification": "bounded local work",
+      "owner": "POD-5633",
       "trigger": "First visible window on opening",
       "bound": "Mounted viewport row IDs and their own session IDs",
       "reason": "Seeding stops after one followed ID is selected. Clock and width changes read that session alone.",
-      "guard": "waterfall-work.test.tsx: minute observer isolation and 1x/4x interaction census",
-      "owner": "POD-5633"
+      "guard": "waterfall-work.test.tsx: minute observer isolation and 1x/4x interaction census"
     },
     {
       "file": "apps/web/src/app/waterfall-view.ts",
@@ -3154,11 +3212,11 @@
       "fingerprint": "54ee91407aa6ac696cc33bfe9a6bf285e2eb9c0b4c05775f0025c1f365183419",
       "count": 1,
       "classification": "bounded local work",
+      "owner": "POD-5633",
       "trigger": "First visible window on opening",
       "bound": "Mounted viewport row IDs and their own session IDs",
       "reason": "Seeding stops after one followed ID is selected. Clock and width changes read that session alone.",
-      "guard": "waterfall-work.test.tsx: minute observer isolation and 1x/4x interaction census",
-      "owner": "POD-5633"
+      "guard": "waterfall-work.test.tsx: minute observer isolation and 1x/4x interaction census"
     },
     {
       "file": "apps/web/src/app/workspace-inputs.ts",
@@ -3932,50 +3990,6 @@
     },
     {
       "file": "apps/web/src/features/chat/use-conversation.ts",
-      "holder": "createWebConversation/sends/deliver/callback/answer",
-      "rule": "spread",
-      "tokens": "952cb5edf530529dd1f118a51f95f7c79aa16bd7bc1fc0577e4610f5637df5f8",
-      "gate": [
-        "exit:then:eb95bf59088a0aacae48b47f694da8acc66addfb6b485c18369f3695b5bbc40b",
-        "exit:then:2a9160b19112a59c7b44e568540986db57a63545f1718707ed26b3ea3dbe9c22",
-        "exit:then:781c8286570e913f451eabac1c3dc3bbbb26e20f571a126c2dcea4c7f8a6bc34",
-        "exit:then:798f9db784c592228b5b081df8df1e3023d5e4877c9ac28af20171b0336817e1",
-        "exit:then:1f514a0dff4fa91030eabaff13a4dd5cf7302b10a2151aac0ef27d498360df90"
-      ],
-      "origin": [
-        "5a5fd90d1abb4803d7ad95f3fe5d8c181437aff95c27e9cc12b8c2763099529a"
-      ],
-      "fingerprint": "1a046e4e12883e060ce1f037fe0ad76d7985e03c028fbeee186760f651459dc2",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Send a turn to the selected superagent thread.",
-      "bound": "Backend choice has three optional fields; generic conversation/context taint reaching the send options retains its unproven bound.",
-      "reason": "The web Conversation migration moves ownership and preserves existing collection-taint debt; this record makes no claim that generic context construction or delivery is bounded. POD-5872: Record facts now come from shared models and the remaining machinery is a warm service read through a per-opening view model; existing collection demand is unchanged. Predecessor: a79c9a6543b8f94f8c9185f3383ccff6ef42a16b061b5a66e67abce6f2591809. POD-6093: superagent sends carry staged attachment paths in their text instead of refusing them; collection demand is unchanged. Predecessor: 629970c5bdff875e120eca4ca6fe534f9d38435e56c4bfecb23dfd19e26c3dae. POD-2304 retains the displayed turn boundary through an addressed callback; unrelated collection ownership and classifications are unchanged. Predecessor: 0358bb2c653bae189b14799ea975a388995302f28484aa3bccef87a041d30c6b. Predecessor: cc28d0c9ffdb063b9d01b8d166b76ad8bee2f7b3f4422a8eb0bc79c634691597 (POD-6397: the conversation's Stop writes a turn-scoped effect record through the store; collection demand is unchanged). Predecessor: 91d4f1c6dea29350b81cbcb28836ec7614f2847ba2029031c0dd8561f50ca75b (POD-6419: the superagent's writes go through sync.submit with the old route as fallback; collection demand is unchanged).",
-      "guard": "Exact fingerprint and multiplicity remain enforced. conversation-renders.test.tsx and conversation-sends.optimistic.test.ts cover migrated observation and delivery behavior, not a new collection bound."
-    },
-    {
-      "file": "apps/web/src/features/chat/use-conversation.ts",
-      "holder": "createWebConversation/sends/deliver/callback/composer",
-      "rule": "helper-consumer",
-      "tokens": "de037986121cd505b0803eec735add677fb5bc745e1252477babe99283e17ac7",
-      "gate": [
-        "exit:then:798f9db784c592228b5b081df8df1e3023d5e4877c9ac28af20171b0336817e1"
-      ],
-      "origin": [
-        "adfc80928fa7e8f33d73591c8c752a6ec1006cdeb81b7b8014d0d4921ac12d7c"
-      ],
-      "fingerprint": "07a9a389af47655cb4f71775ccfd2716d974c592ffd8e8b19d4c7867b4488b32",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Compute composer state immediately before one addressed delivery.",
-      "bound": "Composer state is scalar, but the helper inherits the session/context taint previously held in the React send hook.",
-      "reason": "The web Conversation migration moves ownership and preserves existing collection-taint debt; this record makes no claim that generic context construction or delivery is bounded. POD-5872: Record facts now come from shared models and the remaining machinery is a warm service read through a per-opening view model; existing collection demand is unchanged. Predecessor: 8cb8c08cce444f4545e166ce4bbb082edbe8026c494a5d7d9a8f6e083b0e15e2. POD-6093: superagent sends carry staged attachment paths in their text instead of refusing them; collection demand is unchanged. Predecessor: 54ee6cc52ad003b794c32c0a781ced6c08f06ea5f2be7bfa30da9a392ef2c585. POD-2109: composer placeholders are rewritten as sentences without em dashes; collection demand is unchanged. Predecessor: 4081e5af4b05943809b6caf1efc125e48f41d1046d331a9e21df08c0dc472c0e. POD-2151 changed only scalar helpers on this path (landing copy, composer placeholder); no collection read was added. Predecessor: 02ce3305fd8bde13cb4c4a3a75877ee50f8f6b7f0621b57569bc365d18937b78. POD-2304 retains the displayed turn boundary through an addressed callback; unrelated collection ownership and classifications are unchanged. Predecessor: baa2b8a8f92aaf0ab4bf9a276313fd000ad7e87b43d6224251a868f00afca022. Predecessor: 6f2d2d156e06950b24f23ec9f7577551c8c241a0aa09060df2ac4d3236d6d67c (POD-6397: the conversation's Stop writes a turn-scoped effect record through the store; collection demand is unchanged). Predecessor: 50ec6b650a287e6ca7feb962d12c7e5a4094edf6afc7af909508775eba802808 (POD-6419: the superagent's writes go through sync.submit with the old route as fallback; collection demand is unchanged).",
-      "guard": "Exact fingerprint and multiplicity remain enforced. conversation-renders.test.tsx and conversation-sends.optimistic.test.ts cover migrated observation and delivery behavior, not a new collection bound."
-    },
-    {
-      "file": "apps/web/src/features/chat/use-conversation.ts",
       "holder": "createWebConversation/sends/messageRecords/ingest/callback",
       "rule": "helper-consumer",
       "tokens": "93c6d806b44708d99867b5ff8399498e6ecaa74e288f22cddaf5928d9df3b1f1",
@@ -3996,47 +4010,6 @@
     },
     {
       "file": "apps/web/src/features/chat/use-conversation.ts",
-      "holder": "createWebConversation/sends/records/getSnapshot/callback",
-      "rule": "reader-summary",
-      "tokens": "73ef294c6129cac466f29d0b83fe0f8f577a66cc1f1ed432e11b5df65511ac7f",
-      "gate": [
-        "else:b324373e6dc9a92f7b216cd4c94e835a9b0a35fb5d91fe38a7e84bd9c31844c2",
-        "??:4ff6f9b107e8fde807c206b27705278185dc2861fc467effbf4ad0c4a5d80651"
-      ],
-      "origin": [
-        "571d643e56951ba67e1dccf71daf6c377a3fd78430a5ab217513636e377b9891"
-      ],
-      "fingerprint": "1531a94396b5d8de69869632ca02a69a3def6dd42157c2c9a18f0085195ee450",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5872",
-      "trigger": "Initialize or refresh one open conversation\u2019s existing message-record port.",
-      "bound": "The addressed noticeSession membership only; no new numeric cap on held notices or records is asserted.",
-      "reason": "The existing snapshot and row-version subscription moved from a manual computed to a lazy service field. Collection ownership and work are preserved; transcript refresh and subscription redesign belongs to POD-5800. POD-6093: superagent sends carry staged attachment paths in their text instead of refusing them; collection demand is unchanged. Predecessor: 5a80f4115b2dbeb6ff8b12905e2a116be7defbfb9ca7b491a74d8368f6488b55. POD-2304 retains the displayed turn boundary through an addressed callback; unrelated collection ownership and classifications are unchanged. Predecessor: 52b1428c198e0a4d9caae68a8dbe399b9648052a248cbadea6bee09fcbcb24ba. Predecessor: 49d2cc3aa158194d0844119f9c3deaf2a12a95b37a5e606f54bacbbd932f992b (POD-6397: the conversation's Stop writes a turn-scoped effect record through the store; collection demand is unchanged). Predecessor: 9a0b429be4417f397150e675cb56fa20e25197252b07b91e643794f402be3dba (POD-6419: the superagent's writes go through sync.submit with the old route as fallback; collection demand is unchanged).",
-      "guard": "ChatView.test.tsx and conversation-service.parity.test.ts preserve delivery and record answers; exact fingerprint and multiplicity remain enforced. This entry does not claim a repaired collection bound."
-    },
-    {
-      "file": "apps/web/src/features/chat/use-conversation.ts",
-      "holder": "createWebConversation/sends/records/subscribe/callback/reaction:callback",
-      "rule": "consume:map",
-      "tokens": "d5efe9c892e90e55c82e4e7bb208654bc03f62a316fcd5e9b5212590a6cd1d47",
-      "gate": [
-        "else:b324373e6dc9a92f7b216cd4c94e835a9b0a35fb5d91fe38a7e84bd9c31844c2"
-      ],
-      "origin": [
-        "237716a431f264a10102d3c70e82cd783ef11ce2f82526bcb0e1e9d521a0972f"
-      ],
-      "fingerprint": "3c84a0d11c79448cdad6baf35d1628184d1b6b1507690b3f2e24c5948f614aab",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5872",
-      "trigger": "Initialize or refresh one open conversation\u2019s existing message-record port.",
-      "bound": "The addressed noticeSession membership only; no new numeric cap on held notices or records is asserted.",
-      "reason": "The existing snapshot and row-version subscription moved from a manual computed to a lazy service field. Collection ownership and work are preserved; transcript refresh and subscription redesign belongs to POD-5800. POD-6093: superagent sends carry staged attachment paths in their text instead of refusing them; collection demand is unchanged. Predecessor: 51c998ca196a9a6c243e1bbe5d981eabc11baa7e3cef40d3f3e29834b5c00df1. POD-2304 retains the displayed turn boundary through an addressed callback; unrelated collection ownership and classifications are unchanged. Predecessor: f7ccab7429b608e010b0a2ef8b453da51946e2cd458267fbbefbe008d438ad14. Predecessor: 64f36fb1c70946bf326a85986d85559cc948d79ae6412f624999b59fc8a6e077 (POD-6397: the conversation's Stop writes a turn-scoped effect record through the store; collection demand is unchanged). Predecessor: 30b5b60f9286a3af0abde779479547903c4c5e87995141d67a630334172b3de8 (POD-6419: the superagent's writes go through sync.submit with the old route as fallback; collection demand is unchanged).",
-      "guard": "ChatView.test.tsx and conversation-service.parity.test.ts preserve delivery and record answers; exact fingerprint and multiplicity remain enforced. This entry does not claim a repaired collection bound."
-    },
-    {
-      "file": "apps/web/src/features/chat/use-conversation.ts",
       "holder": "createWebConversation/transcript/source/read/callback",
       "rule": "loop",
       "tokens": "dfc091980c0303dcc80d7e9eca116806a4061587f6f8eebf032576f9be143abc",
@@ -4046,8 +4019,8 @@
       ],
       "fingerprint": "a7ebdf6efb4e7b5b3785ae5e306328b979e72f481e6925928a90ce6795896e22",
       "count": 1,
-      "owner": "POD-2256",
       "classification": "ingest",
+      "owner": "POD-2256",
       "trigger": "A transcriptRead page resolves while this conversation is open.",
       "bound": "The requested page window only: initialLimit 200 or pageLimit 400; each message-record query contains at most 100 transcript item IDs. Successful and pending lookups are deduplicated and the transcript page returns without waiting.",
       "reason": "Historical attachment records enter the existing shared message table by authoritative session and transcript identity. Existing live records skip the request; no collection is read from the complete message history. POD-2304 retains the displayed turn boundary through an addressed callback; unrelated collection ownership and classifications are unchanged. Predecessor: 5d1fd017e8f71f2982f503c47940e248b0239905169cda4306fd2daeb735b3f2.",
@@ -4066,8 +4039,8 @@
       ],
       "fingerprint": "ce67a91f32afda90855c6d4d9bb0d8f6862cdd7383ca2eab5f121976a1333aee",
       "count": 1,
-      "owner": "POD-2256",
       "classification": "ingest",
+      "owner": "POD-2256",
       "trigger": "A transcriptRead page resolves while this conversation is open.",
       "bound": "The requested page window only: initialLimit 200 or pageLimit 400; each message-record query contains at most 100 transcript item IDs. Successful and pending lookups are deduplicated and the transcript page returns without waiting.",
       "reason": "Historical attachment records enter the existing shared message table by authoritative session and transcript identity. Existing live records skip the request; no collection is read from the complete message history.",
@@ -4086,8 +4059,8 @@
       ],
       "fingerprint": "c36083043824325dac75e73f0c650b6758ffda9f9d26e1c383be7bf3642014a6",
       "count": 1,
-      "owner": "POD-2256",
       "classification": "ingest",
+      "owner": "POD-2256",
       "trigger": "A transcriptRead page resolves while this conversation is open.",
       "bound": "The requested page window only: initialLimit 200 or pageLimit 400; each message-record query contains at most 100 transcript item IDs. Successful and pending lookups are deduplicated and the transcript page returns without waiting.",
       "reason": "Historical attachment records enter the existing shared message table by authoritative session and transcript identity. Existing live records skip the request; no collection is read from the complete message history.",
@@ -4106,8 +4079,8 @@
       ],
       "fingerprint": "9631801d2560ff5fac0c5a7bf6b061a1ffd57f5730b4634319062f65c90b34ca",
       "count": 1,
-      "owner": "POD-2256",
       "classification": "ingest",
+      "owner": "POD-2256",
       "trigger": "A transcriptRead page resolves while this conversation is open.",
       "bound": "The requested page window only: initialLimit 200 or pageLimit 400; each message-record query contains at most 100 transcript item IDs. Successful and pending lookups are deduplicated and the transcript page returns without waiting.",
       "reason": "Historical attachment records enter the existing shared message table by authoritative session and transcript identity. Existing live records skip the request; no collection is read from the complete message history.",
@@ -4124,8 +4097,8 @@
       ],
       "fingerprint": "533fea573a0a10df733013a039d9c3fbc90884f34b7d41343984e4cd47a29222",
       "count": 1,
-      "owner": "POD-2256",
       "classification": "ingest",
+      "owner": "POD-2256",
       "trigger": "A transcriptRead page resolves while this conversation is open.",
       "bound": "The requested page window only: initialLimit 200 or pageLimit 400; each message-record query contains at most 100 transcript item IDs. Successful and pending lookups are deduplicated and the transcript page returns without waiting.",
       "reason": "Historical attachment records enter the existing shared message table by authoritative session and transcript identity. Existing live records skip the request; no collection is read from the complete message history. POD-2304 retains the displayed turn boundary through an addressed callback; unrelated collection ownership and classifications are unchanged. Predecessor: eee937b54d7148c60cd102af781ce6778ec47b4d27cbfff9c0ea779a7cccde5c.",
@@ -4142,8 +4115,8 @@
       ],
       "fingerprint": "eb7881c159f6948b5afe54e9fd8628cb579ee1de6d8442ccf76ac51732b787da",
       "count": 1,
-      "owner": "POD-2256",
       "classification": "ingest",
+      "owner": "POD-2256",
       "trigger": "A transcriptRead page resolves while this conversation is open.",
       "bound": "The requested page window only: initialLimit 200 or pageLimit 400; each message-record query contains at most 100 transcript item IDs. Successful and pending lookups are deduplicated and the transcript page returns without waiting.",
       "reason": "Historical attachment records enter the existing shared message table by authoritative session and transcript identity. Existing live records skip the request; no collection is read from the complete message history. POD-2304 retains the displayed turn boundary through an addressed callback; unrelated collection ownership and classifications are unchanged. Predecessor: a7de14a2168359869789b2924b3e8642bb59b630f02a002b2997cc20749cff77.",
@@ -4162,8 +4135,8 @@
       ],
       "fingerprint": "8567736bec7d74586da1bfe091beab039ccfa632b61e1dd78883a6e3afaec0d7",
       "count": 1,
-      "owner": "POD-2256",
       "classification": "ingest",
+      "owner": "POD-2256",
       "trigger": "A transcriptRead page resolves while this conversation is open.",
       "bound": "The requested page window only: initialLimit 200 or pageLimit 400; each message-record query contains at most 100 transcript item IDs. Successful and pending lookups are deduplicated and the transcript page returns without waiting.",
       "reason": "Historical attachment records enter the existing shared message table by authoritative session and transcript identity. Existing live records skip the request; no collection is read from the complete message history. POD-2304 retains the displayed turn boundary through an addressed callback; unrelated collection ownership and classifications are unchanged. Predecessor: bbc8f1d6e3d01f189729a0a2d32171c976d30358eaf3b566f6a7e2b848b10e6a.",
@@ -4171,14 +4144,119 @@
     },
     {
       "file": "apps/web/src/features/chat/use-conversation.ts",
-      "holder": "useConversation/conversation/useOwnedConversation:callback",
+      "holder": "createWebConversation/sends/deliver/callback/answer",
+      "rule": "spread",
+      "tokens": "952cb5edf530529dd1f118a51f95f7c79aa16bd7bc1fc0577e4610f5637df5f8",
+      "gate": [
+        "exit:then:eb95bf59088a0aacae48b47f694da8acc66addfb6b485c18369f3695b5bbc40b",
+        "exit:then:2a9160b19112a59c7b44e568540986db57a63545f1718707ed26b3ea3dbe9c22",
+        "exit:then:474385ed25264869a03398af3fd22f943857b87c165e3b72321d522092f92a9d",
+        "exit:then:c4da6035f9f1ebd6a6a8ef46218df737d38cc947e77637f1e188186ae7f13a7d",
+        "exit:then:1f514a0dff4fa91030eabaff13a4dd5cf7302b10a2151aac0ef27d498360df90"
+      ],
+      "origin": [
+        "87c1e6d49846283c72cffa12c74894921b9f1cb35b3a10449a4f92bdc281283f"
+      ],
+      "fingerprint": "c86338451dc41dbd7f731a25727ecccb03a8ef27105a32af4a920af0bc83e7d7",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Send a turn to the selected superagent thread.",
+      "bound": "Backend choice has three optional fields; generic conversation/context taint reaching the send options retains its unproven bound.",
+      "reason": "The web Conversation migration moves ownership and preserves existing collection-taint debt; this record makes no claim that generic context construction or delivery is bounded. POD-5872: Record facts now come from shared models and the remaining machinery is a warm service read through a per-opening view model; existing collection demand is unchanged. Predecessor: a79c9a6543b8f94f8c9185f3383ccff6ef42a16b061b5a66e67abce6f2591809. POD-6093: superagent sends carry staged attachment paths in their text instead of refusing them; collection demand is unchanged. Predecessor: 629970c5bdff875e120eca4ca6fe534f9d38435e56c4bfecb23dfd19e26c3dae. POD-2304 retains the displayed turn boundary through an addressed callback; unrelated collection ownership and classifications are unchanged. Predecessor: 0358bb2c653bae189b14799ea975a388995302f28484aa3bccef87a041d30c6b. Predecessor: cc28d0c9ffdb063b9d01b8d166b76ad8bee2f7b3f4422a8eb0bc79c634691597 (POD-6397: the conversation's Stop writes a turn-scoped effect record through the store; collection demand is unchanged). Predecessor: 91d4f1c6dea29350b81cbcb28836ec7614f2847ba2029031c0dd8561f50ca75b (POD-6419: the superagent's writes go through sync.submit with the old route as fallback; collection demand is unchanged).",
+      "guard": "Exact fingerprint and multiplicity remain enforced. conversation-renders.test.tsx and conversation-sends.optimistic.test.ts cover migrated observation and delivery behavior, not a new collection bound."
+    },
+    {
+      "file": "apps/web/src/features/chat/use-conversation.ts",
+      "holder": "createWebConversation/sends/deliver/callback/composer",
+      "rule": "helper-consumer",
+      "tokens": "b2fa3dd5fb51d59d6812025c6be459cd4e1806e1931ad1b058466b5f8f6ed679",
+      "gate": [
+        "exit:then:c4da6035f9f1ebd6a6a8ef46218df737d38cc947e77637f1e188186ae7f13a7d"
+      ],
+      "origin": [
+        "adfc80928fa7e8f33d73591c8c752a6ec1006cdeb81b7b8014d0d4921ac12d7c",
+        "e44bc131826fdcc0d8e22c518f610601a539ebbb87bb32a919008b5aa0f62f13"
+      ],
+      "fingerprint": "e0120132707ad2a8e503d754f10bdbd51d38bf96a963146bb641a0dfb56421af",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Compute composer state immediately before one addressed delivery.",
+      "bound": "Composer state is scalar, but the helper inherits the session/context taint previously held in the React send hook.",
+      "reason": "The web Conversation migration moves ownership and preserves existing collection-taint debt; this record makes no claim that generic context construction or delivery is bounded. POD-5872: Record facts now come from shared models and the remaining machinery is a warm service read through a per-opening view model; existing collection demand is unchanged. Predecessor: 8cb8c08cce444f4545e166ce4bbb082edbe8026c494a5d7d9a8f6e083b0e15e2. POD-6093: superagent sends carry staged attachment paths in their text instead of refusing them; collection demand is unchanged. Predecessor: 54ee6cc52ad003b794c32c0a781ced6c08f06ea5f2be7bfa30da9a392ef2c585. POD-2109: composer placeholders are rewritten as sentences without em dashes; collection demand is unchanged. Predecessor: 4081e5af4b05943809b6caf1efc125e48f41d1046d331a9e21df08c0dc472c0e. POD-2151 changed only scalar helpers on this path (landing copy, composer placeholder); no collection read was added. Predecessor: 02ce3305fd8bde13cb4c4a3a75877ee50f8f6b7f0621b57569bc365d18937b78. POD-2304 retains the displayed turn boundary through an addressed callback; unrelated collection ownership and classifications are unchanged. Predecessor: baa2b8a8f92aaf0ab4bf9a276313fd000ad7e87b43d6224251a868f00afca022. Predecessor: 6f2d2d156e06950b24f23ec9f7577551c8c241a0aa09060df2ac4d3236d6d67c (POD-6397: the conversation's Stop writes a turn-scoped effect record through the store; collection demand is unchanged). Predecessor: 50ec6b650a287e6ca7feb962d12c7e5a4094edf6afc7af909508775eba802808 (POD-6419: the superagent's writes go through sync.submit with the old route as fallback; collection demand is unchanged).",
+      "guard": "Exact fingerprint and multiplicity remain enforced. conversation-renders.test.tsx and conversation-sends.optimistic.test.ts cover migrated observation and delivery behavior, not a new collection bound."
+    },
+    {
+      "file": "apps/web/src/features/chat/use-conversation.ts",
+      "holder": "createWebConversation/sends/records/getSnapshot/callback",
       "rule": "reader-summary",
-      "tokens": "fa9a787749d01d3de8433ad2061f0349d032d010b61d79273a4046859d4c288e",
+      "tokens": "73ef294c6129cac466f29d0b83fe0f8f577a66cc1f1ed432e11b5df65511ac7f",
+      "gate": [
+        "else:b324373e6dc9a92f7b216cd4c94e835a9b0a35fb5d91fe38a7e84bd9c31844c2",
+        "??:807b2321d12ff23fa000347939ef08e0b650b6e74e5190ecf0f494ce434bd0bc"
+      ],
+      "origin": [
+        "571d643e56951ba67e1dccf71daf6c377a3fd78430a5ab217513636e377b9891"
+      ],
+      "fingerprint": "362fec5d58d96df17a4a87810f2179becbad9f5bdbe2ab2b97e1497f31f348b1",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5872",
+      "trigger": "Initialize or refresh one open conversation\u2019s existing message-record port.",
+      "bound": "The addressed noticeSession membership only; no new numeric cap on held notices or records is asserted.",
+      "reason": "The existing snapshot and row-version subscription moved from a manual computed to a lazy service field. Collection ownership and work are preserved; transcript refresh and subscription redesign belongs to POD-5800. POD-6093: superagent sends carry staged attachment paths in their text instead of refusing them; collection demand is unchanged. Predecessor: 5a80f4115b2dbeb6ff8b12905e2a116be7defbfb9ca7b491a74d8368f6488b55. POD-2304 retains the displayed turn boundary through an addressed callback; unrelated collection ownership and classifications are unchanged. Predecessor: 52b1428c198e0a4d9caae68a8dbe399b9648052a248cbadea6bee09fcbcb24ba. Predecessor: 49d2cc3aa158194d0844119f9c3deaf2a12a95b37a5e606f54bacbbd932f992b (POD-6397: the conversation's Stop writes a turn-scoped effect record through the store; collection demand is unchanged). Predecessor: 9a0b429be4417f397150e675cb56fa20e25197252b07b91e643794f402be3dba (POD-6419: the superagent's writes go through sync.submit with the old route as fallback; collection demand is unchanged).",
+      "guard": "ChatView.test.tsx and conversation-service.parity.test.ts preserve delivery and record answers; exact fingerprint and multiplicity remain enforced. This entry does not claim a repaired collection bound."
+    },
+    {
+      "file": "apps/web/src/features/chat/use-conversation.ts",
+      "holder": "createWebConversation/sends/records/subscribe/callback/reaction:callback",
+      "rule": "consume:map",
+      "tokens": "2bad42c639b48a58c1386ad269e61140bdabc90ddc055a99047bd8047e1528df",
+      "gate": [
+        "else:b324373e6dc9a92f7b216cd4c94e835a9b0a35fb5d91fe38a7e84bd9c31844c2"
+      ],
+      "origin": [
+        "237716a431f264a10102d3c70e82cd783ef11ce2f82526bcb0e1e9d521a0972f"
+      ],
+      "fingerprint": "a38370feb0dc4e3b262f5759216c72e6fcc800b04bc7eeeecdfa56763f49a81d",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5872",
+      "trigger": "Initialize or refresh one open conversation\u2019s existing message-record port.",
+      "bound": "The addressed noticeSession membership only; no new numeric cap on held notices or records is asserted.",
+      "reason": "The existing snapshot and row-version subscription moved from a manual computed to a lazy service field. Collection ownership and work are preserved; transcript refresh and subscription redesign belongs to POD-5800. POD-6093: superagent sends carry staged attachment paths in their text instead of refusing them; collection demand is unchanged. Predecessor: 51c998ca196a9a6c243e1bbe5d981eabc11baa7e3cef40d3f3e29834b5c00df1. POD-2304 retains the displayed turn boundary through an addressed callback; unrelated collection ownership and classifications are unchanged. Predecessor: f7ccab7429b608e010b0a2ef8b453da51946e2cd458267fbbefbe008d438ad14. Predecessor: 64f36fb1c70946bf326a85986d85559cc948d79ae6412f624999b59fc8a6e077 (POD-6397: the conversation's Stop writes a turn-scoped effect record through the store; collection demand is unchanged). Predecessor: 30b5b60f9286a3af0abde779479547903c4c5e87995141d67a630334172b3de8 (POD-6419: the superagent's writes go through sync.submit with the old route as fallback; collection demand is unchanged).",
+      "guard": "ChatView.test.tsx and conversation-service.parity.test.ts preserve delivery and record answers; exact fingerprint and multiplicity remain enforced. This entry does not claim a repaired collection bound."
+    },
+    {
+      "file": "apps/web/src/features/chat/use-conversation.ts",
+      "holder": "createWebConversation/transcript",
+      "rule": "spread",
+      "tokens": "8e98f1cc3e24306d8767d76efc156cbc651ba9de5b8e7f96f6f83d6755b9057c",
       "gate": [],
       "origin": [
-        "adfc80928fa7e8f33d73591c8c752a6ec1006cdeb81b7b8014d0d4921ac12d7c"
+        "e44bc131826fdcc0d8e22c518f610601a539ebbb87bb32a919008b5aa0f62f13"
       ],
-      "fingerprint": "248f6db040f16ca41946163b0df0302888078f5535e20231c868a6eae26f6f60",
+      "fingerprint": "c4cdec6df8fc307c34fdca80f3c3fd50c1cba7ebc5febed033a4843c2bb264a1",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5801",
+      "trigger": "Opening a signed-in user's replica assembly, building a replica, or mounting one chat.",
+      "bound": "Constant work: the per-user chat history store is created once and handed on by reference; no transcript collection is read or iterated at this site.",
+      "reason": "The scan follows transcript-named ports (TranscriptStore, the replica's transcripts cache) through composition and erase wiring; nothing here enumerates messages.",
+      "guard": "assembly.test.ts \"chat history database (POD-5801)\" opens one database per user and erases it on sign-out; transcript-log.stored.test.ts drives the wired cache end to end."
+    },
+    {
+      "file": "apps/web/src/features/chat/use-conversation.ts",
+      "holder": "useConversation/conversation/useOwnedConversation:callback",
+      "rule": "reader-summary",
+      "tokens": "3d15f5a7f495496c3ed1eb044b7c8e6de6db685ad6c1fdcd216634dfa0c0bd58",
+      "gate": [],
+      "origin": [
+        "adfc80928fa7e8f33d73591c8c752a6ec1006cdeb81b7b8014d0d4921ac12d7c",
+        "e44bc131826fdcc0d8e22c518f610601a539ebbb87bb32a919008b5aa0f62f13"
+      ],
+      "fingerprint": "c5b45fc8ad541d4c241879a0c76a7502cd7f7e8d34c1c8f79b56ca1fa323271e",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -5175,7 +5253,6 @@
       "guard": "mission-menu.test.ts proves no destination reads or publications before opening and releases them after closing at 1x/4x; real SessionContextMenu and IssueContextMenu tests preserve targets and blocker text."
     },
     {
-      "fingerprint": "5ba8c8387f6a4604513269ef083881edf508e8b9dc7c9d6dbfb7fdcc81183d28",
       "file": "apps/web/src/features/issues/IssuePage.tsx",
       "holder": "IssuePageBody/IssuePageBody/callback",
       "rule": "reader-summary",
@@ -5186,6 +5263,7 @@
       "origin": [
         "395e19ae02d2f130777f0849647526aa85125a5f0441159a7c4a706676c2ce7c"
       ],
+      "fingerprint": "5ba8c8387f6a4604513269ef083881edf508e8b9dc7c9d6dbfb7fdcc81183d28",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-6295",
@@ -5195,7 +5273,6 @@
       "guard": "apps/web/src/features/issues/IssuePage.shared-task.test.tsx and packages/client-graph/src/issue-shared-detail.test.ts (POD-6295)"
     },
     {
-      "fingerprint": "946223c6fc676a00ed40f98de925693ab710eecfb9394b5f46309f867aebb0fa",
       "file": "apps/web/src/features/issues/IssuePage.tsx",
       "holder": "IssuePageBody/IssuePageBody/callback",
       "rule": "reader-summary",
@@ -5206,6 +5283,7 @@
       "origin": [
         "395e19ae02d2f130777f0849647526aa85125a5f0441159a7c4a706676c2ce7c"
       ],
+      "fingerprint": "946223c6fc676a00ed40f98de925693ab710eecfb9394b5f46309f867aebb0fa",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-6295",
@@ -5215,7 +5293,6 @@
       "guard": "apps/web/src/features/issues/IssuePage.shared-task.test.tsx and packages/client-graph/src/issue-shared-detail.test.ts (POD-6295)"
     },
     {
-      "fingerprint": "a7b43fc636c582558f8f907127496a6a6448a5150bcce5011391fbc3da5d15e0",
       "file": "apps/web/src/features/issues/IssuePage.tsx",
       "holder": "IssuePageBody/IssuePageBody/sharedDetail",
       "rule": "reader-summary",
@@ -5225,6 +5302,7 @@
         "0f8043794047d51c881fd3f692838b0585d8cc066c1900243e238f2b440e76e3",
         "ec2e106696ff67fda99e2206af2e029f705d297ffe5ec0b4726a348b7bb07daf"
       ],
+      "fingerprint": "a7b43fc636c582558f8f907127496a6a6448a5150bcce5011391fbc3da5d15e0",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-6295",
@@ -7576,7 +7654,6 @@
       "guard": "Exact fingerprint and multiplicity only; this census entry does not itself prove bounded work."
     },
     {
-      "fingerprint": "1a94f570cdafc8bff26886b878164fbde4ecc8da936f79c673cfa6c2e4d8f96a",
       "file": "apps/web/src/features/issues/issue-page/IssueParentBranch.tsx",
       "holder": "ParentBranchChoices/ParentBranchChoices/choices",
       "rule": "helper-consumer",
@@ -7586,6 +7663,7 @@
         "07fa37a49e76f28b0355824b49031c8f187f6d26d0bf571481c1b3dd44402138",
         "d6d08c10f6c9fda6ca08c6338ed4fe868f0da1039cf90da973a5964db39a4795"
       ],
+      "fingerprint": "1a94f570cdafc8bff26886b878164fbde4ecc8da936f79c673cfa6c2e4d8f96a",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-2153",
@@ -7595,7 +7673,6 @@
       "guard": "BaseBranchMenu.test.tsx and IssueParentBranch.test.tsx cover the menus; repo-base-branch.test.ts covers the lookup."
     },
     {
-      "fingerprint": "a0b06ddb2bbd18aa5dabb12b66b90be9573b36e172ca74c519ad498211be6c83",
       "file": "apps/web/src/features/issues/issue-page/IssueParentBranch.tsx",
       "holder": "ParentBranchChoices/ParentBranchChoices/scan",
       "rule": "reader-summary",
@@ -7607,6 +7684,7 @@
         "07fa37a49e76f28b0355824b49031c8f187f6d26d0bf571481c1b3dd44402138",
         "d6d08c10f6c9fda6ca08c6338ed4fe868f0da1039cf90da973a5964db39a4795"
       ],
+      "fingerprint": "a0b06ddb2bbd18aa5dabb12b66b90be9573b36e172ca74c519ad498211be6c83",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-2153",
@@ -7636,7 +7714,6 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "fingerprint": "d4e1d846b085d837875b2a34f34e4ac0019e87d26bf5061a2276252feb781838",
       "file": "apps/web/src/features/issues/issue-page/IssueProperties.tsx",
       "holder": "IssueProperties/IssueProperties",
       "rule": "helper-consumer",
@@ -7646,6 +7723,7 @@
         "0f8043794047d51c881fd3f692838b0585d8cc066c1900243e238f2b440e76e3",
         "ec2e106696ff67fda99e2206af2e029f705d297ffe5ec0b4726a348b7bb07daf"
       ],
+      "fingerprint": "d4e1d846b085d837875b2a34f34e4ac0019e87d26bf5061a2276252feb781838",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-6295",
@@ -7655,7 +7733,6 @@
       "guard": "apps/web/src/features/issues/IssuePage.shared-task.test.tsx and packages/client-graph/src/issue-shared-detail.test.ts (POD-6295)"
     },
     {
-      "fingerprint": "6257a069f98aa00b4e7d3f1f50e4935a8cc02249117cc78e22cca5ed54bd171f",
       "file": "apps/web/src/features/issues/issue-page/IssueProperties.tsx",
       "holder": "IssueProperties/IssueProperties",
       "rule": "reader-summary",
@@ -7665,6 +7742,7 @@
         "0f8043794047d51c881fd3f692838b0585d8cc066c1900243e238f2b440e76e3",
         "ec2e106696ff67fda99e2206af2e029f705d297ffe5ec0b4726a348b7bb07daf"
       ],
+      "fingerprint": "6257a069f98aa00b4e7d3f1f50e4935a8cc02249117cc78e22cca5ed54bd171f",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-6295",
@@ -7674,7 +7752,6 @@
       "guard": "apps/web/src/features/issues/IssuePage.shared-task.test.tsx and packages/client-graph/src/issue-shared-detail.test.ts (POD-6295)"
     },
     {
-      "fingerprint": "9cc4d420e5072bcf2b60f3c5eedc1a826c58e759136c9b609f85c4a20e8b6556",
       "file": "apps/web/src/features/issues/issue-page/IssueProperties.tsx",
       "holder": "IssueProperties/IssueProperties",
       "rule": "spread",
@@ -7684,6 +7761,7 @@
         "0f8043794047d51c881fd3f692838b0585d8cc066c1900243e238f2b440e76e3",
         "ec2e106696ff67fda99e2206af2e029f705d297ffe5ec0b4726a348b7bb07daf"
       ],
+      "fingerprint": "9cc4d420e5072bcf2b60f3c5eedc1a826c58e759136c9b609f85c4a20e8b6556",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-6295",
@@ -7873,7 +7951,6 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "fingerprint": "30970fdabbf3ac367cbfc8a6244ecdca6a4afda8d8be53ff8252f7891536d393",
       "file": "apps/web/src/features/issues/issue-page/IssueProperties.tsx",
       "holder": "IssueProperties/IssueProperties/shared",
       "rule": "reader-summary",
@@ -7883,6 +7960,7 @@
         "0f8043794047d51c881fd3f692838b0585d8cc066c1900243e238f2b440e76e3",
         "ec2e106696ff67fda99e2206af2e029f705d297ffe5ec0b4726a348b7bb07daf"
       ],
+      "fingerprint": "30970fdabbf3ac367cbfc8a6244ecdca6a4afda8d8be53ff8252f7891536d393",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-6295",
@@ -7956,7 +8034,6 @@
       "guard": "Exact fingerprint and multiplicity only; POD-5866 opening tests prove release, and speed:structural compares work with the pilot baseline. This entry is not a collection-work fix."
     },
     {
-      "fingerprint": "a7eb8065c34198004dab2c9f8f5d9f93fc9b05ec69d91d4e2eb02b397189bfea",
       "file": "apps/web/src/features/issues/issue-text-save.ts",
       "holder": "saveIssueText",
       "rule": "reader-summary",
@@ -7967,6 +8044,7 @@
       "origin": [
         "a51465c064bd0c1d17a13b677b7d22ed8ccdd87a04cf9c9d2cac5b1a457969f9"
       ],
+      "fingerprint": "a7eb8065c34198004dab2c9f8f5d9f93fc9b05ec69d91d4e2eb02b397189bfea",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-6295",
@@ -7976,7 +8054,6 @@
       "guard": "apps/web/src/features/issues/IssuePage.shared-task.test.tsx and packages/client-graph/src/issue-shared-detail.test.ts (POD-6295)"
     },
     {
-      "fingerprint": "c9e6b6226d889393173a917397d89252df754cbb604009cfd97a3a9235962520",
       "file": "apps/web/src/features/issues/issue-text-save.ts",
       "holder": "saveIssueText",
       "rule": "reader-summary",
@@ -7985,6 +8062,7 @@
       "origin": [
         "a51465c064bd0c1d17a13b677b7d22ed8ccdd87a04cf9c9d2cac5b1a457969f9"
       ],
+      "fingerprint": "c9e6b6226d889393173a917397d89252df754cbb604009cfd97a3a9235962520",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-6295",
@@ -9668,8 +9746,8 @@
       "owner": "POD-5530",
       "trigger": "Invocation or observation of sidebarExitSnapshot/sessions",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
-      "reason": "The existing departure snapshot now materializes session IDs explicitly from the direct row instead of the port bundle. It runs when saving exit paint; no roster cardinality cap is claimed. Predecessor: 77ee4d9cb3b1fce931a729ae412b8594f4c2f5c51abe59a555e04f1047008877."
+      "reason": "The existing departure snapshot now materializes session IDs explicitly from the direct row instead of the port bundle. It runs when saving exit paint; no roster cardinality cap is claimed. Predecessor: 77ee4d9cb3b1fce931a729ae412b8594f4c2f5c51abe59a555e04f1047008877.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
       "file": "apps/web/src/features/worklist/pool-sidebar.tsx",
@@ -9727,8 +9805,8 @@
       "owner": "POD-5530",
       "trigger": "Invocation or observation of ObservedPoolWorkSections/ObservedPoolWorkSections",
       "bound": "Leaf DOM is capped by the viewport; the upstream membership metadata has no cardinality cap.",
-      "guard": "Exact fingerprint and multiplicity; worklist-window tests prove DOM retention and selection/reveal behavior, not a bound on membership acquisition.",
-      "reason": "Canonical issue row fields replace forwarded names in shortcut activation. The shortcut input is sliced to MAX_ROW_SHORTCUTS, but upstream section membership metadata remains uncapped, preserving the existing debt classification. Predecessor: 2eb9bd17ad5cb3f5ac1336ea7fd85069211e313d969f13b2d4dd7fa91d881612."
+      "reason": "Canonical issue row fields replace forwarded names in shortcut activation. The shortcut input is sliced to MAX_ROW_SHORTCUTS, but upstream section membership metadata remains uncapped, preserving the existing debt classification. Predecessor: 2eb9bd17ad5cb3f5ac1336ea7fd85069211e313d969f13b2d4dd7fa91d881612.",
+      "guard": "Exact fingerprint and multiplicity; worklist-window tests prove DOM retention and selection/reveal behavior, not a bound on membership acquisition."
     },
     {
       "file": "apps/web/src/features/worklist/pool-sidebar.tsx",
@@ -9784,8 +9862,8 @@
       "owner": "POD-5530",
       "trigger": "Invocation or observation of ObservedPoolWorkSections/ObservedPoolWorkSections",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
-      "reason": "POD-5822 updates this existing reader to canonical direct fields. Its collection and caller bounds are unchanged; the existing REQUIRED REPAIR classification remains. Predecessor: 6dac1090cd97508e80da67c061e2b06771510e174441f12b5e26c88e254951ba."
+      "reason": "POD-5822 updates this existing reader to canonical direct fields. Its collection and caller bounds are unchanged; the existing REQUIRED REPAIR classification remains. Predecessor: 6dac1090cd97508e80da67c061e2b06771510e174441f12b5e26c88e254951ba.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
       "file": "apps/web/src/features/worklist/pool-sidebar.tsx",
@@ -10552,8 +10630,8 @@
       "owner": "POD-5530",
       "trigger": "Invocation or observation of PoolMotionRow/PoolMotionRow/row",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
-      "reason": "POD-5822 updates this existing reader to canonical direct fields. Its collection and caller bounds are unchanged; the existing REQUIRED REPAIR classification remains. Predecessor: 77ee4d9cb3b1fce931a729ae412b8594f4c2f5c51abe59a555e04f1047008877."
+      "reason": "POD-5822 updates this existing reader to canonical direct fields. Its collection and caller bounds are unchanged; the existing REQUIRED REPAIR classification remains. Predecessor: 77ee4d9cb3b1fce931a729ae412b8594f4c2f5c51abe59a555e04f1047008877.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
       "file": "apps/web/src/features/worklist/pool-sidebar.tsx",
@@ -10572,8 +10650,8 @@
       "owner": "POD-5530",
       "trigger": "Layout effect after a committed worklist issue row render.",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
-      "reason": "The motion row now selects the direct canonical IssueModel/WorklistIssue fields. It carries the former row reader origin; no broader collection repair is claimed. Predecessor: 77ee4d9cb3b1fce931a729ae412b8594f4c2f5c51abe59a555e04f1047008877. The same frozen departure capture now runs after commit; its collection cardinality is unchanged and remains repair debt. Previous capture fingerprint: b06929b8edf370ac4188132847ad3e4b6cc4349924b49e61da868bc6d5a00937. POD-2102 removes task color controls and tint props; the retained operation keeps its trigger and classification, with collection demand unchanged or reduced. POD-2151 changed only scalar helpers on this path (landing copy, composer placeholder); no collection read was added. Predecessor: b855cad0d3dd97c968401976f361e5a53a408d027c47637e331e488ec3ef0e0b."
+      "reason": "The motion row now selects the direct canonical IssueModel/WorklistIssue fields. It carries the former row reader origin; no broader collection repair is claimed. Predecessor: 77ee4d9cb3b1fce931a729ae412b8594f4c2f5c51abe59a555e04f1047008877. The same frozen departure capture now runs after commit; its collection cardinality is unchanged and remains repair debt. Previous capture fingerprint: b06929b8edf370ac4188132847ad3e4b6cc4349924b49e61da868bc6d5a00937. POD-2102 removes task color controls and tint props; the retained operation keeps its trigger and classification, with collection demand unchanged or reduced. POD-2151 changed only scalar helpers on this path (landing copy, composer placeholder); no collection read was added. Predecessor: b855cad0d3dd97c968401976f361e5a53a408d027c47637e331e488ec3ef0e0b.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
       "file": "apps/web/src/features/worklist/pool-sidebar.tsx",
@@ -11009,7 +11087,6 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "fingerprint": "0f6e3fe6fd710212f8264ea79db9c5685a6684352e7164fc634b905e7985a090",
       "file": "apps/web/src/lib/BaseBranchMenu.tsx",
       "holder": "RepoBaseBranchMenu/RepoBaseBranchMenu",
       "rule": "helper-consumer",
@@ -11019,6 +11096,7 @@
         "07fa37a49e76f28b0355824b49031c8f187f6d26d0bf571481c1b3dd44402138",
         "d6d08c10f6c9fda6ca08c6338ed4fe868f0da1039cf90da973a5964db39a4795"
       ],
+      "fingerprint": "0f6e3fe6fd710212f8264ea79db9c5685a6684352e7164fc634b905e7985a090",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-2153",
@@ -11028,7 +11106,6 @@
       "guard": "BaseBranchMenu.test.tsx and IssueParentBranch.test.tsx cover the menus; repo-base-branch.test.ts covers the lookup."
     },
     {
-      "fingerprint": "e8c44a3cb9f969a90798aac7db0837ecd000f6fa3cf65c34b9f97728b1650676",
       "file": "apps/web/src/lib/BaseBranchMenu.tsx",
       "holder": "RepoBaseBranchMenu/RepoBaseBranchMenu/callback",
       "rule": "spread",
@@ -11040,6 +11117,7 @@
         "07fa37a49e76f28b0355824b49031c8f187f6d26d0bf571481c1b3dd44402138",
         "d6d08c10f6c9fda6ca08c6338ed4fe868f0da1039cf90da973a5964db39a4795"
       ],
+      "fingerprint": "e8c44a3cb9f969a90798aac7db0837ecd000f6fa3cf65c34b9f97728b1650676",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-2153",
@@ -11049,7 +11127,6 @@
       "guard": "BaseBranchMenu.test.tsx and IssueParentBranch.test.tsx cover the menus; repo-base-branch.test.ts covers the lookup."
     },
     {
-      "fingerprint": "6a0536e5b764db42899685483ca40f9a85d3391507278d2286066b7ee2620b48",
       "file": "apps/web/src/lib/BaseBranchMenu.tsx",
       "holder": "RepoBaseBranchMenu/RepoBaseBranchMenu/scan",
       "rule": "reader-summary",
@@ -11061,6 +11138,7 @@
         "07fa37a49e76f28b0355824b49031c8f187f6d26d0bf571481c1b3dd44402138",
         "d6d08c10f6c9fda6ca08c6338ed4fe868f0da1039cf90da973a5964db39a4795"
       ],
+      "fingerprint": "6a0536e5b764db42899685483ca40f9a85d3391507278d2286066b7ee2620b48",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-2153",
@@ -11301,6 +11379,66 @@
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "loop:for-of carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "apps/web/src/lib/kernelReplica.ts",
+      "holder": "openKernelAssembly",
+      "rule": "spread",
+      "tokens": "9fc85e252261e31f3f12f75aaef5d0e631157ef08ae493f503b8242c486792bb",
+      "gate": [
+        "exit:then:5e2a14e1fded6dcf5bd2bbeb0a38680fd681e01937e3beb0794cbfbe6fbfbbad"
+      ],
+      "origin": [
+        "6eaa0385ee25575a2b8641ff25b6cd72ef2fa78aca967cd7f17f5c096194a7f4"
+      ],
+      "fingerprint": "9c8c9c01ed18afcc1fc84670c000a1381b22b5666d28a6162e644fa82600b05e",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5801",
+      "trigger": "Opening a signed-in user's replica assembly, building a replica, or mounting one chat.",
+      "bound": "Constant work: the per-user chat history store is created once and handed on by reference; no transcript collection is read or iterated at this site.",
+      "reason": "The scan follows transcript-named ports (TranscriptStore, the replica's transcripts cache) through composition and erase wiring; nothing here enumerates messages.",
+      "guard": "assembly.test.ts \"chat history database (POD-5801)\" opens one database per user and erases it on sign-out; transcript-log.stored.test.ts drives the wired cache end to end."
+    },
+    {
+      "file": "apps/web/src/lib/kernelReplica.ts",
+      "holder": "openKernelAssembly/assembly",
+      "rule": "helper-consumer",
+      "tokens": "4fd27cb4e8eebed5367ca471459998a2312ed80db0d2b41a0dbf7bd28c54ff07",
+      "gate": [
+        "exit:then:5e2a14e1fded6dcf5bd2bbeb0a38680fd681e01937e3beb0794cbfbe6fbfbbad"
+      ],
+      "origin": [
+        "6eaa0385ee25575a2b8641ff25b6cd72ef2fa78aca967cd7f17f5c096194a7f4"
+      ],
+      "fingerprint": "a837dbd884472211d28f5c61a6c6cfa23564fdbf17b1a8ac6365983ceb50c2dd",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5801",
+      "trigger": "Opening a signed-in user's replica assembly, building a replica, or mounting one chat.",
+      "bound": "Constant work: the per-user chat history store is created once and handed on by reference; no transcript collection is read or iterated at this site.",
+      "reason": "The scan follows transcript-named ports (TranscriptStore, the replica's transcripts cache) through composition and erase wiring; nothing here enumerates messages.",
+      "guard": "assembly.test.ts \"chat history database (POD-5801)\" opens one database per user and erases it on sign-out; transcript-log.stored.test.ts drives the wired cache end to end."
+    },
+    {
+      "file": "apps/web/src/lib/kernelReplica.ts",
+      "holder": "openKernelAssembly/assembly",
+      "rule": "reader-summary",
+      "tokens": "7659bc099025646e87af0ae0e2c7db7351407324efb900ad0978da3cae38dd79",
+      "gate": [
+        "exit:then:5e2a14e1fded6dcf5bd2bbeb0a38680fd681e01937e3beb0794cbfbe6fbfbbad"
+      ],
+      "origin": [
+        "6eaa0385ee25575a2b8641ff25b6cd72ef2fa78aca967cd7f17f5c096194a7f4"
+      ],
+      "fingerprint": "d4794fb8778725fea41346187972aa864b612affded23c5a968cd19bb758a743",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5801",
+      "trigger": "Opening a signed-in user's replica assembly, building a replica, or mounting one chat.",
+      "bound": "Constant work: the per-user chat history store is created once and handed on by reference; no transcript collection is read or iterated at this site.",
+      "reason": "The scan follows transcript-named ports (TranscriptStore, the replica's transcripts cache) through composition and erase wiring; nothing here enumerates messages.",
+      "guard": "assembly.test.ts \"chat history database (POD-5801)\" opens one database per user and erases it on sign-out; transcript-log.stored.test.ts drives the wired cache end to end."
     },
     {
       "file": "apps/web/src/test-support/mock-command-launch.ts",
@@ -11886,8 +12024,8 @@
       "owner": "POD-5530",
       "trigger": "Invocation or observation of mock:callback/useWorklistPoolProjection/pool",
       "bound": "Test fixture collection; no production import caller. Exact taint remains monitored.",
-      "guard": "apps/web/src/features/worklist/SidebarUnified.search.test.tsx; exact fingerprint remains monitored.",
-      "reason": "POD-5822 updates this existing reader to canonical direct fields. Its collection and caller bounds are unchanged; the existing REQUIRED REPAIR classification remains. Predecessor: 3567d73357a9192d6f08d7b563f9ccbab2f60168606daccda93a6aaf4bdc14a4. POD-5866 pilot reconciliation preserves the classification while moving opening ownership or adopting the landed model reader; predecessor: 8df29ca50a83bb38241f643f9d6f0263a5826f95c43e332db32155dcd7ff9b1a. POD-5872: The test adapter now publishes session rows into canonical models and borrows the existing draft owner; its fixture catalogue demand is unchanged. Predecessor: 339be345c8e21996547dfd544e83c4fd554a3beee76e3af67ca1f8604f857cf7."
+      "reason": "POD-5822 updates this existing reader to canonical direct fields. Its collection and caller bounds are unchanged; the existing REQUIRED REPAIR classification remains. Predecessor: 3567d73357a9192d6f08d7b563f9ccbab2f60168606daccda93a6aaf4bdc14a4. POD-5866 pilot reconciliation preserves the classification while moving opening ownership or adopting the landed model reader; predecessor: 8df29ca50a83bb38241f643f9d6f0263a5826f95c43e332db32155dcd7ff9b1a. POD-5872: The test adapter now publishes session rows into canonical models and borrows the existing draft owner; its fixture catalogue demand is unchanged. Predecessor: 339be345c8e21996547dfd544e83c4fd554a3beee76e3af67ca1f8604f857cf7.",
+      "guard": "apps/web/src/features/worklist/SidebarUnified.search.test.tsx; exact fingerprint remains monitored."
     },
     {
       "file": "apps/web/src/test-support/mock-screen-pool.ts",
@@ -13263,8 +13401,8 @@
       "owner": "POD-5530",
       "trigger": "Invocation or observation of useFixturePool/useMemo:callback/pool/sidebar/selectionGone/callback",
       "bound": "Test fixture collection; no production import caller. Exact taint remains monitored.",
-      "guard": "apps/web/src/features/worklist/SidebarUnified.search.test.tsx; exact fingerprint remains monitored.",
-      "reason": "The fixture selectionEvicted question was renamed selectionGone. Its existing fixture-only collection scan and classification are unchanged. Predecessor: 0834a9a594084dd1244c726acff2078d1c7cf4337c9eea303719322a3a24afd3."
+      "reason": "The fixture selectionEvicted question was renamed selectionGone. Its existing fixture-only collection scan and classification are unchanged. Predecessor: 0834a9a594084dd1244c726acff2078d1c7cf4337c9eea303719322a3a24afd3.",
+      "guard": "apps/web/src/features/worklist/SidebarUnified.search.test.tsx; exact fingerprint remains monitored."
     },
     {
       "file": "apps/web/src/test-support/mock-screen-pool.ts",
@@ -13430,8 +13568,8 @@
       "owner": "POD-5530",
       "trigger": "Invocation or observation of useFixturePool/useMemo:callback/pool/sources/view/callback/worklist/sections/callback",
       "bound": "Test fixture collection; no production import caller. Exact taint remains monitored.",
-      "guard": "apps/web/src/features/worklist/SidebarUnified.search.test.tsx; exact fingerprint remains monitored.",
-      "reason": "POD-5822 updates this existing reader to canonical direct fields. Its collection and caller bounds are unchanged; the existing REQUIRED REPAIR classification remains. Predecessor: 62781a2dee21f49ca90ac9d7c3c1e4b64f98c42a5c9e6bb330dea0787adf6d03."
+      "reason": "POD-5822 updates this existing reader to canonical direct fields. Its collection and caller bounds are unchanged; the existing REQUIRED REPAIR classification remains. Predecessor: 62781a2dee21f49ca90ac9d7c3c1e4b64f98c42a5c9e6bb330dea0787adf6d03.",
+      "guard": "apps/web/src/features/worklist/SidebarUnified.search.test.tsx; exact fingerprint remains monitored."
     },
     {
       "file": "apps/web/src/test-support/mock-screen-pool.ts",
@@ -14989,6 +15127,65 @@
       "guard": "conversation/transcript-log.incremental.test.ts measures ingress at 1x/4x and preserves immutable snapshots/cache behavior; transcript-log.test.ts, transcript-log.facts.test.ts and model-observation.test.ts preserve paging/reset/source facts/optimistic reconciliation."
     },
     {
+      "file": "packages/client-core/src/conversation/transcript-log.ts",
+      "holder": "continuesStored",
+      "rule": "consume:some",
+      "tokens": "25dbd042a599e480e39be93eaafdfa271e8dc1c0a20dc00d47a2fdc37f7d3076",
+      "gate": [
+        "||:5d2f098af2a49949ea47cd1995ace016f9748b9b92eebaf4f7d6775c60d5e819"
+      ],
+      "origin": [
+        "747057d166ba4c62967667709bda750ee2cb6553f51bd9427c7ec545495fb916"
+      ],
+      "fingerprint": "e05231393680a865049acf3bcc365cce8a966993f4883e2971b7870882f68481",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5801",
+      "trigger": "Reopening a chat that was painted from the device.",
+      "bound": "The reopen delta page only: at most initialLimit (200) items, once per reopen, plus two cursor decodes.",
+      "reason": "Checks that the server's \"after\" page continues the stored run before merging it; anything else falls back to the newest-window read.",
+      "guard": "transcript-log.stored.test.ts: the delta is merged when it continues the stored run and falls back when the reader lost the anchor."
+    },
+    {
+      "file": "packages/client-core/src/conversation/transcript-log.ts",
+      "holder": "continuesStored/to",
+      "rule": "helper-consumer",
+      "tokens": "dafa197fec00bde80af7bba22a8468d57a9b7efa2d61906f1d5cdedfd78918ad",
+      "gate": [
+        "exit:then:e57ebdd0924e3ef3c3f1c35b0b8b4822cb36d531b015ca0154323f557a23d765",
+        "exit:then:dc48091ffef4995634cdf8c5f2ff9d5496faa5d1fc298c5d45d284198f5bd95c"
+      ],
+      "origin": [
+        "747057d166ba4c62967667709bda750ee2cb6553f51bd9427c7ec545495fb916"
+      ],
+      "fingerprint": "3bd75a24ca10c94df50a99999fa820b98d0dac02d9c7493acb9835e842bd8ca5",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5801",
+      "trigger": "Reopening a chat that was painted from the device.",
+      "bound": "The reopen delta page only: at most initialLimit (200) items, once per reopen, plus two cursor decodes.",
+      "reason": "Checks that the server's \"after\" page continues the stored run before merging it; anything else falls back to the newest-window read.",
+      "guard": "transcript-log.stored.test.ts: the delta is merged when it continues the stored run and falls back when the reader lost the anchor."
+    },
+    {
+      "file": "packages/client-core/src/demo/demo-replica.ts",
+      "holder": "createDemoReplica",
+      "rule": "reader-summary",
+      "tokens": "57e1fcfb9a02c529d20e62416dd3c13209d7c3addce69fe1a872f25e95a39132",
+      "gate": [],
+      "origin": [
+        "6a38dd81c5dae2ff245d1a2187718e0367d4b389f2610fbbf87b1b2efaae894a"
+      ],
+      "fingerprint": "1743982b3db285a23e2e57feb265e1131180eee8b3333c61502b481ffc8e66cf",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5801",
+      "trigger": "Opening a signed-in user's replica assembly, building a replica, or mounting one chat.",
+      "bound": "Constant work: the per-user chat history store is created once and handed on by reference; no transcript collection is read or iterated at this site.",
+      "reason": "The scan follows transcript-named ports (TranscriptStore, the replica's transcripts cache) through composition and erase wiring; nothing here enumerates messages.",
+      "guard": "assembly.test.ts \"chat history database (POD-5801)\" opens one database per user and erases it on sign-out; transcript-log.stored.test.ts drives the wired cache end to end."
+    },
+    {
       "file": "packages/client-core/src/engine/actions.ts",
       "holder": "createEngineActions/activateWorkspaceTab/callback/editWorkspace:callback",
       "rule": "reader-summary",
@@ -15386,6 +15583,24 @@
       "bound": "One session-scope pass only at bootstrap/rescope; ordinary batches read only their session ids.",
       "reason": "Seed the runtime-owned computing deadlines that trigger concurrency-history refreshes; no pool reads or per-delta fleet scan.",
       "guard": "header-polling.test.ts asserts zero collection reads on session/title/unrelated deltas and exactly one on rescope."
+    },
+    {
+      "file": "packages/client-core/src/engine/kernel-outbox.ts",
+      "holder": "openKernelEngineOutbox/overlay",
+      "rule": "helper-consumer",
+      "tokens": "2ee90abaa1862e11c0939b33769879194a5d5d641a4241f3a93e72519fe96f61",
+      "gate": [],
+      "origin": [
+        "6eaa0385ee25575a2b8641ff25b6cd72ef2fa78aca967cd7f17f5c096194a7f4"
+      ],
+      "fingerprint": "7922227f63336eb9db34d5089e4eb8c932fb15d3af03deecb7aa3b1f3a3b6b6a",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5801",
+      "trigger": "Opening a signed-in user's replica assembly, building a replica, or mounting one chat.",
+      "bound": "Constant work: the per-user chat history store is created once and handed on by reference; no transcript collection is read or iterated at this site.",
+      "reason": "The scan follows transcript-named ports (TranscriptStore, the replica's transcripts cache) through composition and erase wiring; nothing here enumerates messages.",
+      "guard": "assembly.test.ts \"chat history database (POD-5801)\" opens one database per user and erases it on sign-out; transcript-log.stored.test.ts drives the wired cache end to end."
     },
     {
       "file": "packages/client-core/src/engine/navigation.ts",
@@ -16686,6 +16901,242 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
+      "file": "packages/client-core/src/replica-assembly/assembly.ts",
+      "holder": "openReplicaAssembly",
+      "rule": "helper-consumer",
+      "tokens": "065664cc8bd4b87edfe02c42db53e72241aef617c44c6493bdd0317f05ec8f48",
+      "gate": [
+        "exit:then:2add58fa692a9dfe7737492b2446bf6c801473caeea929a8d748c72f5d0a6624",
+        "exit:then:99d6c8122697f27293f4373c3ae6b7dddc99d6a1bbe120cb0edfcfddec8ba89a",
+        "exit:then:d8cb67250ccc897f5c5185c0cb4eed967378f9583ec0a9e28c60d344c2e920f0",
+        "then:6506b2a0d5a8e0b90fafbb1601fdceaae83e9211b63def7e122095e71a9b03e7"
+      ],
+      "origin": [
+        "6eaa0385ee25575a2b8641ff25b6cd72ef2fa78aca967cd7f17f5c096194a7f4"
+      ],
+      "fingerprint": "b17063d31d83928f4b12ad4dfdfab8ece7ee8e3d35dfc4f83e2f7372c870c007",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5801",
+      "trigger": "Opening a signed-in user's replica assembly, building a replica, or mounting one chat.",
+      "bound": "Constant work: the per-user chat history store is created once and handed on by reference; no transcript collection is read or iterated at this site.",
+      "reason": "The scan follows transcript-named ports (TranscriptStore, the replica's transcripts cache) through composition and erase wiring; nothing here enumerates messages.",
+      "guard": "assembly.test.ts \"chat history database (POD-5801)\" opens one database per user and erases it on sign-out; transcript-log.stored.test.ts drives the wired cache end to end."
+    },
+    {
+      "file": "packages/client-core/src/replica-assembly/assembly.ts",
+      "holder": "openReplicaAssembly",
+      "rule": "helper-consumer",
+      "tokens": "065664cc8bd4b87edfe02c42db53e72241aef617c44c6493bdd0317f05ec8f48",
+      "gate": [
+        "exit:then:2add58fa692a9dfe7737492b2446bf6c801473caeea929a8d748c72f5d0a6624",
+        "exit:then:99d6c8122697f27293f4373c3ae6b7dddc99d6a1bbe120cb0edfcfddec8ba89a",
+        "exit:then:d8cb67250ccc897f5c5185c0cb4eed967378f9583ec0a9e28c60d344c2e920f0",
+        "then:6506b2a0d5a8e0b90fafbb1601fdceaae83e9211b63def7e122095e71a9b03e7"
+      ],
+      "origin": [
+        "a694c85e7dd5c9517a07668526338f1822e986f236a66587864d7b48f54c3360"
+      ],
+      "fingerprint": "bf8c184981ba0c1b64249549e452e1fcbdb9858baa8bd011628d38863425cfb9",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5801",
+      "trigger": "Opening a signed-in user's replica assembly, building a replica, or mounting one chat.",
+      "bound": "Constant work: the per-user chat history store is created once and handed on by reference; no transcript collection is read or iterated at this site.",
+      "reason": "The scan follows transcript-named ports (TranscriptStore, the replica's transcripts cache) through composition and erase wiring; nothing here enumerates messages.",
+      "guard": "assembly.test.ts \"chat history database (POD-5801)\" opens one database per user and erases it on sign-out; transcript-log.stored.test.ts drives the wired cache end to end."
+    },
+    {
+      "file": "packages/client-core/src/replica-assembly/assembly.ts",
+      "holder": "openReplicaAssembly",
+      "rule": "reader-summary",
+      "tokens": "68c165b6b44536c682085528f9222ff9eb95f0bd8066b1b7add7d762ecd366be",
+      "gate": [
+        "exit:then:2add58fa692a9dfe7737492b2446bf6c801473caeea929a8d748c72f5d0a6624",
+        "exit:then:d8cb67250ccc897f5c5185c0cb4eed967378f9583ec0a9e28c60d344c2e920f0"
+      ],
+      "origin": [
+        "6bdab32f6529569bb6c90fd5fdcf07bc01df08e956ea4e35be3f260004475818"
+      ],
+      "fingerprint": "e7c25d7818c58e29a50d004cf6700b4833123d28fb4c4417c68b728aefcf82c4",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5801",
+      "trigger": "Opening a signed-in user's replica assembly, building a replica, or mounting one chat.",
+      "bound": "Constant work: the per-user chat history store is created once and handed on by reference; no transcript collection is read or iterated at this site.",
+      "reason": "The scan follows transcript-named ports (TranscriptStore, the replica's transcripts cache) through composition and erase wiring; nothing here enumerates messages.",
+      "guard": "assembly.test.ts \"chat history database (POD-5801)\" opens one database per user and erases it on sign-out; transcript-log.stored.test.ts drives the wired cache end to end."
+    },
+    {
+      "file": "packages/client-core/src/replica-assembly/assembly.ts",
+      "holder": "openReplicaAssembly/createOutboxFn",
+      "rule": "helper-consumer",
+      "tokens": "7951d03bc9e07f8880698c2953e37c9c6262a940255cacd27b607230d8dfcde0",
+      "gate": [
+        "exit:then:2add58fa692a9dfe7737492b2446bf6c801473caeea929a8d748c72f5d0a6624",
+        "exit:then:99d6c8122697f27293f4373c3ae6b7dddc99d6a1bbe120cb0edfcfddec8ba89a",
+        "exit:then:d8cb67250ccc897f5c5185c0cb4eed967378f9583ec0a9e28c60d344c2e920f0"
+      ],
+      "origin": [
+        "6eaa0385ee25575a2b8641ff25b6cd72ef2fa78aca967cd7f17f5c096194a7f4"
+      ],
+      "fingerprint": "a2086621ed06dacd683ff5750293fe0394012781322c18a68efd7fab85be095e",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5801",
+      "trigger": "Opening a signed-in user's replica assembly, building a replica, or mounting one chat.",
+      "bound": "Constant work: the per-user chat history store is created once and handed on by reference; no transcript collection is read or iterated at this site.",
+      "reason": "The scan follows transcript-named ports (TranscriptStore, the replica's transcripts cache) through composition and erase wiring; nothing here enumerates messages.",
+      "guard": "assembly.test.ts \"chat history database (POD-5801)\" opens one database per user and erases it on sign-out; transcript-log.stored.test.ts drives the wired cache end to end."
+    },
+    {
+      "file": "packages/client-core/src/replica-assembly/assembly.ts",
+      "holder": "openReplicaAssembly/createOutboxFn",
+      "rule": "reader-summary",
+      "tokens": "3cf37b8c747a47f41a2af3e9667f0eb3e5170b81634fdd7087441212c0b1cf5d",
+      "gate": [
+        "exit:then:2add58fa692a9dfe7737492b2446bf6c801473caeea929a8d748c72f5d0a6624",
+        "exit:then:99d6c8122697f27293f4373c3ae6b7dddc99d6a1bbe120cb0edfcfddec8ba89a",
+        "exit:then:d8cb67250ccc897f5c5185c0cb4eed967378f9583ec0a9e28c60d344c2e920f0"
+      ],
+      "origin": [
+        "6eaa0385ee25575a2b8641ff25b6cd72ef2fa78aca967cd7f17f5c096194a7f4"
+      ],
+      "fingerprint": "d4d3e1db25f7556372963ac1133e94bb1e15178f9a1a9a7014416dd045c61c08",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5801",
+      "trigger": "Opening a signed-in user's replica assembly, building a replica, or mounting one chat.",
+      "bound": "Constant work: the per-user chat history store is created once and handed on by reference; no transcript collection is read or iterated at this site.",
+      "reason": "The scan follows transcript-named ports (TranscriptStore, the replica's transcripts cache) through composition and erase wiring; nothing here enumerates messages.",
+      "guard": "assembly.test.ts \"chat history database (POD-5801)\" opens one database per user and erases it on sign-out; transcript-log.stored.test.ts drives the wired cache end to end."
+    },
+    {
+      "file": "packages/client-core/src/replica-assembly/assembly.ts",
+      "holder": "openReplicaAssembly/erasePrincipal/callback",
+      "rule": "reader-summary",
+      "tokens": "5fca8092fbdfbd51060985028295afc7340c4cc9a4f0e371116df6f0e43df51a",
+      "gate": [
+        "exit:then:2add58fa692a9dfe7737492b2446bf6c801473caeea929a8d748c72f5d0a6624"
+      ],
+      "origin": [
+        "6bdab32f6529569bb6c90fd5fdcf07bc01df08e956ea4e35be3f260004475818"
+      ],
+      "fingerprint": "079916111ce4469ef379ccc2e7d373840af89083551b887a1405a7bb4280dedf",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5801",
+      "trigger": "Opening a signed-in user's replica assembly, building a replica, or mounting one chat.",
+      "bound": "Constant work: the per-user chat history store is created once and handed on by reference; no transcript collection is read or iterated at this site.",
+      "reason": "The scan follows transcript-named ports (TranscriptStore, the replica's transcripts cache) through composition and erase wiring; nothing here enumerates messages.",
+      "guard": "assembly.test.ts \"chat history database (POD-5801)\" opens one database per user and erases it on sign-out; transcript-log.stored.test.ts drives the wired cache end to end."
+    },
+    {
+      "file": "packages/client-core/src/replica-assembly/assembly.ts",
+      "holder": "openReplicaAssembly/namespace",
+      "rule": "helper-consumer",
+      "tokens": "1a4a094c1da275a37bf7453488310ff7c027dcbf1621bf5be024f1696ebc8908",
+      "gate": [
+        "exit:then:2add58fa692a9dfe7737492b2446bf6c801473caeea929a8d748c72f5d0a6624",
+        "exit:then:d8cb67250ccc897f5c5185c0cb4eed967378f9583ec0a9e28c60d344c2e920f0"
+      ],
+      "origin": [
+        "6eaa0385ee25575a2b8641ff25b6cd72ef2fa78aca967cd7f17f5c096194a7f4"
+      ],
+      "fingerprint": "b21dc0c0b3a963bc6227663aa30905990dad701ebb2a62c83cf33f9e891d665b",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5801",
+      "trigger": "Opening a signed-in user's replica assembly, building a replica, or mounting one chat.",
+      "bound": "Constant work: the per-user chat history store is created once and handed on by reference; no transcript collection is read or iterated at this site.",
+      "reason": "The scan follows transcript-named ports (TranscriptStore, the replica's transcripts cache) through composition and erase wiring; nothing here enumerates messages.",
+      "guard": "assembly.test.ts \"chat history database (POD-5801)\" opens one database per user and erases it on sign-out; transcript-log.stored.test.ts drives the wired cache end to end."
+    },
+    {
+      "file": "packages/client-core/src/replica-assembly/assembly.ts",
+      "holder": "openReplicaAssembly/principal",
+      "rule": "helper-consumer",
+      "tokens": "c933e989c2cdba9ffd5a9e9167682900a804d7ec4fd7a01f830835f16bd39b3c",
+      "gate": [
+        "exit:then:2add58fa692a9dfe7737492b2446bf6c801473caeea929a8d748c72f5d0a6624",
+        "exit:then:99d6c8122697f27293f4373c3ae6b7dddc99d6a1bbe120cb0edfcfddec8ba89a",
+        "exit:then:d8cb67250ccc897f5c5185c0cb4eed967378f9583ec0a9e28c60d344c2e920f0"
+      ],
+      "origin": [
+        "6eaa0385ee25575a2b8641ff25b6cd72ef2fa78aca967cd7f17f5c096194a7f4"
+      ],
+      "fingerprint": "ae53365a4bf90eb31af91330d5f5ae9932a3e41cb0d7d21a51f70e066a75444f",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5801",
+      "trigger": "Opening a signed-in user's replica assembly, building a replica, or mounting one chat.",
+      "bound": "Constant work: the per-user chat history store is created once and handed on by reference; no transcript collection is read or iterated at this site.",
+      "reason": "The scan follows transcript-named ports (TranscriptStore, the replica's transcripts cache) through composition and erase wiring; nothing here enumerates messages.",
+      "guard": "assembly.test.ts \"chat history database (POD-5801)\" opens one database per user and erases it on sign-out; transcript-log.stored.test.ts drives the wired cache end to end."
+    },
+    {
+      "file": "packages/client-core/src/replica-assembly/assembly.ts",
+      "holder": "openReplicaAssembly/principal",
+      "rule": "reader-summary",
+      "tokens": "6eef8285c632c4998b2426cf58d82094b995e3cc2835c7149185b54ee51a9300",
+      "gate": [
+        "exit:then:2add58fa692a9dfe7737492b2446bf6c801473caeea929a8d748c72f5d0a6624",
+        "exit:then:99d6c8122697f27293f4373c3ae6b7dddc99d6a1bbe120cb0edfcfddec8ba89a",
+        "exit:then:d8cb67250ccc897f5c5185c0cb4eed967378f9583ec0a9e28c60d344c2e920f0"
+      ],
+      "origin": [
+        "6eaa0385ee25575a2b8641ff25b6cd72ef2fa78aca967cd7f17f5c096194a7f4"
+      ],
+      "fingerprint": "1f887d1e36a524235b49cec605a284411a4cd3895f6663d1ac175a3f041ecc20",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5801",
+      "trigger": "Opening a signed-in user's replica assembly, building a replica, or mounting one chat.",
+      "bound": "Constant work: the per-user chat history store is created once and handed on by reference; no transcript collection is read or iterated at this site.",
+      "reason": "The scan follows transcript-named ports (TranscriptStore, the replica's transcripts cache) through composition and erase wiring; nothing here enumerates messages.",
+      "guard": "assembly.test.ts \"chat history database (POD-5801)\" opens one database per user and erases it on sign-out; transcript-log.stored.test.ts drives the wired cache end to end."
+    },
+    {
+      "file": "packages/client-core/src/replica-assembly/assembly.ts",
+      "holder": "openReplicaAssembly/progress",
+      "rule": "reader-summary",
+      "tokens": "e4992ef998b90ceb73d658ce75f5aed719926094a00c5648dda8d692e9d35e35",
+      "gate": [
+        "exit:then:2add58fa692a9dfe7737492b2446bf6c801473caeea929a8d748c72f5d0a6624",
+        "exit:then:99d6c8122697f27293f4373c3ae6b7dddc99d6a1bbe120cb0edfcfddec8ba89a",
+        "exit:then:d8cb67250ccc897f5c5185c0cb4eed967378f9583ec0a9e28c60d344c2e920f0"
+      ],
+      "origin": [
+        "6eaa0385ee25575a2b8641ff25b6cd72ef2fa78aca967cd7f17f5c096194a7f4"
+      ],
+      "fingerprint": "2f96c75770b6be10d1f417a8bd9f54eb4e09b0a34af2c4e2d6fd73150c648c42",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5801",
+      "trigger": "Opening a signed-in user's replica assembly, building a replica, or mounting one chat.",
+      "bound": "Constant work: the per-user chat history store is created once and handed on by reference; no transcript collection is read or iterated at this site.",
+      "reason": "The scan follows transcript-named ports (TranscriptStore, the replica's transcripts cache) through composition and erase wiring; nothing here enumerates messages.",
+      "guard": "assembly.test.ts \"chat history database (POD-5801)\" opens one database per user and erases it on sign-out; transcript-log.stored.test.ts drives the wired cache end to end."
+    },
+    {
+      "file": "packages/client-core/src/replica/kernel/facade.ts",
+      "holder": "createKernelReplica/facade",
+      "rule": "spread",
+      "tokens": "37645ef92e62240642e75d3572d8a72738e06bbf66e16bfc4c9e47f488047486",
+      "gate": [],
+      "origin": [
+        "6a38dd81c5dae2ff245d1a2187718e0367d4b389f2610fbbf87b1b2efaae894a"
+      ],
+      "fingerprint": "542f2a81642a71ea027c15978a64118c1cf275bf8a7c1974ad1dba8ebf2f0703",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5801",
+      "trigger": "Opening a signed-in user's replica assembly, building a replica, or mounting one chat.",
+      "bound": "Constant work: the per-user chat history store is created once and handed on by reference; no transcript collection is read or iterated at this site.",
+      "reason": "The scan follows transcript-named ports (TranscriptStore, the replica's transcripts cache) through composition and erase wiring; nothing here enumerates messages.",
+      "guard": "assembly.test.ts \"chat history database (POD-5801)\" opens one database per user and erases it on sign-out; transcript-log.stored.test.ts drives the wired cache end to end."
+    },
+    {
       "file": "packages/client-core/src/replica/kernel/issue-ref-index.ts",
       "holder": "IssueRefIndex/callback",
       "rule": "loop:for-of",
@@ -16720,6 +17171,27 @@
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "loop:for-of carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "packages/client-core/src/replica/principal-storage.ts",
+      "holder": "preparePrincipalNamespace/markers",
+      "rule": "helper-consumer",
+      "tokens": "69e39b0b3518e78c68add25cff85f22912156452a158d13b693b71932948e8cd",
+      "gate": [
+        "exit:then:169d430b89da5e0d0b6d3be1919b1d01224278ed729ecf0e5ffd05b3a6a07924",
+        "exit:then:16a2f070857dea78491e8458ac102af07cc5feed241d09ee8a97af5c979e9954"
+      ],
+      "origin": [
+        "6eaa0385ee25575a2b8641ff25b6cd72ef2fa78aca967cd7f17f5c096194a7f4"
+      ],
+      "fingerprint": "6543d7da29d5bc713e99cc9f80b7f0d872c02eda99d5873b19dc4f9562cbfd1d",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5801",
+      "trigger": "Opening a signed-in user's replica assembly, building a replica, or mounting one chat.",
+      "bound": "Constant work: the per-user chat history store is created once and handed on by reference; no transcript collection is read or iterated at this site.",
+      "reason": "The scan follows transcript-named ports (TranscriptStore, the replica's transcripts cache) through composition and erase wiring; nothing here enumerates messages.",
+      "guard": "assembly.test.ts \"chat history database (POD-5801)\" opens one database per user and erases it on sign-out; transcript-log.stored.test.ts drives the wired cache end to end."
     },
     {
       "file": "packages/client-core/src/session-index.ts",
@@ -17088,6 +17560,345 @@
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "spread carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Moved from createDraftAgent by POD-6408 (the same launch spec, now a session.launch effect input). Predecessors: 0f6f2a9f3e55eab22fd1625874a9d804d9182d4a12bdea56d47c99c9f067aa21, 64999e19f2c06980f0a7386417b52c8a27b892dfd9675c08b09b1d03ffa78f54, 844bbf0ba91508302edadce91665efcd240ce7f935c3642aff4a33b8849de3ad, 98494e50b9d3c3ba596b7c6a593ed1770cef5b53a4112211d9ac940559a065f2, db808fb7eb1896c45a144d9140220c81ba9163f104f85250c0358820bb9890e6, f163983bb70d549b052befa36b33dc3dfa3ed4a7b1aaad3e5eb1831c3cd964d3, f568288e889356ef2f0b4fa6275f7b61e7177961970e0820430598c536ecdf7e.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "packages/client-core/src/transcript-store/cache.ts",
+      "holder": "createStoreTranscriptCache/load",
+      "rule": "helper-consumer",
+      "tokens": "a2de22f7b00f51e565b5cdaa494f4720604c88b855a7ab1b851bf78cbcd55f41",
+      "gate": [],
+      "origin": [
+        "45523cae0149c833d4578fee1bc4214dff0ddd8a908fc1e6d5d3a91369a18562",
+        "eb3300c3386ae14cb08b8d7dec1f7d94071c9a9c1c34ab347817e2f2c291cad6"
+      ],
+      "fingerprint": "188786841178184491005573beb607251ce451285b2a39a52a24c788c9f59243",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5801",
+      "trigger": "Opening a chat (newest stored page) or paging back through stored history.",
+      "bound": "One stored page: at most the requested limit plus one row (200 on open, one page per scroll-back), never more than the 2,000 rows a chat keeps.",
+      "reason": "A page read from the device database is parsed and handed to the transcript log once; the rows are remembered so later writes diff against them.",
+      "guard": "cache.test.ts \"reads older pages from the device\"; store.test.ts limits; transcript-log.stored.test.ts paints from disk before any network reply."
+    },
+    {
+      "file": "packages/client-core/src/transcript-store/cache.ts",
+      "holder": "createStoreTranscriptCache/load",
+      "rule": "helper-consumer",
+      "tokens": "ee1c0c800e069fd8f900523ac019c914a100f70c82868b4d7a0944b3ccd23a79",
+      "gate": [
+        "then:b5a619803ba221e1e5126d5086f6b3ecb247a4266198ad11908f6709ad160a28"
+      ],
+      "origin": [
+        "45523cae0149c833d4578fee1bc4214dff0ddd8a908fc1e6d5d3a91369a18562",
+        "eb3300c3386ae14cb08b8d7dec1f7d94071c9a9c1c34ab347817e2f2c291cad6"
+      ],
+      "fingerprint": "82af500191665b1f9b74cdf504552df2712d37e1830217ddf02e507e34d49bee",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5801",
+      "trigger": "Opening a chat (newest stored page) or paging back through stored history.",
+      "bound": "One stored page: at most the requested limit plus one row (200 on open, one page per scroll-back), never more than the 2,000 rows a chat keeps.",
+      "reason": "A page read from the device database is parsed and handed to the transcript log once; the rows are remembered so later writes diff against them.",
+      "guard": "cache.test.ts \"reads older pages from the device\"; store.test.ts limits; transcript-log.stored.test.ts paints from disk before any network reply."
+    },
+    {
+      "file": "packages/client-core/src/transcript-store/cache.ts",
+      "holder": "createStoreTranscriptCache/load",
+      "rule": "reader-summary",
+      "tokens": "f69bf24594efc109aa28e14797ae4de4452268e91f8553d54e5bdf4fa3334876",
+      "gate": [],
+      "origin": [
+        "97798a87b26ffd7cb79d3582e4160f751c3c835d300c68ead17348ed4af3c742",
+        "acd6fec7ea9c4793c616fe88213941b7e30808aa7c2b08679004cf5ca0531dac",
+        "e30e6df5df47d3da079123d52353971a1f856ccaba83987eb066b5dc9a152d6e"
+      ],
+      "fingerprint": "dc08ecc396da8cad64a2679579353000eae03d31471128907d6588c33842f6d5",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5801",
+      "trigger": "Opening a chat (newest stored page) or paging back through stored history.",
+      "bound": "One stored page: at most the requested limit plus one row (200 on open, one page per scroll-back), never more than the 2,000 rows a chat keeps.",
+      "reason": "A page read from the device database is parsed and handed to the transcript log once; the rows are remembered so later writes diff against them.",
+      "guard": "cache.test.ts \"reads older pages from the device\"; store.test.ts limits; transcript-log.stored.test.ts paints from disk before any network reply."
+    },
+    {
+      "file": "packages/client-core/src/transcript-store/cache.ts",
+      "holder": "createStoreTranscriptCache/loadBefore",
+      "rule": "helper-consumer",
+      "tokens": "a2de22f7b00f51e565b5cdaa494f4720604c88b855a7ab1b851bf78cbcd55f41",
+      "gate": [
+        "exit:then:f79c531fa98c581ddbe3b25db144fd111ffc4d279ed1e1d1fb7fd4f3b555210a"
+      ],
+      "origin": [
+        "e7f3200174292e4977ab9af42a38e503d9ea3579dad8c3a63d54086deffd320b",
+        "eb3300c3386ae14cb08b8d7dec1f7d94071c9a9c1c34ab347817e2f2c291cad6"
+      ],
+      "fingerprint": "ae1f687644d213ed078bf7a8db3b0d85f5090e916cdd9176087850f78efc733c",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5801",
+      "trigger": "Opening a chat (newest stored page) or paging back through stored history.",
+      "bound": "One stored page: at most the requested limit plus one row (200 on open, one page per scroll-back), never more than the 2,000 rows a chat keeps.",
+      "reason": "A page read from the device database is parsed and handed to the transcript log once; the rows are remembered so later writes diff against them.",
+      "guard": "cache.test.ts \"reads older pages from the device\"; store.test.ts limits; transcript-log.stored.test.ts paints from disk before any network reply."
+    },
+    {
+      "file": "packages/client-core/src/transcript-store/cache.ts",
+      "holder": "createStoreTranscriptCache/loadBefore",
+      "rule": "helper-consumer",
+      "tokens": "ee1c0c800e069fd8f900523ac019c914a100f70c82868b4d7a0944b3ccd23a79",
+      "gate": [
+        "exit:then:f79c531fa98c581ddbe3b25db144fd111ffc4d279ed1e1d1fb7fd4f3b555210a"
+      ],
+      "origin": [
+        "e7f3200174292e4977ab9af42a38e503d9ea3579dad8c3a63d54086deffd320b",
+        "eb3300c3386ae14cb08b8d7dec1f7d94071c9a9c1c34ab347817e2f2c291cad6"
+      ],
+      "fingerprint": "d10196bf873e594ec78203ab3057de6adb9654657e6b3b62d6cb04f51dcbf7d3",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5801",
+      "trigger": "Opening a chat (newest stored page) or paging back through stored history.",
+      "bound": "One stored page: at most the requested limit plus one row (200 on open, one page per scroll-back), never more than the 2,000 rows a chat keeps.",
+      "reason": "A page read from the device database is parsed and handed to the transcript log once; the rows are remembered so later writes diff against them.",
+      "guard": "cache.test.ts \"reads older pages from the device\"; store.test.ts limits; transcript-log.stored.test.ts paints from disk before any network reply."
+    },
+    {
+      "file": "packages/client-core/src/transcript-store/cache.ts",
+      "holder": "createStoreTranscriptCache/loadBefore",
+      "rule": "reader-summary",
+      "tokens": "f69bf24594efc109aa28e14797ae4de4452268e91f8553d54e5bdf4fa3334876",
+      "gate": [
+        "exit:then:f79c531fa98c581ddbe3b25db144fd111ffc4d279ed1e1d1fb7fd4f3b555210a"
+      ],
+      "origin": [
+        "97798a87b26ffd7cb79d3582e4160f751c3c835d300c68ead17348ed4af3c742",
+        "acd6fec7ea9c4793c616fe88213941b7e30808aa7c2b08679004cf5ca0531dac",
+        "e30e6df5df47d3da079123d52353971a1f856ccaba83987eb066b5dc9a152d6e"
+      ],
+      "fingerprint": "cff74f85a2aaa158fe858972a772c6a86977a3f1ceb87cf15e74c3fc78e91b4f",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5801",
+      "trigger": "Opening a chat (newest stored page) or paging back through stored history.",
+      "bound": "One stored page: at most the requested limit plus one row (200 on open, one page per scroll-back), never more than the 2,000 rows a chat keeps.",
+      "reason": "A page read from the device database is parsed and handed to the transcript log once; the rows are remembered so later writes diff against them.",
+      "guard": "cache.test.ts \"reads older pages from the device\"; store.test.ts limits; transcript-log.stored.test.ts paints from disk before any network reply."
+    },
+    {
+      "file": "packages/client-core/src/transcript-store/cache.ts",
+      "holder": "createStoreTranscriptCache/remember/callback",
+      "rule": "loop:for-of",
+      "tokens": "739b1062e03b1f1b2cb48c79d2547f317e02cf47abea49675ceec8257f4680a8",
+      "gate": [],
+      "origin": [
+        "d2daa5ad8584bdf7be0400ba4acc2867e3444995e312029e649a1f5d901344d8"
+      ],
+      "fingerprint": "d494ac9317e6456e02806c2d32192ca23b99adb0ccc02045c952c1aa1294fee7",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5801",
+      "trigger": "Opening a chat (newest stored page) or paging back through stored history.",
+      "bound": "One stored page: at most the requested limit plus one row (200 on open, one page per scroll-back), never more than the 2,000 rows a chat keeps.",
+      "reason": "A page read from the device database is parsed and handed to the transcript log once; the rows are remembered so later writes diff against them.",
+      "guard": "cache.test.ts \"reads older pages from the device\"; store.test.ts limits; transcript-log.stored.test.ts paints from disk before any network reply."
+    },
+    {
+      "file": "packages/client-core/src/transcript-store/cache.ts",
+      "holder": "planTranscriptWrite",
+      "rule": "consume:forEach",
+      "tokens": "d5f251b933f2c4d4ff58bb9b106bef0e44018bae31b15e5d86ac612b850f8a25",
+      "gate": [
+        "exit:then:63ad0018b71ef0aeb9a4b11efa45315c0999456d32acf2db403eb2d59c63a7de"
+      ],
+      "origin": [
+        "985f873a0f1bbbeec32af9538fbd8c1a080b67817a3f96bca798581658ef98da"
+      ],
+      "fingerprint": "30cca693dbdfce09da0269efafd06279c3f31457d8b3f19d7b9105875bf8416e",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5801",
+      "trigger": "A chat's coalesced history write lands: at most once per 250 ms per chat, plus flush on background or close.",
+      "bound": "One pass over the chat's held window (the transcript log's window); the store receives only changed rows and keeps at most 2,000 per chat.",
+      "reason": "Diffing the held window against the rows the device already stores is what lets a new message write one row instead of the whole window.",
+      "guard": "cache.test.ts \"row diff\" (one row per new or changed message) and \"streaming writes\" (about four writes a second for a streaming reply)."
+    },
+    {
+      "file": "packages/client-core/src/transcript-store/cache.ts",
+      "holder": "planTranscriptWrite",
+      "rule": "enumerate:forEach",
+      "tokens": "d5f251b933f2c4d4ff58bb9b106bef0e44018bae31b15e5d86ac612b850f8a25",
+      "gate": [
+        "exit:then:63ad0018b71ef0aeb9a4b11efa45315c0999456d32acf2db403eb2d59c63a7de"
+      ],
+      "origin": [
+        "43406221e9072e6aef7a2ad19bc8b908c0d5211989ef6b1be7fc6a2bc3540172"
+      ],
+      "fingerprint": "4998b063bbbb37fd3b7b604f87771cf927b48ae281ba44375399018b4b2e7121",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5801",
+      "trigger": "A chat's coalesced history write lands: at most once per 250 ms per chat, plus flush on background or close.",
+      "bound": "One pass over the chat's held window (the transcript log's window); the store receives only changed rows and keeps at most 2,000 per chat.",
+      "reason": "Diffing the held window against the rows the device already stores is what lets a new message write one row instead of the whole window.",
+      "guard": "cache.test.ts \"row diff\" (one row per new or changed message) and \"streaming writes\" (about four writes a second for a streaming reply)."
+    },
+    {
+      "file": "packages/client-core/src/transcript-store/cache.ts",
+      "holder": "planTranscriptWrite/change",
+      "rule": "spread",
+      "tokens": "967a2a3af74e9496a0931379fbdd86ae5c7369e15589337f75378740732abe1a",
+      "gate": [
+        "exit:then:63ad0018b71ef0aeb9a4b11efa45315c0999456d32acf2db403eb2d59c63a7de"
+      ],
+      "origin": [
+        "985f873a0f1bbbeec32af9538fbd8c1a080b67817a3f96bca798581658ef98da"
+      ],
+      "fingerprint": "15cdfadaf9ff0238f8e65b0ad94270660a6fd7d53d48bd9b26ab8f21d1fff339",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5801",
+      "trigger": "A chat's coalesced history write lands: at most once per 250 ms per chat, plus flush on background or close.",
+      "bound": "One pass over the chat's held window (the transcript log's window); the store receives only changed rows and keeps at most 2,000 per chat.",
+      "reason": "Diffing the held window against the rows the device already stores is what lets a new message write one row instead of the whole window.",
+      "guard": "cache.test.ts \"row diff\" (one row per new or changed message) and \"streaming writes\" (about four writes a second for a streaming reply)."
+    },
+    {
+      "file": "packages/client-core/src/transcript-store/cache.ts",
+      "holder": "planTranscriptWrite/first",
+      "rule": "consume:findIndex",
+      "tokens": "6bb622d7721079de78f0ec524a76fcc20b17cd7c706dd943242a1b823a4bef74",
+      "gate": [],
+      "origin": [
+        "985f873a0f1bbbeec32af9538fbd8c1a080b67817a3f96bca798581658ef98da"
+      ],
+      "fingerprint": "7d7815e83093e3fa63fca81d100910e736f5f6781e6cf4b04adbe9bb4ca14346",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5801",
+      "trigger": "A chat's coalesced history write lands: at most once per 250 ms per chat, plus flush on background or close.",
+      "bound": "One pass over the chat's held window (the transcript log's window); the store receives only changed rows and keeps at most 2,000 per chat.",
+      "reason": "Diffing the held window against the rows the device already stores is what lets a new message write one row instead of the whole window.",
+      "guard": "cache.test.ts \"row diff\" (one row per new or changed message) and \"streaming writes\" (about four writes a second for a streaming reply)."
+    },
+    {
+      "file": "packages/client-core/src/transcript-store/cache.ts",
+      "holder": "planTranscriptWrite/known",
+      "rule": "consume:map",
+      "tokens": "da012a41691ec39a022e50a67a759bc710355f12deeed963e6f858b7dfd669b5",
+      "gate": [],
+      "origin": [
+        "985f873a0f1bbbeec32af9538fbd8c1a080b67817a3f96bca798581658ef98da"
+      ],
+      "fingerprint": "01ddd30677af4e157b97b1b7d8277e2a0aa7ac756ab393a0a4a67396199d1a5b",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5801",
+      "trigger": "A chat's coalesced history write lands: at most once per 250 ms per chat, plus flush on background or close.",
+      "bound": "One pass over the chat's held window (the transcript log's window); the store receives only changed rows and keeps at most 2,000 per chat.",
+      "reason": "Diffing the held window against the rows the device already stores is what lets a new message write one row instead of the whole window.",
+      "guard": "cache.test.ts \"row diff\" (one row per new or changed message) and \"streaming writes\" (about four writes a second for a streaming reply)."
+    },
+    {
+      "file": "packages/client-core/src/transcript-store/cache.ts",
+      "holder": "planTranscriptWrite/seqs",
+      "rule": "helper-consumer",
+      "tokens": "25efdea14c09941d57e895743898cdc581e7d223a3ba60e3b0d06b0f96db8ee4",
+      "gate": [
+        "else:1a50390e733cc9473043ea8178de2d745cc33ddbe7d62f988f9e5bdd9d61adc0"
+      ],
+      "origin": [
+        "985f873a0f1bbbeec32af9538fbd8c1a080b67817a3f96bca798581658ef98da"
+      ],
+      "fingerprint": "5e31a65fcddffadf135ea58b0b034cbbd55b689595fac4cf8cbd75ddc356c29c",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5801",
+      "trigger": "A chat's coalesced history write lands: at most once per 250 ms per chat, plus flush on background or close.",
+      "bound": "One pass over the chat's held window (the transcript log's window); the store receives only changed rows and keeps at most 2,000 per chat.",
+      "reason": "Diffing the held window against the rows the device already stores is what lets a new message write one row instead of the whole window.",
+      "guard": "cache.test.ts \"row diff\" (one row per new or changed message) and \"streaming writes\" (about four writes a second for a streaming reply)."
+    },
+    {
+      "file": "packages/client-core/src/transcript-store/cache.ts",
+      "holder": "planTranscriptWrite/upsert",
+      "rule": "consume:map",
+      "tokens": "e6f9ab54656a0773f8e48b33f0febfe86914868a87c87d2a339ef3a8de7d4cc0",
+      "gate": [
+        "then:63ad0018b71ef0aeb9a4b11efa45315c0999456d32acf2db403eb2d59c63a7de",
+        "exit:then:063e0fd674e6af99856880039a95f6c88a62d5d46beffbe9acf7b42c6f110e7c"
+      ],
+      "origin": [
+        "985f873a0f1bbbeec32af9538fbd8c1a080b67817a3f96bca798581658ef98da"
+      ],
+      "fingerprint": "9c1f91843d14ab9dcdeb11887c84db234d5a12c42ab7241bde11a6ce9d306afa",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5801",
+      "trigger": "A chat's coalesced history write lands: at most once per 250 ms per chat, plus flush on background or close.",
+      "bound": "One pass over the chat's held window (the transcript log's window); the store receives only changed rows and keeps at most 2,000 per chat.",
+      "reason": "Diffing the held window against the rows the device already stores is what lets a new message write one row instead of the whole window.",
+      "guard": "cache.test.ts \"row diff\" (one row per new or changed message) and \"streaming writes\" (about four writes a second for a streaming reply)."
+    },
+    {
+      "file": "packages/client-core/src/transcript-store/cache.ts",
+      "holder": "toEntry/callback/items",
+      "rule": "consume:map",
+      "tokens": "755e78c75f21545f450db18833529180e6b717fa82678306cc10e88a21fc590c",
+      "gate": [
+        "else:cdc40d735b8df38f06c723bd3b7451241d3675f6b9266664e54a56b1df639774"
+      ],
+      "origin": [
+        "5432713bdfb71cf4484f555c0dea6c8a5b864c3ff8573dfda7fb63ce0d804024"
+      ],
+      "fingerprint": "108fc1668143288be770abe62e62df64bb719c8aa29c3727fdc9af2883291bc8",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5801",
+      "trigger": "Opening a chat (newest stored page) or paging back through stored history.",
+      "bound": "One stored page: at most the requested limit plus one row (200 on open, one page per scroll-back), never more than the 2,000 rows a chat keeps.",
+      "reason": "A page read from the device database is parsed and handed to the transcript log once; the rows are remembered so later writes diff against them.",
+      "guard": "cache.test.ts \"reads older pages from the device\"; store.test.ts limits; transcript-log.stored.test.ts paints from disk before any network reply."
+    },
+    {
+      "file": "packages/client-core/src/transcript-store/cache.ts",
+      "holder": "toEntry/callback/items",
+      "rule": "consume:map",
+      "tokens": "755e78c75f21545f450db18833529180e6b717fa82678306cc10e88a21fc590c",
+      "gate": [
+        "else:cdc40d735b8df38f06c723bd3b7451241d3675f6b9266664e54a56b1df639774"
+      ],
+      "origin": [
+        "97798a87b26ffd7cb79d3582e4160f751c3c835d300c68ead17348ed4af3c742"
+      ],
+      "fingerprint": "1ee0c7a3130e86924d72dcbd9940220d4047d78d961f37327e6b75e5496261c3",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5801",
+      "trigger": "Opening a chat (newest stored page) or paging back through stored history.",
+      "bound": "One stored page: at most the requested limit plus one row (200 on open, one page per scroll-back), never more than the 2,000 rows a chat keeps.",
+      "reason": "A page read from the device database is parsed and handed to the transcript log once; the rows are remembered so later writes diff against them.",
+      "guard": "cache.test.ts \"reads older pages from the device\"; store.test.ts limits; transcript-log.stored.test.ts paints from disk before any network reply."
+    },
+    {
+      "file": "packages/client-core/src/transcript-store/store.ts",
+      "holder": "createTranscriptStore/read/callback",
+      "rule": "loop:for-of",
+      "tokens": "d0b2d56690168a24680a2de3af0d1035f6d84eeb28bad36704001a0353bfcbde",
+      "gate": [
+        "exit:then:6233d6e92b8a4f1a8532a1857187637d646626b1a35038f69d033f194d731edc"
+      ],
+      "origin": [
+        "e9d4481562e349c8e60ecdfce3c9d0680193a6ca310c0518602c2676ba836eeb"
+      ],
+      "fingerprint": "6bd1359b392e0a021aab88057080fd337c9ad68a90f0b98b593f1f2b8b7297f7",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5801",
+      "trigger": "Opening a chat (newest stored page) or paging back through stored history.",
+      "bound": "One stored page: at most the requested limit plus one row (200 on open, one page per scroll-back), never more than the 2,000 rows a chat keeps.",
+      "reason": "A page read from the device database is parsed and handed to the transcript log once; the rows are remembered so later writes diff against them.",
+      "guard": "cache.test.ts \"reads older pages from the device\"; store.test.ts limits; transcript-log.stored.test.ts paints from disk before any network reply."
     },
     {
       "file": "packages/client-core/src/transcript/merge.ts",
@@ -18153,8 +18964,8 @@
       ],
       "fingerprint": "730aed3d11baeebb769ad94f00cad0d0a5ccd0ccd1b9cbdc32e32109ba3a4aa2",
       "count": 1,
-      "owner": "POD-2256",
       "classification": "bounded local work",
+      "owner": "POD-2256",
       "trigger": "Render the text of one user transcript item with its confirmed message record.",
       "bound": "Only attachments declared on that one message and the leading path prefix of that item. No other message, session or issue is enumerated.",
       "reason": "Upload IDs and the saved authored body prove which transport paths may be hidden. The helper returns display text and leaves the recorded item untouched.",
@@ -18175,8 +18986,8 @@
       ],
       "fingerprint": "bccb68c77718b938440a1afcfae89b82e49e2f61ecd8ac741023419a28cc961b",
       "count": 1,
-      "owner": "POD-2256",
       "classification": "bounded local work",
+      "owner": "POD-2256",
       "trigger": "Render the text of one user transcript item with its confirmed message record.",
       "bound": "Only attachments declared on that one message and the leading path prefix of that item. No other message, session or issue is enumerated.",
       "reason": "Upload IDs and the saved authored body prove which transport paths may be hidden. The helper returns display text and leaves the recorded item untouched.",
@@ -18197,8 +19008,8 @@
       ],
       "fingerprint": "98cde5e0dc73e9a0844b536207894d0a92d7e2dbefd142aad71cd080eaecc55c",
       "count": 1,
-      "owner": "POD-2256",
       "classification": "bounded local work",
+      "owner": "POD-2256",
       "trigger": "Render the text of one user transcript item with its confirmed message record.",
       "bound": "Only attachments declared on that one message and the leading path prefix of that item. No other message, session or issue is enumerated.",
       "reason": "Upload IDs and the saved authored body prove which transport paths may be hidden. The helper returns display text and leaves the recorded item untouched.",
@@ -20857,6 +21668,26 @@
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "packages/client-core/src/values/cursor-order.ts",
+      "holder": "decodeCursorPosition/json",
+      "rule": "helper-consumer",
+      "tokens": "ffee997a9b1f1403a608e08bfbe1abf637a5e3c9a0db5b1c8692e49225f1d92c",
+      "gate": [
+        "exit:then:3cbe30c61a506bba08b02e351a61f08bce799636f9f42732fb7df28da36e0240"
+      ],
+      "origin": [
+        "747057d166ba4c62967667709bda750ee2cb6553f51bd9427c7ec545495fb916"
+      ],
+      "fingerprint": "0588a9ed61622d4f0fbd6aa6fa4e85bdd2a964475d96d36481d7abc29b40f5b0",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5801",
+      "trigger": "Reopening a chat that was painted from the device.",
+      "bound": "The reopen delta page only: at most initialLimit (200) items, once per reopen, plus two cursor decodes.",
+      "reason": "Checks that the server's \"after\" page continues the stored run before merging it; anything else falls back to the newest-window read.",
+      "guard": "transcript-log.stored.test.ts: the delta is merged when it continues the stored run and falls back when the reader lost the anchor."
     },
     {
       "file": "packages/client-core/src/values/dock-panel.ts",
@@ -28952,8 +29783,8 @@
       ],
       "fingerprint": "dc422648666d82bcaefb17376a21520cc75f1501a6431983b3b1f72d78e8a8fe",
       "count": 1,
-      "owner": "POD-2256",
       "classification": "ingest",
+      "owner": "POD-2256",
       "trigger": "The first transcript attachment identity lookup creates the pool-owned index.",
       "bound": "One pass over resident messageRecord rows at index creation. Later publications inspect only the changed row and update keys only when its session or transcript identity changes.",
       "reason": "The index stores message IDs and returns the existing shared models. This also includes requested historical records outside the live feed index; lookups do not scan the working set.",
@@ -30949,10 +31780,10 @@
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
+      "trigger": "Invocation of createHeaderViews/occupancyKey",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Owner/caller transferred by POD-5767 without widening the collection path.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
-      "trigger": "Invocation of createHeaderViews/occupancyKey"
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
       "file": "packages/client-graph/src/header-views.ts",
@@ -30967,10 +31798,10 @@
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
+      "trigger": "Invocation of createHeaderViews/occupancyKey/memo:callback",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "consume:flatMap carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Owner/caller transferred by POD-5767 without widening the collection path.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
-      "trigger": "Invocation of createHeaderViews/occupancyKey/memo:callback"
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
       "file": "packages/client-graph/src/header-views.ts",
@@ -30985,10 +31816,10 @@
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
+      "trigger": "Invocation of createHeaderViews/occupancyKey/memo:callback",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "consume:sort carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Owner/caller transferred by POD-5767 without widening the collection path.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
-      "trigger": "Invocation of createHeaderViews/occupancyKey/memo:callback"
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
       "file": "packages/client-graph/src/header-views.ts",
@@ -31424,7 +32255,6 @@
       "guard": "Exact fingerprint and multiplicity only; POD-5866 opening tests prove release, and speed:structural compares work with the pilot baseline. This entry is not a collection-work fix."
     },
     {
-      "fingerprint": "1f1cd1aa8ff0bf7d3e75cecbfd3c2d2a47304227fea36da9c848153cbfd28caf",
       "file": "packages/client-graph/src/issue-shared-detail.ts",
       "holder": "otherMembersSessions",
       "rule": "consume:filter",
@@ -31436,6 +32266,7 @@
         "0f8043794047d51c881fd3f692838b0585d8cc066c1900243e238f2b440e76e3",
         "ec2e106696ff67fda99e2206af2e029f705d297ffe5ec0b4726a348b7bb07daf"
       ],
+      "fingerprint": "1f1cd1aa8ff0bf7d3e75cecbfd3c2d2a47304227fea36da9c848153cbfd28caf",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-6295",
@@ -31445,7 +32276,6 @@
       "guard": "apps/web/src/features/issues/IssuePage.shared-task.test.tsx and packages/client-graph/src/issue-shared-detail.test.ts (POD-6295)"
     },
     {
-      "fingerprint": "2d1f9a06f0b46e0672857b290bb8c576d3ea4bf79610a6feefbc1c12b52f7ed6",
       "file": "packages/client-graph/src/issue-shared-detail.ts",
       "holder": "otherMembersSessions",
       "rule": "consume:filter",
@@ -31457,6 +32287,7 @@
         "87ab53a903211519780a668dee6814884c9850ee8361fbcfca29e46f1191553b",
         "a4cd9d6f9d01bf7a9ee6925c0a8fc3cc1b13459ae632b7f41963c42985b1ab7a"
       ],
+      "fingerprint": "2d1f9a06f0b46e0672857b290bb8c576d3ea4bf79610a6feefbc1c12b52f7ed6",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-6297",
@@ -31466,7 +32297,6 @@
       "guard": "apps/mobile/harness/shared-tasks-shots.mjs and packages/client-graph/src/issue-shared-detail.test.ts (POD-6297)"
     },
     {
-      "fingerprint": "c01ccbf308242a5aec5b7bf93bd7d416b3ec8c48fba2f36d29e6a4e05fc33582",
       "file": "packages/client-graph/src/issue-shared-detail.ts",
       "holder": "otherMembersSessions",
       "rule": "consume:filter",
@@ -31477,6 +32307,7 @@
       "origin": [
         "7c7e154832e2d372cef73001de5d720e8613abbfb82acd69fec95b305449d3ec"
       ],
+      "fingerprint": "c01ccbf308242a5aec5b7bf93bd7d416b3ec8c48fba2f36d29e6a4e05fc33582",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-6295",
@@ -33263,7 +34094,6 @@
       "guard": "Construction/attachment call sites or publish replace/fresh branch, captured in source tokens and control-gate fingerprints."
     },
     {
-      "fingerprint": "65b8de68a225049828b84568acc19e33727407c1a5a01b4984a12e64c85e0dbb",
       "file": "packages/client-graph/src/repo-base-branch.ts",
       "holder": "baseBranchChoices",
       "rule": "loop:for-of",
@@ -33272,6 +34102,7 @@
       "origin": [
         "5e9be1180bb801b80ed015d39dcc19c83d34787bc2af4c4b2aa3a7a73daafc7f"
       ],
+      "fingerprint": "65b8de68a225049828b84568acc19e33727407c1a5a01b4984a12e64c85e0dbb",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-2153",
@@ -33281,7 +34112,6 @@
       "guard": "repo-base-branch.test.ts covers choices and checkout lookup; BaseBranchMenu.test.tsx covers the menu."
     },
     {
-      "fingerprint": "91c6eb9b75fcd451c8e9da5b0ffa860a340c2e90bdc712b188c2ff9a7e1ef1de",
       "file": "packages/client-graph/src/repo-base-branch.ts",
       "holder": "repositoryScanOf",
       "rule": "consume:find",
@@ -33291,6 +34121,7 @@
         "07fa37a49e76f28b0355824b49031c8f187f6d26d0bf571481c1b3dd44402138",
         "d6d08c10f6c9fda6ca08c6338ed4fe868f0da1039cf90da973a5964db39a4795"
       ],
+      "fingerprint": "91c6eb9b75fcd451c8e9da5b0ffa860a340c2e90bdc712b188c2ff9a7e1ef1de",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-2153",
@@ -33300,7 +34131,6 @@
       "guard": "repo-base-branch.test.ts covers choices and checkout lookup; BaseBranchMenu.test.tsx covers the menu."
     },
     {
-      "fingerprint": "83dbdaa005c59077cb96ec1d04c01ce1ab124e0fc0862b39692b941b36bd4ec3",
       "file": "packages/client-graph/src/repo-base-branch.ts",
       "holder": "repositoryScanOf/scans",
       "rule": "consume:flatMap",
@@ -33310,6 +34140,7 @@
         "07fa37a49e76f28b0355824b49031c8f187f6d26d0bf571481c1b3dd44402138",
         "d6d08c10f6c9fda6ca08c6338ed4fe868f0da1039cf90da973a5964db39a4795"
       ],
+      "fingerprint": "83dbdaa005c59077cb96ec1d04c01ce1ab124e0fc0862b39692b941b36bd4ec3",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-2153",
@@ -33319,7 +34150,6 @@
       "guard": "repo-base-branch.test.ts covers choices and checkout lookup; BaseBranchMenu.test.tsx covers the menu."
     },
     {
-      "fingerprint": "3ce5fd94639775e53f9c7af6433f51a25e2539308b5f477207c957e7503403d2",
       "file": "packages/client-graph/src/repo-base-branch.ts",
       "holder": "repositoryScanOf/scans",
       "rule": "enumerate:keys",
@@ -33328,6 +34158,7 @@
       "origin": [
         "07fa37a49e76f28b0355824b49031c8f187f6d26d0bf571481c1b3dd44402138"
       ],
+      "fingerprint": "3ce5fd94639775e53f9c7af6433f51a25e2539308b5f477207c957e7503403d2",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-2153",
@@ -33337,7 +34168,6 @@
       "guard": "repo-base-branch.test.ts covers choices and checkout lookup; BaseBranchMenu.test.tsx covers the menu."
     },
     {
-      "fingerprint": "bc2e914cd5a5fb3244cbb571655f5431c00eb84b031428bdc332b7880f373195",
       "file": "packages/client-graph/src/repo-base-branch.ts",
       "holder": "repositoryScanOf/scans",
       "rule": "spread",
@@ -33347,6 +34177,7 @@
         "07fa37a49e76f28b0355824b49031c8f187f6d26d0bf571481c1b3dd44402138",
         "d6d08c10f6c9fda6ca08c6338ed4fe868f0da1039cf90da973a5964db39a4795"
       ],
+      "fingerprint": "bc2e914cd5a5fb3244cbb571655f5431c00eb84b031428bdc332b7880f373195",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-2153",
@@ -34794,8 +35625,8 @@
       "owner": "POD-5530",
       "trigger": "Invocation or observation of WorklistIssue/childIds",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
-      "reason": "The addressed child membership list moved from the companion membership query to a shallow-equal lazy ID field. The same per-issue relation remains uncapped; this is a lifetime/style migration. Predecessor: 8e5d0ec9c9c708bc447c51e8c0ecb2163e6bb88ac4ad2715722559a6268c24c5."
+      "reason": "The addressed child membership list moved from the companion membership query to a shallow-equal lazy ID field. The same per-issue relation remains uncapped; this is a lifetime/style migration. Predecessor: 8e5d0ec9c9c708bc447c51e8c0ecb2163e6bb88ac4ad2715722559a6268c24c5.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
       "file": "packages/client-graph/src/worklist/issue.ts",
@@ -34812,8 +35643,8 @@
       "owner": "POD-5530",
       "trigger": "Invocation or observation of WorklistIssue/laneMemberIds",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
-      "reason": "The addressed lane membership list moved from the companion membership query to a shallow-equal lazy ID field. The same per-issue relation remains uncapped; this is a lifetime/style migration. Predecessor: c2a90328d332a1c804eaa50cce3a1dc5b89b2457385123de6de4187bcc870735."
+      "reason": "The addressed lane membership list moved from the companion membership query to a shallow-equal lazy ID field. The same per-issue relation remains uncapped; this is a lifetime/style migration. Predecessor: c2a90328d332a1c804eaa50cce3a1dc5b89b2457385123de6de4187bcc870735.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
       "file": "packages/client-graph/src/worklist/issue.ts",
@@ -34830,8 +35661,8 @@
       "owner": "POD-5530",
       "trigger": "Invocation or observation of WorklistIssue/spinOffIds",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
-      "reason": "The addressed spin-off membership list moved from the companion membership query to a shallow-equal lazy ID field. The same per-issue relation remains uncapped; this is a lifetime/style migration. Predecessor: f4671b593238949403afb088951006868035e953ca86b4b817c24bb8b9bc35c6."
+      "reason": "The addressed spin-off membership list moved from the companion membership query to a shallow-equal lazy ID field. The same per-issue relation remains uncapped; this is a lifetime/style migration. Predecessor: f4671b593238949403afb088951006868035e953ca86b4b817c24bb8b9bc35c6.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
       "file": "packages/client-graph/src/worklist/mobile.ts",
@@ -34850,8 +35681,8 @@
       "owner": "POD-5530",
       "trigger": "Invocation or observation of MobileSection/allIds",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
-      "reason": "The section owner forwards a persistent member query rather than rebuilding group membership for the former filters and pending reduction. After first demand it publishes keyed updates without walking members. The query bootstrap still has no group cardinality cap; this entry retains that collection debt. Predecessor: 3afeee0bad76ae2940a0c0cc32ddc7c359ec2eeaf3a7f5a60c197c5026c9f1f7."
+      "reason": "The section owner forwards a persistent member query rather than rebuilding group membership for the former filters and pending reduction. After first demand it publishes keyed updates without walking members. The query bootstrap still has no group cardinality cap; this entry retains that collection debt. Predecessor: 3afeee0bad76ae2940a0c0cc32ddc7c359ec2eeaf3a7f5a60c197c5026c9f1f7.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
       "file": "packages/client-graph/src/worklist/mobile.ts",
@@ -34870,8 +35701,8 @@
       "owner": "POD-5530",
       "trigger": "Invocation or observation of MobileSection/attentionIds",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
-      "reason": "The section owner forwards the declared asking subset maintained from each record, replacing the whole-group filter. Incremental updates visit changed records and consumed output positions. First demand still seeds group membership without a cardinality cap; this entry retains that collection debt. Predecessor: 8eb850911ee48b72b0fe3f98b9a3c599383420ae8047d011a033b0a04475a63b."
+      "reason": "The section owner forwards the declared asking subset maintained from each record, replacing the whole-group filter. Incremental updates visit changed records and consumed output positions. First demand still seeds group membership without a cardinality cap; this entry retains that collection debt. Predecessor: 8eb850911ee48b72b0fe3f98b9a3c599383420ae8047d011a033b0a04475a63b.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
       "file": "packages/client-graph/src/worklist/mobile.ts",
@@ -34890,8 +35721,8 @@
       "owner": "POD-5530",
       "trigger": "Invocation or observation of MobileSection/liveIds",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
-      "reason": "The section owner forwards the declared non-asking subset maintained from each record, replacing the whole-group filter. Incremental updates visit changed records and consumed output positions. First demand still seeds group membership without a cardinality cap; this entry retains that collection debt. Predecessor: 1d62be3a76ec865a81e7e2150662596a228cd80801b756317261580478ccdaef."
+      "reason": "The section owner forwards the declared non-asking subset maintained from each record, replacing the whole-group filter. Incremental updates visit changed records and consumed output positions. First demand still seeds group membership without a cardinality cap; this entry retains that collection debt. Predecessor: 1d62be3a76ec865a81e7e2150662596a228cd80801b756317261580478ccdaef.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
       "file": "packages/client-graph/src/worklist/phone.ts",
@@ -35093,10 +35924,10 @@
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
+      "trigger": "Invocation of sidebarTiming/anchor",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "consume:filter carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. The ordered identity query retains the addressed worklist policy; its generic caller-bound classification is unchanged. Session execution, presence and timestamp predicates now borrow shared model facts; the same collection and demand bounds remain.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
-      "trigger": "Invocation of sidebarTiming/anchor"
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
       "file": "packages/client-graph/src/worklist/sidebar-row.ts",
@@ -35133,10 +35964,10 @@
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
+      "trigger": "Invocation of sidebarTiming/anchor",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. The ordered identity query retains the addressed worklist policy; its generic caller-bound classification is unchanged. Session execution, presence and timestamp predicates now borrow shared model facts; the same collection and demand bounds remain.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
-      "trigger": "Invocation of sidebarTiming/anchor"
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
       "file": "packages/client-graph/src/worklist/sidebar-row.ts",
@@ -35557,10 +36388,10 @@
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
       "trigger": "Invocation of keepsPartOf on a non-flat issue",
-      "reason": "The existing presence rescue walk moved to the independent keeps answer. Its child relation and recursive keptBelowPartOf walk retain the existing REQUIRED REPAIR classification; the split adds no collection or index."
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "The existing presence rescue walk moved to the independent keeps answer. Its child relation and recursive keptBelowPartOf walk retain the existing REQUIRED REPAIR classification; the split adds no collection or index.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
       "file": "packages/client-graph/src/worklist/visible.ts",
@@ -35578,10 +36409,10 @@
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
       "trigger": "Invocation of keepsPartOf on a non-flat issue",
-      "reason": "The existing presence rescue walk moved to the independent keeps answer. Its child relation and recursive keptBelowPartOf walk retain the existing REQUIRED REPAIR classification; the split adds no collection or index."
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "The existing presence rescue walk moved to the independent keeps answer. Its child relation and recursive keptBelowPartOf walk retain the existing REQUIRED REPAIR classification; the split adds no collection or index.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
       "file": "packages/client-graph/src/worklist/visible.ts",

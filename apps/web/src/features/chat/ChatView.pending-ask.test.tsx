@@ -70,8 +70,6 @@ const fakeReplica = {
   applyChanges: () => {},
   getCursor: () => null,
   setCursor: () => {},
-  transcriptWindow: () => undefined,
-  putTranscriptWindow: () => {},
 }
 
 let storeSessions: SessionMeta[] = []

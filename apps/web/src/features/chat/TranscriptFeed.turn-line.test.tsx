@@ -5,6 +5,10 @@ import { asSessionId, type TranscriptItem } from '@podium/model'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import {
+  fakeTranscriptCache,
+  storedReadSettled,
+} from '@podium/client-core/test-support/transcript-cache'
 import * as markdown from '@/lib/markdown'
 import { ConversationPresentation } from './conversation-presentation'
 import { TranscriptFeed, type TranscriptFeedProps } from './TranscriptFeed'
@@ -460,7 +464,7 @@ it('counts matching blocks within one activity row', () => {
   expect(line().querySelector('.tl-hits')?.textContent).toBe('2 hits')
 })
 
-it('retains the live line and selected note DOM when a turn crosses the source and item windows', () => {
+it('retains the live line and selected note DOM when a turn crosses the source and item windows', async () => {
   const client = {
     usesWorker: false,
     computeGraphOnMain(
@@ -490,11 +494,12 @@ it('retains the live line and selected note DOM when a turn crosses the source a
   const log: TranscriptLog = new TranscriptLog({
     sessionId: asSessionId('long-dom'),
     source: { read: async () => ({ items: log.items, hasMore: false }), subscribe: () => () => {} },
-    cache: { read: () => ({ items, savedAt: 1 }), write: () => {} },
+    cache: fakeTranscriptCache({ items, savedAt: 1 }),
     retainHistory: () => presentation.retainHistory,
     retainFrom: () => presentation.retainFrom,
     onChange: (change) => presentation.changed(change),
   })
+  await storedReadSettled()
   presentation.bind(log)
   disposals.push(() => {
     presentation.dispose()

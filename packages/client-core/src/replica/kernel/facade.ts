@@ -1,6 +1,5 @@
 /** Kernel-backed client replica. Wire-v1 writer methods refuse; the kernel owns entity writes. */
 
-import type { TranscriptItem } from '@podium/model'
 import type { Cursor, EntityRecord, ExitKind, ReplicaEvent } from '@podium/sync/replica'
 import type { OutboxStorage } from '../../outbox'
 import type {
@@ -9,9 +8,9 @@ import type {
   ReplicaHydrateResult,
   ReplicaKind,
   ReplicaRows,
-  TranscriptWindow,
   UiState,
 } from '../contract'
+import type { StoreTranscriptCache } from '../../transcript-store/cache'
 import { COLD_CURSOR, type FeedCursor } from '../feed'
 import { IssueRefIndex } from './issue-ref-index'
 import { entityForKind, kindForEntity, rowKey } from './kinds'
@@ -69,6 +68,8 @@ export interface KernelReplicaInit {
    * a value they could pass.
    */
   readonly exits?: (entity: string, entityId: string) => ExitKind | undefined
+  /** This user's transcript database (POD-5801); absent when it could not open. */
+  readonly transcripts?: StoreTranscriptCache
 }
 
 /** What the composition root drives, beyond the `Replica` interface itself. */
@@ -536,12 +537,7 @@ export function createKernelReplica(init: KernelReplicaInit): KernelBackedReplic
       return seq === null ? COLD_CURSOR : { ...COLD_CURSOR, seq }
     },
 
-    transcriptWindow(conversationKey: string): TranscriptWindow | undefined {
-      return side.transcriptWindow(conversationKey)
-    },
-    putTranscriptWindow(conversationKey: string, items: TranscriptItem[]): void {
-      side.putTranscriptWindow(conversationKey, items)
-    },
+    ...(init.transcripts ? { transcripts: init.transcripts } : {}),
 
     rowCount(kind): number {
       if (!projected.has(kind)) buildMissingProjections()
@@ -642,7 +638,9 @@ export function createKernelReplica(init: KernelReplicaInit): KernelBackedReplic
 
     async flush(): Promise<void> {
       // Entity durability is the kernel store's own commit, awaited by whoever
-      // drove the frame; the side cache is synchronous. Nothing is buffered here.
+      // drove the frame; the side cache is synchronous. Only coalesced chat
+      // history is buffered, and it is written best-effort.
+      init.transcripts?.flush()
     },
 
     onKernelEvent(event: ReplicaEvent): void {

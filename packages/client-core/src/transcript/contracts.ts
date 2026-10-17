@@ -28,7 +28,8 @@ export interface TranscriptPage {
 export interface TranscriptReadRequest {
   sessionId: SessionId
   anchor?: string
-  direction: 'before'
+  /** 'after' reads the messages following `anchor` — a reopened chat's delta. */
+  direction: 'before' | 'after'
   limit: number
 }
 
@@ -42,15 +43,43 @@ export interface TranscriptSource {
 }
 
 export interface TranscriptCacheEntry {
+  /** Oldest first. */
   items: TranscriptItem[]
+  /** When these were written — the "as of <time>" an offline chat is shown with. */
   savedAt: number
+  /** The device holds messages older than these. */
+  hasOlder?: boolean
 }
 
+export interface TranscriptCacheWriteOptions {
+  /** The window no longer continues what was stored (an authoritative reset). */
+  replace?: boolean
+}
+
+/**
+ * The chat history kept on the device (POD-5801), as a transcript sees it.
+ *
+ * Reads are async: a transcript paints what memory already holds while one is
+ * pending, and never blocks the live stream on it. Writes are coalesced by the
+ * implementation, so `write` takes the window LAZILY — the newest window is read
+ * when the write actually lands, not on every streamed frame.
+ */
 export interface TranscriptCache {
-  read(sessionId: SessionId): TranscriptCacheEntry | undefined
-  write(sessionId: SessionId, items: readonly TranscriptItem[]): void
-  /** A bounded cache needs only this trailing window, even while history is retained. */
-  maxItems?: number
+  /** The newest stored page of a chat. */
+  load(sessionId: SessionId, limit: number): Promise<TranscriptCacheEntry | undefined>
+  /** Stored messages older than the held item `beforeId`. Empty when the device has none. */
+  loadBefore(
+    sessionId: SessionId,
+    beforeId: string,
+    limit: number,
+  ): Promise<TranscriptCacheEntry | undefined>
+  write(
+    sessionId: SessionId,
+    window: () => readonly TranscriptItem[],
+    options?: TranscriptCacheWriteOptions,
+  ): void
+  /** The chat is open or warm until the returned release: no clean-up may remove it. */
+  hold?(sessionId: SessionId): () => void
 }
 
 export interface TranscriptConnection {

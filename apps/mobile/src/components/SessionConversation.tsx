@@ -9,7 +9,7 @@ import {
 } from '@podium/client-core/conversation'
 import { randomUUID } from '@podium/client-core/id'
 import { useConversation, useStoreHandle } from '@podium/client-core/react'
-import { REPLICA_TRANSCRIPT_ITEM_CAP, type IssueViewModel } from '@podium/client-core/replica'
+import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionModel } from '@podium/client-graph/models'
 import type { SessionView } from '@podium/client-core/session-values'
 import { sessionTransition, sessionTransitionLabel } from '@podium/client-core/values'
@@ -237,11 +237,7 @@ export function SessionConversation(
             }
           },
         },
-        cache: {
-          maxItems: REPLICA_TRANSCRIPT_ITEM_CAP,
-          read: (id) => owner.replica.transcriptWindow(id),
-          write: (id, items) => owner.replica.putTranscriptWindow(id, [...items]),
-        },
+        ...(owner.replica.transcripts ? { cache: owner.replica.transcripts } : {}),
       },
       sends: {
         records: ports.records,

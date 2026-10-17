@@ -64,20 +64,11 @@ const fakeTrpc = {
 
 const fakeReplica = {
   available: true,
-  windows: new Map<string, { items: TranscriptItem[]; savedAt: number }>(),
-  puts: [] as Array<{ key: string; items: TranscriptItem[] }>,
   hydrate: async () => ({ sessions: [], issues: [], conversations: [], cursor: null }),
   applySnapshot: () => {},
   applyChanges: () => {},
   getCursor: () => null,
   setCursor: () => {},
-  transcriptWindow(key: string) {
-    return this.windows.get(key)
-  },
-  putTranscriptWindow(key: string, items: TranscriptItem[]) {
-    this.puts.push({ key, items })
-    this.windows.set(key, { items, savedAt: Date.now() })
-  },
 }
 
 let storeSessions: SessionView[] = []
@@ -145,8 +136,6 @@ let root: Root
 beforeEach(() => {
   reads.length = 0
   fakeHub.subscribes.length = 0
-  fakeReplica.windows.clear()
-  fakeReplica.puts.length = 0
   storeSessions = [meta({})]
   storeMachines = []
   container = document.createElement('div')

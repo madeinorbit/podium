@@ -2,8 +2,11 @@ import type { SessionId, TranscriptItem } from '@podium/model'
 import { action, observable, observableRef } from 'mobx'
 import type {
   TranscriptActivity,
+  TranscriptCacheEntry,
+  TranscriptCacheWriteOptions,
   TranscriptFreshness,
   TranscriptPage,
+  TranscriptReadRequest,
   TranscriptRefreshOptions,
   TranscriptSourceOptions,
   TranscriptState,
@@ -13,6 +16,7 @@ import {
   TRANSCRIPT_LIVE_HEARTBEAT_MS,
 } from '../transcript/contracts'
 import {
+  dedupeTranscriptItems,
   freshOlderTranscriptPage,
   LatestTranscriptId,
   mergeTranscriptFrame,
@@ -22,7 +26,11 @@ import {
 } from '../transcript/merge'
 import { isAskUserQuestion } from '../values/ask-question'
 import { MACHINE_CONTEXT_RE, transcriptActivityFacts } from '../values/chat'
-import { cursorInsertionIndex } from '../values/cursor-order'
+import {
+  compareCursorPositions,
+  cursorInsertionIndex,
+  decodeCursorPosition,
+} from '../values/cursor-order'
 import type { HandoffTranscriptPair } from '../values/handoff'
 import { freezePlain } from './frozen'
 import type { TranscriptGraphChange, TranscriptGraphInsertion } from './transcript-graph'
@@ -42,6 +50,10 @@ export interface TranscriptLogOptions extends TranscriptSourceOptions {
    *  not operator prompts. Mirrors the handoff prompt predicate. */
   collapseMachineContext?: boolean
 }
+
+/** How long start() waits for the device's stored page before reading the network
+ *  anyway. The read is usually done long before; a slow disk must not hold the chat. */
+export const STORED_TRANSCRIPT_WAIT_MS = 300
 
 export class TranscriptLog {
   readonly ids = observable.array<string>([], { deep: false })
@@ -84,6 +96,12 @@ export class TranscriptLog {
   private settleTimer: ReturnType<typeof setTimeout> | null = null
   private heartbeat: ReturnType<typeof setInterval> | null = null
   private probing: Promise<boolean> | null = null
+  /** The device's stored page (POD-5801): requested at construction, painted when
+   *  it lands if nothing newer is held, and the offline fallback after that. */
+  private storedRead: Promise<void> | undefined
+  private stored: TranscriptCacheEntry | undefined
+  private seededFromStore = false
+  private releaseStored: (() => void) | undefined
   private readonly itemPositions = new Map<string, number>()
   private readonly userItems = new LatestTranscriptId((id) => this.position(id) ?? -1)
   private readonly userPrompts = new LatestTranscriptId((id) => this.position(id) ?? -1)
@@ -121,9 +139,44 @@ export class TranscriptLog {
     this.trackEchoes = options.questions?.includes('userEcho') ?? true
     this.trackRecordedTime = options.questions?.includes('latestRecordedAt') ?? true
 
-    // Seed before start() and before any network read or first render.
-    const cached = options.cache?.read(options.sessionId)
-    if (cached?.items.length) this.patch({ items: cached.items, freshness: 'checking' })
+    // Read the stored page at once, so it is usually painted before start()
+    // and always before any network reply (start() waits for it, briefly).
+    const cache = options.cache
+    if (cache) {
+      this.releaseStored = cache.hold?.(options.sessionId)
+      this.storedRead = cache.load(options.sessionId, this.initialLimit).then(
+        (entry) => this.seedFromStore(entry),
+        () => {},
+      )
+    }
+  }
+
+  @action private seedFromStore(entry: TranscriptCacheEntry | undefined): void {
+    if (this.disposed || !entry?.items.length) return
+    this.stored = entry
+    // Memory or the server got here first; the stored page is only the fallback.
+    if (this.initialLoaded || this.orderedItems.length > 0) return
+    this.seededFromStore = true
+    // Paging back is offered from the seed only when the device holds older
+    // messages; otherwise the server's read supplies the anchor, as before.
+    this.patch({
+      items: entry.items,
+      freshness: 'checking',
+      ...(entry.hasOlder
+        ? { head: entry.items.find((item) => item.cursor)?.cursor, hasMoreOlder: true }
+        : {}),
+    })
+  }
+
+  private async awaitStored(): Promise<void> {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    await Promise.race([
+      this.storedRead,
+      new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, STORED_TRANSCRIPT_WAIT_MS)
+      }),
+    ])
+    clearTimeout(timer)
   }
 
   get sessionId(): SessionId {
@@ -237,13 +290,21 @@ export class TranscriptLog {
     }
     this.syncHeartbeat()
     const generation = this.generation
-    const initialRefresh = this.refresh()
-    const serial = this.readSerial
+    if (this.storedRead) {
+      await this.awaitStored()
+      if (this.disposed || !this.started || generation !== this.generation) return
+    }
+    // Reopened from the device: ask only for what came after it.
+    const anchor = this.seededFromStore ? this.storedAnchor() : undefined
+    const serial = ++this.readSerial
+    const initialRefresh = anchor
+      ? this.readAfterStored(anchor, serial)
+      : this.readNewest({}, serial)
     try {
       await initialRefresh
     } catch {
       if (!this.accepts(generation, serial)) return
-      const fallback = this.options.cache?.read(this.options.sessionId)
+      const fallback = this.stored
       this.patch({
         ...(this.orderedItems.length === 0 && fallback ? { items: fallback.items } : {}),
         hasMoreOlder: false,
@@ -258,8 +319,98 @@ export class TranscriptLog {
 
   async refresh(options: TranscriptRefreshOptions = {}): Promise<boolean> {
     if (this.disposed) return false
+    return this.readNewest(options, ++this.readSerial)
+  }
+
+  /**
+   * Where a reopened chat's delta starts: the stored message BEFORE the newest
+   * one. The newest may have been saved mid-stream (it is written on a throttle
+   * and again when it freezes), so it is read again rather than trusted.
+   */
+  private storedAnchor(): { index: number; cursor: string } | undefined {
+    for (let index = this.orderedItems.length - 2; index >= 0; index--) {
+      const cursor = this.orderedItems[index]!.cursor
+      if (cursor) return { index, cursor }
+    }
+    return undefined
+  }
+
+  /**
+   * THE REOPEN DELTA (POD-5801): the messages after the stored ones, through the
+   * same authority read with `direction: 'after'`.
+   *
+   * Only a page that provably continues the stored run is merged. A reader that
+   * cannot find the anchor answers with the transcript's OLDEST page, and
+   * appending that would put ancient messages under the stored ones — so the
+   * page must start with the stored message after the anchor, or with an item
+   * the cursor order places after the anchor in the same file. Anything else (a
+   * reset, more than one page of news, a different file) falls back to the
+   * newest-window read every chat used before, which reconciles from scratch.
+   */
+  private async readAfterStored(
+    anchor: { index: number; cursor: string },
+    serial: number,
+  ): Promise<boolean> {
     const generation = this.generation
-    const serial = ++this.readSerial
+    const signal = this.activity?.signal
+    const page = await this.readOrSaved(generation, serial, {
+      sessionId: this.options.sessionId,
+      anchor: anchor.cursor,
+      direction: 'after',
+      limit: this.initialLimit,
+    })
+    if (!this.accepts(generation, serial)) return false
+    const kept = this.orderedItems.slice(0, anchor.index + 1)
+    if (
+      page.reset ||
+      page.hasMore ||
+      !continuesStored(kept[anchor.index]!, this.orderedItems[anchor.index + 1], page.items)
+    ) {
+      return this.readNewest({}, serial)
+    }
+    this.reconciledSignal = signal ?? this.activity?.signal ?? null
+    const merged = dedupeTranscriptItems([...kept, ...page.items])
+    const bounded = this.boundFollowingWindow(merged)
+    const items = sameTranscriptItems(this.orderedItems, bounded.items)
+      ? this.orderedItems
+      : bounded.items
+    this.patch({
+      items,
+      tail: items.at(-1)?.cursor ?? this.tail,
+      // The delta says nothing about older history: one page back asks.
+      head: this.head ?? items.find((item) => item.cursor)?.cursor,
+      hasMoreOlder: true,
+      initialLoaded: true,
+      subscriptionHealthy: true,
+      freshness: this.freshness === null ? null : 'rendering',
+      offlineAsOf: null,
+      offlineMachineName: page.offline?.machineName ?? null,
+      ...bounded.paging,
+    })
+    this.writeCache()
+    this.attachSubscription(items.at(-1)?.cursor ?? anchor.cursor)
+    this.scheduleSettle()
+    return true
+  }
+
+  private async readOrSaved(
+    generation: number,
+    serial: number,
+    request: TranscriptReadRequest,
+  ): Promise<TranscriptPage> {
+    try {
+      return await this.options.source.read(request)
+    } catch (error) {
+      if (this.accepts(generation, serial) && this.orderedItems.length > 0) {
+        this.patch({ freshness: 'saved' })
+      }
+      throw error
+    }
+  }
+
+  private async readNewest(options: TranscriptRefreshOptions, serial: number): Promise<boolean> {
+    if (this.disposed) return false
+    const generation = this.generation
     // Stamped as of the read's START: activity that lands while it is in
     // flight may not be in it, and must still earn its own reconcile. A read
     // that began before any row was observed (a host that starts the
@@ -308,7 +459,7 @@ export class TranscriptLog {
           ? this.orderedItems
           : bounded.items
         this.patch({ items, ...status, ...bounded.paging })
-        if (items.length > 0) this.writeCache()
+        if (items.length > 0 || page.reset) this.writeCache({ replace: page.reset === true })
       }
       // Stream catch-up anchors on the newest NATIVE item cursor (POD-4300:
       // page head/tail live in history-cursor space and never match the
@@ -363,14 +514,35 @@ export class TranscriptLog {
   }
 
   async loadOlder(): Promise<boolean> {
-    if (this.disposed || this.loadingOlder || !this.hasMoreOlder || this.head === undefined) {
-      return false
-    }
+    if (this.disposed || this.loadingOlder || !this.hasMoreOlder) return false
     const generation = this.generation
     const epoch = this.windowEpoch
-    const anchor = this.head
+    const cache = this.options.cache
+    const oldest = this.ids[0]
+    if (!cache && this.head === undefined) return false
     this.patch({ loadingOlder: true })
     try {
+      // The device first; the server only past the oldest stored message.
+      if (cache && oldest !== undefined) {
+        const stored = await cache
+          .loadBefore(this.options.sessionId, oldest, this.pageLimit)
+          .catch(() => undefined)
+        if (this.disposed || generation !== this.generation || epoch !== this.windowEpoch)
+          return false
+        const fresh = stored
+          ? freshOlderTranscriptPage(stored.items, this.orderedItems, this.itemPositions)
+          : []
+        if (fresh.length > 0) {
+          this.pagedBack = true
+          this.prepend(fresh, {
+            head: fresh.find((item) => item.cursor)?.cursor ?? this.head,
+            hasMoreOlder: true,
+          })
+          return true
+        }
+      }
+      const anchor = this.head
+      if (anchor === undefined) return false
       const page = await this.options.source.read({
         sessionId: this.options.sessionId,
         anchor,
@@ -384,7 +556,7 @@ export class TranscriptLog {
         this.pagedBack = true
         const items = mergeTranscriptFrame([], page.items)
         this.patch({ items, head: page.head, tail: page.tail, hasMoreOlder: page.hasMore })
-        this.writeCache()
+        this.writeCache({ replace: true })
         return true
       }
       const fresh = freshOlderTranscriptPage(page.items, this.orderedItems, this.itemPositions)
@@ -424,6 +596,8 @@ export class TranscriptLog {
     if (this.disposed) return
     this.stop()
     this.disposed = true
+    this.releaseStored?.()
+    this.releaseStored = undefined
   }
 
   /**
@@ -543,7 +717,7 @@ export class TranscriptLog {
         subscriptionHealthy: false,
         ...bounded.paging,
       })
-      this.writeCache()
+      this.writeCache({ replace: true })
       void this.refresh({ disclose: true }).catch(() => {})
       return
     }
@@ -623,15 +797,9 @@ export class TranscriptLog {
     this.writeCache()
   }
 
-  private writeCache(): void {
-    const cache = this.options.cache
-    if (!cache) return
-    cache.write(
-      this.sessionId,
-      cache.maxItems === undefined
-        ? this.items
-        : this.orderedItems.slice(Math.max(0, this.orderedItems.length - cache.maxItems)),
-    )
+  /** Hand the device store the window. It is read lazily, when the coalesced write lands. */
+  private writeCache(options?: TranscriptCacheWriteOptions): void {
+    this.options.cache?.write(this.sessionId, () => this.items, options)
   }
 
   private removeFacts(id: string): void {
@@ -834,4 +1002,18 @@ export class TranscriptLog {
       change = { changed: [], added: [], rebuild: false }
     if (change) this.options.onChange?.(change)
   }
+}
+
+/** The page continues the stored run after `anchor` (see `readAfterStored`). */
+function continuesStored(
+  anchor: TranscriptItem,
+  storedNext: TranscriptItem | undefined,
+  page: readonly TranscriptItem[],
+): boolean {
+  const first = page[0]
+  if (!first || page.some((item) => item.id === anchor.id)) return false
+  if (storedNext && first.id === storedNext.id) return true
+  const from = decodeCursorPosition(anchor.cursor)
+  const to = decodeCursorPosition(first.cursor)
+  return from !== null && to !== null && from.fileId === to.fileId && compareCursorPositions(to, from) > 0
 }

@@ -21,6 +21,7 @@ import { MissionCostChip } from './MissionCostChip'
 import type { ReferenceState } from '../../../../tests/worklist/diagnostics/reference-state'
 type Store = ReferenceState<import('@/app/trpc').Trpc>
 import type { Trpc } from './trpc'
+import { fakeTranscriptCache } from '@podium/client-core/test-support/transcript-cache'
 
 // Keep the real provider, hooks, subscription store and counters. Only runtime
 // construction is replaced; a planted legacy selector therefore really subscribes.
@@ -101,7 +102,7 @@ function setup() {
       activityHistory: { query: reads.history },
     },
   } as unknown as Trpc
-  const replica = { transcriptWindow: () => undefined, putTranscriptWindow: vi.fn() }
+  const replica = { transcripts: fakeTranscriptCache() }
   const owner = { start() {}, dispose() {}, destroy() {} }
   const snapshot = { trpc, replica, coarseNow: 0 } as unknown as Store
   const store = createSubscriptionStore(snapshot, undefined, owner)

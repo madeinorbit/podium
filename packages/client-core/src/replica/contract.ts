@@ -18,11 +18,11 @@ import type {
   SessionUserStateWire,
   ShipLaneProjection,
   ShipOrderProjection,
-  TranscriptItem,
 } from '@podium/model'
 import type { PendingInteractionWire } from '@podium/protocol'
 import type { ExitKind } from '@podium/sync/replica'
 import type { OutboxStorage } from '../outbox'
+import type { TranscriptCache } from '../transcript/contracts'
 import type { FeedCursor } from './feed'
 
 export type { ExitKind }
@@ -147,13 +147,6 @@ export interface ReplicaHydrateResult {
   schemaReset: boolean
 }
 
-/** A cached transcript window: the newest items read for one conversation. */
-export interface TranscriptWindow {
-  items: TranscriptItem[]
-  /** Epoch ms when the window was written — drives the "as of <time>" notice. */
-  savedAt: number
-}
-
 /** Synchronous UI-state kv over the ui-state collection. Ordinary writes are
  * best effort; the explicit flush reports a durability failure before reload. */
 export interface UiState {
@@ -219,10 +212,9 @@ export interface Replica {
    * by re-pull; a crash mid-reset must therefore land on the recoverable side.
    */
   resetCache(): void
-  /** The cached newest window for a conversation key, if any. */
-  transcriptWindow(conversationKey: string): TranscriptWindow | undefined
-  /** Write-through cache of a fresh read. Bounded per spec §2.3. */
-  putTranscriptWindow(conversationKey: string, items: TranscriptItem[]): void
+  /** This user's chat history on the device (POD-5801), in its own database.
+   *  Absent where nothing is stored (tests, demo): chats then read the server. */
+  readonly transcripts?: TranscriptCache
   /** The underlying entity collection for `kind` — the live-query seam (typed
    *  `unknown` so no implementation type leaks through the interface). */
   collection(kind: ReplicaKind): unknown
@@ -351,10 +343,6 @@ export const LEGACY_UI_MAP_PREFIXES: Record<string, string> = {
  *  read before React (index.html's anti-flash script) and before the store
  *  exists, so the raw localStorage fast path must keep working. */
 export const MIRRORED_UI_KEYS = ['podium.theme.mode'] as const
-
-/** Spec §2.3: "last ~200 items per conversation, LRU cap ~50 conversations". */
-export const REPLICA_TRANSCRIPT_ITEM_CAP = 200
-export const REPLICA_TRANSCRIPT_CONVERSATION_CAP = 50
 
 export const REPLICA_KEY_PREFIX = 'podium.replica'
 

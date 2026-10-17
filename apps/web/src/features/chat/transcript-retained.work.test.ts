@@ -51,7 +51,6 @@ it('bounds warm web stream, append, prepend, query and cursor work at 1x/4x hist
     presentation.setFollowTail(false)
     const log = new TranscriptLog({ sessionId: asSessionId('retained-web'),
       source: { read: async () => page, subscribe: () => () => {} },
-      cache: { maxItems: 200, read: () => undefined, write: () => {} },
       retainHistory: () => presentation.retainHistory,
       onChange: change => presentation.changed(change) })
     presentation.bind(log)

@@ -66,11 +66,11 @@ function fixture(items: TranscriptItem[] = [item('a')]) {
   const log: TranscriptLog = new TranscriptLog({
     sessionId: asSessionId('presentation'),
     source: { read: async () => ({ items: log.items, hasMore: false }), subscribe: () => () => {} },
-    cache: { read: () => ({ items, savedAt: 1 }), write: () => {} },
     retainHistory: () => presentation.retainHistory,
     retainFrom: () => presentation.retainFrom,
     onChange: (change) => presentation.changed(change),
   })
+  log.merge(items)
   presentation.bind(log)
   stops.push(() => {
     presentation.dispose()

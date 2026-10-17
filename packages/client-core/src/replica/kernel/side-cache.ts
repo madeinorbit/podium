@@ -1,14 +1,10 @@
 /**
- * THE CLIENT-SIDE BULK CACHE, which is deliberately NOT replica data.
+ * THE CLIENT-SIDE SMALL CACHE, which is deliberately NOT replica data.
  *
- * Three things the engine reads through the `Replica` interface have no home in
- * the kernel Replica and must not acquire one:
+ * Two things the engine reads through the `Replica` interface have no home in
+ * the kernel Replica and must not acquire one (chat history, once here too, has
+ * its own database since POD-5801 — see `transcript-store/`):
  *
- *   - **transcript windows** — the brief says so in as many words ("the
- *     transcript-window LRU stays a client-side bulk-plane cache and is out of
- *     replica scope"). They are a bounded cache of a bulk read, re-fetchable at
- *     will, and putting them in the entity cache would put ~200 items × 50
- *     conversations through the feed's transactional path for no gain.
  *   - **ui-state** — a local preference. It has no authority row, it is never
  *     synced, and a `discardCache()` (an epoch bump, a rescope) must not throw
  *     away which sidebar tab you had open.
@@ -32,18 +28,14 @@
  */
 
 import { createLogger } from '@podium/logger'
-import type { TranscriptItem } from '@podium/model'
 import { OUTBOX_LS_KEY, type OutboxEntry, type OutboxStorage } from '../../outbox'
 import {
   LEGACY_UI_KEYS,
   LEGACY_UI_MAP_PREFIXES,
   LEGACY_UI_PREFIXES,
   MIRRORED_UI_KEYS,
-  REPLICA_TRANSCRIPT_CONVERSATION_CAP,
-  REPLICA_TRANSCRIPT_ITEM_CAP,
   type StorageApi,
   type StorageEventApi,
-  type TranscriptWindow,
   type UiState,
 } from '../contract'
 
@@ -54,7 +46,6 @@ export interface SideCacheInit {
   storageEventApi?: StorageEventApi
   enumerateKeys?: () => string[]
   keyPrefix?: string
-  now?: () => number
   /** Overridable for tests; defaults to the two homes the legacy path uses. */
   legacyOutboxKeys?: readonly string[]
   /** Surfaced, never swallowed (ADR 6 D4.4 clause 3). Fires when a QUEUED write
@@ -74,45 +65,42 @@ export interface SideCacheInit {
    * the store still adopts it. Declining to adopt is not the same as discarding.
    */
   adoptLegacyOutbox?: boolean
-  /**
-   * Trailing throttle window for transcript shard persistence (POD-5536).
-   *
-   * `putTranscriptWindow` updates the in-memory window synchronously on every
-   * frame but serializes at most once per window: the first schedule arms one
-   * timer, later schedules only replace the pending snapshot, and the timer
-   * fires with whatever is newest. A pure debounce that re-armed per call
-   * would starve forever under a steady stream — exactly the workload this
-   * exists for — so staleness is bounded by this delay instead. Defaults to
-   * 250ms to match the async-storage bridge's quiet window.
-   */
-  transcriptSettleMs?: number
 }
 
 /** The read/write surface `facade.ts` delegates its non-entity duties to. */
 export interface SideCache {
   uiState(): UiState
-  transcriptWindow(conversationKey: string): TranscriptWindow | undefined
-  putTranscriptWindow(conversationKey: string, items: TranscriptItem[]): void
   outboxStorage(): OutboxStorage
   outboxAwaitingStorage(): OutboxStorage
   outboxDeadLetterStorage(): OutboxStorage
-  /**
-   * Synchronously persist any coalesced transcript shards (POD-5536).
-   * Best-effort like every other transcript write: never throws. Lifecycle
-   * owners call this on reload/background boundaries so a mid-stream close
-   * keeps the latest snapshot; the trailing timer covers everything else.
-   */
-  flush(): void
-  /** Flush pending transcripts, then detach this principal's listeners before
-   *  another principal opens. */
+  /** Detach this principal's listeners before another principal opens. */
   dispose(): void
 }
 
-/** Hot transcript shards may be coalesced by async storage adapters. The index
- * is deliberately excluded: it is the commit record for shard membership and
- * must keep its order relative to shard writes and evictions. */
-export function isTranscriptWindowStorageKey(key: string): boolean {
-  return key.includes('.transcript-window.v2.')
+/**
+ * The chat-history keys this module wrote before POD-5801 moved chat history to
+ * its own database: per-chat windows, their index, and the v1 blob, under every
+ * principal's prefix. Deleted on first start WITHOUT importing them — the server
+ * has every message, and the space they held goes back to UI state and drafts.
+ */
+export function isLegacyTranscriptStorageKey(key: string): boolean {
+  return (
+    key.includes('.transcript-window.v2.') ||
+    key.endsWith('.transcripts-index.v2') ||
+    key.endsWith('.transcripts.v1')
+  )
+}
+
+/** Remove every {@link isLegacyTranscriptStorageKey} key. Best-effort, never throws. */
+export function eraseLegacyTranscriptKeys(storage: StorageApi, keys: readonly string[]): void {
+  for (const key of keys) {
+    if (!isLegacyTranscriptStorageKey(key)) continue
+    try {
+      storage.removeItem(key)
+    } catch {
+      // A key that cannot be removed now is retried on the next start.
+    }
+  }
 }
 
 /** Never throws: a poisoned or foreign blob reads as empty, like the legacy
@@ -298,12 +286,7 @@ function readDurableIds(storage: StorageApi, key: string): Set<string> {
 
 export function createSideCache(init: SideCacheInit): SideCache {
   const prefix = init.keyPrefix ?? 'podium.kernel-replica'
-  const now = init.now ?? (() => Date.now())
   const uiKey = `${prefix}.uistate.v1`
-  const legacyTranscriptKey = `${prefix}.transcripts.v1`
-  const transcriptIndexKey = `${prefix}.transcripts-index.v2`
-  const transcriptWindowKey = (conversationKey: string) =>
-    `${prefix}.transcript-window.v2.${encodeURIComponent(conversationKey)}`
   const outboxKey = `${prefix}.outbox.v1`
   const awaitingKey = `${prefix}.outbox-awaiting.v1`
   // POD-316: parked entries. A THIRD key old builds never read, for the same
@@ -402,147 +385,6 @@ export function createSideCache(init: SideCacheInit): SideCache {
     },
   }
 
-  // ---- transcript windows (bounded, LRU) ---------------------------------
-  //
-  // v1 rewrote one blob containing as many as 10,000 transcript items for each
-  // live delta. v2 keeps the same cache and caps, but stores one bounded window
-  // per conversation. The small index is oldest-to-newest LRU order.
-  //
-  // Migration is lazy and loss-tolerant. Until v2's index exists, the v1 blob
-  // is the source. Once the index exists, an indexed conversation without a v2
-  // shard falls back to its v1 window. This lets the first v2 write establish
-  // membership without rewriting all 50 windows, and leaves the old recovery
-  // copy intact if a best-effort shard write fails.
-  const legacyTranscripts = readJson<Record<string, TranscriptWindow>>(
-    storage,
-    legacyTranscriptKey,
-    {},
-  )
-  const storedTranscriptIndex = readJson<unknown>(storage, transcriptIndexKey, null)
-  const hasTranscriptIndex =
-    Array.isArray(storedTranscriptIndex) &&
-    storedTranscriptIndex.every((key) => typeof key === 'string')
-  let transcriptIndexPersisted = hasTranscriptIndex
-  const initialTranscriptKeys = hasTranscriptIndex
-    ? (storedTranscriptIndex as string[])
-    : Object.keys(legacyTranscripts).sort(
-        (a, b) => (legacyTranscripts[a]?.savedAt ?? 0) - (legacyTranscripts[b]?.savedAt ?? 0),
-      )
-  const transcriptLru = initialTranscriptKeys.slice(-REPLICA_TRANSCRIPT_CONVERSATION_CAP)
-  const transcripts: Record<string, TranscriptWindow> = {}
-  for (const conversationKey of transcriptLru) {
-    const window = readJson<TranscriptWindow | null>(
-      storage,
-      transcriptWindowKey(conversationKey),
-      null,
-    )
-    const recovered = window ?? legacyTranscripts[conversationKey]
-    if (recovered !== undefined) transcripts[conversationKey] = recovered
-  }
-
-  const writeTranscriptIndex = (): void => {
-    writeJson(storage, transcriptIndexKey, transcriptLru)
-    transcriptIndexPersisted = true
-  }
-
-  // ---- coalesced transcript persistence (POD-5536) -------------------------
-  //
-  // R12: every streaming frame sliced the newest 200 items AND synchronously
-  // JSON.stringified them before the async-storage bridge could coalesce
-  // anything — up to 200*u item serializations/s per busy stream. The bridge
-  // still coalesces backing writes, but it cannot take back main-thread
-  // serialization work that already happened.
-  //
-  // So the snapshot coalesces BEFORE serialization. `putTranscriptWindow`
-  // updates the in-memory window synchronously (reads stay immediate) and only
-  // marks the shard dirty; serialization + storage land at most once per
-  // trailing window, with the LATEST snapshot winning. Shards flush before the
-  // index so the index stays the commit record for shard membership, matching
-  // the order the synchronous path always wrote in. Eviction `removeItem`s stay
-  // synchronous — they carry no serialization cost.
-  //
-  // Durability is bounded staleness, not loss: the timer covers steady streams,
-  // `flush()` covers lifecycle/reload boundaries, and `dispose()` flushes
-  // before detaching. The cache stays best-effort and re-fetchable — a crash
-  // inside one window loses at most that window's tail, exactly the posture
-  // the quota-degraded path already has.
-  const settleMs = init.transcriptSettleMs ?? 250
-  const pendingShardKeys = new Set<string>()
-  let transcriptIndexDirty = false
-  let transcriptFlushTimer: ReturnType<typeof setTimeout> | undefined
-
-  const flushPendingTranscripts = (): void => {
-    if (transcriptFlushTimer !== undefined) {
-      try {
-        clearTimeout(transcriptFlushTimer)
-      } catch {
-        // best-effort; clearing a dead timer must not break the flush itself
-      }
-      transcriptFlushTimer = undefined
-    }
-    if (pendingShardKeys.size === 0 && !transcriptIndexDirty) return
-    const dirty = [...pendingShardKeys]
-    pendingShardKeys.clear()
-    for (const key of dirty) {
-      const window = transcripts[key]
-      // Evicted after being marked dirty: the eviction already removed the
-      // shard, so there is nothing to write.
-      if (window === undefined) continue
-      writeJson(storage, transcriptWindowKey(key), window)
-    }
-    if (transcriptIndexDirty) {
-      transcriptIndexDirty = false
-      writeTranscriptIndex()
-    }
-  }
-
-  const scheduleTranscriptFlush = (): void => {
-    // Trailing throttle, not debounce: an armed timer already picks up this
-    // newer snapshot when it fires. Re-arming here would push the write out
-    // indefinitely under a steady stream.
-    if (transcriptFlushTimer !== undefined) return
-    transcriptFlushTimer = setTimeout(() => {
-      transcriptFlushTimer = undefined
-      flushPendingTranscripts()
-    }, Math.max(0, settleMs))
-    transcriptFlushTimer.unref?.()
-  }
-
-  // Opportunistic reload guard: a synchronous StorageApi write inside `pagehide`
-  // survives navigation where a timer never fires. Best-effort and removable —
-  // `dispose()` detaches it, and environments without a window skip it.
-  let detachPageHide: (() => void) | undefined
-  try {
-    const candidate = (globalThis as { window?: unknown }).window as
-      | { addEventListener?: unknown; removeEventListener?: unknown }
-      | undefined
-    if (
-      candidate !== undefined &&
-      typeof candidate.addEventListener === 'function' &&
-      typeof candidate.removeEventListener === 'function'
-    ) {
-      const onPageHide = (): void => {
-        flushPendingTranscripts()
-      }
-      ;(candidate.addEventListener as (type: string, listener: () => void) => void)(
-        'pagehide',
-        onPageHide,
-      )
-      detachPageHide = (): void => {
-        try {
-          ;(candidate.removeEventListener as (type: string, listener: () => void) => void)(
-            'pagehide',
-            onPageHide,
-          )
-        } catch {
-          // best-effort; detaching must not break principal teardown
-        }
-      }
-    }
-  } catch {
-    // best-effort; a host without a subscribable window keeps timer + flush
-  }
-
   // ---- outbox storage ----------------------------------------------------
   //
   // FOLD THE LEGACY QUEUE IN ON FIRST USE, because the alternative is losing
@@ -599,45 +441,10 @@ export function createSideCache(init: SideCacheInit): SideCache {
 
   return {
     uiState: () => uiState,
-    transcriptWindow: (conversationKey) => transcripts[conversationKey],
-    putTranscriptWindow: (conversationKey, items) => {
-      transcripts[conversationKey] = {
-        items: items.slice(-REPLICA_TRANSCRIPT_ITEM_CAP),
-        savedAt: now(),
-      }
-      pendingShardKeys.add(conversationKey)
-
-      // Move a touched conversation to the newest end. Repeated live updates
-      // for the already-newest conversation do not even mark the small index
-      // dirty, so a busy stream coalesces to one hot shard key.
-      const previousPosition = transcriptLru.indexOf(conversationKey)
-      const orderChanged = previousPosition !== transcriptLru.length - 1
-      if (previousPosition >= 0) transcriptLru.splice(previousPosition, 1)
-      transcriptLru.push(conversationKey)
-      while (transcriptLru.length > REPLICA_TRANSCRIPT_CONVERSATION_CAP) {
-        const stale = transcriptLru.shift()
-        if (stale === undefined) break
-        delete transcripts[stale]
-        pendingShardKeys.delete(stale)
-        try {
-          storage.removeItem(transcriptWindowKey(stale))
-        } catch {
-          // best-effort; the index makes an unremoved stale shard unreachable
-        }
-      }
-      if (!transcriptIndexPersisted || orderChanged) transcriptIndexDirty = true
-      scheduleTranscriptFlush()
-    },
     outboxStorage: () => outboxAt(outboxKey),
     outboxAwaitingStorage: () => outboxAt(awaitingKey),
     outboxDeadLetterStorage: () => outboxAt(deadLetterKey),
-    flush: () => {
-      flushPendingTranscripts()
-    },
     dispose: () => {
-      flushPendingTranscripts()
-      detachPageHide?.()
-      detachPageHide = undefined
       init.storageEventApi?.removeEventListener('storage', onStorage)
     },
   }

@@ -6,7 +6,7 @@ import { FEED_TASK_BUDGET_MS } from '../../socket-transport'
 import { memoryStorage } from '../contract'
 import { createKernelReplica, type KernelCacheRead } from './facade'
 import { entityForKind, kindForEntity, rowKey } from './kinds'
-import { createSideCache, OutboxNotDurableError } from './side-cache'
+import { createSideCache, eraseLegacyTranscriptKeys, OutboxNotDurableError } from './side-cache'
 
 /** A cache the test drives directly. The kernel Replica writes through the real
  *  one; this facade only ever READS, so a read-only double is the whole port. */
@@ -952,176 +952,21 @@ describe('the side cache', () => {
     expect(ui.get('podium.theme.mode')).toBe('dark')
   })
 
-  it('bounds the transcript cache: newest items per conversation, LRU across them', () => {
-    let clock = 0
+  it('deletes the old chat-history keys of every principal on first start, unread', () => {
     const storage = memoryStorage()
-    const side = createSideCache({
-      storage,
-      enumerateKeys: () => [],
-      now: () => (clock += 1),
-    })
-    const items = (n: number) => Array.from({ length: n }, (_, i) => ({ id: `m${i}` })) as never[]
-
-    side.putTranscriptWindow('c1', items(250))
-    expect(side.transcriptWindow('c1')?.items).toHaveLength(200)
-    expect((side.transcriptWindow('c1')?.items[0] as { id: string }).id).toBe('m50')
-
-    for (let i = 2; i <= 51; i += 1) side.putTranscriptWindow(`c${i}`, items(1))
-    // 51 conversations written, cap is 50, so the oldest write is gone and the
-    // newest is kept.
-    expect(side.transcriptWindow('c1')).toBeUndefined()
-    expect(side.transcriptWindow('c51')).toBeDefined()
-
-    // Coalesced shards persist on flush: a reload mid-stream keeps the latest.
-    side.flush()
-    const reloaded = createSideCache({ storage, enumerateKeys: () => [] })
-    expect(reloaded.transcriptWindow('c1')).toBeUndefined()
-    expect(reloaded.transcriptWindow('c51')).toBeDefined()
-    side.dispose()
-    reloaded.dispose()
-  })
-
-  it('writes one transcript shard and lazily recovers untouched v1 windows', () => {
-    const values = new Map<string, string>()
-    const writes: { key: string; value: string }[] = []
-    const storage = {
-      getItem: (key: string) => values.get(key) ?? null,
-      setItem: (key: string, value: string) => {
-        values.set(key, value)
-        writes.push({ key, value })
-      },
-      removeItem: (key: string) => void values.delete(key),
-    }
-    const legacyKey = 'podium.kernel-replica.transcripts.v1'
-    values.set(
-      legacyKey,
-      JSON.stringify({
-        'conversation/one': { items: [{ id: 'old-1' }], savedAt: 1 },
-        'conversation/two': { items: [{ id: 'old-2' }], savedAt: 2 },
-      }),
-    )
-
-    const side = createSideCache({ storage, enumerateKeys: () => [], now: () => 3 })
-    writes.length = 0
-    side.putTranscriptWindow('conversation/one', [{ id: 'new-1' }] as never[])
-
-    // Coalesced before serialization: no shard or index write until flush.
-    expect(writes).toEqual([])
-    side.flush()
-    expect(writes.map((write) => write.key)).toEqual([
-      'podium.kernel-replica.transcript-window.v2.conversation%2Fone',
-      'podium.kernel-replica.transcripts-index.v2',
+    const keys = [
+      'podium.kernel-replica.principal.a.transcript-window.v2.chat%2F1',
+      'podium.kernel-replica.principal.a.transcripts-index.v2',
+      'podium.kernel-replica.principal.b.transcripts.v1',
+      'podium.kernel-replica.principal.a.uistate.v1',
+      'podium.kernel-replica.principal.a.outbox.v1',
+    ]
+    for (const key of keys) storage.setItem(key, '[]')
+    eraseLegacyTranscriptKeys(storage, keys)
+    expect(keys.filter((key) => storage.getItem(key) !== null)).toEqual([
+      'podium.kernel-replica.principal.a.uistate.v1',
+      'podium.kernel-replica.principal.a.outbox.v1',
     ])
-    expect(values.get(legacyKey)).toContain('old-2')
-    expect(writes.every((write) => write.value.length < (values.get(legacyKey)?.length ?? 0))).toBe(
-      true,
-    )
-
-    const reloaded = createSideCache({ storage, enumerateKeys: () => [] })
-    expect((reloaded.transcriptWindow('conversation/one')?.items[0] as { id: string }).id).toBe(
-      'new-1',
-    )
-    expect((reloaded.transcriptWindow('conversation/two')?.items[0] as { id: string }).id).toBe(
-      'old-2',
-    )
-
-    writes.length = 0
-    reloaded.putTranscriptWindow('conversation/one', [{ id: 'newer-1' }] as never[])
-    // Already-newest hot write: index stays clean, one shard on flush.
-    expect(writes).toEqual([])
-    reloaded.flush()
-    expect(writes.map((write) => write.key)).toEqual([
-      'podium.kernel-replica.transcript-window.v2.conversation%2Fone',
-    ])
-    side.dispose()
-    reloaded.dispose()
-  })
-
-  it('coalesces a burst of streaming frames to one serialization with the latest winning', () => {
-    const values = new Map<string, string>()
-    const shardWrites: string[] = []
-    const storage = {
-      getItem: (key: string) => values.get(key) ?? null,
-      setItem: (key: string, value: string) => {
-        values.set(key, value)
-        if (key.includes('.transcript-window.v2.')) shardWrites.push(value)
-      },
-      removeItem: (key: string) => void values.delete(key),
-    }
-    // A large settle window: the whole burst lands before the timer fires.
-    const side = createSideCache({
-      storage,
-      enumerateKeys: () => [],
-      now: () => 1,
-      transcriptSettleMs: 10_000,
-    })
-    const frame = (id: string) => [{ id }] as never[]
-
-    for (let i = 0; i < 20; i += 1) side.putTranscriptWindow('busy', frame(`m${i}`))
-    // In-memory is immediate; nothing serialized yet.
-    expect((side.transcriptWindow('busy')?.items[0] as { id: string }).id).toBe('m19')
-    expect(shardWrites).toHaveLength(0)
-
-    side.flush()
-    // One serialization for twenty frames, carrying the latest snapshot.
-    expect(shardWrites).toHaveLength(1)
-    expect(JSON.parse(shardWrites[0] as string).items[0].id).toBe('m19')
-
-    // A reload after the flush keeps the latest — the durability half.
-    const reloaded = createSideCache({ storage, enumerateKeys: () => [] })
-    expect((reloaded.transcriptWindow('busy')?.items[0] as { id: string }).id).toBe('m19')
-    side.dispose()
-    reloaded.dispose()
-  })
-
-  it('trailing-throttles steady streams: one write per window, then dispose flushes the tail', () => {
-    vi.useFakeTimers()
-    try {
-      const values = new Map<string, string>()
-      let shardWrites = 0
-      const storage = {
-        getItem: (key: string) => values.get(key) ?? null,
-        setItem: (key: string, value: string) => {
-          values.set(key, value)
-          if (key.includes('.transcript-window.v2.')) shardWrites += 1
-        },
-        removeItem: (key: string) => void values.delete(key),
-      }
-      const side = createSideCache({
-        storage,
-        enumerateKeys: () => [],
-        now: () => 1,
-        transcriptSettleMs: 250,
-      })
-      const frame = (id: string) => [{ id }] as never[]
-
-      // A steady stream inside one window: still one serialization.
-      for (let i = 0; i < 10; i += 1) side.putTranscriptWindow('busy', frame(`a${i}`))
-      expect(shardWrites).toBe(0)
-      vi.advanceTimersByTime(250)
-      expect(shardWrites).toBe(1)
-
-      // The next window writes once more with its own latest.
-      for (let i = 0; i < 10; i += 1) side.putTranscriptWindow('busy', frame(`b${i}`))
-      vi.advanceTimersByTime(250)
-      expect(shardWrites).toBe(2)
-      expect(
-        JSON.parse(
-          values.get('podium.kernel-replica.transcript-window.v2.busy') as string,
-        ) as { items: { id: string }[] },
-      ).toMatchObject({ items: [{ id: 'b9' }] })
-
-      // Close mid-stream without waiting for the timer: dispose flushes the tail.
-      side.putTranscriptWindow('busy', frame('tail'))
-      expect(shardWrites).toBe(2)
-      side.dispose()
-      expect(shardWrites).toBe(3)
-      const reloaded = createSideCache({ storage, enumerateKeys: () => [] })
-      expect((reloaded.transcriptWindow('busy')?.items[0] as { id: string }).id).toBe('tail')
-      reloaded.dispose()
-    } finally {
-      vi.useRealTimers()
-    }
   })
 
   it('keeps the queued and awaiting-truth outbox stages in SEPARATE homes', () => {
@@ -1439,7 +1284,7 @@ describe('the side cache', () => {
       expect(degraded).toHaveLength(1)
     })
 
-    it('ui-state and transcripts stay BEST-EFFORT — a quota there must not break the UI', () => {
+    it('ui-state stays BEST-EFFORT — a quota there must not break the UI', () => {
       // The counterfactual that keeps the rule above from being "throw on every
       // write": a lost sidebar width is not a correctness bug, and a preference
       // write that took the app down would be a worse defect than the one fixed.
@@ -1448,10 +1293,6 @@ describe('the side cache', () => {
         enumerateKeys: () => [],
       })
       expect(() => side.uiState().set('podium.view', 'issueProjections')).not.toThrow()
-      expect(() => side.putTranscriptWindow('c1', [])).not.toThrow()
-      // The coalesced flush is best-effort too: quota loss stays silent here,
-      // unlike the outbox path above.
-      expect(() => side.flush()).not.toThrow()
       expect(() => side.dispose()).not.toThrow()
     })
   })

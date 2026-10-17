@@ -4,7 +4,7 @@ import { MobileChatViewModel } from '../lib/chat-view-model'
 import { superagentWrites } from '../lib/superagent-writes'
 import { hubConnection, PHONE_WARM_CONVERSATIONS } from '@podium/client-core/conversation'
 import { randomUUID } from '@podium/client-core/id'
-import { REPLICA_TRANSCRIPT_ITEM_CAP } from '@podium/client-core/replica'
+import { transcriptCacheFor } from '@podium/client-core/transcript-store'
 import { useConversation, useStoreHandle } from '@podium/client-core/react'
 import { superagentState } from '@podium/client-graph/superagent'
 import { asSessionId, asThreadId, type SessionId } from '@podium/model'
@@ -108,17 +108,9 @@ export function useThreadConversation() {
             }
           },
         },
-        cache: {
-          maxItems: REPLICA_TRANSCRIPT_ITEM_CAP,
-          read: () => {
-            const sid = readSid()
-            return sid ? owner.replica.transcriptWindow(sid) : undefined
-          },
-          write: (_id, items) => {
-            const sid = readSid()
-            if (sid) owner.replica.putTranscriptWindow(sid, [...items])
-          },
-        },
+        ...(owner.replica.transcripts
+          ? { cache: transcriptCacheFor(owner.replica.transcripts, readSid) }
+          : {}),
       },
       sends: {
         reconcile: 'next-user-item',

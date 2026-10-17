@@ -42,7 +42,7 @@ import { expectPoolOutput } from '../../../../../tests/worklist/harness/src/orac
 const f = vi.hoisted(() => ({
   state: {} as Store,
   pool: null as MobxPool | null,
-  owner: { transcriptWindow: () => undefined, putTranscriptWindow: vi.fn() },
+  owner: {},
   issues: [] as IssueReferenceSource[],
   mounted: { current: null as MountedSession | null },
   end: vi.fn(async () => ({ ok: true })),

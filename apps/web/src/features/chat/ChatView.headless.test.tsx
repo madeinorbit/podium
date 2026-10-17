@@ -92,8 +92,6 @@ const clearAttachedSession = vi.fn(() => {
 
 const fakeReplica = {
   available: false,
-  transcriptWindow: () => undefined,
-  putTranscriptWindow: () => {},
 }
 
 // Every chat send runs the REAL outbox, draining into `fakeTrpc` (POD-4762).

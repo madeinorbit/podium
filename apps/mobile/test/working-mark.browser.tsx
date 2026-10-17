@@ -16,6 +16,7 @@ import { IdSquare } from '../src/components/IdSquare'
 import { WorkRow } from '../src/screens/WorkListRow'
 import { createHeaderFixture } from '../../web/test/header-fixture'
 import type { MobileTrpc } from '../src/client/trpc'
+import { fakeTranscriptCache } from '@podium/client-core/test-support/transcript-cache'
 
 const fixture = createHeaderFixture(4)
 const id = asSessionId('synthetic-session-0')
@@ -64,7 +65,7 @@ const root = createRoot(document.getElementById('root')!)
 root.render(<StoreProvider principal={asClientPrincipal(asUserId('operator'))}
   config={{ httpOrigin: 'http://offline.invalid', wsClientUrl: 'ws://offline.invalid' }}
   api={fixture.api as unknown as MobileTrpc} networkEnabled={false}
-  createReplicaFn={() => { const replica = fixture.newReplica(); replica.putTranscriptWindow(id, items); return replica }}
+  createReplicaFn={() => Object.assign(fixture.newReplica(), { transcripts: fakeTranscriptCache({ items, savedAt: Date.now() }) })}
   attachRuntime={runtime => { fixture.bindHub(runtime.hub); fixture.publishMachines(); return attachMobilePool(runtime, error => { throw error }) }}>
   <Surface />
 </StoreProvider>)

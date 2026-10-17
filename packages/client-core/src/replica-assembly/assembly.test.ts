@@ -6,6 +6,7 @@ import { IDBFactory } from 'fake-indexeddb'
 import { describe, expect, it, vi } from 'vitest'
 import { outboxCommandFor } from '../engine/wiring'
 import { principalKeyPrefix, type StorageApi } from '../replica'
+import { createMemoryTranscriptBackend } from '../transcript-store'
 import { openReplicaAssembly } from './assembly'
 
 const principal = JSON.stringify(['installation-a', 'alice'])
@@ -435,6 +436,60 @@ describe('shared replica write confirmation', () => {
       })
       await vi.waitFor(() => expect(awaiting()).toEqual([]))
       expect(assembly.feed.helloFields()).toEqual({ feedCursor: { ...cursor, seq: 12 } })
+    } finally {
+      await assembly.dispose()
+    }
+  })
+})
+
+describe('chat history database (POD-5801)', () => {
+  function databases() {
+    const opened = new Map<string, ReturnType<typeof createMemoryTranscriptBackend>>()
+    const erased: string[] = []
+    return {
+      opened,
+      erased,
+      port: {
+        open: async (who: string) => {
+          const backend = createMemoryTranscriptBackend()
+          opened.set(who, backend)
+          return backend
+        },
+        erase: async (who: string) => void erased.push(who),
+        whenIdle: () => () => {},
+      },
+    }
+  }
+
+  it('deletes the old chat keys unread, opens one database per user, and erases it on sign-out', async () => {
+    const storage = device()
+    const legacy = [
+      `${principalKeyPrefix(prefix, principal)}.transcript-window.v2.s1`,
+      `${principalKeyPrefix(prefix, principal)}.transcripts-index.v2`,
+      `${principalKeyPrefix(prefix, 'bob')}.transcripts.v1`,
+    ]
+    for (const key of legacy) storage.setItem(key, '{"items":[]}')
+    const kept = `${principalKeyPrefix(prefix, 'bob')}.ui-state.v1`
+    storage.setItem(kept, 'bob settings')
+    const transcripts = databases()
+    const assembly = await openReplicaAssembly({
+      api: {} as never,
+      principal,
+      openStore,
+      settings: { storage, enumerateKeys: storage.keys, basePrefix: prefix },
+      httpSync,
+      transcripts: transcripts.port,
+    })
+    try {
+      expect(storage.keys().filter((key) => key.includes('.transcript'))).toEqual([])
+      expect(storage.getItem(kept)).toBe('bob settings')
+      expect([...transcripts.opened.keys()]).toEqual([principal])
+      expect(assembly.replica.transcripts).toBeDefined()
+      await assembly.transcripts!.put('s1', {
+        upsert: [{ id: 'a', seq: 0, json: '{"id":"a","role":"user","text":"hi"}' }],
+      })
+      await assembly.erasePrincipalData()
+      expect(transcripts.opened.get(principal)!.erased).toBe(true)
     } finally {
       await assembly.dispose()
     }

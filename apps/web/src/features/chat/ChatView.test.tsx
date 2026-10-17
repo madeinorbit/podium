@@ -128,8 +128,6 @@ const fakeReplica = {
   applyChanges: () => {},
   getCursor: () => null,
   setCursor: () => {},
-  transcriptWindow: () => undefined,
-  putTranscriptWindow: () => {},
 }
 
 vi.mock('@/app/store', () => {

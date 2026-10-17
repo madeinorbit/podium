@@ -21,11 +21,11 @@ it('retains history for any mounted reader and drops its demand on close', () =>
     transcript: {
       initialLimit: 1,
       source: { read: async () => ({ items, hasMore: false }), subscribe: () => () => {} },
-      cache: { read: () => ({ items, savedAt: 1 }), write: () => {} },
     },
   })
   const closeFollowing = conversation.addReader(() => false)
   const closeReading = conversation.addReader(() => true)
+  conversation.transcript.merge(items)
   try {
     conversation.transcript.merge([item('d')])
     expect([...conversation.transcript.ids]).toEqual(['a', 'b', 'c', 'd'])

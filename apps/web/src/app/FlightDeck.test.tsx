@@ -89,10 +89,7 @@ const harness = vi.hoisted(() => ({
   ),
   issueEvents: vi.fn(async (_input: unknown): Promise<unknown[]> => []),
   issueVisitBaseline: null as { issueId: string; readAt: string | null; openedAt: string } | null,
-  replica: {
-    transcriptWindow: vi.fn(() => undefined),
-    putTranscriptWindow: vi.fn(),
-  },
+  replica: {},
   trpc: {
     settings: { get: { query: async () => ({ ...DEFAULT_SETTINGS, roles: { ...DEFAULT_SETTINGS.roles,
       coding: { ...DEFAULT_SETTINGS.roles.coding, accountId: nativeAccountId(harness.codingHarness) } } }) } },
@@ -415,8 +412,6 @@ beforeEach(() => {
   harness.setPlacement.mockClear()
   harness.transcriptRead.mockClear()
   harness.issueEvents.mockClear()
-  harness.replica.transcriptWindow.mockClear()
-  harness.replica.putTranscriptWindow.mockClear()
   harness.issueVisitBaseline = null
   harness.issues = [
     issue('root', { title: 'Mission' }),

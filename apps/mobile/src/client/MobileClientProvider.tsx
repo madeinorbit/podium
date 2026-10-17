@@ -53,7 +53,6 @@ import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
 import {
   createAsyncStorageReplicaStorage,
-  isTranscriptWindowStorageKey,
   parseReplicaNamespaceKey,
   REPLICA_KEY_PREFIX,
   type Replica,
@@ -68,6 +67,7 @@ import {
   ReplicaGateError,
   STORE_REFRESH_NOTICE,
   startReplicaBoot,
+  type TranscriptDatabases,
 } from '@podium/client-core/replica-assembly'
 import { createMemoryRouterWindow } from '@podium/client-core/router'
 import {
@@ -88,7 +88,7 @@ export { BOOT_STALL_MS, STORE_REFRESH_NOTICE } from '@podium/client-core/replica
 import { setClockWakeSource } from '@podium/mobx-helpers'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Platform } from 'react-native'
+import { AppState, Platform } from 'react-native'
 import { BootSplash } from '../components/BootSplash'
 import { BootTroubleScreen } from '../components/BootTroubleScreen'
 import { mobileAccountCredentials } from './account-credentials'
@@ -101,6 +101,7 @@ import { platformClockWakeSource } from './clock-wake-source'
 import { LaunchReadyView } from './launch-ready'
 import { MobileSyncBoundary } from './MobileSyncBoundary'
 import { openMobileEntityStore } from './mobile-entity-store'
+import { mobileTranscriptDatabases } from './mobile-transcript-store'
 import { mobileVersionObservers } from './mobile-live-connection'
 import { installMobileMetadataStorage } from './mobile-metadata-storage'
 import { attachMobilePool, useMobilePool } from './mobile-pool'
@@ -183,7 +184,7 @@ export interface MobileReplicaDeps {
    * takes `trpc` for exactly this and nothing else.
    */
   readonly api: PodiumClientApi
-  /** Hydrated side-cache home for ui-state and transcript windows. */
+  /** Hydrated side-cache home for ui-state and the outbox blobs. */
   readonly storage: StorageApi
   /** Hydrated AsyncStorage inventory used for namespace retention/erasure. */
   readonly enumerateKeys?: () => string[]
@@ -216,6 +217,8 @@ export interface MobileReplicaDeps {
   readonly now?: () => number
   readonly broadcastChannelFactory?: FeedBroadcastChannelFactory
   readonly onAuthExpired?: () => void
+  /** Chat history's own per-user database (POD-5801). Absent in tests: no history kept. */
+  readonly transcripts?: TranscriptDatabases
 }
 
 export interface MobileReplica {
@@ -265,6 +268,9 @@ export async function openMobileReplica(deps: MobileReplicaDeps): Promise<Mobile
     onDegraded: (detail) => {
       const report = detail as { kind?: string; notice?: string }
       if (report?.kind === 'store-not-adopted') deps.onDegraded(STORE_REFRESH_NOTICE, 'info')
+      // Chat history fell back to memory; chat itself keeps working.
+      else if (report?.kind === 'transcript-store-degraded')
+        log.warn('chat history is not being saved on this device', { detail })
       else deps.onDegraded(String(detail))
     },
     onAuthExpired: deps.onAuthExpired,
@@ -724,6 +730,14 @@ function LiveProvider({ children }: { children: ReactNode }) {
         .catch((cause) => log.warn('replica flush failed', { cause }))
     }
     if (Platform.OS === 'web') window.addEventListener('pagehide', onPageHide)
+    // Native has no pagehide: going to the background is the last reliable
+    // moment to land coalesced writes such as a reply still streaming.
+    const backgrounded =
+      Platform.OS === 'web' || typeof AppState?.addEventListener !== 'function'
+        ? undefined
+        : AppState.addEventListener('change', (state) => {
+            if (state === 'background') onPageHide()
+          })
     const stopBoot = startReplicaBoot({
       open: async () => {
         if (Platform.OS === 'web')
@@ -733,9 +747,7 @@ function LiveProvider({ children }: { children: ReactNode }) {
             config.workspaceSlug,
           ).drain()
         const [bridge, status, pendingCleanups] = await Promise.all([
-          createAsyncStorageReplicaStorage(AsyncStorage, [REPLICA_KEY_PREFIX], {
-            coalesce: isTranscriptWindowStorageKey,
-          }),
+          createAsyncStorageReplicaStorage(AsyncStorage, [REPLICA_KEY_PREFIX]),
           inheritedAuthStatus ?? fetchAuthStatus(config.httpOrigin, bearer, config.workspaceId),
           Platform.OS === 'web' ? Promise.resolve([]) : loadPendingProfileCleanups(),
         ])
@@ -782,6 +794,7 @@ function LiveProvider({ children }: { children: ReactNode }) {
           // transport the rest of the app is authenticated on (POD-2073).
           api: memberTrpc,
           broadcastChannelFactory: platformFeedChannel(),
+          transcripts: mobileTranscriptDatabases,
           storage: bridge.storage,
           enumerateKeys: bridge.keys,
           flushStorage: bridge.flushDurable,
@@ -841,6 +854,7 @@ function LiveProvider({ children }: { children: ReactNode }) {
       stopBoot()
       replicaForCleanup = null
       if (Platform.OS === 'web') window.removeEventListener('pagehide', onPageHide)
+      backgrounded?.remove()
     }
   }, [
     bearer,
