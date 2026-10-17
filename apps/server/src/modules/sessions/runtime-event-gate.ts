@@ -14,15 +14,38 @@ import { withOwnOperation } from '../../store/executor/operation-scope'
 
 const log = createLogger('server:runtime-event-gate')
 const BOARD_PROJECTOR = 'runtime.board.v1'
-/** Records per list call, and the most a drain run projects between cursor writes. */
+/** Records per list call, and the most the projection runs ahead of its durable cursor. */
 const PROJECTION_BATCH = 128
 
-/** Where one drain run stands: the durable cursor, and how far its effects resolved. */
+/** Where the board projection stands: the durable cursor, and how far its effects resolved. */
 interface ProjectionProgress {
   saved: number
   projected: number
   /** Records projected since the cursor was last written. */
   unsaved: number
+  /** One of those records called a port. */
+  effectUnsaved: boolean
+}
+
+/**
+ * The gate's ports with every call counted (POD-6216).
+ *
+ * Whether a record HAD a board effect is read off the calls its projection
+ * made, never off a list of event kinds: a new effect goes through a port, so
+ * it is counted without anyone remembering to. An optional port that is absent
+ * is never called, and counts as no effect.
+ */
+function countingPorts(ports: RuntimeEventGatePorts, onCall: () => void): RuntimeEventGatePorts {
+  return new Proxy(ports, {
+    get(target, key, receiver) {
+      const value: unknown = Reflect.get(target, key, receiver)
+      if (typeof value !== 'function') return value
+      return (...args: unknown[]) => {
+        onCall()
+        return Reflect.apply(value, target, args)
+      }
+    },
+  })
 }
 
 export type RuntimeEventGateResult =
@@ -286,6 +309,8 @@ export class RuntimeEventGate {
   private readonly readySessions = new Set<SessionId>()
   private projectionDrain: Promise<void> | undefined
   private projectionRequested = false
+  /** Read from the durable cursor by the first drain run, then carried forward. */
+  private projection: ProjectionProgress | undefined
 
   /** Rejections per (session, reason) since boot — the throttle for the warning
    *  below. A rejected stream is silent by construction (the daemon acks and
@@ -516,13 +541,13 @@ export class RuntimeEventGate {
 
   private async runBoardProjection(): Promise<void> {
     try {
-      // ONE CURSOR READ PER RUN, AND ONE WRITE PER BATCH (POD-6216). This gate is
-      // the cursor's only writer, so the drains a run repeats for deliveries that
-      // landed meanwhile carry its position forward instead of reading it back.
-      // The write used to follow every record, one write transaction per runtime
-      // event even when the record had no board effect.
-      const head = await this.ports.events.runtimeEventProjectionCursor(BOARD_PROJECTOR)
-      const progress: ProjectionProgress = { saved: head, projected: head, unsaved: 0 }
+      // ONE CURSOR READ PER GATE, AND A CURSOR WRITE ONLY WHEN IT MATTERS
+      // (POD-6216). This gate is the cursor's only writer, so its position is
+      // read once and carried forward. The write used to follow every record:
+      // one write transaction per runtime event, even when the record had no
+      // board effect.
+      this.projection ??= await this.readBoardProjection()
+      const progress = this.projection
       do {
         try {
           do {
@@ -532,8 +557,10 @@ export class RuntimeEventGate {
         } finally {
           // Through the last record whose board effect resolved, also when a
           // later one failed: that record is replayed next time, the earlier
-          // ones are not.
-          await this.saveBoardProjection(progress)
+          // ones are not. Records that called no port wait for the batch
+          // write, so a restart projects at most PROJECTION_BATCH - 1 of them
+          // again (doing nothing) and the retention fence lags by as many rows.
+          if (progress.effectUnsaved) await this.saveBoardProjection(progress)
         }
         // The write yielded. A delivery that landed meanwhile joined THIS run
         // (`projectionDrain` is still set), so this run must drain it.
@@ -543,6 +570,11 @@ export class RuntimeEventGate {
       // drain rather than observe a completed promise during teardown.
       this.projectionDrain = undefined
     }
+  }
+
+  private async readBoardProjection(): Promise<ProjectionProgress> {
+    const head = await this.ports.events.runtimeEventProjectionCursor(BOARD_PROJECTOR)
+    return { saved: head, projected: head, unsaved: 0, effectUnsaved: false }
   }
 
   private async scheduleBoardProjection(): Promise<void> {
@@ -558,10 +590,15 @@ export class RuntimeEventGate {
         // One record is one operation of its own (POD-6189): its span, owner
         // check and publication read a row once. Never the operation of the
         // frame that started the drain: the drain also serves other frames.
-        await withOwnOperation(async () => await this.projectBoard(record))
+        let affected = false
+        const ports = countingPorts(this.ports, () => {
+          affected = true
+        })
+        await withOwnOperation(async () => await this.projectBoard(record, ports))
         progress.projected = record.id
-        // A long backlog, or a run kept busy by deliveries, still moves the
-        // cursor (and with it the retention fence) once per batch.
+        if (affected) progress.effectUnsaved = true
+        // A long backlog, or a stream of records without effects, still moves
+        // the cursor (and with it the retention fence) once per batch.
         if (++progress.unsaved >= PROJECTION_BATCH) await this.saveBoardProjection(progress)
       }
       // A short batch reached the end of the log. A delivery committed after
@@ -580,6 +617,7 @@ export class RuntimeEventGate {
     )
     progress.saved = progress.projected
     progress.unsaved = 0
+    progress.effectUnsaved = false
   }
 
   private decide(
@@ -701,15 +739,16 @@ export class RuntimeEventGate {
     return { kind: 'accept' }
   }
 
-  private async projectBoard(record: RuntimeEventLogRecord): Promise<void> {
+  /** `ports` counts its calls: see {@link countingPorts}. */
+  private async projectBoard(record: RuntimeEventLogRecord, ports: RuntimeEventGatePorts): Promise<void> {
     const { event, id: eventId, sessionId } = record
-    if (event.t === 'metadata') await this.ports.metadata?.(sessionId, event)
-    if (event.t === 'binding') await this.ports.binding?.(sessionId, event)
+    if (event.t === 'metadata') await ports.metadata?.(sessionId, event)
+    if (event.t === 'binding') await ports.binding?.(sessionId, event)
     // Rows committed before POD-4796 took delivery reports off this log; a
     // report the previous build logged but never projected still settles.
-    if (event.t === 'delivery') await this.ports.delivery(sessionId, event)
+    if (event.t === 'delivery') await ports.delivery(sessionId, event)
     if (event.t === 'workspace' && event.ev.ev === 'git-activity') {
-      await this.ports.board({
+      await ports.board({
         kind: 'gitActivity',
         sessionId,
         eventId,
@@ -723,7 +762,7 @@ export class RuntimeEventGate {
     // requestId), so replay is safe. Provenance is not checked here — a
     // bootstrap cwd still corrects the row after a replacement generation.
     if (event.t === 'workspace' && event.ev.ev === 'cwd-changed') {
-      await this.ports.workspace?.({
+      await ports.workspace?.({
         sessionId,
         eventId,
         cwd: event.ev.cwd,
@@ -734,7 +773,7 @@ export class RuntimeEventGate {
       })
     }
     if (event.t === 'open-url') {
-      await this.ports.openUrl?.({
+      await ports.openUrl?.({
         sessionId,
         eventId,
         url: event.ev.url,
@@ -746,19 +785,19 @@ export class RuntimeEventGate {
     }
     if (event.provenance !== 'live') return
     if (event.t === 'turn') {
-      await this.ports.turn?.({ sessionId, ev: event.ev, at: event.at })
+      await ports.turn?.({ sessionId, ev: event.ev, at: event.at })
     }
     if (event.t === 'interaction') {
-      await this.ports.interaction?.({ sessionId, ev: event.ev })
+      await ports.interaction?.({ sessionId, ev: event.ev })
     }
-    if (closesTurn(event)) await this.ports.board({ kind: 'turnEnd', sessionId, eventId })
+    if (closesTurn(event)) await ports.board({ kind: 'turnEnd', sessionId, eventId })
     if (
       event.t === 'state' &&
       (event.change.kind === 'needs_user' ||
         (event.change.kind === 'state_snapshot' &&
           (event.change.state as { phase?: string } | undefined)?.phase === 'needs_user'))
     ) {
-      await this.ports.board({ kind: 'attention', sessionId, eventId })
+      await ports.board({ kind: 'attention', sessionId, eventId })
     }
   }
 }

@@ -10,7 +10,7 @@ import { mergeLatestTranscriptPage, mergeTranscriptItems } from "../modules/sess
 import { SessionRegistry } from '../relay'
 import type { SessionStore } from '../store'
 import { openTestStore } from '../test-support/open-test-store'
-import type { RuntimeEventLogRecord } from './events'
+import { RUNTIME_EVENT_LOG_KIND, type RuntimeEventLogRecord } from './events'
 
 function stateEvent(input: {
   at: string
@@ -1044,7 +1044,10 @@ describe('durable runtime observation gate', () => {
     expect(await store.events.runtimeEventProjectionCursor('runtime.board.v1')).toBe(baselineCursor)
     const prune = await store.events.planEventPrune({ maxAgeDays: 0, maxRows: 0 })
     expect(await store.events.pruneEventBatch(prune)).toBeGreaterThan(0)
-    expect(await store.events.listRuntimeEvents(sessionId)).toHaveLength(1)
+    // The pending effect's row survives retention. The bootstrap row before it
+    // called no port, so the cursor may not be written past it yet (POD-6216:
+    // such rows lag the fence by less than one batch) and it may survive too.
+    expect((await store.events.listRuntimeEvents(sessionId)).map((event) => event.t)).toContain('turn')
 
     // Dispose without resolving the listener: this is the server-kill window.
     await registry.dispose()
@@ -1131,11 +1134,8 @@ describe('durable runtime observation gate', () => {
 
   it('starts a new drain for a request arriving during prior drain teardown', async () => {
     const sessionId = asSessionId('teardown-session')
-    const event = stateEvent({
-      at: '2026-08-20T00:00:00.000Z',
-      seq: 1,
-      observerGeneration: 1,
-    })
+    // A closing turn calls the board, so the cursor is written through it.
+    const event = turnEvent({ at: '2026-08-20T00:00:00.000Z', seq: 1, turnEpoch: 1, ev: 'completed' })
     let cursor = 0
     let records: RuntimeEventLogRecord[] = []
     let armed = true
@@ -1443,10 +1443,14 @@ describe('durable delivery outcome projection', () => {
 
 describe('board projection cursor writes (POD-6216)', () => {
   const sessionId = asSessionId('board-cursor')
-  const record = (id: number): RuntimeEventLogRecord => ({
-    id,
-    sessionId,
-    event: stateEvent({ at: '2026-10-17T00:00:00.000Z', seq: id, observerGeneration: 1 }),
+  const at = '2026-10-17T00:00:00.000Z'
+  /** A record that calls no port. */
+  const quiet = (id: number): RuntimeEventLogRecord => ({
+    id, sessionId, event: stateEvent({ at, seq: id, observerGeneration: 1 }),
+  })
+  /** A record whose projection calls the board. */
+  const closing = (id: number): RuntimeEventLogRecord => ({
+    id, sessionId, event: turnEvent({ at, seq: id, turnEpoch: 1, ev: 'completed' }),
   })
   const gateOver = (log: RuntimeEventLogRecord[], options: {
     onSave?: (id: number) => void
@@ -1475,23 +1479,31 @@ describe('board projection cursor writes (POD-6216)', () => {
   }
 
   it('writes the cursor once per batch, and ends on a short batch without an empty list call', async () => {
-    const log = Array.from({ length: 300 }, (_, index) => record(index + 1))
+    const log = Array.from({ length: 300 }, (_, index) => quiet(index + 1))
+    log.push(closing(301))
     const { gate, saves, lists } = gateOver(log)
     await gate.replayBoardProjection()
-    expect(saves).toEqual([128, 256, 300])
+    expect(saves).toEqual([128, 256, 301])
     expect(lists).toEqual([0, 128, 256])
   })
 
+  it('leaves records without an effect for the batch write, and reads the cursor once', async () => {
+    const log = [quiet(1), quiet(2)]
+    const { gate, saves, lists } = gateOver(log)
+    await gate.replayBoardProjection()
+    log.push(quiet(3))
+    await gate.replayBoardProjection()
+    expect(saves).toEqual([])
+    // The second run starts where the first stopped, not at the unwritten cursor.
+    expect(lists).toEqual([0, 2])
+  })
+
   it('writes the cursor through the last resolved record when a later effect fails', async () => {
-    const closing = (id: number): RuntimeEventLogRecord => ({
-      id,
-      sessionId,
-      event: turnEvent({ at: '2026-10-17T00:00:00.000Z', seq: id, turnEpoch: 1, ev: 'completed' }),
-    })
-    let fail = true
-    const { gate, saves, cursor } = gateOver([record(1), record(2), closing(3), record(4)], {
+    let fail = false
+    const { gate, saves, cursor } = gateOver([closing(1), quiet(2), closing(3), quiet(4)], {
       board: async () => {
         if (fail) throw new Error('board unavailable')
+        fail = true
       },
     })
     await expect(gate.replayBoardProjection()).rejects.toThrow('board unavailable')
@@ -1505,18 +1517,54 @@ describe('board projection cursor writes (POD-6216)', () => {
     // The run's cursor write yields after its last drain found nothing more. A
     // delivery there joins the same run, so the run must drain again before it
     // ends, or the event waits for the next delivery.
-    const log = [record(1)]
+    const log = [closing(1)]
     let late: Promise<void> | undefined
     const harness = gateOver(log, {
       onSave: (id) => {
         if (id !== 1) return
-        log.push(record(2))
+        log.push(closing(2))
         late = harness.gate.replayBoardProjection()
       },
     })
     await harness.gate.replayBoardProjection()
     expect(harness.saves).toEqual([1, 2])
     await late
+  })
+
+  it('applies each effect exactly once across restarts that replay unwritten records', async () => {
+    const store = await openTestStore(':memory:')
+    const effects: number[] = []
+    const boot = () => new RuntimeEventGate({
+      events: store.events,
+      session: () => undefined, persist: async () => {}, write: async () => {},
+      board: async (effect) => {
+        effects.push(effect.eventId)
+      },
+      now: () => 0, delivery: async () => {},
+    })
+    const append = async (event: RuntimeEvent): Promise<number> =>
+      await store.events.appendEvent({ ts: at, kind: RUNTIME_EVENT_LOG_KIND, subject: sessionId, payload: event }, { announce: false })
+    try {
+      // Records without an effect are projected and the cursor is not written.
+      for (let seq = 1; seq <= 3; seq++) await append(stateEvent({ at, seq, observerGeneration: 1 }))
+      await boot().replayBoardProjection()
+      expect(await store.events.runtimeEventProjectionCursor('runtime.board.v1')).toBe(0)
+      // Restart: the replay projects them again, then the effect, once.
+      const effect = await append(turnEvent({ at, seq: 4, turnEpoch: 1, ev: 'completed' }))
+      const after = await append(stateEvent({ at, seq: 5, observerGeneration: 1 }))
+      await boot().replayBoardProjection()
+      expect(effects).toEqual([effect])
+      // The run that applied the effect wrote the cursor through its last record.
+      expect(await store.events.runtimeEventProjectionCursor('runtime.board.v1')).toBe(after)
+      // Restart again after a record without an effect: it is replayed, the
+      // effect is not.
+      await append(stateEvent({ at, seq: 6, observerGeneration: 1 }))
+      await boot().replayBoardProjection()
+      expect(effects).toEqual([effect])
+      expect(await store.events.runtimeEventProjectionCursor('runtime.board.v1')).toBe(after)
+    } finally {
+      await store.close()
+    }
   })
 })
 
