@@ -2,12 +2,25 @@ import type { IssueId, IssueReport, SessionId, SessionMeta } from '@podium/model
 import { issueDisplayRef } from '@podium/protocol'
 import type { InlineButton } from './types'
 
-const KNOWN_COMMANDS = new Set(['help', 'issues', 'stop', 'new'])
+const KNOWN_COMMANDS = new Set([
+  'help',
+  'issues',
+  'stop',
+  'new',
+  'sessions',
+  'attach',
+  'detach',
+  'status',
+  'wake',
+])
 const ISSUES_LIST_CAP = 15
 
 export interface SlashCommand {
   command: string
   args: string[]
+  /** The arguments as typed. `args` is lowercased, which a session ref
+   *  (`POD-12-A`) does not survive. */
+  rawArgs: string[]
 }
 
 /** Parse a Telegram slash command. Returns null for plain text or unknown `/foo`. */
@@ -19,8 +32,8 @@ export function parseSlashCommand(text: string): SlashCommand | null {
   const command = m[1]!.toLowerCase()
   if (!KNOWN_COMMANDS.has(command)) return null
   const rest = m[2]?.trim()
-  const args = rest ? rest.split(/\s+/).map((a) => a.toLowerCase()) : []
-  return { command, args }
+  const rawArgs = rest ? rest.split(/\s+/) : []
+  return { command, args: rawArgs.map((a) => a.toLowerCase()), rawArgs }
 }
 
 function boardVisible(issue: IssueReport): boolean {
@@ -109,6 +122,17 @@ export function parseIssueCallbackData(data: string): string | undefined {
   return m?.[1]
 }
 
+/** Telegram `callback_data` for a session attach button (≤64 bytes: a uuid fits). */
+export function sessionCallbackData(sessionId: SessionId): string {
+  return `s:${sessionId}`
+}
+
+/** Parse `sessionCallbackData` — returns the session id or undefined. */
+export function parseSessionCallbackData(data: string): string | undefined {
+  const m = /^s:([a-zA-Z0-9_-]+)$/.exec(data)
+  return m?.[1]
+}
+
 function listedIssues(issues: IssueReport[], mode: string | undefined): IssueReport[] {
   switch (mode) {
     case 'recent':
@@ -193,6 +217,11 @@ export function pickIssueSession<
 export const TELEGRAM_COMMANDS = [
   { command: 'help', description: 'List available commands' },
   { command: 'issues', description: 'Active or recent issues' },
+  { command: 'sessions', description: 'Your running sessions, to attach this chat' },
+  { command: 'attach', description: 'Attach this chat to one of your sessions' },
+  { command: 'detach', description: 'Return this chat to its default agent' },
+  { command: 'status', description: 'Where messages in this chat go' },
+  { command: 'wake', description: 'Resume the attached session when parked' },
   { command: 'stop', description: 'Interrupt the running turn' },
   { command: 'new', description: 'Restart the superagent thread' },
 ] as const
@@ -214,9 +243,16 @@ export async function registerTelegramCommands(botToken: string): Promise<void> 
 export const HELP_TEXT = `Podium Telegram commands:
 /help — this message
 /issues [active|recent|ready] — issue list with open buttons (default: active)
-/stop — interrupt the running superagent turn
+/sessions — your running sessions, with buttons to attach this chat
+/attach <session> — attach this chat to one of your sessions (id, short id or ref like POD-12-A)
+/detach — return this chat to its default agent
+/status — where messages in this chat go
+/wake — resume the attached session when it is parked
+/stop — interrupt the running turn (the attached session's, else the superagent's)
 /new — restart the superagent harness (fresh session on next message)
 
 Tap an issue button to open it in a forum topic wired to that issue's agent
 (btw thread when a session is live, else the repo concierge).
-Anything else is sent to the superagent (main chat → global; topic → bound thread).`
+Anything else is sent to the attached session when there is one, else to the
+superagent (main chat → global; topic → bound thread). Each chat and each topic
+has its own attachment.`

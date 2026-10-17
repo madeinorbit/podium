@@ -2500,6 +2500,31 @@ export const messagingIssueTopics = sqliteTable(
   ],
 )
 
+/**
+ * Telegram conversation ↔ directly attached Podium session (POD-6212). One row
+ * per conversation: `thread_ref` is the forum topic id, `''` for the main chat.
+ * `relayed_item_id` is the last transcript item relayed back into the chat, so
+ * a restart never replays a reply that was already sent.
+ */
+export const messagingSessionAttachments = sqliteTable(
+  'messaging_session_attachments',
+  {
+    chatId: text('chat_id').notNull(),
+    threadRef: text('thread_ref').notNull(),
+    userId: text('user_id').$type<UserId>().notNull(),
+    sessionId: text('session_id').$type<SessionId>().notNull(),
+    attachedAt: text('attached_at').notNull(),
+    relayedItemId: text('relayed_item_id'),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.chatId, table.threadRef],
+      name: 'messaging_session_attachments_pk',
+    }),
+    index('idx_messaging_session_attachments_session').on(table.sessionId),
+  ],
+)
+
 export const workflows = sqliteTable(
   'workflows',
   {

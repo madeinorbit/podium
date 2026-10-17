@@ -3287,6 +3287,7 @@ const MULTI_USER_ROWS: readonly MatrixRow[] = [
     sites: [
       '`telegram_chat_bindings`',
       'packages/runtime/src/settings.ts (`notifications.telegramChatId` — one instance-wide string today)',
+      '`messaging_session_attachments` — which of the binding user’s own sessions a bound chat or topic is attached to (POD-6212)',
     ],
     idMinting: 'Keyed `(userId, chatId)` — this is where D10’s move of `telegramChatId` lands',
     conflictNote:

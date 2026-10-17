@@ -90,6 +90,7 @@ import { LocksRepository } from './store/locks'
 import { MachinesRepository, RETIRED_MACHINE_SENTINELS } from './store/machines'
 import { MaintenanceRepository } from './store/maintenance'
 import { MessagesRepository } from './store/messages'
+import { MessagingSessionAttachmentsRepository } from './store/messaging-session-attachments'
 import { MessagingTopicsRepository } from './store/messaging-topics'
 import { NotificationFactsRepository } from './store/notification-facts'
 import { ObservationCheckpointsRepository } from './store/observation-checkpoints'
@@ -230,6 +231,8 @@ export class SessionStore {
   readonly operations: OperationStore
   /** Telegram forum-topic ↔ issue thread bindings [spec:SP-5d81]. */
   readonly messagingTopics: MessagingTopicsRepository
+  /** Telegram conversation ↔ directly attached session (POD-6212). */
+  readonly messagingSessionAttachments: MessagingSessionAttachmentsRepository
 
   /**
    * The id of the machine this store's rows are written on — `<stateDir>/machine.id`,
@@ -449,6 +452,7 @@ export class SessionStore {
     this.updateRecovery = new UpdateRecoveryStore(this.db)
     this.operations = new OperationStore(this.queries)
     this.messagingTopics = new MessagingTopicsRepository(this.queries)
+    this.messagingSessionAttachments = new MessagingSessionAttachmentsRepository(this.queries)
   }
 
   private async initialize(): Promise<void> {

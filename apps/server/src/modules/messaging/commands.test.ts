@@ -51,12 +51,25 @@ function issue(
 
 describe('parseSlashCommand', () => {
   it('parses known commands with optional bot suffix and args', () => {
-    expect(parseSlashCommand('/help')).toEqual({ command: 'help', args: [] })
+    expect(parseSlashCommand('/help')).toEqual({ command: 'help', args: [], rawArgs: [] })
     expect(parseSlashCommand('/issues@PodiumBot active')).toEqual({
       command: 'issues',
       args: ['active'],
+      rawArgs: ['active'],
     })
-    expect(parseSlashCommand('/STOP')).toEqual({ command: 'stop', args: [] })
+    expect(parseSlashCommand('/STOP')).toEqual({ command: 'stop', args: [], rawArgs: [] })
+  })
+
+  it('keeps the typed case of an argument, which a session ref needs', () => {
+    expect(parseSlashCommand('/attach POD-12-A')).toEqual({
+      command: 'attach',
+      args: ['pod-12-a'],
+      rawArgs: ['POD-12-A'],
+    })
+    expect(parseSlashCommand('/detach')?.command).toBe('detach')
+    expect(parseSlashCommand('/sessions')?.command).toBe('sessions')
+    expect(parseSlashCommand('/status')?.command).toBe('status')
+    expect(parseSlashCommand('/wake')?.command).toBe('wake')
   })
 
   it('returns null for plain text or unknown slash commands', () => {

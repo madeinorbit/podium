@@ -127,7 +127,7 @@ import { TunnelHealthStore } from './tunnel-health'
 import { listenUserSocket, serverControlSocketPath } from '@podium/runtime/user-socket'
 import { registerMaintenanceRoute } from './modules/maintenance/route'
 import { MaintenanceService } from './modules/maintenance/service'
-import { MessagingService } from './modules/messaging'
+import { directSessionPort, MessagingService } from './modules/messaging'
 import { DEPLOYMENT, perf } from './modules/perf/registry'
 import { serverMoveAuthorization } from './modules/server-transfer/authorization'
 import {
@@ -943,6 +943,10 @@ export async function startServer(
     // The binding table, read live per message: an inbound chat resolves to the
     // user that bound it, or to nobody and is refused (ADR 3 Amendment 1 D22).
     telegramBindings: store.telegramBindings,
+    // Direct session attachment (POD-6212): the bound user's own sessions, through
+    // the session command plane under that user's principal.
+    directSessions: directSessionPort(registry.modules, store),
+    sessionAttachments: store.messagingSessionAttachments,
   })
   if (!recoveryOnly && !rehearsal) messaging.configure()
   const cloud = createCloudRuntimeProviderFromEnv()

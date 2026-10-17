@@ -375,6 +375,8 @@ export const DURABLE_STORES: readonly DurableStore[] = [
   { store: 'user_credentials', kind: 'drizzle-table', row: 'account-credential' },
   { store: 'grants', kind: 'drizzle-table', row: 'grant-edge' },
   { store: 'telegram_chat_bindings', kind: 'drizzle-table', row: 'telegram-chat-binding' },
+  // A bound chat's routing, extended per conversation (POD-6212): the same user's route.
+  { store: 'messaging_session_attachments', kind: 'drizzle-table', row: 'telegram-chat-binding' },
   {
     store: '<stateDir>/.server-transfer/journal.json',
     kind: 'filesystem',

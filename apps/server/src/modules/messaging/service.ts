@@ -23,6 +23,11 @@ import {
   pickIssueSession,
   registerTelegramCommands,
 } from './commands'
+import {
+  type DirectSessionPort,
+  type SessionAttachmentStore,
+  SessionAttachments,
+} from './session-attachment'
 import { TelegramChannel } from './telegram'
 import { formatTopicRecap, TOPIC_INACTIVITY_MS, transcriptSessionIdForThread } from './topic-recap'
 import type {
@@ -126,6 +131,12 @@ export interface MessagingDeps {
    * make the gate permissive. A missing dependency is a compile error instead.
    */
   telegramBindings: { list(): Promise<TelegramChatBinding[]> }
+  /** Direct session attachment (POD-6212): sessions as the bound user, and the
+   *  per-conversation attachment rows. Both or neither. */
+  directSessions?: DirectSessionPort
+  sessionAttachments?: SessionAttachmentStore
+  /** Attached-session relay re-read delay — injected in tests. */
+  sessionRelayRetryMs?: number
   /** Adapter factory — injected in tests. */
   createTelegram?: (config: { botToken: string; chatId: string }) => ChannelAdapter
   /** Telegram setMyCommands — injected in tests. */
@@ -223,6 +234,8 @@ export class MessagingService implements TelegramNoticePort {
    * [spec:SP-62c3]. In-memory only — recap-on-restart after process bounce is OK.
    */
   private readonly lastActivityByThreadRef = new Map<string, number>()
+  /** Conversations attached directly to a session (POD-6212). */
+  private readonly attachments: SessionAttachments | undefined
 
   constructor(private readonly deps: MessagingDeps) {
     deps.bus.on('superagent.turnEnded', async (ev) => await this.onTurnEnded(ev))
@@ -241,6 +254,32 @@ export class MessagingService implements TelegramNoticePort {
     deps.bus.on('session.exited', ({ sessionId }) => {
       this.stopAmbientTyping(sessionId)
     })
+    this.attachments =
+      deps.directSessions && deps.sessionAttachments
+        ? new SessionAttachments({
+            bus: deps.bus,
+            store: deps.sessionAttachments,
+            sessions: deps.directSessions,
+            reply: async (target, text, opts) => await this.reply(target, text, opts),
+            answerCallback: async (id, text) => {
+              try {
+                await this.adapter?.answerCallback?.(id, text)
+              } catch (err) {
+                log.warn('callback answer failed', { err })
+              }
+            },
+            typing: {
+              acquire: (owner, source) => {
+                if (this.adapter) this.acquireTyping(owner, source)
+              },
+              release: (owner, source) => this.releaseTyping(owner, source),
+            },
+            defaultRoute: async (source) =>
+              (await this.isBoundIssueTopic(source)) ? 'this topic’s issue agent' : 'the superagent',
+            ...(deps.now ? { now: deps.now } : {}),
+            ...(deps.sessionRelayRetryMs !== undefined ? { relayRetryMs: deps.sessionRelayRetryMs } : {}),
+          })
+        : undefined
   }
 
   private now(): number {
@@ -509,16 +548,21 @@ export class MessagingService implements TelegramNoticePort {
     if (!boundUser) return
 
     this.lastInboundRefByChat.set(msg.source.chatId, msg.source)
+    // An attached conversation (POD-6212) is answered by its session, before any
+    // superagent or issue-topic routing gets a say.
     if (msg.callback) {
+      if (await this.attachments?.handleCallback(msg, boundUser)) return
       void (await this.handleCallback(msg, boundUser))
       return
     }
     const slash = parseSlashCommand(msg.text)
     if (slash) {
+      if (await this.attachments?.handleSlash(boundUser, msg.source, slash)) return
       const threadId = await this.resolveThreadId(msg)
       void (await this.handleSlash(boundUser, threadId, msg.source, slash))
       return
     }
+    if (await this.attachments?.handleChat(msg, boundUser)) return
     void (await this.handleChatMessage(msg, boundUser))
   }
 
@@ -738,6 +782,14 @@ export class MessagingService implements TelegramNoticePort {
             const message = describeError(err)
             await this.reply(source, `⚠️ ${message}`)
           }
+          return
+        case 'sessions':
+        case 'attach':
+        case 'detach':
+        case 'status':
+        case 'wake':
+          // Only reached when the bridge was composed without session attachment.
+          await this.reply(source, 'Session attachment is unavailable on this server.')
           return
       }
     } catch (err) {

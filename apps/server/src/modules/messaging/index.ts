@@ -4,12 +4,23 @@ export {
   formatIssues,
   issueCallbackData,
   parseIssueCallbackData,
+  parseSessionCallbackData,
+  sessionCallbackData,
   parseSlashCommand,
   pickIssueSession,
   registerTelegramCommands,
   TELEGRAM_COMMANDS,
 } from './commands'
+export { directSessionPort } from './direct-session-port'
 export { MessagingService } from './service'
+export {
+  latestReply,
+  SessionAttachments,
+  sessionStateWords,
+  type AttachableSession,
+  type DirectSessionPort,
+  type SessionAttachmentStore,
+} from './session-attachment'
 export type { MessagingDeps, SuperagentTurnPort, TopicRecapPort } from './service'
 export {
   formatTopicRecap,
