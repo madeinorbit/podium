@@ -24,7 +24,6 @@ export interface ClientSessionStore {
     metadata?: ClientSessionMetadata,
   ): Promise<void>
   getClientSession(tokenHash: string): Promise<ClientSessionRecord | undefined>
-  isClientSessionValid(tokenHash: string, nowIso: string): Promise<boolean>
   extendClientSession(tokenHash: string, expiresAt: string): Promise<void>
   deleteClientSession(tokenHash: string): Promise<void>
   touchClientSession?(tokenHash: string, lastSeenAt: string): Promise<void>
@@ -107,10 +106,9 @@ export async function maintainClientCredentialByHash(
   tokenHash: string,
   nowMs: number = Date.now(),
 ): Promise<{ session: ClientSessionRecord; renewed: boolean } | undefined> {
-  if (!(await store.isClientSessionValid(tokenHash, new Date(nowMs).toISOString())))
-    return undefined
+  // One read: the row and its expiry together (POD-6220). ISO strings compare in time order.
   const current = await store.getClientSession(tokenHash)
-  if (!current) return undefined
+  if (!current || !(current.expiresAt > new Date(nowMs).toISOString())) return undefined
   let session = current
   if (
     session.label === 'mobile' &&
@@ -127,6 +125,39 @@ export async function maintainClientCredentialByHash(
     session = { ...session, expiresAt }
   }
   return { session, renewed }
+}
+
+/**
+ * ONE CREDENTIAL RESOLUTION PER REQUEST (POD-6220).
+ *
+ * The auth guard and everything behind it on the same request (the tRPC
+ * context, the sync feed, the status route) ask who the caller is. Each asked
+ * the store afresh, so a tRPC call read its session row four times before the
+ * procedure ran. This resolves a request's credential once, on first ask, and
+ * hands every later ask on the SAME `Request` object the same answer: the same
+ * session, and at most one sliding-renewal write. It is a one-request memo, not
+ * a cache: the entry lives exactly as long as the request object.
+ */
+export function perRequestCredential(
+  store: ClientSessionStore,
+  now: () => number = () => Date.now(),
+): (request: Request) => Promise<ResolvedClientCredential | undefined> {
+  const resolved = new WeakMap<Request, Promise<ResolvedClientCredential | undefined>>()
+  return (request) => {
+    let credential = resolved.get(request)
+    if (!credential) {
+      credential = resolveClientCredential(
+        store,
+        {
+          cookieHeader: request.headers.get('cookie') ?? undefined,
+          authorizationHeader: request.headers.get('authorization') ?? undefined,
+        },
+        now(),
+      )
+      resolved.set(request, credential)
+    }
+    return credential
+  }
 }
 
 export async function requestUserId(
@@ -210,6 +241,10 @@ export function clientAuthGuard(opts: {
     request: Request,
   ) => Promise<import('./plugin-auth').Principal | null | undefined> | undefined
   store?: ClientSessionStore
+  /** The request's credential as the composition root resolves it once per request
+   *  ({@link perRequestCredential}), so the guard and the principal behind it share one
+   *  read. Absent: the guard resolves it from `store`. */
+  credentialForRequest?: (request: Request) => Promise<ResolvedClientCredential | undefined>
   users?: AccountCredentialStore
   /** See {@link AuthRouteOptions.loginRequired} — the ONE predicate, shared. */
   loginRequired?: () => boolean | Promise<boolean>
@@ -244,21 +279,25 @@ export function clientAuthGuard(opts: {
       : await enabledProviderPrincipal(await opts.principalSource?.(c.req.raw), opts.users)
     if (supplied === false) return c.json({ error: 'unauthorized' }, 401)
     if (supplied) return await next()
-    const openToThisCaller = !(await loginRequired()) && (opts.isLocalRequest?.(c.req.raw) ?? true)
-    if (openToThisCaller) return await next()
+    // The credential first: a caller holding a valid one is admitted whether or not login is
+    // required, so the "is login required" read is only paid by a caller without one (POD-6220).
     const store = opts.store
-    const nowMs = now()
-    const credential = store
-      ? await resolveClientCredential(
-          store,
-          {
-            cookieHeader: c.req.header('cookie'),
-            authorizationHeader: c.req.header('authorization'),
-          },
-          nowMs,
-        )
-      : undefined
-    if (!store || !credential) {
+    const credential = opts.credentialForRequest
+      ? await opts.credentialForRequest(c.req.raw)
+      : store
+        ? await resolveClientCredential(
+            store,
+            {
+              cookieHeader: c.req.header('cookie'),
+              authorizationHeader: c.req.header('authorization'),
+            },
+            now(),
+          )
+        : undefined
+    if (!credential) {
+      const openToThisCaller =
+        !(await loginRequired()) && (opts.isLocalRequest?.(c.req.raw) ?? true)
+      if (openToThisCaller) return await next()
       return c.json({ error: 'unauthorized' }, 401)
     }
     // Sliding renewal: if this session was last renewed more than a day ago, push the expiry
@@ -467,7 +506,7 @@ export function registerAuthRoute(app: Hono, opts: AuthRouteOptions = {}): void 
     if (
       token.length < 32 ||
       session?.label !== 'server-transfer-claim' ||
-      !(await store.isClientSessionValid(tokenHash, new Date(now()).toISOString()))
+      !(session.expiresAt > new Date(now()).toISOString())
     ) {
       return c.redirect('/?serverTransferClaim=invalid', 303)
     }

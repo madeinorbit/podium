@@ -713,8 +713,8 @@ describe('clientAuthGuard (HTTP surface gate)', () => {
  * Gate-level coverage for requestUserId / isRequestAuthed (POD-1410).
  *
  * The store predicate alone is not enough: requestPrincipal trusts this gate
- * with no second expiry check. A mutant that drops the isClientSessionValid
- * call still lets getClientSession return the user for an expired-but-present
+ * with no second expiry check. A mutant that drops the expiry check on the
+ * session read still returns the user for an expired-but-present
  * row — and every earlier test either hit the store directly or only exercised
  * valid / missing-token paths, so the expired cookie case was invisible.
  */
@@ -854,7 +854,7 @@ describe('break-glass session mint (@podium/runtime ⇄ clientAuthGuard)', () =>
 
 // POD-1424. The expiry check had no test CALLER. Both gates — `isRequestAuthed` (the
 // /client WS upgrade gate, server.ts) and `clientAuthGuard` (the /trpc gate) — consult
-// store.isClientSessionValid, but every pre-existing case that exercises a REFUSAL does it
+// the session row's expiry, but every pre-existing case that exercises a REFUSAL does it
 // with a row that is ABSENT: never issued ('a forged/random cookie'), or revoked (logout,
 // the break-glass label sweep). An absent row is refused by any presence test, so all of
 // those stay green if a gate's consult is weakened from validity to mere presence
