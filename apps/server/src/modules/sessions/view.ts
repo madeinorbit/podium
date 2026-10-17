@@ -54,7 +54,7 @@ export interface SessionViewPorts {
  * `'unlabeled'` fallback, and roughly forty internal call sites took it: the
  * perf phase then reported one 733 ms bucket 6.2 times a minute with nothing to
  * say about who caused it. Every internal caller now reads
- * `sessionFacts()` instead, and making the argument REQUIRED over a union with
+ * the session facts (`readSessionFacts*`, `runningSessionFacts`) instead, and making the argument REQUIRED over a union with
  * no escape hatch is what keeps it that way — a new full-list caller cannot
  * compile without naming itself here, in a diff a reviewer sees.
  *

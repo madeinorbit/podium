@@ -16,7 +16,6 @@ async function harness() {
   const sessionFacts = vi.fn(() => [])
   const deps: IssueDeps = {
     store,
-    sessionFacts,
     // Every fleet read goes through the one spy, so "not called" covers them all.
     runningSessionFacts: sessionFacts,
     readSessionFacts: async () => sessionFacts(),

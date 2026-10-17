@@ -374,7 +374,7 @@ describe('the full projection is unreachable from internal code [POD-3857]', () 
   it('facts are not assignable where a wire projection is required', () => {
     const facts = new SessionFactsReader(
       new Map(CORPUS().map((row) => [row.sessionId, row])),
-    ).all()
+    ).running()
     // The point of a separate type: trusted server-internal data cannot be
     // handed to something that publishes to a client.
     // @ts-expect-error POD-3857: SessionFacts is not a SessionMeta
@@ -397,12 +397,11 @@ describe('SessionFactsReader [POD-3857]', () => {
     // records (indexed repository queries), never a store or a service the
     // reader reaches by itself.
     expect(SessionFactsReader.length).toBe(2)
-    expect(new SessionFactsReader(new Map()).all()).toEqual([])
     expect(new SessionFactsReader(new Map()).running()).toEqual([])
     await expect(new SessionFactsReader(new Map()).readAll()).rejects.toThrow('no session records')
     const sessions = new Map(CORPUS().map((row) => [row.sessionId, row]))
     const reader = new SessionFactsReader(sessions, residentRecords(sessions))
-    expect((await reader.readAll()).map((f) => f.sessionId)).toEqual(reader.all().map((f) => f.sessionId))
+    expect((await reader.readAll()).map((f) => f.sessionId)).toEqual([...sessions.keys()])
   })
 
   it('reads the running sessions off the map, synchronously', () => {
@@ -422,7 +421,7 @@ describe('SessionFactsReader [POD-3857]', () => {
 
   it('answers every read from the records it is handed', async () => {
     const reader = readerOver(CORPUS())
-    expect(reader.all().map((f) => f.sessionId)).toEqual([
+    expect((await reader.readAll()).map((f) => f.sessionId)).toEqual([
       'mine-explicit',
       'mine-by-cwd',
       'mine-is-the-root',
@@ -447,7 +446,7 @@ describe('SessionFactsReader [POD-3857]', () => {
         view: { wire, list },
       },
     )
-    const facts = lifecycle.sessionFacts()
+    const facts = lifecycle.runningSessionFacts()
     expect(facts.map((f) => f.sessionId)).toContain('mine-explicit')
     expect(wire).not.toHaveBeenCalled()
     expect(list).not.toHaveBeenCalled()

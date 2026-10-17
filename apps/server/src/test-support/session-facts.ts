@@ -87,7 +87,6 @@ export const metasAsFacts = (metas: readonly SessionMeta[]): SessionFacts[] =>
  * supplier.
  */
 export function sessionReadPorts(source: () => readonly SessionMeta[]): {
-  sessionFacts(): SessionFacts[]
   runningSessionFacts(): SessionFacts[]
   readSessionFacts(): Promise<SessionFacts[]>
   readSessionFactsByIds(sessionIds: Iterable<SessionId>): Promise<SessionFacts[]>
@@ -106,7 +105,6 @@ export function sessionReadPorts(source: () => readonly SessionMeta[]): {
   const facts = () => metasAsFacts(source())
   const running = (s: SessionFacts) => s.status === 'live' || s.status === 'starting' || s.status === 'reconnecting'
   return {
-    sessionFacts: facts,
     runningSessionFacts: () => facts().filter(running),
     readSessionFacts: async () => facts(),
     readSessionFactsByIds: async (sessionIds) => {

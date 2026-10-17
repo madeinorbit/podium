@@ -441,18 +441,6 @@ export class SessionLifecycle {
     return await this.view.spawnedByOf(sessionId, forPrincipal)
   }
   /**
-   * THE CHEAP FLEET READ [POD-3857] — see {@link SessionFacts}.
-   *
-   * Trusted server-internal data: no visibility check, no wire projection, and
-   * no I/O of any kind. It must never cross a client boundary. Generalizes
-   * POD-2322's `sessionRoutingFacts`, which asked the same question with six of
-   * these fields.
-   */
-  sessionFacts(): SessionFacts[] {
-    return this.facts.all()
-  }
-
-  /**
    * THE RUNNING SESSIONS' FACTS (POD-6160): the resident sessions whose process
    * runs or is expected back. Synchronous and free of I/O: a running session is
    * always resident. For the readers that only ever act on running sessions

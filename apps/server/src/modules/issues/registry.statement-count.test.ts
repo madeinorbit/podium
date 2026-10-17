@@ -126,7 +126,6 @@ async function fixture(size: number): Promise<Fixture> {
   })
   const issues = new IssueStore({
     store,
-    sessionFacts: () => [],
     runningSessionFacts: () => [],
     readSessionFacts: async () => [],
     readSessionFactsById: async () => undefined,
