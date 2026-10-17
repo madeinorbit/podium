@@ -190,6 +190,8 @@ are not measured. Every round boots a fresh copy of that template.
   New runs default to `running`: 95% of renames go to live sessions and 5% to parked ones (an
   assumption, documented in `drive.ts` `RUNNING_WRITE_SHARE`; the live database is not scanned).
   `--session-write-targeting=uniform` reproduces the old profile; a resumed run keeps its own.
+  *Mail* (`--mail-per-minute`, default 0, added by POD-6161): `messages.send` to the first `--mail-targets` (5)
+  live sessions in turn, to measure the delivery path. Off unless asked for.
 
 **Collection.** Per round:
 
