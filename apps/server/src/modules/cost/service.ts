@@ -1,4 +1,4 @@
-import { readIssueParentEdges, readIssues } from '../issues/issue-reader'
+import { readIssues } from '../issues/issue-reader'
 /**
  * WHAT A TASK COST (POD-1858) — the read path, and the fold that fills it.
  *
@@ -254,7 +254,7 @@ export class CostService {
    */
   async task(issueId: IssueId, includeSessions = true): Promise<TaskCostWire> {
     const childrenByParent = new Map<string, string[]>()
-    for (const edge of await readIssueParentEdges(this.store.issues)) {
+    for (const edge of await this.store.issues.listIssueParentEdges()) {
       if (!edge.parentId) continue
       const list = childrenByParent.get(edge.parentId)
       if (list) list.push(edge.id)
@@ -371,7 +371,7 @@ export class CostService {
     // epic's descendants once per level. The visited set is the cycle guard
     // `parent_id` does not have.
     const parentOf = new Map<string, string>()
-    for (const edge of await readIssueParentEdges(this.store.issues)) {
+    for (const edge of await this.store.issues.listIssueParentEdges()) {
       if (edge.parentId) parentOf.set(edge.id, edge.parentId)
     }
     const rollupParts = new Map<string, CostModelTotalWire[][]>()

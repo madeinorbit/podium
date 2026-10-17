@@ -2,7 +2,7 @@
 
 How server code (`apps/server`, `packages/sync`) reads, writes and caches data. Every server change follows this guide. It is the server side of [frontend-data.md](frontend-data.md). The agreed design behind it is `docs/internal/superpowers/specs/2026-10-15-server-data-access-design.md` (POD-6140); the evidence is `docs/internal/pod-6140-research.md`.
 
-Today the server still holds several in-memory copies of tables (the world index, the issue map, the session map and others). POD-6140 removes them one at a time. Until a copy is removed, leave it as it is; new code reads the database and adds no copy.
+Today the server still holds several in-memory copies of tables (the world index, the session map and others; the issue map went in POD-6158). POD-6140 removes them one at a time. Until a copy is removed, leave it as it is; new code reads the database and adds no copy.
 
 ## Source of truth
 
@@ -16,7 +16,7 @@ Memory may hold only:
 | **Declared caches**, under the rules in "Caching" below | none yet; the cache layer is built only when a measurement shows the first real need (POD-6150) |
 | **One-operation memos**: the read scope, which removes repeated lookups inside one operation and is gone when the operation ends | `withReadScope` and `readScopeSlot` in `apps/server/src/store/executor/read-scope.ts` |
 
-**One way to read a fact.** A memory copy cannot see a save that is still in progress, so during a save the code must skip the copy and ask the database; `readIssue` (`apps/server/src/modules/issues/issue-reader.ts`) still does exactly this with `!spanOpen()` over the issue map. When every read asks the database, the database already shows the save's own unfinished changes, so there is no special case and nothing to keep in step: grants, machines, pending counts and folder owners have read only the database since POD-6155.
+**One way to read a fact.** A memory copy cannot see a save that is still in progress, so during a save the code must skip the copy and ask the database; When every read asks the database, the database already shows the save's own unfinished changes, so there is no special case and nothing to keep in step: grants, machines, pending counts and folder owners have read only the database since POD-6155, and issues since POD-6158.
 
 **Boot** loads live runtime state only. It never loads whole tables.
 

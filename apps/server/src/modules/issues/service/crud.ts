@@ -30,11 +30,10 @@ import {
 import { resolveSpawnDefaults } from '@podium/runtime'
 import type { EntityChangeSpec } from '@podium/sync'
 import type { IssueRow } from '../../../store'
-import { afterCommit, followUpAfterCommit, spanOpen } from '../../../store/executor/executor'
+import { afterCommit, followUpAfterCommit } from '../../../store/executor/executor'
 import { type StoredIssue, toStorage } from '../../../store/issue-storage'
 import { readIssue } from '../issue-reader'
 import { type IssueStore, worktreeOf } from './core'
-import { compareWithIssueMap } from './map-parity'
 import { IssueNotFound } from './not-found'
 import { IssueRefusal } from './refusal'
 import type { CreateIssueInput, IssueDeps, IssuePanelOp, IssuePatch } from './types'
@@ -134,15 +133,9 @@ export interface IssueLifecyclePlan {
   wire(): IssueProjection
   write(): Promise<void>
   changes(): EntityChangeSpec[]
-  /** In-memory install, run from the ledger's SYNCHRONOUS commit-application
-   *  callback. It must not yield, and the `void` here is a contract rather than
-   *  an omission: an implementation returning a promise would have that promise
-   *  dropped by the caller, and whatever it awaited would land on a later tick,
-   *  outside the commit it is supposed to be part of. Durable work belongs in
-   *  {@link write} (it rolls back with the row); external effects belong in
-   *  {@link publish} or an `afterCommit` registration. POD-3505 moved the
-   *  delete/restore event append out of here for exactly that reason. */
-  apply(): void
+  /** External effects after the commit. Durable work belongs in {@link write},
+   *  where it rolls back with the row; since POD-6158 there is no in-memory
+   *  copy of the issue to install. */
   publish(): Promise<void>
 }
 
@@ -838,21 +831,6 @@ export class IssueCrudModule {
             ...(opts?.includePinned === true ? {} : { unpinnedFor: await this.store.broadcastViewer() }),
           })
         : []
-    if (!spanOpen()) {
-      compareWithIssueMap('sortScopeRows', [repoId ?? null, parentId, opts?.includePinned === true], () => {
-        const old: SortScopeRow[] = []
-        for (const r of this.store.rows.values()) {
-          if (r.deletedAt) continue
-          const sameScope = parentId
-            ? r.parentId === parentId
-            : r.parentId == null &&
-              (opts?.includePinned === true || !this.store.mapIssueOverlay(r.id).pinned) &&
-              (r.repoId ? r.repoId === repoId : r.repoPath === repoPath)
-          if (sameScope) old.push({ id: r.id, sortKey: r.sortKey ?? null, createdAt: r.createdAt, seq: r.seq })
-        }
-        return old.sort((a, b) => (a.id < b.id ? -1 : 1))
-      }, [...rows].sort((a, b) => (a.id < b.id ? -1 : 1)))
-    }
     return rows
   }
 
@@ -1172,7 +1150,7 @@ export class IssueCrudModule {
     row.createdByActor = input.createdByActor ?? row.ownerUserId
     row.createdByOnBehalfOf = input.createdByOnBehalfOf ?? row.ownerUserId
     // parentId handled after persist via reparent (edge-maintaining): the row
-    // must be registered in this.store.rows first so wouldCycle/rowOrThrow work.
+    // must exist first so wouldCycle/rowOrThrow find it.
     let wire = await this.store.persist(row)
     // New list MEMBERSHIP: single-issue deltas only patch known ids on legacy
     // clients, so a create still fans out the full list once (#22).
@@ -1656,9 +1634,6 @@ export class IssueCrudModule {
         companions = await this.store.companionChanges(row)
       },
       changes: () => companions,
-      apply: () => {
-        this.store.installRow(row.id, row)
-      },
       publish: async () => {},
     }
   }
@@ -1683,58 +1658,12 @@ export class IssueCrudModule {
       },
       changes: () => [{ entity: 'issueProjection', id, op: 'remove' }],
     })
-    // THE INSTALL IS A TARGETED REMOVAL, NOT A WHOLE-MAP RE-READ [POD-3366].
-    //
-    // This was `this.store.reload()`, and it is the one site in POD-3361's audit
-    // whose install did not fit the deferral shape at all. A reload re-reads the
-    // database from INSIDE the enclosing span, so it read the savepoint's
-    // uncommitted truth and installed it as the committed map — and not merely
-    // for the row being purged, because a reload drops the whole map and rebuilds
-    // it. An outer rollback therefore left every row derived from rolled-back
-    // state, which is strictly worse than the single-install defect at the other
-    // twelve sites, and no commit application fixes it: deferring a whole-map
-    // re-read past the commit just moves when the wrong question is asked.
-    //
-    // A removal of the one id is what this method actually did, and it stages
-    // like every other install: visible to in-window readers, promoted by the
-    // outermost commit, dropped on the way IN if that commit never happens.
-    // Equivalent to the reload here because both callers refuse to purge a draft
-    // with children or sessions, so nothing cascades out of the map with it.
-    this.store.installRow(id, null)
-    // AND THE CASCADE, IN MEMORY, because the engine does it in the database and
-    // the reload used to be how it reached the map. `deleteIssue` relies on
-    // `ON DELETE SET NULL` to clear `parent_id` / `superseded_by` /
-    // `duplicate_of` on OTHER rows, so a removal of just this id leaves those
-    // rows pointing at an issue that no longer exists.
-    //
-    // I FOUND THIS BY LOSING A TEST, not by reading the schema: narrowing the
-    // reload to one id broke "deleting an issue clears scalar back-references on
-    // other issues", which is exactly the coverage that existed for the half of
-    // `reload()` I had argued was not load-bearing. Mirrored here rather than
-    // re-read from the database, because a read inside this span would ask the
-    // savepoint what is true and the answer is not durable yet.
-    for (const row of this.store.rows.values()) {
-      if (row.parentId !== id && row.supersededBy !== id && row.duplicateOf !== id) continue
-      this.store.installRow(row.id, {
-        ...row,
-        ...(row.parentId === id ? { parentId: null } : {}),
-        ...(row.supersededBy === id ? { supersededBy: null } : {}),
-        ...(row.duplicateOf === id ? { duplicateOf: null } : {}),
-      })
-    }
     // The full-list tail reconciles BOTH kinds (POD-796), so the purge reaches
-    // the normalized feed as the remove reconcile derives from full truth.
-    // POD-1203 deleted the funnel snapshot half; `reconcileAndPublish` is the
-    // whole tail now.
-    //
-    // AND IT STAYS INSIDE THE SPAN, which is the other half of why this site did
-    // not fit the arm: `reconcileAndPublish` appends change ROWS through
-    // `ledger.reconcile`. That is a durable write, and it belongs where it rolls
-    // back with the transaction. Moving it to a commit application would put a
-    // durable write after the outermost commit, outside any transaction at all.
-    // It reads the normalized rows from the map, which is why the removal above has to be
-    // visible in-window rather than merely deferred — otherwise the full-truth
-    // diff would declare the purged issue still present.
+    // the normalized feed as the remove reconcile derives from full truth. It
+    // stays INSIDE the span: `reconcileAndPublish` appends change ROWS through
+    // `ledger.reconcile`, a durable write that belongs where it rolls back with
+    // the transaction. It reads the database inside the span (POD-6158), so it
+    // sees the delete and its ON DELETE SET NULL cascade.
     await this.store.reconcileAndPublish()
     // Hard delete: drop any artifact snapshots too ([spec:SP-0fc9], best-effort).
     void this.store.deps.artifacts?.removeIssue(id).catch(() => {})
@@ -1783,9 +1712,6 @@ export class IssueCrudModule {
         companions = await this.store.companionChanges(row)
       },
       changes: () => companions,
-      apply: () => {
-        this.store.installRow(row.id, row)
-      },
       publish: async () => {},
     }
   }

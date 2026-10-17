@@ -10,7 +10,6 @@ import { describe, expect, it, vi } from 'vitest'
 import { type IssueDeps, IssueService } from './modules/issues/service'
 import { issueTestPlumbing } from './modules/issues/service/test-plumbing'
 import type { SessionStore } from './store'
-import { captureLogs } from './test-support/capture-logs'
 import { openTestStore } from './test-support/open-test-store'
 import { sessionReadPorts } from './test-support/session-facts'
 
@@ -47,16 +46,14 @@ function rawDb(s: SessionStore): { prepare(q: string): { run(...a: unknown[]): u
 }
 
 describe('IssueService boot quarantine', () => {
-  it('constructs without touching the DB; hydration is explicit (init) or lazy', async () => {
+  it('loads no issue rows into memory to construct (POD-6158)', async () => {
     const store = await openTestStore(':memory:')
     const listSpy = vi.spyOn(store.issues, 'listIssueRows')
-    const svc = IssueService.compose(deps(store))
-    expect(listSpy).not.toHaveBeenCalled() // constructor no longer hydrates
-    await svc.reports.store.init()
-    expect(listSpy).toHaveBeenCalledTimes(1)
+    await IssueService.create(deps(store))
+    expect(listSpy).not.toHaveBeenCalled()
   })
 
-  it('a structurally corrupt row (NULL id) is skipped; the other rows load and boot proceeds', async () => {
+  it('a structurally corrupt row (NULL id) is skipped; the other rows are read', async () => {
     const store = await reportingStore()
     const svc = await IssueService.create(deps(store))
     const good1 = await svc.crud.create({ repoPath: '/r', title: 'healthy one', startNow: false })
@@ -72,23 +69,13 @@ describe('IssueService boot quarantine', () => {
       )
       .run()
 
-    const logs = captureLogs()
-    try {
-      // Fresh service over the same store simulates the next boot.
-      const rebooted = await IssueService.create(deps(store))
-      expect(() => rebooted.reports.store.init()).not.toThrow()
-      const ids = (await rebooted.reports.list('/r')).map((w) => w.id)
-      expect(ids).toContain(good1.id)
-      expect(ids).toContain(good2.id)
-      expect(ids).toHaveLength(2)
-      expect(logs.at('error')).toContainEqual(
-        expect.objectContaining({
-          msg: expect.stringContaining('quarantined a corrupt issue row'),
-        }),
-      )
-    } finally {
-      logs.restore()
-    }
+    // Fresh service over the same store simulates the next boot. Every listing
+    // leaves a row with a non-string id out in SQL (POD-6158).
+    const rebooted = await IssueService.create(deps(store))
+    const ids = (await rebooted.reports.list('/r')).map((w) => w.id)
+    expect(ids).toContain(good1.id)
+    expect(ids).toContain(good2.id)
+    expect(ids).toHaveLength(2)
   })
 
   it('bad JSON in a column quarantines the VALUE but keeps the row', async () => {
@@ -98,7 +85,6 @@ describe('IssueService boot quarantine', () => {
     rawDb(store).prepare('UPDATE issues SET blocked_by = ? WHERE id = ?').run('{not json', w.id)
 
     const rebooted = await IssueService.create(deps(store))
-    expect(() => rebooted.reports.store.init()).not.toThrow()
     const row = await rebooted.reports.get(w.id)
     expect(row?.id).toBe(w.id)
     expect((await store.issues.getIssue(w.id))?.blockedBy).toEqual([])

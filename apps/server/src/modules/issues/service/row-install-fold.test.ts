@@ -3,28 +3,20 @@ import { SessionRegistry } from '../../../relay'
 import { openTestStore } from '../../../test-support/open-test-store'
 
 /**
- * THE ISSUE ROW MAP WAITS FOR THE OUTERMOST COMMIT [POD-3366, sites 3 and 4 of
- * POD-3361's audit, and the install half of 6 and 7].
+ * A ROLLED-BACK ENCLOSING SPAN LEAVES NO ISSUE ROW BEHIND [POD-3366, sites 3
+ * and 4 of POD-3361's audit, and the install half of 6 and 7].
  *
- * `IssueStore.rows` is the authoritative in-memory issue projection. Every
- * persist installed into it on the statement after a `ledger.commit`, and
- * nested inside a caller's span — `IssueAttachOrchestrator` wraps a whole attach
- * in one `transact` — that commit is a SAVEPOINT whose release is not a commit.
- * A rolled-back enclosing span therefore left the map holding a row the database
- * never kept, and the next full-list reconcile would fabricate an upsert for it.
+ * A persist nested inside a caller's span — `IssueAttachOrchestrator` wraps a
+ * whole attach in one `transact` — commits a SAVEPOINT whose release is not a
+ * commit. These cases roll the enclosing span back and read through
+ * `IssueService`'s own accessors at once: every read must show what the
+ * database kept. They were written against the in-memory issue map, which
+ * installed rows behind that commit; POD-6158 deleted the map, and the cases
+ * stay as the regression for what a reader sees after a rollback.
  *
- * WHAT THESE TESTS ASSERT ON, and the trap they are written around: the MAP,
- * read through `IssueService`'s own accessors, with nothing in between that
- * reloads or re-derives. `store.reload()` re-reads the database and would make
- * every one of these pass for a projection that was wrong the whole time, which
- * is exactly the self-healing fixture the brief warns about. The rollback and
- * the assertion are adjacent on purpose.
- *
- * Driven through the full registry, because the fold port is COMPOSITION: an
- * `IssueDeps` without it installs immediately and every assertion here would be
- * vacuous.
+ * Driven through the full registry, as the server composes it.
  */
-describe('the issue row map waits for the outermost commit (POD-3366)', () => {
+describe('a rolled-back span leaves no issue row behind (POD-3366)', () => {
   const registries: SessionRegistry[] = []
   afterEach(async () => {
     for (const registry of registries.splice(0)) await registry.dispose()

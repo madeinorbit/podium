@@ -251,7 +251,9 @@ describe('per-user issue state (POD-1076)', () => {
     expect(
       await store.issues.getIssueUserState(asUserId('user:other'), asIssueId('iss_read')),
     ).toBeUndefined()
-    expect((await store.issues.listIssueUserState(asUserId('user:other'))).size).toBe(0)
+    expect(
+      (await store.issues.loadIssueUserStates(asUserId('user:other'), [asIssueId('iss_read')])).get('iss_read'),
+    ).toBeUndefined()
 
     // Clearing every marker DELETES the row rather than leaving three nulls.
     await store.issues.setIssueUserState(firstAdminMemberId(), asIssueId('iss_read'), {

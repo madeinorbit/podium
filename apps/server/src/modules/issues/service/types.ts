@@ -13,7 +13,6 @@ import type {
 import type { MetadataChange, RepoOp } from '@podium/protocol'
 import type { PodiumSettings } from '@podium/runtime'
 import type {
-  BaselineFoldPort,
   EntityChangeSpec,
   LedgerCommitOp,
   LedgerCommitResult,
@@ -147,17 +146,6 @@ export interface SpawnedSessionResult {
  * coverage because a promise can be inspected without awaiting its value. */
 export interface IssueDeps {
   store: SessionStore
-  /**
-   * Where a ROW INSTALL waits for the outermost commit [POD-3366].
-   *
-   * `IssueStore.rows` is the authoritative in-memory issue projection, and every
-   * persist used to install into it on the statement after a `ledger.commit`.
-   * Nested inside a caller's span that commit is a savepoint, and a savepoint
-   * release is not a commit. Unset means every install is immediate, which is
-   * what a fixture with a pass-through `transact` wants and is where the install
-   * happens today.
-   */
-  applyCommit?: BaselineFoldPort
   /**
    * THE CHEAP FLEET READ [POD-3857] — every resident session as in-memory
    * facts, with no visibility check and no I/O. Since POD-6160 only the flight

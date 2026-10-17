@@ -6,21 +6,18 @@
  * top; moving one reads its siblings; a reparent or an ancestor walk reads one
  * row per level. These used to be answered from the in-memory issue map; since
  * POD-6192 the key space is one narrow indexed read and the walk one row per
- * level, so 200 issues in the repository cost what 5 do. The old/new
- * comparison is off here: the pins count what production runs.
+ * level, so 200 issues in the repository cost what 5 do.
  */
 
 import { asIssueId, asSessionId, firstAdminMemberId, spreadSortKeys } from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { IssueRow, SessionStore } from '../../../store'
-import { applyAfterCommit, spanOpen } from '../../../store/executor/executor'
 import { issueRowFixture } from '../../../test-support/issue-row'
 import { openTestStore } from '../../../test-support/open-test-store'
 import { sessionReadPorts } from '../../../test-support/session-facts'
 import { expectConstantStatements } from '../../../test-support/statement-count'
 import { type IssueDeps, IssueService } from '../service'
-import { type IssueMapParityMode, setIssueMapParityMode } from './map-parity'
 import { issueTestPlumbing } from './test-plumbing'
 
 interface Fixture {
@@ -65,7 +62,6 @@ async function fixture(size: number): Promise<Fixture> {
     repoOp: vi.fn(async () => ({ ok: true, output: '' })),
     ...issueTestPlumbing(() => {}),
     setSessionArchived: vi.fn(),
-    applyCommit: { spanOpen, onCommit: applyAfterCommit },
   }
   return { store, svc: await IssueService.create(deps) }
 }
@@ -80,14 +76,6 @@ const pin = (name: string, run: (f: Fixture, size: number) => Promise<unknown>, 
 })
 
 describe('issue writes that read other issues: pinned statement counts at 5 and 200 issues', () => {
-  let parity: IssueMapParityMode
-  beforeAll(() => {
-    parity = setIssueMapParityMode('off')
-  })
-  afterAll(() => {
-    setIssueMapParityMode(parity)
-  })
-
   it('create at the top of a repository: one read of its key space', async () => {
     await expectConstantStatements(
       pin('crud.create', async (f) => await f.svc.crud.create({ repoPath: '/repo', title: 'New work', startNow: false }),

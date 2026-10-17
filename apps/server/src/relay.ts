@@ -1970,11 +1970,6 @@ export class SessionRegistry {
 
     const issues = IssueService.compose({
       store: this.store,
-      // The issue row map is the authoritative in-memory projection and it is
-      // installed behind a `ledger.commit` that may be a savepoint inside a
-      // wider span, so it waits for the OUTERMOST commit through the same port
-      // the ledger's commit applications do [POD-3366, spec §3.3 mechanism 1].
-      applyCommit: { spanOpen, onCommit: applyAfterCommit },
       artifacts: issueArtifacts,
       // The cheap fleet read [POD-3857]: the issue service's own reasoning —
       // worktree occupancy, the close cascade, auto-archive — runs on facts.

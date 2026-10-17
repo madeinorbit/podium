@@ -3,25 +3,19 @@ import { SessionRegistry } from '../../../relay'
 import { openTestStore } from '../../../test-support/open-test-store'
 
 /**
- * THE HARD DELETE [POD-3366, site 5 of POD-3361's audit — the one whose install
- * did not fit the deferral shape].
+ * THE HARD DELETE [POD-3366, site 5 of POD-3361's audit].
  *
- * `purgeEmptyDraft` finished with `store.reload()`: a WHOLE-MAP re-read, run
- * from inside the enclosing span. That reads the database through the open
- * savepoint, so it installed the enclosing span's uncommitted truth as the
- * committed map — and not merely for the row being purged, because a reload
- * drops the whole map and rebuilds it. An outer rollback left every row derived
- * from rolled-back state.
+ * `purgeEmptyDraft` deletes a row, and with it (ON DELETE SET NULL) the
+ * references other rows hold to it, then reconciles the full truth inside the
+ * same span, because the reconcile appends change rows durably. It is reachable
+ * inside a wider span: `deleteIfEmptyDraft` is called from `attachSession`,
+ * which `IssueAttachOrchestrator` wraps in one `transact`.
  *
- * It is genuinely reachable: `deleteIfEmptyDraft` is called from
- * `attachSession`, which `IssueAttachOrchestrator` wraps in one `transact`.
- *
- * The install is now a targeted staged REMOVAL, and the full-list reconcile
- * stays inside the span because it appends change rows durably. The last test
- * here is the one that ties those two halves together: the reconcile reads
- * `allWire()` off the map, so a removal that were merely deferred rather than
- * visible in-window would make the full-truth diff declare the purged issue
- * still present.
+ * These cases were written against the in-memory issue map, which had to stage
+ * the removal and its cascade where the in-span reconcile could see them;
+ * POD-6158 deleted the map, so the reconcile reads the database inside the
+ * span. They stay as the regression for what a reader and the reconcile see,
+ * committed and rolled back.
  */
 describe('the hard delete waits for the outermost commit (POD-3366)', () => {
   const registries: SessionRegistry[] = []

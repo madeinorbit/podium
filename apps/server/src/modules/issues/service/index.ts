@@ -155,7 +155,6 @@ export type IssueReportsCapability = Pick<
   | 'list'
   | 'resolveRef'
   | 'resolveRefs'
-  | 'worktreePaths'
   | 'unreadFor'
   | 'visibilityPolicy'
   | 'commandResult'
@@ -199,17 +198,12 @@ class IssueServiceRoot implements IssueTrackerCapabilities {
   }
 
   /**
-   * Compose the tracker and load the row map it serves — the entry point for a
-   * caller that has no boot list of its own.
-   *
-   * The load is an explicit step rather than a lazy getter (POD-3256):
-   * `IssueStore`'s `rows` getter used to hydrate on first touch, and a getter
-   * cannot await. The body is synchronous today and gains an await at the flip.
+   * Compose the tracker — the entry point for a caller that has no boot list of
+   * its own. There is nothing to load first: since POD-6158 every issue read
+   * asks the database.
    */
   static async create(deps: IssueDeps): Promise<IssueServiceRoot> {
-    const service = IssueServiceRoot.compose(deps)
-    await service.store.init()
-    return service
+    return IssueServiceRoot.compose(deps)
   }
 
   private constructor(deps: IssueDeps) {
@@ -256,10 +250,10 @@ class IssueServiceRoot implements IssueTrackerCapabilities {
   // Comment writes go through commentsMail.addComment, whose principal is
   // required. No operator/admin default is supplied by this root (POD-1315).
 
-  /** Boot hydration, membership totalization and ledger reconcile. */
+  /** Boot membership totalization and ledger reconcile. Loads no issue rows
+   *  into memory (POD-6158): the reconcile reads them a page at a time. */
   async boot(principal: SystemCommandPrincipal = systemPrincipal('boot-reconcile')): Promise<this> {
     const store = this.store
-    await store.init()
     const setSessionIssueId = store.deps.setSessionIssueId
     if (setSessionIssueId) {
       let totalized = 0

@@ -158,9 +158,10 @@ it('joins an issue list once per request and never counts comments per issue', a
     })
   }
   const repository = registry.sessionStore.issues
-  const deps = vi.spyOn(repository, 'listAllIssueDeps')
-  const labels = vi.spyOn(repository, 'listIssueLabelsByIssue')
-  const counts = vi.spyOn(repository, 'countIssueCommentsByIssue')
+  // One batched read per join for the listed rows (POD-6191), never one per row.
+  const deps = vi.spyOn(repository, 'depsFromIssues')
+  const labels = vi.spyOn(repository, 'labelsOfIssues')
+  const counts = vi.spyOn(repository, 'commentCountsOfIssues')
   const scalar = vi.spyOn(repository, 'countIssueComments')
   try {
     expect(await api.list({ repoPath: '/report-fixture' })).toHaveLength(12)
@@ -204,8 +205,8 @@ it('reuses only own-row projections while labels, hierarchy, comments and person
   })
   await api.close({ id: child.id })
   expect(await read()).toMatchObject({ childCount: 1, childDoneCount: 1 })
-  const labels = vi.spyOn(registry.sessionStore.issues, 'listIssueLabelsByIssue')
-  const counts = vi.spyOn(registry.sessionStore.issues, 'countIssueCommentsByIssue')
+  const labels = vi.spyOn(registry.sessionStore.issues, 'labelsOfIssues')
+  const counts = vi.spyOn(registry.sessionStore.issues, 'commentCountsOfIssues')
   try {
     expect((await api.tree({ id: parent.id, maxNodes: 1000 })).totalNodes).toBe(2)
     expect(labels).not.toHaveBeenCalled()

@@ -32,7 +32,13 @@ export async function readDeck(
   const root = await store.rowOrThrow(await store.resolveRef(ref))
   if (root.deletedAt || !(await mayRead(root.id))) throw new IssueNotFound(ref)
   const rows = new Map<IssueId, IssueRow>()
-  for (const row of store.rows.values()) {
+  // Every live, unarchived issue from the database in repository order
+  // (repository path, then sequence), the order the in-memory issue map held
+  // them in after boot (POD-6158).
+  const candidates = await store.deps.store.issues.listIssueRowsWhere({
+    repo: false, readable: false, live: true, unarchived: true, order: 'path-seq',
+  })
+  for (const row of candidates) {
     if (row.deletedAt || row.archived || row.draft || !(await mayRead(row.id))) continue
     rows.set(row.id, row)
   }
@@ -149,10 +155,15 @@ export async function readDeck(
   }
   for (const id of admitted) await refOf(rows.get(id)!)
   const blockers = new Map<IssueId, IssueDeckNode['blockers']>()
+  // The blockers' rows by id in one read: a blocker may be archived, a draft or
+  // outside the deck, and still blocks.
+  const targets = await store.rowsByIds(
+    deps.flatMap((dep) => (dep.type === 'blocked-by' && admitted.has(dep.fromId) ? [dep.toId] : [])),
+  )
   for (const dep of deps) {
     if (dep.type !== 'blocked-by' || !admitted.has(dep.fromId)) continue
     if (store.isClosed(rows.get(dep.fromId)!)) continue
-    const target = store.rows.get(dep.toId)
+    const target = targets.get(dep.toId)
     if (!target || target.deletedAt || store.isClosed(target) || !(await mayRead(target.id)))
       continue
     const list = blockers.get(dep.fromId) ?? []

@@ -27,16 +27,14 @@ import {
   type UserId,
 } from '@podium/model'
 import { parseIssueRef } from '@podium/protocol'
-import { type EntityChangeSpec, StagedOverlay } from '@podium/sync'
+import type { EntityChangeSpec } from '@podium/sync'
 import { slugifyBranch } from '../../../issue-util'
 import type { IssueRow, StoredIssueUserState } from '../../../store'
-import { afterCommit, applyAfterCommit, spanOpen } from '../../../store/executor/executor'
+import { afterCommit } from '../../../store/executor/executor'
 import { currentOperation, operationSlot } from '../../../store/executor/operation-scope'
 import { readScopeSlot, currentReadScope } from '../../../store/executor/read-scope'
 import { decodePanel } from '../../../store/issue-storage'
-import { issueFromRow } from '../../../store/issues'
 import type { SessionFacts } from '../../sessions/facts'
-import { bindCommittedIssueReader } from '../issue-reader'
 import { normalizeBlankIssueText } from '../blank-text'
 import {
   issueDepProjectionRows,
@@ -45,55 +43,11 @@ import {
   issueRowToProjection,
   repoProjectionRows,
 } from '../projection'
-import { compareOutcomeWithIssueMap, compareWithIssueMap, issueMapParityMode } from './map-parity'
 import { IssueNotFound } from './not-found'
 import { IssueRefusal } from './refusal'
 import type { IssueDeps } from './types'
 
 const log = createLogger('server:issues')
-
-/** Row identities only. Prefixes stay in the repo registry, so renaming one
- * changes lookup immediately without rewriting any issue's index entry. */
-class IssueReferenceIndex {
-  private readonly bySeq = new Map<number, Set<string>>()
-  private readonly byRepo = new Map<string | null, Map<number, Set<string>>>()
-  private readonly order = new Map<string, number>()
-  nextOrder = 0
-
-  add(row: IssueRow): void {
-    if (!this.order.has(row.id)) this.order.set(row.id, this.nextOrder++)
-    const seq = this.bySeq.get(row.seq) ?? new Set<string>()
-    seq.add(row.id)
-    this.bySeq.set(row.seq, seq)
-    const repoId = row.repoId ?? null
-    const repo = this.byRepo.get(repoId) ?? new Map<number, Set<string>>()
-    const ids = repo.get(row.seq) ?? new Set<string>()
-    ids.add(row.id)
-    repo.set(row.seq, ids)
-    this.byRepo.set(repoId, repo)
-  }
-
-  remove(row: IssueRow, forgetOrder: boolean): void {
-    const seq = this.bySeq.get(row.seq)
-    seq?.delete(row.id)
-    if (seq?.size === 0) this.bySeq.delete(row.seq)
-    const repoId = row.repoId ?? null
-    const repo = this.byRepo.get(repoId)
-    const ids = repo?.get(row.seq)
-    ids?.delete(row.id)
-    if (ids?.size === 0) repo?.delete(row.seq)
-    if (repo?.size === 0) this.byRepo.delete(repoId)
-    if (forgetOrder) this.order.delete(row.id)
-  }
-
-  ids(seq: number, repoId?: string | null): Iterable<string> {
-    return (repoId === undefined ? this.bySeq.get(seq) : this.byRepo.get(repoId)?.get(seq)) ?? []
-  }
-
-  orderOf(id: string): number | undefined {
-    return this.order.get(id)
-  }
-}
 
 /** The columns a repository-scope test reads off a row. */
 type IssueScopeRow = Pick<IssueRow, 'repoId' | 'repoPath' | 'machineId'>
@@ -125,72 +79,7 @@ function referenceInRepoOf(
  * composed over this object; none owns a second row cache.
  */
 export class IssueStore {
-  /** Hydrated row cache; null until the first {@link init}/lazy access. Kept out
-   *  of the constructor so constructing the service can never crash-loop the
-   *  server boot on bad data (the composition root calls init() explicitly;
-   *  everything else lazily hydrates on first touch). */
-  private hydrated: Map<string, IssueRow> | null = null
-  /**
-   * THE BROADCAST VIEWER'S per-user markers, `issueId → row` (POD-1076).
-   *
-   * `issues.read_at` / `tucked_at` / `pinned` used to be columns on the shared
-   * row, so the projection got them for free and every client saw one person's
-   * markers as if they were the issue's. They are now `(userId, issueId)` rows
-   * and the projection needs a VIEWER.
-   *
-   * The feed is still unscoped (ADR 2 D2), so there is exactly one viewer to
-   * serve and it is named rather than defaulted: {@link broadcastViewer}. When
-   * POD-1077 makes fan-out per-principal, this map becomes per-principal and the
-   * constant becomes the request's user — the sites are these two members and
-   * nothing else, because no other code holds a marker.
-   */
-  private viewerState: Map<string, StoredIssueUserState> | null = null
-  /**
-   * ROWS THIS SPAN INSTALLED WHOSE COMMIT HAS NOT HAPPENED YET [POD-3366].
-   *
-   * `null` for an id means a staged REMOVAL. Empty — and therefore free —
-   * outside an enclosing span, which is every top-level mutation: a
-   * `ledger.commit` with no caller's span around it IS the outermost commit,
-   * and the row installs at once, exactly where it does today.
-   *
-   * WHY THE MAP CANNOT SIMPLY DEFER. `rows` is read constantly between a nested
-   * write and the enclosing commit — `rowOrThrow` for the next command in the
-   * same orchestrated span, `toWire`'s children and blocked scans, `emitEvent`
-   * reading a subject's repoPath, `deleteIfEmptyDraft`. A bare deferral would
-   * show all of them the PRE-write row while the database, inside the savepoint,
-   * already holds the new one. So the install is staged where those readers see
-   * it and reaches {@link hydrated} only through a commit application.
-   */
-  private readonly stagedRows: StagedOverlay<string, IssueRow>
-  private readonly stagedViewerState: StagedOverlay<string, StoredIssueUserState>
-  /**
-   * The composed view, rebuilt lazily and only while something is staged.
-   *
-   * Composing costs one map copy, and it is paid on the first `rows` read after
-   * a staged write rather than on every read: outside a span this field is never
-   * populated and the getter returns the committed map itself. Rebuilt when the
-   * overlay's version moves, which is the overlay's answer to "has anything
-   * been staged, promoted or dropped since you last looked".
-   */
-  private composedRows: { version: number; rows: Map<string, IssueRow> } | undefined
-  private references = new IssueReferenceIndex()
-  private stagedReferences: { version: number; index: IssueReferenceIndex } | undefined
-  constructor(readonly deps: IssueDeps) {
-    this.stagedViewerState = new StagedOverlay(
-      deps.applyCommit,
-      (id, state) => {
-        const viewerState = this.requireHydrated().viewerState
-        if (state) viewerState.set(id, state)
-        else viewerState.delete(id)
-      },
-      'issue-user-state-install',
-    )
-    this.stagedRows = new StagedOverlay<string, IssueRow>(
-      deps.applyCommit,
-      (id, row) => this.applyRow(id, row ?? null),
-      'issue-row-install',
-    )
-  }
+  constructor(readonly deps: IssueDeps) {}
 
   /**
    * Freeze the machine choice an implicit operation would otherwise make inside
@@ -262,49 +151,21 @@ export class IssueStore {
   /** The stored markers, for callers that need `pinnedAt` rather than `pinned`.
    *  Read from the database, batched per operation (POD-6158). */
   async issueUserState(issueId: IssueId): Promise<StoredIssueUserState | undefined> {
-    const state = await this.deps.store.issues.loadIssueUserState(await this.broadcastViewer(), issueId)
-    compareWithIssueMap('issueUserState', issueId, () => this.issueUserStateFromMap(issueId), state)
-    return state
+    return await this.deps.store.issues.loadIssueUserState(await this.broadcastViewer(), issueId)
   }
 
   /** {@link issueUserState} for many issues: one batched read (POD-6191). */
   async issueUserStates(ids: Iterable<string>): Promise<Map<string, StoredIssueUserState | undefined>> {
-    const unique = [...new Set(ids)]
-    const states = await this.deps.store.issues.loadIssueUserStates(await this.broadcastViewer(), unique)
-    compareWithIssueMap(
-      'issueUserStates',
-      unique,
-      () => new Map(unique.map((id) => [id, this.issueUserStateFromMap(asIssueId(id))] as const)),
-      states,
-    )
-    return states
+    return await this.deps.store.issues.loadIssueUserStates(await this.broadcastViewer(), [...new Set(ids)])
   }
 
   /**
-   * The viewer map's markers, for the readers that still scan the issue map
-   * (POD-6158 switches them group by group; the map and this go together).
-   */
-  mapIssueOverlay(issueId: IssueId): IssueUserOverlay {
-    return issueOverlayOf(this.issueUserStateFromMap(issueId))
-  }
-
-  /** The viewer map's answer, for the old/new comparison until it is deleted. */
-  private issueUserStateFromMap(issueId: IssueId): StoredIssueUserState | undefined {
-    const staged = this.stagedViewerState.peek(issueId)
-    return staged ? staged.value : this.requireHydrated().viewerState.get(issueId)
-  }
-
-  /**
-   * Write one of the broadcast viewer's markers, through the store and the cache
-   * together. A PARTIAL patch — see the repository method — so marking an issue
-   * read cannot silently un-pin it.
-   *
-   * Bumps `issueInputsGen`: a marker change is an issue-side wire input, and
-   * POD-723's memo would otherwise serve the pre-change payload.
+   * Write one of the broadcast viewer's markers. A PARTIAL patch — see the
+   * repository method — so marking an issue read cannot silently un-pin it.
    */
   async writeIssueUserState(issueId: IssueId, patch: Partial<StoredIssueUserState>): Promise<void> {
     const user = await this.broadcastViewer()
-    const { result: next } = await this.deps.ledger.commit({
+    await this.deps.ledger.commit({
       write: async () => {
         await this.deps.store.issues.setIssueUserState(user, issueId, patch)
         return await this.deps.store.issues.getIssueUserState(user, issueId)
@@ -322,109 +183,22 @@ export class IssueStore {
         },
       ],
     })
-    this.stagedViewerState.set(issueId, next)
   }
 
   /** Ephemeral observations, published only as issueGitState rows. */
   readonly gitStates = new Map<string, IssueGitState>()
 
-  /** The in-memory row map. Row-level quarantine lives in the store
-   *  (listIssueRows skips + logs + counts corrupt rows), so hydration is total:
-   *  a corrupt row costs that row, never the boot.
-   *
-   *  The getter used to hydrate on first touch. It does not any more (POD-3256):
-   *  a getter cannot await, so the load is an explicit step {@link init} that
-   *  the factory runs, and this getter only serves what that step loaded. */
-  get rows(): ReadonlyMap<string, IssueRow> {
-    const committed = this.requireHydrated().rows
-    if (this.stagedRows.empty) return committed
-    const version = this.stagedRows.version
-    if (this.composedRows?.version !== version) {
-      const composed = new Map(committed)
-      for (const [id, row] of this.stagedRows.entries()) {
-        if (row === undefined) composed.delete(id)
-        else composed.set(id, row)
-      }
-      this.composedRows = { version, rows: composed }
-    }
-    return this.composedRows.rows
-  }
-
   /**
-   * THE ONE WAY A ROW ENTERS OR LEAVES THE MAP, and the reason {@link rows} is
-   * a `ReadonlyMap` [POD-3366].
+   * DRAFTS, THE ISSUE REGISTRY'S MODEL [POD-3259, spec §3.6 (b)].
    *
-   * Making the getter read-only is what stops the wrong version being available
-   * rather than merely discouraged: the three sites that used to `rows.set(...)`
-   * on the statement after a `ledger.commit` no longer typecheck, and a
-   * fourteenth site written the old way is a compile error instead of a rule
-   * somebody has to know.
-   *
-   * With no span open this commit IS the outermost commit and the row installs
-   * at once. Inside one it is staged — visible to every in-window reader through
-   * the getter — and promoted by a commit application. There is no abort arm: a
-   * staged row still there when no span is open belongs to a unit of work that
-   * ended without committing, and {@link freshenStagedRows} drops it on the way
-   * IN, so a crash cannot leave the map claiming a row the database threw away.
-   */
-  installRow(id: string, row: IssueRow | null): void {
-    // One call: the overlay decides whether a span is open, stages or installs
-    // accordingly, registers the promotion, and drops what a rollback left. This
-    // was the THIRD hand-rolled copy of that decision and it is gone with the
-    // other two [POD-3366].
-    this.stagedRows.set(id, row ?? undefined)
-    // Whichever way it went, the map a reader sees has moved, so every cached
-    // wire built from it is stale [POD-723].
-  }
-
-  /** Write straight through to the committed map. */
-  private applyRow(id: string, row: IssueRow | null): void {
-    const committed = this.requireHydrated().rows
-    const previous = committed.get(id)
-    const identityChanged =
-      !previous || !row || previous.seq !== row.seq || previous.repoId !== row.repoId
-    if (previous && identityChanged) this.references.remove(previous, row === null)
-    if (row && identityChanged) this.references.add(row)
-    if (row === null) {
-      committed.delete(id)
-      // A purged issue's memo would otherwise outlive its row. `hydrate` used to
-      // prune these by dropping the whole map [POD-723]; a targeted removal has
-      // to say so.
-    } else committed.set(id, row)
-  }
-
-  /**
-   * DRAFT-THEN-INSTALL, THE ISSUE REGISTRY'S MODEL [POD-3259, spec §3.6 (b)].
-   *
-   * `rows` is process-owned mutable state, and until this issue every mutation
-   * path took the MAP'S OWN object, assigned onto it, and persisted it — so the
-   * uncommitted field set was visible to every other holder of that row for as
-   * long as the write took, and a failed commit had to be undone by assigning a
-   * backup back over it. That is correct only because nothing can run between
-   * the assignment and the commit. With awaits in the picture it has two
-   * failure modes, neither of which any test could see today:
-   *
-   *  - a reader between the mutation and the commit observes fields no
-   *    committed row backs, and if the commit then fails it observed a value
-   *    that never existed;
-   *  - two updates read the same row, both mutate it, one commits, and the
-   *    loser's rollback-by-assignment writes the WINNER's row back to a stale
-   *    value — silently, with both callers told they succeeded.
-   *
-   * So a mutation path takes a DRAFT: a copy, pinned to the revision it was cut
-   * from. The draft is what gets persisted, and it is installed into the map
-   * only after the commit — which is what {@link IssueLifecyclePlan} (the
-   * soft-delete and restore paths) has done all along; this generalises it to
-   * every write. Nothing is rolled back on failure because the shared object was
-   * never touched.
-   *
-   * The pin is checked ONCE, and durably: `upsertIssue`'s `expectedRevision`
-   * precondition refuses inside the transaction, so a loser's write rolls back
-   * instead of overwriting the winner's columns. A second check at install time
-   * was written first and then removed — it can never fire (the install follows
-   * the write that would already have been refused) and it CAN fire wrongly,
-   * because `reload()` landing in the gap re-hydrates the map to the revision
-   * this write just committed. See {@link StaleIssueRevisionError}.
+   * A mutation path takes a DRAFT: a private copy of the row, pinned to the
+   * revision it was cut from. The draft is what gets persisted, and the pin is
+   * checked ONCE, durably: `upsertIssue`'s `expectedRevision` precondition
+   * refuses inside the transaction, so of two writes cut from one revision the
+   * loser rolls back instead of overwriting the winner's columns. See
+   * {@link StaleIssueRevisionError}. Since POD-6158 there is no in-memory copy
+   * of the issues to install a committed draft into: every reader asks the
+   * database.
    */
   private readonly draftOrigins = new WeakMap<IssueRow, number | null>()
   /** Where each draft's issue had its worktree when the draft was cut (or
@@ -440,54 +214,24 @@ export class IssueStore {
   /**
    * One issue row from the database, read now (POD-6158): the row a write is
    * drafted from or a command acts on. Never the operation's memo, so a draft
-   * is cut from the latest commit exactly as the issue map served it.
+   * is cut from the latest commit.
    */
   async liveRow(id: string): Promise<IssueRow | undefined> {
-    const row = (await this.deps.store.issues.getIssueLive(id)) ?? undefined
-    compareWithIssueMap('liveRow', id, () => this.mapRowBeside(id, row), row)
-    return row
-  }
-
-  /**
-   * The map's row for the old/new comparison (POD-6158).
-   *
-   * Inside a save, the database already shows the rows that save wrote; the
-   * map installs them only after the commit. That window is the change the
-   * design makes on purpose (one way to read a fact), so a row whose stored
-   * revision moved inside the open save is not a difference. Outside a save
-   * the two must agree exactly.
-   */
-  private mapRowBeside(id: string, db: IssueRow | undefined): IssueRow | undefined {
-    const map = this.rows.get(id)
-    if (spanOpen() && (map?.revision ?? null) !== (db?.revision ?? null)) return db
-    return map
+    return (await this.deps.store.issues.getIssueLive(id)) ?? undefined
   }
 
   /**
    * One issue row for a READ (POD-6158): batched with the other loads of its
    * tick and memoized for the operation, write spans included (the loader is
-   * exact across writes, POD-6189). Deleted rows included, as the map held them.
+   * exact across writes, POD-6189). Deleted rows included.
    */
   async row(id: string): Promise<IssueRow | undefined> {
-    const row = await this.deps.store.issues.loadIssue(id)
-    compareWithIssueMap('row', id, () => this.mapRowBeside(id, row), row)
-    return row
+    return await this.deps.store.issues.loadIssue(id)
   }
 
   /** {@link row} for many ids in one statement per 500; absent ids are absent. */
   async rowsByIds(ids: Iterable<string>): Promise<Map<string, IssueRow>> {
-    const unique = [...new Set(ids)]
-    const rows = await this.deps.store.issues.loadIssues(unique)
-    compareWithIssueMap(
-      'rowsByIds',
-      unique,
-      () => new Map(unique.flatMap((id) => {
-        const row = this.mapRowBeside(id, rows.get(id))
-        return row ? [[id, row] as const] : []
-      })),
-      rows,
-    )
-    return rows
+    return await this.deps.store.issues.loadIssues([...new Set(ids)])
   }
 
   /** {@link draft}, refusing an unknown issue the way {@link rowOrThrow} does. */
@@ -556,143 +300,20 @@ export class IssueStore {
     return this.draftOrigins.get(row)
   }
 
-  /** The one thing the model forbids outright: persisting the map's own object.
-   *  Refused rather than tolerated because it is invisible in every other way —
-   *  the write succeeds, the rows are right, and the shared object carried
-   *  uncommitted fields the whole time. */
-  private refuseMapOwnedRow(row: IssueRow): void {
-    if (this.rows.get(row.id) !== row) return
-    throw new Error(
-      `persist(${row.id}): the map-owned row was mutated in place. Take a draft ` +
-        `(IssueRegistry.draft/draftOrThrow) and persist that instead [POD-3259, spec §3.6].`,
-    )
-  }
-
   /**
-   * Install a committed draft.
-   *
-   * What goes into the map is a SNAPSHOT of the draft, not the draft itself. If
-   * the caller's object became the map's object, a second write of the same
-   * draft would be a mutation of shared state and {@link refuseMapOwnedRow}
-   * would refuse it; snapshotting keeps the caller's row private, and re-pinning
-   * it to the revision just committed is what lets its next write carry a
-   * precondition that is true rather than several writes stale.
-   *
-   * THE TWO EXAMPLES THIS COMMENT USED TO GIVE ARE GONE [POD-3384]. It named
-   * `cleanup()` writing one draft four times as each git step settled, and
-   * `inspectRemovableWorktree` writing its caller's row before handing control
-   * back. POD-3375 removed both: spec rule 26 forbids a draft outliving a
-   * suspension it is persisted after, so `cleanup()` hoists the values its git
-   * steps need and cuts its draft at the write, and `inspectRemovableWorktree`
-   * takes an id and owns the draft it writes. A per-function scan of this module
-   * found no remaining path that persists one draft repeatedly.
-   *
-   * So the snapshot is now DEFENCE IN DEPTH rather than a response to a live
-   * caller, and saying so is the point of this paragraph: a justification that
-   * names paths which no longer exist reads as evidence and is not. It stays
-   * because rule 26 is a rule about what callers may do, not a guarantee the
-   * type system enforces, and `refuseMapOwnedRow` plus
-   * issue-registry-model.test.ts's "refuses the map-owned row outright" are what
-   * still exercise the boundary.
+   * Re-pin a committed draft to the revision just written. It records, on the
+   * caller's own private draft object, which revision the database now holds
+   * for it, so a draft persisted again carries a precondition that is true of
+   * the row inside this span rather than one that is a write stale. If the
+   * enclosing span then rolls back, the pin is ahead of the restored row and the
+   * draft's NEXT write is refused by its own precondition: fail-closed, the safe
+   * direction.
    */
-  private installDraft(row: IssueRow, pin: number | null | undefined): void {
-    this.installRow(row.id, this.draftOf(row))
-    // THE RE-PIN IS NOT DEFERRED, and that is deliberate [POD-3366]. It is not a
-    // shared projection: it records, on the caller's own private draft object,
-    // which revision the database now holds for it — the same thing the shipping
-    // lease projection's version records, and for the same purpose. A caller
-    // that persists one draft repeatedly (`cleanup()` writes it four times) must
-    // carry a precondition that is true of the row inside this span, not one
-    // that is three writes stale. If the enclosing span then rolls back, the pin
-    // is ahead of the restored row and the draft's NEXT write is refused by its
-    // own precondition — fail-closed, which is the safe direction.
+  private repinDraft(row: IssueRow, pin: number | null | undefined): void {
     if (pin !== undefined) {
       this.draftOrigins.set(row, row.revision ?? null)
       this.draftWorktrees.set(row, worktreeOf(row))
     }
-  }
-
-  /** Explicit hydration, run by `IssueService.create` before any reader exists
-   *  (POD-3256) — the same load the lazy path performs, done eagerly so boot
-   *  surfaces load logs immediately. */
-  async init(): Promise<this> {
-    await this.hydrate()
-    return this
-  }
-
-  /**
-   * The loaded state, or a refusal naming the missing step.
-   *
-   * Reaching a reader before hydration is a composition mistake, not a
-   * recoverable condition: the only two ways to get an IssueStore are the
-   * factory (which hydrates) and {@link reload}, so a null here means somebody
-   * built the object by a route that no longer exists.
-   */
-  private requireHydrated(): {
-    rows: Map<string, IssueRow>
-    viewerState: Map<string, StoredIssueUserState>
-  } {
-    if (this.hydrated === null || this.viewerState === null) {
-      throw new Error(
-        'IssueStore read before init(): the issue service hydrates through its factory',
-      )
-    }
-    return { rows: this.hydrated, viewerState: this.viewerState }
-  }
-
-  /** Clear and re-hydrate the in-memory row map from the store. Lets tests (and
-   *  future external mutators) refresh `this.rows` after a direct store write. */
-  async reload(): Promise<void> {
-    await this.hydrate()
-  }
-
-  private unsubscribeRows: (() => void) | undefined
-
-  private async hydrate(): Promise<void> {
-    // Load and subscribe under the same transaction. No repository commit can
-    // fall between the snapshot and its subscription, including direct writes
-    // (shipping CAS, renumber, reassignment and machine backfill).
-    await this.deps.store.transact(async () => {
-      const map = new Map<string, IssueRow>()
-      const references = new IssueReferenceIndex()
-      for (const r of await this.deps.store.issues.listIssueRows()) {
-        map.set(r.id, r)
-        references.add(r)
-      }
-      const viewerState = await this.deps.store.issues.listIssueUserState(
-        await this.broadcastViewer(),
-      )
-      applyAfterCommit(() => {
-        this.composedRows = undefined
-        this.hydrated = map
-        this.references = references
-        this.stagedReferences = undefined
-        this.viewerState = viewerState
-        this.unsubscribeRows?.()
-        this.unsubscribeRows = this.deps.store.issues.committed.subscribe((change) => {
-          for (const raw of change.rows) {
-            this.applyRow(raw.id, change.operation === 'delete' ? null : issueFromRow(raw))
-          }
-        })
-        // Point and cwd reads quarantine fewer columns than listIssueRows.
-        // If boot omitted anything, use SQL rather than turn a quarantined
-        // row into a missing ownership fact or change cwd ambiguity rules.
-        bindCommittedIssueReader(
-          this.deps.store.issues,
-          this.deps.store.issues.quarantinedRowCount === 0
-            ? () => this.requireHydrated().rows
-            : undefined,
-        )
-      }, 'issue-rows:load')
-    })
-  }
-
-  /** Worktree paths of all issues (for cwd-based worker-role resolution). */
-  worktreePaths(): string[] {
-    return [...this.rows.values()]
-      .filter((r) => !r.deletedAt)
-      .map((r) => r.worktreePath)
-      .filter((p): p is string => !!p)
   }
 
   now(): string {
@@ -765,32 +386,15 @@ export class IssueStore {
     return this.computeUnread(row, sessions, (await this.issueOverlay(row.id)).readAt)
   }
 
-  /** blocked = open AND ≥1 `blocked-by` dep whose target issue is not closed. */
-  async computeBlocked(
-    row: IssueRow,
-    batch?: { depsByFrom: ReadonlyMap<string, readonly { toId: IssueId; type: string }[]> },
-  ): Promise<boolean> {
-    // With a batch this reads nothing: the outgoing deps for the whole set were
-    // fetched once by the report batch. Without one it is the single-row case
-    // and asks for its own row's deps, as it always did (POD-3257).
-    const outgoing = batch
-      ? (batch.depsByFrom.get(row.id) ?? [])
-      : await this.deps.store.issues.listIssueDeps(row.id)
-    const blocksTargets = outgoing
-      .filter((d) => d.type === 'blocked-by')
-      .map((d) => this.rows.get(d.toId))
-    return isIssueBlocked(row, blocksTargets)
-  }
-
   // ---- hierarchy reads from the database (POD-6192) ------------------------
 
   /**
-   * A parent's children from the database, in the boot map's order (repository
+   * A parent's children from the database, in repository order (repository
    * path, then sequence). `live` leaves out deleted ones, `unarchived`
-   * archived ones. Compared with the map outside a save.
+   * archived ones.
    */
   async childRows(parentId: string, opts: { live?: boolean; unarchived?: boolean } = {}): Promise<IssueRow[]> {
-    const rows = await this.deps.store.issues.listIssueRowsWhere(
+    return await this.deps.store.issues.listIssueRowsWhere(
       {
         repo: false,
         readable: false,
@@ -801,11 +405,6 @@ export class IssueStore {
       },
       { parents: [parentId] },
     )
-    this.compareRowSet('childRows', [parentId, opts], () =>
-      [...this.rows.values()].filter(
-        (r) => r.parentId === parentId && (!opts.live || !r.deletedAt) && (!opts.unarchived || !r.archived),
-      ), rows)
-    return rows
   }
 
   /**
@@ -841,20 +440,6 @@ export class IssueStore {
       }
     }
     walk(rootId)
-    this.compareRowSet('descendantRows', [rootId, opts], () => {
-      const found: IssueRow[] = []
-      const ids = new Set<string>([rootId])
-      for (let grew = true; grew; ) {
-        grew = false
-        for (const r of this.rows.values()) {
-          if (!r.parentId || !ids.has(r.parentId) || ids.has(r.id) || (opts.live && r.deletedAt)) continue
-          ids.add(r.id)
-          found.push(r)
-          grew = true
-        }
-      }
-      return found
-    }, out)
     return out
   }
 
@@ -879,30 +464,9 @@ export class IssueStore {
     return ready
   }
 
-  /** A set of rows read from the database against the map's, by id, outside a
-   *  save (inside one the map lags the save's own writes). */
-  private compareRowSet(name: string, key: unknown, mapRows: () => IssueRow[], rows: readonly IssueRow[]): void {
-    if (spanOpen()) return
-    const byId = (list: readonly IssueRow[]) => [...list].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
-    compareWithIssueMap(name, key, () => byId(mapRows()), byId(rows))
-  }
-
   /** Only this issue's own fields and labels enter its publication. */
   async projection(row: IssueRow): Promise<IssueProjection> {
     return issueRowToProjection(row, await this.deps.store.issues.getIssueLabels(row.id))
-  }
-
-  async isReady(
-    row: IssueRow,
-    batch?: { depsByFrom: ReadonlyMap<string, readonly { toId: IssueId; type: string }[]> },
-  ): Promise<boolean> {
-    return (
-      isIssueStage(row.stage) &&
-      isReadyIssueStage(row.stage) &&
-      !this.isClosed(row) &&
-      !this.isDeferred(row) &&
-      !(await this.computeBlocked(row, batch))
-    )
   }
 
   /** Parse the stored panel JSON, tolerating legacy/garbage values (empty panel).
@@ -945,82 +509,13 @@ export class IssueStore {
       scope !== null && (row.repoId ?? resolve(row.repoPath, row.machineId)) === scope
   }
 
-  /** Index only staged writes, once per overlay version. Copying the composed
-   * row map here would make an in-span point lookup scan every committed issue. */
-  private pendingReferences(): IssueReferenceIndex | undefined {
-    if (this.stagedRows.empty) return undefined
-    const version = this.stagedRows.version
-    if (this.stagedReferences?.version !== version) {
-      const index = new IssueReferenceIndex()
-      for (const [, row] of this.stagedRows.entries()) {
-        if (row) index.add(row)
-      }
-      this.stagedReferences = { version, index }
-    }
-    return this.stagedReferences.index
-  }
-
-  /** Read the matching bucket and overlay only. A staged rekey or removal must
-   * hide its committed entry, and a rollback drops it through StagedOverlay. */
-  private referenceRows(seq: number, repoId?: string | null): IssueRow[] {
-    const pending = this.pendingReferences()
-    const ids = new Set(this.references.ids(seq, repoId))
-    for (const id of pending?.ids(seq, repoId) ?? []) ids.add(id)
-    const committed = this.requireHydrated().rows
-    const matches: IssueRow[] = []
-    for (const id of ids) {
-      const staged = this.stagedRows.peek(id)
-      const row = staged ? staged.value : committed.get(id)
-      if (row && row.seq === seq && (repoId === undefined || (row.repoId ?? null) === repoId)) {
-        matches.push(row)
-      }
-    }
-    // Keep the row map's insertion order, including after a seq/repo rekey.
-    return this.sortReferenceRows(matches, pending)
-  }
-
-  private sortReferenceRows(matches: IssueRow[], pending = this.pendingReferences()): IssueRow[] {
-    const order = (id: string) =>
-      this.references.orderOf(id) ?? this.references.nextOrder + (pending?.orderOf(id) ?? 0)
-    return matches.sort((a, b) => order(a.id) - order(b.id))
-  }
-
-  private async referenceInRepo(seq: number, repoId: string): Promise<IssueId | null> {
-    const matches = this.referenceRows(seq, repoId)
-    // Legacy rows without repo_id still use the live, machine-aware resolver.
-    // Its snapshot must not be held across repo-registry writes.
-    const legacy = this.referenceRows(seq, null)
-    if (legacy.length > 0) {
-      const resolve = await this.deps.store.repos.issueRepoIdResolver()
-      matches.push(...legacy.filter((row) => resolve(row.repoPath, row.machineId) === repoId))
-      this.sortReferenceRows(matches)
-    }
-    return matches[0]?.id ?? null
-  }
-
-  /** The chip batch accepts display refs and unambiguous #N, as before.
-   * Prefix queries are indexed in storage and shared within the batch; issue
-   * lookups use the maintained repo/seq index rather than an issue-row pass. */
-  async resolveRefs(refs: readonly string[]): Promise<Array<{ ref: string; id: IssueId | null }>> {
-    // Inside a save the index lags the save's own repository writes until the
-    // commit; references are compared outside saves only (POD-6158).
-    if (spanOpen()) return await this.resolveRefsFromDb(refs)
-    return await compareOutcomeWithIssueMap(
-      'resolveRefs',
-      refs,
-      async () => await this.resolveRefsFromMap(refs),
-      async () => await this.resolveRefsFromDb(refs),
-    )
-  }
-
   /**
-   * The chip batch from the database (POD-6158): one statement for every
-   * sequence number the batch names, then each ref is decided over the rows at
-   * its number, as {@link resolveRefsFromMap} decides it over the index.
+   * The chip batch: display refs and unambiguous #N, as before. One statement
+   * for every sequence number the batch names (POD-6158), then each ref is
+   * decided over the rows at its number; prefix lookups are shared within the
+   * batch.
    */
-  private async resolveRefsFromDb(
-    refs: readonly string[],
-  ): Promise<Array<{ ref: string; id: IssueId | null }>> {
+  async resolveRefs(refs: readonly string[]): Promise<Array<{ ref: string; id: IssueId | null }>> {
     const parsed = [...new Set(refs)].map((ref) => {
       const nice = parseIssueRef(ref.trim().toUpperCase())
       const numeric = nice ? null : /^#(\d+)$/.exec(ref.trim())
@@ -1050,30 +545,6 @@ export class IssueStore {
     )
   }
 
-  /** The reference index's answer, for the old/new comparison until it is deleted. */
-  private async resolveRefsFromMap(
-    refs: readonly string[],
-  ): Promise<Array<{ ref: string; id: IssueId | null }>> {
-    const prefixes = new Map<string, ReturnType<IssueDeps['store']['repos']['repoForPrefix']>>()
-    return await Promise.all(
-      [...new Set(refs)].map(async (ref) => {
-        const nice = parseIssueRef(ref.trim().toUpperCase())
-        if (nice) {
-          let lookup = prefixes.get(nice.prefix)
-          if (!lookup) {
-            lookup = this.deps.store.repos.repoForPrefix(nice.prefix)
-            prefixes.set(nice.prefix, lookup)
-          }
-          const repo = await lookup
-          return { ref, id: repo ? await this.referenceInRepo(nice.seq, repo.repoId) : null }
-        }
-        const numeric = /^#(\d+)$/.exec(ref.trim())
-        const matches = numeric ? this.referenceRows(Number(numeric[1])) : []
-        return { ref, id: matches.length === 1 ? (matches[0]?.id ?? null) : null }
-      }),
-    )
-  }
-
   /** Resolve an issue reference to the internal id. Accepts the internal `iss_…` id
    *  (passthrough), a display seq (`10` / `#10` — what list/prime/search print), or a
    *  repo-qualified ref (`<repoPath>#10`, the form the ambiguity error prints; a
@@ -1094,22 +565,12 @@ export class IssueStore {
    *  which id SPACE a value belongs to, never that the row exists — existence is
    *  the throw's job, not the type's. */
   async resolveRef(ref: string, scopeRepoPath?: string): Promise<IssueId> {
-    // The internal id needs no lookup on either side.
-    if (ref.startsWith('iss_')) return asIssueId(ref)
-    // Compared outside saves only, as in resolveRefs.
-    if (spanOpen()) return await this.resolveRefFromDb(ref, scopeRepoPath)
-    return await compareOutcomeWithIssueMap(
-      'resolveRef',
-      [ref, scopeRepoPath ?? null],
-      async () => await this.resolveRefFromMap(ref, scopeRepoPath),
-      async () => await this.resolveRefFromDb(ref, scopeRepoPath),
-    )
-  }
-
-  /** {@link resolveRef} from the database (POD-6158): the same branches, over
-   *  the rows at the reference's sequence number. */
-  private async resolveRefFromDb(ref: string, scopeRepoPath?: string): Promise<IssueId> {
-    if (await this.deps.store.issues.hasIssue(ref)) return asIssueId(ref)
+    // The internal id needs no lookup; any other existing id passes through too.
+    if (ref.startsWith('iss_') || (await this.deps.store.issues.hasIssue(ref))) return asIssueId(ref)
+    // Human-facing nice id `PREFIX-seq` (#474), read over the rows at its
+    // sequence number (POD-6158). The prefix identifies the repo server-wide, so
+    // this resolves without a path qualifier; a prefix no repo owns falls
+    // through. CLI courtesy: `pod-13` reads as `POD-13`.
     const nice = parseIssueRef(ref.trim().toUpperCase())
     if (nice) {
       const repo = await this.deps.store.repos.repoForPrefix(nice.prefix)
@@ -1140,64 +601,6 @@ export class IssueStore {
     if (!m) return asIssueId(ref)
     const seq = Number(m[1])
     let matches = await this.deps.store.issues.issueRefsAt(seq)
-    if (matches.length > 1 && scopeRepoPath) {
-      const inScope = await this.repoScopeFilter(scopeRepoPath)
-      const scoped = matches.filter((r) => inScope(r))
-      if (scoped.length > 0) matches = scoped
-    }
-    if (matches.length === 1) return matches[0]!.id
-    if (matches.length > 1) {
-      const where = matches.map((r) => `${r.repoPath}#${r.seq}`).join(', ')
-      throw new IssueRefusal(
-        `ambiguous issue ref #${seq} (matches ${where}); qualify it as <repoPath>#${seq}`,
-      )
-    }
-    return asIssueId(ref)
-  }
-
-  /** The reference index's answer, for the old/new comparison until it is deleted. */
-  private async resolveRefFromMap(ref: string, scopeRepoPath?: string): Promise<IssueId> {
-    const staged = this.stagedRows.peek(ref)
-    if (
-      ref.startsWith('iss_') ||
-      (staged ? staged.value !== undefined : this.requireHydrated().rows.has(ref))
-    )
-      return asIssueId(ref)
-    // Human-facing nice id `PREFIX-seq` (#474). The prefix identifies the repo
-    // server-wide, so this resolves without a path qualifier. A prefix that no
-    // repo owns falls through to the other branches (and ultimately returns the
-    // input unchanged so the caller's unknown-issue error fires).
-    // CLI courtesy: `pod-13` reads as `POD-13` (prefixes are uppercase by grammar).
-    const nice = parseIssueRef(ref.trim().toUpperCase())
-    if (nice) {
-      const repo = await this.deps.store.repos.repoForPrefix(nice.prefix)
-      if (repo) {
-        const id = await this.referenceInRepo(nice.seq, repo.repoId)
-        if (id) return id
-      }
-    }
-    const qualified = /^(.+)#(\d+)$/.exec(ref.trim())
-    if (qualified) {
-      const [, repo, seqStr] = qualified
-      const seq = Number(seqStr)
-      // Repo qualifier matches the display path (exact or trailing suffix like
-      // `podium#10`) OR the stable repo_id (#164) — path stays a lookup attribute.
-      const matches = this.referenceRows(seq).filter(
-        (r) =>
-          r.seq === seq &&
-          (machinePathHasSuffix(r.repoPath, repo!) || r.repoId === repo),
-      )
-      if (matches.length === 1) return matches[0]!.id
-      if (matches.length > 1) {
-        const where = matches.map((r) => `${r.repoPath}#${r.seq} (${r.id})`).join(', ')
-        throw new IssueRefusal(`ambiguous issue ref ${ref} (matches ${where})`)
-      }
-      return asIssueId(ref)
-    }
-    const m = /^#?(\d+)$/.exec(ref.trim())
-    if (!m) return asIssueId(ref)
-    const seq = Number(m[1])
-    let matches = this.referenceRows(seq)
     if (matches.length > 1 && scopeRepoPath) {
       const inScope = await this.repoScopeFilter(scopeRepoPath)
       const scoped = matches.filter((r) => inScope(r))
@@ -1251,18 +654,14 @@ export class IssueStore {
    * recovery path. Boot removes prior-process git observations; purge removes
    * personal rows whose issue was deleted. */
   async reconcileCompanions(): Promise<void> {
-    // The observed issues are read by id, in the boot load's order, and diffed
-    // in the same span (POD-6158: they used to be every row of the issue map).
+    // The observed issues are read by id, in repository order, and diffed in
+    // the same span (POD-6158).
     await this.deps.store.transact(async () => {
       const observed = await this.deps.store.issues.getIssues([...this.gitStates.keys()])
-      const gitRows = inBootOrder([...observed.values()], (row) => row).flatMap((row) => {
+      const gitRows = inRepositoryOrder([...observed.values()], (row) => row).flatMap((row) => {
         const change = this.gitStateChange(row)
         return change.op === 'upsert' ? [{ id: change.id, value: change.value }] : []
       })
-      compareWithIssueMap('issueGitStateTruth', null, () => byId([...this.rows.values()].flatMap((row) => {
-        const change = this.gitStateChange(row)
-        return change.op === 'upsert' ? [{ id: change.id, value: change.value }] : []
-      })), byId(gitRows))
       await this.deps.ledger.reconcile('issueGitState', gitRows)
     })
     const states = await this.deps.store.issues.listIssueUserStateRows()
@@ -1283,25 +682,17 @@ export class IssueStore {
    *  Used only by boot reconciliation and explicit normalized truth reads.
    *
    *  Read from the database a page at a time, each page's labels by id, and
-   *  returned in the boot load's order (POD-6158: it used to project every row
-   *  of the issue map). Still a read of every issue; {@link reconcileProjections}
-   *  reads and diffs in one span. */
+   *  returned in repository order (POD-6158). Still a read of every issue;
+   *  {@link reconcileProjections} reads and diffs in one span. */
   async allProjections(): Promise<{ id: string; value: IssueProjection }[] | undefined> {
     const projected: { row: IssueRow; projection: { id: IssueId; value: IssueProjection } }[] = []
-    const labelsSeen = issueMapParityMode() === 'off' ? undefined : new Map<string, string[]>()
     for await (const page of this.deps.store.issues.issueRowPages()) {
       const labels = await this.deps.store.issues.labelsOfIssues(page.map((row) => row.id))
       const projections = issueProjectionRows(page, (id) => labels.get(id) ?? [])
       if (!projections) return undefined
       projections.forEach((projection, index) => projected.push({ row: page[index]!, projection }))
-      if (labelsSeen) for (const [id, names] of labels) labelsSeen.set(id, names)
     }
-    const truth = inBootOrder(projected, (entry) => entry.row).map((entry) => entry.projection)
-    compareWithIssueMap('issueProjectionTruth', null, () => {
-      const old = issueProjectionRows(this.rows.values(), (id) => labelsSeen?.get(id) ?? [])
-      return old ? byId(old) : old
-    }, byId(truth))
-    return truth
+    return inRepositoryOrder(projected, (entry) => entry.row).map((entry) => entry.projection)
   }
 
   /** Reconcile the issueProjection kind against the database's full truth,
@@ -1448,15 +839,10 @@ export class IssueStore {
         | (() => readonly EntityChangeSpec[] | Promise<readonly EntityChangeSpec[]>)
     },
   ): Promise<IssueProjection> {
-    // DRAFT-THEN-INSTALL (#247 rebuilt for the async store, POD-3259). `row` is
-    // a DRAFT — a copy pinned to the revision it was cut from — never the
-    // map-owned object, which is what {@link refuseMapOwnedRow} enforces. There
-    // is therefore nothing to roll back on a throw: no holder of the committed
-    // row ever saw this write, the map still has the row sqlite still has, and
-    // the install below is what publishes both at once. What replaced the
-    // backup-and-restore is the pin: `expectedRevision` refuses the write
-    // durably, inside the transaction, if the row moved after the draft was cut.
-    this.refuseMapOwnedRow(row)
+    // `row` is a DRAFT (POD-3259) — a private copy pinned to the revision it was
+    // cut from — so there is nothing to roll back on a throw. The pin is the
+    // guard: `expectedRevision` refuses the write durably, inside the
+    // transaction, if the row moved after the draft was cut.
     const pin = this.draftPin(row)
     // One spelling for absent (POD-820): `''` on a nullable text column is a
     // second encoding of `null` that no reader can tell apart. Collapsed here —
@@ -1498,13 +884,9 @@ export class IssueStore {
         changes: () => [...committedProjectionChanges, ...committedExtraChanges],
       })
     ).result
-    // Install into the map only AFTER the commit succeeded (#247): a throw in
-    // the transact span (write or change append) rolls the durable state back,
-    // and the map must not keep a row the store never accepted — a phantom row
-    // would make the next full-list reconcile fabricate an upsert for it. Since
-    // POD-3259 this is the ONLY way an update becomes visible in memory too, so
-    // it is no longer a no-op for anything.
-    this.installDraft(row, pin)
+    // Re-pinned only AFTER the commit succeeded: a throw rolls the write back,
+    // and the draft must still carry the revision the database holds.
+    this.repinDraft(row, pin)
     return wire
   }
 
@@ -1532,20 +914,17 @@ export class IssueStore {
         > = () => [],
     opts?: { touch?: boolean },
   ): Promise<{ issues: IssueProjection[]; result: T }> {
-    // DRAFT-THEN-INSTALL, same model as {@link persistWith} (POD-3259): every
-    // row here is a draft pinned to the revision it was cut from, so the
-    // backup-and-restore loop this replaced has nothing left to undo.
+    // Drafts, as in {@link persistWith} (POD-3259): every row here is pinned to
+    // the revision it was cut from, so a throw has nothing to undo.
     const pins = new Map<string, number | null | undefined>()
     for (const row of rows) {
-      this.refuseMapOwnedRow(row)
       pins.set(row.id, this.draftPin(row))
       normalizeBlankIssueText(row)
       if (opts?.touch !== false) row.updatedAt = this.now()
     }
-    // The events below read `repoPath` off the map, which still holds the
-    // PRE-commit rows while the drafts are in flight. Read the drafts first so a
-    // write that moves an issue between repos stamps its events with where the
-    // issue is going rather than where it was.
+    // The events below take `repoPath` from the drafts first, so a write that
+    // moves an issue between repos stamps its events with where the issue is
+    // going rather than where it was.
     const drafted = new Map<string, IssueRow>(rows.map((row) => [row.id, row] as const))
     let result!: T
     let wires!: IssueProjection[]
@@ -1601,16 +980,10 @@ export class IssueStore {
     ).result
     result = committed.result
     wires = committed.wires
-    for (const row of rows) this.installDraft(row, pins.get(row.id))
-    // THE ANNOUNCEMENT WAITS FOR THE OUTERMOST COMMIT [POD-3366]. `appendEvent`
-    // routes its own announcement through `afterCommit` (spec §3.3 mechanism 3)
-    // and this path opted out of that with `announce: false` so the listener
-    // would see the map install first. Opting out of the deferral WITH it was
-    // the bug: nested inside a caller's span this announced an event row the
-    // enclosing span could still roll back, which is the exact direction
-    // `appendEvent`'s own comment was written to prevent. Registered here
-    // instead — after the row installs above, because the registry keeps the
-    // order they were registered in.
+    for (const row of rows) this.repinDraft(row, pins.get(row.id))
+    // THE ANNOUNCEMENT WAITS FOR THE OUTERMOST COMMIT [POD-3366]: the events
+    // were appended with `announce: false` and are announced here, after the
+    // commit, so a span that rolls back announces nothing.
     afterCommit(async () => {
       for (const eventId of eventIds) await this.deps.store.events.announceEvent(eventId)
     }, 'issue-persist-many-events')
@@ -1640,11 +1013,11 @@ export class IssueStore {
 }
 
 /**
- * The boot load's order, `ORDER BY repo_path, seq` in SQLite's BINARY
- * collation (UTF-8 byte order), then id: the order the full-truth reconcile
- * appended in when it read the issue map (POD-6158).
+ * Repository order, `ORDER BY repo_path, seq` in SQLite's BINARY collation
+ * (UTF-8 byte order), then id: the order the full-truth reconcile appends in,
+ * kept from when it read the in-memory issue map (POD-6158).
  */
-function inBootOrder<T>(entries: readonly T[], rowOf: (entry: T) => IssueRow): T[] {
+function inRepositoryOrder<T>(entries: readonly T[], rowOf: (entry: T) => IssueRow): T[] {
   const keyed = entries.map((entry) => ({ entry, row: rowOf(entry) }))
   keyed.sort((a, b) =>
     byCodePoint(a.row.repoPath, b.row.repoPath) || a.row.seq - b.row.seq || byCodePoint(a.row.id, b.row.id))
@@ -1665,11 +1038,6 @@ function byCodePoint(a: string, b: string): number {
     return x - y
   }
   return a.length - b.length
-}
-
-/** Truth rows in id order, so the old/new comparison ignores append order. */
-function byId<T extends { id: string }>(rows: readonly T[]): T[] {
-  return [...rows].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
 }
 
 /** Where an issue's worktree is, for the move announcement: a deleted issue

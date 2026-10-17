@@ -1,13 +1,11 @@
 import { asIssueId, asMachineId, asUserId, firstAdminMemberId } from '@podium/model'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { IssueRow, SessionStore } from '../../store'
-import { applyAfterCommit, spanOpen } from '../../store/executor/executor'
 import { OPERATOR } from '../../test-support/capabilities'
 import { openTestStore } from '../../test-support/open-test-store'
 import { IssueCommandCtx } from './command-ctx'
 import { issueRegistry } from './registry'
 import { IssueStore } from './service/core'
-import { setIssueMapParityMode } from './service/map-parity'
 import { IssueReportsModule } from './service/reads'
 import type { IssueDeps } from './service/types'
 
@@ -73,11 +71,8 @@ async function harness(initial: IssueRow[] = []) {
   await store.transact(async () => {
     for (const issue of initial) await store.issues.upsertIssue(issue)
   })
-  // Reference lookup needs only the repository and the real commit fold port.
-  const issues = await new IssueStore({
-    store,
-    applyCommit: { spanOpen, onCommit: applyAfterCommit },
-  } as IssueDeps).init()
+  // Reference lookup needs only the repository.
+  const issues = new IssueStore({ store } as IssueDeps)
   return { store, issues, reports: new IssueReportsModule(issues) }
 }
 
@@ -132,35 +127,29 @@ describe('batched chip identities', () => {
           }),
         )
     })
-    // The database path alone (POD-6158); the old index is compared elsewhere.
-    const previous = setIssueMapParityMode('off')
-    try {
-      const reloads = vi.spyOn(store.issues, 'listIssueRows')
-      const prefixes = vi.spyOn(store.repos, 'repoForPrefix')
-      const single = vi.spyOn(store.issues, 'issueRefsAt')
-      const batch = vi.spyOn(store.issues, 'issueRefsAtSeqs')
-      expect(await issues.resolveRef('POD-1')).toBe('iss_1')
-      expect(single).toHaveBeenCalledTimes(1)
-      expect(prefixes).toHaveBeenCalledTimes(1)
-      single.mockClear()
-      prefixes.mockClear()
-      const refs = Array.from({ length: 50 }, (_, i) => `POD-${i + 1}`)
-      expect(await reports.resolveRefs([...refs, 'POD-1'])).toEqual(
-        refs.map((ref, i) => ({ ref, id: `iss_${i + 1}` })),
-      )
-      expect(batch).toHaveBeenCalledTimes(1)
-      expect(single).not.toHaveBeenCalled()
-      expect(prefixes).toHaveBeenCalledTimes(1)
-      expect(await issues.resolveRef('POD-9999')).toBe('POD-9999')
-      expect(await reports.resolveRefs(['POD-9999', 'ZZZ-1', 'garbage'])).toEqual([
-        { ref: 'POD-9999', id: null },
-        { ref: 'ZZZ-1', id: null },
-        { ref: 'garbage', id: null },
-      ])
-      expect(reloads).not.toHaveBeenCalled()
-    } finally {
-      setIssueMapParityMode(previous)
-    }
+    const reloads = vi.spyOn(store.issues, 'listIssueRows')
+    const prefixes = vi.spyOn(store.repos, 'repoForPrefix')
+    const single = vi.spyOn(store.issues, 'issueRefsAt')
+    const batch = vi.spyOn(store.issues, 'issueRefsAtSeqs')
+    expect(await issues.resolveRef('POD-1')).toBe('iss_1')
+    expect(single).toHaveBeenCalledTimes(1)
+    expect(prefixes).toHaveBeenCalledTimes(1)
+    single.mockClear()
+    prefixes.mockClear()
+    const refs = Array.from({ length: 50 }, (_, i) => `POD-${i + 1}`)
+    expect(await reports.resolveRefs([...refs, 'POD-1'])).toEqual(
+      refs.map((ref, i) => ({ ref, id: `iss_${i + 1}` })),
+    )
+    expect(batch).toHaveBeenCalledTimes(1)
+    expect(single).not.toHaveBeenCalled()
+    expect(prefixes).toHaveBeenCalledTimes(1)
+    expect(await issues.resolveRef('POD-9999')).toBe('POD-9999')
+    expect(await reports.resolveRefs(['POD-9999', 'ZZZ-1', 'garbage'])).toEqual([
+      { ref: 'POD-9999', id: null },
+      { ref: 'ZZZ-1', id: null },
+      { ref: 'garbage', id: null },
+    ])
+    expect(reloads).not.toHaveBeenCalled()
   })
 
   it('keeps the batch numeric grammar and returns null for ambiguous #N', async () => {
@@ -230,8 +219,9 @@ describe('maintained issue reference index', () => {
     expect(await issues.resolveRef('iss_missing')).toBe('iss_missing')
     expect(await issues.resolveRef('garbage')).toBe('garbage')
     expect(await issues.resolveRef('999')).toBe('999')
+    // The matches in repository path order (POD-6158).
     await expect(issues.resolveRef('1')).rejects.toThrow(
-      'ambiguous issue ref #1 (matches /repo#1, /other#1)',
+      'ambiguous issue ref #1 (matches /other#1, /repo#1)',
     )
     await expect(issues.resolveRef('#1', '/unknown')).rejects.toThrow('ambiguous issue ref #1')
     expect(await issues.resolveRef('#1', '/repo')).toBe('iss_1')
@@ -289,7 +279,6 @@ describe('maintained issue reference index', () => {
         .prepare(statement)
         .run(...args)
     sql('UPDATE issues SET repo_id = NULL WHERE id IN (?, ?)', 'iss_one', 'iss_two')
-    await issues.reload()
     expect(await issues.resolveRef('ONE-7')).toBe('iss_one')
     expect(await issues.resolveRef('TWO-7')).toBe('iss_two')
     expect(await reports.resolveRefs(['ONE-7', 'TWO-7'])).toEqual([
@@ -300,7 +289,6 @@ describe('maintained issue reference index', () => {
     await store.repos.addRepo('/later', remote, 'https://example.test/one.git')
     expect(await issues.resolveRef('#7', '/later')).toBe('iss_one')
     sql('UPDATE issues SET machine_id = ? WHERE id = ?', remote, 'iss_one')
-    await issues.reload()
     expect(await issues.resolveRef('ONE-7')).toBe('ONE-7')
     expect(await issues.resolveRef('TWO-7')).toBe('iss_one')
     await store.repos.removeRepo('/shared', remote)
@@ -309,7 +297,7 @@ describe('maintained issue reference index', () => {
     expect(await issues.resolveRef('TWO-7')).toBe('TWO-7')
   })
 
-  it('tracks direct repository inserts, identity upgrades with renumbering, deletion and reload', async () => {
+  it('tracks direct repository inserts, identity upgrades with renumbering and deletion', async () => {
     const { store, issues, reports } = await harness([row(1)])
     await store.repos.addRepo('/other', store.hostMachineId, undefined, 'OTH')
     await store.issues.upsertIssue(row(1, { id: asIssueId('iss_other'), repoPath: '/other' }))
@@ -324,7 +312,6 @@ describe('maintained issue reference index', () => {
       { ref: 'OTH-1', id: 'iss_other' },
       { ref: 'OTH-2', id: 'iss_1' },
     ])
-    await issues.reload()
     expect(await issues.resolveRef('OTH-2')).toBe('iss_1')
     await store.issues.deleteIssue('iss_1')
     expect(await issues.resolveRef('OTH-2')).toBe('OTH-2')

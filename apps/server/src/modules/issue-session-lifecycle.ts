@@ -308,7 +308,6 @@ export class IssueSessionLifecycle {
           throw new Error('issue/session delete committed no changes')
         }
         sessionPlan.apply(changes, ledgerCursor)
-        issuePlan.apply()
       },
     })
     // The two BROADCASTS are mechanism 3, not mechanism 1, and they are
@@ -351,7 +350,6 @@ export class IssueSessionLifecycle {
           throw new Error('issue/session restore committed no changes')
         }
         sessionPlan.apply(changes, ledgerCursor)
-        issuePlan.apply()
       },
     })
     afterCommit(async () => {

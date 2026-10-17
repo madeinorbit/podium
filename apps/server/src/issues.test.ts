@@ -434,7 +434,6 @@ describe('IssueService unread (#124)', () => {
     const withReadAt = async (readAt: string, updatedAt: string) => {
       await store.issues.upsertIssue({ ...row, updatedAt })
       await store.issues.setIssueUserState(firstAdminMemberId(), w.id, { readAt })
-      await svc.reports.store.reload()
       return svc.reports.unreadFor(w.id)
     }
     // readAt AFTER all activity → read.
@@ -3021,7 +3020,8 @@ describe('IssueService field mutations (P1)', () => {
   })
 
   // #175 payload win: serializing the full list runs ONE batched comment-count
-  // query (no per-issue comment queries) and the wire carries no comment bodies.
+  // query for the listed issues (no per-issue comment queries; POD-6191) and
+  // the wire carries no comment bodies.
   it('list() batches comment counts and puts no comment bodies on the wire', async () => {
     const { svc, store } = await harness()
     const a = await svc.crud.create({ repoPath: '/r', title: 'A', startNow: false })
@@ -3031,7 +3031,7 @@ describe('IssueService field mutations (P1)', () => {
     await svc.commentsMail.addComment(a.id, 'mike', 'second note', AS_OPERATOR)
     const perIssueList = vi.spyOn(store.issues, 'listIssueComments')
     const perIssueCount = vi.spyOn(store.issues, 'countIssueComments')
-    const batched = vi.spyOn(store.issues, 'countIssueCommentsByIssue')
+    const batched = vi.spyOn(store.issues, 'commentCountsOfIssues')
     const wires = await svc.reports.list('/r')
     expect(perIssueList).not.toHaveBeenCalled()
     expect(perIssueCount).not.toHaveBeenCalled()
@@ -3619,11 +3619,10 @@ describe('IssueService stale (P2b)', () => {
   it('staleList returns issues older than the cutoff (open only)', async () => {
     const { svc, store } = await harness()
     const a = await svc.crud.create({ repoPath: '/r', title: 'old', startNow: false })
-    // backdate updatedAt directly in the store, then refresh the in-memory row
+    // backdate updatedAt directly in the store; the report reads it there
     const row = (await store.issues.getIssue(a.id))!
     row.updatedAt = '2000-01-01T00:00:00.000Z'
     await store.issues.upsertIssue(row)
-    await svc.reports.store.reload() // re-hydrate this.rows from the store (see Step 3)
     const stale = await svc.reports.staleList('/r', 30, Date.parse('2026-06-30T00:00:00.000Z'))
     expect(stale.map((w) => w.title)).toEqual(['old'])
   })

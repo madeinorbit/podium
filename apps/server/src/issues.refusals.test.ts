@@ -495,30 +495,27 @@ describe('definitive issue refusals (POD-5429)', () => {
   it('bounds refusal row reads and projection derivations at 1x and 4x', async () => {
     const counts = []
     const issue = await seed()
+    let seeded = 1
+    // Every issue-row read the repository serves (POD-6158: there is no issue
+    // map to count reads of any more).
+    const issues = registry.sessionStore.issues
+    const reads = ['getIssue', 'getIssueLive', 'getIssues', 'loadIssue', 'loadIssues', 'listIssueRows', 'listIssueRowsWhere'] as const
     for (const size of [16, 64]) {
-      while (registry.issues.crud.store.rows.size < size) await seed()
-      const rows = registry.issues.crud.store.rows
-      const read = vi.spyOn(rows, 'get')
+      while (seeded < size) {
+        await seed()
+        seeded += 1
+      }
+      const spies = reads.map((name) => vi.spyOn(issues, name))
       const derive = vi.spyOn(registry.issues.reports, 'get')
-      const values = rows.values.bind(rows)
-      let enumerated = 0
-      const scan = vi.spyOn(rows, 'values').mockImplementation(function* () {
-        for (const row of values()) {
-          enumerated += 1
-          yield row
-        }
-        return undefined
-      })
       const { status } = await request('update', { id: issue.id, patch: { stage: 'shipping' } })
       counts.push({
         size,
         status,
-        rowReads: read.mock.calls.length + enumerated,
+        rowReads: spies.reduce((sum, spy) => sum + spy.mock.calls.length, 0),
         derivations: derive.mock.calls.length,
       })
-      read.mockRestore()
+      for (const spy of spies) spy.mockRestore()
       derive.mockRestore()
-      scan.mockRestore()
     }
     console.info('work-count', JSON.stringify(counts))
     expect(counts.map((count) => count.status)).toEqual([409, 409])

@@ -1,11 +1,11 @@
 /**
  * THE ISSUE REGISTRY'S MUTABLE-STATE MODEL [POD-3259, spec §3.6 model (b)].
  *
- * `IssueRegistry.rows` is process-owned mutable state. Until this issue every
- * mutation path took the MAP'S OWN object, assigned onto it, persisted it, and
- * put a backup back by assignment if the commit threw. That is correct exactly
- * while nothing can run between the assignment and the commit — which is the
- * property this epic is about to remove.
+ * Every mutation path writes a DRAFT pinned to the revision it was cut from.
+ * Until POD-3259 they took the in-memory issue map's own object, assigned onto
+ * it, persisted it, and put a backup back by assignment if the commit threw;
+ * POD-6158 deleted the map. These cases pin what the drafts and their revision
+ * precondition guarantee when writes interleave.
  *
  * HOW AN INTERLEAVING IS PRODUCED HERE, and why it is not a barrier. The
  * generic model tests in `store/executor/state-models.test.ts` park an async
@@ -97,7 +97,6 @@ const open = async (): Promise<Harness> => {
     repoOp: vi.fn(async () => ({ ok: true, output: '' })),
     ...issueTestPlumbing(() => {}, { transact }),
     setSessionArchived: vi.fn(),
-    applyCommit: { spanOpen, onCommit: applyAfterCommit },
   }
   return {
     store,
@@ -173,21 +172,6 @@ describe('draft-then-install: two updates to the same issue', () => {
     expect(await outside, 'no reader sees the uncommitted title').toBe('settled')
     expect((await svc.reports.get(id))?.title).toBe('settled')
     expect((await svc.reports.get(id))?.revision).toBe(before?.revision)
-  })
-
-  it('refuses the map-owned row outright rather than persisting it', async () => {
-    // The mechanism assertion. Every mutation path was converted to take a
-    // draft; this is what makes a path that forgets fail loudly instead of
-    // working by accident for as long as the store stays synchronous.
-    harness = await open()
-    const { svc } = harness
-    const id = (await svc.crud.create({ repoPath: '/repo', title: 'shared', startNow: false })).id
-    // The facade forwards `rows` and `persistRow` to the registry itself.
-    const mapOwned = svc.reports.store.rows.get(id)
-    expect(mapOwned).toBeDefined()
-    if (!mapOwned) throw new Error('unreachable')
-    mapOwned.title = 'mutated in place'
-    await expect(svc.reports.store.persistRow(mapOwned)).rejects.toThrow(/mutated in place/)
   })
 })
 

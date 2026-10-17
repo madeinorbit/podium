@@ -512,15 +512,11 @@ const WHOLE_TABLE_READS: ReadonlyMap<string, string> = new Map([
   ],
   [
     'apps/server/src/store/issues.ts:allIssueRows',
-    'Whole-table read (POD-6172): boot load of the issue map.',
+    'Whole-table read (POD-6172): every issue row, for tests and the statement census; no server path reads it since the issue map went (POD-6158).',
   ],
   [
     'apps/server/src/store/issues.ts:issueSeqRows',
     'Whole-table read (POD-6172): the seq repair sweep over every issue.',
-  ],
-  [
-    'apps/server/src/store/issues.ts:allIssueLabels',
-    'Whole-table read (POD-6172): boot load of every label.',
   ],
   [
     'apps/server/src/store/issues.ts:distinctLabels',

@@ -1,7 +1,8 @@
 /**
  * The benchmark corpus (POD-6146: cell h1a1, seed 4443) as stored issues, for
- * the issue-map comparisons of POD-6158: every issue with its repository,
- * parent, stage, deferral and deletion, its dependency edges (older spellings
+ * corpus-scale tests (first written for POD-6158's issue-map comparisons):
+ * every issue with its repository, parent, stage, deferral and deletion, its
+ * dependency edges (older spellings
  * folded as the fixed-types migration folds them), owners and grants spread
  * over three people so visibility is exercised.
  */

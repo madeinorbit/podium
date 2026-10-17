@@ -114,8 +114,7 @@ describe('origin/draft on create + wire', () => {
     const row = (await store.issues.getIssue(b.id))!
     expect(row.origin).toBe('agent')
     expect(row.draft).toBe(true)
-    // Re-hydrate a fresh service from the same store.
-    await svc.reports.store.reload()
+    // Read back through the service.
     expect((await svc.reports.get(b.id))!.draft).toBe(true)
     expect((await svc.reports.get(b.id))!.origin).toBe('agent')
   })

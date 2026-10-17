@@ -11,10 +11,9 @@ import {
 } from '../../../command-principal'
 import { isMemberCwd } from '../../../issue-util'
 import type { IssueRow, Subscription } from '../../../store'
-import { afterCommit, spanOpen } from '../../../store/executor/executor'
+import { afterCommit } from '../../../store/executor/executor'
 import type { IssueStore } from './core'
 import type { IssueCrudModule } from './crud'
-import { compareWithIssueMap } from './map-parity'
 import type { IssueReportsModule } from './reads'
 import { IssueRefusal } from './refusal'
 import { AUTO_ARCHIVE_READ_WINDOW_MS } from './types'
@@ -309,11 +308,6 @@ export class IssueAttentionModule {
           )
         : []
     ).filter(eligible)
-    if (!spanOpen()) {
-      compareWithIssueMap('acceptedSpinoff.candidates', [anchor.id, wanted],
-        () => [...this.store.rows.values()].filter(eligible).map((row) => row.id).sort(),
-        candidates.map((row) => row.id).sort())
-    }
     // Provenance can be removed, so retaining a positive across attaches would
     // permit unrelated reuse. Resolve anew for this attach; missing evidence denies.
     // One read of every candidate's dependencies.
@@ -567,13 +561,6 @@ export class IssueAttentionModule {
     const closed = await this.store.deps.store.issues.listIssueRowsWhere({
       repo: false, readable: false, live: true, unarchived: true, state: 'closed', topLevel: true, order: 'path-seq',
     })
-    if (!spanOpen()) {
-      compareWithIssueMap('sweepAutoArchive.candidates', null,
-        () => [...this.store.rows.values()]
-          .filter((row) => !row.archived && !row.deletedAt && this.store.isClosed(row) && !row.parentId)
-          .map((row) => row.id).sort(),
-        closed.map((row) => row.id).sort())
-    }
     const markers = await this.store.issueUserStates(closed.map((row) => row.id))
     for (const row of closed) {
       if (row.archived || row.deletedAt) continue // idempotent: never re-archive deleted work

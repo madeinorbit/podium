@@ -567,15 +567,6 @@ const labelsOf = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
-const allIssueLabels = prepared((db: StoreDrizzle) =>
-  db
-    .select({ issueId: issueLabels.issueId, label: labels.name })
-    .from(issueLabels)
-    .innerJoin(labels, eq(labels.id, issueLabels.labelId))
-    .orderBy(asc(issueLabels.issueId), asc(labels.name))
-    .prepare(),
-)
-
 const distinctLabels = prepared((db: StoreDrizzle) =>
   db
     .selectDistinct({ label: labels.name })
@@ -827,19 +818,6 @@ const issueUserStateRowsOf = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
-const issueUserStateOfUser = prepared((db: StoreDrizzle) =>
-  db
-    .select({
-      issueId: issueUserState.issueId,
-      readAt: issueUserState.readAt,
-      tuckedAt: issueUserState.tuckedAt,
-      pinnedAt: issueUserState.pinnedAt,
-    })
-    .from(issueUserState)
-    .where(eq(issueUserState.userId, param(issueUserState.userId, 'userId')))
-    .prepare(),
-)
-
 const issueUserStateOne = prepared((db: StoreDrizzle) =>
   db
     .select({
@@ -1035,10 +1013,10 @@ function sortListing(rows: IssueRow[], order: IssueListingShape['order']): Issue
 }
 
 /**
- * The boot load's structural quarantine (see {@link IssuesRepository.listIssueRows}):
- * a row whose id, repository path, stage or title is not a string poisons every
- * consumer, so it is skipped and logged. The point reads that replace the issue
- * map apply the same rule, so a quarantined row stays absent (POD-6158).
+ * The structural quarantine every issue read applies (see
+ * {@link IssuesRepository.listIssueRows}): a row whose id, repository path,
+ * stage or title is not a string poisons every consumer, so it is skipped and
+ * logged, and stays absent (POD-6158).
  */
 function structurallySound(r: { id: unknown; repoPath: unknown; stage: unknown; title: unknown }): boolean {
   return (
@@ -1058,7 +1036,7 @@ export interface IssueRefRow {
   seq: number
 }
 
-/** Structurally corrupt rows are skipped, as the boot load quarantines them. */
+/** Structurally corrupt rows are skipped, as every issue read quarantines them. */
 function issueRefRows(
   rows: readonly {
     id: unknown; repoId: string | null; repoPath: unknown; machineId: string | null; seq: number
@@ -1101,10 +1079,6 @@ export class IssuesRepository {
   setSessionRefPublisher(publish: (ids: readonly IssueId[]) => Promise<void>): void {
     this.sessionRefPublisher = publish
   }
-
-  /** Rows skipped by the last {@link listIssueRows} because they were
-   *  structurally corrupt (row-level quarantine). Diagnostic counter. */
-  quarantinedRowCount = 0
 
   /**
    * THE ROW READ CACHE [POD-1931], HELD BY THE READ SCOPE [POD-3261].
@@ -1554,8 +1528,8 @@ export class IssuesRepository {
    *
    * For the rows a write is drafted from. A memo inside an operation could hand
    * back a row read before another operation's commit, and the draft's
-   * revision pin would then refuse a write the issue map used to accept; the
-   * map always held the latest commit, and so does this read.
+   * revision pin would then refuse a write against the latest commit; this
+   * read always sees the latest commit.
    */
   async getIssueLive(id: string): Promise<IssueRow | null> {
     const r = await issueById(this.db).get({ id: asIssueId(id) })
@@ -1595,7 +1569,7 @@ export class IssuesRepository {
    * repository's row at `seq`, or, given a repository, its row plus the legacy
    * rows the repo-id heal has not stamped (their repository is decided by the
    * caller's path resolver). Rows whose id or repository path is not a string
-   * are skipped, as the boot load quarantines them.
+   * are skipped, as every issue read quarantines them.
    */
   async issueRefsAt(seq: number, repoId?: RepoId): Promise<IssueRefRow[]> {
     return issueRefRows(
@@ -1614,7 +1588,7 @@ export class IssuesRepository {
    * The issue rows of one listing shape (`issue-listings.ts`): filtered, made
    * visible to `reader` and ordered in SQL. `parents`/`ids` lists longer than
    * one statement's 500 are read in chunks and merged in the shape's order.
-   * Structurally corrupt rows are skipped, as the boot load skips them.
+   * Structurally corrupt rows are skipped, as every issue read skips them.
    */
   async listIssueRowsWhere(
     shape: IssueListingShape,
@@ -1833,9 +1807,9 @@ export class IssuesRepository {
   /**
    * All issue rows (optionally one repo), with ROW-LEVEL QUARANTINE: a row
    * that is structurally corrupt (or whose mapping throws for any reason) is
-   * skipped, logged and counted — never propagated. This is the boot-hydration
-   * read (IssueService), where one corrupt row aborting the whole load would
-   * crash-loop the server. Individual JSON columns additionally self-quarantine
+   * skipped and logged — never propagated, so one corrupt row costs that row.
+   * No server path reads every issue this way since POD-6158 (tests and the
+   * statement census do). Individual JSON columns additionally self-quarantine
    * to safe defaults (see parseStringArray), which keeps the row.
    */
   /**
@@ -1865,7 +1839,6 @@ export class IssuesRepository {
       ? await issueRowsOfRepo(this.db).all({ repoId: repoId as RepoId, repoPath })
       : await allIssueRows(this.db).all()
     const out: IssueRow[] = []
-    this.quarantinedRowCount = 0
     for (const r of rows) {
       try {
         // Load-bearing TEXT columns must actually be strings: a NULL id (SQLite
@@ -1876,7 +1849,6 @@ export class IssuesRepository {
         }
         out.push(await issueFromRow(r))
       } catch (err) {
-        this.quarantinedRowCount += 1
         log.error('quarantined a corrupt issue row — skipped', { issueId: r.id ?? null, err })
       }
     }
@@ -1915,8 +1887,6 @@ export class IssuesRepository {
     }
   }
 
-  /** The full issue rows already belong to IssueStore's boot projection.
-   * This one statement loads only the additional worktree lookup keys. */
   /**
    * The live issues whose worktree could contain any of these folders, in
    * repository order (`repo_path`, then `seq`; BINARY collation) — the
@@ -2294,19 +2264,6 @@ export class IssuesRepository {
     return (await labelsOf(this.db).all({ issueId })).map((r) => r.label)
   }
 
-  /** Labels for every issue in one ordered read — list serializers use this to
-   * avoid preparing and running one query per issue at live board sizes. */
-  async listIssueLabelsByIssue(): Promise<Map<string, string[]>> {
-    const rows = await allIssueLabels(this.db).all()
-    const byIssue = new Map<string, string[]>()
-    for (const row of rows) {
-      const names = byIssue.get(row.issueId)
-      if (names) names.push(row.label)
-      else byIssue.set(row.issueId, [row.label])
-    }
-    return byIssue
-  }
-
   /** Names of the labels at least one issue carries. */
   async listAllLabels(): Promise<string[]> {
     return (await distinctLabels(this.db).all()).map((r) => r.label)
@@ -2518,16 +2475,6 @@ export class IssuesRepository {
         ? await allIssueUserStateRows(this.db).all()
         : await issueUserStateRowsOf(this.db).all({ issueId })
     return rows.map((row) => IssueUserState.parse(row))
-  }
-
-  async listIssueUserState(userId: UserId): Promise<Map<string, StoredIssueUserState>> {
-    requireUserId(userId)
-    const rows = await issueUserStateOfUser(this.db).all({ userId })
-    const out = new Map<string, StoredIssueUserState>()
-    for (const r of rows) {
-      out.set(r.issueId, { readAt: r.readAt, tuckedAt: r.tuckedAt, pinnedAt: r.pinnedAt })
-    }
-    return out
   }
 
   /** {@link getIssueUserState}, batched with the other loads of this tick and

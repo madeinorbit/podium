@@ -1,24 +1,22 @@
 /**
- * The full-truth reconcile reads its issues from the database as it did from
- * the issue map (POD-6158; design §6, D1g's boot step).
+ * The full-truth reconcile reads its issues from the database (POD-6158;
+ * design §6, D1g's boot step).
  *
- * The issueProjection truth (every issue, a page at a time, with its labels)
- * and the issueGitState truth (the observed issues, by id) are compared, under
- * vitest in throw mode, over the benchmark corpus (POD-6146: cell h1a1, seed
- * 4443) and over edge fixtures: deleted and archived rows, labels, an empty id,
- * a quarantined row, and page boundaries. The truth keeps the boot load's
- * order (`repo_path`, then `seq`), so the change log appends as it did.
+ * This file pins the issueProjection truth (every issue, a page at a time,
+ * with its labels) and the reconciles over edge fixtures: deleted and
+ * archived rows, labels, an empty id, a quarantined row, observed git states
+ * for live, deleted and unknown issues, and page boundaries. The truth keeps
+ * the boot load's order (`repo_path`, then `seq`), so the change log appends
+ * as it did when the issue map was the truth.
  */
 
 import { asIssueId, asSessionId, type IssueGitState } from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SessionStore } from '../../../store'
-import { applyAfterCommit, spanOpen } from '../../../store/executor/executor'
-import { type CorpusIssue, exportedCorpus, rawSql, rowOf, seededStore } from '../../../test-support/issue-corpus'
+import { type CorpusIssue, rawSql, rowOf, seededStore } from '../../../test-support/issue-corpus'
 import { sessionReadPorts } from '../../../test-support/session-facts'
 import { type IssueDeps, IssueService } from '../service'
-import { issueMapParityMode } from './map-parity'
 import { issueTestPlumbing } from './test-plumbing'
 
 const stores: SessionStore[] = []
@@ -35,7 +33,6 @@ async function serviceOver(store: SessionStore): Promise<IssueService> {
     repoOp: vi.fn(async () => ({ ok: true, output: '' })),
     ...issueTestPlumbing(() => {}),
     setSessionArchived: vi.fn(),
-    applyCommit: { spanOpen, onCommit: applyAfterCommit },
   } as IssueDeps)
 }
 
@@ -52,38 +49,7 @@ async function bootOrder(store: SessionStore): Promise<string[]> {
   return (await store.issues.listIssueRows()).map((row) => row.id)
 }
 
-describe('full-truth reconcile: the database answers as the issue map', () => {
-  it('compares in throw mode under vitest', () => {
-    expect(issueMapParityMode()).toBe('throw')
-  })
-
-  it('over the benchmark corpus', async () => {
-    const corpus = await exportedCorpus()
-    const repos = [...new Set([...corpus.repos, ...corpus.issues.flatMap((row) => (row.repoPath ? [row.repoPath] : []))])]
-    const rows: CorpusIssue[] = corpus.issues.map((row) => ({
-      ...row,
-      id: `iss_${row.id}`,
-      parentId: row.parentId ? `iss_${row.parentId}` : null,
-    }))
-    const store = await seededStore(rows, repos)
-    stores.push(store)
-    await store.transact(async () => {
-      for (const [index, row] of rows.entries()) {
-        if (index % 7 === 0) await store.issues.setIssueLabels(asIssueId(row.id), [`l${index % 5}`, 'shared'])
-      }
-    })
-    const svc = await serviceOver(store)
-    const issues = svc.reports.store
-    for (const [index, row] of rows.entries()) if (index % 11 === 0) issues.gitStates.set(row.id, observed(row.seq))
-
-    const truth = await issues.allProjections()
-    expect(truth?.map((entry) => entry.id)).toEqual(await bootOrder(store))
-    await issues.reconcileProjections()
-    await issues.reconcileCompanions()
-    console.log('reconcile parity over the corpus', JSON.stringify({ issues: rows.length, projected: truth?.length }))
-    expect(truth!.length).toBeGreaterThan(1000)
-  })
-
+describe('full-truth reconcile over the database', () => {
   it('over the edge fixtures', async () => {
     const live = (seq: number, patch: Partial<CorpusIssue> = {}): CorpusIssue => ({
       id: `iss_${seq}`, seq, repoPath: '/a', worktreePath: null, parentId: null, stage: 'backlog',
@@ -114,8 +80,10 @@ describe('full-truth reconcile: the database answers as the issue map', () => {
     const truth = await issues.allProjections()
     expect(truth?.map((entry) => entry.id)).toEqual(await bootOrder(store))
     expect(truth?.map((entry) => entry.id)).toEqual(['iss_1', 'iss_2', 'iss_3', 'iss_4', '', 'iss_b1', 'iss_b2'])
-    await issues.reconcileProjections()
-    await issues.reconcileCompanions()
+    // Both reconciles run over these rows, the empty id and the unknown
+    // observation included.
+    await expect(issues.reconcileProjections()).resolves.toBeUndefined()
+    await expect(issues.reconcileCompanions()).resolves.toBeUndefined()
 
     // Pages end where they should, and the quarantined row costs only itself.
     const pages: string[][] = []
