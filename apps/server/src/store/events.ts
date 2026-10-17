@@ -167,6 +167,11 @@ const upsertCheckpoint = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
+/**
+ * A range search on `idx_podium_events_kind_subject_id`, already newest first,
+ * stopping at the limit (POD-6224). `ts` is the agent's clock, so the ts index
+ * is not in id order: through it the read sorted the session's whole history.
+ */
 const recentRuntimeEventPayloads = prepared((db: StoreDrizzle) =>
   db
     .select({ payload: podiumEvents.payload })
