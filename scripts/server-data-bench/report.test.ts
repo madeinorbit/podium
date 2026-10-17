@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { FRAME_MIX, frameKindAt, framesDue } from './drive'
+import { FRAME_MIX, frameKindAt, framesDue, RUNNING_WRITE_SHARE, sessionWriteTarget } from './drive'
 import {
   deltaPct, diffTotals, interleavedOrder, type LoopMinuteRecord, median, minuteMetrics, minuteSpans,
   minutesInside, nextMinuteBoundary, sideBySide, statementKind, statementsByKind, windowRates,
@@ -90,6 +90,22 @@ describe('server data bench load and seed', () => {
     for (const [kind, share] of FRAME_MIX) expect(Math.abs(counts[kind]! / 10_000 - share)).toBeLessThan(0.005)
     expect(framesDue(28_000, 30_000)).toBe(14_000)
     expect(framesDue(28_000, 1)).toBe(0)
+  })
+
+  it('sends the running share of session writes to live sessions, or picks uniformly', () => {
+    const live = ['l1', 'l2', 'l3']
+    const parked = Array.from({ length: 97 }, (_, i) => `p${i}`)
+    const all = [...live, ...parked]
+    const hits = (targeting: 'running' | 'uniform') => {
+      let toLive = 0
+      for (let k = 0; k < 10_000; k++) if (live.includes(sessionWriteTarget(k, targeting, all, live, parked))) toLive++
+      return toLive / 10_000
+    }
+    expect(Math.abs(hits('running') - RUNNING_WRITE_SHARE)).toBeLessThan(0.005)
+    expect(Math.abs(hits('uniform') - 0.03)).toBeLessThan(0.01)
+    expect(sessionWriteTarget(5, 'running', all, live, parked)).toBe(sessionWriteTarget(5, 'running', all, live, parked))
+    // With no parked sessions there is nothing to split: fall back to the whole table.
+    expect(live).toContain(sessionWriteTarget(7, 'running', live, live, []))
   })
 
   it('seeds every parent before its children and buckets ids stably', () => {

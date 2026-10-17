@@ -9,11 +9,15 @@
  *   It answers `runtimeLifecycleRequest` the way a daemon does and ignores the rest.
  * - CLIENTS: `--clients` logged-in `/client` sockets that say hello and read the feed.
  * - WRITES: tRPC `sessions.rename` and `issues.update` at fixed per-minute rates.
+ *   `--session-write-targeting` picks the renamed session: `running` (default) sends
+ *   RUNNING_WRITE_SHARE of them to live sessions and the rest to parked ones; `uniform`
+ *   picks over the whole table, as the first bench did (~2% live at h1a1).
  *
  * Prints one JSON line with what it sent and received. Usage (see run.ts):
  *   bun --conditions=@podium/source drive.ts --checkout=<arm> --fixture=<fixture.json>
  *     --port=<n> --password=<pw> --start-at=<epoch ms> --duration-ms=<n>
  *     --frames-per-minute=<n> --session-writes-per-minute=<n> --issue-writes-per-minute=<n> --clients=<n>
+ *     [--session-write-targeting=running|uniform]
  */
 import { randomUUID } from 'node:crypto'
 import { readFileSync } from 'node:fs'
@@ -51,6 +55,30 @@ export function frameKindAt(k: number): FrameKind {
 /** How many frames are due at `elapsedMs` for a stream of `perMinute`. */
 export function framesDue(perMinute: number, elapsedMs: number): number {
   return Math.floor((perMinute * elapsedMs) / 60_000)
+}
+
+/**
+ * Share of session writes that go to running sessions under `running` targeting. An
+ * assumption, not a measurement (the live database is not scanned, operator rule
+ * 2026-10-15): live session updates come from running agents (state, titles, activity),
+ * and parked sessions change only on the occasional rename or archive. 95% keeps a
+ * parked share large enough to still show a parked write's cost.
+ */
+export const RUNNING_WRITE_SHARE = 0.95
+export type SessionWriteTargeting = 'running' | 'uniform'
+
+/** The session the k-th session write renames; deterministic for a fixture. */
+export function sessionWriteTarget(
+  k: number,
+  targeting: SessionWriteTargeting,
+  all: readonly string[],
+  live: readonly string[],
+  parked: readonly string[],
+): string {
+  if (targeting === 'uniform' || live.length === 0 || parked.length === 0) return all[(k * 7919) % all.length]!
+  const toLive = (k * 0.6180339887498949) % 1 < RUNNING_WRITE_SHARE
+  const pool = toLive ? live : parked
+  return pool[(k * 7919) % pool.length]!
 }
 
 const PTY_CHUNK = Buffer.from('\x1b[32m✔\x1b[0m compiled 1 file in 12ms\r\n'.repeat(4)).toString('base64')
@@ -220,6 +248,12 @@ async function main(): Promise<void> {
   let issueWrites = 0
   const sessionRate = Number(args['session-writes-per-minute'] ?? 0)
   const issueRate = Number(args['issue-writes-per-minute'] ?? 0)
+  const targeting = (args['session-write-targeting'] ?? 'running') as SessionWriteTargeting
+  if (targeting !== 'running' && targeting !== 'uniform') throw new Error(`--session-write-targeting must be running or uniform, not ${targeting}`)
+  const liveIds = fixture.machines.flatMap((machine) => machine.liveSessionIds)
+  const liveSet = new Set(liveIds)
+  const parkedIds = fixture.sessionIds.filter((id) => !liveSet.has(id))
+  let liveWrites = 0
   const inflight = new Set<Promise<void>>()
   while (Date.now() - begin < durationMs) {
     const elapsed = Date.now() - begin
@@ -244,7 +278,8 @@ async function main(): Promise<void> {
       }
     }
     for (; sessionWrites < framesDue(sessionRate, elapsed); sessionWrites++) {
-      const id = fixture.sessionIds[(sessionWrites * 7919) % fixture.sessionIds.length]!
+      const id = sessionWriteTarget(sessionWrites, targeting, fixture.sessionIds, liveIds, parkedIds)
+      if (liveSet.has(id)) liveWrites++
       const call = rpc('sessions.rename', { sessionId: id, name: `Bench rename ${sessionWrites}` }).finally(() => inflight.delete(call))
       inflight.add(call)
     }
@@ -259,7 +294,7 @@ async function main(): Promise<void> {
   finished = true
   for (const daemon of daemons) daemon.socket?.close()
   for (const client of clients) client.close()
-  console.log(JSON.stringify({ benchDrive: true, wallMs: Date.now() - begin, sessionWrites, issueWrites, ...counters }))
+  console.log(JSON.stringify({ benchDrive: true, wallMs: Date.now() - begin, sessionWrites, liveWrites, targeting, issueWrites, ...counters }))
 }
 
 if (import.meta.main) await main()
