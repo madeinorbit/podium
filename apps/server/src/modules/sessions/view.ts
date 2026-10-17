@@ -218,7 +218,7 @@ export class SessionView {
   private async project(candidates: SessionSubject[], forPrincipal?: SessionStatePrincipal): Promise<SessionMeta[]> {
     const principal = forPrincipal ?? await this.defaultPrincipal()
     if (!principal) return []
-    const pass = await this.buildProjectionPass(candidates)
+    const pass = await this.buildProjectionPass(candidates, { published: false })
     const visible = await this.ports.state.visibleSessions(
       principal, candidates.map(session => session.sessionId), pass,
     )
@@ -227,9 +227,18 @@ export class SessionView {
     return readable.map(session => (isResident(session) ? this.wire(session, pass) : wireRecord(session, pass)))
   }
 
-  /** Build after any transaction writes; drafts supply the fields being committed. */
+  /**
+   * Build after any transaction writes; drafts supply the fields being committed.
+   *
+   * `published` (the default) says the projected rows are published, so the
+   * feed's visibility pass will ask for each session's OWN grants, also for a
+   * session on an issue, whose projection reads the issue's (POD-6217). The
+   * pass reads those in the same statement, and the publication finds them in
+   * the operation's memo. A pass that only answers a read passes `false`.
+   */
   async buildProjectionPass(
     sessions: readonly (SessionDurableFields & { sessionId: SessionId; ownerUserId?: UserId })[],
+    { published = true }: { published?: boolean } = {},
   ): Promise<ProjectionPass> {
     const ids = sessions.map(s => s.sessionId)
     const issueIds = [...new Set(sessions.flatMap(s =>
@@ -238,15 +247,20 @@ export class SessionView {
     const found = issueIds.length ? await readIssues(this.ports.store.issues, issueIds) : new Map<string, IssueRow>()
     const issues = new Map(issueIds.map(id => [id, found.get(id) ?? null]))
     const grants = new Map<string, string[]>()
-    for (const kind of ['issue', 'session'] as const) {
-      const resources = [...new Set(sessions.flatMap<string>(s =>
-        kind === 'issue' ? (s.issueId ? [s.issueId] : []) : (!s.issueId ? [s.sessionId] : []),
-      ))]
-      if (!resources.length) continue
+    const issueResources = [...new Set(sessions.flatMap(s => (s.issueId ? [s.issueId] : [])))]
+    const sessionResources = [...new Set(sessions.flatMap(s => (!s.issueId ? [s.sessionId] : [])))]
+    const sessionAsked = published ? [...new Set(ids)] : sessionResources
+    const asked = {
+      ...(issueResources.length ? { issue: issueResources } : {}),
+      ...(sessionAsked.length ? { session: sessionAsked } : {}),
+    }
+    if (Object.keys(asked).length) {
       // Through the operation's loader (POD-6189): the access check before a
       // session write and the reprojections after it ask about the same session.
-      const edges = await this.ports.store.grants.loadForResources(kind, resources)
-      for (const id of resources) grants.set(`${kind}:${id}`, granteesOf(edges.get(id) ?? []))
+      // Both kinds in one statement (POD-6217).
+      const edges = await this.ports.store.grants.loadForResourcesOfKinds(asked)
+      for (const id of issueResources) grants.set(`issue:${id}`, granteesOf(edges.get('issue')?.get(id) ?? []))
+      for (const id of sessionResources) grants.set(`session:${id}`, granteesOf(edges.get('session')?.get(id) ?? []))
     }
     const paths = new Set(sessions.flatMap(s => {
       const issue = s.refIssueId && s.refLetter ? issues.get(s.refIssueId) : undefined

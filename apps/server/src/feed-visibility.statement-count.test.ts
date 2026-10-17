@@ -201,8 +201,9 @@ describe('feed scoping: pinned statement counts at 5 and 200 rows per kind', () 
           expect(s.mayRead(reader, { entity: 'issueProjection', entityId: 'iss_0' })).toBe(false)
         },
       ),
-      // 7 table reads, plus the issue grants and the session grants.
-      9,
+      // 7 table reads, plus the issue grants and the session grants in one
+      // read (POD-6217; one read per kind before: 9).
+      8,
     )
   })
 

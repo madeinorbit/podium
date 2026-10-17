@@ -133,6 +133,7 @@ const FAMILY_SHAPES: ReadonlyMap<string, readonly (string | number)[]> = new Map
   ['apps/server/src/store/conversations/registry.ts:pathsOfNativeIds', SIZES],
   ['apps/server/src/store/transcript-costs.ts:costsOfIssues', SIZES],
   ['apps/server/src/store/grants.ts:grantsOfResources', SIZES],
+  ['apps/server/src/store/grants.ts:grantsOfResourceKeys', ['1x1', '2x4', '4x512']],
   ['apps/server/src/store/shipping.ts:activeOrdersOfLane', SIZES],
   ['apps/server/src/store/grants.ts:audiencesOf', SIZES],
   ['apps/server/src/store/machines.ts:machinesByIds', SIZES],
@@ -386,6 +387,10 @@ const ALLOWLIST: ReadonlyMap<string, string> = new Map([
   [
     'apps/server/src/store/grants.ts:grantsOfResources',
     'Sorts the grants on the resources of the IN list: a few each.',
+  ],
+  [
+    'apps/server/src/store/grants.ts:grantsOfResourceKeys',
+    'Sorts the grants on the resources of the two IN lists: a few each.',
   ],
   [
     'apps/server/src/store/interactions.ts:openInteractions',

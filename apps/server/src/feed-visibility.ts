@@ -529,23 +529,23 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
       'visibility.automationRun.runOwnerOf',
       (ids) => store.automations.runOwnersOf(ids),
     )
-    // One grouped read per resource kind for the whole batch; every asked id
-    // gets an entry, `[]` for "no edges". Through the operation's loader
-    // (POD-6189): a batch published inside the operation that wrote it asks
-    // about the rows that operation already checked.
-    const grantsOf = async (
-      kind: 'issue' | 'session',
-      ids: ReadonlySet<string>,
-    ): Promise<Map<string, readonly GrantRow[]>> => {
-      if (ids.size === 0) return new Map()
-      const found = await measure(
-        'visibility.grants.listForResources',
-        async () => await store.grants.loadForResources(kind, [...ids]),
-      )
-      return new Map([...ids].map((id) => [id, found.get(id) ?? []]))
+    // One grouped read for both resource kinds of the whole batch (POD-6217);
+    // every asked id gets an entry, `[]` for "no edges". Through the
+    // operation's loader (POD-6189): a batch published inside the operation
+    // that wrote it asks about the rows that operation already checked.
+    const asked = {
+      ...(issueIds.size > 0 ? { issue: [...issueIds] } : {}),
+      ...(grantedSessionIds.size > 0 ? { session: [...grantedSessionIds] } : {}),
     }
-    const issueGrants = await grantsOf('issue', issueIds)
-    const sessionGrants = await grantsOf('session', grantedSessionIds)
+    const found: ReadonlyMap<string, ReadonlyMap<string, readonly GrantRow[]>> =
+      Object.keys(asked).length === 0
+        ? new Map()
+        : await measure(
+            'visibility.grants.listForResources',
+            async () => await store.grants.loadForResourcesOfKinds(asked),
+          )
+    const issueGrants = new Map(found.get('issue') ?? [])
+    const sessionGrants = new Map(found.get('session') ?? [])
     return makeVisibilityState({
       issueIds,
       issues,

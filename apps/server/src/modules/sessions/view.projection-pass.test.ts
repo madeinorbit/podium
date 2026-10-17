@@ -388,10 +388,11 @@ describe('one projection pass', () => {
         await f.store.close()
       }
     }
-    // Repo registry is warm from fixture creation. Four physical reads: issues,
-    // two grant kinds and queue counts; no personal overlays. Calibration accounts for
-    // POD-3852 double recording, and still works after that fix lands.
-    expect(counts[0]).toBe(4)
+    // Repo registry is warm from fixture creation. Three physical reads: issues,
+    // both grant kinds in one (POD-6217) and queue counts; no personal overlays.
+    // Calibration accounts for POD-3852 double recording, and still works after
+    // that fix lands.
+    expect(counts[0]).toBe(3)
     expect(counts).toEqual([counts[0], counts[0], counts[0]])
   })
 
@@ -428,10 +429,11 @@ describe('one projection pass', () => {
         await f.store.close()
       }
     }
-    // Repo registry is warm from fixture creation. Four physical reads: issues,
-    // two grant kinds and queue counts; no personal overlays. Calibration accounts for
-    // POD-3852 double recording, and still works after that fix lands.
-    expect(counts[0]).toBe(4)
+    // Repo registry is warm from fixture creation. Three physical reads: issues,
+    // both grant kinds in one (POD-6217) and queue counts; no personal overlays.
+    // Calibration accounts for POD-3852 double recording, and still works after
+    // that fix lands.
+    expect(counts[0]).toBe(3)
     expect(counts).toEqual([counts[0], counts[0], counts[0]])
   })
 
@@ -479,23 +481,23 @@ describe('one projection pass', () => {
       teardown: async (f) => await f.store.close(),
     })
 
-    it('list: issues, two grant kinds and queue counts', async () => {
+    it('list: issues, both grant kinds in one read, and queue counts', async () => {
       await expectConstantStatements(
         pin('SessionView.list', (f) => f.view.list(principal, 'rpc'), (rows, size) =>
           expect(rows).toHaveLength((size * 4) / 5),
         ),
-        4,
+        3,
       )
     })
 
-    it('byIds over every session: the same four reads', async () => {
+    it('byIds over every session: the same three reads', async () => {
       await expectConstantStatements(
         pin(
           'SessionView.byIds',
           (f) => f.view.byIds(f.rows.map((s) => s.sessionId), principal),
           (rows, size) => expect(rows).toHaveLength((size * 4) / 5),
         ),
-        4,
+        3,
       )
     })
 
