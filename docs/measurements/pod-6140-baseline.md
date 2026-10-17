@@ -185,6 +185,11 @@ are not measured. Every round boots a fresh copy of that template.
 - *Clients:* 4 logged-in `/client` sockets (`hello`, then they read the feed).
 - *Writes:* 10× the operator's measured rate (POD-5874: 186 session updates and 22 issue updates per
   minute), as tRPC `sessions.rename` at **1,860/min** and `issues.update` (priority) at **220/min**.
+  *Session write targeting* (`--session-write-targeting`, added by POD-6161): the runs in §3 picked
+  the renamed session uniformly over the whole table, so about 98% of renames hit parked sessions.
+  New runs default to `running`: 95% of renames go to live sessions and 5% to parked ones (an
+  assumption, documented in `drive.ts` `RUNNING_WRITE_SHARE`; the live database is not scanned).
+  `--session-write-targeting=uniform` reproduces the old profile; a resumed run keeps its own.
 
 **Collection.** Per round:
 
