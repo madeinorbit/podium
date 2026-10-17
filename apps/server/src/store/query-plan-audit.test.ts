@@ -455,6 +455,10 @@ const ALLOWLIST: ReadonlyMap<string, string> = new Map([
     'Sorts the active orders of one lane, found through idx_ship_orders_lane (POD-6172).',
   ],
   [
+    'apps/server/src/store/shipping.ts:shippedLeadersOfOpenTrains',
+    'Walks the partial index idx_ship_train_manifests_open_lane (named with INDEXED BY): the open trains only, never the released history; each leader is one primary-key probe (POD-6207). The plan is asserted below.',
+  ],
+  [
     'apps/server/src/store/shipping.ts:activeClaimOrdersOfLane',
     "Sorts the claims of one lane's open trains, found through idx_ship_train_manifests_open_lane.",
   ],
@@ -623,7 +627,7 @@ const WHOLE_TABLE_READS: ReadonlyMap<string, string> = new Map([
   ],
   [
     'apps/server/src/store/shipping.ts:allOrders',
-    "Whole-table read (POD-6172): every ship order, for the order-plane full truth at boot (relay, ShippingService.reconcile, recoverDescendantInvalidations), the queue listing (ShippingService.queue, paging is POD-6209) and the scheduler's covered-prefix recovery (POD-6207). The scheduler and train claims read active orders, lanes and ids.",
+    "Whole-table read (POD-6172): every ship order, for the order-plane full truth at boot (relay, ShippingService.reconcile, recoverDescendantInvalidations) and the queue listing (ShippingService.queue, paging is POD-6209). The scheduler, its covered-prefix recovery (POD-6207) and train claims read active orders, open trains, lanes and ids.",
   ],
   [
     'apps/server/src/store/shipping.ts:allStackEdgesOrdered',
@@ -1111,6 +1115,20 @@ describe('POD-6148 — every repository query is served by an index', () => {
     const active = audited.filter((entry) => entry.key === 'apps/server/src/store/shipping.ts:activeOrdersFifo')
     expect(active.map((entry) => entry.plan)).toEqual([
       ['SCAN ship_orders USING INDEX idx_ship_orders_one_active_issue', 'USE TEMP B-TREE FOR ORDER BY'],
+    ])
+  })
+
+  it('reads the open trains of shipped leaders through their partial index (POD-6207)', () => {
+    const { keyed } = keyedDefinitions(trackedSources())
+    const { audited } = auditDefinitions(keyed)
+    const open = audited.filter(
+      (entry) => entry.key === 'apps/server/src/store/shipping.ts:shippedLeadersOfOpenTrains',
+    )
+    expect(open.map((entry) => entry.plan)).toEqual([
+      [
+        'SCAN ship_train_manifests USING INDEX idx_ship_train_manifests_open_lane',
+        'SEARCH ship_orders USING INDEX sqlite_autoindex_ship_orders_1 (id=?)',
+      ],
     ])
   })
 

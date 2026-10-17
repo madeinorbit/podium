@@ -1474,6 +1474,112 @@ describe('ShippingService enqueue transaction', () => {
     restarted.dispose()
   })
 
+  it('settles a covered train prefix on the next pass when only the leader landed (POD-6207)', async () => {
+    // Every phase proves the whole train: the leader's result commit is the
+    // tested integration, which lands and becomes the destination.
+    const trainDaemon: ShippingJob = async (input, machineId) => {
+      const proved = await provedShippingJob(input, machineId)
+      const train = input.train && 'manifest' in input.train ? input.train : undefined
+      if (!train) return proved
+      return {
+        ...proved,
+        observedDestinationSha: 'train-head',
+        testedIntegrationSha: 'train-head',
+        landedRefSha: 'train-head',
+        validationProfileId: input.validationProfile.id,
+        validationResult: 'passed' as const,
+        trainProofs: train.memberOrderIds.map((orderId) => {
+          const member = train.manifest.members.find((candidate) => candidate.orderId === orderId)!
+          return {
+            issueId: member.issueId,
+            orderId: member.orderId,
+            attemptId: member.attemptId,
+            generation: member.generation,
+            sourceApprovedSha: member.approvedHeadSha,
+            resultCommitSha:
+              orderId === train.manifest.leaderOrderId ? 'train-head' : member.approvedHeadSha,
+            testedIntegrationSha: 'train-head',
+            landedRefSha: 'train-head',
+            providerLandedRefSha: 'train-head',
+            destinationSha: 'train-head',
+          }
+        }),
+      }
+    }
+    // The train is claimed straight through the store below, which no commit
+    // publishes, so the order-plane cross-check is off. The covered member is
+    // the leader's Git ancestor, as a train prefix must stay.
+    const { store, issues, service, deps } = await harness(trainDaemon, {
+      checkOrderPlane: false,
+      isAncestor: async () => true,
+    })
+    const issueA = await issues.crud.create({ repoPath: '/repo', title: 'covered a', startNow: false })
+    const issueB = await issues.crud.create({ repoPath: '/repo', title: 'covered b', startNow: false })
+    await issues.crud.update(issueA.id, { branch: 'issue/covered-a' })
+    await issues.crud.update(issueB.id, { branch: 'issue/covered-b' })
+    await issues.crud.update(issueA.id, { stage: 'review' })
+    await issues.crud.update(issueB.id, { stage: 'review' })
+    // B is stacked on A, so A is the covered prefix and B leads.
+    const admitted = [
+      { issue: issueA, receipt: await service.enqueue({ issueId: issueA.id, ...approval }) },
+      { issue: issueB, receipt: await service.enqueue({ issueId: issueB.id, ...approval }) },
+    ]
+    const covered = admitted[0]!
+    const leader = admitted[1]!
+    expect(leader.receipt.order.deliveryDependsOn).toEqual([covered.receipt.order.id])
+    await store.shipping.claimTrain({
+      leaderOrderId: leader.receipt.order.id,
+      startedAt: '2026-08-13T10:00:00.000Z',
+      members: admitted.map(({ receipt }) => ({ orderId: receipt.order.id })),
+    })
+
+    // A crash between the leader's settlement and its covered prefix's, as a
+    // build before the one atomic train completion could leave it: the leader
+    // ships alone and the train stays open.
+    const completeTrain = vi
+      .spyOn(store.shipping, 'completeVerifiedTrain')
+      .mockImplementation(async (input) => await store.shipping.commitEffectResult(input.leader))
+    const commitMany = deps.issues.shippingCommitMany
+    deps.issues.shippingCommitMany = async (entries, write) =>
+      await commitMany(
+        entries.filter(
+          ({ mutation: { event } }) => typeof event === 'function' || !event?.payload.coveredBy,
+        ),
+        write,
+      )
+    try {
+      await service.runOrder(leader.receipt.order.id, [covered.receipt.order])
+    } finally {
+      completeTrain.mockRestore()
+      deps.issues.shippingCommitMany = commitMany
+    }
+    expect((await store.shipping.getOrder(leader.receipt.order.id))?.state).toBe('shipped')
+    expect((await store.shipping.getOrder(covered.receipt.order.id))?.state).toBe('preflight')
+    expect((await store.issues.getIssue(covered.issue.id))?.stage).toBe('shipping')
+    expect(await store.shipping.shippedLeadersOfOpenTrains()).toEqual([leader.receipt.order.id])
+
+    await service.tick()
+
+    expect((await store.shipping.getOrder(covered.receipt.order.id))?.state).toBe('shipped')
+    expect(await store.shipping.receiptForOrder(covered.receipt.order.id)).toMatchObject({
+      landedRefSha: 'train-head',
+      destinationSha: 'train-head',
+    })
+    expect((await store.issues.getIssue(covered.issue.id))?.stage).toBe('done')
+    expect(
+      (await store.events.listEventsSince(0, { kinds: ['issue.shipped'] })).find(
+        (event) => event.subject === covered.issue.id,
+      )?.payload,
+    ).toMatchObject({ coveredBy: leader.receipt.order.id })
+    // The train is released as landed, so the next pass has nothing to read.
+    expect(await store.shipping.shippedLeadersOfOpenTrains()).toEqual([])
+    const reads = vi.spyOn(store.shipping, 'receiptForOrder')
+    await service.tick()
+    expect(reads).not.toHaveBeenCalled()
+    reads.mockRestore()
+    service.dispose()
+  })
+
   it('settles and fences daemon cancellation before releasing issue custody', async () => {
     const authorize = vi.fn()
     const { store, issues, service } = await harness(

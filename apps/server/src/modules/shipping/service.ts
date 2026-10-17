@@ -2061,19 +2061,29 @@ export class ShippingService {
   }
 
   private async recoverCoveredPrefixes(): Promise<void> {
-    for (const covering of await this.deps.repository.listOrders()) {
-      if (covering.state !== 'shipped') continue
+    // Only an open train whose leader already shipped can still need its
+    // covered prefix settled, so each pass reads those trains alone, never the
+    // shipped history (POD-6207). Normally there are none.
+    for (const leaderOrderId of await this.deps.repository.shippedLeadersOfOpenTrains()) {
+      const covering = await this.deps.repository.getOrder(leaderOrderId)
+      if (covering?.state !== 'shipped') continue
       const receipt = await this.deps.repository.receiptForOrder(covering.id)
       const attempt = await this.deps.repository.latestAttemptForOrder(covering.id)
-      const manifest = attempt
-        ? await this.deps.repository.trainManifestForAttempt(attempt.id)
-        : null
-      if (!receipt || !manifest || manifest.leaderOrderId !== covering.id) continue
-      const verifyStep = attempt
-        ? (await this.deps.repository.stepsForAttempt(attempt.id)).findLast(
-            (step) => step.kind === 'verify' && step.summary.startsWith(TRAIN_PROOF_MARKER),
-          )
-        : undefined
+      if (!receipt || !attempt) continue
+      const manifest = await this.deps.repository.trainManifestForAttempt(attempt.id)
+      if (!manifest || manifest.leaderOrderId !== covering.id) continue
+      const verifyStep = (await this.deps.repository.stepsForAttempt(attempt.id)).findLast(
+        (step) => step.kind === 'verify' && step.summary.startsWith(TRAIN_PROOF_MARKER),
+      )
+      // The landing recorded the verified train proof under the verify
+      // request's job id, which names the train subset, and its digest.
+      const verify = await this.jobInput(
+        covering,
+        attempt,
+        await this.deps.issues.get(covering.issueId),
+        'verify',
+        'status',
+      )
       const trainProofs = verifyStep
         ? (JSON.parse(verifyStep.summary.slice(TRAIN_PROOF_MARKER.length)) as NonNullable<
             ShippingJobResult['trainProofs']
@@ -2088,19 +2098,7 @@ export class ShippingService {
             .map(async (member) => await this.requiredOrder(member.orderId)),
         ),
         trainProofs,
-        attempt
-          ? `${attempt.id}:verify:${
-              (
-                await this.jobInput(
-                  covering,
-                  attempt,
-                  await this.deps.issues.get(covering.issueId),
-                  'verify',
-                  'status',
-                )
-              ).requestDigest
-            }`
-          : '',
+        `${verify.jobId}:${verify.requestDigest}`,
       )
       await this.commitMany(
         manifest.members.map((member) => ({
