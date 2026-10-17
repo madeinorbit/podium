@@ -78,8 +78,13 @@ export type FeedPeerTraceEvent =
       readonly ageMs: number | null
     }
 
+/** Whether feed peer events are logged; a field that costs a read is read only then. */
+export function feedPeerTraceEnabled(): boolean {
+  return process.env.PODIUM_TRACE_FEED_PEERS === '1'
+}
+
 export function traceFeedPeer(event: FeedPeerTraceEvent): void {
-  if (process.env.PODIUM_TRACE_FEED_PEERS !== '1') return
+  if (!feedPeerTraceEnabled()) return
   // The record's own `ts` is the timestamp now, and each field is its own
   // column rather than a JSON string inside a message.
   log.info('feed peer event', { ...event })
