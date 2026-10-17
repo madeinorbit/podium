@@ -235,6 +235,18 @@ describe('MemoryService omni-search', () => {
   })
   it('uses one live-session snapshot and reads issue owners and grants in one batch per pass', async () => {
     const { store, registry } = await seed()
+    // A second transcript candidate, so a segment read per candidate shows.
+    await store.conversations.registry.ensure({
+      machineId: asMachineId('m1'),
+      nativeId: 'native-tx-2',
+      providerId: 'claude-code-jsonl',
+    })
+    await store.conversations.transcriptIndex.append(
+      asMachineId('m1'),
+      'native-tx-2',
+      [{ content: 'a second capacitor transcript', itemUuid: 'b-1' }],
+      500,
+    )
     const liveRows = await store.sessions.loadSessions()
     const issueRows = await store.issues.listIssueRows()
     await settle(registry)
@@ -274,6 +286,12 @@ describe('MemoryService omni-search', () => {
     const grants = readsOf(counted, 'grants')
     expect(issues.count, issues.queries).toBe(3)
     expect(grants.count, grants.queries).toBe(2)
+    // The conversation and transcript candidates' segments are read once per
+    // source pass, two reads each (podium ids, then segments), and every check
+    // is answered from them (POD-6215). Asked per candidate, the one
+    // conversation and two transcripts ran two reads each: 6.
+    const segments = readsOf(counted, 'conversation_segments')
+    expect(segments.count, segments.queries).toBe(4)
   })
 
   it('reads issue ownership and grants in one batch each for the native conversation list', async () => {
@@ -326,6 +344,11 @@ describe('MemoryService omni-search', () => {
           machineId: asMachineId('m1'),
         },
       ])
+      await store.conversations.registry.ensure({
+        machineId: asMachineId('m1'),
+        nativeId,
+        providerId: 'claude-code-jsonl',
+      })
     }
 
     await settle(registry)
@@ -345,6 +368,25 @@ describe('MemoryService omni-search', () => {
     const grants = readsOf(counted, 'grants')
     expect(issues.count, issues.queries).toBe(1)
     expect(grants.count, grants.queries).toBe(1)
+    // Each row's check asks for the segments of its conversation. Asked per
+    // row, that was the segment's podium id and then its siblings: two reads
+    // per row (POD-6215). The pass now reads them for every row together: one
+    // podium-id read for the machine and one segment read.
+    const segments = readsOf(counted, 'conversation_segments')
+    expect(segments.count, segments.queries).toBe(2)
+
+    // CONTROL ARM: the same checks asked one row at a time, with no batch read
+    // first, run the two reads per row the pin above would show if the pass
+    // stopped batching, and allow the same rows.
+    const perRow = await new MemoryVisibilityPolicy(store).forRequest(await store.sessions.loadSessions())
+    const unbatched = await countStatements(store, () =>
+      Promise.all(conversationIds.map((nativeId) =>
+        perRow.mayRead(READER, { class: 'conversation', machineId: asMachineId('m1'), nativeId }),
+      )),
+    )
+    expect(unbatched.result).toEqual([true, true, true, true])
+    const perRowSegments = readsOf(unbatched, 'conversation_segments')
+    expect(perRowSegments.count, perRowSegments.queries).toBe(2 * conversationIds.length)
   })
 
   it('returns nothing for blank text (the router schema rejects it upstream too)', async () => {

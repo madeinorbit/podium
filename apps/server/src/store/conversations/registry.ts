@@ -96,6 +96,7 @@ const nativeIdsOf = preparedFamily((db: StoreDrizzle, size: number) =>
   db
     .select({
       podiumId: conversationSegments.podiumId,
+      machineId: conversationSegments.machineId,
       nativeId: conversationSegments.nativeId,
     })
     .from(conversationSegments)
@@ -433,6 +434,45 @@ export class ConversationRegistryRepository {
     const podiumId = await this.podiumId(machineId, nativeId)
     if (!podiumId) return []
     return await segmentsOfConversation(this.db).all({ podiumId })
+  }
+
+  /**
+   * {@link siblingSegments} for many segments at once: for each key, in the
+   * order given, every segment of the conversation it belongs to (earliest
+   * first), or `[]` when it has no segment row. One statement per machine for
+   * the podium ids and one for their segments, per 500 ids, however many keys
+   * (POD-6215: the visibility pass of a conversation listing asks for every
+   * row together).
+   */
+  async siblingSegmentsMany(
+    keys: readonly { machineId: MachineId; nativeId: string }[],
+  ): Promise<{ machineId: MachineId; nativeId: string }[][]> {
+    const nativeIdsByMachine = new Map<MachineId, string[]>()
+    for (const key of keys) {
+      const list = nativeIdsByMachine.get(key.machineId)
+      if (list) list.push(key.nativeId)
+      else nativeIdsByMachine.set(key.machineId, [key.nativeId])
+    }
+    const podiumIdsByMachine = new Map<MachineId, Map<string, ConversationId>>()
+    for (const [machineId, nativeIds] of nativeIdsByMachine) {
+      podiumIdsByMachine.set(machineId, await this.podiumIds(machineId, nativeIds))
+    }
+    const segments = new Map<ConversationId, { machineId: MachineId; nativeId: string }[]>()
+    const podiumIds = [...podiumIdsByMachine.values()].flatMap((byNative) => [...byNative.values()])
+    for (const chunk of chunks(podiumIds)) {
+      const size = inListSize(chunk.length)
+      const rows = await nativeIdsOf(this.db, size).all(inListValues(chunk, size))
+      for (const row of rows) {
+        const segment = { machineId: row.machineId, nativeId: row.nativeId }
+        const list = segments.get(row.podiumId)
+        if (list) list.push(segment)
+        else segments.set(row.podiumId, [segment])
+      }
+    }
+    return keys.map((key) => {
+      const podiumId = podiumIdsByMachine.get(key.machineId)?.get(key.nativeId)
+      return podiumId ? [...(segments.get(podiumId) ?? [])] : []
+    })
   }
 }
 

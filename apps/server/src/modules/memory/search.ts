@@ -86,6 +86,9 @@ export class MemorySearchService {
     // Revocation makes a stale allow unsafe: this batch belongs only to this
     // request, and only an explicit true survives the synchronous filter.
     const visible = async (rows: readonly ConversationIndexRow[]) => {
+      await scopedVisibility.primeNativeConversations(reader, rows.flatMap((row) =>
+        row.machineId !== undefined ? [{ machineId: row.machineId, nativeId: row.id }] : [],
+      ))
       const readable = await Promise.all(rows.map(async (row) =>
         row.machineId !== undefined && await scopedVisibility.mayRead(reader, {
           class: 'conversation', machineId: row.machineId, nativeId: row.id,
@@ -271,6 +274,7 @@ export class MemorySearchService {
     }
 
     const transcriptRows = await this.store.conversations.transcriptIndex.searchCandidates(text)
+    await visibility.primeNativeConversations(reader, transcriptRows)
     const transcriptVisibility = await Promise.all(
       transcriptRows.map(async (row) =>
         await visibility.mayRead(reader, {
