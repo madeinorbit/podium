@@ -193,6 +193,93 @@ const insertDiscoveredSegment = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
+// THE MANY-CONVERSATION FORMS OF `ensure` [POD-6227]: a discovery reports a
+// machine's whole corpus, and registering it one conversation at a time ran a
+// read and one or two writes per conversation (about 3,300 statements for the
+// 1,656 conversations a live sweep re-offered every four minutes). Each takes
+// its rows as ONE bound JSON array, `rows`, read with json_each, so a statement
+// has one shape for any number of rows, in the array's order.
+
+/** The rows of the bound JSON array `rows`, and one field of the row a statement is reading. */
+const offeredRows = () => sql`json_each(${sql.placeholder('rows')})`
+const offered = (field: string) => sql.raw(`value ->> '$.${field}'`)
+
+const insertIdentities = prepared((db: StoreDrizzle) =>
+  db
+    .insert(conversationIdentities)
+    .select(
+      db
+        .select({
+          podiumId: sql`${offered('podiumId')}`.as('podium_id'),
+          parentPodiumId: sql`${offered('parentPodiumId')}`.as('parent_podium_id'),
+          createdAt: sql`${sql.placeholder('createdAt')}`.as('created_at'),
+        })
+        .from(offeredRows()),
+    )
+    .prepare(),
+)
+
+const insertDiscoveredSegments = prepared((db: StoreDrizzle) =>
+  db
+    .insert(conversationSegments)
+    .select(
+      db
+        .select({
+          machineId: sql`${sql.placeholder('machineId')}`.as('machine_id'),
+          nativeId: sql`${offered('nativeId')}`.as('native_id'),
+          providerId: sql`${offered('providerId')}`.as('provider_id'),
+          podiumId: sql`${offered('podiumId')}`.as('podium_id'),
+          path: sql`${offered('path')}`.as('path'),
+          reportedBytes: sql`${offered('reportedBytes')}`.as('reported_bytes'),
+          seqInConv: sql`1`.as('seq_in_conv'),
+          linkedBy: sql`'discovery'`.as('linked_by'),
+          createdAt: sql`${sql.placeholder('createdAt')}`.as('created_at'),
+        })
+        .from(offeredRows()),
+    )
+    .prepare(),
+)
+
+/** {@link adoptParent} for many identities, one row each, for those that have none. */
+const adoptParents = prepared((db: StoreDrizzle) =>
+  db
+    .update(conversationIdentities)
+    .set({
+      parentPodiumId: sql`(SELECT ${offered('parentPodiumId')} FROM ${offeredRows()}
+        WHERE ${offered('podiumId')} = ${conversationIdentities.podiumId})`,
+    })
+    .where(
+      and(
+        isNull(conversationIdentities.parentPodiumId),
+        sql`${conversationIdentities.podiumId} IN (SELECT ${offered('podiumId')} FROM ${offeredRows()})`,
+      ),
+    )
+    .prepare(),
+)
+
+/**
+ * {@link refreshSegmentFile} for many segments of one machine, at most one
+ * row per native id, with the same trailing predicate: an unchanged segment
+ * is not rewritten.
+ */
+const refreshSegmentFiles = prepared((db: StoreDrizzle) => {
+  const of = (field: string) =>
+    sql`(SELECT ${offered(field)} FROM ${offeredRows()} WHERE ${offered('nativeId')} = ${conversationSegments.nativeId})`
+  const path = sql`COALESCE(${of('path')}, ${conversationSegments.path})`
+  const reportedBytes = sql`COALESCE(${of('reportedBytes')}, ${conversationSegments.reportedBytes})`
+  return db
+    .update(conversationSegments)
+    .set({ path, reportedBytes })
+    .where(
+      and(
+        eq(conversationSegments.machineId, param(conversationSegments.machineId, 'machineId')),
+        sql`${conversationSegments.nativeId} IN (SELECT ${offered('nativeId')} FROM ${offeredRows()})`,
+        sql`(${conversationSegments.path} IS NOT ${path} OR ${conversationSegments.reportedBytes} IS NOT ${reportedBytes})`,
+      ),
+    )
+    .prepare()
+})
+
 const highestSeqInConversation = prepared((db: StoreDrizzle) =>
   db
     .select({ m: max(conversationSegments.seqInConv) })
@@ -384,6 +471,92 @@ export class ConversationRegistryRepository {
       createdAt: now,
     })
     return podiumId
+  }
+
+  /**
+   * {@link ensure} for many conversations of one machine, in a fixed number of
+   * statements [POD-6227]: one read of the ids already known (per 500), then at
+   * most one write each for parents adopted, files refreshed, identities and
+   * segments created. The result is what calling `ensure` for each entry in
+   * order gives: a native id offered twice is created once, and its later
+   * offers act on the existing row (the first parent wins, the last path and
+   * size offered win).
+   */
+  async ensureMany(
+    machineId: MachineId,
+    entries: readonly {
+      nativeId: string
+      providerId: string
+      parentPodiumId?: ConversationId
+      path?: string
+      sizeBytes?: number
+    }[],
+  ): Promise<Map<string, ConversationId>> {
+    const ids = await this.podiumIds(machineId, entries.map((entry) => entry.nativeId))
+    type Created = {
+      nativeId: string
+      providerId: string
+      podiumId: ConversationId
+      parentPodiumId: ConversationId | null
+      path: string | null
+      reportedBytes: number | null
+    }
+    const created = new Map<string, Created>()
+    // The first parent offered for an identity: the single calls' IS NULL guard
+    // let only the first one land.
+    const adopted = new Map<ConversationId, { podiumId: ConversationId; parentPodiumId: ConversationId }>()
+    const refreshed = new Map<string, { nativeId: string; path: string | null; reportedBytes: number | null }>()
+    for (const entry of entries) {
+      const fresh = created.get(entry.nativeId)
+      const existing = ids.get(entry.nativeId)
+      if (existing === undefined) {
+        const podiumId = asConversationId(`conv_${randomUUID()}`)
+        ids.set(entry.nativeId, podiumId)
+        created.set(entry.nativeId, {
+          nativeId: entry.nativeId,
+          providerId: entry.providerId,
+          podiumId,
+          parentPodiumId: entry.parentPodiumId ?? null,
+          path: entry.path ?? null,
+          reportedBytes: entry.sizeBytes ?? null,
+        })
+        continue
+      }
+      // A later offer of a row this call creates folds into the row: the
+      // single calls would have adopted and refreshed it after its insert.
+      if (fresh) {
+        if (entry.parentPodiumId && fresh.parentPodiumId === null) fresh.parentPodiumId = entry.parentPodiumId
+        if (entry.path || entry.sizeBytes !== undefined) {
+          fresh.path = entry.path ?? fresh.path
+          fresh.reportedBytes = entry.sizeBytes ?? fresh.reportedBytes
+        }
+        continue
+      }
+      if (entry.parentPodiumId && !adopted.has(existing)) {
+        adopted.set(existing, { podiumId: existing, parentPodiumId: entry.parentPodiumId })
+      }
+      if (entry.path || entry.sizeBytes !== undefined) {
+        const prior = refreshed.get(entry.nativeId)
+        refreshed.set(entry.nativeId, {
+          nativeId: entry.nativeId,
+          path: entry.path ?? prior?.path ?? null,
+          reportedBytes: entry.sizeBytes ?? prior?.reportedBytes ?? null,
+        })
+      }
+    }
+    // Adoption and refresh touch only rows that existed before this call; the
+    // rows it creates already carry every offer made for them.
+    if (adopted.size > 0) await adoptParents(this.db).run({ rows: JSON.stringify([...adopted.values()]) })
+    if (refreshed.size > 0) {
+      await refreshSegmentFiles(this.db).run({ machineId, rows: JSON.stringify([...refreshed.values()]) })
+    }
+    if (created.size > 0) {
+      const createdAt = new Date().toISOString()
+      const rows = JSON.stringify([...created.values()])
+      await insertIdentities(this.db).run({ rows, createdAt })
+      await insertDiscoveredSegments(this.db).run({ machineId, rows, createdAt })
+    }
+    return ids
   }
 
   async linkSegment(opts: {

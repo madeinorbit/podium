@@ -1,9 +1,10 @@
-import { asMachineId } from '@podium/model'
+import { asMachineId, type ConversationId } from '@podium/model'
 import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { SessionRegistry } from './relay'
+import type { SessionStore } from './store'
 import { openTestStore } from './test-support/open-test-store'
 
 // The conversation registry (docs/spec/conversation-registry.md §3.1): Podium ids
@@ -215,5 +216,74 @@ describe('conversation registry store', () => {
     )
     await registry.dispose()
     await second.close()
+  })
+
+  // ensureMany is the batch form a discovery uses [POD-6227]: whatever it is
+  // given, the rows it leaves are the ones one ensure per entry, in order, leaves.
+  describe('ensureMany', () => {
+    const M = asMachineId('m1')
+    type Offer = { nativeId: string; parent?: string; path?: string; sizeBytes?: number }
+    /** Every segment with its file evidence and its identity's parent, by native ids. */
+    const rows = (store: SessionStore) =>
+      (store as unknown as { db: { prepare(sql: string): { all(): unknown[] } } }).db
+        .prepare(
+          `SELECT s.native_id, s.provider_id, s.path, s.reported_bytes, s.seq_in_conv, s.linked_by,
+             (SELECT p.native_id FROM conversation_segments p WHERE p.podium_id = i.parent_podium_id AND p.seq_in_conv = 1) AS parent
+           FROM conversation_segments s JOIN conversation_identities i ON i.podium_id = s.podium_id
+           ORDER BY s.native_id`,
+        )
+        .all()
+    const seeded = async () => {
+      const store = await openTestStore(':memory:')
+      const r = store.conversations.registry
+      await r.ensure({ machineId: M, nativeId: 'old-a', providerId: 'p', path: '/a1', sizeBytes: 10 })
+      await r.ensure({ machineId: M, nativeId: 'old-b', providerId: 'p' })
+      const a = await r.ensure({ machineId: M, nativeId: 'old-parent', providerId: 'p' })
+      await r.ensure({ machineId: M, nativeId: 'old-c', providerId: 'p', parentPodiumId: a })
+      return store
+    }
+    const offers: Offer[] = [
+      { nativeId: 'n1', path: '/n1', sizeBytes: 1 },
+      { nativeId: 'old-a', path: '/a2' },
+      { nativeId: 'old-a', sizeBytes: 20 },
+      { nativeId: 'old-b', parent: 'old-a' },
+      { nativeId: 'old-b', parent: 'old-c' },
+      { nativeId: 'old-c', parent: 'old-b' },
+      { nativeId: 'n2' },
+      { nativeId: 'n2', path: '/n2', parent: 'old-a' },
+      { nativeId: 'n2', parent: 'old-c', sizeBytes: 5 },
+    ]
+    const resolve = async (store: SessionStore, offer: Offer) => ({
+      nativeId: offer.nativeId,
+      providerId: 'p',
+      ...(offer.parent ? { parentPodiumId: (await store.conversations.registry.podiumId(M, offer.parent)) as ConversationId } : {}),
+      ...(offer.path !== undefined ? { path: offer.path } : {}),
+      ...(offer.sizeBytes !== undefined ? { sizeBytes: offer.sizeBytes } : {}),
+    })
+
+    it('leaves the rows one ensure per entry leaves, and answers their ids', async () => {
+      const one = await seeded()
+      const many = await seeded()
+      for (const offer of offers) await one.conversations.registry.ensure({ machineId: M, ...(await resolve(one, offer)) })
+      const entries = await Promise.all(offers.map((offer) => resolve(many, offer)))
+      const ids = await many.conversations.registry.ensureMany(M, entries)
+      expect(rows(many)).toEqual(rows(one))
+      expect(ids).toEqual(await many.conversations.registry.podiumIds(M, offers.map((offer) => offer.nativeId)))
+      expect(ids.size).toBe(new Set(offers.map((offer) => offer.nativeId)).size)
+    })
+
+    it('rewrites no unchanged segment when the same report comes again', async () => {
+      const store = await seeded()
+      const entries = await Promise.all(offers.map((offer) => resolve(store, offer)))
+      await store.conversations.registry.ensureMany(M, entries)
+      const before = rows(store)
+      const db = (store as unknown as { db: { exec(sql: string): void; prepare(sql: string): { get(): unknown } } }).db
+      db.exec(`CREATE TABLE _writes (t TEXT);
+        CREATE TRIGGER count_segment_writes AFTER UPDATE ON conversation_segments BEGIN INSERT INTO _writes VALUES ('s'); END;
+        CREATE TRIGGER count_identity_writes AFTER UPDATE ON conversation_identities BEGIN INSERT INTO _writes VALUES ('i'); END;`)
+      await store.conversations.registry.ensureMany(M, entries)
+      expect((db.prepare('SELECT COUNT(*) AS n FROM _writes').get() as { n: number }).n).toBe(0)
+      expect(rows(store)).toEqual(before)
+    })
   })
 })

@@ -7,23 +7,36 @@ import type { ConversationIndexRow } from '../types'
 
 // Every query this repository runs, prepared once per store [POD-6147].
 
-const upsertConversation = prepared((db: StoreDrizzle) =>
-  db
+/**
+ * Upsert every conversation of the bound JSON array `rows` in one statement
+ * [POD-6227]: a discovery re-offers a machine's whole corpus, and one upsert
+ * per row ran one statement per conversation.
+ */
+const upsertConversations = prepared((db: StoreDrizzle) => {
+  const field = (name: string) => sql.raw(`value ->> '$.${name}'`)
+  return db
     .insert(conversations)
-    .values({
-      id: sql.placeholder('id'),
-      agentKind: sql.placeholder('agentKind'),
-      title: sql.placeholder('title'),
-      projectPath: sql.placeholder('projectPath'),
-      providerId: sql.placeholder('providerId'),
-      resumeKind: sql.placeholder('resumeKind'),
-      resumeValue: sql.placeholder('resumeValue'),
-      createdAt: sql.placeholder('createdAt'),
-      updatedAt: sql.placeholder('updatedAt'),
-      messageCount: sql.placeholder('messageCount'),
-      machineId: sql.placeholder('machineId'),
-      parentConversationId: sql.placeholder('parentConversationId'),
-    })
+    .select(
+      db
+        .select({
+          id: sql`${field('id')}`.as('id'),
+          agentKind: sql`${field('agentKind')}`.as('agent_kind'),
+          title: sql`${field('title')}`.as('title'),
+          projectPath: sql`${field('projectPath')}`.as('project_path'),
+          providerId: sql`${field('providerId')}`.as('provider_id'),
+          resumeKind: sql`${field('resumeKind')}`.as('resume_kind'),
+          resumeValue: sql`${field('resumeValue')}`.as('resume_value'),
+          createdAt: sql`${field('createdAt')}`.as('created_at'),
+          updatedAt: sql`${field('updatedAt')}`.as('updated_at'),
+          messageCount: sql`${field('messageCount')}`.as('message_count'),
+          machineId: sql`${field('machineId')}`.as('machine_id'),
+          parentConversationId: sql`${field('parentConversationId')}`.as('parent_conversation_id'),
+        })
+        .from(sql`json_each(${sql.placeholder('rows')})`)
+        // An INSERT ... SELECT with an upsert clause needs a WHERE, or SQLite
+        // reads ON CONFLICT as a join constraint of the SELECT.
+        .where(sql`true`),
+    )
     .onConflictDoUpdate({
       target: conversations.id,
       set: {
@@ -55,8 +68,8 @@ const upsertConversation = prepared((db: StoreDrizzle) =>
          OR ${conversations.messageCount} IS NOT COALESCE(excluded.message_count,${conversations.messageCount})
          OR ${conversations.parentConversationId} IS NOT COALESCE(excluded.parent_conversation_id,${conversations.parentConversationId})`,
     })
-    .prepare(),
-)
+    .prepare()
+})
 
 // The FTS5 index and the three triggers that keep it fed, in the order the
 // original script had (see `enableFts`).
@@ -302,9 +315,11 @@ export class ConversationIndexRepository {
    */
   async upsert(rows: (ConversationIndexRow & { machineId: MachineId })[]): Promise<void> {
     if (rows.length === 0) return
-    await this.createOrJoinTransaction(async () => {
-      for (const row of rows) {
-        await upsertConversation(this.db).run({
+    // One statement for the whole report, in its order: a conversation offered
+    // twice is inserted, then updated by its later offer, as one upsert per row did.
+    await upsertConversations(this.db).run({
+      rows: JSON.stringify(
+        rows.map((row) => ({
           id: row.id,
           agentKind: row.agentKind,
           title: row.title ?? null,
@@ -317,8 +332,8 @@ export class ConversationIndexRepository {
           messageCount: row.messageCount ?? null,
           machineId: row.machineId,
           parentConversationId: row.parentConversationId ?? null,
-        })
-      }
+        })),
+      ),
     })
   }
 

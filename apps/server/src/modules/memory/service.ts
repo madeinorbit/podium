@@ -160,40 +160,43 @@ export class MemoryService {
     machineId: MachineId,
     removed: string[],
   ): Promise<ConversationSummaryWire[]> {
-    const podiumIds = new Map<string, ConversationId>()
-    for (const conversation of conversations) {
-      if (conversation.parentConversationId) continue
-      podiumIds.set(
-        conversation.id,
-        await this.ensureConversationIdentity({
-          machineId,
-          nativeId: conversation.id,
+    // Three batches, in the order the parent links need [POD-6227]: the
+    // top-level conversations, then any parent a child names that the report
+    // left out, then the children with their parents' ids. Each is a fixed
+    // number of statements, whatever the size of the report.
+    const registry = this.deps.store.conversations.registry
+    const fileOf = (conversation: ConversationSummaryWire) => ({
+      ...(conversation.path ? { path: conversation.path } : {}),
+      ...(conversation.sizeBytes !== undefined ? { sizeBytes: conversation.sizeBytes } : {}),
+    })
+    const roots = conversations.filter((conversation) => !conversation.parentConversationId)
+    const children = conversations.filter((conversation) => conversation.parentConversationId)
+    const podiumIds = await registry.ensureMany(
+      machineId,
+      roots.map((conversation) => ({ nativeId: conversation.id, providerId: conversation.providerId, ...fileOf(conversation) })),
+    )
+    const unreported = children.filter((conversation) => !podiumIds.has(conversation.parentConversationId!))
+    if (unreported.length > 0) {
+      const parents = await registry.ensureMany(
+        machineId,
+        unreported.map((conversation) => ({
+          nativeId: conversation.parentConversationId!,
           providerId: conversation.providerId,
-          ...(conversation.path ? { path: conversation.path } : {}),
-          ...(conversation.sizeBytes !== undefined ? { sizeBytes: conversation.sizeBytes } : {}),
-        }),
+        })),
       )
+      for (const [nativeId, podiumId] of parents) podiumIds.set(nativeId, podiumId)
     }
-    for (const conversation of conversations) {
-      if (!conversation.parentConversationId) continue
-      const parentPodiumId =
-        podiumIds.get(conversation.parentConversationId) ??
-        await this.ensureConversationIdentity({
-          machineId,
-          nativeId: conversation.parentConversationId,
-          providerId: conversation.providerId,
-        })
-      podiumIds.set(
-        conversation.id,
-        await this.ensureConversationIdentity({
-          machineId,
+    if (children.length > 0) {
+      const ids = await registry.ensureMany(
+        machineId,
+        children.map((conversation) => ({
           nativeId: conversation.id,
           providerId: conversation.providerId,
-          parentPodiumId,
-          ...(conversation.path ? { path: conversation.path } : {}),
-          ...(conversation.sizeBytes !== undefined ? { sizeBytes: conversation.sizeBytes } : {}),
-        }),
+          parentPodiumId: podiumIds.get(conversation.parentConversationId!)!,
+          ...fileOf(conversation),
+        })),
       )
+      for (const conversation of children) podiumIds.set(conversation.id, ids.get(conversation.id)!)
     }
 
     const curated = await this.deps.store.conversations.index.curatedMetaOf(conversations.map((conversation) => conversation.id))
