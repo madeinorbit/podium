@@ -46,6 +46,9 @@ import {
   censusScope,
   queryDefinitionSites,
   type QueryDefinitionSite,
+  rawSqlScope,
+  rawSqlSites,
+  type RawSqlSite,
 } from '../test-support/prepared-census'
 import { issueRowFixture } from '../test-support/issue-row'
 import {
@@ -616,6 +619,14 @@ const WHOLE_TABLE_READS: ReadonlyMap<string, string> = new Map([
     'Whole-table read (POD-6172): the sync bootstrap of change_latest (sync behaviour, out of POD-6148 scope).',
   ],
   [
+    'apps/server/src/sync-worker/producer.ts:SELECT seq, entity, entity_id FROM change_latest ORDER BY seq',
+    "Whole-table read (POD-6227): the sync worker's bootstrap, pass one, streams every change_latest ref in seq order on its read-only snapshot (sync behaviour, like installedWorld); a replica's world is every row it may see.",
+  ],
+  [
+    'apps/server/src/sync-worker/producer.ts:SELECT seq, entity, entity_id, payload FROM change_latest ORDER BY seq',
+    "Whole-table read (POD-6227): the sync worker's bootstrap, pass two, streams the visible rows' payloads in seq order on the same snapshot (sync behaviour, like installedWorld).",
+  ],
+  [
     'apps/server/src/store/automations.ts:allLiveRuns',
     'Whole-table read (POD-6172): every live automation run for the automationRun full-truth reconcile at boot (AutomationsService.reconcileFromStore); nothing else reads it.',
   ],
@@ -654,6 +665,95 @@ const WHOLE_TABLE_READS: ReadonlyMap<string, string> = new Map([
   [
     'apps/server/src/store/transcript-costs.ts:costCount',
     'Whole-table read (POD-6172): countAll is a test oracle only; no production code calls it.',
+  ],
+])
+
+/**
+ * RAW SQL OUTSIDE THE REPOSITORIES [POD-6227]. A statement handed straight to
+ * a database handle (`db.prepare(sql)`) is no `prepared(...)` definition, so
+ * the census above never sees it. The raw census (`rawSqlSites`) lists every
+ * such statement in the server's and the sync package's production source,
+ * and each must be on one of these two lists, keyed `file:sql` (the SQL with
+ * its whitespace folded):
+ * - PLANNED: run against this database's schema, so the audit plans it like a
+ *   repository query and the same lists explain a scan or a sort. The value
+ *   says why it is raw rather than a repository query.
+ * - EXEMPT (by key, by file, or by directory with a trailing `/`): not a
+ *   query on the server's tables at run time, with the reason.
+ * A raw statement added anywhere in that source fails the census until it is
+ * listed, and a listed key with no site left fails it too.
+ */
+const RAW_SQL_PLANNED: ReadonlyMap<string, string> = new Map([
+  [
+    "apps/server/src/sync-worker/producer.ts:SELECT seq FROM sqlite_sequence WHERE name='changes'",
+    "The sync worker's first read on its read-only snapshot: it fixes the snapshot, before any repository exists on the connection.",
+  ],
+  [
+    'apps/server/src/sync-worker/producer.ts:SELECT min(seq) AS seq FROM changes',
+    "The sync worker's retention floor, read on the snapshot the first read fixed, before the visibility repositories exist.",
+  ],
+  [
+    'apps/server/src/sync-worker/producer.ts:SELECT seq, entity, entity_id FROM change_latest ORDER BY seq',
+    'Streamed with a statement iterator (`iterate`), which the repository executor does not offer: the worker never holds the world in memory.',
+  ],
+  [
+    'apps/server/src/sync-worker/producer.ts:SELECT seq, entity, entity_id, payload FROM change_latest ORDER BY seq',
+    'Streamed with a statement iterator (`iterate`), which the repository executor does not offer: the worker never holds the world in memory.',
+  ],
+  [
+    "apps/server/src/sync-worker/visibility.ts:SELECT entity_id FROM change_latest WHERE entity = 'issueEvent'",
+    "The issue-event subjects of the worker's snapshot, read once per job on the raw handle before the visibility repositories are composed over it.",
+  ],
+  [
+    'apps/server/src/modules/updates/recovery-store.ts:SELECT value FROM meta WHERE key = ?',
+    "The update coordinator's checkpoint: synchronous by contract (recoveryOnly restores it from a query-only database before the store's executor runs).",
+  ],
+  [
+    'apps/server/src/modules/updates/recovery-store.ts:INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)',
+    "The update coordinator's checkpoint write, synchronous by the same contract as its read.",
+  ],
+])
+
+const RAW_SQL_EXEMPT: ReadonlyMap<string, string> = new Map([
+  [
+    'apps/server/src/store/executor/',
+    'The drivers: they prepare the statements the repositories built, which the audit plans at their definitions.',
+  ],
+  [
+    'apps/server/src/migrations/',
+    'Migration bookkeeping and boot repair (sqlite_master, the migration ledger, VACUUM INTO, quick_check): run once at boot or by a maintenance command before the server serves, on the schema the migrations are building.',
+  ],
+  [
+    'packages/sync/src/adapters/mobile-sqlite/',
+    "The phone replica's own database (its outbox and meta tables), not the server's.",
+  ],
+  [
+    'apps/server/src/installation-identity-import.ts',
+    'One-time data migration at boot, on the exclusive migration connection, behind its receipt (installation_identity_import_v1): meta and server_secrets by primary key.',
+  ],
+  [
+    'apps/server/src/settings-config-import.ts',
+    'One-time data migration at boot of the legacy config.json settings, on the exclusive migration connection, behind its receipt (settings_config_import_v1).',
+  ],
+  [
+    'apps/server/src/enrollment-ledger-import.ts',
+    'One-time data migration at boot of the legacy enrollment ledger file, on the exclusive migration connection, behind its marker (enrollment_ledger_imported).',
+  ],
+  [
+    'apps/server/src/fingerprint-key-import.ts',
+    'One-time data migration at boot of the legacy fingerprint key file, on the exclusive migration connection, behind its receipt (secret_fingerprint_import_v1).',
+  ],
+  [
+    'apps/server/src/relay.ts:input',
+    "Not SQL: the session instruction registry's `prepare(input)`, which builds a session's start instructions.",
+  ],
+  [
+    'apps/server/src/modules/sessions/instructions.ts:context',
+    "Not SQL: an instruction provider's `prepare(context)`, which builds a session's start instructions.",
+  ],
+  [
+    'apps/server/src/sync-worker/producer.ts:sql',
+    "The worker's `iterate` helper prepares the text it is given; its callers' SQL is censused at the `iterate(db, ...)` calls.",
   ],
 ])
 
@@ -698,6 +798,48 @@ interface AuditedStatement {
   readonly statement: BuiltStatement
   readonly plan: readonly string[]
   readonly findings: readonly PlanFinding[]
+}
+
+
+/** Every raw SQL statement in the server's and the sync package's production source [POD-6227]. */
+function rawSqlCensus(): RawSqlSite[] {
+  const paths: string[] = []
+  for (const dir of ['apps/server/src', 'packages/sync/src']) {
+    for (const entry of readdirSync(join(REPO_ROOT, dir), { recursive: true })) {
+      paths.push(relative(REPO_ROOT, join(REPO_ROOT, dir, String(entry))).split('\\').join('/'))
+    }
+  }
+  return rawSqlScope(paths).flatMap((file) => rawSqlSites(file, readFileSync(join(REPO_ROOT, file), 'utf8')))
+}
+
+const rawKey = (site: RawSqlSite): string => `${site.file}:${site.sql}`
+
+/** Why a raw statement is not planned, or undefined when nothing exempts it. */
+function rawExemption(site: RawSqlSite): string | undefined {
+  const byKey = RAW_SQL_EXEMPT.get(rawKey(site))
+  if (byKey !== undefined) return byKey
+  for (const [key, reason] of RAW_SQL_EXEMPT) {
+    if (key === site.file || (key.endsWith('/') && site.file.startsWith(key))) return reason
+  }
+  return undefined
+}
+
+/** Plan each PLANNED raw statement on the migrated schema, like a repository query. */
+function auditRawSql(sites: readonly RawSqlSite[]): AuditedStatement[] {
+  const tables = tablesOf(database)
+  return sites
+    .filter((site) => RAW_SQL_PLANNED.has(rawKey(site)))
+    .map((site) => {
+      const statement: BuiltStatement = { sql: site.sql, params: (site.sql.match(/\?/g) ?? []).length }
+      const plan = explain(database, statement)
+      return {
+        key: rawKey(site),
+        shape: undefined,
+        statement,
+        plan,
+        findings: planFindings(plan, statement.sql, tables, LOW_SELECTIVITY),
+      }
+    })
 }
 
 let store: SessionStore
@@ -1105,7 +1247,7 @@ describe('POD-6148 — every repository query is served by an index', () => {
 
   it('finds no scan or sort that is not explained', () => {
     const { keyed } = keyedDefinitions(trackedSources())
-    const { audited } = auditDefinitions(keyed)
+    const audited = [...auditDefinitions(keyed).audited, ...auditRawSql(rawSqlCensus())]
     const flagged = audited.filter((entry) => entry.findings.length > 0)
     const unexplained = flagged.filter((entry) => explanation(entry) === undefined)
     console.log(
@@ -1223,7 +1365,7 @@ describe('POD-6148 — every repository query is served by an index', () => {
 
   it('keeps no stale entry: every listed query still scans or sorts, every small table exists', () => {
     const { keyed } = keyedDefinitions(trackedSources())
-    const { audited } = auditDefinitions(keyed)
+    const audited = [...auditDefinitions(keyed).audited, ...auditRawSql(rawSqlCensus())]
     const flaggedKeys = new Set(
       audited
         .filter((entry) => entry.findings.length > 0)
@@ -1243,6 +1385,60 @@ describe('POD-6148 — every repository query is served by an index', () => {
     ]) {
       expect(reason.trim().length).toBeGreaterThan(20)
     }
+  })
+
+  it('lists every raw SQL statement outside the repositories, and plans the ones on the server schema (POD-6227)', () => {
+    const sites = rawSqlCensus()
+    const planned = sites.filter((site) => RAW_SQL_PLANNED.has(rawKey(site)))
+    console.log(
+      `raw SQL census: ${sites.length} raw statements in ${new Set(sites.map((s) => s.file)).size} files, ` +
+        `${planned.length} planned, ${sites.length - planned.length} exempt`,
+    )
+    // A census that read nothing would pass.
+    expect(sites.length).toBeGreaterThan(10)
+    const unlisted = sites.filter((site) => !RAW_SQL_PLANNED.has(rawKey(site)) && rawExemption(site) === undefined)
+    for (const site of unlisted) console.log(`UNLISTED RAW SQL ${site.file}:${site.line} ${site.sql}`)
+    expect(unlisted.map(rawKey)).toEqual([])
+    // A planned statement is planned from its text.
+    expect(planned.filter((site) => !site.literal).map(rawKey)).toEqual([])
+    // No stale entry: every key names a site, every directory holds one.
+    const keys = new Set(sites.map(rawKey))
+    expect([...RAW_SQL_PLANNED.keys()].filter((key) => !keys.has(key))).toEqual([])
+    expect(
+      [...RAW_SQL_EXEMPT.keys()].filter((key) =>
+        key.endsWith('/')
+          ? !sites.some((site) => site.file.startsWith(key))
+          : !keys.has(key) && !sites.some((site) => site.file === key),
+      ),
+    ).toEqual([])
+    expect([...RAW_SQL_PLANNED.keys()].filter((key) => RAW_SQL_EXEMPT.has(key))).toEqual([])
+    for (const reason of [...RAW_SQL_PLANNED.values(), ...RAW_SQL_EXEMPT.values()]) {
+      expect(reason.trim().length).toBeGreaterThan(20)
+    }
+    // Every planned statement was planned.
+    expect(auditRawSql(sites).map((entry) => entry.key).sort()).toEqual([...RAW_SQL_PLANNED.keys()].sort())
+  })
+
+  it('reads the issue-event subjects of a worker snapshot by the change_latest key (POD-6227)', () => {
+    const subjects = auditRawSql(rawSqlCensus()).filter((entry) =>
+      entry.key.startsWith('apps/server/src/sync-worker/visibility.ts:'),
+    )
+    expect(subjects.map((entry) => entry.findings)).toEqual([[]])
+  })
+
+  it('is armed: a planted raw statement is censused unlisted, and its scan is found', () => {
+    const [site] = rawSqlSites(
+      'apps/server/src/planted.ts',
+      "export const read = (db: { prepare(sql: string): unknown }) => db.prepare('SELECT * FROM messages WHERE body = ?')",
+    )
+    expect(site).toMatchObject({ sql: 'SELECT * FROM messages WHERE body = ?', literal: true })
+    expect(RAW_SQL_PLANNED.has(rawKey(site!)) || rawExemption(site!) !== undefined).toBe(false)
+    const plan = explain(database, { sql: site!.sql, params: 1 })
+    expect(planFindings(plan, site!.sql, tablesOf(database)).map((finding) => finding.kind)).toEqual(['scan'])
+    // A dynamic statement is censused by its expression, and a query call without SQL is not one.
+    expect(rawSqlSites('apps/server/src/planted.ts', 'db.prepare(text); router.query(handler)')).toMatchObject([
+      { sql: 'text', literal: false },
+    ])
   })
 
   it('is armed: a planted unindexed lookup fails it, and an indexed one passes', () => {
