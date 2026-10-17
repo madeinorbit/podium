@@ -10,9 +10,9 @@
  * check of which triggered targets have mail at all (POD-6219).
  *
  * A pass reads the members of each issue it attempts once, not once per
- * queued row (POD-6229): pinned at the end by counting that read, and through
- * the real registry (whose member read is the issue's session projection)
- * once POD-6231 removes the pass's last per-row read.
+ * queued row (POD-6229), nor its sender's account (POD-6231): pinned at the
+ * end by counting the member read, and through the real registry (whose
+ * member read is the issue's session projection).
  */
 import { asIssueId, asSessionId, asThreadId, firstAdminMemberId, type IssueId, type SessionMeta } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
@@ -30,8 +30,8 @@ import { type MailHarness, mailHarness } from './characterization-support'
 import type { MessageDeliveryDeps } from './service'
 
 const SENDER = asSessionId('sFrom')
-/** Measured on the polaris VM (POD-6229), with one account read per row left. */
-const PASS_STATEMENTS = 17
+/** Measured on the polaris VM (POD-6231). */
+const PASS_STATEMENTS = 13
 
 const row = (id: string, toId: IssueId, lifecycle: MessageRow['lifecycle'], createdAt: string): MessageRow => ({
   id,
@@ -280,13 +280,13 @@ describe('a pass over held issue mail: pinned statement counts at 5 and 150 held
   // Each held row read the issue's members on its own (four statements) and
   // its sender's machine ownership for an apply check that reads none of it
   // (two more). Both are gone; the send that triggers such a pass is pinned in
-  // mail-send.statement-count.test.ts. The pass alone still reads its sender's
-  // account once a row: the apply-time re-authorization asks for the sender's
-  // role, and the account memo is per read scope, which each attempt opens
-  // anew. 17 statements at 5 held rows, 162 at 150. Unskip at its constant
-  // when POD-6231 reads the account once per operation. Both sizes fit one
-  // delivery page (200 rows): a full page asks for the next.
-  it.skip('the pass itself: the members of the issue and the sender read once (POD-6231)', async () => {
+  // mail-send.statement-count.test.ts. The apply-time re-authorization asks
+  // for the sender's role once a row; the account memo was per read scope,
+  // which each attempt opens anew (17 statements at 5 held rows, 162 at 150).
+  // It is per operation now (POD-6218), so the pass reads the account once
+  // (POD-6231). Both sizes fit one delivery page (200 rows): a full page asks
+  // for the next.
+  it('the pass itself: the members of the issue and the sender read once (POD-6231)', async () => {
     await expectConstantStatements<HeldIssueMail>(
       {
         name: 'onIssueEligibilityChanged + flushDeliveryTriggers (held issue mail)',
