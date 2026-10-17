@@ -56,7 +56,6 @@ async function harness() {
       run: plumbing.funnel.run,
     },
     ledger,
-    applyCommit,
 
     now: () => wallClock,
   }
@@ -222,7 +221,6 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
       await ledger.commit({
         write: deleting.write,
         changes: deleting.changes,
-        apply: deleting.apply,
       })
       expect(appended).toHaveLength(1)
       expect(appended[0]?.map((c) => c.entity)).toEqual(
@@ -242,7 +240,6 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
       await ledger.commit({
         write: restoring.write,
         changes: restoring.changes,
-        apply: restoring.apply,
       })
       expect(appended).toHaveLength(1)
       expect(appended[0]?.map((c) => c.entity)).toEqual(

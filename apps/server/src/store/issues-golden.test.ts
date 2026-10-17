@@ -6,7 +6,7 @@
  * method of `IssuesRepository` that no test executes (`purgeIssueUserState`)
  * and ten that are executed only incidentally, never named by an assertion:
  * `listIssueCwdRows` (since removed), `listIssueParentEdges`, `assignRepoIdToIssuesUnder`,
- * `issuesMissingRepoId`, `listIssueLabelsByIssue`, `listAllIssueDeps`,
+ * `issuesMissingRepoId`, `listAllIssueDeps`,
  * `countIssueComments`, `countIssueCommentsByIssue`, `searchIssueComments` and
  * `deleteIssueMessagesForIssue`. A method in either group has no oracle, so its
  * conversion could change behaviour with the suite still green.
@@ -273,7 +273,9 @@ describe('IssuesRepository: purgeIssueUserState (no test executes this today)', 
     const store = await openIssueStore()
     await store.issues.setIssueUserState(firstAdminMemberId(), asIssueId('iss_1'), { readAt: 't' })
     await store.issues.purgeIssueUserState(asIssueId('iss_untouched'))
-    expect((await store.issues.listIssueUserState(firstAdminMemberId())).size).toBe(1)
+    expect(await store.issues.getIssueUserState(firstAdminMemberId(), asIssueId('iss_1'))).toEqual(
+      expect.objectContaining({ readAt: 't' }),
+    )
     await store.close()
   })
 })
@@ -449,30 +451,6 @@ describe('IssuesRepository: assignRepoIdToIssuesUnder (executed, never named)', 
 })
 
 describe('IssuesRepository: the batched child reads (executed, never named)', () => {
-  it('listIssueLabelsByIssue groups by issue, labels sorted within each', async () => {
-    const store = await openIssueStore()
-    await seedIssues(store, ['iss_1', 'iss_2'])
-    await store.issues.setIssueLabels(asIssueId('iss_2'), ['zeta', 'alpha'])
-    await store.issues.setIssueLabels(asIssueId('iss_1'), ['beta'])
-
-    const byIssue = await store.issues.listIssueLabelsByIssue()
-
-    expect([...byIssue.entries()]).toEqual([
-      ['iss_1', ['beta']],
-      ['iss_2', ['alpha', 'zeta']],
-    ])
-    await store.close()
-  })
-
-  it('listIssueLabelsByIssue omits issues with no labels rather than mapping them to []', async () => {
-    const store = await openIssueStore()
-    await seedIssues(store, ['iss_1'])
-    await store.issues.setIssueLabels(asIssueId('iss_1'), ['a'])
-    await store.issues.setIssueLabels(asIssueId('iss_1'), [])
-    expect(await store.issues.listIssueLabelsByIssue()).toEqual(new Map())
-    await store.close()
-  })
-
   it('listAllIssueDeps returns every edge in a stable order', async () => {
     const store = await openIssueStore()
     await seedIssues(store, ['iss_a', 'iss_b', 'iss_c'])

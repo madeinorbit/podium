@@ -15,9 +15,8 @@
  * rows; `doctor` reads only its listing and the dependencies now.
  */
 import { asIssueId, asUserId, firstAdminMemberId } from '@podium/model'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import type { IssueRow, SessionStore } from '../../store'
-import { applyAfterCommit, spanOpen } from '../../store/executor/executor'
 import { OPERATOR } from '../../test-support/capabilities'
 import { openTestStore } from '../../test-support/open-test-store'
 import { expectConstantStatements, type StatementPin } from '../../test-support/statement-count'
@@ -25,7 +24,6 @@ import { IssueCommandCtx } from './command-ctx'
 import { issueRegistry } from './registry'
 import { IssueStore } from './service/core'
 import { IssueReportsModule } from './service/reads'
-import { type IssueMapParityMode, setIssueMapParityMode } from './service/map-parity'
 import type { IssueDeps } from './service/types'
 
 const reader = asUserId('reader')
@@ -126,16 +124,15 @@ async function fixture(size: number): Promise<Fixture> {
       })
     }
   })
-  const issues = await new IssueStore({
+  const issues = new IssueStore({
     store,
-    applyCommit: { spanOpen, onCommit: applyAfterCommit },
     sessionFacts: () => [],
     runningSessionFacts: () => [],
     readSessionFacts: async () => [],
     readSessionFactsById: async () => undefined,
     readSessionFactsByIssue: async () => [],
     sessionsById: async () => [],
-  } as unknown as IssueDeps).init()
+  } as unknown as IssueDeps)
   return { store, reports: new IssueReportsModule(issues) }
 }
 
@@ -169,17 +166,6 @@ const pin = (
 const lengthOf = (value: unknown) => (value as unknown[]).length
 
 describe('issue listings: pinned statement counts at 5 and 200 issues', () => {
-  // The pins count what production runs. The old/new comparison asks the
-  // issue map's code beside every listing in development builds and tests
-  // (POD-6158), and its legacy side has statements of its own.
-  let parity: IssueMapParityMode
-  beforeAll(() => {
-    parity = setIssueMapParityMode('off')
-  })
-  afterAll(() => {
-    setIssueMapParityMode(parity)
-  })
-
   it('list: labels, deps, comment counts and one grant read (was 9 at 5 issues, 204 at 200)', async () => {
     await expectConstantStatements(
       pin('issues.list', (f) => call(f, 'list', {}), (rows, size) =>

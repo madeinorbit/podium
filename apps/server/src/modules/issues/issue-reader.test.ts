@@ -3,11 +3,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { asIssueId, asUserId, firstAdminMemberId } from '@podium/model'
 import type { IssueRow, SessionStore } from '../../store'
 import { openTestStore } from '../../test-support/open-test-store'
-import { IssueStore } from '../issues/service/core'
-import type { IssueDeps } from '../issues/service/types'
 import { DurableIssueAccessIndex } from '../issues/access-index'
 import { MemoryVisibilityPolicy } from '../memory/visibility'
-import { readIssue, readIssues, readIssueRows, readIssueParentEdges } from './issue-reader'
+import { readIssue, readIssues } from './issue-reader'
 import { withOperation } from '../../store/executor/operation-scope'
 
 const stores: SessionStore[] = []
@@ -62,15 +60,13 @@ function issueRow(over: Partial<IssueRow> = {}): IssueRow {
     ...over,
   }
 }
-async function setup(bound: boolean) {
+async function setup() {
   const store = await openTestStore(':memory:')
   stores.push(store)
   // An issue row resolves its repo only through a machine that REPORTED it (2b803efb5).
   await store.repos.addRepo('/r', store.hostMachineId)
   await store.issues.upsertIssue(issueRow({ ownerUserId: alice }))
-  // Only hydration and row projection are needed; workflow ports are not used.
-  const index = bound ? await new IssueStore({ store } as IssueDeps).init() : undefined
-  return { store, index }
+  return { store }
 }
 
 // Ownership is immutable on upsert. A delete/recreate is the repository-level
@@ -82,11 +78,10 @@ async function replaceIssue(store: SessionStore, row: IssueRow) {
   })
 }
 
-// Run the identical characterization against the original repository route
-// and the bound snapshot route; expected authorization decisions are explicit.
-describe.each([false, true])('issue authority, bound=%s', bound => {
+// Expected authorization decisions are explicit.
+describe('issue authority', () => {
   it('preserves owner, stranger, missing, deleted and transferred ownership', async () => {
-    const { store } = await setup(bound)
+    const { store } = await setup()
     const access = new DurableIssueAccessIndex(store.issues, store.grants, store.repos)
     const policy = new MemoryVisibilityPolicy(store)
     const feed = makeFeedVisibility({ store,
@@ -125,7 +120,7 @@ describe.each([false, true])('issue authority, bound=%s', bound => {
   })
 
   it('preserves grant verbs and missing-row denial', async () => {
-    const { store } = await setup(bound)
+    const { store } = await setup()
     const policy = new MemoryVisibilityPolicy(store)
     for (const verb of ['read', 'write', 'manage', 'use'] as const) {
       await store.grants.upsert({ resourceKind: 'issue', resourceId: 'iss_x', grantee: bob,
@@ -137,11 +132,10 @@ describe.each([false, true])('issue authority, bound=%s', bound => {
   })
 })
 
-it('reads the database, returns private copies, and agrees with the bound map (POD-6195)', async () => {
-  const { store, index } = await setup(true)
+it('reads the database and returns private copies (POD-6195)', async () => {
+  const { store } = await setup()
   const point = vi.spyOn(store.issues, 'loadIssue')
   const batch = vi.spyOn(store.issues, 'loadIssues')
-  const list = vi.spyOn(store.issues, 'listIssueRows')
   const row = (await readIssue(store.issues, 'iss_x'))!
   row.ownerUserId = bob
   row.blockedBy.push('mutated')
@@ -149,25 +143,19 @@ it('reads the database, returns private copies, and agrees with the bound map (P
   expect((await readIssue(store.issues, 'iss_x'))?.blockedBy).toEqual([])
   expect(await readIssue(store.issues, 'absent')).toBeNull()
   expect([...(await readIssues(store.issues, ['iss_x', 'absent', 'iss_x'])).keys()]).toEqual(['iss_x'])
-  expect((await readIssueRows(store.issues)).map(row => row.id)).toEqual(['iss_x'])
   expect(point).toHaveBeenCalled()
   expect(batch).toHaveBeenCalledOnce()
-  expect(list).toHaveBeenCalledOnce()
   await store.issues.upsertIssue(issueRow({ ownerUserId: bob, title: 'direct write' }))
-  expect(index?.rows.get('iss_x')?.title).toBe('direct write')
+  expect((await readIssue(store.issues, 'iss_x'))?.title).toBe('direct write')
   // The returned durable row preserves the original owner on ordinary upsert.
   expect((await readIssue(store.issues, 'iss_x'))?.ownerUserId).toBe(alice)
-  const other = await setup(false)
-  expect((await readIssue(other.store.issues, 'iss_x'))?.ownerUserId).toBe(alice)
 })
 
-it('keeps snapshot isolated through nested rollback and refreshes on commit', async () => {
-  const { store, index } = await setup(true)
+it("reads a save's own writes inside it, and the commit after it", async () => {
+  const { store } = await setup()
   await store.transact(async () => {
     await replaceIssue(store, issueRow({ ownerUserId: bob }))
-    expect(index?.rows.get('iss_x')?.ownerUserId).toBe(alice)
     expect((await readIssues(store.issues, ['iss_x'])).get('iss_x')?.ownerUserId).toBe(bob)
-    expect((await readIssueRows(store.issues))[0]?.ownerUserId).toBe(bob)
     await expect(store.transact(async () => {
       await replaceIssue(store, issueRow({ ownerUserId: alice }))
       throw new Error('savepoint')
@@ -177,9 +165,8 @@ it('keeps snapshot isolated through nested rollback and refreshes on commit', as
   expect((await readIssue(store.issues, 'iss_x'))?.ownerUserId).toBe(bob)
 })
 
-
 it('preserves cwd ordering, archive ambiguity, and lightweight projections', async () => {
-  const { store } = await setup(false)
+  const { store } = await setup()
   await store.issues.upsertIssue(issueRow({ worktreePath: '/r/work', archived: true }))
   await store.issues.upsertIssue(issueRow({ id: asIssueId('iss_y'), seq: 2, worktreePath: '/r/work', parentId: asIssueId('iss_x'), stage: 'done' }))
   const access = new DurableIssueAccessIndex(store.issues, store.grants, store.repos)
@@ -192,26 +179,15 @@ it('preserves cwd ordering, archive ambiguity, and lightweight projections', asy
   // is not a sole owner, and the live one alone is not ambiguous.
   expect(before.match).toBe('iss_x')
   expect(before.sole).toBe('iss_y')
-  await new IssueStore({ store } as IssueDeps).init()
-  expect(await readIssueParentEdges(store.issues)).toEqual(before.parents)
+  expect(await store.issues.listIssueParentEdges()).toEqual(before.parents)
   expect(await access.issueForCwd('/r/work/sub')).toBe(before.match)
   expect(await access.soleOwnerForCwd('/r/work/sub')).toBe(before.sole)
   expect(await access.isIssueWorktree('/r/work')).toBe(true)
   expect(await access.isIssueWorktree('/r/work/sub')).toBe(false)
 })
 
-it('disables the snapshot when boot quarantines a row', async () => {
-  const { store } = await setup(false)
-  const raw = (store as unknown as { db: { prepare(sql: string): { run(): void } } }).db
-  raw.prepare("INSERT INTO issues (id, owner_user_id, created_by_actor, repo_path, seq, title, stage, default_agent, created_at, updated_at) VALUES (NULL, 'alice', 'alice', '/r', 99, 'bad', 'backlog', 'claude-code', 't', 't')").run()
-  await new IssueStore({ store } as IssueDeps).init()
-  const point = vi.spyOn(store.issues, 'loadIssue')
-  expect((await readIssue(store.issues, 'iss_x'))?.ownerUserId).toBe(alice)
-  expect(point).toHaveBeenCalledOnce()
-})
-
 it('reads each issue once per operation, and again after a write (POD-6158)', async () => {
-  const { store } = await setup(false)
+  const { store } = await setup()
   const reads = vi.spyOn(store.issues as unknown as { readIssuesByIds(ids: readonly string[]): Promise<unknown> }, 'readIssuesByIds')
   await withOperation(async () => {
     // Session authorization and the session projection both ask, in one frame.
@@ -231,7 +207,7 @@ it('reads each issue once per operation, and again after a write (POD-6158)', as
 })
 
 it('orders by repo-path bytes like SQL, and batches folder owners identically (POD-5941, POD-6155)', async () => {
-  const { store } = await setup(false)
+  const { store } = await setup()
   // U+FF01 sorts AFTER the surrogate pair of U+1F600 in UTF-16 but BEFORE it in
   // UTF-8 bytes (SQLite BINARY): string comparison would get this pair wrong.
   const repos = ['/r', '/r\u{1F600}', '/r\uFF01', '/a']
@@ -249,17 +225,10 @@ it('orders by repo-path bytes like SQL, and batches folder owners identically (P
   }
   const access = new DurableIssueAccessIndex(store.issues, store.grants, store.repos)
   const cwds = ['/w', '/w/deep/x', '/w/other', '/elsewhere']
-  const before = {
-    rows: (await store.issues.listIssueRows()).map(row => row.id),
-    owners: await Promise.all(cwds.map(cwd => access.issueForCwd(cwd))),
-  }
+  const before = { owners: await Promise.all(cwds.map(cwd => access.issueForCwd(cwd))) }
   // Ties go to the first row in BINARY repo-path order: '/a', seq 11 / 12.
   expect(before.owners).toEqual(['iss_2', 'iss_3', 'iss_2', null])
-  await new IssueStore({ store } as IssueDeps).init()
-  const list = vi.spyOn(store.issues, 'listIssueRows')
-  expect((await readIssueRows(store.issues)).map(row => row.id)).toEqual(before.rows)
   expect(await Promise.all(cwds.map(cwd => access.issueForCwd(cwd)))).toEqual(before.owners)
   expect([...(await access.issuesForCwds([...cwds, '/w'])).entries()]).toEqual(cwds.map((cwd, i) => [cwd, before.owners[i]]))
-  expect(list).toHaveBeenCalledOnce()
   expect(await access.issuesForCwds([])).toEqual(new Map())
 })

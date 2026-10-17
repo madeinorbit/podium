@@ -697,18 +697,6 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
     kind: 'contained',
     why: "POD-6158: an operation's memo slot (the broadcast viewer's id), held in this process and dropped when the operation ends; no I/O or publication",
   },
-  'apps/server/src/modules/issues/service/map-parity.ts#<module>.mapAnswer': {
-    kind: 'contained',
-    why: "POD-6158: the issue map's side of the old/new comparison: reads the in-memory map and, for a reference, the repository registry on the store's own database; a difference is only logged (or thrown under vitest), nothing is written or published",
-  },
-  'apps/server/src/modules/issues/service/map-parity.ts#<module>.dbAnswer': {
-    kind: 'contained',
-    why: "POD-6158: the database side of the old/new comparison: the issue read itself, on the store's own database (inside a span, on the span's connection); no write or publication",
-  },
-  'apps/server/src/modules/issues/service/map-parity.ts#<module>.canonical': {
-    kind: 'contained',
-    why: "POD-6191: sorts a copy of an answer into one total order for the old/new comparison; pure, no I/O",
-  },
   'apps/server/src/store/issue-listings.ts#<module>.run': {
     kind: 'contained',
     why: "POD-6192: perChunk's per-chunk callback, a prepared read of issue rows or their joins on the store's own database (inside a span, on the span's connection); no write or publication",

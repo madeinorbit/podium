@@ -4,9 +4,7 @@ import type { WorktreeGcObservation } from '@podium/protocol'
 import type { CommandPrincipal } from '../../../command-principal'
 import { liveSessionsUsingWorktree } from '../../../issue-util'
 import type { IssueRow } from '../../../store'
-import { spanOpen } from '../../../store/executor/executor'
 import type { IssueStore } from './core'
-import { compareWithIssueMap } from './map-parity'
 
 import { parseGitWorktreeList } from './worktree-safety'
 
@@ -126,11 +124,6 @@ export class IssueWorktreeGcModule {
     const withWorktrees = await this.store.deps.store.issues.listIssueRowsWhere({
       repo: false, readable: false, live: false, hasWorktree: true, order: 'path-seq',
     })
-    if (!spanOpen()) {
-      compareWithIssueMap('worktreeGc.withWorktrees', null,
-        () => [...this.store.rows.values()].filter((row) => row.worktreePath).map((row) => row.id).sort(),
-        withWorktrees.filter((row) => row.worktreePath).map((row) => row.id).sort())
-    }
     const machineByRow = new Map<IssueId, MachineId>()
     for (const row of withWorktrees) {
       machineByRow.set(row.id, await this.store.resolveWorktreeMachine(row.machineId, row.repoPath))
