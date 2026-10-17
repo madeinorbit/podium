@@ -201,6 +201,7 @@ const FAMILY_SHAPES: ReadonlyMap<string, readonly (string | number)[]> = new Map
   ['apps/server/src/store/messages.ts:messagesAddressedTo', ['no-id', 'id']],
   ['apps/server/src/store/messages.ts:ledger', ['issue', 'session', 'both']],
   ['apps/server/src/store/messages.ts:pendingPages', SIZES],
+  ['apps/server/src/store/messages.ts:pendingTargetsAmong', SIZES],
   [
     'apps/server/src/store/messages.ts:pendingSummaryOf',
     ['no-id', 'id', 'session', 'session-blank'],

@@ -607,6 +607,9 @@ export class MessageDeliveryService {
    *  reconcile walk and the slow retry backstop, with the eleven fields that
    *  answer for them and all three of their timers (POD-1397). */
   private readonly scheduler: DeliveryScheduler
+  /** Folders of unbound sessions whose change is queued and whose issue the
+   *  next flush names, all in one read (POD-6219). Emptied by every flush. */
+  private readonly foldersToResolve = new Set<string>()
   /** The PULL path: replies, acks, inbox reads, dismissals and the bounded
    *  waits a sender uses to learn what became of its send (POD-1397). */
   private readonly mailbox: MessageMailbox
@@ -618,7 +621,7 @@ export class MessageDeliveryService {
       events: deps.events,
       now: deps.now,
       onCooldownElapsed: async (targets) => {
-        for (const target of targets) await this.queueDeliveryTarget(target)
+        for (const target of targets) this.queueDeliveryTarget(target)
       },
     })
     this.scheduler = new DeliveryScheduler({
@@ -667,8 +670,10 @@ export class MessageDeliveryService {
    * A change can make pending mail deliverable (or move it to another member),
    * so it queues the targets whose answer may have moved: the session
    * principal, the issue it resolves to now and the issue it resolved to
-   * before. Each queue is one count and nothing more when the target has no
-   * pending row.
+   * before. A queue reads nothing (POD-6219): the flush names the issue of
+   * every unbound session queued since the last one in one folder read and
+   * asks which of the targets have mail in one more, so a burst of session
+   * changes with no mail costs two statements, not up to three per change.
    *
    * NO COPY OF THE FLEET'S ROUTING (POD-6160). This service used to keep every
    * session's last resolved issue and a membership index seeded with every
@@ -681,16 +686,16 @@ export class MessageDeliveryService {
    */
   async onSessionEligibilityChanged(sessionId: SessionId, changed?: SessionMeta): Promise<void> {
     const session = changed ?? (await this.deps.sessions.sessionById(sessionId))
-    await this.queueDeliveryTarget({ kind: 'session', id: sessionId })
-    const issueId = await this.issueForSession(session)
-    if (issueId) await this.queueDeliveryTarget({ kind: 'issue', id: issueId })
+    this.queueDeliveryTarget({ kind: 'session', id: sessionId })
+    if (session?.issueId) this.queueDeliveryTarget({ kind: 'issue', id: session.issueId })
+    else if (session) this.foldersToResolve.add(session.cwd)
   }
 
   /** A committed session write moved the session: queue the issue it resolved
    *  to before the write. */
   async onSessionRoutingChanged(previous: Pick<SessionMeta, 'issueId' | 'cwd'>): Promise<void> {
     const issueId = await this.issueForSession(previous)
-    if (issueId) await this.queueDeliveryTarget({ kind: 'issue', id: issueId })
+    if (issueId) this.queueDeliveryTarget({ kind: 'issue', id: issueId })
   }
 
   async onIssueEligibilityChanged(issueId: IssueId): Promise<void> {
@@ -714,7 +719,7 @@ export class MessageDeliveryService {
     const candidates = new Map<SessionId, SessionFacts>()
     const parents = new Map<string, string>()
     for (const issueId of changed) {
-      await this.queueDeliveryTarget({ kind: 'issue', id: issueId })
+      this.queueDeliveryTarget({ kind: 'issue', id: issueId })
       const issue = await this.deps.issues.reports.getMeta(issueId)
       const worktreePath = issue?.worktreePath ?? null
       for (const session of await this.deps.sessions.readSessionFactsByIssue(worktreePath, asIssueId(issueId))) {
@@ -743,12 +748,12 @@ export class MessageDeliveryService {
       }
     }
     for (const session of candidates.values()) {
-      await this.queueDeliveryTarget({ kind: 'session', id: session.sessionId })
+      this.queueDeliveryTarget({ kind: 'session', id: session.sessionId })
       const issueId = owners.get(session.sessionId)
-      if (issueId && !changed.has(issueId)) await this.queueDeliveryTarget({ kind: 'issue', id: issueId })
+      if (issueId && !changed.has(issueId)) this.queueDeliveryTarget({ kind: 'issue', id: issueId })
     }
     for (const issueId of formerOwners) {
-      if (!changed.has(issueId)) await this.queueDeliveryTarget({ kind: 'issue', id: issueId })
+      if (!changed.has(issueId)) this.queueDeliveryTarget({ kind: 'issue', id: issueId })
     }
   }
 
@@ -761,6 +766,7 @@ export class MessageDeliveryService {
     return {
       targetOf: (message) => this.deliveryTargetOf(message),
       nowMs: () => this.nowMs(),
+      deferredTargets: async () => await this.issuesOfQueuedFolders(),
       // One operation of its own (a drained queue serves many senders): the
       // target issues are read once, together, and each attempt's own read of
       // its issue is answered from the operation's memo (POD-6158).
@@ -827,10 +833,26 @@ export class MessageDeliveryService {
   dispose(): void {
     this.scheduler.dispose()
     this.brakes.dispose()
+    this.foldersToResolve.clear()
   }
 
-  private async queueDeliveryTarget(target: DeliveryTarget): Promise<void> {
-    await this.scheduler.queueDeliveryTarget(target)
+  private queueDeliveryTarget(target: DeliveryTarget): void {
+    this.scheduler.queueDeliveryTarget(target)
+  }
+
+  /** The issues the folders of the queued unbound sessions belong to, in one
+   *  indexed read; none when the read fails, as {@link issueForSession}. */
+  private async issuesOfQueuedFolders(): Promise<DeliveryTarget[]> {
+    if (this.foldersToResolve.size === 0) return []
+    const folders = [...this.foldersToResolve]
+    this.foldersToResolve.clear()
+    let owners = new Map<string, IssueId | null>()
+    try {
+      owners = await this.deps.issues.reports.issuesForCwds(folders)
+    } catch {}
+    const issueIds = new Set<IssueId>()
+    for (const owner of owners.values()) if (owner) issueIds.add(asIssueId(owner))
+    return [...issueIds].map((id) => ({ kind: 'issue' as const, id }))
   }
 
   private async prepareQueuedAttemptSafely(message: MessageRow, wakeKey?: string): Promise<boolean> {
@@ -2825,7 +2847,7 @@ export class MessageDeliveryService {
     } catch (error) {
       log.warn('failure notice left for the delivery path', { err: error, messageId: notice.id })
       const target = this.deliveryTargetOf(notice)
-      if (target) await this.queueDeliveryTarget(target)
+      if (target) this.queueDeliveryTarget(target)
     }
   }
 

@@ -38,6 +38,7 @@ import {
   count,
   desc,
   eq,
+  exists,
   getColumns,
   gt,
   gte,
@@ -511,6 +512,38 @@ const pendingPages = preparedFamily((db: StoreDrizzle, size: number) => {
   let union = arm(0).$dynamic()
   for (let i = 1; i < size; i++) union = union.unionAll(arm(i)).$dynamic()
   return union.prepare()
+})
+
+/**
+ * WHICH OF `size` TARGETS HAVE A PENDING ROW, IN ONE STATEMENT [POD-6219].
+ *
+ * The targets are a VALUES list (`toKind{i}`, `toId{i}` placeholders) and each
+ * is kept when a pending row EXISTS for it: one covering
+ * `idx_messages_recipient_delivery` seek per target, with no subquery per
+ * target. Measured on the bench template (polaris, 2026-10-17): 5 µs for 2
+ * targets and 13 µs for 16, where a UNION ALL of LIMIT 1 subqueries took 35 µs
+ * for 2 and a page read ({@link pendingPages}) 72 µs for 1, empty. Postgres
+ * names VALUES columns `column1`, `column2` as SQLite does.
+ */
+const pendingTargetsAmong = preparedFamily((db: StoreDrizzle, size: number) => {
+  const rows = sql.join(
+    Array.from({ length: size }, (_, i) => sql`(${sql.placeholder(`toKind${i}`)}, ${sql.placeholder(`toId${i}`)})`),
+    sql`, `,
+  )
+  const toKind = sql<string>`"target"."column1"`
+  const toId = sql<string>`"target"."column2"`
+  return db
+    .select({ toKind, toId })
+    .from(sql`(values ${rows}) as "target"`)
+    .where(
+      exists(
+        db
+          .select({ one: sql`1` })
+          .from(messagesTable)
+          .where(and(eq(messagesTable.toKind, toKind), eq(messagesTable.toId, toId), pending())),
+      ),
+    )
+    .prepare()
 })
 
 const latestPendingOperator = prepared((db: StoreDrizzle) =>
@@ -1289,6 +1322,29 @@ export class MessagesRepository {
     if (!row?.createdAt || !row.id) return undefined
     const ahead = await queuedAheadOf(this.db).get({ sessionId, createdAt: row.createdAt, id: row.id })
     return Number(ahead?.n ?? 0)
+  }
+
+  /**
+   * Whether each target has a pending row, in one statement per
+   * {@link PENDING_PAGES_MAX_TARGETS} targets [POD-6219]: `result[i]` answers
+   * `targets[i]`. The delivery flush asks it before reading pages, so a
+   * target with nothing pending costs one covering-index seek.
+   */
+  async pendingTargets(targets: readonly { kind: MessageToKind; id: string }[]): Promise<boolean[]> {
+    const hits = new Set<string>()
+    const keyOf = (kind: string, id: string | null) => `${kind}\u0000${id ?? ''}`
+    for (let start = 0; start < targets.length; start += PENDING_PAGES_MAX_TARGETS) {
+      const chunk = targets.slice(start, start + PENDING_PAGES_MAX_TARGETS)
+      const size = inListSize(chunk.length)
+      const values: Record<string, unknown> = {}
+      for (let i = 0; i < size; i++) {
+        // Padding arms name no recipient, so their index seek finds nothing.
+        values[`toKind${i}`] = chunk[i]?.kind ?? ''
+        values[`toId${i}`] = chunk[i]?.id ?? ''
+      }
+      for (const row of await pendingTargetsAmong(this.db, size).all(values)) hits.add(keyOf(row.toKind, row.toId))
+    }
+    return targets.map((to) => hits.has(keyOf(to.kind, to.id)))
   }
 
   /**

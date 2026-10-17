@@ -44,13 +44,13 @@ describe('DeliveryScheduler.sweep single-flight (POD-3258)', () => {
     let onAttempt: () => void = () => {}
     const scheduler = new DeliveryScheduler({
       messages: {
-        countPending: async () => 0,
         countQueued: async () => 1,
         listQueuedPage: async () => {
           listQueuedPageCalls += 1
           return [row('msg_1')]
         },
         pendingForPages: async () => [],
+        pendingTargets: async () => [],
       },
       now: () => '2026-07-13T00:00:00.000Z',
       runner: {
@@ -96,13 +96,13 @@ describe('DeliveryScheduler.sweep single-flight (POD-3258)', () => {
     let calls = 0
     const scheduler = new DeliveryScheduler({
       messages: {
-        countPending: async () => 0,
         countQueued: async () => 1,
         listQueuedPage: async () => {
           calls += 1
           throw new Error('store is gone')
         },
         pendingForPages: async () => [],
+        pendingTargets: async () => [],
       },
       now: () => '2026-07-13T00:00:00.000Z',
       runner: {

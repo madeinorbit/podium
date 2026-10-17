@@ -11,7 +11,8 @@
  * delivered, read, failed, cancelled, expired — after a second wave of
  * transitions and a rolled-back one; operator (chat) messages, which are never
  * delivery targets, never move an issue or session count; and a delivery
- * trigger costs one statement however much mail is pending.
+ * trigger reads nothing, however much mail is pending (POD-6219: it used to
+ * count its target's rows; the flush's page read answers the same question).
  */
 
 import { createHash } from 'node:crypto'
@@ -139,7 +140,7 @@ describe('pending counts come from SQL', () => {
     await expectCounts(store, targets, seeded)
   })
 
-  it('a delivery trigger costs one statement, however much mail is pending', async () => {
+  it('a delivery trigger reads nothing, however much mail is pending', async () => {
     await expectConstantStatements(
       {
         name: 'queueDeliveryTarget',
@@ -156,13 +157,13 @@ describe('pending counts come from SQL', () => {
         },
         target: (f) => f.store,
         run: async (f) => {
-          await f.scheduler.queueDeliveryTarget({ kind: 'issue', id: 'iss_busy' })
+          f.scheduler.queueDeliveryTarget({ kind: 'issue', id: 'iss_busy' })
           return f.scheduler.deliveryStats()
         },
         check: (stats) => expect(stats).toMatchObject({ pendingTargetCount: 1 }),
         teardown: (f) => f.scheduler.dispose(),
       },
-      1,
+      0,
     )
   })
 })
