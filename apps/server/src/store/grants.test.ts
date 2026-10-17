@@ -143,11 +143,12 @@ describe('the grant edge table', () => {
     expect(await store.grants.listForResource('machine', 'workstation')).toHaveLength(1)
   })
 
-  it('listForKind returns every machine edge and nothing from another kind', async () => {
+  it('listForResources returns the edges of the named resources of one kind, and nothing from another kind', async () => {
     await store.grants.upsert(edge(COLLEAGUE, 'use', 'laptop'))
     await store.grants.upsert({ ...edge(COLLEAGUE, 'use', 'iss_1'), resourceKind: 'issue' })
 
-    expect((await store.grants.listForKind('machine')).map((g) => g.resourceId)).toEqual(['laptop'])
+    const machines = await store.grants.listForResources('machine', ['laptop', 'iss_1'])
+    expect([...machines.values()].flat().map((g) => g.resourceId)).toEqual(['laptop'])
   })
 })
 

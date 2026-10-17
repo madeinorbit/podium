@@ -16,7 +16,7 @@ import type {
   SessionId,
   UserId,
 } from '@podium/model'
-import { and, asc, desc, eq, isNotNull, isNull, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, isNull, sql, type SQL } from 'drizzle-orm'
 import { automationRuns, automations } from '../migrations/schema'
 import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
 import { inListOf, inListSize, inListValues, param, prepared, preparedFamily } from './executor/sync-drizzle'
@@ -249,29 +249,48 @@ const allLiveRuns = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
+/** The live run ids of one automation, through its index (POD-6172). */
+const liveRunIdsOf = prepared((db: StoreDrizzle) =>
+  db
+    .select({ id: automationRuns.id })
+    .from(automationRuns)
+    .where(and(
+      eq(automationRuns.automationId, param(automationRuns.automationId, 'automationId')),
+      isNull(automationRuns.deletedAt),
+    ))
+    .prepare(),
+)
+
+// THE LATEST SPAWNED RUN OF AN AUTOMATION: a correlated `MAX(rowid)` over its
+// runs, which the builder has no vocabulary for, so it stays a `sql` fragment
+// inside the builder query (rule 1). `rowid` and not `MAX(fired_at)`: see
+// `lastSpawnedSessions`. The subquery seeks `idx_automation_runs_automation`.
+const latestSpawnedRowid = (automationId: SQL) => sql`(
+    SELECT MAX(x.rowid) FROM automation_runs x
+    WHERE x.automation_id = ${automationId}
+      AND x.outcome = 'spawned' AND x.session_id IS NOT NULL
+      AND x.deleted_at IS NULL
+  )`
+
+// Driven from `automations` (a small table) rather than from every run
+// (POD-6172): one index seek per automation instead of a read of every run.
+// Every run names an existing automation (the foreign key), so no run is missed.
 const lastSpawnedRuns = prepared((db: StoreDrizzle) =>
   db
     .select({
       automationId: automationRuns.automationId,
       sessionId: automationRuns.sessionId,
     })
+    .from(automations)
+    .innerJoin(automationRuns, sql`${automationRuns}.rowid = ${latestSpawnedRowid(sql`${automations.id}`)}`)
+    .prepare(),
+)
+
+const lastSpawnedRunOf = prepared((db: StoreDrizzle) =>
+  db
+    .select({ sessionId: automationRuns.sessionId })
     .from(automationRuns)
-    .where(
-      and(
-        eq(automationRuns.outcome, 'spawned'),
-        isNotNull(automationRuns.sessionId),
-        isNull(automationRuns.deletedAt),
-        // A CORRELATED SUBQUERY ON `rowid`, which the builder has no vocabulary
-        // for, so it stays a `sql` fragment inside the builder query (rule 1).
-        // `rowid` and not `MAX(fired_at)`: see `lastSpawnedSessions`.
-        sql`rowid = (
-            SELECT MAX(rowid) FROM automation_runs x
-            WHERE x.automation_id = ${automationRuns.automationId}
-              AND x.outcome = 'spawned' AND x.session_id IS NOT NULL
-              AND x.deleted_at IS NULL
-          )`,
-      ),
-    )
+    .where(sql`${automationRuns}.rowid = ${latestSpawnedRowid(sql`${sql.placeholder('automationId')}`)}`)
     .prepare(),
 )
 
@@ -483,5 +502,15 @@ export class AutomationsRepository {
     return new Map(
       rows.flatMap((r) => (r.sessionId === null ? [] : [[r.automationId, r.sessionId] as const])),
     )
+  }
+
+  /** {@link lastSpawnedSessions} for one automation: undefined when it never spawned. */
+  async lastSpawnedSessionOf(automationId: AutomationId): Promise<SessionId | undefined> {
+    return (await lastSpawnedRunOf(this.db).get({ automationId }))?.sessionId ?? undefined
+  }
+
+  /** The ids of one automation's live runs. */
+  async liveRunIdsOf(automationId: AutomationId): Promise<AutomationRunId[]> {
+    return (await liveRunIdsOf(this.db).all({ automationId })).map((r) => r.id)
   }
 }

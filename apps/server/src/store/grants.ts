@@ -111,15 +111,6 @@ const grantsOfResources = preparedFamily((db: StoreDrizzle, size: number) =>
     .prepare(),
 )
 
-const grantsOfKind = prepared((db: StoreDrizzle) =>
-  db
-    .select()
-    .from(grants)
-    .where(eq(grants.resourceKind, param(grants.resourceKind, 'resourceKind')))
-    .orderBy(asc(grants.createdAt))
-    .prepare(),
-)
-
 /** `custody` keeps the stored marker when the row does not name one: two shapes. */
 const upsertGrant = preparedFamily((db: StoreDrizzle, custody: 'set' | 'keep') =>
   db
@@ -357,16 +348,6 @@ export class GrantsRepository {
     },
     { copy: (rows) => rows.map((row) => ({ ...row })), perOperation: true },
   )
-
-  /** Every edge on every resource of one kind — the fleet-wide read the machine
-   *  listing needs, so N machines cost one query rather than N. */
-  async listForKind(resourceKind: string): Promise<GrantRow[]> {
-    const rows = await grantsOfKind(this.db).all({ resourceKind })
-    return rows.flatMap((r) => {
-      const row = grantFromRow(r)
-      return row ? [row] : []
-    })
-  }
 
   /**
    * Write an edge. `INSERT OR REPLACE` on the PK `(kind, id, grantee, verb)`:

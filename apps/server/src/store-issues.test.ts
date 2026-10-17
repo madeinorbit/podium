@@ -1029,7 +1029,7 @@ describe('shipping durable store', () => {
         members: [{ orderId: c.id }],
       }),
     ).rejects.toThrow(/canonical contiguous dependency\/FIFO prefix/)
-    expect(await s.shipping.listAttempts()).toEqual([])
+    for (const order of [a, b, c]) expect(await s.shipping.attemptsForOrder(order.id)).toEqual([])
 
     const claimed = await s.shipping.claimTrain({
       leaderOrderId: c.id,
@@ -1071,7 +1071,7 @@ describe('shipping durable store', () => {
         members: [{ orderId: upperId }, { orderId: lowerId }],
       }),
     ).rejects.toThrow(/canonical contiguous dependency\/FIFO prefix/)
-    expect(await cyclic.shipping.listAttempts()).toEqual([])
+    for (const id of [upperId, lowerId]) expect(await cyclic.shipping.attemptsForOrder(id)).toEqual([])
     await cyclic.close()
   })
 

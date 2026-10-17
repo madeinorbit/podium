@@ -354,10 +354,17 @@ it('names the last spawned session per automation by insertion order, not by tim
     // An automation that never spawned with a session is ABSENT, not null.
     expect(last.has('auto-2' as AutomationId)).toBe(false)
     expect(last.has('auto-3' as AutomationId)).toBe(false)
+    // The one-automation read gives the same answers (POD-6172).
+    expect(await store.automations.lastSpawnedSessionOf('auto-1' as AutomationId)).toBe('sess-second')
+    expect(await store.automations.lastSpawnedSessionOf('auto-2' as AutomationId)).toBeUndefined()
+    expect(await store.automations.lastSpawnedSessionOf('auto-3' as AutomationId)).toBeUndefined()
+    expect((await store.automations.liveRunIdsOf('auto-1' as AutomationId)).sort()).toEqual(['r1', 'r2'])
 
     // A tombstoned automation's runs leave the map with it.
     await store.automations.remove('auto-1', '2026-09-01T04:00:00.000Z')
     expect((await store.automations.lastSpawnedSessions()).size).toBe(0)
+    expect(await store.automations.lastSpawnedSessionOf('auto-1' as AutomationId)).toBeUndefined()
+    expect(await store.automations.liveRunIdsOf('auto-1' as AutomationId)).toEqual([])
   } finally {
     await store.close()
   }

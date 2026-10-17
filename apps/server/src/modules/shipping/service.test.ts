@@ -263,7 +263,7 @@ const provedShippingJob = async (
 describe('ShippingService enqueue transaction', () => {
   it('O1 scheduler tick does not scan attempt history', async () => {
     const { store, service } = await harness()
-    const attempts = vi.spyOn(store.shipping, 'listAttempts')
+    const attempts = vi.spyOn(store.shipping, 'attemptsForOrder')
     try {
       await service.tick()
       expect(attempts).not.toHaveBeenCalled()
@@ -281,7 +281,7 @@ describe('ShippingService enqueue transaction', () => {
       startNow: false,
     })
     await issues.crud.update(issue.id, { stage: 'review' })
-    const attempts = vi.spyOn(store.shipping, 'listAttempts')
+    const attempts = vi.spyOn(store.shipping, 'attemptsForOrder')
     try {
       const cursor = await ledger.cursor()
       const admitted = await service.enqueue({ issueId: issue.id, ...approval })
@@ -2425,15 +2425,16 @@ describe('ShippingService single-flight guards (POD-3258)', () => {
    * pick the same head order, leaving the custody check in `runOrder` as the
    * only thing between them and a double admission.
    *
-   * The probe re-enters from inside `listReceipts`, which the schedule build
-   * asks for on every pass — after the awaits and before any admission.
+   * The probe re-enters from inside `activeOrders`, which the schedule build
+   * reads twice on every pass (before and after it records native-stack edges)
+   * — after the awaits and before any admission.
    */
   it('the scheduler pass skips a tick that lands on a pass already running', async () => {
     const { store, service } = await harness()
     let calls = 0
     let inner: Promise<void> | undefined
-    const original = store.shipping.listReceipts.bind(store.shipping)
-    const spy = vi.spyOn(store.shipping, 'listReceipts').mockImplementation(async () => {
+    const original = store.shipping.activeOrders.bind(store.shipping)
+    const spy = vi.spyOn(store.shipping, 'activeOrders').mockImplementation(async () => {
       calls += 1
       if (!inner) inner = service.tick()
       return await original()
@@ -2443,7 +2444,8 @@ describe('ShippingService single-flight guards (POD-3258)', () => {
     await inner
 
     expect(inner).toBeDefined()
-    expect(calls).toBe(1)
+    // One pass's two reads: the re-entered tick read nothing.
+    expect(calls).toBe(2)
     spy.mockRestore()
     service.dispose()
   })
@@ -2451,8 +2453,8 @@ describe('ShippingService single-flight guards (POD-3258)', () => {
   it('the scheduler pass runs normally once the previous pass has finished', async () => {
     const { store, service } = await harness()
     let calls = 0
-    const original = store.shipping.listReceipts.bind(store.shipping)
-    const spy = vi.spyOn(store.shipping, 'listReceipts').mockImplementation(async () => {
+    const original = store.shipping.activeOrders.bind(store.shipping)
+    const spy = vi.spyOn(store.shipping, 'activeOrders').mockImplementation(async () => {
       calls += 1
       return await original()
     })
@@ -2460,7 +2462,7 @@ describe('ShippingService single-flight guards (POD-3258)', () => {
     await service.tick()
     await service.tick()
 
-    expect(calls).toBe(2)
+    expect(calls).toBe(4)
     spy.mockRestore()
     service.dispose()
   })

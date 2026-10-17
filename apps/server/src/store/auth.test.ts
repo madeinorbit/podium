@@ -26,13 +26,13 @@ it('round-trips a login session', async () => {
 // too. The label is what makes them separately greppable and revocable.
 it('defaults an unlabelled session to the browser-login label', async () => {
   await repo.createClientSession('hash-a', firstAdminMemberId(), FUTURE)
-  expect((await repo.listClientSessions())[0]?.label).toBe('login')
+  expect((await repo.listClientSessionsOfUser(firstAdminMemberId()))[0]?.label).toBe('login')
 })
 
 it('records the label a session was minted under', async () => {
   await repo.createClientSession('hash-a', firstAdminMemberId(), FUTURE, 'break-glass')
   await repo.createClientSession('hash-b', firstAdminMemberId(), FUTURE, 'upstream')
-  const byHash = new Map((await repo.listClientSessions()).map((s) => [s.tokenHash, s.label]))
+  const byHash = new Map((await repo.listClientSessionsOfUser(firstAdminMemberId())).map((s) => [s.tokenHash, s.label]))
   expect(byHash.get('hash-a')).toBe('break-glass')
   expect(byHash.get('hash-b')).toBe('upstream')
 })

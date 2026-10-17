@@ -195,7 +195,7 @@ export class MemoryService {
       )
     }
 
-    const curated = await this.deps.store.conversations.index.curatedMeta()
+    const curated = await this.deps.store.conversations.index.curatedMetaOf(conversations.map((conversation) => conversation.id))
     const enriched = conversations.map((conversation) => ({
       ...conversation,
       ...(podiumIds.get(conversation.id)
