@@ -59,7 +59,7 @@ describe('idle re-discovery writes', () => {
     // A real change still lands — the guard elides no-ops, not updates.
     await store.conversations.index.upsert([row({ title: 'Renamed' })])
     expect(writes()).toBe(1)
-    const found = await store.conversations.index.searchCandidates({})
+    const found = await store.conversations.index.search({})
     expect(found.find((c) => c.id === 'native-a')?.title).toBe('Renamed')
   })
 
@@ -71,7 +71,7 @@ describe('idle re-discovery writes', () => {
     const { title: _title, projectPath: _projectPath, ...withoutOptionals } = row()
     await store.conversations.index.upsert([withoutOptionals])
     expect(writes()).toBe(0)
-    const found = await store.conversations.index.searchCandidates({})
+    const found = await store.conversations.index.search({})
     expect(found.find((c) => c.id === 'native-a')?.title).toBe('A conversation')
   })
 

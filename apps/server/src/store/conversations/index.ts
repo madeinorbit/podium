@@ -1,5 +1,5 @@
 import { asMachineId, type MachineId, machinePathKey, machinePathSeparator } from '@podium/model'
-import { and, eq, isNotNull, or, sql } from 'drizzle-orm'
+import { and, eq, isNotNull, or, type SQL, sql } from 'drizzle-orm'
 import { conversations } from '../../migrations/schema'
 import type { StoreDrizzle, StoreQueries, TransactionRunner } from '../executor/sync-drizzle'
 import { executeRaw, inListOf, inListSize, inListValues, param, prepared, preparedFamily } from '../executor/sync-drizzle'
@@ -135,42 +135,90 @@ const setConversationSummary = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
-/** How a search matches (`all`: no query) and how it filters the project path. */
-type SearchShape = `${'all' | 'fts' | 'like'}|${'any' | 'posix' | 'windows'}`
+/** How a conversation read filters the project path. */
+type PathShape = 'any' | 'posix' | 'windows'
+
+/** How a search matches and how it filters the project path. */
+type SearchShape = `${'fts' | 'like'}|${PathShape}`
 
 /**
- * The search statements, one per {@link SearchShape}. Every value is a bound
- * placeholder: `projectPath` / `projectPathPrefix` for the posix path filter,
- * `machineKey` / `prefixLength` / `prefix` for the windows one, `fts` or `like`
- * for the match.
+ * The project path filter. Every value is a bound placeholder: `projectPath` /
+ * `projectPathPrefix` for posix, `machineKey` / `prefixLength` / `prefix` for
+ * windows.
+ */
+const machinePathFilter = (path: string): SQL => {
+  const comparablePath = sql`lower(replace(c.project_path, '/', ${'\\'}))`
+  return path === 'windows'
+    ? sql` AND (${comparablePath} = ${sql.placeholder('machineKey')} OR substr(${comparablePath}, 1, ${sql.placeholder('prefixLength')}) = ${sql.placeholder('prefix')})`
+    : path === 'posix'
+      ? sql` AND (c.project_path=${sql.placeholder('projectPath')} OR c.project_path LIKE ${sql.placeholder('projectPathPrefix')})`
+      : sql``
+}
+
+/** The bound values of {@link machinePathFilter} for a requested project path. */
+function pathFilterOf(projectPath: string | undefined): { path: PathShape; values: Record<string, unknown> } {
+  const machineKey = projectPath ? machinePathKey(projectPath) : undefined
+  if (machineKey && machinePathSeparator(machineKey) === '\\') {
+    const prefix = machineKey + (machineKey.endsWith('\\') ? '' : '\\')
+    return { path: 'windows', values: { machineKey, prefixLength: prefix.length, prefix } }
+  }
+  return projectPath
+    ? { path: 'posix', values: { projectPath, projectPathPrefix: `${projectPath}/%` } }
+    : { path: 'any', values: {} }
+}
+
+const topLevel = sql` AND c.parent_conversation_id IS NULL`
+
+/** How a page of the recent conversations reads: the ones with an `updated_at`
+ *  (newest first), or, after them, the ones without. */
+type RecentShape = `${'dated' | 'undated'}|${PathShape}`
+
+/**
+ * One keyset page of the top-level conversations, newest first, through
+ * `idx_conversations_top_level_updated` (POD-6209). `dated` reads the rows
+ * before the cursor's `(updated_at, id)`; `undated` reads the rows with no
+ * `updated_at` (which sort last) before the cursor's `id`.
+ */
+const recentConversations = preparedFamily((db: StoreDrizzle, shape: RecentShape) => {
+  const [phase, path] = shape.split('|')
+  const filter = machinePathFilter(path!)
+  const limit = sql` LIMIT ${sql.placeholder('limit')}`
+  return phase === 'dated'
+    ? db.all<Record<string, unknown>>(
+        sql`SELECT c.* FROM conversations c
+          WHERE (c.updated_at, c.id) < (${sql.placeholder('beforeUpdatedAt')}, ${sql.placeholder('beforeId')})${filter}${topLevel}
+          ORDER BY c.updated_at DESC, c.id DESC${limit}`,
+      )
+    : db.all<Record<string, unknown>>(
+        sql`SELECT c.* FROM conversations c
+          WHERE c.updated_at IS NULL AND c.id < ${sql.placeholder('beforeId')}${filter}${topLevel}
+          ORDER BY c.id DESC${limit}`,
+      )
+})
+
+/** Sorts after every stored `updated_at` and id, so a first page starts at the
+ *  newest conversation. */
+const RECENT_START = '\uffff'
+
+/**
+ * The term search statements, one per {@link SearchShape}: the path filter's
+ * values and `fts` or `like` for the match.
  */
 const searchConversations = preparedFamily((db: StoreDrizzle, shape: SearchShape) => {
   const [match, path] = shape.split('|')
-  const comparablePath = sql`lower(replace(c.project_path, '/', ${'\\'}))`
-  const machinePathFilter =
-    path === 'windows'
-      ? sql` AND (${comparablePath} = ${sql.placeholder('machineKey')} OR substr(${comparablePath}, 1, ${sql.placeholder('prefixLength')}) = ${sql.placeholder('prefix')})`
-      : path === 'posix'
-        ? sql` AND (c.project_path=${sql.placeholder('projectPath')} OR c.project_path LIKE ${sql.placeholder('projectPathPrefix')})`
-        : sql``
-  const topLevel = sql` AND c.parent_conversation_id IS NULL`
+  const filter = machinePathFilter(path!)
   const order = sql` ORDER BY c.updated_at DESC NULLS LAST`
-  if (match === 'all') {
-    return db.all<Record<string, unknown>>(
-      sql`SELECT c.* FROM conversations c WHERE 1=1${machinePathFilter}${topLevel}${order}`,
-    )
-  }
   if (match === 'fts') {
     return db.all<Record<string, unknown>>(
       sql`SELECT c.* FROM conversations_fts f JOIN conversations c ON c.rowid=f.rowid
-        WHERE conversations_fts MATCH ${sql.placeholder('fts')}${machinePathFilter}${topLevel}${order}`,
+        WHERE conversations_fts MATCH ${sql.placeholder('fts')}${filter}${topLevel}${order}`,
     )
   }
   const like = sql.placeholder('like')
   return db.all<Record<string, unknown>>(
     sql`SELECT c.* FROM conversations c WHERE
         (c.title LIKE ${like} OR c.name LIKE ${like} OR c.summary LIKE ${like} OR c.project_path LIKE ${like})
-        ${machinePathFilter}${topLevel}${order}`,
+        ${filter}${topLevel}${order}`,
   )
 })
 
@@ -322,7 +370,8 @@ export class ConversationIndexRepository {
   }
 
   /**
-   * Complete candidates: memory filters before scoring and limiting.
+   * Every conversation matching a search term: memory filters before scoring
+   * and limiting.
    *
    * WHOLE RAW STATEMENTS, DELIBERATELY, and this file is one of the two the
    * boundary lint names as the SearchIndex port for exactly this reason: `MATCH`
@@ -331,21 +380,11 @@ export class ConversationIndexRepository {
    * through the query layer now, and every value is still a bound parameter, so
    * the projectPath filter is a fragment rather than string concatenation.
    */
-  async searchCandidates(opts: { query?: string; projectPath?: string }): Promise<ConversationIndexRow[]> {
-    const machineKey = opts.projectPath ? machinePathKey(opts.projectPath) : undefined
-    const windows = machineKey && machinePathSeparator(machineKey) === '\\'
-    const prefix = windows ? machineKey + (machineKey.endsWith('\\') ? '' : '\\') : ''
-    const path = windows ? 'windows' : opts.projectPath ? 'posix' : 'any'
-    const values: Record<string, unknown> = windows
-      ? { machineKey, prefixLength: prefix.length, prefix }
-      : opts.projectPath
-        ? { projectPath: opts.projectPath, projectPathPrefix: `${opts.projectPath}/%` }
-        : {}
-    const query = opts.query?.trim() ?? ''
+  async searchCandidates(opts: { query: string; projectPath?: string }): Promise<ConversationIndexRow[]> {
+    const { path, values } = pathFilterOf(opts.projectPath)
+    const query = opts.query.trim()
     let rows: Record<string, unknown>[]
-    if (!query) {
-      rows = await executeRaw(searchConversations(this.db, `all|${path}`), values)
-    } else if (this.ftsAvailable) {
+    if (this.ftsAvailable) {
       const fts = query
         .split(/\s+/)
         .filter(Boolean)
@@ -355,30 +394,78 @@ export class ConversationIndexRepository {
     } else {
       rows = await executeRaw(searchConversations(this.db, `like|${path}`), { ...values, like: `%${query}%` })
     }
-    // A raw statement returns PHYSICAL column names, so this mapper stays where
-    // the builder-converted repositories lost theirs. That is the cost of the
-    // port exemption and it is paid here rather than spread over the file.
-    return rows.map((row) => ({
-      id: row.id as string,
-      agentKind: row.agent_kind as string,
-      providerId: row.provider_id as string,
-      title: (row.title as string | null) ?? undefined,
-      name: (row.name as string | null) ?? undefined,
-      summary: (row.summary as string | null) ?? undefined,
-      projectPath: (row.project_path as string | null) ?? undefined,
-      resumeKind: (row.resume_kind as string | null) ?? undefined,
-      resumeValue: (row.resume_value as string | null) ?? undefined,
-      createdAt: (row.created_at as string | null) ?? undefined,
-      updatedAt: (row.updated_at as string | null) ?? undefined,
-      messageCount: (row.message_count as number | null) ?? undefined,
-      // EXTERNAL ROW BRAND DECODE: this search-port statement returns
-      // Record<string, unknown>; machine_id is not a schema-inferred value.
-      machineId: row.machine_id ? asMachineId(row.machine_id as string) : undefined,
-    }))
+    return rows.map(toIndexRow)
+  }
+
+  /**
+   * One keyset page of the top-level conversations, newest first, with no
+   * search term (POD-6209): up to `limit` rows after the cursor, which is the
+   * last row of the previous page. Rows with no `updated_at` come last, by id.
+   */
+  async recentPage(opts: {
+    projectPath?: string
+    after?: ConversationPageCursor
+    limit: number
+  }): Promise<ConversationIndexRow[]> {
+    const { path, values } = pathFilterOf(opts.projectPath)
+    const limit = Math.max(1, Math.trunc(opts.limit))
+    const rows: Record<string, unknown>[] = []
+    if (opts.after?.updatedAt !== null) {
+      rows.push(
+        ...(await executeRaw(recentConversations(this.db, `dated|${path}`), {
+          ...values,
+          beforeUpdatedAt: opts.after?.updatedAt ?? RECENT_START,
+          beforeId: opts.after?.id ?? RECENT_START,
+          limit,
+        })),
+      )
+    }
+    if (rows.length < limit) {
+      rows.push(
+        ...(await executeRaw(recentConversations(this.db, `undated|${path}`), {
+          ...values,
+          beforeId: opts.after?.updatedAt === null ? opts.after.id : RECENT_START,
+          limit: limit - rows.length,
+        })),
+      )
+    }
+    return rows.map(toIndexRow)
   }
 
   async search(opts: { query?: string; projectPath?: string; limit?: number }): Promise<ConversationIndexRow[]> {
     const limit = Math.min(200, Math.max(1, opts.limit ?? 50))
-    return (await this.searchCandidates(opts)).slice(0, limit)
+    const query = opts.query?.trim() ?? ''
+    if (!query) return await this.recentPage({ ...(opts.projectPath ? { projectPath: opts.projectPath } : {}), limit })
+    return (await this.searchCandidates({ ...opts, query })).slice(0, limit)
+  }
+}
+
+/** A recent-conversations page's keyset cursor: the last row of the previous
+ *  page, with `updatedAt` null when that row has none. */
+export interface ConversationPageCursor {
+  updatedAt: string | null
+  id: string
+}
+
+// A raw statement returns PHYSICAL column names, so this mapper stays where
+// the builder-converted repositories lost theirs. That is the cost of the
+// port exemption and it is paid here rather than spread over the file.
+function toIndexRow(row: Record<string, unknown>): ConversationIndexRow {
+  return {
+    id: row.id as string,
+    agentKind: row.agent_kind as string,
+    providerId: row.provider_id as string,
+    title: (row.title as string | null) ?? undefined,
+    name: (row.name as string | null) ?? undefined,
+    summary: (row.summary as string | null) ?? undefined,
+    projectPath: (row.project_path as string | null) ?? undefined,
+    resumeKind: (row.resume_kind as string | null) ?? undefined,
+    resumeValue: (row.resume_value as string | null) ?? undefined,
+    createdAt: (row.created_at as string | null) ?? undefined,
+    updatedAt: (row.updated_at as string | null) ?? undefined,
+    messageCount: (row.message_count as number | null) ?? undefined,
+    // EXTERNAL ROW BRAND DECODE: this search-port statement returns
+    // Record<string, unknown>; machine_id is not a schema-inferred value.
+    machineId: row.machine_id ? asMachineId(row.machine_id as string) : undefined,
   }
 }

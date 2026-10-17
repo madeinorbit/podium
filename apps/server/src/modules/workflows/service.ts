@@ -23,7 +23,12 @@ import type { z } from 'zod'
 import type { CommandPrincipal } from '../../command-principal'
 import type { Capability } from '../../issue-authz'
 import type { IssueRow } from '../../store/types'
-import type { WorkflowActor, WorkflowRunRow, WorkflowsRepository } from '../../store/workflows'
+import type {
+  WorkflowActor,
+  WorkflowRunCursor,
+  WorkflowRunRow,
+  WorkflowsRepository,
+} from '../../store/workflows'
 import {
   NO_RUN,
   WorkflowAccess,
@@ -49,6 +54,11 @@ import { dispatchWorkflowCommand, type WORKFLOW_COMMANDS, type WorkflowProcName 
  * them. It is also what keeps the import acyclic — the table imports this
  * module, not the other way round.
  */
+
+/** The run history's page size when a caller names none, and the largest it
+ *  may ask for (POD-6209). */
+export const RUN_PAGE_DEFAULT = 100
+export const RUN_PAGE_MAX = 500
 
 /** The read-side input shapes, named where the methods that take them live. */
 export interface WorkflowListInput {
@@ -360,7 +370,14 @@ export class WorkflowService implements WorkflowEngine {
    * `canSeeRun`, the same decision `runFor` takes, so a run you cannot open is
    * a run you cannot list rather than two rules that could disagree.
    */
-  async runs(input: { includeTerminal?: boolean | undefined }, caller: WorkflowCaller) {
+  async runs(
+    input: {
+      includeTerminal?: boolean | undefined
+      before?: WorkflowRunCursor | undefined
+      limit?: number | undefined
+    },
+    caller: WorkflowCaller,
+  ) {
     if (caller.actor.kind === 'session' && caller.actor.id !== null) {
       const live = await this.liveRunForSession(caller.actor.id)
       if (!live) return []
@@ -368,11 +385,39 @@ export class WorkflowService implements WorkflowEngine {
       const ownership = await this.access.ownershipFor(this.access.runEntities([run]))
       return this.access.canSeeRun(caller, run, ownership) ? [run] : []
     }
-    const runs = await Promise.all(
-      (await this.deps.store.listRuns(input.includeTerminal ?? false)).map(
-        async (row) => await this.toRun(row),
-      ),
-    )
+    if (input.includeTerminal) return await this.runHistoryPage(input, caller)
+    return await this.visibleRunsOf(await this.deps.store.listRuns(), caller)
+  }
+
+  /**
+   * One page of the run history, newest first (POD-6209): up to `limit`
+   * visible runs before the cursor, which is the last run of the previous page.
+   * Visibility is decided per run in memory, so a store page can hold fewer
+   * visible runs than it read; the loop reads the next store page until the
+   * page is full or the history ends. A short page means there is no more.
+   */
+  private async runHistoryPage(
+    input: { before?: WorkflowRunCursor | undefined; limit?: number | undefined },
+    caller: WorkflowCaller,
+  ): Promise<WorkflowRunWire[]> {
+    const limit = Math.min(RUN_PAGE_MAX, Math.max(1, Math.trunc(input.limit ?? RUN_PAGE_DEFAULT)))
+    const page: WorkflowRunWire[] = []
+    let before = input.before
+    for (;;) {
+      const rows = await this.deps.store.listRunsPage({ ...(before ? { before } : {}), limit })
+      page.push(...(await this.visibleRunsOf(rows, caller)))
+      const last = rows.at(-1)
+      if (rows.length < limit || page.length >= limit || !last) break
+      before = { startedAt: last.startedAt, id: last.id }
+    }
+    return page.slice(0, limit)
+  }
+
+  private async visibleRunsOf(
+    rows: readonly WorkflowRunRow[],
+    caller: WorkflowCaller,
+  ): Promise<WorkflowRunWire[]> {
+    const runs = await Promise.all(rows.map(async (row) => await this.toRun(row)))
     return this.access.visibleRuns(
       caller,
       runs,

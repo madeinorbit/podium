@@ -2667,7 +2667,7 @@ describe('POD-730 workflow mutation characterization', () => {
       // adopt superseded first and then failed, or created a replacement before
       // validating — which is precisely the partial state this name claims does
       // not happen.
-      expect(await h.store.workflows.listRuns(true)).toHaveLength(1)
+      expect(await h.store.workflows.listRunsPage({ limit: 10 })).toHaveLength(1)
     })
 
     it('only an active or blocked run may adopt', async () => {

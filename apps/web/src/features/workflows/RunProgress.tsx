@@ -34,6 +34,7 @@ import { LOADING } from '@podium/client-graph/worklist/rollup'
 import type { WorkflowRunWire } from '@podium/protocol'
 import { Check } from 'lucide-react'
 import type { JSX } from 'react'
+import { Button } from '@/components/ui/button'
 import { useWorkflowSubject } from './readers'
 import { cn } from '@/lib/utils'
 import type { WorkflowsSource } from './use-workflows'
@@ -76,6 +77,11 @@ export function RunProgress({
             {source.runs.map((run) => (
               <RunCard key={run.id} run={run} source={source} rights={rights} />
             ))}
+            {source.hasMoreRuns ? (
+              <Button variant="outline" size="sm" onClick={() => void source.loadMoreRuns()}>
+                Show more
+              </Button>
+            ) : null}
           </div>
         )}
       </div>

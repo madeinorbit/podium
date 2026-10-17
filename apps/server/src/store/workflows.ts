@@ -51,6 +51,16 @@ import { param, prepared, preparedFamily } from './executor/sync-drizzle'
  */
 export type WorkflowActor = { kind: 'operator'; id: null } | { kind: 'session'; id: SessionId }
 
+/** The run history's keyset cursor: the last row of the previous page. */
+export interface WorkflowRunCursor {
+  startedAt: string
+  id: string
+}
+
+/** Sorts after every stored `started_at` (an ISO timestamp), so the first page
+ *  holds the newest runs. */
+const RUN_HISTORY_START: WorkflowRunCursor = { startedAt: '\uffff', id: '' }
+
 export interface WorkflowRunRow {
   id: string
   subjectKind: 'issue' | 'session'
@@ -362,8 +372,19 @@ const upsertBinding = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
-const allRuns = prepared((db: StoreDrizzle) =>
-  db.select().from(workflowRuns).where(undefined).orderBy(desc(workflowRuns.startedAt)).prepare(),
+/** One keyset page of the run history, newest first, through
+ *  `workflow_runs_started` (POD-6209): the runs before the cursor's
+ *  `(started_at, id)`. The first page starts before {@link RUN_HISTORY_START}. */
+const runsPage = prepared((db: StoreDrizzle) =>
+  db
+    .select()
+    .from(workflowRuns)
+    .where(
+      sql`(${workflowRuns.startedAt}, ${workflowRuns.id}) < (${param(workflowRuns.startedAt, 'beforeStartedAt')}, ${param(workflowRuns.id, 'beforeId')})`,
+    )
+    .orderBy(desc(workflowRuns.startedAt), desc(workflowRuns.id))
+    .limit(sql.placeholder('limit'))
+    .prepare(),
 )
 
 const liveRuns = prepared((db: StoreDrizzle) =>
@@ -716,8 +737,21 @@ export class WorkflowsRepository {
     )
   }
 
-  async listRuns(includeTerminal = false): Promise<WorkflowRunRow[]> {
-    return (await (includeTerminal ? allRuns : liveRuns)(this.db).all()).map(toRun)
+  /** The live runs (active or blocked), newest first. */
+  async listRuns(): Promise<WorkflowRunRow[]> {
+    return (await liveRuns(this.db).all()).map(toRun)
+  }
+
+  /** One keyset page of every run, live and terminal, newest first (POD-6209).
+   *  The cursor is the last row of the previous page. */
+  async listRunsPage(opts: { before?: WorkflowRunCursor; limit: number }): Promise<WorkflowRunRow[]> {
+    const before = opts.before ?? RUN_HISTORY_START
+    const rows = await runsPage(this.db).all({
+      beforeStartedAt: before.startedAt,
+      beforeId: before.id,
+      limit: Math.max(1, Math.trunc(opts.limit)),
+    })
+    return rows.map(toRun)
   }
 
   async getRun(id: string): Promise<WorkflowRunRow | null> {

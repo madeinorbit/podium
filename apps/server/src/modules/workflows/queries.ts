@@ -41,7 +41,7 @@
 import type { TransportTag } from '@podium/commands'
 import { WorkflowScope } from '@podium/protocol'
 import { z } from 'zod'
-import type { WorkflowCaller, WorkflowService } from './service'
+import { RUN_PAGE_MAX, type WorkflowCaller, type WorkflowService } from './service'
 
 /**
  * The two queries whose input is "nothing" — `bindings`, `prime`.
@@ -83,8 +83,16 @@ export const WORKFLOW_QUERIES = {
     await service.get(input, caller),
   ),
   bindings: query(actorInput, async (service, _input, caller) => await service.bindings(caller)),
-  runs: query(z.object({ includeTerminal: z.boolean().optional() }), async (service, input, caller) =>
-    await service.runs(input, caller),
+  /** The live runs, or with `includeTerminal` one page of the whole history,
+   *  newest first: `before` is the last run of the previous page and `limit`
+   *  the page size (POD-6209). */
+  runs: query(
+    z.object({
+      includeTerminal: z.boolean().optional(),
+      before: z.object({ startedAt: z.string(), id: z.string() }).optional(),
+      limit: z.number().int().positive().max(RUN_PAGE_MAX).optional(),
+    }),
+    async (service, input, caller) => await service.runs(input, caller),
   ),
   prime: query(actorInput, async (service, _input, caller) => await service.prime(caller)),
   status: query(z.object({ runId: z.string().optional() }), async (service, input, caller) =>

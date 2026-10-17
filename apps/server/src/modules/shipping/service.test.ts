@@ -292,9 +292,10 @@ describe('ShippingService enqueue transaction', () => {
       expect(admitted.projection).not.toHaveProperty('queueRank')
       expect(attempts).not.toHaveBeenCalled()
 
-      expect((await service.queue()).map(({ order, queueRank }) => [order.id, queueRank])).toEqual([
-        [admitted.order.id, 1],
-      ])
+      // Its queue rank is its train in the published lane: the first.
+      expect(
+        ((await ledger.authority.snapshot('shipLane')) as ShipLaneProjection[]).map((lane) => lane.trains),
+      ).toEqual([[{ orderIds: [admitted.order.id] }]])
       expect(attempts).not.toHaveBeenCalled()
 
       const cancelCursor = await ledger.cursor()

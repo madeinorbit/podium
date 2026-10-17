@@ -1718,6 +1718,15 @@ type Input_cloud_moveSession = {
     size?: "large" | "medium" | "small" | undefined;
     tenantId: string;
 };
+type Input_conversations_search = {
+    after?: undefined | {
+        id: string;
+        updatedAt: null | string;
+    };
+    limit?: number | undefined;
+    projectPath?: string | undefined;
+    query?: string | undefined;
+};
 type Input_files_read = ({
     artifactId: string;
     issueId: string;
@@ -2252,6 +2261,14 @@ type Input_workflows_revise = {
         title: string;
     }[];
     workflowId: string;
+};
+type Input_workflows_runs = {
+    before?: undefined | {
+        id: string;
+        startedAt: string;
+    };
+    includeTerminal?: boolean | undefined;
+    limit?: number | undefined;
 };
 type Output_accounts_login = Pick<{
     accountId?: (string & z.BRAND<"AccountId">) | undefined;
@@ -6715,11 +6732,7 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
     };
     "conversations": {
         "search": TRPC.TRPCQueryProcedure<{
-            input: {
-                limit?: number | undefined;
-                projectPath?: string | undefined;
-                query?: string | undefined;
-            };
+            input: Input_conversations_search;
             output: Array<ConversationIndexRow>;
             meta: unknown;
         }>;
@@ -8923,9 +8936,7 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
             meta: unknown;
         }>;
         "runs": TRPC.TRPCQueryProcedure<{
-            input: {
-                includeTerminal?: boolean | undefined;
-            };
+            input: Input_workflows_runs;
             output: Array<Protocol.WorkflowRunWire>;
             meta: unknown;
         }>;

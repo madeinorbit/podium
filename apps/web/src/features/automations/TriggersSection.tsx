@@ -2,7 +2,7 @@ import { asAutomationId } from '@podium/model'
 import type { AutomationId } from '@podium/model'
 import { Bell, CircleCheck, LoaderCircle, Plus, Trash2 } from 'lucide-react'
 import type { JSX } from 'react'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Trpc } from '@/app/trpc'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -28,6 +28,12 @@ import { cn } from '@/lib/utils'
 /** A durable event subscription row, inferred from the tRPC contract so the UI
  *  tracks the server's `Subscription` shape without re-declaring it. */
 type Subscription = Awaited<ReturnType<Trpc['issues']['subscriptionList']['query']>>[number]
+
+/** The operator's subscriptions are read one page at a time, oldest first
+ *  (POD-6209); a reload re-reads as many as are shown, up to the server's
+ *  largest page. */
+const TRIGGER_PAGE = 100
+const TRIGGER_PAGE_MAX = 500
 
 /** The event-subscription kinds a trigger can match. Mirrors the steward's
  *  subscription-event vocabulary (issue lifecycle + session state). */
@@ -93,16 +99,34 @@ export function TriggersSection({ trpc }: { trpc: Trpc }): JSX.Element {
   const [error, setError] = useState('')
   const [busyId, setBusyId] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
+  const [hasMore, setHasMore] = useState(false)
+  const shown = useRef(TRIGGER_PAGE)
 
   const reload = useCallback((): void => {
+    const limit = Math.min(TRIGGER_PAGE_MAX, Math.max(TRIGGER_PAGE, shown.current))
     trpc.issues.subscriptionList
-      .query()
+      .query({ limit })
       .then((rows) => {
         setSubs(rows)
+        setHasMore(rows.length === limit)
         setError('')
       })
       .catch((e) => setError(e instanceof Error ? e.message : String(e)))
   }, [trpc])
+
+  const loadMore = (): void => {
+    const last = subs?.at(-1)
+    if (!subs || !last) return
+    trpc.issues.subscriptionList
+      .query({ after: { createdAt: last.createdAt, id: last.id }, limit: TRIGGER_PAGE })
+      .then((page) => {
+        const next = [...subs, ...page]
+        shown.current = next.length
+        setSubs(next)
+        setHasMore(page.length === TRIGGER_PAGE)
+      })
+      .catch((e) => setError(e instanceof Error ? e.message : String(e)))
+  }
 
   useEffect(() => {
     reload()
@@ -167,6 +191,11 @@ export function TriggersSection({ trpc }: { trpc: Trpc }): JSX.Element {
               onRemove={() => remove(asAutomationId(s.id))}
             />
           ))}
+          {hasMore && (
+            <Button type="button" size="sm" variant="outline" onClick={loadMore}>
+              Show more
+            </Button>
+          )}
         </div>
       )}
 

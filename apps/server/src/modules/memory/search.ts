@@ -1,6 +1,8 @@
 import { asIssueId, asMachineId, machineScopedKey } from '@podium/model'
 import type { SearchResultWire } from '@podium/protocol'
 import type { SessionStore } from '../../store'
+import type { ConversationPageCursor } from '../../store/conversations/index'
+import type { ConversationIndexRow } from '../../store/types'
 import type { MemoryReader } from './types'
 import type { MemoryVisibilityPolicy } from './visibility'
 
@@ -57,9 +59,17 @@ export class MemorySearchService {
     private readonly visibility: MemoryVisibilityPolicy,
   ) {}
 
+  /**
+   * The conversations a reader may see, matching `query`, or with no query the
+   * most recent ones, newest first. With no query this reads one keyset page
+   * after `after` (the last row of the previous page, POD-6209): visibility is
+   * decided per row in memory, so the loop reads store pages until `limit`
+   * visible rows are found or the conversations end. A short answer means
+   * there is no more.
+   */
   async searchConversations(
     reader: MemoryReader,
-    opts: { query?: string; projectPath?: string; limit?: number },
+    opts: { query?: string; projectPath?: string; after?: ConversationPageCursor; limit?: number },
     visibility?: MemoryVisibilityPolicy,
   ) {
     const limit = Math.min(200, Math.max(1, opts.limit ?? 50))
@@ -72,15 +82,38 @@ export class MemorySearchService {
         // its existing memoized path unchanged.
         batchIssueOwners: true,
       })
-    const rows = await this.store.conversations.index.searchCandidates(opts)
     // Revocation makes a stale allow unsafe: this batch belongs only to this
     // request, and only an explicit true survives the synchronous filter.
-    const readable = await Promise.all(rows.map(async (row) =>
-      row.machineId !== undefined && await scopedVisibility.mayRead(reader, {
-        class: 'conversation', machineId: row.machineId, nativeId: row.id,
-      }),
-    ))
-    return rows.filter((_, index) => readable[index] === true).slice(0, limit)
+    const visible = async (rows: readonly ConversationIndexRow[]) => {
+      const readable = await Promise.all(rows.map(async (row) =>
+        row.machineId !== undefined && await scopedVisibility.mayRead(reader, {
+          class: 'conversation', machineId: row.machineId, nativeId: row.id,
+        }),
+      ))
+      return rows.filter((_, index) => readable[index] === true)
+    }
+    const query = opts.query?.trim() ?? ''
+    if (query) {
+      const rows = await this.store.conversations.index.searchCandidates({
+        query,
+        ...(opts.projectPath ? { projectPath: opts.projectPath } : {}),
+      })
+      return (await visible(rows)).slice(0, limit)
+    }
+    const page: ConversationIndexRow[] = []
+    let after = opts.after
+    for (;;) {
+      const rows = await this.store.conversations.index.recentPage({
+        ...(opts.projectPath ? { projectPath: opts.projectPath } : {}),
+        ...(after ? { after } : {}),
+        limit,
+      })
+      page.push(...(await visible(rows)))
+      const last = rows.at(-1)
+      if (rows.length < limit || page.length >= limit || !last) break
+      after = { updatedAt: last.updatedAt ?? null, id: last.id }
+    }
+    return page.slice(0, limit)
   }
 
   async search(

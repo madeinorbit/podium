@@ -382,6 +382,54 @@ describe('WorkflowService', () => {
     expect((await service.runs({ includeTerminal: true }, operator))).toHaveLength(1)
   })
 
+  it('pages the run history newest first and fills a page past runs the caller cannot see (POD-6209)', async () => {
+    const created = await service.create(
+      { name: 'History', description: '', scope: 'global', instructions: '', steps: [] },
+      operator,
+    )
+    const live = await service.startRun({
+      sessionId: asSessionId('s1'),
+      cwd: '/repo/wt',
+      issueId: asIssueId('issue-1'),
+      revisionId: created.revision.id,
+    })
+    const template = (await store.workflows.getRun(live.id))!
+    for (const day of [1, 2, 3, 4]) {
+      await store.workflows.insertRun({
+        run: {
+          ...template,
+          id: `h${day}`,
+          subjectId: `issue-h${day}`,
+          status: 'complete',
+          startedAt: `2026-07-0${day}T00:00:00.000Z`,
+        },
+        steps: [],
+      })
+    }
+    const ids = async (input: Parameters<typeof service.runs>[0]) =>
+      (await service.runs({ includeTerminal: true, ...input }, operator)).map((run) => run.id)
+
+    expect(await ids({})).toEqual([live.id, 'h4', 'h3', 'h2', 'h1'])
+    expect(await ids({ limit: 2 })).toEqual([live.id, 'h4'])
+    expect(await ids({ limit: 2, before: { startedAt: '2026-07-04T00:00:00.000Z', id: 'h4' } })).toEqual([
+      'h3',
+      'h2',
+    ])
+    // The live listing is not paged.
+    expect(await ids({ includeTerminal: false, limit: 1 })).toEqual([live.id])
+
+    // A store page whose runs the caller cannot see is skipped, and the next
+    // store page fills the answer: the page is short only at the end.
+    const hidden = new Set([live.id, 'h4', 'h3'])
+    const visibleRuns = service.access.visibleRuns.bind(service.access)
+    service.access.visibleRuns = (caller, runs, ownership) =>
+      visibleRuns(caller, runs, ownership).filter((run) => !hidden.has(run.id))
+    expect(await ids({ limit: 2 })).toEqual(['h2', 'h1'])
+    expect(await ids({ limit: 2, before: { startedAt: '2026-07-02T00:00:00.000Z', id: 'h2' } })).toEqual([
+      'h1',
+    ])
+  })
+
   it('keeps later issue sessions on the active run revision until explicit adoption', async () => {
     const created = (await service.create(
       {

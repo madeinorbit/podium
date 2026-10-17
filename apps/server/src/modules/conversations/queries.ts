@@ -34,12 +34,13 @@ const query = <In extends z.ZodTypeAny, Out>(
 
 export const CONVERSATION_QUERIES = {
   /** Keyword search over the durable index (FTS5 where available). An empty query
-   *  browses by recency; `projectPath` narrows to a repo/worktree subtree. The
-   *  schema is the shipped one, transcribed field for field. */
+   *  browses by recency, one page at a time: `after` is the last row of the
+   *  previous page (POD-6209). `projectPath` narrows to a repo/worktree subtree. */
   search: query(
     z.object({
       query: z.string().optional(),
       projectPath: z.string().optional(),
+      after: z.object({ updatedAt: z.string().nullable(), id: z.string() }).optional(),
       limit: z.number().int().positive().max(200).optional(),
     }),
     async (service, input) => await service.searchConversations(input),

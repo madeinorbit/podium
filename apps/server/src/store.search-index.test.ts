@@ -190,5 +190,5 @@ it.each([
     conversation(store, { id: 'child', projectPath: child }),
     conversation(store, { id: 'sibling', projectPath: sibling }),
   ])
-  expect((await store.conversations.index.searchCandidates({ projectPath: root })).map(r => r.id).sort()).toEqual(['child', 'root'])
+  expect((await store.conversations.index.recentPage({ projectPath: root, limit: 10 })).map(r => r.id).sort()).toEqual(['child', 'root'])
 })

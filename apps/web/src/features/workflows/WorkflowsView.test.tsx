@@ -36,7 +36,7 @@ const list = vi.fn()
 const get = vi.fn()
 const bindings = vi.fn<() => Promise<unknown[]>>(async () => [])
 const profiles = vi.fn<() => Promise<unknown[]>>(async () => [])
-const runs = vi.fn<() => Promise<unknown[]>>(async () => [])
+const runs = vi.fn<(input?: unknown) => Promise<unknown[]>>(async () => [])
 const publish = vi.fn()
 
 const workflow = (id: string, name: string) => ({
@@ -170,6 +170,38 @@ describe('run progress', () => {
     startedAt: '2026-01-01T00:00:00.000Z',
     completedAt: null,
     ...over,
+  })
+
+  it('pages the completed runs: a full page offers more, read before the last run shown (POD-6209)', async () => {
+    const page = (from: number, count: number) =>
+      Array.from({ length: count }, (_, index) =>
+        run({
+          id: `run-${from + index}`,
+          status: 'complete',
+          startedAt: `2026-01-01T00:00:${String(59 - from - index).padStart(2, '0')}.000Z`,
+        }),
+      )
+    runs.mockImplementation(async (input) => {
+      const request = input as { includeTerminal?: boolean; before?: unknown } | undefined
+      if (!request?.includeTerminal) return []
+      return request.before === undefined ? page(0, 50) : page(50, 3)
+    })
+    render(<WorkflowsView />)
+    fireEvent.click(screen.getByRole('button', { name: 'Progress' }))
+    fireEvent.click(await screen.findByRole('checkbox'))
+
+    expect(await screen.findAllByText(/^run-\d+ ·/)).toHaveLength(50)
+    expect(runs).toHaveBeenLastCalledWith({ includeTerminal: true, limit: 50 })
+    fireEvent.click(screen.getByRole('button', { name: 'Show more' }))
+
+    await waitFor(() => expect(screen.getAllByText(/^run-\d+ ·/)).toHaveLength(53))
+    expect(runs).toHaveBeenLastCalledWith({
+      includeTerminal: true,
+      before: { startedAt: '2026-01-01T00:00:10.000Z', id: 'run-49' },
+      limit: 50,
+    })
+    // A short page is the end of the history.
+    expect(screen.queryByRole('button', { name: 'Show more' })).toBeNull()
   })
 
   it('renders a present subject with only normalized replica rows', async () => {

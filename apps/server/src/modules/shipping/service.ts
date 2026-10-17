@@ -56,7 +56,6 @@ import {
   shipLaneIdOf,
   shipLaneSchedule,
   shippingCompatibilityKey,
-  shippingQueue,
   shippingSchedule,
   withNativeStackEdges,
 } from './queue'
@@ -822,14 +821,6 @@ export class ShippingService {
       descendantManifest: admission.order.descendantManifest,
       created: admission.created,
     }
-  }
-
-  async queue(): Promise<Awaited<ReturnType<typeof shippingQueue>>> {
-    return shippingQueue(
-      await this.deps.repository.listOrders(),
-      await this.deps.repository.listReceipts(),
-      Date.parse(this.now()),
-    )
   }
 
   heartbeat(orderId: ShipOrderId, attemptId: ShipAttempt['id'], generation: number): boolean {
