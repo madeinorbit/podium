@@ -31,7 +31,7 @@ import { FeedPublisher } from '@podium/sync'
 import { perfPrincipal } from '../modules/perf/principal'
 import { perf } from '../modules/perf/registry'
 import { createFrameFlusher, runAtRoot, withReadScope } from '../publication-scope'
-import { traceFeedPeer } from './feed-peer-trace'
+import { feedPeerTraceEnabled, traceFeedPeer } from './feed-peer-trace'
 import { type EdgePeer, type FeedFrame, WireFeedEdge } from './wire-feed-edge'
 
 /**
@@ -434,14 +434,18 @@ export class FeedServing {
     // admission that showed up as a bootstrap would make the bootstrap numbers
     // improve for the wrong reason.
     perf.record('phase', 'feedResume.total', durationMs, perfKey)
-    traceFeedPeer({
-      event: 'resume',
-      peerId: peer.id,
-      wireVersion: peer.wireVersion,
-      fromSeq: cursor.seq,
-      headSeq: await this.deps.authority.cursor(),
-      durationMs,
-    })
+    // The head is read for the trace only: every admission paid a statement
+    // for a log line that is off by default [POD-6227].
+    if (feedPeerTraceEnabled()) {
+      traceFeedPeer({
+        event: 'resume',
+        peerId: peer.id,
+        wireVersion: peer.wireVersion,
+        fromSeq: cursor.seq,
+        headSeq: await this.deps.authority.cursor(),
+        durationMs,
+      })
+    }
   }
 
   private retainPrincipal(peerId: string, principal: Principal, routingPrincipal: Principal): void {
