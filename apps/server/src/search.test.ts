@@ -12,6 +12,7 @@ import { OPERATOR } from './test-support/capabilities'
 import { forceFeature } from './test-support/features'
 import { attachHostDaemon, confirmingRetirement } from './test-support/host-daemon'
 import { openTestStore } from './test-support/open-test-store'
+import { countStatements, quietShipping, type StatementTally } from './test-support/statement-count'
 
 // Omni-search reads the full-text index, and whether a boot HAS one is the
 // `command-palette` flag (PDM-25). These tests are about the indexed path, so
@@ -43,6 +44,33 @@ async function attachFixtureDaemon(registry: SessionRegistry): Promise<void> {
   await registry.gateway.attachDaemon('m1', confirmingRetirement(registry, 'm1', () => {}))
 }
 
+/** The statements of `tally` that read `table`, and the queries for a failure message. */
+function readsOf(tally: StatementTally, table: string): { count: number; queries: string } {
+  const hits = [...tally.byQuery].filter(([key]) => key.includes(`from "${table}"`))
+  return {
+    count: hits.reduce((sum, [, n]) => sum + n, 0),
+    queries: hits.map(([key, n]) => `${n}x ${key}`).join('\n'),
+  }
+}
+
+/**
+ * Finish the fixture's background work, so a counted window holds only the
+ * operation. The Shipping scheduler and connect-time recovery stop
+ * (POD-6183); the feed publication of the fixture's own writes, which reads
+ * the issues and sessions it scopes, starts now instead of at the next store
+ * idle. That publication is not awaitable, so wait for a window with no
+ * statement at all.
+ */
+async function settle(registry: SessionRegistry): Promise<void> {
+  await quietShipping(registry)
+  registry.modules.funnel.flushDeltas()
+  for (let attempt = 0; attempt < 40; attempt++) {
+    const window = await countStatements(registry.sessionStore, () => new Promise((resolve) => setTimeout(resolve, 25)))
+    if (window.statements === 0) return
+  }
+  throw new Error('the fixture kept running statements')
+}
+
 // Omni-search (docs/spec/search-v1.md §2.4): one query, ranked typed hits across
 // sessions, issues (+comments), conversations, lake-indexed transcripts and the
 // settings catalog.
@@ -66,7 +94,7 @@ describe('MemoryService omni-search', () => {
       cwd: '/w',
     })
     await registry.modules.sessions.renameSession({ sessionId, name: 'capacitor refactor' })
-    registry.gateway.routeDaemonFrame('m1', {
+    await registry.gateway.routeDaemonFrame('m1', {
       type: 'sessionResumeRef',
       sessionId,
       resume: { kind: 'claude-session', value: 'native-tx' },
@@ -98,7 +126,7 @@ describe('MemoryService omni-search', () => {
       agentKind: 'claude-code',
       cwd: '/conversation',
     })
-    registry.gateway.routeDaemonFrame('m1', {
+    await registry.gateway.routeDaemonFrame('m1', {
       type: 'sessionResumeRef',
       sessionId: conversationSessionId,
       resume: { kind: 'claude-session', value: 'native-conv' },
@@ -205,18 +233,11 @@ describe('MemoryService omni-search', () => {
     // The limit trims the tail, not the head: the best hits survive.
     expect(results[0]?.score).toBeGreaterThanOrEqual(results[1]?.score ?? 0)
   })
-  it('uses one live-session snapshot and resolves issue owners in batches and grants without SQL', async () => {
+  it('uses one live-session snapshot and reads issue owners and grants in one batch per pass', async () => {
     const { store, registry } = await seed()
     const liveRows = await store.sessions.loadSessions()
     const issueRows = await store.issues.listIssueRows()
-    const expectedIssueIds = new Set(
-      issueRows
-        .filter((row) => !row.deletedAt)
-        .map((row) => row.id)
-        .concat(liveRows.flatMap((row) => (row.issueId ? [row.issueId] : []))),
-    )
-
-
+    await settle(registry)
     const loadSessions = store.sessions.loadSessions.bind(store.sessions)
     let loadCalls = 0
     let materializedRows = 0
@@ -227,47 +248,32 @@ describe('MemoryService omni-search', () => {
       return rows
     }
 
-    const getIssue = store.issues.getIssue.bind(store.issues)
-    const getIssues = store.issues.getIssues.bind(store.issues)
-    let issueLookups = 0
-    store.issues.getIssue = async (id) => {
-      issueLookups += 1
-      return await getIssue(id)
-    }
-    store.issues.getIssues = async (ids) => {
-      issueLookups += 1
-      return await getIssues(ids)
-    }
-
-    const listForResource = store.grants.listForResource.bind(store.grants)
-    let grantLookups = 0
-    store.grants.listForResource = async (resourceKind: string, resourceId: string) => {
-      grantLookups += 1
-      return await listForResource(resourceKind, resourceId)
-    }
-
+    let counted: StatementTally
     try {
-      await registry.modules.memory.search(READER, { text: 'capacitor' })
+      counted = await countStatements(store, () => registry.modules.memory.search(READER, { text: 'capacitor' }))
     } finally {
       store.sessions.loadSessions = loadSessions
-      store.issues.getIssue = getIssue
-      store.issues.getIssues = getIssues
-      store.grants.listForResource = listForResource
     }
 
     // Before batching, each native candidate loaded every live session. The
     // conserved quantity is one snapshot containing exactly the live rows.
     expect(loadCalls).toBe(1)
     expect(materializedRows).toBe(liveRows.length)
-    // Issue owners used to be one point read per distinct issue, memoized for
-    // the request; POD-3892 then served them from the issue map. Since
-    // POD-6195 they come from the database again, in batches: the matching
-    // comments' issues in one read and the visibility pass's issue owners in
-    // its own, three lookups for this fixture, none per candidate. There are
-    // candidates to resolve:
-    expect(expectedIssueIds.size).toBeGreaterThan(0)
-    expect(issueLookups).toBe(3)
-    expect(grantLookups).toBe(0)
+    // THE DEFECT IS THE CONSERVED SQL COUNT. Issue owners were one point read
+    // per distinct issue, then (POD-3892) the issue map, then (POD-6195)
+    // repository batches. Since POD-6158 the visibility checks ask the issue
+    // and grant loaders once per candidate, concurrently, and the loaders batch
+    // those asks only inside a scope; without the search's own read scope
+    // (POD-6214) this fixture ran a statement per candidate: 4 issue reads and
+    // 4 grant reads. Now the issue text match, the commented issues and the
+    // candidate issues are one read each, and the grants are one read for the
+    // live sessions and one for the candidate issues. Several issues are
+    // resolved, so a read per candidate would show:
+    expect(issueRows.filter((row) => !row.deletedAt).length).toBeGreaterThan(1)
+    const issues = readsOf(counted, 'issues')
+    const grants = readsOf(counted, 'grants')
+    expect(issues.count, issues.queries).toBe(3)
+    expect(grants.count, grants.queries).toBe(2)
   })
 
   it('reads issue ownership and grants in one batch each for the native conversation list', async () => {
@@ -322,50 +328,23 @@ describe('MemoryService omni-search', () => {
       ])
     }
 
-    const getIssue = store.issues.getIssue.bind(store.issues)
-    const getIssues = store.issues.getIssues.bind(store.issues)
-    const listForResource = store.grants.listForResource.bind(store.grants)
-    const listForResources = store.grants.listForResources.bind(store.grants)
-    let singleReads = 0
-    const batchReads: string[][] = []
-    let singleGrantReads = 0
-    const batchGrantReads: string[][] = []
-    store.issues.getIssue = async (id) => {
-      singleReads++
-      return await getIssue(id)
-    }
-    store.issues.getIssues = async (ids) => {
-      batchReads.push([...ids])
-      return await getIssues(ids)
-    }
-    store.grants.listForResource = async (kind, id) => {
-      if (kind === 'issue') singleGrantReads++
-      return await listForResource(kind, id)
-    }
-    store.grants.listForResources = async (kind, ids) => {
-      if (kind === 'issue') batchGrantReads.push([...ids])
-      return await listForResources(kind, ids)
-    }
+    await settle(registry)
+    const counted = await countStatements(store, () =>
+      registry.modules.memory.searchConversations(READER, { projectPath: '/repo' }),
+    )
 
-    let visible: Awaited<ReturnType<typeof registry.modules.memory.searchConversations>>
-    try {
-      visible = await registry.modules.memory.searchConversations(READER, { projectPath: '/repo' })
-    } finally {
-      store.issues.getIssue = getIssue
-      store.issues.getIssues = getIssues
-      store.grants.listForResource = listForResource
-      store.grants.listForResources = listForResources
-    }
-
-    expect(visible.map((row) => row.id).sort()).toEqual([...conversationIds].sort())
+    expect(counted.result.map((row) => row.id).sort()).toEqual([...conversationIds].sort())
     // THE DEFECT IS THE CONSERVED SQL COUNT, not a duration. POD-3892 served
     // the issue owners from the issue map; since POD-6195 they are one live
-    // batch for the four distinct issues again, never a read per owner.
-    // Grants have no copy since POD-6155: the four issues' edges are one batch.
-    expect(singleReads).toBe(0)
-    expect(batchReads.map((ids) => [...ids].sort())).toEqual([[...issueIds].sort()])
-    expect(singleGrantReads).toBe(0)
-    expect(batchGrantReads.map((ids) => [...ids].sort())).toEqual([[...issueIds].sort()])
+    // batch for the four distinct issues again, and since POD-6158 that batch
+    // goes through the issue loader, not getIssues, so the count is taken at
+    // the driver. Grants have no copy since POD-6155: the four issues' edges
+    // are one batch. A read per owner or per grant edge runs four.
+    expect(issueIds).toHaveLength(4)
+    const issues = readsOf(counted, 'issues')
+    const grants = readsOf(counted, 'grants')
+    expect(issues.count, issues.queries).toBe(1)
+    expect(grants.count, grants.queries).toBe(1)
   })
 
   it('returns nothing for blank text (the router schema rejects it upstream too)', async () => {

@@ -2,6 +2,7 @@ import { asIssueId, asMachineId, machineScopedKey } from '@podium/model'
 import type { SearchResultWire } from '@podium/protocol'
 import type { SessionStore } from '../../store'
 import type { ConversationPageCursor } from '../../store/conversations/index'
+import { withReadScope } from '../../store/executor/read-scope'
 import type { ConversationIndexRow } from '../../store/types'
 import type { MemoryReader } from './types'
 import type { MemoryVisibilityPolicy } from './visibility'
@@ -116,7 +117,23 @@ export class MemorySearchService {
     return page.slice(0, limit)
   }
 
+  /**
+   * Ranked hits across every source, visible to `reader`.
+   *
+   * ONE READ SCOPE FOR THE PASS (POD-6214). The visibility checks ask for each
+   * candidate's issue and grants concurrently; the repositories' loaders batch
+   * those asks into one `IN (...)` read per table only inside a scope, and
+   * outside one each ask is its own statement. A tRPC call opens an operation,
+   * but the superagent's search tool does not, so the pass opens its own.
+   */
   async search(
+    reader: MemoryReader,
+    opts: { text: string; limit?: number; now?: () => number },
+  ): Promise<SearchResultWire[]> {
+    return await withReadScope(async () => await this.searchInScope(reader, opts))
+  }
+
+  private async searchInScope(
     reader: MemoryReader,
     opts: { text: string; limit?: number; now?: () => number },
   ): Promise<SearchResultWire[]> {
