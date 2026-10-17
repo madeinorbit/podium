@@ -153,6 +153,10 @@ export interface PrincipalMailPolicy {
   policyFor(principal: CommandPrincipal):
     | { ceiling: HumanCeiling; machines: MachineAccess }
     | Promise<{ ceiling: HumanCeiling; machines: MachineAccess }>
+  /** The ceiling half of `policyFor` alone, for the apply-time check, which
+   *  asks nothing of machines: without it that check builds the machine half
+   *  too, a fleet ownership read per queued row (POD-6229). */
+  ceilingFor?(principal: CommandPrincipal): HumanCeiling | Promise<HumanCeiling>
 }
 
 export function principalMailPolicy(opts: PrincipalMailPolicy): {
@@ -171,8 +175,10 @@ export function principalMailPolicy(opts: PrincipalMailPolicy): {
       const principal = await opts.principalForMessage(message)
       if (!principal)
         return { ok: false, reason: 'sender authorization is no longer valid' } as const
-      const policy = await opts.policyFor(principal)
-      if (await policy.ceiling.canSee({ kind: 'issue', id: message.toId })) {
+      const ceiling = opts.ceilingFor
+        ? await opts.ceilingFor(principal)
+        : (await opts.policyFor(principal)).ceiling
+      if (await ceiling.canSee({ kind: 'issue', id: message.toId })) {
         return { ok: true } as const
       }
       return { ok: false, reason: 'issue no longer exists' } as const

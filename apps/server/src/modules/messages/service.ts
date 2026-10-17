@@ -152,6 +152,13 @@ function echoedFrameId(text: string): string | null {
 const principalOf = (from: MessageSender): MailSenderPrincipal =>
   ({ ...from, user: from.attribution?.onBehalfOf ?? null }) as MailSenderPrincipal
 
+interface DeliveryAttemptOptions {
+  /** Found by a delivery pass, not at send time: a dead letter tells the sender. */
+  viaSweep?: boolean
+  /** The pass's member lists (POD-6229); absent outside a pass. */
+  members?: PassIssueMembers
+}
+
 /** attemptDelivery's result: the transport outcome plus the sender-facing
  *  disposition [POD-834]. */
 interface DeliveryOutcome {
@@ -160,6 +167,47 @@ interface DeliveryOutcome {
   reason?: string
   position?: number
   disposition: SendDisposition
+}
+
+/**
+ * THE MEMBERS OF EACH ISSUE A DELIVERY PASS ATTEMPTS, READ ONCE [POD-6229].
+ *
+ * A pass attempts every queued row of its targets in order, and each row to an
+ * issue asks which sessions are its members. Asked per row, that was the
+ * issue's member projection (four statements) once per queued message, which
+ * with the apply check's machine reads made one send to a session whose issue
+ * held 200 messages run 1,272 statements.
+ * The pass's own attempts change the members only by a wake (it resumes a
+ * parked session) or a spawn (it adds one): those {@link forget} every list,
+ * so the next row reads the members again, as it did before. Handing a row to
+ * a live session's queue, holding it or failing it leaves them as they were.
+ * A session change made elsewhere while the pass runs queues its issue again
+ * (`onSessionEligibilityChanged`), so the next pass decides with it, as it
+ * would for a row attempted just before the change. A pass is one snapshot of
+ * rows, so nothing is kept past it.
+ */
+class PassIssueMembers {
+  private readonly lists = new Map<string, Promise<SessionMeta[]>>()
+
+  async of(
+    issue: { id: IssueId; worktreePath?: string | null },
+    read: (worktreePath: string | null, issueId: IssueId) => Promise<SessionMeta[]>,
+  ): Promise<SessionMeta[]> {
+    const worktreePath = issue.worktreePath ?? null
+    const key = `${issue.id}\0${worktreePath ?? ''}`
+    let list = this.lists.get(key)
+    if (!list) {
+      list = read(worktreePath, issue.id)
+      this.lists.set(key, list)
+      // A failed read is not an answer: the next row asks again.
+      list.catch(() => this.lists.delete(key))
+    }
+    return await list
+  }
+
+  forget(): void {
+    this.lists.clear()
+  }
 }
 
 /** Spawn-on-unresumable-wake seam [spec:SP-34d7 decision 4]. Actual agent
@@ -779,6 +827,7 @@ export class MessageDeliveryService {
         // The cooldown key of every wake row, with the brake's cold reads
         // answered in one read [POD-6174].
         const wakeKeys = await this.wakeKeysOf(messages)
+        const members = new PassIssueMembers()
         // A row the cooldown held back had its retry armed by the check itself;
         // only the attempted ones are read back afterwards.
         const attempted: MessageRow[] = []
@@ -786,7 +835,7 @@ export class MessageDeliveryService {
           try {
             if (!await this.prepareQueuedAttemptSafely(message, wakeKeys.get(message.id))) continue
             attempted.push(message)
-            await this.attemptDelivery(message, { viaSweep: true })
+            await this.attemptDelivery(message, { viaSweep: true, members })
           } catch (error) {
             failed(message, error)
           }
@@ -1256,14 +1305,14 @@ export class MessageDeliveryService {
    */
   private async attemptDelivery(
     message: MessageRow,
-    opts?: { viaSweep?: boolean },
+    opts?: DeliveryAttemptOptions,
   ): Promise<DeliveryOutcome> {
     return await withReadScope(async () => await this.attemptDeliveryInScope(message, opts))
   }
 
   private async attemptDeliveryInScope(
     message: MessageRow,
-    opts?: { viaSweep?: boolean },
+    opts?: DeliveryAttemptOptions,
   ): Promise<DeliveryOutcome> {
     // A dead-letter found at SEND time returns synchronously to a watching sender
     // (no async notice); one found LATER (sweep) must tell the sender once.
@@ -1355,7 +1404,12 @@ export class MessageDeliveryService {
       // applied after it, so the set is unchanged. The post-filter that used to
       // sit here re-ran that predicate on an already-narrowed list; POD-3857
       // dropped it along with the full-list fallback it existed to cover.
-      const allMembers = await sessions.listSessionsForIssue(issue.worktreePath ?? null, issue.id)
+      // In a pass, the members are read once per issue (POD-6229).
+      const readMembers = async (worktreePath: string | null, issueId: IssueId) =>
+        await sessions.listSessionsForIssue(worktreePath, issueId)
+      const allMembers = opts?.members
+        ? await opts.members.of(issue, readMembers)
+        : await readMembers(issue.worktreePath ?? null, issue.id)
       // Self-delivery suppression [spec:SP-a4ba] (§09-H, POD-836): exclude the sender's own
       // session from issue-recipient resolution, so an agent mailing its own
       // issue never picks itself. selectMailNudgeSession picks the most recently
@@ -1418,6 +1472,8 @@ export class MessageDeliveryService {
             opts?.viaSweep === true,
           )
           if (denied) return denied
+          // A spawn adds a member: the pass reads the members again.
+          opts?.members?.forget()
           return await this.trySpawn(message, message.toId ? asIssueId(message.toId) : null)
         }
         // Issue is live but has NO session — HOLD for its next session. Delivered
@@ -1459,6 +1515,9 @@ export class MessageDeliveryService {
       const denied = await this.refuseWakeUnlessUsable(message, target.machineId, opts?.viaSweep === true)
       if (denied) return denied
     }
+    // A wake resumes the target, or spawns in its place: the pass reads the
+    // members again.
+    opts?.members?.forget()
     // record the wake against the cooldown window.
     await this.recordWake(message, target)
     const injected = await this.injectAndMark('queue', message, target.sessionId, 'queued')

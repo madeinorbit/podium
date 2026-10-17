@@ -2,6 +2,7 @@ import { Buffer } from 'node:buffer'
 import { randomBytes, randomUUID } from 'node:crypto'
 import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import type { HumanCeiling } from '@podium/commands'
 import { ISSUE_SYSTEM_POINTER, SPEC_SYSTEM_POINTER } from '@podium/harness/metadata'
 import type {
   AgentKind,
@@ -1396,6 +1397,25 @@ export class SessionRegistry {
           .map((edge) => edge.grantee),
       }
     }
+    // What a mail principal may address. Its own function so a check that
+    // needs only this (the apply-time re-authorization of each queued row)
+    // does not read the fleet's machine ownership as well (POD-6229).
+    const mailCeiling = (principal: CommandPrincipal): HumanCeiling => {
+      const userId = onBehalfOfUser(principal)
+      return {
+        canSee: async (ref) => {
+          if (principal.kind === 'system') return true
+          if (userId === null) return false
+          if (ref.kind === 'issue')
+            return feedVisibility.mayReadIssue(userId, asIssueId(ref.id))
+          if (ref.kind === 'session') {
+            const owner = await liveSessionOwnership(asSessionId(ref.id))
+            return owner?.owner === userId || owner?.grants.includes(userId) === true
+          }
+          return false
+        },
+      }
+    }
     const mail = principalMailPolicy({
       principalForCapability,
       principalForMessage: async (message) => {
@@ -1412,23 +1432,11 @@ export class SessionRegistry {
         const role = await this.store.users.roleOf(userId)
         return role ? userCommandPrincipal(userId, role) : undefined
       },
+      ceilingFor: (principal) => mailCeiling(principal),
       policyFor: async (principal) => {
         const ownership = await ownershipSnapshotFromMachines(machines)
-        const userId = onBehalfOfUser(principal)
         return {
-          ceiling: {
-            canSee: async (ref) => {
-              if (principal.kind === 'system') return true
-              if (userId === null) return false
-              if (ref.kind === 'issue')
-                return feedVisibility.mayReadIssue(userId, asIssueId(ref.id))
-              if (ref.kind === 'session') {
-                const owner = await liveSessionOwnership(asSessionId(ref.id))
-                return owner?.owner === userId || owner?.grants.includes(userId) === true
-              }
-              return false
-            },
-          },
+          ceiling: mailCeiling(principal),
           machines: {
             // Rule 46: every grant-dependent machine check in this command or
             // delivery apply reads through the pass's lease snapshot. The next
