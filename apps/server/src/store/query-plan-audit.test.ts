@@ -159,6 +159,8 @@ const FAMILY_SHAPES: ReadonlyMap<string, readonly (string | number)[]> = new Map
   ['apps/server/src/store/sessions.ts:readAtOfUserSessions', SIZES],
   ['apps/server/src/store/sessions.ts:snoozesOfUserSessions', SIZES],
   ['apps/server/src/store/events.ts:turnStatesOfIds', SIZES],
+  ['apps/server/src/store/events.ts:relationshipSubscriptionFor', SIZES],
+  ['apps/server/src/store/events.ts:matchingSubscriptions', ['r|1', 'a|1', 'ra|4']],
   ['apps/server/src/store/sessions.ts:upsertSessionsOfShape', ['2|id', '4|id']],
   ['apps/server/src/store/superagent.ts:setThreadBinding', ['podiumSessionId,updatedAt']],
   ['apps/server/src/store/machines.ts:rotateCredentialOf', ['null', 'key']],
@@ -430,7 +432,11 @@ const ALLOWLIST: ReadonlyMap<string, string> = new Map([
   ],
   [
     'apps/server/src/store/events.ts:subscriptionsOf',
-    "Sorts one subscriber's subscriptions, found through idx_subscriptions_subscriber.",
+    "Sorts one subscriber's subscriptions, found through idx_subscriptions_subscriber_event.",
+  ],
+  [
+    'apps/server/src/store/events.ts:matchingSubscriptions',
+    "Sorts the steward's candidates for one poll (POD-6208): each arm seeks its index by the polled kinds and sources or by the event issues' ancestor subscribers, so the union holds only rows that can match.",
   ],
   [
     'apps/server/src/store/shipping.ts:queuedOrdersOfLane',
@@ -615,11 +621,7 @@ const WHOLE_TABLE_READS: ReadonlyMap<string, string> = new Map([
   ],
   [
     'apps/server/src/store/events.ts:allSubscriptions',
-    "Whole-table read (POD-6172): the operator's unfiltered subscription listing (subscriptionList with scope all); a person or agent lists its own through idx_subscriptions_subscriber. Paging it is POD-6208.",
-  ],
-  [
-    'apps/server/src/store/events.ts:enabledSubscriptions',
-    'Whole-table read (POD-6172): the steward reads every enabled subscription on each poll that has events and matches them in memory; reading only the ones that can match is POD-6208.',
+    "Whole-table read (POD-6172): the operator's subscription listing when it asks for no page (subscriptionList with scope all and no after or limit), kept as the default by POD-6208; a page reads idx_subscriptions_created, and the web client moves to pages in POD-6209.",
   ],
   [
     'apps/server/src/store/machines.ts:legacySentinelScan',
@@ -1129,6 +1131,35 @@ describe('POD-6148 — every repository query is served by an index', () => {
         'SCAN ship_train_manifests USING INDEX idx_ship_train_manifests_open_lane',
         'SEARCH ship_orders USING INDEX sqlite_autoindex_ship_orders_1 (id=?)',
       ],
+    ])
+  })
+
+  it('reads the subscriptions a steward poll can match, each arm on its own index (POD-6208)', () => {
+    const { keyed } = keyedDefinitions(trackedSources())
+    const { audited } = auditDefinitions(keyed)
+    const searches = (name: string, shape: string | number) =>
+      audited
+        .filter(
+          (entry) =>
+            entry.key === `apps/server/src/store/events.ts:${name}` && entry.shape === shape,
+        )
+        .flatMap((entry) => entry.plan)
+        .flatMap((line) => {
+          const match = /^SEARCH (\S+) USING (?:COVERING )?INDEX (\S+)/.exec(line)
+          return match ? [`${match[1]} ${match[2]}`] : []
+        })
+        .sort()
+    // The explicit sources by event and source; the relationship ones by their
+    // anchor subscriber, never by event alone (which would read every
+    // relationship row of the kind).
+    expect(searches('matchingSubscriptions', 'ra|4')).toEqual([
+      'sessions idx_sessions_issue',
+      'subscriptions idx_subscriptions_match',
+      'subscriptions idx_subscriptions_subscriber_event',
+      'subscriptions idx_subscriptions_subscriber_event',
+    ])
+    expect(searches('relationshipSubscriptionFor', 4)).toEqual([
+      'subscriptions idx_subscriptions_match',
     ])
   })
 

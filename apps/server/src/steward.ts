@@ -348,7 +348,8 @@ export interface StewardDeps {
     | 'setStewardState'
     | 'appendEvent'
     | 'maxEventId'
-    | 'listEnabledSubscriptions'
+    | 'hasRelationshipSubscription'
+    | 'listMatchingSubscriptions'
     | 'markDelivered'
     | 'activateJanitorSteward'
   >
@@ -802,36 +803,81 @@ export class StewardService {
 
   /**
    * Match each polled event against the enabled stored subscriptions and deliver.
-   * Per-subscription try/catch keeps the same drop-don't-wedge guarantee as the
-   * fixed handlers — one bad subscription never stalls the queue or blocks the
-   * cursor advance.
+   * Reads only the subscriptions that can match these events (POD-6208): those
+   * for one of their kinds whose explicit source is one of their sessions or
+   * issues, and, when any relationship subscription waits for one of the kinds,
+   * those whose subscriber is an ancestor of an event's issue (or a session
+   * bound to one). So the read follows the poll, not how many subscriptions
+   * have piled up. Per-subscription try/catch keeps the same drop-don't-wedge
+   * guarantee as the fixed handlers — one bad subscription never stalls the
+   * queue or blocks the cursor advance.
    */
   private async dispatchSubscriptions(events: StewardEvent[]): Promise<void> {
-    const subs = await this.deps.store.listEnabledSubscriptions()
-    if (subs.length === 0) return
-    // Every lookup here is by id (an event's session, a session subscriber)
-    // except the nudge targets, which are running members of an issue.
-    const sessions = await this.factsFor([
-      ...events.flatMap((e) =>
-        e.kind === 'session.phase' || e.kind === 'session.exited' ? [asSessionId(e.subject)] : [],
-      ),
-      ...subs.flatMap((sub) => (sub.subscriberKind === 'session' ? [asSessionId(sub.subscriberId)] : [])),
-    ])
-    for (const e of events) {
+    const polled = events.flatMap((e) => {
       const kinds = subscriptionEventKinds(e)
-      if (kinds.length === 0) continue
       const isSession = e.kind === 'session.phase' || e.kind === 'session.exited'
-      // Session events carry a sessionId subject; resolve its bound issue so an
-      // issue/relationship source can match on the work, not the raw session id.
-      const srcSession = isSession ? sessions.find((s) => s.sessionId === e.subject) : undefined
-      const srcIssueId = isSession ? (srcSession?.issueId ?? null) : asIssueId(e.subject)
-      for (const sub of subs) {
-        if (!kinds.includes(sub.event)) continue
+      return kinds.length ? [{ e, kinds, isSession }] : []
+    })
+    if (polled.length === 0) return
+    const kinds = [...new Set(polled.flatMap((p) => p.kinds))]
+    // Session events carry a sessionId subject; resolve its bound issue so an
+    // issue/relationship source can match on the work, not the raw session id.
+    let sessions = await this.factsFor(
+      polled.flatMap((p) => (p.isSession ? [asSessionId(p.e.subject)] : [])),
+    )
+    const matches = polled.map((p) => ({
+      ...p,
+      srcIssueId: p.isSession
+        ? (sessions.find((s) => s.sessionId === p.e.subject)?.issueId ?? null)
+        : asIssueId(p.e.subject),
+    }))
+    const srcIssueIds = [
+      ...new Set(matches.flatMap((m) => (m.srcIssueId == null ? [] : [m.srcIssueId]))),
+    ]
+    // Nearest first: a relationship source matches only an ancestor's subscriber.
+    const ancestors = new Map<IssueId, readonly string[]>()
+    if (srcIssueIds.length && (await this.deps.store.hasRelationshipSubscription(kinds))) {
+      for (const id of srcIssueIds) {
+        // An issue whose ancestry cannot be read matches no relationship
+        // source, as the per-subscription check used to drop it: never wedge.
         try {
-          if (
-            await this.sourceMatches(sub, { isSession, subject: e.subject, srcIssueId }, sessions)
-          ) {
-            await this.deliverSubscription(sub, e, sessions)
+          ancestors.set(id, await this.deps.issues.hierarchy.ancestorIds(id))
+        } catch (err) {
+          log.warn('subscription ancestry failed', { err, issueId: id })
+        }
+      }
+    }
+    const subs = await this.deps.store.listMatchingSubscriptions({
+      events: kinds,
+      sources: [...new Set([...matches.map((m) => m.e.subject), ...srcIssueIds])],
+      anchorIssueIds: [...ancestors.values()].flat(),
+    })
+    if (subs.length === 0) return
+    // A session subscriber's issue anchors its relationship source; its facts
+    // also carry the nudge target. Every lookup here is by id except the nudge
+    // targets of an issue subscriber, which are running members of the issue.
+    const known = new Set(sessions.map((s) => s.sessionId))
+    const subscriberSessions = subs.flatMap((sub) =>
+      sub.subscriberKind === 'session' && !known.has(asSessionId(sub.subscriberId))
+        ? [asSessionId(sub.subscriberId)]
+        : [],
+    )
+    if (subscriberSessions.length) {
+      const read = await this.deps.readSessionFactsByIds([...new Set(subscriberSessions)])
+      sessions = [...sessions, ...read]
+    }
+    for (const m of matches) {
+      const ev = {
+        isSession: m.isSession,
+        subject: m.e.subject,
+        srcIssueId: m.srcIssueId,
+        ancestors: m.srcIssueId == null ? [] : (ancestors.get(m.srcIssueId) ?? []),
+      }
+      for (const sub of subs) {
+        if (!m.kinds.includes(sub.event)) continue
+        try {
+          if (this.sourceMatches(sub, ev, sessions)) {
+            await this.deliverSubscription(sub, m.e, sessions)
           }
         } catch (err) {
           log.warn('subscription failed', { err, subscriptionId: sub.id })
@@ -840,13 +886,6 @@ export class StewardService {
     }
   }
 
-  /** Does the subscription's `source` resolve to include this event's subject?
-   *  - session source: exact sessionId (session events only).
-   *  - issue source: the event issue itself, or (for session events) the session's
-   *    bound issue.
-   *  - relationship source: resolved against the SUBSCRIBER's issue — 'my-children'
-   *    (event issue's parent is the subscriber) / 'my-subtree' (subscriber is an
-   *    ancestor). 'my-blockers'/'my-parent' are not yet resolvable here (TODO). */
   /** The running sessions plus these sessions by id, running or parked. */
   private async factsFor(sessionIds: readonly SessionId[]): Promise<SessionFacts[]> {
     const running = this.deps.runningSessionFacts()
@@ -855,11 +894,24 @@ export class StewardService {
     return [...running, ...(wanted.length ? await this.deps.readSessionFactsByIds(wanted) : [])]
   }
 
-  private async sourceMatches(
+  /** Does the subscription's `source` resolve to include this event's subject?
+   *  - session source: exact sessionId (session events only).
+   *  - issue source: the event issue itself, or (for session events) the session's
+   *    bound issue.
+   *  - relationship source: resolved against the SUBSCRIBER's issue — 'my-children'
+   *    (event issue's parent is the subscriber) / 'my-subtree' (subscriber is an
+   *    ancestor), over the event issue's ancestors, nearest first, which the
+   *    poll read once. 'my-blockers'/'my-parent' are not yet resolvable here (TODO). */
+  private sourceMatches(
     sub: Subscription,
-    ev: { isSession: boolean; subject: string; srcIssueId: IssueId | null },
+    ev: {
+      isSession: boolean
+      subject: string
+      srcIssueId: IssueId | null
+      ancestors: readonly string[]
+    },
     sessions: readonly SessionFacts[],
-  ): Promise<boolean> {
+  ): boolean {
     if (sub.sourceKind === 'session') {
       return ev.isSession && sub.sourceRef === ev.subject
     }
@@ -870,12 +922,8 @@ export class StewardService {
     if (ev.srcIssueId == null) return false
     const anchor = this.subscriberIssueId(sub, sessions)
     if (!anchor) return false
-    if (sub.sourceRef === 'my-children') {
-      return (await this.deps.issues.reports.getMeta(ev.srcIssueId))?.parentId === anchor
-    }
-    if (sub.sourceRef === 'my-subtree') {
-      return (await this.deps.issues.hierarchy.ancestorIds(ev.srcIssueId)).includes(anchor)
-    }
+    if (sub.sourceRef === 'my-children') return ev.ancestors[0] === anchor
+    if (sub.sourceRef === 'my-subtree') return ev.ancestors.includes(anchor)
     // my-blockers / my-parent: not trivially resolvable at this layer yet.
     return false
   }

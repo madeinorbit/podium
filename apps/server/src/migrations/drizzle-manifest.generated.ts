@@ -139,6 +139,7 @@ export const DRIZZLE_MIGRATIONS: DrizzleMigration[] = [
   { name: "20261016172101_runtime-turn-state", sql: "ALTER TABLE `runtime_event_checkpoints` ADD `turn_state_json` text;" },
   { name: "20261016192021_bound-driver-id", sql: "ALTER TABLE `sessions` ADD `bound_driver_id` text;" },
   { name: "20261016200904_headless-index", sql: "CREATE INDEX `idx_sessions_headless` ON `sessions` (`headless`) WHERE \"sessions\".\"headless\" = 1;" },
+  { name: "20261017055535_subscription-match-indexes", sql: "DROP INDEX IF EXISTS `idx_subscriptions_subscriber`;--> statement-breakpoint\nCREATE INDEX `idx_subscriptions_subscriber_event` ON `subscriptions` (`subscriber_id`,`source_kind`,`event`);--> statement-breakpoint\nCREATE INDEX `idx_subscriptions_match` ON `subscriptions` (`event`,`source_kind`,`source_ref`);--> statement-breakpoint\nCREATE INDEX `idx_subscriptions_created` ON `subscriptions` (`created_at`,`id`);" },
 ]
 
 /**

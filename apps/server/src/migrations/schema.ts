@@ -1368,7 +1368,17 @@ export const subscriptions = sqliteTable(
     enabled: integer({ mode: 'boolean' }).default(sql`1`).notNull(),
     createdAt: text('created_at').notNull(),
   },
-  (table) => [index('idx_subscriptions_subscriber').on(table.subscriberId)],
+  (table) => [
+    // A subscriber's own rows, and the steward's relationship arm: the rows of
+    // the subscribers an event can reach, narrowed by source kind and event
+    // (POD-6208).
+    index('idx_subscriptions_subscriber_event').on(table.subscriberId, table.sourceKind, table.event),
+    // The steward's explicit-source arms: the rows watching one session or
+    // issue for one event kind (POD-6208).
+    index('idx_subscriptions_match').on(table.event, table.sourceKind, table.sourceRef),
+    // The operator's listing, one keyset page at a time (POD-6208).
+    index('idx_subscriptions_created').on(table.createdAt, table.id),
+  ],
 )
 
 export const subscriptionDeliveries = sqliteTable(

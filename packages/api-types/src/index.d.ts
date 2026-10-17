@@ -7299,7 +7299,13 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
             meta: unknown;
         }>;
         "subscriptionList": TRPC.TRPCQueryProcedure<{
-            input: void;
+            input: (undefined) | ({
+                after?: undefined | {
+                    createdAt: string;
+                    id: string;
+                };
+                limit?: number | undefined;
+            });
             output: Array<Subscription>;
             meta: unknown;
         }>;

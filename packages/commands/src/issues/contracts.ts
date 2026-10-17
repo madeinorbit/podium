@@ -675,7 +675,16 @@ export const subscriptionSetEnabledInput = z.object({
   enabled: z.boolean(),
 })
 
-export const subscriptionListInput = z.void()
+/** The operator's listing, one keyset page at a time when it passes `after`
+ *  (the last row of the previous page) or `limit` (POD-6208). Optional: the
+ *  no-argument `query()` every client sends stays valid and still reads the
+ *  whole list. A constrained caller lists only its own and ignores both. */
+export const subscriptionListInput = z
+  .object({
+    after: z.object({ createdAt: z.string(), id: z.string() }).optional(),
+    limit: z.number().int().positive().max(500).optional(),
+  })
+  .optional()
 
 // -------------------------------------------------------------------------
 // READS — 25 queries, role-gated only

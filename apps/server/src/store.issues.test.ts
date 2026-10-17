@@ -530,11 +530,115 @@ describe('subscriptions store (Phase B)', () => {
     expect((await store.events.listSubscriptions()).map((s) => s.id)).toEqual(['sub_b'])
   })
 
-  it('listEnabledSubscriptions omits disabled rows', async () => {
+  // The steward's read for one poll (POD-6208): only the rows that can match.
+  const matching = async (
+    store: SessionStore,
+    q: { events: string[]; sources?: string[]; anchorIssueIds?: string[] },
+  ) =>
+    (
+      await store.events.listMatchingSubscriptions({
+        events: q.events,
+        sources: q.sources ?? [],
+        anchorIssueIds: q.anchorIssueIds ?? [],
+      })
+    ).map((s) => s.id)
+
+  it('listMatchingSubscriptions omits disabled rows', async () => {
     const store = await openIssueStore()
     await store.events.addSubscription(sub({ id: 'sub_on', enabled: true }))
     await store.events.addSubscription(sub({ id: 'sub_off', enabled: false, createdAt: 't2' }))
-    expect((await store.events.listEnabledSubscriptions()).map((s) => s.id)).toEqual(['sub_on'])
+    expect(await matching(store, { events: ['issue.closed'], anchorIssueIds: ['iss_p'] })).toEqual([
+      'sub_on',
+    ])
+  })
+
+  it('listMatchingSubscriptions reads explicit sources by event and source', async () => {
+    const store = await openIssueStore()
+    const explicit = (id: string, over: Partial<import('./store').Subscription>) =>
+      store.events.addSubscription(sub({ id, createdAt: id, ...over }))
+    await explicit('s1', { sourceKind: 'session', sourceRef: 'ses_a', event: 'session.finished' })
+    await explicit('s2', { sourceKind: 'issue', sourceRef: 'iss_x', event: 'issue.closed' })
+    await explicit('s3', { sourceKind: 'issue', sourceRef: 'iss_y', event: 'issue.closed' })
+    await explicit('s4', { sourceKind: 'issue', sourceRef: 'iss_x', event: 'issue.updated' })
+    await explicit('s5', { sourceKind: 'session', sourceRef: 'ses_b', event: 'session.finished' })
+    expect(
+      await matching(store, {
+        events: ['issue.closed', 'session.finished'],
+        sources: ['iss_x', 'ses_a'],
+      }),
+    ).toEqual(['s1', 's2'])
+    // Nothing to match: no statement, no rows.
+    expect(await matching(store, { events: ['issue.closed'] })).toEqual([])
+    expect(await matching(store, { events: [], sources: ['iss_x'] })).toEqual([])
+  })
+
+  it('listMatchingSubscriptions reads relationship sources by their anchor subscriber', async () => {
+    const store = await openIssueStore()
+    const session = (id: string, issueId: string) =>
+      store.sessions.upsertSession({
+        id,
+        ownerUserId: firstAdminMemberId(),
+        agentKind: 'claude-code',
+        cwd: '/r',
+        title: id,
+        name: null,
+        originKind: 'spawn',
+        conversationId: null,
+        resumeKind: null,
+        resumeValue: null,
+        status: 'exited',
+        exitCode: 0,
+        durableLabel: `podium-${id}`,
+        createdAt: 't',
+        lastActiveAt: 't',
+        lastOutputAt: null,
+        lastInputAt: null,
+        lastResumedAt: null,
+        archived: false,
+        workState: null,
+        machineId: store.hostMachineId,
+        headless: false,
+        issueId: asIssueId(issueId),
+        stoppedAt: null,
+      } as never)
+    await session('ses_on_p', 'iss_p')
+    await session('ses_on_q', 'iss_q')
+    await session('ses_gone', 'iss_p')
+    await store.sessions.softDeleteSessions(['ses_gone'], 't', 'user' as never)
+    const rel = (id: string, over: Partial<import('./store').Subscription>) =>
+      store.events.addSubscription(sub({ id, createdAt: id, ...over }))
+    await rel('r1', { subscriberKind: 'issue', subscriberId: 'iss_p' })
+    await rel('r2', { subscriberKind: 'issue', subscriberId: 'iss_q' })
+    await rel('r3', { subscriberKind: 'session', subscriberId: 'ses_on_p' })
+    await rel('r4', { subscriberKind: 'session', subscriberId: 'ses_on_q' })
+    await rel('r5', { subscriberKind: 'session', subscriberId: 'ses_gone' })
+    await rel('r6', { subscriberKind: 'issue', subscriberId: 'iss_p', event: 'issue.updated' })
+    // An explicit source never comes in through its subscriber.
+    await rel('r7', { subscriberId: 'iss_p', sourceKind: 'issue', sourceRef: 'iss_z' })
+    expect(await matching(store, { events: ['issue.closed'], anchorIssueIds: ['iss_p'] })).toEqual([
+      'r1',
+      'r3',
+    ])
+    expect(await store.events.hasRelationshipSubscription(['issue.closed'])).toBe(true)
+    expect(await store.events.hasRelationshipSubscription(['session.waiting'])).toBe(false)
+    expect(await store.events.hasRelationshipSubscription([])).toBe(false)
+  })
+
+  it('listSubscriptionsPage pages every subscription oldest first by (created_at, id)', async () => {
+    const store = await openIssueStore()
+    for (const [id, createdAt] of [
+      ['sub_c', 't1'],
+      ['sub_a', 't2'],
+      ['sub_b', 't2'],
+      ['sub_d', 't3'],
+    ] as const) {
+      await store.events.addSubscription(sub({ id, createdAt }))
+    }
+    const first = await store.events.listSubscriptionsPage({ limit: 2 })
+    expect(first.map((s) => s.id)).toEqual(['sub_c', 'sub_a'])
+    const second = await store.events.listSubscriptionsPage({ after: first.at(-1)!, limit: 2 })
+    expect(second.map((s) => s.id)).toEqual(['sub_b', 'sub_d'])
+    expect(await store.events.listSubscriptionsPage({ after: second.at(-1)! })).toEqual([])
   })
 
   it('setSubscriptionEnabled toggles the flag and getSubscription reflects it', async () => {
@@ -542,7 +646,7 @@ describe('subscriptions store (Phase B)', () => {
     await store.events.addSubscription(sub({ id: 'sub_t', enabled: true }))
     expect(await store.events.setSubscriptionEnabled('sub_t', false)).toBe(true)
     expect((await store.events.getSubscription('sub_t'))?.enabled).toBe(false)
-    expect((await store.events.listEnabledSubscriptions()).map((s) => s.id)).toEqual([])
+    expect(await matching(store, { events: ['issue.closed'], anchorIssueIds: ['iss_p'] })).toEqual([])
     expect(await store.events.setSubscriptionEnabled('sub_t', true)).toBe(true)
     expect((await store.events.getSubscription('sub_t'))?.enabled).toBe(true)
     // Unknown id → no row updated.

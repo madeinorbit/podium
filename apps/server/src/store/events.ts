@@ -8,11 +8,12 @@
 import { AgentRuntimeState, type SessionId } from '@podium/model'
 import { ISSUE_EVENTS_DEFAULT_LIMIT, ProviderCursor } from '@podium/protocol'
 import { RuntimeEvent } from '@podium/protocol/daemon'
-import { and, asc, desc, eq, gt, inArray, lt, lte, max, not, or, type SQL, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, gt, inArray, isNull, lt, lte, max, not, or, type SQL, sql } from 'drizzle-orm'
 import {
   podiumEvents,
   runtimeEventCheckpoints,
   runtimeEventProjectionCursors,
+  sessions as sessionsTable,
   stewardState,
   subscriptionDeliveries,
   subscriptions,
@@ -63,6 +64,15 @@ function rowToEvent(r: PodiumEventRow): PodiumEventRecord {
     payload,
   }
 }
+
+/** The operator listing's keyset cursor: the last row of the previous page. */
+export interface SubscriptionPageCursor {
+  createdAt: string
+  id: string
+}
+
+export const SUBSCRIPTION_PAGE_DEFAULT = 200
+export const SUBSCRIPTION_PAGE_MAX = 500
 
 /** One `subscriptions` row as the schema types it. */
 type SubscriptionRow = {
@@ -483,8 +493,29 @@ const deleteSubscription = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
+/** Every subscription, oldest first: the operator's listing when it asks for
+ *  no page (POD-6208 keeps that default; its client moves to pages in POD-6209). */
 const allSubscriptions = prepared((db: StoreDrizzle) =>
-  db.select().from(subscriptions).orderBy(asc(subscriptions.createdAt)).prepare(),
+  db
+    .select()
+    .from(subscriptions)
+    .orderBy(asc(subscriptions.createdAt), asc(subscriptions.id))
+    .prepare(),
+)
+
+/** One keyset page of every subscription, oldest first, through
+ *  `idx_subscriptions_created` (POD-6208): the rows after the cursor's
+ *  `(created_at, id)`. The first page starts after `('', '')`, before every row. */
+const subscriptionsPage = prepared((db: StoreDrizzle) =>
+  db
+    .select()
+    .from(subscriptions)
+    .where(
+      sql`(${subscriptions.createdAt}, ${subscriptions.id}) > (${param(subscriptions.createdAt, 'afterCreatedAt')}, ${param(subscriptions.id, 'afterId')})`,
+    )
+    .orderBy(asc(subscriptions.createdAt), asc(subscriptions.id))
+    .limit(sql.placeholder('limit'))
+    .prepare(),
 )
 
 const subscriptionsOf = prepared((db: StoreDrizzle) =>
@@ -512,14 +543,98 @@ const subscriptionById = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
-const enabledSubscriptions = prepared((db: StoreDrizzle) =>
+/**
+ * Is any enabled RELATIONSHIP subscription waiting for one of these event kinds?
+ * One seek per kind on `idx_subscriptions_match`; the steward walks the event
+ * issues' ancestors only when the answer is yes (POD-6208). Keyed by the
+ * bucketed size of the kind list.
+ */
+const relationshipSubscriptionFor = preparedFamily((db: StoreDrizzle, size: number) =>
   db
-    .select()
+    .select({ id: subscriptions.id })
     .from(subscriptions)
-    .where(eq(subscriptions.enabled, true))
-    .orderBy(asc(subscriptions.createdAt))
+    .where(
+      and(
+        inListOf(subscriptions.event, size, 'kind'),
+        eq(subscriptions.sourceKind, 'relationship'),
+        eq(subscriptions.enabled, true),
+      ),
+    )
+    .limit(1)
     .prepare(),
 )
+
+/**
+ * THE SUBSCRIPTIONS THAT CAN MATCH ONE POLL (POD-6208), instead of every
+ * enabled one. One SELECT per arm, each on its own index:
+ *  - explicit sources (`r`): rows watching one of the polled sessions or issues
+ *    for one of the polled kinds, through `idx_subscriptions_match`;
+ *  - relationship sources (`a`): rows whose subscriber is an ANCHOR, an
+ *    ancestor issue of an event's issue, or a session bound to one, through
+ *    `idx_subscriptions_subscriber_event`. Only an ancestor's subscriber can
+ *    be a parent ('my-children') or an ancestor ('my-subtree') of the event.
+ * The steward still checks each row (`sourceMatches`); this read only bounds
+ * the rows it checks by the poll, not by how many subscriptions exist. Every
+ * list is padded to one bucketed `size`, so the family is keyed by that size
+ * and which arms are present. The arms are disjoint (by source kind, then by
+ * subscriber kind), so `UNION ALL`; the few candidates are sorted as the
+ * whole-table read sorted them, oldest first.
+ */
+const matchingSubscriptions = preparedFamily((db: StoreDrizzle, shape: string) => {
+  const [arms, sizeText] = shape.split('|')
+  const size = Number(sizeText)
+  const kinds = () => inListOf(subscriptions.event, size, 'kind')
+  const relationship = (subscriberKind: 'issue' | 'session', subscriber: SQL) =>
+    db
+      .select()
+      .from(subscriptions)
+      .where(
+        and(
+          subscriber,
+          eq(subscriptions.subscriberKind, subscriberKind),
+          eq(subscriptions.sourceKind, 'relationship'),
+          kinds(),
+          eq(subscriptions.enabled, true),
+        ),
+      )
+  const selects = []
+  if (arms!.includes('r')) {
+    selects.push(
+      db
+        .select()
+        .from(subscriptions)
+        .where(
+          and(
+            kinds(),
+            inArray(subscriptions.sourceKind, ['session', 'issue']),
+            inListOf(subscriptions.sourceRef, size, 'ref'),
+            eq(subscriptions.enabled, true),
+          ),
+        ),
+    )
+  }
+  if (arms!.includes('a')) {
+    selects.push(
+      relationship('issue', inListOf(subscriptions.subscriberId, size, 'anchor')),
+      relationship(
+        'session',
+        inArray(
+          subscriptions.subscriberId,
+          db
+            .select({ id: sessionsTable.id })
+            .from(sessionsTable)
+            .where(
+              and(inListOf(sessionsTable.issueId, size, 'anchor'), isNull(sessionsTable.deletedAt)),
+            ),
+        ),
+      ),
+    )
+  }
+  const [first, ...rest] = selects
+  let union = first!.$dynamic()
+  for (const arm of rest) union = union.unionAll(arm).$dynamic()
+  return union.orderBy(asc(subscriptions.createdAt), asc(subscriptions.id)).prepare()
+})
 
 const insertDeliveryIfNew = prepared((db: StoreDrizzle) =>
   db
@@ -1010,10 +1125,28 @@ export class EventsRepository {
     await deleteSubscription(this.db).run({ id })
   }
 
+  /** One subscriber's subscriptions, or every subscription, oldest first. */
   async listSubscriptions(filter?: { subscriberId?: string }): Promise<Subscription[]> {
     const rows = filter?.subscriberId
       ? await subscriptionsOf(this.db).all({ subscriberId: filter.subscriberId })
       : await allSubscriptions(this.db).all()
+    return rows.map(rowToSubscription)
+  }
+
+  /** One keyset page of every subscription, oldest first (the operator's
+   *  listing, POD-6208). The cursor is the last row of the previous page. */
+  async listSubscriptionsPage(
+    opts: { after?: SubscriptionPageCursor; limit?: number } = {},
+  ): Promise<Subscription[]> {
+    const after = opts.after ?? { createdAt: '', id: '' }
+    const rows = await subscriptionsPage(this.db).all({
+      afterCreatedAt: after.createdAt,
+      afterId: after.id,
+      limit: Math.min(
+        Math.max(1, Math.trunc(opts.limit ?? SUBSCRIPTION_PAGE_DEFAULT)),
+        SUBSCRIPTION_PAGE_MAX,
+      ),
+    })
     return rows.map(rowToSubscription)
   }
 
@@ -1028,8 +1161,40 @@ export class EventsRepository {
     return row ? rowToSubscription(row) : undefined
   }
 
-  async listEnabledSubscriptions(): Promise<Subscription[]> {
-    const rows = await enabledSubscriptions(this.db).all()
+  /** Is any enabled relationship subscription waiting for one of these event
+   *  kinds? The steward asks before it walks ancestors (POD-6208). */
+  async hasRelationshipSubscription(events: readonly string[]): Promise<boolean> {
+    const kinds = [...new Set(events)]
+    if (kinds.length === 0) return false
+    const size = inListSize(kinds.length)
+    const row = await relationshipSubscriptionFor(this.db, size).get(
+      inListValues(kinds, size, 'kind'),
+    )
+    return row !== undefined
+  }
+
+  /**
+   * The enabled subscriptions that can match one steward poll, oldest first
+   * (POD-6208): those for one of `events` whose explicit source is one of
+   * `sources` (the polled sessions and issues), and the relationship ones whose
+   * subscriber is one of `anchorIssueIds` (the event issues' ancestors) or a
+   * session bound to one. A superset of the matches; the steward decides each.
+   */
+  async listMatchingSubscriptions(q: {
+    events: readonly string[]
+    sources: readonly string[]
+    anchorIssueIds: readonly string[]
+  }): Promise<Subscription[]> {
+    const kinds = [...new Set(q.events)]
+    const sources = [...new Set(q.sources)]
+    const anchors = [...new Set(q.anchorIssueIds)]
+    const arms = `${sources.length ? 'r' : ''}${anchors.length ? 'a' : ''}`
+    if (kinds.length === 0 || arms === '') return []
+    const size = inListSize(Math.max(kinds.length, sources.length, anchors.length))
+    const values = inListValues(kinds, size, 'kind')
+    if (sources.length) inListValues(sources, size, 'ref', values)
+    if (anchors.length) inListValues(anchors, size, 'anchor', values)
+    const rows = await matchingSubscriptions(this.db, `${arms}|${size}`).all(values)
     return rows.map(rowToSubscription)
   }
 

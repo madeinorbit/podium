@@ -11,6 +11,7 @@ import {
 } from '../../../command-principal'
 import { isMemberCwd } from '../../../issue-util'
 import type { IssueRow, Subscription } from '../../../store'
+import type { SubscriptionPageCursor } from '../../../store/events'
 import { afterCommit } from '../../../store/executor/executor'
 import type { IssueStore } from './core'
 import type { IssueCrudModule } from './crud'
@@ -508,6 +509,15 @@ export class IssueAttentionModule {
 
   async subscriptionList(filter?: { subscriberId?: string }): Promise<Subscription[]> {
     return await this.store.deps.store.events.listSubscriptions(filter)
+  }
+
+  /** One keyset page of every subscription, oldest first (the operator's
+   *  listing, POD-6208). */
+  async subscriptionPage(page: {
+    after?: SubscriptionPageCursor
+    limit?: number
+  }): Promise<Subscription[]> {
+    return await this.store.deps.store.events.listSubscriptionsPage(page)
   }
 
   /** Toggle a subscription on/off (Automations UI). Custom subscriptions only affect

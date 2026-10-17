@@ -1586,11 +1586,16 @@ const defs = {
   }),
   subscriptionList: def('subscriptionList', {
     kind: 'query',
-    // The one historical no-input proc: z.void() keeps `query()` (no args) valid
-    // on every client while the registry contract still carries ONE schema.
-    handler: async (ctx) => {
-      // Operator sees every subscription; a constrained caller sees only its own.
-      if (ctx.caller.capability.scope.kind === 'all') return await ctx.attention.subscriptionList()
+    // The input is optional, so `query()` (no args) stays valid on every client.
+    handler: async (ctx, input) => {
+      // Operator sees every subscription: all of them when it asks for no page,
+      // one keyset page when it passes `after` or `limit` (POD-6208). A
+      // constrained caller sees only its own.
+      if (ctx.caller.capability.scope.kind === 'all') {
+        return input?.after || input?.limit
+          ? await ctx.attention.subscriptionPage(input)
+          : await ctx.attention.subscriptionList()
+      }
       const subscriber = ctx.deriveSubscriber()
       return await ctx.attention.subscriptionList({ subscriberId: subscriber.id })
     },
