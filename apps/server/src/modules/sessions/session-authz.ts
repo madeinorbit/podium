@@ -41,7 +41,7 @@ export interface SessionAuthzStorePort {
   readonly users: Pick<SessionStore['users'], 'get' | 'roleOf' | 'earliestAdmin'>
   readonly sessions: Pick<SessionStore['sessions'], 'loadSession' | 'getSessions'>
   readonly issues: Pick<SessionStore['issues'], 'getIssue' | 'getIssues'>
-  readonly grants: Pick<SessionStore['grants'], 'loadForResource' | 'listForResources'>
+  readonly grants: Pick<SessionStore['grants'], 'loadForResource' | 'loadForResourcesOfKinds' | 'listForResources'>
 }
 
 export interface SessionAuthzPorts {
@@ -309,7 +309,7 @@ export class SessionAuthz {
       ? ((await this.memoIssueOwner(issueId, memo)) ?? durable.ownerUserId)
       : durable.ownerUserId
     if (!parentOwner) return undefined
-    const grants = await this.memoGrantees(resourceKind, resourceId, memo)
+    const grants = await this.memoGrantees(resourceKind, resourceId, memo, issueId ? sessionId : undefined)
     return { owner: parentOwner, grants }
   }
 
@@ -404,13 +404,28 @@ export class SessionAuthz {
     return (memo.issues.get(issueId) ?? null)?.ownerUserId ?? undefined
   }
 
+  /**
+   * `alsoSession`: a session on an issue, whose own grants the publication of
+   * a write to it reads (the feed's visibility rule) where this check reads the
+   * issue's. Read with the issue's in one statement, the operation's memo
+   * answers the publication (POD-6217).
+   */
   private async memoGrantees(
     resourceKind: string,
     resourceId: string,
     memo?: SessionOwnerMemo,
+    alsoSession?: SessionId,
   ): Promise<string[]> {
-    const compute = async (): Promise<string[]> =>
-      granteesOf(await this.ports.store.grants.loadForResource(resourceKind, resourceId))
+    const compute = async (): Promise<string[]> => {
+      if (alsoSession === undefined) {
+        return granteesOf(await this.ports.store.grants.loadForResource(resourceKind, resourceId))
+      }
+      const found = await this.ports.store.grants.loadForResourcesOfKinds({
+        [resourceKind]: [resourceId],
+        session: [alsoSession],
+      })
+      return granteesOf(found.get(resourceKind)?.get(resourceId) ?? [])
+    }
     if (!memo || spanOpen()) return compute()
     const key = `${resourceKind}:${resourceId}`
     const hit = memo.grants.get(key)

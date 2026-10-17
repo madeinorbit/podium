@@ -208,6 +208,38 @@ describe('GrantsRepository.loadForResource for a whole operation', () => {
     })
   })
 
+  // POD-6217: the kinds a write's passes ask about are one read, and the later
+  // pass of either kind finds its answer in the operation's memo.
+  it('reads several kinds in one statement, only the pairs asked, and memoises each', async () => {
+    await withStore(async (store) => {
+      for (const [kind, id, grantee] of [
+        ['issue', 'iss_a', 'alice'],
+        ['session', 's1', 'bob'],
+        // The read crosses the kinds with the ids: these two must not leak in.
+        ['session', 'iss_a', 'carol'],
+        ['issue', 's1', 'dave'],
+      ] as const) {
+        await store.grants.upsert({ ...grant(id, grantee), resourceKind: kind })
+      }
+      await withOperation(async () => {
+        const first = await countStatements(store, () =>
+          store.grants.loadForResourcesOfKinds({ issue: ['iss_a', 'iss_none'], session: ['s1'] }))
+        expect(first.statements).toBe(1)
+        expect([...first.result].map(([kind, rows]) => [kind, [...rows].map(([id, edges]) => [id, grantees(edges)])]))
+          .toEqual([
+            ['issue', [['iss_a', ['alice']], ['iss_none', []]]],
+            ['session', [['s1', ['bob']]]],
+          ])
+        const later = await countStatements(store, async () => [
+          grantees(await store.grants.loadForResource('session', 's1')),
+          grantees((await store.grants.loadForResources('issue', ['iss_a'])).get('iss_a') ?? []),
+        ])
+        expect(later.statements).toBe(0)
+        expect(later.result).toEqual([['bob'], ['alice']])
+      })
+    })
+  })
+
   it('sees its own grant and revoke, across the span boundary too', async () => {
     await withStore(async (store) => {
       await withOperation(async () => {

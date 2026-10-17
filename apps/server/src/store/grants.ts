@@ -111,6 +111,19 @@ const grantsOfResources = preparedFamily((db: StoreDrizzle, size: number) =>
     .prepare(),
 )
 
+// The grants of resources of SEVERAL kinds in one read [POD-6217]: every listed
+// kind crossed with every listed id; the caller keeps only the (kind, id) pairs
+// it asked for. Keyed by the two padded list sizes, `<kinds>x<ids>`.
+const grantsOfResourceKeys = preparedFamily((db: StoreDrizzle, shape: string) => {
+  const [kindSize, idSize] = shape.split('x').map(Number) as [number, number]
+  return db
+    .select()
+    .from(grants)
+    .where(and(inListOf(grants.resourceKind, kindSize, 'kind'), inListOf(grants.resourceId, idSize, 'id')))
+    .orderBy(asc(grants.createdAt))
+    .prepare()
+})
+
 /** `custody` keeps the stored marker when the row does not name one: two shapes. */
 const upsertGrant = preparedFamily((db: StoreDrizzle, custody: 'set' | 'keep') =>
   db
@@ -321,31 +334,75 @@ export class GrantsRepository {
 
   /**
    * {@link loadForResource} for several resources of one kind at once: the
-   * operation's memo answers the ones it holds, and the rest are one
-   * {@link listForResources} query. Every asked id has an entry, `[]` for none.
+   * operation's memo answers the ones it holds, and the rest are one query.
+   * Every asked id has an entry, `[]` for none.
    */
   async loadForResources(resourceKind: string, resourceIds: readonly string[]): Promise<Map<string, GrantRow[]>> {
-    const loaded = await this.resourceGrants.loadMany(resourceIds.map((id) => resourceGrantKey(resourceKind, id)))
-    return new Map(resourceIds.map((id) => [id, loaded.get(resourceGrantKey(resourceKind, id)) ?? []]))
+    return (await this.loadForResourcesOfKinds({ [resourceKind]: resourceIds })).get(resourceKind) ?? new Map()
+  }
+
+  /**
+   * {@link loadForResources} for resources of SEVERAL kinds at once [POD-6217]:
+   * the misses of every kind are one query, not one per kind. Asked as
+   * `{ issue: [...], session: [...] }`; every asked kind and id has an entry,
+   * `[]` for none.
+   *
+   * A write's passes ask about the same session under two rules: the session's
+   * access check and its projection read the grants of its issue (or of the
+   * session when it has none), the feed's visibility pass reads the session's
+   * own grants. A caller that knows both are coming asks for both here, so the
+   * operation reads them in one statement and the later pass finds them in the
+   * memo.
+   */
+  async loadForResourcesOfKinds(
+    resources: Readonly<Record<string, readonly string[]>>,
+  ): Promise<Map<string, Map<string, GrantRow[]>>> {
+    const keys = Object.entries(resources).flatMap(([kind, ids]) => ids.map((id) => resourceGrantKey(kind, id)))
+    const loaded = await this.resourceGrants.loadMany(keys)
+    return new Map(
+      Object.entries(resources).map(([kind, ids]) => [
+        kind,
+        new Map(ids.map((id) => [id, loaded.get(resourceGrantKey(kind, id)) ?? []])),
+      ]),
+    )
+  }
+
+  /**
+   * The grants of every `(kind, id)` key, in ONE read per 500 ids whatever the
+   * mix of kinds [POD-6217]. The read crosses the kinds with the ids, so it
+   * keeps only the pairs asked for; every asked key has an entry, `[]` for none,
+   * because "no edges" is an answer, and it is the one the loader must remember.
+   */
+  private async listForResourceKeys(keys: readonly string[]): Promise<Map<string, GrantRow[]>> {
+    const found = new Map<string, GrantRow[]>()
+    for (const key of keys) found.set(key, [])
+    const kinds = new Set<string>()
+    const ids = new Set<string>()
+    for (const key of found.keys()) {
+      const [kind, id] = splitResourceGrantKey(key)
+      kinds.add(kind)
+      ids.add(id)
+    }
+    const kindList = [...kinds]
+    const kindSize = inListSize(kindList.length)
+    const idList = [...ids]
+    // The kinds take a few of SQLite's 999 bound parameters; 500 ids leave room.
+    for (let at = 0; at < idList.length; at += 500) {
+      const chunk = idList.slice(at, at + 500)
+      const idSize = inListSize(chunk.length)
+      const rows = await grantsOfResourceKeys(this.db, `${kindSize}x${idSize}`).all(
+        inListValues(chunk, idSize, 'id', inListValues(kindList, kindSize, 'kind')),
+      )
+      for (const r of rows) {
+        const row = grantFromRow(r)
+        if (row) found.get(resourceGrantKey(row.resourceKind, row.resourceId))?.push(row)
+      }
+    }
+    return found
   }
 
   private readonly resourceGrants = operationLoader<string, GrantRow[]>(
-    async (keys) => {
-      const idsByKind = new Map<string, string[]>()
-      for (const key of keys) {
-        const [kind, id] = splitResourceGrantKey(key)
-        const ids = idsByKind.get(kind)
-        if (ids) ids.push(id)
-        else idsByKind.set(kind, [id])
-      }
-      const found = new Map<string, GrantRow[]>()
-      for (const [kind, ids] of idsByKind) {
-        const edges = await this.listForResources(kind, ids)
-        // "No edges" is an answer, and it is the one the loader must remember.
-        for (const id of ids) found.set(resourceGrantKey(kind, id), edges.get(id) ?? [])
-      }
-      return found
-    },
+    async (keys) => await this.listForResourceKeys(keys),
     { copy: (rows) => rows.map((row) => ({ ...row })), perOperation: true },
   )
 

@@ -113,6 +113,14 @@ function harness() {
           counts.loadForResource += 1
           return kind === 'issue' && id === ISSUE ? GRANTS : []
         },
+        // One load, of one kind or of several (POD-6217).
+        loadForResourcesOfKinds: async (resources: Record<string, readonly string[]>) => {
+          counts.loadForResource += 1
+          return new Map(Object.entries(resources).map(([kind, ids]) => [
+            kind,
+            new Map(ids.map((id) => [id, kind === 'issue' && id === ISSUE ? GRANTS : []])),
+          ]))
+        },
         listForResources: async (kind: string, ids: readonly string[]) => {
           counts.listForResources += 1
           const out = new Map<string, GrantRow[]>()
