@@ -88,7 +88,9 @@ function terminalItemEvent(input: {
   }
 }
 
-async function bindContract(registry: SessionRegistry, store: SessionStore, onCommand: (message: ControlMessage) => void = () => {}, driverId: string | undefined = 'codex-app-server') {
+// `null` binds without a driver (a legacy-only daemon). Not `undefined`: an
+// explicit `undefined` argument takes the default and binds the driver.
+async function bindContract(registry: SessionRegistry, store: SessionStore, onCommand: (message: ControlMessage) => void = () => {}, driverId: string | null = 'codex-app-server') {
   await store.machines.upsertMachine({
     id: store.hostMachineId, name: 'Host', hostname: 'test', tokenHash: 'test',
     ownerUserId: firstAdminMemberId(), assignment: { server: true, agentExecution: true },
@@ -212,7 +214,7 @@ describe('durable runtime observation gate', () => {
     const store = await openTestStore(':memory:')
     const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     try {
-      const sessionId = await bindContract(registry, store, () => {}, undefined)
+      const sessionId = await bindContract(registry, store, () => {}, null)
       const initial = await registry.modules.sessions.sessionById(sessionId)
       const at = new Date(Date.parse(initial?.lastActiveAt ?? '') + 1_000).toISOString()
       const effects: string[] = []
@@ -1788,7 +1790,7 @@ describe('durable transcript replacement windows', () => {
     const store = await openTestStore(':memory:')
     let registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     try {
-      const sessionId = await bindContract(registry, store, () => {}, undefined)
+      const sessionId = await bindContract(registry, store, () => {}, null)
       const at = '2026-08-23T00:00:00.000Z'
       const old = { id: 'old', cursor: 'old-native', role: 'assistant' as const, text: 'removed', ts: at }
       const kept = { id: 'kept', cursor: 'rotated-native', role: 'assistant' as const, text: 'kept', ts: at }
