@@ -8,14 +8,30 @@
  * target issue once, together, before its attempts; that is the third
  * statement of the held case and the fourth of the wake case. The first is the
  * check of which triggered targets have mail at all (POD-6219).
+ *
+ * A pass reads the members of each issue it attempts once, not once per
+ * queued row (POD-6229): pinned at the end by counting that read, and through
+ * the real registry (whose member read is the issue's session projection)
+ * once POD-6231 removes the pass's last per-row read.
  */
-import { asIssueId, asSessionId, asThreadId, type IssueId, type SessionMeta } from '@podium/model'
-import { describe, expect, it } from 'vitest'
-import type { MessageRow } from '../../store'
-import { expectConstantStatements } from '../../test-support/statement-count'
+import { asIssueId, asSessionId, asThreadId, firstAdminMemberId, type IssueId, type SessionMeta } from '@podium/model'
+import { describe, expect, it, vi } from 'vitest'
+import { userCommandPrincipal } from '../../command-principal'
+import { SessionRegistry } from '../../relay'
+import { RepoRegistry } from '../../repo-registry'
+import { appRouter } from '../../router'
+import type { MessageRow, SessionStore } from '../../store'
+import { OPERATOR } from '../../test-support/capabilities'
+import { attachHostDaemon } from '../../test-support/host-daemon'
+import { openTestStore } from '../../test-support/open-test-store'
+import { expectConstantStatements, quietShipping } from '../../test-support/statement-count'
+import { SuperagentService } from '../superagent'
 import { type MailHarness, mailHarness } from './characterization-support'
+import type { MessageDeliveryDeps } from './service'
 
 const SENDER = asSessionId('sFrom')
+/** Measured on the polaris VM (POD-6229), with one account read per row left. */
+const PASS_STATEMENTS = 17
 
 const row = (id: string, toId: IssueId, lifecycle: MessageRow['lifecycle'], createdAt: string): MessageRow => ({
   id,
@@ -195,5 +211,157 @@ describe('session changes: pinned statement counts at 5 and 200 sessions [POD-62
       },
       6,
     )
+  })
+})
+
+interface HeldIssueMail {
+  store: SessionStore
+  reg: SessionRegistry
+  issueId: IssueId
+  superagent: SuperagentService
+  call: ReturnType<typeof appRouter.createCaller>
+}
+
+async function settle(reg: SessionRegistry): Promise<void> {
+  for (let i = 0; i < 20; i++) await new Promise((resolve) => setImmediate(resolve))
+  await reg.modules.sessions.flushBroadcasts()
+  await new Promise((resolve) => setTimeout(resolve, 20))
+  for (let i = 0; i < 20; i++) await new Promise((resolve) => setImmediate(resolve))
+}
+
+/**
+ * A running shell on one issue and `size` messages sent to the issue. A shell
+ * takes no mail, so the issue holds every one of them, and each pass over the
+ * issue attempts them all.
+ */
+async function heldIssueMail(size: number): Promise<HeldIssueMail> {
+  const store = await openTestStore(':memory:')
+  const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
+  await attachHostDaemon(reg, () => {}, { repos: ['/repo'] })
+  await quietShipping(reg)
+  const issue = await reg.issues.crud.create({ repoPath: '/repo', title: 'Mail', startNow: false })
+  await reg.issues.crud.update(issue.id, { worktreePath: '/repo/.worktrees/mail' })
+  const cwd = '/repo/.worktrees/mail'
+  const { sessionId } = await reg.modules.sessions.createSession({ agentKind: 'shell', cwd, issueId: issue.id })
+  await reg.gateway.routeDaemonFrame(store.hostMachineId, {
+    type: 'bind',
+    sessionId,
+    cmd: 'sh',
+    cwd,
+    agentKind: 'shell',
+    geometry: { cols: 80, rows: 24 },
+  } as never)
+  const repos = new RepoRegistry(reg, reg.sessionStore)
+  const superagent = await SuperagentService.create(reg.modules, repos, reg.sessionStore)
+  const call = appRouter.createCaller({
+    registry: reg,
+    repos,
+    superagent,
+    capability: OPERATOR,
+    principal: userCommandPrincipal(firstAdminMemberId(), 'admin'),
+  })
+  for (let i = 0; i < size; i++) await call.messages.send({ to: issue.id, body: `held ${i}` })
+  await settle(reg)
+  return { store, reg, issueId: issue.id, superagent, call }
+}
+
+const releaseHeld = async (f: HeldIssueMail) => {
+  f.superagent.dispose()
+  await f.reg.dispose()
+  await f.store.close()
+}
+
+const stillHeld = async (f: HeldIssueMail, size: number) => {
+  const held = await f.store.messages.listQueuedPage({ limit: 1000 })
+  expect(held.filter((m) => m.toKind === 'issue' && m.toId === f.issueId)).toHaveLength(size)
+}
+
+describe('a pass over held issue mail: pinned statement counts at 5 and 150 held messages [POD-6229]', () => {
+  // Each held row read the issue's members on its own (four statements) and
+  // its sender's machine ownership for an apply check that reads none of it
+  // (two more). Both are gone; the send that triggers such a pass is pinned in
+  // mail-send.statement-count.test.ts. The pass alone still reads its sender's
+  // account once a row: the apply-time re-authorization asks for the sender's
+  // role, and the account memo is per read scope, which each attempt opens
+  // anew. 17 statements at 5 held rows, 162 at 150. Unskip at its constant
+  // when POD-6231 reads the account once per operation. Both sizes fit one
+  // delivery page (200 rows): a full page asks for the next.
+  it.skip('the pass itself: the members of the issue and the sender read once (POD-6231)', async () => {
+    await expectConstantStatements<HeldIssueMail>(
+      {
+        name: 'onIssueEligibilityChanged + flushDeliveryTriggers (held issue mail)',
+        sizes: [5, 150],
+        setup: heldIssueMail,
+        target: (f) => f.store,
+        run: async (f) => {
+          await f.reg.modules.messages.onIssueEligibilityChanged(f.issueId)
+          await f.reg.modules.messages.flushDeliveryTriggers()
+        },
+        check: async (_result, f, size) => await stillHeld(f, size),
+        teardown: releaseHeld,
+      },
+      PASS_STATEMENTS,
+    )
+  })
+})
+
+/** The member read the delivery service was given, to count its calls. */
+const memberReads = (h: MailHarness) =>
+  vi.spyOn((h.svc as unknown as { deps: MessageDeliveryDeps }).deps.sessions, 'listSessionsForIssue')
+
+describe("a pass's member lists [POD-6229]", () => {
+  it('reads the members of an issue once for all of its held rows', async () => {
+    const h = await mailHarness()
+    try {
+      const { id } = await h.createIssue({ title: 'held' })
+      h.put({ sessionId: asSessionId('shell'), issueId: id, agentKind: 'shell' })
+      for (let i = 0; i < 20; i++) {
+        await h.store.messages.addMessage(row(`m-${i}`, id, 'wait', new Date(Date.parse('2026-07-20T11:00:00.000Z') + i).toISOString()))
+      }
+      const reads = memberReads(h)
+      await h.svc.onIssueEligibilityChanged(id)
+      await h.svc.flushDeliveryTriggers()
+      expect(reads).toHaveBeenCalledTimes(1)
+      expect(h.pushes).toHaveLength(0)
+      // Only the pass shares: a second one reads afresh.
+      await h.svc.onIssueEligibilityChanged(id)
+      await h.svc.flushDeliveryTriggers()
+      expect(reads).toHaveBeenCalledTimes(2)
+    } finally {
+      h.svc.dispose()
+      await h.store.close()
+    }
+  })
+
+  it('reads them again after a row woke a member, so the next row sees it running', async () => {
+    const h = await mailHarness()
+    try {
+      const { id } = await h.createIssue({ title: 'parked' })
+      const [parked] = h.put({ sessionId: asSessionId('s1'), issueId: id, status: 'hibernated' })
+      // The resume a wake starts: the session runs from here on, a new row
+      // in every later read, as the projection returns.
+      const deps = (h.svc as unknown as { deps: MessageDeliveryDeps }).deps.sessions
+      const queueText = deps.queueText.bind(deps)
+      vi.spyOn(deps, 'queueText').mockImplementation(async (input) => {
+        const at = h.sessions.findIndex((s) => s.sessionId === input.sessionId)
+        if (at >= 0 && h.sessions[at]!.status === 'hibernated') h.sessions[at] = { ...h.sessions[at]!, status: 'live' }
+        return await queueText(input)
+      })
+      await h.store.messages.addMessage(row('wake', id, 'wake', '2026-07-20T11:00:00.000Z'))
+      await h.store.messages.addMessage(row('after', id, 'wait', '2026-07-20T11:00:01.000Z'))
+      const reads = memberReads(h)
+      await h.svc.onIssueEligibilityChanged(id)
+      await h.svc.flushDeliveryTriggers()
+      // The wait row went to the running session; with the list read before
+      // the wake it would have been held for a session still parked.
+      expect(h.pushes.map((push) => [(push as { sourceMessageId?: string }).sourceMessageId, push.sessionId])).toEqual([
+        ['wake', parked!.sessionId],
+        ['after', parked!.sessionId],
+      ])
+      expect(reads).toHaveBeenCalledTimes(2)
+    } finally {
+      h.svc.dispose()
+      await h.store.close()
+    }
   })
 })

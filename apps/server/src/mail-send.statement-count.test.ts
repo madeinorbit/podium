@@ -171,12 +171,10 @@ const plantPerSession = (f: Fixture): (() => void) => {
   return () => spy.mockRestore()
 }
 
-describe('mail send: pinned statement counts at 5 and 200', () => {
+describe('mail send: pinned statement counts at 5 and 200 (held issue mail: 5 and 150)', () => {
   // A send to a session on an issue also queues a delivery pass for the
-  // issue's held mail, which attempts each held message on its own (about 6
-  // statements a message: modules/messages/service.ts `attemptPass`, POD-6229,
-  // after POD-6219). These pins hold that mail out: the earlier mail went to the
-  // session; the skipped pin below holds the case with the numbers.
+  // issue's held mail. These pins hold that mail out (the earlier mail went to
+  // the session); the "holds mail" pins below count it in.
   const sessionMailOnly = (size: number) => fixture(size, false)
   const trpcToSession = pin(
     'tRPC messages.send to a session',
@@ -187,6 +185,9 @@ describe('mail send: pinned statement counts at 5 and 200', () => {
   // POD-6218: the earliest admin is one statement (its row) and is read once per
   // operation, and so are its settings (`meta`, `user_preferences`). tRPC to a session
   // 67 -> 62, relayed to a session 61 -> 53, to an issue 25 -> 23, mailSend 33 -> 29.
+  // POD-6229: the apply-time check of a message to an issue no longer reads the
+  // machine rows and their grants (4 statements): tRPC to an issue 19 -> 15,
+  // relayed 23 -> 19, mailSend 29 -> 25.
   it('over tRPC, to a running session', async () => {
     await expectConstantStatements(trpcToSession, 62)
   })
@@ -195,22 +196,38 @@ describe('mail send: pinned statement counts at 5 and 200', () => {
     await expectArmed(trpcToSession, 62, plantPerSession)
   })
 
-  // 100 statements with 5 held issue messages, 1,272 with 200 (relay: 95 ->
-  // 1,266), measured on the polaris VM for POD-6227 before POD-6219 landed.
-  // Unskip, with the constant measured then, when POD-6229 reads the held
-  // mail of a pass together.
-  it.skip('over tRPC, to a running session whose issue holds mail (POD-6229)', async () => {
+  // The pass attempts every held message, and each attempt read the issue's
+  // members and its sender's machine ownership on its own: 100 statements
+  // with 5 held issue messages, 1,272 with 200 (relay: 95 -> 1,266), measured
+  // on the polaris VM for POD-6227 before POD-6219 landed. POD-6229 reads the
+  // members once per pass and leaves the machines out of the apply check. At
+  // 150: with 200 held, their page of 200 is full and the pass asks for the
+  // next, one statement per page.
+  const heldIssueMail = (name: string, run: (f: Fixture) => Promise<unknown>) => ({
+    ...pin(name, run),
+    sizes: [5, 150] as const,
+  })
+
+  it('over tRPC, to a running session whose issue holds mail', async () => {
     await expectConstantStatements(
-      pin('tRPC messages.send to a session, issue mail held', async (f) =>
+      heldIssueMail('tRPC messages.send to a session, issue mail held', async (f) =>
         await f.call.messages.send({ to: f.target, body: 'counted' })),
-      100,
+      69,
+    )
+  })
+
+  it('through the agent relay, to a running session whose issue holds mail', async () => {
+    await expectConstantStatements(
+      heldIssueMail('relayed messages.send to a session, issue mail held', async (f) =>
+        await relay(f, 'send', { to: f.target, body: 'counted' })),
+      60,
     )
   })
 
   it('over tRPC, to an issue', async () => {
     await expectConstantStatements(
       pin('tRPC messages.send to an issue', async (f) => await f.call.messages.send({ to: f.issueId, body: 'counted' })),
-      19,
+      15,
     )
   })
 
@@ -231,14 +248,14 @@ describe('mail send: pinned statement counts at 5 and 200', () => {
   it('through the agent relay, to its own issue', async () => {
     await expectConstantStatements(
       pin('relayed messages.send to an issue', async (f) => await relay(f, 'send', { to: f.issueId, body: 'counted' })),
-      23,
+      19,
     )
   })
 
   it('through the agent relay, issues.mailSend to its own issue', async () => {
     await expectConstantStatements(
       pin('relayed issues.mailSend', async (f) => await relay(f, 'mailSend', { id: f.issueId, body: 'counted' }, 'issues')),
-      29,
+      25,
     )
   })
 })

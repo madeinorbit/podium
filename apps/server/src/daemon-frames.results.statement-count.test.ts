@@ -290,12 +290,13 @@ describe('daemon *Result frames: pinned statement counts at 5 and 200', () => {
 
   // The transition, its event, the issue notice (a mail to the issue) and the
   // approvals broadcast. POD-6218: the earliest admin in one statement: 19 -> 18.
+  // POD-6229: the notice's apply-time check reads no machines: 18 -> 14.
   it('approvalExecResult of a session on an issue', async () => {
-    await expectConstantStatements(approval, 18)
+    await expectConstantStatements(approval, 14)
   })
 
   it('approvalExecResult pin is armed', async () => {
-    await expectArmed(approval, 18, plantPerSession)
+    await expectArmed(approval, 14, plantPerSession)
   })
 
   it('sessionKillResult that confirms the kill', async () => {
