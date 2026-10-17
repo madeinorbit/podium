@@ -18,6 +18,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import type { SessionStore } from '../store'
 import { openTestStore } from '../test-support/open-test-store'
 import { ExclusiveInsideLeaseError, probeStatements, type StatementProbeHolder } from './executor'
+import { PLANNER_STATISTICS_ROW_FLOOR } from '../migrations/store-lifecycle'
 
 const cleanup: (() => void | Promise<void>)[] = []
 afterEach(async () => {
@@ -82,9 +83,10 @@ describe('POD-6148 — planner statistics', () => {
       .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'sqlite_stat1'")
       .all()
     expect(table).toEqual([{ name: 'sqlite_stat1' }])
-    // Boot wrote statistics for the tables that have rows (the store seeds a few).
-    const rows = database.prepare('SELECT COUNT(*) AS n FROM sqlite_stat1').get() as { n: number }
-    expect(rows.n).toBeGreaterThan(0)
+    // Boot analysed the tables the store seeds, a few rows each, and kept no
+    // statistics for them: every one is below the floor (POD-6223).
+    const kept = database.prepare('SELECT DISTINCT tbl FROM sqlite_stat1').all()
+    expect(kept).toEqual([])
   })
 
   it('a refresh asked for during a transaction waits for it and runs outside it', async () => {
@@ -115,7 +117,7 @@ describe('POD-6148 — planner statistics', () => {
     expect(refreshes).toEqual([])
     release()
     await Promise.all([transaction, refresh])
-    expect(refreshes.map((r) => r.sql)).toEqual(['PRAGMA optimize'])
+    expect(refreshes[0]!.sql).toBe('PRAGMA optimize')
     expect(refreshes.every((r) => !r.insideTransaction)).toBe(true)
     expect(refreshes[0]!.at).toBeGreaterThanOrEqual(committedAt)
   })
@@ -134,14 +136,83 @@ describe('POD-6148 — planner statistics', () => {
     const refreshes = watchRefreshes(store, database)
     store.startPlannerStatistics(10)
     const deadline = performance.now() + 5_000
-    while (refreshes.length < 2 && performance.now() < deadline) {
+    const optimizes = () => refreshes.filter((r) => r.sql === 'PRAGMA optimize').length
+    while (optimizes() < 2 && performance.now() < deadline) {
       await new Promise((resolve) => setTimeout(resolve, 10))
     }
     expect(refreshes.length).toBeGreaterThanOrEqual(2)
-    expect(refreshes.every((r) => r.sql === 'PRAGMA optimize' && !r.insideTransaction)).toBe(true)
+    expect(optimizes()).toBeGreaterThanOrEqual(2)
+    expect(refreshes.every((r) => !r.insideTransaction)).toBe(true)
     await store.close()
     const after = refreshes.length
     await new Promise((resolve) => setTimeout(resolve, 50))
     expect(refreshes.length).toBe(after)
+  })
+})
+
+/** The runtime-event drain's list query (`runtimeEventsAfter` in `events.ts`), as the bench caught it. */
+const DRAIN =
+  "SELECT id, subject, payload FROM podium_events WHERE kind = 'session.runtime' AND id > ? ORDER BY id LIMIT 128"
+
+function addEvents(database: SqlDatabase, count: number): void {
+  const insert = database.prepare(
+    'INSERT INTO podium_events (ts, kind, subject, repo_path, payload) VALUES (?, ?, ?, ?, ?)',
+  )
+  database.exec('BEGIN')
+  for (let i = 0; i < count; i++) {
+    // Mostly runtime events, as on a server with sessions running.
+    insert.run(new Date(1_700_000_000_000 + i).toISOString(), i % 20 === 0 ? 'session.state' : 'session.runtime',
+      `ses_${i % 20}`, '/repo', '{"t":"item"}')
+  }
+  database.exec('COMMIT')
+}
+
+const planOf = (database: SqlDatabase, sql: string): string[] =>
+  (database.prepare(`EXPLAIN QUERY PLAN ${sql}`).all(0) as { detail: string }[]).map((row) => row.detail)
+
+const statsOf = (database: SqlDatabase, table: string): string[] =>
+  (database.prepare('SELECT stat FROM sqlite_stat1 WHERE tbl = ?').all(table) as { stat: string }[]).map(
+    (row) => row.stat,
+  )
+
+describe('POD-6223 — a table analysed while tiny', () => {
+  it('plans the runtime-event drain by index once it has grown', async () => {
+    // The bench template: the server boots on a log of one event, so boot
+    // analyses the table at one row, and the round then grows it.
+    const { store, database } = await fileStore()
+    addEvents(database, 1)
+    await store.refreshPlannerStatistics('open')
+    expect(statsOf(database, 'podium_events')).toEqual([])
+    addEvents(database, 9_999)
+    expect(planOf(database, DRAIN)).toEqual([
+      'SEARCH podium_events USING INDEX idx_podium_events_kind (kind=? AND rowid>?)',
+    ])
+  })
+
+  it('keeps the statistics of a table analysed at the floor', async () => {
+    const { store, database } = await fileStore()
+    addEvents(database, PLANNER_STATISTICS_ROW_FLOOR)
+    await store.refreshPlannerStatistics('open')
+    const stats = statsOf(database, 'podium_events')
+    expect(stats.length).toBeGreaterThan(0)
+    expect(stats.every((stat) => stat.startsWith(`${PLANNER_STATISTICS_ROW_FLOOR} `))).toBe(true)
+    addEvents(database, 9_000)
+    expect(planOf(database, DRAIN)).toEqual([
+      'SEARCH podium_events USING INDEX idx_podium_events_kind (kind=? AND rowid>?)',
+    ])
+  })
+
+  it('the periodic refresh analyses it once it has grown past the floor', async () => {
+    const { store, database } = await fileStore()
+    addEvents(database, 1)
+    await store.refreshPlannerStatistics('open')
+    addEvents(database, 9_999)
+    // A query on the table, as the running server makes: plain optimize
+    // re-analyses the tables this connection has read.
+    database.prepare(DRAIN).all(0)
+    await store.refreshPlannerStatistics('periodic')
+    const stats = statsOf(database, 'podium_events')
+    expect(stats.length).toBeGreaterThan(0)
+    expect(stats.every((stat) => Number(stat.split(' ')[0]) >= PLANNER_STATISTICS_ROW_FLOOR)).toBe(true)
   })
 })

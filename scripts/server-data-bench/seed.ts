@@ -10,6 +10,7 @@
  * Usage: bun --conditions=@podium/source scripts/server-data-bench/seed.ts
  *          --checkout=<arm checkout> --corpus=<corpus.json> --db=<state>/podium.db --out=<fixture.json>
  */
+import { Database } from 'bun:sqlite'
 import { createHash } from 'node:crypto'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
@@ -62,6 +63,23 @@ export function parentsFirst<T extends { id: string; seq: number; parentId: stri
   }
   for (const issue of [...issues].sort((a, b) => a.seq - b.seq)) place(issue, new Set())
   return out
+}
+
+/**
+ * The store analysed the database when it opened, before any corpus row was
+ * written, and boot re-analyses only the tables that have grown tenfold since
+ * (POD-6223). Analysing the seeded corpus here gives every arm's template the
+ * statistics a production server holds for the same rows; each arm's own boot
+ * then applies its statistics policy to them. Same sample bound as the server.
+ */
+function analyseSeeded(path: string): void {
+  const db = new Database(path)
+  try {
+    db.exec('PRAGMA analysis_limit = 1000')
+    db.exec('ANALYZE')
+  } finally {
+    db.close()
+  }
 }
 
 const CLOSED_REASONS =new Set(['done', 'wontfix', 'duplicate', 'superseded', 'obsolete'])
@@ -199,6 +217,7 @@ async function seed(args: Record<string, string>): Promise<BenchFixture> {
     })
   }
   await store.close()
+  analyseSeeded(args.db!)
   return {
     cell: corpus.cell,
     seed: corpus.seed,

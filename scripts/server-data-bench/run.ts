@@ -204,8 +204,15 @@ function memAvailableGiB(): number {
   return Number(line?.split(/\s+/)[1] ?? 0) / 2 ** 20
 }
 
+/**
+ * Bumped when the seed writes a different template for the same commit, so a
+ * template seeded the old way is never reused. 2: the seed analyses the
+ * corpus it wrote (POD-6223).
+ */
+const TEMPLATE_FORMAT = 2
+
 async function template(sha: string, checkout: string, corpusPath: string, root: string, label: string): Promise<{ dir: string; fixture: string }> {
-  const dir = join(root, 'templates', `${sha.slice(0, 12)}-${label}`)
+  const dir = join(root, 'templates', `${sha.slice(0, 12)}-${label}-t${TEMPLATE_FORMAT}`)
   const fixture = join(dir, 'fixture.json')
   if (existsSync(join(dir, '.template-ready'))) return { dir, fixture }
   rmSync(dir, { recursive: true, force: true })
