@@ -2,11 +2,10 @@
  * WHICH SESSIONS ARE IN MEMORY (POD-6160 D2f, `residency.ts`).
  *
  * A parked session stays resident only while an operation leases it or a
- * client views it. These tests run the registry with eviction ON (it is off in
- * production until D2g shrinks the map) and check:
+ * client views it. These tests check:
  *
- * - over the benchmark corpus, a sweep leaves exactly the running sessions in
- *   memory, and a lease brings each parked one back as the session it was
+ * - over the benchmark corpus, boot holds exactly the running sessions and
+ *   reads no draft, and a lease brings each ended one back equal to its record
  *   (wire projection and facts, the live plane included), then lets it go;
  * - the rules: a lease, a viewer, unsettled writes or unfinished draft work
  *   keep a parked session; concurrent leases share one read; a deleted
@@ -14,7 +13,8 @@
  * - the resident object is the writer of its durable fields: after a rolled
  *   back span and after a commit, its fields equal its row.
  */
-import { asSessionId, type SessionId } from '@podium/model'
+import { asSessionId, firstAdminMemberId, type SessionId } from '@podium/model'
+import type { ControlMessage } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from '../../relay'
 import type { SessionStore } from '../../store'
@@ -33,7 +33,7 @@ afterEach(async () => {
 async function boot(store: SessionStore): Promise<SessionRegistry> {
   const reg = await SessionRegistry.create(store, undefined, {
     instanceId: 'default',
-    sessionResidency: { evictParked: true, sweepIntervalMs: 0 },
+    sessionResidency: { sweepIntervalMs: 0 },
   })
   registries.push(reg)
   return reg
@@ -52,34 +52,35 @@ async function parkedSession(reg: SessionRegistry, store: SessionStore): Promise
 }
 
 describe('session residency (POD-6160 D2f)', () => {
-  it('over the benchmark corpus: parked sessions leave memory and a lease brings each back as it was', async () => {
+  it('over the benchmark corpus: boot holds the running sessions only, and a lease brings any other back and lets it go', async () => {
     const store = await openTestStore(':memory:')
     await seedCorpusSessions(store)
+    const rows = await store.sessions.loadSessions()
+    // Running sessions, and headless ones (resident while their row exists).
+    const running = rows.filter((row) => isRunningStatus(row.status) || row.headless).map((row) => row.id)
+    const ended = rows.filter((row) => !running.includes(row.id)).map((row) => row.id)
+    const draftReads = [vi.spyOn(store.sessions, 'loadDrafts'), vi.spyOn(store.sessions, 'loadDraftDocs')]
     const reg = await boot(store)
     const sessions = reg.modules.sessions
-    await sessions.flushActivity()
-    const before = new Map([...sessions.sessions].map(([id, s]) => [id, fullView(s)]))
-    const running = [...sessions.sessions.values()].filter((s) => isRunningStatus(s.status)).map((s) => s.sessionId)
-    const parked = [...before.keys()].filter((id) => !running.includes(id))
-
-    expect(sessions.residency.sweep()).toBe(parked.length)
+    // SESSIONS IN MEMORY = RUNNING SESSIONS, over thousands of ended ones.
     expect([...sessions.sessions.keys()].sort()).toEqual([...running].sort())
-    // Evicted sessions are their records.
-    const records = await sessions.records.read(parked)
-    for (const id of parked) expect({ id, view: fullView(records.get(id)!) }).toEqual({ id, view: before.get(id) })
+    // Boot read no draft document (they load when used).
+    for (const read of draftReads) expect(read).not.toHaveBeenCalled()
 
-    for (const id of parked) {
+    // Each ended session comes back for a lease, equal to its record, and leaves.
+    const records = await sessions.records.read(ended)
+    for (const id of ended) {
       const view = await sessions.residency.withSession(id, 'test', (session) => {
         expect(sessions.sessions.get(id)).toBe(session)
         return fullView(session!)
       })
-      expect({ id, view }).toEqual({ id, view: before.get(id) })
-      // Released, it leaves again.
+      expect({ id, view }).toEqual({ id, view: fullView(records.get(id)!) })
       expect(sessions.sessions.has(id)).toBe(false)
     }
-    console.log('session residency over the corpus', JSON.stringify({ sessions: before.size, running: running.length }))
-    expect(parked.length).toBeGreaterThan(100)
-  }, 60_000)
+    console.log('session residency over the corpus', JSON.stringify({ sessions: rows.length, running: running.length }))
+    expect(ended.length).toBeGreaterThan(1000)
+    expect(sessions.sessions.size).toBe(running.length)
+  }, 120_000)
 
   it('keeps a leased parked session through a sweep and shares one read between concurrent leases', async () => {
     const store = await openTestStore(':memory:')
@@ -114,6 +115,48 @@ describe('session residency (POD-6160 D2f)', () => {
     expect(await sessions.residency.acquire(asSessionId('nope'), 'test')).toBeUndefined()
     expect(sessions.residency.leased(id)).toBe(false)
     expect(sessions.sessions.has(id)).toBe(false)
+  })
+
+  it('keeps a headless session resident while its row exists, even one whose establish failed', async () => {
+    const store = await openTestStore(':memory:')
+    const owner = await firstAdminMemberId(store)
+    const sessionId = asSessionId('headless-establish-failed')
+    // What a failed establish leaves: a headless row marked exited, never bound.
+    await store.sessions.upsertSession({
+      id: sessionId,
+      ownerUserId: owner,
+      agentKind: 'claude-code',
+      cwd: '/r',
+      title: 'thread',
+      name: null,
+      originKind: 'spawn',
+      conversationId: null,
+      resumeKind: null,
+      resumeValue: null,
+      status: 'exited',
+      exitCode: -1,
+      durableLabel: `podium-${sessionId}`,
+      createdAt: '2026-10-16T00:00:00.000Z',
+      lastActiveAt: '2026-10-16T00:00:00.000Z',
+      lastOutputAt: null,
+      lastInputAt: null,
+      lastResumedAt: null,
+      archived: false,
+      workState: null,
+      machineId: store.hostMachineId,
+      headless: true,
+      issueId: null,
+      stoppedAt: '2026-10-16T00:00:00.000Z',
+    } as never)
+    // Restored at boot with the running ones, and never evicted.
+    const reg = await boot(store)
+    expect(reg.modules.sessions.sessions.get(sessionId)?.status).toBe('exited')
+    reg.modules.sessions.residency.sweep()
+    expect(reg.modules.sessions.residency.residentBecause(sessionId)).toBe('running')
+    // A machine attach re-sends its establish frame, as before the map shrank.
+    const daemon: ControlMessage[] = []
+    await attachHostDaemon(reg, (m) => daemon.push(m))
+    await vi.waitFor(() => expect(daemon.some((m) => m.type === 'spawn' && m.sessionId === sessionId)).toBe(true))
   })
 
   it('the resident session equals its row after a rolled-back span and after a commit', async () => {

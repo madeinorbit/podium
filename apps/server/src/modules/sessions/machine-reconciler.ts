@@ -44,6 +44,12 @@ import type { Session, SessionDurableState, SessionVolatileField } from './sessi
 
 const log = createLogger('server:sessions')
 
+/** What the reconciler reads of a parked session before it restores one. */
+export type ParkedOnMachine = Pick<
+  Session,
+  'sessionId' | 'machineId' | 'status' | 'archived' | 'headless' | 'durableLabel' | 'lastActiveAt'
+>
+
 export interface MachineReconcilerPorts {
   /** This machine's candidate sessions. Read-only: nothing here adds or removes. */
   sessions(): Iterable<Session>
@@ -60,6 +66,14 @@ export interface MachineReconcilerPorts {
   parkArchivedSession(sessionId: Session['sessionId']): Promise<void>
   /** Build the reattach control message for one survivor. */
   reattachMessage(session: Session, machineId: MachineId): Promise<ControlMessage>
+  /**
+   * This machine's sessions that do not run, parked ones read from the
+   * database (POD-6160 D2g): what the attach probe and the census look at.
+   * Absent (unit fixtures): the resident sessions are all there is.
+   */
+  parkedOn?(machineId: MachineId): Promise<readonly ParkedOnMachine[]>
+  /** Run one step with this session resident, restored from its row when parked. */
+  withSession?<T>(sessionId: Session['sessionId'], reason: string, fn: (session: Session | undefined) => Promise<T>): Promise<T>
   toMachine(machineId: MachineId, message: ControlMessage): void
   /** Rank survivors: lower tier reattaches sooner. */
   viewTiers(sessionIds: Session['sessionId'][]): Map<Session['sessionId'], number>
@@ -142,23 +156,29 @@ export class SessionMachineReconciler {
     // connected client is focused on must come back typable before the long
     // unwatched tail (POD-612); within a tier, lastActiveAt is an ISO string, so a
     // reverse lexical sort is newest-first.
-    const probes = [...this.ports.sessions()].filter(
-      (s) =>
-        s.machineId === machineId &&
-        !s.headless &&
-        (s.status === 'reconnecting' || (s.status === 'exited' && !s.archived)),
-    )
+    //
+    // An exited row out of memory is restored for its probe and let go after it
+    // (POD-6160 D2g): the daemon's answer (a bind, or reattachFailed) restores
+    // it again if it needs it.
+    const probe = (s: ParkedOnMachine) =>
+      s.machineId === machineId &&
+      !s.headless &&
+      (s.status === 'reconnecting' || (s.status === 'exited' && !s.archived))
+    const probes = await this.candidates(machineId, probe)
     const viewTiers = this.ports.viewTiers(probes.map((s) => s.sessionId))
     probes.sort(
       (a, b) =>
         (viewTiers.get(a.sessionId) ?? 3) - (viewTiers.get(b.sessionId) ?? 3) ||
         (b.lastActiveAt ?? '').localeCompare(a.lastActiveAt ?? ''),
     )
-    for (const s of probes) {
-      const message = await this.ports.reattachMessage(s, machineId)
-      if (s.machineId !== machineId || s.archived ||
-          (s.status !== 'reconnecting' && s.status !== 'exited')) continue
-      this.ports.toMachine(machineId, message)
+    for (const candidate of probes) {
+      await this.withSession(candidate.sessionId, 'reattachProbe', async (s) => {
+        if (!s) return
+        const message = await this.ports.reattachMessage(s, machineId)
+        if (s.machineId !== machineId || s.archived ||
+            (s.status !== 'reconnecting' && s.status !== 'exited')) return
+        this.ports.toMachine(machineId, message)
+      })
     }
 
     // Headless sessions have no PTY to reattach. Bound ones (the harness
@@ -199,18 +219,43 @@ export class SessionMachineReconciler {
   async onDurableSessionCensus(principal: MachinePrincipal, labels: string[]): Promise<void> {
     const machineId = principal.machine
     const live = new Set(labels)
-    for (const s of this.ports.sessions()) {
-      if (s.machineId !== machineId || s.headless || s.archived) continue
-      if (s.status !== 'hibernated') continue
-      if (!live.has(s.durableLabel)) continue
+    const parkedButAlive = await this.candidates(
+      machineId,
+      (s) =>
+        s.machineId === machineId && !s.headless && !s.archived && s.status === 'hibernated' && live.has(s.durableLabel),
+    )
+    for (const candidate of parkedButAlive) {
       // The census MEASURED a live durable host under this row's label —
       // an identity a server-family session never has — so this caller may
       // bypass the server-family hold below: the reattach it triggers is the
       // passive PTY bind, never a spawning adopt.
-      await this.reviveParkedButAlive(s, machineId, 'the durable host is still running', {
-        measuredPtyHost: true,
+      await this.withSession(candidate.sessionId, 'durableCensus', async (s) => {
+        if (s) await this.reviveParkedButAlive(s, machineId, 'the durable host is still running', { measuredPtyHost: true })
       })
     }
+  }
+
+  /** This machine's resident sessions and its parked ones, filtered. */
+  private async candidates(
+    machineId: MachineId,
+    keep: (s: ParkedOnMachine) => boolean,
+  ): Promise<ParkedOnMachine[]> {
+    const resident = [...this.ports.sessions()].filter(keep)
+    if (!this.ports.parkedOn) return resident
+    const ids = new Set(resident.map((s) => s.sessionId))
+    const parked = (await this.ports.parkedOn(machineId)).filter((s) => !ids.has(s.sessionId) && keep(s))
+    return [...resident, ...parked]
+  }
+
+  /** `fn` with the session resident: the map's, else restored for the step. */
+  private async withSession(
+    sessionId: Session['sessionId'],
+    reason: string,
+    fn: (session: Session | undefined) => Promise<void>,
+  ): Promise<void> {
+    const resident = [...this.ports.sessions()].find((s) => s.sessionId === sessionId)
+    if (resident || !this.ports.withSession) return await fn(resident)
+    await this.ports.withSession(sessionId, reason, fn)
   }
 
   /**
@@ -272,6 +317,12 @@ export class SessionMachineReconciler {
      * Revive a row whose reattach is a spawning `adopt()` and there is a second
      * credentialed child, once per receipt, unbounded. Fail toward the park.
      *
+     * THE BOUND DRIVER IS DURABLE SINCE POD-6160 (`boundDriverId`, written by
+     * the bind with the row): a parked session leaves memory minutes after it
+     * parks and a restart drops every live handle, and neither may change this
+     * answer. The resume-kind fallback below now answers only for a row bound
+     * before that column, or bound by a daemon that named no driver.
+     *
      * THE FALLBACK KEYS ON DURABLE DATA, because `driverId` is transient (set
      * only from the bind frame, absent from `toRow()`, and a hibernated row is
      * deliberately never reattached): a parked server row that survived a
@@ -287,15 +338,18 @@ export class SessionMachineReconciler {
      * kind, and that is the only case where the short-circuit is a proof
      * rather than a guess.
      */
-    const mayBeServerDriven = session.driverId
-      ? driverFamilyForId(session.driverId) !== 'terminal'
+    // The live handle, else the binding the row recorded (POD-6160 D2g: a parked
+    // session leaves memory, and a restart drops the handle, but not the row).
+    const boundDriverId = session.driverId ?? session.boundDriverId
+    const mayBeServerDriven = boundDriverId
+      ? driverFamilyForId(boundDriverId) !== 'terminal'
       : session.resume?.kind !== undefined && isServerFamilyResumeKind(session.resume.kind)
     if (!opts.measuredPtyHost && mayBeServerDriven) {
       log.warn(
         'a parked possibly-server-driver session still reports a live process — holding the park (needs recovery)',
         {
           sessionId: session.sessionId,
-          driverId: session.driverId,
+          driverId: boundDriverId,
           resumeKind: session.resume?.kind,
           status: session.status,
           reason,

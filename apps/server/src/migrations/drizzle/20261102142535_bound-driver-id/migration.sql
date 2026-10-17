@@ -1,0 +1,1 @@
+ALTER TABLE `sessions` ADD `bound_driver_id` text;

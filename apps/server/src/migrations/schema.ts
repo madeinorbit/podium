@@ -200,6 +200,16 @@ export const sessions = sqliteTable(
     selectedDriverId: text('selected_driver_id'),
     requestedDriverId: text('requested_driver_id'),
     /**
+     * THE DRIVER A DAEMON LAST BOUND THIS SESSION TO (POD-6160 D2g), written by
+     * the bind in the same transaction and cleared by a bind that names none or
+     * a spawn that never bound. Unlike `selected_driver_id` (the daemon's
+     * DECISION, which a launch can fall back from) it is only ever a measured
+     * binding, so it is the proof the parked-but-alive revive decides on
+     * (POD-2249/POD-2456) once the session is no longer in memory or the server
+     * restarted. NULL = never bound, or bound before this column.
+     */
+    boundDriverId: text('bound_driver_id'),
+    /**
      * WHETHER THIS LAUNCH EVER HAD A NATIVE CONVERSATION (POD-2392).
      *
      * `resume_value` answers "is one known NOW", which a conversation can leave
@@ -324,6 +334,11 @@ export const sessions = sqliteTable(
     // Sessions by status (POD-6160): the running ones a boot restores, the
     // not-exited ones the concierge digest reports.
     index('idx_sessions_status').on(table.status),
+    // Headless sessions (POD-6160): resident for as long as their row exists,
+    // so a boot restores them beside the running ones. A few rows; partial.
+    index('idx_sessions_headless')
+      .on(table.headless)
+      .where(sql`${table.headless} = 1`),
     check(
       'sessions_stop_reason_check',
       sql`stop_reason IS NULL OR stop_reason IN ('self', 'parent', 'forced', 'exited')`,

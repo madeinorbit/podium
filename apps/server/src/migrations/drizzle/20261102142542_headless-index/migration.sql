@@ -1,0 +1,1 @@
+CREATE INDEX `idx_sessions_headless` ON `sessions` (`headless`) WHERE "sessions"."headless" = 1;

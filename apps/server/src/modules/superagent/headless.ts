@@ -96,6 +96,8 @@ export interface HeadlessDeps {
   /** Deployment-qualified durable namespace, injected by server composition. */
   durableLabelFor(sessionId: SessionId): string
   getSession(sessionId: SessionId): Session | undefined
+  /** A session restored from its row when it is parked out of memory (POD-6160). */
+  readSession?(sessionId: SessionId): Promise<Session | undefined>
   /** Register a freshly constructed headless session in the registry's map. */
   registerSession(session: Session): void
   resolveMachine(requested: string | undefined, cwd: string, agentKind: AgentKind): Promise<MachineId>
@@ -175,7 +177,7 @@ export class HeadlessService {
     // GENERATED — nothing upstream had it, so this is not an adapter cast.
     const sessionId = input.sessionId ?? asSessionId(randomUUID())
     const machineId = await this.deps.resolveMachine(input.machineId, input.cwd, input.agentKind)
-    const existing = this.deps.getSession(sessionId)
+    const existing = this.deps.getSession(sessionId) ?? (await this.deps.readSession?.(sessionId))
     if (existing) {
       const same =
         existing.headless &&

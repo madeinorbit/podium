@@ -19,7 +19,7 @@ import type { Session, SessionDurableFields } from './session'
 import { isResident, type SessionRecordReads, type SessionSubject } from './records'
 import { projectSessionMeta, type SessionIdentity, type SessionRecord } from './session-record'
 import { sessionStatePrincipalFor } from './session-state/registry'
-import type { SessionStatePrincipal, SessionStateService } from './session-state/service'
+import type { SessionOwnerFacts, SessionStatePrincipal, SessionStateService } from './session-state/service'
 
 /** Immutable inputs for one projection. No live service is reachable by wireSession. */
 export interface ProjectionPass {
@@ -28,11 +28,13 @@ export interface ProjectionPass {
   grants: Map<string, string[]>
   refRepoIds?: ReadonlyMap<string, RepoId | undefined>
   occupancy: ReadonlyMap<SessionId, number | undefined>
+  /** The candidates' owners and issues, for the visibility check (POD-6160). */
+  sessions?: Map<SessionId, SessionOwnerFacts | null>
 }
 
 export interface SessionViewPorts {
   /** Resident sessions and durable records (POD-6160): every candidate set. */
-  records: Pick<SessionRecordReads, 'all' | 'issueMembers' | 'resolve'>
+  records: Pick<SessionRecordReads, 'all' | 'issueMembers' | 'resolve' | 'page'>
   store: SessionStore
   state: SessionStateService
   /**
@@ -80,6 +82,33 @@ export class SessionView {
     } finally {
       perf.record('phase', 'sessionView.list', performance.now() - startedAt, DEPLOYMENT)
       perf.record('phase', `sessionView.list.${caller}`, performance.now() - startedAt, DEPLOYMENT)
+    }
+  }
+
+  /**
+   * {@link list} a page of sessions at a time (POD-6160 D2g): the boot's ledger
+   * baseline, which needs every session's wire value but must not read the
+   * whole table in one statement or make a parked session resident. In list
+   * order (created first).
+   */
+  async listInPages(
+    forPrincipal: SessionStatePrincipal | undefined,
+    caller: SessionListCaller,
+    pageSize = 500,
+  ): Promise<SessionMeta[]> {
+    const startedAt = performance.now()
+    try {
+      const out: SessionMeta[] = []
+      let after = ''
+      for (;;) {
+        const { subjects, next } = await this.ports.records.page(after, pageSize)
+        out.push(...(await this.project(subjects, forPrincipal)))
+        if (next === undefined) break
+        after = next
+      }
+      return out.sort((a, b) => a.createdAt.localeCompare(b.createdAt) || (a.sessionId < b.sessionId ? -1 : 1))
+    } finally {
+      perf.record('phase', `sessionView.listInPages.${caller}`, performance.now() - startedAt, DEPLOYMENT)
     }
   }
 
@@ -200,7 +229,7 @@ export class SessionView {
 
   /** Build after any transaction writes; drafts supply the fields being committed. */
   async buildProjectionPass(
-    sessions: readonly (SessionDurableFields & { sessionId: SessionId })[],
+    sessions: readonly (SessionDurableFields & { sessionId: SessionId; ownerUserId?: UserId })[],
   ): Promise<ProjectionPass> {
     const ids = sessions.map(s => s.sessionId)
     const issueIds = [...new Set(sessions.flatMap(s =>
@@ -232,12 +261,19 @@ export class SessionView {
     const occupancy = new Map(
       sessions.map((s) => [s.sessionId, this.ports.sessionOccupancyCount?.(s.sessionId)]),
     )
+    // The owner each candidate already carries (a record, a resident session):
+    // the visibility check reads it here rather than the row again.
+    const owners = new Map<SessionId, SessionOwnerFacts | null>()
+    for (const s of sessions) {
+      if (s.ownerUserId !== undefined) owners.set(s.sessionId, { ownerUserId: s.ownerUserId, issueId: s.issueId ?? null })
+    }
     return {
       issues,
       grants,
       refRepoIds,
       queuedMessageCounts,
       occupancy,
+      sessions: owners,
     }
   }
 

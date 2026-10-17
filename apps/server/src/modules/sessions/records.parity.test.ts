@@ -1,19 +1,19 @@
 /**
  * A session's durable record, read from the database, answers as the session
- * map does (POD-6160 D2a; design §7 step 3.2).
+ * itself does (POD-6160; design §7 step 3.2).
  *
  * `SessionRecords` restores a row and its satellites (checkpoint, offer, draft
- * time, conversation id, runtime transcript) as a plain value through the same
- * mapping the boot restore uses, never building a `Session`. This file boots
- * the session map over the benchmark corpus (POD-6146: cell h1a1, seed 4443)
- * with every kind of satellite planted, and
- * compares every session's record with its map object: wire projection and
- * facts, the live plane included, because a session restored at boot and one
- * restored as a record are the same restore. A lifecycle walk (spawn, bind,
- * resume ref, offer, draft, rename, issue, exit, hibernate, archive) is then
- * compared in-process, where stopped sessions keep their live plane in the map
- * (not compared, see `LIVE_PLANE_META_FIELDS`), and again after a reboot. The
- * last case plants a difference to prove the comparison is armed.
+ * time, conversation id, runtime transcript, turn state) as a plain value
+ * through the same mapping the boot restore and a lease's materialize use,
+ * never building a `Session`. The map holds running sessions only, so a
+ * parked session's reference is the object a lease restores from the same
+ * row. Over the benchmark corpus (POD-6146: cell h1a1, seed 4443) with every
+ * kind of satellite planted, every session's record equals its session: the
+ * resident one for a running session, the restored one for a parked one, wire
+ * projection and facts, the live plane included. A lifecycle walk (spawn,
+ * bind, resume ref, offer, draft, rename, issue, exit, hibernate, archive) is
+ * compared in-process and after a reboot. The selections are compared with
+ * their predicate applied to every row.
  */
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -26,8 +26,9 @@ import { attachHostDaemon } from '../../test-support/host-daemon'
 import { exportedCorpus, seededStore } from '../../test-support/issue-corpus'
 import { corpusSessions, seedCorpusSessions } from '../../test-support/session-corpus'
 import { openTestStore } from '../../test-support/open-test-store'
-import { SessionMapParityError, sessionMapParityMode } from './map-parity'
+import { residentRecords } from '../../test-support/session-records'
 import { durableView, isResident, isRunningStatus, type SessionSubject, subjectFacts, subjectMeta } from './records'
+import type { Session } from './session'
 
 const registries: SessionRegistry[] = []
 afterEach(async () => {
@@ -45,11 +46,13 @@ function fullView(subject: SessionSubject): unknown {
   return { meta: subjectMeta(subject), facts: subjectFacts(subject) }
 }
 
-describe('durable session records: the database answers as the session map', () => {
-  it('compares in throw mode under vitest', () => {
-    expect(sessionMapParityMode()).toBe('throw')
-  })
+/** What `view` reads off the session itself: the resident one, else the one a
+ *  lease restores from its row (and lets go again). */
+async function sessionView<T>(reg: SessionRegistry, id: SessionId, view: (s: Session) => T): Promise<T> {
+  return await reg.modules.sessions.residency.withSession(id, 'test', (session) => view(session!))
+}
 
+describe('durable session records: the database answers as the session does', () => {
   it('over the benchmark corpus', async () => {
     const store = await openTestStore(':memory:')
     const { planted } = await seedCorpusSessions(store)
@@ -59,17 +62,19 @@ describe('durable session records: the database answers as the session map', () 
     // seconds on a running server. Compare after it, as a reader would.
     await reg.modules.sessions.flushActivity()
     const map = reg.modules.sessions.sessions
-    const ids = [...map.keys()]
+    const ids = (await store.sessions.loadSessions()).map((row) => row.id)
     const records = await reg.modules.sessions.records.read(ids)
     for (const id of ids) {
-      expect({ id, view: fullView(records.get(id)!) }).toEqual({ id, view: fullView(map.get(id)!) })
+      expect({ id, view: fullView(records.get(id)!) }).toEqual({ id, view: await sessionView(reg, id, fullView) })
     }
     // A record is a plain value: reading one never builds a Session.
     expect([...records.values()].filter(isResident)).toEqual([])
-    // The resolve path compares the parked ones itself, and throws on a difference.
     const resolved = await reg.modules.sessions.records.resolve(ids)
     expect(resolved.size).toBe(ids.length)
-    const parked = ids.filter((id) => !isRunningStatus(map.get(id)!.status))
+    const parked = ids.filter((id) => !isRunningStatus(records.get(id)!.status))
+    // Only the running ones (and the headless ones, resident while their row
+    // exists) are in memory.
+    expect(map.size).toBe(ids.filter((id) => isRunningStatus(records.get(id)!.status) || records.get(id)!.headless).length)
     console.log(
       'session record parity over the corpus',
       JSON.stringify({ sessions: ids.length, parked: parked.length, ...planted }),
@@ -134,31 +139,33 @@ describe('durable session records: the database answers as the session map', () 
     await sessions.setArchived({ sessionId: archived, archived: true } as never)
     await sessions.flushActivity()
 
-    // In-process: every stopped session is read as a record and compared (throws).
+    // In-process: every stopped session's record equals the session (a running
+    // one's volatile fields reach its row by a later sweep; resident wins).
     const map = sessions.sessions
     const resolved = await sessions.records.resolve(ids)
     expect([...resolved.keys()]).toEqual(ids)
-    for (const id of ids.filter((id) => !isRunningStatus(map.get(id)!.status))) {
-      expect(durableView((await sessions.records.read([id])).get(id)!)).toEqual(durableView(map.get(id)!))
+    for (const id of ids.filter((id) => !isRunningStatus(resolved.get(id)!.status))) {
+      expect(durableView((await sessions.records.read([id])).get(id)!)).toEqual(await sessionView(reg, id, durableView))
     }
     expect(isRunningStatus(map.get(running)!.status)).toBe(true)
+    // Stopped sessions are not in memory: only the two that still run are.
+    expect([...map.keys()].filter((id) => ids.includes(id)).sort()).toEqual([attached, running].sort())
     // D2c: who each session acts for, and the capability built from it.
     for (const id of ids) {
-      expect(await sessions.records.ownershipOf(id, 'test')).toMatchObject({ sessionId: id, cwd: map.get(id)!.cwd })
+      expect(await sessions.records.ownershipOf(id, 'test')).toMatchObject({ sessionId: id, cwd: resolved.get(id)!.cwd })
       expect((await sessions.capabilityForSession(id)).actorSessionId).toBe(id)
     }
     expect(await sessions.records.ownershipOf(asSessionId('nope'), 'test')).toBeUndefined()
 
-    // After a reboot the map is the boot restore: full equality.
+    // After a reboot: full equality, the live plane included.
     await reg.dispose()
     await store.close()
     const store2 = await openTestStore(file)
     const reg2 = await boot(store2)
     await reg2.modules.sessions.flushActivity()
-    const map2 = reg2.modules.sessions.sessions
     const records2 = await reg2.modules.sessions.records.read(ids)
     for (const id of ids) {
-      expect({ id, view: fullView(records2.get(id)!) }).toEqual({ id, view: fullView(map2.get(id)!) })
+      expect({ id, view: fullView(records2.get(id)!) }).toEqual({ id, view: await sessionView(reg2, id, fullView) })
     }
     expect(records2.get(renamed)?.name).toBe('Renamed')
     expect(records2.get(attached)?.issueId).toBe(issue.id)
@@ -166,7 +173,7 @@ describe('durable session records: the database answers as the session map', () 
     expect(records2.get(hibernated)?.status).toBe('hibernated')
   })
 
-  it('selects the same sessions as the map, over the benchmark corpus', async () => {
+  it('selects the sessions its predicate selects from every row, over the benchmark corpus', async () => {
     const corpus = await corpusSessions()
     const issues = (await exportedCorpus()).issues
     const repos = [...new Set([...corpus.repos, ...issues.flatMap((row) => (row.repoPath ? [row.repoPath] : []))])]
@@ -221,36 +228,57 @@ describe('durable session records: the database answers as the session map', () 
     const reg = await boot(store)
     await reg.modules.sessions.flushActivity()
     const records = reg.modules.sessions.records
-    const map = reg.modules.sessions.sessions
-    const resident = [...map.values()]
+    // THE ORACLE: each selection's rule applied to every row's record.
+    const every = await records.read((await store.sessions.loadSessions()).map((row) => row.id))
+    const oracle = residentRecords(every as unknown as ReadonlyMap<SessionId, Session>)
+    const all = [...every.values()]
     let selections = 0
     const nonEmpty: string[] = []
-    const ask = async (label: string, answer: Promise<SessionSubject[]>) => {
+    const ids = (subjects: readonly SessionSubject[]) => subjects.map((s) => s.sessionId).sort()
+    const ask = async (label: string, answer: Promise<SessionSubject[]>, expected: Promise<SessionSubject[]> | SessionSubject[]) => {
       const got = await answer
+      expect({ label, ids: ids(got) }).toEqual({ label, ids: ids(await expected) })
       selections += 1
       if (got.length > 0) nonEmpty.push(label)
     }
-    await ask('all', records.all('test'))
+    await ask('all', records.all('test'), oracle.all('test'))
     for (const issue of issues.filter((_, index) => index % 20 === 0)) {
-      await ask('issueMembers', records.issueMembers(issue.worktreePath, asIssueId(issue.id), 'test'))
-      if (issue.worktreePath) await ask('underPath', records.underPath(issue.worktreePath, 'test'))
+      const issueId = asIssueId(issue.id)
+      await ask('issueMembers', records.issueMembers(issue.worktreePath, issueId, 'test'), oracle.issueMembers(issue.worktreePath, issueId, 'test'))
+      if (issue.worktreePath) await ask('underPath', records.underPath(issue.worktreePath, 'test'), oracle.underPath(issue.worktreePath, 'test'))
     }
     for (const root of ['C:\\Repo\\wt', 'c:\\REPO\\WT', 'C:/Repo/wt2', '/nowhere']) {
-      await ask('underPath.windows', records.underPath(root, 'test'))
+      await ask('underPath.windows', records.underPath(root, 'test'), oracle.underPath(root, 'test'))
     }
-    await ask('onMachine', records.onMachine(store.hostMachineId, 'test'))
-    for (const s of resident.filter((_, index) => index % 200 === 0)) {
-      for (const length of [2, 4]) await ask('withIdPrefix', records.withIdPrefix(s.sessionId.slice(0, length), 'test'))
+    await ask('onMachine', records.onMachine(store.hostMachineId, 'test'), oracle.onMachine(store.hostMachineId, 'test'))
+    for (const s of all.filter((_, index) => index % 200 === 0)) {
+      for (const length of [2, 4]) {
+        const prefix = s.sessionId.slice(0, length)
+        await ask('withIdPrefix', records.withIdPrefix(prefix, 'test'), oracle.withIdPrefix(prefix, 'test'))
+      }
     }
-    for (const s of resident.filter((session, index) => session.refLetter && session.refIssueId && index % 10 === 0)) {
-      await ask('birthRef', records.birthRefCandidates({ seq: seqOf.get(s.refIssueId!)!, letter: s.refLetter! }, 'test'))
+    for (const s of all.filter((session, index) => session.refLetter && session.refIssueId && index % 10 === 0)) {
+      const seq = seqOf.get(s.refIssueId!)!
+      // The oracle's letter rule, narrowed to the issues numbered `seq`.
+      const expected = (await oracle.birthRefCandidates({ seq, letter: s.refLetter! }, 'test')).filter(
+        (candidate) => candidate.refIssueId !== null && seqOf.get(candidate.refIssueId) === seq,
+      )
+      await ask('birthRef', records.birthRefCandidates({ seq, letter: s.refLetter! }, 'test'), expected)
     }
-    for (const draft of [1, 2, 3, 99]) await ask('draftRef', records.birthRefCandidates({ draft }, 'test'))
-    await ask('childrenOf', records.childrenOf(resident.filter((_, index) => index % 7 === 2).map((s) => s.sessionId), 'test'))
-    await ask('withStatuses.parked', records.withStatuses(['hibernated', 'exited'], 'test'))
-    await ask('withStatuses.running', records.withStatuses(['starting', 'live', 'reconnecting'], 'test'))
-    console.log('session selection parity over the corpus', JSON.stringify({ sessions: resident.length, selections }))
-    for (const label of ['all', 'issueMembers', 'underPath', 'underPath.windows', 'onMachine', 'withIdPrefix', 'birthRef', 'draftRef', 'childrenOf', 'withStatuses.parked']) {
+    for (const draft of [1, 2, 3, 99]) {
+      await ask('draftRef', records.birthRefCandidates({ draft }, 'test'), oracle.birthRefCandidates({ draft }, 'test'))
+    }
+    const parents = all.filter((_, index) => index % 7 === 2).map((s) => s.sessionId)
+    await ask('childrenOf', records.childrenOf(parents, 'test'), oracle.childrenOf(parents, 'test'))
+    await ask('withStatuses.parked', records.withStatuses(['hibernated', 'exited'], 'test'), oracle.withStatuses(['hibernated', 'exited'], 'test'))
+    await ask('withStatuses.running', records.withStatuses(['starting', 'live', 'reconnecting'], 'test'), oracle.withStatuses(['starting', 'live', 'reconnecting'], 'test'))
+    for (const s of all.filter((session, index) => session.resume && index % 25 === 0)) {
+      await ask('withResume', records.withResume(s.resume!, 'test'), oracle.withResume(s.resume!, 'test'))
+    }
+    const referenced = [...new Set(all.flatMap((s) => (s.refIssueId ? [s.refIssueId] : [])))].filter((_, index) => index % 5 === 0)
+    await ask('referencingIssues', records.referencingIssues(referenced, 'test'), oracle.referencingIssues(referenced, 'test'))
+    console.log('session selection parity over the corpus', JSON.stringify({ sessions: all.length, selections }))
+    for (const label of ['all', 'issueMembers', 'underPath', 'underPath.windows', 'onMachine', 'withIdPrefix', 'birthRef', 'draftRef', 'childrenOf', 'withStatuses.parked', 'withResume', 'referencingIssues']) {
       expect(nonEmpty, label).toContain(label)
     }
     // The Windows root finds both spellings below it and not its sibling.
@@ -265,18 +293,5 @@ describe('durable session records: the database answers as the session map', () 
     await store.sessions.softDeleteSessions([sessionId], '2026-10-01T00:00:00.000Z', 'user' as never)
     const records = await reg.modules.sessions.records.read([sessionId, asSessionId('nope')])
     expect(records.size).toBe(0)
-  })
-
-  it('is armed: a parked session that differs from its row throws', async () => {
-    const store = await openTestStore(':memory:')
-    const reg = await boot(store)
-    await attachHostDaemon(reg)
-    const { sessionId } = await reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/x' })
-    await reg.gateway.routeDaemonFrame(store.hostMachineId, { type: 'agentExit', sessionId, code: 0 })
-    await reg.modules.sessions.flushActivity()
-    await reg.modules.sessions.records.resolve([sessionId])
-    // Planted: the map says a title the row never got.
-    reg.modules.sessions.sessions.get(sessionId)!.title = 'only in memory'
-    await expect(reg.modules.sessions.records.resolve([sessionId])).rejects.toBeInstanceOf(SessionMapParityError)
   })
 })

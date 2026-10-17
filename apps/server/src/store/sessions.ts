@@ -191,6 +191,11 @@ const liveSessionsOfStatuses = preparedFamily((db: StoreDrizzle, size: number) =
   sessionsMatching(db, and(inListOf(sessionsTable.status, size), isNull(sessionsTable.deletedAt))),
 )
 
+/** Live headless sessions (POD-6160): resident while their row exists. */
+const liveHeadlessSessions = prepared((db: StoreDrizzle) =>
+  sessionsMatching(db, and(sql`${sessionsTable.headless} = 1`, isNull(sessionsTable.deletedAt))),
+)
+
 /** Live sessions whose id lies in the key range [lo, hi): a short-id prefix (POD-6160). */
 const liveSessionsInIdRange = prepared((db: StoreDrizzle) =>
   sessionsMatching(
@@ -212,6 +217,15 @@ const liveSessionsOfBirthLetter = preparedFamily((db: StoreDrizzle, size: number
       eq(sessionsTable.refLetter, param(sessionsTable.refLetter, 'letter')),
       isNull(sessionsTable.deletedAt),
     ),
+  ),
+)
+
+/** Live sessions whose birth ref names one of these issues (POD-6160 D2g).
+ *  `IS NOT NULL` lets the partial `idx_sessions_ref_issue` serve the IN list. */
+const liveSessionsReferencingIssues = preparedFamily((db: StoreDrizzle, size: number) =>
+  sessionsMatching(
+    db,
+    and(inListOf(sessionsTable.refIssueId, size), isNotNull(sessionsTable.refIssueId), isNull(sessionsTable.deletedAt)),
   ),
 )
 
@@ -248,6 +262,29 @@ const liveSessionsOnMachine = prepared((db: StoreDrizzle) =>
 
 const liveSessions = prepared((db: StoreDrizzle) =>
   sessionsWhere(db, isNull(sessionsTable.deletedAt)),
+)
+
+/**
+ * ONE PAGE OF THE LIVE SESSIONS, in id order after `after` (POD-6160 D2g): the
+ * boot's ledger baseline reads every session this way, a page at a time, so no
+ * statement returns the whole table and nothing is made resident.
+ */
+const liveSessionsPage = prepared((db: StoreDrizzle) =>
+  db
+    .select()
+    .from(sessionsTable)
+    .where(and(isNull(sessionsTable.deletedAt), sql`${sessionsTable.id} > ${sql.placeholder('after')}`))
+    .orderBy(asc(sessionsTable.id))
+    .limit(sql.placeholder('limit'))
+    .prepare(),
+)
+
+/** Live sessions with no birth ref yet: the boot's one-shot ref backfill (#474). */
+const liveSessionsWithoutRef = prepared((db: StoreDrizzle) =>
+  sessionsMatching(
+    db,
+    and(isNull(sessionsTable.refIssueId), isNull(sessionsTable.refDraft), isNull(sessionsTable.deletedAt)),
+  ),
 )
 
 const deletedSessions = prepared((db: StoreDrizzle) =>
@@ -300,6 +337,7 @@ function sessionUpsertSet(value: (key: SessionColumnKey) => Placeholder | SQL | 
     resumeValue: value('resumeValue'),
     selectedDriverId: value('selectedDriverId'),
     requestedDriverId: value('requestedDriverId'),
+    boundDriverId: value('boundDriverId'),
     // BINDING IS ONE-WAY (POD-2392): once a launch is known to have had a
     // native conversation, no later write may say it never did. The rule
     // lives here rather than in the caller because it is the premise the
@@ -440,6 +478,7 @@ function sessionUpsertValues(row: SessionRow) {
     resumeValue: row.resumeValue,
     selectedDriverId: row.selectedDriverId ?? null,
     requestedDriverId: row.requestedDriverId ?? null,
+    boundDriverId: row.boundDriverId ?? null,
     conversationBinding: row.conversationBinding ?? null,
     status: row.status,
     exitCode: row.exitCode,
@@ -1044,6 +1083,18 @@ export class SessionsRepository {
     return (await liveSessions(this.db).all()).map(mapSession)
   }
 
+  /** Up to `limit` live sessions with an id after `after` ('' = the first), in
+   *  id order (POD-6160 D2g). */
+  async sessionsPage(after: string, limit: number): Promise<SessionRow[]> {
+    return (await liveSessionsPage(this.db).all({ after, limit })).map(mapSession)
+  }
+
+  /** Live sessions with no birth ref (POD-6160 D2g: the boot backfill reads
+   *  these instead of walking every session in memory). */
+  async sessionsWithoutRef(): Promise<SessionRow[]> {
+    return (await liveSessionsWithoutRef(this.db).all()).map(mapSession)
+  }
+
   /** One durable row, including a tombstone, for scoped delete visibility. */
   async getSession(sessionId: SessionId): Promise<SessionRow | undefined> {
     const row = (await sessionById(this.db).all({ id: sessionId }))[0]
@@ -1217,12 +1268,29 @@ export class SessionsRepository {
     return (await liveSessionsOfStatuses(this.db, size).all(inListValues(unique, size))).map(mapSession)
   }
 
+  /** Live headless sessions, whatever their status (POD-6160: a boot restores
+   *  them beside the running ones). */
+  async headlessSessions(): Promise<SessionRow[]> {
+    return (await liveHeadlessSessions(this.db).all()).map(mapSession)
+  }
+
   /** The issue ids with this sequence number, in any repository (POD-6160). */
   async issueIdsWithSeq(seq: number): Promise<IssueId[]> {
     return (await issueIdsOfSeq(this.db).all({ seq })).map((row) => row.id as IssueId)
   }
 
   /** Live sessions born on one of these issues with this letter (POD-6160). */
+  /** Live sessions whose birth ref names one of these issues (POD-6160 D2g). */
+  async sessionsReferencingIssues(issueIds: readonly IssueId[]): Promise<SessionRow[]> {
+    const out: SessionRow[] = []
+    for (const chunk of chunked(issueIds)) {
+      const size = inListSize(chunk.length)
+      const rows = await liveSessionsReferencingIssues(this.db, size).all(inListValues(chunk, size))
+      out.push(...rows.map(mapSession))
+    }
+    return out
+  }
+
   async sessionsOfBirthLetter(issueIds: readonly IssueId[], letter: string): Promise<SessionRow[]> {
     const out: SessionRow[] = []
     for (const chunk of chunked(issueIds)) {
@@ -1934,6 +2002,7 @@ function mapSession(r: SessionSelect): SessionRow {
     resumeValue: r.resumeValue ?? null,
     selectedDriverId: r.selectedDriverId ?? null,
     requestedDriverId: r.requestedDriverId ?? null,
+    boundDriverId: r.boundDriverId ?? null,
     // Anything else on disk (an old/rogue value) reads as "no claim recorded"
     // rather than as proof — the same conservative decode as `name_source`,
     // and here it is the safety property itself: only a literal 'never'

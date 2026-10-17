@@ -31,6 +31,8 @@ export type SessionProjectionDaemonFrame = Extract<
 
 export interface SessionDaemonProjectionPorts {
   sessions: ReadonlyMap<SessionId, Session>
+  /** A restored parked session's transcript, replayed before it is read (POD-6160). */
+  ensureTranscript?(session: Session): Promise<void>
   recordSessionGitActivity(
     sessionId: SessionId,
     input: { commits?: string[]; touched?: string[] },
@@ -124,6 +126,7 @@ export class SessionDaemonProjection {
   async promptTitle(sessionId: SessionId): Promise<void> {
     const session = this.ports.sessions.get(sessionId)
     if (!session || !harnessUsesPromptTitleFallback(session.agentKind) || session.titleLocked) return
+    await this.ports.ensureTranscript?.(session)
     const firstUser = session.terminal.transcriptItems().find(
       (item) => item.role === 'user' && item.text.trim().length > 0 && !isCommandWrapperText(item.text),
     )

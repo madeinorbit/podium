@@ -38,9 +38,10 @@ export interface SessionProjectionEvent {
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { createLogger } from '@podium/logger'
 import { Session, type SessionDurableState, type SessionVolatileField } from './session'
-import { applyRuntimeTurnStateTo, storedSessionInit } from './session-record'
+import { applyRuntimeTurnStateTo, markConversationBound, storedSessionInit } from './session-record'
 import type { SessionStatePrincipal, SessionStateService } from './session-state/service'
-import type { SessionView } from './view'
+import { isResident, type SessionRecordReads, type SessionSubject } from './records'
+import { type SessionView, wireRecord } from './view'
 import { runtimeTranscriptDeltaFromEvent } from './runtime-transcript'
 
 const log = createLogger('server:sessions')
@@ -125,6 +126,10 @@ export interface SessionRepositoryPorts {
    * before the write; the wiring publishes it as `session.routingChanged`.
    */
   onRoutingChanged?(sessionId: SessionId, previous: { issueId?: IssueId; cwd: string }): void
+  /** Sessions read by a durable key, parked ones from the database (POD-6160). */
+  records?: Pick<SessionRecordReads, 'referencingIssues'>
+  /** Run `fn` with a session resident, restored from its row when parked. */
+  withSession?<T>(sessionId: SessionId, reason: string, fn: (session: Session | undefined) => Promise<T>): Promise<T>
 }
 
 export class SessionRepository {
@@ -238,6 +243,9 @@ export class SessionRepository {
    * facts, the daemon RPC view), which reach it through the session's
    * `freshenDurable` hook. A commit drops the entry.
    */
+  /** Restored parked sessions whose transcript has not been replayed yet. */
+  private readonly unreplayedTranscripts = new Set<SessionId>()
+  private readonly replayingTranscripts = new Map<SessionId, Promise<void>>()
   private readonly liveInstalls = new Map<
     SessionId,
     { registration: ReturnType<BaselineFoldPort['onCommit']>; fields: readonly (keyof SessionDurableState)[] }[]
@@ -576,9 +584,11 @@ export class SessionRepository {
    * repair's commit. Reattached sessions still follow their birth issue. */
   async captureReferenceChanges(issueIds: readonly IssueId[]): Promise<void> {
     const affected = new Set(issueIds)
-    const sessions = [...this.sessions.values()].filter(
-      (session) => session.refIssueId && affected.has(session.refIssueId),
-    )
+    // The sessions whose birth ref names one of these issues, parked ones read
+    // from the database (POD-6160).
+    const sessions: SessionSubject[] = this.ports.records
+      ? await this.ports.records.referencingIssues(issueIds, 'captureReferenceChanges')
+      : [...this.sessions.values()].filter((session) => session.refIssueId && affected.has(session.refIssueId))
     if (sessions.length === 0) return
     const pass = await this.view.buildProjectionPass(sessions)
     await this.ports.ledger.capture(
@@ -586,7 +596,7 @@ export class SessionRepository {
         entity: 'session',
         id: session.sessionId,
         op: 'upsert',
-        value: this.view.wire(session, pass),
+        value: isResident(session) ? this.view.wire(session, pass) : wireRecord(session, pass),
       })),
     )
   }
@@ -1015,9 +1025,13 @@ export class SessionRepository {
     // Re-seed runtime-backed transcript items before the session reaches clients.
     // Terminal drivers use this durable bridge when the legacy observation path
     // is fenced; provider-file deltas can still overlap and upsert by cursor/id.
-    const events = hasRuntimeTranscript
-      ? await this.ports.store?.events.listRuntimeTranscriptEvents(session.sessionId) ?? []
-      : []
+    if (hasRuntimeTranscript) await this.replayRuntimeTranscript(session)
+    return session
+  }
+
+  /** Apply a session's stored runtime transcript items to its terminal. */
+  private async replayRuntimeTranscript(session: Session): Promise<void> {
+    const events = (await this.ports.store?.events.listRuntimeTranscriptEvents(session.sessionId)) ?? []
     const lastReset = events.findLastIndex((event) => event.t === 'transcript-reset')
     const items = events.slice(Math.max(0, lastReset)).flatMap(
       (event) => runtimeTranscriptDeltaFromEvent(event)?.items ?? [],
@@ -1025,7 +1039,35 @@ export class SessionRepository {
     if (items.length > 0 || lastReset >= 0) {
       session.terminal.applyRuntimeDelta(items, { reset: lastReset >= 0 })
     }
-    return session
+  }
+
+  /**
+   * THE TRANSCRIPT OF A RESTORED PARKED SESSION, REPLAYED ON FIRST USE (POD-6160).
+   * A lease restores a parked session for whatever it does (a rename, a read
+   * marker, a kill), and most of that never looks at its transcript, which can
+   * be thousands of stored events. So the restore records only whether there is
+   * a transcript (one indexed read, the availability its record carries), and
+   * the items are replayed here the first time a reader needs them: a viewer
+   * attaching or subscribing, a daemon RPC read, the prompt-title fallback.
+   * Items that arrived since are in the stored log too, so the replay is the
+   * whole transcript. Concurrent readers share one replay.
+   */
+  async ensureTranscript(session: Session): Promise<void> {
+    const id = session.sessionId
+    const running = this.replayingTranscripts.get(id)
+    if (running) return await running
+    if (!this.unreplayedTranscripts.has(id)) return
+    const replay = (async () => {
+      await this.replayRuntimeTranscript(session)
+      this.unreplayedTranscripts.delete(id)
+    })().finally(() => this.replayingTranscripts.delete(id))
+    this.replayingTranscripts.set(id, replay)
+    await replay
+  }
+
+  /** A transcript replay is in flight for this session. */
+  replayingTranscript(sessionId: SessionId): boolean {
+    return this.replayingTranscripts.has(sessionId)
   }
 
   /** Prepare off-row reads without exposing a partially installed runtime. */
@@ -1079,12 +1121,21 @@ export class SessionRepository {
     const checkpoint = (await this.store.observationCheckpoints.checkpointsOf(ids)).get(r.id)
     const turnState = (await this.store.events.runtimeTurnStatesOf(ids)).get(r.id)
     await this.state.stageDraftTimes(ids)
-    const session = await this.sessionFromStoredRow(r, 'boot')
+    const hasTranscript = (await this.store.events.runtimeTranscriptAvailableOf(ids)).has(r.id)
+    // The transcript items wait for their first reader (ensureTranscript); its
+    // availability is what the boot replay would have set.
+    const session = await this.sessionFromStoredRow(r, 'boot', false)
     if (!session) return undefined
+    if (hasTranscript) {
+      session.transcriptAvailable = true
+      session.terminal.setTranscriptAvailable(true)
+      markConversationBound(session)
+    }
     const install = await this.prepareStoredSessionInstall(session, offers)
     const raced = this.sessions.get(r.id)
     if (raced) return raced
     install.apply()
+    if (hasTranscript) this.unreplayedTranscripts.add(r.id)
     if (checkpoint) session.applyObservationCheckpoint(checkpoint)
     if (turnState) applyRuntimeTurnStateTo(session, turnState)
     return session
@@ -1101,9 +1152,27 @@ export class SessionRepository {
     this.forget(session.sessionId)
   }
 
+  /**
+   * BOOT RESTORES THE SESSIONS THAT RUN, AND NOTHING ELSE (POD-6160 D2g): the
+   * rows whose status says a process runs or is expected back (and the headless
+   * ones, which stay resident while their row exists), with their
+   * satellites read for those rows alone. A stopped session stays its row
+   * until something uses it (`residency.ts`); no draft and no per-user state is
+   * loaded here.
+   */
   async loadFromStore(): Promise<void> {
     const recoveryStarted = performance.now()
-    const checkpoints = await this.store.observationCheckpoints.checkpointsOfLiveSessions()
+    // The running rows, and every headless one: a headless session is resident
+    // for as long as its row exists (its thread is driven turn by turn, and a
+    // failed establish, which marks it exited, is retried on machine attach).
+    const running = await this.store.sessions.sessionsWithStatuses(['starting', 'live', 'reconnecting'])
+    const runningIds = new Set(running.map((r) => r.id))
+    const storedRows = [
+      ...running,
+      ...(await this.store.sessions.headlessSessions()).filter((r) => !runningIds.has(r.id)),
+    ].sort((a, b) => a.createdAt.localeCompare(b.createdAt) || (a.id < b.id ? -1 : 1))
+    const ids = storedRows.map((r) => r.id)
+    const checkpoints = await this.store.observationCheckpoints.checkpointsOf(ids)
 
     // Shared draft documents hydrate here; viewer rows remain lazy per principal.
     this.state.setDraftSyncEnabled(
@@ -1112,20 +1181,18 @@ export class SessionRepository {
     await this.state.loadFromStore()
     bootStage('sessions draft hydration', recoveryStarted)
     const rowsStarted = performance.now()
-    const offers = await this.store.sessions.listOffers() // [spec:SP-c7f1]
+    const offers = await this.store.sessions.offersOf(ids) // [spec:SP-c7f1]
     let rowReadMs = 0
     let installMs = 0
-    const runtimeSessions = await this.store.events.runtimeTranscriptSessionIds()
-    const storedRows = await this.store.sessions.loadSessions()
     // The DRAFT stamps of the sessions installed below, in one read (POD-6160:
     // draft documents themselves load when used, never at boot).
-    await this.state.stageDraftTimes(storedRows.map((r) => r.id))
+    await this.state.stageDraftTimes(ids)
     // A runtime-driven session's turn state, recorded with its last runtime
     // event (POD-6160 D2h): one read for the sessions installed below.
-    const runtimeTurnStates = await this.store.events.runtimeTurnStatesOf(storedRows.map((r) => r.id))
+    const runtimeTurnStates = await this.store.events.runtimeTurnStatesOf(ids)
     for (const r of storedRows) {
       let rowStarted = performance.now()
-      const session = await this.sessionFromStoredRow(r, 'boot', runtimeSessions.has(r.id))
+      const session = await this.sessionFromStoredRow(r, 'boot')
       rowReadMs += performance.now() - rowStarted
       rowStarted = performance.now()
       if (!session) continue
@@ -1156,20 +1223,37 @@ export class SessionRepository {
     const baselineStarted = performance.now()
     // One-shot boot backfill (#474): name pre-upgrade historical sessions at a
     // deliberate point instead of burst-allocating inside the first listSessions.
-    // loadSessions returns created_at order, so allocation is deterministic; the
-    // loop is a no-op once every session carries a ref.
-    for (const session of this.sessions.values()) {
-      // Against the DRAFT [POD-3330]: the allocation assigns the ref inside the
-      // transaction, so it has to assign into the state `toRow` reads.
-      const draft = this.draft(session)
-      const additionalWrite = await this.view.prepareRefAllocation(draft)
-      if (additionalWrite) await this.persistDraft(session, draft, additionalWrite)
+    // The candidates are the rows with no ref, read in created_at order so
+    // allocation is deterministic (POD-6160: from the table, not the map); a
+    // parked one is restored only when it does get a ref.
+    for (const row of (await this.store.sessions.sessionsWithoutRef()).sort(
+      (a, b) => a.createdAt.localeCompare(b.createdAt) || (a.id < b.id ? -1 : 1),
+    )) {
+      const probe = { refIssueId: null, refDraft: null, issueId: row.issueId ?? undefined, cwd: row.cwd, machineId: row.machineId }
+      if (!(await this.view.prepareRefAllocation(probe as unknown as SessionDurableState))) continue
+      const allocate = async (session: Session | undefined) => {
+        if (!session) return
+        // Against the DRAFT [POD-3330]: the allocation assigns the ref inside the
+        // transaction, so it has to assign into the state `toRow` reads.
+        const draft = this.draft(session)
+        const additionalWrite = await this.view.prepareRefAllocation(draft)
+        if (additionalWrite) await this.persistDraft(session, draft, additionalWrite)
+      }
+      const resident = this.sessions.get(row.id)
+      if (resident || !this.ports.withSession) await allocate(resident)
+      else await this.ports.withSession(row.id, 'bootRefBackfill', allocate)
     }
+    bootStage('sessions ref backfill', baselineStarted)
+    const queuesStarted = performance.now()
     // Queued rows survive a restart (that's their point) and are counted from
     // the table; delivery re-arms when the daemon reattaches and the sessions
-    // bind. Only a queue whose session is gone is dropped.
-    for (const sessionId of (await this.store.sync.queuedMessageCounts()).keys()) {
-      if (!this.sessions.has(sessionId)) await this.store.sync.deleteQueuedMessagesForSession(sessionId)
+    // bind. Only a queue whose session is gone is dropped (POD-6160: gone from
+    // the table; a parked session is not in memory and keeps its queue).
+    const queuedFor = [...(await this.store.sync.queuedMessageCounts()).keys()]
+    const queueOwners = await this.store.sessions.getSessions(queuedFor)
+    for (const sessionId of queuedFor) {
+      const owner = queueOwners.get(sessionId)
+      if (!owner || owner.deletedAt) await this.store.sync.deleteQueuedMessagesForSession(sessionId)
     }
     await this.store.sync.pruneAppliedMutations({
       maxAgeMs: this.ports.appliedMutationMaxAgeMs,
@@ -1186,25 +1270,38 @@ export class SessionRepository {
     // this runs. `SessionStore` folds any pre-POD-318 sentinel rows onto this host's
     // minted id as it OPENS — ahead of this reconcile, and ahead of the registry that
     // calls it — so there is no stale machine baseline here to be captured later.
+    bootStage('sessions queue sweep', queuesStarted)
+    const listStarted = performance.now()
     const sessions = await this.listSessionsForBootBaseline()
+    bootStage('sessions baseline listing', listStarted)
+    const reconcileStarted = performance.now()
     const recovered = await this.ports.ledger.reconcile(
       'session',
       sessions.map((s) => ({ id: s.sessionId, value: s })),
     )
     // Explicit cleared records must survive a restart: the source tables use
     // absence for never-read/no-snooze, while replica absence means not loaded.
+    bootStage('sessions baseline reconcile', reconcileStarted)
+    const markersStarted = performance.now()
     const activeUsers = new Set(
       (await this.store.users.list()).filter((user) => !user.disabledAt).map((user) => user.id),
     )
+    const stateRows = await this.store.sessions.listSessionUserStateRows(undefined, this.now())
+    const priors = ((await this.ports.ledger.authority?.snapshot('sessionUserState')) ?? []) as SessionUserStateWire[]
+    // The sessions that still exist, read from the table (POD-6160: a parked
+    // session is not in memory).
+    const named = await this.store.sessions.getSessions([
+      ...new Set([...stateRows, ...priors].map((value) => value.sessionId)),
+    ])
+    const live = new Set([...named.values()].filter((row) => !row.deletedAt).map((row) => row.id))
     const markers = new Map<string, SessionUserStateWire>()
-    for (const value of await this.store.sessions.listSessionUserStateRows(undefined, this.now())) {
-      if (this.sessions.has(value.sessionId) && activeUsers.has(value.userId))
+    for (const value of stateRows) {
+      if (live.has(value.sessionId) && activeUsers.has(value.userId))
         markers.set(sessionUserStateRowId(value.userId, value.sessionId), value)
     }
-    for (const prior of ((await this.ports.ledger.authority?.snapshot('sessionUserState')) ??
-      []) as SessionUserStateWire[]) {
+    for (const prior of priors) {
       const id = sessionUserStateRowId(prior.userId, prior.sessionId)
-      if (!markers.has(id) && this.sessions.has(prior.sessionId) && activeUsers.has(prior.userId))
+      if (!markers.has(id) && live.has(prior.sessionId) && activeUsers.has(prior.userId))
         markers.set(id, { userId: prior.userId, sessionId: prior.sessionId, readAt: null })
     }
     await this.ports.ledger.reconcile(
@@ -1212,6 +1309,7 @@ export class SessionRepository {
       [...markers].map(([id, value]) => ({ id, value })),
     )
     this.publishSessionProjection(recovered)
+    bootStage('sessions user-state reconcile', markersStarted)
     bootStage('sessions baseline', baselineStarted)
   }
 
@@ -1234,6 +1332,7 @@ export class SessionRepository {
 
   forget(sessionId: SessionId): void {
     this.liveInstalls.delete(sessionId)
+    this.unreplayedTranscripts.delete(sessionId)
     this.pendingVolatileSessions.delete(sessionId)
     this.capturedSessionStates.delete(sessionId)
     // Memory-only, and the staged layer goes with it: this drops a session from

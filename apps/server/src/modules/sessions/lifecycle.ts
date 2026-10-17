@@ -452,26 +452,6 @@ export class SessionLifecycle {
     return this.facts.all()
   }
 
-  /** ONE session's facts, straight off the registry map. */
-  sessionFactsById(sessionId: SessionId): SessionFacts | undefined {
-    return this.facts.byId(sessionId)
-  }
-
-  /** The member sessions of ONE issue, as facts. Same set as
-   *  `listSessionsForIssue`, without the projection. */
-  sessionFactsByIssue(worktreePath: string | null, issueId: IssueId | undefined): SessionFacts[] {
-    return this.facts.byIssue(worktreePath, issueId)
-  }
-
-  /** Every session whose cwd sits inside a path, whatever issue it is on. */
-  sessionFactsByWorktree(worktreePath: string | null): SessionFacts[] {
-    return this.facts.byWorktree(worktreePath)
-  }
-
-  sessionFactsByMachine(machineId: MachineId): SessionFacts[] {
-    return this.facts.byMachine(machineId)
-  }
-
   /**
    * THE RUNNING SESSIONS' FACTS (POD-6160): the resident sessions whose process
    * runs or is expected back. Synchronous and free of I/O: a running session is
@@ -637,9 +617,6 @@ export class SessionLifecycle {
   ): Promise<{ sessionId: SessionId }> {
     return await this.sessionRevival.resumeSession(input, issues)
   }
-  private findLiveByResume(resume: ResumeRef): Session | undefined {
-    return this.sessionRevival.findLiveByResume(resume)
-  }
   continueSession(...args: any[]): any {
     return (this.sessionMetaOps as any).continueSession(...args)
   }
@@ -763,7 +740,7 @@ export class SessionLifecycle {
     ok: boolean
     reason?: string
   }> {
-    return await this.sessionTeardown.hibernateSession(input)
+    return await this.leased(input.sessionId, 'hibernate', () => this.sessionTeardown.hibernateSession(input))
   }
 
   /** Idle-shell policy park — process killed, row inspectable, no worktree free. */
@@ -865,7 +842,8 @@ export class SessionLifecycle {
     },
     issues: SessionIssueWorkflowPort,
   ): ReturnType<SessionRevival['resurrectSession']> {
-    return await this.leased(input.sessionId, 'resurrect', () => this.sessionRevival.resurrectSession(input, issues))
+    // SessionRevival holds the session for the wake (every wake path goes there).
+    return await this.sessionRevival.resurrectSession(input, issues)
   }
   private sessionRemovalSpecs(sessionId: SessionId): EntityChangeSpec[] {
     return this.sessionKill.sessionRemovalSpecs(sessionId)

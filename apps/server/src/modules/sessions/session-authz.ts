@@ -32,14 +32,14 @@ import {
   resolveSessionTarget,
 } from './session-access'
 import type { Session } from './session'
-import type { SessionOwnerMemo } from './session-state/service'
+import type { SessionOwnerFacts, SessionOwnerMemo } from './session-state/service'
 
 const log = createLogger('server:session-authz')
 
 /** Derive database signatures from the store so async changes reach every read. */
 export interface SessionAuthzStorePort {
   readonly users: Pick<SessionStore['users'], 'get' | 'roleOf' | 'earliestAdmin'>
-  readonly sessions: Pick<SessionStore['sessions'], 'getSession'>
+  readonly sessions: Pick<SessionStore['sessions'], 'getSession' | 'getSessions'>
   readonly issues: Pick<SessionStore['issues'], 'getIssue' | 'getIssues'>
   readonly grants: Pick<SessionStore['grants'], 'loadForResource' | 'listForResources'>
 }
@@ -297,7 +297,7 @@ export class SessionAuthz {
      *  behaviour every single-session caller keeps. */
     memo?: SessionOwnerMemo,
   ): Promise<{ owner: UserId; grants: string[] } | undefined> {
-    const durable = this.ports.sessions.get(sessionId) ?? await this.storedOwnershipRecord(sessionId)
+    const durable = await this.ownershipOf(sessionId, memo)
     if (!durable) return undefined
     const issueId = durable.issueId ?? undefined
     const resourceKind = issueId ? 'issue' : 'session'
@@ -336,11 +336,19 @@ export class SessionAuthz {
    */
   async primeOwnerMemo(memo: SessionOwnerMemo, sessionIds: readonly SessionId[]): Promise<void> {
     // A memo prepared before an in-span revocation is not an authority fact.
-    if (spanOpen()) { memo.grants.clear(); memo.issues.clear() }
+    if (spanOpen()) { memo.grants.clear(); memo.issues.clear(); memo.sessions?.clear() }
+    // The rows of the sessions neither in memory nor already in the memo, in
+    // one batched read (POD-6160: a parked session is not in memory).
+    const missing = sessionIds.filter((id) => this.ports.sessions.get(id) === undefined && !memo.sessions?.has(id))
+    if (missing.length > 0) {
+      const rows = await this.ports.store.sessions.getSessions(missing)
+      const owners = (memo.sessions ??= new Map())
+      for (const id of missing) owners.set(id, rows.get(id) ?? null)
+    }
     const byKind = new Map<string, Set<string>>()
     const issueIds = new Set<string>()
     for (const sessionId of sessionIds) {
-      const durable = this.ports.sessions.get(sessionId) ?? await this.storedOwnershipRecord(sessionId)
+      const durable = await this.ownershipOf(sessionId, memo)
       if (!durable) continue
       const issueId = durable.issueId ?? undefined
       if (issueId) issueIds.add(issueId)
@@ -367,6 +375,15 @@ export class SessionAuthz {
         memo.grants.set(`${kind}:${id}`, granteesOf(found.get(id) ?? []))
       }
     }
+  }
+
+  /** A session's owner and issue: in memory, else the pass's memo, else its row. */
+  private async ownershipOf(sessionId: SessionId, memo?: SessionOwnerMemo): Promise<SessionOwnerFacts | undefined> {
+    const resident = this.ports.sessions.get(sessionId)
+    if (resident) return resident
+    const memoised = memo?.sessions?.get(sessionId)
+    if (memoised !== undefined) return memoised ?? undefined
+    return await this.storedOwnershipRecord(sessionId)
   }
 
   private async storedOwnershipRecord(sessionId: SessionId) {
