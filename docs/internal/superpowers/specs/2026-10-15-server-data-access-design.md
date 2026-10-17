@@ -1,6 +1,7 @@
 # Server data access and caching — design
 
-POD-6140, agreed with the operator on 2026-10-15. Status: written for approval; nothing built.
+POD-6140, agreed with the operator on 2026-10-15. Status (2026-10-17): built on the integration branch; every
+memory copy in section 6 is removed; the final measurement (E1) is running. See section 11.
 Evidence behind every claim: [pod-6140-research.md](../../pod-6140-research.md).
 
 ## 1. Goal and scope
@@ -186,24 +187,38 @@ or 3 days.
 Prefix letters are phases, numbers the order inside a phase. Blocking edges in the tracker enforce
 "waits on".
 
-| prefix | step | issue | waits on |
+| prefix | step | issue | status |
 |---|---|---|---|
-| A1 | Rules doc (`docs/agents/server-data.md`) | POD-6145 | – |
-| A2 | Benchmark and live baseline | POD-6146 | – |
-| A3 | Prepared repository queries (root cause first: one shared drizzle instance) | POD-6147 | – |
-| A4 | Turso spike | POD-6162 | – |
-| B1 | Indexes and query-plan audit | POD-6148 | POD-6147 (same files) |
-| B2 | Statement-count tests, relational queries and per-operation loaders | POD-6149 | – (parallel with B1, split file ownership) |
-| B3 | Index-friendly query shapes (audit debt) | POD-6173 | – |
-| B4 | Delivery flush batching | POD-6174 | POD-6155 |
-| B5 | Activity flush batching | POD-6175 | POD-6159 |
-| C1 | Remove the world index (five steps) | POD-6155 | POD-6146, POD-6149 |
-| C2 | Remove observation checkpoint map | POD-6159 | POD-6146, POD-6149 |
-| C3 | Remove sync memory copies (two steps) | POD-6156 | POD-6155 (shared feed-visibility code) |
-| D1 | Remove full issue map | POD-6158 | POD-6155, POD-6156 |
-| D2 | Session map to running sessions | POD-6160 | POD-6158, POD-6159, POD-6175 |
-| D3 | Remaining whole-table reads (audit debt) | POD-6172 | POD-6160 |
-| E1 | Final measurement | POD-6161 | POD-6172 |
-| E2 | Cache interface (deferred until a measured need) | POD-6150 | POD-6161 |
+| A1 | Rules doc (`docs/agents/server-data.md`) | POD-6145 | done |
+| A2 | Benchmark and live baseline | POD-6146 | done |
+| A3 | Prepared repository queries (root cause first: one shared drizzle instance) | POD-6147 | done |
+| A4 | Turso spike | POD-6162 | done (report only) |
+| B1 | Indexes and query-plan audit | POD-6148 | done |
+| B2 | Statement-count tests, relational queries and per-operation loaders | POD-6149 | done |
+| B3 | Index-friendly query shapes (audit debt) | POD-6173 | done |
+| B4 | Delivery flush batching | POD-6174 | done |
+| B5 | Activity flush batching | POD-6175 | done |
+| B6 | Grant reads inside writes (per-operation scope, fixes C1's measured regression) | POD-6189 | done |
+| B7 | Loader batches per context | POD-6197 | done |
+| R0 | Integration rebase onto dev/mw | POD-6183 | done |
+| C1 | Remove the world index (five steps) | POD-6155 | done |
+| C2 | Remove observation checkpoint map | POD-6159 | done |
+| C3 | Remove sync memory copies (two steps) | POD-6156 | done |
+| D1 | Remove full issue map | POD-6158 | done, e61e461a2a |
+| D2 | Session map to running sessions | POD-6160 | done, b3b0ebeeed |
+| D3 | Remaining whole-table reads (audit debt, 42 -> 32 entries, each with a reason) | POD-6172 | done, 206eafd6f4 |
+| D4 | Bug: session auto-archive never awaited | POD-6206 | done |
+| D5 | Parked session writes read the row once per operation | POD-6210 | done, 750c077c40 |
+| D6 | Shipping recovery walk reads only open trains | POD-6207 | done, 5fb5b06a5b |
+| D7 | Steward reads only matching subscriptions | POD-6208 | done, d22a8d24ee |
+| D8 | Paged history listings | POD-6209 | done, e4140918a5 |
+| D9 | Bug: search batch reads (also on dev/mw 0c37f9eb50) | POD-6214 | done, ae0361d75f |
+| D10 | Bug: per-row conversation segment reads | POD-6215 | done, 0225cfa214 |
+| E1 | Final measurement | POD-6161 | running |
+| E2 | Cache interface (deferred until a measured need) | POD-6150 | deferred |
+
+D4 to D10 were found while building; each was filed with its evidence and landed on its own.
+dev/mw holds the integration branch up to 0c37f9eb50 (D2f); everything after it waits for the
+operator's go-ahead.
 
 POD-6151 to POD-6154 were merged into POD-6155 and POD-6157 into POD-6156 (superseded).
