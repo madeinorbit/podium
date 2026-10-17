@@ -5,10 +5,11 @@
  * issue report of each issue-addressed row and a wake cooldown per row.
  *
  * Since issue rows come from the database (POD-6158) the pass reads every
- * target issue once, together, before its attempts; that is the second
- * statement of the held case and the third of the wake case.
+ * target issue once, together, before its attempts; that is the third
+ * statement of the held case and the fourth of the wake case. The first is the
+ * check of which triggered targets have mail at all (POD-6219).
  */
-import { asIssueId, asSessionId, asThreadId, type IssueId } from '@podium/model'
+import { asIssueId, asSessionId, asThreadId, type IssueId, type SessionMeta } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { MessageRow } from '../../store'
 import { expectConstantStatements } from '../../test-support/statement-count'
@@ -78,7 +79,7 @@ const teardown = async ({ h }: Fixture) => {
 }
 
 describe('delivery flush through the service: pinned statement counts at 5 and 200 targets', () => {
-  it('held issue mail: one read of every page', async () => {
+  it('held issue mail: one check, one read of every page', async () => {
     await expectConstantStatements<Fixture>(
       {
         name: 'flushDeliveryTriggers (held)',
@@ -93,11 +94,11 @@ describe('delivery flush through the service: pinned statement counts at 5 and 2
         },
         teardown,
       },
-      2,
+      3,
     )
   })
 
-  it('wake mail inside a cold cooldown: one read of the pages, one of the cooldowns', async () => {
+  it('wake mail inside a cold cooldown: one check, one read of the pages, one of the cooldowns', async () => {
     await expectConstantStatements<Fixture>(
       {
         name: 'flushDeliveryTriggers (wake, cooling down)',
@@ -112,7 +113,7 @@ describe('delivery flush through the service: pinned statement counts at 5 and 2
         },
         teardown,
       },
-      3,
+      4,
     )
   })
 })
@@ -137,5 +138,62 @@ describe('onWakeUnavailable', () => {
       h.svc.dispose()
       await h.store.close()
     }
+  })
+})
+
+interface ChangedSessions {
+  h: MailHarness
+  sessions: SessionMeta[]
+}
+
+/** `size` live sessions under one issue's worktree, half attached to the issue
+ *  and half only in a folder under it, and one message to the first. */
+async function changedSessions(size: number): Promise<ChangedSessions> {
+  const h = await mailHarness()
+  const { id } = await h.createIssue({ title: 'workspace' })
+  await h.setWorktree(id, '/repo/.worktrees/workspace')
+  const sessions = h.put(
+    ...Array.from({ length: size }, (_, i) => ({
+      sessionId: asSessionId(`s${i}`),
+      phase: 'idle' as const,
+      ...(i % 2 === 0 ? { issueId: id, cwd: '/repo/.worktrees/workspace' } : { cwd: `/repo/.worktrees/workspace/pkg${i}` }),
+    })),
+  )
+  await h.store.messages.addMessage({
+    ...row('m-session', id, 'wait', '2026-07-20T11:00:00.000Z'),
+    toKind: 'session',
+    toId: sessions[0]!.sessionId,
+  })
+  return { h, sessions }
+}
+
+describe('session changes: pinned statement counts at 5 and 200 sessions [POD-6219]', () => {
+  // What the relay's change-log handler does for a batch of session upserts:
+  // one eligibility change per session, then the coalesced flush. Each change
+  // used to count its session's and its issue's pending mail and look up the
+  // issue of an unattached session's folder (2.5 statements a change here).
+  // Now: the folder read, the check of which targets have mail and the page
+  // read of the one that has, then the delivery's own four (the earliest admin
+  // twice, the dispatch stamp and its event).
+  it('a burst of changes: one folder read, one check and one page read, then the one delivery', async () => {
+    await expectConstantStatements<ChangedSessions>(
+      {
+        name: 'onSessionEligibilityChanged x size + flushDeliveryTriggers',
+        setup: changedSessions,
+        target: ({ h }) => h.store,
+        run: async ({ h, sessions }) => {
+          for (const session of sessions) await h.svc.onSessionEligibilityChanged(session.sessionId, session)
+          await h.svc.flushDeliveryTriggers()
+          return h.pushes.map((push) => push.sessionId)
+        },
+        // The change reached the one message: it went to s0.
+        check: (pushes) => expect(pushes).toEqual(['s0']),
+        teardown: async ({ h }) => {
+          h.svc.dispose()
+          await h.store.close()
+        },
+      },
+      7,
+    )
   })
 })

@@ -543,6 +543,23 @@ describe('queued projections for a principal', () => {
     expect(pages.map((page) => page.map((m) => m.id))).toEqual(targets.map((_, i) => [`m-${i}`]))
   })
 
+  it('pendingTargets answers each target from its pending rows alone', async () => {
+    await add({ id: 'held', createdAt: 't1' })
+    await add({ id: 'old', toId: 'iss_history', createdAt: 't1' })
+    await messages.markDelivered('old', null, 't2')
+    const targets = [
+      { kind: 'issue' as const, id: TARGET },
+      { kind: 'issue' as const, id: 'iss_history' },
+      { kind: 'session' as const, id: 'sess_nobody' },
+    ]
+    expect(await messages.pendingTargets(targets)).toEqual([true, false, false])
+
+    // More targets than one statement holds.
+    const many = Array.from({ length: 300 }, (_, i) => ({ kind: 'issue' as const, id: `iss_${i}` }))
+    for (const [i, target] of many.entries()) if (i % 2 === 1) await add({ id: `m-${i}`, toId: target.id, createdAt: `t-${i}` })
+    expect(await messages.pendingTargets(many)).toEqual(many.map((_, i) => i % 2 === 1))
+  })
+
   it('latestPendingOperatorForSession breaks a same-tick tie by rowid, not by id', async () => {
     // Random message ids do not encode creation order, so an ORDER BY that fell
     // back to `id` would pick the alphabetically last row rather than the last

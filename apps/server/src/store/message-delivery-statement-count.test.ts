@@ -80,6 +80,22 @@ describe('message delivery: pinned statement counts at 5 and 200 queued messages
     )
   })
 
+  it('pendingTargets: one check of every target', async () => {
+    await expectConstantStatements(
+      pin(
+        'pendingTargets',
+        (store, size) =>
+          store.messages.pendingTargets([
+            { kind: 'issue' as const, id: 'iss_busy' },
+            ...Array.from({ length: size }, (_, i) => ({ kind: 'issue' as const, id: `iss_${i}` })),
+            { kind: 'session' as const, id: 'sess_nobody' },
+          ]),
+        (hits, size) => expect(hits).toEqual([...Array.from({ length: size + 1 }, () => true), false]),
+      ),
+      1,
+    )
+  })
+
   it('listQueuedPage: one keyset page of the whole queue', async () => {
     await expectConstantStatements(
       pin(
@@ -98,10 +114,10 @@ describe('message delivery: pinned statement counts at 5 and 200 queued messages
     )
   })
 
-  // A trigger's own count (one per queueDeliveryTarget) is pinned in
-  // pending-count-parity.test.ts; the targets are queued in setup, so this
-  // counts the coalesced flush alone.
-  it('delivery flush: one read for every waiting target', async () => {
+  // A trigger reads nothing (pinned in pending-count-parity.test.ts,
+  // POD-6219); the targets are queued in setup, so this counts the coalesced
+  // flush alone: one check of which targets have mail, one read of their pages.
+  it('delivery flush: one check and one read for every waiting target', async () => {
     await expectConstantStatements<{ store: SessionStore; scheduler: DeliveryScheduler; attempted: string[] }>(
       {
         name: 'flushDeliveryTriggers',
@@ -117,8 +133,8 @@ describe('message delivery: pinned statement counts at 5 and 200 queued messages
               nowMs: () => 0,
             },
           })
-          await scheduler.queueDeliveryTarget({ kind: 'issue', id: 'iss_busy' })
-          for (let i = 0; i < size; i++) await scheduler.queueDeliveryTarget({ kind: 'issue', id: `iss_${i}` })
+          scheduler.queueDeliveryTarget({ kind: 'issue', id: 'iss_busy' })
+          for (let i = 0; i < size; i++) scheduler.queueDeliveryTarget({ kind: 'issue', id: `iss_${i}` })
           return { store, scheduler, attempted }
         },
         target: ({ store }) => store,
@@ -133,7 +149,7 @@ describe('message delivery: pinned statement counts at 5 and 200 queued messages
           expect(result).toEqual({ attempted: size * 2, requeued: size === 200 ? 1 : 0 }),
         teardown: async ({ store }) => await store.close(),
       },
-      1,
+      2,
     )
   })
 })

@@ -142,6 +142,9 @@ const pin = (
 // POD-6160 D2g: a projection pass's ownership check takes each session's owner
 // from the pass (or one batched read) instead of re-reading the row of a
 // session that is not in memory, which this sample did twice (#eebc9238): 50.
+// RE-PINNED FOR POD-6219, measured on the polaris VM: a delivery trigger no
+// longer counts its target's pending mail; the flush asks which targets have
+// any in one statement, so the retirement's counts become one check: 49.
 describe('host sample: pinned statement counts at 5 and 200 live shells', () => {
   it('a sample with nothing to retire', async () => {
     await expectConstantStatements(
@@ -185,7 +188,7 @@ describe('host sample: pinned statement counts at 5 and 200 live shells', () => 
           .poll(async () => (await f.store.sessions.loadSessions()).some((s) => s.id === f.ids.at(-1)))
           .toBe(false)
       }),
-      50,
+      49,
     )
   })
 })

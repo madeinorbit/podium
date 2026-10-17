@@ -4670,27 +4670,26 @@ describe('event-driven delivery review boundaries [POD-842] [spec:SP-c29e]', () 
     expect(batched.length).toBeGreaterThan(0)
   })
 
-  it('resolves 200 session changes exactly once each without issue scans or fleet reads', async () => {
+  it('names the issues of 200 changed sessions in one folder read at the flush, without fleet reads', async () => {
     const sessions = Array.from({ length: 200 }, (_, i) => session({ sessionId: asSessionId(`changed_${i}`), cwd: ISSUE.worktreePath }))
     const { svc, listCalls } = await harness(sessions)
-    // One change alone, for the per-change statement cost below.
-    const one = queryAttributionEnabled
-      ? await statementBudget(async () => await svc.onSessionEligibilityChanged(sessions[0]!.sessionId, sessions[0]!))
-      : null
-    const resolve = vi.spyOn(svc as unknown as { issueForSession: (s: SessionMeta) => string | null }, 'issueForSession')
+    const reports = (svc as unknown as { deps: { issues: IssueService } }).deps.issues.reports
+    const one = vi.spyOn(reports, 'issueForCwd')
+    const many = vi.spyOn(reports, 'issuesForCwds')
+    const before = listCalls.n
     const run = async () => {
       for (const s of sessions) await svc.onSessionEligibilityChanged(s.sessionId, s)
     }
-    const before = listCalls.n
-    if (one) {
-      const budget = await statementBudget(run)
-      // Membership reads the committed index; each change asks one indexed
-      // count of its targets' pending mail (POD-6155). The cost of a change is
-      // fixed, so 200 changes cost 200 times one, and none scans issues.
-      expect(budget.statements).toBe(200 * one.statements)
-      expect([...budget.byQuery.keys()].filter((sql) => /from ["`]?issues["`]?\b/i.test(sql))).toEqual([])
-    } else await run()
-    expect(resolve).toHaveBeenCalledTimes(200)
+    // A change reads nothing (POD-6219): it used to count the session's and
+    // its issue's pending mail and look up the issue of its folder.
+    if (queryAttributionEnabled) expect((await statementBudget(run)).statements).toBe(0)
+    else await run()
+    expect(svc.deliveryStats().pendingTargetCount).toBe(200)
+    await svc.flushDeliveryTriggers()
+    expect(one).not.toHaveBeenCalled()
+    expect(many).toHaveBeenCalledTimes(1)
+    expect([...many.mock.calls[0]![0]]).toEqual([ISSUE.worktreePath])
+    expect(svc.deliveryStats().pendingTargetCount).toBe(0)
     expect(listCalls.n).toBe(before)
   })
 

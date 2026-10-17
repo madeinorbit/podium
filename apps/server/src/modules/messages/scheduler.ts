@@ -50,6 +50,9 @@ interface DeliveryTargetWork {
   target: DeliveryTarget
   after?: MessagePageCursor
   enqueuedAt: number
+  /** A row of this target was seen pending (the startup walk, a full page),
+   *  so the flush reads its page without asking first. */
+  known: boolean
 }
 
 export interface MessageDeliveryStats {
@@ -78,6 +81,10 @@ export interface DeliveryRunner {
     messages: readonly MessageRow[],
     failed: (message: MessageRow, error: unknown) => void,
   ): void | Promise<void>
+  /** Targets a trigger could name only with a read (the issue an unbound
+   *  session's folder belongs to), named at the start of a flush for every
+   *  trigger since the last one, in one read [POD-6219]. */
+  deferredTargets?(): Promise<readonly DeliveryTarget[]>
   /** The clock job ages are measured on. */
   nowMs(): number
 }
@@ -108,23 +115,29 @@ export class DeliveryScheduler {
 
   // ---- entry path 1: the coalesced trigger queue ---------------------------
 
-  async queueDeliveryTarget(target: DeliveryTarget, after?: MessagePageCursor): Promise<void> {
-    try {
-      // One indexed count of the target's pending rows; nothing to deliver, no job.
-      if ((await this.deps.messages.countPending(target)) === 0) return
-    } catch (error) {
-      this.recordTriggerFailure(`target count ${deliveryTargetKey(target)}`, error)
-      return
-    }
-    this.enqueue(target, after)
+  /**
+   * Queue one target for the next flush. NO READ HERE [POD-6219]: a trigger
+   * used to count the target's pending rows first, so every session change
+   * cost two counts (the session and its issue) that almost always answered 0.
+   * The flush asks which of the targets queued since the last one have a
+   * pending row in one statement, and reads pages for those only.
+   */
+  queueDeliveryTarget(target: DeliveryTarget): void {
+    this.enqueue(target, { known: false })
   }
 
-  /** Add or coalesce one target's job, with no count: the caller knows it has rows. */
-  private enqueue(target: DeliveryTarget, after?: MessagePageCursor): void {
+  /** Add or coalesce one target's job and arm the flush. */
+  private enqueue(target: DeliveryTarget, how: { after?: MessagePageCursor; known: boolean }): void {
+    this.add(target, how)
+    this.scheduleDeliveryFlush()
+  }
+
+  private add(target: DeliveryTarget, { after, known }: { after?: MessagePageCursor; known: boolean }): void {
     const key = deliveryTargetKey(target)
     const existing = this.pendingDeliveryTargets.get(key)
     if (existing) {
       this.coalescedTriggerCount += 1
+      existing.known ||= known
       if (!after) existing.after = undefined
       else if (existing.after && compareCursor(after, existing.after) < 0) existing.after = after
       else if (!existing.after) existing.after = after
@@ -133,9 +146,9 @@ export class DeliveryScheduler {
         target,
         ...(after ? { after } : {}),
         enqueuedAt: this.runner.nowMs(),
+        known,
       })
     }
-    this.scheduleDeliveryFlush()
   }
 
   private scheduleDeliveryFlush(): void {
@@ -157,10 +170,30 @@ export class DeliveryScheduler {
       clearTimeout(this.deliveryTriggerTimer)
       this.deliveryTriggerTimer = null
     }
+    try {
+      for (const target of (await this.runner.deferredTargets?.()) ?? []) this.add(target, { known: false })
+    } catch (error) {
+      this.recordTriggerFailure('deferred targets', error)
+    }
     if (this.pendingDeliveryTargets.size === 0) return
-    const works = [...this.pendingDeliveryTargets.values()]
+    const queued = [...this.pendingDeliveryTargets.values()]
     this.pendingDeliveryTargets.clear()
     const selected = new Map<string, MessageRow>()
+
+    // Which triggered targets have anything pending, in one covering-index
+    // read [POD-6219]. Asking the page read instead costs about fifteen times
+    // as much per target, even when it finds nothing.
+    const unknown = queued.filter((work) => !work.known)
+    let pendingAmong: boolean[] = []
+    try {
+      if (unknown.length > 0) pendingAmong = await this.deps.messages.pendingTargets(unknown.map((work) => work.target))
+    } catch (error) {
+      this.recordTriggerFailure(`target check (${unknown.length} targets)`, error)
+      return
+    }
+    const empty = new Set(unknown.filter((_, index) => !pendingAmong[index]))
+    const works = queued.filter((work) => !empty.has(work))
+    if (works.length === 0) return
 
     // Every target's page in one read [POD-6174]; it used to be one per target.
     let pages: MessageRow[][]
@@ -176,9 +209,10 @@ export class DeliveryScheduler {
     works.forEach((work, index) => {
       const page = pages[index] ?? []
       // A full page may have more behind it. The next flush reads it with the
-      // other targets' pages, so it needs no count of its own: an empty page
-      // there costs nothing.
-      if (page.length === DELIVERY_TARGET_PAGE_LIMIT) this.enqueue(work.target, cursorOf(page.at(-1)!))
+      // other targets' pages, so it needs no check of its own.
+      if (page.length === DELIVERY_TARGET_PAGE_LIMIT) {
+        this.enqueue(work.target, { after: cursorOf(page.at(-1)!), known: true })
+      }
       for (const message of page) selected.set(message.id, message)
     })
 
@@ -227,7 +261,7 @@ export class DeliveryScheduler {
     // Every row of the page is pending, so its target needs no count.
     for (const message of page) {
       const target = this.runner.targetOf(message)
-      if (target) this.enqueue(target)
+      if (target) this.enqueue(target, { known: true })
     }
     await this.flushDeliveryTriggers()
     if (page.length < DELIVERY_RECONCILE_PAGE_LIMIT) return

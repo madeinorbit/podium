@@ -207,6 +207,8 @@ describe('grant reads per change, a running session on an issue: pinned at 5 and
 })
 
 // Measured on the polaris VM (see the header for the grant reads in each).
-const RENAME = 13
-const ISSUE_UPDATE = 30
-const OBSERVATION = 13
+// POD-6219: the session write's delivery trigger counted the session's and its
+// issue's pending mail (two statements); the flush now asks for both in one: -1.
+const RENAME = 12
+const ISSUE_UPDATE = 29
+const OBSERVATION = 12
