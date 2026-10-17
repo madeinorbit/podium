@@ -75,7 +75,7 @@ const observation = (sessionId: SessionId, readerUserId: string) => ({
   sessionId,
   issueId: null,
   stoppedAt: '',
-  readerUserId,
+  readerUserId: asUserId(readerUserId),
   archived: false as const,
 })
 

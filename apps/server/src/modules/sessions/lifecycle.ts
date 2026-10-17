@@ -676,9 +676,11 @@ export class SessionLifecycle {
   private parkArchivedSession(sessionId: SessionId): Promise<void> {
     return this.sessionTeardown.parkArchivedSession(sessionId)
   }
-  tryAutoArchiveStoppedObserved(...args: any[]): any {
-    return this.leased(args[0].sessionId, 'autoArchive', async () =>
-      await (this.sessionMetaOps as any).tryAutoArchiveStoppedObserved(...args))
+  tryAutoArchiveStoppedObserved(
+    ...args: Parameters<SessionMetaOps['tryAutoArchiveStoppedObserved']>
+  ): ReturnType<SessionMetaOps['tryAutoArchiveStoppedObserved']> {
+    return this.leased(args[0].sessionId, 'autoArchive', () =>
+      this.sessionMetaOps.tryAutoArchiveStoppedObserved(...args))
   }
   markSessionRead(userId: UserId, sessionId: SessionId): Promise<void> {
     return this.leased(sessionId, 'markRead', () => this.sessionMetaOps.markSessionRead(userId, sessionId))
