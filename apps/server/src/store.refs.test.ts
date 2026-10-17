@@ -49,10 +49,12 @@ describe('repo prefixes', () => {
     const s = await memStore()
     await s.repos.addRepo('/a/podium', s.hostMachineId)
     await s.repos.addRepo('/b/other', s.hostMachineId)
-    await s.repos.setRepoPrefix(asMachineId('__local__'), '/a/podium', 'PODX')
+    // On the machine that reports the checkout: a prefix is set per machine's
+    // view of the path, and `__local__` reports no `/a/podium` here.
+    await s.repos.setRepoPrefix(s.hostMachineId, '/a/podium', 'PODX')
     expect(await s.repos.prefixForPath('/a/podium')).toBe('PODX')
     const otherPrefix = (await s.repos.prefixForPath('/b/other'))!
-    await expect(s.repos.setRepoPrefix(asMachineId('__local__'), '/a/podium', otherPrefix)).rejects.toThrow(
+    await expect(s.repos.setRepoPrefix(s.hostMachineId, '/a/podium', otherPrefix)).rejects.toThrow(
       /already used/,
     )
     await s.close()
