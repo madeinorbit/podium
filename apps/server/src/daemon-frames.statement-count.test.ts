@@ -66,6 +66,10 @@ import {
 // counts the board projection drain it starts, which no longer ends with a list
 // call that finds nothing (a batch shorter than the limit reached the end of
 // the log): runtimeEvent 36 -> 35, runtimeEvent binding 27 -> 26.
+// The projection's position is read once per gate and carried forward, and
+// the cursor is written only after a record that called a port (or once per
+// batch): the session-start state calls none, runtimeEvent 35 -> 33 (no
+// cursor read, no cursor write); the binding calls one, 26 -> 25 (no read).
 
 /**
  * Reads of the `grants` table in one tally [POD-6189]. Statement keys keep
@@ -228,7 +232,7 @@ describe('daemon frames: pinned statement counts at 5 and 200', () => {
         ),
         setup: async (size) => await fixture(size, true),
       },
-      35,
+      33,
     )
     expectGrantReads(counts, 1)
   })
@@ -337,7 +341,7 @@ describe('daemon frames that read an observation checkpoint: pinned at 5 and 200
         ),
         setup: async (size) => await fixture(size, true),
       },
-      26,
+      25,
     )
     expectGrantReads(counts, 2)
   })
