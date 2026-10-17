@@ -36,11 +36,12 @@ import { param, prepared, shapeOf, type StoreDrizzle } from './executor/sync-dri
 import { readdirSync, readFileSync } from 'node:fs'
 import { join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import type { SessionStore } from '../store'
 import { LEGACY_WORKTREE_MIGRATION } from './issues'
 import { type IssueListingShape, listingKey } from './issue-listings'
 import { openTestStore } from '../test-support/open-test-store'
+import { PLANNER_STATISTICS_ROW_FLOOR } from '../migrations/store-lifecycle'
 import {
   censusScope,
   queryDefinitionSites,
@@ -837,9 +838,30 @@ async function reachMethodDefinitions(target: SessionStore): Promise<void> {
  * leading column, one per value of the rest); every other index keeps
  * SQLite's default, which assumes a large table and a selective key.
  */
-function modelLowSelectivity(db: SqlDatabase): void {
-  db.exec('ANALYZE')
-  db.exec('DELETE FROM sqlite_stat1')
+function modelLowSelectivity(db: SqlDatabase, options?: { replace?: boolean }): void {
+  writeStatistics(
+    db,
+    (table, columns) =>
+      LOW_SELECTIVITY.has(`${table}.${columns[0]}`)
+        ? ['1000000', '250000', ...columns.slice(1).map(() => '1')].join(' ')
+        : undefined,
+    options,
+  )
+}
+
+/**
+ * Replace every statistics row with the one `statOf` gives each index (none
+ * where it gives undefined), and reload them into this connection's planner.
+ */
+function writeStatistics(
+  db: SqlDatabase,
+  statOf: (table: string, columns: readonly string[]) => string | undefined,
+  { replace = true }: { replace?: boolean } = {},
+): void {
+  if (replace) {
+    db.exec('ANALYZE')
+    db.exec('DELETE FROM sqlite_stat1')
+  }
   const indexes = db
     .prepare("SELECT name, tbl_name AS tableName FROM sqlite_master WHERE type = 'index'")
     .all() as { name: string; tableName: string }[]
@@ -848,10 +870,9 @@ function modelLowSelectivity(db: SqlDatabase): void {
     const columns = db.prepare(`PRAGMA index_info(${JSON.stringify(name)})`).all() as {
       name: string
     }[]
-    if (!LOW_SELECTIVITY.has(`${tableName}.${columns[0]?.name}`)) continue
-    insert.run(tableName, name, ['1000000', '250000', ...columns.slice(1).map(() => '1')].join(' '))
+    const stat = statOf(tableName, columns.map((column) => column.name))
+    if (stat !== undefined) insert.run(tableName, name, stat)
   }
-  // Reload the statistics into this connection's planner.
   db.exec('ANALYZE sqlite_schema')
 }
 
@@ -1251,5 +1272,80 @@ describe('POD-6148 — every repository query is served by an index', () => {
     expect(scan.findings.map((finding) => finding.kind)).toEqual(['scan'])
     expect(explanation(scan)).toBeUndefined()
     expect(search.findings).toEqual([])
+  })
+})
+
+
+/**
+ * STATISTICS OF A TABLE ANALYSED WHILE TINY [POD-6223]. The audit above plans
+ * every query on a large database's picture. A real database is analysed at
+ * whatever size its tables have, and a table analysed at a few rows keeps
+ * those statistics until `PRAGMA optimize` finds it ten times larger: the
+ * planner then reads it as tiny and scans it, however large it has grown.
+ * `refreshPlannerStatistics` drops the statistics of every table analysed
+ * below `PLANNER_STATISTICS_ROW_FLOOR`; from the floor up they stay.
+ */
+describe('POD-6223 — statistics of tables analysed while tiny', () => {
+  /** Every index as ANALYZE describes it on a table of `rows` rows. */
+  const analysedAt =
+    (rows: number) =>
+    (table: string, columns: readonly string[]): string =>
+      [
+        String(rows),
+        // A low-selectivity column holds a quarter of the rows per value, any
+        // other leading column ten (SQLite's own guess), the rest one.
+        String(LOW_SELECTIVITY.has(`${table}.${columns[0]}`) ? Math.max(1, rows / 4) : Math.min(rows, 10)),
+        ...columns.slice(1).map(() => '1'),
+      ].join(' ')
+
+  const unexplained = (): string[] => {
+    const { keyed } = keyedDefinitions(trackedSources())
+    const { audited } = auditDefinitions(keyed)
+    return audited
+      .filter((entry) => entry.findings.length > 0 && explanation(entry) === undefined)
+      .map((entry) => `${entry.key} [${String(entry.shape ?? '')}]`)
+  }
+
+  afterEach(() => modelLowSelectivity(database))
+
+  it('is armed: statistics from one-row tables steer the queries of growing tables into scans', () => {
+    writeStatistics(database, analysedAt(1))
+    const flagged = unexplained()
+    // The runtime-event drain the bench caught scanning (POD-6216), and the
+    // other tables that start empty and grow.
+    expect(flagged).toEqual(
+      expect.arrayContaining([
+        'apps/server/src/store/events.ts:runtimeEventsAfter []',
+        'apps/server/src/store/messages.ts:queuedAheadOf []',
+        'apps/server/src/store/conversations/registry.ts:segmentsWithPaths [4]',
+        'apps/server/src/store/sessions.ts:liveSessionsOnMachine []',
+        'packages/sync/src/adapters/sqlite/sync-repository.ts:changesAfter []',
+      ]),
+    )
+    expect(flagged.length).toBeGreaterThan(100)
+  })
+
+  it('a refresh drops them, so the planner plans every query on its large-table defaults', async () => {
+    writeStatistics(database, analysedAt(1))
+    await store.refreshPlannerStatistics('periodic')
+    expect(database.prepare('SELECT COUNT(*) AS n FROM sqlite_stat1').get()).toEqual({ n: 0 })
+    // Below the floor a seek on a low-selectivity column reads fewer rows than
+    // the floor, so the large database's picture of those columns stands.
+    modelLowSelectivity(database, { replace: false })
+    expect(unexplained()).toEqual([])
+  })
+
+  it('statistics of tables analysed at the floor plan no query worse than those of a large table', () => {
+    // What real statistics of a large database make of each query, whatever
+    // the floor: the floor answers only for what the size itself changes.
+    writeStatistics(database, analysedAt(1_000_000))
+    const large = new Set(unexplained())
+    const worse = (rows: number) => {
+      writeStatistics(database, analysedAt(rows))
+      return unexplained().filter((key) => !large.has(key))
+    }
+    expect(worse(PLANNER_STATISTICS_ROW_FLOOR)).toEqual([])
+    // Armed: well below the floor, the same statistics do steer queries into scans.
+    expect(worse(10).length).toBeGreaterThan(0)
   })
 })

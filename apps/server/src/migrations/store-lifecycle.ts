@@ -79,6 +79,29 @@ export const ANALYSIS_LIMIT = 1000
 /** How often a running server refreshes the statistics (SQLite suggests hourly to daily). */
 export const PLANNER_STATISTICS_INTERVAL_MS = 60 * 60 * 1000
 
+/**
+ * A TABLE ANALYSED WHILE TINY KEEPS NO STATISTICS [POD-6223].
+ *
+ * Statistics describe the table as it was when analysed, and `PRAGMA optimize`
+ * re-analyses a table only once its size has changed tenfold, and only when it
+ * runs (at boot and hourly). A table analysed at one row and grown to ten
+ * thousand in between is planned as one row: the `podium_events` drain
+ * (`kind = ? AND id > ? ORDER BY id`) read the whole table instead of
+ * `idx_podium_events_kind`, linear in the table. Across the audited queries,
+ * statistics from a one-row table turn 137 of them into whole-table scans
+ * (`query-plan-audit.test.ts`). With no statistics for a table the planner
+ * assumes a large one and takes its indexes, the plans the audit checks.
+ *
+ * So after each refresh, every table whose statistics count fewer than
+ * {@link PLANNER_STATISTICS_ROW_FLOOR} rows loses them, and the connection
+ * reloads what remains. Optimize re-analyses such a table at its next run (an
+ * index with no statistics is always stale); below the floor it is dropped
+ * again, which costs an ANALYZE of a few hundred rows, and from the floor up
+ * its statistics stay. The floor is where statistics stop misleading: from it
+ * up, a table described at that size plans every audited query by index.
+ */
+export const PLANNER_STATISTICS_ROW_FLOOR = 1000
+
 export async function refreshPlannerStatistics(
   session: DriverSession,
   when: 'open' | 'periodic',
@@ -89,6 +112,7 @@ export async function refreshPlannerStatistics(
   await run(`PRAGMA analysis_limit = ${ANALYSIS_LIMIT}`)
   if (when === 'periodic') {
     await run('PRAGMA optimize')
+    await forgetTinyTables(session)
     return
   }
   // A database that has never been analysed gets its statistics now, in full
@@ -102,6 +126,32 @@ export async function refreshPlannerStatistics(
   })
   if (analysed.rows.length === 0) await run('ANALYZE')
   await run('PRAGMA optimize = 0x10002')
+  await forgetTinyTables(session)
+}
+
+/**
+ * Drop the statistics of every table analysed below the floor. A row's `stat`
+ * starts with the rows its index held; a table's size is its largest (a
+ * partial index holds fewer), so a large table keeps the row of a small
+ * partial index. The planner reads `sqlite_stat1` when the schema loads;
+ * `ANALYZE sqlite_schema` reloads it on this connection.
+ */
+async function forgetTinyTables(session: DriverSession): Promise<void> {
+  const tiny = await session.execute({
+    sql: `SELECT tbl FROM sqlite_stat1 GROUP BY tbl HAVING max(CAST(stat AS INTEGER)) < ?`,
+    params: [PLANNER_STATISTICS_ROW_FLOOR],
+    method: 'all',
+    intent: 'read',
+  })
+  if (tiny.rows.length === 0) return
+  await session.execute({
+    sql: `DELETE FROM sqlite_stat1 WHERE tbl IN (
+      SELECT tbl FROM sqlite_stat1 GROUP BY tbl HAVING max(CAST(stat AS INTEGER)) < ?)`,
+    params: [PLANNER_STATISTICS_ROW_FLOOR],
+    method: 'run',
+    intent: 'write',
+  })
+  await session.execute({ sql: 'ANALYZE sqlite_schema', params: [], method: 'run', intent: 'write' })
 }
 
 export async function setStoreTransferFence(session: DriverSession, held: boolean): Promise<void> {
