@@ -14,6 +14,16 @@ import { withOwnOperation } from '../../store/executor/operation-scope'
 
 const log = createLogger('server:runtime-event-gate')
 const BOARD_PROJECTOR = 'runtime.board.v1'
+/** Records per list call, and the most a drain run projects between cursor writes. */
+const PROJECTION_BATCH = 128
+
+/** Where one drain run stands: the durable cursor, and how far its effects resolved. */
+interface ProjectionProgress {
+  saved: number
+  projected: number
+  /** Records projected since the cursor was last written. */
+  unsaved: number
+}
 
 export type RuntimeEventGateResult =
   | { kind: 'accepted'; eventId: number }
@@ -506,9 +516,27 @@ export class RuntimeEventGate {
 
   private async runBoardProjection(): Promise<void> {
     try {
+      // ONE CURSOR READ PER RUN, AND ONE WRITE PER BATCH (POD-6216). This gate is
+      // the cursor's only writer, so the drains a run repeats for deliveries that
+      // landed meanwhile carry its position forward instead of reading it back.
+      // The write used to follow every record, one write transaction per runtime
+      // event even when the record had no board effect.
+      const head = await this.ports.events.runtimeEventProjectionCursor(BOARD_PROJECTOR)
+      const progress: ProjectionProgress = { saved: head, projected: head, unsaved: 0 }
       do {
-        this.projectionRequested = false
-        await this.drainBoardProjection()
+        try {
+          do {
+            this.projectionRequested = false
+            await this.drainBoardProjection(progress)
+          } while (this.projectionRequested)
+        } finally {
+          // Through the last record whose board effect resolved, also when a
+          // later one failed: that record is replayed next time, the earlier
+          // ones are not.
+          await this.saveBoardProjection(progress)
+        }
+        // The write yielded. A delivery that landed meanwhile joined THIS run
+        // (`projectionDrain` is still set), so this run must drain it.
       } while (this.projectionRequested)
     } finally {
       // Clear before this runner resolves: a later microtask must start a new
@@ -523,24 +551,35 @@ export class RuntimeEventGate {
     })
   }
 
-  private async drainBoardProjection(): Promise<void> {
-    let cursor = await this.ports.events.runtimeEventProjectionCursor(BOARD_PROJECTOR)
+  private async drainBoardProjection(progress: ProjectionProgress): Promise<void> {
     for (;;) {
-      const batch = await this.ports.events.listRuntimeEventsAfter(cursor, 128)
-      if (batch.length === 0) return
+      const batch = await this.ports.events.listRuntimeEventsAfter(progress.projected, PROJECTION_BATCH)
       for (const record of batch) {
         // One record is one operation of its own (POD-6189): its span, owner
         // check and publication read a row once. Never the operation of the
         // frame that started the drain: the drain also serves other frames.
         await withOwnOperation(async () => await this.projectBoard(record))
-        await this.ports.events.saveRuntimeEventProjectionCursor(
-          BOARD_PROJECTOR,
-          record.id,
-          new Date(this.ports.now()).toISOString(),
-        )
-        cursor = record.id
+        progress.projected = record.id
+        // A long backlog, or a run kept busy by deliveries, still moves the
+        // cursor (and with it the retention fence) once per batch.
+        if (++progress.unsaved >= PROJECTION_BATCH) await this.saveBoardProjection(progress)
       }
+      // A short batch reached the end of the log. A delivery committed after
+      // the list call asks for another drain (`projectionRequested`), so the
+      // empty list call that used to end every drain proves nothing more.
+      if (batch.length < PROJECTION_BATCH) return
     }
+  }
+
+  private async saveBoardProjection(progress: ProjectionProgress): Promise<void> {
+    if (progress.projected === progress.saved) return
+    await this.ports.events.saveRuntimeEventProjectionCursor(
+      BOARD_PROJECTOR,
+      progress.projected,
+      new Date(this.ports.now()).toISOString(),
+    )
+    progress.saved = progress.projected
+    progress.unsaved = 0
   }
 
   private decide(

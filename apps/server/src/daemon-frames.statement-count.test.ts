@@ -61,6 +61,11 @@ import {
 // one batched read), not its row (#eebc9238), so it stays 33. The rebind's
 // conflict check reads the sessions bound to the target thread from the table
 // (#bc46827d) instead of walking the map: 20 -> 21.
+//
+// RE-PINNED FOR POD-6216, measured on the polaris VM. A runtimeEvent frame
+// counts the board projection drain it starts, which no longer ends with a list
+// call that finds nothing (a batch shorter than the limit reached the end of
+// the log): runtimeEvent 36 -> 35, runtimeEvent binding 27 -> 26.
 
 /**
  * Reads of the `grants` table in one tally [POD-6189]. Statement keys keep
@@ -223,7 +228,7 @@ describe('daemon frames: pinned statement counts at 5 and 200', () => {
         ),
         setup: async (size) => await fixture(size, true),
       },
-      36,
+      35,
     )
     expectGrantReads(counts, 1)
   })
@@ -332,7 +337,7 @@ describe('daemon frames that read an observation checkpoint: pinned at 5 and 200
         ),
         setup: async (size) => await fixture(size, true),
       },
-      27,
+      26,
     )
     expectGrantReads(counts, 2)
   })
