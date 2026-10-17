@@ -66,6 +66,11 @@ const GRANTS: GrantRow[] = [
   edge('session', 's4', 'u_nope', 'admin-only-unknown-verb'),
 ]
 
+const row = (sessionId: SessionId) => {
+  const found = SESSIONS.find((s) => s.sessionId === sessionId)
+  return found ? { ...found, ownerUserId: asUserId(found.ownerUserId) } : undefined
+}
+
 function harness() {
   const counts: Counts = { getIssue: 0, getIssues: 0, loadForResource: 0, listForResources: 0 }
   const matching = (kind: string, id: string): GrantRow[] =>
@@ -75,10 +80,10 @@ function harness() {
     sessions: { get: () => undefined },
     store: {
       sessions: {
-        getSession: async (sessionId: SessionId) => {
-          const found = SESSIONS.find((s) => s.sessionId === sessionId)
-          return found ? { ...found, ownerUserId: asUserId(found.ownerUserId) } : undefined
-        },
+        loadSession: async (sessionId: SessionId) => row(sessionId),
+        // The batched read a primed pass makes for the sessions not in memory.
+        getSessions: async (sessionIds: readonly SessionId[]) =>
+          new Map(sessionIds.flatMap((id) => (row(id) ? [[id, row(id)] as const] : []))),
       },
       issues: {
         getIssue: async (id: string) => {

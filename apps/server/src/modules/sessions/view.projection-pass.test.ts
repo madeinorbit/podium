@@ -336,7 +336,7 @@ describe('one projection pass', () => {
       await f.store.sync.queuedMessageCounts(asSessionId('calibration-only'))
       const recordingsPerStatement = statementCount()
       expect([1, 2]).toContain(recordingsPerStatement)
-      const sessionReads = vi.spyOn(f.store.sessions, 'getSession')
+      const sessionReads = vi.spyOn(f.store.sessions, 'loadSession')
       const userReads = vi.spyOn(f.store.users, 'get')
       resetQueryAttribution()
       const visible = await f.state.visibleSessions(
