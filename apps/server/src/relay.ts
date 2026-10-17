@@ -1173,6 +1173,8 @@ export class SessionRegistry {
       getSession: async (sessionId) => {
         const session = liveSessions.get(sessionId) ?? (await sessionsSvc.residency.ensure(sessionId, 'rpc'))
         session?.freshenDurable()
+        // A restored parked session's transcript is replayed for its reader (POD-6160).
+        if (session) await sessionsSvc.repository.ensureTranscript(session)
         return session
           ? {
               id: session.sessionId,

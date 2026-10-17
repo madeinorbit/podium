@@ -118,6 +118,8 @@ export interface SessionInit {
   selectedDriverId?: string
   /** Concrete driver requested at birth; durable lifecycle configuration. */
   requestedDriverId?: string
+  /** The driver a daemon last bound, restored from the row (POD-6160 D2g). */
+  boundDriverId?: string
   /** Explicit issue attachment (issue-as-workspace). Absent = unattached. */
   issueId?: IssueId
   /** Birth-issue nice-name fields (#474). Absent = not yet named. */
@@ -178,6 +180,8 @@ export type SessionDurableFields = Omit<SessionDurableState, 'terminal'>
 export interface SessionDurableState {
   selectedDriverId: string | undefined
   requestedDriverId: string | undefined
+  /** The driver a daemon last bound (durable twin of the transient `driverId`). */
+  boundDriverId: string | undefined
   cwd: string
   issueId: IssueId | undefined
   refIssueId: IssueId | null
@@ -440,6 +444,13 @@ export class Session {
    * driverId. Transient and re-established by daemon bind/reattach. */
   requestedDriverId: string | undefined = undefined
   /**
+   * THE DRIVER A DAEMON LAST BOUND, DURABLY (POD-6160 D2g). `driverId` above is
+   * the live handle and dies with the process (and with eviction and restart);
+   * this is the measured binding the row keeps, for the one decision that must
+   * not depend on residency: whether a parked-but-alive row may be revived.
+   */
+  boundDriverId: string | undefined = undefined
+  /**
    * WHAT THIS SESSION'S LIVE DRIVER CAN CHANGE ON A RUNNING SESSION (POD-3087),
    * as its `configure.fields` declare — reported by the daemon on bind.
    *
@@ -517,6 +528,7 @@ export class Session {
     const d = durableStateFromInit(init)
     this.selectedDriverId = d.selectedDriverId
     this.requestedDriverId = d.requestedDriverId
+    this.boundDriverId = d.boundDriverId
     this.cwd = d.cwd
     this.issueId = d.issueId
     this.refIssueId = d.refIssueId
@@ -645,6 +657,7 @@ export class Session {
     // decision and any transient handle fact so persistence cannot describe an
     // exited row as a driver family that never ran.
     d.selectedDriverId = undefined
+    d.boundDriverId = undefined
     this.driverId = undefined
     // …and the capability that came with the handle. Same reason: an exited row
     // must not describe what a driver that never ran could have changed.
@@ -834,6 +847,7 @@ export class Session {
     return {
       selectedDriverId: this.selectedDriverId,
       requestedDriverId: this.requestedDriverId,
+      boundDriverId: this.boundDriverId,
       cwd: this.cwd,
       issueId: this.issueId,
       refIssueId: this.refIssueId,
@@ -904,6 +918,7 @@ export class Session {
   ): void {
     this.selectedDriverId = state.selectedDriverId
     this.requestedDriverId = state.requestedDriverId
+    this.boundDriverId = state.boundDriverId
     this.cwd = state.cwd
     this.issueId = state.issueId
     this.refIssueId = state.refIssueId
@@ -980,6 +995,7 @@ export class Session {
       // W4's migrated callers down the receipt path for a driver that is gone.
       selectedDriverId: d.selectedDriverId ?? null,
       requestedDriverId: d.requestedDriverId ?? null,
+      boundDriverId: d.boundDriverId ?? null,
       conversationBinding: d.conversationBinding ?? null,
       status: d.status,
       exitCode: d.exitCode ?? null,

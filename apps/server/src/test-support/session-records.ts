@@ -23,6 +23,13 @@ export function residentRecords(sessions: ReadonlyMap<SessionId, Session>): Sess
     // candidate, which the caller's formatted-ref comparison then narrows.
     birthRefCandidates: async (ref) =>
       where((s) => ('draft' in ref ? s.refDraft === ref.draft : s.refLetter === ref.letter)),
+    page: async (after, limit) => {
+      const all = [...sessions.values()].filter((s) => s.sessionId > after).sort((a, b) => (a.sessionId < b.sessionId ? -1 : 1))
+      const subjects = all.slice(0, limit)
+      return { subjects, next: all.length > limit ? subjects.at(-1)?.sessionId : undefined }
+    },
+    withResume: async (resume) => where((s) => s.resume?.kind === resume.kind && s.resume.value === resume.value),
+    referencingIssues: async (issueIds) => where((s) => s.refIssueId !== null && issueIds.includes(s.refIssueId)),
     childrenOf: async (parentIds) => {
       const values = new Set(parentIds.map((id) => `session:${id}`))
       return where((s) => s.spawnedBy !== undefined && values.has(s.spawnedBy))

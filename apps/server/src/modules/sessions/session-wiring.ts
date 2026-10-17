@@ -100,7 +100,8 @@ import { SessionTeardown } from './session-teardown'
 import { SessionTerminalProof } from './terminal-proof'
 import { TurnPreviewAccumulator } from './turn-preview'
 import { turnPreviewEnabled } from './turn-preview-flag'
-import { SessionRecords } from './records'
+import { SessionRecords, type SessionSubject } from './records'
+import { isRunningStatus } from './session-record'
 import { SessionResidency } from './residency'
 import { SessionView } from './view'
 import { SessionWorkspace } from './workspace'
@@ -169,6 +170,9 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     pushPriorities: () => bag.pushPriorities(),
     parkArchivedSession: (sessionId) => bag.parkArchivedSession(sessionId),
     reattachMessage: (session, machineId) => sessionClientPlane.reattachMessageFor(session, machineId),
+    parkedOn: async (machineId) =>
+      (await bag.records.onMachine(machineId, 'machineReconciler')).filter((s: SessionSubject) => !isRunningStatus(s.status)),
+    withSession: (sessionId, reason, fn) => bag.residency.withSession(sessionId, reason, fn),
     toMachine: (machineId, message) => bag.toMachine(machineId, message),
     viewTiers: (sessionIds) => computePriorities([...bag.clients.values()], sessionIds),
     rebindHeadless: (session) => bag.rebindHeadless(session),
@@ -216,6 +220,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
   let runtimeEventGate: RuntimeEventGate | undefined
   bag.daemonProjection = new SessionDaemonProjection({
     sessions: bag.sessions,
+    ensureTranscript: (session) => bag.repository.ensureTranscript(session),
     recordSessionGitActivity: (sessionId, input) => {
       if (bag.sessions.get(sessionId)?.hasBoundDriver || runtimeEventGate?.ready(sessionId) === true) return
       bag.bus.emit('issue.sessionDerived', { kind: 'gitActivity', sessionId, ...input })
@@ -283,12 +288,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     },
   })
   // The durable records of sessions read from the database (POD-6160).
-  bag.records = new SessionRecords({
-    store,
-    sessions: bag.sessions,
-    settled: (sessionId) => bag.repository.settled(sessionId),
-    mapHoldsEverySession: deps.residency?.evictParked !== true,
-  })
+  bag.records = new SessionRecords({ store, sessions: bag.sessions })
   bag.view = new SessionView({
     records: bag.records,
     store,
@@ -315,13 +315,15 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     broadcastSessions: () => bag.broadcastSessions(),
     flushBroadcasts: () => bag.broadcasts.flush(),
     runScheduledBroadcast: () => bag.broadcasts.runScheduled(),
-    listSessionsForBootBaseline: () => bag.view.list(undefined, 'bootstrap'),
+    listSessionsForBootBaseline: () => bag.view.listInPages(undefined, 'bootstrap'),
     now: () => bag.now(),
     appliedMutationMaxAgeMs: APPLIED_MUTATIONS_MAX_AGE_MS,
     onRoutingChanged: (sessionId, previous) => bag.bus.emit('session.routingChanged', { sessionId, previous }),
+    records: bag.records,
+    withSession: (sessionId, reason, fn) => bag.residency.withSession(sessionId, reason, fn),
   })
-  // Which parked sessions stay in memory (POD-6160 D2f): those an operation
-  // leases or a client views. Eviction is off unless the deps turn it on.
+  // Which parked sessions stay in memory (POD-6160): those an operation leases
+  // or a client views; every other stopped session is its row.
   bag.residency = new SessionResidency({
     sessions: bag.sessions,
     store,
@@ -335,10 +337,11 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     },
     holdsWork: (sessionId) =>
       bag.state.holdsWork(sessionId) ||
+      bag.repository.replayingTranscript(sessionId) ||
       bag.inbox?.holdsWork(sessionId) === true ||
       bag.sessionRevival?.resurrecting(sessionId) === true,
     evict: (session) => bag.repository.evictResident(session),
-    evictParked: deps.residency?.evictParked === true,
+    evictParked: deps.residency?.evictParked !== false,
     ...(deps.residency?.sweepIntervalMs !== undefined ? { sweepIntervalMs: deps.residency.sweepIntervalMs } : {}),
   })
   // CONSTRUCTED HERE, NOT EARLIER, AND THE POSITION IS LOAD-BEARING.
@@ -358,7 +361,8 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     terminalProof: bag.terminalProof,
     settingsViewer: () => bag.settingsViewer(),
     durableLabelFor: (sessionId) => bag.deps.durableLabelFor(sessionId),
-    hasSession: (sessionId) => bag.sessions.has(sessionId),
+    hasSession: async (sessionId) =>
+      bag.sessions.has(sessionId) || (await store.sessions.getSession(sessionId))?.deletedAt === null,
     registerSession: (session) => {
       bag.registerSession(session)
     },
@@ -384,6 +388,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     emitSessionCreated: (payload) => bag.bus.emit('session.created', payload),
   })
   bag.headless = new HeadlessService({
+    readSession: (sessionId) => bag.residency.ensure(sessionId, 'headless'),
     durableLabelFor: (sessionId) => bag.deps.durableLabelFor(sessionId),
     getSession: (sessionId) => bag.sessions.get(sessionId),
     registerSession: (session) => bag.registerSession(session),
@@ -713,6 +718,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
   bag.clientControl = new SessionClientControl({
     sessions: bag.sessions,
     residency: bag.residency,
+    ensureTranscript: (session) => bag.repository.ensureTranscript(session),
     state: bag.state,
     inbox,
     machinesForPrincipal: async (principal) =>
@@ -1063,6 +1069,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     now: () => bag.now(),
   })
   bag.daemonLifecycle = new SessionDaemonLifecycle({
+    records: bag.records,
     initializeRuntimeMetadata: async (sessionId, machineId) => {
       const session = bag.sessions.get(sessionId)
       const reply = await bag.rpc.runtimeSnapshot(sessionId, machineId)
@@ -1220,6 +1227,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
   })
   bag.sessionMetaOps = new SessionMetaOps({
     broadcastSessions: () => bag.broadcastSessions(),
+    records: bag.records,
     funnel: bag.funnel,
     now: () => bag.now(),
     prepareSessionRuntimeRemoval: (id: SessionId, ret?: { retiredAt: string }) =>
@@ -1242,6 +1250,8 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
   // No dispose: the coordinator holds only a single-flight map.
   bag.sessionRevival = new SessionRevival({
     store,
+    records: bag.records,
+    withSession: (sessionId, reason, fn) => bag.residency.withSession(sessionId, reason, fn),
     repository: bag.repository,
     state: bag.state,
     terminalProof: bag.terminalProof,

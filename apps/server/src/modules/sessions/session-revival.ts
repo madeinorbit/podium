@@ -52,6 +52,7 @@ import type { PreparedSessionInstructions } from './instructions'
 import type { SessionIssueWorkflowPort } from './issue-workflow-port'
 import type { SessionLaunchConfig } from './launch-config'
 import type { SessionRepository } from './repository'
+import type { SessionRecordReads, SessionSubject } from './records'
 import type { Session } from './session'
 import type { SessionFacts } from './facts'
 import type { SessionStart } from './session-start'
@@ -68,6 +69,10 @@ export interface SessionRevivalPorts {
   workspace: SessionWorkspace
   autoContinue: Pick<AutoContinueController, 'onSessionGone'>
   sessions: Map<SessionId, Session>
+  /** The sessions of a conversation, parked ones read from the database (POD-6160). */
+  records: Pick<SessionRecordReads, 'withResume'>
+  /** Run `fn` with a session resident, restored from its row when parked. */
+  withSession?<T>(sessionId: SessionId, reason: string, fn: (session: Session | undefined) => Promise<T>): Promise<T>
   machines: MachinesService
   rpc: DaemonRpcService
   /** THE CHEAP FLEET READ [POD-3857]. Revival's only fleet question is the
@@ -140,7 +145,7 @@ export class SessionRevival {
     // masked duplicate with its own title/transcript/stage. Reuse kills that at
     // the source: a running row is focused as-is; a parked (hibernated/exited)
     // row is resurrected under its same id.
-    const existing = this.findLiveByResume(input.resume)
+    const existing = await this.findLiveByResume(input.resume)
     if (existing) {
       if (existing.status === 'hibernated' || existing.status === 'exited') {
         const woke = await this.resurrectSession({ sessionId: existing.sessionId }, issues)
@@ -200,17 +205,15 @@ export class SessionRevival {
    * parked one, breaking ties toward the most-recently-active so we land on the
    * row the user last touched.
    */
-  findLiveByResume(resume: ResumeRef): Session | undefined {
-    const running = (s: Session) =>
+  async findLiveByResume(resume: ResumeRef): Promise<SessionSubject | undefined> {
+    const running = (s: SessionSubject) =>
       s.status === 'live' || s.status === 'starting' || s.status === 'reconnecting'
     return (
-      [...this.ports.sessions.values()]
+      (await this.ports.records.withResume(resume, 'findLiveByResume'))
         // A HEADLESS session shares its harness's resume ref but is not a PTY
         // reuse target — "open in terminal" resumes the same ref as a real PTY
         // session alongside it, so headless rows never satisfy this lookup.
-        .filter(
-          (s) => !s.headless && s.resume?.kind === resume.kind && s.resume?.value === resume.value,
-        )
+        .filter((s) => !s.headless)
         .sort((a, b) => {
           if (running(a) !== running(b)) return running(a) ? -1 : 1
           return (b.lastActiveAt ?? '').localeCompare(a.lastActiveAt ?? '')
@@ -289,6 +292,22 @@ export class SessionRevival {
    *  If stop freed the worktree, recreates it from the preserved branch first
    *  [spec:SP-9904]. */
   async resurrectSession(
+    input: {
+      sessionId: SessionId
+      adoptedBinding?: SessionBindingAdoptLaunchInstruction
+      model?: string
+      effort?: string
+      forceUnknownModel?: boolean
+    },
+    issues: SessionIssueWorkflowPort,
+  ): Promise<ResurrectionResult> {
+    // A parked session is out of memory: restore it from its row for the wake
+    // (POD-6160). Every wake comes through here, the resume path included.
+    if (!this.ports.withSession) return await this.resurrectResident(input, issues)
+    return await this.ports.withSession(input.sessionId, 'resurrect', () => this.resurrectResident(input, issues))
+  }
+
+  private async resurrectResident(
     {
       sessionId,
       adoptedBinding,

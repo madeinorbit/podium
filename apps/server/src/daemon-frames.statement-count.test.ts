@@ -51,11 +51,16 @@ import {
 // RE-PINNED FOR POD-6160 (D2a/D2b of the session map removal), measured on the
 // polaris VM. Until the session map shrinks to running sessions, a read of a
 // session that does not run also reads its durable record and compares it with
-// the map (`modules/sessions/map-parity.ts`, on under vitest and in development
+// the map (`modules/sessions/map-parity.ts` until D2g removed it; on under vitest and in development
 // builds, off in a packaged one). The exited session is such a read: its row,
 // offer, draft time, checkpoint and runtime-transcript presence, +5 for
 // agentExit 27 -> 32. Constant in the number of sessions. D2h adds the runtime
-// turn state to the satellites a record reads: 33.
+// turn state to the satellites a record reads: 33. D2g: the map holds running
+// sessions only, and the exited session leaves it when the exit frame lets it
+// go; the two ownership checks after that take its owner from their pass (or
+// one batched read), not its row (#eebc9238), so it stays 33. The rebind's
+// conflict check reads the sessions bound to the target thread from the table
+// (#bc46827d) instead of walking the map: 20 -> 21.
 
 /**
  * Reads of the `grants` table in one tally [POD-6189]. Statement keys keep
@@ -271,7 +276,7 @@ describe('daemon frames that read an observation checkpoint: pinned at 5 and 200
           resumeKind: 'codex-thread',
           rebindId: 'rebind-1',
         })),
-      20,
+      21,
     )
     expectGrantReads(counts, 1)
   })

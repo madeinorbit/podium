@@ -233,8 +233,8 @@ export interface SessionLifecycleDeps {
    * remains its sole mutation owner. */
   sessions?: Map<SessionId, Session>
   /**
-   * WHICH PARKED SESSIONS STAY IN MEMORY (POD-6160 D2f, `residency.ts`). Absent:
-   * none is evicted, so the map holds every session (until D2g turns it on).
+   * WHICH PARKED SESSIONS STAY IN MEMORY (POD-6160, `residency.ts`). Parked
+   * sessions nothing uses are evicted unless `evictParked` is false.
    */
   residency?: { evictParked?: boolean; sweepIntervalMs?: number }
   machines: MachinesService

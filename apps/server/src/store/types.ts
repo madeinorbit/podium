@@ -200,6 +200,7 @@ export interface SessionRow {
   selectedDriverId?: string | null
   /** Concrete per-session driver preference, preserved independently of fallback. */
   requestedDriverId?: string | null
+  boundDriverId?: string | null
   /** Did this launch EVER have a native conversation — see {@link ConversationBinding}.
    *  Absent/null = the row predates the fact and makes no claim either way. */
   conversationBinding?: ConversationBinding | null

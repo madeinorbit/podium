@@ -10,7 +10,6 @@ import type {
   UserId,
   WorkState,
 } from '@podium/model'
-import { isIssueMember, isMemberCwd } from '../../issue-util'
 import type { SessionRecordReads } from './records'
 import { Session, type SessionDurableFields } from './session'
 import { isRunningStatus, type SessionIdentity, type SessionRecord } from './session-record'
@@ -252,46 +251,14 @@ export class SessionFactsReader {
     return this.records
   }
 
-  /** Every session in the registry, in insertion order. */
+  /**
+   * Every RESIDENT session's facts, in insertion order: the running ones and
+   * those in use (POD-6160). Its last caller (the issue deck) waits for the
+   * operator's decision to read `readAll()` instead.
+   */
   all(): SessionFacts[] {
     const out: SessionFacts[] = []
     for (const session of this.sessions.values()) out.push(sessionFactsOf(session))
-    return out
-  }
-
-  byId(sessionId: SessionId): SessionFacts | undefined {
-    const session = this.sessions.get(sessionId)
-    return session ? sessionFactsOf(session) : undefined
-  }
-
-  /** The member sessions of ONE issue — explicit `issueId` wins, else cwd
-   *  containment in the issue's worktree. */
-  byIssue(worktreePath: string | null, issueId: IssueId | undefined): SessionFacts[] {
-    const out: SessionFacts[] = []
-    for (const session of this.sessions.values()) {
-      if (isIssueMember(worktreePath, issueId, session)) out.push(sessionFactsOf(session))
-    }
-    return out
-  }
-
-  /** Every session whose cwd sits inside `worktreePath`, WHATEVER issue it is
-   *  attached to. That difference from {@link byIssue} is load-bearing: the free
-   *  and GC guards must see a session that shares the path under another issue,
-   *  or they delete a worktree out from under it. */
-  byWorktree(worktreePath: string | null): SessionFacts[] {
-    if (!worktreePath) return []
-    const out: SessionFacts[] = []
-    for (const session of this.sessions.values()) {
-      if (isMemberCwd(worktreePath, session.cwd)) out.push(sessionFactsOf(session))
-    }
-    return out
-  }
-
-  byMachine(machineId: MachineId): SessionFacts[] {
-    const out: SessionFacts[] = []
-    for (const session of this.sessions.values()) {
-      if (session.machineId === machineId) out.push(sessionFactsOf(session))
-    }
     return out
   }
 }

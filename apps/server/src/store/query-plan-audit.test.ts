@@ -152,6 +152,7 @@ const FAMILY_SHAPES: ReadonlyMap<string, readonly (string | number)[]> = new Map
   ['apps/server/src/store/conversations/registry.ts:podiumIdsOfSegments', SIZES],
   ['apps/server/src/store/sessions.ts:liveSessionsOfStatuses', SIZES],
   ['apps/server/src/store/sessions.ts:liveSessionsOfBirthLetter', SIZES],
+  ['apps/server/src/store/sessions.ts:liveSessionsReferencingIssues', SIZES],
   ['apps/server/src/store/sessions.ts:liveSessionsSpawnedBy', SIZES],
   ['apps/server/src/store/sessions.ts:readAtOfUserSessions', SIZES],
   ['apps/server/src/store/sessions.ts:snoozesOfUserSessions', SIZES],
@@ -543,7 +544,7 @@ const WHOLE_TABLE_READS: ReadonlyMap<string, string> = new Map([
   ],
   [
     'apps/server/src/store/sessions.ts:liveSessions',
-    'Whole-table read (POD-6172): boot load of the session map.',
+    'Whole-table read (POD-6172): the full session listing (sessions.list, the list tool). Boot no longer reads it (POD-6160).',
   ],
   [
     'apps/server/src/store/sessions.ts:deletedSessions',

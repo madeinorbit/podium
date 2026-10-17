@@ -149,7 +149,9 @@ export class SessionResidency {
   }
 
   private async load(sessionId: SessionId, reason: ResidencyReason): Promise<Session | undefined> {
-    const row = await this.ports.store.sessions.getSession(sessionId)
+    // Through the operation's loader: the access check that let this operation
+    // in has usually read the row already.
+    const row = await this.ports.store.sessions.loadSession(sessionId)
     // Resident wins: it became resident while the row was read.
     const raced = this.ports.sessions.get(sessionId)
     if (raced) return raced
@@ -200,7 +202,10 @@ export class SessionResidency {
   residentBecause(sessionId: SessionId): 'running' | 'leased' | 'loading' | 'viewed' | 'work' | 'unsettled' | undefined {
     const session = this.ports.sessions.get(sessionId)
     if (!session) return undefined
-    if (isRunningStatus(session.status)) return 'running'
+    // A headless session is driven turn by turn for as long as its row exists,
+    // and a failed establish (status exited) is retried on machine attach: it
+    // never leaves memory by eviction.
+    if (isRunningStatus(session.status) || session.headless) return 'running'
     if (this.leased(sessionId)) return 'leased'
     if (this.loading.has(sessionId)) return 'loading'
     if (this.ports.viewed(sessionId)) return 'viewed'

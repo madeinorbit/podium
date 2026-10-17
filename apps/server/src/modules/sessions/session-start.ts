@@ -130,7 +130,8 @@ export interface SessionStartPorts {
   /** Narrow session-registry access. Deliberately not the raw Map: this module
    *  needs exactly these three operations, and widening the shared map's reach
    *  is the coupling POD-1396's first cut existed to remove. */
-  hasSession(sessionId: SessionId): boolean
+  /** A session with this id exists, running or parked (POD-6160: from its row). */
+  hasSession(sessionId: SessionId): boolean | Promise<boolean>
   registerSession(session: Session): void
   sessionMachineId(sessionId: SessionId): string | undefined
   defaultMachine(): Promise<MachineId>
@@ -503,7 +504,7 @@ export class SessionStart {
     // A server-minted uuid was unique by construction; a client-supplied id is
     // not. Reject a collision rather than let the registry overwrite the live
     // Session (orphaning its PTY/daemon binding) or re-fire a spawn.
-    if (input.sessionId && this.ports.hasSession(input.sessionId)) {
+    if (input.sessionId && (await this.ports.hasSession(input.sessionId))) {
       throw new Error(`refusing to reuse an existing session id: ${input.sessionId}`)
     }
     const sessionId = input.sessionId ?? asSessionId(randomUUID())

@@ -214,6 +214,9 @@ describe('stopSession [spec:SP-9904]', () => {
       type: 'agentState', sessionId,
       state: { phase: 'working', since: '2026-09-30T01:40:00.000Z', nativeSubagentCount: 0 },
     })
+    // A legacy (unfenced) turn state lives on the resident session only; keep it
+    // resident past the stop so the rejected event is judged against it.
+    await reg.modules.sessions.residency.acquire(sessionId, 'test')
     const events = reg.sessionStore.events
     const read = events.runtimeEventCheckpoint.bind(events)
     let entered!: () => void

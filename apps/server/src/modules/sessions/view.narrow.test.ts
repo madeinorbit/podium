@@ -384,8 +384,11 @@ describe('the full projection is unreachable from internal code [POD-3857]', () 
 })
 
 describe('SessionFactsReader [POD-3857]', () => {
-  const readerOver = (sessions: Session[]) =>
-    new SessionFactsReader(new Map(sessions.map((row) => [row.sessionId, row])))
+  const readerOver = (sessions: Session[]) => {
+    const map = new Map(sessions.map((row) => [row.sessionId, row]))
+    return new SessionFactsReader(map, residentRecords(map))
+  }
+  const byId = async (reader: SessionFactsReader, id: string) => (await reader.readByIds([asSessionId(id)]))[0]
 
   it('reads the database only through the records it is handed (POD-6160)', async () => {
     // The cost guarantee is structural, and this is where it is stated: the
@@ -400,9 +403,6 @@ describe('SessionFactsReader [POD-3857]', () => {
     const sessions = new Map(CORPUS().map((row) => [row.sessionId, row]))
     const reader = new SessionFactsReader(sessions, residentRecords(sessions))
     expect((await reader.readAll()).map((f) => f.sessionId)).toEqual(reader.all().map((f) => f.sessionId))
-    expect(await reader.readByIssue(WORKTREE, asIssueId(ISSUE))).toEqual(reader.byIssue(WORKTREE, asIssueId(ISSUE)))
-    expect(await reader.readByWorktree(WORKTREE)).toEqual(reader.byWorktree(WORKTREE))
-    expect(await reader.readByMachine(MACHINE)).toEqual(reader.byMachine(MACHINE))
   })
 
   it('reads the running sessions off the map, synchronously', () => {
@@ -420,7 +420,7 @@ describe('SessionFactsReader [POD-3857]', () => {
     ])
   })
 
-  it('answers every read from the map alone', () => {
+  it('answers every read from the records it is handed', async () => {
     const reader = readerOver(CORPUS())
     expect(reader.all().map((f) => f.sessionId)).toEqual([
       'mine-explicit',
@@ -430,8 +430,8 @@ describe('SessionFactsReader [POD-3857]', () => {
       'sibling-prefix',
       'unrelated',
     ])
-    expect(reader.byId(asSessionId('mine-by-cwd'))?.cwd).toBe(`${WORKTREE}/pkg`)
-    expect(reader.byId(asSessionId('ghost'))).toBeUndefined()
+    expect((await byId(reader, 'mine-by-cwd'))?.cwd).toBe(`${WORKTREE}/pkg`)
+    expect(await byId(reader, 'ghost')).toBeUndefined()
   })
 
   it('the service facade never invokes the view', () => {
@@ -449,16 +449,12 @@ describe('SessionFactsReader [POD-3857]', () => {
     )
     const facts = lifecycle.sessionFacts()
     expect(facts.map((f) => f.sessionId)).toContain('mine-explicit')
-    expect(lifecycle.sessionFactsById(asSessionId('mine-by-cwd'))?.cwd).toBe(`${WORKTREE}/pkg`)
-    expect(lifecycle.sessionFactsByIssue(WORKTREE, asIssueId(ISSUE)).length).toBeGreaterThan(0)
-    expect(lifecycle.sessionFactsByWorktree(WORKTREE).length).toBeGreaterThan(0)
-    expect(lifecycle.sessionFactsByMachine(MACHINE).length).toBeGreaterThan(0)
     expect(wire).not.toHaveBeenCalled()
     expect(list).not.toHaveBeenCalled()
   })
 
-  it('carries the fields the internal callers decide on', () => {
-    const facts = readerOver(CORPUS()).byId(asSessionId('mine-explicit'))!
+  it('carries the fields the internal callers decide on', async () => {
+    const facts = (await byId(readerOver(CORPUS()), 'mine-explicit'))!
     expect(facts).toMatchObject({
       sessionId: 'mine-explicit',
       issueId: asIssueId(ISSUE),
@@ -471,8 +467,8 @@ describe('SessionFactsReader [POD-3857]', () => {
     })
   })
 
-  it('carries NO field the projection has to compute', () => {
-    const facts = readerOver(CORPUS()).byId(asSessionId('mine-explicit'))!
+  it('carries NO field the projection has to compute', async () => {
+    const facts = (await byId(readerOver(CORPUS()), 'mine-explicit'))!
     // Each of these costs a read the facts path must never make: a repo prefix
     // and issue row (displayRef), the machines service (machineName), the
     // harness login probe (condition), the reader's own overlay (unread /
@@ -494,34 +490,34 @@ describe('SessionFactsReader [POD-3857]', () => {
       const corpus = CORPUS()
       const { view } = viewOver(corpus)
       const wired = await view.listForIssue(WORKTREE, asIssueId(ISSUE), PRINCIPAL)
-      expect(readerOver(corpus).byIssue(WORKTREE, asIssueId(ISSUE)).map((f) => f.sessionId)).toEqual(
+      expect((await readerOver(corpus).readByIssue(WORKTREE, asIssueId(ISSUE))).map((f) => f.sessionId)).toEqual(
         wired.map((s) => s.sessionId),
       )
     })
 
-    it('byWorktree is DELIBERATELY wider than byIssue', () => {
+    it('byWorktree is DELIBERATELY wider than byIssue', async () => {
       const reader = readerOver(CORPUS())
       // `other-issue-same-path` lives in the worktree under a different issue.
       // The free / GC guards must see it or they delete a path still in use;
       // membership must not, or the issue claims a session that is not its own.
-      expect(reader.byWorktree(WORKTREE).map((f) => f.sessionId)).toContain(
+      expect((await reader.readByWorktree(WORKTREE)).map((f) => f.sessionId)).toContain(
         'other-issue-same-path',
       )
-      expect(reader.byIssue(WORKTREE, asIssueId(ISSUE)).map((f) => f.sessionId)).not.toContain(
+      expect((await reader.readByIssue(WORKTREE, asIssueId(ISSUE))).map((f) => f.sessionId)).not.toContain(
         'other-issue-same-path',
       )
       // ...and the near-miss sibling path is in neither.
-      expect(reader.byWorktree(WORKTREE).map((f) => f.sessionId)).not.toContain('sibling-prefix')
+      expect((await reader.readByWorktree(WORKTREE)).map((f) => f.sessionId)).not.toContain('sibling-prefix')
     })
 
-    it('byWorktree of no path is empty, not everything', () => {
-      expect(readerOver(CORPUS()).byWorktree(null)).toEqual([])
+    it('byWorktree of no path is empty, not everything', async () => {
+      expect(await readerOver(CORPUS()).readByWorktree(null)).toEqual([])
     })
 
-    it('byMachine partitions the fleet', () => {
+    it('byMachine partitions the fleet', async () => {
       const corpus = CORPUS()
-      expect(readerOver(corpus).byMachine(MACHINE)).toHaveLength(corpus.length)
-      expect(readerOver(corpus).byMachine(asMachineId('m2'))).toEqual([])
+      expect(await readerOver(corpus).readByMachine(MACHINE)).toHaveLength(corpus.length)
+      expect(await readerOver(corpus).readByMachine(asMachineId('m2'))).toEqual([])
     })
   })
 })

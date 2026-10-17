@@ -15,6 +15,7 @@ import type {
 import type { ControlMessage } from '@podium/protocol/daemon'
 import type { AutoContinueController } from '../../auto-continue'
 import type { BrowserOpenGateway } from '../../gateway/browser-open'
+import type { SessionRecordReads } from './records'
 import type { SessionsDaemonFrame } from '../../gateway/daemon-frame-routing'
 import { harnessObservationProvider } from '../../harness-manifest'
 import type { ObservationLeaseRecord, DaemonObservationStore, TerminalCandidateFacts } from '../../hot-path-ports'
@@ -29,6 +30,8 @@ const log = createLogger('server:sessions')
 
 export interface SessionDaemonLifecyclePorts {
   sessions: Map<SessionId, Session>
+  /** Sessions read by a durable key, parked ones from the database (POD-6160). */
+  records?: Pick<SessionRecordReads, 'withResume'>
   bus: EventBus
   browserOpen: BrowserOpenGateway
   autoContinue: AutoContinueController
@@ -465,6 +468,10 @@ export class SessionDaemonLifecycle {
           // above remain transient; durable fields are installed from the draft.
           await this.write(s, (draft) => {
             if (msg.driverId) draft.selectedDriverId = msg.driverId
+            // The measured binding, durably (POD-6160 D2g): what the revive of
+            // a parked-but-alive row decides on once `driverId` is gone. Like
+            // `driverId`, a bind that names none clears it.
+            draft.boundDriverId = msg.driverId
             // Preserve the first requested driver across reconnects.
             if (msg.requestedDriverId && !draft.requestedDriverId)
               draft.requestedDriverId = msg.requestedDriverId
@@ -600,14 +607,13 @@ export class SessionDaemonLifecycle {
         const explicitlyExpectedTarget =
           session.resume?.kind === msg.resumeKind &&
           session.resume.value === msg.nextProviderSessionId
+        // Any other session bound to the target thread, parked ones included.
+        const target = { kind: msg.resumeKind, value: msg.nextProviderSessionId }
+        const others = this.ports.records
+          ? await this.ports.records.withResume(target, 'observationRebind')
+          : [...this.sessions.values()].filter((s) => s.resume?.kind === target.kind && s.resume.value === target.value)
         const targetOwnedByAnotherSession =
-          !explicitlyExpectedTarget &&
-          [...this.sessions.values()].some(
-            (other) =>
-              other.sessionId !== session.sessionId &&
-              other.resume?.kind === msg.resumeKind &&
-              other.resume.value === msg.nextProviderSessionId,
-          )
+          !explicitlyExpectedTarget && others.some((other) => other.sessionId !== session.sessionId)
         if (
           !lease ||
           expectedProvider !== msg.provider ||

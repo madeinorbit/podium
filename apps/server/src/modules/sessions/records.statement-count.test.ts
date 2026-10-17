@@ -62,6 +62,7 @@ async function fixture(size: number): Promise<Fixture> {
         issueId: i % 5 === 0 ? ISSUE : null,
         stoppedAt: null,
         spawnedBy: i > 0 && i % 2 === 0 ? `session:${PARENT}` : null,
+        ...(i % 5 === 1 ? { refIssueId: ISSUE, refLetter: `L${i}` } : {}),
       } as never)
     }
   })
@@ -94,7 +95,6 @@ async function fixture(size: number): Promise<Fixture> {
   const records = new SessionRecords({
     store,
     sessions: new Map<SessionId, Session>(),
-    settled: () => true,
   })
   return { store, records, ids }
 }
@@ -168,6 +168,27 @@ describe('durable session records: constant statements', () => {
         teardown: async (f) => await f.store.close(),
       },
       1,
+    )
+  })
+
+  it("reads a conversation's sessions in a fixed number of statements (D2g)", async () => {
+    await expectConstantStatements(
+      pin('records.withResume', (f) => f.records.withResume({ kind: 'claude', value: 'conv-1' }, 'pin'), () => 1),
+      7,
+    )
+  })
+
+  it('reads the sessions whose birth ref names an issue in a fixed number of statements (D2g)', async () => {
+    await expectConstantStatements(
+      pin('records.referencingIssues', (f) => f.records.referencingIssues([ISSUE], 'pin'), () => 1),
+      7,
+    )
+  })
+
+  it('reads a page of the live sessions in a fixed number of statements (D2g)', async () => {
+    await expectConstantStatements(
+      pin('records.page', async (f) => (await f.records.page('', 100)).subjects, (size) => Math.min(size, 100)),
+      7,
     )
   })
 

@@ -151,6 +151,7 @@ export function durableStateFromInit(init: StoredSessionInit): SessionDurableSta
   return {
     selectedDriverId: init.selectedDriverId,
     requestedDriverId: init.requestedDriverId,
+    boundDriverId: init.boundDriverId,
     cwd: init.cwd,
     issueId: init.issueId,
     refIssueId: init.refIssueId ?? null,
@@ -337,6 +338,7 @@ export function storedSessionInit(
      */
     ...(r.selectedDriverId ? { selectedDriverId: r.selectedDriverId } : {}),
     ...(r.requestedDriverId ? { requestedDriverId: r.requestedDriverId } : {}),
+    ...(r.boundDriverId ? { boundDriverId: r.boundDriverId } : {}),
     // Passed through, never defaulted: a row from before this column exists
     // makes no claim about whether its launch ever had a conversation, and
     // inventing `'never'` for it would authorize discarding one.

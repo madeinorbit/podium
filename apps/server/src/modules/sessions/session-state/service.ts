@@ -41,6 +41,7 @@ import {
   type SessionId,
   type SessionUserOverlay,
   sessionUserStateRowId,
+  type IssueId,
   type UserId,
   type WorkState,
 } from '@podium/model'
@@ -106,6 +107,20 @@ export interface SessionOwnerMemo {
   issues: Map<string, IssueRow | null>
   /** Grantee lists by `${resourceKind}:${resourceId}`. */
   grants: Map<string, string[]>
+  /**
+   * Who owns each session of the pass and which issue it is on (POD-6160): the
+   * candidates a projection already read (a parked session's record carries
+   * both), and the rows `primeOwnerMemo` reads in one batch for the rest, so a
+   * session that is not in memory is not read again per check. `null` records
+   * a LOOKED-UP-AND-ABSENT id. Optional: a single-session check reads its row.
+   */
+  sessions?: Map<SessionId, SessionOwnerFacts | null>
+}
+
+/** The ownership fields a visibility check reads off a session. */
+export interface SessionOwnerFacts {
+  ownerUserId?: UserId | null | undefined
+  issueId?: IssueId | null | undefined
 }
 
 export interface SessionStatePorts {
@@ -574,9 +589,11 @@ export class SessionStateService {
     const panelVisible = await Promise.all(
       rows.panels.map(async (id) => {
         const sessionId = id as SessionId
-        return (
-          !this.ports.getSession(sessionId) || (await this.canReadSession(principal, sessionId))
-        )
+        // Not a session (another panel kind) or one that no longer exists: left
+        // alone. A session, running or parked, obeys visibility (POD-6160: a
+        // parked one is not in memory, so ask its owner, read from its row).
+        if (!(await this.ports.sessionOwner({ sessionId }))) return true
+        return await this.canReadSession(principal, sessionId)
       }),
     )
     return {

@@ -610,7 +610,7 @@ if (process.env.PODIUM_E2E_QUEUE_POSITION === '1') {
     await server.registry.modules.sessions.renameSession({ sessionId, name: subject.label })
     let live = false
     for (let attempt = 0; attempt < 80 && !live; attempt++) {
-      live = server.registry.modules.sessions.sessionFactsById(sessionId)?.status === 'live'
+      live = server.registry.modules.sessions.sessions.get(sessionId)?.status === 'live'
       if (!live) await new Promise((resolve) => setTimeout(resolve, 250))
     }
     if (!live) {
@@ -626,7 +626,7 @@ if (process.env.PODIUM_E2E_QUEUE_POSITION === '1') {
       },
     })
     setTimeout(() => {
-      if (server.registry.modules.sessions.sessionFactsById(sessionId)?.status !== 'live') return
+      if (server.registry.modules.sessions.sessions.get(sessionId)?.status !== 'live') return
       void server.registry.modules.sessions.onSessionDaemonFrame(principal, {
         type: 'agentState',
         sessionId,
@@ -782,7 +782,7 @@ if (process.env.PODIUM_E2E_TERMINAL_SIZING === '1') {
   // correctly overwritten. Wait for the session to go live, then report.
   let live = false
   for (let attempt = 0; attempt < 80 && !live; attempt++) {
-    live = server.registry.modules.sessions.sessionFactsById(sessionId)?.status === 'live'
+    live = server.registry.modules.sessions.sessions.get(sessionId)?.status === 'live'
     if (!live) await new Promise((resolve) => setTimeout(resolve, 250))
   }
   if (!live) throw new Error('PODIUM_E2E_TERMINAL_SIZING: the session never became live')
@@ -888,7 +888,7 @@ if (process.env.PODIUM_E2E_TRANSCRIPT_INCARNATION === '1') {
   })
   let live = false
   for (let attempt = 0; attempt < 80 && !live; attempt++) {
-    live = server.registry.modules.sessions.sessionFactsById(sessionId)?.status === 'live'
+    live = server.registry.modules.sessions.sessions.get(sessionId)?.status === 'live'
     if (!live) await new Promise((resolve) => setTimeout(resolve, 250))
   }
   if (!live) {
@@ -1040,8 +1040,9 @@ if (process.env.PODIUM_E2E_SESSION_ATTRIBUTION === '1') {
   // What IS observable is whether the child survived, so that is what is waited
   // on and retried. Casualties are archived rather than left on screen: a dead
   // row from a lost race is not a fixture the spec should have to reason about.
-  const statusOf = (id: SessionId): string | undefined =>
-    server.registry.modules.sessions.sessionFactsById(id)?.status
+  // From the database where the session is not in memory (an exited one).
+  const statusOf = async (id: SessionId): Promise<string | undefined> =>
+    (await server.registry.modules.sessions.readSessionFactsById(id))?.status
   let childId: SessionId | undefined
   for (let attempt = 0; attempt < 30 && childId === undefined; attempt++) {
     const candidate = (
@@ -1054,10 +1055,10 @@ if (process.env.PODIUM_E2E_SESSION_ATTRIBUTION === '1') {
       })
     ).sessionId
     // Give the daemon a moment to accept or reject the transition.
-    for (let settle = 0; settle < 12 && statusOf(candidate) !== 'exited'; settle++) {
+    for (let settle = 0; settle < 12 && (await statusOf(candidate)) !== 'exited'; settle++) {
       await new Promise((resolve) => setTimeout(resolve, 250))
     }
-    if (statusOf(candidate) === 'exited') {
+    if ((await statusOf(candidate)) === 'exited') {
       await server.registry.modules.sessions.setArchived({ sessionId: candidate, archived: true })
       continue
     }

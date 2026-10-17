@@ -158,7 +158,8 @@ describe('async offer persistence', () => {
     await store.sessions.upsertSession(session.toRow())
     await store.sessions.setOffer(sessionId, offer)
     await store.sessions.softDeleteForIssue([sessionId], issueId, stamp)
-    const listOffers = vi.spyOn(store.sessions, 'listOffers')
+    // The offers of the restored sessions only (POD-6160), in one read.
+    const listOffers = vi.spyOn(store.sessions, 'offersOf')
     const plan = await ops.prepareIssueSessionRestore(issueId)
     expect(plan.sessionIds).toEqual([sessionId])
     expect(plan.restoredSessions[0]?.sessionId).toBe(sessionId)

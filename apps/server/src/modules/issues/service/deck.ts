@@ -59,7 +59,9 @@ export async function readDeck(
   // Mission membership uses explicit issueId (including historical senders),
   // not cwd containment. Project only candidates; unreadable sessions can
   // neither appear in a seat nor supply a provenance graft.
-  const facts = store.deps.sessionFacts()
+  // Every session, parked ones read from the database (POD-6160: the map holds
+  // only running sessions, so the resident facts would drop parked seats).
+  const facts = await store.deps.readSessionFacts()
   const factsById = new Map(facts.map((s) => [s.sessionId, s]))
   const resumeTwins = new Map<string, SessionId[]>()
   for (const s of facts) {

@@ -4250,10 +4250,10 @@ describe('hibernation', () => {
       resume: { kind: 'codex-thread', value: '019fff94-7326-7032-b90b-3cc7e1805182' },
     })
     expect(await reg.modules.sessions.hibernateSession({ sessionId })).toEqual({ ok: true })
-    // Simulate the redeployed shape for the guard too: driverId is transient,
-    // and the census-vs-receipt split must not depend on it surviving.
-    // biome-ignore lint/suspicious/noExplicitAny: reach the live session to model the post-redeploy row
-    ;(reg as any).modules.sessions.sessions.get(sessionId).driverId = undefined
+    // The redeployed shape for the guard too: no live handle (the parked
+    // session has left memory) and no bound driver (the bind named none), so
+    // the census-vs-receipt split cannot depend on a driver id (POD-6160).
+    expect(reg.modules.sessions.sessions.has(sessionId)).toBe(false)
 
     daemon.length = 0
     await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
@@ -4385,9 +4385,10 @@ describe('hibernation', () => {
       '019fff94-7326-7032-b90b-3cc7e1805191',
     )
 
-    // The redeploy: a new server over the same store. `driverId` never
-    // persisted, so the unknown id is gone and only the resume kind is left —
-    // the two facts have to compose, not mask each other.
+    // The redeploy: a new server over the same store. The live handle is gone;
+    // the row's bound driver id (POD-6160) still names the unknown driver, and
+    // the resume kind answers for a row bound before that column — the two
+    // facts have to compose, not mask each other.
     const reg2 = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const daemon2: ControlMessage[] = []
     await attachHostDaemon(reg2, (m) => daemon2.push(m))
@@ -4424,6 +4425,59 @@ describe('hibernation', () => {
     )
     expect(daemon.map((m) => m.type)).toContain('reattach')
   })
+
+  // POD-6160 D2g: the hold/revive decision must not depend on residency. A
+  // parked session leaves memory, and a restart drops every live handle; the
+  // row's bound driver id answers both times, as the live handle did.
+  for (const { name, agentKind, driverId, resume, label, status, reattach } of [
+    { name: 'an EMBEDDED driver is held', agentKind: 'claude-code' as const, driverId: 'claude-sdk', resume: { kind: 'claude-session', value: 'emb-1' }, label: (id: SessionId) => `podium-${id}`, status: 'hibernated', reattach: false },
+    { name: 'a TERMINAL driver is revived', agentKind: 'codex' as const, driverId: 'generic-pty', resume: { kind: 'codex-thread', value: '019fff94-7326-7032-b90b-3cc7e1805193' }, label: (id: SessionId) => `podium-${id}`, status: 'reconnecting', reattach: true },
+  ]) {
+    it(`${name} out of memory and after a restart, as while resident [POD-6160]`, async () => {
+      const park = async (reg: SessionRegistry): Promise<SessionId> => {
+        const { sessionId } = await reg.modules.sessions.createSession({ agentKind, cwd: '/w' })
+        await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+          ...bind(sessionId),
+          cmd: agentKind,
+          agentKind,
+          driverId,
+        })
+        await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, { type: 'sessionResumeRef', sessionId, resume })
+        expect(await reg.modules.sessions.hibernateSession({ sessionId })).toEqual({ ok: true })
+        await reg.modules.sessions.flushActivity()
+        expect((await reg.sessionStore.sessions.getSession(sessionId))?.boundDriverId).toBe(driverId)
+        return sessionId
+      }
+      const outcome = async (reg: SessionRegistry, sessionId: SessionId) => {
+        const daemon: ControlMessage[] = []
+        await attachHostDaemon(reg, (m) => daemon.push(m))
+        daemon.length = 0
+        await unconfirmedKill(reg, sessionId, label(sessionId))
+        return {
+          status: (await reg.modules.sessions.sessionById(sessionId))?.status,
+          reattach: daemon.map((m) => m.type).includes('reattach'),
+        }
+      }
+
+      // Out of memory: the parked session left the map with its live handle.
+      const reg = await SessionRegistry.create(await openTestStore(':memory:', TEST_MACHINE), undefined, { instanceId: 'default' })
+      await attachHostDaemon(reg)
+      const evicted = await park(reg)
+      expect(reg.modules.sessions.sessions.has(evicted)).toBe(false)
+      expect(await outcome(reg, evicted)).toEqual({ status, reattach })
+      await reg.dispose()
+
+      // After a restart over the same store.
+      const store = await openTestStore(':memory:', TEST_MACHINE)
+      const before = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
+      await attachHostDaemon(before)
+      const restarted = await park(before)
+      await before.dispose()
+      const after = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
+      expect(await outcome(after, restarted)).toEqual({ status, reattach })
+      await after.dispose()
+    })
+  }
 
   it('leaves a parked row alone when the daemon confirms the kill', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })

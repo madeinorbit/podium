@@ -35,6 +35,8 @@ export interface SessionClientControlPorts {
    * fixtures whose map is all there is.
    */
   residency?: Pick<SessionResidency, 'acquire' | 'release' | 'tryEvict'>
+  /** A restored parked session's transcript, replayed before a viewer sees it. */
+  ensureTranscript?(session: Session): Promise<void>
   state: SessionStateService
   inbox: SessionInbox
   machinesForPrincipal(principal: ClientPrincipal): Promise<MachineListing[]>
@@ -155,6 +157,9 @@ export class SessionClientControl {
   ): Promise<void> {
     const leased = HOLDING_FRAMES.has(message.type) ? (message as { sessionId?: SessionId }).sessionId : undefined
     const held = leased && this.ports.residency ? await this.ports.residency.acquire(leased, `client.${message.type}`) : undefined
+    if (held && (message.type === 'attach' || message.type === 'transcriptSubscribe')) {
+      await this.ports.ensureTranscript?.(held)
+    }
     try {
       await this.handleFrame(principal, client, message)
     } finally {

@@ -5,6 +5,7 @@
  * Dispose: none.
  */
 
+import type { SessionRecordReads } from './records'
 import type {
   Attribution,
   IssueId,
@@ -33,6 +34,8 @@ import type { SessionStateRegistry } from './session-state/registry'
 
 export interface SessionMetaOpsPorts {
   broadcastSessions(): void
+  /** An issue's member sessions, parked ones read from the database (POD-6160). */
+  records?: Pick<SessionRecordReads, 'issueMembers'>
   funnel: Pick<WriteFunnel, 'run'>
   now(): number
   prepareSessionRuntimeRemoval: SessionKill['prepareSessionRuntimeRemoval']
@@ -445,10 +448,10 @@ export class SessionMetaOps {
   }
 
   async prepareIssueSessionDelete(issueId: IssueId, worktreePath: string | null): Promise<SessionDeletePlan> {
-    const localMetas = await Promise.all([...this.ports.sessions.values()].map(async (s) =>
-      s.toMeta(),
-    ))
-    const sessionIds = sessionsForIssue(worktreePath, localMetas, issueId).map((s) => s.sessionId)
+    // Every member, parked ones included: each is tombstoned, failed and killed.
+    const sessionIds = this.ports.records
+      ? (await this.ports.records.issueMembers(worktreePath, issueId, 'prepareIssueSessionDelete')).map((s) => s.sessionId)
+      : sessionsForIssue(worktreePath, [...this.ports.sessions.values()].map((s) => s.toMeta()), issueId).map((s) => s.sessionId)
     const deletedAt = new Date(this.ports.now()).toISOString()
     const removals: (() => void)[] = []
     for (const sessionId of sessionIds)
@@ -484,7 +487,7 @@ export class SessionMetaOps {
     // Read before apply because that post-commit closure must remain synchronous.
     // The commit cannot change this answer: restoreDeletedForIssue updates only
     // the sessions table, and loadFromStore does not touch offers.
-    const offers = await this.ports.store.sessions.listOffers()
+    const offers = await this.ports.store.sessions.offersOf(restored.map(({ session }) => session.sessionId))
     const installDrafts = await this.ports.state.prepareStoredDrafts(restored.map(({ session }) => session.sessionId))
     const installs: Awaited<ReturnType<SessionRepository['prepareStoredSessionInstall']>>[] = []
     for (const { session } of restored) installs.push(await this.ports.repository.prepareStoredSessionInstall(session, offers))
