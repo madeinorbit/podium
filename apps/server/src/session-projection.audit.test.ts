@@ -42,10 +42,17 @@ import { describe, expect, it } from 'vitest'
 
 const SRC = join(__dirname)
 
+/**
+ * Production source only: test files and `test-support/`, the helpers only
+ * tests import (a fixture that wires a whole list to assert on it is not a
+ * production caller of the pass this audit guards).
+ */
+const TEST_ONLY_DIRS = new Set(['node_modules', 'test-support'])
+
 const walk = (dir: string): string[] =>
   readdirSync(dir).flatMap((name) => {
     const path = join(dir, name)
-    if (statSync(path).isDirectory()) return name === 'node_modules' ? [] : walk(path)
+    if (statSync(path).isDirectory()) return TEST_ONLY_DIRS.has(name) ? [] : walk(path)
     return path.endsWith('.ts') && !path.endsWith('.test.ts') ? [path] : []
   })
 
