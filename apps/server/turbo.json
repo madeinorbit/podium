@@ -674,6 +674,7 @@
         "src/modules/sessions/activity-history.test.ts",
         "src/modules/sessions/activity-history.ts",
         "src/modules/sessions/binding-mint.ts",
+        "src/modules/sessions/board-projection.statement-count.test.ts",
         "src/modules/sessions/client-control.ts",
         "src/modules/sessions/command-ctx.ts",
         "src/modules/sessions/command-plane.ts",

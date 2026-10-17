@@ -1439,6 +1439,85 @@ describe('durable delivery outcome projection', () => {
   })
 })
 
+describe('board projection cursor writes (POD-6216)', () => {
+  const sessionId = asSessionId('board-cursor')
+  const record = (id: number): RuntimeEventLogRecord => ({
+    id,
+    sessionId,
+    event: stateEvent({ at: '2026-10-17T00:00:00.000Z', seq: id, observerGeneration: 1 }),
+  })
+  const gateOver = (log: RuntimeEventLogRecord[], options: {
+    onSave?: (id: number) => void
+    board?: RuntimeEventGatePorts['board']
+  } = {}) => {
+    const saves: number[] = []
+    const lists: number[] = []
+    let cursor = 0
+    const gate: RuntimeEventGate = new RuntimeEventGate({
+      events: {
+        runtimeEventProjectionCursor: async () => cursor,
+        saveRuntimeEventProjectionCursor: async (_projector: string, id: number) => {
+          saves.push(id)
+          cursor = id
+          options.onSave?.(id)
+        },
+        listRuntimeEventsAfter: async (after: number, limit: number) => {
+          lists.push(after)
+          return log.filter((each) => each.id > after).slice(0, limit)
+        },
+      } as unknown as RuntimeEventGatePorts['events'],
+      session: () => undefined, persist: async () => {}, write: async () => {},
+      board: options.board ?? (async () => {}), now: () => 0, delivery: async () => {},
+    })
+    return { gate, saves, lists, cursor: () => cursor }
+  }
+
+  it('writes the cursor once per batch, and ends on a short batch without an empty list call', async () => {
+    const log = Array.from({ length: 300 }, (_, index) => record(index + 1))
+    const { gate, saves, lists } = gateOver(log)
+    await gate.replayBoardProjection()
+    expect(saves).toEqual([128, 256, 300])
+    expect(lists).toEqual([0, 128, 256])
+  })
+
+  it('writes the cursor through the last resolved record when a later effect fails', async () => {
+    const closing = (id: number): RuntimeEventLogRecord => ({
+      id,
+      sessionId,
+      event: turnEvent({ at: '2026-10-17T00:00:00.000Z', seq: id, turnEpoch: 1, ev: 'completed' }),
+    })
+    let fail = true
+    const { gate, saves, cursor } = gateOver([record(1), record(2), closing(3), record(4)], {
+      board: async () => {
+        if (fail) throw new Error('board unavailable')
+      },
+    })
+    await expect(gate.replayBoardProjection()).rejects.toThrow('board unavailable')
+    expect(saves).toEqual([2])
+    fail = false
+    await gate.replayBoardProjection()
+    expect(cursor()).toBe(4)
+  })
+
+  it('drains a delivery that lands while the run writes the cursor', async () => {
+    // The run's cursor write yields after its last drain found nothing more. A
+    // delivery there joins the same run, so the run must drain again before it
+    // ends, or the event waits for the next delivery.
+    const log = [record(1)]
+    let late: Promise<void> | undefined
+    const harness = gateOver(log, {
+      onSave: (id) => {
+        if (id !== 1) return
+        log.push(record(2))
+        late = harness.gate.replayBoardProjection()
+      },
+    })
+    await harness.gate.replayBoardProjection()
+    expect(harness.saves).toEqual([1, 2])
+    await late
+  })
+})
+
 describe('a delivery report is a fact about one message (POD-4796)', () => {
   // The daemon replays the reports its fsynced outbox still holds after a link
   // cut or a restart, stamped with the generation, cursor and turn epoch they
