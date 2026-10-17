@@ -82,7 +82,11 @@ type VisibilityRequest = {
   readonly issues: Map<string, IssueRow | null>
   /** Per-request memo of the grant edges used by the owner-or-grant rule. */
   readonly grants: Map<string, string[]>
+  /** Per-request memo of each native conversation's segments, by native key. */
+  readonly siblings: Map<string, readonly NativeSegment[]>
 }
+
+type NativeSegment = { machineId: MachineId; nativeId: string }
 
 const nativeKey = (machineId: MachineId, nativeId: string): string => `${machineId}\0${nativeId}`
 
@@ -113,6 +117,7 @@ const visibilityRequestFor = (sessions: readonly SessionRow[]): VisibilityReques
     sessionsByNativeKey,
     issues: new Map(),
     grants: new Map(),
+    siblings: new Map(),
   }
 }
 
@@ -165,6 +170,24 @@ export class MemoryVisibilityPolicy {
       }
     }
     return new MemoryVisibilityPolicy(this.store, request)
+  }
+
+  /**
+   * Read the segments of every native conversation a pass is about to check,
+   * in one batch (POD-6215). The check of a conversation or transcript asks for
+   * the segments of its conversation; asked per candidate, that was two
+   * statements per row of the listing. Like the issue owners above, this is
+   * BATCHING for one request, not a shared cache: the answers live in this
+   * context only, and a check inside a write span reads live.
+   */
+  async primeNativeConversations(reader: MemoryReader, refs: readonly NativeSegment[]): Promise<void> {
+    const request = this.request
+    if (!request || reader.kind === 'system' || spanOpen()) return
+    const missing = [...new Map(refs.map((ref) => [nativeKey(ref.machineId, ref.nativeId), ref]))]
+      .filter(([key]) => !request.siblings.has(key))
+    if (missing.length === 0) return
+    const found = await this.store.conversations.registry.siblingSegmentsMany(missing.map(([, ref]) => ref))
+    missing.forEach(([key], index) => request.siblings.set(key, found[index] ?? []))
   }
 
   classOf(value: string): VisibilityClass | undefined {
@@ -250,7 +273,7 @@ export class MemoryVisibilityPolicy {
     machineId: MachineId,
     nativeId: string,
   ): Promise<boolean> {
-    const siblings = await this.store.conversations.registry.siblingSegments(machineId, nativeId)
+    const siblings = await this.siblingSegments(machineId, nativeId)
     const evidence = siblings.length > 0 ? siblings : [{ machineId, nativeId }]
     const keys = new Set(evidence.map((segment) => nativeKey(segment.machineId, segment.nativeId)))
     const sessions = this.request
@@ -265,6 +288,18 @@ export class MemoryVisibilityPolicy {
       if (matches && await this.mayReadSessionRow(userId, row)) return true
     }
     return false
+  }
+
+  private async siblingSegments(machineId: MachineId, nativeId: string): Promise<readonly NativeSegment[]> {
+    if (!this.request || spanOpen()) {
+      return await this.store.conversations.registry.siblingSegments(machineId, nativeId)
+    }
+    const key = nativeKey(machineId, nativeId)
+    const held = this.request.siblings.get(key)
+    if (held) return held
+    const read = await this.store.conversations.registry.siblingSegments(machineId, nativeId)
+    this.request.siblings.set(key, read)
+    return read
   }
 
   /**

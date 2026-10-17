@@ -81,6 +81,38 @@ describe('conversation registry store', () => {
     expect(await store.conversations.registry.podiumId(asMachineId('m1'), 'roll-b')).toBe(podium)
   })
 
+  it('answers siblingSegmentsMany key by key, as siblingSegments does for one', async () => {
+    const store = await openTestStore(':memory:')
+    const registry = store.conversations.registry
+    await registry.ensure({ machineId: asMachineId('m1'), nativeId: 'a-1', providerId: 'claude-code' })
+    await registry.linkSegment({
+      machineId: asMachineId('m1'),
+      newNativeId: 'a-2',
+      priorNativeId: 'a-1',
+      providerId: 'claude-code',
+    })
+    await registry.ensure({ machineId: asMachineId('m1'), nativeId: 'b-1', providerId: 'claude-code' })
+    // The same native id on another machine is another segment.
+    await registry.ensure({ machineId: asMachineId('m2'), nativeId: 'a-1', providerId: 'claude-code' })
+    const keys = [
+      { machineId: asMachineId('m1'), nativeId: 'a-2' },
+      { machineId: asMachineId('m2'), nativeId: 'a-1' },
+      { machineId: asMachineId('m1'), nativeId: 'missing' },
+      { machineId: asMachineId('m1'), nativeId: 'b-1' },
+      { machineId: asMachineId('m1'), nativeId: 'a-1' },
+    ]
+    const many = await registry.siblingSegmentsMany(keys)
+    const one = await Promise.all(keys.map((key) => registry.siblingSegments(key.machineId, key.nativeId)))
+    expect(many).toEqual(one)
+    expect(many[0]).toEqual([
+      { machineId: 'm1', nativeId: 'a-1' },
+      { machineId: 'm1', nativeId: 'a-2' },
+    ])
+    expect(many[1]).toEqual([{ machineId: 'm2', nativeId: 'a-1' }])
+    expect(many[2]).toEqual([])
+    expect(await registry.siblingSegmentsMany([])).toEqual([])
+  })
+
   it('records and refreshes transcript-path evidence on the segment', async () => {
     const store = await openTestStore(':memory:')
     await store.conversations.registry.ensure({
