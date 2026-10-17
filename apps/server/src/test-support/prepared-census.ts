@@ -272,3 +272,75 @@ export function queryDefinitionSites(file: string, source: string): QueryDefinit
   visit(sourceFile)
   return found
 }
+
+/**
+ * THE RAW SQL CENSUS [POD-6227]: every statement handed to a database handle
+ * outside the repositories, where neither the definition census above nor the
+ * query-plan audit can see it.
+ *
+ * A raw statement is the one argument of a `.prepare(...)` call, of a `.query(...)`
+ * call whose argument is SQL text, or of the sync worker's streaming
+ * `iterate(db, sql)`. A literal (a string, or a template with no `${}`) is the
+ * statement's text, whitespace folded; anything else is recorded as the source
+ * of the expression that builds it, so a dynamic statement is censused too and
+ * has to be explained by name.
+ */
+export interface RawSqlSite {
+  readonly file: string
+  readonly line: number
+  /** The statement's text, whitespace folded, or the source of the expression that builds it. */
+  readonly sql: string
+  /** False when `sql` is an expression's source rather than the statement's text. */
+  readonly literal: boolean
+}
+
+const SQL_TEXT = /^\s*(select|insert|update|delete|replace|with|pragma|vacuum)\b/i
+
+const foldSql = (text: string): string => text.replace(/\s+/g, ' ').trim()
+
+/** The production sources the raw SQL census reads: the server and the sync package, minus tests. */
+export function rawSqlScope(paths: readonly string[]): string[] {
+  return paths.filter(
+    (path) =>
+      path.endsWith('.ts') &&
+      (path.startsWith('apps/server/src/') || path.startsWith('packages/sync/src/')) &&
+      !path.includes('.test.') &&
+      !path.includes('.type-test.') &&
+      !path.includes('/test-support/') &&
+      !path.endsWith('/test-support.ts') &&
+      !path.endsWith('.d.ts'),
+  )
+}
+
+/** Every raw SQL statement in one source file, in source order. */
+export function rawSqlSites(file: string, source: string): RawSqlSite[] {
+  const sourceFile = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true)
+  const found: RawSqlSite[] = []
+  const record = (node: ts.Node, argument: ts.Expression) => {
+    const literal = ts.isStringLiteral(argument) || ts.isNoSubstitutionTemplateLiteral(argument)
+    found.push({
+      file,
+      line: sourceFile.getLineAndCharacterOfPosition(node.getStart()).line + 1,
+      sql: literal ? foldSql(argument.text) : foldSql(argument.getText(sourceFile)),
+      literal,
+    })
+  }
+  const visit = (node: ts.Node): void => {
+    if (ts.isCallExpression(node)) {
+      const callee = node.expression
+      const [first, second] = node.arguments
+      if (ts.isPropertyAccessExpression(callee) && first) {
+        const method = callee.name.text
+        const text = ts.isStringLiteral(first) || ts.isNoSubstitutionTemplateLiteral(first) ? first.text : undefined
+        // A statement prepare takes the SQL alone; other `prepare` methods take more.
+        if (method === 'prepare' && node.arguments.length === 1) record(node, first)
+        else if (method === 'query' && text !== undefined && SQL_TEXT.test(text)) record(node, first)
+      } else if (ts.isIdentifier(callee) && callee.text === 'iterate' && second) {
+        record(node, second)
+      }
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(sourceFile)
+  return found
+}
