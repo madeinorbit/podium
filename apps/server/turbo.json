@@ -1771,6 +1771,7 @@
         "src/daemon-frames.metadata.statement-count.test.ts",
         "src/daemon-frames.results.statement-count.test.ts",
         "src/daemon-frames.statement-count.test.ts",
+        "src/default-principal.statement-count.test.ts",
         "src/enrollment-ledger-import.ts",
         "src/enrollment-ledger.ts",
         "src/error-chain-surfaces.test.ts",

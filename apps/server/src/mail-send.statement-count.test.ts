@@ -184,12 +184,15 @@ describe('mail send: pinned statement counts at 5 and 200', () => {
     sessionMailOnly,
   )
 
+  // POD-6218: the earliest admin is one statement (its row) and is read once per
+  // operation, and so are its settings (`meta`, `user_preferences`). tRPC to a session
+  // 67 -> 62, relayed to a session 61 -> 53, to an issue 25 -> 23, mailSend 33 -> 29.
   it('over tRPC, to a running session', async () => {
-    await expectConstantStatements(trpcToSession, 67)
+    await expectConstantStatements(trpcToSession, 62)
   })
 
   it('tRPC pin is armed', async () => {
-    await expectArmed(trpcToSession, 67, plantPerSession)
+    await expectArmed(trpcToSession, 62, plantPerSession)
   })
 
   // 100 statements with 5 held issue messages, 1,272 with 200 (relay: 95 ->
@@ -218,24 +221,24 @@ describe('mail send: pinned statement counts at 5 and 200', () => {
   )
 
   it('through the agent relay, to a running session', async () => {
-    await expectConstantStatements(relayToSession, 61)
+    await expectConstantStatements(relayToSession, 53)
   })
 
   it('relay pin is armed', async () => {
-    await expectArmed(relayToSession, 61, plantPerSession)
+    await expectArmed(relayToSession, 53, plantPerSession)
   })
 
   it('through the agent relay, to its own issue', async () => {
     await expectConstantStatements(
       pin('relayed messages.send to an issue', async (f) => await relay(f, 'send', { to: f.issueId, body: 'counted' })),
-      25,
+      23,
     )
   })
 
   it('through the agent relay, issues.mailSend to its own issue', async () => {
     await expectConstantStatements(
       pin('relayed issues.mailSend', async (f) => await relay(f, 'mailSend', { id: f.issueId, body: 'counted' }, 'issues')),
-      33,
+      29,
     )
   })
 })

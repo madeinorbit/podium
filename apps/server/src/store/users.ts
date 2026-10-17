@@ -25,6 +25,8 @@ import type { CredentialSource, UserId, UserRole } from '@podium/model'
 import { asUserId, CREDENTIAL_SOURCES, LoginEmail, USER_ROLES } from '@podium/model'
 import { and, asc, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm'
 import { clientSessions, grants, memberInvites, settingsAuditEvents, userCredentials, users } from '../migrations/schema'
+import { applyAfterCommit, spanOpen } from './executor/executor'
+import { operationLoader } from './executor/operation-loader'
 import { currentReadScope, readScopeSlot } from './executor/read-scope'
 import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
 import { param, placeholdersFor, prepared, preparedFamily, shapeOf } from './executor/sync-drizzle'
@@ -55,15 +57,18 @@ const firstTwoActiveMembers = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
-const earliestAdminId = prepared((db: StoreDrizzle) =>
+const earliestAdminRow = prepared((db: StoreDrizzle) =>
   db
-    .select({ id: users.id })
+    .select()
     .from(users)
     .where(and(eq(users.role, 'admin'), isNull(users.disabledAt)))
     .orderBy(asc(users.createdAt), asc(users.id))
     .limit(1)
     .prepare(),
 )
+
+/** The one key of the earliest-admin loader: the instance has one earliest admin. */
+const EARLIEST_ADMIN = 'earliest-admin'
 
 const userIdByEmail = prepared((db: StoreDrizzle) =>
   db
@@ -411,8 +416,34 @@ export class UsersRepository {
    * is the whole point of retiring the constant.
    */
   async earliestAdmin(): Promise<UserAccountRow | undefined> {
-    const row = await earliestAdminId(this.db).get()
-    return row ? await this.get(asUserId(row.id)) : undefined
+    const account = await this.earliestAdminOfOperation.load(EARLIEST_ADMIN)
+    // Readers that ask for the same member by id next find it in their scope.
+    if (account) this.frameCache().set(account.id, { ...account })
+    return account
+  }
+
+  /**
+   * ONCE PER OPERATION [POD-6218]. Every session projection without an explicit
+   * reader acts as this member (`SessionView.defaultPrincipal`), so a runtime
+   * event asked about four times, two statements each (the id, then the account
+   * by id): about 9.4k statements/min on the server-data bench (POD-6140 result
+   * §4). The loader reads the row in one statement and keeps it for the rest of
+   * the operation (a daemon frame, a tRPC call, a delivery pass); every write of
+   * `users` below invalidates it ({@link accountsWritten}).
+   */
+  private readonly earliestAdminOfOperation = operationLoader<typeof EARLIEST_ADMIN, UserAccountRow>(
+    async () => {
+      const row = await earliestAdminRow(this.db).get()
+      const account = row ? userFromRow(row) : undefined
+      return new Map(account ? [[EARLIEST_ADMIN, account] as const] : [])
+    },
+    { copy: (row) => ({ ...row }), perOperation: true },
+  )
+
+  /** A `users` write: invalidated after it and, inside a span, after its commit. */
+  private accountsWritten(): void {
+    this.earliestAdminOfOperation.invalidate()
+    if (spanOpen()) applyAfterCommit(() => this.earliestAdminOfOperation.invalidate(), 'users:earliest-admin')
   }
 
   async byEmail(email: string): Promise<UserAccountRow | undefined> {
@@ -427,6 +458,7 @@ export class UsersRepository {
     if (!(await this.get(userId))) throw new Error(`unknown user: ${userId}`)
     try {
       await setUserEmail(this.db).run({ id: userId, email: normalized })
+      this.accountsWritten()
     } finally {
       currentReadScope().clear(this.accountsSlot)
     }
@@ -469,6 +501,7 @@ export class UsersRepository {
       if ((existing.disabledAt !== null) === (disabledAt !== null)) return
       await this.committed.write(async () => {
         const rows = await setUserDisabledAt(this.db).all({ id: userId, disabledAt })
+        this.accountsWritten()
         if (disabledAt !== null) {
           await deleteClientSessionsOf(this.db).run({ userId })
         }
@@ -526,6 +559,7 @@ export class UsersRepository {
             role: account.role,
             createdAt: account.createdAt,
           }), 'upsert')
+        this.accountsWritten()
         ;await insertCredential(this.db).run({
             // Same external account id, branded independently for this write.
             userId: asUserId(account.id),
@@ -576,6 +610,7 @@ export class UsersRepository {
       role: account.role,
       createdAt: account.createdAt,
     })
+    this.accountsWritten()
     currentReadScope().clear(this.accountsSlot)
   }
 
@@ -588,6 +623,7 @@ export class UsersRepository {
     if (!(await this.get(userId))) throw new Error('Member unavailable')
     try {
       await setUserProfile(this.db).run({ id: userId, displayName: name, avatar })
+      this.accountsWritten()
     } finally {
       currentReadScope().clear(this.accountsSlot)
     }
@@ -595,6 +631,7 @@ export class UsersRepository {
 
   async attachAccount(userId: UserId, accountId: string): Promise<void> {
     const result = await claimUserAccount(this.db).run({ id: userId, cloudAccountId: accountId })
+    this.accountsWritten()
     if (Number(result.changes) !== 1) throw new Error('Member is already claimed or unavailable')
     currentReadScope().clear(this.accountsSlot)
   }

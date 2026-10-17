@@ -4,7 +4,7 @@
  * of the operation, nothing is reused by the next operation, and a write is
  * seen by the reads after it.
  */
-import { asMachineId, asSessionId, asUserId } from '@podium/model'
+import { asMachineId, asSessionId, asUserId, type UserId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { SessionStore } from '../store'
 import { withOperation } from './executor/operation-scope'
@@ -337,6 +337,127 @@ describe('SessionsRepository.loadSession', () => {
           store.transact(async () => (await store.sessions.loadSession(asSessionId('s1')))?.id),
         ]))
       expect(await withinSeconds(loads, 5)).toEqual(['s1', 's2', 's1'])
+    })
+  })
+})
+
+// POD-6218: every session projection without a reader acts as the earliest
+// admin, and the runtime-event paths read that member's settings, in several
+// phases of one frame.
+describe('UsersRepository.earliestAdmin for a whole operation', () => {
+  const later = (id: string, createdAt: string, role: 'admin' | 'member' = 'admin') => ({
+    id, displayName: id, role, createdAt, disabledAt: null,
+  })
+
+  it('one statement before, inside and after its write span; none shared with the next operation', async () => {
+    await withStore(async (store) => {
+      const phases = async () => {
+        const ids = [(await store.users.earliestAdmin())?.id]
+        await store.transact(async () => {
+          ids.push((await store.users.earliestAdmin())?.id)
+        })
+        ids.push((await store.users.earliestAdmin())?.id)
+        return ids
+      }
+      const first = await countStatements(store, () => withOperation(phases))
+      expect(first.statements).toBe(1)
+      expect(new Set(first.result).size).toBe(1)
+      expect(first.result[0]).toBeDefined()
+      expect((await countStatements(store, () => withOperation(phases))).statements).toBe(1)
+      // With no operation each ask is one live read (the row, not the id and the row).
+      expect((await countStatements(store, phases)).statements).toBe(3)
+    })
+  })
+
+  it('sees an earlier admin created and a disable made in the same operation', async () => {
+    await withStore(async (store) => {
+      const original = (await store.users.earliestAdmin())!.id
+      await store.users.create(later('mem_2BBBBBBBBBBBBBBBBBBBBBBBBBB', '2099-01-01T00:00:00.000Z'), 'scrypt:hash')
+      await withOperation(async () => {
+        expect((await store.users.earliestAdmin())?.id).toBe(original)
+        await store.users.create(later('mem_0AAAAAAAAAAAAAAAAAAAAAAAAAA', '2000-01-01T00:00:00.000Z'), 'scrypt:hash')
+        expect((await store.users.earliestAdmin())?.id).toBe('mem_0AAAAAAAAAAAAAAAAAAAAAAAAAA')
+        await store.users.disable(asUserId('mem_0AAAAAAAAAAAAAAAAAAAAAAAAAA'), '2026-10-17T00:00:00.000Z')
+        expect((await store.users.earliestAdmin())?.id).toBe(original)
+        await store.transact(async () => {
+          await store.users.disable(asUserId(original), '2026-10-17T00:00:01.000Z')
+          expect((await store.users.earliestAdmin())?.id).toBe('mem_2BBBBBBBBBBBBBBBBBBBBBBBBBB')
+        })
+        expect((await store.users.earliestAdmin())?.id).toBe('mem_2BBBBBBBBBBBBBBBBBBBBBBBBBB')
+      })
+    })
+  })
+
+  it('forgets an admin a rolled-back span created', async () => {
+    await withStore(async (store) => {
+      const original = (await store.users.earliestAdmin())!.id
+      await withOperation(async () => {
+        expect((await store.users.earliestAdmin())?.id).toBe(original)
+        await expect(store.transact(async () => {
+          await store.users.create(later('mem_0AAAAAAAAAAAAAAAAAAAAAAAAAA', '2000-01-01T00:00:00.000Z'), 'scrypt:hash')
+          expect((await store.users.earliestAdmin())?.id).toBe('mem_0AAAAAAAAAAAAAAAAAAAAAAAAAA')
+          throw new Error('roll the span back')
+        })).rejects.toThrow('roll the span back')
+        expect((await store.users.earliestAdmin())?.id).toBe(original)
+      })
+    })
+  })
+
+  it('hands each caller its own copy', async () => {
+    await withStore(async (store) => {
+      await withOperation(async () => {
+        const first = (await store.users.earliestAdmin())!
+        first.displayName = 'changed by one caller'
+        expect((await store.users.earliestAdmin())?.displayName).not.toBe('changed by one caller')
+      })
+    })
+  })
+})
+
+describe('SettingsRepository.getSettingsFor for a whole operation', () => {
+  const at = '2026-10-17T00:00:00.000Z'
+
+  it('one read of each table for repeated asks; none shared with the next operation', async () => {
+    await withStore(async (store) => {
+      const user = (await store.users.earliestAdmin())!.id as UserId
+      const asks = async () => {
+        await store.settings.getSettingsFor(user)
+        await store.transact(async () => await store.settings.getSettingsFor(user))
+        return await store.settings.getSettingsFor(user)
+      }
+      expect((await countStatements(store, () => withOperation(asks))).statements).toBe(2)
+      expect((await countStatements(store, () => withOperation(asks))).statements).toBe(2)
+      expect((await countStatements(store, asks)).statements).toBe(6)
+    })
+  })
+
+  it('sees a personal and an instance write made in the same operation, across its span', async () => {
+    await withStore(async (store) => {
+      const user = (await store.users.earliestAdmin())!.id as UserId
+      await withOperation(async () => {
+        expect((await store.settings.getSettingsFor(user)).sidebar.repoSort).not.toBe('custom')
+        await store.transact(async () => {
+          await store.settings.applyPreferencePatch(user, { 'sidebar.repoSort': 'custom' }, at)
+          expect((await store.settings.getSettingsFor(user)).sidebar.repoSort).toBe('custom')
+        })
+        expect((await store.settings.getSettingsFor(user)).sidebar.repoSort).toBe('custom')
+        await store.settings.applyPreferencePatch(user, { 'gitWorkflow.mergeStyle': 'ask' }, at)
+        expect((await store.settings.getSettingsFor(user)).gitWorkflow.mergeStyle).toBe('ask')
+        await store.settings.userPreferences.clear(user, 'sidebar.repoSort')
+        expect((await store.settings.getSettingsFor(user)).sidebar.repoSort).not.toBe('custom')
+      })
+    })
+  })
+
+  it('hands each caller its own copy', async () => {
+    await withStore(async (store) => {
+      const user = (await store.users.earliestAdmin())!.id as UserId
+      await withOperation(async () => {
+        const first = await store.settings.getSettingsFor(user)
+        const stored = first.gitWorkflow.mergeStyle
+        first.gitWorkflow.mergeStyle = stored === 'ask' ? 'pr' : 'ask'
+        expect((await store.settings.getSettingsFor(user)).gitWorkflow.mergeStyle).toBe(stored)
+      })
     })
   })
 })

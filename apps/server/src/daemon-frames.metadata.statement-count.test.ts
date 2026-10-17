@@ -179,9 +179,10 @@ describe('daemon frames, the rest: pinned statement counts at 5 and 200', () => 
     )
 
   // The row's write, the machine projection's publication and the machine
-  // broadcast, which reads the fleet once whatever its size.
+  // broadcast, which reads the fleet once whatever its size. POD-6218: the
+  // earliest admin and its settings once per operation: 19 -> 17.
   it('inventoryReport that changes the machine', async () => {
-    await expectConstantStatements(report('1.0.0'), 19)
+    await expectConstantStatements(report('1.0.0'), 17)
   })
 
   it('inventoryReport that repeats the last one', async () => {
@@ -200,6 +201,6 @@ describe('daemon frames, the rest: pinned statement counts at 5 and 200', () => 
   })
 
   it('inventoryReport pin is armed', async () => {
-    await expectArmed(report('1.0.0'), 19, plantPerSession('setMachineInventory', (f) => f.store.machines))
+    await expectArmed(report('1.0.0'), 17, plantPerSession('setMachineInventory', (f) => f.store.machines))
   })
 })

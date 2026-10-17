@@ -70,6 +70,14 @@ import {
 // the cursor is written only after a record that called a port (or once per
 // batch): the session-start state calls none, runtimeEvent 35 -> 33 (no
 // cursor read, no cursor write); the binding calls one, 26 -> 25 (no read).
+//
+// RE-PINNED FOR POD-6218, measured on the polaris VM. The earliest admin (the
+// default principal of every projection without a reader) and that member's
+// settings are read once per operation, through per-operation loaders, and the
+// earliest admin is one statement (the row) where it was two (the id, then the
+// row by id). runtimeEvent read the admin four times and the settings twice:
+// 33 -> 24; agentExit 33 -> 30; agentState 29 -> 20. Each now reads `users`,
+// `meta` and `user_preferences` once.
 
 /**
  * Reads of the `grants` table in one tally [POD-6189]. Statement keys keep
@@ -232,7 +240,7 @@ describe('daemon frames: pinned statement counts at 5 and 200', () => {
         ),
         setup: async (size) => await fixture(size, true),
       },
-      33,
+      24,
     )
     expectGrantReads(counts, 1)
   })
@@ -266,7 +274,7 @@ describe('daemon frames that read an observation checkpoint: pinned at 5 and 200
     const counts = await expectConstantStatements(
       pin('agentExit', async (f) =>
         await route(f, { type: 'agentExit', sessionId: f.ids[0], code: 0, observerGeneration: 1 })),
-      33,
+      30,
     )
     expectGrantReads(counts, 1)
   })
@@ -312,7 +320,7 @@ describe('daemon frames that read an observation checkpoint: pinned at 5 and 200
   it('agentState (legacy, unfenced) of one session among many', async () => {
     const counts = await expectConstantStatements(
       pin('agentState', async (f) => await route(f, { type: 'agentState', sessionId: f.ids[0], state: idle })),
-      29,
+      20,
     )
     expectGrantReads(counts, 1)
   })

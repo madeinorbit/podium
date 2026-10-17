@@ -126,19 +126,22 @@ describe('session create: pinned statement counts at 5 and 200', () => {
   const draft = pin('createSession (draft, no issue)', async (f) =>
     await f.reg.modules.sessions.createSession({ agentKind: 'codex', cwd: '/repo/new' }))
 
+  // POD-6218: the earliest admin is one statement (its row) and is read once per
+  // operation, and so are its settings (`meta`, `user_preferences`). Draft 39 -> 35,
+  // on an issue 40 -> 37, over tRPC 38 -> 29.
   it('in process, a draft session in a repo', async () => {
-    await expectConstantStatements(draft, 39)
+    await expectConstantStatements(draft, 35)
   })
 
   it('in-process pin is armed', async () => {
-    await expectArmed(draft, 39, plantPerSession)
+    await expectArmed(draft, 35, plantPerSession)
   })
 
   it('in process, a session on an issue', async () => {
     await expectConstantStatements(
       pin('createSession (on an issue)', async (f) =>
         await f.reg.modules.sessions.createSession({ agentKind: 'codex', cwd: '/repo/w0', issueId: f.issueId })),
-      40,
+      37,
     )
   })
 
@@ -146,10 +149,10 @@ describe('session create: pinned statement counts at 5 and 200', () => {
     await f.call.sessions.create({ agentKind: 'codex', cwd: '/repo/new' }))
 
   it('over tRPC', async () => {
-    await expectConstantStatements(trpc, 38)
+    await expectConstantStatements(trpc, 29)
   })
 
   it('tRPC pin is armed', async () => {
-    await expectArmed(trpc, 38, plantPerSession)
+    await expectArmed(trpc, 29, plantPerSession)
   })
 })
