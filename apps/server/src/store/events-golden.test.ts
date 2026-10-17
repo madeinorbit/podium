@@ -467,9 +467,17 @@ describe('EventsRepository: the mode: boolean columns (spec rule 28)', () => {
     const store = await openTestStore(':memory:')
     await store.events.addSubscription(subscription({ id: 'sub_on', enabled: true }))
     await store.events.addSubscription(subscription({ id: 'sub_off', enabled: false }))
-    // `listEnabledSubscriptions` compares the column in the WHERE clause, so it
-    // is a second place the declared mode has to be honoured.
-    expect((await store.events.listEnabledSubscriptions()).map((s) => s.id)).toEqual(['sub_on'])
+    // `listMatchingSubscriptions` compares the column in the WHERE clause, so
+    // it is a second place the declared mode has to be honoured.
+    expect(
+      (
+        await store.events.listMatchingSubscriptions({
+          events: ['issue.updated'],
+          sources: ['iss_1'],
+          anchorIssueIds: [],
+        })
+      ).map((s) => s.id),
+    ).toEqual(['sub_on'])
     await store.close()
   })
 

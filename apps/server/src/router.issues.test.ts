@@ -647,6 +647,15 @@ describe('issues.subscription* authz (Phase B)', () => {
     expect((await scopedTo(A.id).issues.subscriptionList()).length).toBe(1)
     expect((await scopedTo(B.id).issues.subscriptionList()).length).toBe(1)
     expect((await callerWith(OPERATOR).issues.subscriptionList()).length).toBe(2)
+    // The operator's listing comes in keyset pages (POD-6208).
+    const [first, ...more] = await callerWith(OPERATOR).issues.subscriptionList({ limit: 1 })
+    expect(more).toEqual([])
+    const next = await callerWith(OPERATOR).issues.subscriptionList({ after: first!, limit: 1 })
+    expect(next.map((s) => s.id)).not.toContain(first!.id)
+    expect(next.length).toBe(1)
+    expect(
+      await callerWith(OPERATOR).issues.subscriptionList({ after: next[0]!, limit: 1 }),
+    ).toEqual([])
   })
 
   it('a subtree caller may only remove its OWN subscription', async () => {

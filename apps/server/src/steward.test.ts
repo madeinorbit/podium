@@ -1258,6 +1258,97 @@ describe('StewardService stored subscriptions (Phase B)', () => {
     expect((sendNotice.mock.calls[0] as [string, string])[0]).toBe('psess')
   })
 
+  it("POD-6208: reads relationship sources through the event issue's ancestors, issue or session subscriber", async () => {
+    const sessions: SessionMeta[] = []
+    const { store, issues, steward, sendNotice } = await harness({ sessions })
+    const epic = await issues.crud.create({ repoPath: '/r', title: 'Epic', startNow: false })
+    await issues.crud.update(epic.id, { worktreePath: '/r/.worktrees/epic' })
+    const mid = await issues.crud.create({
+      repoPath: '/r',
+      title: 'Mid',
+      parentId: epic.id,
+      startNow: false,
+    })
+    await issues.crud.update(mid.id, { worktreePath: '/r/.worktrees/mid' })
+    const leaf = await issues.crud.create({
+      repoPath: '/r',
+      title: 'Leaf',
+      parentId: mid.id,
+      startNow: false,
+    })
+    // A session subscriber anchors on the issue its STORED row is bound to:
+    // the relationship read finds it through the sessions table.
+    await store.sessions.upsertSession({
+      id: 'esess',
+      ownerUserId: firstAdminMemberId(),
+      agentKind: 'claude-code',
+      cwd: '/e',
+      title: 'esess',
+      name: null,
+      originKind: 'spawn',
+      conversationId: null,
+      resumeKind: null,
+      resumeValue: null,
+      status: 'live',
+      exitCode: null,
+      durableLabel: 'podium-esess',
+      createdAt: 't',
+      lastActiveAt: 't',
+      lastOutputAt: null,
+      lastInputAt: null,
+      lastResumedAt: null,
+      archived: false,
+      workState: null,
+      machineId: store.hostMachineId,
+      headless: false,
+      issueId: epic.id,
+      stoppedAt: null,
+    } as never)
+    sessions.push(
+      fakeSession({ sessionId: asSessionId('esess'), cwd: '/e', issueId: epic.id }),
+      fakeSession({ sessionId: asSessionId('msess'), cwd: '/r/.worktrees/mid', issueId: mid.id }),
+      // Would be nudged if the epic's 'my-children' matched its grandchild.
+      fakeSession({ sessionId: asSessionId('epsess'), cwd: '/r/.worktrees/epic', issueId: epic.id }),
+    )
+    await store.events.addSubscription(
+      seedSub({
+        id: 'sub_subtree',
+        subscriberKind: 'session',
+        subscriberId: 'esess',
+        sourceKind: 'relationship',
+        sourceRef: 'my-subtree',
+        createdAt: 't1',
+      }),
+    )
+    await store.events.addSubscription(
+      seedSub({
+        id: 'sub_children',
+        subscriberId: mid.id,
+        sourceKind: 'relationship',
+        sourceRef: 'my-children',
+        createdAt: 't2',
+      }),
+    )
+    // The epic is the leaf's grandparent: its 'my-children' would not match.
+    await store.events.addSubscription(
+      seedSub({
+        id: 'sub_not_child',
+        subscriberId: epic.id,
+        sourceKind: 'relationship',
+        sourceRef: 'my-children',
+        createdAt: 't3',
+      }),
+    )
+    await steward.tick()
+    sendNotice.mockClear()
+    await issues.crud.close(leaf.id)
+    await steward.tick()
+    const nudged = sendNotice.mock.calls
+      .filter((call) => String(call[1]).startsWith('Subscription:'))
+      .map((call) => call[0])
+    expect(nudged.sort()).toEqual(['esess', 'msess'])
+  })
+
   it('a disabled subscription is silent', async () => {
     const sessions = [fakeSession({ sessionId: asSessionId('psess'), cwd: '/r/.worktrees/p' })]
     const { store, issues, steward, sendNotice } = await harness({ sessions })
