@@ -1,0 +1,12 @@
+-- A SESSION'S RUNTIME EVENTS, NEWEST FIRST, READ FROM AN INDEX (POD-6224).
+--
+-- The runtime replay (the newest 64 events) and the transcript read (the newest
+-- complete items) ask kind = 'session.runtime' AND subject = ? ORDER BY id DESC
+-- LIMIT ?. Under analysed statistics the planner took
+-- idx_podium_events_kind_subject_ts for the two equalities and sorted the
+-- session's whole runtime history by id in a temporary b-tree: `ts` is the
+-- agent's own clock, so that index is not in id order. This index answers the
+-- read as a range search already in id order, stopping at the limit.
+--
+-- Additive: one index, no data change.
+CREATE INDEX `idx_podium_events_kind_subject_id` ON `podium_events` (`kind`,`subject`,`id`);

@@ -1324,6 +1324,11 @@ export const podiumEvents = sqliteTable(
     // ts. Keyed on kind alone they walked and sorted every row the kind ever
     // kept — seconds of frozen server on a real-size log.
     index('idx_podium_events_kind_subject_ts').on(table.kind, table.subject, table.ts),
+    // POD-6224: a session's runtime events newest first by id (the replay and
+    // the transcript read). `ts` is the agent's own clock, so the ts index is
+    // not in id order; under real statistics the planner took it and sorted
+    // every runtime event the session ever kept to return the newest 64.
+    index('idx_podium_events_kind_subject_id').on(table.kind, table.subject, table.id),
   ],
 )
 

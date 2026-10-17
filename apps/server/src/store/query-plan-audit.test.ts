@@ -431,7 +431,7 @@ const ALLOWLIST: ReadonlyMap<string, string> = new Map([
   ],
   [
     'apps/server/src/store/events.ts:runtimeTranscriptPayloads',
-    "Sorts one subject's transcript events, found through the subject index.",
+    "Puts one subject's newest `limit` transcript events, read newest first by id, back oldest first.",
   ],
   [
     'apps/server/src/store/events.ts:eventsSince',
@@ -1543,5 +1543,44 @@ describe('POD-6223 — statistics of tables analysed while tiny', () => {
     expect(worse(PLANNER_STATISTICS_ROW_FLOOR)).toEqual([])
     // Armed: well below the floor, the same statistics do steer queries into scans.
     expect(worse(10).length).toBeGreaterThan(0)
+  })
+
+  it('statistics of a large table plan every query as well as the defaults do', () => {
+    // POD-6224: they planned a session's runtime replay through the ts index
+    // and sorted all its runtime events by id; the defaults took an index in
+    // id order.
+    writeStatistics(database, analysedAt(1_000_000))
+    expect(unexplained()).toEqual([])
+    writeStatistics(database, analysedAt(PLANNER_STATISTICS_ROW_FLOOR))
+    expect(unexplained()).toEqual([])
+  })
+
+  it("reads a session's newest runtime events in id order from an index, sorting none of them", () => {
+    // The transcript read is listed for its OUTER sort, which puts the newest
+    // `limit` rows back oldest first; that listing must not hide a sort of the
+    // session's whole history before the limit.
+    const runtimePlans = () => {
+      const { keyed } = keyedDefinitions(trackedSources())
+      const plans = new Map(
+        auditDefinitions(keyed)
+          .audited.filter((entry) => /events\.ts:(recentRuntimeEventPayloads|runtimeTranscriptPayloads)$/.test(entry.key))
+          .map((entry) => [entry.key.split(':')[1], entry.plan.join(' | ')]),
+      )
+      expect([...plans.keys()].sort()).toEqual(['recentRuntimeEventPayloads', 'runtimeTranscriptPayloads'])
+      return plans
+    }
+    const pictures: [string, () => void][] = [
+      ['defaults', () => modelLowSelectivity(database)],
+      ['large', () => writeStatistics(database, analysedAt(1_000_000))],
+      ['floor', () => writeStatistics(database, analysedAt(PLANNER_STATISTICS_ROW_FLOOR))],
+    ]
+    for (const [picture, apply] of pictures) {
+      apply()
+      const plans = runtimePlans()
+      expect(`${picture}: ${plans.get('recentRuntimeEventPayloads')}`).not.toMatch(/TEMP B-TREE|SCAN/)
+      const [inner, outer] = plans.get('runtimeTranscriptPayloads')!.split('SCAN recent')
+      expect(`${picture}: ${inner}`).not.toMatch(/TEMP B-TREE|SCAN/)
+      expect(`${picture}: ${outer}`).toMatch(/TEMP B-TREE FOR ORDER BY/)
+    }
   })
 })
