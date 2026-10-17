@@ -2,7 +2,7 @@
 
 How server code (`apps/server`, `packages/sync`) reads, writes and caches data. Every server change follows this guide. It is the server side of [frontend-data.md](frontend-data.md). The agreed design behind it is `docs/internal/superpowers/specs/2026-10-15-server-data-access-design.md` (POD-6140); the evidence is `docs/internal/pod-6140-research.md`.
 
-Today the server still holds several in-memory copies of tables (the world index, the session map and others; the issue map went in POD-6158). POD-6140 removes them one at a time. Until a copy is removed, leave it as it is; new code reads the database and adds no copy.
+POD-6140 removed the server's in-memory copies of tables (the world index, both sync copies, the observation checkpoint map and the issue map; the session map now holds running sessions only). The result is in `docs/measurements/pod-6140-result.md`. New code reads the database and adds no copy.
 
 ## Source of truth
 
