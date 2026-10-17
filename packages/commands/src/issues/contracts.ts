@@ -675,10 +675,10 @@ export const subscriptionSetEnabledInput = z.object({
   enabled: z.boolean(),
 })
 
-/** The operator's listing, one keyset page at a time when it passes `after`
- *  (the last row of the previous page) or `limit` (POD-6208). Optional: the
- *  no-argument `query()` every client sends stays valid and still reads the
- *  whole list. A constrained caller lists only its own and ignores both. */
+/** The operator's listing, one keyset page at a time: `after` is the last row
+ *  of the previous page and `limit` the page size (POD-6208). Optional: the
+ *  no-argument `query()` reads the first page (POD-6209). A constrained caller
+ *  lists only its own and ignores both. */
 export const subscriptionListInput = z
   .object({
     after: z.object({ createdAt: z.string(), id: z.string() }).optional(),

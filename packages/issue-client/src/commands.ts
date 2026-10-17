@@ -1366,7 +1366,7 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
           }
         }
         case 'list': {
-          const rows = (await c.issues.subscriptionList.query()) as {
+          type Row = {
             id: string
             event: string
             sourceKind: string
@@ -1374,7 +1374,26 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
             enabled: boolean
             deliverNudge: boolean
             deliverNotify: boolean
-          }[]
+            createdAt: string
+          }
+          // The operator's listing comes one page at a time (POD-6209); a
+          // caller that lists only its own gets all of it at once, so a page
+          // that adds no new row ends the walk too.
+          const PAGE = 500
+          const byId = new Map<string, Row>()
+          let after: { createdAt: string; id: string } | undefined
+          for (;;) {
+            const page = (await c.issues.subscriptionList.query({
+              ...(after ? { after } : {}),
+              limit: PAGE,
+            })) as Row[]
+            const before = byId.size
+            for (const row of page) byId.set(row.id, row)
+            const last = page.at(-1)
+            if (page.length < PAGE || byId.size === before || !last) break
+            after = { createdAt: last.createdAt, id: last.id }
+          }
+          const rows = [...byId.values()]
           const fmt = (s: (typeof rows)[number]) => {
             const deliver =
               [s.deliverNudge && 'nudge', s.deliverNotify && 'notify'].filter(Boolean).join(',') ||

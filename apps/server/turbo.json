@@ -881,6 +881,7 @@
         "src/store/automations.ts",
         "src/store/claude-sdk-state-publication.test.ts",
         "src/store/committed-rows.ts",
+        "src/store/conversations-recent-page.test.ts",
         "src/store/conversations.ts",
         "src/store/conversations/index.ts",
         "src/store/conversations/mirror.ts",

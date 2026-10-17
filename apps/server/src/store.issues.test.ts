@@ -514,7 +514,7 @@ describe('subscriptions store (Phase B)', () => {
     await store.events.addSubscription(
       sub({ id: 'sub_b', subscriberId: 'iss_other', deliverNotify: true, createdAt: 't2' }),
     )
-    const all = await store.events.listSubscriptions()
+    const all = await store.events.listSubscriptionsPage()
     expect(all.map((s) => s.id)).toEqual(['sub_a', 'sub_b'])
     expect(all[0]).toMatchObject({
       deliverNudge: true,
@@ -527,7 +527,7 @@ describe('subscriptions store (Phase B)', () => {
       (await store.events.listSubscriptions({ subscriberId: 'iss_p' })).map((s) => s.id),
     ).toEqual(['sub_a'])
     await store.events.removeSubscription('sub_a')
-    expect((await store.events.listSubscriptions()).map((s) => s.id)).toEqual(['sub_b'])
+    expect((await store.events.listSubscriptionsPage()).map((s) => s.id)).toEqual(['sub_b'])
   })
 
   // The steward's read for one poll (POD-6208): only the rows that can match.

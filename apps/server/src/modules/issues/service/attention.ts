@@ -507,7 +507,7 @@ export class IssueAttentionModule {
     return { removed: existed }
   }
 
-  async subscriptionList(filter?: { subscriberId?: string }): Promise<Subscription[]> {
+  async subscriptionList(filter: { subscriberId: string }): Promise<Subscription[]> {
     return await this.store.deps.store.events.listSubscriptions(filter)
   }
 

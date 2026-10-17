@@ -380,14 +380,6 @@ export function queuedShippingLanes(
   return [...lanes.values()]
 }
 
-export function shippingQueue(
-  orders: readonly ShipOrder[],
-  receipts: readonly DeliveryReceipt[] = [],
-  now = Date.now(),
-): ShippingQueueEntry[] {
-  return shippingSchedule(orders, receipts, now).entries
-}
-
 export interface PrefixValidationResult {
   passed: boolean
   summary?: string

@@ -1588,13 +1588,11 @@ const defs = {
     kind: 'query',
     // The input is optional, so `query()` (no args) stays valid on every client.
     handler: async (ctx, input) => {
-      // Operator sees every subscription: all of them when it asks for no page,
-      // one keyset page when it passes `after` or `limit` (POD-6208). A
-      // constrained caller sees only its own.
+      // Operator sees every subscription, one keyset page at a time (POD-6208;
+      // the first page when it names none, POD-6209). A constrained caller sees
+      // only its own.
       if (ctx.caller.capability.scope.kind === 'all') {
-        return input?.after || input?.limit
-          ? await ctx.attention.subscriptionPage(input)
-          : await ctx.attention.subscriptionList()
+        return await ctx.attention.subscriptionPage(input ?? {})
       }
       const subscriber = ctx.deriveSubscriber()
       return await ctx.attention.subscriptionList({ subscriberId: subscriber.id })

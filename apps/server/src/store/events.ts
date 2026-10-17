@@ -493,16 +493,6 @@ const deleteSubscription = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
-/** Every subscription, oldest first: the operator's listing when it asks for
- *  no page (POD-6208 keeps that default; its client moves to pages in POD-6209). */
-const allSubscriptions = prepared((db: StoreDrizzle) =>
-  db
-    .select()
-    .from(subscriptions)
-    .orderBy(asc(subscriptions.createdAt), asc(subscriptions.id))
-    .prepare(),
-)
-
 /** One keyset page of every subscription, oldest first, through
  *  `idx_subscriptions_created` (POD-6208): the rows after the cursor's
  *  `(created_at, id)`. The first page starts after `('', '')`, before every row. */
@@ -1125,12 +1115,12 @@ export class EventsRepository {
     await deleteSubscription(this.db).run({ id })
   }
 
-  /** One subscriber's subscriptions, or every subscription, oldest first. */
-  async listSubscriptions(filter?: { subscriberId?: string }): Promise<Subscription[]> {
-    const rows = filter?.subscriberId
-      ? await subscriptionsOf(this.db).all({ subscriberId: filter.subscriberId })
-      : await allSubscriptions(this.db).all()
-    return rows.map(rowToSubscription)
+  /** One subscriber's subscriptions, oldest first. Every subscription is read
+   *  a page at a time ({@link listSubscriptionsPage}, POD-6209). */
+  async listSubscriptions(filter: { subscriberId: string }): Promise<Subscription[]> {
+    return (await subscriptionsOf(this.db).all({ subscriberId: filter.subscriberId })).map(
+      rowToSubscription,
+    )
   }
 
   /** One keyset page of every subscription, oldest first (the operator's

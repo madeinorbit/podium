@@ -1,0 +1,2 @@
+CREATE INDEX `idx_conversations_top_level_updated` ON `conversations` (`updated_at`,`id`) WHERE "conversations"."parent_conversation_id" IS NULL;--> statement-breakpoint
+CREATE INDEX `workflow_runs_started` ON `workflow_runs` (`started_at`,`id`);

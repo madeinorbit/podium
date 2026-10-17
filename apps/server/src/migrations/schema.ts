@@ -750,6 +750,11 @@ export const conversations = sqliteTable(
   (table) => [
     index('idx_conversations_project_path').on(table.projectPath),
     index('idx_conversations_updated_at').on(table.updatedAt),
+    // The recent top-level conversations, one keyset page at a time, newest
+    // first, when memory search has no term (POD-6209).
+    index('idx_conversations_top_level_updated')
+      .on(table.updatedAt, table.id)
+      .where(sql`${table.parentConversationId} IS NULL`),
   ],
 )
 
@@ -2654,6 +2659,8 @@ export const workflowRuns = sqliteTable(
     // them as parameters cannot use it.
     index('workflow_runs_status').on(table.status, table.startedAt),
     index('workflow_runs_subject').on(table.subjectKind, table.subjectId, table.startedAt),
+    // The run history, one keyset page at a time, newest first (POD-6209).
+    index('workflow_runs_started').on(table.startedAt, table.id),
     check('workflow_runs_check_23', sql`subject_kind IN ('issue', 'session')`),
     check('workflow_runs_check_24', sql`status IN ('active', 'blocked', 'complete', 'superseded')`),
   ],

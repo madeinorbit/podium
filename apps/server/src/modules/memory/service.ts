@@ -15,6 +15,7 @@ import {
   StagedProjection,
 } from '@podium/sync'
 import type { SessionStore } from '../../store'
+import type { ConversationPageCursor } from '../../store/conversations/index'
 import type { DaemonRequestPort } from '../daemon-request'
 import { transcriptRecordMapperFor } from '../../harness-manifest'
 import { type LakeReadSession, TranscriptLake } from './lake'
@@ -272,7 +273,7 @@ export class MemoryService {
 
   async searchConversations(
     reader: MemoryReader,
-    opts: { query?: string; projectPath?: string; limit?: number },
+    opts: { query?: string; projectPath?: string; after?: ConversationPageCursor; limit?: number },
   ) {
     return await this.searcher.searchConversations(reader, opts)
   }
@@ -429,7 +430,12 @@ export class MemoryReaderView {
     readonly reader: MemoryReader,
   ) {}
 
-  async searchConversations(opts: { query?: string; projectPath?: string; limit?: number }) {
+  async searchConversations(opts: {
+    query?: string
+    projectPath?: string
+    after?: ConversationPageCursor
+    limit?: number
+  }) {
     return await this.memory.searchConversations(this.reader, opts)
   }
 

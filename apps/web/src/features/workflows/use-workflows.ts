@@ -70,9 +70,13 @@ export interface WorkflowsSource {
   readonly error: string | null
   readonly notice: string | null
   readonly showHistory: boolean
+  /** The history has runs older than the last one shown. */
+  readonly hasMoreRuns: boolean
   select(id: string | null): void
   setShowHistory(next: boolean): void
   refresh(includeTerminal?: boolean): Promise<void>
+  /** Append the next page of the history, older than the last run shown. */
+  loadMoreRuns(): Promise<void>
   /** Dispatch one command contract. Resolves `true` when the authority applied
    *  it, `false` when it refused — never throws, and never retries. */
   dispatch<TInput>(command: WorkflowCommand<TInput>, input: TInput): Promise<boolean>
@@ -83,6 +87,11 @@ export interface WorkflowsSource {
  *  HERE and only here: the contract's own schema is the validator, and a
  *  per-name union would restate it in a second place. */
 type WorkflowProcs = Record<string, { mutate(input: unknown): Promise<unknown> }>
+
+/** The run history is read one page at a time, newest first (POD-6209); a
+ *  refresh re-reads as many runs as are shown, up to the server's largest page. */
+const RUN_PAGE = 50
+const RUN_PAGE_MAX = 500
 
 export function useWorkflows(): WorkflowsSource {
   // A service handle, not replicated data. This hook remains the one RPC
@@ -99,6 +108,8 @@ export function useWorkflows(): WorkflowsSource {
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [showHistory, setShowHistory] = useState(false)
+  const [hasMoreRuns, setHasMoreRuns] = useState(false)
+  const shownRuns = useRef(RUN_PAGE)
   const refreshLock = useRef(false)
   // Bumped by every completed refresh so the open workflow's DETAIL re-reads
   // too. The old code re-fetched detail inline at the end of each action, which
@@ -117,17 +128,20 @@ export function useWorkflows(): WorkflowsSource {
       refreshLock.current = true
       setRefreshing(true)
       setError(null)
+      if (!includeTerminal) shownRuns.current = RUN_PAGE
+      const limit = Math.min(RUN_PAGE_MAX, Math.max(RUN_PAGE, shownRuns.current))
       try {
         const [workflowRows, bindingRows, profileRows, runRows] = await Promise.all([
           trpc.workflows.list.query({}),
           trpc.workflows.bindings.query({}),
           trpc.agentProfiles.list.query({}),
-          trpc.workflows.runs.query({ includeTerminal }),
+          trpc.workflows.runs.query(includeTerminal ? { includeTerminal, limit } : { includeTerminal }),
         ])
         setWorkflows(workflowRows)
         setBindings(bindingRows)
         setProfiles(profileRows)
         setRuns(runRows)
+        setHasMoreRuns(includeTerminal && runRows.length === limit)
 
         // The open row, re-decided against what is visible NOW. An id that is no
         // longer in the list has been EVICTED as far as this client can tell,
@@ -216,6 +230,25 @@ export function useWorkflows(): WorkflowsSource {
     [refresh, trpc],
   )
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: trpc is a stable store singleton.
+  const loadMoreRuns = useCallback(async (): Promise<void> => {
+    const last = runs.at(-1)
+    if (!showHistory || !last) return
+    try {
+      const page = await trpc.workflows.runs.query({
+        includeTerminal: true,
+        before: { startedAt: last.startedAt, id: last.id },
+        limit: RUN_PAGE,
+      })
+      const next = [...runs, ...page]
+      shownRuns.current = next.length
+      setRuns(next)
+      setHasMoreRuns(page.length === RUN_PAGE)
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause))
+    }
+  }, [runs, showHistory])
+
   const select = useCallback((id: string | null): void => {
     setSelectedId(id)
   }, [])
@@ -232,9 +265,11 @@ export function useWorkflows(): WorkflowsSource {
     error,
     notice,
     showHistory,
+    hasMoreRuns,
     select,
     setShowHistory,
     refresh,
+    loadMoreRuns,
     dispatch,
   }
 }

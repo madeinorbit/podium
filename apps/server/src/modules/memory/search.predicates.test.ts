@@ -107,6 +107,7 @@ async function build() {
   vi.spyOn(store.issues, 'searchIssueComments').mockResolvedValue([])
   vi.spyOn(store.superagent, 'listSuperagentThreads').mockResolvedValue([])
   vi.spyOn(store.conversations.index, 'searchCandidates').mockResolvedValue([])
+  vi.spyOn(store.conversations.index, 'recentPage').mockResolvedValue([])
   vi.spyOn(store.conversations.transcriptIndex, 'searchCandidates').mockResolvedValue([])
   return { store, visibility, search: new MemorySearchService(store, visibility) }
 }
@@ -122,9 +123,45 @@ describe('async predicate regression: memory selection', () => {
         machineId: asMachineId('machine-1'),
       })),
     )
+    expect(
+      (await search.searchConversations(READER, { query: 'a', limit: 1 })).map((row) => row.id),
+    ).toEqual(['allowed'])
+  })
+
+  it('with no query, reads recent pages until the visible page is full (POD-6209)', async () => {
+    const { store, search } = await build()
+    // Newest first; the keyset page honours the cursor and the limit.
+    const rows = ['denied-3', 'denied-2', 'allowed', 'denied-1'].map((id, index) => ({
+      id,
+      agentKind: 'claude-code',
+      providerId: 'claude-code-jsonl',
+      machineId: asMachineId('machine-1'),
+      updatedAt: `2026-10-0${4 - index}T00:00:00.000Z`,
+    }))
+    const page = vi.mocked(store.conversations.index.recentPage)
+    page.mockImplementation(async ({ after, limit }) => {
+      const start = after ? rows.findIndex((row) => row.id === after.id) + 1 : 0
+      return rows.slice(start, start + limit)
+    })
     expect((await search.searchConversations(READER, { limit: 1 })).map((row) => row.id)).toEqual([
       'allowed',
     ])
+    // Two store pages of rows the reader cannot see, then the visible one.
+    expect(page).toHaveBeenCalledTimes(3)
+    expect(page.mock.calls[2]![0]).toMatchObject({
+      after: { updatedAt: '2026-10-03T00:00:00.000Z', id: 'denied-2' },
+      limit: 1,
+    })
+    // The next page starts after the last row returned, and a short page ends it.
+    page.mockClear()
+    expect(
+      await search.searchConversations(READER, {
+        limit: 1,
+        after: { updatedAt: '2026-10-02T00:00:00.000Z', id: 'allowed' },
+      }),
+    ).toEqual([])
+    expect(page).toHaveBeenCalledTimes(2)
+    expect(store.conversations.index.searchCandidates).not.toHaveBeenCalled()
   })
 
   it('excludes denied and deleted issues from search results', async () => {

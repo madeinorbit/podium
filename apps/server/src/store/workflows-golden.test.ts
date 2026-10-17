@@ -510,11 +510,28 @@ describe('run queries', () => {
     // 'blocked' counts as live: the status set is two-valued and dropping one
     // arm is invisible to a fixture with only active runs.
     expect((await workflows.listRuns()).map((r) => r.id).sort()).toEqual(['active-1', 'blocked-1'])
-    expect((await workflows.listRuns(true)).map((r) => r.id).sort()).toEqual([
+    expect((await workflows.listRunsPage({ limit: 10 })).map((r) => r.id).sort()).toEqual([
       'active-1',
       'blocked-1',
       'done-1',
     ])
+  })
+
+  it('listRunsPage reads the history newest first, one keyset page at a time (POD-6209)', async () => {
+    // Two runs share a start time: the id breaks the tie, so the page boundary
+    // between them neither repeats nor skips one.
+    await seedRun('r1', { status: 'complete', subjectId: 'iss_1', startedAt: '2026-10-01T00:00:00.000Z' })
+    await seedRun('r2a', { status: 'complete', subjectId: 'iss_2', startedAt: '2026-10-02T00:00:00.000Z' })
+    await seedRun('r2b', { status: 'superseded', subjectId: 'iss_3', startedAt: '2026-10-02T00:00:00.000Z' })
+    await seedRun('r3', { subjectId: 'iss_4', startedAt: '2026-10-03T00:00:00.000Z' })
+
+    const first = await workflows.listRunsPage({ limit: 2 })
+    expect(first.map((r) => r.id)).toEqual(['r3', 'r2b'])
+    const last = first.at(-1)!
+    const second = await workflows.listRunsPage({ before: { startedAt: last.startedAt, id: last.id }, limit: 2 })
+    expect(second.map((r) => r.id)).toEqual(['r2a', 'r1'])
+    const end = second.at(-1)!
+    expect(await workflows.listRunsPage({ before: { startedAt: end.startedAt, id: end.id }, limit: 2 })).toEqual([])
   })
 
   it('findLiveRun ignores a terminal run for the same subject', async () => {

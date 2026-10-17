@@ -234,11 +234,12 @@ const FAMILY_SHAPES: ReadonlyMap<string, readonly (string | number)[]> = new Map
   ],
   ['apps/server/src/store/workflows.ts:insertRunSteps', SIZES],
   [
+    'apps/server/src/store/conversations/index.ts:recentConversations',
+    ['dated|any', 'dated|posix', 'dated|windows', 'undated|any', 'undated|posix', 'undated|windows'],
+  ],
+  [
     'apps/server/src/store/conversations/index.ts:searchConversations',
     [
-      'all|any',
-      'all|posix',
-      'all|windows',
       'fts|any',
       'fts|posix',
       'fts|windows',
@@ -604,24 +605,8 @@ const WHOLE_TABLE_READS: ReadonlyMap<string, string> = new Map([
     'Whole-table read (POD-6172): every live automation run for the automationRun full-truth reconcile at boot (AutomationsService.reconcileFromStore); nothing else reads it.',
   ],
   [
-    'apps/server/src/store/conversations/index.ts:searchConversations [all|any]',
-    'Whole-table read (POD-6172): memory search with no term reads every top-level conversation newest first, because memory/search.ts filters visibility and scores in JS before its limit; paging it is POD-6209.',
-  ],
-  [
-    'apps/server/src/store/conversations/index.ts:searchConversations [all|posix]',
-    'Whole-table read (POD-6172): memory search with no term under a folder reads its conversations newest first, filtered and scored in JS before the limit; paging it is POD-6209.',
-  ],
-  [
-    'apps/server/src/store/conversations/index.ts:searchConversations [all|windows]',
-    'Whole-table read (POD-6172): memory search with no term under a folder reads its conversations newest first, filtered and scored in JS before the limit; paging it is POD-6209.',
-  ],
-  [
     'apps/server/src/store/conversations/registry.ts:clearStraySubagentPaths',
     'Whole-table read (POD-6172): one boot repair UPDATE (memory repairSubagentEvidence) clears subagent paths stored on conversation segments; a LIKE on a path built from the row, once per boot.',
-  ],
-  [
-    'apps/server/src/store/events.ts:allSubscriptions',
-    "Whole-table read (POD-6172): the operator's subscription listing when it asks for no page (subscriptionList with scope all and no after or limit), kept as the default by POD-6208; a page reads idx_subscriptions_created, and the web client moves to pages in POD-6209.",
   ],
   [
     'apps/server/src/store/machines.ts:legacySentinelScan',
@@ -629,7 +614,7 @@ const WHOLE_TABLE_READS: ReadonlyMap<string, string> = new Map([
   ],
   [
     'apps/server/src/store/shipping.ts:allOrders',
-    "Whole-table read (POD-6172): every ship order, for the order-plane full truth at boot (relay, ShippingService.reconcile, recoverDescendantInvalidations) and the queue listing (ShippingService.queue, paging is POD-6209). The scheduler, its covered-prefix recovery (POD-6207) and train claims read active orders, open trains, lanes and ids.",
+    "Whole-table read (POD-6172): every ship order, for the order-plane full truth at boot only (relay, ShippingService.reconcile, recoverDescendantInvalidations). The scheduler, its covered-prefix recovery (POD-6207) and train claims read active orders, open trains, lanes and ids; the unused queue listing that also read it is deleted (POD-6209).",
   ],
   [
     'apps/server/src/store/shipping.ts:allStackEdgesOrdered',
@@ -641,7 +626,7 @@ const WHOLE_TABLE_READS: ReadonlyMap<string, string> = new Map([
   ],
   [
     'apps/server/src/store/shipping.ts:allReceipts',
-    'Whole-table read (POD-6172): every delivery receipt, for the order-plane full truth at boot and the queue listing (ShippingService.queue; paging is POD-6209). The scheduler no longer reads it.',
+    'Whole-table read (POD-6172): every delivery receipt, for the order-plane full truth at boot only (relay and ShippingService.fullProjection). The scheduler no longer reads it, and the unused queue listing that did is deleted (POD-6209).',
   ],
   [
     'apps/server/src/store/transcript-costs.ts:attributedCosts',
@@ -654,10 +639,6 @@ const WHOLE_TABLE_READS: ReadonlyMap<string, string> = new Map([
   [
     'apps/server/src/store/transcript-costs.ts:costCount',
     'Whole-table read (POD-6172): countAll is a test oracle only; no production code calls it.',
-  ],
-  [
-    'apps/server/src/store/workflows.ts:allRuns',
-    'Whole-table read (POD-6172): the workflow run history listing (WorkflowService.runs with includeTerminal); the default reads live runs only, through workflow_runs_status. Paging the history is POD-6209.',
   ],
 ])
 
@@ -1161,6 +1142,25 @@ describe('POD-6148 — every repository query is served by an index', () => {
     expect(searches('relationshipSubscriptionFor', 4)).toEqual([
       'subscriptions idx_subscriptions_match',
     ])
+  })
+
+  it('reads each history page through its index, with no scan and no sort (POD-6209)', () => {
+    const { keyed } = keyedDefinitions(trackedSources())
+    const { audited } = auditDefinitions(keyed)
+    const plans = (key: string) =>
+      audited
+        .filter((entry) => entry.key === `apps/server/src/store/${key}`)
+        .map((entry) => [String(entry.shape ?? ''), entry.plan] as const)
+    expect(plans('workflows.ts:runsPage')).toEqual([
+      ['', [expect.stringMatching(/^SEARCH workflow_runs USING INDEX workflow_runs_started \(/)]],
+    ])
+    const recent = plans('conversations/index.ts:recentConversations')
+    expect(recent).toHaveLength(6)
+    for (const [, plan] of recent) {
+      expect(plan).toEqual([
+        expect.stringMatching(/^SEARCH (conversations AS )?c USING INDEX idx_conversations_top_level_updated \(/),
+      ])
+    }
   })
 
   it('keeps no stale entry: every listed query still scans or sorts, every small table exists', () => {
