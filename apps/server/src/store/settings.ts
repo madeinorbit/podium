@@ -35,7 +35,8 @@ import { applySettingsPatch, changedSettingsLeaves, readSettingsLeaf } from '@po
 import { asUserId, type MachineId, type UserId } from '@podium/model'
 import { normalizeSettings, type PodiumSettings } from '@podium/runtime'
 import { TIER_DEFAULTS } from '@podium/telemetry'
-import { applyAfterCommit } from './executor'
+import { applyAfterCommit, spanOpen } from './executor'
+import { operationLoader } from './executor/operation-loader'
 import {
   resolveSetting,
   loadConfig,
@@ -211,7 +212,7 @@ export class SettingsRepository {
   constructor(queries: StoreQueries) {
     this.rootDb = queries.rootDb
     this.createOrJoinTransaction = queries.createOrJoinTransaction
-    this.userPreferences = new UserPreferencesRepository(queries)
+    this.userPreferences = new UserPreferencesRepository(queries, () => this.settingsWritten())
   }
 
   /**
@@ -260,6 +261,7 @@ export class SettingsRepository {
     const next = normalizeSettings(settings)
     await this.createOrJoinTransaction(async () => {
       await this.writeMeta('settings', JSON.stringify(next))
+      this.settingsWritten()
       applyAfterCommit(() => {
         this.committed = next
       }, 'settings-snapshot')
@@ -296,10 +298,37 @@ export class SettingsRepository {
    * blob rather than by a second validation written here.
    */
   async getSettingsFor(userId: UserId): Promise<PodiumSettings> {
+    return (await this.settingsOfOperation.load(userId))!
+  }
+
+  /**
+   * ONCE PER OPERATION [POD-6218]. The runtime-event paths read the first
+   * admin's settings in several phases of one daemon frame (relay
+   * `onSessionActivity`, the auto-continue check in `session-wiring.ts`), each
+   * a `meta` and a `user_preferences` read: about 5.8k of each per minute on the
+   * server-data bench (POD-6220). The loader keeps one person's resolved
+   * settings for the rest of the operation; the settings blob write and every
+   * preference write invalidate it ({@link settingsWritten}).
+   *
+   * One person per batch: the preference repository reads one person's rows and
+   * has no read across people (see its header). The memo removes the repeats.
+   */
+  private readonly settingsOfOperation = operationLoader<UserId, PodiumSettings>(
+    async ([userId]) => new Map([[userId!, await this.resolveSettingsFor(userId!)]]),
+    { copy: (settings) => structuredClone(settings), perOperation: true, maxBatchSize: 1 },
+  )
+
+  private async resolveSettingsFor(userId: UserId): Promise<PodiumSettings> {
     const base = await this.getSettings()
     const overlay = await this.userPreferences.getFor(userId)
     if (overlay.size === 0) return base
     return normalizeSettings(applySettingsPatch(base, Object.fromEntries(overlay)))
+  }
+
+  /** A settings blob or preference write: invalidated after it and, inside a span, after its commit. */
+  private settingsWritten(): void {
+    this.settingsOfOperation.invalidate()
+    if (spanOpen()) applyAfterCommit(() => this.settingsOfOperation.invalidate(), 'settings:resolved-for')
   }
 
   /**

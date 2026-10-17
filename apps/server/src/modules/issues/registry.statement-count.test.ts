@@ -164,27 +164,29 @@ const pin = (
 
 const lengthOf = (value: unknown) => (value as unknown[]).length
 
+// POD-6218: the earliest admin is one statement (the row), not the id and then
+// the row: list, ready, blocked, graph and get each -1.
 describe('issue listings: pinned statement counts at 5 and 200 issues', () => {
   it('list: labels, deps, comment counts and one grant read (was 9 at 5 issues, 204 at 200)', async () => {
     await expectConstantStatements(
       pin('issues.list', (f) => call(f, 'list', {}), (rows, size) =>
         expect(lengthOf(rows)).toBe(readableChildren(size) + 1),
       ),
-      10,
+      9,
     )
   })
 
   it('ready', async () => {
     await expectConstantStatements(
       pin('issues.ready', (f) => call(f, 'ready', {}), (rows) => expect(lengthOf(rows)).toBeGreaterThan(0)),
-      9,
+      8,
     )
   })
 
   it('blocked (was 5 at 5 issues, 102 at 200)', async () => {
     await expectConstantStatements(
       pin('issues.blocked', (f) => call(f, 'blocked', {}), (rows) => expect(lengthOf(rows)).toBeGreaterThan(0)),
-      10,
+      9,
     )
   })
 
@@ -193,7 +195,7 @@ describe('issue listings: pinned statement counts at 5 and 200 issues', () => {
       pin('issues.graph', (f) => call(f, 'graph', {}), (graph, size) =>
         expect((graph as { nodes: unknown[] }).nodes).toHaveLength(readableChildren(size) + 1),
       ),
-      12,
+      11,
     )
   })
 
@@ -223,7 +225,7 @@ describe('issue listings: pinned statement counts at 5 and 200 issues', () => {
   it('one issue report (unbatched report())', async () => {
     await expectConstantStatements(
       pin('issues.get', (f) => f.reports.get('iss_2'), (report) => expect(report).toMatchObject({ seq: 2 })),
-      10,
+      9,
     )
   })
 })

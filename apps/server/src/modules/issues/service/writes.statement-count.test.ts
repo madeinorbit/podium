@@ -80,7 +80,8 @@ describe('issue writes that read other issues: pinned statement counts at 5 and 
     await expectConstantStatements(
       pin('crud.create', async (f) => await f.svc.crud.create({ repoPath: '/repo', title: 'New work', startNow: false }),
         (wire) => expect(wire).toMatchObject({ title: 'New work' })),
-      13,
+      // POD-6218: two earliest-admin lookups, one statement each (the row), not two: 13 -> 11.
+      11,
     )
   })
 

@@ -173,8 +173,8 @@ describe('session changes: pinned statement counts at 5 and 200 sessions [POD-62
   // used to count its session's and its issue's pending mail and look up the
   // issue of an unattached session's folder (2.5 statements a change here).
   // Now: the folder read, the check of which targets have mail and the page
-  // read of the one that has, then the delivery's own four (the earliest admin
-  // twice, the dispatch stamp and its event).
+  // read of the one that has, then the delivery's own three (the earliest admin,
+  // one statement for its row since POD-6218, the dispatch stamp and its event).
   it('a burst of changes: one folder read, one check and one page read, then the one delivery', async () => {
     await expectConstantStatements<ChangedSessions>(
       {
@@ -193,7 +193,7 @@ describe('session changes: pinned statement counts at 5 and 200 sessions [POD-62
           await h.store.close()
         },
       },
-      7,
+      6,
     )
   })
 })

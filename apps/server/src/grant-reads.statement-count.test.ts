@@ -209,6 +209,7 @@ describe('grant reads per change, a running session on an issue: pinned at 5 and
 // Measured on the polaris VM (see the header for the grant reads in each).
 // POD-6219: the session write's delivery trigger counted the session's and its
 // issue's pending mail (two statements); the flush now asks for both in one: -1.
+// POD-6218: the earliest admin is one statement, once per operation: issues.update -1.
 const RENAME = 12
-const ISSUE_UPDATE = 29
+const ISSUE_UPDATE = 28
 const OBSERVATION = 12

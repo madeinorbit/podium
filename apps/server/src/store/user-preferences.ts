@@ -118,7 +118,9 @@ export class UserPreferencesRepository {
   private readonly rootDb: StoreDrizzle
   protected readonly createOrJoinTransaction: TransactionRunner
 
-  constructor(queries: StoreQueries) {
+  /** `written` runs after every preference write: the settings repository's
+   *  per-operation resolution is invalidated by it (POD-6218). */
+  constructor(queries: StoreQueries, private readonly written: () => void = () => {}) {
     this.rootDb = queries.rootDb
     this.createOrJoinTransaction = queries.createOrJoinTransaction
   }
@@ -195,6 +197,7 @@ export class UserPreferencesRepository {
       updatedAt,
     }
     await upsertPreference(this.db).run(values)
+    this.written()
   }
 
   /** Forget one person's choice for one path — it resolves to the fallback
@@ -202,6 +205,7 @@ export class UserPreferencesRepository {
    *  the value that happens to be the default" stay distinguishable. */
   async clear(userId: UserId, key: string): Promise<void> {
     await deletePreference(this.db).run({ userId, key })
+    this.written()
   }
 
   /** Every path this person has set. Scoped to one user like every other method
