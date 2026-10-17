@@ -56,16 +56,21 @@ const edge = (grantee: string, verb: string): GrantRow =>
 const GRANTS: GrantRow[] = [edge(GRANTEE, 'read'), edge('u_not_a_reader', 'unknown-verb')]
 
 interface Counts {
-  getSession: number
+  loadSession: number
   getIssue: number
   getIssues: number
   loadForResource: number
   listForResources: number
 }
 
+const parkedRow = (sessionId: SessionId) =>
+  sessionId === PARKED
+    ? { sessionId: PARKED, issueId: ISSUE, ownerUserId: asUserId(SESSION_FALLBACK), machineId: MACHINE }
+    : undefined
+
 function harness() {
   const counts: Counts = {
-    getSession: 0,
+    loadSession: 0,
     getIssue: 0,
     getIssues: 0,
     loadForResource: 0,
@@ -81,17 +86,13 @@ function harness() {
     store: {
       users: { get: async () => undefined, roleOf: async () => undefined },
       sessions: {
-        getSession: async (sessionId: SessionId) => {
-          counts.getSession += 1
-          return sessionId === PARKED
-            ? {
-                sessionId: PARKED,
-                issueId: ISSUE,
-                ownerUserId: asUserId(SESSION_FALLBACK),
-                machineId: MACHINE,
-              }
-            : undefined
+        loadSession: async (sessionId: SessionId) => {
+          counts.loadSession += 1
+          return parkedRow(sessionId)
         },
+        // The batched read a primed pass makes for the sessions not in memory.
+        getSessions: async (sessionIds: readonly SessionId[]) =>
+          new Map(sessionIds.flatMap((id) => (parkedRow(id) ? [[id, parkedRow(id)] as const] : []))),
       },
       issues: {
         getIssue: async (id: string) => {
@@ -144,7 +145,7 @@ describe('session ownership resolves through the store reads [POD-3507]', () => 
     expect(owner?.grants).toEqual([GRANTEE])
     // The durable row was actually read — the session is not in the live map,
     // so a fixture that accidentally served it from memory would prove nothing.
-    expect(counts.getSession).toBe(1)
+    expect(counts.loadSession).toBe(1)
     expect(counts.getIssue).toBe(1)
     expect(counts.loadForResource).toBe(1)
   })

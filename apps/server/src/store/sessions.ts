@@ -29,6 +29,7 @@ import {
   snoozes as snoozesTable,
   tabOrder,
 } from '../migrations/schema'
+import { applyAfterCommit, spanOpen } from './executor/executor'
 import { operationLoader } from './executor/operation-loader'
 import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
 import {
@@ -1104,9 +1105,12 @@ export class SessionsRepository {
   /**
    * {@link getSession} through the operation's loader [POD-6149]. Loads asked
    * for in the same tick become one {@link getSessions} query, and a row already
-   * loaded is reused for the rest of the operation (its read scope). Outside an
-   * explicit scope it is exactly one `getSession`. Every session-row write below
-   * invalidates it, so a read after a write in the same operation sees the write.
+   * loaded is reused for the rest of the OPERATION (POD-6210: a tRPC call or a
+   * daemon frame, its write spans included), so the access check before a write
+   * and the restore of a parked session for it read the row once. Outside an
+   * operation and an explicit scope it is exactly one `getSession`. Every
+   * session-row write below invalidates it, after the write and after its
+   * commit ({@link rowsWritten}), so a read after a write sees the write.
    */
   async loadSession(sessionId: SessionId): Promise<SessionRow | undefined> {
     return await this.sessionRows.load(sessionId)
@@ -1114,8 +1118,14 @@ export class SessionsRepository {
 
   private readonly sessionRows = operationLoader<string, SessionRow>(
     async (ids) => await this.getSessions(ids),
-    { copy: (row) => ({ ...row }) },
+    { copy: (row) => ({ ...row }), perOperation: true },
   )
+
+  /** A session-row write: invalidated after it and, inside a span, after its commit. */
+  private rowsWritten(): void {
+    this.sessionRows.invalidate()
+    if (spanOpen()) applyAfterCommit(() => this.sessionRows.invalidate(), 'sessions:row-loader')
+  }
 
   /**
    * The live session a conversation resumes into, by its `resumeValue`.
@@ -1333,7 +1343,7 @@ export class SessionsRepository {
   async upsertSession(row: SessionRow): Promise<void> {
     const values = sessionUpsertValues(row)
     await upsertSessionOfShape(this.db, shapeOf(values)).run(values)
-    this.sessionRows.invalidate()
+    this.rowsWritten()
   }
 
   /**
@@ -1365,7 +1375,7 @@ export class SessionsRepository {
         await upsertSessionsOfShape(this.db, `${size}|${shape}`).run(params)
       }
     }
-    this.sessionRows.invalidate()
+    this.rowsWritten()
   }
 
   /** Tombstone sessions without destroying their metadata or UI satellites.
@@ -1385,7 +1395,7 @@ export class SessionsRepository {
       await stopRunningForTombstone(this.db).run({ id, deletedAt })
       await tombstoneSession(this.db).run({ id, deletedAt, source, deletedByIssueId })
     }
-    this.sessionRows.invalidate()
+    this.rowsWritten()
   }
 
   /** Mark sessions as deleted by an issue so restoring that issue can recover them. */
@@ -1396,7 +1406,7 @@ export class SessionsRepository {
   /** Re-expose an issue's tombstoned sessions as honestly exited runtime records. */
   async restoreDeletedForIssue(issueId: IssueId): Promise<void> {
     await restoreSessionsOfIssue(this.db).run({ issueId })
-    this.sessionRows.invalidate()
+    this.rowsWritten()
   }
 
   /**
@@ -1426,7 +1436,7 @@ export class SessionsRepository {
    */
   async detachTombstonesFromIssue(issueId: IssueId): Promise<void> {
     await detachTombstones(this.db).run({ issueId })
-    this.sessionRows.invalidate()
+    this.rowsWritten()
   }
 
   /**
@@ -1438,7 +1448,7 @@ export class SessionsRepository {
    */
   async detachDanglingIssueReferences(): Promise<number> {
     const result = await detachDanglingReferences(this.db).run()
-    this.sessionRows.invalidate()
+    this.rowsWritten()
     return Number(result.changes)
   }
 
@@ -1447,7 +1457,7 @@ export class SessionsRepository {
     await deleteCheckpointsOfSession(this.db).run({ id })
     this.purgeObservationCheckpoint(id)
     await deleteSessionRow(this.db).run({ id })
-    this.sessionRows.invalidate()
+    this.rowsWritten()
     await deletePanelPinsOf(this.db).run({ id })
     await deleteDraftOf(this.db).run({ id })
     await deleteSnoozesOf(this.db).run({ id })

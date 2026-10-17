@@ -39,7 +39,7 @@ const log = createLogger('server:session-authz')
 /** Derive database signatures from the store so async changes reach every read. */
 export interface SessionAuthzStorePort {
   readonly users: Pick<SessionStore['users'], 'get' | 'roleOf' | 'earliestAdmin'>
-  readonly sessions: Pick<SessionStore['sessions'], 'getSession' | 'getSessions'>
+  readonly sessions: Pick<SessionStore['sessions'], 'loadSession' | 'getSessions'>
   readonly issues: Pick<SessionStore['issues'], 'getIssue' | 'getIssues'>
   readonly grants: Pick<SessionStore['grants'], 'loadForResource' | 'listForResources'>
 }
@@ -234,7 +234,7 @@ export class SessionAuthz {
   ): Promise<'granted' | 'denied' | 'absent'> {
     const session =
       this.ports.sessions.get(sessionId) ??
-      (await this.ports.store.sessions.getSession(sessionId))
+      (await this.ports.store.sessions.loadSession(sessionId))
     if (!session) return 'absent'
     const command = userCommandPrincipal(asUserId(principal.user), principal.role)
     const ownership = await ownershipSnapshotFromMachines(this.ports.machines)
@@ -386,9 +386,11 @@ export class SessionAuthz {
     return await this.storedOwnershipRecord(sessionId)
   }
 
+  /** Through the operation's session loader (POD-6210): the lease that restores
+   *  a parked session for the write this check admits reuses the row. */
   private async storedOwnershipRecord(sessionId: SessionId) {
     log.debug('session ownership registry miss; reading durable row', { sessionId })
-    return this.ports.store.sessions.getSession(sessionId)
+    return this.ports.store.sessions.loadSession(sessionId)
   }
 
   private async memoIssueOwner(
