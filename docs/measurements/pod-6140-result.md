@@ -14,6 +14,8 @@ against the fresh baseline in [pod-6140-baseline.md](pod-6140-baseline.md).
 The busy share is now better than A's (43.4% against 44.7% on the small corpus, 42.9% against 52.0% on the large one),
 SQL is down 14% in statements and 36% in wall time, and memory, boot and stalls stay better. Every design §9 measurement
 criterion is met on the bench; what is still open is boot's whole-table reads (POD-6221) and the live half.
+The change-log insert's 2.7x cost in that B came from a savepoint journal spilling to disk after POD-6160's sessions
+indexes, not from the sync copy removals; POD-6232 fixed it (§5, SQL wall −5.9%).
 Sections 1–4 are the first result and are kept as they were.
 
 ## Summary
@@ -334,12 +336,61 @@ Run 1, B round 2: 5,471 ms/min of SQL wall, 59,516 statements/min. No statement 
 | earliest admin with its row (POD-6218) | 1,346 | 203 | 151 | 4,489 / 408 (id only) |
 | grants read, a second shape | 2,853 | 186 | 65 | other shapes in A |
 
+**The change-log insert, slower per row in B (POD-6232, fixed):** 168 µs against 61 µs, at the same 3,342 per minute
+(+358 ms/min, 10% of B's SQL wall). It is not the sync copy removals (C3), and not the insert itself:
+
+- *Same statement, same rows.* The SQL text is the same one-row `insert into changes` in both arms. Two rounds that kept
+  their databases (1cbe48131b, 0c37f9eb50) appended the same rows: 10,037 and 10,038 session upserts, average payload
+  847 bytes in both, provenance columns empty in both. The table and its indexes are the same in both templates.
+- *Where it started.* The bench history on the VM has the insert at 55–58 µs on the C3 commits themselves
+  (`e1db4b96b6`, `20d4821b12`), which already read `change_latest` before each append. A bisect over the session map
+  removal puts the jump at `b2c0dd190c` (POD-6160, D2a/D2b): 57 µs on its parent `1cbe48131b`, 136 µs on it, 130–170 µs
+  on every later commit.
+- *Why.* `b2c0dd190c` added five indexes on `sessions`. A session rename runs `Authority.commit` inside the rename's own
+  transaction, so its sessions upsert runs inside a savepoint, and the change append opens a second one. SQLite copies
+  every page first written inside a savepoint to the sub-journal, which stays in memory up to 64 KiB and then spills
+  to a temp file (create, unlink, the 64 KiB, close). The five more index pages put the rename's write over 64 KiB, and
+  the spill happens inside the next statement: the change-log insert.
+- *How that was shown* (diagnostic builds, 2-minute rounds, h1a1, realistic targeting; parent `1cbe48131b` against
+  `b2c0dd190c`):
+
+  | build | `insert into changes`, µs each | what it rules in or out |
+  |---|---:|---|
+  | probe times only the synchronous driver call | 52 → 133 | the time is SQLite's, not other work charged to the statement's `await` |
+  | 64 MiB page cache | 45 → 129 | not page-cache misses |
+  | `temp_store = MEMORY` | 51 → 46 | the sub-journal's temp file |
+
+  With each write tagged by its open savepoints (tip `331ed4ee41`): on the rename path (1,860/min) the sessions upsert
+  runs at depth 1 (149 µs) and the insert at depth 2 (247 µs). On daemon-frame session writes (1,485/min) the commit is
+  top level: upsert at depth 0, insert at depth 1, 57 µs. Weighted, 163 µs, the 168 µs above.
+- *Fix* (POD-6232): the store connection keeps temp files in memory (`temp_store = MEMORY`) once it is open for traffic
+  (`serveTrafficTempStore`, last step of `SessionStore.open`). Migrations, boot repairs, the full-text setup and the
+  opening statistics run before that with temp files on disk, and so does the hourly statistics refresh
+  (`withFileTempStore`), because an index build sorts in temp and over the 2 GB `applied_mutations` table that sort must
+  be able to spill. The server creates no temp tables. `store-lifecycle.test.ts` shows the spill on a migration-time
+  connection, none on a store open for traffic, and the refresh running with temp files on disk.
+- *Measured* (3 rounds per arm, A B A B A B, h1a1, realistic targeting, 4 minutes each, one `polaris-lane` call per round;
+  A = `331ed4ee41`, B = `fcf97276ac`; rounds 2026-10-18T01:11Z to 01:46Z; `2026-10-18T01-09-49-795Z-pod6232-guarded-h1a1-running`):
+
+  | metric (median, min–max) | A `331ed4ee41` | B `fcf97276ac` | B vs A |
+  |---|---:|---:|---:|
+  | `insert into changes`, µs each | 167 (165–170) | 62 (61–63) | −63% |
+  | `insert into changes`, ms/min | 558 | 207 | −351 |
+  | `insert into change_latest`, µs each | 42 | 32 | −24% |
+  | SQL wall, ms/min | 5,437 (5,349–5,500) | 5,116 (5,088–5,122) | −5.9% |
+  | SQL statements/min | 59,528 | 59,542 | +0.0% |
+  | utilization, % | 43.1 (42.8–44.1) | 43.0 (42.6–43.2) | −0.4% |
+  | end RSS, MiB | 325 (321–328) | 330 (319–344) | +1.6% |
+  | boot to `listen`, ms | 1,786 (1,757–1,841) | 1,707 (1,707–1,744) | −4.4% |
+
+  The insert is back at A's cost (61 µs in the run-1 table above). Statement counts do not change, so no pin moves.
+- *A possible follow-up, not built:* the sessions upsert sets every column, so each of the sessions indexes is rewritten
+  on every write, changed or not. Writing only the changed columns would also cut the upsert's own cost (about
+  150 µs) and the pages a rename journals.
+- *Found on the way:* 555 `podium_events` inserts per minute run outside any transaction, at 1,295 µs each against 76 µs
+  inside one: a WAL sync per insert, about 720 ms/min. Filed as POD-6233.
+
 **Looked at, not filed:**
-- *The change-log insert is slower per row in B:* 168 µs against 61 µs, at the same 3,342 per minute (+358 ms/min).
-  The §1 B already had it (142 µs against 63 µs), so it came with the sync copy removals (C3), not with the F lanes.
-  The table and its indexes are identical in both templates (13,333 rows; `changes_entity`, `changes_event_time`).
-  The cause is not known. It is a sync-system write path (out of POD-6140's scope; POD-6228 covers the latest-state
-  writes, not this insert), and it is 10% of B's SQL wall.
 - *The earliest admin cache* (§4 "Caches"): after POD-6218 it is one read of 1,346 per minute at 203 ms/min, 3.7% of SQL
   wall. No cache is needed.
 
@@ -353,5 +404,6 @@ Run 1, B round 2: 5,471 ms/min of SQL wall, 59,516 statements/min. No statement 
 | 4 | The old-versus-new comparison stays clean for each removed copy | **Met for the tests.** The development-build runtime checks can no longer run | The parity tests of §3 stand. `PODIUM_ISSUE_MAP_PARITY` and `PODIUM_SESSION_MAP_PARITY` are gone from the server source along with the copies they compared, so no soak result can be added now; the parity tests are the record. |
 | 5 | Measured against the baseline: memory, boot time, busy share and stalls no worse, and better at the end | **Met on the bench.** Live pending | All three runs, B against A: end RSS −29% to −71%, boot −13% to −59%, stalls 5–15 per minute → 0, utilization −2.9% (h1a1, outside the ±1.5% band), −17.6% (h10a1) and −8.7% (mail), blocked −15% to −36%. §1's small-corpus busy share regression (+6.3%) is gone. Daemon frame wall is +2–5%, a side effect of the idler loop (above). Live: §2, pending the operator's deploy. |
 
-**Sub-issues:** none filed. Every criterion that is not met is already filed (POD-6221 boot whole-table reads, POD-6228 change
-log upserts, both deferred to the operator) or waits on the operator (the live half, §2).
+**Sub-issues:** none filed by the re-measure. Every criterion that is not met is already filed (POD-6221 boot whole-table reads, POD-6228 change
+log upserts, both deferred to the operator) or waits on the operator (the live half, §2). Since then: POD-6232 fixed the
+change-log insert (above) and filed POD-6233 (autocommit runtime-event appends).
