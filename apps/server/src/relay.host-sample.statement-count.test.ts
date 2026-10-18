@@ -147,6 +147,10 @@ const pin = (
 // any in one statement, so the retirement's counts become one check: 49.
 // POD-6218: the earliest admin and its settings once per operation, the admin
 // in one statement: 49 -> 43.
+// RE-PINNED FOR POD-6233, measured on the polaris VM: the two retired shells'
+// `session.phase_sample` rows ("ended", from the activity history's exit
+// listener) were two autocommit inserts inside the window; they are now one
+// grouped transaction that lands after the sample returns: 43 -> 41.
 describe('host sample: pinned statement counts at 5 and 200 live shells', () => {
   it('a sample with nothing to retire', async () => {
     await expectConstantStatements(
@@ -190,7 +194,7 @@ describe('host sample: pinned statement counts at 5 and 200 live shells', () => 
           .poll(async () => (await f.store.sessions.loadSessions()).some((s) => s.id === f.ids.at(-1)))
           .toBe(false)
       }),
-      43,
+      41,
     )
   })
 })

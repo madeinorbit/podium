@@ -81,6 +81,7 @@ describe('causal session observation gate', () => {
       (await reg.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)?.agentState,
     ).toMatchObject({ phase: 'idle', since: at(10) })
     expect(effects).toEqual([])
+    await store.events.settleGroupedAppends()
     expect(await store.events.listEventsSince(0, { kinds: ['session.phase'] })).toEqual([])
 
     // Frozen history is cursor-equal even when re-described.
@@ -128,6 +129,7 @@ describe('causal session observation gate', () => {
     }
     await observe(done)
     expect(effects.map((event) => event.transitionId)).toEqual(['turn-1-open', 'turn-1-done'])
+    await store.events.settleGroupedAppends()
     expect(
       (await store.events.listEventsSince(0, { kinds: ['session.phase'] })).map(
         (event) => event.payload,
@@ -185,6 +187,7 @@ describe('causal session observation gate', () => {
       },
     })
     expect(restartEffects).toEqual([])
+    await store.events.settleGroupedAppends()
     expect(await store.events.listEventsSince(0, { kinds: ['session.phase'] })).toHaveLength(2)
 
     await restarted.dispose()
@@ -320,6 +323,7 @@ describe('causal session observation gate', () => {
       (await reg.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)?.resume,
     ).toEqual({ kind: 'codex-thread', value: 'thread-2' })
     expect(effects).toEqual([])
+    await store.events.settleGroupedAppends()
     expect(await store.events.listEventsSince(0, { kinds: ['session.phase'] })).toEqual([])
     expect(ntfy).not.toHaveBeenCalled()
     expect(telegram).not.toHaveBeenCalled()
@@ -362,6 +366,7 @@ describe('causal session observation gate', () => {
       bindingVersion: 2,
     })
     expect(effects).toEqual([])
+    await store.events.settleGroupedAppends()
     expect(await store.events.listEventsSince(0, { kinds: ['session.phase'] })).toEqual([])
 
     await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
@@ -435,6 +440,7 @@ describe('causal session observation gate', () => {
       bindingVersion: 2,
     })
     expect(effects).toEqual([])
+    await store.events.settleGroupedAppends()
     expect(await store.events.listEventsSince(0, { kinds: ['session.phase'] })).toEqual([])
 
     await reg.dispose()

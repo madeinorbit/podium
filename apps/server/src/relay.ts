@@ -1943,8 +1943,10 @@ export class SessionRegistry {
         requestTelegram: async (request) => {
           this.bus.emit('notification.telegramRequested', request)
         },
+        // Grouped with the other phase listeners' appends of the same state
+        // change: one commit, not one per row (POD-6233).
         appendEvent: async (e) => {
-          await this.store.events.appendEvent(e)
+          await this.store.events.appendEventGrouped(e)
         },
         now: () => this.now(),
         clients: (ownerUserId) =>

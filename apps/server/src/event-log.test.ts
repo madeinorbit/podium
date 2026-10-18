@@ -286,6 +286,78 @@ describe('SessionStore event log', () => {
   })
 })
 
+describe('SessionStore grouped event appends (POD-6233)', () => {
+  const row = (subject: string, payload: unknown = {}) => ({ ts: 't1', kind: 'session.phase', subject, payload })
+
+  it('writes the appends of one moment in one commit, in call order, announced after it', async () => {
+    const store = await openTestStore(':memory:')
+    // What the log holds when each row is announced. An autocommit append is
+    // announced right after its own insert, before the next one exists.
+    const visibleAtAnnouncement: number[] = []
+    await store.events.onAppend(async () => {
+      visibleAtAnnouncement.push((await store.events.listEventsSince(0)).length)
+    })
+    const ids = await Promise.all([
+      store.events.appendEventGrouped(row('s1')),
+      // A sibling listener reaches its append a few microtasks later.
+      Promise.resolve().then(async () => await store.events.appendEventGrouped(row('s2'))),
+      store.events.appendEventGrouped(row('s3')),
+    ])
+    // Ids follow the order the appends were made: s1, s3, then s2.
+    expect(ids[0]! < ids[2]! && ids[2]! < ids[1]!).toBe(true)
+    expect((await store.events.listEventsSince(0)).map((e) => e.subject)).toEqual(['s1', 's3', 's2'])
+    expect(visibleAtAnnouncement).toEqual([3, 3, 3])
+    await store.close()
+  })
+
+  it('joins an open span instead of grouping, so a rollback discards the row', async () => {
+    const store = await openTestStore(':memory:')
+    await expect(store.transact(async () => {
+      await store.events.appendEventGrouped(row('s1'))
+      expect(await store.events.listEventsSince(0)).toHaveLength(1)
+      throw new Error('rollback')
+    })).rejects.toThrow('rollback')
+    expect(await store.events.listEventsSince(0)).toEqual([])
+    await store.close()
+  })
+
+  it('rejects every append of a group that fails, and writes the next group', async () => {
+    const store = await openTestStore(':memory:')
+    const failed = await Promise.allSettled([
+      store.events.appendEventGrouped(row('s1')),
+      // Not serializable: the group's transaction rolls back.
+      store.events.appendEventGrouped(row('s2', { n: 1n })),
+    ])
+    expect(failed.map((r) => r.status)).toEqual(['rejected', 'rejected'])
+    expect(await store.events.listEventsSince(0)).toEqual([])
+    await store.events.appendEventGrouped(row('s3'))
+    expect((await store.events.listEventsSince(0)).map((e) => e.subject)).toEqual(['s3'])
+    await store.close()
+  })
+
+  it('is not stalled by a test that fakes timers', async () => {
+    const store = await openTestStore(':memory:')
+    vi.useFakeTimers()
+    try {
+      expect(await store.events.appendEventGrouped(row('s1'))).toBeTypeOf('number')
+    } finally {
+      vi.useRealTimers()
+    }
+    await store.close()
+  })
+
+  it('writes a pending group before the store closes', async () => {
+    const store = await openTestStore(':memory:')
+    const appended = store.events.appendEventGrouped(row('s1'))
+    await store.events.settleGroupedAppends()
+    expect(await appended).toBeTypeOf('number')
+    expect(await store.events.listEventsSince(0)).toHaveLength(1)
+    const late = store.events.appendEventGrouped(row('s2'))
+    await store.close()
+    expect(await late).toBeTypeOf('number')
+  })
+})
+
 describe('SessionStore event log retention', () => {
   const daysAgo = (n: number) => new Date(Date.now() - n * 24 * 60 * 60 * 1000).toISOString()
 
@@ -728,6 +800,8 @@ describe('SessionRegistry session.phase events', () => {
         sessionId,
         state: st('working'),
       })
+      // The phase rows are written in a group after the frame (POD-6233).
+      await store.events.settleGroupedAppends()
       expect(await store.events.listEventsSince(0, { kinds: ['session.phase'] })).toEqual([])
       await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
         type: 'agentState',
@@ -740,6 +814,7 @@ describe('SessionRegistry session.phase events', () => {
         sessionId,
         state: st('idle'),
       })
+      await store.events.settleGroupedAppends()
       const evs = await store.events.listEventsSince(0, { kinds: ['session.phase'] })
       expect(evs.length).toBe(1)
       expect(evs[0]).toMatchObject({

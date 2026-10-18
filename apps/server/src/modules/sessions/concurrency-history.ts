@@ -136,7 +136,7 @@ export class AgentConcurrencyHistory {
         Iterable<Pick<Session, 'agentState' | 'status' | 'archived' | 'lastActiveAt'>>
       events: Pick<
         EventsRepository,
-        'appendEvent' | 'listKindSubjectSinceWithPrior' | 'listEventsSince'
+        'appendEventGrouped' | 'listKindSubjectSinceWithPrior' | 'listEventsSince'
       >
       bus: EventBus
       now: () => number
@@ -166,7 +166,8 @@ export class AgentConcurrencyHistory {
     const recording = { count }
     this.recording = recording
     try {
-      await this.deps.events.appendEvent({
+      // Grouped with the phase rows the same emit appends (POD-6233).
+      await this.deps.events.appendEventGrouped({
         ts: new Date(this.deps.now()).toISOString(),
         kind: AGENT_CONCURRENCY_EVENT,
         subject: AGENT_CONCURRENCY_SUBJECT,

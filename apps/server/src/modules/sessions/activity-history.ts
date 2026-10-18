@@ -67,7 +67,7 @@ export class SessionActivityHistory {
 
   constructor(
     private readonly deps: {
-      events: Pick<EventsRepository, 'appendEvent' | 'listKindSubjectSinceWithPrior'>
+      events: Pick<EventsRepository, 'appendEventGrouped' | 'listKindSubjectSinceWithPrior'>
       bus: EventBus
       now: () => number
     },
@@ -96,7 +96,9 @@ export class SessionActivityHistory {
     const recording = { phase }
     this.recording.set(sessionId, recording)
     try {
-      await this.deps.events.appendEvent({
+      // Grouped: notify appends this transition's `session.phase` from the same
+      // emit, and the two share one commit (POD-6233).
+      await this.deps.events.appendEventGrouped({
         ts: new Date(this.deps.now()).toISOString(),
         kind: SESSION_PHASE_EVENT,
         subject: sessionId,

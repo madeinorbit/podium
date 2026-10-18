@@ -78,7 +78,7 @@ export interface NotifyDeps {
   telegramBotToken(): string | Promise<string>
   /** Experimental delivery boundary [spec:SP-f4b9]. Omitted by isolated tests. */
   notificationsEnabled?(): boolean
-  /** store.appendEvent — the durable podium_events log. */
+  /** The durable podium_events log; wired to the store's grouped append (POD-6233). */
   appendEvent(e: {
     ts: string
     kind: string

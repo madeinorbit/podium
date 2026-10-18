@@ -750,6 +750,9 @@ export class SessionStore {
     // scan cannot outlive the database (rule 67). This is persist ordering, not
     // exclusive-lane membership — the proof never held exclusive.
     for (const unsubscribe of this.publicationIdleSubscriptions) unsubscribe()
+    // Grouped event appends still waiting for their transaction are written,
+    // not dropped with the connection (POD-6233).
+    await this.events.settleGroupedAppends()
     const verifierClosed = this.snapshotVerifier.close()
     await this.executor.close(async () => {
       try {

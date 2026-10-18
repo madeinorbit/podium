@@ -22,7 +22,7 @@ function rig(clock: { now: number } = { now: NOW }): {
   const bus = new EventBus()
   const rows: PodiumEventRecord[] = []
   const events = {
-    async appendEvent(input: Omit<PodiumEventRecord, 'id' | 'repoPath'> & { repoPath?: string | null }) {
+    async appendEventGrouped(input: Omit<PodiumEventRecord, 'id' | 'repoPath'> & { repoPath?: string | null }) {
       rows.push({ id: rows.length + 1, repoPath: input.repoPath ?? null, ...input })
       return rows.length
     },

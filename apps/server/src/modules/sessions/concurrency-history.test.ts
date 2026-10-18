@@ -87,7 +87,7 @@ describe('AgentConcurrencyHistory', () => {
     const sessions: FakeSession[] = []
     const rows: PodiumEventRecord[] = []
     const events = {
-      async appendEvent(
+      async appendEventGrouped(
         input: Omit<PodiumEventRecord, 'id' | 'repoPath'> & { repoPath?: string | null },
       ) {
         rows.push({ id: rows.length + 1, repoPath: input.repoPath ?? null, ...input })
@@ -140,7 +140,7 @@ describe('AgentConcurrencyHistory', () => {
     const sessions: FakeSession[] = [live('working')]
     const rows: PodiumEventRecord[] = []
     const events = {
-      async appendEvent(
+      async appendEventGrouped(
         input: Omit<PodiumEventRecord, 'id' | 'repoPath'> & { repoPath?: string | null },
       ) {
         rows.push({ id: rows.length + 1, repoPath: input.repoPath ?? null, ...input })

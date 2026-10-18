@@ -28,8 +28,23 @@ import {
   prepared,
   preparedFamily,
 } from './executor/sync-drizzle'
-import { afterCommit } from './executor/executor'
+import { runAtRoot } from './executor/context'
+import { afterCommit, spanOpen } from './executor/executor'
+import { withOwnOperation } from './executor/operation-scope'
 import type { Subscription } from './types'
+
+/**
+ * Captured at load: a test that fakes timers must not stall the store's own
+ * grouping, which is not a timer anyone advances (see `appendEventGrouped`).
+ */
+const nextMacrotask = globalThis.setImmediate
+
+/** One append waiting for its group's transaction. */
+interface PendingAppend {
+  event: Parameters<EventsRepository['appendEvent']>[0]
+  resolve: (id: number) => void
+  reject: (error: unknown) => void
+}
 
 export interface PodiumEventRecord {
   id: number
@@ -677,6 +692,11 @@ export class EventsRepository {
   private readonly rootDb: StoreDrizzle
   protected readonly createOrJoinTransaction: TransactionRunner
 
+  /** Appends waiting for the next group transaction (`appendEventGrouped`). */
+  private readonly pendingAppends: PendingAppend[] = []
+  /** The group drain in flight, if any: one at a time, like the board drain. */
+  private appendDrain: Promise<void> | undefined
+
   constructor(queries: StoreQueries) {
     this.rootDb = queries.rootDb
     this.createOrJoinTransaction = queries.createOrJoinTransaction
@@ -892,6 +912,71 @@ export class EventsRepository {
       afterCommit(() => this.appendListener?.(id, announced), `podium-event:${e.kind}`)
     }
     return id
+  }
+
+  /**
+   * {@link appendEvent} for a row nobody reads in the caller's own flow, written
+   * in a GROUP TRANSACTION with the other appends of the same moment [POD-6233].
+   *
+   * WHY. Outside a transaction an insert is its own commit, and a commit in WAL
+   * mode with `synchronous=FULL` syncs the WAL to disk: 1.3 ms against 0.08 ms
+   * for the same insert inside a transaction (POD-6232, measured on the polaris
+   * VM). The phase recorders append from bus listeners, after the commit that
+   * changed the state, so every phase transition paid that twice or three times:
+   * `session.phase` (notify), `session.phase_sample` (activity history) and the
+   * fleet concurrency count, one listener each on the same
+   * `session.stateChanged` emit.
+   *
+   * HOW, like the board drain: one drain at a time. The first append schedules
+   * it for the next macrotask, so the sibling listeners of the same emit (which
+   * reach their append through a chain of microtasks) land in the same group;
+   * appends that arrive while a group's transaction runs form the next group.
+   * The promise resolves with the row id once its group COMMITTED, so the
+   * caller still learns only of a durable row, and the announcement still
+   * follows that commit (`appendEvent` registers it on the group's span).
+   *
+   * Inside an open span there is nothing to group: the row joins that span.
+   * A group that fails rejects every append in it: they share one commit.
+   */
+  async appendEventGrouped(e: Parameters<EventsRepository['appendEvent']>[0]): Promise<number> {
+    if (spanOpen()) return await this.appendEvent(e)
+    return await new Promise<number>((resolve, reject) => {
+      this.pendingAppends.push({ event: e, resolve, reject })
+      this.appendDrain ??= new Promise<void>((next) => nextMacrotask(next)).then(
+        async () => await this.drainGroupedAppends(),
+      )
+    })
+  }
+
+  /** Wait until every grouped append so far is written (store close). */
+  async settleGroupedAppends(): Promise<void> {
+    while (this.appendDrain) await this.appendDrain
+  }
+
+  private async drainGroupedAppends(): Promise<void> {
+    try {
+      while (this.pendingAppends.length > 0) {
+        const group = this.pendingAppends.splice(0)
+        try {
+          // Its own operation at the root: the drain serves every caller in the
+          // group, and the first one's scope is not the others'.
+          const ids = await runAtRoot(() =>
+            withOwnOperation(async () =>
+              await this.createOrJoinTransaction(async () => {
+                const out: number[] = []
+                for (const pending of group) out.push(await this.appendEvent(pending.event))
+                return out
+              }),
+            ),
+          )
+          group.forEach((pending, i) => pending.resolve(ids[i]!))
+        } catch (error) {
+          for (const pending of group) pending.reject(error)
+        }
+      }
+    } finally {
+      this.appendDrain = undefined
+    }
   }
 
   /** One diagnostic per (kind, subject), across replay, restart and retention.
