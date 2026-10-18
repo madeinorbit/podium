@@ -63,7 +63,9 @@ import {
   migrateStoreConnection,
   PLANNER_STATISTICS_INTERVAL_MS,
   refreshPlannerStatistics,
+  serveTrafficTempStore,
   setStoreTransferFence,
+  withFileTempStore,
 } from './migrations/store-lifecycle'
 import { syncServerTables } from './migrations/sync-server-tables'
 import { importUpdateSigningKey } from '@podium/runtime/update-signing-key'
@@ -347,6 +349,8 @@ export class SessionStore {
         bootStage('planner statistics', statisticsStarted)
         store.startPlannerStatistics()
       }
+      // Last, once nothing left in the boot builds an index (see the function).
+      await executor.exclusive(async (session) => await serveTrafficTempStore(session))
       return store
     } catch (error) {
       await executor.close()
@@ -719,7 +723,9 @@ export class SessionStore {
    * `exclusive()` throws there rather than run it inside the transaction.
    */
   async refreshPlannerStatistics(when: 'open' | 'periodic'): Promise<void> {
-    await this.executor.exclusive(async (session) => await refreshPlannerStatistics(session, when))
+    await this.executor.exclusive(
+      async (session) => await withFileTempStore(session, () => refreshPlannerStatistics(session, when)),
+    )
   }
 
   /** Refresh the statistics every `intervalMs` until the store closes. Restarts a running timer. */
