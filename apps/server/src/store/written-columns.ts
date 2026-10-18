@@ -33,6 +33,15 @@
  *
  * A miss costs one full write, never a wrong one, so the committed map is
  * bounded by dropping its oldest entry.
+ *
+ * ONE WRITER ONLY. This is memory of one process, so it is correct only while
+ * this process is the only writer of the table: a write by another server
+ * process on the same database, a later multi-process or Postgres deployment,
+ * or a hand-run UPDATE is invisible here, and the next upsert would skip a
+ * column that no longer holds the remembered value. Before a second writer
+ * exists, disable it (answer unknown always, so every upsert sets every column)
+ * or invalidate it across processes. Declared as a write hint in
+ * docs/agents/server-data.md ("Caching", rule 7).
  */
 
 import { applyAfterCommit, spanOpen } from './executor/executor'

@@ -14,6 +14,7 @@ Memory may hold only:
 |---|---|
 | **Live runtime state** that is not a stored fact. It grows with activity, not with history. | connected daemons, running sessions and their terminals, presence |
 | **Declared caches**, under the rules in "Caching" below | none yet; the cache layer is built only when a measurement shows the first real need (POD-6150) |
+| **Declared write hints**, under rule 7 of "Caching" below: what a store last wrote, kept only to make its next write cheaper, never read as a fact | `WrittenColumns` for the session upsert (POD-6234) |
 | **One-operation memos**: the read scope, which removes repeated lookups inside one operation and is gone when the operation ends | `withReadScope` and `readScopeSlot` in `apps/server/src/store/executor/read-scope.ts` |
 
 **One way to read a fact.** A memory copy cannot see a save that is still in progress, so during a save the code must skip the copy and ask the database; When every read asks the database, the database already shows the save's own unfinished changes, so there is no special case and nothing to keep in step: grants, machines, pending counts and folder owners have read only the database since POD-6155, and issues since POD-6158.
@@ -75,6 +76,20 @@ Each rule has the reason for it and an example from this repository.
 4. **Removed key by key, after commit.** A write removes only the entries it changed, and only once its transaction has committed. Never throw the whole cache away on a write. (The raw copy of `change_latest` that POD-6156 removed was dropped whole on every append and read again in full on the next visibility check; the visibility anchors now read the rows a batch names by key, `SyncRepository.installedStates`.)
 5. **Never read inside a save.** A save always reads the database.
 6. **Never a whole-table copy.** There is no exception for small tables: with several users or tenants, "small" is multiplied, and several processes cannot share one in-memory copy.
+7. **A write hint is declared like a cache.** A write hint is memory of what a row holds, used only to decide how a write is shaped. It never answers a read and never replaces a value; on a miss the write does the full work. It is registered with what it holds, its key, its entry limit, what forgets it, and the writers it assumes. The one write hint today:
+
+   | | `WrittenColumns` (`apps/server/src/store/written-columns.ts`, POD-6234) |
+   |---|---|
+   | what it holds | for each session row, the values of its indexed columns as this process last wrote them, or last read them by id with no span open |
+   | used for | `SessionsRepository.upsertSession` / `upsertSessions` leave an indexed column out of the ON CONFLICT set when its value is unchanged, so SQLite does not rewrite that index |
+   | key | session id |
+   | limit | 4,096 committed entries, oldest dropped first; staged entries are cleared at the same bound |
+   | what forgets it | a write's rollback (staged until the outermost commit, a dead stage reads as unknown); a write with no span open; a read overtaken by any write, promotion or forget; every other write of `sessions` in the repository (`softDeleteSessions`, `restoreDeletedForIssue`, `detachTombstonesFromIssue`, `detachDanglingIssueReferences`, `purgeSession`), which runs through `WrittenColumns.aside` |
+   | on a miss | the row is unknown and the upsert sets every column, which is what it did before the hint |
+   | tests | `store/session-upsert-changed-columns.test.ts` (a narrow and a full database stay identical over a corpus of writes), `store/written-columns.test.ts` (each forget rule) |
+   | **assumes** | **this process is the only writer of `sessions`.** A write by anything else (another server process on the same database, a later multi-process or Postgres deployment, a hand-run `UPDATE`) is invisible to it, and the next upsert would skip a column that no longer holds what the hint says. Before a second writer exists, disable the hint (every upsert sets every column) or invalidate it across processes. |
+
+   A new write hint must state the same, and a change that adds a second writer of a table must check this list.
 
 ## How queries execute
 
