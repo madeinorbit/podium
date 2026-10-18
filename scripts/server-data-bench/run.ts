@@ -8,7 +8,7 @@
  *     [--root=$HOME/server-data-bench] [--label=<name>] [--max-new-rounds=2] [--profile=attribution|full]
  *     [--issue-map-parity=off|log] [--issue-map-parity-a=off|log] [--issue-map-parity-b=off|log]
  *     [--session-map-parity=off|log] [--session-map-parity-a=off|log] [--session-map-parity-b=off|log]
- *     [--session-write-targeting=running|uniform] [--mail-per-minute=0] [--mail-targets=5]
+ *     [--session-write-targeting=running|uniform] [--mail-per-minute=0] [--mail-targets=5] [--keep-state]
  *   bun --conditions=@podium/source scripts/server-data-bench/run.ts --resume=<run dir> [--max-new-rounds=2]
  *
  * `--max-new-rounds` stops a call after that many rounds, so one A/B pair fits in one
@@ -236,6 +236,8 @@ async function round(opts: {
   outDir: string; minutes: number; framesPerMinute: number; clients: number
   sessionWritesPerMinute: number; issueWritesPerMinute: number; profile: string; issueMapParity: string
   sessionMapParity: string; sessionWriteTargeting: string; mailPerMinute: number; mailTargets: number
+  /** Keep a passing round's database too, to query what the round wrote (POD-6232). */
+  keepState: boolean
 }): Promise<{ result: RoundResult; detail: Record<string, unknown> }> {
   const dir = join(opts.outDir, `${opts.arm}-r${opts.index}`)
   rmSync(dir, { recursive: true, force: true })
@@ -318,7 +320,7 @@ async function round(opts: {
     return { result: { arm: opts.arm, round: opts.index, metrics }, detail }
   } finally {
     await server.stop()
-    if (succeeded) rmSync(join(dir, 'state'), { recursive: true, force: true })
+    if (succeeded && !opts.keepState) rmSync(join(dir, 'state'), { recursive: true, force: true })
   }
 }
 
@@ -427,6 +429,7 @@ async function main(): Promise<void> {
       templateDir: t.dir, fixture: t.fixture, outDir, minutes, framesPerMinute, clients, sessionWritesPerMinute, issueWritesPerMinute, profile,
       issueMapParity: issueMapParity[step.arm],
       sessionMapParity: sessionMapParity[step.arm], sessionWriteTargeting, mailPerMinute, mailTargets,
+      keepState: args['keep-state'] !== undefined,
     })
     results.push(result)
     details.push(detail)
