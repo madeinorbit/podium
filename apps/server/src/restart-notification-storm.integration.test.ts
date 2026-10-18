@@ -176,7 +176,7 @@ describe('isolated restart notification-storm acceptance [spec:SP-cdb2]', () => 
         cwd: join(root, 'child'),
         spawnedBy: `session:${parentId}`,
       })
-      registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+      await registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
         type: 'sessionResumeRef',
         sessionId: childId,
         resume: {
@@ -228,14 +228,17 @@ describe('isolated restart notification-storm acceptance [spec:SP-cdb2]', () => 
         generation: number
         result: Extract<ControlMessage, { type: 'agentObservationAck' }>['result']
       }> = []
-      const deliverBootstrap = (kind: 'initial' | RestartKind, value: AgentObservation): void => {
+      const deliverBootstrap = async (
+        kind: 'initial' | RestartKind,
+        value: AgentObservation,
+      ): Promise<void> => {
         const before = controls.filter(
           (message) =>
             message.type === 'agentObservationAck' &&
             message.sessionId === childId &&
             message.observerGeneration === value.observerGeneration,
         ).length
-        deliver(value)
+        await deliver(value)
         const acks = controls.filter(
           (message): message is Extract<ControlMessage, { type: 'agentObservationAck' }> =>
             message.type === 'agentObservationAck' &&
@@ -251,7 +254,7 @@ describe('isolated restart notification-storm acceptance [spec:SP-cdb2]', () => 
           result: lastAck.result,
         })
       }
-      deliverBootstrap('initial', frozen(await currentGeneration()))
+      await deliverBootstrap('initial', frozen(await currentGeneration()))
       const frozenCheckpoint = (await store.observationCheckpoints.get(childId))?.checkpoint
       if (!frozenCheckpoint) throw new Error('missing frozen checkpoint')
       expect(
@@ -296,7 +299,7 @@ describe('isolated restart notification-storm acceptance [spec:SP-cdb2]', () => 
         })
         bootstrapSnapshots.push({ kind, generation })
         if ((await store.observationCheckpoints.getTerminalCandidate(childId))?.confirmedAt) {
-          registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+          await registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
             type: 'agentFrameBatch',
             sessionId: childId,
             frames: [
@@ -308,7 +311,7 @@ describe('isolated restart notification-storm acceptance [spec:SP-cdb2]', () => 
         if (kind === 'server-only') {
           const held = (await store.observationCheckpoints.get(childId))?.checkpoint
           if (!held?.providerCursor) throw new Error('missing daemon-held checkpoint')
-          deliverBootstrap(kind, {
+          await deliverBootstrap(kind, {
             ...frozen(generation),
             providerCursor: held.providerCursor,
             providerAt: held.providerAt,
@@ -322,7 +325,7 @@ describe('isolated restart notification-storm acceptance [spec:SP-cdb2]', () => 
             sourceEventKind: 'daemon_held_snapshot',
           })
         } else {
-          deliverBootstrap(kind, frozen(generation))
+          await deliverBootstrap(kind, frozen(generation))
         }
       }
 
@@ -330,6 +333,10 @@ describe('isolated restart notification-storm acceptance [spec:SP-cdb2]', () => 
         await restart(kind)
         await restart(kind)
       }
+      // Phase rows are appended in a grouped write one macrotask after the
+      // state commit (POD-6233); settle it so the steward and the empty-log
+      // assertions below see every row the restarts could have produced.
+      await store.events.settleGroupedAppends()
       await registry.runStewardTick()
 
       expect(bootstrapSnapshots).toHaveLength(6)
@@ -388,13 +395,13 @@ describe('isolated restart notification-storm acceptance [spec:SP-cdb2]', () => 
         providerAt: at(21),
         sourceEventKind: 'provider_terminal_confirmed',
       })
-      deliver(working)
-      deliver(terminal)
-      deliver(terminal)
+      await deliver(working)
+      await deliver(terminal)
+      await deliver(terminal)
       const terminalLease = await store.observationCheckpoints.get(childId)
       const terminalCursor = terminalLease?.checkpoint?.providerCursor
       if (!terminalLease || !terminalCursor) throw new Error('missing terminal checkpoint')
-      registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+      await registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
         type: 'agentObserverLiveConfirmation',
         sessionId: childId,
         provider,
@@ -405,6 +412,7 @@ describe('isolated restart notification-storm acceptance [spec:SP-cdb2]', () => 
         livePollSequence: 1,
         confirmedAt: at(22),
       })
+      await store.events.settleGroupedAppends()
       await registry.runStewardTick()
       await registry.runStewardTick()
 
@@ -452,6 +460,7 @@ describe('isolated restart notification-storm acceptance [spec:SP-cdb2]', () => 
       expect(bootstrapAcks).toHaveLength(8)
       expect(new Set(bootstrapAcks.map((ack) => ack.generation)).size).toBe(8)
       expect(bootstrapAcks.at(-1)?.result).toBe('rejected')
+      await store.events.settleGroupedAppends()
       await registry.runStewardTick()
       expect(ntfy).toHaveBeenCalledTimes(effectsBeforeFinalRestart.ntfy)
       expect(telegram).toHaveBeenCalledTimes(effectsBeforeFinalRestart.telegram)
