@@ -154,6 +154,42 @@ async function forgetTinyTables(session: DriverSession): Promise<void> {
   await session.execute({ sql: 'ANALYZE sqlite_schema', params: [], method: 'run', intent: 'write' })
 }
 
+/**
+ * SAVEPOINT JOURNALS STAY IN MEMORY WHILE THE STORE SERVES TRAFFIC [POD-6232].
+ *
+ * A page first written inside a savepoint is copied to the sub-journal, which
+ * SQLite keeps in memory up to 64 KiB and then spills to a temp file: a create,
+ * an unlink, the 64 KiB and a close, inside whichever statement crosses the
+ * line. A session rename nests two savepoints (its commit inside the rename's
+ * own transaction, the change append inside the commit), and the five sessions
+ * indexes of POD-6160 put that write past the line: the change-log insert went
+ * from 57 to 247 µs on that path. The server creates no temp tables, so this
+ * moves the sub-journals and the planner's temp b-trees.
+ *
+ * NOT FOR MIGRATIONS OR MAINTENANCE. An index build sorts in temp, and the one
+ * over the 2 GB `applied_mutations` table must be able to spill to disk. So the
+ * store switches only once it is open for traffic (after the migrations, the
+ * boot repairs, the full-text setup and the opening statistics), and
+ * maintenance on a running store runs inside {@link withFileTempStore}.
+ * Both run on the exclusive lane: SQLite refuses the change inside a
+ * transaction.
+ */
+export async function serveTrafficTempStore(session: DriverSession): Promise<void> {
+  await session.execute({ sql: 'PRAGMA temp_store = MEMORY', params: [], method: 'run', intent: 'write' })
+}
+
+/** Run maintenance with temp files on disk, then put back what the connection had. */
+export async function withFileTempStore<T>(session: DriverSession, step: () => Promise<T>): Promise<T> {
+  const current = await session.execute({ sql: 'PRAGMA temp_store', params: [], method: 'get', intent: 'read' })
+  const before = (current.rows[0] as { temp_store: number } | undefined)?.temp_store ?? 0
+  await session.execute({ sql: 'PRAGMA temp_store = FILE', params: [], method: 'run', intent: 'write' })
+  try {
+    return await step()
+  } finally {
+    await session.execute({ sql: `PRAGMA temp_store = ${before}`, params: [], method: 'run', intent: 'write' })
+  }
+}
+
 export async function setStoreTransferFence(session: DriverSession, held: boolean): Promise<void> {
   await session.execute({
     sql: held ? 'PRAGMA query_only = ON' : 'PRAGMA query_only = OFF',
