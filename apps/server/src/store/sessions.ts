@@ -43,6 +43,7 @@ import {
   shapeOf,
 } from './executor/sync-drizzle'
 import { requireUserId } from './helpers'
+import { WrittenColumns } from './written-columns'
 import { prefixUpperBound } from './prefix-range'
 import type { RepoPlaces } from './repos'
 import type {
@@ -352,13 +353,66 @@ type SessionInsert = typeof sessionsTable.$inferInsert
 type SessionColumnKey = keyof SessionInsert
 
 /**
+ * THE INDEXED COLUMNS AN UPSERT SETS ONLY WHEN THEY CHANGED [POD-6234].
+ *
+ * SQLite rewrites every index whose columns (or partial WHERE) an UPDATE's SET
+ * names, whether or not the value moved, and it rewrites the row record whole
+ * either way. So naming every column rewrote all of the sessions indexes on
+ * each write: about 150 us per upsert on the rename path, and most of the pages
+ * a nested savepoint journals. A column no index reads costs nothing to
+ * restate and stays in every set; these are set only when their group changed.
+ * Grouped so a family keyed by the changed groups has at most 2^5 statements
+ * per key shape: the hot `status` alone, the rest by how they move together.
+ */
+const INDEXED_GROUPS: readonly (readonly SessionColumnKey[])[] = [
+  ['status'],
+  ['resumeValue'],
+  ['issueId'],
+  ['cwd', 'machineId'],
+  ['spawnedBy', 'refIssueId', 'refDraft', 'deletedAt', 'deletedByIssueId'],
+]
+const INDEXED_COLUMNS = INDEXED_GROUPS.flat()
+const GROUP_BIT = new Map(INDEXED_GROUPS.flatMap((group, index) => group.map((key) => [key, 1 << index] as const)))
+const STATUS_GROUP = 1
+/** Every group set: the full write, for a row this store cannot vouch for. */
+const ALL_GROUPS = (1 << INDEXED_GROUPS.length) - 1
+
+/** The indexed column values a write sends, in {@link INDEXED_COLUMNS} order. */
+type IndexedColumns = readonly unknown[]
+
+/** From the values a write sends or the row a read returns: the same keys, and
+ *  every indexed column is text or integer, so a stored value reads back as the
+ *  value that was sent. */
+function indexedColumnsOf(values: object): IndexedColumns {
+  const record = values as Record<string, unknown>
+  return INDEXED_COLUMNS.map((key) => record[key])
+}
+
+/** The groups whose values differ from what the row holds. */
+function changedGroups(stored: IndexedColumns | undefined, values: Record<string, unknown>): number {
+  if (stored === undefined) return ALL_GROUPS
+  let groups = 0
+  INDEXED_COLUMNS.forEach((key, index) => {
+    if (stored[index] !== values[key]) groups |= GROUP_BIT.get(key)!
+  })
+  return groups
+}
+
+/**
  * The ON CONFLICT set both session upserts share, so the one-row and the
  * many-row forms cannot drift apart. `value(key)` names the incoming value of a
  * column: its placeholder in the one-row form, `excluded."column"` in the
  * many-row form. `id`, `ownerUserId`, `agentKind`, `createdAt` and `headless`
- * are written on insert only.
+ * are written on insert only. An indexed column outside `groups` is left out
+ * (see {@link INDEXED_GROUPS}).
  */
-function sessionUpsertSet(value: (key: SessionColumnKey) => Placeholder | SQL | undefined) {
+function sessionUpsertSet(value: (key: SessionColumnKey) => Placeholder | SQL | undefined, groups: number) {
+  const set: Partial<Record<SessionColumnKey, Placeholder | SQL | undefined>> = fullSessionUpsertSet(value)
+  for (const key of INDEXED_COLUMNS) if ((groups & GROUP_BIT.get(key)!) === 0) delete set[key]
+  return set
+}
+
+function fullSessionUpsertSet(value: (key: SessionColumnKey) => Placeholder | SQL | undefined) {
   return {
     cwd: value('cwd'),
     model: value('model'),
@@ -433,12 +487,15 @@ function sessionUpsertSet(value: (key: SessionColumnKey) => Placeholder | SQL | 
   }
 }
 
-const upsertSessionOfShape = preparedFamily((db: StoreDrizzle, shape: string) => {
-  const p = placeholdersFor(shape) as SessionPlaceholders
+/** The one-row upsert, keyed `${groups}|${shape}`: the changed groups, then the keys its values carry. */
+const upsertSessionOfShape = preparedFamily((db: StoreDrizzle, key: string) => {
+  const bar = key.indexOf('|')
+  const groups = Number(key.slice(0, bar))
+  const p = placeholdersFor(key.slice(bar + 1)) as SessionPlaceholders
   return db
     .insert(sessionsTable)
     .values(p as unknown as SessionInsert)
-    .onConflictDoUpdate({ target: sessionsTable.id, set: sessionUpsertSet((key) => p[key]) })
+    .onConflictDoUpdate({ target: sessionsTable.id, set: sessionUpsertSet((name) => p[name], groups) })
     .prepare()
 })
 
@@ -454,16 +511,18 @@ const rowParam = (index: number, key: string): string => `r${index}_${key}`
 
 /**
  * The upsert of `size` rows that all carry the keys in `shape` [POD-6175],
- * keyed `${size}|${shape}`. `size` comes from {@link inListSize}, so there are
- * at most log2(256) + 2 sizes per shape; a shorter batch repeats its last row,
- * and an upsert of the same row twice leaves it as once (the set is the
- * incoming values, and every COALESCE and CASE in it keeps a value it already
- * wrote).
+ * keyed `${size}|${groups}|${shape}`. `size` comes from {@link inListSize}, so
+ * there are at most log2(256) + 2 sizes per shape; a shorter batch repeats its
+ * last row, and an upsert of the same row twice leaves it as once (the set is
+ * the incoming values, and every COALESCE and CASE in it keeps a value it
+ * already wrote). `groups` is {@link manyRowGroups} of the rows' changed groups,
+ * so three per size.
  */
 const upsertSessionsOfShape = preparedFamily((db: StoreDrizzle, key: string) => {
-  const bar = key.indexOf('|')
-  const size = Number(key.slice(0, bar))
-  const shape = key.slice(bar + 1)
+  const [sizeKey, groupsKey] = key.split('|', 2) as [string, string]
+  const size = Number(sizeKey)
+  const groups = Number(groupsKey)
+  const shape = key.slice(sizeKey.length + groupsKey.length + 2)
   const keys = shape === '' ? [] : shape.split(',')
   const present = new Set<string>(keys)
   const columns = getTableColumns(sessionsTable)
@@ -475,12 +534,24 @@ const upsertSessionsOfShape = preparedFamily((db: StoreDrizzle, key: string) => 
     .values(rows as unknown as SessionInsert[])
     .onConflictDoUpdate({
       target: sessionsTable.id,
-      set: sessionUpsertSet((name) =>
-        present.has(name) ? sql`excluded.${sql.identifier(columns[name].name)}` : undefined,
+      set: sessionUpsertSet(
+        (name) => (present.has(name) ? sql`excluded.${sql.identifier(columns[name].name)}` : undefined),
+        groups,
       ),
     })
     .prepare()
 })
+
+/**
+ * The groups one many-row statement sets: what its rows changed, widened to
+ * none, `status` alone or all, so a size has three statements. An activity
+ * flush changes counters and times, which no index reads, and now and then a
+ * status; a row whose group another row changed restates its own value, which
+ * is what the full write did.
+ */
+function manyRowGroups(changed: number): number {
+  return (changed & ~STATUS_GROUP) === 0 ? changed : ALL_GROUPS
+}
 
 /** The column values of one session row, refused before any write when the row
  *  is one no client could read. */
@@ -1149,8 +1220,11 @@ export class SessionsRepository {
 
   /** One durable row, including a tombstone, for scoped delete visibility. */
   async getSession(sessionId: SessionId): Promise<SessionRow | undefined> {
+    const mark = this.writtenColumns.mark
     const row = (await sessionById(this.db).all({ id: sessionId }))[0]
-    return row === undefined ? undefined : mapSession(row)
+    if (row === undefined) return undefined
+    this.writtenColumns.read([[row.id, indexedColumnsOf(row)]], mark)
+    return mapSession(row)
   }
 
   /**
@@ -1209,7 +1283,12 @@ export class SessionsRepository {
     const out = new Map<string, SessionRow>()
     for (const chunk of chunked(sessionIds)) {
       const size = inListSize(chunk.length)
+      const mark = this.writtenColumns.mark
       const rows = await sessionsOfIds(this.db, size).all(inListValues(chunk, size))
+      this.writtenColumns.read(
+        rows.map((row) => [row.id, indexedColumnsOf(row)] as const),
+        mark,
+      )
       for (const row of rows.map(mapSession)) {
         out.set(row.id, row)
       }
@@ -1393,9 +1472,20 @@ export class SessionsRepository {
 
   async upsertSession(row: SessionRow): Promise<void> {
     const values = sessionUpsertValues(row)
-    await upsertSessionOfShape(this.db, shapeOf(values)).run(values)
+    const groups = changedGroups(this.writtenColumns.get(values.id), values)
+    try {
+      await upsertSessionOfShape(this.db, `${groups}|${shapeOf(values)}`).run(values)
+    } catch (error) {
+      this.writtenColumns.forget(values.id)
+      throw error
+    }
+    this.writtenColumns.wrote(values.id, indexedColumnsOf(values))
     this.rowsWritten()
   }
+
+  /** The indexed columns each session row holds as this store last wrote or
+   *  read them [POD-6234], so an upsert sets only those that changed. */
+  private readonly writtenColumns = new WrittenColumns<IndexedColumns>('sessions:written-columns')
 
   /**
    * {@link upsertSession} for many rows in one statement per 256 rows of one
@@ -1418,12 +1508,20 @@ export class SessionsRepository {
       for (let start = 0; start < group.length; start += UPSERT_ROWS_PER_STATEMENT) {
         const chunk = group.slice(start, start + UPSERT_ROWS_PER_STATEMENT)
         const size = inListSize(chunk.length)
+        let changed = 0
+        for (const values of chunk) changed |= changedGroups(this.writtenColumns.get(values.id), values)
         const params: Record<string, unknown> = {}
         for (let index = 0; index < size; index++) {
           const values = chunk[Math.min(index, chunk.length - 1)] as Record<string, unknown>
           for (const key of keys) params[rowParam(index, key)] = values[key]
         }
-        await upsertSessionsOfShape(this.db, `${size}|${shape}`).run(params)
+        try {
+          await upsertSessionsOfShape(this.db, `${size}|${manyRowGroups(changed)}|${shape}`).run(params)
+        } catch (error) {
+          for (const values of chunk) this.writtenColumns.forget(values.id)
+          throw error
+        }
+        for (const values of chunk) this.writtenColumns.wrote(values.id, indexedColumnsOf(values))
       }
     }
     this.rowsWritten()
@@ -1442,10 +1540,12 @@ export class SessionsRepository {
     source: SessionDeletionSource,
     deletedByIssueId: IssueId | null = null,
   ): Promise<void> {
-    for (const id of ids) {
-      await stopRunningForTombstone(this.db).run({ id, deletedAt })
-      await tombstoneSession(this.db).run({ id, deletedAt, source, deletedByIssueId })
-    }
+    await this.writtenColumns.aside(ids, async () => {
+      for (const id of ids) {
+        await stopRunningForTombstone(this.db).run({ id, deletedAt })
+        await tombstoneSession(this.db).run({ id, deletedAt, source, deletedByIssueId })
+      }
+    })
     this.rowsWritten()
   }
 
@@ -1456,7 +1556,7 @@ export class SessionsRepository {
 
   /** Re-expose an issue's tombstoned sessions as honestly exited runtime records. */
   async restoreDeletedForIssue(issueId: IssueId): Promise<void> {
-    await restoreSessionsOfIssue(this.db).run({ issueId })
+    await this.writtenColumns.aside('all', () => restoreSessionsOfIssue(this.db).run({ issueId }))
     this.rowsWritten()
   }
 
@@ -1486,7 +1586,7 @@ export class SessionsRepository {
    * ref it should now get.
    */
   async detachTombstonesFromIssue(issueId: IssueId): Promise<void> {
-    await detachTombstones(this.db).run({ issueId })
+    await this.writtenColumns.aside('all', () => detachTombstones(this.db).run({ issueId }))
     this.rowsWritten()
   }
 
@@ -1498,7 +1598,7 @@ export class SessionsRepository {
    * desync. Returns the number of rows healed.
    */
   async detachDanglingIssueReferences(): Promise<number> {
-    const result = await detachDanglingReferences(this.db).run()
+    const result = await this.writtenColumns.aside('all', () => detachDanglingReferences(this.db).run())
     this.rowsWritten()
     return Number(result.changes)
   }
@@ -1507,7 +1607,7 @@ export class SessionsRepository {
   async purgeSession(id: SessionId): Promise<void> {
     await deleteCheckpointsOfSession(this.db).run({ id })
     this.purgeObservationCheckpoint(id)
-    await deleteSessionRow(this.db).run({ id })
+    await this.writtenColumns.aside([id], () => deleteSessionRow(this.db).run({ id }))
     this.rowsWritten()
     await deletePanelPinsOf(this.db).run({ id })
     await deleteDraftOf(this.db).run({ id })

@@ -577,6 +577,10 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
     kind: 'opaque',
     why: "The owning repository's guarded UPDATE, handed to moveStatus [POD-4765]; each is declared in its repository through that repository's write funnel and is checked there.",
   },
+  'apps/server/src/store/written-columns.ts#WrittenColumns.write': {
+    kind: 'opaque',
+    why: "The sessions repository's own write of the table outside the upsert (tombstone, issue restore, detach, purge), handed to aside [POD-6234] only to forget what the store knows of those rows; each is declared in sessions.ts and checked there.",
+  },
   'apps/server/src/store/guarded-move.ts#GuardedMove.read': {
     kind: 'opaque',
     why: "The owning repository's one-row status SELECT, read only when a guarded move did not apply [POD-4765]; declared beside the write in its repository and checked there.",
