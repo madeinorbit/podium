@@ -1,8 +1,9 @@
 # Server data access and caching — design
 
 POD-6140, agreed with the operator on 2026-10-15. Status (2026-10-18): built on the integration branch; every
-memory copy in section 6 is removed; measured (E1, docs/measurements/pod-6140-result.md); the measured hot paths
-are fixed (F lanes); the re-measure (E3) is running. See section 11.
+memory copy in section 6 is removed; measured twice (docs/measurements/pod-6140-result.md §1-§5); the measured
+hot paths are fixed. Open: three items deferred to the operator (F6, F12, E2) and the live measurement after a
+deploy. See section 11.
 Evidence behind every claim: [pod-6140-research.md](../../pod-6140-research.md).
 
 ## 1. Goal and scope
@@ -230,10 +231,14 @@ Prefix letters are phases, numbers the order inside a phase. Blocking edges in t
 | F12 | Change log latest-state writes | POD-6228 | deferred (sync scope, operator decides) |
 | F13 | Runtime payload reads in id order | POD-6224 | done, 003daba66d |
 | F14 | Delivery pass reads its sender once (pin) | POD-6231 | done, 7c3a9e912b |
-| E3 | Re-measure after the F lanes | POD-6230 | running |
+| E3 | Re-measure after the F lanes: busy share now better than the baseline | POD-6230 | done, 331ed4ee41 |
+| F15 | Change-log insert cost: nested rename journal spilled to a temp file; temp data in memory once serving | POD-6232 | done, 3a3e29d9f6, e7abbb0dde |
+| F16 | Phase recorders' event appends grouped in one commit | POD-6233 | done, e940c71503 |
+| F17 | Session upsert sets only changed indexed columns (declared single-writer write hint) | POD-6234 | done, 7e7f069650, f5ebb16524 |
+| F18 | Restart storm test: awaited frames and grouped appends (test-only) | POD-6235 | done, 1bcb8143b8 |
 | E2 | Cache interface (deferred until a measured need) | POD-6150 | deferred; no lane measured a need |
 
-D4 to D10 and F1 to F14 were found while building or measuring; each was filed with its evidence and landed on its
+D4 to D10 and F1 to F18 were found while building or measuring; each was filed with its evidence and landed on its
 own.
 dev/mw holds the integration branch up to 0c37f9eb50 (D2f); everything after it waits for the
 operator's go-ahead.
