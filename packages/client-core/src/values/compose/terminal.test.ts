@@ -125,16 +125,16 @@ describe('pickPaneSession', () => {
     expect(pickPaneSession([], asSessionId('a'))).toBeNull()
   })
 
-  it('prefers the first live member coordinator over the most recent member (POD-2034)', () => {
+  it('prefers the first member coordinator over the most recent member (POD-2034)', () => {
     expect(pickPaneSession([a, b], null, [], [null, 'a'])).toBe('a')
     expect(pickPaneSession([a, b], null, [], ['b', 'a'])).toBe('b')
     // A coordinator outside the members (archived, filtered, invisible) is skipped.
     expect(pickPaneSession([a, b], null, [], ['gone', 'a'])).toBe('a')
   })
 
-  it('skips an exited coordinator and still keeps a remembered pane', () => {
+  it('opens an exited coordinator (hibernated after a merge) and still keeps a remembered pane', () => {
     const exited = session('x', { lastActiveAt: '2026-06-01T00:00:00.000Z', status: 'exited' })
-    expect(pickPaneSession([exited, a, b], null, [], ['x'])).toBe('b')
+    expect(pickPaneSession([exited, a, b], null, [], ['x'])).toBe('x')
     expect(pickPaneSession([a, b], asSessionId('b'), [], ['a'])).toBe('b')
   })
 })

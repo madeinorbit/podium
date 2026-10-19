@@ -87,7 +87,7 @@ export function isCoordinatorSession(
 /** Pane target when a sidebar issue/worktree row is clicked: keep the current
  *  pane if it's already one of the row's members (a session in `members` or an
  *  id in `extraValidIds` — e.g. the row's open file tabs); otherwise open the
- *  first of `coordinators` that is a member and not exited (POD-2034: the
+ *  first of `coordinators` that is a member, even if exited (POD-2034: the
  *  clicked task's coordinator, then its mission root's); otherwise the row's
  *  most recently active session (lastActiveAt, ISO-comparable). Null = nothing
  *  to open (empty row) — clear the pane so the picker shows. */
@@ -104,12 +104,18 @@ export function pickPaneSession(
   ) {
     return paneA
   }
-  for (const id of coordinators) {
-    const coordinator = id ? members.find((s) => s.sessionId === id) : undefined
-    if (coordinator && coordinator.status !== 'exited') return coordinator.sessionId
-  }
+  // One pass: an earlier coordinator outranks a later one, any coordinator
+  // outranks a non-coordinator, and lastActiveAt breaks the remaining ties.
   let best: SessionView | null = null
-  for (const s of members) if (!best || s.lastActiveAt > best.lastActiveAt) best = s
+  let bestRank = coordinators.length
+  for (const s of members) {
+    const found = coordinators.indexOf(s.sessionId)
+    const rank = found === -1 ? coordinators.length : found
+    if (!best || rank < bestRank || (rank === bestRank && s.lastActiveAt > best.lastActiveAt)) {
+      best = s
+      bestRank = rank
+    }
+  }
   return best?.sessionId ?? null
 }
 

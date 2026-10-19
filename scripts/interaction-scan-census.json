@@ -12039,7 +12039,7 @@
       "file": "apps/web/src/features/worklist/use-pool-unified-work.ts",
       "holder": "createPoolWorkActions/selectIssue/callback/target",
       "rule": "helper-consumer",
-      "tokens": "804280e8132ffced50f506091648a376b61b7409ed80fa2dc71e887b23a3717d",
+      "tokens": "0a8d4c002d4b2d7e5b8acf636c6b25977364128c8ec5ef63bc705be01560b3ad",
       "gate": [
         "exit:then:f29179a7c8a940bd92d9e6a387ceadc1785ff834756e7cfa567d181fc43436c1",
         "exit:then:a3bceb8f05d18723105bc3d9455f8cb526ed83e9ebe3494b370706bb67790d11",
@@ -12050,7 +12050,7 @@
         "274575087436e0ee70f29952ed3e0dad2325a7f1c0dc6adc973a6d57588e0169",
         "f7105fcc1e6be5410a146bcf7fbcf78e3013536bd96680d39101d99eb2458ebe"
       ],
-      "fingerprint": "0e12a9dc7b51d8ef417855b347fd9bd5222d027651dcfc34d29c49c41a9b0766",
+      "fingerprint": "c1ef54b1924a7a26bdc37edacbe347e14871e9de3b619a82a45f6706b2d6fbdc",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -12063,7 +12063,7 @@
       "file": "apps/web/src/features/worklist/use-pool-unified-work.ts",
       "holder": "createPoolWorkActions/selectIssue/callback/target",
       "rule": "reader-summary",
-      "tokens": "ff4c6c72faf66814f7df8404a72199063622d1591dd146c7374be7abb2a3d87d",
+      "tokens": "474db981ff4bbd38da5d6ccea2491234fa36471e9000c1b752ad1fc30ccc3608",
       "gate": [
         "exit:then:f29179a7c8a940bd92d9e6a387ceadc1785ff834756e7cfa567d181fc43436c1",
         "exit:then:a3bceb8f05d18723105bc3d9455f8cb526ed83e9ebe3494b370706bb67790d11",
@@ -12073,7 +12073,7 @@
       "origin": [
         "274575087436e0ee70f29952ed3e0dad2325a7f1c0dc6adc973a6d57588e0169"
       ],
-      "fingerprint": "d1e01138a81e0f8f20caeb56e4146255545737fc051d484aa3dcf3c7368724f0",
+      "fingerprint": "7fc378a123406cf409977ff6117ad23a37775adb6973a3dbe4a5f617fe65b144",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -12140,13 +12140,13 @@
       "file": "apps/web/src/features/worklist/use-pool-unified-work.ts",
       "holder": "createPoolWorkActions/selectWorktree/callback/batch:callback/target",
       "rule": "helper-consumer",
-      "tokens": "68fcad1dfc0593d5ba31c594e3c1cd3606bdd8866c02cdf0283a3fad06a02c12",
+      "tokens": "e0b30745567ef3c7c28f68763c4eb2d985c18966cd4145bda08533c240ecaeb2",
       "gate": [],
       "origin": [
         "18a660df035c010c541c9c6fbc21b19967b8d15143767d4ef9230cc9b4c1a2a6",
         "83badcfdfc41aa3e3ae7f0fd24fd2bfb886371bff69b1dd5f1464f446e902252"
       ],
-      "fingerprint": "87db94399500b161ef2cd5b9eb023899a302d4817f8dc410008bb2bada76f17f",
+      "fingerprint": "fca62e1b4a87c46fe36e040223652d129629797dae7f328e87fccb44ea67a5e1",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -12159,12 +12159,12 @@
       "file": "apps/web/src/features/worklist/use-pool-unified-work.ts",
       "holder": "createPoolWorkActions/selectWorktree/callback/batch:callback/target",
       "rule": "reader-summary",
-      "tokens": "60c3bbe2998c37431aa9923863cd47594aec8c22fc8db9f5ef3b7a34a670b6bc",
+      "tokens": "29f96d8e4dc5b370ec42e1d5b0d2d1e8f0e3b52adc43250cfbe5ed28f4633005",
       "gate": [],
       "origin": [
         "83badcfdfc41aa3e3ae7f0fd24fd2bfb886371bff69b1dd5f1464f446e902252"
       ],
-      "fingerprint": "79e202decf641a9aa26873e7e589d9f64ef1e7e99d080003c0bc2e84c1e778dd",
+      "fingerprint": "8c902cf856bf22521b976d4960809a9a04bcd27dbaa7d56523866686d3c71f05",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -20944,41 +20944,20 @@
       "file": "packages/client-core/src/values/compose/terminal.ts",
       "holder": "pickPaneSession",
       "rule": "loop:for-of",
-      "tokens": "9f41694cb2eb6d46aec19d11cb76c06f9b6b6ca4feeb5544236eb58fe50d7035",
+      "tokens": "7715f241e3858702ebbe82ab87867e0af014a7d3c943bcabf046f5c43aa237dc",
       "gate": [
         "exit:then:57f2a3f4c84efc4131bcc929a76b2b870080c8f4c1e30ddfb0e687b9bc1a4b0a"
       ],
       "origin": [
         "ff19b5097055b424900b72eca39705cfd954f7257b54bd41ee6bee2cb51d20d0"
       ],
-      "fingerprint": "b5561d3741dd81105b68c816b7112de3b05015a487c30a94d89eccac34743196",
+      "fingerprint": "5f00343994cb816a305cc4adfa951a1424564dfb21bcd363fc9b968f77fc7977",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of pickPaneSession",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "loop:for-of carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-core/src/values/compose/terminal.ts",
-      "holder": "pickPaneSession/coordinator",
-      "rule": "consume:find",
-      "tokens": "c739109edc0a13d72b485285683149bd8c2be08e67c493df7e687946c87adcbd",
-      "gate": [
-        "exit:then:57f2a3f4c84efc4131bcc929a76b2b870080c8f4c1e30ddfb0e687b9bc1a4b0a",
-        "then:174d909e31c8e6015c73848c74f9235d993f9b38ef30a9fe9d0760229ee1618a"
-      ],
-      "origin": [
-        "ff19b5097055b424900b72eca39705cfd954f7257b54bd41ee6bee2cb51d20d0"
-      ],
-      "fingerprint": "4c669351cc8957dd6f0b1589f990586e2731cee59d43d921c64d22267a86c94a",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of pickPaneSession",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:find carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
