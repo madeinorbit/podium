@@ -10,8 +10,10 @@ import userEvent from '@testing-library/user-event'
 import { autorun } from 'mobx'
 import { createRef } from 'react'
 import { afterAll, afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { closeMiniview, getMiniviewState } from '@/lib/ref-activation'
 import { FlightDeckFullGroups } from './FlightDeckFullGroups'
 import { FlightDeckProposals } from './FlightDeckProposals'
+import { OPEN_RIGHT_PANEL_EVENT } from './shell-state'
 
 const commands = vi.hoisted(() => ({ promote: vi.fn(), start: vi.fn(), close: vi.fn() }))
 vi.mock('./store', () => ({
@@ -55,6 +57,7 @@ beforeEach(() => {
 })
 afterEach(() => {
   cleanup()
+  closeMiniview()
   for (const release of releases.splice(0)) release()
 })
 function deferred() {
@@ -136,7 +139,7 @@ async function open(extra: Row[] = [], proposalPatch: Row = {}) {
     pool.dispose()
   })
   await waitFor(() => expect(settled(() => screen.full.ready)).toBe(true))
-  const actions = { onSelect: vi.fn(), onMenu: vi.fn() }
+  const actions = { onMenu: vi.fn() }
   const ui = render(
     <>
       <FlightDeckFullGroups
@@ -300,7 +303,7 @@ it.each([
   expect(Object.values(commands).reduce((n, cmd) => n + cmd.mock.calls.length, 0)).toBe(1)
   for (const b of buttons) expect((b as HTMLButtonElement).disabled).toBe(true)
   expect(f.ui.getByRole('status').textContent).toMatch(/Adding|Starting|Dismissing/)
-  expect(f.actions.onSelect).not.toHaveBeenCalled()
+  expect(getMiniviewState()).toBeNull()
   expect(f.screen.full.task('parent').open).toBe(wasOpen)
   await act(async () => pending.resolve())
 })
@@ -414,7 +417,7 @@ it.each([
   await waitFor(() =>
     expect(Object.values(commands).reduce((n, cmd) => n + cmd.mock.calls.length, 0)).toBe(1),
   )
-  expect(f.actions.onSelect).not.toHaveBeenCalled()
+  expect(getMiniviewState()).toBeNull()
   expect(f.screen.full.task('parent').open).toBe(wasOpen)
 })
 
@@ -446,7 +449,40 @@ it('keeps a proposal subtree outside the tree and accessible through details and
   const user = userEvent.setup()
   details.focus()
   await user.keyboard('{Enter}')
-  expect(f.actions.onSelect).toHaveBeenCalledExactlyOnceWith(f.screen.full.task('proposal'), true)
+  expect(getMiniviewState()?.ref).toBe('POD-3')
+})
+
+it.each([
+  'click',
+  'double click',
+  'modified click',
+  'Enter',
+  'Space',
+])('opens the proposal popup on %s without opening the sidebar or folding the tree', async (gesture) => {
+  const f = await open()
+  const wasOpen = f.screen.full.task('parent').open
+  const details = within(f.proposal()!).getByRole('button', { name: /^Open POD-3/ })
+  const rect = new DOMRect(100, 200, 250, 30)
+  vi.spyOn(details, 'getBoundingClientRect').mockReturnValue(rect)
+  const panelOpened = vi.fn()
+  window.addEventListener(OPEN_RIGHT_PANEL_EVENT, panelOpened)
+  try {
+    const user = userEvent.setup()
+    if (gesture === 'click') await user.click(details)
+    else if (gesture === 'double click') await user.dblClick(details)
+    else if (gesture === 'modified click')
+      fireEvent.click(details, { ctrlKey: true, metaKey: true })
+    else {
+      details.focus()
+      await user.keyboard(gesture === 'Enter' ? '{Enter}' : ' ')
+    }
+    expect(getMiniviewState()).toMatchObject({ ref: 'POD-3', anchor: { x: 100, y: 230 } })
+    expect(panelOpened).not.toHaveBeenCalled()
+    expect(f.screen.full.task('parent').open).toBe(wasOpen)
+    for (const command of Object.values(commands)) expect(command).not.toHaveBeenCalled()
+  } finally {
+    window.removeEventListener(OPEN_RIGHT_PANEL_EVENT, panelOpened)
+  }
 })
 
 it('retains full Backlog, Start and Dismiss buttons in narrow decks while the title truncates', async () => {

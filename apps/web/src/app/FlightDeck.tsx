@@ -1716,7 +1716,6 @@ export const FlightDeckContent = observer(function FlightDeckContent({
           {/* THE SECTIONS BELOW THE TREE. PROPOSALS SINK: work being offered
             to the operator is not part of the mission's shape. */}
           <FlightDeckProposals full={screen.full}
-            onSelect={(task, permanent) => selectIssue(task.row, permanent)}
             onMenu={(task, event) => openIssueMenu(asIssueId(task.id), event)} />
           {/* The archive is where the roster STOPS: a wider break (POD-1461). */}
           <DeckArchive

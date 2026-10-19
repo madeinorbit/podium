@@ -433,7 +433,7 @@ it('keeps long identity, shared state, dependency locks and position hooks at ar
       <FlightDeckFullCoordinator full={f.full} {...f.actions} />
       <FlightDeckFullControls full={f.full} />
       <FlightDeckFullGroups {...f.props} />
-      <FlightDeckProposals full={f.full} onSelect={vi.fn()} onMenu={vi.fn()} />
+      <FlightDeckProposals full={f.full} onMenu={vi.fn()} />
     </div>,
   )
   for (const name of ['Backlog', 'Start'])

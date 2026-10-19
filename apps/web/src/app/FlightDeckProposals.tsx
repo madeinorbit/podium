@@ -8,7 +8,7 @@ import { Check, X } from 'lucide-react'
 import { action, compareShallow, observable, runInAction } from 'mobx'
 import type { JSX, MouseEvent } from 'react'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { useClickIntent } from './click-intent'
+import { openMiniview } from '@/lib/ref-activation'
 import { useRuntimeSelector } from './store'
 import type { Trpc } from './trpc'
 
@@ -86,7 +86,6 @@ class ProposalSubmissions {
 const submissionsFor = companion((full: FullDeck) => new ProposalSubmissions(full))
 
 type ProposalNavigation = {
-  onSelect: (task: FullDeckTask, permanent: boolean) => void
   onMenu: (task: FullDeckTask, event: MouseEvent) => void
 }
 
@@ -124,7 +123,6 @@ const FullProposal = observer(function FullProposal({
   provenance,
   status,
   onSubmit,
-  onSelect,
   onMenu,
 }: {
   task: FullDeckTask
@@ -132,7 +130,6 @@ const FullProposal = observer(function FullProposal({
   status: Submission | undefined
   onSubmit: (verb: ProposalAction) => void
 } & ProposalNavigation): JSX.Element | null {
-  const intent = useClickIntent()
   const drawable = settled(() => task.row.drawable) === true
   // A publication can beat the command response. Until that response arrives,
   // show only pending/error; never infer success from a changed stage.
@@ -159,16 +156,11 @@ const FullProposal = observer(function FullProposal({
             render={<button type="button" className="flight-proposal-details" />}
             aria-description={description}
             aria-label={`Open ${ref}: ${drawable ? task.row.title : 'proposal details'}`}
-            onClick={() =>
-              intent.press(
-                () => onSelect(task, false),
-                () => onSelect(task, true),
-              )
-            }
-            onKeyDown={(event) => {
-              if (event.key !== 'Enter') return
-              event.preventDefault()
-              intent.commit(() => onSelect(task, true))
+            aria-haspopup="dialog"
+            onClick={(event) => {
+              if (!ref) return
+              const rect = event.currentTarget.getBoundingClientRect()
+              openMiniview(ref, { x: rect.left, y: rect.bottom })
             }}
           >
             <span className="flight-proposal-ref">{ref}</span>
