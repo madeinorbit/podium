@@ -2,8 +2,8 @@
 
 exports[`rendered mission pane parity > keeps archived-session reveal names/order and opens the same session > rendered output 1`] = `
 {
-  "bytes": 83367,
-  "sha256": "be64f8b8a5dec1fe5fff5d9bcbd8e486190ff32c72b15449aaec9e144879d580",
+  "bytes": 83224,
+  "sha256": "3e6ffa5e095dbb5c339eeb31ea60d4de1b9db9e49cb05e4401fec8d4b6b41a23",
 }
 `;
 
@@ -30,7 +30,7 @@ exports[`rendered mission pane parity > preserves session action labels and orde
 
 exports[`rendered mission pane parity > preserves visible words, labels, order and layout > rendered output 1`] = `
 {
-  "bytes": 72856,
-  "sha256": "ed9892ba0c6adf11c3e42624282c5f378e8c42396f30d753473907e8cea11d8d",
+  "bytes": 72713,
+  "sha256": "f5209b5e51a0fea0356b4246b10e38c0dc9f7c1cada4408b6fb4dfc7ecd32711",
 }
 `;

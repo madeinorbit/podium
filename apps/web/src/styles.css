@@ -2701,6 +2701,12 @@ html[data-density="balanced"] .header-machine-meters > .header-readout {
    and the only shadow left is the design's own `0 1px 2px`, which is not
    elevation so much as a seam you can feel. The class name stays because it is
    load-bearing across the shell; what it MEANS is now "the mission's column". */
+/* The column sits half a step below the card tone so the deck's task and
+   coordinator cards (`--card`) read as raised on it (POD-2027 design). The
+   folded bar shares the surface, so folding keeps the material (POD-725). */
+.engraved-column, .folded-superagent {
+  --deck-surface: color-mix(in srgb, var(--card) 50%, var(--background));
+}
 .engraved-column {
   display: flex;
   width: 100%;
@@ -2709,8 +2715,8 @@ html[data-density="balanced"] .header-machine-meters > .header-readout {
   flex-direction: column;
   background: linear-gradient(
     180deg,
-    color-mix(in srgb, var(--issue) calc(16 * var(--issue-tint-scale, 1%)), var(--card)),
-    var(--card) 240px
+    color-mix(in srgb, var(--issue) calc(16 * var(--issue-tint-scale, 1%)), var(--deck-surface)),
+    var(--deck-surface) 240px
   );
   box-shadow:
     inset 0 3px 0 var(--issue),
@@ -2726,8 +2732,8 @@ html[data-density="balanced"] .header-machine-meters > .header-readout {
 [data-issue-colored="false"] .engraved-column {
   background: linear-gradient(
     180deg,
-    color-mix(in srgb, var(--issue) calc(13 * var(--issue-tint-scale, 1%)), var(--card)),
-    var(--card) 240px
+    color-mix(in srgb, var(--issue) calc(13 * var(--issue-tint-scale, 1%)), var(--deck-surface)),
+    var(--deck-surface) 240px
   );
   box-shadow:
     inset 0 3px 0 color-mix(in srgb, var(--issue) 55%, transparent),
@@ -2765,8 +2771,8 @@ html[data-density="balanced"] .header-machine-meters > .header-readout {
     left top / 2px 100% no-repeat,
     linear-gradient(
       180deg,
-      color-mix(in srgb, var(--issue) calc(16 * var(--issue-tint-scale, 1%)), var(--card)),
-      var(--card) 240px
+      color-mix(in srgb, var(--issue) calc(16 * var(--issue-tint-scale, 1%)), var(--deck-surface)),
+      var(--deck-surface) 240px
     );
   box-shadow: 0 1px 2px color-mix(in srgb, var(--carve-drop) 50%, transparent);
 }
@@ -2783,8 +2789,8 @@ html[data-density="balanced"] .header-machine-meters > .header-readout {
     left top / 2px 100% no-repeat,
     linear-gradient(
       180deg,
-      color-mix(in srgb, var(--issue) calc(13 * var(--issue-tint-scale, 1%)), var(--card)),
-      var(--card) 240px
+      color-mix(in srgb, var(--issue) calc(13 * var(--issue-tint-scale, 1%)), var(--deck-surface)),
+      var(--deck-surface) 240px
     );
 }
 /* THE GAUGE SPINE (POD-738): one 4px tick per task, running top-down in the open
@@ -13092,11 +13098,11 @@ button.waterfall-fold:hover {
   background: color-mix(in srgb, var(--foreground) 18%, transparent);
 }
 
-/* Full flight deck v6. Legacy spine, Waterfall, Timeline and mobile retain
-   their own row grammar. A task's surface never follows session selection. */
+/* Full flight deck v6. The dormant Waterfall and mobile retain their own row
+   grammar. A task's surface never follows session selection. */
 .flight-v6-rows {
   --v6-state-width: 118px;
-  padding: 3px 0 0 8px;
+  padding: 3px 4px 0 12px;
 }
 .flight-v6-task { position: relative; padding-bottom: 3px; }
 .flight-v6-card { display: flow-root; min-width: 0; border-radius: 6px; background: var(--card); }
@@ -13152,10 +13158,14 @@ button.waterfall-fold:hover {
 .flight-v6-session[data-pointed='true'][data-selected='false'] > .flight-v6-session-line { background: var(--muted); }
 
 /* Full phase sections and done line. All rules stay inside Full's renderer. */
-.flight-full-done-line { display: flex; align-items: center; gap: 8px; width: calc(100% - 8px); min-height: 26px; margin: 3px 0 10px 8px; padding: 3px 8px; border: 1px dashed var(--border); border-radius: 6px; color: var(--text-faint); font-size: 11.5px; text-align: left; }
+.flight-full-done-line { display: flex; align-items: center; gap: 8px; width: calc(100% - 16px); min-height: 26px; margin: 3px 4px 10px 12px; padding: 3px 8px; border: 1px dashed var(--secondary); border-radius: 6px; color: var(--text-faint); font-size: 11.5px; text-align: left; }
 .flight-full-done-line > svg { flex: none; color: var(--issue); }
 .flight-full-done-line > span:first-of-type { flex: 1; }
 .flight-full-done-line:hover { color: var(--text-dim); border-color: var(--text-faint); }
+/* The gap matches the design's spacing between groups, so the mission's
+   own agents read as their own block above the first task. */
+.flight-full-helpers { margin: 0 4px 14px 12px; }
+.flight-full-helpers > .flight-v6-sessions { margin: 0; padding: 3px 4px; }
 .flight-full-show, .flight-full-phase-index, .flight-full-phase-counter { flex: none; color: var(--text-faint); font-family: var(--font-mono); font-size: 10.5px; white-space: nowrap; }
 .flight-full-phase { position: relative; min-width: 0; padding-bottom: 3px; }
 .flight-full-phase-section { position: relative; min-width: 0; }
@@ -13213,10 +13223,7 @@ button.waterfall-fold:hover {
 /* Full coordinator and phase seats. Session selection belongs to one row,
    including the root helpers; task surfaces never inherit this treatment. */
 .flight-full-coordinator { --v6-state-width: 118px; margin: 0 12px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--card); overflow: hidden; }
-.flight-full-coordinator > .flight-v6-sessions { margin: 0; padding: 0 4px 6px; background: transparent; }
-.flight-full-coordinator .flight-v6-session[data-seat='helper'] { margin-left: 40px; }
-.flight-full-coordinator[data-has-coordinator='false'] .flight-v6-session { margin-left: 0; }
-.flight-full-coordinator .flight-v6-session[data-seat='coordinator'] { margin: -1px -5px 4px; border: 1px solid var(--border); border-radius: 8px; }
+.flight-full-coordinator > .flight-v6-session { margin: -1px; border: 1px solid var(--border); border-radius: 8px; }
 .flight-full-coordinator .flight-v6-session[data-seat='coordinator'][data-word='needs-you'] { border-color: color-mix(in srgb, var(--attention) 45%, transparent); }
 .flight-full-coordinator .flight-v6-session[data-seat='coordinator'][data-selected='true'] { border-color: color-mix(in srgb, var(--live) 70%, transparent); }
 .flight-v6-session[data-seat='coordinator'] > .flight-v6-session-line { min-height: 56px; border-radius: 7px; }
@@ -13269,9 +13276,6 @@ button.waterfall-fold:hover {
   --v6-indent-limit: clamp(0px, calc(100cqi - 440px), 66px);
 }
 .flight-v6-rows, .flight-full-coordinator, .flight-full-archive { --v6-state-width: 76px; }
-.flight-full-view-bar { height: auto; min-height: 32px; flex-wrap: wrap; }
-.flight-full-modes { flex-wrap: wrap; overflow-x: visible; }
-.flight-full-modes > button { min-height: 32px; }
 .flight-v6-task, .flight-v6-session { min-width: 0; }
 .flight-v6-card, .flight-full-phase-header, .flight-full-phase-lead {
   margin-left: min(var(--v6-indent, 0px), var(--v6-indent-limit, 66px));
@@ -13339,12 +13343,16 @@ button.waterfall-fold:hover {
 .flight-v6-natives { margin-left: 6px; padding-left: 6px; }
 .flight-v6-natives li { flex-wrap: wrap; overflow-wrap: anywhere; }
 .flight-v6-natives li > span { min-width: 0; }
-.flight-full-coordinator .flight-v6-session[data-seat='helper'] { margin-left: 0; }
 .flight-v6-session[data-seat='coordinator'] .flight-v6-session-open {
   height: auto; min-height: 56px; padding-right: 0;
 }
 .flight-full-coordinator-identity { min-width: 0; flex-basis: 60px; }
 .flight-full-coordinator-caption { flex-wrap: wrap; }
+/* The coordinator's native subagents hang off its avatar: the rail drops from
+   the avatar's centre, the names align with its title and the states with its
+   state column, left of the conversation arrow (POD-2027). */
+.flight-full-coordinator [data-seat='coordinator'] > .flight-v6-natives { margin: -4px 0 6px 24px; padding-left: 23px; }
+.flight-full-coordinator [data-seat='coordinator'] .flight-v6-native-state { padding-right: 52px; }
 .flight-full-phase-toggle { flex-wrap: wrap; }
 .flight-full-phase-name { min-width: 0; flex: 0 1 auto; }
 .flight-full-phase-hairline { min-width: 0; flex: 1 1 12px; }

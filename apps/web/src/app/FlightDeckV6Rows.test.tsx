@@ -11,6 +11,7 @@ import userEvent from '@testing-library/user-event'
 import { autorun } from 'mobx'
 import { createRef } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
+import { FlightDeckFullCoordinator } from './FlightDeckFullSeats'
 import {
   FlightDeckV6Rows,
   FlightDeckV6Session,
@@ -215,6 +216,28 @@ it('native chip starts collapsed; pointer, Enter and Space toggle a read-only ru
   expect(f.ui.getByRole('list')).toBeDefined()
   expect(f.actions.onSelectSession).not.toHaveBeenCalled()
   expect(f.fold().getAttribute('aria-expanded')).toBe('true')
+})
+
+it('lists the coordinator’s native subagents openly in its card, with no chip', async () => {
+  const f = await open(
+    [issue('root', null, 1, { coordinatorSessionId: 'coord' })],
+    [
+      session('coord', 'root', {
+        agentState: {
+          phase: 'working',
+          since: stamp,
+          nativeSubagents: [{ id: 'n-1', type: 'Explore' }],
+          nativeSubagentCount: 2,
+        },
+      }),
+    ],
+  )
+  const card = render(<FlightDeckFullCoordinator full={f.full} {...f.actions} />)
+  const coordinator = card.container.querySelector('[data-seat="coordinator"]') as HTMLElement
+  expect(within(coordinator).queryByRole('button', { name: /native/ })).toBeNull()
+  const list = within(coordinator).getByRole('list', { name: 'Native subagents of Agent coord' })
+  expect(within(list).getAllByRole('listitem')).toHaveLength(2)
+  expect(list.textContent).toContain('Explore')
 })
 
 it('draws 22px guide steps with middle, last and continuing ancestor elbows beyond three levels', async () => {

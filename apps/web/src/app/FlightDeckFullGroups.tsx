@@ -10,7 +10,7 @@ import {
   FlightDeckFullDependencies,
   useFullDependencyInteraction,
 } from './FlightDeckFullDependencies'
-import { FlightDeckFullPhaseCrew } from './FlightDeckFullSeats'
+import { FlightDeckFullHelpers, FlightDeckFullPhaseCrew } from './FlightDeckFullSeats'
 import {
   type FlightDeckV6Actions,
   FlightDeckV6Rows,
@@ -23,7 +23,7 @@ export type PhaseLeadSlot = (task: FullDeckTask, window: DeckWindow) => ReactNod
 
 /** Full's projection owns order, membership, folds and counts. This component
  * only gives the projected rows section/rail geometry, preserving every level
- * of the tree. Waterfall and Timeline keep their existing renderers. */
+ * of the tree. */
 export const FlightDeckFullGroups = observer(function FlightDeckFullGroups({
   full,
   scrollRef,
@@ -38,6 +38,7 @@ export const FlightDeckFullGroups = observer(function FlightDeckFullGroups({
   return (
     <FlightDeckFullDependencies full={full} scrollRef={scrollRef}>
       <DoneLine full={full} />
+      <FlightDeckFullHelpers full={full} {...props} />
       <FlightDeckV6Rows
         full={full}
         scrollRef={scrollRef}

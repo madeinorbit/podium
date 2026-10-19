@@ -496,7 +496,7 @@ it('uses task dependency notes without inventing a phase waiting gate', async ()
   expect(f.full.task('second').open).toBe(true)
 })
 
-it('keeps coordinator and helpers visible above the groups through filters, search and fold-all', async () => {
+it('keeps the coordinator above and helpers atop the groups through filters, search and fold-all', async () => {
   const f = await open(
     [issue('root', null, 'a', { coordinatorSessionId: 'coord' }), issue('task', 'root', 'a')],
     ['helper', 'coord'].map((id) => ({
@@ -515,14 +515,25 @@ it('keeps coordinator and helpers visible above the groups through filters, sear
   f.ui.rerender(
     <>
       <FlightDeckFullCoordinator {...f.props} activeSessionId="helper" />
-      <FlightDeckFullGroups {...f.props} />
+      <FlightDeckFullGroups {...f.props} activeSessionId="helper" />
     </>,
   )
+  const ids = (testId: string) =>
+    [...f.ui.getByTestId(testId).querySelectorAll('[data-flight-session]')].map(
+      (node) => node.getAttribute('data-flight-session'),
+    )
+  const seats = () => ({
+    coordinator: ids('flight-full-coordinator'),
+    helpers: ids('flight-full-helpers'),
+  })
+  // Helpers open the task list, ahead of the first task row.
+  expect(
+    f.ui.getByTestId('flight-full-helpers').compareDocumentPosition(f.task('task')!) &
+      Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy()
   for (const filter of ['needs-you', 'active', 'up-next', 'all'] as const) {
     act(() => f.full.setFilter(filter))
-    expect(
-      f.ui.getByTestId('flight-full-coordinator').querySelectorAll('[data-flight-session]'),
-    ).toHaveLength(2)
+    expect(seats()).toEqual({ coordinator: ['coord'], helpers: ['helper'] })
     expect(
       f.ui.container.querySelectorAll('[data-flight-session][data-selected="true"]'),
     ).toHaveLength(1)
@@ -531,9 +542,7 @@ it('keeps coordinator and helpers visible above the groups through filters, sear
     f.screen.setQuery('no-match')
     f.full.foldAll()
   })
-  expect(
-    f.ui.getByTestId('flight-full-coordinator').querySelectorAll('[data-flight-session]'),
-  ).toHaveLength(2)
+  expect(seats()).toEqual({ coordinator: ['coord'], helpers: ['helper'] })
   expect(f.ui.container.querySelector('[data-flight-issue="task"]')).toBeNull()
 })
 

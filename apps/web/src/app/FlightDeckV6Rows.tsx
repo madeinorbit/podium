@@ -492,6 +492,10 @@ export const FlightDeckV6Session = observer(function FlightDeckV6Session({
   const natives = nativeSubagentRows(session)
   const name = sessionDisplayName(session)
   const seat = task.seat(session.sessionId)
+  // The coordinator's card lists its native subagents openly; every other
+  // session folds them behind a chip.
+  const nativesInline = seat === 'coordinator'
+  const nativesShown = nativesInline || nativeOpen
   return (
     <div
       ref={measure}
@@ -555,14 +559,14 @@ export const FlightDeckV6Session = observer(function FlightDeckV6Session({
                 )}
               </>
             )}
-            {natives.length > 0 && <span className="flight-v6-native-slot" />}
+            {natives.length > 0 && !nativesInline && <span className="flight-v6-native-slot" />}
             <SessionState session={session} />
             {seat === 'coordinator' && (
               <ArrowUpRight size={14} className="flight-full-conversation-arrow" aria-hidden />
             )}
           </button>
         )}
-        {natives.length > 0 && (
+        {natives.length > 0 && !nativesInline && (
           <button
             type="button"
             className="flight-v6-native-chip"
@@ -604,11 +608,11 @@ export const FlightDeckV6Session = observer(function FlightDeckV6Session({
       {natives.length > 0 && (
         <ul
           id={nativeId}
-          hidden={!nativeOpen}
+          hidden={!nativesShown}
           className="flight-v6-natives"
           aria-label={`Native subagents of ${name}`}
         >
-          {nativeOpen &&
+          {nativesShown &&
             natives.map((native) => (
               <li key={native.id}>
                 <span>{native.type}</span>

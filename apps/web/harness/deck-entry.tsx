@@ -316,6 +316,9 @@ const MISSIONS = {
           phase: 'working',
           since: new Date(Date.now() - 125_000).toISOString(),
           workingMsTotal: 900_000,
+          // The coordinator's own fan-out, listed inside its card (POD-2027).
+          nativeSubagentCount: 2,
+          nativeSubagents: [{ id: 'a1f3', type: 'Explore' }, { id: 'b7c2', type: 'Plan' }],
         },
       }),
       session('s2', {
