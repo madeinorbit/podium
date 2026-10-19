@@ -175,7 +175,18 @@ export function createPoolWorkActions(
     const files = worktreePath
       ? store.fileTabs.filter((f) => machinePathsEqual(f.worktreePath, worktreePath)).map((f) => f.id)
       : []
-    const target = paneSession ?? pickPaneSession([...members.values()], store.paneA, files)
+    // POD-2034: with no remembered pane, the clicked task's coordinator wins,
+    // then the mission root's, before falling back to the most recent agent.
+    const coordinatorOf = (issueId: string) => {
+      const issue = omitGone(pool.row('issue', issueId)) as SliceIssue | typeof LOADING | undefined
+      return issue === undefined || issue === LOADING ? null : issue.coordinatorSessionId
+    }
+    const target =
+      paneSession ??
+      pickPaneSession([...members.values()], store.paneA, files, [
+        coordinatorOf(id),
+        coordinatorOf(rootId),
+      ])
     trace(target, asIssueId(id))
     batch(() => {
       const changed = store.navigateWorkspace({

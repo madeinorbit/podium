@@ -26,8 +26,8 @@
  * Platform-neutral: no DOM, no storage.
  */
 import { type SessionId, worktreeForCwd } from '@podium/model'
-import type { IssueViewModel } from '../issue-type'
 import type { SessionView } from '../../session-values'
+import type { IssueViewModel } from '../issue-type'
 import { sessionsForWorktree } from '../session-ownership'
 // POD-1503: coordinator elevation is an ORDERING question, so it lives in F3
 // (session-urgency), not here — the tab strip was merely its first caller.
@@ -87,19 +87,26 @@ export function isCoordinatorSession(
 /** Pane target when a sidebar issue/worktree row is clicked: keep the current
  *  pane if it's already one of the row's members (a session in `members` or an
  *  id in `extraValidIds` — e.g. the row's open file tabs); otherwise open the
- *  row's most recently active session (lastActiveAt, ISO-comparable). Null =
- *  nothing to open (empty row) — clear the pane so the picker shows. */
+ *  first of `coordinators` that is a member and not exited (POD-2034: the
+ *  clicked task's coordinator, then its mission root's); otherwise the row's
+ *  most recently active session (lastActiveAt, ISO-comparable). Null = nothing
+ *  to open (empty row) — clear the pane so the picker shows. */
 export function pickPaneSession(
   members: SessionView[],
   paneA: SessionId | null,
   /** File-tab ids, which are NOT session ids — hence the plain string here. */
   extraValidIds: readonly string[] = [],
+  coordinators: readonly (string | null | undefined)[] = [],
 ): SessionId | null {
   if (
     paneA != null &&
     (members.some((s) => s.sessionId === paneA) || extraValidIds.includes(paneA))
   ) {
     return paneA
+  }
+  for (const id of coordinators) {
+    const coordinator = id ? members.find((s) => s.sessionId === id) : undefined
+    if (coordinator && coordinator.status !== 'exited') return coordinator.sessionId
   }
   let best: SessionView | null = null
   for (const s of members) if (!best || s.lastActiveAt > best.lastActiveAt) best = s

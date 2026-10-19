@@ -1,7 +1,7 @@
 import { asSessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
-import type { IssueViewModel } from '../issue-type'
 import type { SessionView } from '../../session-values'
+import type { IssueViewModel } from '../issue-type'
 // POD-1503: elevateCoordinatorSession moved to F3 (session-urgency) — it is an
 // ordering question, not a terminal one. Its tab-strip behaviour is still this
 // suite's to pin, so the test follows the symbol rather than the other way round.
@@ -123,6 +123,19 @@ describe('pickPaneSession', () => {
 
   it('returns null for an empty row so the caller shows its picker', () => {
     expect(pickPaneSession([], asSessionId('a'))).toBeNull()
+  })
+
+  it('prefers the first live member coordinator over the most recent member (POD-2034)', () => {
+    expect(pickPaneSession([a, b], null, [], [null, 'a'])).toBe('a')
+    expect(pickPaneSession([a, b], null, [], ['b', 'a'])).toBe('b')
+    // A coordinator outside the members (archived, filtered, invisible) is skipped.
+    expect(pickPaneSession([a, b], null, [], ['gone', 'a'])).toBe('a')
+  })
+
+  it('skips an exited coordinator and still keeps a remembered pane', () => {
+    const exited = session('x', { lastActiveAt: '2026-06-01T00:00:00.000Z', status: 'exited' })
+    expect(pickPaneSession([exited, a, b], null, [], ['x'])).toBe('b')
+    expect(pickPaneSession([a, b], asSessionId('b'), [], ['a'])).toBe('b')
   })
 })
 
