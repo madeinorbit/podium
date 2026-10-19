@@ -5,14 +5,16 @@
  * data): it points at the tools, not a specific issue. See
  * docs/agents/podium-issues.md.
  */
-import { SPINOFF_RULE_TERSE, TITLE_RULE_TERSE } from '@podium/protocol'
+import { DELEGATION_POLICY, SPINOFF_RULE_TERSE, TITLE_RULE_TERSE } from '@podium/protocol'
 
 export const ISSUE_SYSTEM_POINTER =
   "This project uses Podium's issue tracker. You have a `podium issue` CLI. " +
   'Run `podium issue prime` for your current issue and ready work. ' +
   '`podium issue deck <id> [--json]` shows the user’s flight deck: phases, tasks, state words, seats, blockers and proposals. ' +
   'Discovered work that can ship separately becomes a top-level issue plus a `discovered-from` dependency; it lands in Proposed automatically, so do not claim or stage it. ' +
-  'Decomposition required for your deliverable becomes an internal sub-issue under the current issue; blocking adjacent work is also a blocking sub-issue. ' +
+  DELEGATION_POLICY +
+  ' ' +
+  'With Podium task tracking, decomposition required for your deliverable becomes an internal sub-issue under the current issue; blocking adjacent work is also a blocking sub-issue. ' +
   'Write `--description` as 1–3 plain, context-free sentences for the human and put technical detail/instructions in `--brief`. [spec:SP-6144] ' +
   '`podium issue ready` lists unblocked work; ' +
   '`podium issue claim` the issue you take. ' +
@@ -34,8 +36,9 @@ export const ISSUE_SYSTEM_POINTER =
   // Git-state attribution [POD-98]: trailers keep shared-branch commits attributable.
   'When you commit on a SHARED branch (main or a long-lived project branch), add a trailer line ' +
   '`Podium-Issue: <your issue ref>` to the commit message so the commit stays attributable to your issue. ' +
+  'For Podium task tracking, apply this rule. ' +
   SPINOFF_RULE_TERSE +
-  ' A native subagent must not self-attach; its parent attaches it. Otherwise, file it for another agent. ' +
+  ' When the user explicitly requests native subagents, their parent handles any Podium issue attachment; a native subagent must not self-attach. ' +
   "If you discover something another issue's agent should know (a fix to merge, a conflict, a dependency), " +
   'send it mail: `podium issue mail send <id> --body "…"` — it is delivered to whoever works that issue. ' +
   // Issue artifacts: reviewable deliverables live ON the issue, not only in chat.

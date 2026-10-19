@@ -1,6 +1,5 @@
-/** Delegation doctrine, stated once and reused by every surface that instructs a
- *  delegating agent: the issue prime (server) and the committed guide
- *  (docs/agents/delegating.md). Same single-source rule as ./titles — copies drift.
+/** Delegation policy shared by the always-on pointer and issue prime.
+ *  The coordinator tip and docs/agents/delegating.md use the same policy.
  *
  *  Why this text exists at all: Podium deliberately has no agent roles, no
  *  write-claim, and no activity-based auto-isolation [spec:SP-4ef9]. Placement
@@ -8,6 +7,11 @@
  *  a delegate's behaviour is inferred by the system — the ONLY lever a coordinator
  *  has is what it TELLS the delegate. Guidance is therefore the feature.
  */
+
+/** Podium is the default for both tasks and agents. [spec:SP-f7a5] */
+export const DELEGATION_POLICY =
+  'Instructions to use subtasks or subagents mean Podium sub-issues for task tracking and Podium sessions for delegated agents by default. ' +
+  'Use native harness tools only when the user explicitly requests them for that work; that request permits both native task tracking and native subagents.'
 
 /** Advisory named leases. Injected into the prime rules verbatim,
  *  next to the merge-lock rule.
@@ -28,9 +32,11 @@ export const LOCK_RULE =
  *  injected into every session, and most sessions never delegate — so this states
  *  the four things that are wrong-by-default and points at the full guide. */
 export const DELEGATION_RULE =
+  DELEGATION_POLICY +
+  ' ' +
   'Delegating (`podium agent spawn --prompt "…" --issue <ref>`): the system infers nothing — no roles, no write-claim, no auto-isolation. Every spawn prompt must carry: ' +
-  '(1) PLACEMENT — `--issue <ref>` adds a delegate to an already-started issue (right for a reviewer). Concurrent implementation needs its own issue: `podium issue create --parent-id <id> --description "<its brief>" --start` (branch+worktree and exactly one agent). Do NOT also `agent spawn --issue <sub>` after `--start`. `--worktree` does not isolate — it only asserts a worktree exists. ' +
-  '(2) NAMING — `agent spawn --title "Reviewer: auth flow"` names the SESSION (`--new "title"` names an ISSUE). The isolated path has no title flag; tell that delegate to `podium session title` in the `--description`. You cannot retitle a delegate later. ' +
+  '(1) PLACEMENT — `--issue <ref>` adds a delegate to an already-started issue (right for a reviewer). Concurrent implementation through Podium needs its own issue: `podium issue create --parent-id <id> --description "<human summary>" --brief "<task instructions>" --start` (branch+worktree and exactly one agent). Do NOT also `agent spawn --issue <sub>` after `--start`. `--worktree` does not isolate — it only asserts a worktree exists. ' +
+  '(2) NAMING — `agent spawn --title "Reviewer: auth flow"` names the SESSION (`--new "title"` names an ISSUE). The isolated path has no title flag; tell that delegate to `podium session title` in the `--brief`. You cannot retitle a delegate later. ' +
   '(3) CONCURRENCY — if it may edit files another live session edits, say who owns which files or take a lease. The system does not serialize. ' +
   '(4) TEAM — who else is on the issue, which machine, and that `podium issue mail send <id>` reaches them. ' +
   'Guide: docs/agents/delegating.md'

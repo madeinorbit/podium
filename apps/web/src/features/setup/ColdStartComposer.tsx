@@ -1375,10 +1375,12 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
                 For complex tasks, be ambitious. Discuss the full scope with your agent and have it
                 organise everything. Try:
               </p>
+              {/* Delegation default and explicit native exception. [spec:SP-f7a5] */}
               <blockquote>
-                "You are the coordinator of this epic. Break this into sub-tasks, delegate
-                independent work to sub-agents, and coordinate the results. Check with me on key
-                decisions."
+                "You are the coordinator of this epic. Break this into Podium sub-issues, delegate
+                independent work to Podium sessions, and coordinate the results. Use native harness
+                tools for agents and task tracking only if I explicitly request them for this work.
+                Check with me on key decisions."
               </blockquote>
             </aside>
           )}

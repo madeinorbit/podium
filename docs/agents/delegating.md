@@ -1,5 +1,25 @@
 # Delegating to other agents (for agents)
 
+Instructions to use **subtasks** or **subagents** mean **Podium sub-issues** for task
+tracking and **Podium sessions** for delegated agents by default. This applies to
+coordinators and other agents, including read-only research and review. It keeps work
+visible in the issue tree and session list. [spec:SP-f7a5]
+
+Use native harness tools only when the user explicitly requests them for that work.
+That request permits **both native task tracking and native subagents**, so the work
+does not also need Podium sub-issues. A generic request to "use subagents" or "break
+this into subtasks" uses the Podium default. Tool availability or convenience does
+not grant the exception. Keep the current Podium issue's progress and final handoff
+up to date whichever tools the user chose.
+
+For example, "delegate reviews to subagents" means Podium sessions. "Use native
+harness subagents for these reviews" permits native subagents and native task
+tracking for those reviews. State the chosen tools and scope in each delegate's
+instructions. A native subagent must not self-attach to a Podium issue; its parent
+handles any Podium issue attachment.
+
+## Podium delegation
+
 You can spawn other agents onto an issue with `podium agent spawn`. Podium deliberately
 has **no agent roles, no write-claim, and no activity-based auto-isolation**
 ([spec:SP-4ef9]). Nothing about your delegate is inferred from how it behaves: placement
@@ -16,9 +36,9 @@ Every spawn prompt should carry four things.
 
 Discovered or adjacent work that can ship independently is a **top-level** issue linked
 with `discovered-from`; agent top-level creates land in **Proposed** automatically, so do
-not stage or claim them. Decomposition of the current deliverable is always a sub-issue
-under it. If adjacent work blocks shipping the parent, make it a blocking sub-issue rather
-than a proposal.
+not stage or claim them. With Podium task tracking, decomposition of the current
+deliverable is a sub-issue under it. If adjacent work blocks shipping the parent, make
+it a blocking sub-issue rather than a proposal.
 
 Write `description` for the human: 1–3 concise, jargon-free sentences that stand alone.
 Put reproduction steps, file paths, constraints, and agent instructions in `brief`.
