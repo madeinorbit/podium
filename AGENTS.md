@@ -1,222 +1,132 @@
 # AGENTS.md
 
-Guidance for AI agents working in this repository.
+Guidance for AI agents working in this repository. Claude Code loads it through `CLAUDE.md`;
+other harnesses read it directly. Keep it short: detail belongs in the linked docs, and a rule
+the tooling already enforces does not need repeating here.
 
-## Verifying interaction-boundary changes
+## The repository
 
-Do not browser-drive ordinary visual changes such as fonts, spacing, colours, copy, or
-straightforward component styling. Runtime verification is reserved for changed behavior whose
-correctness depends on a real boundary that code review and hermetic tests cannot establish—for
-example terminal link dispatch, OS editor open/save, browser new-tab behavior, or pointer/keyboard
-event routing. When such a boundary is the task, drive the smallest affected interaction once and
-observe the external effect.
+Podium is a self-hosted multi-agent workspace: a server, a per-machine daemon that runs agent
+sessions in PTYs, and web, desktop and phone clients. It is a Bun + Turbo monorepo.
 
-See **[docs/agents/driving-podium.md](docs/agents/driving-podium.md)** for how to drive
-Podium through Playwright or the native Linux shell — including isolation, the `?e2e=1`
-test API, terminal cells, and choosing the harness vs. a live instance.
+- `apps/server`, `apps/daemon`, `apps/janitor`: the backend processes. `apps/cli`: the
+  `podium` command.
+- `apps/web`: the web UI. `apps/desktop`: the Tauri shell around it. `apps/mobile`: the phone app.
+- `packages/*`: shared code (`protocol`, `domain`, `client-core`, `client-graph`, `pty`,
+  `runtime`, …).
+- `docs/agents/`: how-to guides for agents (index at the end of this file).
 
-A browser cannot stand in for the desktop shell when the boundary IS the shell: the
-all-in-one window loads the bundled UI from `tauri://localhost` and talks to a loopback
-backend, so cross-origin, cookie and sidecar-spawn behavior only reproduce there. See
-**[docs/agents/driving-desktop.md](docs/agents/driving-desktop.md)** — including the
-isolation this needs, since the shell spawns its sidecar with `--takeover`.
+## Working in a checkout
 
-Windows behavior (the desktop app, ConPTY, installers, CI's Windows legs) is built and driven on
-a boat.dev Windows sandbox, about a cent an hour: see
-**[docs/agents/boat-windows.md](docs/agents/boat-windows.md)**.
+The shared main checkout holds other agents' uncommitted files. Do your work in your own git
+worktree, and run `bun run setup:worktree` in it before anything else. The Bun version is pinned
+in `mise.toml`, and plain `bun --version` must match it ([docs/toolchain.md](docs/toolchain.md)).
+If the dependency tree breaks or drifts from the lockfile, stop the processes using it and run
+`bun run deps:repair`.
+
+- Every checkout gets its own `node_modules`. Never copy, symlink or share one between checkouts.
+  Never delete the shared Bun or Turbo caches as part of a repair.
+- Don't use `git stash`. The stash stack is shared by every worktree of this repo, so other
+  agents' parked work lives there too.
+- Format and lint only the files you changed (`bunx biome check --write <paths>`). A repo-wide
+  `bun run format` rewrites hundreds of unrelated files and buries your diff.
+
+## Issue tracking and landing
+
+Work is tracked with Podium's issue tracker. Inside a Podium session, start with
+`podium issue prime`, and track discovered work as issues rather than TODO lists
+([docs/agents/podium-issues.md](docs/agents/podium-issues.md)).
+
+Work lands **locally**, onto the issue's **parent branch**: the `parentBranch` field from
+`podium issue show <id>`. That is `main` unless the operator's Podium settings say otherwise.
+Landing never fetches, pulls or pushes; publishing to a remote is a separate decision for the
+operator [spec:SP-a69c].
+
+1. `podium merge-lock acquire <parent-branch> --wait`. Name the branch: with no branch argument
+   it locks `main`. Don't pipe it. Check its exit code, then confirm with `merge-lock status`.
+2. In your worktree, `git rebase <parent-branch>`, using the local ref, never `origin/…`.
+   Check that `git log --oneline <parent-branch>..HEAD` lists only your own commits.
+3. `podium issue action --id <id> --kind merge`. It fast-forwards the parent branch in the main
+   checkout to your tip. On success it also closes the issue, so post any offer before running it.
+4. Release the lock straight away (`podium merge-lock release <parent-branch>`).
+5. Done when `git merge-base --is-ancestor <issue-tip> <parent-branch>` succeeds. If the merge
+   reports an error, run this check before retrying. The merge can succeed even when the reply
+   fails.
+
+Never reset the parent branch to a remote-tracking ref. Never cherry-pick onto it or land the
+same content under a different SHA. Never move a branch other than the issue's parent. If the
+rebase hits commits that aren't yours, or the fast-forward is refused, stop and ask. Don't invent
+another route. Recovery cases, such as untracked files blocking the fast-forward or a rewritten
+parent branch, are in
+[podium-issues.md § Landing on main](docs/agents/podium-issues.md#landing-on-main).
+
+To put another agent on an issue, use `podium agent spawn`. Podium infers nothing about a
+delegate (no role, no write claim, no isolation), so the spawn prompt must give it everything:
+its job, a session title, who else is on the issue, and who owns which files
+([docs/agents/delegating.md](docs/agents/delegating.md)).
+
+## Testing
+
+This host is shared by many agents, and test lanes compete for its CPU and memory. That is why
+validation is budgeted:
+
+- **End of task:** run `bun run test` once. It runs a cached typecheck, the span-effect lint and
+  four hermetic boot-wiring files. Report a pass as "lean gate green", never as "tests pass".
+  A run ending `LEAN GATE INCOMPLETE` is no result at all.
+- **While working:** run the tests for the code you are changing with
+  `bun run test:file -- <paths> [-t "name"]`. Don't rerun broad lanes after every edit.
+- **Risky areas:** add the one specialized lane that matches the change: the store shard for
+  database changes, integration for daemon/PTY behavior, `test:multi-instance` for instance
+  identity or lifecycle. Use [docs/agents/testing.md](docs/agents/testing.md) to pick it.
+- **Skip the gate** for docs, copy and formatting changes, and anything else that can't affect
+  runtime. Say so in the handoff.
+- Run one validation command at a time. Never stack lanes "for confidence".
+- `test:full`, `test:unit`, `oracle`, `test:rearch`, browser suites and benchmarks are for CI,
+  release validation or an explicit request.
+- Trust Turbo and typecheck cache hits. Never force a cache bypass.
+
+Always go through the `bun run` wrappers. The command guard refuses raw `vitest`, `tsc`,
+`playwright` and `turbo` and names the lane to use instead. A raw vitest on server or web
+files collects zero tests and still exits 0. If a lane dies with exit 144 and an empty log, the
+host killed it, usually for memory. That says nothing about your change, so run it again.
+
+## Verifying behavior at runtime
+
+For visual changes, a screenshot is cheap and catches real mistakes. Take it from the stubbed
+web layout harness (`apps/web/harness/`) or a worktree dev server. Clicking through the live app is not needed for styling. Drive a real
+interaction only when its correctness depends on a boundary that tests can't reach: terminal
+link dispatch, opening or saving in the OS editor, new-tab behavior, pointer and keyboard
+routing. Drive the smallest affected interaction once and observe the external effect.
+
+- Web UI through Playwright: [docs/agents/driving-podium.md](docs/agents/driving-podium.md).
+- The desktop shell, when the boundary is the shell itself (cross-origin, cookies, sidecar
+  spawn): [docs/agents/driving-desktop.md](docs/agents/driving-desktop.md).
+- Windows (desktop app, ConPTY, installers): a boat.dev sandbox,
+  [docs/agents/boat-windows.md](docs/agents/boat-windows.md).
+- Instance identity, state, endpoints, CLI routing or lifecycle: run fully separate instances,
+  not several clients on one server
+  ([docs/agents/multi-instance.md](docs/agents/multi-instance.md)).
 
 ## Frontend data
 
-Before changing how any client screen (web, desktop, phone) gets or derives data, including
-`packages/client-graph` models and derived values, read
-**[docs/agents/frontend-data.md](docs/agents/frontend-data.md)** and follow it: one shared model
-per record, `@lazy` derived fields, view models and companions, and what a change must show.
-
-## Testing independent instances
-
-When changing instance identity, state, endpoints, CLI routing, agent ownership, or lifecycle
-behavior, follow **[docs/agents/multi-instance.md](docs/agents/multi-instance.md)** and run
-`bun run test:multi-instance`. The acceptance lane starts fully separate concurrent runtimes;
-do not substitute multiple clients routed to one server.
-
-## Checkout-local dependencies
-
-Bun and the minimum mise version are pinned in `mise.toml`. Trust the main checkout
-configuration too, so linked updater worktrees inherit that trust. Run `mise trust` and `mise install bun` in a new checkout
-when needed, with mise activation or shims on PATH. Plain `bun --version` must match the
-pin before installing or validating. See [docs/toolchain.md](docs/toolchain.md).
-
-For a fresh checkout or git worktree, run:
-
-```bash
-bun run setup:worktree
-```
-
-This is the supported topology-following frozen install: it uses the linker setting tracked in
-`bunfig.toml` — strict isolated linking with Bun's global store — and creates a checkout-local
-dependency link graph. Package payloads may be shared through Bun's store, but the complete
-`node_modules` tree never is. The command does not override the tracked topology, so it follows
-future configuration changes. Never share, copy, symlink, or bind-mount a complete `node_modules`
-tree between checkouts; checkout-local links are the boundary.
-
-If the checkout's dependency tree is damaged or out of sync with the lockfile, stop processes
-using it and run:
-
-```bash
-bun run deps:repair
-```
-
-`deps:repair` composes the checkout-scoped `deps:clean-local-installs` cleanup with a
-topology-following frozen reinstall (`bun install --frozen-lockfile`). The cleanup removes only
-`node_modules` entries under this checkout, does not follow directory symlinks, and stops before
-reinstalling if it finds an unsafe entry.
-`bun run test` is the normal cached gate after repair; its admission census must pass before Turbo
-can reuse or create a result.
-
-Neither command deletes shared caches. Do not add global Bun cache deletion (`bun pm cache rm`,
-removing `~/.bun/install/cache`, or deleting the configured equivalent) or shared Turbo-cache
-deletion to a repair. A reinstall may reuse or populate Bun's shared cache, but repair owns only
-the current checkout's dependency tree.
-
-## Issue tracking with Podium
-
-This project uses Podium's issue tracker for work management. If you are running inside a Podium
-session, use the `podium issue` CLI (start with `podium issue prime`). Track durable/discovered
-work as issues, not markdown TODO lists. Full guide: **[docs/agents/podium-issues.md](docs/agents/podium-issues.md)**.
-
-### Landing on main
-
-This repository lands work locally; publishing to a remote is a separate decision
-[spec:SP-a69c]. Take the mutex with `podium merge-lock` (its canonical name is
-`merge:<branch>`), rebase the **issue branch** onto the current local `main`, fast-forward
-local `main` to the issue tip, then release the lock. Landing does not require a fetch, pull, or
-push; remote synchronization is a separate action. Never reset local `main` to a remote-tracking
-ref: local main may intentionally contain unpublished landings, and a reset can discard them
-silently. Never cherry-pick onto main or land
-the content under a different SHA, because the issue tip must remain in main's history. Done when
-the issue tip is an ancestor of local `main` (`git merge-base --is-ancestor <issue-tip> main`, or
-`gitState.merged`). Full write-up:
-**[docs/agents/podium-issues.md § Landing on main](docs/agents/podium-issues.md#landing-on-main)**.
-
-## Delegating to other agents
-
-`podium agent spawn` puts another agent on an issue. Podium infers nothing about a delegate —
-no roles, no write-claim, no auto-isolation [spec:SP-4ef9] — so what you tell it in the spawn
-prompt is the only lever: its job, a title to give itself, who else is on the issue, and who
-owns which files. Full guide: **[docs/agents/delegating.md](docs/agents/delegating.md)**.
-
-## Testing: one end-of-task gate
-
-Do not run tests after edits or intermediate commits. Implement the complete change first,
-then run **one** validation command at the end. The normal agent gate is:
-
-```
-bun run test
-```
-
-It runs cached, lock-free typecheck, then the cached span-effect gate, then a tiny, hermetic,
-one-worker boot-wiring and lane-configuration probe. It is designed to
-answer “is this candidate internally coherent and are the basic runtime pieces still wired?”
-without traversing every package, starting browsers, or taking the whole-host heavy-test lease.
-
-The middle step is `bun run lint:span-effects` (spec §6 rule 19: nothing a caller outside this
-process can observe inside a transaction body). It is here and not only in CI because work
-lands locally by fast-forward, so a CI-only gate is one most changes never meet. It is turbo-cached
-on the directories its TypeScript program is built from: **~0.3 s replayed, ~60 s when a source
-it reads changed** — which is precisely when it has something to say. Read
-[docs/gates/pod-3332-span-effect-lint.md](docs/gates/pod-3332-span-effect-lint.md) when it fires;
-the failure text names the span, the path and the two ways out.
-
-It is **four files out of everything the unit config collects**, and the footer on every run
-states the exact ratio and the tests each file actually executed — read back out of the
-runner's own report for that run, not written down here, so it stays true as the tree grows.
-A run narrower than those four files ends `LEAN GATE INCOMPLETE` and exits non-zero; that is
-not a gate result, so do not report it as one. Read it, and report a green as “lean gate green” rather than
-“tests pass” [POD-2728]. `Tests 76 passed (76)` above that footer is the four files’ own test count, not a
-suite result. When a change needs suite-level evidence, `bun run test:full` is the sweep.
-Docs, copy, fonts, formatting, generated artifacts, and other changes that cannot affect runtime
-may skip even this gate; state why in the handoff.
-
-For a narrow change, use the focused lane that matches its risk, such as `bun run test:related --
-<test-file>`, `bun run test:changed`, `bun run test:web`, `bun run test:mobile`, or an applicable
-server shard. Keep focused lanes targeted; use the normal cached gate as the default admission
-check and add only the one specialized lane that the changed behavior requires.
-
-Run another lane only when the changed behavior matches its trigger. Examples: database/store
-changes use the server store shard; daemon or PTY process behavior uses integration; instance
-identity or lifecycle uses multi-instance. A UI edit does **not** require browser automation or
-manual click-driving unless the task is specifically about interaction behavior whose correctness
-cannot be established from the code and types. Rewrite migration audits, the full package sweep,
-browser suites, performance benchmarks, the oracle, and real-agent smoke are never routine agent
-gates.
-
-Do not stack validation commands “for confidence.” If a specialized lane is required, run it
-instead of `test` when it already covers the relevant basic check; otherwise run
-`test` once and the one specialized lane once, sequentially. The default `test` deliberately
-does not take `test:heavy`: it neither waits behind nor delays heavyweight suites.
-Never overlap other validation commands in one session.
-
-**Running ONE test file: `bun run test:file -- <paths...>`.** Never a raw vitest command.
-`apps/server` and `apps/web` suites import `bun:` builtins and collect **zero tests** under
-Node's vitest — a hand-rolled `vitest run <file>` there exits 0 having run nothing, which is
-how two agents reported a server test as green that had never executed. `test:file` routes
-each named file to the config that can collect it, takes admission, passes any extra
-arguments (`-t "name"`) to vitest, and errors on a file that does not exist. `bun run
-test:lane -- <lane> [args]` does the same for a named lane (`--list` shows them). Every agent
-harness refuses `tsc`, `tsgo`, `vitest`, `bun test`, `playwright` and `turbo` typed directly,
-and `bun run typecheck`/`test*` from inside a package directory; the refusal names the lane.
-
-**The typecheck cache is SHARED across worktrees — trust it.** `scripts/typecheck.ts` points
-turbo at one cache keyed by the repository's common git dir, so every worktree of this repo
-reuses it. Measured in a worktree with no local cache at all: **22 of 28 tasks HIT**. A fresh
-worktree is not a cold start, and re-running to "warm it up" achieves nothing. Run
-`bun run typecheck` (or `bun run typecheck -- --filter <package>` for one project) and let
-turbo pick the set; never force it. The compiler is TypeScript 7 with `--incremental` forced,
-reached only through `scripts/typecheck-project.ts`, which refuses to run outside Turbo.
-A checkout installed before the move to TypeScript 7 needs `bun run deps:repair`, not
-`setup:worktree`: the frozen reconcile never prunes the dangling `.bin/tsserver` the 6.x
-install leaves behind, and the topology census refuses the gate on it.
-
-Two caveats worth knowing rather than guarding against. The cache currently lives under `/tmp`
-(`XDG_CACHE_HOME` is unset), so a **reboot wipes it** and the first runs afterwards really are
-expensive — that is the box, not your change (POD-2778). And nothing caps how many compilers run
-at once: each takes most of a gigabyte, on six cores. If a typecheck dies with **exit 144 and an
-EMPTY log, the box ran out of memory** — that is not a type error, so do not go hunting a bug
-that is not there. Re-run it and treat the first result as no result.
-
-The complete map from changed paths and behavior to commands—including exact test locations,
-filename patterns, configs, parent commands, caching, and exclusions—is in
-**[docs/agents/testing.md](docs/agents/testing.md)**. Read that file before selecting anything
-other than `test`.
-
-`bun run test:full`, `bun run test:unit`, and `bun run oracle` are exhaustive or multi-lane
-validation reserved for scheduled CI, merge/release validation, or explicit requests—not routine
-agent work. A bare `test:full` is refused: it prints what the sweep would run and which focused
-lane answers instead, and runs only as `bun run test:full -- --full-because="<why the focused
-lanes are not enough>"`. `bun run test:rearch` owns the whole-repository rewrite audit and is likewise not an
-ordinary gate.
-
-Trust typecheck and Turbo cache hits. Never use a forced cache bypass as routine verification.
-Do not set `TURBO_FORCE`, pass `--force`, or use write-only `--cache` flags. If a concrete
-cache-key gap is known, document it and use `--uncached-because="<missing input>"` only as an
-explicit exception while filing the gap; the normal cached gate remains the contract. A checkout
-without usable `node_modules/@podium` links is refused.
+Before changing how a client screen gets or derives data, including `packages/client-graph`
+models, read [docs/agents/frontend-data.md](docs/agents/frontend-data.md). It covers one shared
+model per record, `@lazy` derived fields, and view models and companions.
 
 ## Legacy code with a removal date
 
 Code kept only for old installs carries one header line:
 `// LEGACY(remove-after: YYYY-MM): <what it is for; what removing it drops>`.
-`git grep -n "LEGACY(remove-after:"` lists them. The date is a year and month. Once it has
-passed, delete the code, or move the date and say why in the same commit.
+List them with `git grep -n "LEGACY(remove-after:"`. Once the date has passed, delete the code,
+or move the date and say why in the same commit.
 
-## Reference docs for agents
+## Reference docs
 
-- [docs/agents/frontend-data.md](docs/agents/frontend-data.md) — how client screens get and derive data from the MobX pool: models, `@lazy`, view models, companions.
-- [docs/agents/multi-instance.md](docs/agents/multi-instance.md) — operate and test fully independent instances on one machine.
-- [docs/agents/driving-podium.md](docs/agents/driving-podium.md) — drive the Podium UI with Playwright to verify features at runtime.
-- [docs/agents/driving-desktop.md](docs/agents/driving-desktop.md) — run the Tauri desktop shell headlessly, for the few properties only the real webview answers (cross-origin, cookies, sidecar spawn).
-- [docs/agents/boat-windows.md](docs/agents/boat-windows.md) — fork, sync, build and drive a Windows sandbox on boat.dev (`scripts/boat-windows/boat-win.sh`).
-- [docs/agents/agent-state-classification.md](docs/agents/agent-state-classification.md) — how agent run-state is classified from transcripts.
-- [docs/agents/podium-issues.md](docs/agents/podium-issues.md) — use the `podium issue` CLI to track work from inside a session.
-- [docs/agents/delegating.md](docs/agents/delegating.md) — spawn other agents: placement, naming, concurrency, advisory locks.
-- [docs/agents/testing.md](docs/agents/testing.md) — every test lane, which one to run when, the generated `@podium/server` shards, and the shared-host `test:heavy` lease.
+- [testing.md](docs/agents/testing.md): every test lane, when to run it, caches, the shared-host lease.
+- [podium-issues.md](docs/agents/podium-issues.md): the `podium issue` CLI and the full landing write-up.
+- [delegating.md](docs/agents/delegating.md): spawning agents, placement, naming, locks.
+- [frontend-data.md](docs/agents/frontend-data.md): client data models in the MobX pool.
+- [driving-podium.md](docs/agents/driving-podium.md) and [driving-desktop.md](docs/agents/driving-desktop.md): runtime verification.
+- [multi-instance.md](docs/agents/multi-instance.md): independent instances on one machine.
+- [boat-windows.md](docs/agents/boat-windows.md): the Windows sandbox.
+- [agent-state-classification.md](docs/agents/agent-state-classification.md): how agent run state is read from transcripts.

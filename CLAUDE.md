@@ -1,4 +1,6 @@
 # Claude Code instructions
 
-The repository’s authoritative agent instructions are in **[AGENTS.md](AGENTS.md)**.
-Read and follow that file. This file intentionally defines no separate or duplicated policy.
+The repository's agent instructions live in AGENTS.md, imported below so they load with this
+file. This file intentionally defines no separate or duplicated policy.
+
+@AGENTS.md

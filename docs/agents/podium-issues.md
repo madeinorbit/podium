@@ -195,7 +195,12 @@ remote is a separate project or operator decision and may happen later, in a bat
 
 ### Always
 
-1. `podium merge-lock acquire --wait` — while you hold it, only you may move main.
+The target is the issue's **parent branch** (`parentBranch` in `podium issue show <id>`): `main`
+unless the operator's `gitWorkflow.defaultParentBranch` setting names another branch. Where this
+section says `main`, read the parent branch.
+
+1. `podium merge-lock acquire <parent-branch> --wait`. While you hold it, only you may move the
+   parent branch. With no branch argument it locks `main`.
    It refuses if a sibling (another session on your issue, or one sharing your worktree)
    already holds or is queued for it; coordinate with the session it names rather than
    reaching for `--allow-sibling`, which is for deliberate serialised multi-session access.
@@ -204,9 +209,12 @@ remote is a separate project or operator decision and may happen later, in a bat
    while it was accepted as a *separate* lease and two sessions each believed they held the
    merge lock [POD-672].
 2. On the **issue branch**, `git rebase` onto the current local `main`.
-3. On **local `main`**, `git merge --ff-only <issue-branch>` so the **issue tip** becomes an
-   ancestor of main.
-4. `podium merge-lock release` **immediately** after the local merge.
+3. `podium issue action --id <id> --kind merge`. It runs `git merge --ff-only <issue-branch>`
+   in the main checkout, so the **issue tip** becomes an ancestor of the parent branch. It
+   refuses if the main checkout is not on the parent branch, and it closes the issue on
+   success. If it reports an error, check ancestry before retrying: the merge can succeed even
+   when the reply fails. (By hand from the main checkout: `git merge --ff-only <issue-branch>`.)
+4. `podium merge-lock release <parent-branch>` **immediately** after the local merge.
 
 Stay in your issue worktree throughout; use `git -C <main-checkout>` for operations against main.
 This procedure neither fetches, pulls, nor pushes. Remote synchronization is a separate action;

@@ -94,6 +94,32 @@ line, with each project's `*.tsbuildinfo` declared as a Turbo output so a cache 
 worktree restores it. TypeScript 6 remains installed under `scripts/` only, as the JavaScript
 API the repository audits are written against; it never typechecks anything.
 
+## Caches, the span-effect lint, and runs that die
+
+**The typecheck cache is shared across worktrees.** `scripts/typecheck.ts` keys one Turbo cache
+by the repository's common git dir, so a fresh worktree is not a cold start. Re-running to "warm
+it up" achieves nothing. Run `bun run typecheck` (or `-- --filter <package>`) and let Turbo pick
+the set. A checkout installed before the move to TypeScript 7 needs `bun run deps:repair`, not
+`setup:worktree`: the frozen reconcile leaves a dangling `.bin/tsserver` behind, and the topology
+census refuses the gate on it.
+
+**Never force a cache bypass.** Do not set `TURBO_FORCE`, pass `--force`, or use write-only
+`--cache` flags. If you know a concrete cache-key gap, file it and use
+`--uncached-because="<missing input>"` as a one-off exception.
+
+**The span-effect lint** (`bun run lint:span-effects`, spec §6 rule 19: nothing a caller outside
+this process can observe inside a transaction body) is the middle step of `bun run test`. It runs
+there and not only in CI because work lands by local fast-forward, so most changes never meet CI.
+A cache hit replays it in under a second. A run where a source it reads changed takes about a
+minute, and that is exactly when it has something to say. When it fires, read
+[docs/gates/pod-3332-span-effect-lint.md](../gates/pod-3332-span-effect-lint.md). The failure
+text names the span, the path and the two ways out.
+
+**Exit 144 with an empty log means the host killed the run**, usually for memory, since nothing
+caps how many compilers run at once. It is not a type error or a test failure: re-run it and
+treat the first result as no result. While `XDG_CACHE_HOME` is unset, the cache lives under
+`/tmp`, so after a reboot the first runs really are slow (POD-2778).
+
 ## Exhaustive command and ownership map
 
 ### Lean, package, and selection lanes
