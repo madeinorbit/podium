@@ -141,7 +141,7 @@ podium issue artifact 12 --add e2e/login-final.png --title "Login · final"
 podium offer --message "Login screen ready to merge — fused bar landed, shot attached.
 Branch pod-12, 2 ahead, clean. Riskiest bit: wordmark scaling under 380px." \
   --artifact e2e/login-final.png \
-  --action "Merge and close::Land this issue into its stored parentBranch under the merge lock and close it, following docs/agents/podium-issues.md. Closing stops every session on the issue; use an authorized runner outside those sessions for the merge, verification and lock release." \
+  --action "Merge and close::Land this issue into its stored parentBranch under the merge lock and close it, following docs/agents/podium-issues.md. Use an authorized runner that survives issue shutdown through verification and lock release." \
   --action-input "Send back::Revise the login screen:"
 ```
 
@@ -205,15 +205,18 @@ The user must authorize both landing and closing. Posting an offer requests that
 it does not authorize it. Finish the issue's work and publish its handoff before landing.
 
 `podium issue action --id <id> --kind merge` closes the issue on success, stopping **every
-session on it**, including the caller if it is a member. Run the whole sequence below from an
-operator context outside those sessions, or an authorized Podium session not assigned to the
-issue being landed. That runner owns acquisition, verification and release. Issue sessions
-hand off the issue ref, parent, worktree and validation evidence; they do not schedule work
-after their own closing action. Existing cross-issue permission rules still apply to the runner.
+session on it**, including the caller if it is a member. The runner must survive that shutdown.
+Use an operator context, an authorized Podium session outside the issue, or a detached command
+process independent of the issue's PTY and process group. A detached runner can keep the issue's
+existing scoped relay for this own-issue operation; it does not need an additional operator
+login. It must keep its cwd outside the issue worktree, which closure can remove.
+
+The runner owns acquisition, verification and release. Issue sessions hand off the issue ref,
+parent, worktree and validation evidence; they do not schedule agent work after their own closing
+action. Existing cross-issue permission rules still apply; detaching does not widen the scope.
 
 Session-exit cleanup releases a stopped session's locks best-effort, with lease expiry as a
-backstop. It cannot perform the caller's remaining Git checks, so it is not a substitute for
-an outside runner that completes the procedure.
+backstop. The detached runner must still verify ancestry and confirm that its lease is released.
 
 ### Landing sequence
 
@@ -244,7 +247,7 @@ The runner keeps its original cwd and uses `git -C` for the two checkouts below.
 4. Reconfirm the main checkout's branch, then call
    `podium issue action --id <id> --kind merge`. It can rebase according to the operator's
    settings, checks the root checkout against the stored parent, and fast-forwards it to the
-   issue branch. A successful action closes the issue and stops its sessions; the outside
+   issue branch. A successful action closes the issue and stops its sessions; the independent
    runner remains available for the next steps.
 5. From the main checkout, run
    `git -C <main-checkout> merge-base --is-ancestor <issue-tip> <parent-branch>`. Check this even
@@ -252,8 +255,11 @@ The runner keeps its original cwd and uses `git -C` for the two checkouts below.
    A zero exit verifies the recorded tip is in the parent's current history. If ancestry holds
    but the issue is still open, report that partial state rather than blindly repeating a merge.
 6. Release the held lock with `podium merge-lock release <parent-branch>`, including after
-   a refusal, error or failed ancestry check. Do so before returning to the user. Do not hold
-   it while deciding whether to publish; this sequence never fetches, pulls or pushes.
+   a refusal, error or failed ancestry check. A scoped runner may find that session-exit cleanup
+   already released it: check `podium merge-lock status <parent-branch>` and confirm the lease
+   is no longer held by its session. If release races with that cleanup, recheck status. Do not
+   release a different holder's lease. Do this before returning to the user; this sequence never
+   fetches, pulls or pushes, and the lock need not cover a later publishing decision.
 
 ### Protecting branch history
 

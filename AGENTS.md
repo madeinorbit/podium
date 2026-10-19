@@ -44,8 +44,9 @@ Work lands **locally**, onto the issue's **parent branch**: the `parentBranch` f
 issues. Landing never fetches, pulls or pushes [spec:SP-a69c].
 
 Merge only after the user approves landing and closing. The merge action stops every session
-on the issue, so an operator or authorized session outside that issue must own the landing
-sequence. Finish the issue's work and publish its handoff before the runner starts.
+on the issue, so the runner must survive that shutdown: an operator, an authorized session
+outside the issue, or a detached command process using the issue's existing scoped relay.
+Finish the issue's work and publish its handoff before the runner starts.
 
 1. Verify the issue worktree is on its issue branch and the main checkout is already on the
    stored parent branch. On a mismatch, including an older or stacked issue, stop and ask;
@@ -55,10 +56,11 @@ sequence. Finish the issue's work and publish its handoff before the runner star
 3. Keep the runner's cwd. Inspect `git -C <issue-worktree> log --oneline <parent-branch>..HEAD`
    before and after `git -C <issue-worktree> rebase <parent-branch>`; only this issue's commits
    belong in that range. Record the rebased tip with `git -C <issue-worktree> rev-parse HEAD`.
-4. The outside runner calls `podium issue action --id <id> --kind merge`, checks
+4. The runner calls `podium issue action --id <id> --kind merge`, checks
    `git -C <main-checkout> merge-base --is-ancestor <issue-tip> <parent-branch>`, and releases
    its lock with `podium merge-lock release <parent-branch>`. Check ancestry even if the action
    reports an error before considering a retry. Release the held lock on refusals and failures too.
+   If session-exit cleanup already released it, confirm that with the named lock's status.
 
 Never reset the parent branch to a remote-tracking ref. Never cherry-pick onto it or land the
 same content under a different SHA. In the shared checkout, advance only the issue's parent;
