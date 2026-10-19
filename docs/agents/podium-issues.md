@@ -70,7 +70,7 @@ The issue **you** are on is the exception, and it is the one agents get wrong:
 
 | Good | Bad |
 | --- | --- |
-| `I merged it to main and closed this issue.` | `POD-557 is merged and closed.` |
+| `I merged it into its parent branch and closed this issue.` | `POD-557 is merged and closed.` |
 | `Retry backoff is ready for review` (offer headline) | `POD-557 is ready for review` |
 | `Podium-Issue: POD-557` (commit trailer) | `This issue (POD-557) is in review.` in every line |
 
@@ -141,7 +141,7 @@ podium issue artifact 12 --add e2e/login-final.png --title "Login · final"
 podium offer --message "Login screen ready to merge — fused bar landed, shot attached.
 Branch pod-12, 2 ahead, clean. Riskiest bit: wordmark scaling under 380px." \
   --artifact e2e/login-final.png \
-  --action "Merge to main::Merge this issue to main under the merge lock" \
+  --action "Merge and close::Land this issue into its stored parentBranch under the merge lock and close it, following docs/agents/podium-issues.md. Closing stops every session on the issue; use an authorized runner outside those sessions for the merge, verification and lock release." \
   --action-input "Send back::Revise the login screen:"
 ```
 
@@ -187,60 +187,91 @@ the issue.)
 moving an issue to `review` renders nothing by itself. When you set `--stage review`, always
 post an offer naming the decision you need (merge, send back, discuss).
 
-## Landing on main
+<a id="landing-on-main"></a>
 
-This is the Podium repository's landing policy, not behavior prescribed by the Podium product
-[spec:SP-a69c]. Landing integrates an issue into local `main`. Publishing local `main` to a
-remote is a separate project or operator decision and may happen later, in a batch, or not at all.
+## Landing on the parent branch
 
-### Always
+This is the Podium repository's landing policy [spec:SP-a69c]. Landing integrates an issue into
+its stored local `parentBranch`. Publishing to a remote is a separate operator decision.
 
-The target is the issue's **parent branch** (`parentBranch` in `podium issue show <id>`): `main`
-unless the operator's `gitWorkflow.defaultParentBranch` setting names another branch. Where this
-section says `main`, read the parent branch.
+Read `podium issue show <id> --json` for `parentBranch`, `branch`, `worktreePath` and `repoPath`.
+Creation chooses an explicit parent first, then `gitWorkflow.defaultParentBranch`, then `main`.
+Changing that setting does not retarget existing issues, and stacked issues can name another
+issue's branch. Use the stored parent, not a guessed target or the current default.
 
-1. `podium merge-lock acquire <parent-branch> --wait`. While you hold it, only you may move the
-   parent branch. With no branch argument it locks `main`.
-   It refuses if a sibling (another session on your issue, or one sharing your worktree)
-   already holds or is queued for it; coordinate with the session it names rather than
-   reaching for `--allow-sibling`, which is for deliberate serialised multi-session access.
-   Use the `merge-lock` sugar, not `podium lock acquire <name>`. The mutex is
-   `merge:<branch>` and nothing else — the bare name `merge` is now refused, because for a
-   while it was accepted as a *separate* lease and two sessions each believed they held the
-   merge lock [POD-672].
-2. On the **issue branch**, `git rebase` onto the current local `main`.
-3. `podium issue action --id <id> --kind merge`. It runs `git merge --ff-only <issue-branch>`
-   in the main checkout, so the **issue tip** becomes an ancestor of the parent branch. It
-   refuses if the main checkout is not on the parent branch, and it closes the issue on
-   success. If it reports an error, check ancestry before retrying: the merge can succeed even
-   when the reply fails. (By hand from the main checkout: `git merge --ff-only <issue-branch>`.)
-4. `podium merge-lock release <parent-branch>` **immediately** after the local merge.
+### Approval and the landing runner
 
-Stay in your issue worktree throughout; use `git -C <main-checkout>` for operations against main.
-This procedure neither fetches, pulls, nor pushes. Remote synchronization is a separate action;
-do not hold the merge lock while deciding whether or when to publish—the lock protects local
-integration, not remote policy.
+The user must authorize both landing and closing. Posting an offer requests that decision;
+it does not authorize it. Finish the issue's work and publish its handoff before landing.
 
-### Never
+`podium issue action --id <id> --kind merge` closes the issue on success, stopping **every
+session on it**, including the caller if it is a member. Run the whole sequence below from an
+operator context outside those sessions, or an authorized Podium session not assigned to the
+issue being landed. That runner owns acquisition, verification and release. Issue sessions
+hand off the issue ref, parent, worktree and validation evidence; they do not schedule work
+after their own closing action. Existing cross-issue permission rules still apply to the runner.
 
-- **Reset local main to a remote-tracking ref (for example, `git reset --hard origin/main`).**
-  Local `main` legitimately carries unpublished landings. A reset throws those away and
-  *succeeds*, whereas `merge --ff-only` refuses and exposes divergence. This is not hypothetical:
-  it happened on 2026-08-10 and cost three commits [POD-672]. If it happens, inspect
-  `git -C <main-checkout> reflog main`; the pre-reset tip may still be recoverable.
-- Cherry-pick the issue commit onto main.
-- “Land the unique content under a new SHA” and leave the issue branch behind.
-- Treat diverged history as permission to invent an alternate land path. If rebase fails or
-  foreign commits appear on the issue branch, **stop and ask**.
+Session-exit cleanup releases a stopped session's locks best-effort, with lease expiry as a
+backstop. It cannot perform the caller's remaining Git checks, so it is not a substitute for
+an outside runner that completes the procedure.
+
+### Landing sequence
+
+The runner keeps its original cwd and uses `git -C` for the two checkouts below. The
+`<main-checkout>` placeholder means the issue's `repoPath`, not a checkout of a branch named main.
+
+1. Confirm `git -C <issue-worktree> symbolic-ref --short HEAD` names the issue's `branch` and
+   `git -C <main-checkout> symbolic-ref --short HEAD` names its stored `<parent-branch>`.
+   If either differs or HEAD is detached, stop and ask. This includes older issues with a
+   different default and stacked issues whose parent is checked out elsewhere. Do not switch
+   the live main checkout's branch, retarget the issue, or bypass the refusal with a hand merge.
+   The checkout can be the running backend's deployment source, even when the action's error
+   suggests checking out another branch.
+2. `podium merge-lock acquire <parent-branch> --wait`. Check the exit code without piping the
+   command, then confirm ownership with `podium merge-lock status <parent-branch>`. All verbs
+   default to `main` if the branch is omitted. Use the branch name, not `merge:<branch>`;
+   `merge-lock` constructs the canonical lock name. If a sibling holds or is queued for it,
+   coordinate with that session; `--allow-sibling` is for deliberate serialized access.
+   Repeat the checkout checks after acquiring the lock, since they may have changed while waiting.
+   Keep the lease current with `podium merge-lock renew <parent-branch>` if needed. If it
+   expires, reacquire it and repeat the checkout and history checks before proceeding.
+3. Inspect `git -C <issue-worktree> log --oneline <parent-branch>..HEAD`. Only commits for this
+   issue should be present; ordinary incoming commits on the parent are not unexpected issue
+   commits. Rebase only the issue branch with `git -C <issue-worktree> rebase <parent-branch>`,
+   using the local ref. Inspect the range again and record the rebased `<issue-tip>` with
+   `git -C <issue-worktree> rev-parse HEAD`. On unexpected commits or a rebase refusal, release
+   the lock and ask before choosing another route.
+4. Reconfirm the main checkout's branch, then call
+   `podium issue action --id <id> --kind merge`. It can rebase according to the operator's
+   settings, checks the root checkout against the stored parent, and fast-forwards it to the
+   issue branch. A successful action closes the issue and stops its sessions; the outside
+   runner remains available for the next steps.
+5. From the main checkout, run
+   `git -C <main-checkout> merge-base --is-ancestor <issue-tip> <parent-branch>`. Check this even
+   after an error: the Git merge can succeed while the response or later issue update fails.
+   A zero exit verifies the recorded tip is in the parent's current history. If ancestry holds
+   but the issue is still open, report that partial state rather than blindly repeating a merge.
+6. Release the held lock with `podium merge-lock release <parent-branch>`, including after
+   a refusal, error or failed ancestry check. Do so before returning to the user. Do not hold
+   it while deciding whether to publish; this sequence never fetches, pulls or pushes.
+
+### Protecting branch history
+
+- Preserve the parent's unpublished commits. A reset to a remote-tracking ref can discard them;
+  a fast-forward refusal exposes divergence without replacing them. If a parent was reset,
+  inspect `git -C <main-checkout> reflog <parent-branch>` and ask before restoring anything.
+- Land the issue tip through the guarded action, retaining its ancestry. Cherry-picking its
+  content under another SHA does not establish that the issue tip reached the parent.
+- In the shared checkout, advance only the stored parent. Rebasing the issue branch in its
+  worktree is part of the sequence; modifying another shared branch is not.
+- Treat mismatches, unexpected issue commits and refused fast-forwards as reasons to stop and
+  ask after releasing the lock, not as permission to invent another landing route.
 
 ### When the fast-forward is blocked by untracked files
 
-Step 3 can abort with *“untracked working tree files would be overwritten by merge”*: the
-shared main checkout has loose files at paths your branch is about to introduce as tracked
-content. **The abort is git protecting you — it is the safe outcome.** The danger is the
-recovery, because `git merge -f`, `git checkout --force`, and a bare `rm` all get past the
-block and none of them can be undone: an untracked file has no reflog, no object in the
-store, nothing.
+The merge action can abort because untracked files in the shared checkout would be overwritten.
+Those loose files may be another agent's work. Forcing a checkout or deleting them can destroy
+content Git has never recorded; an untracked file has no reflog recovery.
 
 Compare the bytes first, and only then remove:
 
@@ -250,35 +281,23 @@ git -C <main-checkout> hash-object <path>
 git -C <issue-worktree> rev-parse HEAD:<path>
 ```
 
-Identical hashes mean the file is a duplicate of committed content and removing it loses
-nothing — back it up anyway, remove it, and merge; it returns as tracked content with the
-same bytes. **Different** hashes mean the loose file holds work nobody committed: stop and
-ask before touching it. This is the quietest of the three landing hazards — a reset at
-least leaves `main@{n}`, an overwritten untracked file leaves nothing.
+Identical hashes mean the loose file duplicates committed content. Back it up before removing
+the duplicate, then retry the guarded action under the named parent lock after repeating the
+checkout checks. Different hashes mean the loose file contains work not present at that branch
+path: release the lock and ask before touching it.
 
-### Why ancestry matters
+### Current ancestry and historical landing evidence
 
-A closed issue with a private branch that is **not** an ancestor of local `main` (and
-`gitState.merged !== true`) stays **“ready to merge”** in the sidebar forever
-(`issueAwaitingMerge` in client-core). Shipping the blobs onto main by cherry-pick does
-**not** clear that: the issue branch tip must join main’s history (or git must report
-`merged: true`).
+The ancestry check in the sequence verifies that the recorded issue tip reached the specific
+parent's current history. `gitState.merged` answers a broader UI question and is not equivalent.
+It can be true from a stored landing stamp, ancestry into either the cut parent or the configured
+landing branch, or commit-message evidence after that history was rewritten. `gitState.ahead`
+is measured against the cut parent and is not proof of landing either.
 
-`gitState.ahead` is only a proxy, measured against `parentBranch` (where the branch was
-cut from). For a stacked issue whose cut parent has itself landed, that ref freezes and
-`ahead` can stay `> 0` forever even when the tip is already on main [POD-576]. Trust the
-ancestry check, not the ahead counter alone.
-
-### Done only when
-
-The issue tip is an ancestor of local `main`:
-
-```bash
-git -C <main-checkout> merge-base --is-ancestor <issue-tip> main
-```
-
-Or, equivalently, `gitState.merged` is true. Content-on-main without that is **not** a
-finished land.
+If the parent is later rebased, a historical landing stamp can remain true while the exact tip
+is no longer its ancestor. Preserve the issue branch and recorded tip, report both observations,
+and ask the operator how to resolve the rewritten history. Do not reset the parent or replay
+the content under another SHA just to make an indicator agree.
 
 ## Rules
 

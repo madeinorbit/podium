@@ -9,18 +9,19 @@ the tooling already enforces does not need repeating here.
 Podium is a self-hosted multi-agent workspace: a server, a per-machine daemon that runs agent
 sessions in PTYs, and web, desktop and phone clients. It is a Bun + Turbo monorepo.
 
-- `apps/server`, `apps/daemon`, `apps/janitor`: the backend processes. `apps/cli`: the
-  `podium` command.
+- `apps/server`, `apps/daemon`: the backend processes. `packages/janitor`: the server's
+  maintenance worker. `apps/cli`: the `podium` command.
 - `apps/web`: the web UI. `apps/desktop`: the Tauri shell around it. `apps/mobile`: the phone app.
-- `packages/*`: shared code (`protocol`, `domain`, `client-core`, `client-graph`, `pty`,
+- `packages/*`: shared code (`protocol`, `model`, `client-core`, `client-graph`, `pty`,
   `runtime`, …).
 - `docs/agents/`: how-to guides for agents (index at the end of this file).
 
 ## Working in a checkout
 
 The shared main checkout holds other agents' uncommitted files. Do your work in your own git
-worktree, and run `bun run setup:worktree` in it before anything else. The Bun version is pinned
-in `mise.toml`, and plain `bun --version` must match it ([docs/toolchain.md](docs/toolchain.md)).
+worktree. In a fresh checkout, select the Bun version pinned in `mise.toml` and confirm plain
+`bun --version` matches it, then run `bun run setup:worktree` before building or validating
+([docs/toolchain.md](docs/toolchain.md)). Resumed and read-only work does not need another install.
 If the dependency tree breaks or drifts from the lockfile, stop the processes using it and run
 `bun run deps:repair`.
 
@@ -38,27 +39,33 @@ Work is tracked with Podium's issue tracker. Inside a Podium session, start with
 ([docs/agents/podium-issues.md](docs/agents/podium-issues.md)).
 
 Work lands **locally**, onto the issue's **parent branch**: the `parentBranch` field from
-`podium issue show <id>`. That is `main` unless the operator's Podium settings say otherwise.
-Landing never fetches, pulls or pushes; publishing to a remote is a separate decision for the
-operator [spec:SP-a69c].
+`podium issue show <id> --json`. Creation uses an explicit parent, then the operator's
+`gitWorkflow.defaultParentBranch`, then `main`; changing the default does not retarget existing
+issues. Landing never fetches, pulls or pushes [spec:SP-a69c].
 
-1. `podium merge-lock acquire <parent-branch> --wait`. Name the branch: with no branch argument
-   it locks `main`. Don't pipe it. Check its exit code, then confirm with `merge-lock status`.
-2. In your worktree, `git rebase <parent-branch>`, using the local ref, never `origin/…`.
-   Check that `git log --oneline <parent-branch>..HEAD` lists only your own commits.
-3. `podium issue action --id <id> --kind merge`. It fast-forwards the parent branch in the main
-   checkout to your tip. On success it also closes the issue, so post any offer before running it.
-4. Release the lock straight away (`podium merge-lock release <parent-branch>`).
-5. Done when `git merge-base --is-ancestor <issue-tip> <parent-branch>` succeeds. If the merge
-   reports an error, run this check before retrying. The merge can succeed even when the reply
-   fails.
+Merge only after the user approves landing and closing. The merge action stops every session
+on the issue, so an operator or authorized session outside that issue must own the landing
+sequence. Finish the issue's work and publish its handoff before the runner starts.
+
+1. Verify the issue worktree is on its issue branch and the main checkout is already on the
+   stored parent branch. On a mismatch, including an older or stacked issue, stop and ask;
+   switching the live main checkout's branch can disrupt the running backend.
+2. `podium merge-lock acquire <parent-branch> --wait`. Don't pipe it. Check its exit code and
+   confirm ownership with `podium merge-lock status <parent-branch>`. Omission locks `main`.
+3. Keep the runner's cwd. Inspect `git -C <issue-worktree> log --oneline <parent-branch>..HEAD`
+   before and after `git -C <issue-worktree> rebase <parent-branch>`; only this issue's commits
+   belong in that range. Record the rebased tip with `git -C <issue-worktree> rev-parse HEAD`.
+4. The outside runner calls `podium issue action --id <id> --kind merge`, checks
+   `git -C <main-checkout> merge-base --is-ancestor <issue-tip> <parent-branch>`, and releases
+   its lock with `podium merge-lock release <parent-branch>`. Check ancestry even if the action
+   reports an error before considering a retry. Release the held lock on refusals and failures too.
 
 Never reset the parent branch to a remote-tracking ref. Never cherry-pick onto it or land the
-same content under a different SHA. Never move a branch other than the issue's parent. If the
-rebase hits commits that aren't yours, or the fast-forward is refused, stop and ask. Don't invent
-another route. Recovery cases, such as untracked files blocking the fast-forward or a rewritten
-parent branch, are in
-[podium-issues.md § Landing on main](docs/agents/podium-issues.md#landing-on-main).
+same content under a different SHA. In the shared checkout, advance only the issue's parent;
+rebasing the issue branch belongs in its worktree. If unexpected commits appear in the issue's
+`<parent-branch>..HEAD` range or landing is refused, release the lock and ask. Do not bypass
+the action with a manual merge. Lease renewal, recovery and historical landing evidence are in
+[podium-issues.md § Landing on the parent branch](docs/agents/podium-issues.md#landing-on-the-parent-branch).
 
 To put another agent on an issue, use `podium agent spawn`. Podium infers nothing about a
 delegate (no role, no write claim, no isolation), so the spawn prompt must give it everything:
@@ -70,32 +77,36 @@ its job, a session title, who else is on the issue, and who owns which files
 This host is shared by many agents, and test lanes compete for its CPU and memory. That is why
 validation is budgeted:
 
-- **End of task:** run `bun run test` once. It runs a cached typecheck, the span-effect lint and
-  four hermetic boot-wiring files. Report a pass as "lean gate green", never as "tests pass".
-  A run ending `LEAN GATE INCOMPLETE` is no result at all.
-- **While working:** run the tests for the code you are changing with
-  `bun run test:file -- <paths> [-t "name"]`. Don't rerun broad lanes after every edit.
-- **Risky areas:** add the one specialized lane that matches the change: the store shard for
-  database changes, integration for daemon/PTY behavior, `test:multi-instance` for instance
-  identity or lifecycle. Use [docs/agents/testing.md](docs/agents/testing.md) to pick it.
+- **Default final check:** `bun run test` runs cached typecheck and static checks, then four
+  hermetic boot-wiring files. Report a pass as "lean gate green"; `LEAN GATE INCOMPLETE` is no
+  result. After a fix, rerun affected checks; don't repeat a green on an unchanged candidate.
+- **While working:** use `bun run test:file -- <paths> [-t "name"]` when focused tests answer
+  a concrete question. Don't rerun broad lanes after every edit.
+- **Risky areas:** choose the specialized lane matching the change: the store shard for
+  database changes, integration for daemon/PTY behavior, or multi-instance for instance identity
+  or lifecycle. If it covers the relevant basic wiring, it replaces the default gate; otherwise
+  run both sequentially. Use [docs/agents/testing.md](docs/agents/testing.md) to choose.
 - **Skip the gate** for docs, copy and formatting changes, and anything else that can't affect
   runtime. Say so in the handoff.
 - Run one validation command at a time. Never stack lanes "for confidence".
-- `test:full`, `test:unit`, `oracle`, `test:rearch`, browser suites and benchmarks are for CI,
-  release validation or an explicit request.
-- Trust Turbo and typecheck cache hits. Never force a cache bypass.
+- Full sweeps, the oracle, browser suites, audits and benchmarks need their trigger in the
+  lane guide, such as changed behavior, CI, release validation or an explicit request. Taking
+  a merge lock is not itself a trigger for the oracle.
+- Trust Turbo and typecheck cache hits by default. For a concrete missing cache input, file
+  the gap and use the documented `--uncached-because="<missing input>"` exception.
 
-Always go through the `bun run` wrappers. The command guard refuses raw `vitest`, `tsc`,
-`playwright` and `turbo` and names the lane to use instead. A raw vitest on server or web
-files collects zero tests and still exits 0. If a lane dies with exit 144 and an empty log, the
-host killed it, usually for memory. That says nothing about your change, so run it again.
+Use the `bun run` wrappers so admission, install checks and test selection apply. Raw runners
+can silently miss server or web tests. An empty-log exit 144 has occurred under host memory
+pressure; it is no validation result. Retry the affected lane, and inspect diagnostics if it
+recurs rather than inferring a source failure from the exit code alone.
 
 ## Verifying behavior at runtime
 
 For visual changes, a screenshot is cheap and catches real mistakes. Take it from the stubbed
-web layout harness (`apps/web/harness/`) or a worktree dev server. Clicking through the live app is not needed for styling. Drive a real
-interaction only when its correctness depends on a boundary that tests can't reach: terminal
-link dispatch, opening or saving in the OS editor, new-tab behavior, pointer and keyboard
+web layout harness (`apps/web/harness/`) or a worktree dev server. Clicking through the live app
+is not needed for styling. Drive a real interaction only when its correctness depends on a
+boundary that tests can't reach: terminal link dispatch, opening or saving in the OS editor,
+new-tab behavior, pointer and keyboard
 routing. Drive the smallest affected interaction once and observe the external effect.
 
 - Web UI through Playwright: [docs/agents/driving-podium.md](docs/agents/driving-podium.md).

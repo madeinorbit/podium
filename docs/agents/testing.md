@@ -1,8 +1,8 @@
 # Running tests — which lane, when
 
-Doctrine for agents working in this repo [spec:SP-0be7]. Tests are end-of-task evidence,
-not an editing ritual. Do not run tests after each edit or intermediate commit, and do not
-accumulate overlapping lanes merely to say more commands were run.
+Validation guidance for agents working in this repo [spec:SP-0be7]. Run focused tests during
+implementation when they answer a concrete question, then select final checks for the finished
+candidate. Avoid repeating broad lanes after each edit or accumulating overlapping checks.
 
 ## The normal agent path
 
@@ -10,7 +10,8 @@ At the end of an ordinary runtime-affecting task, run:
 
     bun run test
 
-This is the lean confidence gate. It runs cached, lock-free typecheck, then four exact hermetic
+This is the lean confidence gate. The root `test` script in `package.json` runs cached,
+lock-free typecheck and static checks, including the span-effect lint, then four exact hermetic
 boot/configuration files with one worker:
 
 | Test file | What it cheaply protects |
@@ -61,8 +62,10 @@ runtime; say so in the handoff.
 
 Only add a specialized lane when the diff matches a trigger below. If that specialized lane
 already proves the relevant basic wiring, use it instead of `test`; otherwise run the
-two commands once each, sequentially, at the end. “More confidence” without a concrete risk
-is not a reason to add a lane.
+two commands sequentially on the finished candidate. Rerun affected checks after fixing a
+failure or changing the candidate. Once a candidate is green, don't repeat validation without
+a new change, failure or unresolved concern. "More confidence" without a concrete risk is not
+a reason to add a lane.
 
 ## MobX click speed gate
 
@@ -91,34 +94,41 @@ cannot skip the slot budget, the install fingerprint, or the forced flags.
 
 Typecheck is TypeScript 7 (the Go compiler) everywhere, `--incremental` forced on the command
 line, with each project's `*.tsbuildinfo` declared as a Turbo output so a cache hit in a fresh
-worktree restores it. TypeScript 6 remains installed under `scripts/` only, as the JavaScript
-API the repository audits are written against; it never typechecks anything.
+worktree restores it. Packages that need TypeScript's JavaScript API for AST audits still
+declare TypeScript 6 as a library; it does not typecheck the repository.
 
 ## Caches, the span-effect lint, and runs that die
 
 **The typecheck cache is shared across worktrees.** `scripts/typecheck.ts` keys one Turbo cache
-by the repository's common git dir, so a fresh worktree is not a cold start. Re-running to "warm
-it up" achieves nothing. Run `bun run typecheck` (or `-- --filter <package>`) and let Turbo pick
-the set. A checkout installed before the move to TypeScript 7 needs `bun run deps:repair`, not
+by the repository's common git dir, so a fresh worktree can reuse existing results. The default
+base is an absolute `XDG_CACHE_HOME`, then the user's `.cache` directory; temporary storage is
+only a fallback when neither is usable. The wrapper also honors `TURBO_CACHE_DIR`. See
+`scripts/shared-cache-dir.ts` for the path selection. Re-running to "warm it up" is unnecessary.
+Run `bun run typecheck` or `bun run typecheck -- --filter <package>` and let Turbo pick the set.
+A checkout installed before the move to TypeScript 7 needs `bun run deps:repair`, not
 `setup:worktree`: the frozen reconcile leaves a dangling `.bin/tsserver` behind, and the topology
 census refuses the gate on it.
 
-**Never force a cache bypass.** Do not set `TURBO_FORCE`, pass `--force`, or use write-only
-`--cache` flags. If you know a concrete cache-key gap, file it and use
-`--uncached-because="<missing input>"` as a one-off exception.
+**Use cached validation by default.** For a concrete missing cache input, file the gap and use
+`bun run typecheck -- --uncached-because="<missing input>"` as a one-off exception. Generic
+`TURBO_FORCE`, `--force` and write-only `--cache` flags bypass that accounting and are refused
+without a reason.
 
 **The span-effect lint** (`bun run lint:span-effects`, spec §6 rule 19: nothing a caller outside
-this process can observe inside a transaction body) is the middle step of `bun run test`. It runs
+this process can observe inside a transaction body) is part of `bun run test`. It runs
 there and not only in CI because work lands by local fast-forward, so most changes never meet CI.
-A cache hit replays it in under a second. A run where a source it reads changed takes about a
-minute, and that is exactly when it has something to say. When it fires, read
+A cache hit replays the result; a change to its inputs runs the lint again. When it fires, read
 [docs/gates/pod-3332-span-effect-lint.md](../gates/pod-3332-span-effect-lint.md). The failure
 text names the span, the path and the two ways out.
 
-**Exit 144 with an empty log means the host killed the run**, usually for memory, since nothing
-caps how many compilers run at once. It is not a type error or a test failure: re-run it and
-treat the first result as no result. While `XDG_CACHE_HOME` is unset, the cache lives under
-`/tmp`, so after a reboot the first runs really are slow (POD-2778).
+**The wrappers limit compiler concurrency and host admission.** `scripts/typecheck.ts` caps
+compilers within a run; `scripts/validation-admission.ts` bounds concurrent admitted runs by
+slots and a memory budget. Let those wrappers select the limits rather than bypassing them.
+
+**Exit 144 with an empty log has occurred under host memory pressure.** The interrupted run
+is no validation result, and that exit code alone does not establish a source error or the
+cause of termination. Retry the affected lane; if it recurs, inspect the host and runner
+diagnostics before attributing it to the change.
 
 ## Exhaustive command and ownership map
 
@@ -406,6 +416,6 @@ hermetic setup, lane exclusions, and exit-status safeguards.
   runs all five lanes locally in one command (sequentially — the heavy lanes bind
   fixed ports). The lane set lives in `scripts/oracle.ts`; a drift guard in
   `scripts/test-configuration.test.ts` pins it against the CI matrix and the
-  package.json scripts, so a lane cannot fall out of CI silently. Land-flow
-  convention: acquiring the merge lock for main wants a green oracle on the
-  candidate sha (see docs/rearchitecture-v3.md) — advisory, with CI as backstop.
+  package.json scripts, so a lane cannot fall out of CI silently. It is reserved for
+  rewrite phase boundaries, release validation or explicit requests. Taking a merge lock
+  does not require the oracle; choose the default or focused checks by the triggers above.
