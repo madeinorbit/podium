@@ -8,13 +8,13 @@
  * server round trip; server-only callbacks such as `onPosted` keep their direct
  * mutation ordering.
  *
- * Read-side loaders (`loadIssueComments`, `loadIssueEventsPage`,
- * `loadMergeStyle`) live here too so the model hook has no raw call sites.
+ * Read-side loaders (`loadIssueComments`, `loadIssueEventsPage`) live here too
+ * so the model hook has no raw call sites.
  */
 
 import type { ActivityComment, IssueEvent, RelationEntry } from '@podium/client-core/values'
-import type { IssueUpdatePatch } from '@podium/commands'
 import type { IssueActivityPorts } from '@podium/client-graph/issue-activity'
+import type { IssueUpdatePatch } from '@podium/commands'
 import { type IssueId, parseIssueStatusValue, type StoredIssueDepType } from '@podium/model/browser'
 import type { IssueViewModel } from '@/app/store'
 import type { Trpc } from '@/app/trpc'
@@ -24,7 +24,6 @@ import type { IssueAgentKind } from '@/lib/issue-agents'
  *  as an error toast (owned by `useIssuePageModel`). */
 export type RunMutation = (fn: () => Promise<unknown>) => Promise<void>
 
-export type MergeStyle = 'ff-only' | 'pr' | 'ask'
 export type GitActionKind = 'rebase' | 'pr' | 'merge'
 
 export interface IssuePageDeps {
@@ -223,7 +222,7 @@ export function issuePageCommands({
 }
 
 // ---------------------------------------------------------------------------
-// Read-side loaders (used by useIssuePageModel / useMergeStyle).
+// Read-side loaders.
 // ---------------------------------------------------------------------------
 
 /** The lazy comment thread (#175: bodies no longer ride IssueViewModel). */
@@ -240,10 +239,6 @@ export const loadIssueEventsPage = (
   trpc.issues.events.query({ ...args, excludeKinds: [...args.excludeKinds] }) as Promise<
     IssueEvent[]
   >
-
-/** The configured git merge style (drives which git action is primary). */
-export const loadMergeStyle = async (trpc: Trpc): Promise<MergeStyle> =>
-  (await trpc.settings.get.query()).gitWorkflow.mergeStyle
 
 /** A row of an issue's agent mailbox (issue #103). `wasUnread` carries the
  *  pre-read status; the server never marks mail read for an operator peek. */
