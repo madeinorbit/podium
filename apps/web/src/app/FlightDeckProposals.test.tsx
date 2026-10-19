@@ -127,7 +127,6 @@ async function open(extra: Row[] = [], proposalPatch: Row = {}) {
   const screen = new MissionScreen(pool, 'root', {
     setPreference: (key, value) => preferences.set(key, value),
   })
-  screen.open()
   const stop = autorun(() => {
     void settled(() => screen.full.ready)
   })

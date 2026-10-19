@@ -9,8 +9,17 @@ import { fileURLToPath } from 'node:url'
 import { defineConfig, type PluginOption } from 'vite'
 import base from './vite.config'
 
-const REAL_STORE = fileURLToPath(new URL('./src/app/store.tsx', import.meta.url))
-const STUB_STORE = fileURLToPath(new URL('./harness/deck-store-stub.ts', import.meta.url))
+const here = (path: string): string => fileURLToPath(new URL(path, import.meta.url))
+// The pool-backed deck (POD-2027) also reads the store handle and the worklist
+// pool, so those resolve to the same fixtures `FlightDeck.test.tsx` mounts; the
+// fixtures' vitest teardown hooks resolve to no-ops.
+const STUBS = new Map([
+  [here('./src/app/store.tsx'), here('./harness/deck-store-stub.ts')],
+  [here('../../packages/client-core/src/react/provider.tsx'), here('./harness/deck-provider-stub.ts')],
+  [here('./src/app/store-worklist-pool.ts'), here('./harness/deck-pool-stub.ts')],
+])
+const STUB_FILES = new Set(STUBS.values())
+const VITEST_STUB = here('./harness/vitest-stub.ts')
 
 export default defineConfig(async (env) => {
   const real = await (base as unknown as (e: typeof env) => Promise<Record<string, unknown>>)(env)
@@ -25,7 +34,10 @@ export default defineConfig(async (env) => {
         name: 'deck-harness-store-stub',
         enforce: 'pre',
         async resolveId(source: string, importer: string | undefined, opts: unknown) {
+          if (source === 'vitest') return VITEST_STUB
           if (source.endsWith('deck-store-stub')) return null
+          // A stub that wraps the real module must reach the real module.
+          if (importer && STUB_FILES.has(importer.split('?')[0])) return null
           const resolved = await (
             this as unknown as {
               resolve: (
@@ -35,8 +47,7 @@ export default defineConfig(async (env) => {
               ) => Promise<{ id: string } | null>
             }
           ).resolve(source, importer, { ...(opts as Record<string, unknown>), skipSelf: true })
-          if (resolved && resolved.id.split('?')[0] === REAL_STORE) return STUB_STORE
-          return null
+          return (resolved && STUBS.get(resolved.id.split('?')[0])) ?? null
         },
       } as PluginOption,
     ],
@@ -48,7 +59,14 @@ export default defineConfig(async (env) => {
       // default allow list refuses it — silently, as a fallback font. Line
       // wrapping is the whole measurement here, so that would make every number
       // a lie.
-      fs: { allow: [fileURLToPath(new URL('../..', import.meta.url)), '/home/podium/podium'] },
+      // Bun links packages from its install cache, so Geist can resolve there too.
+      fs: {
+        allow: [
+          fileURLToPath(new URL('../..', import.meta.url)),
+          '/home/podium/podium',
+          `${process.env.HOME}/.bun/install/cache`,
+        ],
+      },
     },
   }
 })

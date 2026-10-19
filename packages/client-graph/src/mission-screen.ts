@@ -3,7 +3,6 @@ import type { SessionView } from '@podium/client-core/session-values'
 import {
   FLIGHT_DECK_FOLDS_KEY,
   FLIGHT_DECK_MODE_KEY,
-  type MissionScreenView,
   readMissionScreenView,
   writeMissionScreenView,
 } from '@podium/client-core/ui-state'
@@ -17,12 +16,11 @@ import {
   nativeSubagentRows,
   readFlightDeckFolds,
   reposToViews,
-  reviewReturnCount,
   writeFlightDeckFolds,
 } from '@podium/client-core/values'
 import { companion, lazy } from '@podium/mobx-helpers'
 import { isFinished } from '@podium/model/browser'
-import { action, compareShallow, compareStructural, observable, runInAction } from 'mobx'
+import { action, compareShallow, compareStructural, observable } from 'mobx'
 import { headerView } from './header-views'
 import { omitGone } from './lookup'
 import { FullDeck } from './mission-full-deck'
@@ -32,33 +30,16 @@ import type { MobxPool } from './pool'
 import { SettingsRecordRequest } from './requested-records'
 import { LOADING, type Loaded } from './worklist/rollup'
 
-/** The answer's shape the review-return count reads. */
-export type MissionIssueEvent = { kind: string; payload?: unknown }
 export interface MissionScreenOptions {
   /** Persist a device preference. The pool's preference row is the stored
    * value (the UiStore is not built), so the screen reads it back from there. */
   setPreference?: (key: string, raw: string | null) => void
-  /** Whether the experimental views (waterfall, timeline) are offered. */
-  development?: boolean
+  /** The desktop deck draws Full only, whatever mode the phone stored. */
+  fullOnly?: boolean
   /** How a session is named where the mission search matches it. */
   sessionName?: (session: SessionView) => string
-  /** One issue's event history, read for its review-return count. */
-  issueEvents?: (input: { since: 0; repoPath: string | null; subject: string; limit: number }) => Promise<readonly MissionIssueEvent[]>
 }
 
-/** The review-return count of one issue, loaded when the timeline shows it. */
-export class ReviewReturnAnswer {
-  @observable accessor count: number | undefined = undefined
-  @observable accessor loading = false
-  @observable accessor error: string | null = null
-  /** The issue version the count answers, and the request that may store it. */
-  version: string | null = null
-  request = 0
-  generation = -1
-}
-
-const REVIEW_HISTORY_LIMIT = 200
-const REVIEW_CONCURRENCY = 4
 const NO_HOSTS: ReturnType<typeof machineViewsFromWire> = []
 
 /** The mission's search words for one drawn row: title, reference, crew names. */
@@ -98,16 +79,10 @@ export class MissionScreen {
   @observable accessor query = ''
   @observable accessor searchOpen = false
   @observable accessor archivedOpen = false
-  private closed = false
-  private generation = 0
-  private active = 0
-  private readonly waiting: (() => Promise<void>)[] = []
   private readonly search = companion((row: MissionDeckIssueModel) => new MissionRowSearch(row, this))
   private readonly seat = companion((session: SessionModel) => new MissionSession(session))
-  /** Review-return answers of this opening, one per issue. */
-  readonly reviewReturn = companion((_issue: IssueModel) => new ReviewReturnAnswer())
   /** The Full view (flight deck v6): its own filter, Show done and default
-   * folds over this opening's full deck. Waterfall and Timeline never read it. */
+   * folds over this opening's full deck. */
   readonly full: FullDeck = new FullDeck(this)
 
   constructor(readonly pool: MobxPool, readonly rootId: string, private readonly options: MissionScreenOptions = {}) {
@@ -120,12 +95,7 @@ export class MissionScreen {
   }
 
   // Lifetime
-  /** Re-arm after a close (React may close and reopen the same opening). */
-  open(): void { this.closed = false }
   close(): void {
-    this.closed = true
-    this.generation++
-    this.waiting.length = 0
     this.reader.dispose()
     this.settingsRequest.close()
   }
@@ -135,20 +105,14 @@ export class MissionScreen {
     const row = requireLoaded(omitGone(this.pool.row('preference', key)))
     return typeof row === 'object' && row !== null ? row.value : null
   }
-  @lazy get preferredView(): MissionScreenView { return readMissionScreenView(this.preference(FLIGHT_DECK_MODE_KEY)) }
-  @lazy get view(): MissionScreenView {
-    const view = this.preferredView
-    return !this.options.development && (view === 'waterfall' || view === 'handoff') ? 'full' : view
-  }
   @lazy get mode(): FlightDeckMode {
-    const view = this.view
-    return view === 'waterfall' || view === 'handoff' ? 'full' : view
+    return this.options.fullOnly ? 'full' : readMissionScreenView(this.preference(FLIGHT_DECK_MODE_KEY))
   }
   @lazy({ equals: compareStructural }) get folds(): FlightDeckFoldMap {
     return readFlightDeckFolds(this.preference(FLIGHT_DECK_FOLDS_KEY))
   }
-  @action setView(view: MissionScreenView): void {
-    this.options.setPreference?.(FLIGHT_DECK_MODE_KEY, writeMissionScreenView(view))
+  @action setMode(mode: FlightDeckMode): void {
+    this.options.setPreference?.(FLIGHT_DECK_MODE_KEY, writeMissionScreenView(mode))
   }
   @action setFolds(folds: FlightDeckFoldMap): void {
     this.options.setPreference?.(FLIGHT_DECK_FOLDS_KEY, writeFlightDeckFolds(folds))
@@ -201,13 +165,13 @@ export class MissionScreen {
   }
   /** The mission's own row: the header, which the spine does not print again. */
   @lazy get rootRow(): MissionDeckIssueModel | undefined { return this.rows[0] }
-  @lazy get needle(): string { return this.view === 'handoff' ? '' : this.query.trim().toLowerCase() }
+  @lazy get needle(): string { return this.query.trim().toLowerCase() }
   matches(row: MissionDeckIssueModel, needle = this.needle): boolean {
     return this.search(row).words.some((word) => word.includes(needle))
   }
   /** Proposals leave the tree for their own tail, unless they carry sub-tasks. */
   @lazy({ equals: compareShallow }) private get proposalIds(): readonly string[] {
-    return this.view === 'waterfall' ? [] : this.rows.filter((row) =>
+    return this.rows.filter((row) =>
       row.depth > 0 && row.stage === 'proposed' && requireLoaded(row.deckChildren).length === 0).map((row) => row.id)
   }
   @lazy({ equals: compareShallow }) private get proposals(): readonly MissionDeckIssueModel[] {
@@ -351,51 +315,6 @@ export class MissionScreen {
     return machines.filter((view) => repo?.machines.some((machine) => machine.machineId === view.machine.id))
   }
 
-  // Review returns: on request, while the timeline shows the issue
-  /** Load the issue's review-return count for its current version. A newer
-   * request supersedes an older one; an error stays an error. */
-  @action requestReviewReturns(issueId: string): void {
-    const load = this.options.issueEvents
-    if (!load || this.closed) return
-    const issue = this.reader.facts(issueId)
-    const row = settled(() => ({ version: issue.updatedAt as string, repoPath: (issue.repoPath as string | null | undefined) ?? null }))
-    if (row === LOADING) return
-    const answer = this.reviewReturn(issue)
-    const generation = this.generation
-    if (answer.version === row.version && answer.generation === generation) return
-    answer.version = row.version
-    answer.generation = generation
-    const request = ++answer.request
-    answer.loading = true
-    answer.count = undefined
-    answer.error = null
-    const settle = (result: { count: number } | { error: string }) => runInAction(() => {
-      if (this.closed || this.generation !== generation || answer.request !== request) return
-      answer.loading = false
-      if ('count' in result) answer.count = result.count
-      else answer.error = result.error
-    })
-    this.waiting.push(async () => {
-      if (this.closed || this.generation !== generation || answer.request !== request) return
-      try {
-        const events = await load({ since: 0, repoPath: row.repoPath, subject: issueId, limit: REVIEW_HISTORY_LIMIT })
-        settle({ count: reviewReturnCount(events) })
-      } catch (error) {
-        settle({ error: error instanceof Error ? error.message : String(error) })
-      }
-    })
-    this.pump()
-  }
-  private pump(): void {
-    while (this.active < REVIEW_CONCURRENCY && this.waiting.length > 0) {
-      const next = this.waiting.shift()!
-      this.active++
-      void next().finally(() => {
-        this.active--
-        this.pump()
-      })
-    }
-  }
 }
 
 /** The mission root a selection opens, by id. The phone (`structural`) opens

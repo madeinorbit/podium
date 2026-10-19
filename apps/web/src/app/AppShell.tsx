@@ -1,11 +1,8 @@
 import { cookieCredentials } from '@podium/client-core/accounts'
 import { createSocketLogin, observeLiveConnection } from '@podium/client-core/live-connection'
 import {
-  FLIGHT_DECK_DISPLAY_KEY,
   FLIGHT_DECK_EXPANDED_WIDTH_KEY,
   FLIGHT_DECK_FULL_DISPLAY_KEY,
-  FLIGHT_DECK_MODE_KEY,
-  readMissionScreenView,
 } from '@podium/client-core/ui-state'
 import { observer } from '@podium/client-graph/react'
 import { ChevronLeft } from 'lucide-react'
@@ -588,19 +585,10 @@ function AppBodyView({ syncProgress }: { syncProgress: SyncProgressStore }): JSX
   // the column's WIDTH persisted while its mode did not. Goes through the one
   // shared subscribe hook every replicated key now uses.
   const flightDeckCollapsed = usePersistedUiValue(SUPERAGENT_MODE_KEY, readFlightDeckCollapsed)
-  const developmentDeckViews = useFeature('podium-development')
-  const preferredDeckView = usePersistedUiValue(FLIGHT_DECK_MODE_KEY, readMissionScreenView)
-  const fullDeckSizing =
-    preferredDeckView === 'full' ||
-    (!developmentDeckViews &&
-      (preferredDeckView === 'waterfall' || preferredDeckView === 'handoff'))
-  const flightDeckDisplayKey = fullDeckSizing
-    ? FLIGHT_DECK_FULL_DISPLAY_KEY
-    : FLIGHT_DECK_DISPLAY_KEY
-  const flightDeckDisplay = usePersistedUiValue(flightDeckDisplayKey, (raw) =>
+  const flightDeckDisplay = usePersistedUiValue(FLIGHT_DECK_FULL_DISPLAY_KEY, (raw) =>
     readFlightDeckDisplay(raw, isComplexFlightDeckMission(flightDeckMission)),
   )
-  const flightDeckSize = flightDeckSizing(fullDeckSizing, flightDeckDisplay)
+  const flightDeckSize = flightDeckSizing(flightDeckDisplay)
   const reduceMotion = useReducedMotion()
   const flightDeckShellRef = useRef<HTMLDivElement>(null)
   const flightDeckOpenWidth = useRef(0)
@@ -654,13 +642,12 @@ function AppBodyView({ syncProgress }: { syncProgress: SyncProgressStore }): JSX
     uiState.set(SUPERAGENT_MODE_KEY, collapsed ? 'folded' : 'open')
   }
   const persistedFlightDeckWidth = (display: FlightDeckDisplay = flightDeckDisplay): number => {
-    const sizing = flightDeckSizing(fullDeckSizing, display)
+    const sizing = flightDeckSizing(display)
     // Seed Full from a valid old width, without ever writing back to it.
     const legacyKey =
       display === 'expanded' ? FLIGHT_DECK_EXPANDED_WIDTH_KEY : 'podium:superagent:width'
     return readFlightDeckWidth(
       uiState.get(sizing.storageKey) ?? uiState.get(legacyKey),
-      fullDeckSizing,
       display,
     )
   }
@@ -732,12 +719,12 @@ function AppBodyView({ syncProgress }: { syncProgress: SyncProgressStore }): JSX
     const target = persistedFlightDeckWidth(next)
     flightDeckOpenWidth.current = target
     if (reduceMotion || flightDeckCollapsed) {
-      uiState.set(flightDeckDisplayKey, next)
+      uiState.set(FLIGHT_DECK_FULL_DISPLAY_KEY, next)
       setFlightDeckWidth(flightDeckCollapsed ? 44 : null)
       return
     }
     flushSync(() => {
-      uiState.set(flightDeckDisplayKey, next)
+      uiState.set(FLIGHT_DECK_FULL_DISPLAY_KEY, next)
       setFlightDeckWidth(target)
     })
     animateFlightDeckWidth(measured, target, () => setFlightDeckWidth(null))
@@ -1056,7 +1043,6 @@ function AppBodyView({ syncProgress }: { syncProgress: SyncProgressStore }): JSX
                   </Suspense>
                 ) : (
                   <ResizableColumn
-                    key={fullDeckSizing ? 'full' : flightDeckDisplay}
                     storageKey={flightDeckSize.storageKey}
                     min={flightDeckSize.min}
                     max={flightDeckSize.max}
@@ -1064,9 +1050,7 @@ function AppBodyView({ syncProgress }: { syncProgress: SyncProgressStore }): JSX
                     handleLabel="Resize Flight Deck"
                     className={
                       flightDeckDisplay === 'expanded'
-                        ? fullDeckSizing
-                          ? 'max-w-[calc(100vw-300px)]'
-                          : 'max-w-[62vw]'
+                        ? 'max-w-[calc(100vw-300px)]'
                         : 'max-w-[45vw]'
                     }
                   >

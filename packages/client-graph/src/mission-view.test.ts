@@ -8,7 +8,7 @@ import type { IssueNavigationModel } from '@podium/client-core/values'
 import type { SessionView } from '@podium/client-core/session-values'
 import { MobxPool } from './pool'
 import { MissionScreen, missionRootId } from './mission-screen'
-import { missionView, readMissionHandoff, settled } from './mission-view'
+import { missionView, settled } from './mission-view'
 import { MISSION_VIEW_SUMMARIES } from './mission-view-schema'
 import { SHELL_SUMMARIES } from './shell-schema'
 import { createPoolProjection } from './runtime-pool'
@@ -50,12 +50,10 @@ function open(rows: IssueNavigationModel[], seats: SessionView[], summaries: { i
   return { pool, load, reader: missionView(pool) }
 }
 
-it.each([
-  ['mission pane', (reader: ReturnType<typeof missionView>) => pane(reader.pool, 'root')],
-  ['handoff', (reader: ReturnType<typeof missionView>) => readMissionHandoff(reader, 'root')],
-] as const)('renders a cold %s history as loading and recovers after hydration', (_name, read) => {
+it('renders a cold mission pane history as loading and recovers after hydration', () => {
+  const read = (reader: ReturnType<typeof missionView>) => pane(reader.pool, 'root')
   // The shell makes an archived session's display summary usable before its
-  // handoff/prompt history is resident, just as the production workspace does.
+  // history is resident, just as the production workspace does.
   const history = [session('old', 'root'), session('older', 'root'), session('oldest', 'root')]
   const { pool, reader } = open([coldRoot()], history, {
     issue: MISSION_VIEW_SUMMARIES.issue,
@@ -120,7 +118,7 @@ it('a missing declared cold summary cannot invent an empty roster', () => {
   expect(load).toHaveBeenCalledTimes(1)
 })
 
-it('counts a closed archive without observing prompt, activity or handoff history', () => {
+it('counts a closed archive without observing activity history', () => {
   const { pool, reader } = open([coldRoot()], [
     session('drawn', 'root'), session('headless', 'root', { headless: true }),
     session('shell', 'root', { agentKind: 'shell' }),
@@ -256,20 +254,6 @@ it.each([
     const { pool, reader } = open([issue('root'), ...tasks, ...targets], [])
     return { pool, read: () => settled(() => reader.deck('root').model('root').word) }
   }],
-  ['handoff depth over the blockers of a task\'s blockers', () => {
-    // The lead resumes after its one child; ordering that entry walks the
-    // child's open blockers and, through each, the blocker it waits on.
-    const blockers = Array.from({ length: WIDTH }, (_, index) => issue(`blocker-${index}`, {
-      seq: index + 10, deps: [{ id: `cold-${index}`, type: 'blocked-by' }],
-    }))
-    const cold = Array.from({ length: WIDTH }, (_, index) => issue(`cold-${index}`, {
-      ...coldRoot(), id: `cold-${index}`, seq: index + 100,
-    }))
-    const { pool, reader } = open([issue('root'), issue('lead', { parentId: 'root', seq: 2 }),
-      issue('child', { parentId: 'lead', seq: 3, deps: blockers.map(blocker => ({ id: blocker.id, type: 'blocked-by' })) }),
-      ...blockers, ...cold], [])
-    return { pool, read: () => readMissionHandoff(reader, 'root') }
-  }],
 ] as const)('settles the %s in a few load windows, not one per task', (_name, fixture) => {
   const { pool, read } = fixture()
   let value: unknown = LOADING
@@ -340,21 +324,21 @@ it('keeps raw issue member IDs and the collapsed winner in its original roster p
   expect(tracked(() => reader.issue('root'))).toMatchObject({ readAt: '2026-10-01T12:02:00Z', unread: false })
 })
 
-it('updates ready and handoff at the deferral deadline without a row change', () => {
+it('updates ready at the deferral deadline without a row change', () => {
   const deadline = now + 60_000
-  const { pool, reader } = open([issue('root', { stage: 'backlog', deferUntil: new Date(deadline).toISOString() })], [])
-  const seen: { deferred: boolean; ready: boolean; next: readonly string[] }[] = []
+  const { pool } = open([issue('root', { stage: 'backlog', deferUntil: new Date(deadline).toISOString() })], [])
+  const seen: { deferred: boolean; ready: boolean }[] = []
   const stop = autorun(() => {
-    const values = pane(pool, 'root'), handoff = readMissionHandoff(reader, 'root')
-    if (values === LOADING || handoff === LOADING || !values.root) throw new Error('Unsettled fixture')
-    seen.push({ deferred: values.root.deferred, ready: values.root.ready, next: handoff.next.map(entry => entry.issueId) })
+    const values = pane(pool, 'root')
+    if (values === LOADING || !values.root) throw new Error('Unsettled fixture')
+    seen.push({ deferred: values.root.deferred, ready: values.root.ready })
   })
   try {
-    expect(seen).toEqual([{ deferred: true, ready: false, next: [] }])
+    expect(seen).toEqual([{ deferred: true, ready: false }])
     pool.clock.advance(deadline - 1)
     expect(seen).toHaveLength(1)
     pool.clock.advance(deadline)
-    expect(seen.at(-1)).toEqual({ deferred: false, ready: true, next: ['root'] })
+    expect(seen.at(-1)).toEqual({ deferred: false, ready: true })
     pool.clock.advance(deadline + 60_000)
     expect(seen).toHaveLength(2)
   } finally { stop() }

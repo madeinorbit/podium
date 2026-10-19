@@ -19,6 +19,7 @@ import { createRoot } from 'react-dom/client'
 import { FlightDeck } from '@/app/FlightDeck'
 import { OperatorFocusProvider } from '@/app/operator-focus'
 import { setHoveredSession } from '@/app/session-hover'
+import { IssueExplorerProvider } from '@/features/issues/explorer/explorer-context'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
 import '@/index.css'
 import '@/styles.css'
@@ -30,7 +31,6 @@ declare global {
       setWidth: (px: number) => void
       /** Swap the fixture; `bump` re-renders against the new one. */
       setMission: (name: keyof typeof MISSIONS) => void
-      setMode: (mode: 'full' | 'working' | 'needs-you' | 'waterfall') => void
       setDisplay: (display: 'compact' | 'expanded') => void
       setIssueColor: (hex: string | null) => void
       setTheme: (mode: 'light' | 'dark') => void
@@ -936,12 +936,6 @@ function Harness(): JSX.Element {
         setMission(name)
         bump((v) => v + 1)
       },
-      // The view bar's own state is persisted UI state, so the harness sets it
-      // the way the app does rather than reaching into the component.
-      setMode: (mode) => {
-        state.ui.set('podium.flightDeck.mode', mode === 'full' ? null : mode)
-        bump((v) => v + 1)
-      },
       setDisplay: changeDisplay,
       setIssueColor: (hex) => setColor(hex),
       setTheme: (mode) => {
@@ -979,11 +973,13 @@ function Harness(): JSX.Element {
           >
             <OperatorFocusProvider missionId="root">
               <ConfirmProvider>
-                <FlightDeck
-                  onCollapse={() => {}}
-                  display={display}
-                  onDisplayChange={changeDisplay}
-                />
+                <IssueExplorerProvider>
+                  <FlightDeck
+                    onCollapse={() => {}}
+                    display={display}
+                    onDisplayChange={changeDisplay}
+                  />
+                </IssueExplorerProvider>
               </ConfirmProvider>
             </OperatorFocusProvider>
           </div>

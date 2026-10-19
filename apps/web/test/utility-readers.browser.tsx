@@ -8,9 +8,6 @@ import type { TaskCostRowWire, TaskCostWire } from '@podium/model/browser'
 import { asIssueId, asSessionId, asUserId } from '@podium/model/browser'
 import { Profiler, useEffect } from 'react'
 import { createRoot } from 'react-dom/client'
-import { MissionScreen } from '@podium/client-graph/mission-screen'
-import { MobxPool } from '@podium/client-graph/pool'
-import { FlightDeckHandoff } from '../src/app/FlightDeckHandoff'
 import { useWaterfallActivity } from '../src/app/waterfall-activity'
 import { MissionCostChip } from '../src/app/MissionCostChip'
 import { MessageLedgerView } from '../src/features/messages/MessageLedgerView'
@@ -180,13 +177,6 @@ function History() {
   const history = useWaterfallActivity([session])
   return <output data-utility-surface="waterfall">{JSON.stringify([...history])}</output>
 }
-// The timeline's review-return counts are one opening's request answers.
-const openingPool = new MobxPool({ selectedIssueId: null, coarseNow: now })
-openingPool.apply({ type: 'replace', rows: [{ kind: 'issue', id: issue.id, value: issue }] })
-const opening = new MissionScreen(openingPool, issue.id, {
-  issueEvents: (input) => (fixture.api as unknown as { issues: { events: { query: (value: typeof input) => Promise<never[]> } } }).issues.events.query(input),
-})
-opening.open()
 function Surface() {
   useEffect(() => {
     mounted = true
@@ -211,25 +201,6 @@ function Surface() {
         </section>
         <section data-utility-surface="cost">
           <MissionCostChip issueId={issue.id} onOpenInExplorer={() => {}} />
-        </section>
-        <section data-utility-surface="handoff">
-          <FlightDeckHandoff
-            rootIssue={issue}
-            issue={(id) => (id === issue.id ? issue : undefined)}
-            reviewReturns={opening}
-            lookupSession={(id) => (id === session.sessionId ? session : undefined)}
-            poolValues={{
-              crew: [session],
-              retired: { count: 0, latestPrompt: null },
-              current: [{ kind: 'review', issueId: issue.id, text: 'Ready for review.' }],
-              next: [],
-            }}
-            visitReadAt={null}
-            proposed={null}
-            onOpenTranscript={() => {}}
-            onOpenSession={() => {}}
-            onOpenIssue={() => {}}
-          />
         </section>
         <History />
       </main>

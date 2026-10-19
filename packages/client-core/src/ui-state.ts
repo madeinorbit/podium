@@ -348,19 +348,12 @@ export const FLIGHT_DECK_FULL_DISPLAY_KEY = 'podium.flightDeck.fullDisplay'
 export const FLIGHT_DECK_FULL_COMPACT_WIDTH_KEY = 'podium:flightDeck:fullCompactWidth'
 export const FLIGHT_DECK_FULL_EXPANDED_WIDTH_KEY = 'podium:flightDeck:fullExpandedWidth'
 
-/** The deck's saved view is also read by shell geometry before the deck opens.
- * Keep this scalar codec here so that read never imports the optional screen. */
-export type MissionScreenView = FlightDeckMode | 'waterfall' | 'handoff'
-
-/** `active` is `working`'s old id (POD-1452); an operator who chose it stays there. */
-export const readMissionScreenView = (raw: string | null): MissionScreenView =>
-  raw === 'active'
-    ? 'working'
-    : raw === 'working' || raw === 'needs-you' || raw === 'waterfall' || raw === 'handoff'
-      ? raw
-      : 'full'
-export const writeMissionScreenView = (view: MissionScreenView): string | null =>
-  view === 'full' ? null : view
+/** The phone deck's saved mode. `active` is `working`'s old id (POD-1452); an
+ * operator who chose it stays there. Retired desktop views read as `full`. */
+export const readMissionScreenView = (raw: string | null): FlightDeckMode =>
+  raw === 'active' ? 'working' : raw === 'working' || raw === 'needs-you' ? raw : 'full'
+export const writeMissionScreenView = (mode: FlightDeckMode): string | null =>
+  mode === 'full' ? null : mode
 
 export const STICKY_PROMPTS_KEY = 'podium.chat.stickyPrompts'
 export const CHAT_VERBOSITY_KEY = 'podium.chat.verbosity'

@@ -103,7 +103,6 @@ async function open(issues = mixed(), sessions: Row[] = []) {
   const screen = new MissionScreen(pool, 'root', {
     setPreference: (key, value) => uiState.set(key, value),
   })
-  screen.open()
   const stop = autorun(() => {
     void settled(() => screen.full.ready)
   })
@@ -541,7 +540,6 @@ it('keeps coordinator and helpers visible above the groups through filters, sear
 it('uses the existing loading placeholder until the coordinator roster settles', async () => {
   const f = coldMissionRowFixture()
   const screen = new MissionScreen(f.pool, 'cold-task')
-  screen.open()
   try {
     const actions = {
       full: screen.full,

@@ -167,7 +167,6 @@ async function open(fixture = mission()) {
   })
   const screen = new MissionScreen(pool, 'root', { setPreference: (key, raw) => ui.set(key, raw) })
   screens.push(screen)
-  screen.open()
   // The mounted deck keeps its preferences and rows observed, as a pane does.
   mounts.push(
     autorun(() => {

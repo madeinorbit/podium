@@ -23,8 +23,8 @@ afterEach(() => {
 })
 
 it('changes Full width stores without remounting its scroll and filter subtree', () => {
-  const compact = flightDeckSizing(true, 'compact')
-  const expanded = flightDeckSizing(true, 'expanded')
+  const compact = flightDeckSizing('compact')
+  const expanded = flightDeckSizing('expanded')
   values.set(compact.storageKey, '320')
   values.set(expanded.storageKey, '920')
   function Content() {
@@ -53,10 +53,8 @@ it('changes Full width stores without remounting its scroll and filter subtree',
   expect(ui.getByRole('separator').getAttribute('aria-valuenow')).toBe('320')
 })
 
-it('resizes Full beyond 860, restores it on reopen and keeps Waterfall saved widths intact', () => {
-  const full = flightDeckSizing(true, 'expanded')
-  const legacy = flightDeckSizing(false, 'expanded')
-  values.set(legacy.storageKey, '740')
+it('resizes Full beyond 860 and restores it on reopen', () => {
+  const full = flightDeckSizing('expanded')
   const column = () => (
     <ResizableColumn {...full} handleLabel="Resize Flight Deck">
       <div>Full</div>
@@ -71,7 +69,6 @@ it('resizes Full beyond 860, restores it on reopen and keeps Waterfall saved wid
   fireEvent.pointerUp(handle, { pointerId: 1 })
   expect(capture).toHaveBeenCalledWith(1)
   expect(values.get(full.storageKey)).toBe('1000')
-  expect(values.get(legacy.storageKey)).toBe('740')
   ui.unmount()
   const reopened = render(column())
   expect(reopened.getByRole('separator').getAttribute('aria-valuenow')).toBe('1000')

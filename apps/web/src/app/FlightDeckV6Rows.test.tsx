@@ -109,7 +109,6 @@ async function open(
   const screen = new MissionScreen(pool, 'root', {
     setPreference: (key, raw) => uiState.set(key, raw),
   })
-  screen.open()
   const stop = autorun(() => {
     void settled(() => [screen.ready, screen.full.ready])
   })

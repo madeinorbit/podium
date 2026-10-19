@@ -25,7 +25,6 @@ import { useFeature } from '@/lib/use-feature'
 import { sessionDisplayName } from '@/lib/WorkerLabel'
 import {
   FlightDeckContent,
-  type FlightDeckModes,
   type FlightDeckProps,
   type FlightDeckSource,
   MissionlessDeck,
@@ -46,7 +45,7 @@ const IssueContextMenu = lazy(() =>
  * for the mission pane: it resolves which mission the selection opens, and
  * each opening gets its own view model. */
 export default observer(function PoolFlightDeck(
-  props: FlightDeckProps & { development: boolean; modes: FlightDeckModes },
+  props: FlightDeckProps,
 ): JSX.Element {
   const selectedIssueId = useRuntimeSelector((store) => store.selectedIssueId)
   const pool = useWorklistPool()
@@ -90,14 +89,10 @@ function PoolMissionlessDeck({ onCollapse }: { onCollapse: () => void }): JSX.El
 const MissionOpening = observer(function MissionOpening({
   pool,
   rootId,
-  development,
-  modes,
   ...props
 }: FlightDeckProps & {
   pool: MobxPool
   rootId: string
-  development: boolean
-  modes: FlightDeckModes
 }): JSX.Element {
   // The opening outlives renders: it reaches the store's writers when it
   // writes, never by being rebuilt when the handle's access object changes.
@@ -107,21 +102,14 @@ const MissionOpening = observer(function MissionOpening({
   const screen = useMemo(
     () =>
       new MissionScreen(pool, rootId, {
-        development,
+        fullOnly: true,
         setPreference: (key, raw) =>
           (handleRef.current.access.uiState as RoutedUiState | undefined)?.set(key, raw),
         sessionName: sessionDisplayName,
-        issueEvents: (input) => handleRef.current.access.trpc.issues.events.query({
-          ...input,
-          repoPath: input.repoPath ?? undefined,
-        }),
       }),
-    [pool, rootId, development],
+    [pool, rootId],
   )
-  useEffect(() => {
-    screen.open()
-    return () => screen.close()
-  }, [screen])
+  useEffect(() => () => screen.close(), [screen])
   useEffect(() => followVisibleRequest(() => {
     if (!screen.settingsRequest.loading)
       void screen.settingsRequest.read(() => handleRef.current.access.trpc.settings.get.query())
@@ -160,7 +148,7 @@ const MissionOpening = observer(function MissionOpening({
     }
   }, [pool, screen])
   return screen.ready ? (
-    <FlightDeckContent {...props} screen={screen} source={source} modes={modes} />
+    <FlightDeckContent {...props} screen={screen} source={source} />
   ) : (
     <SettlingDeck />
   )

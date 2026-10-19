@@ -239,7 +239,7 @@ export const MissionDeck = observer(function MissionDeck({
             return (
               <PressableScale
                 key={m.id}
-                onPress={() => screen.setView(m.id)}
+                onPress={() => screen.setMode(m.id)}
                 scaleTo={0.99}
                 accessibilityRole="button"
                 // `aria-pressed`, not `aria-selected`, and beside `accessibilityState` rather

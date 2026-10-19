@@ -556,7 +556,6 @@ async function measureScreenCells(
       missionPane.read({
         ...window.get(),
         mode: 'full',
-        handoff: scene !== 'background-terminal',
       }),
     )
     add('mission.workspace', ['Workspace', 'FoldedFlightDeckBar'], () => {

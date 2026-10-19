@@ -106,7 +106,10 @@ const trpc = {
       }),
     },
   },
+  // The mission header asks what the mission cost; no figure renders no chip.
+  cost: { task: { query: async () => null }, tasks: { query: async () => [] } },
   issues: {
+    events: { query: async () => [] },
     setPlacement: { mutate: noop },
     start: { mutate: noop },
     addSession: { mutate: noop },
@@ -126,6 +129,7 @@ const trpc = {
 } as unknown
 
 const store = (): Record<string, unknown> => ({
+  issues: state.issues,
   sessions: state.sessions,
   repos: [],
   machines: [],

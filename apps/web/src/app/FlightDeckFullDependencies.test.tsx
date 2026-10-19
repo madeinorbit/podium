@@ -153,7 +153,6 @@ async function open(rows = fixture(), sessions: Row[] = []) {
   const screen = new MissionScreen(pool, 'root', {
     setPreference: (key, value) => preferences.set(key, value),
   })
-  screen.open()
   const stop = autorun(() => {
     void settled(() => screen.full.ready)
   })

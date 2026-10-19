@@ -29,7 +29,7 @@ function fixture(scale: number) {
 }
 /** The mounted spine reads rich fields only for the mounted task bands. */
 function click(pane: ReturnType<typeof missionPaneReader>, selectedIssueId: string) {
-  return pane.read({ selectedIssueId, paneA: null, paneB: null, split: false, mode: 'full', handoff: false })
+  return pane.read({ selectedIssueId, paneA: null, paneB: null, split: false, mode: 'full' })
 }
 
 it('records first click and revisit once at 1x and 4x', () => {

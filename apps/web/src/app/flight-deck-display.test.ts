@@ -31,35 +31,25 @@ describe('Flight Deck display contract', () => {
     expect(nextFlightDeckDisplayForSessionPick('expanded', 's1', 's2', true)).toBe('compact')
   })
 
-  it('makes Full wide reachable while keeping development view geometry and stores independent', () => {
-    const full = flightDeckSizing(true, 'expanded')
-    const waterfall = flightDeckSizing(false, 'expanded')
-    expect(full.defaultWidth).toBeGreaterThanOrEqual(860)
-    expect(full.max).toBe(1120)
-    expect(waterfall).toMatchObject({ min: 540, max: 760, defaultWidth: 680 })
-    expect(full.storageKey).not.toBe(waterfall.storageKey)
-    expect(flightDeckSizing(true, 'compact').storageKey).not.toBe(
-      flightDeckSizing(false, 'compact').storageKey,
-    )
-    expect(flightDeckSizing(false, 'compact')).toMatchObject({
-      storageKey: 'podium:superagent:width',
-      min: 300,
-      max: 620,
-      defaultWidth: 366,
-    })
+  it('makes Full wide reachable and keeps compact and expanded stores apart', () => {
+    const expanded = flightDeckSizing('expanded')
+    const compact = flightDeckSizing('compact')
+    expect(expanded.defaultWidth).toBeGreaterThanOrEqual(860)
+    expect(expanded.max).toBe(1120)
+    expect(compact).toMatchObject({ min: 300, max: 620, defaultWidth: 366 })
+    expect(compact.storageKey).not.toBe(expanded.storageKey)
   })
 
   it.each([
     300, 320, 359, 360, 439, 440, 559, 560, 620,
   ])('preserves a valid compact width of %i', (width) => {
-    expect(readFlightDeckWidth(String(width), true, 'compact')).toBe(width)
-    expect(readFlightDeckWidth(String(width), false, 'compact')).toBe(width)
+    expect(readFlightDeckWidth(String(width), 'compact')).toBe(width)
   })
 
   it.each([
     540, 559, 560, 680, 760, 859, 860, 900, 1120,
   ])('preserves Full expanded width %i through reopen', (width) => {
-    expect(readFlightDeckWidth(String(width), true, 'expanded')).toBe(width)
+    expect(readFlightDeckWidth(String(width), 'expanded')).toBe(width)
   })
 
   it.each([
@@ -71,14 +61,11 @@ describe('Flight Deck display contract', () => {
     '299',
     '1121',
   ])('rejects invalid saved widths %s', (raw) => {
-    expect(readFlightDeckWidth(raw, true, 'expanded')).toBe(900)
-    expect(readFlightDeckWidth(raw, false, 'expanded')).toBe(680)
+    expect(readFlightDeckWidth(raw, 'expanded')).toBe(900)
   })
 
-  it('does not impose Full expansion on Waterfall or Timeline widths', () => {
-    expect(readFlightDeckWidth('900', false, 'expanded')).toBe(680)
-    expect(readFlightDeckWidth('760', false, 'expanded')).toBe(760)
-    expect(readFlightDeckWidth('620', true, 'compact')).toBe(620)
-    expect(readFlightDeckWidth('621', true, 'compact')).toBe(366)
+  it('caps the compact width', () => {
+    expect(readFlightDeckWidth('620', 'compact')).toBe(620)
+    expect(readFlightDeckWidth('621', 'compact')).toBe(366)
   })
 })

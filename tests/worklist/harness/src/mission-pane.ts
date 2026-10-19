@@ -11,7 +11,6 @@ export interface MissionPaneInput {
   paneB: string | null
   split: boolean
   mode: FlightDeckMode
-  handoff: boolean
 }
 
 /**
@@ -26,8 +25,7 @@ export function missionPaneReader(pool: MobxPool, visible = 24) {
   const open = (rootId: string): MissionScreen => {
     let screen = screens.get(rootId)
     if (!screen) {
-      screen = new MissionScreen(pool, rootId, { development: true })
-      screen.open()
+      screen = new MissionScreen(pool, rootId)
       screens.set(rootId, screen)
     }
     return screen
@@ -56,7 +54,6 @@ export function missionPaneReader(pool: MobxPool, visible = 24) {
       }
       return value
     }
-    const handoff = input.handoff ? shown(() => screen.reader.handoff(rootId)) : undefined
     const bands = screen.visibleRows.slice(0, visible).map((row) => ({
       key: row.key,
       title: shown(() => row.title),
@@ -88,7 +85,6 @@ export function missionPaneReader(pool: MobxPool, visible = 24) {
       archivedCount: shown(() => screen.archivedCount),
       continuation: shown(() => screen.continuation),
       departures: shown(() => screen.otherDepartures),
-      handoff,
     }
     return displayPending ? LOADING : answer
   })

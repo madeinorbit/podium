@@ -52,8 +52,7 @@ export async function waterfallFixture(count = 12) {
       })
   }
   pool.apply({ type: 'replace', rows })
-  const screen = new MissionScreen(pool, 'root', { development: true })
-  screen.open()
+  const screen = new MissionScreen(pool, 'root')
   const view = new WaterfallView(screen)
   view.open(NOW)
   const stop = autorun(() => void screen.rowsReady)

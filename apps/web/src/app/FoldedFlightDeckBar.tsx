@@ -237,10 +237,7 @@ const FoldedOpening = observer(function FoldedOpening({
   onExpand: () => void
 }): JSX.Element {
   const screen = useMemo(() => new MissionScreen(pool, rootId), [pool, rootId])
-  useEffect(() => {
-    screen.open()
-    return () => screen.close()
-  }, [screen])
+  useEffect(() => () => screen.close(), [screen])
   const ready = screen.ready
   const root = ready ? screen.reader.issue(rootId) : undefined
   return (

@@ -26,7 +26,7 @@ import { ConfirmProvider } from '@/lib/hooks/use-confirm'
 import { buildCorpus } from '../../../../tests/worklist/harness/src/fixture/corpus'
 import { expectPoolOutput } from '../../../../tests/worklist/harness/src/oracle/pool-output'
 import { seedCacheFromCorpus, startScenarioEngine } from '../../../../tests/worklist/shared/src/scenarios'
-import { FlightDeck, type FlightDeckView } from './FlightDeck'
+import { FlightDeck } from './FlightDeck'
 import { FoldedFlightDeckBar } from './FoldedFlightDeckBar'
 import { missionLegacyCountsFor, resetMissionLegacyCounts } from './mission-pane-perf'
 import { OperatorFocusProvider } from './operator-focus'
@@ -186,9 +186,8 @@ afterEach(() => {
   vi.clearAllMocks()
 })
 
-function mount(view: FlightDeckView, onRender?: ProfilerOnRenderCallback) {
+function mount(onRender?: ProfilerOnRenderCallback) {
   vi.setSystemTime(corpus.fixedNow)
-  state.uiState.get = (key) => (key === 'podium.flightDeck.mode' ? view : null)
   return render(
     onRender ? (
       <Profiler id="mission" onRender={onRender}>
@@ -249,7 +248,7 @@ describe('rendered mission pane parity', () => {
     state.paneA = 's0'
     const errors = vi.spyOn(console, 'error')
     try {
-      const current = mount('full')
+      const current = mount()
       await waitFor(() => expect(current.container.querySelector('[data-testid="flight-deck-scroller"]')).not.toBeNull(), { timeout: 10_000 })
       const root = missionView(pool).issue(state.selectedIssueId)
       expect(root && typeof root !== 'symbol' ? current.container.querySelector('.deck-header')?.textContent : '').toContain(root && typeof root !== 'symbol' ? root.displayRef : 'missing root')
@@ -295,7 +294,7 @@ describe('rendered mission pane parity', () => {
       return []
     })
     const committed = vi.fn()
-    const current = mount('full', committed)
+    const current = mount(committed)
     await settled()
     const before = committed.mock.calls.length
     await act(async () => {
@@ -328,17 +327,16 @@ describe('rendered mission pane parity', () => {
     )
     if (!root) throw new Error('Missing mission fixture')
     state.selectedIssueId = root.id
-    const opened = vi.spyOn(MissionScreen.prototype, 'open')
-    const current = mount('full')
+    const closed = vi.spyOn(MissionScreen.prototype, 'close')
+    const current = mount()
     await settled()
-    expect(opened).toHaveBeenCalledTimes(1)
     const before = renderedOutput(current.container)
     const selected = sessions.find((session) => session.issueId === root.id)
     if (!selected) throw new Error('Missing mission session fixture')
     state.paneA = selected.sessionId
     current.rerender(deck())
     await settled()
-    expect(opened).toHaveBeenCalledTimes(1)
+    expect(closed).not.toHaveBeenCalled()
     expect(current.container.querySelectorAll('[data-flight-issue]').length).toBeGreaterThan(1)
     expect(renderedOutput(current.container).map(({ class: _class, ...node }) => node)).toEqual(
       before.map(({ class: _class, ...node }) => node),
@@ -361,10 +359,9 @@ describe('rendered mission pane parity', () => {
     )
     if (!child?.parentId) throw new Error('Missing mission child fixture')
     state.selectedIssueId = child.parentId
-    const opened = vi.spyOn(MissionScreen.prototype, 'open')
-    const current = mount('full')
+    const closed = vi.spyOn(MissionScreen.prototype, 'close')
+    const current = mount()
     await settled()
-    expect(opened).toHaveBeenCalledTimes(1)
     const rows = () =>
       [...current.container.querySelectorAll('[data-flight-issue]')].map((node) =>
         node.getAttribute('data-flight-issue'),
@@ -378,31 +375,30 @@ describe('rendered mission pane parity', () => {
     current.rerender(deck())
     await settled()
     // Review finding 2: one opening per mission root, not per selection.
-    expect(opened).toHaveBeenCalledTimes(1)
+    expect(closed).not.toHaveBeenCalled()
     expect(rows()).toEqual(before)
   }, 120_000)
 
-  for (const view of ['full', 'working', 'needs-you', 'waterfall', 'handoff'] as const)
-    it(`preserves visible words, labels, order and layout in ${view}`, async () => {
-      const root = issues.find(
-        (issue) =>
-          !issue.archived &&
-          !issue.deletedAt &&
-          !issue.parentId &&
-          issue.childCount >= 2 &&
-          issue.childCount < 12,
-      )!
-      state.selectedIssueId = root.id
-      resetMissionLegacyCounts(owner)
-      const baseline = missionIndexStats(),
-        ownership = sessionOwnershipStats()
-      const current = mount(view)
-      await settled()
-      expectPoolOutput(renderedOutput(current.container), 'rendered output')
-      expect(missionIndexStats()).toEqual(baseline)
-      expect(sessionOwnershipStats()).toEqual(ownership)
-      expect(missionLegacyCountsFor(owner)).toEqual({})
-    }, 120_000)
+  it('preserves visible words, labels, order and layout', async () => {
+    const root = issues.find(
+      (issue) =>
+        !issue.archived &&
+        !issue.deletedAt &&
+        !issue.parentId &&
+        issue.childCount >= 2 &&
+        issue.childCount < 12,
+    )!
+    state.selectedIssueId = root.id
+    resetMissionLegacyCounts(owner)
+    const baseline = missionIndexStats(),
+      ownership = sessionOwnershipStats()
+    const current = mount()
+    await settled()
+    expectPoolOutput(renderedOutput(current.container), 'rendered output')
+    expect(missionIndexStats()).toEqual(baseline)
+    expect(sessionOwnershipStats()).toEqual(ownership)
+    expect(missionLegacyCountsFor(owner)).toEqual({})
+  }, 120_000)
 
   it('keeps archived-session reveal names/order and opens the same session', async () => {
     const root = issues.find(
@@ -427,7 +423,7 @@ describe('rendered mission pane parity', () => {
         session.agentKind !== 'shell',
     )!.sessionId
     const selector = `[data-flight-session="${archivedId}"] button.deck-agent`
-    const current = mount('full')
+    const current = mount()
     await settled()
     fireEvent.click(screen.getByRole('button', { name: /archived session/i }))
     await settled()
@@ -458,7 +454,7 @@ describe('rendered mission pane parity', () => {
       resetMissionLegacyCounts(owner)
       const baseline = missionIndexStats(),
         ownership = sessionOwnershipStats()
-      const current = mount('full')
+      const current = mount()
       await settled()
       fireEvent.contextMenu(current.container.querySelector(target)!, { clientX: 10, clientY: 20 })
       await settled()
@@ -511,7 +507,7 @@ describe('mission sections read their own fields', () => {
     )
     if (!root) throw new Error('Missing mission fixture')
     state.selectedIssueId = root.id
-    const current = mount('full')
+    const current = mount()
     await settled()
     const drawn = [...current.container.querySelectorAll('[data-flight-issue]')]
       .map((node) => node.getAttribute('data-flight-issue'))
@@ -541,7 +537,7 @@ describe('mission sections read their own fields', () => {
     const authored = { ...root, description: 'Original human description.', acceptance: 'Original acceptance.' }
     state.selectedIssueId = root.id
     pool.apply({ type: 'update', rows: [{ kind: 'issue', id: root.id, value: authored }] })
-    mount('full')
+    mount()
     await settled()
     fireEvent.click(screen.getByRole('button', { name: 'Read more' }))
     const description = screen.getByTestId('full-mission-description')

@@ -188,19 +188,17 @@ for (const { label, scale, cold } of cases) it(`opens corpus missions with the b
       const stopRoot = autorun(() => { resolved = missionRootId(pool, rootId) })
       await settle(pool); stopRoot()
       if (resolved !== rootId) continue
-      for (const view of ['full', 'working', 'needs-you', 'waterfall', 'handoff'] as const) {
-        const mode: FlightDeckMode = view === 'waterfall' || view === 'handoff' ? 'full' : view
-        ui.set(FLIGHT_DECK_MODE_KEY, view === 'full' ? null : view)
+      for (const mode of ['full', 'working', 'needs-you'] as const satisfies readonly FlightDeckMode[]) {
+        ui.set(FLIGHT_DECK_MODE_KEY, mode === 'full' ? null : mode)
         ui.set(FLIGHT_DECK_FOLDS_KEY, null)
-        const screen = new MissionScreen(pool, rootId, { development: true, sessionName: name, setPreference: (key, raw) => ui.set(key, raw) })
-        screen.open()
+        const screen = new MissionScreen(pool, rootId, { sessionName: name, setPreference: (key, raw) => ui.set(key, raw) })
         let current: { next: ReturnType<typeof newDeck> | typeof LOADING } | undefined
         const stop = autorun(() => {
-          current = { next: settled(() => screen.ready && screen.view === view ? newDeck(screen) : LOADING) }
+          current = { next: settled(() => screen.ready && screen.mode === mode ? newDeck(screen) : LOADING) }
         })
         try {
           await settle(pool)
-          same(answers, `${rootId} ${view}`, current)
+          same(answers, `${rootId} ${mode}`, current)
           compared++
           if (screen.archivedCount > 0) archived++
           // Folds: close every branch, open them all, then a mixed map that
@@ -214,12 +212,12 @@ for (const { label, scale, cold } of cases) it(`opens corpus missions with the b
           ]) {
             ui.set(FLIGHT_DECK_FOLDS_KEY, writeFlightDeckFolds(folds))
             await settle(pool)
-            same(answers, `${rootId} ${view} folds ${folds.size}`, current)
+            same(answers, `${rootId} ${mode} folds ${folds.size}`, current)
             if (folds.size) folded++
           }
           screen.foldAll()
           await settle(pool)
-          same(answers, `${rootId} ${view} fold all`, current)
+          same(answers, `${rootId} ${mode} fold all`, current)
           // Search by a title fragment, a crew name, a reference and a miss.
           const sample = screen.rows.at(-1)
           const crew = screen.crewIds.at(-1)
@@ -227,7 +225,7 @@ for (const { label, scale, cold } of cases) it(`opens corpus missions with the b
           for (const query of [sample?.title.slice(1, 5) ?? '', crewName.slice(0, 4), sample?.displayRef ?? '', ' zz-no-match ']) {
             screen.setQuery(query)
             await settle(pool)
-            same(answers, `${rootId} ${view} search ${JSON.stringify(query)}`, current)
+            same(answers, `${rootId} ${mode} search ${JSON.stringify(query)}`, current)
             if (query.trim()) searched++
           }
         } finally { stop(); screen.close() }
@@ -303,7 +301,6 @@ it('opens phone missions with the phone bundle\'s answers: crew, header issue, p
         await settle(pool); stopRoot()
         let current: { next: unknown } | undefined
         const screen = typeof rootId === 'string' ? new MissionScreen(pool, rootId, { setPreference: (key, raw) => ui.set(key, raw) }) : undefined
-        screen?.open()
         const stop = autorun(() => {
           const next = settled(() => !screen ? { root: undefined, crew: [], header: [], progress: { total: 0, done: 0, run: 0, review: 0, stall: 0, block: 0, wait: 0 }, deck: null }
             : !screen.ready ? LOADING : {
