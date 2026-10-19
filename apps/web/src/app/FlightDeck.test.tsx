@@ -320,7 +320,7 @@ it('keeps explicit Full expansion reachable without forcing compact or hiding co
   expect(screen.queryByRole('group', { name: 'Deck view' })).toBeNull()
 })
 
-describe('mission header picks (POD-1639)', () => {
+describe('task detail picks (POD-1639)', () => {
   const title = (): HTMLElement => screen.getByTitle(/^Focus POD-/)
   /** Every `podium:open-right-panel` detail the deck asked for, in order. */
   const panelRequests = (): string[] => {
@@ -351,6 +351,18 @@ describe('mission header picks (POD-1639)', () => {
     fireEvent.click(title())
     await settle()
     expect(details).toEqual(['issue', 'issue'])
+  })
+
+  it('opens an empty leaf in the task dock while keeping the current conversation', async () => {
+    harness.paneA = 's1'
+    const details = panelRequests()
+    await deck()
+    const leaf = document.querySelector('[data-flight-issue="t4"]')!
+    fireEvent.click(leaf.querySelector('.flight-v6-title')!)
+    await settle()
+    expect(details).toEqual(['issue'])
+    expect(harness.openSessionTab).not.toHaveBeenCalled()
+    expect(readFolds(harness.ui.get('podium.flightDeck.folds') ?? null).has('t4')).toBe(false)
   })
 })
 

@@ -1606,6 +1606,7 @@ export const FlightDeckContent = observer(function FlightDeckContent({
   const fullActions: FlightDeckV6Actions = {
     activeSessionId,
     renameTarget,
+    onOpenTask: (task) => selectIssue(task.row, false),
     onSelectSession: (task, session, permanent) => selectSession(asIssueId(task.id), session, { permanent }),
     onMenu: (task, event) => openIssueMenu(asIssueId(task.id), event),
     onStatusPick: (task, value) => pickRowStatus(task.id, value),

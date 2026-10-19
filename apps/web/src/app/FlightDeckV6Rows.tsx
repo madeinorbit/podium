@@ -50,6 +50,8 @@ export const V6_DEPTH_STEP = 22
 
 export type FlightDeckV6Actions = {
   activeSessionId: string | null
+  /** Open details for a task with no subtasks or crew. */
+  onOpenTask: (task: FullDeckTask) => void
   onSelectSession: (task: FullDeckTask, session: SessionView, permanent: boolean) => void
   onMenu: (task: FullDeckTask, event: MouseEvent) => void
   onStatusPick: (task: FullDeckTask, value: string) => void
@@ -226,14 +228,16 @@ export const FlightDeckV6Task = observer(function FlightDeckV6Task({
         style={{ '--v6-indent': `${task.depth * V6_DEPTH_STEP}px` } as CSSProperties}
       >
         {shown ? (
-          // biome-ignore lint/a11y/useKeyWithClickEvents lint/a11y/noStaticElementInteractions: keyboard users fold with the TaskFold button, which the strip click only duplicates for the pointer; the context menu covers the strip and its buttons provide keyboard actions
+          // biome-ignore lint/a11y/useKeyWithClickEvents lint/a11y/noStaticElementInteractions: TaskBody provides the same activation for keyboard users; the context menu covers the strip and its buttons provide keyboard actions
           <div
             className="flight-v6-strip deck-strip"
             data-flight-task-row={task.id}
             data-visual-depth={visualDepth}
             data-edge-gutter="28"
             onClick={(event) => {
-              if (event.target === event.currentTarget) task.deck.toggleFold(task.id)
+              if (event.target !== event.currentTarget) return
+              if (task.foldable) task.deck.toggleFold(task.id)
+              else actions.onOpenTask(task)
             }}
             onContextMenu={(event) => actions.onMenu(task, event)}
             ref={window?.enabled ? window.measure(stripKey) : undefined}
@@ -257,7 +261,7 @@ export const FlightDeckV6Task = observer(function FlightDeckV6Task({
                 onCancel={actions.onRenameDone}
               />
             ) : (
-              <TaskBody task={task} contentId={controlledIds}>
+              <TaskBody task={task} contentId={controlledIds} onOpenTask={actions.onOpenTask}>
                 <span className="flight-v6-ref">{task.row.displayRef}</span>
                 <FlightDeckV6TaskTitle task={task} />
                 <TaskCounter task={task} />
@@ -314,6 +318,7 @@ const TaskFold = observer(function TaskFold({
   task: FullDeckTask
   contentId: string
 }) {
+  if (!task.foldable) return <span className="flight-v6-fold" aria-hidden="true" />
   return (
     <button
       type="button"
@@ -324,25 +329,19 @@ const TaskFold = observer(function TaskFold({
       aria-controls={contentId}
       onClick={() => task.deck.toggleFold(task.id)}
     >
-      {task.foldable ? (
-        task.open ? (
-          <ChevronDown size={12} />
-        ) : (
-          <ChevronRight size={12} />
-        )
-      ) : (
-        <span />
-      )}
+      {task.open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
     </button>
   )
 })
 const TaskBody = observer(function TaskBody({
   task,
   contentId,
+  onOpenTask,
   children,
 }: {
   task: FullDeckTask
   contentId: string
+  onOpenTask: FlightDeckV6Actions['onOpenTask']
   children: ReactNode
 }) {
   return (
@@ -350,10 +349,13 @@ const TaskBody = observer(function TaskBody({
       type="button"
       className="flight-v6-task-body deck-task-content"
       data-pressable
-      aria-label={`${task.open ? 'Collapse' : 'Expand'} ${task.row.displayRef} ${task.row.title}`}
-      aria-expanded={task.open}
-      aria-controls={contentId}
-      onClick={() => task.deck.toggleFold(task.id)}
+      aria-label={`${task.foldable ? (task.open ? 'Collapse' : 'Expand') : 'Open'} ${task.row.displayRef} ${task.row.title}`}
+      aria-expanded={task.foldable ? task.open : undefined}
+      aria-controls={task.foldable ? contentId : undefined}
+      onClick={() => {
+        if (task.foldable) task.deck.toggleFold(task.id)
+        else onOpenTask(task)
+      }}
     >
       {children}
     </button>

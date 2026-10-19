@@ -115,6 +115,7 @@ async function open(issues = mixed(), sessions: Row[] = []) {
   const actions = {
     activeSessionId: null,
     renameTarget: null,
+    onOpenTask: vi.fn(),
     onSelectSession: vi.fn(),
     onMenu: vi.fn(),
     onStatusPick: vi.fn(),
@@ -238,6 +239,36 @@ it('collapses a phase by pointer, Enter and Space without selecting a session or
   expect(f.actions.onSelectSession).not.toHaveBeenCalled()
   expect(f.actions.onStatusPick).not.toHaveBeenCalled()
   capture('Build collapsed · counts retained', f.ui.container)
+})
+
+it('folds a task branch from its row and chevron while preserving nested folds', async () => {
+  const f = await open([
+    issue('root', null, 'a'),
+    issue('parent', 'root', 'a'),
+    issue('child', 'parent', 'a'),
+    issue('grandchild', 'child', 'a'),
+    issue('sibling', 'root', 'b'),
+  ])
+  const body = () => f.task('parent')!.querySelector<HTMLButtonElement>('.flight-v6-task-body')!
+  const chevron = (id: string) => f.task(id)!.querySelector<HTMLButtonElement>('.flight-v6-fold')!
+  const keyboard = userEvent.setup()
+  await act(async () => fireEvent.click(chevron('child')))
+  expect(f.task('grandchild')).toBeNull()
+  await act(async () => fireEvent.click(body()))
+  expect(f.task('child')).toBeNull()
+  expect(f.task('sibling')).not.toBeNull()
+  expect(f.screen.folds.get('parent')).toBe('closed')
+  body().focus()
+  await keyboard.keyboard('{Enter}')
+  expect(f.task('child')).not.toBeNull()
+  expect(f.task('grandchild')).toBeNull()
+  await keyboard.keyboard(' ')
+  expect(f.task('child')).toBeNull()
+  await act(async () => fireEvent.click(chevron('parent')))
+  expect(f.task('child')).not.toBeNull()
+  expect(f.screen.folds.get('child')).toBe('closed')
+  expect(f.actions.onOpenTask).not.toHaveBeenCalled()
+  expect(f.actions.onSelectSession).not.toHaveBeenCalled()
 })
 
 it('preserves nested phases under both tasks and phases, with phase-local elbows and no lost work', async () => {
@@ -519,8 +550,8 @@ it('keeps the coordinator above and helpers atop the groups through filters, sea
     </>,
   )
   const ids = (testId: string) =>
-    [...f.ui.getByTestId(testId).querySelectorAll('[data-flight-session]')].map(
-      (node) => node.getAttribute('data-flight-session'),
+    [...f.ui.getByTestId(testId).querySelectorAll('[data-flight-session]')].map((node) =>
+      node.getAttribute('data-flight-session'),
     )
   const seats = () => ({
     coordinator: ids('flight-full-coordinator'),
@@ -554,6 +585,7 @@ it('uses the existing loading placeholder until the coordinator roster settles',
       full: screen.full,
       activeSessionId: 'cold-agent-0',
       renameTarget: null,
+      onOpenTask: vi.fn(),
       onSelectSession: vi.fn(),
       onMenu: vi.fn(),
       onStatusPick: vi.fn(),

@@ -135,6 +135,7 @@ async function open(prefs = storage(), ready = true) {
   const actions = {
     activeSessionId: null,
     renameTarget: null,
+    onOpenTask: vi.fn(),
     onSelectSession: vi.fn(),
     onMenu: vi.fn(),
     onStatusPick: vi.fn(),
@@ -354,11 +355,12 @@ it('searches matching paths while respecting explicit folds, with clear and Esca
 
 it('keeps explicit task and phase choices across remount, state changes and a second session', async () => {
   const f = await open()
-  // Error and Needs you open by default; ordinary tasks with crew start closed.
-  for (const id of ['parent', 'error', 'ask'])
+  // Attention opens available payload; ordinary tasks with crew start closed.
+  for (const id of ['parent', 'error'])
     expect(f.fold(id).getAttribute('aria-expanded')).toBe('true')
-  for (const id of ['working', 'idle', 'blocked'])
+  for (const id of ['working', 'idle'])
     expect(f.fold(id).getAttribute('aria-expanded')).toBe('false')
+  for (const id of ['ask', 'blocked']) expect(f.fold(id).hasAttribute('aria-expanded')).toBe(false)
   await f.click('Collapse error')
   await f.click('Expand working')
   act(() =>

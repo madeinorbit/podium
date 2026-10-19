@@ -122,6 +122,7 @@ async function open(
   const actions = {
     activeSessionId: null as string | null,
     renameTarget: null,
+    onOpenTask: vi.fn(),
     onSelectSession: vi.fn(),
     onMenu: vi.fn(),
     onStatusPick: vi.fn(),
@@ -166,6 +167,24 @@ it('strip pointer and keyboard fold only; session pointer and keyboard open the 
   await keyboard.keyboard(' ')
   expect(f.agent()).toBeNull()
   expect(f.actions.onSelectSession).toHaveBeenCalledTimes(3)
+})
+
+it('opens an empty leaf by pointer, Enter and Space without writing a fold or selecting a session', async () => {
+  const f = await open(undefined, [])
+  const body = f.ui.getByRole('button', { name: 'Open POD-2 Task task' })
+  expect(body.hasAttribute('aria-expanded')).toBe(false)
+  expect(body.hasAttribute('aria-controls')).toBe(false)
+  expect(f.task().querySelector('button.flight-v6-fold')).toBeNull()
+  const keyboard = userEvent.setup()
+  fireEvent.click(body)
+  body.focus()
+  await keyboard.keyboard('{Enter}')
+  await keyboard.keyboard(' ')
+  fireEvent.click(f.task().querySelector('.flight-v6-strip')!)
+  expect(f.actions.onOpenTask).toHaveBeenCalledTimes(4)
+  expect(f.actions.onOpenTask).toHaveBeenLastCalledWith(f.full.task('task'))
+  expect(f.actions.onSelectSession).not.toHaveBeenCalled()
+  expect(f.screen.folds.has('task')).toBe(false)
 })
 
 it('session selection tints only its own row and leaves the task surface unchanged', async () => {
@@ -426,7 +445,7 @@ it.each([
 
 // Optional review capture uses this test's real rendered markup and the scoped
 // source CSS. It is static evidence, not a second implementation of the UI.
-it('opens Error and Needs you by default and leaves working and blocked leaves folded', async () => {
+it('opens Error and Needs you by default and keeps empty leaves free of fold controls', async () => {
   vi.useFakeTimers({ shouldAdvanceTime: true })
   vi.setSystemTime(NOW)
   const f = await open(
@@ -458,7 +477,8 @@ it('opens Error and Needs you by default and leaves working and blocked leaves f
   )
   expect(f.fold('error').getAttribute('aria-expanded')).toBe('true')
   expect(f.fold('ask').getAttribute('aria-expanded')).toBe('true')
-  expect(f.fold('blocked').getAttribute('aria-expanded')).toBe('false')
+  expect(f.fold('blocked').hasAttribute('aria-expanded')).toBe(false)
+  expect(f.fold('blocked').getAttribute('aria-label')).toBe('Open POD-5 Run acceptance checks')
   expect(f.task('blocked').querySelector('.flight-v6-dependency')?.textContent).toContain('POD-2')
   const capture = process.env['PODIUM_V6_REVIEW_HTML']
   if (capture) {

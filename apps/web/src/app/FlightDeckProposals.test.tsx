@@ -144,6 +144,7 @@ async function open(extra: Row[] = [], proposalPatch: Row = {}) {
         scrollRef={createRef()}
         activeSessionId={null}
         renameTarget={null}
+        onOpenTask={vi.fn()}
         onSelectSession={vi.fn()}
         onMenu={vi.fn()}
         onStatusPick={vi.fn()}

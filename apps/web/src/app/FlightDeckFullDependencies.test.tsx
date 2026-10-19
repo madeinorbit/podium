@@ -166,6 +166,7 @@ async function open(rows = fixture(), sessions: Row[] = []) {
   const actions = {
     activeSessionId: 'selected-session',
     renameTarget: null,
+    onOpenTask: vi.fn(),
     onSelectSession: vi.fn(),
     onMenu: vi.fn(),
     onStatusPick: vi.fn(),
