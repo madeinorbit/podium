@@ -5,6 +5,7 @@ import {
   type SessionMetaInput,
   type TranscriptItem,
 } from '@podium/model'
+import { fireEvent } from '@testing-library/react'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -50,7 +51,7 @@ const fakeTrpc = {
         })
       },
     },
-    sendText: { mutate: vi.fn(async () => {}) },
+    sendText: { mutate: vi.fn(async (_input: unknown) => ({ ok: true })) },
     answerAskUserQuestion: { mutate: answerMutate },
     uploadImage: { mutate: vi.fn(async () => ({ path: '/x' })) },
   },
@@ -180,7 +181,7 @@ async function flush(): Promise<void> {
   await act(async () => {
     await Promise.resolve()
     await Promise.resolve()
-    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
   })
 }
 
@@ -258,5 +259,110 @@ describe('a pending question the transcript does not carry', () => {
       [],
     )
     expect(optionButtons()).toHaveLength(0)
+  })
+})
+
+describe('Codex async interviews in chat', () => {
+  const question = () =>
+    askItem({ id: 'async-question', toolName: 'request_user_input_async', toolUseId: 'call_async' })
+  const ack: TranscriptItem = {
+    id: 'ack',
+    role: 'tool',
+    text: '',
+    toolUseId: 'call_async',
+    toolResult: '{"accepted":true}',
+  }
+
+  it('reuses the card after acknowledgement and replies through chat instead of the native menu', async () => {
+    await show(meta({ agentKind: 'codex' }), [question(), ack])
+    expect(container.querySelector('[data-testid="ask-live"]')).not.toBeNull()
+    expect(container.querySelector('[data-testid="ask-skip"]')).toBeNull()
+    await act(async () => optionButtons()[1]?.click())
+    await flush()
+    expect(answerMutate).not.toHaveBeenCalled()
+    expect(fakeTrpc.sessions.sendText.mutate).toHaveBeenCalledTimes(1)
+    const sent = fakeTrpc.sessions.sendText.mutate.mock.calls[0]?.[0] as unknown as { text: string }
+    expect(sent).toMatchObject({ sessionId: 's1' })
+    expect(JSON.parse(sent.text.split('\n')[1] ?? '')).toEqual([
+      {
+        answer: 'The card header',
+        question: INTERVIEW.questions[0]?.question,
+        questionItemId: '["request_user_input_async","call_async",0]',
+      },
+    ])
+  })
+
+  it('draws native JSON replies as readable answers and closes the card', async () => {
+    const reply = JSON.stringify([
+      {
+        answer: 'main, using an isolated branch',
+        question: INTERVIEW.questions[0]?.question,
+        questionItemId: '["request_user_input_async","call_async",0]',
+      },
+    ])
+    await show(meta({ agentKind: 'codex' }), [
+      question(),
+      ack,
+      { id: 'answer-result', role: 'tool', text: '', toolUseId: 'call_async', toolResult: reply },
+      { id: 'user-answer', role: 'user', text: reply },
+    ])
+    expect(container.querySelector('[data-testid="ask-live"]')).toBeNull()
+    expect(container.querySelector('[data-testid="ask-receipt"]')?.textContent).toContain(
+      'main, using an isolated branch',
+    )
+    expect(container.textContent).not.toContain('questionItemId')
+    expect(container.textContent).not.toContain('accepted')
+  })
+
+  it('sends multi-question interviews with a free-text-only question in one reply', async () => {
+    await show(meta({ agentKind: 'codex' }), [
+      {
+        ...question(),
+        toolInputJson: JSON.stringify({
+          questions: [
+            { question: 'Where?', options: [{ label: 'main' }, { label: 'A branch' }] },
+            { question: 'Any constraints?', options: [] },
+          ],
+        }),
+      },
+      ack,
+    ])
+    await act(async () => optionButtons()[0]?.click())
+    expect(fakeTrpc.sessions.sendText.mutate).not.toHaveBeenCalled()
+    const input = container.querySelector<HTMLInputElement>('[data-testid="ask-free-text"]')
+    expect(input).not.toBeNull()
+    await act(async () =>
+      fireEvent.change(input as HTMLInputElement, {
+        target: { value: 'Keep the backend unchanged.' },
+      }),
+    )
+    const send = [...container.querySelectorAll('button')].find(
+      (button) => button.textContent === 'Send answers',
+    )
+    await act(async () => send?.click())
+    const sent = fakeTrpc.sessions.sendText.mutate.mock.calls[0]?.[0] as { text: string }
+    expect(JSON.parse(sent.text.split('\n')[1] ?? '')).toEqual([
+      {
+        answer: 'main',
+        question: 'Where?',
+        questionItemId: '["request_user_input_async","call_async",0]',
+      },
+      {
+        answer: 'Keep the backend unchanged.',
+        question: 'Any constraints?',
+        questionItemId: '["request_user_input_async","call_async",1]',
+      },
+    ])
+    expect(answerMutate).not.toHaveBeenCalled()
+  })
+
+  it('keeps the question editable when chat delivery is refused', async () => {
+    fakeTrpc.sessions.sendText.mutate.mockResolvedValueOnce({ ok: false })
+    await show(meta({ agentKind: 'codex' }), [question(), ack])
+    await act(async () => optionButtons()[0]?.click())
+    expect(optionButtons().every((button) => !button.disabled)).toBe(true)
+    await act(async () => optionButtons()[1]?.click())
+    expect(fakeTrpc.sessions.sendText.mutate).toHaveBeenCalledTimes(2)
+    expect(answerMutate).not.toHaveBeenCalled()
   })
 })

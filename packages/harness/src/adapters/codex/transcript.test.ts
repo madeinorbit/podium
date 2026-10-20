@@ -204,6 +204,86 @@ describe('codexRecordToItems', () => {
     })
   })
 
+  it('carries async titles, string options, and free-text questions to the shared card', () => {
+    const [item] = codexRecordToItems(
+      env('response_item', {
+        type: 'function_call',
+        name: 'request_user_input_async',
+        call_id: 'call_async',
+        arguments: JSON.stringify({
+          questions: [
+            {
+              title: 'Where should these fixes land?',
+              options: ['main (Recommended)', 'A branch'],
+            },
+            { title: 'Any constraints?' },
+          ],
+        }),
+      }),
+    )
+
+    expect(item).toMatchObject({ toolName: 'request_user_input_async',
+      toolUseId: 'call_async', toolInput: 'Where should these fixes land?',
+      })
+    expect(JSON.parse(item?.toolInputJson ?? '')).toEqual({
+      questions: [
+        {
+          question: 'Where should these fixes land?',
+          options: [{ label: 'main (Recommended)' }, { label: 'A branch' }],
+        },
+        { question: 'Any constraints?', options: [] },
+      ],
+    })
+  })
+
+  it.each([
+    false,
+    true,
+  ])('pairs async replies while retaining the exact user receipt text, wrapped=%s', (wrapped) => {
+    const replies = [
+      {
+        answer: 'main, using an isolated branch',
+        question: 'Where?',
+        questionItemId: '["request_user_input_async","call_async",0]',
+      },
+      {
+        answer: 'No backend changes',
+        question: 'Constraints?',
+        questionItemId: '["request_user_input_async","call_async",1]',
+      },
+    ]
+    const json = JSON.stringify(replies)
+    const text = wrapped
+      ? `<send_user_message_question_reply>\n${json}\n</send_user_message_question_reply>`
+      : json
+    const items = codexRecordToItems(
+      env('event_msg', {
+        type: 'item_completed',
+        turn_id: 'turn_reply',
+        item: { type: 'UserMessage', id: 'user_reply', content: [{ type: 'text', text }] },
+      }),
+    )
+    expect(items).toHaveLength(2)
+    expect(items[0]).toMatchObject({ role: 'tool', toolUseId: 'call_async' })
+    expect(
+      JSON.parse(items[0]?.toolResult ?? '').map((reply: { answer: string }) => reply.answer),
+    ).toEqual(replies.map((reply) => reply.answer))
+    expect(items[1]).toMatchObject({
+      id: 'user_reply',
+      role: 'user',
+      text,
+      promptEntry: true,
+      harnessRef: [{ kind: 'codex-turn', id: 'turn_reply' }],
+    })
+  })
+
+  it('does not interpret ordinary JSON messages as interview answers', () => {
+    const text = '[{"question":"Where?","answer":"main","questionItemId":"not a call id"}]'
+    expect(
+      codexRecordToItems(env('event_msg', { type: 'user_message', message: text })),
+    ).toMatchObject([{ role: 'user', text }])
+  })
+
   it('unwraps unified exec calls into the command the reader cares about', () => {
     const items = codexRecordToItems(
       env('response_item', {

@@ -1,5 +1,6 @@
 import {
   formatChurn,
+  isInterviewQuestion,
   isImagePath,
   isInteractiveTool,
   MACHINE_CONTEXT_RE,
@@ -7,6 +8,7 @@ import {
   parseEnvelopeBatch,
   type TranscriptAttribution,
 } from '@podium/client-core/values'
+import { codexQuestionReplyText } from '@podium/harness/browser'
 import { machinePathBasename, resolveMachinePath } from '@podium/model'
 import type { SessionId } from '@podium/model/browser'
 import { Clock, FileText, Image as ImageIcon, MessageCircleQuestion } from 'lucide-react'
@@ -320,7 +322,11 @@ export const ChatBlockView = memo(function ChatBlockView({
       ? { body: lines.slice(0, -1).join('\n'), next: last.replace(/^->\s*/, '→ ') }
       : null
   }, [compact, item.role, item.answer, item.text])
-  const displayText = envelopeBatch?.operatorText || nextSplit?.body || item.text
+  const displayText =
+    envelopeBatch?.operatorText ||
+    nextSplit?.body ||
+    (item.role === 'user' ? codexQuestionReplyText(item.text) : undefined) ||
+    item.text
   const refPrefixesVersion = useKnownRefPrefixesVersion()
   // biome-ignore lint/correctness/useExhaustiveDependencies: refPrefixesVersion is a deliberate recompute trigger — linkifyRefs reads the prefix registry.
   const html = useMemo(() => {
@@ -368,10 +374,10 @@ export const ChatBlockView = memo(function ChatBlockView({
   if (collapseContext && item.role === 'user' && MACHINE_CONTEXT_RE.test(item.text))
     return <MachineContextRow item={item} cls={rowClass} index={index} />
 
-  if (item.role === 'tool' && item.toolName === 'AskUserQuestion' && item.toolInputJson)
+  if (isInterviewQuestion(item))
     return (
       <AskUserQuestionCard
-        key={askLivePending ? answerInteractionId : item.id}
+        key={askLivePending ? `${item.id}:${answerInteractionId ?? ''}` : item.id}
         interactionId={askLivePending ? answerInteractionId : undefined}
         block={block}
         cls={rowClass}

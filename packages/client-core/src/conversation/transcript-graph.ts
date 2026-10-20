@@ -2,7 +2,7 @@ import type { TranscriptItem } from '@podium/model'
 import { action, compareShallow, observable, type IObservableArray } from 'mobx'
 import { companion, lazy } from '@podium/mobx-helpers'
 import { LatestTranscriptId } from '../transcript/merge'
-import { isAskUserQuestion } from '../values/ask-question'
+import { isPendingAskQuestion } from '../values/ask-question'
 import {
   isBatchableTool, isUserMediaMarker, pairToolResults,
   type ChatBlock, type ChatRow,
@@ -665,7 +665,7 @@ export class TranscriptGraph {
     this.answers.set(id, block.item.role === 'assistant' && block.item.answer === true)
     this.assistants.set(id, block.item.role === 'assistant')
     this.prose.set(id, block.item.role === 'assistant' && block.item.text.trim() !== '')
-    this.questions.set(id, isAskUserQuestion(block.item) && !block.item.toolResult && block.result === undefined)
+    this.questions.set(id, isPendingAskQuestion(block))
     this.indexOperators(id, block.item)
     this.indexAlias(id, block.item.cursor ?? id)
     const run = this.rowByBlock.get(id)

@@ -12,6 +12,11 @@ import {
 } from '../claude-code/transcript.js'
 import { contentToText, isRecord, stringField } from '../shared/json-util.js'
 import { safeToolEditJsonFromInput } from '../shared/tool-edit.js'
+import {
+  CODEX_ASYNC_QUESTION_TOOL,
+  codexAsyncQuestionInput,
+  parseCodexQuestionReplies,
+} from './interview.js'
 import { findCodexRolloutPath } from './state-provider.js'
 
 /**
@@ -72,6 +77,11 @@ export function codexRecordToItems(record: unknown): TranscriptItem[] {
           : ''
     return text
       ? [
+          ...questionReplyResults(
+            text,
+            stringField(currentUserMessage ?? {}, 'id') ?? SYNTHESIZED_ITEM_ID_PREFIX,
+            ts,
+          ),
           {
             id:
               stringField(currentUserMessage ?? {}, 'id') ??
@@ -220,6 +230,15 @@ function codexToolDisplay(wireName: string, rawInput: unknown): CodexToolDisplay
     return {
       toolName: 'AskUserQuestion',
       toolInput: askQuestionPreview(input),
+      ...(toolInputJson ? { toolInputJson } : {}),
+    }
+  }
+  if (wireName === CODEX_ASYNC_QUESTION_TOOL) {
+    const questions = codexAsyncQuestionInput(input)
+    const toolInputJson = safeAskQuestionInputJson(questions)
+    return {
+      toolName: wireName,
+      toolInput: askQuestionPreview(questions),
       ...(toolInputJson ? { toolInputJson } : {}),
     }
   }
@@ -474,6 +493,31 @@ function parseJsonExpression(expression: string): unknown {
   } catch {
     return undefined
   }
+}
+
+/** The async tool result only acknowledges registration. A later user message
+ * carries the answer; pair that onto its call while retaining the exact prompt. */
+function questionReplyResults(
+  text: string,
+  userId: string,
+  ts: string | undefined,
+): TranscriptItem[] {
+  const replies = parseCodexQuestionReplies(text)
+  if (!replies) return []
+  const calls = new Map<string, typeof replies>()
+  for (const reply of replies) {
+    const group = calls.get(reply.callId) ?? []
+    group.push(reply)
+    calls.set(reply.callId, group)
+  }
+  return [...calls].map(([callId, answers]) => ({
+    id: `${userId}:question-reply:${callId}`,
+    role: 'tool',
+    text: '',
+    toolUseId: callId,
+    toolResult: JSON.stringify(answers),
+    ...(ts ? { ts } : {}),
+  }))
 }
 
 function toolResultItem(payload: Record<string, unknown>, ts: string | undefined): TranscriptItem {

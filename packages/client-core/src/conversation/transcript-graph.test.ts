@@ -58,6 +58,23 @@ it('pairs reused tool IDs, last results and effects across the loaded page seam'
   f.append(prose('separator'), call('interactive', 'ask', 'AskUserQuestion'))
 })
 
+it('keeps a Codex async acknowledgement pending until its correlated human reply, including page seams', () => {
+  const question = {
+    ...call('question', 'async', 'request_user_input_async'),
+    toolInputJson: JSON.stringify({
+      questions: [{ question: 'Where?', options: [{ label: 'main' }] }],
+    }),
+  }
+  const ack = result('ack', 'async', '{"accepted":true}')
+  const f = fixture([ack])
+  f.prepend(question)
+  expect(f.graph.pendingQuestionId).toBe('question')
+  f.append(result('reply', 'async', '[{"answer":"main"}]'), user('human', 'main'))
+  expect(f.graph.pendingQuestionId).toBeUndefined()
+  expect(f.graph.block('question')?.result).toBe('[{"answer":"main"}]')
+  f.graph.dispose()
+})
+
 it('folds image/file markers through paired results and repairs the older-page seam', () => {
   const f = fixture([media('image'), media('file', 'file'), prose('after')])
   f.prepend(user('prompt'))

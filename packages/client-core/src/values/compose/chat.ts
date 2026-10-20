@@ -1,5 +1,6 @@
 import type { SessionView } from '../../session-values'
 import { sessionById } from '../../session-index'
+import { isPendingAskQuestion } from '../ask-question'
 /**
  * THE CHAT SLICE (POD-405, completing POD-330's per-feature split).
  *
@@ -452,10 +453,7 @@ export function livePendingAskIndex(
   if (status !== 'live' && status !== 'starting') return -1
   let last = -1
   blocks.forEach((b, i) => {
-    const isAsk =
-      b.item.role === 'tool' && b.item.toolName === 'AskUserQuestion' && b.item.toolInputJson
-    const answered = (b.result ?? b.item.toolResult) !== undefined
-    if (isAsk && !answered) last = i
+    if (isPendingAskQuestion(b)) last = i
   })
   return last
 }

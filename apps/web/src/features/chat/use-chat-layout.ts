@@ -1,5 +1,5 @@
 import type { SessionView } from '@podium/client-core/session-values'
-import { matchesQuestionInteraction, type SuperThreadRef } from '@podium/client-core/values'
+import { isCodexAsyncQuestion, isPendingAskQuestion, matchesQuestionInteraction, type SuperThreadRef } from '@podium/client-core/values'
 import { isMachineOfflineForLiveTerminal, type SessionId } from '@podium/model/browser'
 import type { RefObject } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -136,6 +136,20 @@ export function useChatLayout(opts: UseChatLayoutOptions): ChatSurface {
     retryPending: sends.retry.bind(sends), discardPending: sends.discard.bind(sends), sendAgain: sends.sendAgain.bind(sends),
   }), [sends])
   const answerAsk = useCallback(async (answer: import('./AskUserQuestionCard').AskUserQuestionAnswer) => {
+    if ('reply' in answer) {
+      const block = presentation.block(answer.reply.itemId)
+      if (
+        !block ||
+        !isCodexAsyncQuestion(block.item) ||
+        !isPendingAskQuestion(block) ||
+        block.item.toolInputJson !== answer.reply.question ||
+        !view.composer.sendable
+      )
+        throw new Error('The question changed; wait for the current question.')
+      const sent = await trpc.sessions.sendText.mutate({ sessionId, text: answer.reply.text })
+      if (sent?.ok === false) throw new Error(sent.reason ?? 'answer not delivered')
+      return
+    }
     const question = view.question
     if (question && (answer.interactionId !== question.id || !answer.question || !matchesQuestionInteraction(question, answer.question)))
       throw new Error('The question changed; wait for the current menu.')
@@ -143,7 +157,7 @@ export function useChatLayout(opts: UseChatLayoutOptions): ChatSurface {
       ? { sessionId, interactionId: answer.interactionId, skip: true }
       : { sessionId, interactionId: answer.interactionId, choices: answer.choices }) as { ok?: boolean; reason?: string } | undefined
     if (sent?.ok === false) throw new Error(sent.reason ?? 'answer not delivered')
-  }, [view, trpc, sessionId])
+  }, [view, presentation, trpc, sessionId])
   const activeRow = presentation.search.activeRow
   useEffect(() => {
     if (activeRow === undefined) return
