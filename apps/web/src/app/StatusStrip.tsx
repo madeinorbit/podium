@@ -107,6 +107,7 @@ const SelectedHeaderIssue = observer(function SelectedHeaderIssue() {
             seq: issue.seq,
             title: issue.title,
             stage: issue.stage as IssueStage,
+            closedReason: issue.closedReason,
             displayRef: issue.displayRef,
             archived: issue.archived,
             deletedAt: issue.deletedAt ?? undefined,

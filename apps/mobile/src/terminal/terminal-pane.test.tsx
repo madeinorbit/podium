@@ -68,7 +68,7 @@ type RefLinks = {
   endPaint(): void
   isKnownPrefix: (prefix: string) => boolean
   onActivate: (ref: string) => void
-  resolveStage: (ref: string) => string | null
+  resolveStatus: (ref: string) => string | null
 }
 
 // Module-level so a case can assert on the mount's OWN imperative surface: the
@@ -416,7 +416,7 @@ describe('TerminalPane ref underlines (POD-724)', () => {
     expect(refLinks().isKnownPrefix('POD')).toBe(true)
     // The defect this guards: `UTF-8` is a real hyphen, not a task.
     expect(refLinks().isKnownPrefix('UTF')).toBe(false)
-    expect(refLinks().resolveStage('POD-7')).toBe('in_progress')
+    expect(refLinks().resolveStatus('POD-7')).toBe('in_progress')
     refLinks().endPaint()
 
     refLinks().onActivate('POD-7')
@@ -435,6 +435,15 @@ describe('TerminalPane ref underlines (POD-724)', () => {
       await Promise.resolve()
     })
     expect(setRefLinksMock).toHaveBeenCalled()
-    expect(refLinks().resolveStage('POD-7')).toBe('review')
+    expect(refLinks().resolveStatus('POD-7')).toBe('review')
+    for (const closedReason of ['done', 'cancelled', 'duplicate', 'superseded']) {
+      setRefLinksMock.mockClear()
+      await act(async () => {
+        seedIssueFixtures(replica, [issueRow({ id: 'iss-7', seq: 7, stage: 'done', closedReason })], asUserId('user:test'))
+        await Promise.resolve()
+      })
+      expect(setRefLinksMock).toHaveBeenCalled()
+      expect(refLinks().resolveStatus('POD-7')).toBe(closedReason)
+    }
   })
 })

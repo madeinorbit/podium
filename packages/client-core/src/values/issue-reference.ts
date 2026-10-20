@@ -1,4 +1,13 @@
-import { ISSUE_STATUS_LABELS, type IssueId, type IssueStage } from '@podium/model'
+import {
+  canonicalIssueCloseReason,
+  ISSUE_STATUS_LABELS,
+  type IssueId,
+  type IssueStage,
+  type IssueStatus,
+  type IssueStatusFields,
+  issueStatusLabel,
+  issueStatusOf,
+} from '@podium/model'
 import { issueDisplayRef, parseAnyRef } from '@podium/protocol'
 import type { IssueViewModel } from '../values/issue-type'
 
@@ -21,7 +30,8 @@ export const ISSUE_STAGE_LABELS: Readonly<Record<IssueStage, string>> = {
 
 /** The issue fields a compact reference is allowed to read. */
 export type IssueReferenceSource = Pick<IssueViewModel, 'id' | 'seq' | 'title' | 'stage'> &
-  Partial<Pick<IssueViewModel, 'prefix' | 'displayRef' | 'archived' | 'deletedAt'>>
+  Partial<Pick<IssueViewModel, 'prefix' | 'displayRef' | 'archived' | 'deletedAt'>> &
+  Pick<IssueStatusFields, 'closedReason'>
 
 export type IssueReferenceAvailability = 'present' | 'archived' | 'deleted' | 'unavailable'
 
@@ -30,9 +40,18 @@ export interface IssueReferenceModel {
   ref: string
   issueId: IssueId | null
   title: string | null
+  /** Stored board lane, retained for callers that need the workflow stage. */
   stage: IssueStage | null
+  /** Display status, including the closing reason; null when unknown. */
+  status: IssueStatus | null
   availability: IssueReferenceAvailability
   accessibleLabel: string
+}
+
+/** Unknown close reasons keep their raw label and never claim a successful ending. */
+export function issueReferenceStatus(issue: IssueStatusFields): IssueStatus | null {
+  if (issue.closedReason && !canonicalIssueCloseReason(issue.closedReason)) return null
+  return issueStatusOf(issue)
 }
 
 /** The canonical ref a row names.
@@ -67,11 +86,13 @@ export function issueReferenceModel(issue: IssueReferenceSource): IssueReference
       issueId: issue.id,
       title: issue.title,
       stage: null,
+      status: null,
       availability: 'deleted',
       accessibleLabel: `Deleted task ${ref}: ${issue.title}`,
     }
   }
-  const stageLabel = ISSUE_STAGE_LABELS[issue.stage]
+  const status = issueReferenceStatus(issue)
+  const statusLabel = issueStatusLabel(issue)
   // Archive is a soft hide: keep the live workflow stage so glyphs, chat chips,
   // and terminal underlines still show correct status for POD-N mentions.
   if (issue.archived) {
@@ -80,8 +101,9 @@ export function issueReferenceModel(issue: IssueReferenceSource): IssueReference
       issueId: issue.id,
       title: issue.title,
       stage: issue.stage,
+      status,
       availability: 'archived',
-      accessibleLabel: `Archived ${stageLabel} task ${ref}: ${issue.title}`,
+      accessibleLabel: `Archived ${statusLabel} task ${ref}: ${issue.title}`,
     }
   }
   return {
@@ -89,8 +111,9 @@ export function issueReferenceModel(issue: IssueReferenceSource): IssueReference
     issueId: issue.id,
     title: issue.title,
     stage: issue.stage,
+    status,
     availability: 'present',
-    accessibleLabel: `${stageLabel} task ${ref}: ${issue.title}`,
+    accessibleLabel: `${statusLabel} task ${ref}: ${issue.title}`,
   }
 }
 
@@ -118,6 +141,7 @@ export function resolveIssueReference(
     issueId: null,
     title: null,
     stage: null,
+    status: null,
     availability: 'unavailable',
     accessibleLabel: `Task ${token} is unavailable`,
   }

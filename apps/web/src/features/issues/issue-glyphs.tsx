@@ -180,7 +180,7 @@ export function StatusGlyph({
 
 /**
  * The STAGE-only door onto {@link StatusGlyph}, for the surfaces that hold a
- * stage and nothing else — a resolved `POD-…` chip, a board column header, a
+ * stage and nothing else — a board column header or a
  * filter row. Where the row's `closedReason` IS in hand, call `StatusGlyph`
  * with `issueStatusOf(issue)` instead: a cancelled issue passed through here
  * still draws the green Done tick, because a bare stage genuinely cannot tell

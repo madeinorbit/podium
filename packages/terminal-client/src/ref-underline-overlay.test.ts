@@ -1,12 +1,12 @@
 // @vitest-environment happy-dom
-import type { IssueStage } from '@podium/model'
+import { ALL_ISSUE_STATUSES, type IssueStatus } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { BufferLike, Cell } from './buffer-line'
 import {
   mentionRects,
-  REF_STAGE_ACCENT,
+  REF_STATUS_ACCENT,
   RefUnderlineOverlay,
-  refStageAccent,
+  refStatusAccent,
   type ViewportBufferLike,
 } from './ref-underline-overlay'
 
@@ -22,7 +22,7 @@ describe('mentionRects', () => {
     const rows = [cells('no refs here'), cells('see POD-13 now', 1)]
     const rects = mentionRects(rows, known, 8, 17)
     expect(rects).toEqual([
-      { left: 4 * 8, top: 1 * 17, width: 6 * 8, height: 17, ref: 'POD-13', stage: null },
+      { left: 4 * 8, top: 1 * 17, width: 6 * 8, height: 17, ref: 'POD-13', status: null },
     ])
   })
 
@@ -30,16 +30,16 @@ describe('mentionRects', () => {
     const rows = [cells('POD-1 UTF-8 WEB-22')]
     const rects = mentionRects(rows, known, 10, 20)
     expect(rects).toEqual([
-      { left: 0, top: 0, width: 5 * 10, height: 20, ref: 'POD-1', stage: null },
-      { left: 12 * 10, top: 0, width: 6 * 10, height: 20, ref: 'WEB-22', stage: null },
+      { left: 0, top: 0, width: 5 * 10, height: 20, ref: 'POD-1', status: null },
+      { left: 12 * 10, top: 0, width: 6 * 10, height: 20, ref: 'WEB-22', status: null },
     ])
   })
 
   it('attaches resolved stages when a resolver is supplied', () => {
     const rows = [cells('POD-1 and WEB-22')]
-    const stages: Record<string, IssueStage> = { 'POD-1': 'in_progress', 'WEB-22': 'done' }
+    const stages: Record<string, IssueStatus> = { 'POD-1': 'in_progress', 'WEB-22': 'done' }
     const rects = mentionRects(rows, known, 8, 17, (ref) => stages[ref] ?? null)
-    expect(rects.map((r) => [r.ref, r.stage])).toEqual([
+    expect(rects.map((r) => [r.ref, r.status])).toEqual([
       ['POD-1', 'in_progress'],
       ['WEB-22', 'done'],
     ])
@@ -55,7 +55,7 @@ describe('mentionRects', () => {
     ]
     const rects = mentionRects([row], known, 8, 17)
     expect(rects).toEqual([
-      { left: 3 * 8, top: 0, width: 5 * 8, height: 17, ref: 'POD-7', stage: null },
+      { left: 3 * 8, top: 0, width: 5 * 8, height: 17, ref: 'POD-7', status: null },
     ])
   })
 
@@ -64,24 +64,24 @@ describe('mentionRects', () => {
   })
 })
 
-describe('refStageAccent', () => {
-  it('maps every stage to a non-default accent', () => {
-    for (const stage of Object.keys(REF_STAGE_ACCENT) as IssueStage[]) {
-      expect(refStageAccent(stage)).toBe(REF_STAGE_ACCENT[stage])
+describe('refStatusAccent', () => {
+  it('maps every status to a non-default accent', () => {
+    for (const status of Object.keys(REF_STATUS_ACCENT) as IssueStatus[]) {
+      expect(refStatusAccent(status)).toBe(REF_STATUS_ACCENT[status])
     }
-    expect(refStageAccent(null)).toContain('--muted-foreground')
-    expect(refStageAccent(undefined)).toContain('--muted-foreground')
+    expect(refStatusAccent(null)).toContain('--muted-foreground')
+    expect(refStatusAccent(undefined)).toContain('--muted-foreground')
   })
 
   it('never paints an unknown ref in the brand accent', () => {
     // A ref the client cannot resolve must not borrow --primary: beside the
-    // stage colours it reads as a state rather than as "no state known".
-    expect(refStageAccent(null)).not.toContain('--primary')
+    // status colours it reads as a state rather than as "no state known".
+    expect(refStatusAccent(null)).not.toContain('--primary')
   })
 
   it('keeps in-progress on the shared blue channel, not obligation amber', () => {
-    expect(refStageAccent('in_progress')).toBe('rgb(59, 130, 246)')
-    expect(refStageAccent('in_progress')).not.toContain('245, 158, 11')
+    expect(refStatusAccent('in_progress')).toBe('rgb(59, 130, 246)')
+    expect(refStatusAccent('in_progress')).not.toContain('245, 158, 11')
   })
 })
 
@@ -117,7 +117,7 @@ function fakeBuf(rows: string[], viewportY = 0): ViewportBufferLike {
 function makeOverlay(
   rows: string[],
   prefix: ((p: string) => boolean) | null = known,
-  resolveStage?: (ref: string) => IssueStage | null | undefined,
+  resolveStatus?: (ref: string) => IssueStatus | null | undefined,
   boundary?: { beginPaint(): void; endPaint(): void },
 ) {
   const screen = document.createElement('div')
@@ -131,7 +131,7 @@ function makeOverlay(
     getCols: () => 80,
     getRows: () => 24,
     getIsKnownPrefix: () => prefix,
-    getResolveStage: () => resolveStage ?? null,
+    getResolveStatus: () => resolveStatus ?? null,
     ...boundary,
   })
   return { screen, overlay }
@@ -143,19 +143,48 @@ const visibleRects = (screen: HTMLElement): HTMLElement[] =>
   )
 
 describe('RefUnderlineOverlay', () => {
-  it('ends each viewport demand even with no visible rows or a failed stage read', () => {
+  it('repaints a pooled decoration through every status without retaining a green closed outcome', () => {
+    let status: IssueStatus | null = null
+    const { screen, overlay } = makeOverlay(['POD-1'], known, () => status)
+    try {
+      for (const value of ALL_ISSUE_STATUSES) {
+        status = value
+        overlay.refreshNow()
+        const el = visibleRects(screen)[0]
+        expect(el?.dataset.issueStatus).toBe(value)
+        expect(el?.style.getPropertyValue('--ref-accent')).toBe(REF_STATUS_ACCENT[value])
+        expect(el?.style.getPropertyValue('--ref-accent').includes('--success')).toBe(
+          value === 'done',
+        )
+        expect(screen.querySelectorAll('.podium-ref-underlines > div')).toHaveLength(1)
+      }
+      status = null
+      overlay.refreshNow()
+      expect(visibleRects(screen)[0]?.dataset.issueStatus).toBeUndefined()
+    } finally {
+      overlay.dispose()
+      screen.remove()
+    }
+  })
+  it('ends each viewport demand even with no visible rows or a failed status read', () => {
     const events: string[] = []
     const rows = ['POD-1']
     let fail = false
-    const { screen, overlay } = makeOverlay(rows, known, () => {
-      if (fail) throw new Error('stage failed')
-      return 'review'
-    }, { beginPaint: () => events.push('begin'), endPaint: () => events.push('end') })
+    const { screen, overlay } = makeOverlay(
+      rows,
+      known,
+      () => {
+        if (fail) throw new Error('status failed')
+        return 'review'
+      },
+      { beginPaint: () => events.push('begin'), endPaint: () => events.push('end') },
+    )
     overlay.refreshNow()
     rows.splice(0, rows.length, 'plain output')
     overlay.refreshNow()
-    rows.splice(0, rows.length, 'POD-2'); fail = true
-    expect(() => overlay.refreshNow()).toThrow('stage failed')
+    rows.splice(0, rows.length, 'POD-2')
+    fail = true
+    expect(() => overlay.refreshNow()).toThrow('status failed')
     screen.getBoundingClientRect = () => ({ width: 0, height: 0 }) as DOMRect
     overlay.refreshNow()
     expect(events).toEqual(['begin', 'end', 'begin', 'end', 'begin', 'end', 'begin', 'end'])
@@ -196,8 +225,8 @@ describe('RefUnderlineOverlay', () => {
     expect(screen.querySelector('.podium-ref-underlines')).toBeNull()
   })
 
-  it('paints stage colour and dashed backlog underline from the live resolver', () => {
-    const stages: Record<string, IssueStage> = {
+  it('paints status colour and dashed backlog underline from the live resolver', () => {
+    const stages: Record<string, IssueStatus> = {
       'POD-13': 'in_progress',
       'WEB-2': 'backlog',
     }
@@ -210,11 +239,11 @@ describe('RefUnderlineOverlay', () => {
     const shown = visibleRects(screen)
     expect(shown).toHaveLength(2)
     expect(shown[0]?.dataset.ref).toBe('POD-13')
-    expect(shown[0]?.dataset.issueStage).toBe('in_progress')
-    expect(shown[0]?.style.getPropertyValue('--ref-accent')).toBe(REF_STAGE_ACCENT.in_progress)
+    expect(shown[0]?.dataset.issueStatus).toBe('in_progress')
+    expect(shown[0]?.style.getPropertyValue('--ref-accent')).toBe(REF_STATUS_ACCENT.in_progress)
     expect(shown[0]?.style.borderBottomStyle).toBe('solid')
-    expect(shown[1]?.dataset.issueStage).toBe('backlog')
-    expect(shown[1]?.style.getPropertyValue('--ref-accent')).toBe(REF_STAGE_ACCENT.backlog)
+    expect(shown[1]?.dataset.issueStatus).toBe('backlog')
+    expect(shown[1]?.style.getPropertyValue('--ref-accent')).toBe(REF_STATUS_ACCENT.backlog)
     expect(shown[1]?.style.borderBottomStyle).toBe('dashed')
     overlay.dispose()
   })
@@ -223,7 +252,7 @@ describe('RefUnderlineOverlay', () => {
     const { screen, overlay } = makeOverlay(['POD-1'], known, () => null)
     overlay.refreshNow()
     const el = visibleRects(screen)[0]
-    expect(el?.dataset.issueStage).toBeUndefined()
+    expect(el?.dataset.issueStatus).toBeUndefined()
     expect(el?.style.getPropertyValue('--ref-accent')).toContain('--muted-foreground')
     expect(el?.style.borderBottomStyle).toBe('solid')
     overlay.dispose()

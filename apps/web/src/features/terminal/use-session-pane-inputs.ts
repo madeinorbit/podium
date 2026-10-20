@@ -4,7 +4,7 @@ import type { SessionView } from '@podium/client-core/session-values'
 import type { IssueModel, MobxPool, SessionModel } from '@podium/client-graph'
 import type { SessionPaneRows } from '@podium/client-graph/session-pane-schema'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
-import { asSessionId, type IssueId, type IssueStage, type MachineWire, type SessionId } from '@podium/model/browser'
+import { asSessionId, type IssueId, type IssueStatus, type MachineWire, type SessionId } from '@podium/model/browser'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useWorklistPool, useWorklistPoolProjection } from '@/app/store-worklist-pool'
 import { issueColorHex } from '@/lib/issueColors'
@@ -107,14 +107,14 @@ export interface PaneReferenceStages {
   setActive(active: boolean): void
   beginPaint(): void
   endPaint(): void
-  resolveStage(ref: string): IssueStage | null
+  resolveStatus(ref: string): IssueStatus | null
   subscribe(paint: () => void): () => void
 }
 const EMPTY_REFERENCE_STAGES: PaneReferenceStages = {
   setActive: () => {},
   beginPaint: () => {},
   endPaint: () => {},
-  resolveStage: () => null,
+  resolveStatus: () => null,
   subscribe: () => () => {},
 }
 

@@ -52,7 +52,7 @@ function RefChipView({
   // has not arrived, a row this principal cannot see, a task that is gone) and
   // every session ref stay muted — POD-676: a gap must not announce a task as
   // something it is not, and it must never borrow the brand accent to do it.
-  const stage = model?.stage ?? null
+  const stage = model?.status ?? null
   const ink = refKind === 'issue' ? stageColor(stage) : color.textDim
   // The done glyph punches its check out of the surface behind it; the chip's
   // own tint is that surface, so the check reads as a hole rather than a stroke.

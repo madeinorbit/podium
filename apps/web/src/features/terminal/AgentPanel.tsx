@@ -338,8 +338,8 @@ export function AgentPanel({
   // without remounting the terminal or changing its transcript subscription.
   const referenceStagesRef = useRef(referenceStages)
   referenceStagesRef.current = referenceStages
-  const resolveReferenceStage = useCallback(
-    (ref: string) => referenceStagesRef.current.resolveStage(ref),
+  const resolveReferenceStatus = useCallback(
+    (ref: string) => referenceStagesRef.current.resolveStatus(ref),
     [],
   )
   const pickModeWithTrace = (mode: PanelMode): void => {
@@ -642,7 +642,7 @@ export function AgentPanel({
       mounted.view.setRefLinks({
         isKnownPrefix: (p) => isKnownRefPrefix(p),
         onActivate: (ref, event) => activateRef(ref, event),
-        resolveStage: resolveReferenceStage,
+        resolveStatus: resolveReferenceStatus,
         beginPaint: () => referenceStagesRef.current.beginPaint(),
         endPaint: () => referenceStagesRef.current.endPaint(),
       })
@@ -825,13 +825,13 @@ export function AgentPanel({
       mountedRef.current?.view.setRefLinks({
         isKnownPrefix: (p) => isKnownRefPrefix(p),
         onActivate: (ref, event) => activateRef(ref, event),
-        resolveStage: resolveReferenceStage,
+        resolveStatus: resolveReferenceStatus,
         beginPaint: () => referenceStagesRef.current.beginPaint(),
         endPaint: () => referenceStagesRef.current.endPaint(),
       })
     paint()
     return referenceStages.subscribe(paint)
-  }, [referenceStages, mountedRef, resolveReferenceStage])
+  }, [referenceStages, mountedRef, resolveReferenceStatus])
 
   const sendKey = (key: SpecialKey): void => {
     mountedRef.current?.connection.sendInput(keySequence(key))

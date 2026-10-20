@@ -15,6 +15,7 @@ import type {
   SessionStatusResult,
   IssueId,
 } from '@podium/model'
+import { canonicalIssueCloseReason } from '@podium/model'
 import { localServerUrl, resolveAgentRelay, resolvePort } from '@podium/runtime/config'
 import { declareFlags, flagTable, parseFlags, withUnknownFlagAs } from './argv'
 import { makeOperatorIssueClient } from './operator-client'
@@ -136,7 +137,7 @@ export function renderStatus(s: StatusWire): string {
       ? `error: ${s.error.class} (${s.error.retryable ? 'retryable' : 'not retryable'})`
       : null,
     s.issue
-      ? `issue #${s.issue.seq} [${s.issue.stage}] ${s.issue.title}` +
+      ? `issue #${s.issue.seq} [${canonicalIssueCloseReason(s.issue.closedReason) ?? s.issue.closedReason ?? s.issue.stage}] ${s.issue.title}` +
         (s.issue.todos.length
           ? `\n  todos:\n${s.issue.todos.map((t) => `    ${t}`).join('\n')}`
           : '')

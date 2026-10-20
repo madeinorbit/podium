@@ -1,4 +1,4 @@
-import type { IssueStage } from '@podium/model'
+import { ISSUE_STATUS_LABELS, type IssueStatus } from '@podium/model'
 import { anyRefMatcher, parseAnyRef } from '@podium/protocol'
 import type { ILink, ILinkProvider } from '@xterm/xterm'
 import type { BufferLike, Cell } from './buffer-line'
@@ -19,11 +19,11 @@ export interface RefLinkConfig {
   /** Activate a ref token; the MouseEvent carries the modifier (Cmd/Ctrl). */
   onActivate: (ref: string, event: MouseEvent) => void
   /**
-   * Optional live workflow stage for issue refs (POD-529). Session tokens and
+   * Optional live status, including closed outcomes, for issue refs (POD-529). Session tokens and
    * unresolved issues should return null so the underline keeps the default
    * accent. Read from a live issues projection on each call.
    */
-  resolveStage?: (ref: string) => IssueStage | null | undefined
+  resolveStatus?: (ref: string) => IssueStatus | null | undefined
   /** Declare and release data demand for one painted viewport. Hover and
    * activation reads outside this boundary retain no viewport observers. */
   beginPaint?: () => void
@@ -111,7 +111,10 @@ export function makeRefLinkProvider(
                 tooltip.hide()
                 cfg.onActivate(m.ref, event)
               },
-              hover: (event: MouseEvent) => tooltip.show(event),
+              hover: (event: MouseEvent) => {
+                const status = cfg.resolveStatus?.(m.ref)
+                tooltip.show(event, status ? ISSUE_STATUS_LABELS[status] : undefined)
+              },
               leave: () => tooltip.hide(),
             },
           ]

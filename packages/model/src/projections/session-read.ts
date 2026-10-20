@@ -107,7 +107,13 @@ export interface SessionStatusResult {
   /** The bound issue, denormalized for one-shot display. Not an entity embed:
    *  ADR 4 D7.1 forbids entity-in-entity on the FEED, and this is a read model
    *  assembled per request, not a replicated row. */
-  issue: { seq: number; stage: string; title: string; todos: string[] } | null
+  issue: {
+    seq: number
+    stage: string
+    closedReason?: string | null
+    title: string
+    todos: string[]
+  } | null
   /** Last ≤5 one-line commits on the session's branch (`git -C <cwd> log`). */
   commits: string[]
   /** Working-tree touched files (`git status --porcelain`), capped. */

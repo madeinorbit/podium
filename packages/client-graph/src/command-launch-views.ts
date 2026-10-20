@@ -339,10 +339,11 @@ export function commandIssueSearchRef(issue: Pick<IssueViewModel, 'seq' | 'displ
 }
 
 export function commandIssueReference(issue: IssueModel | (Pick<IssueViewModel, 'id' | 'seq' | 'title' | 'stage' | 'displayRef'> &
-  Partial<Pick<IssueViewModel, 'archived' | 'deletedAt'>>)) {
+  Partial<Pick<IssueViewModel, 'closedReason' | 'archived' | 'deletedAt'>>)) {
   return issueReferenceModel({ id: asIssueId(issue.id), seq: issue.seq, title: issue.title,
     // The declared issue row carries the wire's recognized lifecycle stage.
     stage: issue.stage as IssueViewModel['stage'],
+    closedReason: issue.closedReason,
     displayRef: commandIssueSearchRef(issue), archived: issue.archived, deletedAt: issue.deletedAt ?? undefined })
 }
 

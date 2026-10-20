@@ -1,4 +1,5 @@
 import { type IssueReferenceSource, issueReferenceModel } from '@podium/client-core/values'
+import { ALL_ISSUE_STATUSES, ISSUE_STATUS_LABELS } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import { bindIssueRefAnchors, paintIssueRefAnchor } from './issue-chip-liveness'
 
@@ -83,8 +84,33 @@ describe('live transcript issue references', () => {
 
     paintIssueRefAnchor(anchor, null)
     expect(anchor.hasAttribute('data-issue-stage')).toBe(false)
+    expect(anchor.hasAttribute('data-issue-status')).toBe(false)
+    expect(anchor.hasAttribute('title')).toBe(false)
     expect(anchor.getAttribute('data-issue-availability')).toBe('unavailable')
     expect(anchor.getAttribute('aria-label')).toBe('Task POD-13 is unavailable')
+  })
+
+  it('paints every status and changes closed outcomes without replacing text', () => {
+    const { anchor } = rowWithRef()
+    const text = anchor.firstChild
+    for (const status of ALL_ISSUE_STATUSES) {
+      const terminal = ['done', 'cancelled', 'duplicate', 'superseded'].includes(status)
+      paintIssueRefAnchor(
+        anchor,
+        issueReferenceModel(
+          issue({
+            stage: terminal ? 'done' : (status as IssueReferenceSource['stage']),
+            closedReason: terminal ? status : undefined,
+          }),
+        ),
+      )
+      expect(anchor.dataset.issueStatus).toBe(status)
+      expect(anchor.title).toContain(ISSUE_STATUS_LABELS[status])
+      expect(anchor.firstChild).toBe(text)
+    }
+    paintIssueRefAnchor(anchor, 'loading')
+    expect(anchor.hasAttribute('data-issue-status')).toBe(false)
+    expect(anchor.dataset.issueAvailability).toBe('loading')
   })
 
   it('never decorates session refs or ordinary links', () => {

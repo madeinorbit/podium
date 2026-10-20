@@ -5,6 +5,9 @@ import {
   HOST_REPOS,
   ISSUE_TYPES,
   IssueColor,
+  isIssueStage,
+  issueStatusLabel,
+  issueStatusOf,
   type IssueDeck,
   type IssueId,
   type IssueLabelWire,
@@ -233,10 +236,25 @@ function terminalEvidenceInput(a: Record<string, unknown>): Record<string, unkno
   return { terminalEvidence: true, sourceRoot: process.cwd() }
 }
 
+// The shared status vocabulary, preserving unfamiliar closing reasons.
+function statusWord(i: { stage?: string; closedReason?: string | null }): string {
+  if (!isIssueStage(i.stage)) return i.closedReason || i.stage || ''
+  const row = { stage: i.stage, closedReason: i.closedReason }
+  return i.closedReason && issueStatusOf(row) === 'done'
+    ? issueStatusLabel(row).toLowerCase()
+    : issueStatusOf(row)
+}
+
 // One-line summary of an issue for list/ready/blocked output.
-function line(i: { seq: number; title: string; priority?: number; stage?: string }): string {
+function line(i: {
+  seq: number
+  title: string
+  priority?: number
+  stage?: string
+  closedReason?: string | null
+}): string {
   const p = i.priority != null ? `P${i.priority} ` : ''
-  const s = i.stage ? `[${i.stage}] ` : ''
+  const s = i.stage ? `[${statusWord(i)}] ` : ''
   return `#${i.seq} ${p}${s}${i.title}`
 }
 
@@ -416,6 +434,7 @@ function renderShow(
 ): string {
   const meta = [
     `stage=${i.stage} P${i.priority} ready=${i.ready} blocked=${i.blocked}`,
+    i.closedReason ? `status=${statusWord(i)}` : null,
     i.assignee ? `assignee=${i.assignee}` : null,
     i.agentProfileId ? `profile=${profileNames.get(i.agentProfileId) ?? i.agentProfileId}` : null,
     i.defaultAgent || i.defaultModel || i.defaultEffort
@@ -614,7 +633,13 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
       const out: string[] = []
       const walk = (n: TreeNode, depth: number): void => {
         const pad = '  '.repeat(depth)
-        const status = n.closed ? 'DONE' : n.blocked ? 'BLOCKED' : n.ready ? 'READY' : n.stage
+        const status = n.closed
+          ? statusWord(n).toUpperCase()
+          : n.blocked
+            ? 'BLOCKED'
+            : n.ready
+              ? 'READY'
+              : n.stage
         const extras = [
           n.assignee ? `assignee=${n.assignee}` : null,
           n.branch ? `branch=${n.branch}` : null,
@@ -622,7 +647,7 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
           n.needsHuman ? `NEEDS HUMAN${n.humanQuestion ? `: ${n.humanQuestion}` : ''}` : null,
         ].filter(Boolean)
         out.push(
-          `${pad}#${n.seq} P${n.priority} [${n.stage}] ${n.title} — ${status}${extras.length ? ` (${extras.join(' ')})` : ''}`,
+          `${pad}#${n.seq} P${n.priority} [${statusWord(n)}] ${n.title} — ${status}${extras.length ? ` (${extras.join(' ')})` : ''}`,
         )
         if (n.description) out.push(`${pad}    ${n.description}`)
         // Sessions nest under their issue so sibling agents are visible before spawn [spec:SP-99d3].
@@ -2035,7 +2060,7 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
       })) as (Row & { ready: boolean; blocked: boolean; closedReason?: string })[]
       const mark = (r: (typeof rows)[number]) =>
         r.stage === 'done' || r.closedReason
-          ? 'DONE'
+          ? statusWord(r).toUpperCase()
           : r.blocked
             ? 'BLOCKED'
             : r.ready
@@ -2063,6 +2088,7 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
         seq: number
         title: string
         stage: string
+        closedReason?: string | null
         priority: number
         closed: boolean
         blocked: boolean
@@ -2074,7 +2100,7 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
         `#${r.seq} (${r.closed ? 'closed' : 'open'}${r.type === 'blocked-by' ? '' : `, ${r.type}`})`
       const text = entries
         .map((e) => {
-          const status = e.closed ? 'DONE' : e.blocked ? 'BLOCKED' : e.ready ? 'READY' : e.stage
+          const status = e.closed ? statusWord(e).toUpperCase() : e.blocked ? 'BLOCKED' : e.ready ? 'READY' : e.stage
           const lines = [`${line(e)} — ${status}`]
           if (e.deps.length) lines.push(`  waits on: ${e.deps.map(edge).join(', ')}`)
           if (e.dependents.length) lines.push(`  blocks: ${e.dependents.map(edge).join(', ')}`)

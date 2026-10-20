@@ -66,7 +66,7 @@ export function TerminalPane({
         const issueId = referencesRef.current?.issueId(ref)
         if (issueId) onOpenIssueRef.current?.(issueId)
       },
-      resolveStage: (ref: string) => referencesRef.current?.resolveStage(ref) ?? null,
+      resolveStatus: (ref: string) => referencesRef.current?.resolveStatus(ref) ?? null,
     }),
     [],
   )

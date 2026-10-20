@@ -426,6 +426,7 @@ export function RefCard({
                       issueId: target.issue.id,
                       title: target.issue.title,
                       stage: null,
+                      status: null,
                       availability: 'present',
                       accessibleLabel: `Task ${refToken}: ${target.issue.title}`,
                     }}

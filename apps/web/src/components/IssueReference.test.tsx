@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
-import { asIssueId } from '@podium/model'
+import { issueReferenceModel } from '@podium/client-core/values'
+import { ALL_ISSUE_STATUSES, asIssueId, ISSUE_STATUS_LABELS, isIssueStage } from '@podium/model'
 import { render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import { IssueReference } from './IssueReference'
@@ -13,6 +14,7 @@ describe('IssueReference', () => {
           issueId: asIssueId('iss_1'),
           title: 'Normalize task references',
           stage: 'review',
+          status: 'review',
           availability: 'present',
           accessibleLabel: 'Review task POD-17: Normalize task references',
         }}
@@ -33,6 +35,7 @@ describe('IssueReference', () => {
           issueId: null,
           title: null,
           stage: null,
+          status: null,
           availability: 'unavailable',
           accessibleLabel: 'Task POD-99 is unavailable',
         }}
@@ -47,5 +50,26 @@ describe('IssueReference', () => {
     // dashed IS the backlog glyph, and backlog is muted too, so a replica gap
     // and a real backlog task were one shape in one colour (POD-676).
     expect(reference.querySelector('svg')?.getAttribute('aria-label')).toBe('Unknown')
+  })
+
+  it.each(ALL_ISSUE_STATUSES)('draws the %s glyph and announces its status', (status) => {
+    const terminal = ['done', 'cancelled', 'duplicate', 'superseded'].includes(status)
+    const model = issueReferenceModel({
+      id: asIssueId('iss_1'),
+      seq: 17,
+      displayRef: 'POD-17',
+      title: 'Task',
+      stage: isIssueStage(status) ? status : 'done',
+      closedReason: terminal ? status : undefined,
+    })
+    const { container } = render(<IssueReference model={model} />)
+    const reference = container.querySelector('[data-issue-reference]')
+    expect(reference?.getAttribute('data-issue-status')).toBe(status)
+    expect(reference?.querySelector('svg')?.getAttribute('aria-label')).toBe(
+      ISSUE_STATUS_LABELS[status],
+    )
+    expect(reference?.querySelector('svg')?.classList.contains('text-success')).toBe(
+      status === 'done',
+    )
   })
 })

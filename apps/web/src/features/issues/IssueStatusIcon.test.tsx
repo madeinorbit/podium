@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
+import { ALL_ISSUE_STATUSES } from '@podium/model'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import { IssueStatusIcon } from './IssueStatusIcon'
@@ -11,6 +12,9 @@ const stylesPath = ['src/styles.css', 'apps/web/src/styles.css']
 const styles = readFileSync(stylesPath ?? 'src/styles.css', 'utf8')
 
 describe('StageGlyph', () => {
+  it.each(ALL_ISSUE_STATUSES)('has a markdown badge style for %s', (status) => {
+    expect(styles).toContain(`[data-issue-status="${status}"]`)
+  })
   it('uses blue rather than obligation amber for in-progress work', () => {
     const html = renderToStaticMarkup(<StageGlyph stage="in_progress" />)
 
@@ -19,7 +23,7 @@ describe('StageGlyph', () => {
   })
 
   it('keeps markdown issue-reference progress glyphs on the same blue channel', () => {
-    const selector = 'a.ref-link--issue[data-issue-stage="in_progress"] {'
+    const selector = 'a.ref-link--issue[data-issue-status="in_progress"] {'
     const start = styles.indexOf(selector)
     const end = styles.indexOf('\n}', start)
     const rule = styles.slice(start, end)
@@ -30,8 +34,8 @@ describe('StageGlyph', () => {
   })
 
   it('keeps transcript shipping and availability states visibly distinct', () => {
-    expect(styles).toContain('a.ref-link--issue[data-issue-stage="shipping"] {')
-    expect(styles).toContain('--ref-stage-color: rgb(139 92 246)')
+    expect(styles).toContain('a.ref-link--issue[data-issue-status="shipping"] {')
+    expect(styles).toContain('--ref-status-color: rgb(139 92 246)')
     expect(styles).toContain('a.ref-link--issue[data-issue-availability="archived"] {')
     expect(styles).toContain('a.ref-link--issue[data-issue-availability="deleted"] {')
     expect(styles).toContain('a.ref-link--issue[data-issue-availability="unavailable"] {')

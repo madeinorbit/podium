@@ -1,5 +1,6 @@
 import { omitGone } from './lookup'
-import { asIssueId, type IssueId, type IssueStage } from '@podium/model/browser'
+import { issueReferenceStatus } from '@podium/client-core/values'
+import { asIssueId, type IssueId, type IssueStage, type IssueStatus } from '@podium/model/browser'
 import { parseAnyRef } from '@podium/protocol'
 import type { MobxPool } from './pool'
 import { createPoolProjection } from './runtime-pool'
@@ -10,7 +11,7 @@ export interface TerminalReferences {
   beginPaint(): void
   endPaint(): void
   isKnownPrefix(prefix: string): boolean
-  resolveStage(token: string): IssueStage | null
+  resolveStatus(token: string): IssueStatus | null
   issueId(token: string): IssueId | undefined
   subscribe(paint: () => void): () => void
   dispose(): void
@@ -23,8 +24,14 @@ function referenceRow(pool: MobxPool, token: string) {
   const key = issueToken(token)
   const id = key === undefined ? undefined : pool.queries.issueReferenceId(key)
   if (id === undefined) return undefined
-  const row = omitGone(pool.row('issue', id, 'summary-fields')) as Loaded<{ stage: IssueStage; deletedAt?: string }>
-  return !row || row === LOADING || row.deletedAt ? undefined : { id, stage: row.stage }
+  const row = omitGone(pool.row('issue', id, 'summary-fields')) as Loaded<{
+    stage: IssueStage
+    closedReason?: string | null
+    deletedAt?: string
+  }>
+  return !row || row === LOADING || row.deletedAt
+    ? undefined
+    : { id, status: issueReferenceStatus(row) }
 }
 /** Clicks borrow current source identity and one named summary, retaining no
  * catalog or demand after the action. Deleted tasks have no destination. */
@@ -39,7 +46,7 @@ interface PaintedAnswer<T> { read(): T; dispose(): void }
 export function createTerminalReferences(pool: MobxPool): TerminalReferences {
   const changes = new Set<() => void>()
   const prefixes = new Map<string, PaintedAnswer<boolean>>()
-  const stages = new Map<string, PaintedAnswer<IssueStage | null>>()
+  const stages = new Map<string, PaintedAnswer<IssueStatus | null>>()
   const seenPrefixes = new Set<string>(), seenStages = new Set<string>()
   let painting = false, disposed = false, active = true
   function read<T>(answers: Map<string, PaintedAnswer<T>>, seen: Set<string>, key: string, question: (pool: MobxPool) => T): T {
@@ -81,10 +88,10 @@ export function createTerminalReferences(pool: MobxPool): TerminalReferences {
     isKnownPrefix(prefix) {
       return !disposed && active && read(prefixes, seenPrefixes, prefix, pool => pool.queries.hasIssuePrefix(prefix))
     },
-    resolveStage(token) {
+    resolveStatus(token) {
       const key = issueToken(token)
       if (disposed || !active || key === undefined) return null
-      return read(stages, seenStages, key, pool => referenceRow(pool, key)?.stage ?? null)
+      return read(stages, seenStages, key, pool => referenceRow(pool, key)?.status ?? null)
     },
     issueId: token => disposed ? undefined : terminalIssueId(pool, token),
     subscribe(paint) {

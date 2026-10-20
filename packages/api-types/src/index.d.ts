@@ -822,6 +822,7 @@ interface DepReportEntry {
     seq: number;
     title: string;
     stage: string;
+    closedReason?: string | null;
     priority: number;
     closed: boolean;
     blocked: boolean;

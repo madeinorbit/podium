@@ -3414,6 +3414,18 @@ describe('IssueService epic status (P2a)', () => {
 })
 
 describe('IssueService.tree (issue #82)', () => {
+  it('retains every closed outcome for CLI tree and dependency rendering', async () => {
+    const { svc } = await harness()
+    for (const reason of ['done', 'cancelled', 'duplicate', 'superseded']) {
+      const issue = await svc.crud.create({ repoPath: '/r', title: reason, startNow: false })
+      await svc.crud.close(issue.id, reason)
+      const tree = await svc.reports.tree(issue.id)
+      expect(tree.root).toMatchObject({ stage: 'done', closed: true, closedReason: reason })
+      expect((await svc.reports.depReport({ id: issue.id }))[0]).toMatchObject({
+        stage: 'done', closed: true, closedReason: reason,
+      })
+    }
+  })
   it('returns the whole subtree in one payload with blocks-deps as seqs', async () => {
     const { svc } = await harness()
     const epic = await svc.crud.create({ repoPath: '/r', title: 'Epic', type: 'task', startNow: false })

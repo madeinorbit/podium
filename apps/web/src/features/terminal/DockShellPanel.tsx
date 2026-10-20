@@ -235,7 +235,7 @@ const DockShellTerminal = observer(function DockShellTerminal({
       mounted.view.setRefLinks({
         isKnownPrefix: (p) => isKnownRefPrefix(p),
         onActivate: (ref, event) => activateRef(ref, event),
-        resolveStage: (ref) => referencesRef.current.resolveStage(ref),
+        resolveStatus: (ref) => referencesRef.current.resolveStatus(ref),
         beginPaint: () => referencesRef.current.beginPaint(),
         endPaint: () => referencesRef.current.endPaint(),
       })
@@ -248,7 +248,7 @@ const DockShellTerminal = observer(function DockShellTerminal({
     view.setRefLinks({
       isKnownPrefix: (p) => isKnownRefPrefix(p),
       onActivate: (ref, event) => activateRef(ref, event),
-      resolveStage: (ref) => referencesRef.current.resolveStage(ref),
+      resolveStatus: (ref) => referencesRef.current.resolveStatus(ref),
       beginPaint: () => referencesRef.current.beginPaint(),
       endPaint: () => referencesRef.current.endPaint(),
     })
@@ -256,7 +256,7 @@ const DockShellTerminal = observer(function DockShellTerminal({
       view.setRefLinks({
         isKnownPrefix: (p) => isKnownRefPrefix(p),
         onActivate: (ref, event) => activateRef(ref, event),
-        resolveStage: (ref) => referencesRef.current.resolveStage(ref),
+        resolveStatus: (ref) => referencesRef.current.resolveStatus(ref),
         beginPaint: () => referencesRef.current.beginPaint(),
         endPaint: () => referencesRef.current.endPaint(),
       }),

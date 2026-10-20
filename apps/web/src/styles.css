@@ -7556,55 +7556,68 @@ a.ref-link::before {
   --ref-icon-mask: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2024%2024'%20fill='none'%20stroke='black'%20stroke-width='2.5'%20stroke-linecap='round'%20stroke-linejoin='round'%3E%3Ccircle%20cx='12'%20cy='12'%20r='10'/%3E%3Ccircle%20cx='12'%20cy='12'%20r='2'%20fill='black'/%3E%3C/svg%3E");
 }
 /* Resolved issue refs replace the old generic dot with the issue's LIVE stage.
-   The geometry follows StageGlyph: dashed/open/progress/check circles. */
-a.ref-link--issue[data-issue-stage]::before {
-  background-color: var(--ref-stage-color, currentColor);
+   The geometry follows StatusGlyph, including each distinct closed outcome. */
+a.ref-link--issue[data-issue-status]::before {
+  background-color: var(--ref-status-color, currentColor);
   --ref-icon-mask: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2014%2014'%20fill='none'%20stroke='black'%20stroke-width='1.6'%3E%3Ccircle%20cx='7'%20cy='7'%20r='6'/%3E%3C/svg%3E");
 }
-a.ref-link--issue[data-issue-stage="proposed"] {
-  --ref-stage-color: rgb(217 70 239);
+a.ref-link--issue[data-issue-status="proposed"] {
+  --ref-status-color: rgb(217 70 239);
 }
-a.ref-link--issue[data-issue-stage="backlog"] {
-  --ref-stage-color: color-mix(in srgb, var(--muted-foreground) 70%, transparent);
+a.ref-link--issue[data-issue-status="backlog"] {
+  --ref-status-color: color-mix(in srgb, var(--muted-foreground) 70%, transparent);
 }
-a.ref-link--issue[data-issue-stage="backlog"]::before {
+a.ref-link--issue[data-issue-status="backlog"]::before {
   --ref-icon-mask: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2014%2014'%20fill='none'%20stroke='black'%20stroke-width='1.6'%20stroke-dasharray='2.2%202.2'%3E%3Ccircle%20cx='7'%20cy='7'%20r='6'/%3E%3C/svg%3E");
 }
-a.ref-link--issue[data-issue-stage="planning"] {
-  --ref-stage-color: var(--muted-foreground);
+a.ref-link--issue[data-issue-status="planning"] {
+  --ref-status-color: var(--muted-foreground);
 }
-a.ref-link--issue[data-issue-stage="in_progress"] {
-  --ref-stage-color: rgb(59 130 246);
+a.ref-link--issue[data-issue-status="in_progress"] {
+  --ref-status-color: rgb(59 130 246);
 }
-a.ref-link--issue[data-issue-stage="in_progress"]::before {
+a.ref-link--issue[data-issue-status="in_progress"]::before {
   --ref-icon-mask: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2014%2014'%3E%3Ccircle%20cx='7'%20cy='7'%20r='6'%20fill='none'%20stroke='black'%20stroke-width='1.6'/%3E%3Cpath%20d='M7%207L7%203.8A3.2%203.2%200%200%201%209.77%208.6Z'/%3E%3C/svg%3E");
 }
-a.ref-link--issue[data-issue-stage="review"] {
-  --ref-stage-color: rgb(14 165 233);
+a.ref-link--issue[data-issue-status="review"] {
+  --ref-status-color: rgb(14 165 233);
 }
-a.ref-link--issue[data-issue-stage="review"]::before {
+a.ref-link--issue[data-issue-status="review"]::before {
   --ref-icon-mask: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2014%2014'%3E%3Ccircle%20cx='7'%20cy='7'%20r='6'%20fill='none'%20stroke='black'%20stroke-width='1.6'/%3E%3Cpath%20d='M7%207L7%203.8A3.2%203.2%200%201%201%204.23%208.6Z'/%3E%3C/svg%3E");
 }
-a.ref-link--issue[data-issue-stage="shipping"] {
-  --ref-stage-color: rgb(139 92 246);
+a.ref-link--issue[data-issue-status="shipping"] {
+  --ref-status-color: rgb(139 92 246);
 }
-a.ref-link--issue[data-issue-stage="shipping"]::before {
+a.ref-link--issue[data-issue-status="shipping"]::before {
   --ref-icon-mask: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2014%2014'%3E%3Ccircle%20cx='7'%20cy='7'%20r='6'%20fill='none'%20stroke='black'%20stroke-width='1.6'/%3E%3Cpath%20d='M7%207L7%203.8A3.2%203.2%200%201%201%204.23%205.4Z'/%3E%3C/svg%3E");
 }
-a.ref-link--issue[data-issue-stage="done"] {
-  --ref-stage-color: var(--success);
+a.ref-link--issue[data-issue-status="done"] {
+  --ref-status-color: var(--success);
 }
-a.ref-link--issue[data-issue-stage="done"]::before {
-  --ref-icon-mask: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2014%2014'%20fill='none'%20stroke='black'%20stroke-width='1.8'%20stroke-linecap='round'%20stroke-linejoin='round'%3E%3Ccircle%20cx='7'%20cy='7'%20r='6'/%3E%3Cpath%20d='M4.5%207.2L6.3%209l3.2-3.6'/%3E%3C/svg%3E");
+a.ref-link--issue[data-issue-status="done"]::before {
+  --ref-icon-mask: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2014%2014%22%3E%3Cdefs%3E%3Cmask%20id%3D%22m%22%3E%3Crect%20width%3D%2214%22%20height%3D%2214%22%20fill%3D%22white%22%2F%3E%3Cpath%20d%3D%22M4.5%207.2%206.3%209l3.2-3.6%22%20stroke%3D%22black%22%20stroke-width%3D%221.6%22%20fill%3D%22none%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%2F%3E%3C%2Fmask%3E%3C%2Fdefs%3E%3Ccircle%20cx%3D%227%22%20cy%3D%227%22%20r%3D%226%22%20fill%3D%22black%22%20mask%3D%22url%28%23m%29%22%2F%3E%3C%2Fsvg%3E");
+}
+/* Closed outcomes share the muted status colour and keep distinct marks. */
+a.ref-link--issue:is([data-issue-status="cancelled"], [data-issue-status="duplicate"], [data-issue-status="superseded"]) {
+  --ref-status-color: var(--muted-foreground);
+}
+a.ref-link--issue[data-issue-status="cancelled"]::before {
+  --ref-icon-mask: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2014%2014%22%3E%3Cdefs%3E%3Cmask%20id%3D%22m%22%3E%3Crect%20width%3D%2214%22%20height%3D%2214%22%20fill%3D%22white%22%2F%3E%3Cpath%20d%3D%22M5%205l4%204M9%205l-4%204%22%20stroke%3D%22black%22%20stroke-width%3D%221.55%22%20fill%3D%22none%22%20stroke-linecap%3D%22round%22%2F%3E%3C%2Fmask%3E%3C%2Fdefs%3E%3Ccircle%20cx%3D%227%22%20cy%3D%227%22%20r%3D%226%22%20fill%3D%22black%22%20mask%3D%22url%28%23m%29%22%2F%3E%3C%2Fsvg%3E");
+}
+a.ref-link--issue[data-issue-status="duplicate"]::before {
+  --ref-icon-mask: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2014%2014%22%3E%3Cdefs%3E%3Cmask%20id%3D%22m%22%3E%3Crect%20width%3D%2214%22%20height%3D%2214%22%20fill%3D%22white%22%2F%3E%3Cpath%20d%3D%22M4.3%209.1V5.2a.95.95%200%200%201%20.95-.95h3.9%22%20stroke%3D%22black%22%20stroke-width%3D%221.25%22%20fill%3D%22none%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%2F%3E%3Crect%20x%3D%225.9%22%20y%3D%225.9%22%20width%3D%224.1%22%20height%3D%224.1%22%20rx%3D%221.05%22%20fill%3D%22black%22%2F%3E%3C%2Fmask%3E%3C%2Fdefs%3E%3Ccircle%20cx%3D%227%22%20cy%3D%227%22%20r%3D%226%22%20fill%3D%22black%22%20mask%3D%22url%28%23m%29%22%2F%3E%3C%2Fsvg%3E");
+}
+a.ref-link--issue[data-issue-status="superseded"]::before {
+  --ref-icon-mask: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2014%2014%22%3E%3Cdefs%3E%3Cmask%20id%3D%22m%22%3E%3Crect%20width%3D%2214%22%20height%3D%2214%22%20fill%3D%22white%22%2F%3E%3Cpath%20d%3D%22M4.4%207h4.5M7.1%205.2%208.9%207l-1.8%201.8%22%20stroke%3D%22black%22%20stroke-width%3D%221.45%22%20fill%3D%22none%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%2F%3E%3C%2Fmask%3E%3C%2Fdefs%3E%3Ccircle%20cx%3D%227%22%20cy%3D%227%22%20r%3D%226%22%20fill%3D%22black%22%20mask%3D%22url%28%23m%29%22%2F%3E%3C%2Fsvg%3E");
 }
 /* Unknown to this client: no live row answers for the token. Two spellings —
-   no `data-issue-stage` at all (the ref never resolved) and an empty one (the
+   no `data-issue-status` at all (the ref never resolved) and an empty one (the
    issue resolved but is deleted, so it has no stage). Muted rather than the
    `--issue`/`--info` accent: a ref the client simply has not received yet must
    not wear a colour that reads as a workflow state (POD-676). Session refs are
    never "unknown" in this sense and keep the accent. */
-a.ref-link--issue:not([data-issue-stage]),
-a.ref-link--issue[data-issue-stage=""] {
+a.ref-link--issue:not([data-issue-status]),
+a.ref-link--issue[data-issue-status=""] {
   --ref-accent: var(--muted-foreground);
 }
 /* …and it says so, rather than only going quiet: a ring carrying a question
@@ -7612,8 +7625,8 @@ a.ref-link--issue[data-issue-stage=""] {
    circle-dot, which is the shape a ref wears when nothing is known about its
    KIND — a reader had only the grey to tell "not received yet" from a muted
    stage, and backlog is muted too. */
-a.ref-link--issue:not([data-issue-stage])::before,
-a.ref-link--issue[data-issue-stage=""]::before {
+a.ref-link--issue:not([data-issue-status])::before,
+a.ref-link--issue[data-issue-status=""]::before {
   --ref-icon-mask: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2014%2014'%20fill='none'%20stroke='black'%20stroke-linecap='round'%20stroke-linejoin='round'%3E%3Ccircle%20cx='7'%20cy='7'%20r='6'%20stroke-width='1.6'/%3E%3Cpath%20d='M5.3%205.0a1.75%201.75%200%200%201%203.4%200.58c0%201.17-1.75%201.75-1.75%201.75'%20stroke-width='1.5'/%3E%3Ccircle%20cx='7'%20cy='9.7'%20r='0.85'%20fill='black'%20stroke='none'/%3E%3C/svg%3E");
 }
 /* Availability is independent of workflow stage. Archived refs retain their

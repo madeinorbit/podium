@@ -391,7 +391,7 @@ it('keeps native reference underlines equal and live without legacy issue reads 
   const paint = vi.fn((next: RefLinkConfig) => {
     config.current = next
     next.beginPaint?.()
-    stages = tokens.map((token) => next.resolveStage?.(token) ?? null)
+    stages = tokens.map((token) => next.resolveStatus?.(token) ?? null)
     next.endPaint?.()
   })
   f.mounted.current = {
@@ -427,6 +427,15 @@ it('keeps native reference underlines equal and live without legacy issue reads 
     }),
   )
   expect(paint).not.toHaveBeenCalled()
+  for (const closedReason of ['done', 'cancelled', 'duplicate', 'superseded']) {
+    act(() => f.pool!.apply({
+      type: 'update', rows: [{ kind: 'issue', id: updated.id,
+        value: { ...updated, stage: 'done', closedReason } as never }],
+    }))
+    expect(stages).toEqual([closedReason, closedReason, 'review', null, null, null, null, null])
+    expect(paint).toHaveBeenCalledTimes(1)
+    paint.mockClear()
+  }
   actual.unmount()
   act(() =>
     f.pool!.apply({
@@ -435,7 +444,7 @@ it('keeps native reference underlines equal and live without legacy issue reads 
     }),
   )
   expect(paint).not.toHaveBeenCalled()
-  expect(config.current?.resolveStage?.('POD-1')).toBeNull()
+  expect(config.current?.resolveStatus?.('POD-1')).toBeNull()
 })
 
 it('never accesses legacy session, machine or window collections on the pool input path', () => {

@@ -394,7 +394,10 @@ export class SessionReadToolkit {
       nativeSubagentCount: target.agentState?.nativeSubagentCount ?? 0,
       nativeSubagents: target.agentState?.nativeSubagents ?? [],
       subagents: await this.subagentsOf(target),
-      issue: issue ? { seq: issue.seq, stage: issue.stage, title: issue.title, todos } : null,
+      issue: issue ? {
+        seq: issue.seq, stage: issue.stage, title: issue.title, todos,
+        ...(issue.closedReason != null ? { closedReason: issue.closedReason } : {}),
+      } : null,
       commits: lines(log).slice(0, 5),
       // First porcelain -b line is the branch header — keep it (names the branch),
       // then the touched files, capped so status stays ~200 tokens.

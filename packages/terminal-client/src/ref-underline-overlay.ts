@@ -1,4 +1,4 @@
-import type { IssueStage } from '@podium/model'
+import type { IssueStatus } from '@podium/model'
 import { anyRefMatcher } from '@podium/protocol'
 import type { BufferLike, Cell } from './buffer-line'
 import { findRefMatches, rowCells } from './ref-link-provider'
@@ -8,7 +8,7 @@ import { findRefMatches, rowCells } from './ref-link-provider'
  *
  * xterm link decorations only appear on hover, so tokens like `POD-441` are
  * invisible affordances until the mouse happens to cross them. This layer draws
- * a stage-tinted pill with an underline (matching the chat `.ref-link` chip
+ * a status-tinted pill with an underline (matching the chat `.ref-link` chip
  * language) behind every known-prefix ref in the CURRENT VIEWPORT, so mentions
  * stand out at a glance and issue workflow state is visible without inserting
  * glyphs into the fixed cell buffer.
@@ -22,33 +22,36 @@ import { findRefMatches, rowCells } from './ref-link-provider'
  * divs are pooled (hidden, not destroyed) so steady streaming does not churn DOM.
  */
 
-/** Accent colours aligned with chat `a.ref-link--issue[data-issue-stage=…]`. */
-export const REF_STAGE_ACCENT: Readonly<Record<IssueStage, string>> = {
+/** Accent colours aligned with chat `a.ref-link--issue[data-issue-status=…]`. */
+export const REF_STATUS_ACCENT: Readonly<Record<IssueStatus, string>> = {
   proposed: 'rgb(217, 70, 239)',
   backlog: 'color-mix(in srgb, var(--muted-foreground, #94a3b8) 70%, transparent)',
   planning: 'var(--muted-foreground, #94a3b8)',
   // Blue, not amber: POD-583 reserved amber for operator attention and moved
-  // every in-progress stage signal onto this channel. Terminals were the third
+  // every in-progress status signal onto this channel. Terminals were the third
   // surface and were missed then — a ref underlined here must read the same as
   // the React StageGlyph and the markdown `.ref-link` chip.
   in_progress: 'rgb(59, 130, 246)',
   review: 'rgb(14, 165, 233)',
   shipping: 'rgb(139, 92, 246)',
   done: 'var(--success, #22c55e)',
+  cancelled: 'var(--muted-foreground, #94a3b8)',
+  duplicate: 'var(--muted-foreground, #94a3b8)',
+  superseded: 'var(--muted-foreground, #94a3b8)',
 }
 
 /**
  * Unknown to this client: the token parses as a ref but no live row answers for
  * it — a replica row that has not arrived (or aged out of the change log), or a
- * deleted issue. Muted, NOT `--primary`: the brand accent sits beside the stage
+ * deleted issue. Muted, NOT `--primary`: the brand accent sits beside the status
  * colours and reads as a workflow state of its own, so a momentary replica gap
  * announced a live issue as something it is not (POD-676).
  */
 const DEFAULT_REF_ACCENT = 'var(--muted-foreground, #94a3b8)'
 
 /** CSS colour for a ref decoration; unknown/session refs keep the default accent. */
-export function refStageAccent(stage: IssueStage | null | undefined): string {
-  return stage ? REF_STAGE_ACCENT[stage] : DEFAULT_REF_ACCENT
+export function refStatusAccent(status: IssueStatus | null | undefined): string {
+  return status ? REF_STATUS_ACCENT[status] : DEFAULT_REF_ACCENT
 }
 
 export interface MentionRect {
@@ -58,8 +61,8 @@ export interface MentionRect {
   height: number
   /** The matched token text (e.g. `POD-13`). */
   ref: string
-  /** Live workflow stage for issue refs; null for session/unresolved. */
-  stage: IssueStage | null
+  /** Live workflow status for issue refs; null for session/unresolved. */
+  status: IssueStatus | null
 }
 
 /** Buffer surface the overlay needs: rows + where the viewport starts. */
@@ -78,7 +81,7 @@ export function mentionRects(
   isKnownPrefix: (prefix: string) => boolean,
   cellWidth: number,
   cellHeight: number,
-  resolveStage?: (ref: string) => IssueStage | null | undefined,
+  resolveStatus?: (ref: string) => IssueStatus | null | undefined,
 ): MentionRect[] {
   const out: MentionRect[] = []
   for (let r = 0; r < rows.length; r += 1) {
@@ -94,7 +97,7 @@ export function mentionRects(
         width: (last.x - first.x + 1) * cellWidth,
         height: cellHeight,
         ref: m.ref,
-        stage: resolveStage?.(m.ref) ?? null,
+        status: resolveStatus?.(m.ref) ?? null,
       })
     }
   }
@@ -109,8 +112,8 @@ export interface RefUnderlineOverlayHooks {
   getRows: () => number
   /** null = ref links unconfigured; the layer stays empty. */
   getIsKnownPrefix: () => ((prefix: string) => boolean) | null
-  /** Optional live stage for issue refs (POD-529). Session/unknown omit. */
-  getResolveStage?: () => ((ref: string) => IssueStage | null | undefined) | null | undefined
+  /** Optional live status for issue refs (POD-529). Session/unknown omit. */
+  getResolveStatus?: () => ((ref: string) => IssueStatus | null | undefined) | null | undefined
   beginPaint?: () => void
   endPaint?: () => void
 }
@@ -193,9 +196,9 @@ export class RefUnderlineOverlay {
       }
       rowsCells.push(rowCells(buf, viewportY + r))
     }
-    const resolveStage = this.hooks.getResolveStage?.() ?? undefined
+    const resolveStatus = this.hooks.getResolveStatus?.() ?? undefined
     this.showRects(
-      mentionRects(rowsCells, isKnown, rect.width / cols, rect.height / rows, resolveStage),
+      mentionRects(rowsCells, isKnown, rect.width / cols, rect.height / rows, resolveStatus),
     )
   }
 
@@ -203,7 +206,7 @@ export class RefUnderlineOverlay {
     const doc = this.layer.ownerDocument
     while (this.pool.length < rects.length) {
       const el = doc.createElement('div')
-      // Geometry only at create time; stage colour/style is applied per paint so
+      // Geometry only at create time; status colour/style is applied per paint so
       // pooled nodes can move between stages without recreation.
       // Deliberately no dotted border for the default path — WebKit (Tauri) and
       // Chromium rasterize 1px dots differently at fractional cell widths.
@@ -219,10 +222,10 @@ export class RefUnderlineOverlay {
         if (el.style.display !== 'none') el.style.display = 'none'
         continue
       }
-      const accent = refStageAccent(r.stage)
+      const accent = refStatusAccent(r.status)
       // Backlog uses a dashed underline (matches the dashed StageGlyph); other
-      // stages keep a solid hairline so colour is the primary stage signal.
-      const borderStyle = r.stage === 'backlog' ? 'dashed' : 'solid'
+      // stages keep a solid hairline so colour is the primary status signal.
+      const borderStyle = r.status === 'backlog' ? 'dashed' : 'solid'
       el.style.display = 'block'
       el.style.left = `${r.left}px`
       el.style.top = `${r.top}px`
@@ -236,8 +239,8 @@ export class RefUnderlineOverlay {
       el.style.borderBottomStyle = borderStyle
       el.style.borderBottomColor = 'color-mix(in srgb, var(--ref-accent) 65%, transparent)'
       el.dataset.ref = r.ref
-      if (r.stage) el.dataset.issueStage = r.stage
-      else delete el.dataset.issueStage
+      if (r.status) el.dataset.issueStatus = r.status
+      else delete el.dataset.issueStatus
     }
   }
 

@@ -88,6 +88,7 @@ export interface IssueTreeNode<S = IssueTreeSession> {
   seq: number
   title: string
   stage: string
+  closedReason?: string | null
   priority: number
   type: string
   assignee?: string
@@ -127,6 +128,7 @@ export interface IssueShowWire<S = IssueTreeSession> {
   description: string
   brief?: string | null
   stage: string
+  closedReason?: string | null
   priority: number
   ready: boolean
   blocked: boolean
