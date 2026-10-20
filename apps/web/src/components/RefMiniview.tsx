@@ -1,14 +1,16 @@
-import { omitGone } from '@podium/client-graph/lookup'
 import { relativeTime } from '@podium/client-core/focus'
 import { shallowEqual } from '@podium/client-core/shallow-equal'
 import { issueReferenceModel } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph'
+import { omitGone } from '@podium/client-graph/lookup'
 import { machinePathBasename } from '@podium/model'
 import type { IssueComment, IssueId, SessionId } from '@podium/model/browser'
 import { formatLong, parseAnyRef, truncateTitle } from '@podium/protocol'
 import {
   ArchiveRestore,
   Check,
+  ChevronDown,
+  ChevronUp,
   ExternalLink,
   ListTree,
   LoaderCircle,
@@ -21,7 +23,9 @@ import {
   type JSX,
   useCallback,
   useEffect,
+  useId,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   useSyncExternalStore,
@@ -37,6 +41,7 @@ import { IssueAgentSettings } from '@/features/issues/IssueAgentSettings'
 import { PriorityGlyph } from '@/features/issues/issue-glyphs'
 import { isIssueStartable } from '@/features/issues/issue-startable'
 import type { LaunchMachine } from '@/features/issues/LaunchBox'
+import { renderReadoutMarkdown } from '@/lib/markdown'
 import { setKnownRefPrefixes } from '@/lib/markdown-references'
 import {
   closeMiniview,
@@ -417,13 +422,12 @@ export function RefCard({
             </div>
             <IssueSummary issue={target.issue} />
             {target.issue.description?.trim() && (
-              <div
-                className="mt-2 overflow-hidden text-[12px] leading-[1.5] text-muted-foreground"
-                style={{ display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical' }}
-                title={target.issue.description}
-              >
-                {target.issue.description}
-              </div>
+              <ExpandableText
+                key={target.issue.id}
+                text={target.issue.description}
+                label="description"
+                className="mt-2 text-[12px] leading-[1.5] text-muted-foreground"
+              />
             )}
           </div>
           {target.issue.activityNotes && (
@@ -438,13 +442,12 @@ export function RefCard({
                   </span>
                 )}
               </div>
-              <div
-                className="overflow-hidden text-[12.5px] leading-[1.5] text-foreground/90"
-                style={{ display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical' }}
-                title={target.issue.activityNotes}
-              >
-                {target.issue.activityNotes}
-              </div>
+              <ExpandableText
+                key={target.issue.id}
+                text={target.issue.activityNotes}
+                label="latest update"
+                className="text-[12.5px] leading-[1.5] text-foreground/90"
+              />
             </div>
           )}
           {isIssueStartable(target.issue) && (
@@ -706,6 +709,67 @@ function IssueEscalations({
         <ListTree size={12} className="flex-none" aria-hidden="true" />
         <span className="truncate">Open in explorer</span>
       </button>
+    </div>
+  )
+}
+
+/**
+ * Human text clamped to three lines that unfolds in place. The toggle appears
+ * only when the clamp hides something; unfolded, the text scrolls inside a
+ * capped box so a long brief cannot push the card's actions off screen.
+ */
+function ExpandableText({
+  text,
+  label,
+  className,
+}: {
+  text: string
+  label: string
+  className?: string
+}): JSX.Element {
+  const html = useMemo(() => renderReadoutMarkdown(text.trim()), [text])
+  const [open, setOpen] = useState(false)
+  const [overflows, setOverflows] = useState(false)
+  const bodyRef = useRef<HTMLDivElement | null>(null)
+  const bodyId = useId()
+  // biome-ignore lint/correctness/useExhaustiveDependencies: new text can overflow a clamp whose box size never changes, so re-measure on it
+  useLayoutEffect(() => {
+    const body = bodyRef.current
+    if (!body || open) return
+    const measure = () => setOverflows(body.scrollHeight > body.clientHeight + 1)
+    measure()
+    if (typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(measure)
+    observer.observe(body)
+    return () => observer.disconnect()
+  }, [html, open])
+  return (
+    <div className={className}>
+      <div
+        ref={bodyRef}
+        id={bodyId}
+        className="ref-miniview-text"
+        data-open={open}
+        // biome-ignore lint/security/noDangerouslySetInnerHtml: renderReadoutMarkdown sanitizes through DOMPurify and drops every anchor
+        dangerouslySetInnerHTML={{ __html: html }}
+      />
+      {(overflows || open) && (
+        <button
+          type="button"
+          className="ref-miniview-text-toggle"
+          aria-expanded={open}
+          aria-controls={bodyId}
+          aria-label={open ? `Show less of the ${label}` : `Show the full ${label}`}
+          onClick={() => setOpen(!open)}
+        >
+          {open ? 'Show less' : 'Show more'}
+          {open ? (
+            <ChevronUp size={11} aria-hidden="true" />
+          ) : (
+            <ChevronDown size={11} aria-hidden="true" />
+          )}
+        </button>
+      )}
     </div>
   )
 }

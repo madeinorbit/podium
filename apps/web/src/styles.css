@@ -11443,6 +11443,42 @@ button.waterfall-fold:hover {
   outline-offset: 3px;
   border-radius: 2px;
 }
+/* RefMiniview: the task card's description and latest update, clamped until unfolded. */
+.ref-miniview-text { overflow-wrap: anywhere; }
+.ref-miniview-text[data-open="false"] {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.ref-miniview-text[data-open="true"] {
+  max-height: min(50vh, 24rem);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.ref-miniview-text > :first-child { margin-top: 0; }
+.ref-miniview-text > :last-child { margin-bottom: 0; }
+.ref-miniview-text p { margin: 0 0 0.5em; }
+.ref-miniview-text :is(h1, h2, h3, h4, h5, h6) { margin: 0.8em 0 0.3em; font-weight: 600; }
+.ref-miniview-text :is(ul, ol) { margin: 0.3em 0; padding-left: 1.4em; }
+.ref-miniview-text ul { list-style: disc; }
+.ref-miniview-text ol { list-style: decimal; }
+.ref-miniview-text pre { max-width: 100%; overflow-x: auto; }
+.ref-miniview-text .code-copy { display: none; }
+.ref-miniview-text-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-top: 4px;
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+.ref-miniview-text-toggle:hover { color: var(--text-strong); }
+.ref-miniview-text-toggle:focus-visible {
+  outline: 2px solid var(--live);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
 .flight-full-gauge-row { gap: 6px; }
 .flight-full-gauge-row > :is(button, [data-testid="mission-cost-chip"]) {
   flex-shrink: 0;

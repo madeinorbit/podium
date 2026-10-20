@@ -1,14 +1,14 @@
-import type { SessionMeta } from '@podium/model'
 import type { SessionView } from '@podium/client-core/session-values'
-import { fireEvent, screen, waitFor } from '@testing-library/react'
-import { modelCatalogFixture } from '@/test-support/model-catalog-mock'
+import type { SessionMeta } from '@podium/model'
 import { asIssueId, asRepoId, asSessionId, asUserId } from '@podium/model'
 import { parseAnyRef } from '@podium/protocol'
+import { fireEvent, screen, waitFor } from '@testing-library/react'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { activateRef, closeMiniview, getMiniviewState, openMiniview } from '@/lib/ref-activation'
 import type { RefIssueLike, RefSessionLike, ResolvedRef } from '@/lib/ref-miniview'
+import { modelCatalogFixture } from '@/test-support/model-catalog-mock'
 import { publishPoolFixture } from '@/test-support/pool-fixture'
 import { RefCard, RefMiniviewHost, seedCardPosition } from './RefMiniview'
 
@@ -242,7 +242,10 @@ describe('RefMiniviewHost issue resolution', () => {
         cwd: '/repo',
       },
     ]
-    act(() => { publishPoolFixture(); activateRef('POD-517-A', { metaKey: true }) })
+    act(() => {
+      publishPoolFixture()
+      activateRef('POD-517-A', { metaKey: true })
+    })
     expect(hostStore.navigateToSession).toHaveBeenCalledWith('POD-517-A')
     expect(hostStore.referenceReads).not.toHaveBeenCalled()
     expect(getMiniviewState()).toBeNull()
@@ -372,7 +375,7 @@ describe('RefCard issue summary (#517)', () => {
         <RefCard
           refToken="POD-517"
           target={issueTarget({ ...issue, updatedAt })}
-            onClose={() => {}}
+          onClose={() => {}}
           onOpenFull={() => {}}
           loadComments={loadComments}
         />,
@@ -411,7 +414,7 @@ describe('RefCard issue summary (#517)', () => {
         <RefCard
           refToken="POD-517"
           target={issueTarget(issue)}
-            onClose={() => {}}
+          onClose={() => {}}
           onOpenFull={() => {}}
           loadComments={loadComments}
         />,
@@ -428,6 +431,65 @@ describe('RefCard issue summary (#517)', () => {
     })
     expect(container.textContent).toContain('1 comment')
     expect(container.textContent).not.toContain('2 comments')
+  })
+})
+
+describe('RefCard expandable text', () => {
+  let container: HTMLDivElement
+  let root: Root
+  let clamped = true
+  beforeEach(() => {
+    container = document.createElement('div')
+    document.body.appendChild(container)
+    root = createRoot(container)
+    clamped = true
+    // happy-dom has no layout: report overflow from the clamp state the test sets.
+    vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockImplementation(function (
+      this: HTMLElement,
+    ) {
+      return this.classList.contains('ref-miniview-text') && clamped ? 120 : 40
+    })
+    vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(40)
+  })
+  afterEach(() => {
+    act(() => root.unmount())
+    container.remove()
+    vi.restoreAllMocks()
+  })
+
+  const long = {
+    ...rich,
+    description: 'First paragraph.\n\n- **bold** item\n- second item\n\nLast paragraph.',
+  }
+
+  it('unfolds a clamped description in place and renders its markdown', () => {
+    renderCard(root, long)
+    const body = container.querySelector('.ref-miniview-text')
+    expect(body?.getAttribute('data-open')).toBe('false')
+    expect(body?.hasAttribute('title')).toBe(false)
+    expect(body?.querySelector('strong')?.textContent).toBe('bold')
+    expect(body?.querySelectorAll('li')).toHaveLength(2)
+
+    const more = screen.getByRole('button', { name: 'Show the full description' })
+    expect(more.getAttribute('aria-expanded')).toBe('false')
+    act(() => fireEvent.click(more))
+    expect(body?.getAttribute('data-open')).toBe('true')
+    const less = screen.getByRole('button', { name: 'Show less of the description' })
+    expect(less.getAttribute('aria-expanded')).toBe('true')
+    act(() => fireEvent.click(less))
+    expect(body?.getAttribute('data-open')).toBe('false')
+  })
+
+  it('offers the toggle for the latest update too', () => {
+    renderCard(root, long)
+    expect(screen.getByRole('button', { name: 'Show the full latest update' })).toBeTruthy()
+  })
+
+  it('shows no toggle when the text fits', () => {
+    clamped = false
+    renderCard(root, long)
+    expect(container.querySelector('.ref-miniview-text')).not.toBeNull()
+    expect(container.querySelector('.ref-miniview-text-toggle')).toBeNull()
   })
 })
 
@@ -453,7 +515,7 @@ describe('RefCard run now (POD-110)', () => {
         <RefCard
           refToken={issue.displayRef ?? ''}
           target={issueTarget(issue)}
-            onClose={() => {}}
+          onClose={() => {}}
           onOpenFull={() => {}}
           onStart={onStart}
         />,
@@ -530,7 +592,7 @@ describe('RefCard proposal decisions', () => {
         <RefCard
           refToken="POD-517"
           target={issueTarget(proposal)}
-            onClose={() => {}}
+          onClose={() => {}}
           onOpenFull={() => {}}
           onStart={onStart}
           onPromote={onPromote}
@@ -593,7 +655,7 @@ describe('RefCard proposal decisions', () => {
             stage: 'in_progress',
             worktreePath: '/r/.worktrees/issue-517',
           })}
-            onClose={() => {}}
+          onClose={() => {}}
           onOpenFull={() => {}}
         />,
       )
@@ -636,7 +698,7 @@ describe('RefCard planned agent settings', () => {
         <RefCard
           refToken="POD-517"
           target={issueTarget(issue)}
-            machines={hostStore.machines}
+          machines={hostStore.machines}
           onClose={onClose}
           onOpenFull={vi.fn()}
           onStart={onStart}
@@ -732,7 +794,7 @@ describe('RefCard outside-click dismissal', () => {
         <RefCard
           refToken={rich.displayRef ?? ''}
           target={issueTarget(rich)}
-            onClose={onClose}
+          onClose={onClose}
           onOpenFull={() => {}}
         />,
       )
@@ -793,7 +855,7 @@ describe('RefCard is not draggable (POD-799)', () => {
           refToken={rich.displayRef ?? ''}
           anchor={{ x: 300, y: 200 }}
           target={target}
-            onClose={() => {}}
+          onClose={() => {}}
           onOpenFull={() => {}}
         />,
       )
