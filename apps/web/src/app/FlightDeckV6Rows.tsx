@@ -6,15 +6,7 @@ import { settled } from '@podium/client-graph/mission-view'
 import type { SessionModel } from '@podium/client-graph/models'
 import { observer } from '@podium/client-graph/react'
 import { SESSION_WORD_LABEL, TASK_WORD_LABEL, type TaskWord } from '@podium/model/browser'
-import {
-  ArrowUpRight,
-  Check,
-  ChevronDown,
-  ChevronRight,
-  Ellipsis,
-  ListTree,
-  Lock,
-} from 'lucide-react'
+import { ArrowUpRight, Check, ChevronDown, ChevronRight, ListTree, Lock } from 'lucide-react'
 import {
   type CSSProperties,
   type MouseEvent,
@@ -233,7 +225,7 @@ export const FlightDeckV6Task = observer(function FlightDeckV6Task({
             className="flight-v6-strip deck-strip"
             data-flight-task-row={task.id}
             data-visual-depth={visualDepth}
-            data-edge-gutter="28"
+            data-edge-gutter="6"
             onClick={(event) => {
               if (event.target !== event.currentTarget) return
               if (task.foldable) task.deck.toggleFold(task.id)
@@ -278,7 +270,6 @@ export const FlightDeckV6Task = observer(function FlightDeckV6Task({
                 </span>
               </TaskBody>
             )}
-            <TaskActions task={task} onMenu={actions.onMenu} />
           </div>
         ) : (
           <DeckRowPlaceholder
@@ -358,28 +349,6 @@ const TaskBody = observer(function TaskBody({
       }}
     >
       {children}
-    </button>
-  )
-})
-const TaskActions = observer(function TaskActions({
-  task,
-  onMenu,
-}: {
-  task: FullDeckTask
-  onMenu: FlightDeckV6Actions['onMenu']
-}) {
-  return (
-    <button
-      type="button"
-      className="flight-v6-actions"
-      aria-label={`Task actions for ${task.row.title}`}
-      title="Task actions"
-      onClick={(event) => {
-        event.stopPropagation()
-        onMenu(task, event)
-      }}
-    >
-      <Ellipsis size={12} />
     </button>
   )
 })
@@ -594,18 +563,6 @@ export const FlightDeckV6Session = observer(function FlightDeckV6Session({
             />
           </button>
         )}
-        <button
-          type="button"
-          className="flight-v6-actions"
-          title="Session actions"
-          aria-label={`Session actions for ${name}`}
-          onClick={(event) => {
-            event.stopPropagation()
-            setMenu({ x: event.clientX, y: event.clientY })
-          }}
-        >
-          <Ellipsis size={12} />
-        </button>
       </div>
       {natives.length > 0 && (
         <ul

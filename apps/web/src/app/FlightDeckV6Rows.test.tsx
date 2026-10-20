@@ -349,9 +349,9 @@ it.each([
 
 it('keeps task menu, status picker and rename access independent of fold and session selection', async () => {
   const f = await open()
-  fireEvent.click(f.ui.getByRole('button', { name: 'Task actions for Task task' }))
+  expect(f.ui.queryByRole('button', { name: 'Task actions for Task task' })).toBeNull()
   fireEvent.contextMenu(f.task().querySelector('.flight-v6-strip')!)
-  expect(f.actions.onMenu).toHaveBeenCalledTimes(2)
+  expect(f.actions.onMenu).toHaveBeenCalledTimes(1)
   expect(f.actions.onMenu.mock.calls[0]?.[0]).toBe(f.full.task('task'))
   expect(f.fold().getAttribute('aria-expanded')).toBe('false')
   fireEvent.click(f.ui.getByTestId('issue-status-picker'))
@@ -373,14 +373,13 @@ it('keeps task menu, status picker and rename access independent of fold and ses
   expect(f.actions.onRenameDone).toHaveBeenCalled()
 })
 
-it('session actions retain the shared lifecycle menu without opening the session', async () => {
+it('right-click retains the shared lifecycle menu without opening the session', async () => {
   const f = await open()
   await act(async () => {
     fireEvent.click(f.fold())
   })
-  fireEvent.click(
-    within(f.agent()).getByRole('button', { name: 'Session actions for Agent worker' }),
-  )
+  expect(f.ui.queryByRole('button', { name: 'Session actions for Agent worker' })).toBeNull()
+  fireEvent.contextMenu(f.agent().querySelector('.flight-v6-session-open')!)
   expect(f.ui.getByRole('menu').textContent).toContain('Session menu worker')
   expect(f.actions.onSelectSession).not.toHaveBeenCalled()
 })

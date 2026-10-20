@@ -13110,7 +13110,7 @@ button.waterfall-fold:hover {
 .flight-v6-card[data-word='blocked'] {
   background-image: repeating-linear-gradient(135deg, transparent 0 4px, color-mix(in srgb, var(--text-faint) 6%, transparent) 4px 5px);
 }
-.flight-v6-strip { position: relative; display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 32px 0 6px; border-radius: 6px; }
+.flight-v6-strip { position: relative; display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 6px; border-radius: 6px; }
 .flight-v6-strip:hover { background-color: var(--accent); }
 .flight-v6-fold { display: grid; place-items: center; flex: none; width: 12px; height: 24px; color: var(--text-faint); }
 .flight-v6-ring-control { position: relative; display: grid; place-items: center; flex: none; width: 14px; height: 14px; }
@@ -13131,22 +13131,19 @@ button.waterfall-fold:hover {
 .flight-v6-state[data-word='error'] { color: var(--destructive); }
 .flight-v6-state[data-word='needs-you'] { color: var(--attention); }
 .flight-v6-state[data-word='error']::before, .flight-v6-state[data-word='needs-you']::before { content: ''; width: 5px; height: 5px; flex: none; border-radius: 50%; background: currentColor; }
-.flight-v6-actions { position: absolute; right: 4px; top: 4px; display: grid; place-items: center; width: 24px; height: 24px; border-radius: 4px; color: var(--text-faint); opacity: 0; }
-.flight-v6-strip:hover > .flight-v6-actions, .flight-v6-session-line:hover > .flight-v6-actions, .flight-v6-actions:focus-visible { opacity: 1; background: var(--tabstrip); }
-.flight-v6-actions:hover { color: var(--text-strong); }
 .flight-v6-sessions { margin: 0 4px 4px; padding: 3px 4px 3px 20px; border-radius: 5px; background: var(--bar); }
 .flight-v6-session-line { position: relative; display: flex; align-items: center; min-height: 28px; border-radius: 5px; }
 .flight-v6-session-line:hover { background: var(--muted); }
 .flight-v6-session[data-selected='true'] > .flight-v6-session-line { background: color-mix(in srgb, var(--live) 12%, var(--bar)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--live) 45%, transparent); }
-.flight-v6-session-open { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; height: 28px; padding: 0 24px 0 2px; text-align: left; }
+.flight-v6-session-open { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; height: 28px; padding: 0 6px 0 2px; text-align: left; }
 .flight-v6-session-open .flight-v6-title { font-size: 12px; font-weight: 500; }
 .flight-v6-role { flex: none; color: var(--text-faint); font-size: 11.5px; }
 .flight-v6-native-slot { width: 70px; flex: none; }
-.flight-v6-native-chip { position: absolute; right: calc(var(--v6-state-width) + 32px); top: 5px; display: flex; align-items: center; gap: 4px; height: 18px; padding: 0 6px; border-radius: 4px; background: var(--muted); color: var(--text-dim); font-family: var(--font-mono); font-size: 9.5px; }
+.flight-v6-native-chip { position: absolute; right: calc(var(--v6-state-width) + 14px); top: 5px; display: flex; align-items: center; gap: 4px; height: 18px; padding: 0 6px; border-radius: 4px; background: var(--muted); color: var(--text-dim); font-family: var(--font-mono); font-size: 9.5px; }
 .flight-v6-native-chip:hover { color: var(--text-strong); }
 .flight-v6-natives { margin: 0 0 4px 30px; border-left: 1px solid var(--border); padding-left: 10px; list-style: none; }
 .flight-v6-natives li { display: flex; align-items: center; gap: 6px; min-height: 22px; color: var(--text-faint); font-family: var(--font-mono); font-size: 10.5px; }
-.flight-v6-native-state { margin-left: auto; padding-right: 24px; }
+.flight-v6-native-state { margin-left: auto; padding-right: 6px; }
 .flight-v6-guides { position: absolute; inset: 0; pointer-events: none; }
 .flight-v6-guide { position: absolute; top: 0; bottom: 0; width: 22px; }
 .flight-v6-guide::before { content: ''; position: absolute; left: 11px; top: -3px; width: 11px; height: 19px; border-left: 1px solid var(--border); }
@@ -13169,9 +13166,8 @@ button.waterfall-fold:hover {
 .flight-full-show, .flight-full-phase-index, .flight-full-phase-counter { flex: none; color: var(--text-faint); font-family: var(--font-mono); font-size: 10.5px; white-space: nowrap; }
 .flight-full-phase { position: relative; min-width: 0; padding-bottom: 3px; }
 .flight-full-phase-section { position: relative; min-width: 0; }
-.flight-full-phase-header { position: relative; display: flex; align-items: center; min-height: 32px; padding-right: 28px; border-radius: 6px; }
+.flight-full-phase-header { position: relative; display: flex; align-items: center; min-height: 32px; border-radius: 6px; }
 .flight-full-phase-header:hover { background: var(--bar); }
-.flight-full-phase-header:hover > .flight-v6-actions { opacity: 1; }
 .flight-full-phase-toggle { display: flex; align-items: center; flex: 1; gap: 8px; min-width: 0; min-height: 32px; padding: 3px 6px; text-align: left; }
 .flight-full-phase-toggle > svg { flex: none; color: var(--text-faint); }
 .flight-full-phase-index { letter-spacing: .08em; }
@@ -13227,14 +13223,13 @@ button.waterfall-fold:hover {
 .flight-full-coordinator .flight-v6-session[data-seat='coordinator'][data-word='needs-you'] { border-color: color-mix(in srgb, var(--attention) 45%, transparent); }
 .flight-full-coordinator .flight-v6-session[data-seat='coordinator'][data-selected='true'] { border-color: color-mix(in srgb, var(--live) 70%, transparent); }
 .flight-v6-session[data-seat='coordinator'] > .flight-v6-session-line { min-height: 56px; border-radius: 7px; }
-.flight-v6-session[data-seat='coordinator'] .flight-v6-session-open { height: 56px; padding: 10px 28px 10px 10px; gap: 10px; }
+.flight-v6-session[data-seat='coordinator'] .flight-v6-session-open { height: 56px; padding: 10px; gap: 10px; }
 .flight-v6-session[data-seat='coordinator'] .flight-v6-session-open > span:first-child { width: 28px; height: 28px; border-radius: 7px; }
 .flight-v6-session[data-seat='coordinator'] .flight-v6-session-open > span:first-child svg { width: 16px; height: 16px; }
 .flight-full-coordinator-identity { display: flex; flex: 1; flex-direction: column; gap: 2px; min-width: 0; }
 .flight-full-coordinator-identity .flight-v6-title { font-size: 13px; font-weight: 600; }
 .flight-full-coordinator-caption { display: flex; align-items: center; gap: 6px; color: var(--text-dim); font-size: 11.5px; }
 .flight-full-conversation-arrow { flex: none; color: var(--text-faint); }
-.flight-v6-session[data-seat='coordinator'] .flight-v6-actions { top: 16px; }
 .flight-v6-session[data-seat='coordinator'] .flight-v6-native-chip { top: 20px; right: calc(var(--v6-state-width) + 56px); }
 .flight-v6-session[data-seat='phase-lead'] { margin-bottom: 2px; border-radius: 6px; background: var(--bar); }
 .flight-v6-session[data-seat='phase-lead'] .flight-v6-session-open { height: 32px; padding-left: 7px; }
@@ -13294,7 +13289,7 @@ button.waterfall-fold:hover {
 .flight-v6-strip {
   container-type: normal; container-name: none;
   height: auto; min-height: 32px; gap: var(--v6-gap, 8px);
-  padding: 3px 28px 3px 6px;
+  padding: 3px 6px;
 }
 .flight-v6-task-body {
   flex-wrap: wrap; height: auto; min-height: 26px;
@@ -13332,7 +13327,7 @@ button.waterfall-fold:hover {
   box-shadow: inset 0 0 0 1px var(--live);
 }
 .flight-v6-card[data-dependency-dim='true'], .flight-full-phase-lead[data-dependency-dim='true'] { opacity: 0.3; }
-.flight-v6-session-line { flex-wrap: wrap; padding-right: 28px; }
+.flight-v6-session-line { flex-wrap: wrap; padding-right: 6px; }
 .flight-v6-session-open {
   flex-wrap: wrap; height: auto; min-height: 28px; gap: 4px var(--v6-gap, 8px);
   padding-right: 0;
@@ -13352,7 +13347,7 @@ button.waterfall-fold:hover {
    the avatar's centre, the names align with its title and the states with its
    state column, left of the conversation arrow (POD-2027). */
 .flight-full-coordinator [data-seat='coordinator'] > .flight-v6-natives { margin: -4px 0 6px 24px; padding-left: 23px; }
-.flight-full-coordinator [data-seat='coordinator'] .flight-v6-native-state { padding-right: 52px; }
+.flight-full-coordinator [data-seat='coordinator'] .flight-v6-native-state { padding-right: 30px; }
 .flight-full-phase-toggle { flex-wrap: wrap; }
 .flight-full-phase-name { min-width: 0; flex: 0 1 auto; }
 .flight-full-phase-hairline { min-width: 0; flex: 1 1 12px; }

@@ -78,7 +78,7 @@ it.each([
 it('keeps intrinsic identity/state, title minima and the edge gutter through wrapped rows', () => {
   expect(declaration(300, '.flight-full-panel', 'container')).toBe('flight-full / inline-size')
   expect(declaration(300, '.flight-v6-strip', 'container-type')).toBe('normal')
-  expect(declaration(300, '.flight-v6-strip', 'padding')).toBe('3px 28px 3px 6px')
+  expect(declaration(300, '.flight-v6-strip', 'padding')).toBe('3px 6px')
   expect(declaration(300, '.flight-v6-strip', 'height')).toBe('auto')
   expect(declaration(300, '.flight-v6-task-body', 'flex-wrap')).toBe('wrap')
   expect(declaration(300, '.flight-v6-ref', 'overflow-wrap')).toBe('anywhere')

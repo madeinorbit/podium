@@ -2,7 +2,7 @@ import { LOADING } from '@podium/client-graph/loading'
 import type { FullDeck, FullDeckTask } from '@podium/client-graph/mission-full-deck'
 import { settled } from '@podium/client-graph/mission-view'
 import { observer } from '@podium/client-graph/react'
-import { CheckCircle2, ChevronDown, ChevronRight, Ellipsis } from 'lucide-react'
+import { CheckCircle2, ChevronDown, ChevronRight } from 'lucide-react'
 import { type CSSProperties, type ReactNode, type RefObject, useId } from 'react'
 import { GhostBar } from '@/components/GhostPreview'
 import { SessionNameEditor } from '@/lib/WorkerLabel'
@@ -257,7 +257,7 @@ const PhaseHeader = observer(function PhaseHeader({
     <div
       className="flight-full-phase-header"
       data-flight-task-row={task.id}
-      data-edge-gutter="28"
+      data-edge-gutter="6"
       data-dependency-highlight={dependencies?.highlighted(task) || undefined}
       ref={window.enabled ? window.measure(deckTaskKey(task.id)) : undefined}
       onContextMenu={(event) => actions.onMenu(task, event)}
@@ -310,15 +310,6 @@ const PhaseHeader = observer(function PhaseHeader({
           </span>
         </button>
       )}
-      <button
-        type="button"
-        className="flight-v6-actions"
-        aria-label={`Phase actions for ${task.row.title}`}
-        title="Phase actions"
-        onClick={(event) => actions.onMenu(task, event)}
-      >
-        <Ellipsis size={12} />
-      </button>
     </div>
   )
 })

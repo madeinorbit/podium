@@ -1443,12 +1443,6 @@ describe('flight deck sections (POD-710 §4.3, §4.4)', () => {
     expect(row).not.toBeNull()
     expect(row?.querySelector('.flight-v6-state')?.textContent).toBe('Done∑ 1:05')
   })
-
-  it('offers session lifecycle from the open card', async () => {
-    harness.ui.set('podium.flightDeck.folds', writeFolds(new Map([['t2', 'open']]))!)
-    await deck()
-    expect(screen.getByRole('button', { name: 'Session actions for s2' })).toBeTruthy()
-  })
 })
 
 /**
@@ -1501,11 +1495,6 @@ describe('flight deck task menu (POD-771)', () => {
     fireEvent.contextMenu(proposal as HTMLElement)
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Start issue' }))
     expect(harness.startIssue).toHaveBeenCalledWith({ id: 'p1' })
-  })
-
-  it('shows the hover affordance for operators who never right-click', async () => {
-    await deck()
-    expect(screen.getByRole('button', { name: 'Task actions for Task t1' })).toBeTruthy()
   })
 
   it('uses the shared draft name in the strip and its rename editor', async () => {
@@ -1617,11 +1606,10 @@ describe('flight deck spine (POD-758)', () => {
     expect(band?.className).not.toContain('issue-mix')
   })
 
-  it('keeps an empty task compact with its shared Idle state and actions', async () => {
+  it('keeps an empty task compact with its shared Idle state', async () => {
     harness.issues.push(issue('t5', { parentId: 'root', stage: 'planning', title: 'Unstaffed' }))
     await deck()
     expect(strip('t5').querySelector('.flight-v6-state')?.textContent).toBe('Idle')
-    expect(screen.getByRole('button', { name: 'Task actions for Unstaffed' })).toBeTruthy()
     expect(strip('t5').querySelector('.flight-v6-sessions')).toBeNull()
   })
 
@@ -1986,9 +1974,6 @@ describe('Full coordinator and session seats', () => {
       expect(harness.openSessionTab).toHaveBeenLastCalledWith(id, { permanent: true })
     }
     expect(harness.openSessionTab).toHaveBeenCalledTimes(24)
-    expect(screen.getByRole('button', { name: 'Session actions for coord' })).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'Phase actions for Build' })).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'Task actions for Build storage' })).toBeTruthy()
   })
 
   it('keeps a simple issue, its pending offer and selected helper stable as child tasks and phases arrive', async () => {

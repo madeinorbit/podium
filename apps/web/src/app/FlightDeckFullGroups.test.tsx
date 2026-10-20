@@ -402,7 +402,7 @@ it('keeps long identity, shared state, dependency locks and position hooks at ar
   if (f.full.allFolded) act(() => f.full.foldAll())
   const strip = f.task('blocked')!.querySelector('[data-flight-task-row]')!
   expect(strip.getAttribute('data-flight-task-row')).toBe('blocked')
-  expect(strip.getAttribute('data-edge-gutter')).toBe('28')
+  expect(strip.getAttribute('data-edge-gutter')).toBe('6')
   const dependency = strip.querySelector('[data-dependency-slot="blocked"]')!
   expect(dependency.getAttribute('data-kind')).toBe('blocked')
   expect(dependency.querySelector('svg')).not.toBeNull()
@@ -457,9 +457,9 @@ it('keeps long identity, shared state, dependency locks and position hooks at ar
 
 it('keeps phase actions and rename accessible without coupling collapse to issue stages', async () => {
   const f = await open()
-  fireEvent.click(f.ui.getByRole('button', { name: 'Phase actions for build' }))
+  expect(f.ui.queryByRole('button', { name: 'Phase actions for build' })).toBeNull()
   fireEvent.contextMenu(f.group('build')!.querySelector('.flight-full-phase-header')!)
-  expect(f.actions.onMenu).toHaveBeenCalledTimes(2)
+  expect(f.actions.onMenu).toHaveBeenCalledTimes(1)
   expect(f.actions.onMenu.mock.calls[0]?.[0]).toBe(f.full.task('build'))
   expect(f.full.task('build').open).toBe(true)
   f.ui.rerender(<FlightDeckFullGroups {...f.props} renameTarget={{ id: 'build', seed: 'build' }} />)
