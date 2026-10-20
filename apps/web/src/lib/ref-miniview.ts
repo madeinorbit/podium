@@ -12,12 +12,7 @@ import type { IssueViewModel } from '@podium/client-core/replica'
  * without React or the store.
  */
 
-import type {
-  IssuePanelArtifact,
-  IssuePanelTodo,
-  SessionId,
-  IssueId,
-} from '@podium/model/browser'
+import type { IssueId, IssuePanelTodo, SessionId } from '@podium/model/browser'
 import { type AnyRef, parseAnyRef } from '@podium/protocol'
 
 /**
@@ -68,15 +63,13 @@ export type RefIssueLike = Pick<IssueViewModel, 'id' | 'seq' | 'title'> &
     >
   > & {
     /**
-     * The card renders a genuinely NARROWER panel than the wire carries — two of
-     * the three groups, and only two members of an artifact. That narrowing is
-     * legitimate (ADR 4: a projection reads what it renders), so it stays; what
-     * does not stay is restating `{ text, done }` and `{ path, title }` by hand.
-     * The member types come from the panel group itself.
+     * The card renders a genuinely NARROWER panel than the wire carries — only
+     * the todos. That narrowing is legitimate (ADR 4: a projection reads what it
+     * renders), so it stays; what does not stay is restating `{ text, done }` by
+     * hand. The member type comes from the panel group itself.
      */
     panel?: {
       todos?: readonly IssuePanelTodo[]
-      artifacts?: readonly Pick<IssuePanelArtifact, 'path' | 'title'>[]
     }
   }
 

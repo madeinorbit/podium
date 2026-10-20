@@ -1,6 +1,5 @@
 import { relativeTime } from '@podium/client-core/focus'
 import { shallowEqual } from '@podium/client-core/shallow-equal'
-import { issueReferenceModel } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph'
 import { omitGone } from '@podium/client-graph/lookup'
 import { machinePathBasename } from '@podium/model'
@@ -32,15 +31,18 @@ import {
 } from 'react'
 import { createPortal } from 'react-dom'
 import { OPEN_RIGHT_PANEL_EVENT } from '@/app/shell-state'
-import { useRuntimeSelector } from '@/app/store'
+import { type IssueViewModel, useRuntimeSelector } from '@/app/store'
 import { useWorklistPool, useWorklistPoolProjection } from '@/app/store-worklist-pool'
+import { DropdownMenuOwner } from '@/components/ui/dropdown-menu'
 import { IssueChipLiveness } from '@/features/chat/IssueChipLiveness'
 import { useChatReferenceMachines } from '@/features/chat/use-chat-context'
 import { useIssueExplorer } from '@/features/issues/explorer/explorer-context'
 import { IssueAgentSettings } from '@/features/issues/IssueAgentSettings'
+import { IssueStatusPicker } from '@/features/issues/IssueStatusPicker'
 import { PriorityGlyph } from '@/features/issues/issue-glyphs'
 import { isIssueStartable } from '@/features/issues/issue-startable'
 import type { LaunchMachine } from '@/features/issues/LaunchBox'
+import { useIssueStatusApply } from '@/features/issues/use-issue-status-apply'
 import { renderReadoutMarkdown } from '@/lib/markdown'
 import { setKnownRefPrefixes } from '@/lib/markdown-references'
 import {
@@ -315,6 +317,8 @@ export function RefCard({
     observer.observe(el)
     return () => observer.disconnect()
   }, [anchorY])
+  // The stage glyph is the shared status picker; the hook holds the close guard.
+  const status = useIssueStatusApply()
   const targetTitle =
     target?.kind === 'issue'
       ? target.issue.title
@@ -352,6 +356,9 @@ export function RefCard({
       // Portaled settings menus belong to this card for light-dismiss.
       if (e.target instanceof Element && e.target.closest('[data-overlay-owner="ref-miniview"]'))
         return
+      // So does the close guard the status picker raises: dismissing the card
+      // from inside it would unmount the dialog mid-decision.
+      if (e.target instanceof Element && e.target.closest('[role=alertdialog]')) return
       onClose()
     }
     window.addEventListener('pointerdown', onPointerDown, true)
@@ -379,6 +386,7 @@ export function RefCard({
       role="dialog"
       aria-label={`Reference ${refToken}`}
     >
+      {status.dialog}
       {target?.kind === 'issue' ? (
         <>
           <div className="px-4 pt-4 pb-3">
@@ -388,26 +396,43 @@ export function RefCard({
                 end of a dot-separated run. Here it sits where the ref is, in the
                 same mono voice, and reads first. */}
             <div className="mb-2.5 flex items-center justify-between gap-3">
-              <div className="flex min-w-0 items-center gap-2 text-[11px] font-semibold tracking-[0.04em] text-muted-foreground">
-                <IssueReference
-                  model={
-                    target.issue.stage
-                      ? issueReferenceModel({
-                          ...target.issue,
+              <div
+                data-testid="ref-card-identity"
+                className="flex min-w-0 items-center gap-2 text-[11px] font-semibold tracking-[0.04em] text-muted-foreground"
+              >
+                {target.issue.stage ? (
+                  <span className="inline-flex min-w-0 items-center gap-1.5">
+                    <DropdownMenuOwner value="ref-miniview">
+                      <IssueStatusPicker
+                        issue={{
                           stage: target.issue.stage,
-                          displayRef: refToken,
-                        })
-                      : {
-                          ref: refToken,
-                          issueId: target.issue.id,
-                          title: target.issue.title,
-                          stage: null,
-                          availability: 'present',
-                          accessibleLabel: `Task ${refToken}: ${target.issue.title}`,
+                          closedReason: target.issue.closedReason,
+                        }}
+                        size={13}
+                        // The hook reads only the id: the close guard and its
+                        // dialog look the rest up in the pool.
+                        onPick={(value) =>
+                          status.pick(target.issue as unknown as IssueViewModel, value)
                         }
-                  }
-                  showTitle={false}
-                />
+                      />
+                    </DropdownMenuOwner>
+                    <span className="flex-none font-mono text-[0.88em] text-muted-foreground">
+                      {refToken}
+                    </span>
+                  </span>
+                ) : (
+                  <IssueReference
+                    model={{
+                      ref: refToken,
+                      issueId: target.issue.id,
+                      title: target.issue.title,
+                      stage: null,
+                      availability: 'present',
+                      accessibleLabel: `Task ${refToken}: ${target.issue.title}`,
+                    }}
+                    showTitle={false}
+                  />
+                )}
                 {target.issue.priority !== undefined && (
                   <span
                     className="flex flex-none items-center gap-1"
@@ -857,7 +882,6 @@ function IssueDetailsStrip({
   }, [issue.id, issue.updatedAt, loadComments])
   const todos = issue.panel?.todos ?? []
   const todosDone = todos.filter((t) => t.done).length
-  const artifacts = issue.panel?.artifacts?.length ?? 0
   const cells: { label: string; value: string }[] = []
   if (todos.length > 0)
     cells.push({ label: 'Tasks', value: `${todosDone} of ${todos.length} done` })
@@ -866,7 +890,6 @@ function IssueDetailsStrip({
       label: 'Subissues',
       value: `${issue.childDoneCount ?? 0}/${issue.childCount} done`,
     })
-  if (artifacts > 0) cells.push({ label: 'Artifacts', value: `${artifacts}` })
   if (comments > 0)
     cells.push({ label: 'Activity', value: `${comments} comment${comments === 1 ? '' : 's'}` })
   if (cells.length === 0) return null

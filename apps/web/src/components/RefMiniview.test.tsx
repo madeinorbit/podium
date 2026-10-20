@@ -1049,7 +1049,7 @@ describe('RefCard identity row (POD-786)', () => {
 
   it('carries priority beside the ref, not down on the meta line', () => {
     renderCard(root, rich)
-    const identity = container.querySelector('[data-issue-reference]')?.parentElement
+    const identity = container.querySelector('[data-testid="ref-card-identity"]')
     expect(identity?.textContent).toContain('POD-517')
     expect(identity?.textContent).toContain('P1')
     // The meta line still carries the enrichments — priority just is not one.
@@ -1059,5 +1059,52 @@ describe('RefCard identity row (POD-786)', () => {
   it('omits priority entirely when the issue has none', () => {
     renderCard(root, { ...rich, priority: undefined })
     expect(container.querySelector('[aria-label="P1"]')).toBeNull()
+  })
+
+  it('makes the status glyph the shared picker and applies the pick without closing', async () => {
+    hostStore.updateIssue.mockClear()
+    const onClose = vi.fn()
+    act(() => {
+      root.render(
+        <RefCard
+          refToken="POD-517"
+          target={issueTarget(rich)}
+          onClose={onClose}
+          onOpenFull={() => {}}
+        />,
+      )
+    })
+    fireEvent.click(screen.getByLabelText('Status: In Progress'))
+    const backlog = await screen.findByRole('menuitem', { name: 'Backlog' })
+    // The menu is portaled out of the card; pressing in it must not light-dismiss.
+    fireEvent.pointerDown(backlog)
+    fireEvent.click(backlog)
+    await waitFor(() =>
+      expect(hostStore.updateIssue).toHaveBeenCalledWith('iss_1', { stage: 'backlog' }),
+    )
+    expect(onClose).not.toHaveBeenCalled()
+  })
+})
+
+describe('RefCard details strip', () => {
+  let container: HTMLDivElement
+  let root: Root
+  beforeEach(() => {
+    container = document.createElement('div')
+    document.body.appendChild(container)
+    root = createRoot(container)
+  })
+  afterEach(() => {
+    act(() => root.unmount())
+    container.remove()
+  })
+
+  it('does not count artifacts', () => {
+    renderCard(root, {
+      ...rich,
+      panel: { ...rich.panel, artifacts: [{ path: 'a.png', title: 'Shot' }] },
+    } as RefIssueLike)
+    expect(container.textContent).toContain('Tasks')
+    expect(container.textContent).not.toContain('Artifacts')
   })
 })
