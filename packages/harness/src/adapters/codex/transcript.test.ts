@@ -204,6 +204,24 @@ describe('codexRecordToItems', () => {
     })
   })
 
+  it.each([
+    { questions: [{ options: ['main'] }] },
+    { questions: [{ title: 'Where?', options: [1] }] },
+  ])('preserves the generic tool preview for malformed async input: %j', (input) => {
+    const [item] = codexRecordToItems({
+      type: 'response_item',
+      payload: {
+        type: 'function_call',
+        name: 'request_user_input_async',
+        arguments: JSON.stringify(input),
+      },
+    })
+    expect(item?.toolName).toBe('request_user_input_async')
+    expect(item?.toolInputJson).toBeUndefined()
+    expect(item?.toolInput).not.toBe('AskUserQuestion')
+    expect(item?.toolInput).toContain('questions')
+  })
+
   it('carries async titles, string options, and free-text questions to the shared card', () => {
     const [item] = codexRecordToItems(
       env('response_item', {

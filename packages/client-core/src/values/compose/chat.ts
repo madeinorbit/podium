@@ -1,6 +1,7 @@
 import type { SessionView } from '../../session-values'
 import { sessionById } from '../../session-index'
-import { isPendingAskQuestion } from '../ask-question'
+import { isCodexAsyncQuestion, isInterviewQuestion, isPendingAskQuestion } from '../ask-question'
+import { parseEnvelopeBatch } from '../message-envelope'
 /**
  * THE CHAT SLICE (POD-405, completing POD-330's per-feature split).
  *
@@ -451,11 +452,16 @@ export function livePendingAskIndex(
   status: SessionView['status'] | undefined,
 ): number {
   if (status !== 'live' && status !== 'starting') return -1
-  let last = -1
-  blocks.forEach((b, i) => {
-    if (isPendingAskQuestion(b)) last = i
-  })
-  return last
+  let superseded = false
+  for (let i = blocks.length - 1; i >= 0; i--) {
+    const block = blocks[i]!
+    if (isPendingAskQuestion(block) && (!isCodexAsyncQuestion(block.item) || !superseded)) return i
+    if (isInterviewQuestion(block.item) || isOperatorPrompt(block.item, {
+      collapseMachineContext: true,
+      operatorTextOf: text => parseEnvelopeBatch(text)?.operatorText,
+    })) superseded = true
+  }
+  return -1
 }
 
 /** The agent's most recent answer: the block index carrying the end-of-turn

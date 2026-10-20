@@ -51,7 +51,7 @@ const fakeTrpc = {
         })
       },
     },
-    sendText: { mutate: vi.fn(async (_input: unknown) => ({ ok: true })) },
+    sendText: { mutate: vi.fn(async (_input: unknown): Promise<{ ok: boolean; disposition?: string; position?: number }> => ({ ok: true })) },
     answerAskUserQuestion: { mutate: answerMutate },
     uploadImage: { mutate: vi.fn(async () => ({ path: '/x' })) },
   },
@@ -283,6 +283,7 @@ describe('Codex async interviews in chat', () => {
     expect(fakeTrpc.sessions.sendText.mutate).toHaveBeenCalledTimes(1)
     const sent = fakeTrpc.sessions.sendText.mutate.mock.calls[0]?.[0] as unknown as { text: string }
     expect(sent).toMatchObject({ sessionId: 's1' })
+    expect(sent).toHaveProperty('mutationId', expect.stringMatching(/^msg_/))
     expect(JSON.parse(sent.text.split('\n')[1] ?? '')).toEqual([
       {
         answer: 'The card header',
@@ -356,13 +357,44 @@ describe('Codex async interviews in chat', () => {
     expect(answerMutate).not.toHaveBeenCalled()
   })
 
-  it('keeps the question editable when chat delivery is refused', async () => {
+  it('retires an old async card when the human answers in ordinary chat', async () => {
+    await show(meta({ agentKind: 'codex' }), [
+      question(),
+      ack,
+      { id: 'plain-answer', role: 'user', text: 'Use the card header.' },
+    ])
+    expect(container.querySelector('[data-testid="ask-live"]')).toBeNull()
+    expect(optionButtons().every((button) => button.disabled)).toBe(true)
+  })
+
+  it('shows a queued reply as readable chat and does not resend it from a remounted card', async () => {
+    fakeTrpc.sessions.sendText.mutate.mockResolvedValueOnce({
+      ok: true,
+      disposition: 'queued',
+      position: 1,
+    })
+    await show(meta({ agentKind: 'codex' }), [question(), ack])
+    await act(async () => optionButtons()[0]?.click())
+    await flush()
+    expect(container.textContent).toContain('queue position 1')
+    expect(container.textContent).not.toContain('questionItemId')
+    act(() => root.render(<ChatView key="remounted" sessionId={asSessionId('s1')} />))
+    await flush()
+    await act(async () => reads.at(-1)?.resolve({ items: [question(), ack], hasMore: false }))
+    await flush()
+    await act(async () => optionButtons()[1]?.click())
+    expect(fakeTrpc.sessions.sendText.mutate).toHaveBeenCalledTimes(1)
+    expect(answerMutate).not.toHaveBeenCalled()
+  })
+
+  it('keeps a refused reply in the chat send failure path', async () => {
     fakeTrpc.sessions.sendText.mutate.mockResolvedValueOnce({ ok: false })
     await show(meta({ agentKind: 'codex' }), [question(), ack])
     await act(async () => optionButtons()[0]?.click())
-    expect(optionButtons().every((button) => !button.disabled)).toBe(true)
+    await flush()
+    expect(container.textContent).toContain('not sent')
     await act(async () => optionButtons()[1]?.click())
-    expect(fakeTrpc.sessions.sendText.mutate).toHaveBeenCalledTimes(2)
+    expect(fakeTrpc.sessions.sendText.mutate).toHaveBeenCalledTimes(1)
     expect(answerMutate).not.toHaveBeenCalled()
   })
 })

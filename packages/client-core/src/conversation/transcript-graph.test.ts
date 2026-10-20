@@ -1,6 +1,7 @@
 import type { TranscriptItem } from '@podium/model'
 import { autorun } from 'mobx'
 import { expect, it } from 'vitest'
+import { livePendingAskIndex } from '../values/compose/chat'
 import { computeTranscript } from '../values/transcript-compute'
 import { TranscriptGraph, type TranscriptGraphChange } from './transcript-graph'
 
@@ -72,6 +73,45 @@ it('keeps a Codex async acknowledgement pending until its correlated human reply
   f.append(result('reply', 'async', '[{"answer":"main"}]'), user('human', 'main'))
   expect(f.graph.pendingQuestionId).toBeUndefined()
   expect(f.graph.block('question')?.result).toBe('[{"answer":"main"}]')
+  f.graph.dispose()
+})
+
+it('retires async interviews after a human prompt or a later interview without reviving older questions', () => {
+  const question = (id: string): TranscriptItem => ({
+    ...call(id, id, 'request_user_input_async'),
+    toolInputJson: JSON.stringify({ questions: [{ question: 'Where?', options: [] }] }),
+  })
+  const checkPending = (graph: TranscriptGraph, expected: string | undefined) => {
+    expect(graph.pendingQuestionId).toBe(expected)
+    const blocks = graph.snapshot().blocks
+    expect(blocks[livePendingAskIndex(blocks, 'live')]?.item.id).toBe(expected)
+  }
+  const f = fixture([question('first'), result('ack-first', 'first', '{"accepted":true}')])
+  f.append(prose('still-working'))
+  checkPending(f.graph, 'first')
+  f.append(user('plain-answer', 'Use main, please.'))
+  checkPending(f.graph, undefined)
+  f.append(question('next'), result('ack-next', 'next', '{"accepted":true}'))
+  checkPending(f.graph, 'next')
+  f.append(question('last'), result('ack-last', 'last', '{"accepted":true}'))
+  checkPending(f.graph, 'last')
+  f.append(result('last-answer', 'last', '[{"answer":"main"}]'))
+  checkPending(f.graph, undefined)
+  f.prepend(question('older'), result('ack-older', 'older', '{"accepted":true}'))
+  checkPending(f.graph, undefined)
+  f.graph.dispose()
+})
+
+it('preserves native-menu pending rules when a later human prompt appears', () => {
+  const f = fixture([
+    {
+      ...call('native', 'native', 'AskUserQuestion'),
+      toolInputJson: JSON.stringify({ questions: [{ question: 'Where?', options: [] }] }),
+    },
+    user('human'),
+  ])
+  expect(f.graph.pendingQuestionId).toBe('native')
+  expect(livePendingAskIndex(f.graph.snapshot().blocks, 'live')).toBe(0)
   f.graph.dispose()
 })
 

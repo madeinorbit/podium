@@ -86,6 +86,7 @@ export class ConversationPresentation {
     const id = this.graph?.pendingQuestionId
     return id === undefined ? -1 : this.graph!.blockPosition(id) ?? -1
   }
+  isPendingAsk(id: string): boolean { return this.computeReady && this.graph?.pendingQuestionId === id }
   @lazy({ equals: compareShallow }) get matches(): readonly string[] {
     return this.computeReady ? this.graph!.matches(this.query) : []
   }

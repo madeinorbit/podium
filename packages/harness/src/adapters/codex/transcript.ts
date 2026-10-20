@@ -236,10 +236,10 @@ function codexToolDisplay(wireName: string, rawInput: unknown): CodexToolDisplay
   if (wireName === CODEX_ASYNC_QUESTION_TOOL) {
     const questions = codexAsyncQuestionInput(input)
     const toolInputJson = safeAskQuestionInputJson(questions)
-    return {
+    if (toolInputJson) return {
       toolName: wireName,
       toolInput: askQuestionPreview(questions),
-      ...(toolInputJson ? { toolInputJson } : {}),
+      toolInputJson,
     }
   }
   if (wireName === 'exec_command') {

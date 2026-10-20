@@ -1,6 +1,7 @@
 import type { SessionView } from '@podium/client-core/session-values'
 import { isCodexAsyncQuestion, isPendingAskQuestion, matchesQuestionInteraction, type SuperThreadRef } from '@podium/client-core/values'
 import { isMachineOfflineForLiveTerminal, type SessionId } from '@podium/model/browser'
+import { codexQuestionReplyText, parseCodexQuestionReplies } from '@podium/harness/browser'
 import type { RefObject } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { usePoolMachine } from '@/app/header-data'
@@ -142,12 +143,23 @@ export function useChatLayout(opts: UseChatLayoutOptions): ChatSurface {
         !block ||
         !isCodexAsyncQuestion(block.item) ||
         !isPendingAskQuestion(block) ||
+        !presentation.isPendingAsk(answer.reply.itemId) ||
         block.item.toolInputJson !== answer.reply.question ||
-        !view.composer.sendable
+        view.headless ||
+        !view.composer.sendable ||
+        !view.composer.deliverable
       )
         throw new Error('The question changed; wait for the current question.')
-      const sent = await trpc.sessions.sendText.mutate({ sessionId, text: answer.reply.text })
-      if (sent?.ok === false) throw new Error(sent.reason ?? 'answer not delivered')
+      // A remounted card must not create a second reply while the original is
+      // queued or waiting for its receipt. Retry and retract belong to its bubble.
+      if (sends.pending.some(turn => parseCodexQuestionReplies(turn.wire)?.some(
+        reply => reply.callId === block.item.toolUseId,
+      ))) return
+      scroll.pinToBottom()
+      await sends.submit({
+        text: codexQuestionReplyText(answer.reply.text) ?? answer.reply.text,
+        wire: answer.reply.text,
+      })
       return
     }
     const question = view.question
@@ -157,7 +169,7 @@ export function useChatLayout(opts: UseChatLayoutOptions): ChatSurface {
       ? { sessionId, interactionId: answer.interactionId, skip: true }
       : { sessionId, interactionId: answer.interactionId, choices: answer.choices }) as { ok?: boolean; reason?: string } | undefined
     if (sent?.ok === false) throw new Error(sent.reason ?? 'answer not delivered')
-  }, [view, presentation, trpc, sessionId])
+  }, [view, presentation, trpc, sessionId, sends, scroll.pinToBottom])
   const activeRow = presentation.search.activeRow
   useEffect(() => {
     if (activeRow === undefined) return

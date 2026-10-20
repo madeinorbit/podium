@@ -2,7 +2,7 @@ import type { TranscriptItem } from '@podium/model'
 import { action, compareShallow, observable, type IObservableArray } from 'mobx'
 import { companion, lazy } from '@podium/mobx-helpers'
 import { LatestTranscriptId } from '../transcript/merge'
-import { isPendingAskQuestion } from '../values/ask-question'
+import { isCodexAsyncQuestion, isInterviewQuestion, isPendingAskQuestion } from '../values/ask-question'
 import {
   isBatchableTool, isUserMediaMarker, pairToolResults,
   type ChatBlock, type ChatRow,
@@ -90,6 +90,7 @@ export class TranscriptGraph {
   private readonly assistants = new LatestTranscriptId(id => this.rank(id))
   private readonly prose = new LatestTranscriptId(id => this.rank(id))
   private readonly questions = new LatestTranscriptId(id => this.rank(id))
+  private readonly interviews = new LatestTranscriptId(id => this.rank(id))
   @observable accessor latestAnswerId: string | undefined = undefined
   @observable accessor latestAssistantId: string | undefined = undefined
   @observable accessor latestProseId: string | undefined = undefined
@@ -264,6 +265,7 @@ export class TranscriptGraph {
     this.assistants.clear()
     this.prose.clear()
     this.questions.clear()
+    this.interviews.clear()
     this.searchIndex.clear()
     this.fileIds = items.map(item => item.id)
     const ordered = promptsBeforeTheirReplies([...items])
@@ -666,6 +668,7 @@ export class TranscriptGraph {
     this.assistants.set(id, block.item.role === 'assistant')
     this.prose.set(id, block.item.role === 'assistant' && block.item.text.trim() !== '')
     this.questions.set(id, isPendingAskQuestion(block))
+    this.interviews.set(id, isInterviewQuestion(block.item))
     this.indexOperators(id, block.item)
     this.indexAlias(id, block.item.cursor ?? id)
     const run = this.rowByBlock.get(id)
@@ -676,7 +679,15 @@ export class TranscriptGraph {
     this.latestAnswerId = this.answers.latest()
     this.latestAssistantId = this.assistants.latest()
     this.latestProseId = this.prose.latest()
-    this.pendingQuestionId = this.questions.latest()
+    const question = this.questions.latest()
+    // Async interviews can be answered in ordinary chat or superseded without
+    // a correlated result. Do not resurrect them after the next human prompt
+    // or interview. The existing native-menu question rules stay unchanged.
+    const superseded = question !== undefined && isCodexAsyncQuestion(this.items.get(question)!) &&
+      [this.operatorIds[1].at(-1), this.interviews.latest()].some(
+        id => id !== undefined && this.rank(id) > this.rank(question),
+      )
+    this.pendingQuestionId = superseded ? undefined : question
   }
 
   private indexOperators(id: string, item: TranscriptItem | undefined): void {
