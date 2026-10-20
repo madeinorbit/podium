@@ -1,5 +1,3 @@
-import { issueObserver as observer } from './issue-page/issue-observer'
-import { IssueAge } from './issue-page/IssueAge'
 import { shallowEqual } from '@podium/client-core/shallow-equal'
 import {
   artifactKind,
@@ -10,6 +8,9 @@ import {
   type PresenceNote,
   sessionNeedsHuman,
 } from '@podium/client-core/values'
+import { RECENT_ACTIVITY_SIZE } from '@podium/client-graph/issue-activity'
+import type { issuePages, PageIssue } from '@podium/client-graph/issue-page'
+import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { resolveMachinePath } from '@podium/model'
 import type { IssueComment, IssueId, MachineId, SessionId } from '@podium/model/browser'
 import { isFinished } from '@podium/model/browser'
@@ -33,7 +34,7 @@ import type { JSX, ReactNode } from 'react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useOperatorFocus } from '@/app/operator-focus'
 import { type IssueViewModel, useRuntimeSelector } from '@/app/store'
-import { MediaLightbox } from '@/components/MediaLightbox'
+import { ArtifactLightbox, artifactLightboxKey } from '@/components/ArtifactLightbox'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { modChord } from '@/lib/mod-chord'
@@ -56,12 +57,11 @@ import {
 } from './IssueCompactControls'
 import { IssueStatusPicker } from './IssueStatusPicker'
 import { issueIdTitle } from './issue-card'
-import { useIssuePageContext } from './issue-page/issue-page-data'
+import { IssueAge } from './issue-page/IssueAge'
 import { useIssueHistory } from './issue-page/IssueHistory'
-import { RECENT_ACTIVITY_SIZE } from '@podium/client-graph/issue-activity'
-import { issuePages, type PageIssue } from '@podium/client-graph/issue-page'
-import { useIssueEdgeResolver, edgeIssue } from './issue-page/issue-edges'
-import { LOADING } from '@podium/client-graph/worklist/rollup'
+import { edgeIssue, useIssueEdgeResolver } from './issue-page/issue-edges'
+import { issueObserver as observer } from './issue-page/issue-observer'
+import { useIssuePageContext } from './issue-page/issue-page-data'
 import { useIssueStatusApply } from './use-issue-status-apply'
 
 // Where the task's identity lives, since POD-743: the HEAD of this panel. The
@@ -618,11 +618,7 @@ const ProducedAndDeferred = observer(function ProducedAndDeferred({
   // artifact as a dead disabled button.
   const root = issue.worktreePath ?? issue.repoPath
   // Media artifact opened full-size (click a preview; Esc / click-out closes).
-  const [lightbox, setLightbox] = useState<{
-    kind: 'image' | 'video'
-    src: string
-    label: string
-  } | null>(null)
+  const [lightbox, setLightbox] = useState<string | null>(null)
 
   // "Only when the issue actually has them" — an empty heading is chrome, and
   // the artifact does not render one.
@@ -654,7 +650,7 @@ const ProducedAndDeferred = observer(function ProducedAndDeferred({
                       type="button"
                       className="block w-full cursor-zoom-in"
                       title={`View ${label} full size`}
-                      onClick={() => setLightbox({ kind: 'image', src, label })}
+                      onClick={() => setLightbox(artifactLightboxKey(a))}
                     >
                       <img
                         src={src}
@@ -678,7 +674,7 @@ const ProducedAndDeferred = observer(function ProducedAndDeferred({
                       type="button"
                       className="group relative block w-full cursor-zoom-in"
                       title={`Play ${label}`}
-                      onClick={() => setLightbox({ kind: 'video', src, label })}
+                      onClick={() => setLightbox(artifactLightboxKey(a))}
                     >
                       <video
                         src={src}
@@ -773,7 +769,18 @@ const ProducedAndDeferred = observer(function ProducedAndDeferred({
         </DockPart>
       )}
 
-      {lightbox && <MediaLightbox {...lightbox} onClose={() => setLightbox(null)} />}
+      {lightbox && (
+        <ArtifactLightbox
+          artifacts={artifacts}
+          selected={lightbox}
+          onSelect={setLightbox}
+          onClose={() => setLightbox(null)}
+          httpOrigin={httpOrigin}
+          issueId={issue.id}
+          root={root}
+          machineId={machineId}
+        />
+      )}
     </>
   )
 })

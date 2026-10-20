@@ -7,7 +7,8 @@ import {
   type IssuePanelArtifact,
   type SessionOffer,
 } from '@podium/model'
-import { act, Profiler, useRef, useSyncExternalStore } from 'react'
+import { act } from '@testing-library/react'
+import { Profiler, useRef, useSyncExternalStore } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import '@/test-support/mock-screen-pool'
@@ -186,7 +187,7 @@ describe('OfferArtifactStrip [POD-120]', () => {
     expect(thumb?.querySelector('img')).not.toBeNull()
     act(() => thumb?.click())
     // Lightbox portals to <body>; the surrounding card click never fired.
-    expect(document.body.querySelector('img[alt="shot.png"]')).not.toBeNull()
+    expect(document.body.querySelector('[role="dialog"] img[alt="shot.png"]')).not.toBeNull()
     expect(cardClick).not.toHaveBeenCalled()
     expect(openArtifact).not.toHaveBeenCalled()
   })
@@ -205,5 +206,32 @@ describe('OfferArtifactStrip [POD-120]', () => {
       path: 'plan.md',
       worktreePath: '/wt',
     })
+  })
+
+  it('navigates all offered media in curated order, including those hidden behind +N', () => {
+    const paths = ['first.png', 'notes.md', 'second.png', 'third.png', 'fourth.png']
+    issues = [makeIssue(paths.map((path, i) => art(path, '2026-07-21', asArtifactId(`art_${i}`))))]
+    act(() => root.render(<OfferArtifactStrip offer={offerWith(paths)} session={session} />))
+    expect(container.querySelector('[data-testid="offer-artifact-extra"]')?.textContent).toBe('+2')
+    act(() =>
+      container.querySelector<HTMLButtonElement>('[data-testid="offer-artifact-thumb"]')?.click(),
+    )
+
+    const preview = () => document.body.querySelector('[role="dialog"]')
+    expect(preview()?.querySelector('img')?.alt).toBe('first.png')
+    act(() =>
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true })),
+    )
+    expect(preview()?.querySelector('img')?.alt).toBe('second.png')
+    act(() =>
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true })),
+    )
+    expect(preview()?.querySelector('img')?.alt).toBe('third.png')
+    act(() =>
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true })),
+    )
+    expect(preview()?.querySelector('img')?.alt).toBe('fourth.png')
+    expect(openArtifact).not.toHaveBeenCalled()
+    expect(openFileInWorktree).not.toHaveBeenCalled()
   })
 })

@@ -6,7 +6,7 @@ import type { IssuePanelArtifact, SessionOffer } from '@podium/model/browser'
 import { FileText, Play } from 'lucide-react'
 import { type JSX, useState } from 'react'
 import { useRuntimeSelector } from '@/app/store'
-import { MediaLightbox } from '@/components/MediaLightbox'
+import { ArtifactLightbox, artifactLightboxKey } from '@/components/ArtifactLightbox'
 import { currentWorkspaceSlug } from '@/lib/workspace-request'
 import { resolveOfferArtifacts } from './offer-artifacts'
 import { useChatArtifactIssue } from './use-chat-context'
@@ -43,11 +43,7 @@ export function OfferArtifactStrip({
     shallowEqual,
   )
   const issue = useChatArtifactIssue(session)
-  const [lightbox, setLightbox] = useState<{
-    kind: 'image' | 'video'
-    src: string
-    label: string
-  } | null>(null)
+  const [lightbox, setLightbox] = useState<string | null>(null)
 
   // The session's issue: direct issueId link first, then membership (sessions
   // grouped onto an issue by cwd carry no issueId of their own).
@@ -65,7 +61,6 @@ export function OfferArtifactStrip({
 
   const open = (a: IssuePanelArtifact): void => {
     const kind = artifactKind(a.entry ?? a.path)
-    const label = a.title ?? basename(a.path)
     const src = artifactUrl({
       httpOrigin,
       workspace: currentWorkspaceSlug(),
@@ -75,7 +70,7 @@ export function OfferArtifactStrip({
       ...(machineId ? { machineId } : {}),
     })
     if (src && (kind === 'image' || kind === 'video')) {
-      setLightbox({ kind, src, label })
+      setLightbox(artifactLightboxKey(a))
       return
     }
     // Non-media: same routing as the issue panel's artifact list — snapshotted
@@ -165,7 +160,18 @@ export function OfferArtifactStrip({
           +{extra}
         </span>
       )}
-      {lightbox && <MediaLightbox {...lightbox} onClose={() => setLightbox(null)} />}
+      {lightbox && (
+        <ArtifactLightbox
+          artifacts={resolved}
+          selected={lightbox}
+          onSelect={setLightbox}
+          onClose={() => setLightbox(null)}
+          httpOrigin={httpOrigin}
+          issueId={issue.id}
+          root={root}
+          machineId={machineId}
+        />
+      )}
     </div>
   )
 }
