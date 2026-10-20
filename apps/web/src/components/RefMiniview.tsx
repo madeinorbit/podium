@@ -1,4 +1,3 @@
-import { relativeTime } from '@podium/client-core/focus'
 import { shallowEqual } from '@podium/client-core/shallow-equal'
 import type { MobxPool } from '@podium/client-graph'
 import { omitGone } from '@podium/client-graph/lookup'
@@ -455,26 +454,6 @@ export function RefCard({
               />
             )}
           </div>
-          {target.issue.activityNotes && (
-            <div className="mx-3 mb-3 rounded-[10px] border border-border/60 bg-muted/40 px-3.5 py-3">
-              <div className="mb-1.5 flex items-baseline justify-between gap-3 text-[10px]">
-                <span className="font-semibold tracking-[0.09em] text-muted-foreground/70 uppercase">
-                  Latest update
-                </span>
-                {target.issue.notesUpdatedAt && (
-                  <span className="flex-none text-muted-foreground/60">
-                    {relativeTime(target.issue.notesUpdatedAt, Date.now())}
-                  </span>
-                )}
-              </div>
-              <ExpandableText
-                key={target.issue.id}
-                text={target.issue.activityNotes}
-                label="latest update"
-                className="text-[12.5px] leading-[1.5] text-foreground/90"
-              />
-            </div>
-          )}
           {isIssueStartable(target.issue) && (
             <div className="mx-3 mb-3 rounded-lg border border-border/60 bg-muted/30 px-3 py-2.5">
               <IssueAgentSettings
@@ -880,11 +859,7 @@ function IssueDetailsStrip({
       cancelled = true
     }
   }, [issue.id, issue.updatedAt, loadComments])
-  const todos = issue.panel?.todos ?? []
-  const todosDone = todos.filter((t) => t.done).length
   const cells: { label: string; value: string }[] = []
-  if (todos.length > 0)
-    cells.push({ label: 'Tasks', value: `${todosDone} of ${todos.length} done` })
   if ((issue.childCount ?? 0) > 0)
     cells.push({
       label: 'Subissues',

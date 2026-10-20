@@ -145,14 +145,6 @@ const rich: RefIssueLike = {
   childCount: 4,
   childDoneCount: 2,
   parentId: asIssueId('iss_parent'),
-  activityNotes: 'Card now shows stage, todos and status.',
-  panel: {
-    todos: [
-      { text: 'widen data path', done: true },
-      { text: 'redesign card', done: true },
-      { text: 'tests', done: false },
-    ],
-  },
 }
 
 const issues = [rich, parent]
@@ -319,17 +311,16 @@ describe('RefCard issue summary (#517)', () => {
     container.remove()
   })
 
-  it('derives blocker count, subissue + todo progress, and the resolved parent ref', () => {
+  it('derives blocker count, subissue progress, and the resolved parent ref', () => {
     renderCard(root, rich)
     const text = container.textContent ?? ''
     // Identity: the card renders the right issue.
     expect(text).toContain('POD-517')
     expect(text).toContain('Enrich the miniview')
     // Computed values (not passthrough copy): blocker count from blockedByNotes.length,
-    // childDoneCount/childCount, done/total todos, and the resolved parent ref.
+    // childDoneCount/childCount, and the resolved parent ref.
     expect(text).toContain('blocked (2)')
     expect(text).toContain('2/4 done')
-    expect(text).toContain('2 of 3 done')
     expect(text).toContain('in POD-500')
   })
 
@@ -369,7 +360,7 @@ describe('RefCard issue summary (#517)', () => {
 
   it('loads the comment count on demand and refreshes it when issue activity moves', async () => {
     const loadComments = vi.fn().mockResolvedValue([{}, {}])
-    const issue = { ...rich, panel: undefined, childCount: 0, updatedAt: 't1', commentCount: 99 }
+    const issue = { ...rich, childCount: 0, updatedAt: 't1', commentCount: 99 }
     const show = (updatedAt: string) =>
       root.render(
         <RefCard
@@ -420,7 +411,7 @@ describe('RefCard issue summary (#517)', () => {
         />,
       )
     await act(async () => {
-      show({ ...rich, panel: undefined, childCount: 0 })
+      show({ ...rich, childCount: 0 })
     })
     await act(async () => {
       show({ ...parent, stage: 'done', childCount: 0 })
@@ -478,11 +469,6 @@ describe('RefCard expandable text', () => {
     expect(less.getAttribute('aria-expanded')).toBe('true')
     act(() => fireEvent.click(less))
     expect(body?.getAttribute('data-open')).toBe('false')
-  })
-
-  it('offers the toggle for the latest update too', () => {
-    renderCard(root, long)
-    expect(screen.getByRole('button', { name: 'Show the full latest update' })).toBeTruthy()
   })
 
   it('shows no toggle when the text fits', () => {
@@ -1099,12 +1085,21 @@ describe('RefCard details strip', () => {
     container.remove()
   })
 
-  it('does not count artifacts', () => {
+  it('shows no latest update, todo count or artifact count even when the row has them', () => {
     renderCard(root, {
       ...rich,
-      panel: { ...rich.panel, artifacts: [{ path: 'a.png', title: 'Shot' }] },
+      activityNotes: 'Card now shows stage and status.',
+      notesUpdatedAt: '2026-10-20T00:00:00.000Z',
+      panel: {
+        todos: [{ text: 'tests', done: false }],
+        artifacts: [{ path: 'a.png', title: 'Shot' }],
+      },
     } as RefIssueLike)
-    expect(container.textContent).toContain('Tasks')
-    expect(container.textContent).not.toContain('Artifacts')
+    const text = container.textContent ?? ''
+    expect(text).toContain('Subissues')
+    expect(text).not.toContain('Latest update')
+    expect(text).not.toContain('Card now shows')
+    expect(text).not.toContain('Tasks')
+    expect(text).not.toContain('Artifacts')
   })
 })

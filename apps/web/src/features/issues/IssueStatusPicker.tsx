@@ -14,6 +14,7 @@ import {
   cloneElement,
   Fragment,
   type JSX,
+  type MouseEvent,
   useCallback,
   useId,
   useLayoutEffect,
@@ -256,27 +257,12 @@ export const IssueStatusPicker = observer(function IssueStatusPicker({
           row's child in the React tree, and React bubbles synthetic events
           along that tree — so picking `In Progress` would arrive at the row's
           onClick and open the task on top of the change just made. */}
-          <DropdownMenuContent
+          <IssueStatusMenuContent
+            current={current}
             align={align}
-            className="w-[150px]"
+            onPick={onPick}
             onClick={(event) => event.stopPropagation()}
-          >
-            {issueStatusMenuEntries().map((entry) => (
-              <Fragment key={entry.status}>
-                {entry.startsGroup && <DropdownMenuSeparator />}
-                <DropdownMenuItem onClick={() => onPick(entry.value)}>
-                  <StatusGlyph status={entry.status} size={12} decorative />
-                  <span className="min-w-0 flex-1 truncate">{entry.label}</span>
-                  {current === entry.value && (
-                    <Check
-                      className="ml-auto size-3 flex-none text-text-faint"
-                      aria-hidden="true"
-                    />
-                  )}
-                </DropdownMenuItem>
-              </Fragment>
-            ))}
-          </DropdownMenuContent>
+          />
         </DropdownMenu>
       ) : (
         trigger
@@ -284,3 +270,41 @@ export const IssueStatusPicker = observer(function IssueStatusPicker({
     </span>
   )
 })
+
+/**
+ * THE STATUS MENU ITSELF, whatever opens it. The row glyph above, the panel's
+ * status pill and the issue page's Status row each keep their own trigger, but
+ * all three render this one list: the entries, their order and the rules
+ * between them come from `issueStatusMenuEntries()` (POD-1074), and the current
+ * status carries the check. Mount it inside a `DropdownMenu` beside the trigger.
+ */
+export function IssueStatusMenuContent({
+  current,
+  onPick,
+  align = 'start',
+  onClick,
+}: {
+  /** The issue's own encoded value — `issueStatusValueOf(issue)`. */
+  current: string
+  /** The picked entry's encoded value — parse with `parseIssueStatusValue`. */
+  onPick: (value: string) => void
+  align?: 'start' | 'center' | 'end'
+  onClick?: (event: MouseEvent<HTMLDivElement>) => void
+}): JSX.Element {
+  return (
+    <DropdownMenuContent align={align} className="w-[150px]" onClick={onClick}>
+      {issueStatusMenuEntries().map((entry) => (
+        <Fragment key={entry.status}>
+          {entry.startsGroup && <DropdownMenuSeparator />}
+          <DropdownMenuItem onClick={() => onPick(entry.value)}>
+            <StatusGlyph status={entry.status} size={12} decorative />
+            <span className="min-w-0 flex-1 truncate">{entry.label}</span>
+            {current === entry.value && (
+              <Check className="ml-auto size-3 flex-none text-text-faint" aria-hidden="true" />
+            )}
+          </DropdownMenuItem>
+        </Fragment>
+      ))}
+    </DropdownMenuContent>
+  )
+}

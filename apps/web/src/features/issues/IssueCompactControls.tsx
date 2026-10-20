@@ -1,7 +1,3 @@
-import { useIssueEdgeResolver, edgeIssue } from './issue-page/issue-edges'
-import type { SessionModel } from '@podium/client-graph/models'
-import { issueObserver as observer } from './issue-page/issue-observer'
-import { isFinished } from '@podium/model/browser'
 import type { SessionView } from '@podium/client-core/session-values'
 import { shallowEqual } from '@podium/client-core/shallow-equal'
 import {
@@ -11,15 +7,15 @@ import {
   type ProposalPlacement,
   sessionNeedsHuman,
 } from '@podium/client-core/values'
+import type { SessionModel } from '@podium/client-graph/models'
 import {
   type IssueId,
   type IssueStage,
+  isFinished,
   issueStatusControlLabel,
   issueStatusLabel,
-  issueStatusMenuEntries,
   issueStatusOf,
   issueStatusValueOf,
-  parseIssueStatusValue,
 } from '@podium/model/browser'
 import {
   ArrowUpRight,
@@ -31,7 +27,7 @@ import {
   MoreHorizontal,
   RotateCcw,
 } from 'lucide-react'
-import { Fragment, type JSX, lazy, Suspense, useMemo, useState } from 'react'
+import { type JSX, lazy, Suspense, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import { usePoolMachines } from '@/app/header-data'
 import type { IssueViewModel } from '@/app/store'
@@ -41,7 +37,6 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { throughRestarts } from '@/lib/chunk-recovery'
@@ -49,15 +44,19 @@ import { MENU_HEADER, MENU_HEADER_REF, MENU_RULE } from '@/lib/menu-surface'
 import type { ContextMenuAnchor } from '@/lib/session-context-menu'
 import { cn } from '@/lib/utils'
 import { SessionNameEditor, sessionDisplayName, WorkerLabel } from '@/lib/WorkerLabel'
+import { IssueStatusMenuContent } from './IssueStatusPicker'
 import { StatusGlyph } from './issue-glyphs'
-import { IssueCloseDialog, type IssueCloseReason, useIssueCloseGuard } from './issue-lifecycle'
+import type { IssueCloseReason } from './issue-lifecycle'
 import { PoolIssueContextMenu } from './issue-menu-pool-inputs'
+import { edgeIssue, useIssueEdgeResolver } from './issue-page/issue-edges'
+import { issueObserver as observer } from './issue-page/issue-observer'
 import {
   useIssuePageCatalog,
   useIssuePageContext,
   useIssuePageSessions,
 } from './issue-page/issue-page-data'
-import { useIssueWorkBegun, LaunchBox, type LaunchCommands } from './LaunchBox'
+import { LaunchBox, type LaunchCommands, useIssueWorkBegun } from './LaunchBox'
+import { useIssueStatusApply } from './use-issue-status-apply'
 
 // The right-click menu exists only after a right-click; loading it on demand
 // keeps the menu (and its handoff machinery) out of the eager bundle.
@@ -264,12 +263,13 @@ export const IssueSessionRow = observer(function IssueSessionRow({
   const renameSession = useRuntimeSelector((s) => s.renameSession)
   const [menu, setMenu] = useState<ContextMenuAnchor | null>(null)
   const [editing, setEditing] = useState(false)
-  const retired = 'open' in session
-    ? !(session as SessionModel).open
-    : session.archived || session.status === 'exited'
-  const needs = !retired && ('attention' in session
-    ? (session as SessionModel).attention
-    : sessionNeedsHuman(session))
+  const retired =
+    'open' in session
+      ? !(session as SessionModel).open
+      : session.archived || session.status === 'exited'
+  const needs =
+    !retired &&
+    ('attention' in session ? (session as SessionModel).attention : sessionNeedsHuman(session))
   return (
     <div
       className={cn(
@@ -531,11 +531,10 @@ export const IssueCompactControls = observer(function IssueCompactControls({
   // NAVIGATION, so it left the action row entirely: it is now a named link in
   // the panel's head (`InspectHead`), above the title, where the trail and the
   // other "where am I" chrome lives.
-  const { trpc, updateIssue, closeIssue } = useRuntimeSelector(
+  const { trpc, updateIssue } = useRuntimeSelector(
     (s) => ({
       trpc: s.trpc,
       updateIssue: s.updateIssue,
-      closeIssue: s.closeIssue,
     }),
     shallowEqual,
   )
@@ -544,9 +543,9 @@ export const IssueCompactControls = observer(function IssueCompactControls({
   const sessions = useIssuePageSessions()
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
   const menuIssues = useIssuePageCatalog(Boolean(menu))
-  const [closeReason, setCloseReason] = useState<IssueCloseReason | null>(null)
-  const needsCloseGuard = useIssueCloseGuard()
-  const [closing, setClosing] = useState(false)
+  // The status menu, the Done button and the context menu all close through the
+  // shared status apply, which holds the close guard (POD-1278).
+  const status = useIssueStatusApply()
   const [starting, setStarting] = useState(false)
 
   const page = useIssuePageContext()
@@ -589,39 +588,9 @@ export const IssueCompactControls = observer(function IssueCompactControls({
     )
   }
 
-  /** Apply one picked status. The fork between "move the lane" and "close with
-   *  a reason" is the model's, not this menu's — see `issueStatusIntent`. */
-  const currentStatusValue = issueStatusValueOf(issue)
-  const selectStatus = (value: string): void => {
-    const intent = parseIssueStatusValue(value)
-    if (!intent) return
-    if (intent.kind === 'close') {
-      requestClose(intent.reason)
-      return
-    }
-    updateIssue(issue.id, { stage: intent.stage }).catch((error: unknown) =>
-      toast.error(error instanceof Error ? error.message : String(error)),
-    )
-  }
-
-  const confirmClose = (reason: IssueCloseReason): void => {
-    setClosing(true)
-    closeIssue(issue.id, reason)
-      .then(() => setCloseReason(null))
-      .catch((error: unknown) =>
-        toast.error(error instanceof Error ? error.message : String(error)),
-      )
-      .finally(() => setClosing(false))
-  }
-
-  /** The one way this panel asks for a close (POD-1278) — the status menu, the
-   *  Done button, and the context menu all land here. The guard is raised only
-   *  when it has something to name; otherwise the ending is recorded on the
-   *  press, which is what confirming would have done. */
-  const requestClose = (reason: IssueCloseReason): void => {
-    if (needsCloseGuard(issue)) setCloseReason(reason)
-    else confirmClose(reason)
-  }
+  /** The one way this panel asks for a close (POD-1278) — the Done button and
+   *  the context menu land here; the status menu picks through the same apply. */
+  const requestClose = (reason: IssueCloseReason): void => status.close(issue, reason)
 
   /** Every write on this strip surfaces its failure the same way. */
   const reportError = (error: unknown): void => {
@@ -732,23 +701,10 @@ export const IssueCompactControls = observer(function IssueCompactControls({
               half: correcting a closure (done → duplicate) is one pick, and
               picking an open lane reopens, which is what the reopen button beside
               this does in one step. */}
-          <DropdownMenuContent align="start">
-            {issueStatusMenuEntries().map((entry) => (
-              <Fragment key={entry.status}>
-                {entry.startsGroup && <DropdownMenuSeparator />}
-                <DropdownMenuItem
-                  className="whitespace-nowrap"
-                  onClick={() => selectStatus(entry.value)}
-                >
-                  <StatusGlyph status={entry.status} size={12} decorative />
-                  {entry.label}
-                  {currentStatusValue === entry.value && (
-                    <Check size={12} className="ml-auto text-text-faint" aria-hidden="true" />
-                  )}
-                </DropdownMenuItem>
-              </Fragment>
-            ))}
-          </DropdownMenuContent>
+          <IssueStatusMenuContent
+            current={issueStatusValueOf(issue)}
+            onPick={(value) => status.pick(issue, value)}
+          />
         </DropdownMenu>
         {closed ? (
           <Button
@@ -849,13 +805,7 @@ export const IssueCompactControls = observer(function IssueCompactControls({
           surface="dock"
         />
       )}
-      <IssueCloseDialog
-        issue={issue}
-        reason={closeReason}
-        busy={closing}
-        onOpenChange={(open) => !open && setCloseReason(null)}
-        onConfirm={confirmClose}
-      />
+      {status.dialog}
     </div>
   )
 })

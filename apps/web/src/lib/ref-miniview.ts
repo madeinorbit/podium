@@ -12,7 +12,7 @@ import type { IssueViewModel } from '@podium/client-core/replica'
  * without React or the store.
  */
 
-import type { IssueId, IssuePanelTodo, SessionId } from '@podium/model/browser'
+import type { IssueId, SessionId } from '@podium/model/browser'
 import { type AnyRef, parseAnyRef } from '@podium/protocol'
 
 /**
@@ -43,8 +43,6 @@ export type RefIssueLike = Pick<IssueViewModel, 'id' | 'seq' | 'title'> &
       | 'childDoneCount'
       | 'parentId'
       | 'description'
-      | 'activityNotes'
-      | 'notesUpdatedAt'
       | 'updatedAt'
       // Membership, for the card's "Go to session" action: the designated
       // coordinator wins over the merely-most-recent member.
@@ -61,17 +59,7 @@ export type RefIssueLike = Pick<IssueViewModel, 'id' | 'seq' | 'title'> &
       | 'archived'
       | 'deletedAt'
     >
-  > & {
-    /**
-     * The card renders a genuinely NARROWER panel than the wire carries — only
-     * the todos. That narrowing is legitimate (ADR 4: a projection reads what it
-     * renders), so it stays; what does not stay is restating `{ text, done }` by
-     * hand. The member type comes from the panel group itself.
-     */
-    panel?: {
-      todos?: readonly IssuePanelTodo[]
-    }
-  }
+  >
 
 /** The minimal session shape the resolver needs (a structural subset of SessionMeta). */
 export interface RefSessionLike {

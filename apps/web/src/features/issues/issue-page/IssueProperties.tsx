@@ -59,7 +59,6 @@ import {
   type IssueId,
   IssueType,
   issueStatusControlLabel,
-  issueStatusMenuEntries,
   issueStatusOf,
   issueStatusValueOf,
   parseIssueStatusValue,
@@ -71,8 +70,10 @@ import { useEffect, useState } from 'react'
 import { usePoolMachines } from '@/app/header-data'
 import { type IssueViewModel, useRuntimeSelector } from '@/app/store'
 import { Button } from '@/components/ui/button'
-import { PropertyMenu, type PropertyOption } from '@/lib/PropertyMenu'
+import { DropdownMenu, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
+import { PropertyMenu } from '@/lib/PropertyMenu'
 import { cn } from '@/lib/utils'
+import { IssueStatusMenuContent } from '../IssueStatusPicker'
 import { PriorityGlyph, StatusGlyph } from '../issue-glyphs'
 import type { IssueCloseReason } from '../issue-lifecycle'
 import type { IssuePageCommands } from '../issue-page-commands'
@@ -131,22 +132,6 @@ export const IssueProperties = observer(function IssueProperties({
     navigateToSession(session.sessionId)
   }
 
-  // ---- Status (POD-1074): ONE list, ordered by category with a rule wherever
-  // the category changes, exactly as the dock and the board context menu render
-  // it. Picking a lane on a closed issue reopens it; the endings are guarded by
-  // the shared close dialog mounted on the full page.
-  //
-  // `groupKey`, not `group`: the rules are drawn, the categories are NOT written
-  // out. A heading here would have to say something over `Done`, and every word
-  // available ("Closed") lumps it in with Cancelled — the one fusion Linear's
-  // status model exists to prevent. The glyphs already say it. ----
-  const statusOptions: PropertyOption[] = issueStatusMenuEntries().map((entry) => ({
-    value: entry.value,
-    label: entry.label,
-    icon: <StatusGlyph status={entry.status} />,
-    groupKey: entry.outcome,
-  }))
-
   // A long-tail property earns a row when it is SET, and never otherwise
   // (POD-1224) — see the module note's LONG TAIL section.
   const shows = (key: LongTailKey): boolean => {
@@ -159,22 +144,28 @@ export const IssueProperties = observer(function IssueProperties({
   return (
     <div className="flex flex-col">
       <RailSection>
+        {/* Status (POD-1074): the shared status menu, the same list the row
+            glyphs and the panel's pill open. Picking a lane on a closed issue
+            reopens it; the endings go through the page's guarded close. */}
         <PropertyRow label="Status">
-          <PropertyMenu
-            selectedValue={issueStatusValueOf(issue)}
-            options={statusOptions}
-            onSelect={(value) => {
-              const intent = parseIssueStatusValue(value)
-              if (intent?.kind === 'close') onRequestClose(intent.reason)
-              else commands.selectStatus(value)
-            }}
-            trigger={
-              <TriggerButton disabled={busy} testId="status-trigger">
-                <StatusGlyph status={issueStatusOf(issue)} />
-                {issueStatusControlLabel(issue)}
-              </TriggerButton>
-            }
-          />
+          <DropdownMenu modal={false}>
+            <DropdownMenuTrigger
+              render={
+                <TriggerButton disabled={busy} testId="status-trigger">
+                  <StatusGlyph status={issueStatusOf(issue)} />
+                  {issueStatusControlLabel(issue)}
+                </TriggerButton>
+              }
+            />
+            <IssueStatusMenuContent
+              current={issueStatusValueOf(issue)}
+              onPick={(value) => {
+                const intent = parseIssueStatusValue(value)
+                if (intent?.kind === 'close') onRequestClose(intent.reason)
+                else commands.selectStatus(value)
+              }}
+            />
+          </DropdownMenu>
         </PropertyRow>
 
         <PropertyRow label="Priority">
