@@ -62,7 +62,7 @@ export const state = {
   selectedIssueId: 'root' as string | null,
   paneA: null as string | null,
   ui: new Map<string, string>(),
-  listeners: new Set<() => void>(),
+  listeners: new Set<(keys: ReadonlySet<string>) => void>(),
   /** Per-session phase samples served to the waterfall's activityHistory
    *  query — the on/off record a fixture declares for segmented bars. */
   activity: {} as Record<string, Array<{ at: string; phase: string }>>,
@@ -75,9 +75,9 @@ const uiState = {
   set: (key: string, value: string | null): void => {
     if (value === null) state.ui.delete(key)
     else state.ui.set(key, value)
-    for (const listener of state.listeners) listener()
+    for (const listener of state.listeners) listener(new Set([key]))
   },
-  subscribe: (cb: () => void): (() => void) => {
+  subscribe: (cb: (keys: ReadonlySet<string>) => void): (() => void) => {
     state.listeners.add(cb)
     return () => {
       state.listeners.delete(cb)
