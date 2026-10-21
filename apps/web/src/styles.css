@@ -9885,7 +9885,8 @@ a.ref-link--session::before {
    fixed node for the whole app, placed by QuoteLayer and shown by data-shown. */
 .quote-pill {
   position: fixed;
-  z-index: 60;
+  /* Above the calm reader (100): a selection there is quotable too. */
+  z-index: 120;
   left: 0;
   top: 0;
   display: inline-flex;

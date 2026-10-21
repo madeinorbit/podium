@@ -10,9 +10,14 @@ import type { Quote, QuoteInput } from '@/lib/quote/quote-sinks'
  * Composer state, like attachments: nothing here is replicated, and a reload
  * starts the box empty. The text reaches the agent only at send, through
  * `serializeQuotes`.
+ *
+ * Staged per session for the life of the page, not the component: the composer
+ * unmounts when its panel flips to the native view or the dock closes, and the
+ * chips must be there when it comes back, as the draft is.
  */
 
 let seq = 0
+const staged = new Map<string, Quote[]>()
 
 export interface UseQuotesResult {
   quotes: Quote[]
@@ -23,16 +28,31 @@ export interface UseQuotesResult {
   clear: () => void
 }
 
-export function useQuotes(): UseQuotesResult {
-  const [quotes, setQuotes] = useState<Quote[]>([])
-  const add = useCallback((quote: QuoteInput) => {
-    setQuotes((prev) => [...prev, { ...quote, id: `q${++seq}` }])
-  }, [])
-  const remove = useCallback((id: string) => {
-    setQuotes((prev) => prev.filter((q) => q.id !== id))
-  }, [])
-  const removeLast = useCallback(() => setQuotes((prev) => prev.slice(0, -1)), [])
-  const clear = useCallback(() => setQuotes([]), [])
+export function useQuotes(key: string): UseQuotesResult {
+  const [state, setState] = useState(() => ({ key, quotes: staged.get(key) ?? [] }))
+  // A composer reused for another session picks up THAT session's chips.
+  if (state.key !== key) setState({ key, quotes: staged.get(key) ?? [] })
+  const quotes = state.key === key ? state.quotes : (staged.get(key) ?? [])
+  const update = useCallback(
+    (next: (prev: Quote[]) => Quote[]) =>
+      setState((prev) => {
+        const quotes = next(prev.quotes)
+        if (quotes.length) staged.set(prev.key, quotes)
+        else staged.delete(prev.key)
+        return { key: prev.key, quotes }
+      }),
+    [],
+  )
+  const add = useCallback(
+    (quote: QuoteInput) => update((prev) => [...prev, { ...quote, id: `q${++seq}` }]),
+    [update],
+  )
+  const remove = useCallback(
+    (id: string) => update((prev) => prev.filter((q) => q.id !== id)),
+    [update],
+  )
+  const removeLast = useCallback(() => update((prev) => prev.slice(0, -1)), [update])
+  const clear = useCallback(() => update(() => []), [update])
   return useMemo(
     () => ({ quotes, add, remove, removeLast, clear }),
     [quotes, add, remove, removeLast, clear],

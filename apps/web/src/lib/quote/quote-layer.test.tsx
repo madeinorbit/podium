@@ -179,6 +179,60 @@ describe('QuoteLayer', () => {
     expect(document.getSelection()?.isCollapsed).toBe(true)
   })
 
+  it('re-resolves the destination on activation and keeps the selection when it is gone', async () => {
+    const chat = document.createElement('div')
+    host.append(chat)
+    const { added } = sink(chat)
+    // The composer that was on screen when the selection settled goes away
+    // (a dock closed) before the pill is clicked.
+    const unregister = cleanups.pop() as () => void
+    host.insertAdjacentHTML('afterbegin', '<p data-quote-source="/r/a.md">Keep me selected</p>')
+    select(textIn('p'), 0, 4)
+    await settle()
+    expect(pill().dataset.shown).toBe('true')
+    unregister()
+    act(() => pill().click())
+    expect(added).toEqual([])
+    expect(document.getSelection()?.toString()).toBe('Keep')
+  })
+
+  it('follows a selection that grows without the pointer (Select All, Shift+arrows)', async () => {
+    const chat = document.createElement('div')
+    host.append(chat)
+    const { added } = sink(chat)
+    host.insertAdjacentHTML('afterbegin', '<p data-quote-source="/r/a.md">Whole paragraph here</p>')
+    select(textIn('p'), 0, 5)
+    await act(async () => {
+      document.dispatchEvent(new Event('selectionchange'))
+      await new Promise((resolve) => requestAnimationFrame(() => resolve(null)))
+    })
+    expect(pill().dataset.shown).toBe('true')
+    // Grow the live range in place, as Select All does just before the chord.
+    document.getSelection()?.getRangeAt(0).setEnd(textIn('p'), 20)
+    act(() => pill().click())
+    expect(added).toEqual([{ text: 'Whole paragraph here', source: '/r/a.md' }])
+  })
+
+  it('stages a quote from a modal reader without taking focus', async () => {
+    const chat = document.createElement('div')
+    host.append(chat)
+    const calls: boolean[] = []
+    const composer = document.createElement('textarea')
+    chat.appendChild(composer)
+    composer.getClientRects = () => [new DOMRect(0, 0, 10, 10)] as unknown as DOMRectList
+    cleanups.push(
+      registerQuoteSink({ scope: chat, composer, add: (_q, focus = true) => calls.push(focus) }),
+    )
+    host.insertAdjacentHTML(
+      'afterbegin',
+      '<div aria-modal="true"><p data-quote-source="/r/a.md">Calm reading</p></div>',
+    )
+    select(textIn('p'), 0, 4)
+    await settle()
+    act(() => pill().click())
+    expect(calls).toEqual([false])
+  })
+
   it('stays hidden when no prompt box is on screen', async () => {
     const chat = document.createElement('div')
     host.append(chat)

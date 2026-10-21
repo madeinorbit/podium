@@ -26,7 +26,8 @@ export interface QuoteSink {
   scope: HTMLElement
   /** The composer box itself: what must be visible for this sink to count. */
   composer: HTMLElement
-  add: (quote: QuoteInput) => void
+  /** `focus: false` keeps focus where it is (a modal reader over the chat). */
+  add: (quote: QuoteInput, focus?: boolean) => void
 }
 
 const sinks = new Set<QuoteSink>()

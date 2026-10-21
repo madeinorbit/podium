@@ -81,6 +81,10 @@ export function readQuote(selection: Selection | null): { quote: QuoteInput; ran
   return { quote: { text, source: label + lineRange(source, range) }, range }
 }
 
+function inModal(range: Range): boolean {
+  return !!elementOf(range.commonAncestorContainer)?.closest('[aria-modal="true"]')
+}
+
 function isAddChord(e: KeyboardEvent): boolean {
   const mod = isApplePlatform() ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey
   if (!mod || e.altKey || e.shiftKey) return false
@@ -100,6 +104,10 @@ export function QuoteLayer({ chord }: { chord: string }): JSX.Element | null {
     let frame = 0
     let menuHook: (() => void) | null = null
     let menuPrev: (() => void) | undefined
+    let pointerDown = false
+    // Phones draw their own selection callout above the selection; the pill
+    // goes below it there.
+    let touch = false
 
     // Above the first line of the selection, centred on the whole of it; below
     // when that would leave the viewport. Written straight to the node so a
@@ -115,7 +123,7 @@ export function QuoteLayer({ chord }: { chord: string }): JSX.Element | null {
       }
       const first = p.range.getClientRects()[0] ?? all
       const half = pill.offsetWidth / 2
-      const below = first.top - pill.offsetHeight - GAP < GAP
+      const below = touch || first.top - pill.offsetHeight - GAP < GAP
       const x = Math.max(
         half + GAP,
         Math.min(all.left + all.width / 2, window.innerWidth - half - GAP),
@@ -136,12 +144,21 @@ export function QuoteLayer({ chord }: { chord: string }): JSX.Element | null {
       setShown(false)
     }
 
+    // The destination is resolved again at activation: between settling and
+    // the click the target composer may have unmounted (a dock closed) or gone
+    // to a hidden warm panel, and the selection may have grown (Select All).
+    // With nowhere to go, the selection is left as it was.
     const add = (): void => {
       const p = pending.current
       if (!p) return
+      const read = readQuote(document.getSelection()) ?? p
+      const sink = resolveQuoteSink(read.range.commonAncestorContainer)
       hide()
+      if (!sink) return
       document.getSelection()?.removeAllRanges()
-      p.sink.add(p.quote)
+      // Over a modal reader the composer is behind the sheet: stage the chip
+      // without pulling focus out from under the reader.
+      sink.add(read.quote, !inModal(read.range))
     }
 
     const check = (): void => {
@@ -168,19 +185,21 @@ export function QuoteLayer({ chord }: { chord: string }): JSX.Element | null {
       if (!frame) frame = requestAnimationFrame(check)
     }
 
-    const onPointerUp = (e: PointerEvent): void => {
-      // Phones bring their own selection callout; the pill would sit on it.
-      if (e.pointerType === 'touch') {
-        hide()
-        return
-      }
+    // THE SELECTION DRIVES THE PILL. A mouse drag is read once, on release; any
+    // other change (Shift+arrows, Select All, a phone's selection handles) is
+    // read on the next frame. A collapsed selection, which is all typing ever
+    // produces, costs one property read.
+    const onPointerDown = (e: PointerEvent): void => {
+      pointerDown = true
+      touch = e.pointerType === 'touch'
+    }
+    const onPointerUp = (): void => {
+      pointerDown = false
       schedule()
     }
-    const onKeyUp = (e: KeyboardEvent): void => {
-      if (e.key === 'Shift' || e.shiftKey) schedule()
-    }
     const onSelectionChange = (): void => {
-      if (pending.current && document.getSelection()?.isCollapsed !== false) hide()
+      if (document.getSelection()?.isCollapsed !== false) hide()
+      else if (!pointerDown) schedule()
     }
     // Capture, so the prompt-focus chord and CodeMirror's own Mod-l never see
     // the press that was meant for the pill.
@@ -199,8 +218,9 @@ export function QuoteLayer({ chord }: { chord: string }): JSX.Element | null {
       if (pending.current) place()
     }
 
-    document.addEventListener('pointerup', onPointerUp, { passive: true })
-    document.addEventListener('keyup', onKeyUp, { passive: true })
+    document.addEventListener('pointerdown', onPointerDown, { passive: true, capture: true })
+    document.addEventListener('pointerup', onPointerUp, { passive: true, capture: true })
+    document.addEventListener('pointercancel', onPointerUp, { passive: true, capture: true })
     document.addEventListener('selectionchange', onSelectionChange)
     window.addEventListener('keydown', onKeyDown, true)
     window.addEventListener('scroll', onScroll, { passive: true, capture: true })
@@ -210,8 +230,9 @@ export function QuoteLayer({ chord }: { chord: string }): JSX.Element | null {
     return () => {
       if (frame) cancelAnimationFrame(frame)
       hide()
-      document.removeEventListener('pointerup', onPointerUp)
-      document.removeEventListener('keyup', onKeyUp)
+      document.removeEventListener('pointerdown', onPointerDown, true)
+      document.removeEventListener('pointerup', onPointerUp, true)
+      document.removeEventListener('pointercancel', onPointerUp, true)
       document.removeEventListener('selectionchange', onSelectionChange)
       window.removeEventListener('keydown', onKeyDown, true)
       window.removeEventListener('scroll', onScroll, true)

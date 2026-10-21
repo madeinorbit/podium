@@ -4,7 +4,7 @@ import type { SessionId } from '@podium/model/browser'
 import { SWITCH_TRACE_MARKS } from '@podium/protocol'
 import { useVoiceInput } from '@podium/terminal-client-react'
 import { ArrowDownToLine } from 'lucide-react'
-import type { JSX, MutableRefObject } from 'react'
+import type { JSX, MutableRefObject, RefObject } from 'react'
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { observer } from 'mobx-react-lite'
 import { useConversation, type WebConversation } from './use-conversation'
@@ -52,29 +52,55 @@ const ScopedChatComposer = observer(function ScopedChatComposer({
   compact,
   chat,
   quoteDraftRef,
+  surfaceRef,
 }: {
   sessionId: SessionId
   superThread: SuperThreadRef | undefined
   compact: boolean
   chat: ChatSurface
   quoteDraftRef: QuoteDraftRef
+  /** The whole chat surface: a selection inside it quotes into this composer. */
+  surfaceRef: RefObject<HTMLDivElement | null>
 }): JSX.Element {
   const draft = chat.view.draft
   const setDraft = chat.setDraft
   const voice = useVoiceInput((text) => setDraft(draft ? `${draft} ${text}` : text))
-  const quotes = useQuotes()
-  quoteDraftRef.current = (quote) => {
-    quotes.add(quote)
-    const ta = chat.taRef.current
-    ta?.focus()
-    // Say where it went: the box the quote landed in pulses once.
-    const well = ta?.closest<HTMLElement>('.chat-composer-well, .prompt-well')
-    if (well) {
-      delete well.dataset.quoteArrived
-      void well.offsetWidth
-      well.dataset.quoteArrived = 'true'
+  const quotes = useQuotes(sessionId)
+  const { taRef } = chat
+  const addQuote = useCallback(
+    (quote: QuoteInput, focus = true) => {
+      quotes.add(quote)
+      const ta = taRef.current
+      if (focus) ta?.focus()
+      // Say where it went: the box the quote landed in pulses once.
+      const well = ta?.closest<HTMLElement>('.chat-composer-well, .prompt-well')
+      if (well) {
+        delete well.dataset.quoteArrived
+        void well.offsetWidth
+        well.dataset.quoteArrived = 'true'
+      }
+    },
+    [quotes.add, taRef],
+  )
+  quoteDraftRef.current = addQuote
+  // ADD TO CHAT (POD-2057): this composer is a place a selection can go. A
+  // selection inside this chat comes here; one elsewhere comes here when this
+  // was the prompt focused last. A composer that took focus before this effect
+  // ran (autofocus fires in the child first) is recorded as focused at once.
+  useEffect(() => {
+    const scope = surfaceRef.current
+    const composer = taRef.current
+    if (!scope || !composer) return
+    const sink: QuoteSink = { scope, composer, add: addQuote }
+    const onFocus = (): void => markQuoteSinkFocused(sink)
+    composer.addEventListener('focus', onFocus)
+    const unregister = registerQuoteSink(sink)
+    if (document.activeElement === composer) onFocus()
+    return () => {
+      composer.removeEventListener('focus', onFocus)
+      unregister()
     }
-  }
+  }, [surfaceRef, taRef, addQuote])
   // Quotes reach the agent as Markdown ahead of the words (`serializeQuotes`),
   // so the send path below never learns they exist.
   const submit = useCallback(() => {
@@ -215,24 +241,7 @@ const ConversationChatView = observer(function ConversationChatView({
   const quoteIntoDraft = useCallback((quote: QuoteInput) => {
     quoteDraftRef.current?.(quote)
   }, [])
-  // ADD TO CHAT (POD-2057): this composer is a place a selection can go. A
-  // selection inside this chat comes here; one elsewhere comes here when this
-  // was the prompt focused last.
   const surfaceRef = useRef<HTMLDivElement | null>(null)
-  const { taRef } = chat
-  useEffect(() => {
-    const scope = surfaceRef.current
-    const composer = taRef.current
-    if (!scope || !composer) return
-    const sink: QuoteSink = { scope, composer, add: quoteIntoDraft }
-    const onFocus = (): void => markQuoteSinkFocused(sink)
-    composer.addEventListener('focus', onFocus)
-    const unregister = registerQuoteSink(sink)
-    return () => {
-      composer.removeEventListener('focus', onFocus)
-      unregister()
-    }
-  }, [taRef, quoteIntoDraft])
   // FIND. Opened from the rail's search button and nowhere else: ⌘F belongs to
   // the sidebar's task filter now (POD-1093, `useWorkFilter`), which is the one
   // chord in the product and cannot be shared — two window listeners on it meant
@@ -378,6 +387,7 @@ const ConversationChatView = observer(function ConversationChatView({
         compact={compact}
         chat={chat}
         quoteDraftRef={quoteDraftRef}
+        surfaceRef={surfaceRef}
       />
       <ImageLightbox src={chat.lightbox} onClose={() => chat.setLightbox(null)} />
     </div>
