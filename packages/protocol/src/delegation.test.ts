@@ -28,16 +28,21 @@ describe('COORDINATION_RULE (POD-2062)', () => {
     expect(COORDINATION_RULE).toContain('podium issue coordinator <id> --claim')
     expect(COORDINATION_RULE).toContain('--type phase --parent-id <id>')
     expect(COORDINATION_RULE).toContain('dep-add <later> <earlier>')
-    expect(COORDINATION_RULE).toContain('creation order')
+    expect(COORDINATION_RULE).toContain('podium issue move <new> --after <previous>')
     expect(COORDINATION_RULE).toMatch(/exits 1 with the reason on stderr/)
   })
 
-  it('limits phases to real multi-stage work, so agents do not phase-spam', () => {
-    expect(COORDINATION_RULE).toContain('two or more stages')
-    expect(COORDINATION_RULE).toContain('no phase holding a single task')
+  it('limits phases to real multi-stage work without forbidding one-task stages', () => {
+    expect(COORDINATION_RULE).toContain('two or more stages that run one after another')
+    expect(COORDINATION_RULE).toContain('A stage may hold a single task')
+    expect(COORDINATION_RULE).toContain('Never a phase per routine task')
+  })
+
+  it('never presents the per-issue budget as a way around a refusal', () => {
+    expect(COORDINATION_RULE).toContain('never to get around a refusal')
   })
 
   it('stays a short paragraph: it rides every prime', () => {
-    expect(COORDINATION_RULE.length).toBeLessThan(1500)
+    expect(COORDINATION_RULE.length).toBeLessThan(2200)
   })
 })

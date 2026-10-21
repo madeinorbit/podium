@@ -35,7 +35,7 @@ export const DELEGATION_RULE =
   DELEGATION_POLICY +
   ' ' +
   'Delegating (`podium agent spawn --prompt "…" --issue <ref>`): the system infers nothing — no roles, no write-claim, no auto-isolation. Every spawn prompt must carry: ' +
-  '(1) PLACEMENT — `--issue <ref>` adds a delegate to an already-started issue (right for a reviewer). Concurrent implementation through Podium needs its own issue: `podium issue create --parent-id <id> --description "<human summary>" --brief "<task instructions>" --start` (branch+worktree and exactly one agent). Do NOT also `agent spawn --issue <sub>` after `--start`. `--worktree` does not isolate — it only asserts a worktree exists. ' +
+  '(1) PLACEMENT — `--issue <ref>` adds a delegate to an issue, in its worktree, or the repository checkout if it was never started (right for a reviewer or read-only researcher). Concurrent implementation through Podium needs its own issue: `podium issue create --parent-id <id> --description "<human summary>" --brief "<task instructions>" --start` (branch+worktree and exactly one agent). Do NOT also `agent spawn --issue <sub>` after `--start`. `--worktree` does not isolate — it only asserts a worktree exists. ' +
   '(2) NAMING — `agent spawn --title "Reviewer: auth flow"` names the SESSION (`--new "title"` names an ISSUE). The isolated path has no title flag; tell that delegate to `podium session title` in the `--brief`. You cannot retitle a delegate later. ' +
   '(3) CONCURRENCY — if it may edit files another live session edits, say who owns which files or take a lease. The system does not serialize. ' +
   '(4) TEAM — who else is on the issue, which machine, and that `podium issue mail send <id>` reaches them. ' +
@@ -47,12 +47,11 @@ export const DELEGATION_RULE =
  *  `| grep`: nothing it could read said phases are issues or what the limit is.
  *  The spawn number must match SPAWN_BUDGET_PER_DAY on the server (tested there). */
 export const COORDINATION_RULE =
-  'Coordinating: if the user calls you the coordinator, or the work needs several agents or dependent stages, plan it ON the issue, not in your head or a script. The deck is how the user sees progress. ' +
-  'Claim the role first: `podium issue coordinator <id> --claim` (creating your first sub-issue also claims it). ' +
-  'Make one phase per stage: `podium issue create --type phase --parent-id <id> --title "…"`. The deck lists phases in creation order, so create them in the order they run; `podium issue dep-add <later> <earlier>` makes a stage wait. ' +
-  'Each unit of delegated work is a task under its phase (`--parent-id <phase>`) with its agent placed there (`--start`, or `agent spawn --issue <task>`). ' +
-  'Use phases only when the work has two or more stages that run one after another, each with its own tasks; then use them even if the user never said "phases". Otherwise put tasks directly under the issue: no phase holding a single task, no phase per task, no phases for one-agent work. ' +
-  'Budget: `podium agent spawn` allows 10 spawns per target issue per UTC day, counted per issue (a child task has its own); a refusal exits 1 with the reason on stderr, so never pipe spawn output through a filter that hides it.'
+  'Coordinating (with Podium task tracking): claim the role when the user names you coordinator or you orchestrate other agent sessions: `podium issue coordinator <id> --claim`. Creating a child under your own issue also claims its seat, but only an empty one. Solo edit/test/review work needs neither a claim nor phases. ' +
+  'Phases: use them when the work has two or more stages that run one after another and grouping them helps the user follow progress on the deck; then use them even if the user never said "phases". A stage may hold a single task. Never a phase per routine task, nor phases around one agent\'s ordinary steps. ' +
+  'Create one with `podium issue create --type phase --parent-id <id> --title "…"`. A new sibling appears at the TOP of the deck, so after each later phase run `podium issue move <new> --after <previous>`. `podium issue dep-add <later> <earlier>` records the wait but enforces nothing: the later phase\'s tasks are not blocked and start/spawn do not refuse, so launch them only once the earlier phase is done. ' +
+  'Put each delegated task under its phase (`--parent-id <phase>`). Work that needs its own worktree: create the task with `--start` (one agent; do not also spawn). Read-only work: create it without `--start`, then `agent spawn --issue <task>` once; with no task worktree it runs in the repository checkout, so name the checkout to read and forbid writes. ' +
+  "Budget: 10 agent spawns per target issue per UTC day, shared by every spawn onto that issue. Create tasks for real work, never to get around a refusal; a refusal started nothing, so mail a live session or ask your coordinator or the operator. Check each spawn's exit status and session id before the next: a failure exits 1 with the reason on stderr (`--json`: ok:false on stdout), and a pipe reports only its last command's status."
 
 // These ride prime (not the always-on system pointer). Keep them operational and
 // short: the "why" lives in the file comment and docs/agents/*.md.

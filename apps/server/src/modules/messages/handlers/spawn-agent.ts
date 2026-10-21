@@ -107,7 +107,7 @@ async function spawnOnce(
     } catch {}
     throw new Error(
       `spawn budget exhausted for issue #${issue.seq} (${SPAWN_BUDGET_PER_DAY}/day, resets 00:00 UTC); ` +
-        'nothing was spawned. Message a live session on the issue instead, or ask the operator',
+        'nothing was spawned. Mail a live session on the issue, or ask your coordinator or the operator',
     )
   }
   if (input.worktree && !issue.worktreePath) {

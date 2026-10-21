@@ -768,7 +768,7 @@ describe('coordinator seat', () => {
     const open = await svc.reports.seatFor(S('helper'))
     expect(open).toMatchObject({ kind: 'top', coordinates: false, claimable: expect.any(String) })
     expect(seatText(open)).toContain(
-      `This issue has no coordinator. If you are orchestrating other agents or stages, claim it: \`podium issue coordinator ${(open as { claimable: string }).claimable} --claim\`.`,
+      `This issue has no active coordinator. If the user named you coordinator or you orchestrate other agent sessions, claim it: \`podium issue coordinator ${(open as { claimable: string }).claimable} --claim\`.`,
     )
 
     const phase = await svc.crud.create({

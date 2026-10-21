@@ -531,7 +531,7 @@ describe('agent spawn (gate)', () => {
 
   it('the prime coordination rule states the budget brake 2 enforces (POD-2062)', () => {
     expect(COORDINATION_RULE).toContain(
-      `${SPAWN_BUDGET_PER_DAY} spawns per target issue per UTC day`,
+      `${SPAWN_BUDGET_PER_DAY} agent spawns per target issue per UTC day`,
     )
   })
 

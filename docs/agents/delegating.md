@@ -56,7 +56,8 @@ reviewer, a researcher, or a spec author.
 
 The thing to internalise: **placement is decided when an issue is created and started,
 not when you spawn.** `agent spawn` has no say in it — it inherits whatever worktree the
-issue already got. So by the time you are writing a spawn command, the only placement
+issue already got. An issue that was never started has no worktree, so a delegate spawned
+onto it runs in the repository checkout, not in the parent issue's worktree. So by the time you are writing a spawn command, the only placement
 question left is *which issue* you are spawning onto.
 
 `--worktree` does **not** isolate it, and this trips people up. The flag only asserts
@@ -161,54 +162,72 @@ A fresh session knows its issue. It does not know it has colleagues. Tell it:
 
 ## Phases and coordinators
 
-When you run work that spans several agents or dependent stages, plan it **on the issue
+This applies with Podium task tracking (see the top of this guide for the native-tools
+exception). When you orchestrate other agent sessions, plan the work **on the issue
 tree**, not in your head or in a bash queue. The flight deck (`podium issue deck <id>`)
-is how the user sees progress, and it only knows what is on the tree.
+is how the user sees progress, and it only knows what is on the tree. Solo
+edit/test/review work needs neither a coordinator claim nor phases.
 
-Phases are for work with **two or more stages that run one after another, each with its
-own tasks**. Then use them even if the user never said "phases". Otherwise leave them out
-and put tasks directly under the issue. A phase holding a single task, a phase per task,
-or phases around one agent's work only add rows the user has to read past.
+**When to use phases.** Use them when the work has **two or more stages that run one
+after another** and grouping them helps the user follow progress. Then use them even if
+the user never said "phases". A stage may hold a single task. Otherwise leave phases out
+and put tasks directly under the issue: a phase per routine task, or phases around one
+agent's ordinary steps, only add rows the user has to read past.
 
-1. **Claim the coordinator role** on the issue you were given:
-   `podium issue coordinator <id> --claim`. Sessions on it and below it then ask you by
-   issue mail instead of the user. Creating your first sub-issue under your own issue
-   also claims an empty seat, but claim first so the role is clear from the start. The
-   seat line in `podium issue prime` says when the issue has no coordinator.
+1. **Claim the coordinator role** when the user names you coordinator or you orchestrate
+   other agent sessions: `podium issue coordinator <id> --claim`. Sessions on the issue and
+   below it then ask you by issue mail instead of the user. Creating a child under your
+   own issue also claims the seat, but only an empty one; it never replaces an existing
+   or stale coordinator. The seat line in `podium issue prime` says when the issue has no
+   active coordinator.
 2. **One phase per stage**: `podium issue create --type phase --parent-id <id> --title "…"`.
-   A phase is a section of its parent, not a unit of work. The deck lists sibling phases
-   in creation order, so create them in the order they run. If a stage must not start
-   before another finishes, add `podium issue dep-add <later> <earlier>`.
-3. **One task per unit of delegated work, under its phase**: `--parent-id <phase>`, with
-   its agent placed on that task: `--start` for work that needs its own worktree, or
-   `podium agent spawn --issue <task>` for read-only work such as research. The deck then
-   shows each researcher or implementer inside its stage.
+   A phase is a section of its parent, not a unit of work. **A new sibling appears at the
+   top of the deck**, so after creating each later phase, put it after the one before it:
+   `podium issue move <new> --after <previous>`.
+3. **Record waits, then enforce them yourself.** `podium issue dep-add <later> <earlier>`
+   records a blocked-by edge on the later phase, and the deck shows it. It enforces
+   nothing: the later phase's tasks are not blocked, and neither `issue start` nor
+   `agent spawn` refuses. Launch a later phase's work only once the earlier phase is done.
+   Add the same edge on a task when that task's own ready state must show the wait.
+4. **One task per unit of delegated work, under its phase** (`--parent-id <phase>`):
+   - Work that needs its own worktree: create the task with `--start`. That makes the
+     worktree and exactly one agent; do not also `agent spawn` onto it.
+   - Read-only work such as research: create the task without `--start`, then
+     `podium agent spawn --issue <task>` once. With no task worktree it runs in the
+     repository checkout, so name the checkout it should read and forbid writes.
 
 The other issue types: `task` is the default, and `decision` is a question only the user
 closes; it blocks whatever waits on it.
 
 **Spawn budget.** Agent-initiated `podium agent spawn` is limited to 10 spawns per
-*target* issue per UTC day. It is counted per issue: spawns onto a child task count
-against that task, not the epic. Successful spawn output shows the count
-(`budget: spawn 8/10 today on #336`). A refusal exits 1 with the reason on stderr, so a
-loop that pipes spawn output through `grep` loses it. Check each spawn's exit code.
+*target* issue per UTC day, shared by every spawn onto that issue, including
+mail-triggered ones. Create tasks for real units of work, never to get around a refusal.
+Successful spawn output shows the count (`budget: spawn 8/10 today on #336`). A refusal
+starts nothing and exits 1 with the reason on stderr (`--json` returns `ok:false` on
+stdout instead). Mail a live session on the issue, or ask your coordinator or the
+operator.
+
+Check each spawn's exit status and session id before the next launch. A pipeline reports
+only its last command's status, so `podium agent spawn … | grep …` hides a refusal from a
+script even though the message still reaches stderr.
 
 Example (an epic for a competitor comparison page):
 
 ```
 Epic: Competitor comparison page        ← you: coordinator --claim
-├─ Phase: Discovery                     ← create --type phase, first
-│  └─ Task: Competitor shortlist        ← one researcher
-├─ Phase: Profiles                      ← dep-add <Profiles> <Discovery>
+├─ Phase: Discovery                     ← create --type phase
+│  └─ Task: Competitor shortlist        ← one researcher (spawn --issue)
+├─ Phase: Profiles                      ← move --after Discovery; dep-add <Profiles> <Discovery>
 │  ├─ Task: Profile Acme                ← one researcher per competitor
 │  ├─ Task: Profile Globex
 │  └─ Task: Profile Initech
-└─ Phase: Page                          ← dep-add <Page> <Profiles>
-   └─ Task: Build comparison page       ← one implementer
+└─ Phase: Page                          ← move --after Profiles; dep-add <Page> <Profiles>
+   └─ Task: Build comparison page       ← one implementer (create --start)
 ```
 
-The same work run as eleven helper sessions spawned onto the epic looks like a flat list on
-the deck, and the eleventh spawn is refused by the budget.
+Profiles researchers start once Discovery is done; the page implementer once Profiles is.
+The same work run as eleven helper sessions spawned onto the epic is a flat list on the
+deck, and the eleventh spawn is refused by the budget.
 
 ## A worked brief
 

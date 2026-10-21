@@ -698,7 +698,7 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
   },
   {
     name: 'create',
-    summary: `Create an issue: create --title "…". Agent top-level discoveries land in Proposed; sub-issues are internal decomposition. Description is human-facing; use --brief for technical detail. --type task (default): a unit of work. --type phase: a stage of its parent, shown as a section on the deck in creation order; put its tasks under it with --parent-id <phase>, and whoever coordinates it is the phase lead. --type decision: a question only the user closes; it blocks what waits on it. The first sub-issue a session creates under its own issue makes it that issue's coordinator. ${TITLE_RULE_TERSE}`,
+    summary: `Create an issue: create --title "…". Agent top-level discoveries land in Proposed; sub-issues are internal decomposition. Description is human-facing; use --brief for technical detail. --type task (default): a unit of work. --type phase: one of two or more sequential stages of its parent, shown as a section on the deck; put its tasks under it with --parent-id <phase>, and whoever coordinates it is the phase lead. A new sibling lands at the top of the deck: order phases with move <id> --after <ref>. --type decision: a question only the user closes; it blocks what waits on it. Creating a sub-issue under your own issue claims its coordinator seat if the seat is empty. ${TITLE_RULE_TERSE}`,
     args: z.strictObject({
       ...repoArg,
       title: z.string().min(1),

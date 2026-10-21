@@ -86,7 +86,7 @@ export function seatText(seat: SessionSeat): string {
     : ''
   if (seat.kind === 'top') {
     const open = seat.claimable
-      ? ` This issue has no coordinator. If you are orchestrating other agents or stages, claim it: \`podium issue coordinator ${seat.claimable} --claim\`.`
+      ? ` This issue has no active coordinator. If the user named you coordinator or you orchestrate other agent sessions, claim it: \`podium issue coordinator ${seat.claimable} --claim\`.`
       : ''
     return `Your seat: no coordinator sits above you, so you talk to the user directly (questions, \`podium offer\`).${leads}${open}`
   }
