@@ -58,7 +58,16 @@ export interface ModelPricing {
  * `-pro` tiers (`gpt-5.5-pro` contains `gpt-5.5`) and `fable-5-1` (contained
  * in `fable`): every narrow row sits ahead of its family.
  *
- * SOURCED FROM models.dev ON 2026-09-18 (an aggregator over the vendor lists,
+ * RE-VERIFIED AGAINST THE VENDOR LISTS ON 2026-10-21 (platform.claude.com
+ * pricing, developers.openai.com pricing, docs.x.ai models; models.dev agrees
+ * for OpenAI and xAI). Every existing row held. New rows: Opus 5.5 ($4/$20),
+ * Sonnet 5.5 and Haiku 5.5, which bill differently from their families and
+ * were reading 1.25x, 2x on cache reads, and 10x high respectively; Mythos
+ * 5.1; the retired Opus 4/4.1 and Haiku 3.5 tiers; gpt-6-sol, gpt-6.1-sol,
+ * gpt-6-luna, the `-cyber` and Rosalind tiers; grok-4.7. The gpt-6 Sol and
+ * Luna ids had no row and were billing at the fallback.
+ *
+ * Previously SOURCED FROM models.dev ON 2026-09-18 (an aggregator over the vendor lists,
  * not the lists themselves — cross-checked against the OpenAI / Anthropic /
  * xAI provider entries, which agree with each other where they overlap). This
  * supersedes the 2026-08-12 vendor-list verification, and moved the gpt-5.6
@@ -80,6 +89,7 @@ export interface ModelPricing {
  *
  * The gpt-5.4, gpt-5.5, gpt-5.6 and gpt-6 families are priced in two context
  * bands: requests above 272K input tokens cost 2x on input and 1.5x on output.
+ * Haiku 5.5 likewise bills 5x on every class for prompts over 100K tokens.
  * The rows below are the SHORT band, because an hour x model bucket cannot
  * reconstruct the context size of the requests inside it — so long-context
  * work on those families is understated here, and knowingly so.
@@ -109,6 +119,16 @@ const PRICING: ModelPricing[] = [
     cacheWrite5mPerM: 12.5,
     cacheWrite1hPerM: 20,
   },
+  // Mythos 5.1 shares Fable 5.1's quarter-rate cache reads.
+  {
+    match: 'mythos-5-1',
+    provider: 'anthropic',
+    inPerM: 10,
+    outPerM: 50,
+    cacheReadPerM: 0.25,
+    cacheWrite5mPerM: 12.5,
+    cacheWrite1hPerM: 20,
+  },
   {
     match: 'mythos',
     provider: 'anthropic',
@@ -118,6 +138,45 @@ const PRICING: ModelPricing[] = [
     cacheWrite5mPerM: 12.5,
     cacheWrite1hPerM: 20,
   },
+  // Opus 5.5 lists 20% under the rest of the family, with cache reads at
+  // 0.05x input rather than 0.1x — so it is NOT the family row.
+  {
+    match: 'opus-5-5',
+    provider: 'anthropic',
+    inPerM: 4,
+    outPerM: 20,
+    cacheReadPerM: 0.2,
+    cacheWrite5mPerM: 5,
+    cacheWrite1hPerM: 8,
+  },
+  // The retired Opus 4 / 4.1 tier, still served on Bedrock and Google Cloud.
+  {
+    match: 'opus-4-1',
+    provider: 'anthropic',
+    inPerM: 15,
+    outPerM: 75,
+    cacheReadPerM: 1.5,
+    cacheWrite5mPerM: 18.75,
+    cacheWrite1hPerM: 30,
+  },
+  {
+    match: 'opus-4-2025',
+    provider: 'anthropic',
+    inPerM: 15,
+    outPerM: 75,
+    cacheReadPerM: 1.5,
+    cacheWrite5mPerM: 18.75,
+    cacheWrite1hPerM: 30,
+  },
+  {
+    match: 'opus-4-0',
+    provider: 'anthropic',
+    inPerM: 15,
+    outPerM: 75,
+    cacheReadPerM: 1.5,
+    cacheWrite5mPerM: 18.75,
+    cacheWrite1hPerM: 30,
+  },
   {
     match: 'opus',
     provider: 'anthropic',
@@ -126,6 +185,16 @@ const PRICING: ModelPricing[] = [
     cacheReadPerM: 0.5,
     cacheWrite5mPerM: 6.25,
     cacheWrite1hPerM: 10,
+  },
+  // Sonnet 5.5 matches Sonnet 5 except for cache reads at 0.05x input.
+  {
+    match: 'sonnet-5-5',
+    provider: 'anthropic',
+    inPerM: 2,
+    outPerM: 10,
+    cacheReadPerM: 0.1,
+    cacheWrite5mPerM: 2.5,
+    cacheWrite1hPerM: 4,
   },
   // Anthropic made the $2/$10 Sonnet 5 launch tier permanent on 2026-08-11.
   {
@@ -146,6 +215,27 @@ const PRICING: ModelPricing[] = [
     cacheWrite5mPerM: 3.75,
     cacheWrite1hPerM: 6,
   },
+  // Haiku 5.5's short band (prompts up to 100K tokens) — a tenth of Haiku 4.5.
+  // Longer prompts bill 5x on every class and are understated here.
+  {
+    match: 'haiku-5-5',
+    provider: 'anthropic',
+    inPerM: 0.1,
+    outPerM: 0.5,
+    cacheReadPerM: 0.01,
+    cacheWrite5mPerM: 0.125,
+    cacheWrite1hPerM: 0.2,
+  },
+  // Retired Haiku 3.5 (`claude-3-5-haiku-*`), still served on Google Cloud.
+  {
+    match: '3-5-haiku',
+    provider: 'anthropic',
+    inPerM: 0.8,
+    outPerM: 4,
+    cacheReadPerM: 0.08,
+    cacheWrite5mPerM: 1,
+    cacheWrite1hPerM: 1.6,
+  },
   {
     match: 'haiku',
     provider: 'anthropic',
@@ -159,6 +249,15 @@ const PRICING: ModelPricing[] = [
   // cannot reconstruct prompt size, so the ≥200k doubling is omitted and
   // long-context Grok work is understated here, knowingly. Cache writes are
   // not a billed class on the published list; cached input is.
+  {
+    match: 'grok-4.7',
+    provider: 'xai',
+    inPerM: 2,
+    outPerM: 6,
+    cacheReadPerM: 0.5,
+    cacheWrite5mPerM: 0,
+    cacheWrite1hPerM: 0,
+  },
   {
     match: 'grok-4.6',
     provider: 'xai',
@@ -214,9 +313,11 @@ const PRICING: ModelPricing[] = [
     cacheWrite1hPerM: 0,
   },
   // The gpt-6 family, ahead of every `gpt-5` row below (no substring hazard —
-  // `gpt-6-astra` contains no `gpt-5` id — but flagship first reads best).
-  // The only OpenAI families that bill for cache writes are gpt-5.6 and gpt-6;
-  // both carry a single write rate, so 5m and 1h are equal here.
+  // no gpt-6 id contains a `gpt-5` id — but flagship first reads best).
+  // The only OpenAI families that bill for cache writes are gpt-5.6 and gpt-6
+  // (plus gpt-5.6-cyber). OpenAI's write TTLs are 30m and 12h, the 12h at 2x;
+  // buckets do not split OpenAI writes by TTL, so both columns carry the 30m
+  // rate. gpt-6.1-sol's cache reads are half of gpt-6-sol's.
   {
     match: 'gpt-6-astra',
     provider: 'openai',
@@ -226,9 +327,66 @@ const PRICING: ModelPricing[] = [
     cacheWrite5mPerM: 12.5,
     cacheWrite1hPerM: 12.5,
   },
+  {
+    match: 'gpt-6.1-sol',
+    provider: 'openai',
+    inPerM: 2,
+    outPerM: 10,
+    cacheReadPerM: 0.1,
+    cacheWrite5mPerM: 2.5,
+    cacheWrite1hPerM: 2.5,
+  },
+  {
+    match: 'gpt-6-sol',
+    provider: 'openai',
+    inPerM: 2,
+    outPerM: 10,
+    cacheReadPerM: 0.2,
+    cacheWrite5mPerM: 2.5,
+    cacheWrite1hPerM: 2.5,
+  },
+  {
+    match: 'gpt-6-luna',
+    provider: 'openai',
+    inPerM: 0.1,
+    outPerM: 0.5,
+    cacheReadPerM: 0.01,
+    cacheWrite5mPerM: 0.125,
+    cacheWrite1hPerM: 0.125,
+  },
   // The gpt-5.6 family, narrowest first — and ahead of every `gpt-5` row below,
   // which all of these ids also contain. This is the only other OpenAI family
   // that bills for cache writes.
+  // The trusted-access `-cyber` tiers contain their family ids, so they lead.
+  // Only gpt-5.6-cyber lists a cache-write rate.
+  {
+    match: 'gpt-5.6-cyber',
+    provider: 'openai',
+    inPerM: 12.5,
+    outPerM: 75,
+    cacheReadPerM: 1.25,
+    cacheWrite5mPerM: 15.625,
+    cacheWrite1hPerM: 15.625,
+  },
+  {
+    match: 'gpt-5.5-cyber',
+    provider: 'openai',
+    inPerM: 12.5,
+    outPerM: 75,
+    cacheReadPerM: 1.25,
+    cacheWrite5mPerM: 0,
+    cacheWrite1hPerM: 0,
+  },
+  // Trusted-access life-sciences models; no cache-write class.
+  {
+    match: 'gpt-rosalind',
+    provider: 'openai',
+    inPerM: 5,
+    outPerM: 25,
+    cacheReadPerM: 0.5,
+    cacheWrite5mPerM: 0,
+    cacheWrite1hPerM: 0,
+  },
   {
     match: 'gpt-5.6-luna',
     provider: 'openai',
