@@ -51,7 +51,7 @@ export const COORDINATION_RULE =
   'Claim the role first: `podium issue coordinator <id> --claim` (creating your first sub-issue also claims it). ' +
   'Make one phase per stage: `podium issue create --type phase --parent-id <id> --title "…"`. The deck lists phases in creation order, so create them in the order they run; `podium issue dep-add <later> <earlier>` makes a stage wait. ' +
   'Each unit of delegated work is a task under its phase (`--parent-id <phase>`) with its agent placed there (`--start`, or `agent spawn --issue <task>`). ' +
-  'Use phases whenever the work has dependent stages, even if the user never said "phases". ' +
+  'Use phases only when the work has two or more stages that run one after another, each with its own tasks; then use them even if the user never said "phases". Otherwise put tasks directly under the issue: no phase holding a single task, no phase per task, no phases for one-agent work. ' +
   'Budget: `podium agent spawn` allows 10 spawns per target issue per UTC day, counted per issue (a child task has its own); a refusal exits 1 with the reason on stderr, so never pipe spawn output through a filter that hides it.'
 
 // These ride prime (not the always-on system pointer). Keep them operational and

@@ -163,8 +163,12 @@ A fresh session knows its issue. It does not know it has colleagues. Tell it:
 
 When you run work that spans several agents or dependent stages, plan it **on the issue
 tree**, not in your head or in a bash queue. The flight deck (`podium issue deck <id>`)
-is how the user sees progress, and it only knows what is on the tree. Do this whenever
-the work has stages, even if the user never said "phases".
+is how the user sees progress, and it only knows what is on the tree.
+
+Phases are for work with **two or more stages that run one after another, each with its
+own tasks**. Then use them even if the user never said "phases". Otherwise leave them out
+and put tasks directly under the issue. A phase holding a single task, a phase per task,
+or phases around one agent's work only add rows the user has to read past.
 
 1. **Claim the coordinator role** on the issue you were given:
    `podium issue coordinator <id> --claim`. Sessions on it and below it then ask you by

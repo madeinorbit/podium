@@ -32,6 +32,11 @@ describe('COORDINATION_RULE (POD-2062)', () => {
     expect(COORDINATION_RULE).toMatch(/exits 1 with the reason on stderr/)
   })
 
+  it('limits phases to real multi-stage work, so agents do not phase-spam', () => {
+    expect(COORDINATION_RULE).toContain('two or more stages')
+    expect(COORDINATION_RULE).toContain('no phase holding a single task')
+  })
+
   it('stays a short paragraph: it rides every prime', () => {
     expect(COORDINATION_RULE.length).toBeLessThan(1500)
   })
