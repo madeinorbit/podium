@@ -13,6 +13,7 @@ import { formatIssueRef, SELF_REF_RULE, selfRefRule } from '@podium/protocol'
 import { normalizeSettings } from '@podium/runtime'
 import { describe, expect, it, vi } from 'vitest'
 import { type IssueDeps, IssueService } from './modules/issues/service'
+import { seatText } from './modules/issues/service/seat'
 import { issueTestPlumbing } from './modules/issues/service/test-plumbing'
 import { openTestStore } from './test-support/open-test-store'
 import { sessionReadPorts } from './test-support/session-facts'
@@ -762,8 +763,13 @@ describe('coordinator seat', () => {
 
   it('only a session with no coordinator above it is the top seat', async () => {
     const { svc, root, issueBySession, sessions } = await tree()
-    // Before any split nobody coordinates, so every session talks to the user.
-    expect((await svc.reports.seatFor(S('helper'))).kind).toBe('top')
+    // Before any split nobody coordinates, so every session talks to the user,
+    // and its seat line says the role is open (POD-2062).
+    const open = await svc.reports.seatFor(S('helper'))
+    expect(open).toMatchObject({ kind: 'top', coordinates: false, claimable: expect.any(String) })
+    expect(seatText(open)).toContain(
+      `This issue has no coordinator. If you are orchestrating other agents or stages, claim it: \`podium issue coordinator ${(open as { claimable: string }).claimable} --claim\`.`,
+    )
 
     const phase = await svc.crud.create({
       repoPath: '/r',

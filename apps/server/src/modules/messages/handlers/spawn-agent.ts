@@ -95,7 +95,8 @@ async function spawnOnce(
   // full PTY sessions. Human intent is never braked (contract: the exemption
   // attaches to a human principal, not to an admin grade).
   const budgeted = caller.capability.scope.kind !== 'all'
-  if (budgeted && !(await deps.messages.takeSpawnBudget(asIssueId(issueId))).ok) {
+  const budget = budgeted ? await deps.messages.takeSpawnBudget(asIssueId(issueId)) : null
+  if (budget && !budget.ok) {
     try {
       await deps.appendEvent?.({
         ts: deps.now?.() ?? new Date().toISOString(),
@@ -105,8 +106,8 @@ async function spawnOnce(
       })
     } catch {}
     throw new Error(
-      `spawn budget exhausted for issue #${issue.seq} (${SPAWN_BUDGET_PER_DAY}/day); ` +
-        'message the issue instead, or ask the operator',
+      `spawn budget exhausted for issue #${issue.seq} (${SPAWN_BUDGET_PER_DAY}/day, resets 00:00 UTC); ` +
+        'nothing was spawned. Message a live session on the issue instead, or ask the operator',
     )
   }
   if (input.worktree && !issue.worktreePath) {
@@ -287,5 +288,7 @@ async function spawnOnce(
     effort: actualEffort ?? null,
     machine: spawned.machine ?? actualMachineId ?? null,
     ...(spawned.promptMessageId ? { promptMessageId: spawned.promptMessageId } : {}),
+    // Shown on success so a fan-out can plan before the brake refuses (POD-2062).
+    ...(budget ? { spawnBudget: { used: budget.count, limit: SPAWN_BUDGET_PER_DAY } } : {}),
   }
 }

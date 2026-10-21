@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { DELEGATION_RULE, LOCK_RULE } from './delegation'
+import { COORDINATION_RULE, DELEGATION_RULE, LOCK_RULE } from './delegation'
 
 describe('LOCK_RULE', () => {
   it('reserves the merge namespace to the canonical name', () => {
@@ -20,5 +20,19 @@ describe('prime-bound procedure length (POD-789)', () => {
   it('keeps the two always-loaded procedures under 4 KB combined', () => {
     const combined = LOCK_RULE.length + DELEGATION_RULE.length
     expect(combined).toBeLessThan(4000)
+  })
+})
+
+describe('COORDINATION_RULE (POD-2062)', () => {
+  it('names the commands a coordinator needs without reading Podium source', () => {
+    expect(COORDINATION_RULE).toContain('podium issue coordinator <id> --claim')
+    expect(COORDINATION_RULE).toContain('--type phase --parent-id <id>')
+    expect(COORDINATION_RULE).toContain('dep-add <later> <earlier>')
+    expect(COORDINATION_RULE).toContain('creation order')
+    expect(COORDINATION_RULE).toMatch(/exits 1 with the reason on stderr/)
+  })
+
+  it('stays a short paragraph: it rides every prime', () => {
+    expect(COORDINATION_RULE.length).toBeLessThan(1500)
   })
 })

@@ -41,5 +41,18 @@ export const DELEGATION_RULE =
   '(4) TEAM — who else is on the issue, which machine, and that `podium issue mail send <id>` reaches them. ' +
   'Guide: docs/agents/delegating.md'
 
+/** How to coordinate work on the issue tree (POD-2062). An agent told "you are the
+ *  coordinator of this epic, group the work in phases" ran its stages as a bash
+ *  queue, never claimed the role, and lost three spawns to the budget behind a
+ *  `| grep`: nothing it could read said phases are issues or what the limit is.
+ *  The spawn number must match SPAWN_BUDGET_PER_DAY on the server (tested there). */
+export const COORDINATION_RULE =
+  'Coordinating: if the user calls you the coordinator, or the work needs several agents or dependent stages, plan it ON the issue, not in your head or a script. The deck is how the user sees progress. ' +
+  'Claim the role first: `podium issue coordinator <id> --claim` (creating your first sub-issue also claims it). ' +
+  'Make one phase per stage: `podium issue create --type phase --parent-id <id> --title "…"`. The deck lists phases in creation order, so create them in the order they run; `podium issue dep-add <later> <earlier>` makes a stage wait. ' +
+  'Each unit of delegated work is a task under its phase (`--parent-id <phase>`) with its agent placed there (`--start`, or `agent spawn --issue <task>`). ' +
+  'Use phases whenever the work has dependent stages, even if the user never said "phases". ' +
+  'Budget: `podium agent spawn` allows 10 spawns per target issue per UTC day, counted per issue (a child task has its own); a refusal exits 1 with the reason on stderr, so never pipe spawn output through a filter that hides it.'
+
 // These ride prime (not the always-on system pointer). Keep them operational and
 // short: the "why" lives in the file comment and docs/agents/*.md.

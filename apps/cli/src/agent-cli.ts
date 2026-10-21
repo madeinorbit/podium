@@ -61,6 +61,8 @@ function helpText(): string {
     '      a step that names an agent profile starts from it as the run pinned it.',
     '      --model/--effort are checked against the live model catalog; pass',
     '      --force-unknown-model to spawn a deliberately unlisted model slug.',
+    '      Agents get 10 spawns per target issue per UTC day; the output shows',
+    '      how many are used. A refusal exits 1 with the reason on stderr.',
     '  await <sessionId> [--timeout <seconds, default 30, max 300>]',
     '      Bounded wait: returns the child\'s ack or settle state, or "still',
     '      working" plus a status snapshot at the deadline. Never hangs.',
@@ -152,12 +154,17 @@ export async function runAgentCli(argv: string[], client: AgentClient): Promise<
         machine: string | null
         /** The task as this caller's message to the child (POD-4778). */
         promptMessageId?: string
+        /** Today's budgeted spawns on the target issue; absent for operator spawns. */
+        spawnBudget?: { used: number; limit: number }
       }
       return done(
         `spawned ${r.agentId} on issue #${r.issueSeq} (${r.cwd})\n` +
           `  harness=${r.harness} model=${r.model ?? 'default'} effort=${r.effort ?? 'default'} machine=${r.machine ?? 'unknown'}\n` +
           (r.promptMessageId
             ? `  task:   ${r.promptMessageId} — ${pendingSendNote(r.promptMessageId)}\n`
+            : '') +
+          (r.spawnBudget
+            ? `  budget: spawn ${r.spawnBudget.used}/${r.spawnBudget.limit} today on #${r.issueSeq} (per issue, resets 00:00 UTC)\n`
             : '') +
           `  drive:  podium mail send --to ${r.sessionId} --body "…"\n` +
           `  await:  podium agent await ${r.sessionId}`,

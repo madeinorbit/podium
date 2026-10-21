@@ -25,8 +25,10 @@ export interface SeatCoordinator {
 }
 
 export type SessionSeat =
-  /** No coordinator above: this session talks to the user. */
-  | { kind: 'top'; coordinates: boolean }
+  /** No coordinator above: this session talks to the user. `claimable` is the
+   *  ref of its own issue when nobody coordinates it, so the seat line can say
+   *  the role is open rather than read as settled (POD-2062). */
+  | { kind: 'top'; coordinates: boolean; claimable?: string }
   /** Below a coordinator: ask it, never the user. */
   | { kind: 'below'; coordinates: boolean; coordinator: SeatCoordinator }
 
@@ -66,7 +68,9 @@ export async function resolveSeat(
       },
     }
   }
-  return { kind: 'top', coordinates }
+  return own && !coordinates
+    ? { kind: 'top', coordinates, claimable: await facts.ref(own) }
+    : { kind: 'top', coordinates }
 }
 
 // The unified mail CLI: `podium issue mail send` takes no --expect-response, and a
@@ -81,7 +85,10 @@ export function seatText(seat: SessionSeat): string {
     ? ' You coordinate this issue: sessions on it and below it ask you through issue mail. Answer them; bring to the user only what you cannot decide.'
     : ''
   if (seat.kind === 'top') {
-    return `Your seat: no coordinator sits above you, so you talk to the user directly (questions, \`podium offer\`).${leads}`
+    const open = seat.claimable
+      ? ` This issue has no coordinator. If you are orchestrating other agents or stages, claim it: \`podium issue coordinator ${seat.claimable} --claim\`.`
+      : ''
+    return `Your seat: no coordinator sits above you, so you talk to the user directly (questions, \`podium offer\`).${leads}${open}`
   }
   const c = seat.coordinator
   return (

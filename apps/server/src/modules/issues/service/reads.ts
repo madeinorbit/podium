@@ -21,6 +21,7 @@ import {
   toIssueTreeSession,
 } from '@podium/model'
 import {
+  COORDINATION_RULE,
   DELEGATION_RULE,
   FALLBACK_ISSUE_PREFIX,
   formatIssueRef,
@@ -1039,7 +1040,7 @@ export class IssueReportsModule {
     // live on ISSUE_SYSTEM_POINTER (every harness, via session instructions).
     // Prime adds the context-aware retitle command when the current real issue
     // violates that doctrine, then keeps refs, self-ref, reply discipline,
-    // worktree stay, locks, and delegation. Landing and publication procedures
+    // worktree stay, locks, delegation and coordination. Landing and publication procedures
     // belong to the repository [spec:SP-a69c].
     const prefix = await this.primePrefix(opts)
     // POD-6106 (D3): agents pick labels from this list; a new one is deliberate.
@@ -1056,6 +1057,7 @@ export class IssueReportsModule {
       'Stay in your worktree: never `cd` into another checkout (it re-homes this session); use `git -C <path>` instead. If you INTENTIONALLY move, run `podium worktree` from the new checkout.',
       LOCK_RULE,
       DELEGATION_RULE,
+      COORDINATION_RULE,
     ]
     if (opts.boundIssueId) {
       const me = (await mayRead(opts.boundIssueId)) ? await this.get(opts.boundIssueId) : null

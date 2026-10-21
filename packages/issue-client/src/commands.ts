@@ -698,7 +698,7 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
   },
   {
     name: 'create',
-    summary: `Create an issue: create --title "…". Agent top-level discoveries land in Proposed; sub-issues are internal decomposition. Description is human-facing; use --brief for technical detail. ${TITLE_RULE_TERSE}`,
+    summary: `Create an issue: create --title "…". Agent top-level discoveries land in Proposed; sub-issues are internal decomposition. Description is human-facing; use --brief for technical detail. --type task (default): a unit of work. --type phase: a stage of its parent, shown as a section on the deck in creation order; put its tasks under it with --parent-id <phase>, and whoever coordinates it is the phase lead. --type decision: a question only the user closes; it blocks what waits on it. The first sub-issue a session creates under its own issue makes it that issue's coordinator. ${TITLE_RULE_TERSE}`,
     args: z.strictObject({
       ...repoArg,
       title: z.string().min(1),
@@ -1094,7 +1094,7 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
   {
     name: 'coordinator',
     summary:
-      'Set the issue coordinator session (actionable-mail target): coordinator <id> --claim | --set <sessionId> | --clear.',
+      'Set the issue coordinator session: coordinator <id> --claim | --set <sessionId> | --clear. Claim it when you orchestrate other agents or phases on the issue: sessions on it and below it then ask you by issue mail instead of the user.',
     args: z.strictObject({
       id: idArg,
       claim: cliBool.optional(),

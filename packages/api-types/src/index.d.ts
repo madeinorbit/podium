@@ -4991,14 +4991,15 @@ type Output_issues_searchNormalized = Array<{
 }>;
 type Output_issues_seat = ({
     askUserRefusal?: string | undefined;
+    claimable?: string;
     coordinates: boolean;
-    coordinator: SeatCoordinator;
-    kind: "below";
+    kind: "top";
     text: string;
 }) | ({
     askUserRefusal?: string | undefined;
     coordinates: boolean;
-    kind: "top";
+    coordinator: SeatCoordinator;
+    kind: "below";
     text: string;
 });
 type Output_issues_ship = {

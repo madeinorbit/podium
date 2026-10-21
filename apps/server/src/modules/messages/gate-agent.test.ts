@@ -12,6 +12,7 @@ import {
   firstAdminMemberId,
   type SessionId,
 } from '@podium/model'
+import { COORDINATION_RULE } from '@podium/protocol'
 import { MutationLedger } from '@podium/sync'
 import { describe, expect, it, vi } from 'vitest'
 import type { Capability } from '../../issue-authz'
@@ -505,20 +506,33 @@ describe('agent spawn (gate)', () => {
   it('brake 2: agent spawns share the per-issue daily budget; the Nth is refused + ledgered', async () => {
     const { gate, store, spawns } = await harness()
     for (let i = 0; i < SPAWN_BUDGET_PER_DAY; i++) {
-      await gate.dispatch(PARENT, true, 'spawnAgent', { issue: ISSUE.id, prompt: 'x' })
+      // Each success reports how much of the budget is used, so a fan-out can
+      // plan before the refusal (POD-2062).
+      await expect(
+        gate.dispatch(PARENT, true, 'spawnAgent', { issue: ISSUE.id, prompt: 'x' }),
+      ).resolves.toMatchObject({ spawnBudget: { used: i + 1, limit: SPAWN_BUDGET_PER_DAY } })
     }
     expect(spawns).toHaveLength(SPAWN_BUDGET_PER_DAY)
     await expect(
       gate.dispatch(PARENT, true, 'spawnAgent', { issue: ISSUE.id, prompt: 'x' }),
-    ).rejects.toThrow(/spawn budget exhausted/)
+    ).rejects.toThrow(/spawn budget exhausted.*nothing was spawned/)
     expect(spawns).toHaveLength(SPAWN_BUDGET_PER_DAY) // the refused spawn never ran
     // Durably ledgered for the audit trail.
     const evs = await store.events.listEventsSince(0, { kinds: ['agent.spawn_budget_exhausted'] })
     expect(evs).toHaveLength(1)
-    // Operator spawns are never budgeted.
-    await expect(
-      gate.dispatch(OPERATOR, undefined, 'spawnAgent', { issue: ISSUE.id, prompt: 'x' }),
-    ).resolves.toMatchObject({ ok: true })
+    // Operator spawns are never budgeted, and report no budget.
+    const operator = await gate.dispatch(OPERATOR, undefined, 'spawnAgent', {
+      issue: ISSUE.id,
+      prompt: 'x',
+    })
+    expect(operator).toMatchObject({ ok: true })
+    expect(operator).not.toHaveProperty('spawnBudget')
+  })
+
+  it('the prime coordination rule states the budget brake 2 enforces (POD-2062)', () => {
+    expect(COORDINATION_RULE).toContain(
+      `${SPAWN_BUDGET_PER_DAY} spawns per target issue per UTC day`,
+    )
   })
 
   it('brake 2 survives a server restart (agent.spawned budgetIssue rides the event ledger)', async () => {

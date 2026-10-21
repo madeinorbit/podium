@@ -159,6 +159,53 @@ A fresh session knows its issue. It does not know it has colleagues. Tell it:
   explicitly. A delegate that discovers a problem in someone else's file should mail the
   owner, not fix it.
 
+## Phases and coordinators
+
+When you run work that spans several agents or dependent stages, plan it **on the issue
+tree**, not in your head or in a bash queue. The flight deck (`podium issue deck <id>`)
+is how the user sees progress, and it only knows what is on the tree. Do this whenever
+the work has stages, even if the user never said "phases".
+
+1. **Claim the coordinator role** on the issue you were given:
+   `podium issue coordinator <id> --claim`. Sessions on it and below it then ask you by
+   issue mail instead of the user. Creating your first sub-issue under your own issue
+   also claims an empty seat, but claim first so the role is clear from the start. The
+   seat line in `podium issue prime` says when the issue has no coordinator.
+2. **One phase per stage**: `podium issue create --type phase --parent-id <id> --title "…"`.
+   A phase is a section of its parent, not a unit of work. The deck lists sibling phases
+   in creation order, so create them in the order they run. If a stage must not start
+   before another finishes, add `podium issue dep-add <later> <earlier>`.
+3. **One task per unit of delegated work, under its phase**: `--parent-id <phase>`, with
+   its agent placed on that task: `--start` for work that needs its own worktree, or
+   `podium agent spawn --issue <task>` for read-only work such as research. The deck then
+   shows each researcher or implementer inside its stage.
+
+The other issue types: `task` is the default, and `decision` is a question only the user
+closes; it blocks whatever waits on it.
+
+**Spawn budget.** Agent-initiated `podium agent spawn` is limited to 10 spawns per
+*target* issue per UTC day. It is counted per issue: spawns onto a child task count
+against that task, not the epic. Successful spawn output shows the count
+(`budget: spawn 8/10 today on #336`). A refusal exits 1 with the reason on stderr, so a
+loop that pipes spawn output through `grep` loses it. Check each spawn's exit code.
+
+Example (an epic for a competitor comparison page):
+
+```
+Epic: Competitor comparison page        ← you: coordinator --claim
+├─ Phase: Discovery                     ← create --type phase, first
+│  └─ Task: Competitor shortlist        ← one researcher
+├─ Phase: Profiles                      ← dep-add <Profiles> <Discovery>
+│  ├─ Task: Profile Acme                ← one researcher per competitor
+│  ├─ Task: Profile Globex
+│  └─ Task: Profile Initech
+└─ Phase: Page                          ← dep-add <Page> <Profiles>
+   └─ Task: Build comparison page       ← one implementer
+```
+
+The same work run as eleven helper sessions spawned onto the epic looks like a flat list on
+the deck, and the eleventh spawn is refused by the budget.
+
 ## A worked brief
 
 An isolated implementer. One command — `--description` is the human summary and `--brief` is the technical first-prompt content:
