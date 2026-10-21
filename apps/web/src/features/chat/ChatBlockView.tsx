@@ -15,6 +15,7 @@ import { Clock, FileText, Image as ImageIcon, MessageCircleQuestion } from 'luci
 import type { JSX, MouseEvent as ReactMouseEvent, ReactNode } from 'react'
 import { memo, useCallback, useMemo, useRef, useState } from 'react'
 import { assetUrl } from '@/lib/asset-url'
+import type { QuoteInput } from '@/lib/quote/quote-sinks'
 import { renderMarkdown, sanitizeRenderedMarkdown } from '@/lib/markdown'
 import { useKnownRefPrefixesVersion } from '@/lib/use-known-ref-prefixes'
 import { cn } from '@/lib/utils'
@@ -85,12 +86,15 @@ const COPY_ACK_MS = 1400
 function MessageActions({
   text,
   onQuote,
+  quoteSource,
   ts,
   side,
   children,
 }: {
   text: string
-  onQuote?: ((markdown: string) => void) | undefined
+  onQuote?: ((quote: QuoteInput) => void) | undefined
+  /** What the quote button says this message is (see `quoteSourceLabel`). */
+  quoteSource?: string | undefined
   /** The row's own instant. Every voice now carries one here — see the foot's
    *  note below for why the clock left the label rows. */
   ts?: string | undefined
@@ -113,8 +117,8 @@ function MessageActions({
     })
   }, [text])
   const quote = useCallback(() => {
-    onQuote?.(`${text.trim().replace(/^/gm, '> ')}\n\n`)
-  }, [text, onQuote])
+    onQuote?.({ text: text.trim(), source: quoteSource ?? 'a message' })
+  }, [text, onQuote, quoteSource])
   const empty = !text.trim()
   if (empty && !children && !ts) return null
   return (
@@ -139,8 +143,8 @@ function MessageActions({
               type="button"
               className="msg-action"
               onClick={quote}
-              title="Quote in composer"
-              aria-label="Quote in composer"
+              title="Add to chat"
+              aria-label="Add to chat"
             >
               <MetaGlyph name="quote" />
             </button>
@@ -163,6 +167,16 @@ function MessageActions({
  * reader who needs more should not have to leave the row to get it. Absent or
  * unparseable ts → nothing, never a fabricated time.
  */
+/**
+ * How a quote from this message names its origin to the agent (POD-2057). The
+ * prompt is written by the operator, so "my" is theirs and "your" is the agent's.
+ */
+function quoteSourceLabel(isUser: boolean, ts: string | undefined): string {
+  const d = parseTs(ts)
+  const who = isUser ? 'my message' : 'your reply'
+  return d ? `${who}, ${clockLabel(d)}` : who
+}
+
 function BlockClock({ ts }: { ts?: string | undefined }): JSX.Element | null {
   const d = parseTs(ts)
   if (!d || !ts) return null
@@ -298,7 +312,7 @@ export const ChatBlockView = memo(function ChatBlockView({
    *  its one-shot arrival. See `useFeedArrivals`. */
   arrived?: boolean
   /** Quote this message into the composer. Absent → no Quote action. */
-  onQuote?: ((markdown: string) => void) | undefined
+  onQuote?: ((quote: QuoteInput) => void) | undefined
   /** Unsafe HTML produced off-thread; sanitation and link policy stay here. */
   markdownHtml?: ReadonlyMap<string, string>
 }): JSX.Element | null {
@@ -527,6 +541,7 @@ export const ChatBlockView = memo(function ChatBlockView({
   // than permanent signal colour — yellow is reserved for a request to act.
   const isUser = item.role === 'user'
   const isAnswer = item.role === 'assistant' && !!item.answer
+  const quoteSource = quoteSourceLabel(isUser, item.ts)
 
   const turnBody = (
     <>
@@ -613,6 +628,7 @@ export const ChatBlockView = memo(function ChatBlockView({
             isUser && 'transcript-you',
             isAnswer && 'transcript-answer',
           )}
+          data-quote-source={quoteSource}
         >
           {process === 'start' && <div className="transcript-process-label">Process</div>}
           {item.role === 'system' && (
@@ -649,6 +665,7 @@ export const ChatBlockView = memo(function ChatBlockView({
           <MessageActions
             text={displayText}
             onQuote={onQuote}
+            quoteSource={quoteSource}
             ts={item.ts}
             side={isUser ? 'right' : 'left'}
           >

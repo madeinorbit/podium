@@ -14,6 +14,7 @@ import { PodiumLinkHost } from '@/components/PodiumLinkHost'
 import { Toaster } from '@/components/ui/sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { WaitingForServer } from '@/components/WaitingForServer'
+import { chordLabel } from '@/features/chat/use-composer-chord'
 import { IssueExplorerProvider } from '@/features/issues/explorer/explorer-context'
 import {
   hasActivationState,
@@ -49,6 +50,7 @@ import { ConfirmProvider } from '@/lib/hooks/use-confirm'
 import { effectiveIssueColorHex, FLOW_CSS } from '@/lib/issueColors'
 import { nativeDesktopBridge } from '@/lib/nativeDesktop'
 import { prefetchAfterFirstPaint } from '@/lib/prefetch-after-first-paint'
+import { QuoteLayer } from '@/lib/quote/QuoteLayer'
 import type { SyncProgressStore } from '@/lib/sync-progress'
 import { useFeature } from '@/lib/use-feature'
 import { useFileDropGuard } from '@/lib/use-file-drop-guard'
@@ -397,6 +399,7 @@ export function AppShell({
           working. --topbar-h plus the bar's own 10px rhythm gap (POD-1159).
           The safe-area term stays — it is what makes the toast tappable in
           standalone PWA mode on a notched phone. */}
+        <QuoteLayer chord={chordLabel()} />
         <Toaster
           position="top-center"
           offset={{ top: 'calc(env(safe-area-inset-top, 0px) + var(--topbar-h) + 10px)' }}

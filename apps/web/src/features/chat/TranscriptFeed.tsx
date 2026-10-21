@@ -37,6 +37,7 @@ import { transcriptComputeClient } from './transcript-compute-client'
 import { dayKey, dayLabel, rowTimestamp } from './transcript-time'
 import { rowIdentity, useFeedArrivals } from './use-feed-arrivals'
 import type { HeadlessOverlay, TurnPreview } from '@podium/client-core/conversation'
+import type { QuoteInput } from '@/lib/quote/quote-sinks'
 
 /** Render a live partial through the same worker boundary as settled messages. */
 function StreamingMarkdown({ text }: { text: string }): JSX.Element {
@@ -326,7 +327,7 @@ export interface TranscriptFeedProps {
   /** Quote a message into the composer (POD-376 per-message actions). Absent →
    *  the Quote action is not offered, which is what a host without a composer
    *  should get rather than a button that does nothing. */
-  onQuote?: (markdown: string) => void
+  onQuote?: (quote: QuoteInput) => void
 }
 
 export const TranscriptFeed = observer(function TranscriptFeed(props: TranscriptFeedProps): JSX.Element {

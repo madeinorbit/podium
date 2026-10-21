@@ -59,6 +59,8 @@ export function MarkdownPreview({
       // Reading typography (measure, leading, padding) lives entirely in
       // `.markdown-preview` in styles.css — no utility sizing here to fight it.
       className={cn('markdown-preview min-h-0 flex-1 overflow-auto', className)}
+      // A selection here can be added to the chat as a quote of this file (POD-2057).
+      data-quote-source={path}
       onClick={onClick}
       // eslint-disable-next-line react/no-danger -- sanitized by renderMarkdownBlocks (DOMPurify)
       dangerouslySetInnerHTML={{ __html: html }}

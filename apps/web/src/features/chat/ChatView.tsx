@@ -9,6 +9,13 @@ import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { observer } from 'mobx-react-lite'
 import { useConversation, type WebConversation } from './use-conversation'
 import { TranscriptFeedBoundary } from '@/features/chat/TranscriptFeedBoundary'
+import {
+  markQuoteSinkFocused,
+  type QuoteInput,
+  type QuoteSink,
+  registerQuoteSink,
+  serializeQuotes,
+} from '@/lib/quote/quote-sinks'
 import { cn } from '@/lib/utils'
 import { ChatComposer } from './ChatComposer'
 import { ChatRail } from './ChatRail'
@@ -17,6 +24,7 @@ import { handleChatMdClick } from './chat-md-click'
 import { ImageLightbox } from './ImageLightbox'
 import { IssueChipLiveness } from './IssueChipLiveness'
 import { PinnedBrief } from './PinnedBrief'
+import { useQuotes } from './QuoteStrip'
 import { TranscriptSearchBar } from './TranscriptSearchBar'
 import { type ChatSurface, useChatLayout } from './use-chat-layout'
 
@@ -34,7 +42,7 @@ const PendingInteractionBar = lazy(() =>
 /** Layout is local; live chat state is read by narrow observer leaves. */
 export type { SuperThreadRef }
 
-type QuoteDraftRef = MutableRefObject<((markdown: string) => void) | null>
+type QuoteDraftRef = MutableRefObject<((quote: QuoteInput) => void) | null>
 
 /** Keep draft keystrokes in the composer leaf rather than re-running the whole
  * transcript/rail shell for every character. */
@@ -54,11 +62,30 @@ const ScopedChatComposer = observer(function ScopedChatComposer({
   const draft = chat.view.draft
   const setDraft = chat.setDraft
   const voice = useVoiceInput((text) => setDraft(draft ? `${draft} ${text}` : text))
-  quoteDraftRef.current = (markdown) => {
-    setDraft(draft ? `${draft.replace(/\s*$/, '\n\n')}${markdown}` : markdown)
-    chat.taRef.current?.focus()
+  const quotes = useQuotes()
+  quoteDraftRef.current = (quote) => {
+    quotes.add(quote)
+    const ta = chat.taRef.current
+    ta?.focus()
+    // Say where it went: the box the quote landed in pulses once.
+    const well = ta?.closest<HTMLElement>('.chat-composer-well, .prompt-well')
+    if (well) {
+      delete well.dataset.quoteArrived
+      void well.offsetWidth
+      well.dataset.quoteArrived = 'true'
+    }
   }
-  const submit = useCallback(() => chat.submitDraft(draft), [chat.submitDraft, draft])
+  // Quotes reach the agent as Markdown ahead of the words (`serializeQuotes`),
+  // so the send path below never learns they exist.
+  const submit = useCallback(() => {
+    if (quotes.quotes.length === 0) {
+      chat.submitDraft(draft)
+      return
+    }
+    if (chat.attachments.uploading) return
+    chat.submitDraft(serializeQuotes(quotes.quotes, draft))
+    quotes.clear()
+  }, [chat.submitDraft, chat.attachments.uploading, draft, quotes])
   const interrupt = useCallback(() => chat.interrupt(draft), [chat.interrupt, draft])
 
   return (
@@ -73,6 +100,7 @@ const ScopedChatComposer = observer(function ScopedChatComposer({
       onSend={submit}
       voice={voice}
       attachments={chat.attachments}
+      quotes={quotes}
       turnRunning={chat.view.turnActive}
       canInterrupt={chat.view.canInterrupt}
       onInterrupt={interrupt}
@@ -182,11 +210,29 @@ const ConversationChatView = observer(function ConversationChatView({
    * replica whose `pendingInteraction` collection has not arrived is a partial
    * world, not an error.
    */
-  const quoteDraftRef = useRef<((markdown: string) => void) | null>(null)
+  const quoteDraftRef = useRef<((quote: QuoteInput) => void) | null>(null)
   const [issueLivenessRoot, setIssueLivenessRoot] = useState<HTMLDivElement | null>(null)
-  const quoteIntoDraft = useCallback((markdown: string) => {
-    quoteDraftRef.current?.(markdown)
+  const quoteIntoDraft = useCallback((quote: QuoteInput) => {
+    quoteDraftRef.current?.(quote)
   }, [])
+  // ADD TO CHAT (POD-2057): this composer is a place a selection can go. A
+  // selection inside this chat comes here; one elsewhere comes here when this
+  // was the prompt focused last.
+  const surfaceRef = useRef<HTMLDivElement | null>(null)
+  const { taRef } = chat
+  useEffect(() => {
+    const scope = surfaceRef.current
+    const composer = taRef.current
+    if (!scope || !composer) return
+    const sink: QuoteSink = { scope, composer, add: quoteIntoDraft }
+    const onFocus = (): void => markQuoteSinkFocused(sink)
+    composer.addEventListener('focus', onFocus)
+    const unregister = registerQuoteSink(sink)
+    return () => {
+      composer.removeEventListener('focus', onFocus)
+      unregister()
+    }
+  }, [taRef, quoteIntoDraft])
   // FIND. Opened from the rail's search button and nowhere else: ⌘F belongs to
   // the sidebar's task filter now (POD-1093, `useWorkFilter`), which is the one
   // chord in the product and cannot be shared — two window listeners on it meant
@@ -254,6 +300,7 @@ const ConversationChatView = observer(function ConversationChatView({
      * is the destination: drop anywhere, it lands in your prompt.
      */
     <div
+      ref={surfaceRef}
       className={cn('relative flex min-h-0 flex-1 flex-col', compact && 'chat-compact')}
       // NOT WHILE THE LIGHTBOX IS UP. It is a child of this surface, so a drag
       // over it bubbles here — and the veil (z-20) would draw UNDERNEATH the
@@ -337,7 +384,7 @@ const ConversationChatView = observer(function ConversationChatView({
   )
 })
 
-const ConversationTranscript = observer(function ConversationTranscript({ chat, sessionId, onQuote }: { chat: ChatSurface; sessionId: SessionId; onQuote: (markdown: string) => void }) {
+const ConversationTranscript = observer(function ConversationTranscript({ chat, sessionId, onQuote }: { chat: ChatSurface; sessionId: SessionId; onQuote: (quote: QuoteInput) => void }) {
   return (
           <TranscriptFeedBoundary
             chat={chat}

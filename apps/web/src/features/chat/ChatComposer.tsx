@@ -17,6 +17,7 @@ import { useNativeDraftText } from '@/lib/use-native-draft-text'
 import { cn } from '@/lib/utils'
 import { AttachmentStrip } from './AttachmentStrip'
 import { OfferBar } from './OfferBar'
+import { QuoteStrip, type UseQuotesResult } from './QuoteStrip'
 import type { UseAttachmentsResult } from './use-attachments'
 import { useChatMentions } from './use-chat-context'
 import { chordLabel, useComposerChord } from './use-composer-chord'
@@ -133,6 +134,7 @@ export const ChatComposer = observer(function ChatComposer({
   onSend,
   voice,
   attachments,
+  quotes,
   turnRunning,
   canInterrupt,
   onInterrupt,
@@ -165,6 +167,8 @@ export const ChatComposer = observer(function ChatComposer({
   onSend: () => void
   voice: ReturnType<typeof useVoiceInput>
   attachments: UseAttachmentsResult
+  /** Passages added from a selection (POD-2057). Absent where nothing quotes. */
+  quotes?: UseQuotesResult | undefined
   /** A turn is running — native or headless. Shows the stop control. The
    *  composer no longer asks WHICH kind: `headless` used to be here only to gate
    *  that control, and gating it was the bug (POD-1214). */
@@ -333,7 +337,9 @@ export const ChatComposer = observer(function ChatComposer({
   const mention = useAtMenu({ trigger, taRef, value: draft, onChange: onDraftChange, options })
 
   const sendDisabled =
-    !deliverable || (!draft.trim() && attachments.attachments.length === 0) || attachments.uploading
+    !deliverable ||
+    (!draft.trim() && attachments.attachments.length === 0 && !quotes?.quotes.length) ||
+    attachments.uploading
   // The keyboard's send. The textarea is never disabled, so Enter reaches this
   // handler in every state and the send gate has to be applied here — the
   // button gets it for free from its `disabled` attribute.
@@ -653,6 +659,7 @@ export const ChatComposer = observer(function ChatComposer({
           onChange={attachments.onFileInputChange}
         />
         <div className={cn('flex min-w-0 flex-col gap-0.5', compact && 'flex-1')}>
+          {quotes && <QuoteStrip quotes={quotes.quotes} onRemove={quotes.remove} />}
           <div className="flex items-start gap-2">
             <Textarea
               ref={taRef}
@@ -718,6 +725,13 @@ export const ChatComposer = observer(function ChatComposer({
                   return
                 }
                 lastInterruptEscapeAt.current = null
+                // An empty field gives Backspace to the last quote chip, as a
+                // token field does.
+                if (e.key === 'Backspace' && draft === '' && quotes?.quotes.length) {
+                  e.preventDefault()
+                  quotes.removeLast()
+                  return
+                }
                 // Desktop: Enter submits, Shift+Enter is a newline (⌘/Ctrl+Enter
                 // still submits). Mobile keeps plain Enter as a newline — the
                 // send button submits there.
