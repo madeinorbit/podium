@@ -24,8 +24,12 @@ import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from '
 import { basename, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { brotliCompressSync, constants, gzipSync } from 'node:zlib'
+import {
+  type BuildManifest,
+  eagerClientGraphSources,
+  eagerJsFiles,
+} from '../apps/web/test/web-bundle-boundaries'
 import { duplicateReport } from './web-bundle-duplicates'
-import { type BuildManifest, eagerClientGraphSources, eagerJsFiles } from '../apps/web/test/web-bundle-boundaries'
 
 interface SourceMap {
   readonly sources: readonly string[]
@@ -237,6 +241,11 @@ const BROWSER_HOSTILE_EXCEPTIONS = [
   'packages/harness/src/adapters/shared/composer.ts',
   'packages/harness/src/adapters/claude-code/composer.ts',
   'packages/harness/src/adapters/codex/composer.ts',
+  // Codex interview cards (POD-2061): interview.ts imports only json-util.ts,
+  // which has no imports. Both are pure JSON/string helpers reached through
+  // src/browser.ts and covered by its browser-reach closure audit.
+  'packages/harness/src/adapters/codex/interview.ts',
+  'packages/harness/src/adapters/shared/json-util.ts',
   // Version floors (POD-4084): pure data + string parsing, zero imports,
   // re-exported by src/browser.ts on purpose (see its boundary-checker note).
   // In a browser chunk only via that declared entrypoint, whose full closure
