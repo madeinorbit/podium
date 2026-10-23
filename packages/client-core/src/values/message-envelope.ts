@@ -15,7 +15,7 @@
  * quoted frames stay quoted inside the rendered body.
  */
 
-import { LEGACY_TURN_CLOSE_RULE, TURN_CLOSE_RULE } from '@podium/commands'
+import { LEGACY_TURN_CLOSE_RULE, TURN_CLOSE_RULE } from '@podium/commands/mail-turn-close-rule'
 
 export interface ParsedEnvelope {
   /** The message id (`msg_…`) — links the transcript block to the ledger. */

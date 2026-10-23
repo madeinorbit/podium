@@ -1,4 +1,4 @@
-import { LEGACY_TURN_CLOSE_RULE, TURN_CLOSE_RULE } from '@podium/commands'
+import { LEGACY_TURN_CLOSE_RULE, TURN_CLOSE_RULE } from '@podium/commands/mail-turn-close-rule'
 import { describe, expect, it } from 'vitest'
 import {
   envelopePrincipal,

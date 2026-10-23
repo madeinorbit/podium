@@ -12,6 +12,11 @@
       "types": "./src/index.ts",
       "import": "./src/index.ts"
     },
+    "./mail-turn-close-rule": {
+      "@podium/source": "./src/mail/turn-close-rule.ts",
+      "types": "./src/mail/turn-close-rule.ts",
+      "import": "./src/mail/turn-close-rule.ts"
+    },
     "./settings-write-plan": {
       "@podium/source": "./src/settings/write-plan.ts",
       "types": "./src/settings/write-plan.ts",

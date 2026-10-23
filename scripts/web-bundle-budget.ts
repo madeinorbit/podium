@@ -774,8 +774,13 @@ if (checkBudget) {
     errors.push('ownership matrix is present in the eager graph')
   if (report.allBrowserChunks.ownershipMatrixSources.length > 0)
     errors.push('ownership matrix is present in a browser chunk')
-  if (report.eager.commandSources.length > 0)
-    errors.push(`command sources are eager: ${report.eager.commandSources.join(', ')}`)
+  // The envelope parser shares dependency-free mail text with the server.
+  // Every other command source still belongs behind its owning feature.
+  const eagerCommandSources = report.eager.commandSources.filter(
+    (source) => !source.endsWith('packages/commands/src/mail/turn-close-rule.ts'),
+  )
+  if (eagerCommandSources.length > 0)
+    errors.push(`command sources are eager: ${eagerCommandSources.join(', ')}`)
 
   // The check that must speak BEFORE the byte ceilings do, because it is the one
   // that explains them. A split package is counted twice in `sourcesContent`, so

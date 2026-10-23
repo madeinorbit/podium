@@ -16,12 +16,8 @@
  * {@link MessageRenderer.isPointer} is how this module reads it [POD-4845].
  */
 
-import {
-  AUTO_CONTINUE_SENDER,
-  deliversUnwrapped,
-  type MailSenderPrincipal,
-  TURN_CLOSE_RULE,
-} from '@podium/commands'
+import { AUTO_CONTINUE_SENDER, deliversUnwrapped, type MailSenderPrincipal } from '@podium/commands'
+import { TURN_CLOSE_RULE } from '@podium/commands/mail-turn-close-rule'
 import type { SessionId, SessionMeta } from '@podium/model'
 import type { MessageRow } from '../../store'
 import { INLINE_BODY_MAX, isPointerMessage } from '../../store/messages'

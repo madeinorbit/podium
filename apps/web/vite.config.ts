@@ -275,6 +275,9 @@ export default defineConfig(({ command, mode }) => {
         // Subpath alias must precede the bare-package one — the bare alias also
         // prefix-matches subpath imports and would resolve them to a path INSIDE
         // index.ts, which fails at build time.
+        '@podium/commands/mail-turn-close-rule': fileURLToPath(
+          new URL('../../packages/commands/src/mail/turn-close-rule.ts', import.meta.url),
+        ),
         '@podium/commands/settings-write-plan': fileURLToPath(
           new URL('../../packages/commands/src/settings/write-plan.ts', import.meta.url),
         ),
