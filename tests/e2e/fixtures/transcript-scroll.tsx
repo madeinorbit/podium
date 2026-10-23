@@ -1,7 +1,8 @@
+// biome-ignore-all lint/a11y/noNoninteractiveTabindex: the regression must focus its scrollport for native PageUp/Home/End.
 import { useLayoutEffect, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
-import { TranscriptViewport } from '../../../apps/mobile/src/components/TranscriptViewport.web'
 import type { TranscriptViewportHandle } from '../../../apps/mobile/src/components/TranscriptViewport.types'
+import { TranscriptViewport } from '../../../apps/mobile/src/components/TranscriptViewport.web'
 import { useTranscriptScroll } from '../../../apps/web/src/features/chat/use-transcript-scroll'
 
 export interface ScrollSnapshot {
@@ -120,6 +121,10 @@ function Fixture() {
           onLoadOlder={() => setLoading(true)}
           onFollowChange={setPhoneFollowing}
           keyExtractor={(key) => key}
+          positionOfKey={(key) => {
+            const index = rows.indexOf(key)
+            return index < 0 ? undefined : index
+          }}
           style={{ flex: 1, minHeight: 0 }}
           renderItem={({ item: key, index }) => (
             <div

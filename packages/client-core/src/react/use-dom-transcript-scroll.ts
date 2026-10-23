@@ -44,6 +44,8 @@ interface ReadingAnchor {
 // bounce-back leave a reader at the end a few pixels short of the maximum.
 const BOTTOM_EPSILON = 10
 const POSITION_EPSILON = 0.01
+// Scroll dimensions and an applied offset can differ by a rounded CSS pixel.
+const SCROLL_ROUNDING_EPSILON = 1
 const HISTORY_EDGE = 120
 
 /** A reading position outlives its panel: an evicted tab remounts where it was left. */
@@ -122,27 +124,30 @@ export function useDomTranscriptScroll(
     followChangeRef.current?.(next)
   }, [])
 
-  const captureReadingAnchor = useCallback(() => {
-    const scroller = scrollerRef.current
-    if (!scroller) return
-    const viewport = scroller.getBoundingClientRect()
-    readingAnchor.current = null
-    for (const row of scroller.querySelectorAll<HTMLElement>('[data-block]')) {
-      const rect = row.getBoundingClientRect()
-      if (rect.bottom <= viewport.top || rect.top >= viewport.bottom) continue
-      // The rich row can leave the window during a prepend. Its measured shell
-      // stays connected and includes the same margins/day mark before and after.
-      const retained = row.closest<HTMLElement>('[data-transcript-row]') ?? row
-      readingAnchor.current = {
-        element: retained,
-        shell: retained.hasAttribute('data-transcript-row'),
-        key: row.dataset.rowKey ?? retained.dataset.transcriptRow,
-        offset: retained.getBoundingClientRect().top - viewport.top,
-        scrollTop: scroller.scrollTop,
+  const captureReadingAnchor = useCallback(
+    (unappliedOffset = 0) => {
+      const scroller = scrollerRef.current
+      if (!scroller) return
+      const viewport = scroller.getBoundingClientRect()
+      readingAnchor.current = null
+      for (const row of scroller.querySelectorAll<HTMLElement>('[data-block]')) {
+        const rect = row.getBoundingClientRect()
+        if (rect.bottom <= viewport.top || rect.top >= viewport.bottom) continue
+        // The rich row can leave the window during a prepend. Its measured shell
+        // stays connected and includes the same margins/day mark before and after.
+        const retained = row.closest<HTMLElement>('[data-transcript-row]') ?? row
+        readingAnchor.current = {
+          element: retained,
+          shell: retained.hasAttribute('data-transcript-row'),
+          key: row.dataset.rowKey ?? retained.dataset.transcriptRow,
+          offset: retained.getBoundingClientRect().top - viewport.top - unappliedOffset,
+          scrollTop: scroller.scrollTop,
+        }
+        return
       }
-      return
-    }
-  }, [scrollerRef])
+    },
+    [scrollerRef],
+  )
 
   const releaseFollow = useCallback(() => {
     userScrolling.current = true
@@ -166,90 +171,106 @@ export function useDomTranscriptScroll(
     [scrollerRef],
   )
 
-  const reconcileLayout = useCallback((rowsResized = false) => {
-    const scroller = scrollerRef.current
-    if (!active || !scroller || scroller.clientHeight === 0) return
-    const height = scroller.scrollHeight
-    const viewport = scroller.clientHeight
-    const focused = scroller.ownerDocument.activeElement
-    const editing =
-      focused?.matches('textarea, input') ||
-      (focused as HTMLElement | null)?.isContentEditable
-    // Safari pans/resizes the viewport as its keyboard opens. Writing a new
-    // tail offset during that transition can cancel focus and close it again.
-    // Keep geometry current, but wait for an observed row change before moving
-    // the offset. Keyboard chrome can change content padding as well as the
-    // viewport; neither is new transcript content. This also covers duplicate
-    // deliveries and a scroll event arriving before the row observation.
-    if (editing && !rowsResized && !restoring.current) {
-      geometry.current = { height, viewport }
-      lastTop.current = scroller.scrollTop
-      writtenTop.current = null
-      return
-    }
-    const max = Math.max(0, scroller.scrollHeight - scroller.clientHeight)
-    // A browser clamp can happen before its scroll event. If the previously
-    // observed offset is now outside the legal range, reaching the new maximum
-    // is a layout adjustment, not reader input that should request history.
-    if (lastTop.current > max && Math.abs(scroller.scrollTop - max) <= BOTTOM_EPSILON)
-      lastTop.current = scroller.scrollTop
-    if (following.current) {
-      writeOffset(scroller.scrollHeight)
-      readingAnchor.current = null
-    } else {
-      const anchor = readingAnchor.current
-      let element = anchor?.element
-      if (anchor && !element?.isConnected && anchor.key !== undefined) {
-        const index = lookupAnchorRow?.(anchor.key)
-        element = index === undefined ? undefined : scroller.querySelector<HTMLElement>(`[data-block="${index}"]`) ?? undefined
-        element ??= [...scroller.querySelectorAll<HTMLElement>('[data-row-key]')].find(
-          (row) =>
-            row.dataset.rowKey === anchor.key ||
-            (row.dataset.rowAliases !== undefined &&
-              (JSON.parse(row.dataset.rowAliases) as string[]).includes(anchor.key!)),
-        )
-        element ??= [...scroller.querySelectorAll<HTMLElement>('[data-transcript-row]')].find(
-          (row) => row.dataset.transcriptRow === anchor.key,
-        )
+  const reconcileLayout = useCallback(
+    (rowsResized = false) => {
+      const scroller = scrollerRef.current
+      if (!active || !scroller || scroller.clientHeight === 0) return
+      const height = scroller.scrollHeight
+      const viewport = scroller.clientHeight
+      const focused = scroller.ownerDocument.activeElement
+      const editing =
+        focused?.matches('textarea, input') || (focused as HTMLElement | null)?.isContentEditable
+      // Safari pans/resizes the viewport as its keyboard opens. Writing a new
+      // tail offset during that transition can cancel focus and close it again.
+      // Keep geometry current, but wait for an observed row change before moving
+      // the offset. Keyboard chrome can change content padding as well as the
+      // viewport; neither is new transcript content. This also covers duplicate
+      // deliveries and a scroll event arriving before the row observation.
+      if (editing && !rowsResized && !restoring.current) {
+        geometry.current = { height, viewport }
+        lastTop.current = scroller.scrollTop
+        writtenTop.current = null
+        return
       }
-      if (anchor?.shell)
-        element = element?.closest<HTMLElement>('[data-transcript-row]') ?? element
-      if (anchor && !anchor.element && !element?.isConnected) {
-        // A remembered position waits for the first rows; if they arrive
-        // without its row, open at the tail as an unremembered tab does.
-        if (scroller.querySelector('[data-block]')) {
-          readingAnchor.current = null
-          setFollowing(true)
-          writeOffset(scroller.scrollHeight)
-        }
+      const max = Math.max(0, scroller.scrollHeight - scroller.clientHeight)
+      // A browser clamp can happen before its scroll event. If the previously
+      // observed offset is now outside the legal range, reaching the new maximum
+      // is a layout adjustment, not reader input that should request history.
+      const clamped =
+        lastTop.current > max && Math.abs(scroller.scrollTop - max) <= SCROLL_ROUNDING_EPSILON
+      if (clamped) lastTop.current = scroller.scrollTop
+      if (following.current) {
+        writeOffset(scroller.scrollHeight)
+        readingAnchor.current = null
       } else {
-        if (anchor && element?.isConnected) {
-          // Include movement since capture: a compositor scroll can precede its
-          // scroll event. Compensate layout without undoing that newer movement.
-          // A reveal or a remembered position has no reader movement to keep.
-          const moved =
-            restoring.current || !anchor.element ? 0 : scroller.scrollTop - anchor.scrollTop
-          const delta =
-            element.getBoundingClientRect().top -
-            scroller.getBoundingClientRect().top -
-            anchor.offset +
-            moved
-          if (Math.abs(delta) > POSITION_EPSILON) writeOffset(scroller.scrollTop + delta)
+        const anchor = readingAnchor.current
+        let element = anchor?.element
+        if (anchor && !element?.isConnected && anchor.key !== undefined) {
+          const index = lookupAnchorRow?.(anchor.key)
+          element =
+            index === undefined
+              ? undefined
+              : (scroller.querySelector<HTMLElement>(`[data-block="${index}"]`) ?? undefined)
+          element ??= [...scroller.querySelectorAll<HTMLElement>('[data-row-key]')].find(
+            (row) =>
+              row.dataset.rowKey === anchor.key ||
+              (row.dataset.rowAliases !== undefined &&
+                (JSON.parse(row.dataset.rowAliases) as string[]).includes(anchor.key!)),
+          )
+          element ??= [...scroller.querySelectorAll<HTMLElement>('[data-transcript-row]')].find(
+            (row) => row.dataset.transcriptRow === anchor.key,
+          )
         }
-        captureReadingAnchor()
+        if (anchor?.shell)
+          element = element?.closest<HTMLElement>('[data-transcript-row]') ?? element
+        if (anchor && !anchor.element && !element?.isConnected) {
+          // A remembered position waits for the first rows; if they arrive
+          // without its row, open at the tail as an unremembered tab does.
+          if (scroller.querySelector('[data-block]')) {
+            readingAnchor.current = null
+            setFollowing(true)
+            writeOffset(scroller.scrollHeight)
+          }
+        } else {
+          let unappliedOffset = 0
+          if (anchor && element?.isConnected) {
+            // Include movement since capture: a compositor scroll can precede its
+            // scroll event. Compensate layout without undoing that newer movement.
+            // A reveal or a remembered position has no reader movement to keep.
+            // A smaller range can move the browser to its boundary before either
+            // callback. Only discard that observed clamp, not input which already
+            // moved below the new boundary before the layout changed.
+            const moved =
+              restoring.current || !anchor.element || (clamped && anchor.scrollTop > max)
+                ? 0
+                : scroller.scrollTop - anchor.scrollTop
+            const delta =
+              element.getBoundingClientRect().top -
+              scroller.getBoundingClientRect().top -
+              anchor.offset +
+              moved
+            const target = Math.max(0, Math.min(max, scroller.scrollTop + delta))
+            if (Math.abs(delta) > POSITION_EPSILON) writeOffset(target)
+            // Keep the reachable fraction the browser could not apply. Adopting
+            // the rounded row offset would lose it on every small reflow.
+            unappliedOffset = target - scroller.scrollTop
+          }
+          captureReadingAnchor(unappliedOffset)
+        }
       }
-    }
-    geometry.current = { height: scroller.scrollHeight, viewport: scroller.clientHeight }
-    onPositionChange?.()
-  }, [
-    active,
-    captureReadingAnchor,
-    scrollerRef,
-    onPositionChange,
-    lookupAnchorRow,
-    setFollowing,
-    writeOffset,
-  ])
+      geometry.current = { height: scroller.scrollHeight, viewport: scroller.clientHeight }
+      onPositionChange?.()
+    },
+    [
+      active,
+      captureReadingAnchor,
+      scrollerRef,
+      onPositionChange,
+      lookupAnchorRow,
+      setFollowing,
+      writeOffset,
+    ],
+  )
 
   const loadOlderAnchored = useCallback(() => {
     if (!moreAbove || loadingOlder) return
@@ -302,10 +323,15 @@ export function useDomTranscriptScroll(
       const anchor = readingAnchor.current
       if (following.current || !anchor) savedPositions.delete(sessionId)
       else
-        savedPositions.set(sessionId, { shell: anchor.shell, key: anchor.key, offset: anchor.offset })
+        savedPositions.set(sessionId, {
+          shell: anchor.shell,
+          key: anchor.key,
+          offset: anchor.offset,
+        })
     }
   }, [active, sessionId])
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: row/session changes must reobserve the mounted DOM even when its refs stay the same.
   useLayoutEffect(() => {
     if (!active || !scroller || !content) return
     // ResizeObserver's initial delivery also opens a conversation at its tail.
@@ -315,7 +341,11 @@ export function useDomTranscriptScroll(
     const observer = new ResizeObserver((entries) => {
       let rowsResized = false
       for (const entry of entries) {
-        if (!entry.target.hasAttribute('data-block') && !entry.target.hasAttribute('data-transcript-row')) continue
+        if (
+          !entry.target.hasAttribute('data-block') &&
+          !entry.target.hasAttribute('data-transcript-row')
+        )
+          continue
         const previous = rowHeights.current.get(entry.target)
         if (previous !== entry.contentRect.height) rowsResized = true
         rowHeights.current.set(entry.target, entry.contentRect.height)
@@ -326,7 +356,8 @@ export function useDomTranscriptScroll(
     observer.observe(scroller)
     // Two rows can resize in opposite directions without changing the content
     // box. Observe row sizes too, so that net-zero reflow still conserves place.
-    for (const row of content.querySelectorAll<HTMLElement>('[data-block], [data-transcript-row]')) observer.observe(row)
+    for (const row of content.querySelectorAll<HTMLElement>('[data-block], [data-transcript-row]'))
+      observer.observe(row)
     return () => observer.disconnect()
   }, [sessionId, active, scroller, content, rowsToRender, reconcileLayout])
 
@@ -356,7 +387,18 @@ export function useDomTranscriptScroll(
     lastTop.current = element.scrollTop
     // A remembered position stays pending until its row mounts.
     const pending = readingAnchor.current !== null && !readingAnchor.current.element
-    if (!following.current && !pending) captureReadingAnchor()
+    // Reconciliation already kept the intended position. Its own scroll event
+    // and duplicate no-motion events must not replace it with a rounded one.
+    // Browser Find/focus and smooth navigation can move without wheel intent.
+    if (
+      !following.current &&
+      !pending &&
+      !ownWrite &&
+      !layoutChanged &&
+      !restoring.current &&
+      (top !== previous || readingAnchor.current === null)
+    )
+      captureReadingAnchor()
     onPositionChange?.()
     if (
       readerMoved &&
