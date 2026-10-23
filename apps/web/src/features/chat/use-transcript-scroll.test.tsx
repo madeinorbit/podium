@@ -1,3 +1,4 @@
+import { forgetTranscriptPositions } from '@podium/client-core/react/transcript-scroll'
 import { asSessionId } from '@podium/model'
 import { act, type ReactNode, useRef } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
@@ -202,6 +203,7 @@ beforeEach(() => {
 
 afterEach(() => {
   act(() => root.unmount())
+  forgetTranscriptPositions()
   host.remove()
   window.getSelection()?.removeAllRanges()
   vi.restoreAllMocks()
@@ -606,6 +608,91 @@ describe('transcript scrolling', () => {
     renderHarness(<Harness sessionId="session-2" />)
     expect(scroller().scrollTop).toBe(1040)
     expect(api.atBottom).toBe(true)
+  })
+
+  it('puts the anchor back when a revealed scroller comes back at another offset', () => {
+    renderHarness(<Harness />)
+    scrollTo(320)
+    renderHarness(<Harness active={false} />)
+    // WebKit can restore a display:none scroller to a stale offset on reveal.
+    scroller().scrollTop = 0
+    renderHarness(<Harness />)
+    expect(scroller().scrollTop).toBe(320)
+    expect(top('row-3')).toBe(-20)
+    expect(api.atBottom).toBe(false)
+  })
+
+  it('restores a revealed reader even while a composer has focus', () => {
+    renderHarness(<Harness />)
+    scrollTo(320)
+    renderHarness(<Harness active={false} />)
+    scroller().scrollTop = 0
+    act(() => host.querySelector<HTMLTextAreaElement>('[data-composer]')!.focus())
+    renderHarness(<Harness />)
+    expect(top('row-3')).toBe(-20)
+  })
+
+  it('keeps a scroll the browser makes after the reveal has settled', async () => {
+    renderHarness(<Harness />)
+    scrollTo(320)
+    renderHarness(<Harness active={false} />)
+    renderHarness(<Harness />)
+    await act(() => new Promise((done) => setTimeout(done, 100)))
+    // Native Find moves the reader with no wheel or key on the scroller.
+    act(() => {
+      scroller().scrollTop = 600
+      scroller().dispatchEvent(new Event('scroll', { bubbles: true }))
+    })
+    tail += 50
+    resize()
+    expect(scroller().scrollTop).toBe(600)
+  })
+
+  it('releases follow for a small shelf-forwarded step up from the tail', () => {
+    renderHarness(<Harness />)
+    act(() => api.scrollBy(-5))
+    expect(api.atBottom).toBe(false)
+    tail += 100
+    resize()
+    expect(scroller().scrollTop).toBe(835)
+  })
+
+  it('returns an evicted reader to its row, and opens at the tail without one', () => {
+    renderHarness(<Harness />)
+    scrollTo(320)
+    act(() => root.unmount())
+    root = createRoot(host)
+    tail += 200
+    renderHarness(<Harness keys={[...held, 'row-12']} />)
+    expect(top('row-3')).toBe(-20)
+    expect(api.atBottom).toBe(false)
+    act(() => root.unmount())
+    root = createRoot(host)
+    renderHarness(<Harness keys={held.slice(6)} />)
+    expect(api.atBottom).toBe(true)
+    expect(scroller().scrollTop).toBe(440)
+  })
+
+  it('reopens an evicted follower at the tail', () => {
+    renderHarness(<Harness />)
+    act(() => root.unmount())
+    root = createRoot(host)
+    renderHarness(<Harness keys={[...held, 'row-12']} />)
+    expect(api.atBottom).toBe(true)
+    expect(scroller().scrollTop).toBe(940)
+  })
+
+  it('keeps following when the end settles back a few pixels without upward input', () => {
+    renderHarness(<Harness />)
+    act(() => {
+      scroller().dispatchEvent(new WheelEvent('wheel', { deltaY: 100, bubbles: true }))
+      scroller().scrollTop = 834
+      scroller().dispatchEvent(new Event('scroll', { bubbles: true }))
+    })
+    expect(api.atBottom).toBe(true)
+    tail += 100
+    resize()
+    expect(scroller().scrollTop).toBe(940)
   })
 
   it('routes minimap and shelf navigation through the same reading state', () => {
