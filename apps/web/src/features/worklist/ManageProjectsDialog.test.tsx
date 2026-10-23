@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { ManageProjectsButton } from './ManageProjectsDialog'
+import { ManageProjectsDialog } from './ManageProjectsDialog'
 
 const { saveOrder } = vi.hoisted(() => ({ saveOrder: vi.fn().mockResolvedValue(undefined) }))
 
@@ -28,8 +28,7 @@ afterEach(() => {
 
 describe('Manage projects', () => {
   it('saves the order chosen with move buttons', async () => {
-    render(<ManageProjectsButton />)
-    fireEvent.click(screen.getByRole('button', { name: 'Manage projects' }))
+    render(<ManageProjectsDialog open onOpenChange={() => {}} />)
     fireEvent.click(screen.getByRole('button', { name: 'Move Alpha down' }))
     expect(screen.getByRole('status').textContent).toContain('Alpha moved to position 2')
     fireEvent.click(screen.getByRole('button', { name: 'Save order' }))
@@ -42,10 +41,11 @@ describe('Manage projects', () => {
   })
 
   it('leaves the saved order alone when cancelled', () => {
-    render(<ManageProjectsButton />)
-    fireEvent.click(screen.getByRole('button', { name: 'Manage projects' }))
+    const onOpenChange = vi.fn()
+    render(<ManageProjectsDialog open onOpenChange={onOpenChange} />)
     fireEvent.click(screen.getByRole('button', { name: 'Move Alpha down' }))
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(onOpenChange).toHaveBeenCalledWith(false)
     expect(saveOrder).not.toHaveBeenCalled()
   })
 })

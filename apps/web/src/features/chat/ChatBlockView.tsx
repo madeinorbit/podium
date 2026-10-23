@@ -586,7 +586,6 @@ export const ChatBlockView = memo(function ChatBlockView({
       <div className={rowClass} data-block={index} data-row-key={item.id}>
         <div className="transcript-rail transcript-rail--none" aria-hidden="true" />
         <div className="transcript-body py-0.5">
-          {process === 'start' && <div className="transcript-process-label">Process</div>}
           <ToolBlock block={block} sessionId={sessionId} cwd={cwd} openFile={openFile} />
         </div>
       </div>
@@ -730,24 +729,19 @@ export const ChatBlockView = memo(function ChatBlockView({
           )}
           data-quote-source={quoteSource}
         >
-          {process === 'start' && <div className="transcript-process-label">Process</div>}
           {item.role === 'system' && (
             <div className="transcript-header">
               <span className="transcript-role transcript-role--system">System</span>
             </div>
           )}
-          {/* THE ONE SURVIVING IDENTIFIER (POD-993). Every other voice label is
-              gone — the human's side says who they are, and narration needs no
-              name — but the ANSWER is a different kind of row: it is where the
-              turn lands, and a reader scanning back through a long session is
-              looking for exactly this. It keeps its eyebrow; its time went to
-              the foot with everyone else's. */}
-          {isAnswer && (
+          {/* NO ANSWER EYEBROW IN THE STAGE (POD-2076). The answer stands out by
+              ink alone — narration above it is muted and smaller. The narrow
+              superagent dock keeps its voice label and context ref: there the
+              answer shares a column with the thread's own chrome. */}
+          {isAnswer && compact && (
             <div className="transcript-answer-label">
-              {compact ? 'Super agent' : 'Answer'}
-              {compact && ctxSeq !== null && (
-                <span className="chat-ctx">· POD-{ctxSeq} context</span>
-              )}
+              Super agent
+              {ctxSeq !== null && <span className="chat-ctx">· POD-{ctxSeq} context</span>}
             </div>
           )}
           {/* THE OPERATOR'S TURN IS A CHAT ENTRY (POD-993). It reads right, in

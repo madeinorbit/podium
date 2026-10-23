@@ -113,12 +113,12 @@ export function WorkSearchField({
 }): JSX.Element {
   const { query, setQuery, filtering, hits, total, inputRef } = filter
   return (
-    <div className="mx-2.5 mt-2 mb-[9px] flex flex-none items-center gap-2">
+    <div className="mx-3 mt-2 mb-2 flex flex-none items-center gap-1.5">
       <div
         data-testid="work-search"
-        className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-[7px] border border-input bg-background px-[9px] focus-within:ring-2 focus-within:ring-ring/40"
+        className="flex h-[30px] min-w-0 flex-1 items-center gap-2 rounded-[7px] bg-(--work-well) px-2.5 focus-within:ring-2 focus-within:ring-ring/40"
       >
-        <Search size={14} className="flex-none text-text-faint" aria-hidden="true" />
+        <Search size={13} className="flex-none text-text-faint" aria-hidden="true" />
         <input
           ref={inputRef}
           value={query}
@@ -136,7 +136,7 @@ export function WorkSearchField({
           placeholder="Filter tasks"
           aria-label="Filter tasks"
           data-testid="work-search-input"
-          className="min-w-0 flex-1 bg-transparent text-[12px] text-foreground outline-none placeholder:text-text-faint"
+          className="min-w-0 flex-1 bg-transparent text-[12.5px] text-foreground outline-none placeholder:text-text-faint"
         />
         {filtering && (
           <button

@@ -4,6 +4,7 @@ import '@/test-support/mock-pool-fixture'
 // @vitest-environment happy-dom
 import { cleanup, fireEvent, render } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { closeNewTaskOverlay, newTaskOverlayOrigin } from './new-task-overlay'
 import { SidebarRail } from './SidebarRail'
 import { SidebarUnified } from './SidebarUnified'
 
@@ -179,6 +180,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  closeNewTaskOverlay()
   cleanup()
   ui.reset()
   setSelectedIssueId.mockClear()
@@ -202,7 +204,10 @@ describe('⌘N — the shell menu’s New Task (POD-790, POD-1469)', () => {
     // (apps/desktop/src-tauri/src/main.rs).
     expect(typeof newAgentCommand()).toBe('function')
     newAgentCommand()?.()
-    expect(setSelectedIssueId).toHaveBeenCalledWith(null)
+    // New task opens the overlay over the current screen (POD-2079); the
+    // selection is kept so Cancel can restore it.
+    expect(newTaskOverlayOrigin()).not.toBeNull()
+    expect(setSelectedIssueId).not.toHaveBeenCalledWith(null)
     expect(spawnDraftAgent).not.toHaveBeenCalled()
   })
 
@@ -210,7 +215,10 @@ describe('⌘N — the shell menu’s New Task (POD-790, POD-1469)', () => {
     macShell()
     render(<SidebarUnified />)
     fireEvent.keyDown(window, { key: 'n', code: 'KeyN', metaKey: true })
-    expect(setSelectedIssueId).toHaveBeenCalledWith(null)
+    // New task opens the overlay over the current screen (POD-2079); the
+    // selection is kept so Cancel can restore it.
+    expect(newTaskOverlayOrigin()).not.toBeNull()
+    expect(setSelectedIssueId).not.toHaveBeenCalledWith(null)
     expect(spawnDraftAgent).not.toHaveBeenCalled()
   })
 
@@ -237,7 +245,10 @@ describe('⌘N — the shell menu’s New Task (POD-790, POD-1469)', () => {
     render(<SidebarRail />)
     expect(typeof newAgentCommand()).toBe('function')
     fireEvent.keyDown(window, { key: 'n', code: 'KeyN', metaKey: true })
-    expect(setSelectedIssueId).toHaveBeenCalledWith(null)
+    // New task opens the overlay over the current screen (POD-2079); the
+    // selection is kept so Cancel can restore it.
+    expect(newTaskOverlayOrigin()).not.toBeNull()
+    expect(setSelectedIssueId).not.toHaveBeenCalledWith(null)
     expect(spawnDraftAgent).not.toHaveBeenCalled()
   })
 })

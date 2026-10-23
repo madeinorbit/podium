@@ -354,20 +354,20 @@ describe('real sidebar pool cutover', () => {
       )
     })
     await act(async () => {
-      fireEvent.click(screen.getByTestId('closed-fold-toggle'))
+      fireEvent.click(screen.getByTestId('work-lane-closed'))
     })
-    expect(screen.getByTestId('folded-work-row').textContent).toContain('2h ago')
+    expect(screen.getByTestId('folded-work-row').textContent).toContain('2h')
     mode.commits.clear()
     mode.ageCommits.clear()
     await advanceClock(60_000)
     expect(Object.fromEntries(mode.commits)).toEqual({})
     expect(Object.fromEntries(mode.ageCommits)).toEqual({ 'synthetic-5': 1 })
-    expect(screen.getByTestId('folded-work-row').textContent).toContain('2h ago')
+    expect(screen.getByTestId('folded-work-row').textContent).toContain('2h')
     mode.ageCommits.clear()
     await advanceClock(60_000)
     expect(Object.fromEntries(mode.commits)).toEqual({})
     expect(Object.fromEntries(mode.ageCommits)).toEqual({ 'synthetic-5': 1 })
-    expect(screen.getByTestId('folded-work-row').textContent).toContain('3h ago')
+    expect(screen.getByTestId('folded-work-row').textContent).toContain('3h')
     mode.commits.clear()
     mode.ageCommits.clear()
     await advanceClock(60_000)
@@ -460,12 +460,24 @@ describe('real sidebar pool cutover', () => {
       },
       'rows and bands',
     )
+    // The two tails now live behind the lane switch (POD-2074).
     await act(async () => {
-      fireEvent.click(screen.getByTestId('snoozed-fold-toggle'))
-      fireEvent.click(screen.getByTestId('closed-fold-toggle'))
+      fireEvent.click(screen.getByTestId('work-lane-snoozed'))
     })
-    expect(screen.getAllByTestId('folded-work-row')).toHaveLength(2)
-    fireEvent.click(screen.getByTestId('manage-projects'))
+    const snoozed = screen.queryAllByTestId('folded-work-row').length
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('work-lane-closed'))
+    })
+    expect(snoozed + screen.queryAllByTestId('folded-work-row').length).toBe(2)
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('work-lane-open'))
+    })
+    await act(async () => {
+      fireEvent.click(screen.getAllByTestId('folder-options')[0]!)
+    })
+    await act(async () => {
+      fireEvent.click(await screen.findByRole('menuitem', { name: 'Reorder projects…' }))
+    })
     expect(screen.getByRole('dialog')).toBeTruthy()
     await act(async () => {
       referenceState(runtime).setPaletteOpen(true)

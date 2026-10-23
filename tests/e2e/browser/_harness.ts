@@ -206,7 +206,7 @@ export async function expandSidebarIfFolded(page: Page): Promise<void> {
  * is mounted (POD-4733). No-op when already open.
  */
 export async function expandFlightDeckIfFolded(page: Page): Promise<void> {
-  const expand = page.getByRole('button', { name: 'Expand Flight Deck' }).first()
+  const expand = page.getByRole('button', { name: 'Open flight deck' }).first()
   if (await expand.isVisible().catch(() => false)) await expand.click({ timeout: 15_000 })
 }
 

@@ -55,31 +55,24 @@ export function StatusStrip(): JSX.Element {
       <WorkingHistory />
       <span className="status-strip-seam" aria-hidden="true" />
       <StatusPerformanceStats trpc={trpc} />
-      <SelectedHeaderIssue />
-      {updates.indicator !== 'none' && (
-        <>
-          <span className="status-strip-seam" aria-hidden="true" />
-          <UpdateIndicator
-            state={updates.indicator}
-            label={updates.indicatorLabel}
-            open={updates.open}
-            onToggle={updates.toggle}
-          />
-        </>
-      )}
+      {/* The readings are one sentence read left to right. Everything after the
+          spacer is about this window rather than the fleet: the link while it is
+          unhealthy, the update offer, the phone offer, and — at the far end —
+          which task the window is pointed at (calm redesign, design 4a). */}
+      <span className="status-strip-spacer" aria-hidden="true" />
       {/* Only while degraded or down — a permanent "linked" is noise, the same
           reason the header's connection glyph hides itself when healthy. */}
-      {connVisible && (
-        <>
-          <span className="status-strip-seam" aria-hidden="true" />
-          <ConnectionIndicator health={health} />
-        </>
+      {connVisible && <ConnectionIndicator health={health} />}
+      {updates.indicator !== 'none' && (
+        <UpdateIndicator
+          state={updates.indicator}
+          label={updates.indicatorLabel}
+          open={updates.open}
+          onToggle={updates.toggle}
+        />
       )}
-      {/* Everything above is the machine's voice, read left to right. The phone
-          chip is an OFFER, not a reading, so it takes the far end on its own —
-          the slot the "⌘K commands" hint used to hold. */}
-      <span className="status-strip-spacer" aria-hidden="true" />
       {PHONE_APP_IN_STORES && <MobileHandoffChip />}
+      <SelectedHeaderIssue />
     </footer>
   )
 }
@@ -97,26 +90,25 @@ const SelectedHeaderIssue = observer(function SelectedHeaderIssue() {
       </span>
     )
   if (!issue) return null
+  // The ref alone: the title is the chat tab's and the task panel's to state, so
+  // here it lives only in the tooltip.
   return (
-    <>
-      <span className="status-strip-seam" aria-hidden="true" />
-      <span className="status-strip-issue" title={issue.title}>
-        <IssueReference
-          model={issueReferenceModel({
-            id: asIssueId(issue.id),
-            seq: issue.seq,
-            title: issue.title,
-            stage: issue.stage as IssueStage,
-            closedReason: issue.closedReason,
-            displayRef: issue.displayRef,
-            archived: issue.archived,
-            deletedAt: issue.deletedAt ?? undefined,
-          })}
-          size={11}
-          refClassName="status-strip-ref"
-          titleClassName="status-strip-issue-title"
-        />
-      </span>
-    </>
+    <span className="status-strip-issue" title={issue.title}>
+      <IssueReference
+        model={issueReferenceModel({
+          id: asIssueId(issue.id),
+          seq: issue.seq,
+          title: issue.title,
+          stage: issue.stage as IssueStage,
+          closedReason: issue.closedReason,
+          displayRef: issue.displayRef,
+          archived: issue.archived,
+          deletedAt: issue.deletedAt ?? undefined,
+        })}
+        size={11}
+        showTitle={false}
+        refClassName="status-strip-ref"
+      />
+    </span>
   )
 })

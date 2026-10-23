@@ -25,8 +25,9 @@ import '@/test-support/mock-core-store-handle'
  */
 
 import { FIRST_TASK_ACTIVATION_DRAFT_KEY } from '@podium/client-core/ui-state'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { closeNewTaskOverlay, newTaskOverlayOrigin } from './new-task-overlay'
 import { SidebarUnified } from './SidebarUnified'
 
 const ui = vi.hoisted(() => {
@@ -54,6 +55,7 @@ const spawnDraftAgent = vi.hoisted(() => vi.fn())
 const setSelectedIssueId = vi.hoisted(() => vi.fn())
 const setSelectedWorktree = vi.hoisted(() => vi.fn())
 const setView = vi.hoisted(() => vi.fn())
+const setSidebarSettings = vi.hoisted(() => vi.fn(async () => {}))
 
 function issue(id: string, title: string, over: Record<string, unknown> = {}) {
   return {
@@ -143,7 +145,7 @@ vi.mock('@/app/store', () => {
     view: 'workspace',
     setView,
     sidebarSettings: { groupByRepo: false },
-    setSidebarSettings: vi.fn(),
+    setSidebarSettings,
     markIssueRead: vi.fn(),
     markSessionRead: vi.fn(),
   })
@@ -160,6 +162,7 @@ vi.mock('@/lib/hooks/use-session-guard', () => ({
 
 afterEach(() => {
   cleanup()
+  closeNewTaskOverlay()
   ui.reset()
   spawnDraftAgent.mockClear()
   setSelectedIssueId.mockClear()
@@ -181,17 +184,37 @@ describe('the head is one button that makes no choices', () => {
     expect(screen.queryByRole('button', { name: 'Choose agent and repo' })).toBeNull()
   })
 
-  it('opens a blank mission and spawns nothing', () => {
+  // POD-2079: an overlay over the current screen, which keeps its selection
+  // so Cancel can hand it back. The view is already the workspace here.
+  it('opens the overlay over the current task and spawns nothing', () => {
     render(<SidebarUnified />)
     fireEvent.click(screen.getByTestId('new-task-button'))
 
-    expect(setSelectedIssueId).toHaveBeenCalledWith(null)
-    expect(setSelectedWorktree).toHaveBeenCalledWith(null)
-    expect(setView).toHaveBeenCalledWith('workspace')
+    expect(newTaskOverlayOrigin()).toMatchObject({ view: 'workspace', selectedIssueId: null })
+    expect(setSelectedIssueId).not.toHaveBeenCalled()
+    expect(setSelectedWorktree).not.toHaveBeenCalled()
+    expect(setView).not.toHaveBeenCalled()
     expect(spawnDraftAgent).not.toHaveBeenCalled()
   })
 
-  it('clears a half-written prompt without forgetting the instruments', () => {
+  it('re-points an open overlay at a project without clearing its prompt', () => {
+    ui.set(
+      FIRST_TASK_ACTIVATION_DRAFT_KEY,
+      JSON.stringify({ repoPath: '/work/podium', machineId: 'machine-a', title: 'Half a thought' }),
+    )
+    render(<SidebarUnified />)
+    fireEvent.click(screen.getByTestId('new-task-button'))
+    expect(draft().title).toBe('Half a thought')
+    ui.set(FIRST_TASK_ACTIVATION_DRAFT_KEY, JSON.stringify({ ...draft(), title: 'Second thought' }))
+    const spare = screen
+      .getAllByTestId('project-group')
+      .find((group) => group.textContent?.includes('spare')) as HTMLElement
+    fireEvent.click(spare.querySelector('[data-testid="folder-new-task"]') as HTMLElement)
+    expect(draft().title).toBe('Second thought')
+    expect(draft().repoPath).toBe('/work/spare')
+  })
+
+  it('keeps a half-written prompt and the instruments, dropping only the retry ids', () => {
     ui.set(
       FIRST_TASK_ACTIVATION_DRAFT_KEY,
       JSON.stringify({
@@ -207,8 +230,9 @@ describe('the head is one button that makes no choices', () => {
     render(<SidebarUnified />)
     fireEvent.click(screen.getByTestId('new-task-button'))
 
-    // The prompt and the retry ids belong to a create that is now abandoned.
-    expect(draft().title).toBe('')
+    // Cancel never destroys the prompt (POD-2082); only Start clears it. The
+    // retry ids belong to a create that is now abandoned.
+    expect(draft().title).toBe('Half a thought')
     expect(draft().pendingIssueId).toBe('')
     // The agent, model, effort and host are settings, not content.
     expect(draft().agent).toBe('codex')
@@ -216,17 +240,31 @@ describe('the head is one button that makes no choices', () => {
     expect(draft().effort).toBe('high')
     expect(draft().machineId).toBe('machine-a')
   })
+
+  it('does not carry a prompt whose launch is still in flight', () => {
+    ui.set(
+      FIRST_TASK_ACTIVATION_DRAFT_KEY,
+      JSON.stringify({
+        repoPath: '/work/podium',
+        title: 'Already started',
+        launchKind: 'draft',
+        pendingIssueId: 'issue-in-flight',
+      }),
+    )
+    render(<SidebarUnified />)
+    fireEvent.click(screen.getByTestId('new-task-button'))
+    expect(draft().title).toBe('')
+  })
 })
 
-describe('the utilities came up out of the footer', () => {
-  it('puts Add repository on the filter line and leaves no strip at the foot', () => {
+describe('Add repository sits at the foot of the column (POD-2074)', () => {
+  it('pins Add repository under the list, off the filter line', () => {
     const view = render(<SidebarUnified />)
     const add = screen.getByTestId('add-repository')
-    // Same row as the field it rides beside, whatever groups the trailing buttons.
-    expect(screen.getByTestId('work-search').parentElement?.contains(add)).toBe(true)
-    // The words, and the glyph that survives a narrow column.
+    expect(screen.getByTestId('work-search').parentElement?.contains(add)).toBe(false)
+    expect(screen.getByTestId('work-scroll').contains(add)).toBe(false)
     expect(add.textContent).toContain('Add repository')
-    expect(add.querySelector('svg')).toBeTruthy()
+    expect(add.textContent).toContain('Local folder or Git URL')
     // No ⌘K hint, no second search control — AppShell binds the chord globally.
     expect(view.container.querySelector('[data-testid="palette-hint"]')).toBeNull()
     expect(screen.queryByRole('button', { name: 'Search' })).toBeNull()
@@ -239,7 +277,15 @@ describe('a project with nothing in it', () => {
     const bands = screen.getAllByTestId('project-group-label').map((band) => band.textContent)
     expect(bands.some((label) => label?.includes('podium'))).toBe(true)
     expect(bands.some((label) => label?.includes('spare'))).toBe(true)
-    expect(screen.getAllByTestId('start-first-task')).toHaveLength(1)
+    // In place, greyed and shut: a folder with nothing to open (design 4a).
+    const spare = screen
+      .getAllByTestId('project-group')
+      .find((group) => group.textContent?.includes('spare')) as HTMLElement
+    expect(spare.getAttribute('data-empty')).toBe('true')
+    expect(
+      spare.querySelector('[data-testid="project-group-label"]')?.hasAttribute('disabled'),
+    ).toBe(true)
+    expect(screen.queryByTestId('start-first-task')).toBeNull()
   })
 
   it('is not the same project twice when the ids and the paths disagree', () => {
@@ -254,18 +300,47 @@ describe('a project with nothing in it', () => {
     expect(screen.getByText('Alpha')).toBeTruthy()
   })
 
-  it('points the composer at the project whose band was clicked', () => {
+  it("points the composer at the project whose folder's + was clicked", () => {
     render(<SidebarUnified />)
-    fireEvent.click(screen.getByTestId('start-first-task'))
+    const spare = screen
+      .getAllByTestId('project-group')
+      .find((group) => group.textContent?.includes('spare')) as HTMLElement
+    fireEvent.click(spare.querySelector('[data-testid="folder-new-task"]') as HTMLElement)
 
     expect(draft().repoPath).toBe('/work/spare')
-    expect(setSelectedIssueId).toHaveBeenCalledWith(null)
+    expect(newTaskOverlayOrigin()).not.toBeNull()
+    // The draft row lands in the folder the task will start in (design 6a).
+    expect(within(spare).getByTestId('new-task-draft-row')).toBeTruthy()
   })
 
   it('leaves the band out while a filter is narrowing the column', () => {
     render(<SidebarUnified />)
     fireEvent.change(screen.getByTestId('work-search-input'), { target: { value: 'alpha' } })
-    // An empty band is not an answer to a query about tasks.
-    expect(screen.queryByTestId('start-first-task')).toBeNull()
+    // An empty folder is not an answer to a query about tasks.
+    expect(
+      screen.getAllByTestId('project-group').some((group) => group.textContent?.includes('spare')),
+    ).toBe(false)
+  })
+})
+
+describe('project order from the folder header (POD-2074)', () => {
+  it('moves a project down from its ⋯ menu through the saved repo order', async () => {
+    render(<SidebarUnified />)
+    const labels = () =>
+      screen.getAllByTestId('project-group-label').map((band) => band.textContent ?? '')
+    const first = labels()[0] ?? ''
+    await act(async () => {
+      fireEvent.click(screen.getAllByTestId('folder-options')[0] as HTMLElement)
+    })
+    await act(async () => {
+      fireEvent.click(await screen.findByRole('menuitem', { name: 'Move down' }))
+    })
+    expect(setSidebarSettings).toHaveBeenCalledTimes(1)
+    const [patch] = setSidebarSettings.mock.calls[0] as unknown as [
+      { repoSort: string; repoOrder: string[] },
+    ]
+    expect(patch.repoSort).toBe('custom')
+    // Optimistic: the folder moves before the write comes back.
+    expect(labels()[1]).toBe(first)
   })
 })

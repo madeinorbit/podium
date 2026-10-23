@@ -65,9 +65,7 @@ export function rollingBurnRate(scans: readonly UsageScan[]): RollingBurnRate | 
   if (scans.length < MIN_BURN_RATE_SCANS) return null
   const current = scans.at(-1)
   if (!current) return null
-  const eligible = scans.filter(
-    (scan) => scan.sampledAt >= current.sampledAt - BURN_RATE_WINDOW_MS,
-  )
+  const eligible = scans.filter((scan) => scan.sampledAt >= current.sampledAt - BURN_RATE_WINDOW_MS)
   if (eligible.length < MIN_BURN_RATE_SCANS) return null
   const previous = eligible[0]
   if (!previous) return null
@@ -90,12 +88,15 @@ export function StatusPerformanceStats({ trpc }: { trpc: Trpc }): JSX.Element {
     [feed.buckets, hourKey],
   )
   const rate = rollingBurnRate(feed.scans)
-  const burnValue =
-    feed.buckets === null
-      ? '— token burn'
-      : rate
-        ? `${money(rate.perHour)}/h token burn`
-        : 'measuring token burn'
+  // Until a rolling rate exists the strip states what it does know — this hour's
+  // spend so far — rather than announcing that it is still measuring. With
+  // nothing to say it is a quiet dash, never a signal colour.
+  const hourSoFar = burnBuckets.at(-1)?.value ?? 0
+  const burnValue = rate
+    ? `${money(rate.perHour)}/h`
+    : feed.buckets !== null && hourSoFar > 0
+      ? `${money(hourSoFar)} this hour`
+      : '—'
   const burnShare = rate ? shareTokenBurn(rate.perHour, rate.windowMinutes) : undefined
 
   return (
@@ -104,12 +105,12 @@ export function StatusPerformanceStats({ trpc }: { trpc: Trpc }): JSX.Element {
       tone="burn"
       current={
         <span className="status-strip-metric-value" data-testid="status-strip-burn">
-          {burnValue}
+          token burn <span className="status-strip-metric-reading">{burnValue}</span>
         </span>
       }
       buckets={burnBuckets}
       title="API-equivalent token rate"
-      summary={`API-equivalent token cost over the last 12 hours. Rolling rate ${burnValue}.`}
+      summary={`API-equivalent token cost over the last 12 hours. Token burn ${burnValue}.`}
       aside={rate ? `${rate.windowMinutes}m average` : 'measuring'}
       reading={(value) => ({ value: money(value), label: 'API-equivalent cost' })}
       foot="Trace: last 12 hours · headline: 10–15 minute API list-price average"

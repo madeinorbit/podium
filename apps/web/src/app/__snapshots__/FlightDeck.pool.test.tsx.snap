@@ -9,8 +9,8 @@ exports[`rendered mission pane parity > keeps archived-session reveal names/orde
 
 exports[`rendered mission pane parity > preserves folded bar words, labels, tick order and layout > rendered output 1`] = `
 {
-  "bytes": 5892,
-  "sha256": "2b31de4afb35c6a9916f8a5bd377a0265b6ee08a5d3d233c88c8cd308ed6c08a",
+  "bytes": 1225,
+  "sha256": "2d7391ba2f4d0694b34653081ca815c9dcfae287d1f0c20cf66bc12e56155b4b",
 }
 `;
 

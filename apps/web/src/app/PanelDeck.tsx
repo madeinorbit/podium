@@ -8,11 +8,18 @@ import {
   Suspense,
   useCallback,
 } from 'react'
+import { isArtifactsTab } from '@/features/files/artifacts-tab'
 import { AgentPanelBoundary } from '@/features/terminal/AgentPanelBoundary'
 import { throughRestarts } from '@/lib/chunk-recovery'
 import { cn } from '@/lib/utils'
 import { type DeckItem, type PaneRect, panelBoxStyle } from './panel-deck'
 import { PanelVisible } from './panel-visible'
+
+const ArtifactsTab = lazy(() =>
+  throughRestarts(() => import('@/features/files/ArtifactsTab')).then((m) => ({
+    default: m.ArtifactsTab,
+  })),
+)
 
 const FilePanel = lazy(() =>
   throughRestarts(() => import('@/features/files/FilePanel')).then((m) => ({
@@ -165,6 +172,15 @@ export function PanelDeck({
                   active={visible}
                   focused={visible && item.id === focusedTabId}
                 />
+              ) : item.file && isArtifactsTab(item.file) ? (
+                // The Artifacts index (POD-2078) rides a file tab's record; only
+                // what it renders differs. Never hand its sentinel to FilePanel —
+                // there are no bytes behind it to read.
+                item.file.issueId ? (
+                  <Suspense fallback={null}>
+                    <ArtifactsTab issueId={item.file.issueId} />
+                  </Suspense>
+                ) : null
               ) : item.file ? (
                 <Suspense fallback={null}>
                   <FilePanel

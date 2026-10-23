@@ -79,6 +79,8 @@ import { RightRail } from './RightRail'
 import { MainViewOutlet } from './routes'
 import { StatusStrip } from './StatusStrip'
 import { SyncLoader, WarmSyncStatus } from './SyncLoader'
+import { NewTaskOverlay } from '@/features/setup/NewTaskOverlay'
+import { useNewTaskOverlayOpen } from '@/features/worklist/new-task-overlay'
 import { useShellActions, useShellChrome } from './shell-data'
 import {
   CLOSE_RIGHT_PANEL,
@@ -452,6 +454,7 @@ function AppBodyView({ syncProgress }: { syncProgress: SyncProgressStore }): JSX
     setBaseView((current) => nextBaseView(current, view))
   }, [view])
   const closeOverlay = (): void => setView(baseView)
+  const newTaskOpen = useNewTaskOverlayOpen()
   const workspaceActive = baseView === 'workspace'
   const flightDeckMissionId = flightDeckMission?.id ?? 'empty'
   const {
@@ -1032,7 +1035,13 @@ function AppBodyView({ syncProgress }: { syncProgress: SyncProgressStore }): JSX
                 </div>
               )}
             </div>
-            {workspaceActive && (
+            {/* THE NEW TASK OVERLAY'S HOST (POD-2079): the deck, the stage and
+                the dock, so the overlay covers exactly the workspace column and
+                leaves the sidebar and rail in place. */}
+            <div className="new-task-host" data-new-task-open={newTaskOpen || undefined}>
+            {/* The folded bar belongs to a task: with nothing selected there is
+                no deck to unfold (POD-2079). */}
+            {workspaceActive && (!flightDeckCollapsed || selectedIssueId !== null) && (
               <div
                 ref={flightDeckShellRef}
                 className="flex min-h-0 min-w-0 flex-[0_1_auto] overflow-hidden"
@@ -1101,6 +1110,15 @@ function AppBodyView({ syncProgress }: { syncProgress: SyncProgressStore }): JSX
                 )}
               </ResizableColumn>
             )}
+            {workspaceActive && newTaskOpen && (
+              <NewTaskOverlay
+                selectedIssueId={selectedIssueId}
+                view={view}
+                baseView={baseView}
+                setView={setView}
+              />
+            )}
+            </div>
             {workspaceActive && (
               <RightRail rightPanel={visibleRightPanel} onPanelChange={setRightPanel} />
             )}

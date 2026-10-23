@@ -166,11 +166,12 @@ afterEach(() => {
   archiveIssue.mockClear()
 })
 describe('closed issue fold lifecycle', () => {
-  it('folds snoozed rows with arrival motion and removes every drag target', async () => {
+  it('moves snoozed rows to the Snoozed lane, where none is a drag target', async () => {
     render(<SidebarUnified />)
 
-    const toggle = screen.getByRole('button', { name: '1 snoozed' })
-    expect(toggle.getAttribute('aria-expanded')).toBe('false')
+    const toggle = screen.getByTestId('work-lane-snoozed')
+    expect(toggle.getAttribute('aria-selected')).toBe('false')
+    expect(toggle.textContent).toContain('1')
     expect(screen.queryByText('Snoozed issue')).toBeNull()
 
     const returned = screen.getByText('Returned issue')
@@ -182,19 +183,14 @@ describe('closed issue fold lifecycle', () => {
     await act(async () => { fireEvent.click(toggle) })
     const foldedRow = screen.getByTestId('snoozed-fold-row')
     expect(screen.getByText('Snoozed issue')).toBeTruthy()
-    expect(foldedRow.className).toContain('row-arrive')
+    expect(screen.queryByText('Returned issue')).toBeNull()
     expect(foldedRow.querySelector('[data-drag-key]')).toBeNull()
     expect(foldedRow.querySelector('[data-testid=row-grip]')).toBeNull()
-
-    fireEvent.animationEnd(foldedRow, { animationName: 'podium-arrive-wash' })
-    await act(async () => { fireEvent.click(toggle) })
-    await act(async () => { fireEvent.click(toggle) })
-    expect(screen.getByTestId('snoozed-fold-row').className).toContain('row-arrive')
   })
 
   it('archives a closed issue from its hover/focus action', async () => {
     render(<SidebarUnified />)
-    await act(async () => { fireEvent.click(screen.getByTestId('closed-fold-toggle')) })
+    await act(async () => { fireEvent.click(screen.getByTestId('work-lane-closed')) })
     const archiveButton = screen.getByRole('button', {
       name: 'Archive POD-42',
     })
@@ -210,11 +206,11 @@ describe('closed issue fold lifecycle', () => {
 
   it('archives every closed issue from the action under the list', async () => {
     render(<SidebarUnified />)
-    // The bulk action lives at the FOOT of the open list (POD-1458), not in the
-    // fold's title row: a shut fold offers no way to archive rows nobody can see.
+    // The bulk action lives in the Closed lane's head (POD-2074): the Open
+    // lane offers no way to archive rows nobody can see.
     expect(screen.queryByRole('button', { name: 'Archive all 2 closed issues' })).toBeNull()
 
-    await act(async () => { fireEvent.click(screen.getByTestId('closed-fold-toggle')) })
+    await act(async () => { fireEvent.click(screen.getByTestId('work-lane-closed')) })
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Archive all 2 closed issues' })) })
 
     expect(archiveIssue).toHaveBeenCalledTimes(2)

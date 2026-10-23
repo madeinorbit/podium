@@ -1,8 +1,3 @@
-import { ChevronDown, Cpu, Gauge } from 'lucide-react'
-import type { MachineId } from '@podium/model'
-import type { ComponentProps, JSX, ReactNode } from 'react'
-import { forwardRef } from 'react'
-import { Button } from '@/components/ui/button'
 import {
   AUTO,
   allConnectorModelLabel,
@@ -14,10 +9,15 @@ import {
   modelLabel,
   modelOptions,
 } from '@podium/client-core/agent-models'
+import type { MachineId } from '@podium/model'
+import { ChevronDown, Cpu, Gauge } from 'lucide-react'
+import type { ComponentProps, JSX, ReactNode } from 'react'
+import { forwardRef } from 'react'
+import { Button } from '@/components/ui/button'
 import type { IssueAgentKind } from './issue-agents'
 import { PropertyMenu } from './PropertyMenu'
-import { useModelCatalog, useModelCatalogState } from './use-model-catalog'
 import { useHarnessDescriptors } from './use-harness-descriptors'
+import { useModelCatalog, useModelCatalogState } from './use-model-catalog'
 import { cn } from './utils'
 
 /**
@@ -28,8 +28,11 @@ import { cn } from './utils'
  * Two trigger shapes:
  *  - `pill`  — a small rounded outline pill, matching the composer's property row.
  *  - `field` — a full-width select-style control, matching a Settings `Row`.
+ *  - `inline` — bare words, no rim or chevron, for a caller that draws the chip.
+ *  - `quiet`  — bare muted text that reads as a readout until hovered (the
+ *    session header's "model · effort", POD-2076).
  */
-type Variant = 'pill' | 'field' | 'composer'
+type Variant = 'pill' | 'field' | 'composer' | 'inline' | 'quiet'
 
 const PickerTrigger = forwardRef<
   HTMLButtonElement,
@@ -59,6 +62,31 @@ const PickerTrigger = forwardRef<
           languages for one control. The `pill` variant carries no chevron at
           all and is unaffected. */}
       <ChevronDown size={14} aria-hidden="true" className="shrink-0 opacity-50" />
+    </Button>
+  ) : variant === 'inline' ? (
+    // Bare words inside a caller's chip (the new-task box, POD-2079): no rim,
+    // no chevron, the caller's ink. The menu is still one press away.
+    <button
+      ref={ref}
+      type="button"
+      className={cn('inline-flex min-w-0 items-center disabled:cursor-default', className)}
+      {...(props as ComponentProps<'button'>)}
+    >
+      <span className="min-w-0 truncate">{label}</span>
+    </button>
+  ) : variant === 'quiet' ? (
+    <Button
+      ref={ref}
+      type="button"
+      variant="ghost"
+      size="sm"
+      className={cn(
+        'h-6 max-w-[22ch] rounded-[5px] px-1 text-[11.5px] font-normal text-text-dim hover:bg-chip hover:text-text-strong',
+        className,
+      )}
+      {...props}
+    >
+      <span className="min-w-0 truncate">{label}</span>
     </Button>
   ) : variant === 'composer' ? (
     <Button

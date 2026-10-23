@@ -4,7 +4,9 @@ import '@/test-support/mock-pool-fixture'
 import '@/test-support/model-catalog-mock'
 // @vitest-environment happy-dom
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import type { JSX } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { DockHeaderSlotProvider } from '@/app/DockHeaderSlot'
 import { OperatorFocusProvider } from '@/app/operator-focus'
 import { makeIssue } from '@/lib/test-issue'
 import { IssuePanelView } from './IssuePanelView'
@@ -118,8 +120,18 @@ vi.mock('@/app/store', () => {
   }
 })
 
+/** Mounts the panel under a dock title bar, which is where Open in Work lives
+ *  (POD-2077): the head portals it beside the dock's close. */
+function inDock(ui: JSX.Element): JSX.Element {
+  const host = document.createElement('div')
+  host.dataset.dockHost = ''
+  document.body.appendChild(host)
+  return <DockHeaderSlotProvider value={host}>{ui}</DockHeaderSlotProvider>
+}
+
 afterEach(() => {
   cleanup()
+  for (const host of document.querySelectorAll('[data-dock-host]')) host.remove()
   vi.clearAllMocks()
 })
 
@@ -133,6 +145,7 @@ describe('IssuePanelView subissue rows', () => {
         <IssuePanelView cwd="/r" />
       </OperatorFocusProvider>,
     )
+    fireEvent.click(screen.getByTestId('dock-subtasks-toggle'))
     const list = screen.getByTestId('dock-subissues')
     fireEvent.click(within(list).getByText('Live child'))
     expect(markIssueRead).toHaveBeenCalledWith('c')
@@ -150,6 +163,7 @@ describe('IssuePanelView subissue rows', () => {
         <IssuePanelView cwd="/r" onNavigate={onNavigate} />
       </OperatorFocusProvider>,
     )
+    fireEvent.click(screen.getByTestId('dock-subtasks-toggle'))
     const list = screen.getByTestId('dock-subissues')
     fireEvent.click(within(list).getByText('Live child'))
 
@@ -168,9 +182,11 @@ describe('IssuePanelView subissue rows', () => {
     unmount()
 
     render(
-      <OperatorFocusProvider missionId="p">
-        <IssuePanelView cwd="/r" onNavigate={vi.fn()} />
-      </OperatorFocusProvider>,
+      inDock(
+        <OperatorFocusProvider missionId="p">
+          <IssuePanelView cwd="/r" onNavigate={vi.fn()} />
+        </OperatorFocusProvider>,
+      ),
     )
     fireEvent.click(screen.getByTestId('task-open-in-work'))
     expect(setView).toHaveBeenCalledWith('workspace')
@@ -185,9 +201,11 @@ describe('IssuePanelView subissue rows', () => {
    */
   it('selects the top-level ancestor, not the sub-issue, when showing a child in the deck', () => {
     render(
-      <OperatorFocusProvider missionId="p">
-        <IssuePanelView cwd="/r" issueId={'c' as never} onNavigate={vi.fn()} />
-      </OperatorFocusProvider>,
+      inDock(
+        <OperatorFocusProvider missionId="p">
+          <IssuePanelView cwd="/r" issueId={'c' as never} onNavigate={vi.fn()} />
+        </OperatorFocusProvider>,
+      ),
     )
     fireEvent.click(screen.getByTestId('task-open-in-work'))
 
@@ -201,9 +219,11 @@ describe('IssuePanelView subissue rows', () => {
 
   it('offers no jump for a task the deck cannot show', () => {
     render(
-      <OperatorFocusProvider missionId="x">
-        <IssuePanelView cwd="/r" issueId={'x' as never} onNavigate={vi.fn()} />
-      </OperatorFocusProvider>,
+      inDock(
+        <OperatorFocusProvider missionId="x">
+          <IssuePanelView cwd="/r" issueId={'x' as never} onNavigate={vi.fn()} />
+        </OperatorFocusProvider>,
+      ),
     )
     // The mission resolves to nothing, so the deck would answer this jump with
     // its empty state. A link that lands nowhere is worse than no link.
@@ -212,9 +232,11 @@ describe('IssuePanelView subissue rows', () => {
 
   it('offers no crossing on a task that is no longer workable', () => {
     render(
-      <OperatorFocusProvider missionId="f">
-        <IssuePanelView cwd="/r" issueId={'f' as never} onNavigate={vi.fn()} />
-      </OperatorFocusProvider>,
+      inDock(
+        <OperatorFocusProvider missionId="f">
+          <IssuePanelView cwd="/r" issueId={'f' as never} onNavigate={vi.fn()} />
+        </OperatorFocusProvider>,
+      ),
     )
     // Closed with a reason: the deck could show it, but a seat at work that is
     // over is not a seat worth offering.

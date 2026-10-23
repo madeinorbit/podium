@@ -249,8 +249,8 @@ describe('StatusStrip agent concurrency history', () => {
     expect(container.querySelector('.status-strip-spinner')).toBeTruthy()
     await waitFor(() => {
       const stacks = container.querySelectorAll<HTMLElement>('.status-strip-history-stack')
-      expect(stacks[14]?.style.getPropertyValue('--history-height')).toBe('12px')
-      expect(stacks[11]?.style.getPropertyValue('--history-height')).toBe('4px')
+      expect(stacks[14]?.style.getPropertyValue('--history-height')).toBe('10px')
+      expect(stacks[11]?.style.getPropertyValue('--history-height')).toBe('3px')
     })
     expect(screen.getByTestId('agent-concurrency-history').getAttribute('aria-label')).toContain(
       '2 agents working now. Peak 16.',
@@ -327,9 +327,12 @@ describe('StatusStrip token burn', () => {
   it('waits for a real rolling window instead of annualizing the first scan', async () => {
     render(<StatusStrip />)
 
-    expect(screen.getByTestId('status-strip-burn').textContent).toBe('— token burn')
+    expect(screen.getByTestId('status-strip-burn').textContent).toBe('token burn —')
+    // Before a rolling rate exists the strip states this hour's spend so far.
     await waitFor(() =>
-      expect(screen.getByTestId('status-strip-burn').textContent).toBe('measuring token burn'),
+      expect(screen.getByTestId('status-strip-burn').textContent).toMatch(
+        /^token burn \$[\d.]+ this hour$/,
+      ),
     )
     expect(
       screen.getByTestId('token-burn-history').querySelectorAll('.status-strip-history-stack'),

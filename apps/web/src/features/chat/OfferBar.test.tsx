@@ -21,6 +21,12 @@ const offer: SessionOffer = {
   createdAt: '2026-07-17T07:00:00.000Z',
 }
 
+/** An offer whose recommendation asks for feedback: clicking it opens the fold. */
+const inputOffer: SessionOffer = {
+  ...offer,
+  actions: [{ label: 'Fix them', prompt: 'Please fix the failing tests', input: true }],
+}
+
 let container: HTMLDivElement
 let root: Root
 
@@ -44,7 +50,8 @@ describe('OfferBar', () => {
     }
     act(() => root.render(<OfferBar offer={linked} disabled={false} onAction={() => {}} />))
 
-    const link = container.querySelector<HTMLAnchorElement>('[data-testid="offer-detail"] a')
+    // POD-2076: the body sits in the card at rest, not in the fold.
+    const link = container.querySelector<HTMLAnchorElement>('.offer-card-body a')
     expect(link?.getAttribute('href')).toBe('https://preview.example.com/login')
     // `_blank` marks the link as leaving Podium: in a browser tab it opens one,
     // and in the desktop shell it is the anchor WKWebView would swallow, which
@@ -52,25 +59,22 @@ describe('OfferBar', () => {
     // ORIGIN, not on this attribute — a link to our own Podium carries neither.)
     expect(link?.getAttribute('target')).toBe('_blank')
     expect(link?.getAttribute('rel')).toBe('noopener noreferrer')
-    expect(container.querySelector('[data-testid="offer-detail"]')?.textContent).toContain(
+    expect(container.querySelector('.offer-card-body')?.textContent).toContain(
       'Open https://preview.example.com/login and try the flow.',
     )
   })
 
-  it('does not collapse the fold when a link in the detail is clicked', () => {
+  it('does not collapse the card when a link in the body is clicked', () => {
     const linked: SessionOffer = {
       ...offer,
       message: 'Preview is up\nOpen https://preview.example.com/login.',
     }
     act(() => root.render(<OfferBar offer={linked} disabled={false} onAction={() => {}} />))
-    act(() => {
-      container.querySelector<HTMLButtonElement>('[data-testid="offer-disclosure"]')?.click()
-    })
     expect(
       container.querySelector('[data-testid="offer-disclosure"]')?.getAttribute('aria-expanded'),
     ).toBe('true')
 
-    const link = container.querySelector<HTMLAnchorElement>('[data-testid="offer-detail"] a')
+    const link = container.querySelector<HTMLAnchorElement>('.offer-card-body a')
     // jsdom would otherwise "navigate"; the assertion is about the fold, not the open.
     link?.addEventListener('click', (event) => event.preventDefault())
     act(() => link?.click())
@@ -79,26 +83,29 @@ describe('OfferBar', () => {
     ).toBe('true')
   })
 
-  it('folds supporting actions by default while keeping the recommendation visible', () => {
+  // POD-2076: needs-you is said once, on a card that shows every action in one
+  // row at rest; the chevron collapses it to its header and headline.
+  it('shows every action at rest and collapses to the headline on the chevron', () => {
     act(() => root.render(<OfferBar offer={offer} disabled={false} onAction={() => {}} />))
+    expect(container.textContent).toContain('Needs your decision')
     expect(container.textContent).toContain('Tests are red on main')
     expect(container.querySelector('[data-testid="offer-primary-action"]')?.textContent).toContain(
       'Fix them',
     )
-    expect(
-      container.querySelector('[data-testid="offer-detail"]')?.getAttribute('aria-hidden'),
-    ).toBe('true')
+    expect(container.textContent).toContain('Show failures')
     expect(
       container.querySelector('[data-testid="offer-disclosure"]')?.getAttribute('aria-expanded'),
-    ).toBe('false')
+    ).toBe('true')
 
     act(() => {
       container.querySelector<HTMLButtonElement>('[data-testid="offer-disclosure"]')?.click()
     })
     expect(
-      container.querySelector('[data-testid="offer-detail"]')?.getAttribute('aria-hidden'),
+      container.querySelector('[data-testid="offer-disclosure"]')?.getAttribute('aria-expanded'),
     ).toBe('false')
-    expect(container.textContent).toContain('Show failures')
+    expect(container.textContent).toContain('Tests are red on main')
+    expect(container.querySelector('[data-testid="offer-primary-action"]')).toBeNull()
+    expect(container.textContent).not.toContain('Show failures')
   })
 
   it('reports the clicked action prompt with the offer createdAt', () => {
@@ -492,9 +499,15 @@ describe('OfferBar', () => {
       }
     }
 
-    const toggleDisclosure = (): void => {
+    // The fold opens for an action that asks for feedback, and Cancel closes it
+    // (POD-2076: the card's chevron now collapses the card, not the fold).
+    const toggleDisclosure = (within: ParentNode = container): void => {
       act(() => {
-        container.querySelector<HTMLButtonElement>('[data-testid="offer-disclosure"]')?.click()
+        const cancel = [...within.querySelectorAll<HTMLButtonElement>('button')].find(
+          (b) => b.textContent === 'Cancel',
+        )
+        if (cancel) cancel.click()
+        else within.querySelector<HTMLButtonElement>('[data-testid="offer-primary-action"]')?.click()
       })
     }
 
@@ -505,7 +518,7 @@ describe('OfferBar', () => {
         act(() =>
           root.render(
             <OfferLiftContext.Provider value={host}>
-              <OfferBar offer={offer} disabled={false} onAction={() => {}} />
+              <OfferBar offer={inputOffer} disabled={false} onAction={() => {}} />
             </OfferLiftContext.Provider>,
           ),
         )
@@ -537,7 +550,7 @@ describe('OfferBar', () => {
         act(() =>
           root.render(
             <OfferLiftContext.Provider value={host}>
-              <OfferBar offer={offer} disabled={false} onAction={() => {}} />
+              <OfferBar offer={inputOffer} disabled={false} onAction={() => {}} />
             </OfferLiftContext.Provider>,
           ),
         )
@@ -565,10 +578,10 @@ describe('OfferBar', () => {
           <div ref={rootRef}>
             <OfferLiftContext.Provider value={host}>
               <div className="offer-lift-seat" data-testid="seat-dock">
-                <OfferBar offer={offer} disabled={false} onAction={() => {}} />
+                <OfferBar offer={inputOffer} disabled={false} onAction={() => {}} />
               </div>
               <div className="offer-lift-seat" data-testid="seat-chat">
-                <OfferBar offer={offer} disabled={false} onAction={() => {}} />
+                <OfferBar offer={inputOffer} disabled={false} onAction={() => {}} />
               </div>
             </OfferLiftContext.Provider>
           </div>
@@ -582,14 +595,14 @@ describe('OfferBar', () => {
           (container.firstElementChild as HTMLElement).style.getPropertyValue('--offer-lift')
 
         act(() => {
-          seat('chat').querySelector<HTMLButtonElement>('[data-testid="offer-disclosure"]')?.click()
+          toggleDisclosure(seat('chat'))
         })
         expect(panelLift()).toBe('210px')
         expect(seat('chat').style.getPropertyValue('--offer-seat-lift')).toBe('210px')
         expect(seat('dock').style.getPropertyValue('--offer-seat-lift')).toBe('0px')
 
         act(() => {
-          seat('chat').querySelector<HTMLButtonElement>('[data-testid="offer-disclosure"]')?.click()
+          toggleDisclosure(seat('chat'))
         })
         expect(panelLift()).toBe('0px')
         expect(seat('chat').style.getPropertyValue('--offer-seat-lift')).toBe('0px')
@@ -601,7 +614,7 @@ describe('OfferBar', () => {
     it('leaves the fold in flow, and asks for no lift, without a host', () => {
       const restore = withNaturalDetailHeight(210)
       try {
-        act(() => root.render(<OfferBar offer={offer} disabled={false} onAction={() => {}} />))
+        act(() => root.render(<OfferBar offer={inputOffer} disabled={false} onAction={() => {}} />))
         expect(container.querySelector('.offer-fold-root')?.className).not.toContain(
           'offer-fold-root--lifted',
         )

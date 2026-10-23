@@ -15,6 +15,8 @@
   /* The single horizontal datum every column header aligns to. Three columns
      used to sit at 88 / 74 / 78px, so no line ran across the window. */
   --section-bar-h: 36px;
+  /* The stage's tab strip, hairline included (POD-2078, design 4a/5a). */
+  --tab-strip-h: 42px;
   /* The persistent shell has four semantic type roles. Components choose a
      role by meaning instead of inventing a local size; terminal output and
      document content intentionally keep their own scales. */
@@ -85,49 +87,119 @@ html[data-density="compact"] {
   line-height: var(--shell-leading-column-title);
   letter-spacing: -0.015em;
 }
-/* 7px and a rule under the row — the sidebar mock's own row box (POD-1078).
-   The 3a implementation (POD-1057) read the design's dropped SECTION rules as a
-   licence to drop the ROW rule too, and took the padding to 6px to hold the row
-   at 44px without it. The mock never did: its row is `min-height:46px;
-   padding:7px 13px;border-bottom:1px solid`, in 3a and 3b alike. So the two
-   numbers come back together, because they are one decision — a line between
-   rows needs air on both sides of it or it reads as a squeeze.
-
-   THE MOCK'S `min-height` IS A CONTENT BOX, AND IT HAS TWO VALUES (POD-1253).
-   Read as a total row height — which is what `min-h-[46px]` on a border-box row
-   meant — it produced a 47px row against the artboard's 51px, and every row in
-   the column came out four pixels tight. The mock writes `min-height:36px` on a
-   two-line row and `min-height:46px` on one carrying the meter, on a content
-   box, so the rows measure 36+14+1 = 51px and 46+14+1 = 61px. Both numbers are
-   MINIMA over a text block that is shorter than either (a 16px title, 5px, a
-   10.5px status line = 31.5px), which is the whole point: the row centres that
-   block in a taller box, and the leftover is the air that makes the column read
-   as calm rather than as a stack of lines.
-
-   `:has()` rather than a prop, because the fact is "does this row draw a meter"
-   and the meter is the one thing that knows — `RowProgressMeter` returns null
-   under `ROW_PROGRESS_MIN_TASKS`, so a boolean threaded through `WorkRowShell`
-   would be a second copy of that threshold to keep in step.
-
-   Exported as a var because the tuck chip has to align itself to line 1's box,
-   and it cannot know the density switch any other way. */
-.shell-work-row {
-  --work-row-pad: 7px;
-  --work-row-content: 36px;
-  min-height: calc(var(--work-row-content) + 2 * var(--work-row-pad) + 1px);
-  padding-block: var(--work-row-pad);
-  /* THE ROW RULE. Without it the band tint is the only thing parting one row
-     from the next — which works while rows are tinted and does nothing at all on
-     the neutral flow, where two untinted rows share one unbroken ground and two
-     2-line rows read as one 4-line block. It takes the SOFT hairline (inner
-     dividers) rather than the -bar weight the section bands take: the bands have
-     to stay the loudest structure in the column, and a row rule at their weight
-     would flatten the grouping back out. */
-  border-bottom: 1px solid var(--hairline-soft);
+/* The calm sidebar's two carve tones (POD-2074): the filter/switch well and
+   the row/folder hover, both the ink at a whisper so they follow the theme. */
+:root {
+  --work-well: color-mix(in srgb, var(--foreground) 4.5%, transparent);
+  --work-row-hover-bg: color-mix(in srgb, var(--foreground) 4%, transparent);
 }
-/* A row speaking for a subtree is the artboard's taller box. */
-.shell-work-row:has([data-testid="row-progress"]) {
-  --work-row-content: 46px;
+/* THE CALM WORK ROW (POD-2074). Two lines on an inset, rounded surface: the
+   design's `padding:8px 12px 8px 22px; border-radius:8px` with a 4px gap
+   between title and status. No rule between rows and no tint: the rows part by
+   air, and the one raised white row is the selection. The 22px left inset is
+   where the manual-sort grip appears on hover. */
+.shell-work-row {
+  --work-row-pad: 8px;
+  --work-row-hover: var(--work-row-hover-bg);
+  padding: var(--work-row-pad) 12px var(--work-row-pad) 22px;
+  border-radius: 8px;
+}
+.shell-work-row[data-selected="true"] {
+  background: var(--chip);
+  box-shadow:
+    0 0 0 1px var(--border-strong),
+    0 1px 3px rgb(29 28 25 / 0.07);
+}
+html[data-density="compact"] .shell-work-row {
+  --work-row-pad: 6px;
+}
+.shell-work-row-title {
+  font-size: var(--shell-type-primary);
+  line-height: 17px;
+}
+html[data-density="compact"] .shell-work-row-title {
+  line-height: 16px;
+}
+.shell-work-row-status {
+  font-size: 11.5px;
+  line-height: 14px;
+}
+.work-row-ref,
+.work-row-meta {
+  font-size: var(--shell-type-micro);
+  line-height: 14px;
+}
+/* The status dot: the design's `S` map, on tokens so dark mode follows.
+   Bisque fills and bronze rims the needs-you dot; the hollow rings are
+   inset shadows so every dot keeps one 6px box. */
+/* The git stamp joins line 2 as one more `· fact`; the dot is drawn only when
+   the stamp has something to say, so a clean branch leaves no stray mark. */
+.work-row-facts > [data-density="stamp"]::before {
+  content: "· ";
+}
+/* The facts are one sans run that ends in an ellipsis before the #id
+   (fidelity review P2-2): inline children, so the clip lands on a glyph
+   boundary with "…" instead of mid-word, and the design's sub-line voice
+   rather than the stamp's mono. */
+.work-row-facts > *,
+.work-row-facts > [data-density="stamp"] > * {
+  display: inline;
+}
+.work-row-facts > * + * {
+  margin-left: 5px;
+}
+.work-row-facts > [data-density="stamp"] {
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
+}
+.work-row-facts > [data-density="stamp"] > * + *::before {
+  content: " · ";
+}
+/* The list's top edge fades once it has scrolled, instead of cutting a row
+   in half under the Open/Snoozed/Closed control (fidelity review). A mask
+   on the scroller, driven by its own scroll timeline: no listener, and at
+   rest the fade is zero so the first row is untouched. Browsers without
+   scroll timelines keep today's hard edge. */
+@property --work-scroll-fade {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+@keyframes work-scroll-fade {
+  to {
+    --work-scroll-fade: 14px;
+  }
+}
+@supports (animation-timeline: scroll()) {
+  .work-scroll {
+    mask-image: linear-gradient(to bottom, transparent, #000 var(--work-scroll-fade));
+    animation: work-scroll-fade linear both;
+    animation-timeline: scroll(self);
+    animation-range: 0 24px;
+  }
+}
+.work-row-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 9999px;
+}
+.work-row-dot[data-tone="needs"] {
+  background: var(--primary);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--attention) 55%, var(--primary));
+}
+.work-row-dot[data-tone="active"] {
+  box-shadow: inset 0 0 0 1.5px var(--live);
+}
+.work-row-dot[data-tone="idle"],
+.work-row-dot[data-tone="draft"] {
+  box-shadow: inset 0 0 0 1.5px var(--text-faint);
+}
+.work-row-dot[data-tone="settled"] {
+  background: color-mix(in srgb, var(--text-faint) 60%, transparent);
+}
+.work-row-dot[data-tone="error"] {
+  background: var(--destructive);
 }
 /* THE SPAWN CHIP'S GROUND, AND THE ONE HOVER THE FILTER CANNOT DRAW (POD-1253).
 
@@ -151,31 +223,6 @@ html[data-density="compact"] {
 }
 .shell-spawn-chip:active:not(:disabled) {
   filter: brightness(0.94);
-}
-html[data-density="compact"] .shell-work-row {
-  --work-row-pad: 6px;
-}
-/* THE ROW'S TWO LINES RUN TIGHTER THAN THE ROLES THEY TAKE THEIR SIZE FROM.
-   The shell roles set a reading leading (13/18, 10.5/14) because most shell text
-   is prose that may wrap. These two never wrap — one truncates, the other is a
-   single mono phrase — so their leading is pure row height, and the 3a design
-   spends it on the 44px row instead. Size still comes from the role token, so
-   both lines follow the density switch.
-
-   THEY ARE CLASSES RATHER THAN `leading-*` UTILITIES because styles.css is
-   UNLAYERED and Tailwind's utilities are not: `.shell-type-primary`'s
-   line-height beats `leading-[16px]` no matter what the markup says, so an
-   inline override here is not a tighter row, it is a silently ignored one. */
-.shell-work-row-title {
-  font-size: var(--shell-type-primary);
-  line-height: 16px;
-}
-html[data-density="compact"] .shell-work-row-title {
-  line-height: 15px;
-}
-.shell-work-row-status {
-  font-size: var(--shell-type-micro);
-  line-height: 1;
 }
 html,
 body,
@@ -514,12 +561,6 @@ html[data-podium-desktop="true"] body {
 @media (max-width: 1600px) {
   .topbar-tools-search {
     flex-basis: 150px;
-  }
-  .header-quota-label {
-    display: none;
-  }
-  .header-machine-name {
-    display: none;
   }
   .header-agent-readout {
     display: none;
@@ -947,6 +988,78 @@ html[data-density="balanced"] .header-machine-meters > .header-readout {
 .header-quota-chip:hover .header-quota-rail-seg > span,
 .header-quota-chip[data-popup-open] .header-quota-rail-seg > span {
   opacity: 0.85;
+}
+/* THE CALM GAUGE (POD-2075, design 4a). The well is one small pill reading
+   `● host │ quota ▬ 62%`: which machine and whether it is healthy, then how much
+   of the tightest plan is spent. Everything else the well used to carry stays
+   one hover away in the chips' panels, and comes back onto the bar only when it
+   matters — a host meter that crossed a threshold, an offline host, an update. */
+.header-host-indicators.topbar-well {
+  height: 28px;
+  padding: 0 2px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--foreground) 4.5%, transparent);
+  box-shadow: none;
+}
+.header-host-indicators :is(.header-machine-chip, .header-quota-chip),
+.header-host-indicators .header-machine-chip:has(.header-machine-meters),
+html[data-density="balanced"] .header-host-indicators .header-machine-chip {
+  height: 24px;
+  border-radius: 6px;
+}
+.header-host-indicators .header-machine-name {
+  max-width: 14ch;
+  font-size: 11px;
+}
+.header-host-indicators .header-strip-seam {
+  height: 12px;
+  margin: 0 2px;
+  background: var(--border);
+}
+/* Agents are the footer's to count; pressure is the panel's to itemise. A meter
+   that crossed a threshold is the exception, and it is never shed. */
+.header-host-indicators .header-agent-readout,
+.header-host-indicators .header-machine-meters:not(:has(.header-value:is([data-tone="warn"], [data-tone="crit"]))),
+.header-host-indicators
+  .header-machine-meters
+  > .header-readout:not(:has(.header-value:is([data-tone="warn"], [data-tone="crit"]))) {
+  display: none;
+}
+/* One meter: the pool closest to its limit (QuotaIndicator marks it). The pool
+   marks and harness glyphs named pools apart; with one pool on the bar the panel
+   does that. */
+.header-host-indicators .header-quota-pool:not([data-headline]),
+.header-host-indicators .header-quota-chip :is(.header-harness-icon, .header-mark) {
+  display: none;
+}
+.header-host-indicators .header-quota-label,
+html[data-density="balanced"] .header-host-indicators .header-quota-label::before {
+  color: var(--text-dim);
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+}
+.header-host-indicators .header-quota-chip {
+  gap: 10px;
+}
+.header-host-indicators .header-quota-meter,
+.header-host-indicators .header-quota-rail {
+  width: 44px;
+}
+.header-host-indicators .header-quota-meter {
+  height: 4px;
+}
+html .header-host-indicators .header-quota-chip .header-value {
+  display: inline;
+  min-width: 0;
+  color: var(--muted-foreground);
+  font-size: 11px;
+}
+html .header-host-indicators .header-quota-chip .header-value:is([data-tone="warn"]) {
+  color: var(--warning);
+}
+html .header-host-indicators .header-quota-chip .header-value:is([data-tone="crit"]) {
+  color: var(--destructive);
 }
 /* A narrow window drops the numbers a quiet pool doesn't need — but never the
    one that crossed a threshold, which is the whole reason to look. Third in the
@@ -1723,9 +1836,8 @@ html[data-density="balanced"] .header-machine-meters > .header-readout {
   flex: none;
   color: var(--text-faint);
 }
-/* Pushes the phone chip to the far end. Nothing else in the strip is right-set:
-   the readings are one sentence read left to right, and the offer is not part
-   of it. */
+/* Divides the fleet readings (left) from what is about this window (right):
+   link health, the update and phone offers, and the selected task's ref. */
 .status-strip-spacer {
   flex: 1 1 auto;
   min-width: 9px;
@@ -1847,7 +1959,7 @@ html[data-density="balanced"] .header-machine-meters > .header-readout {
   padding: 10px;
   border-radius: 10px;
   background: var(--card);
-  box-shadow: inset 0 0 0 1px var(--border);
+  box-shadow: inset 0 0 0 1px var(--border-strong);
 }
 .mobile-promo-copy {
   display: flex;
@@ -1931,8 +2043,13 @@ html[data-density="balanced"] .header-machine-meters > .header-readout {
     animation: none;
   }
 }
+/* CALM INSTRUMENTS (POD-2075, design 4a). The readings are muted ink; live blue
+   is spent only where it signals work — the working count and the current
+   concurrency bar while agents are computing. Token burn is a cost, not an
+   alarm, so it carries no hue of its own. */
 .status-strip-metric {
   --metric-color: var(--live);
+  --history-ink: var(--text-dim);
   position: relative;
   display: inline-flex;
   flex: none;
@@ -1940,10 +2057,13 @@ html[data-density="balanced"] .header-machine-meters > .header-readout {
   gap: 6px;
 }
 .status-strip-metric[data-tone="burn"] {
-  --metric-color: var(--claude);
+  --metric-color: var(--text-dim);
 }
 .status-strip-metric-value {
   color: var(--metric-color);
+}
+.status-strip-metric[data-tone="burn"] .status-strip-metric-reading {
+  color: var(--muted-foreground);
 }
 .status-strip-history {
   position: relative;
@@ -1958,32 +2078,41 @@ html[data-density="balanced"] .header-machine-meters > .header-readout {
   border-radius: 2px;
   box-shadow: 0 0 0 1px var(--metric-color);
 }
+/* Hairline bars: 1px of ink in a 3px column, so the trace keeps its width and
+   its hover precision while reading as a texture rather than a bar chart. */
 .status-strip-history-graph {
   display: grid;
-  width: calc(var(--history-columns, 24) * 3px - 1px);
-  height: 12px;
-  grid-template-columns: repeat(var(--history-columns, 24), 2px);
+  width: calc(var(--history-columns, 24) * 3px - 2px);
+  height: 10px;
+  grid-template-columns: repeat(var(--history-columns, 24), 1px);
   align-items: end;
-  gap: 1px;
+  gap: 2px;
 }
 .status-strip-history-stack {
   position: relative;
   display: flex;
-  width: 2px;
-  height: 12px;
+  width: 1px;
+  height: 10px;
   flex-direction: column-reverse;
-  color: var(--metric-color);
+  color: var(--history-ink);
   opacity: var(--history-strength, 0.54);
 }
 .status-strip-history-stack[data-current="true"] {
   opacity: 1;
+}
+.status-strip-metric[data-tone="agents"]
+  .status-strip-history-stack[data-current="true"]:not([data-zero="true"]) {
+  color: var(--live);
 }
 /* The empty bucket's 1px floor: present, so the trace is continuous, but held
    below the faintest real reading so absence never reads as a small value. */
 .status-strip-history-stack[data-zero="true"] {
   opacity: 0.26;
 }
-.status-strip-history-stack[data-active="true"]::after {
+/* The precision bracket is a hover/keyboard affordance; at rest the trace is
+   just the trace. */
+.status-strip-history-graph:is(:hover, :focus-visible)
+  .status-strip-history-stack[data-active="true"]::after {
   position: absolute;
   inset: -2px -1px;
   border: 1px solid color-mix(in srgb, var(--metric-color) 78%, transparent);
@@ -1991,7 +2120,7 @@ html[data-density="balanced"] .header-machine-meters > .header-readout {
 }
 .status-strip-history-pixel {
   display: block;
-  width: 2px;
+  width: 1px;
   height: var(--history-height, 0);
   flex: none;
   background: currentColor;
@@ -2061,6 +2190,9 @@ html[data-density="balanced"] .header-machine-meters > .header-readout {
   font-size: 18px;
   line-height: 1;
 }
+.status-strip-metric[data-tone="burn"] .status-strip-history-reading b {
+  color: var(--text-strong);
+}
 .status-strip-history-reading span {
   min-width: 0;
   color: var(--foreground);
@@ -2091,11 +2223,15 @@ html[data-density="balanced"] .header-machine-meters > .header-readout {
   justify-content: center;
   border-radius: 3px;
   color: color-mix(in srgb, var(--metric-color) 58%, var(--text-faint));
-  opacity: 0.56;
+  /* Present for the pointer and the keyboard, absent from the resting strip. */
+  opacity: 0;
   transition:
     color 120ms ease,
     opacity 120ms ease,
     background 120ms ease;
+}
+.status-strip-metric:hover .status-strip-share {
+  opacity: 0.56;
 }
 .status-strip-share:hover,
 .status-strip-share:focus-visible {
@@ -2134,13 +2270,7 @@ html[data-density="balanced"] .header-machine-meters > .header-readout {
 }
 .status-strip-ref {
   flex: none;
-  color: var(--muted-foreground);
-}
-.status-strip-issue-title {
-  overflow: hidden;
-  color: var(--text-faint);
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  color: var(--text-dim);
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -2739,132 +2869,46 @@ html[data-density="balanced"] .header-machine-meters > .header-readout {
     inset 0 3px 0 color-mix(in srgb, var(--issue) 55%, transparent),
     0 1px 2px color-mix(in srgb, var(--carve-drop) 50%, transparent);
 }
-/* Folding must not change the column's MATERIAL (POD-725) — only its width. The
-   open deck is the card tone under an issue fade; the folded bar was still flat
-   --engraved, so collapsing it swapped one surface for another and read as a
-   different object appearing rather than the same one narrowing. Same gradient,
-   44px of it.
-   WHAT THE FOLD KEEPS IS THE SPINE, NOT THE LID (POD-738). The 3px issue inset
-   along the top edge is gone, and so is the issue-tinted right border: the top
-   edge belongs to the OPEN column, where it continues the selected work row's
-   line into a column wide enough to carry a mission, and drawn across 44px it
-   read as a cap on the rail rather than a continuation of anything. In its
-   place the spine runs DOWN the rail's left edge as a 2px gradient — full
-   strength beside the ID chip, gone by the end of the gauge — so the closed
-   column still says "this is POD-nnn" without a hard colour edge, and the right
-   edge goes back to being a tone step like every other seam in the shell. */
+/* Folding must not change the column's MATERIAL (POD-725), only its width: the
+   folded bar sits on the deck's own surface. Since the calm redesign (POD-2075,
+   design 4a) it is a handle rather than an instrument — the open control and the
+   mission's done/total under it — so it wears the surface flat: no issue fade,
+   no spine down the left edge, nothing that competes with the sidebar row and the
+   task panel, which already carry the mission's colour. */
 .folded-superagent {
   display: flex;
   flex: 0 0 44px;
   min-height: 0;
   flex-direction: column;
   align-items: center;
-  gap: 8px;
-  padding: 8px 0 14px;
-  background:
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--issue) calc(75 * var(--issue-line-scale, 1%)), transparent),
-      color-mix(in srgb, var(--issue) calc(14 * var(--issue-line-scale, 1%)), transparent) 190px,
-      transparent 340px
-    )
-    left top / 2px 100% no-repeat,
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--issue) calc(16 * var(--issue-tint-scale, 1%)), var(--deck-surface)),
-      var(--deck-surface) 240px
-    );
-  box-shadow: 0 1px 2px color-mix(in srgb, var(--carve-drop) 50%, transparent);
+  gap: 10px;
+  padding-top: 14px;
+  background: var(--deck-surface);
 }
-/* The no-colour flow runs the same mechanics quieter (handoff 1b), exactly as
-   the open column's `.engraved-column` does. */
-[data-issue-colored="false"] .folded-superagent {
-  background:
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--issue) calc(55 * var(--issue-line-scale, 1%)), transparent),
-      color-mix(in srgb, var(--issue) calc(10 * var(--issue-line-scale, 1%)), transparent) 190px,
-      transparent 340px
-    )
-    left top / 2px 100% no-repeat,
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--issue) calc(13 * var(--issue-tint-scale, 1%)), var(--deck-surface)),
-      var(--deck-surface) 240px
-    );
+.folded-superagent .folded-superagent-control {
+  width: 26px;
+  min-width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  color: var(--text-dim);
 }
-/* THE GAUGE SPINE (POD-738): one 4px tick per task, running top-down in the open
-   gauge's own state order. The states take the open gauge's tokens so the two
-   readings can never disagree — done in Accent Blue, running in the working blue
-   the spinner wears, review in attention yellow, and BLOCKED WITH NO HUE AT ALL
-   (`--warning` IS `--attention`
-   in Superade, so a warning-toned tick would spend the one signal colour on work
-   that is asking nothing). At 4px there is no room for the open gauge's tint +
-   floor-rule pair, so each state is one saturation instead: full for done and
-   review, the design's 60% for running, and two neutral weights for stopped
-   and not-started. */
-.deck-tick {
-  width: 4px;
-  flex: 0 1 26px;
-  min-height: 3px;
-  border-radius: 2px;
-  background: color-mix(in srgb, var(--foreground) 10%, transparent);
+/* The mission's done/total: data, so mono, and faint — it is read on demand,
+   and the control above it is what the eye should find first. */
+.folded-superagent-count {
+  padding: 2px 4px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-faint);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+  cursor: pointer;
+  transition: color 150ms ease;
 }
-.deck-tick[data-s="done"] {
-  background: var(--success);
-}
-.deck-tick[data-s="run"] {
-  background: color-mix(in srgb, var(--live) 60%, transparent);
-}
-.deck-tick[data-s="review"] {
-  background: var(--attention);
-}
-/* Started work with nobody on it (POD-1314). Half the run tick's blue: the tick
-   is 15px of a 2px column and cannot carry the open gauge's dotted rule, so the
-   one thing it can say — this is run-lineage work at half strength — is what it
-   says. The exact count is on the rail's own tooltip either way. */
-.deck-tick[data-s="stall"] {
-  background: color-mix(in srgb, var(--live) 30%, transparent);
-}
-.deck-tick[data-s="block"] {
-  background: color-mix(in srgb, var(--foreground) 34%, transparent);
-}
-/* The foot's stacks: glyph in its cell, count under it, the whole stack the
-   control. */
-.folded-superagent-stat {
-  display: flex;
-  flex: none;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-}
-.folded-superagent-cell {
-  position: relative;
-  display: flex;
-  width: 32px;
-  height: 32px;
-  flex: none;
-  align-items: center;
-  justify-content: center;
-  border-radius: 9px;
-  background: var(--muted);
-  color: var(--muted-foreground);
-}
-.folded-superagent-stat:hover .folded-superagent-cell {
-  background: var(--accent);
+.folded-superagent-count:hover {
   color: var(--text-strong);
-}
-/* AMBER ONLY WHEN TRUE. The cell is drawn at all only while something is
-   actually asking (the component does not render a zero), and when it is, the
-   tint and the ring are how it says so from across the desk. */
-.folded-superagent-cell[data-attention="true"] {
-  background: color-mix(in srgb, var(--attention) 14%, transparent);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--attention) 50%, transparent);
-  color: var(--attention);
-}
-.folded-superagent-stat:hover .folded-superagent-cell[data-attention="true"] {
-  background: color-mix(in srgb, var(--attention) 22%, transparent);
-  color: var(--attention);
 }
 .native-agents-pane {
   /* The workspace is the elastic centre of the shell. Keep 360px as its
@@ -3621,35 +3665,18 @@ html[data-setup-only="true"] [data-testid="update-panel"] {
   padding-bottom: 6px;
 }
 
-/* THE VISIBLE PROCESS REGION. This is the agent's public narration and tool
-   activity, not hidden reasoning. A single quiet rule keeps a long working run
-   together while every word remains in the reading flow; the register appears
-   once at the start and nothing is folded by default. */
-.transcript-process-row {
-  position: relative;
-  padding-inline-start: 16px;
-}
-.transcript-process-row::before {
-  content: "";
-  position: absolute;
-  inset-block: 0;
-  inset-inline-start: 0;
-  width: 1px;
-  background: color-mix(in oklab, var(--chat-rule) 82%, transparent);
-  pointer-events: none;
-}
+/* THE VISIBLE PROCESS REGION, MUTED (POD-2076). This is the agent's public
+   narration and tool activity, not hidden reasoning, and every word stays in
+   the reading flow. It no longer carries a rule or a PROCESS register: it
+   simply speaks a step smaller and in muted ink, so the answer — full size,
+   normal ink — is what the eye lands on. */
 .transcript-process-start {
   padding-top: 10px;
 }
-.transcript-process-label {
-  margin-bottom: 5px;
-  font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: var(--shell-type-micro);
-  line-height: var(--shell-leading-micro);
-  font-weight: 500;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--text-dim, var(--muted-foreground));
+.transcript-process-row > .transcript-body > .chat-md {
+  font-size: 13.5px;
+  line-height: 21px;
+  color: var(--muted-foreground);
 }
 
 /* Flat Field (POD-159): the rails are gone — agent output lies flat on the
@@ -3793,6 +3820,10 @@ html[data-setup-only="true"] [data-testid="update-panel"] {
   box-sizing: border-box;
   padding: 11px max(32px, calc((100% - var(--chat-reading-measure) - var(--chat-rail-w, 0px)) / 2))
     0;
+  /* The 11px above the shelf is sheet, not a window onto the feed: without
+     this a transcript line scrolled under the header showed half-cut between
+     the header and the card (fidelity review). */
+  background: linear-gradient(to bottom, var(--card) 11px, transparent 11px);
   pointer-events: none;
   animation: brief-shelf-in 280ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
@@ -4008,14 +4039,9 @@ html[data-density="compact"] .brief-shelf {
   color: var(--foreground);
 }
 .transcript-answer > .chat-md {
-  font-size: 16px;
-  line-height: 1.58;
+  font-size: 15px;
+  line-height: 25px;
   text-wrap: wrap;
-}
-.transcript-answer > .chat-md > p:first-child {
-  font-size: inherit;
-  line-height: inherit;
-  color: var(--text-strong);
 }
 /* A list in an answer is the answer's substance, not an aside, so its items get
    the document's own air and a smaller, quieter dot than the browser's default.
@@ -4040,9 +4066,8 @@ html[data-density="compact"] .brief-shelf {
   font-size: 0.72em;
   color: var(--text-dim, var(--muted-foreground));
 }
-/* THE ONE SURVIVING EYEBROW. Mono micro at .12em in Dim — one notch louder than
-   the Faint it was, because it is now the only thing marking where a turn lands
-   and it has to be findable at a glance down a long session. */
+/* The superagent dock's answer eyebrow. The stage transcript dropped it
+   (POD-2076); the narrow dock keeps it. */
 .transcript-answer-label {
   display: flex;
   align-items: baseline;
@@ -4552,6 +4577,24 @@ html[data-density="compact"] .brief-shelf {
    only REQUESTED — spawn selection, nothing seen in the transcript yet — carries
    a dotted rule, the long-standing typographic mark for provisional. Observed
    values are written plainly, because they are simply true. */
+/* The session header's location line (POD-2076): branch (or working
+   directory) in muted mono, the first thing on the quiet header row. */
+.pane-branch {
+  display: inline-flex;
+  min-width: 0;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-dim, var(--muted-foreground));
+  font-size: 11px;
+  transition: color 120ms ease;
+}
+button.pane-branch {
+  cursor: pointer;
+}
+button.pane-branch:hover {
+  color: var(--text-strong, var(--foreground));
+}
 .model-token[data-provenance="requested"] .model-token-text {
   border-bottom: 1px dotted color-mix(in oklab, currentColor 55%, transparent);
   opacity: 0.8;
@@ -4647,61 +4690,59 @@ html[data-density="compact"] .brief-shelf {
      same kind of air: a touch more than the feed's beat on both sides. */
   margin: 7px 0 8px;
 }
+/* ONE QUIET LINE (POD-2076): mail icon, "Note from steward", "· 03:13", then a
+   hairline running out to the edge. No tint, no rail, no message id — the
+   line says THAT a note arrived and from whom; the card below says the rest. */
 .mail-fold {
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: 8px;
   width: 100%;
-  padding: 6px 10px 6px 9px;
-  border-left: 2px solid var(--chat-mail);
-  border-radius: 0 7px 7px 0;
-  background: var(--chat-mail-bg);
+  padding: 2px 0;
   text-align: left;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--text-dim, var(--muted-foreground));
   cursor: pointer;
-  transition: background-color 160ms ease;
+  transition: color 160ms ease;
 }
 .mail-fold:hover {
-  background: color-mix(in oklab, var(--live) 9%, transparent);
+  color: var(--muted-foreground);
 }
 .mail-fold-icon {
   flex: none;
-  color: var(--live, var(--info));
-  opacity: 0.85;
 }
 .mail-fold-count {
-  flex: none;
-  font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 10.5px;
-  line-height: 1;
-  color: var(--text-dim, var(--muted-foreground));
-}
-/* These two SHRINK, unlike everything else on the fold line. The design shows a
-   burst of two, where nothing has to give; a real burst can carry six senders,
-   and with `flex: none` the refs would push the chevron out of a narrow pane
-   rather than ellipsing. The count and the chevron hold their size — losing
-   "4 notes from Podium" to save a ref list is the wrong trade. */
-.mail-fold-tags,
-.mail-fold-meta {
   flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
-  font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: var(--shell-type-micro);
-  line-height: 1;
+}
+.mail-fold-meta {
+  flex: none;
   color: var(--text-faint);
 }
-/* The one flexible cell: it collapses first, so a narrow pane loses the gap
-   before it loses a word of the count or the refs. */
+/* The hairline is the one flexible cell: it collapses first in a narrow pane. */
 .mail-fold-gap {
   flex: 1 1 auto;
   min-width: 0;
+  height: 1px;
+  background: var(--hairline-soft, var(--chat-rule));
 }
+/* The fold's chevron is an affordance, not information: it appears under the
+   pointer or focus, and stays while the card is open. */
 .mail-fold-chev {
   flex: none;
   color: var(--text-faint);
-  transition: transform 200ms cubic-bezier(0.22, 1, 0.36, 1);
+  opacity: 0;
+  transition:
+    opacity 160ms ease,
+    transform 200ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.mail-fold:is(:hover, :focus-visible) .mail-fold-chev,
+.mail-group[data-open="true"] .mail-fold-chev {
+  opacity: 1;
 }
 .mail-group[data-open="true"] .mail-fold-chev {
   transform: rotate(180deg);
@@ -5059,81 +5100,31 @@ html[data-density="compact"] .brief-shelf {
    A run of tool calls is ONE progress object: while the agent works the row
    mutates in place (spinner, the call in flight, a counting timer, a ticking
    count); when it settles the glyph becomes a verdict and the phrase becomes
-   the past-tense summary. Carved into the field per the Carved Rule — an inset
-   shadow and hairline seams, never a lift — with two same-tone tiers fanned
-   beneath it so a folded run reads as a stack without costing the height of
-   one. */
-/* Carved reads differently on the two grounds: on the navy chassis the groove
-   can take a real bite of black, but on paper the same mix turns the row into a
-   grey slab — a filled card, which is exactly what the Carved Rule forbids. */
+   the past-tense summary. */
 .work-line {
   position: relative;
   container-type: inline-size;
   container-name: work-line;
-  --work-line-face: var(--chat-face);
-  --work-line-carve: var(--chat-carve);
   /* A RUN IS A SOLID (POD-993 round 2). Prose either side of it gets the feed's
      12px beat; this needs more, because it is a box with an edge and the line of
-     text above would otherwise land on that edge. 6 above and 7 below - a hair
-     more under it, since the deck fans downwards. */
-  margin: 6px 0 7px;
+     text above would otherwise land on that edge. */
+  margin: 6px 0;
 }
-/* Paper carves in its own warm ink, like every other groove there (POD-725) —
-   black on paper reads as dirt even at this alpha, and a cool ink over stone
-   reads as a bruise. */
-[data-theme="podium"]:not(.dark) .work-line {
-  --work-line-carve: rgb(29 28 25 / 0.07);
-}
-.work-line-deck {
-  position: absolute;
-  /* Keep both tiers beneath the face and the far tier behind the near one,
-     including when their push animations create stacking contexts. */
-  z-index: 0;
-  inset: 0;
-  pointer-events: none;
-}
-.work-line-deck i {
-  position: absolute;
-  z-index: 1;
-  right: min(9px, 8%);
-  bottom: -3px;
-  left: min(9px, 8%);
-  height: 11px;
-  border: 1px solid var(--chat-rule);
-  border-top: 0;
-  border-radius: 0 0 min(8px, 3cqi) min(8px, 3cqi);
-  background: var(--work-line-face);
-  transition:
-    opacity 200ms ease,
-    transform 200ms cubic-bezier(0.22, 1, 0.36, 1);
-}
-.work-line-deck i:last-child {
-  z-index: 0;
-  right: min(18px, 16%);
-  bottom: -6px;
-  left: min(18px, 16%);
-  opacity: 0.6;
-}
-/* A lone call has nothing folded behind it, and an unfolded run shows its
-   calls instead of implying them. */
-.work-line[data-open="true"] .work-line-deck i,
-.work-line[data-single="true"] .work-line-deck i {
-  opacity: 0;
-  transform: translateY(-3px);
-}
-
+/* ONE HAIRLINE ROW (POD-2076): a folded run is a quiet line in the document —
+   no carve, no fanned deck, no count badge. The summary says how much
+   happened; the time and the chevron trail it. */
 .work-line-row {
   position: relative;
   z-index: 1;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 9px;
   width: 100%;
-  padding: 7px 10px 7px 11px;
-  border: 1px solid var(--chat-rule);
-  border-radius: 8px;
-  background: var(--work-line-face);
-  box-shadow: inset 0 1px 3px -1px var(--work-line-carve);
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--hairline-soft, var(--chat-rule));
+  border-radius: 7px;
+  background: transparent;
   text-align: left;
   cursor: pointer;
   transition: border-color 160ms ease;
@@ -5159,7 +5150,7 @@ html[data-density="compact"] .brief-shelf {
   min-width: 0;
   overflow: hidden;
   /* Machine voice, a step below prose (POD-376 type scale). */
-  font-size: 11.5px;
+  font-size: 12px;
   line-height: 1.5;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -5175,36 +5166,14 @@ html[data-density="compact"] .brief-shelf {
   font-size: var(--shell-type-micro);
   font-weight: 600;
 }
-/* Machine voice, tabular: the count must not change width as it ticks, or the
-   row — and everything under it — jitters once per tool call. */
-.work-line-time,
-.work-line-count {
+/* Machine voice, tabular: the timer must not change width as it ticks, or the
+   row — and everything under it — jitters once a second. */
+.work-line-time {
   flex: none;
   font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: var(--shell-type-micro);
+  font-size: 10.5px;
   font-variant-numeric: tabular-nums;
-}
-.work-line-time {
-  color: var(--text-dim, var(--muted-foreground));
-}
-.work-line-count {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 22px;
-  height: 17px;
-  padding: 0 5px;
-  border: 1px solid var(--chat-rim);
-  border-radius: 5px;
-  background: var(--chat-chip);
-  color: var(--muted-foreground);
-  font-weight: 700;
-  transition:
-    color 160ms ease,
-    border-color 160ms ease;
-}
-.work-line-row:hover .work-line-count {
-  color: var(--text-strong, var(--foreground));
+  color: var(--text-faint, var(--muted-foreground));
 }
 .work-line-chev {
   flex: none;
@@ -5229,9 +5198,6 @@ html[data-density="compact"] .brief-shelf {
   .work-line-row {
     gap: 7px;
     padding-inline: 8px;
-  }
-  .work-line-count {
-    display: none;
   }
 }
 @container work-line (max-width: 92px) {
@@ -5291,38 +5257,14 @@ html[data-density="compact"] .brief-shelf {
   }
 }
 
-/* THE DECK TAKES A SHEET (POD-1158). Calls two through twelve of a run were the
-   one event on this surface with no motion at all. The row is already on
-   screen, so `.transcript-arrive` never fires; `.work-line-count` carries only
-   a hover colour transition; and the one-shot on `data-settle` fires once, at
-   the very end, when the whole run resolves. The number changed between two
-   frames with nothing to mark it.
-
-   The deck is already drawn and already means "more of these are folded behind
-   this line", so gaining a sheet is the honest reading of a call landing. The
-   row settles 3px and the two tiers re-stack behind it 40ms apart — a one-shot
-   morph in the sense the grammar allows, over in 260ms, after which the row is
-   completely still until the next call.
-
-   It is gated on `data-push`, which `usePushFlash` sets only when the count
-   GROWS and never on mount, so painting a transcript of finished runs replays
-   none of them. The tiers are `aria-hidden` decoration, so nothing a reader is
-   reading moves: the phrase, the timer and the count all hold position while
-   the deck settles underneath them. */
+/* A CALL LANDING (POD-1158). Calls two through twelve of a run would
+   otherwise change the folded row between two frames with nothing to mark it,
+   so the row settles 3px — a one-shot morph, over in 260ms. Gated on
+   `data-push`, which `usePushFlash` sets only when the count GROWS and never on
+   mount, so painting a transcript of finished runs replays none of them. */
 @media (prefers-reduced-motion: no-preference) {
   .work-line[data-push="true"] .work-line-row {
     animation: work-line-push 260ms cubic-bezier(0.22, 1, 0.36, 1);
-  }
-  /* Not for a lone call and not for an unfolded run: both hide the deck, and a
-     hidden deck must not animate itself back into view because a call landed. */
-  .work-line[data-push="true"]:not([data-open="true"]):not([data-single="true"]) .work-line-deck
-    i:first-child {
-    animation: work-line-deck-push 260ms cubic-bezier(0.22, 1, 0.36, 1) 40ms both;
-  }
-  .work-line[data-push="true"]:not([data-open="true"]):not([data-single="true"])
-    .work-line-deck
-    i:last-child {
-    animation: work-line-deck-push-far 260ms cubic-bezier(0.22, 1, 0.36, 1) 80ms both;
   }
 }
 @keyframes work-line-push {
@@ -5333,28 +5275,6 @@ html[data-density="compact"] .brief-shelf {
     transform: none;
   }
 }
-@keyframes work-line-deck-push {
-  from {
-    opacity: 0.3;
-    transform: translateY(-4px);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
-/* Lands on the far tier's resting 0.6, not on 1: the fan is a depth cue and
-   the back sheet is the dimmer one at rest. */
-@keyframes work-line-deck-push-far {
-  from {
-    opacity: 0;
-    transform: translateY(-4px);
-  }
-  to {
-    opacity: 0.6;
-    transform: none;
-  }
-}
 
 /* The folded run's hover preview is gone (POD-993 round 7) — unfolding answers
    "which calls" and needs no positioner, no collision boundary and no height
@@ -5362,9 +5282,7 @@ html[data-density="compact"] .brief-shelf {
    rows; see `.tool-subject` and ToolBlock. */
 
 @media (prefers-reduced-motion: reduce) {
-  .work-line-deck i,
   .work-line-chev,
-  .work-line-count,
   .work-line-row,
   .work-line-phrase,
   .work-line-time,
@@ -6211,9 +6129,6 @@ html[data-density="compact"] .brief-shelf {
   padding-top: 1px;
   padding-bottom: 1px;
 }
-.chat-compact .transcript-process-row {
-  padding-inline-start: 10px;
-}
 .chat-compact .transcript-process-start {
   padding-top: 7px;
 }
@@ -6285,8 +6200,11 @@ html[data-density="compact"] .brief-shelf {
    So the fade sits on the CLOCK, which is the only thing in here that is
    ambient. A caption or a mark is then simply full ink by never having been
    dimmed, and needs no exemption to undo. */
+/* NO CLOCK AT REST (POD-2076): a per-block time under every paragraph is the
+   noise the calm transcript removes. It still answers "when" under the
+   pointer or keyboard focus, with the copy and quote actions. */
 .msg-foot .chat-clk {
-  opacity: 0.4;
+  opacity: 0;
   transition: opacity 280ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 .transcript-row:hover .msg-foot .chat-clk,
@@ -6836,73 +6754,30 @@ html[data-density="compact"] .brief-shelf {
   opacity: 0;
   transform: translateY(3px);
 }
-.offer-fold-summary {
-  min-height: 48px;
-  padding: 7px 0;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
-  align-items: center;
-  gap: 12px;
-}
-.offer-fold-disclosure {
-  min-width: 0;
-  padding: 4px 0;
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  align-items: center;
-  gap: 9px;
-  border: 0;
-  background: transparent;
-  cursor: pointer;
-}
-.offer-fold-signal {
-  width: 22px;
-  height: 22px;
-  display: grid;
-  place-items: center;
-  border-radius: 6px;
-  background: color-mix(in srgb, var(--attention) 9%, transparent);
-  color: var(--attention);
-}
-.offer-fold-eyebrow {
-  display: block;
-  margin-bottom: 2px;
-  color: var(--attention);
-  font-family: var(--font-mono);
-  font-size: var(--shell-type-micro);
-  font-weight: 600;
-  line-height: 1.2;
-  letter-spacing: 0.13em;
-  text-transform: uppercase;
-}
 .offer-fold-title {
   overflow: hidden;
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
-  color: var(--foreground);
-  font-size: 12.5px;
-  font-weight: 650;
-  line-height: 1.35;
+  color: var(--text-strong, var(--foreground));
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.4;
   text-align: left;
-  transition: color 120ms ease;
-}
-.offer-fold-disclosure:hover .offer-fold-title {
-  color: var(--text-strong);
 }
 .offer-fold-primary {
-  min-height: 31px;
-  padding: 0 12px;
+  min-height: 30px;
+  padding: 0 14px;
   display: inline-flex;
   align-items: center;
   gap: 6px;
   border: 1px solid var(--primary-rim);
-  border-radius: 6px;
+  border-radius: 7px;
   background: var(--primary);
   color: var(--primary-foreground);
   cursor: pointer;
-  font-size: 11px;
-  font-weight: 750;
+  font-size: 12.5px;
+  font-weight: 600;
   line-height: 1;
   white-space: nowrap;
   transition:
@@ -6927,25 +6802,22 @@ html[data-density="compact"] .brief-shelf {
    same label mechanics — one tier quieter, because the Signal Rule leaves
    exactly one yellow in this region and the recommendation already has it. */
 .offer-fold-action {
-  /* The `sm` step off DESIGN.md's button scale, under the recommendation's 31.
-     Press, focus ring, disabled and the transition are the shared
+  /* Same height as the recommendation (POD-2076): one row of equals, told
+     apart by fill alone — bisque for the recommendation, an outline for each
+     alternative. Press, focus ring, disabled and the transition are the shared
      `[data-pressable]` contract's — nothing is restated here. */
-  min-height: 28px;
-  padding: 0 10px;
+  min-height: 30px;
+  padding: 0 12px;
   display: inline-flex;
   align-items: center;
   gap: 6px;
   border: 1px solid var(--border-strong);
-  border-radius: 6px;
-  background: var(--chip);
-  /* Muted, not Dim. Dim is the timestamp tier, and a 600-weight 11px label set
-     in it on a chip fill only two L-points off its ground reads as a DISABLED
-     control — which is the one thing an alternative action must never look
-     like. Muted holds 8.1:1 and leaves Strong free to mean hover. */
-  color: var(--muted-foreground);
+  border-radius: 7px;
+  background: var(--card);
+  color: var(--foreground);
   cursor: pointer;
-  font-size: 11px;
-  font-weight: 600;
+  font-size: 12.5px;
+  font-weight: 400;
   line-height: 1;
   white-space: nowrap;
 }
@@ -7071,32 +6943,125 @@ html[data-density="compact"] .brief-shelf {
   opacity: 0;
 }
 
-@container (max-width: 560px) {
-  .offer-fold-summary {
-    min-height: 76px;
-    grid-template-columns: minmax(0, 1fr) auto;
-    grid-template-areas:
-      "copy controls"
-      "action action";
-    gap: 5px 8px;
-    padding: 8px 0 9px;
-  }
-  .offer-fold-disclosure {
-    grid-area: copy;
-  }
-  .offer-fold-primary {
-    grid-area: action;
-    width: 100%;
-    min-height: 30px;
-    justify-content: center;
-  }
-  .offer-fold-controls {
-    grid-area: controls;
-  }
-  .offer-fold-detail-body {
-    padding: 3px 0 14px 31px;
-  }
+/* THE DECISION CARD (POD-2076) — design 4a. The one place "needs you" is said:
+   a bronze-dotted header with the wait, the headline, the body, then every
+   action in one row and a quiet attachment count at its end. It sits on the
+   sheet as a faintly warm card with a hairline edge; nothing in it is tinted
+   but the dot and the recommendation. */
+.offer-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 18px;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--attention) 1.6%, var(--card));
 }
+.offer-card.offer-fold-root--expanded {
+  background: color-mix(in srgb, var(--attention) 1.6%, var(--card));
+}
+.offer-card-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+.offer-card-heading {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+.offer-card-eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--attention);
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 16px;
+}
+.offer-card-age {
+  margin-left: -4px;
+  font-variant-numeric: tabular-nums;
+}
+.offer-card-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--primary);
+  box-shadow: 0 0 0 1px var(--primary-rim);
+}
+.offer-card .offer-fold-controls {
+  margin: -4px -6px 0 0;
+}
+/* Dismiss is a way out, not a peer of the chevron: it waits for the pointer. */
+.offer-card-dismiss {
+  opacity: 0;
+  transition:
+    opacity 140ms ease,
+    color 120ms ease,
+    background-color 120ms ease;
+}
+.offer-card:hover .offer-card-dismiss,
+.offer-card-dismiss:focus-visible {
+  opacity: 1;
+}
+.offer-card[data-collapsed="true"] .offer-fold-chevron svg {
+  transform: rotate(-90deg);
+}
+.offer-card-body {
+  max-height: 30vh;
+  overflow-y: auto;
+  margin-top: -6px;
+  color: var(--muted-foreground);
+  font-size: 13px;
+  line-height: 20px;
+  white-space: pre-wrap;
+}
+.offer-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.offer-card-gap {
+  flex: 1 1 auto;
+}
+.offer-card-attachments {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 2px;
+  border: 0;
+  background: transparent;
+  color: var(--text-dim, var(--muted-foreground));
+  font-size: 12px;
+  cursor: pointer;
+  transition: color 120ms ease;
+}
+.offer-card-attachments:hover,
+.offer-card-attachments[aria-expanded="true"] {
+  color: var(--text-strong, var(--foreground));
+}
+/* The fold under the card (evidence, feedback, errors) hangs flush with the
+   card's own text rather than under a signal badge that no longer exists. */
+.offer-card .offer-fold-detail-body {
+  padding: 0;
+}
+.offer-card.offer-fold-root--expanded .offer-fold-detail-body {
+  padding-bottom: 2px;
+}
+.offer-card:not(.offer-fold-root--expanded) .offer-fold-detail {
+  margin-top: -12px;
+}
+
 
 /* LIFTED FOLD (POD-1068). Opening the fold grows the surface the offer sits on
    — the native dock, the chat composer — upwards. In plain flex those pixels
@@ -9744,12 +9709,12 @@ a.ref-link--session::before {
    ink ramp and a 2px halo appears outside it. The native caret already says "you
    are typing here", and a yellow outline would spend the action signal before
    there is anything to send. Only a sendable arrow turns yellow. */
+/* CALM LINE (POD-2076): the well is now a plain sheet-coloured field with one
+   hairline rim — no carve, no lit edge — so it reads as the quietest object in
+   the column. */
 .chat-composer-well {
-  background: var(--well-floor, var(--muted));
-  box-shadow:
-    inset 0 0 0 1px var(--well-rim),
-    inset 0 2px 3px -2px var(--chat-carve),
-    inset 0 -1px 0 var(--chat-lit);
+  background: var(--card);
+  box-shadow: inset 0 0 0 1px var(--border);
   transition:
     box-shadow 200ms cubic-bezier(0.22, 1, 0.36, 1),
     background-color 200ms cubic-bezier(0.22, 1, 0.36, 1);
@@ -9757,8 +9722,6 @@ a.ref-link--session::before {
 .chat-composer-well:focus-within {
   box-shadow:
     inset 0 0 0 1px var(--chat-rim),
-    inset 0 2px 3px -2px var(--chat-carve),
-    inset 0 -1px 0 var(--chat-lit),
     0 0 0 2px color-mix(in srgb, var(--foreground) 5%, transparent);
 }
 @media (prefers-reduced-motion: reduce) {
@@ -9781,20 +9744,6 @@ a.ref-link--session::before {
   height: 24px;
   background: linear-gradient(to bottom, transparent, var(--card));
   pointer-events: none;
-}
-
-/* THE COMPOSER'S BOTTOM ROW (POD-993). See ChatComposer for why the cluster
-   moved off the input line: inline, the field gave up ~90px on EVERY line to
-   actions that only ever need the last one. The row carries the actions and,
-   above it, the attachment strip. It carried a send/newline caption for one
-   round and does not any more - three characters restated under a field the
-   operator uses fifty times a day is furniture. */
-.composer-row {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
-  padding-top: 0;
 }
 
 /* THE FOCUS CHORD (POD-993). The one thing about this box a reader cannot
@@ -12539,232 +12488,254 @@ button.waterfall-fold:hover {
    width, so a viewport breakpoint answers the wrong question about it — a 200px
    column on a 3440px screen is exactly the case `sm:` gets backwards. The aside
    declares the container; anything in the column that has to give ground reads
-   it.
-
-   `Add repository` is the first thing that does. It rides the filter's line and
-   it is the item that must NOT shrink, so at the column's minimum the two of
-   them cannot both be whole: at 200px the insets leave 180, and the button in
-   words is ~115 of it. The words are what goes. That direction is not a
-   coin-toss — a filter field with a search glyph and no visible placeholder
-   still reads as a filter field, while `Add Reposi…` reads as a bug — and the
-   button keeps its name in `title`/`aria-label` either way. */
+   it. (Add repository, the first control that did, moved to the column's
+   foot in POD-2074 and no longer shares a line.) */
 .worklist-column {
   container-type: inline-size;
   container-name: worklist;
 }
-.worklist-add-repo-label {
-  display: none;
-}
-@container worklist (min-width: 340px) {
-  .worklist-add-repo-label {
-    display: inline;
-  }
-}
 
-/* ── THE COLD DECK'S FIT [POD-1169] ──────────────────────────────────────────
-   The cold start is a PANE, not a page. Every responsive decision it made used
-   to be keyed off the VIEWPORT — `sm:px-10 lg:px-24`, `3vw` type, a
-   `lg:flex-nowrap` instrument row — and the flight deck routinely hands this
-   screen a 500px pane on a 1500px display. There the viewport answers `lg` to
-   all three questions: 96px of gutter each side of a 500px column, a 33px
-   headline in the ~300px that leaves, and a bottom row forbidden to wrap. That
-   is the reported bug, not three separate ones.
+/* ── THE NEW TASK BOX [POD-1169, POD-2079] ───────────────────────────────────
+   A label, a paper box and one quiet link, centred in the pane. The pane is the
+   container (`cqi` reads it, not the viewport: the flight deck can hand this
+   screen a 500px pane on a 1500px display), and the box keeps a 700px measure.
 
-   So the pane is the container and every measure below reads it. There is one
-   real breakpoint (the row's own width, 560px) — the rest is continuous, which
-   is what a screen with one sentence and one field should be.
-
-   `cq*` units inside a container resolve against the container's ANCESTOR, not
-   itself, so the sizes live on `.cold-start-body` and only `container-type`
-   lives on the element being measured. */
+   `margin-block: auto` IS THE CENTERING. Centering a flex line that overflows
+   its scroll container pushes the overrun out of BOTH ends, and the top half
+   cannot be scrolled back to. Auto margins resolve to zero the moment free
+   space runs out, so the deck centres while it fits and scrolls from its top
+   edge when it does not. The bottom padding lifts the optical centre above the
+   geometric one, as the design does. */
 .cold-start {
   container-type: inline-size;
   container-name: cold-start;
 }
-
-/* The gutter is a sixth of the pane, floored at a thumb's width and capped at
-   the old desktop 96px. It is added BACK into the max-width so the reading
-   measure stays the 1060px it was — the gutter grows into the margin, never
-   into the sentence.
-
-   THE BLOCK PADDING IS NOT THE INLINE ONE [POD-1184]. It was `5cqi` — a WIDTH
-   asking a HEIGHT question — so a 1280×420 window spent 63px of a 396px pane
-   on air above the sentence because the pane happened to be wide. The window's
-   height is the honest measure here: the shell splits into columns, never into
-   rows, so every pane is as tall as the window less its fixed chrome. Width
-   still has a say (a wide pane wants a deeper margin) — `min()` takes whichever
-   axis is scarcer.
-
-   `margin-block: auto` IS THE CENTERING, and the parent's `justify-content` is
-   not. Centering a flex line that overflows its scroll container pushes the
-   overrun out of BOTH ends, and the start-edge half cannot be scrolled back to:
-   at 1200×260 the sentence sat at y=-59 inside the scroller — clipped, with the
-   project picker in it, and no way to reach it. Auto margins resolve to zero
-   the moment free space runs out, so the deck centres while it fits and scrolls
-   from its top edge the moment it does not. */
 .cold-start-body {
-  --cold-gutter: clamp(20px, 6cqi, 96px);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
   width: 100%;
-  max-width: calc(1060px + 2 * var(--cold-gutter));
+  max-width: calc(700px + 2 * clamp(16px, 6cqi, 48px));
+  margin-inline: auto;
   margin-block: auto;
-  padding-inline: var(--cold-gutter);
-  padding-block: clamp(20px, min(5cqi, 7dvh), 80px);
+  padding: 20px clamp(16px, 6cqi, 48px) clamp(20px, 13dvh, 140px);
 }
 
-/* THE HEADLINE AND THE PROJECT ARE ONE TYPE SIZE. They were `clamp(26px, 3vw,
-   33px)` and a flat 28px, which CROSS OVER: under a ~1100px viewport the pill's
-   label was larger than the sentence containing it, so the one word the reader
-   is meant to scan past outweighed the question. Everything in the pill is now
-   an em of the headline — 1.45em tall, .85em of label — so the crossover is
-   arithmetically impossible whatever the pane does. */
-
-/* THE RAMP IS GENTLER THAN THE PANE [POD-1184]. `4.4cqi` is a pure ratio, so a
-   674px pane still asked for 30px of headline — three lines of it, over a field
-   whose own type never moves — and the sentence went from asking a question to
-   shouting one. This runs from 20px in a phone-width pane to the same 33px at
-   full width, but through an offset rather than the origin, so the small end
-   settles instead of collapsing. */
 .cold-start-head {
-  font-size: clamp(20px, 15px + 1.3cqi, 33px);
-  line-height: 1.15;
-  letter-spacing: -0.022em;
-  /* The pill is an inline-flex box a line and a half tall, so every line it
-     lands on is taller than the ones it doesn't. Balancing keeps the ragged
-     edge even and stops a two-line sentence from leaving one word alone. */
-  text-wrap: balance;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding-inline: 4px;
+  font-size: 13px;
+  color: var(--text-dim);
 }
 .cold-start-project {
   display: inline-flex;
-  /* The pill sits IN the sentence, so it aligns to the sentence: its optical
-     centre against the surrounding x-height rather than its box bottom against
-     the baseline, which is where an inline-flex box lands by default. */
-  vertical-align: middle;
-  height: 1.45em;
-  gap: 0.33em;
-  /* Asymmetric: a word space in front, next to nothing behind, so the sentence's
-     own punctuation lands against the pill instead of floating off it. Measured
-     at 27.7px of headline, `middle` puts the pill's label baseline 0.84px under
-     the sentence's — inside a pixel, so no further correction is warranted. */
-  margin-inline: 0.14em 0.04em;
-  padding-inline: 0.4em;
-  border-radius: 0.33em;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
   max-width: 100%;
-  /* Never let the project name break mid-word or hyphenate: it is a name. */
+  height: 26px;
+  padding: 0 7px 0 9px;
+  border-radius: 7px;
+  background: var(--well-floor);
+  color: var(--text-strong);
+  font-size: 13px;
+  font-weight: 500;
   white-space: nowrap;
+  transition: background-color 120ms ease-out;
 }
-.cold-start-project-mark {
-  width: 0.4em;
-  height: 0.4em;
-  border-radius: 0.12em;
+.cold-start-project:hover {
+  background: var(--accent);
 }
 .cold-start-project-name {
-  font-size: 0.85em;
-  /* A repository name is arbitrary text in the middle of a sentence. Cap it at
-     the measure and truncate rather than let one long name push the pill past
-     the gutter, where nothing can wrap it back. */
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.cold-start-project-caret {
-  width: 0.6em;
-  height: 0.6em;
-}
 
-/* THE FIELD GIVES GROUND BEFORE THE DECK SCROLLS [POD-1184]. Both of these were
-   fixed pixels — a 30px gap and a 132px well — which is what made a short pane
-   overflow at all: on a 260px-tall window the deck needed 307px and clipped its
-   own headline and Launch row at once. Under ~700px of window the well takes
-   about a fifth of it and the gap closes to a hairline over two, which keeps
-   the whole instrument on screen down to a 240px pane — measured with the
-   shell's real chrome in place, since the topbar and status strip take 76px
-   before the pane gets any height at all. Below that it scrolls, from the top,
-   with everything reachable. */
+/* THE PAPER BOX. A hairline, not a rim and a drop: the box is the only object
+   on the screen and does not need lifting off it. Paper is the card tone eased
+   a little toward the ground, so in light mode it is warm white rather than
+   the chat sheet's pure white, and in dark mode it is the raised card. */
 .cold-start-field {
-  margin-top: clamp(14px, 3.4dvh, 30px);
+  display: flex;
+  flex-direction: column;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--card) 72%, var(--background));
+  box-shadow:
+    0 0 0 1px var(--hairline-bar),
+    0 1px 2px color-mix(in srgb, var(--carve-drop) 40%, transparent);
 }
 
-/* The tip shares the prompt's text inset but has its own reading measure. */
-.cold-start-tip {
-  max-width: 72ch;
-  margin-top: 32px;
-  margin-inline: 22px;
-  color: color-mix(in srgb, var(--muted-foreground) 50%, var(--text-dim));
-  font-family: var(--font-mono);
-  font-size: 12px;
-  line-height: 1.65;
-  text-wrap: pretty;
-}
-.cold-start-tip p {
-  font-family: var(--font-sans);
-}
-.cold-start-tip blockquote {
-  margin: 8px 0 0;
-}
-
-/* ── THE WELL'S TWO HEIGHTS [POD-1469] ───────────────────────────────────────
-   The box has a CLI mode and a prompt mode (see ColdStartComposer), and the
-   fold starts from the two explicit heights below. Once open,
-   `useColdStartPromptAutoGrow` replaces the resting height with a measured pixel
-   height as the operator writes. It takes all remaining room in the pane before
-   the field scrolls, while keeping the headline and launch row reachable.
-
-   `rows={1}` is what makes the closed height honest — a textarea's intrinsic
-   height comes from its rows, and a two-row default would fight the number
-   below.
-
-   The prompt's RESTING height remains the one the deck has always used: about a
-   fifth of a short window, capped at 132px. That is the starting size, no longer
-   the writing cap.
-
-   THE OPEN BOX GIVES ITS RIGHT SHOULDER TO THE CLOSE CONTROL. 46px of right
-   padding rather than 22 — the X sits at top:9/right:10 and the first line of a
-   prompt would otherwise run under it. It is spent only while the control is
-   there; the closed line keeps the symmetric inset. */
+/* Geist 18/30. Two lines at rest (`rows=2` plus this min-height), one more per
+   line written, capped at 60% of the window by `useColdStartPromptAutoGrow`,
+   which also hands the overflow to this element's own scrollbar. */
 .cold-start-input {
-  height: 46px;
-  padding-block: 12px;
+  min-height: calc(2 * 30px + 26px + 18px);
+  padding: 26px 32px 18px;
+  font-family: var(--font-sans);
+  font-size: 18px;
+  line-height: 30px;
+  letter-spacing: -0.005em;
   overflow-y: hidden;
-  /* easeOutCubic, NOT the shell's `0.22, 1, 0.36, 1`. That curve is the house
-     one — the sidebar drawer and the row folds take it — and it is right for
-     them, but measured on this box it puts the fold 96% of the way home inside
-     50ms: three frames of travel and then 190ms creeping the last 3px, which is
-     a jump cut with a tail rather than a box opening. Over 86px of height,
-     easeOutCubic is at ~51% at the same instant, so the motion is visible for
-     most of its duration and still lands decelerating. 240ms is inside the
-     design's 200–260ms window for structural motion. */
-  transition-property: height, padding;
-  transition-timing-function: cubic-bezier(0.33, 1, 0.68, 1);
-  transition-duration: 0s;
-}
-.cold-start-field[data-expanded="true"] .cold-start-input {
-  height: clamp(72px, 19dvh, 132px);
-  padding-block: clamp(12px, 2dvh, 20px) 10px;
-  padding-right: 46px;
+  text-wrap: pretty;
 }
 .cold-start-input[data-capped="true"] {
   overflow-y: auto;
 }
-.cold-start-input[data-grow="fold"] {
-  transition-duration: 240ms;
+
+.cold-start-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 10px 10px 22px;
+  border-top: 1px solid var(--hairline-soft);
 }
-.cold-start-input[data-grow="up"] {
-  transition-duration: 150ms;
+
+.cold-start-launch {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  padding: 0 12px 0 14px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: var(--primary);
+  color: var(--primary-foreground);
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1;
+  transition:
+    background-color 120ms ease-out,
+    color 120ms ease-out;
 }
-.cold-start-input[data-grow="down"] {
-  transition-duration: 240ms;
+.cold-start-launch:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--primary) 88%, var(--text-strong));
 }
-/* THE CLOSED LINE GIVES ITS RIGHT SHOULDER TO THE FOCUS CHORD. Same reason
-   the open box pads for the X: a 46px row with the placeholder running under
-   "⌘L to focus" reads as the hint colliding with the prompt, not as a chord.
-   The chord's own `top: 9px` is relative to this whole field (prompt plus
-   instruments), which is the prompt line — do not recenter it, or it lands
-   on the seam. */
-.cold-start-field:not([data-expanded="true"]) .cold-start-input {
-  padding-right: 96px;
+.cold-start-launch[data-quiet="true"]:not(:disabled) {
+  border-color: var(--border-strong);
+  background: transparent;
+  color: var(--muted-foreground);
+}
+.cold-start-launch[data-quiet="true"]:hover:not(:disabled) {
+  background: var(--accent);
+  color: var(--text-strong);
+}
+.cold-start-launch:focus-visible {
+  outline: 2px solid var(--text-strong);
+  outline-offset: 2px;
+}
+.cold-start-launch:disabled {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--text-strong) 6%, transparent);
+  color: var(--text-faint);
+  cursor: not-allowed;
+}
+.cold-start-launch-chord {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 500;
+  opacity: 0.6;
+}
+
+.cold-start-note {
+  padding-inline: 4px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  line-height: 20px;
+  color: var(--text-faint);
+}
+
+/* The coordinator prompt is one link away rather than printed under the box. */
+.cold-start-tip {
+  padding-inline: 4px;
+  font-size: 12.5px;
+  color: var(--text-dim);
+}
+.cold-start-tip button {
+  color: var(--muted-foreground);
+  text-decoration: underline;
+  text-decoration-color: var(--border-strong);
+  text-underline-offset: 3px;
+  transition:
+    color 120ms ease-out,
+    text-decoration-color 120ms ease-out;
+}
+.cold-start-tip button:hover {
+  color: var(--text-strong);
+  text-decoration-color: currentColor;
+}
+
+/* ── THE NEW TASK OVERLAY [POD-2079] ─────────────────────────────────────────
+   The host wraps the flight deck, the stage and the dock. While the overlay is
+   open everything under it stays mounted and laid out (so terminals keep their
+   size and every scroll position survives) but is hidden from sight, focus and
+   the accessibility tree. */
+.new-task-host {
+  position: relative;
+  display: flex;
+  flex: 1 1 360px;
+  min-width: 0;
+  min-height: 0;
+}
+.new-task-host[data-new-task-open] > :not(.new-task-overlay) {
+  visibility: hidden;
+}
+.new-task-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  background: var(--background);
+  animation: new-task-fade 140ms ease-out;
+}
+.new-task-overlay .cold-start-body {
+  animation: new-task-rise 180ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.new-task-cancel {
+  position: absolute;
+  top: 14px;
+  right: 16px;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 7px;
+  font-size: 12px;
+  color: var(--text-dim);
+  transition:
+    background-color 120ms ease-out,
+    color 120ms ease-out;
+}
+.new-task-cancel:hover {
+  background: var(--accent);
+  color: var(--text-strong);
+}
+.new-task-cancel kbd {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-faint);
+}
+@keyframes new-task-fade {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes new-task-rise {
+  from {
+    transform: translateY(6px);
+  }
 }
 @media (prefers-reduced-motion: reduce) {
-  .cold-start-input[data-grow] {
-    transition-duration: 0s;
+  .new-task-overlay,
+  .new-task-overlay .cold-start-body {
+    animation: none;
   }
 }
 
@@ -13656,4 +13627,279 @@ button.waterfall-fold:hover {
   }
   .flight-v6-engines, .flight-v6-counter, .flight-v6-native-chip { display: none; }
   .flight-v6-strip, .flight-v6-task-body, .flight-v6-session-open { gap: 4px 6px; }
+}
+
+/* ---------------------------------------------------------------------------
+   Stage tab strip + Artifacts tab (POD-2078, calm redesign 4a/5a)
+   --------------------------------------------------------------------------- */
+.native-tab-strip {
+  height: var(--tab-strip-h);
+}
+.native-tab {
+  height: 30px;
+  border-radius: 7px;
+}
+/* "Coordinator" after the name: a quiet word, not a badge. */
+.native-tab-suffix {
+  flex: none;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-dim);
+}
+.native-tab-count {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 400;
+  color: var(--text-faint);
+}
+
+.artifacts-tab {
+  display: flex;
+  min-height: 0;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 22px;
+  overflow-y: auto;
+  padding: 24px 32px;
+  background: var(--card);
+  container: artifacts / inline-size;
+}
+.artifacts-tab-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.artifacts-chip {
+  display: inline-flex;
+  height: 28px;
+  align-items: center;
+  gap: 6px;
+  border-radius: 7px;
+  padding: 0 11px;
+  font-size: 12px;
+  color: var(--muted-foreground);
+  background: color-mix(in srgb, var(--text-strong) 4.5%, transparent);
+  transition: background-color 120ms ease-out, color 120ms ease-out;
+}
+.artifacts-chip:hover {
+  color: var(--text-strong);
+}
+.artifacts-chip[data-active] {
+  background: var(--text-strong);
+  color: var(--card);
+  font-weight: 500;
+}
+.artifacts-chip-count {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-faint);
+}
+.artifacts-chip[data-active] .artifacts-chip-count {
+  color: color-mix(in srgb, var(--card) 72%, var(--text-strong));
+}
+/* Dark: an inverted chip is a white slab, the loudest thing on the screen.
+   The active chip is a quiet raised surface there instead (fidelity review). */
+.dark .artifacts-chip[data-active] {
+  background: color-mix(in srgb, var(--text-strong) 12%, var(--card));
+  color: var(--text-strong);
+  box-shadow: inset 0 0 0 1px var(--border-strong);
+}
+.dark .artifacts-chip[data-active] .artifacts-chip-count {
+  color: var(--text-dim);
+}
+.artifacts-search {
+  display: flex;
+  width: 220px;
+  max-width: 100%;
+  height: 30px;
+  align-items: center;
+  gap: 8px;
+  border-radius: 7px;
+  padding: 0 10px;
+  color: var(--text-faint);
+  background: color-mix(in srgb, var(--text-strong) 4.5%, transparent);
+}
+.artifacts-search:focus-within {
+  box-shadow: inset 0 0 0 1px var(--border-strong);
+}
+.artifacts-search input {
+  min-width: 0;
+  flex: 1;
+  background: transparent;
+  font-size: 12.5px;
+  color: var(--foreground);
+  outline: none;
+}
+.artifacts-search input::-webkit-search-cancel-button {
+  appearance: none;
+}
+.artifacts-search input::placeholder {
+  color: var(--text-faint);
+}
+.artifacts-view-toggle {
+  display: inline-flex;
+  gap: 2px;
+  border-radius: 7px;
+  padding: 2px;
+  background: color-mix(in srgb, var(--text-strong) 4.5%, transparent);
+}
+.artifacts-view-toggle button {
+  display: flex;
+  width: 26px;
+  height: 24px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 5px;
+  color: var(--text-dim);
+}
+.artifacts-view-toggle button[data-active] {
+  background: var(--card);
+  color: var(--foreground);
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--carve-drop) 80%, transparent);
+}
+.artifacts-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.artifacts-section-title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--foreground);
+}
+.artifacts-section-title > span {
+  font-weight: 400;
+  color: var(--text-faint);
+}
+.artifacts-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 18px;
+}
+/* A split pane narrows the tab, not the window — so the grid answers to its
+   own width. */
+@container artifacts (max-width: 720px) {
+  .artifacts-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+.artifacts-card {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 8px;
+  border-radius: 9px;
+}
+.artifacts-thumb {
+  position: relative;
+  display: flex;
+  aspect-ratio: 16 / 10;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: repeating-linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--text-strong) 2.5%, var(--card)) 0 6px,
+    color-mix(in srgb, var(--text-strong) 4.5%, var(--card)) 6px 12px
+  );
+  transition: box-shadow 120ms ease-out;
+}
+.artifacts-thumb img,
+.artifacts-thumb video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: top;
+  pointer-events: none;
+}
+.artifacts-card:hover .artifacts-thumb,
+.artifacts-card:focus-visible .artifacts-thumb {
+  box-shadow: 0 0 0 2px var(--text-strong);
+}
+.artifacts-card:focus-visible {
+  outline: none;
+}
+.artifacts-thumb-missing {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-dim);
+}
+.artifacts-play {
+  position: absolute;
+  display: flex;
+  width: 32px;
+  height: 32px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: rgb(0 0 0 / 0.55);
+  color: #fff;
+}
+.artifacts-card-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--text-strong);
+}
+.artifacts-meta {
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+.artifacts-more {
+  align-self: flex-start;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.artifacts-more:hover {
+  color: var(--text-strong);
+}
+.artifacts-row {
+  display: flex;
+  height: 40px;
+  min-width: 0;
+  align-items: center;
+  gap: 12px;
+  padding: 0 4px;
+  border-bottom: 1px solid var(--hairline-soft);
+  font-size: 13px;
+  text-align: left;
+}
+.artifacts-row:hover {
+  background: color-mix(in srgb, var(--text-strong) 2.5%, transparent);
+}
+.artifacts-row-name {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--foreground);
+}
+.artifacts-row-type {
+  width: 90px;
+  flex: none;
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+.artifacts-row-date {
+  width: 52px;
+  flex: none;
+  text-align: right;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-faint);
+}
+.artifacts-empty {
+  font-size: 13px;
+  color: var(--text-dim);
 }

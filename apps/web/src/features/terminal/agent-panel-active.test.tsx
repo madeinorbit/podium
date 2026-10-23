@@ -242,10 +242,10 @@ describe('AgentPanel active wiring', () => {
     const world = poolFixtureStore({ issues: storeIssues, sessions: storeSessions })
     await act(async () => renderPanel(<AgentPanel sessionId={asSessionId('s1')} active />))
     await flush()
-    const stamp = container.querySelector('[data-testid="git-stamp"]')
-    expect(stamp?.textContent).toContain('issue/1')
-    expect(stamp?.textContent).toContain('↑3')
-    expect(stamp?.textContent).toContain('2')
+    // POD-2076: the header's quiet line names the branch; ahead/dirty counts
+    // live in the Git panel it opens.
+    const branch = container.querySelector('[data-testid="pane-branch"]')
+    expect(branch?.textContent).toContain('issue/1')
   })
 
   it('focuses the native CLI prompt and toggles the focused panel to Chat', async () => {

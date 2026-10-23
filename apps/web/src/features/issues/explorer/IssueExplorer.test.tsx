@@ -1,5 +1,5 @@
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
-import { poolFixtureStore, poolFixtureIssues } from '@/test-support/pool-issue-fixture'
+import { poolFixtureIssues, poolFixtureStore } from '@/test-support/pool-issue-fixture'
 
 // @vitest-environment happy-dom
 
@@ -485,7 +485,7 @@ describe('issue explorer navigation', () => {
     expect(detail().dataset.issueId).toBe('s')
     expect(screen.getByTestId('explorer-crumbs').textContent).toContain('#9')
 
-    fireEvent.click(screen.getByRole('button', { name: /Tasks/ }))
+    fireEvent.click(screen.getByRole('button', { name: /All tasks/ }))
     expect(screen.getByTestId('explorer-list')).toBeTruthy()
   })
 
@@ -506,7 +506,7 @@ describe('issue explorer navigation', () => {
     mount('p')
     // Opened by the shell at depth 1, with no list ever visited — the root
     // crumb still gets you there.
-    fireEvent.click(screen.getByRole('button', { name: /Tasks/ }))
+    fireEvent.click(screen.getByRole('button', { name: /All tasks/ }))
     expect(screen.getByTestId('explorer-list')).toBeTruthy()
   })
 
@@ -750,7 +750,10 @@ describe('pool explorer target', () => {
           'draft' as never,
         )?.id,
       ).toBe('draft')
-      pool.apply({ type: 'update', rows: [{ kind: 'session', id: 'headless', value: headless as SliceSession }] })
+      pool.apply({
+        type: 'update',
+        rows: [{ kind: 'session', id: 'headless', value: headless as SliceSession }],
+      })
       expect(poolExplorerTarget(pool, 'draft', null)).toBe('draft')
       pool.apply({ type: 'update', rows: [{ kind: 'session', id: 'headless', value: undefined }] })
       expect(poolExplorerTarget(pool, 'draft', null)).toBe(null)

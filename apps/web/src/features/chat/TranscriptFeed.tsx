@@ -718,9 +718,6 @@ export const TranscriptFeed = observer(function TranscriptFeed(props: Transcript
           >
             <div className="transcript-rail transcript-rail--none" aria-hidden="true" />
             <div className="transcript-body">
-              {(!lastRow || !isProcessRow(lastRow)) && (
-                <div className="transcript-process-label">Process</div>
-              )}
               <StreamingMarkdown text={overlay.text} />
             </div>
           </div>

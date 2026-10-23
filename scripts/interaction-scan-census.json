@@ -652,14 +652,14 @@
       "file": "apps/mobile/src/lib/transcript-feed.ts",
       "holder": "indexedTranscript/result",
       "rule": "helper-consumer",
-      "tokens": "2a048479bc21272e6fead131df3183740f816fbe61c48ab05a78081c1928ee9f",
+      "tokens": "1ff25d02cde9df9d0af07ea2a9f5e83e50da21442701ecd1b0a67266b426fd67",
       "gate": [
         "exit:then:20aba40a100d587b33abe8783fe94cd6fcd1c3240df4efc7b49dd4072378969e"
       ],
       "origin": [
         "0dfee297d24adb2924db9fd93d111ecabce26fa26e2c98dd39da87c70299a5cf"
       ],
-      "fingerprint": "3b82e86f74bede1a651d84f3d19579928c7b48622c21de6551510281caa05505",
+      "fingerprint": "05549461fef66a66a6f9d4c735c9c203bd07b9354845fbbb80e9d6c4128f5190",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -672,14 +672,14 @@
       "file": "apps/mobile/src/lib/transcript-feed.ts",
       "holder": "indexedTranscript/result",
       "rule": "helper-consumer",
-      "tokens": "2a048479bc21272e6fead131df3183740f816fbe61c48ab05a78081c1928ee9f",
+      "tokens": "1ff25d02cde9df9d0af07ea2a9f5e83e50da21442701ecd1b0a67266b426fd67",
       "gate": [
         "exit:then:20aba40a100d587b33abe8783fe94cd6fcd1c3240df4efc7b49dd4072378969e"
       ],
       "origin": [
         "f72fdf68e43ec41083b5a1d5680fa0760f555000bb6b221f47c98ce7205a2970"
       ],
-      "fingerprint": "3bac293960585217c9e5394a4a84d8c433308dee00aaef306442b96b62917c57",
+      "fingerprint": "c9503e6682e195b9df7942c2566b2f8fff7aaa5ada8f38f5e6c05be2a092715d",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -3288,7 +3288,7 @@
       "count": 1,
       "classification": "bounded local work",
       "trigger": "Demanded visible session history response",
-      "bound": "One addressed session’s activity samples",
+      "bound": "One addressed session\u2019s activity samples",
       "reason": "Request answers belong to the opening, are fenced against stale responses, and never refresh on minute ticks.",
       "guard": "waterfall-view.parity.test.ts: history demand and closed/superseded response fences",
       "owner": "POD-5633"
@@ -3310,7 +3310,7 @@
       "count": 1,
       "classification": "bounded local work",
       "trigger": "Demanded visible session history response",
-      "bound": "One addressed session’s activity samples",
+      "bound": "One addressed session\u2019s activity samples",
       "reason": "Request answers belong to the opening, are fenced against stale responses, and never refresh on minute ticks.",
       "guard": "waterfall-view.parity.test.ts: history demand and closed/superseded response fences",
       "owner": "POD-5633"
@@ -4170,7 +4170,7 @@
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5872",
-      "trigger": "Initialize or refresh one open conversation’s existing message-record port.",
+      "trigger": "Initialize or refresh one open conversation\u2019s existing message-record port.",
       "bound": "The addressed noticeSession membership only; no new numeric cap on held notices or records is asserted.",
       "reason": "The existing snapshot and row-version subscription moved from a manual computed to a lazy service field. Collection ownership and work are preserved; transcript refresh and subscription redesign belongs to POD-5800. POD-6093: superagent sends carry staged attachment paths in their text instead of refusing them; collection demand is unchanged. Predecessor: 5a80f4115b2dbeb6ff8b12905e2a116be7defbfb9ca7b491a74d8368f6488b55.",
       "guard": "ChatView.test.tsx and conversation-service.parity.test.ts preserve delivery and record answers; exact fingerprint and multiplicity remain enforced. This entry does not claim a repaired collection bound."
@@ -4190,7 +4190,7 @@
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5872",
-      "trigger": "Initialize or refresh one open conversation’s existing message-record port.",
+      "trigger": "Initialize or refresh one open conversation\u2019s existing message-record port.",
       "bound": "The addressed noticeSession membership only; no new numeric cap on held notices or records is asserted.",
       "reason": "The existing snapshot and row-version subscription moved from a manual computed to a lazy service field. Collection ownership and work are preserved; transcript refresh and subscription redesign belongs to POD-5800. POD-6093: superagent sends carry staged attachment paths in their text instead of refusing them; collection demand is unchanged. Predecessor: 51c998ca196a9a6c243e1bbe5d981eabc11baa7e3cef40d3f3e29834b5c00df1.",
       "guard": "ChatView.test.tsx and conversation-service.parity.test.ts preserve delivery and record answers; exact fingerprint and multiplicity remain enforced. This entry does not claim a repaired collection bound."
@@ -9540,13 +9540,13 @@
       "file": "apps/web/src/features/setup/ColdStartComposer.tsx",
       "holder": "ColdStartComposer",
       "rule": "reader-summary",
-      "tokens": "726200c693847642d8fb18923e909ba2b9c3d3da123c6012b04ead0f95482427",
+      "tokens": "f5d82c75d2def14132e4d8a697efce1713b44ab17d471ee31e7151aae8473d67",
       "gate": [],
       "origin": [
         "38ee8e4568daab4926b21807b42ed2fa803a25ca97778f587de71b0d1d05834e",
         "edccbaf426dca942750619e6960d69f0c560ebdaf7c2beb6a07ceb8fdc008aaf"
       ],
-      "fingerprint": "51cf163e1aab6b86f454334a65bff099c10da7c4c1600b0f9a26cfc23d02a346",
+      "fingerprint": "11565b3b5a9f64d1852f7b2851b5c0da57f8df0415ff9fbefe3c387c326d9b72",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5833",
@@ -10172,212 +10172,6 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "apps/web/src/features/worklist/ManageProjectsDialog.tsx",
-      "holder": "ManageProjectsButton",
-      "rule": "consume:map",
-      "tokens": "7ef3746a3076171a33bd5beaebb637b5319f4eb0c77c3f1550b7c451aa215145",
-      "gate": [],
-      "origin": [
-        "67866ce9a160dce456103eeb5eac64a5bf5401012f53d878801660028f6719ec"
-      ],
-      "fingerprint": "8797d5a8bf5a83d2a15ed65099da8b6c4d659fa8df648d7932ad0a815828f2f5",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of ManageProjectsButton",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/features/worklist/ManageProjectsDialog.tsx",
-      "holder": "ManageProjectsButton/callback",
-      "rule": "consume:map",
-      "tokens": "c24e5038b8aa24316e985aa2e531b387ef4cfeabe144953928a3eb5da20ecaa2",
-      "gate": [],
-      "origin": [
-        "67866ce9a160dce456103eeb5eac64a5bf5401012f53d878801660028f6719ec"
-      ],
-      "fingerprint": "4c5dc4508a13ff90ac7058e205ba194204c53863c59908cbcc0528e011a1a68f",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of ManageProjectsButton/callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/features/worklist/ManageProjectsDialog.tsx",
-      "holder": "ManageProjectsButton/changed",
-      "rule": "consume:some",
-      "tokens": "f0165789a805909a09d0f374b3673e4fe0ab992dfae1bbdd7f766bb5acf928be",
-      "gate": [],
-      "origin": [
-        "67866ce9a160dce456103eeb5eac64a5bf5401012f53d878801660028f6719ec"
-      ],
-      "fingerprint": "321f27be7468caf045e11aa5e260e3e7140c9de73560250349a67c3850b09a13",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of ManageProjectsButton/changed",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:some carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/features/worklist/ManageProjectsDialog.tsx",
-      "holder": "ManageProjectsButton/move/callback/keys",
-      "rule": "consume:map",
-      "tokens": "1be69a21e43d80ad7dba851b6e90559abca989f5565766ef5987e4d99d17ad4f",
-      "gate": [],
-      "origin": [
-        "67866ce9a160dce456103eeb5eac64a5bf5401012f53d878801660028f6719ec"
-      ],
-      "fingerprint": "8fe97d676f5aeddf4d88d70d678985c7d05c4ae5025f864cdb437150e7ff4d66",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of ManageProjectsButton/move/callback/keys",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/features/worklist/ManageProjectsDialog.tsx",
-      "holder": "ManageProjectsButton/projects",
-      "rule": "reader-summary",
-      "tokens": "94ad7fcd3acc63852a1b9efc59bbe74a16ae33e3a54b47fc72d88d68bb6f8af1",
-      "gate": [],
-      "origin": [
-        "67866ce9a160dce456103eeb5eac64a5bf5401012f53d878801660028f6719ec"
-      ],
-      "fingerprint": "205ef0f0ef22062a8863bb0905c98a1f170d87f83f8debaa10fef82c3829e6eb",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of ManageProjectsButton/projects",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/features/worklist/ManageProjectsDialog.tsx",
-      "holder": "ManageProjectsButton/save/callback/repoOrder",
-      "rule": "helper-consumer",
-      "tokens": "cb25b28de5ba40e3344bea88f5a095a1aae5729d19cd44b5da7e85be2c1625c8",
-      "gate": [],
-      "origin": [
-        "67866ce9a160dce456103eeb5eac64a5bf5401012f53d878801660028f6719ec"
-      ],
-      "fingerprint": "734aebb54f6535ecd2f6d48c2d117f0993f1aefc5a75ed242cad5576d057c4e9",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of ManageProjectsButton/save/callback/repoOrder",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/features/worklist/ManageProjectsDialog.tsx",
-      "holder": "ManageProjectsButton/save/callback/repoOrder",
-      "rule": "reader-summary",
-      "tokens": "ea767c24ce61fc081304b4864c762ec2198905697460e530aad17b734c882adf",
-      "gate": [],
-      "origin": [
-        "67866ce9a160dce456103eeb5eac64a5bf5401012f53d878801660028f6719ec"
-      ],
-      "fingerprint": "7a2da384652012dafc7210689a02a905dae1f504f46572acdbc07a5ee91957f7",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of ManageProjectsButton/save/callback/repoOrder",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/features/worklist/ManageProjectsDialog.tsx",
-      "holder": "ManageProjectsButton/visible/useMemo:callback",
-      "rule": "consume:filter",
-      "tokens": "6757d1269d696f2887ca38be22d65a2a5a996da5b1bdbb0ead12c3bdbb8c6fc3",
-      "gate": [
-        "exit:then:d00541a808e3e606bcdd81f3437e5950fe1901fd784fef4544148f59da363a7d"
-      ],
-      "origin": [
-        "67866ce9a160dce456103eeb5eac64a5bf5401012f53d878801660028f6719ec"
-      ],
-      "fingerprint": "b09e84ed7e94ddcecacd63c91dce08ba201466775a936a73cacfc91335c8c3e9",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of ManageProjectsButton/visible",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:filter carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/features/worklist/ManageProjectsDialog.tsx",
-      "holder": "ManageProjectsButton/visible/useMemo:callback",
-      "rule": "spread",
-      "tokens": "52d9169c76990d9cbfe0895a2fe0bb6a2cd0d36936f6bb0e2bd0aa7e263e94e4",
-      "gate": [
-        "exit:then:d00541a808e3e606bcdd81f3437e5950fe1901fd784fef4544148f59da363a7d"
-      ],
-      "origin": [
-        "67866ce9a160dce456103eeb5eac64a5bf5401012f53d878801660028f6719ec"
-      ],
-      "fingerprint": "867576d68eff86fb31b362aec7a712fe80f01165788a607ef3953d67b8d4cc17",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of ManageProjectsButton/visible",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "spread carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/features/worklist/ManageProjectsDialog.tsx",
-      "holder": "ManageProjectsButton/visible/useMemo:callback/byKey",
-      "rule": "consume:map",
-      "tokens": "d9bbed494fc8feb0cf56115fe30095659b505da908392f941fe7aeefc6e1d8fb",
-      "gate": [
-        "exit:then:d00541a808e3e606bcdd81f3437e5950fe1901fd784fef4544148f59da363a7d"
-      ],
-      "origin": [
-        "67866ce9a160dce456103eeb5eac64a5bf5401012f53d878801660028f6719ec"
-      ],
-      "fingerprint": "476262cc9c6e0c34add1639ba887919b4366e49951985d2bbdbd299da0ea65bf",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of ManageProjectsButton/visible",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "spread carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/features/worklist/ManageProjectsDialog.tsx",
-      "holder": "ManageProjectsButton/visible/useMemo:callback/byKey",
-      "rule": "materialize:Map",
-      "tokens": "4d1cdbe2fdc940768ba85b44374ca48ce21b237ca72426740c0b1025e97a2390",
-      "gate": [
-        "exit:then:d00541a808e3e606bcdd81f3437e5950fe1901fd784fef4544148f59da363a7d"
-      ],
-      "origin": [
-        "67866ce9a160dce456103eeb5eac64a5bf5401012f53d878801660028f6719ec"
-      ],
-      "fingerprint": "122250f9d08279a25c8ba754a898c2340329a59bb19675ad753ce961dd1e6af6",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of ManageProjectsButton/visible",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "spread carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
       "file": "apps/web/src/features/worklist/UnifiedWorktreeRow.tsx",
       "holder": "UnifiedWorktreeRow/UnifiedWorktreeRow",
       "rule": "consume:map",
@@ -10976,28 +10770,6 @@
     {
       "file": "apps/web/src/features/worklist/pool-sidebar.tsx",
       "holder": "ObservedPoolWorkSections/ObservedPoolWorkSections",
-      "rule": "consume:filter",
-      "tokens": "15f13870906844ee440d6e0e0bbd0446c54e1726a461fd98efd2d43bf29da04e",
-      "gate": [
-        "exit:then:c1e3d1143ee70675ad2df3f937e746912e734d54f0b8e9f4bf94caff9f8f4e11",
-        "exit:then:d176ccc98ba79ffb9a6ecec0d8eb44226eceddc563eb2197b2ee84cc1248f90c",
-        "&&:203f7bf8b982cee18daeb88a71c72fd732bfe0e8ff84549ef7b76b283c933eda"
-      ],
-      "origin": [
-        "263287d055fdad254a3c751f4e42ff06e7abccb74e258db08b4938008da25df4"
-      ],
-      "fingerprint": "739d874c055e842d14e7acd8549186d79bd3735560ea213e893730a8de98877e",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of ObservedPoolWorkSections/ObservedPoolWorkSections",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:filter carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/features/worklist/pool-sidebar.tsx",
-      "holder": "ObservedPoolWorkSections/ObservedPoolWorkSections",
       "rule": "consume:map",
       "tokens": "ef0e34708966675f3202e578331e0d4ab0d9b546dd40d2bdcb7275cceb746dda",
       "gate": [],
@@ -11012,69 +10784,6 @@
       "bound": "Leaf DOM is capped by the viewport; the upstream membership metadata has no cardinality cap.",
       "guard": "Exact fingerprint and multiplicity; worklist-window tests prove DOM retention and selection/reveal behavior, not a bound on membership acquisition.",
       "reason": "Canonical issue row fields replace forwarded names in shortcut activation. The shortcut input is sliced to MAX_ROW_SHORTCUTS, but upstream section membership metadata remains uncapped, preserving the existing debt classification. Predecessor: 2eb9bd17ad5cb3f5ac1336ea7fd85069211e313d969f13b2d4dd7fa91d881612."
-    },
-    {
-      "file": "apps/web/src/features/worklist/pool-sidebar.tsx",
-      "holder": "ObservedPoolWorkSections/ObservedPoolWorkSections",
-      "rule": "consume:map",
-      "tokens": "6bb304e93d974436ef2d6f8e5f99d0514c5bf0632ca61c2a49f2ac5a721fa5de",
-      "gate": [
-        "exit:then:c1e3d1143ee70675ad2df3f937e746912e734d54f0b8e9f4bf94caff9f8f4e11",
-        "exit:then:d176ccc98ba79ffb9a6ecec0d8eb44226eceddc563eb2197b2ee84cc1248f90c"
-      ],
-      "origin": [
-        "263287d055fdad254a3c751f4e42ff06e7abccb74e258db08b4938008da25df4"
-      ],
-      "fingerprint": "1ccc53eb555e775472d36a495b6db5645304b7e1727bd5a8335dce8cb06e4eb0",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation or observation of ObservedPoolWorkSections/ObservedPoolWorkSections",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
-      "reason": "Desktop project-band rendering now uses canonical section fields. Viewport row mounting remains bounded; outer group metadata still has no cardinality cap. Predecessor: 74a629ec672ae8824310d0a26cded6e6321e3bab5c31cdaaa69db827a2cc7d98."
-    },
-    {
-      "file": "apps/web/src/features/worklist/pool-sidebar.tsx",
-      "holder": "ObservedPoolWorkSections/ObservedPoolWorkSections",
-      "rule": "consume:some",
-      "tokens": "7e5d235ffd3b3eca66728e60c207b25cdfb1bef5e323f28c7efb4a584cbb959b",
-      "gate": [
-        "&&:8a7f1c6e7f0624f1f92abe519f4944d40e848994725b97d60bb38a3b14d100d9"
-      ],
-      "origin": [
-        "263287d055fdad254a3c751f4e42ff06e7abccb74e258db08b4938008da25df4"
-      ],
-      "fingerprint": "03de10447042cf24cd6d5bf0152a3c30619ab0033bb78f689337f20fe5cb46d4",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of ObservedPoolWorkSections/ObservedPoolWorkSections",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:some carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/features/worklist/pool-sidebar.tsx",
-      "holder": "ObservedPoolWorkSections/ObservedPoolWorkSections",
-      "rule": "helper-consumer",
-      "tokens": "e61acc7359530e8ece9ec514c32d39da9f69601a307a1ae4d3982e109cc38bfd",
-      "gate": [
-        "exit:then:c1e3d1143ee70675ad2df3f937e746912e734d54f0b8e9f4bf94caff9f8f4e11",
-        "exit:then:d176ccc98ba79ffb9a6ecec0d8eb44226eceddc563eb2197b2ee84cc1248f90c",
-        "&&:76e1ed1ad990c37d9486b42fc3c505c539bb9abe79b14db229055813b7db135d"
-      ],
-      "origin": [
-        "263287d055fdad254a3c751f4e42ff06e7abccb74e258db08b4938008da25df4"
-      ],
-      "fingerprint": "d833ebf4544937e5f226b9dc5a3e5febb0c71b0fb7373fbedd48aa22e5a3d90a",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Sidebar membership snapshot changes for cached indexes, or section rendering for the unchanged outer bands.",
-      "bound": "Leaf DOM is capped by the viewport; the upstream membership metadata has no cardinality cap.",
-      "reason": "The viewport fix bounds mounted rows, not full membership metadata. Cached ID indexes run only when membership changes; existing outer-band and key preparation work remains classified as repair, not as a bounded reader fix.",
-      "guard": "Exact fingerprint and multiplicity; worklist-window tests prove DOM retention and selection/reveal behavior, not a bound on membership acquisition."
     },
     {
       "file": "apps/web/src/features/worklist/pool-sidebar.tsx",
@@ -11111,24 +10820,6 @@
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
       "reason": "POD-5822 updates this existing reader to canonical direct fields. Its collection and caller bounds are unchanged; the existing REQUIRED REPAIR classification remains. Predecessor: 6dac1090cd97508e80da67c061e2b06771510e174441f12b5e26c88e254951ba."
-    },
-    {
-      "file": "apps/web/src/features/worklist/pool-sidebar.tsx",
-      "holder": "ObservedPoolWorkSections/ObservedPoolWorkSections",
-      "rule": "loop:for-of",
-      "tokens": "72924de2f5c5b7ac0a90ca7c75117dbeda8d2cc1e48c9592442f09145999509d",
-      "gate": [],
-      "origin": [
-        "263287d055fdad254a3c751f4e42ff06e7abccb74e258db08b4938008da25df4"
-      ],
-      "fingerprint": "f3dc2bc17ae40366dd2d5caf0d19487b2e14645f87490b05c96648956c5f3463",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of ObservedPoolWorkSections/ObservedPoolWorkSections",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "loop:for-of carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
       "file": "apps/web/src/features/worklist/pool-sidebar.tsx",
@@ -11173,120 +10864,6 @@
     },
     {
       "file": "apps/web/src/features/worklist/pool-sidebar.tsx",
-      "holder": "ObservedPoolWorkSections/ObservedPoolWorkSections/bands",
-      "rule": "consume:filter",
-      "tokens": "6b75dc2da40956c2b71a4a5813412afb06ab04997f102b8d7af4f507412fb30e",
-      "gate": [],
-      "origin": [
-        "263287d055fdad254a3c751f4e42ff06e7abccb74e258db08b4938008da25df4"
-      ],
-      "fingerprint": "4edf0f04c4e8fbe91cfb9d9330f1f66d145ee566ec30742ca07f8cc2768a35dc",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of ObservedPoolWorkSections/ObservedPoolWorkSections/bands",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:filter carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/features/worklist/pool-sidebar.tsx",
-      "holder": "ObservedPoolWorkSections/ObservedPoolWorkSections/bands",
-      "rule": "consume:map",
-      "tokens": "f1653dbb7023dae6ee3e9e8e980a3234cb444cef82f59880d6f3224a1ae80831",
-      "gate": [],
-      "origin": [
-        "263287d055fdad254a3c751f4e42ff06e7abccb74e258db08b4938008da25df4"
-      ],
-      "fingerprint": "3377f78000df279ccb31c6ff01874d6d11df0f2c7f313fd081ff6c474ccfdee5",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of ObservedPoolWorkSections/ObservedPoolWorkSections/bands",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/features/worklist/pool-sidebar.tsx",
-      "holder": "ObservedPoolWorkSections/ObservedPoolWorkSections/bands/map:callback/closed",
-      "rule": "consume:filter",
-      "tokens": "407fe38a9535ac1e984e6c0035c963240842d2cad46a14404ca0a8d5e4c4ffca",
-      "gate": [
-        "else:203f7bf8b982cee18daeb88a71c72fd732bfe0e8ff84549ef7b76b283c933eda"
-      ],
-      "origin": [
-        "263287d055fdad254a3c751f4e42ff06e7abccb74e258db08b4938008da25df4"
-      ],
-      "fingerprint": "c77f4e096bd2a975f73da057569e066746057588007aeb2d5d71ca9e49448a99",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of ObservedPoolWorkSections/ObservedPoolWorkSections/bands/map:callback/closed",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:filter carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/features/worklist/pool-sidebar.tsx",
-      "holder": "ObservedPoolWorkSections/ObservedPoolWorkSections/bands/map:callback/live",
-      "rule": "consume:filter",
-      "tokens": "0c469421d45ca35ac5b9d1407742c13e5e51d8b81f620a015f1fb6fa695b98fc",
-      "gate": [],
-      "origin": [
-        "263287d055fdad254a3c751f4e42ff06e7abccb74e258db08b4938008da25df4"
-      ],
-      "fingerprint": "8cb1f5de3a4dbefdfc6bb10519eeb47dbfc4e174078775bdd6f940f0db6ca605",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of ObservedPoolWorkSections/ObservedPoolWorkSections/bands/map:callback/live",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:filter carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/features/worklist/pool-sidebar.tsx",
-      "holder": "ObservedPoolWorkSections/ObservedPoolWorkSections/bands/map:callback/snoozed",
-      "rule": "consume:filter",
-      "tokens": "36b1b9005844855cefe853738d361a2e76a0c22155e28d3579d666e29543a725",
-      "gate": [
-        "else:203f7bf8b982cee18daeb88a71c72fd732bfe0e8ff84549ef7b76b283c933eda"
-      ],
-      "origin": [
-        "263287d055fdad254a3c751f4e42ff06e7abccb74e258db08b4938008da25df4"
-      ],
-      "fingerprint": "24e7d11b59aa9db1e95319be0dd46cc15c20bb10a780612f0adfd9429c893379",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of ObservedPoolWorkSections/ObservedPoolWorkSections/bands/map:callback/snoozed",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:filter carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/features/worklist/pool-sidebar.tsx",
-      "holder": "ObservedPoolWorkSections/ObservedPoolWorkSections/closed",
-      "rule": "consume:filter",
-      "tokens": "bfec185e713386435c1163723a5cb9132598e0d3b0097790e780b434d836c7d2",
-      "gate": [
-        "then:a00fc7f96e1bea897a096ba2ffd9e3e6ec16a43925b2a2806b6ef0d8514c9fb6"
-      ],
-      "origin": [
-        "263287d055fdad254a3c751f4e42ff06e7abccb74e258db08b4938008da25df4"
-      ],
-      "fingerprint": "c6dc5b8e9972f6dac5e2a50b0ce9a36f8baa8d8ee416013a809687c9c978ad97",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of ObservedPoolWorkSections/ObservedPoolWorkSections/closed",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:filter carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/features/worklist/pool-sidebar.tsx",
       "holder": "ObservedPoolWorkSections/ObservedPoolWorkSections/keys",
       "rule": "consume:map",
       "tokens": "2e7c8caa65eb64379fad7557b2dcd3e8ac7a46c14b00092d85e3a11a52b045af",
@@ -11323,186 +10900,20 @@
     },
     {
       "file": "apps/web/src/features/worklist/pool-sidebar.tsx",
-      "holder": "ObservedPoolWorkSections/ObservedPoolWorkSections/live",
-      "rule": "consume:filter",
-      "tokens": "07110ccdb8ba07a4192ac3b4ed60b091837af56419f18237446c8b69dd7f7f34",
-      "gate": [
-        "then:a00fc7f96e1bea897a096ba2ffd9e3e6ec16a43925b2a2806b6ef0d8514c9fb6"
-      ],
-      "origin": [
-        "263287d055fdad254a3c751f4e42ff06e7abccb74e258db08b4938008da25df4"
-      ],
-      "fingerprint": "e373a80fef3d29011df9ac569287616b3bcc0a8393870db5c1aacf507242f608",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of ObservedPoolWorkSections/ObservedPoolWorkSections/live",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:filter carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/features/worklist/pool-sidebar.tsx",
-      "holder": "ObservedPoolWorkSections/ObservedPoolWorkSections/pinned",
-      "rule": "consume:filter",
-      "tokens": "31c004c1e64efd9ac96f222c7514857c619eda92f99a68cec4ae64ac4002c538",
-      "gate": [],
-      "origin": [
-        "263287d055fdad254a3c751f4e42ff06e7abccb74e258db08b4938008da25df4"
-      ],
-      "fingerprint": "21a376237419d5ca5b11d4e01a95f8fa8a4b757d0f0f2199d73da1d9b40e7557",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of ObservedPoolWorkSections/ObservedPoolWorkSections/pinned",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:filter carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/features/worklist/pool-sidebar.tsx",
-      "holder": "ObservedPoolWorkSections/ObservedPoolWorkSections/search/useMemo:callback/computed:callback",
-      "rule": "consume:filter",
-      "tokens": "523c9183487584d92df16f9b3bbcb92e3d771e5aa5bfbfcb50f1c880d0aed851",
-      "gate": [],
-      "origin": [
-        "263287d055fdad254a3c751f4e42ff06e7abccb74e258db08b4938008da25df4"
-      ],
-      "fingerprint": "58c3d1be69c81f6206e5c299aaebfe95077ad5470d7af05947b93462826a3451",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation or observation of ObservedPoolWorkSections/ObservedPoolWorkSections/search/useMemo:callback/computed:callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
-      "reason": "POD-5822 updates this existing reader to canonical direct fields. Its collection and caller bounds are unchanged; the existing REQUIRED REPAIR classification remains. Predecessor: cfa7a00ae2725b65930ffb0e1107a0f1385a56eabbf032c86fa030ae5e40d606."
-    },
-    {
-      "file": "apps/web/src/features/worklist/pool-sidebar.tsx",
-      "holder": "ObservedPoolWorkSections/ObservedPoolWorkSections/search/useMemo:callback/computed:callback",
-      "rule": "consume:map",
-      "tokens": "aa9abb36ce09bfdda1dc610003c747e6c6170b66de5a0cc8a43d3b485c72612e",
-      "gate": [],
-      "origin": [
-        "263287d055fdad254a3c751f4e42ff06e7abccb74e258db08b4938008da25df4"
-      ],
-      "fingerprint": "0f23e352b88d7ca570f00524e4196833ee356affca2b69fddcf6d2ecdc91e48f",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation or observation of ObservedPoolWorkSections/ObservedPoolWorkSections/search/useMemo:callback/computed:callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
-      "reason": "POD-5822 updates this existing reader to canonical direct fields. Its collection and caller bounds are unchanged; the existing REQUIRED REPAIR classification remains. Predecessor: 0f901f062a7b64e29f2ce7a66b4bf0d9948872707598a073327feed388cc0844."
-    },
-    {
-      "file": "apps/web/src/features/worklist/pool-sidebar.tsx",
-      "holder": "ObservedPoolWorkSections/ObservedPoolWorkSections/search/useMemo:callback/computed:callback",
-      "rule": "materialize:Set",
-      "tokens": "d43760cdf7d04f5ab405c4e1261cc79fc431d8fb9a17a04d18435ad4f0053144",
-      "gate": [],
-      "origin": [
-        "263287d055fdad254a3c751f4e42ff06e7abccb74e258db08b4938008da25df4"
-      ],
-      "fingerprint": "2509ef6c23467120a37eefafff89978e465feae57d655c6ec661472d03777294",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation or observation of ObservedPoolWorkSections/ObservedPoolWorkSections/search/useMemo:callback/computed:callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
-      "reason": "POD-5822 updates this existing reader to canonical direct fields. Its collection and caller bounds are unchanged; the existing REQUIRED REPAIR classification remains. Predecessor: 8eb17592f1304899c11a2decd4f0de4c65eebadb35abef120553dd4450c66efb."
-    },
-    {
-      "file": "apps/web/src/features/worklist/pool-sidebar.tsx",
-      "holder": "ObservedPoolWorkSections/ObservedPoolWorkSections/shortcutIds",
-      "rule": "consume:filter",
-      "tokens": "0ddb4549809599ac7ec109948e4efc7a261da9d49c9fabd400193f7429bb4734",
-      "gate": [],
-      "origin": [
-        "263287d055fdad254a3c751f4e42ff06e7abccb74e258db08b4938008da25df4"
-      ],
-      "fingerprint": "2b768dd8ef2ee57b2bbc7523ebf7af6e89ac4817affafc38001e698add681f3d",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of ObservedPoolWorkSections/ObservedPoolWorkSections/shortcutIds",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:filter carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/features/worklist/pool-sidebar.tsx",
-      "holder": "ObservedPoolWorkSections/ObservedPoolWorkSections/shortcutIds",
-      "rule": "consume:map",
-      "tokens": "4af1bef8e17c5c92cb6d709c3177dfd460b75b35863c04560ae04010598443b2",
-      "gate": [],
-      "origin": [
-        "263287d055fdad254a3c751f4e42ff06e7abccb74e258db08b4938008da25df4"
-      ],
-      "fingerprint": "e440500e4fa8490d27d960bfc1f667ba4ca661d65319f9ac0086618e279e4aad",
-      "count": 1,
-      "classification": "visible output",
-      "owner": "POD-5530",
-      "trigger": "Keyboard shortcut ids for unfolded visible issue rows.",
-      "bound": "MAX_ROW_SHORTCUTS applied before projecting ids.",
-      "reason": "The final map is capped visible output; filtering the incoming targets remains a separate required repair.",
-      "guard": "Exact cap, filter/slice expression and constant alias token evidence."
-    },
-    {
-      "file": "apps/web/src/features/worklist/pool-sidebar.tsx",
-      "holder": "ObservedPoolWorkSections/ObservedPoolWorkSections/shortcutIds",
-      "rule": "consume:slice",
-      "tokens": "f99e9a34b599e3a4b697c33cfa45be127a095584198009202ced37945ab7543e",
-      "gate": [],
-      "origin": [
-        "263287d055fdad254a3c751f4e42ff06e7abccb74e258db08b4938008da25df4"
-      ],
-      "fingerprint": "6b416817bd604d21ec8b525ff27f3108fe5eb90bf5e7e37c5a1bc1749526539b",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of ObservedPoolWorkSections/ObservedPoolWorkSections/shortcutIds",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:slice carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/features/worklist/pool-sidebar.tsx",
       "holder": "ObservedPoolWorkSections/ObservedPoolWorkSections/signature",
       "rule": "consume:map",
-      "tokens": "15e32412b663e5a2cc2591f1091a1fda19598b9dd7955b34978dd2816891133e",
+      "tokens": "53c85d63b5058e316657e92a29afcea37918d45b02aeff5f1c5856b6c81e05da",
       "gate": [],
       "origin": [
         "263287d055fdad254a3c751f4e42ff06e7abccb74e258db08b4938008da25df4"
       ],
-      "fingerprint": "2b4fe3f3b19aa2f0a26f147522416fe0333d230d3e576cb0bb40463934a32f16",
+      "fingerprint": "7741f71eac15691676f4344d8943cd78e9edee5496a375b9937f6291cbe651f5",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of ObservedPoolWorkSections/ObservedPoolWorkSections/signature",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/features/worklist/pool-sidebar.tsx",
-      "holder": "ObservedPoolWorkSections/ObservedPoolWorkSections/snoozed",
-      "rule": "consume:filter",
-      "tokens": "1bf165fc59dbb4a01f1fdbb4ca46c49507ef8f81e74e55247b468b585a1accf8",
-      "gate": [
-        "then:a00fc7f96e1bea897a096ba2ffd9e3e6ec16a43925b2a2806b6ef0d8514c9fb6"
-      ],
-      "origin": [
-        "263287d055fdad254a3c751f4e42ff06e7abccb74e258db08b4938008da25df4"
-      ],
-      "fingerprint": "9f83057e6dc421b2214bf8f2a7918a8e03bd73d0d3ece6f5467ebe7a592717ac",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of ObservedPoolWorkSections/ObservedPoolWorkSections/snoozed",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:filter carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-2069: integrating the sidebar motion pass with the New task draft row moved this scan; its collection demand is unchanged. Predecessor: 2b4fe3f3b19aa2f0a26f147522416fe0333d230d3e576cb0bb40463934a32f16.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -11620,26 +11031,6 @@
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
       "reason": "The motion row now selects the direct canonical IssueModel/WorklistIssue fields. It carries the former row reader origin; no broader collection repair is claimed. Predecessor: 77ee4d9cb3b1fce931a729ae412b8594f4c2f5c51abe59a555e04f1047008877. The same frozen departure capture now runs after commit; its collection cardinality is unchanged and remains repair debt. Previous capture fingerprint: b06929b8edf370ac4188132847ad3e4b6cc4349924b49e61da868bc6d5a00937."
-    },
-    {
-      "file": "apps/web/src/features/worklist/pool-sidebar.tsx",
-      "holder": "PoolSidebarUnified/PoolSidebarUnified/count/useMemo:callback/computed:callback/live",
-      "rule": "helper-consumer",
-      "tokens": "62d773599230ad0f725d585ec063a46cd37942742112c07db05868910f427018",
-      "gate": [
-        "exit:then:3897776c72fcd22131898b34dd9b1a71e1d9d57cd0183aaa0072afd75db56ff3"
-      ],
-      "origin": [
-        "263287d055fdad254a3c751f4e42ff06e7abccb74e258db08b4938008da25df4"
-      ],
-      "fingerprint": "184b806897d8fd4c92b16eb135e71ecb3e647f78bf1a5c6774376dc6bb51b2e9",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Owner/caller transferred by POD-5767 without widening the collection path.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
-      "trigger": "Invocation of PoolSidebarUnified/PoolSidebarUnified/count/useMemo:callback/computed:callback/live"
     },
     {
       "file": "apps/web/src/features/worklist/pool-sidebar.tsx",
@@ -23358,7 +22749,7 @@
       "trigger": "A newly fetched issue event page is appended.",
       "bound": "One supplied page (the shared request owner asks for at most 50 rows per RPC); retained history is never enumerated for ID deduplication.",
       "reason": "The history owns its ID index and formats only new rows, with stable event/feed arrays and cursor advancement.",
-      "guard": "packages/client-graph/src/issue-activity.test.ts: append element work is 1→1 for 128/512 retained events; a planted retained-ID map/Set fails."
+      "guard": "packages/client-graph/src/issue-activity.test.ts: append element work is 1\u21921 for 128/512 retained events; a planted retained-ID map/Set fails."
     },
     {
       "file": "packages/client-core/src/values/issue-activity.ts",
@@ -32855,7 +32246,7 @@
       "trigger": "Default LoadPanel metric question",
       "bound": "One stored source-order element, or one iterator.next() when no first ordered ID exists.",
       "reason": "The keys iterator is advanced once; it is never spread, looped or materialized. Named metric demand bypasses the iterator. No whole-table scan occurs.",
-      "guard": "packages/client-graph/src/header-point-questions.test.ts and apps/web/src/app/header-data.point.test.tsx: first/repeat/addressed/missing/update/closed at128/512; all structural counters flat; whole-ID control grows132→516 elements."
+      "guard": "packages/client-graph/src/header-point-questions.test.ts and apps/web/src/app/header-data.point.test.tsx: first/repeat/addressed/missing/update/closed at128/512; all structural counters flat; whole-ID control grows132\u2192516 elements."
     },
     {
       "file": "packages/client-graph/src/header-repositories.ts",
@@ -38951,6 +38342,892 @@
       "trigger": "Invocation of keyedComputed/read/callback/value/computed:callback",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "apps/web/src/features/worklist/ManageProjectsDialog.tsx",
+      "holder": "ManageProjectsDialog",
+      "rule": "consume:map",
+      "tokens": "7ef3746a3076171a33bd5beaebb637b5319f4eb0c77c3f1550b7c451aa215145",
+      "gate": [],
+      "origin": [
+        "67866ce9a160dce456103eeb5eac64a5bf5401012f53d878801660028f6719ec"
+      ],
+      "fingerprint": "6cd66923e9ea40288f496f95572837aa03a2039139ebed7a8d222c339a58b636",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of ManageProjectsDialog",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-2074: new in the calm sidebar rebuild; it scans the sidebar's existing band and row lists only.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "apps/web/src/features/worklist/ManageProjectsDialog.tsx",
+      "holder": "ManageProjectsDialog/changed",
+      "rule": "consume:some",
+      "tokens": "f0165789a805909a09d0f374b3673e4fe0ab992dfae1bbdd7f766bb5acf928be",
+      "gate": [],
+      "origin": [
+        "67866ce9a160dce456103eeb5eac64a5bf5401012f53d878801660028f6719ec"
+      ],
+      "fingerprint": "58639472ff77959cdc78906b45267121536c48140e03419e11e2643664428fcd",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of ManageProjectsDialog/changed",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "consume:some carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-2074: new in the calm sidebar rebuild; it scans the sidebar's existing band and row lists only.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "apps/web/src/features/worklist/ManageProjectsDialog.tsx",
+      "holder": "ManageProjectsDialog/move/callback/keys",
+      "rule": "consume:map",
+      "tokens": "1be69a21e43d80ad7dba851b6e90559abca989f5565766ef5987e4d99d17ad4f",
+      "gate": [],
+      "origin": [
+        "67866ce9a160dce456103eeb5eac64a5bf5401012f53d878801660028f6719ec"
+      ],
+      "fingerprint": "fdcd9928535c2a011d1d0db279da764a7e97ebf920401e9b59f8c7a3ef26e18b",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of ManageProjectsDialog/move/callback/keys",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-2074: new in the calm sidebar rebuild; it scans the sidebar's existing band and row lists only.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "apps/web/src/features/worklist/ManageProjectsDialog.tsx",
+      "holder": "ManageProjectsDialog/projects",
+      "rule": "reader-summary",
+      "tokens": "94ad7fcd3acc63852a1b9efc59bbe74a16ae33e3a54b47fc72d88d68bb6f8af1",
+      "gate": [],
+      "origin": [
+        "67866ce9a160dce456103eeb5eac64a5bf5401012f53d878801660028f6719ec"
+      ],
+      "fingerprint": "b9890a4de0b5cc71d2f9891eb3032f63688bfabb9fc4089e60fd8fc9f080856f",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of ManageProjectsDialog/projects",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-2074: new in the calm sidebar rebuild; it scans the sidebar's existing band and row lists only.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "apps/web/src/features/worklist/ManageProjectsDialog.tsx",
+      "holder": "ManageProjectsDialog/save/callback/repoOrder",
+      "rule": "helper-consumer",
+      "tokens": "cb25b28de5ba40e3344bea88f5a095a1aae5729d19cd44b5da7e85be2c1625c8",
+      "gate": [],
+      "origin": [
+        "67866ce9a160dce456103eeb5eac64a5bf5401012f53d878801660028f6719ec"
+      ],
+      "fingerprint": "4f420bb2f4b01fe9e5af256984058ee9cbe4c0a9f20cbd8647d0c90decc9885c",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of ManageProjectsDialog/save/callback/repoOrder",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-2074: new in the calm sidebar rebuild; it scans the sidebar's existing band and row lists only.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "apps/web/src/features/worklist/ManageProjectsDialog.tsx",
+      "holder": "ManageProjectsDialog/save/callback/repoOrder",
+      "rule": "reader-summary",
+      "tokens": "ea767c24ce61fc081304b4864c762ec2198905697460e530aad17b734c882adf",
+      "gate": [],
+      "origin": [
+        "67866ce9a160dce456103eeb5eac64a5bf5401012f53d878801660028f6719ec"
+      ],
+      "fingerprint": "82eeb9e0b7d119beed587f25d981bc9efea577a2114fff659c9df5486fda4889",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of ManageProjectsDialog/save/callback/repoOrder",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-2074: new in the calm sidebar rebuild; it scans the sidebar's existing band and row lists only.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "apps/web/src/features/worklist/ManageProjectsDialog.tsx",
+      "holder": "ManageProjectsDialog/useEffect:callback",
+      "rule": "consume:map",
+      "tokens": "c24e5038b8aa24316e985aa2e531b387ef4cfeabe144953928a3eb5da20ecaa2",
+      "gate": [
+        "exit:then:d00541a808e3e606bcdd81f3437e5950fe1901fd784fef4544148f59da363a7d"
+      ],
+      "origin": [
+        "67866ce9a160dce456103eeb5eac64a5bf5401012f53d878801660028f6719ec"
+      ],
+      "fingerprint": "d2fb6c19720b794b9372024e9d05470ca6c21196df3ac8b06657bd4064efdf6e",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of ManageProjectsDialog/useEffect:callback",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-2074: new in the calm sidebar rebuild; it scans the sidebar's existing band and row lists only.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "apps/web/src/features/worklist/ManageProjectsDialog.tsx",
+      "holder": "ManageProjectsDialog/visible/useMemo:callback",
+      "rule": "spread",
+      "tokens": "52d9169c76990d9cbfe0895a2fe0bb6a2cd0d36936f6bb0e2bd0aa7e263e94e4",
+      "gate": [
+        "exit:then:d00541a808e3e606bcdd81f3437e5950fe1901fd784fef4544148f59da363a7d"
+      ],
+      "origin": [
+        "67866ce9a160dce456103eeb5eac64a5bf5401012f53d878801660028f6719ec"
+      ],
+      "fingerprint": "a2a60aa41e1ace6352e36e63145b21e36f49977dbf9fd2c62c9a2c4858fde11d",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of ManageProjectsDialog/visible/useMemo:callback",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "spread carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-2074: new in the calm sidebar rebuild; it scans the sidebar's existing band and row lists only.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "apps/web/src/features/worklist/ManageProjectsDialog.tsx",
+      "holder": "ManageProjectsDialog/visible/useMemo:callback",
+      "rule": "consume:filter",
+      "tokens": "6757d1269d696f2887ca38be22d65a2a5a996da5b1bdbb0ead12c3bdbb8c6fc3",
+      "gate": [
+        "exit:then:d00541a808e3e606bcdd81f3437e5950fe1901fd784fef4544148f59da363a7d"
+      ],
+      "origin": [
+        "67866ce9a160dce456103eeb5eac64a5bf5401012f53d878801660028f6719ec"
+      ],
+      "fingerprint": "e87dd0eeb14c21ed42d9afa1f0475b184a5385ad77894ab86b2c98bbdd94710a",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of ManageProjectsDialog/visible/useMemo:callback",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "consume:filter carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-2074: new in the calm sidebar rebuild; it scans the sidebar's existing band and row lists only.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "apps/web/src/features/worklist/ManageProjectsDialog.tsx",
+      "holder": "ManageProjectsDialog/visible/useMemo:callback/byKey",
+      "rule": "materialize:Map",
+      "tokens": "4d1cdbe2fdc940768ba85b44374ca48ce21b237ca72426740c0b1025e97a2390",
+      "gate": [
+        "exit:then:d00541a808e3e606bcdd81f3437e5950fe1901fd784fef4544148f59da363a7d"
+      ],
+      "origin": [
+        "67866ce9a160dce456103eeb5eac64a5bf5401012f53d878801660028f6719ec"
+      ],
+      "fingerprint": "53cbf66eb9f9797d18c7aab20880adb328d996a5f43d892bf7253fc9897229db",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of ManageProjectsDialog/visible/useMemo:callback/byKey",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "materialize:Map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-2074: new in the calm sidebar rebuild; it scans the sidebar's existing band and row lists only.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "apps/web/src/features/worklist/ManageProjectsDialog.tsx",
+      "holder": "ManageProjectsDialog/visible/useMemo:callback/byKey",
+      "rule": "consume:map",
+      "tokens": "d9bbed494fc8feb0cf56115fe30095659b505da908392f941fe7aeefc6e1d8fb",
+      "gate": [
+        "exit:then:d00541a808e3e606bcdd81f3437e5950fe1901fd784fef4544148f59da363a7d"
+      ],
+      "origin": [
+        "67866ce9a160dce456103eeb5eac64a5bf5401012f53d878801660028f6719ec"
+      ],
+      "fingerprint": "f2e572752a518bd93654ccec5461e0a4adc8bb02a4ee590e818f13c2230d165f",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of ManageProjectsDialog/visible/useMemo:callback/byKey",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-2074: new in the calm sidebar rebuild; it scans the sidebar's existing band and row lists only.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "apps/web/src/features/worklist/pool-sidebar.tsx",
+      "holder": "ObservedPoolWorkSections/ObservedPoolWorkSections",
+      "rule": "consume:map",
+      "tokens": "e4a058feb4f97d04179a961b58123cfacb0bd25fa09a965ae5611b33be530847",
+      "gate": [
+        "exit:then:c1e3d1143ee70675ad2df3f937e746912e734d54f0b8e9f4bf94caff9f8f4e11",
+        "exit:then:d176ccc98ba79ffb9a6ecec0d8eb44226eceddc563eb2197b2ee84cc1248f90c"
+      ],
+      "origin": [
+        "263287d055fdad254a3c751f4e42ff06e7abccb74e258db08b4938008da25df4"
+      ],
+      "fingerprint": "a2d66633effecafa96d8fe5e54978cd99f0e8454a3c4cba1fae57e0489328402",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation or observation of ObservedPoolWorkSections/ObservedPoolWorkSections",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "Desktop project-band rendering now uses canonical section fields. Viewport row mounting remains bounded; outer group metadata still has no cardinality cap. Predecessor: 74a629ec672ae8824310d0a26cded6e6321e3bab5c31cdaaa69db827a2cc7d98. POD-2074: the calm sidebar rebuild (lane switch, project folders, folder drag) moved this scan; its collection demand is unchanged. Predecessor: 1ccc53eb555e775472d36a495b6db5645304b7e1727bd5a8335dce8cb06e4eb0. POD-2069: integrating the sidebar with the New task overlay draft row moved this scan; its collection demand is unchanged. Predecessor: 29a412500aaf2c9dfbcf157a63d946af8f0e0ec1bcf8e664fbc7e21a87354bba. POD-2069: integrating the sidebar motion pass with the New task draft row moved this scan; its collection demand is unchanged. Predecessor: 65aa1ddcc361cb2ae02d5276cf54c14d2e49cf2550aebab8bc53bc7aa09fc510.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "apps/web/src/features/worklist/pool-sidebar.tsx",
+      "holder": "ObservedPoolWorkSections/ObservedPoolWorkSections",
+      "rule": "loop:for-of",
+      "tokens": "2e4acd27b58dd72d46fdbc123263ea53c853b5ddf891735e63ca721f3795fd87",
+      "gate": [],
+      "origin": [
+        "263287d055fdad254a3c751f4e42ff06e7abccb74e258db08b4938008da25df4"
+      ],
+      "fingerprint": "718e70fd0390cff440b3fe105b8776c717b6eafdffeddb3424cb5154eea6bb58",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of ObservedPoolWorkSections/ObservedPoolWorkSections",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "loop:for-of carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-2074: the calm sidebar rebuild (lane switch, project folders, folder drag) moved this scan; its collection demand is unchanged. Predecessor: f3dc2bc17ae40366dd2d5caf0d19487b2e14645f87490b05c96648956c5f3463.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "apps/web/src/features/worklist/pool-sidebar.tsx",
+      "holder": "ObservedPoolWorkSections/ObservedPoolWorkSections",
+      "rule": "consume:filter",
+      "tokens": "5ba87352bd54fd23c8d6cfbaa6e36fbbbf991c5ea96b4493fe78a32a8998f891",
+      "gate": [
+        "exit:then:c1e3d1143ee70675ad2df3f937e746912e734d54f0b8e9f4bf94caff9f8f4e11",
+        "exit:then:d176ccc98ba79ffb9a6ecec0d8eb44226eceddc563eb2197b2ee84cc1248f90c",
+        "&&:203f7bf8b982cee18daeb88a71c72fd732bfe0e8ff84549ef7b76b283c933eda"
+      ],
+      "origin": [
+        "263287d055fdad254a3c751f4e42ff06e7abccb74e258db08b4938008da25df4"
+      ],
+      "fingerprint": "78f32d7f62b09609627ec7ac8b0206b9d50697f95ec0a56dfd1d104cee3da36b",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of ObservedPoolWorkSections/ObservedPoolWorkSections",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "consume:filter carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-2074: the calm sidebar rebuild (lane switch, project folders, folder drag) moved this scan; its collection demand is unchanged. Predecessor: 739d874c055e842d14e7acd8549186d79bd3735560ea213e893730a8de98877e.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "apps/web/src/features/worklist/pool-sidebar.tsx",
+      "holder": "ObservedPoolWorkSections/ObservedPoolWorkSections",
+      "rule": "helper-consumer",
+      "tokens": "13b6f8f76bb66ba5cd954b8dba0e8df41927f5780056bd46d1bbfa67f8f6d249",
+      "gate": [
+        "exit:then:c1e3d1143ee70675ad2df3f937e746912e734d54f0b8e9f4bf94caff9f8f4e11",
+        "exit:then:d176ccc98ba79ffb9a6ecec0d8eb44226eceddc563eb2197b2ee84cc1248f90c",
+        "&&:76e1ed1ad990c37d9486b42fc3c505c539bb9abe79b14db229055813b7db135d"
+      ],
+      "origin": [
+        "263287d055fdad254a3c751f4e42ff06e7abccb74e258db08b4938008da25df4"
+      ],
+      "fingerprint": "873e45f596ef73f3860f0dfcb75a33f67f3fb5e946c6528e591451f9876b2799",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Sidebar membership snapshot changes for cached indexes, or section rendering for the unchanged outer bands.",
+      "bound": "Leaf DOM is capped by the viewport; the upstream membership metadata has no cardinality cap.",
+      "reason": "The viewport fix bounds mounted rows, not full membership metadata. Cached ID indexes run only when membership changes; existing outer-band and key preparation work remains classified as repair, not as a bounded reader fix. POD-2074: the calm sidebar rebuild (lane switch, project folders, folder drag) moved this scan; its collection demand is unchanged. Predecessor: d833ebf4544937e5f226b9dc5a3e5febb0c71b0fb7373fbedd48aa22e5a3d90a.",
+      "guard": "Exact fingerprint and multiplicity; worklist-window tests prove DOM retention and selection/reveal behavior, not a bound on membership acquisition."
+    },
+    {
+      "file": "apps/web/src/features/worklist/pool-sidebar.tsx",
+      "holder": "ObservedPoolWorkSections/ObservedPoolWorkSections",
+      "rule": "consume:some",
+      "tokens": "ce07a9528549812aab43c2b8793ecc3d49d592ade275e752cf5fb3f1b624ab32",
+      "gate": [
+        "&&:8a7f1c6e7f0624f1f92abe519f4944d40e848994725b97d60bb38a3b14d100d9"
+      ],
+      "origin": [
+        "263287d055fdad254a3c751f4e42ff06e7abccb74e258db08b4938008da25df4"
+      ],
+      "fingerprint": "9446a07d9da394ec52288836293cd734d9f81ecf22c04e60aace3e0c4f964d96",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of ObservedPoolWorkSections/ObservedPoolWorkSections",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "consume:some carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-2074: the calm sidebar rebuild (lane switch, project folders, folder drag) moved this scan; its collection demand is unchanged. Predecessor: 03de10447042cf24cd6d5bf0152a3c30619ab0033bb78f689337f20fe5cb46d4.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "apps/web/src/features/worklist/pool-sidebar.tsx",
+      "holder": "ObservedPoolWorkSections/ObservedPoolWorkSections/anyOpen",
+      "rule": "consume:some",
+      "tokens": "5524b04a7acb1774fe4d5294a2c3a3fad5c780150ded313e15afae657d32a894",
+      "gate": [],
+      "origin": [
+        "263287d055fdad254a3c751f4e42ff06e7abccb74e258db08b4938008da25df4"
+      ],
+      "fingerprint": "158e0e207ea293da3b31c1ec62f081d9d49ad1e043750852b9c14e175a35a248",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of ObservedPoolWorkSections/ObservedPoolWorkSections/anyOpen",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "consume:some carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-2074: new in the calm sidebar rebuild; it scans the sidebar's existing band and row lists only.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "apps/web/src/features/worklist/pool-sidebar.tsx",
+      "holder": "ObservedPoolWorkSections/ObservedPoolWorkSections/anyShut",
+      "rule": "consume:some",
+      "tokens": "4fe54831586373185aba1c5fb4d4f5b5c4eece1703ab13b3169569936dd80349",
+      "gate": [],
+      "origin": [
+        "263287d055fdad254a3c751f4e42ff06e7abccb74e258db08b4938008da25df4"
+      ],
+      "fingerprint": "fba198f4fe24f9c0b3d41a8b20ab243535a9b485ea91aeeec6ffcf5b0b5c7652",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of ObservedPoolWorkSections/ObservedPoolWorkSections/anyShut",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "consume:some carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-2074: new in the calm sidebar rebuild; it scans the sidebar's existing band and row lists only.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "apps/web/src/features/worklist/pool-sidebar.tsx",
+      "holder": "ObservedPoolWorkSections/ObservedPoolWorkSections/bandList",
+      "rule": "consume:map",
+      "tokens": "935bce07985b5d92ed870c63ecc45596b79af1c01df18ec2c94be92a339064f7",
+      "gate": [],
+      "origin": [
+        "263287d055fdad254a3c751f4e42ff06e7abccb74e258db08b4938008da25df4"
+      ],
+      "fingerprint": "5d28011a598ade1e0987a938b0f0a0a9993e1bf1194dabcb24ce70c8f69724ad",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of ObservedPoolWorkSections/ObservedPoolWorkSections/bandList",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-2074: new in the calm sidebar rebuild; it scans the sidebar's existing band and row lists only.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "apps/web/src/features/worklist/pool-sidebar.tsx",
+      "holder": "ObservedPoolWorkSections/ObservedPoolWorkSections/bandList/map:callback/rows",
+      "rule": "consume:filter",
+      "tokens": "6cd03ffb0c6167e15949dc4e1465d73240059de9018a727acfc09a48d99e962b",
+      "gate": [],
+      "origin": [
+        "263287d055fdad254a3c751f4e42ff06e7abccb74e258db08b4938008da25df4"
+      ],
+      "fingerprint": "014b849b93ae5d09a53f88eb076faf50859a658577dfa67166ffe7f269ad10ea",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of ObservedPoolWorkSections/ObservedPoolWorkSections/bandList/map:callback/rows",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "consume:filter carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-2074: new in the calm sidebar rebuild; it scans the sidebar's existing band and row lists only.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "apps/web/src/features/worklist/pool-sidebar.tsx",
+      "holder": "ObservedPoolWorkSections/ObservedPoolWorkSections/bands",
+      "rule": "consume:sort",
+      "tokens": "4494bf9f2b3ea2110e34ee48cada6261257603e64601066da046263ad028b935",
+      "gate": [],
+      "origin": [
+        "263287d055fdad254a3c751f4e42ff06e7abccb74e258db08b4938008da25df4"
+      ],
+      "fingerprint": "7a3e1be7813a31544277e394772ca2bc9b5ef9d95f30a4fe73e49154c5804851",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of ObservedPoolWorkSections/ObservedPoolWorkSections/bands",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "consume:sort carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-2074: new in the calm sidebar rebuild; it scans the sidebar's existing band and row lists only.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "apps/web/src/features/worklist/pool-sidebar.tsx",
+      "holder": "ObservedPoolWorkSections/ObservedPoolWorkSections/bands",
+      "rule": "consume:filter",
+      "tokens": "22149fb838ebda50d4cb22776de2077dafc0a9e5683f5b69b65f0e4a0c8ec53c",
+      "gate": [],
+      "origin": [
+        "263287d055fdad254a3c751f4e42ff06e7abccb74e258db08b4938008da25df4"
+      ],
+      "fingerprint": "c47fda83f5c2f893aa91f0ad83e826ae0126534dedc7ceb18b8f936fb09fde58",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of ObservedPoolWorkSections/ObservedPoolWorkSections/bands",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "consume:filter carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-2074: the calm sidebar rebuild (lane switch, project folders, folder drag) moved this scan; its collection demand is unchanged. Predecessor: 4edf0f04c4e8fbe91cfb9d9330f1f66d145ee566ec30742ca07f8cc2768a35dc.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "apps/web/src/features/worklist/pool-sidebar.tsx",
+      "holder": "ObservedPoolWorkSections/ObservedPoolWorkSections/callback",
+      "rule": "loop:for-of",
+      "tokens": "a950a59cab20f0798c31c20b8276f528612686a79f86b0a7b1e53c5b02d78626",
+      "gate": [
+        "exit:then:c1e3d1143ee70675ad2df3f937e746912e734d54f0b8e9f4bf94caff9f8f4e11",
+        "exit:then:d176ccc98ba79ffb9a6ecec0d8eb44226eceddc563eb2197b2ee84cc1248f90c",
+        "&&:211fc948f772e5316efe7940b958afd7836a7eb73c506608a1bc2dd610bc10da"
+      ],
+      "origin": [
+        "263287d055fdad254a3c751f4e42ff06e7abccb74e258db08b4938008da25df4"
+      ],
+      "fingerprint": "aa2ef6cf39d25c4432aced98b0df2b0be127717babc44179db5a03f39e67df83",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of ObservedPoolWorkSections/ObservedPoolWorkSections/callback",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "loop:for-of carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-2074: new in the calm sidebar rebuild; it scans the sidebar's existing band and row lists only.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "apps/web/src/features/worklist/pool-sidebar.tsx",
+      "holder": "ObservedPoolWorkSections/ObservedPoolWorkSections/closedRows",
+      "rule": "consume:flatMap",
+      "tokens": "42a00cc0069e9eff1f34e77b15dd7188f08531584bcb9d76bfb78657eaa1b752",
+      "gate": [
+        "exit:then:c1e3d1143ee70675ad2df3f937e746912e734d54f0b8e9f4bf94caff9f8f4e11",
+        "exit:then:d176ccc98ba79ffb9a6ecec0d8eb44226eceddc563eb2197b2ee84cc1248f90c",
+        "then:211fc948f772e5316efe7940b958afd7836a7eb73c506608a1bc2dd610bc10da"
+      ],
+      "origin": [
+        "263287d055fdad254a3c751f4e42ff06e7abccb74e258db08b4938008da25df4"
+      ],
+      "fingerprint": "cc698ed5c75329f33cd389cdcf0a91e3444ab4bcd1d0c33eadd6724a37c8dda0",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of ObservedPoolWorkSections/ObservedPoolWorkSections/closedRows",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "consume:flatMap carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-2074: new in the calm sidebar rebuild; it scans the sidebar's existing band and row lists only.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "apps/web/src/features/worklist/pool-sidebar.tsx",
+      "holder": "ObservedPoolWorkSections/ObservedPoolWorkSections/commitOrder/callback",
+      "rule": "consume:flatMap",
+      "tokens": "c91ed474bb090a32f7c8937c701236b083049d301b790f439076f78758dae20c",
+      "gate": [
+        "exit:then:ae4df88dabc5e4928b4ebfb0802fc321246bde6d3faa6c11ee323463bb6245bd"
+      ],
+      "origin": [
+        "263287d055fdad254a3c751f4e42ff06e7abccb74e258db08b4938008da25df4"
+      ],
+      "fingerprint": "de7131a373dd965520dca02308d4c734aa152ded469bb70ef649614f6c99fbee",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of ObservedPoolWorkSections/ObservedPoolWorkSections/commitOrder/callback",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "consume:flatMap carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-2074: new in the calm sidebar rebuild; it scans the sidebar's existing band and row lists only.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "apps/web/src/features/worklist/pool-sidebar.tsx",
+      "holder": "ObservedPoolWorkSections/ObservedPoolWorkSections/commitOrder/callback/byKey",
+      "rule": "materialize:Map",
+      "tokens": "54d62c52a3897fd6e3044412024b68dc44ddf88890b9ce1a8ab0059a195a4bc7",
+      "gate": [
+        "exit:then:ae4df88dabc5e4928b4ebfb0802fc321246bde6d3faa6c11ee323463bb6245bd"
+      ],
+      "origin": [
+        "263287d055fdad254a3c751f4e42ff06e7abccb74e258db08b4938008da25df4"
+      ],
+      "fingerprint": "a9dd937d73a5e9228a2dc72bbbdcc6c32d85351fe662cc21a284f79f1ae9d047",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of ObservedPoolWorkSections/ObservedPoolWorkSections/commitOrder/callback/byKey",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "materialize:Map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-2074: new in the calm sidebar rebuild; it scans the sidebar's existing band and row lists only.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "apps/web/src/features/worklist/pool-sidebar.tsx",
+      "holder": "ObservedPoolWorkSections/ObservedPoolWorkSections/commitOrder/callback/byKey",
+      "rule": "consume:map",
+      "tokens": "e697aa0995867f473266a01717c09e1026c3ea0046cd9004de1a42f149713c13",
+      "gate": [
+        "exit:then:ae4df88dabc5e4928b4ebfb0802fc321246bde6d3faa6c11ee323463bb6245bd"
+      ],
+      "origin": [
+        "263287d055fdad254a3c751f4e42ff06e7abccb74e258db08b4938008da25df4"
+      ],
+      "fingerprint": "c7a8ec538ac4d12a0781c87bd774a88a34eb04be324279e2c617470cc612956d",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of ObservedPoolWorkSections/ObservedPoolWorkSections/commitOrder/callback/byKey",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-2074: new in the calm sidebar rebuild; it scans the sidebar's existing band and row lists only.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "apps/web/src/features/worklist/pool-sidebar.tsx",
+      "holder": "ObservedPoolWorkSections/ObservedPoolWorkSections/commitOrder/callback/full",
+      "rule": "reader-summary",
+      "tokens": "d4b09566319681ff117a53508fd2b700c0b0bc9bb254ca7ed775ed3957de41a6",
+      "gate": [],
+      "origin": [
+        "263287d055fdad254a3c751f4e42ff06e7abccb74e258db08b4938008da25df4"
+      ],
+      "fingerprint": "d055411abd4dfda6f5d9bc56b2b663df0bd05169135f9a775dcebc9be4afedc8",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of ObservedPoolWorkSections/ObservedPoolWorkSections/commitOrder/callback/full",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-2074: new in the calm sidebar rebuild; it scans the sidebar's existing band and row lists only.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "apps/web/src/features/worklist/pool-sidebar.tsx",
+      "holder": "ObservedPoolWorkSections/ObservedPoolWorkSections/commitOrder/callback/full",
+      "rule": "helper-consumer",
+      "tokens": "f84b3d44cc1b1fc70ee6aa9a4d2052da02c9a1dfb215acb02cfac32c359d9239",
+      "gate": [],
+      "origin": [
+        "263287d055fdad254a3c751f4e42ff06e7abccb74e258db08b4938008da25df4"
+      ],
+      "fingerprint": "eee1dd9912b065662483327cac5b0227f928226cf0074c6c9465edde849c1f21",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of ObservedPoolWorkSections/ObservedPoolWorkSections/commitOrder/callback/full",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-2074: new in the calm sidebar rebuild; it scans the sidebar's existing band and row lists only.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "apps/web/src/features/worklist/pool-sidebar.tsx",
+      "holder": "ObservedPoolWorkSections/ObservedPoolWorkSections/draftKey",
+      "rule": "consume:find",
+      "tokens": "c7e56509d36ef87e104042e1898409f20db73602adcf8a4885715a863bcc33f5",
+      "gate": [
+        "then:3261c358a362dcee9846d19333b4227aeafe36aa185ae40ac4eee2ab9c4b3e61"
+      ],
+      "origin": [
+        "263287d055fdad254a3c751f4e42ff06e7abccb74e258db08b4938008da25df4"
+      ],
+      "fingerprint": "ec9cb09e15cf5a882faf112a94efbe54dbe73d0fcdf5c5a1d32e0fa6b5e426e3",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of ObservedPoolWorkSections/ObservedPoolWorkSections/draftKey",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "consume:find carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-2074: new in the calm sidebar rebuild; it scans the sidebar's existing band and row lists only.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "apps/web/src/features/worklist/pool-sidebar.tsx",
+      "holder": "ObservedPoolWorkSections/ObservedPoolWorkSections/moveBy/callback",
+      "rule": "helper-consumer",
+      "tokens": "a9836d212a5a216a438a13e50c775592c60f841e1f7f435991d751f5c9c31628",
+      "gate": [
+        "exit:then:729d7c7b52a5ab7cb4f50f8810a52f3760eaa9963cd3ffbe2dddb57e97675ebc"
+      ],
+      "origin": [
+        "263287d055fdad254a3c751f4e42ff06e7abccb74e258db08b4938008da25df4"
+      ],
+      "fingerprint": "dbbf3aaa11193af43bf3dc65f7b84e4f638dde76a7327845a3d3ea82d51815f3",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of ObservedPoolWorkSections/ObservedPoolWorkSections/moveBy/callback",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-2074: new in the calm sidebar rebuild; it scans the sidebar's existing band and row lists only.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "apps/web/src/features/worklist/pool-sidebar.tsx",
+      "holder": "ObservedPoolWorkSections/ObservedPoolWorkSections/moveBy/callback/next",
+      "rule": "spread",
+      "tokens": "2bef0caa890cec72b3e2830e10ade7fc7763bc6f36350147eb20a438f5f1644b",
+      "gate": [
+        "exit:then:729d7c7b52a5ab7cb4f50f8810a52f3760eaa9963cd3ffbe2dddb57e97675ebc"
+      ],
+      "origin": [
+        "263287d055fdad254a3c751f4e42ff06e7abccb74e258db08b4938008da25df4"
+      ],
+      "fingerprint": "012a33298cf6f50da83b9e00a8123536a73e209cb01987106996f7e646cdd622",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of ObservedPoolWorkSections/ObservedPoolWorkSections/moveBy/callback/next",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "spread carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-2074: new in the calm sidebar rebuild; it scans the sidebar's existing band and row lists only.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "apps/web/src/features/worklist/pool-sidebar.tsx",
+      "holder": "ObservedPoolWorkSections/ObservedPoolWorkSections/naturalOrder",
+      "rule": "consume:map",
+      "tokens": "dd66fea670ed5a8cd1434d6688b2015616da5bec5df2a6ab0cf27a83b887a2be",
+      "gate": [],
+      "origin": [
+        "263287d055fdad254a3c751f4e42ff06e7abccb74e258db08b4938008da25df4"
+      ],
+      "fingerprint": "67abde6380fcff7fce07310066bdffc54a15162847faae4de530bc2e6acede2a",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of ObservedPoolWorkSections/ObservedPoolWorkSections/naturalOrder",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-2074: new in the calm sidebar rebuild; it scans the sidebar's existing band and row lists only.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "apps/web/src/features/worklist/pool-sidebar.tsx",
+      "holder": "ObservedPoolWorkSections/ObservedPoolWorkSections/pinned",
+      "rule": "consume:filter",
+      "tokens": "244abaf032bb9b7ff491d6550db4081586365d53292e67b3ee1514489cbfe742",
+      "gate": [
+        "then:d55837f421fe63ea1ad18652b0eb392fa9d67e672dedceb303a7cf7d5321e65b"
+      ],
+      "origin": [
+        "263287d055fdad254a3c751f4e42ff06e7abccb74e258db08b4938008da25df4"
+      ],
+      "fingerprint": "1d96ae012a9be7cc2e5f35a7715e6e9665e5d530bb93f11105302af65b26fb7d",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of ObservedPoolWorkSections/ObservedPoolWorkSections/pinned",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "consume:filter carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-2074: the calm sidebar rebuild (lane switch, project folders, folder drag) moved this scan; its collection demand is unchanged. Predecessor: 21a376237419d5ca5b11d4e01a95f8fa8a4b757d0f0f2199d73da1d9b40e7557.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "apps/web/src/features/worklist/pool-sidebar.tsx",
+      "holder": "ObservedPoolWorkSections/ObservedPoolWorkSections/rows",
+      "rule": "consume:filter",
+      "tokens": "79115eeb535e89082f91e832985b7dfd3b4710f1092eb47357f9167c257307be",
+      "gate": [
+        "then:98677c454eb6badce1acb35a0ce6a4296bdfb3532c25c5996067c17024bb1628"
+      ],
+      "origin": [
+        "263287d055fdad254a3c751f4e42ff06e7abccb74e258db08b4938008da25df4"
+      ],
+      "fingerprint": "f4dc6c3f01cab3b5a1e468d0708e77b2b20bf6845c417d6c013f2e1d0f4ec44a",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of ObservedPoolWorkSections/ObservedPoolWorkSections/rows",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "consume:filter carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-2074: new in the calm sidebar rebuild; it scans the sidebar's existing band and row lists only.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "apps/web/src/features/worklist/pool-sidebar.tsx",
+      "holder": "ObservedPoolWorkSections/ObservedPoolWorkSections/search/useMemo:callback/computed:callback",
+      "rule": "materialize:Set",
+      "tokens": "fbf5d5a0d50791ba5a1ef9baf8d3afda86cb3d6e1924a9abe339fe3421a46a78",
+      "gate": [],
+      "origin": [
+        "263287d055fdad254a3c751f4e42ff06e7abccb74e258db08b4938008da25df4"
+      ],
+      "fingerprint": "05ad22e681be04417d437e8e08bc1ceddfe08a1d185517cdf34c9415757e505d",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation or observation of ObservedPoolWorkSections/ObservedPoolWorkSections/search/useMemo:callback/computed:callback",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "POD-5822 updates this existing reader to canonical direct fields. Its collection and caller bounds are unchanged; the existing REQUIRED REPAIR classification remains. Predecessor: 8eb17592f1304899c11a2decd4f0de4c65eebadb35abef120553dd4450c66efb. POD-2074: the calm sidebar rebuild (lane switch, project folders, folder drag) moved this scan; its collection demand is unchanged. Predecessor: 2509ef6c23467120a37eefafff89978e465feae57d655c6ec661472d03777294.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "apps/web/src/features/worklist/pool-sidebar.tsx",
+      "holder": "ObservedPoolWorkSections/ObservedPoolWorkSections/search/useMemo:callback/computed:callback",
+      "rule": "consume:map",
+      "tokens": "ca64d9eb65ce9d2d8dc7fa6f23846b7eee57a0be3bd30c5790069221a89225bb",
+      "gate": [],
+      "origin": [
+        "263287d055fdad254a3c751f4e42ff06e7abccb74e258db08b4938008da25df4"
+      ],
+      "fingerprint": "180c5697aa00bba09defad769860326ed34a142e7611d5b3265eed0e186ca19b",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation or observation of ObservedPoolWorkSections/ObservedPoolWorkSections/search/useMemo:callback/computed:callback",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "POD-5822 updates this existing reader to canonical direct fields. Its collection and caller bounds are unchanged; the existing REQUIRED REPAIR classification remains. Predecessor: 0f901f062a7b64e29f2ce7a66b4bf0d9948872707598a073327feed388cc0844. POD-2074: the calm sidebar rebuild (lane switch, project folders, folder drag) moved this scan; its collection demand is unchanged. Predecessor: 0f23e352b88d7ca570f00524e4196833ee356affca2b69fddcf6d2ecdc91e48f.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "apps/web/src/features/worklist/pool-sidebar.tsx",
+      "holder": "ObservedPoolWorkSections/ObservedPoolWorkSections/search/useMemo:callback/computed:callback",
+      "rule": "consume:filter",
+      "tokens": "5d64829b95fb1ff1304152ec63bd1ae684e493f5ec486e55f59c1e0f35ec4ef5",
+      "gate": [],
+      "origin": [
+        "263287d055fdad254a3c751f4e42ff06e7abccb74e258db08b4938008da25df4"
+      ],
+      "fingerprint": "8f628bde35a1d6859b122c2b33809dca3bf5c18f8f917b6bc0cf1c92e13b1df3",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation or observation of ObservedPoolWorkSections/ObservedPoolWorkSections/search/useMemo:callback/computed:callback",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "POD-5822 updates this existing reader to canonical direct fields. Its collection and caller bounds are unchanged; the existing REQUIRED REPAIR classification remains. Predecessor: cfa7a00ae2725b65930ffb0e1107a0f1385a56eabbf032c86fa030ae5e40d606. POD-2074: the calm sidebar rebuild (lane switch, project folders, folder drag) moved this scan; its collection demand is unchanged. Predecessor: 58c3d1be69c81f6206e5c299aaebfe95077ad5470d7af05947b93462826a3451.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "apps/web/src/features/worklist/pool-sidebar.tsx",
+      "holder": "ObservedPoolWorkSections/ObservedPoolWorkSections/setAllCollapsed/callback",
+      "rule": "loop:for-of",
+      "tokens": "4607dec70de9bf0483d088717867106e3033eb849e396a167a5e14b4f00da12d",
+      "gate": [],
+      "origin": [
+        "263287d055fdad254a3c751f4e42ff06e7abccb74e258db08b4938008da25df4"
+      ],
+      "fingerprint": "16cebdda693c3c16687264add89c2b63f7857ef4b4216f1384c6d3c34cc685d8",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of ObservedPoolWorkSections/ObservedPoolWorkSections/setAllCollapsed/callback",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "loop:for-of carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-2074: new in the calm sidebar rebuild; it scans the sidebar's existing band and row lists only.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "apps/web/src/features/worklist/pool-sidebar.tsx",
+      "holder": "ObservedPoolWorkSections/ObservedPoolWorkSections/shortcutIds",
+      "rule": "consume:map",
+      "tokens": "4af1bef8e17c5c92cb6d709c3177dfd460b75b35863c04560ae04010598443b2",
+      "gate": [
+        "then:d55837f421fe63ea1ad18652b0eb392fa9d67e672dedceb303a7cf7d5321e65b"
+      ],
+      "origin": [
+        "263287d055fdad254a3c751f4e42ff06e7abccb74e258db08b4938008da25df4"
+      ],
+      "fingerprint": "04954e0b7f97819532d20c5870dd34eb8d245fb69f5959d2c53cbb15c5c4e533",
+      "count": 1,
+      "classification": "visible output",
+      "owner": "POD-5530",
+      "trigger": "Keyboard shortcut ids for unfolded visible issue rows.",
+      "bound": "MAX_ROW_SHORTCUTS applied before projecting ids.",
+      "reason": "The final map is capped visible output; filtering the incoming targets remains a separate required repair. POD-2074: the calm sidebar rebuild (lane switch, project folders, folder drag) moved this scan; its collection demand is unchanged. Predecessor: e440500e4fa8490d27d960bfc1f667ba4ca661d65319f9ac0086618e279e4aad.",
+      "guard": "Exact cap, filter/slice expression and constant alias token evidence."
+    },
+    {
+      "file": "apps/web/src/features/worklist/pool-sidebar.tsx",
+      "holder": "ObservedPoolWorkSections/ObservedPoolWorkSections/shortcutIds",
+      "rule": "consume:filter",
+      "tokens": "0ddb4549809599ac7ec109948e4efc7a261da9d49c9fabd400193f7429bb4734",
+      "gate": [
+        "then:d55837f421fe63ea1ad18652b0eb392fa9d67e672dedceb303a7cf7d5321e65b"
+      ],
+      "origin": [
+        "263287d055fdad254a3c751f4e42ff06e7abccb74e258db08b4938008da25df4"
+      ],
+      "fingerprint": "7866627f547b38011c78eb0fdbbc69e11f131fd2a5c49f1080b28f01d7a6867e",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of ObservedPoolWorkSections/ObservedPoolWorkSections/shortcutIds",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "consume:filter carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-2074: the calm sidebar rebuild (lane switch, project folders, folder drag) moved this scan; its collection demand is unchanged. Predecessor: 2b768dd8ef2ee57b2bbc7523ebf7af6e89ac4817affafc38001e698add681f3d.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "apps/web/src/features/worklist/pool-sidebar.tsx",
+      "holder": "ObservedPoolWorkSections/ObservedPoolWorkSections/shortcutIds",
+      "rule": "consume:slice",
+      "tokens": "f99e9a34b599e3a4b697c33cfa45be127a095584198009202ced37945ab7543e",
+      "gate": [
+        "then:d55837f421fe63ea1ad18652b0eb392fa9d67e672dedceb303a7cf7d5321e65b"
+      ],
+      "origin": [
+        "263287d055fdad254a3c751f4e42ff06e7abccb74e258db08b4938008da25df4"
+      ],
+      "fingerprint": "9a3e66e0d092096dc70ef620d5d4b7c8368a4464bd5aacf3da6d59f865833a31",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of ObservedPoolWorkSections/ObservedPoolWorkSections/shortcutIds",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "consume:slice carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-2074: the calm sidebar rebuild (lane switch, project folders, folder drag) moved this scan; its collection demand is unchanged. Predecessor: 6b416817bd604d21ec8b525ff27f3108fe5eb90bf5e7e37c5a1bc1749526539b.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "apps/web/src/features/worklist/pool-sidebar.tsx",
+      "holder": "ObservedPoolWorkSections/ObservedPoolWorkSections/startFolderDrag/callback/finish/callback",
+      "rule": "helper-consumer",
+      "tokens": "05c84014ba4347231da9f478d9d1fb9990869b9f394027a5fcb45d01df915d82",
+      "gate": [
+        "exit:then:82e1faeb02a611a0cbf19d699db91cbabb77ff95bfa54efd45e50029cb812817",
+        "then:8037fac126062aaf513f8e81ea7ab147126763b21ae9275dc167e9b066771668"
+      ],
+      "origin": [
+        "263287d055fdad254a3c751f4e42ff06e7abccb74e258db08b4938008da25df4"
+      ],
+      "fingerprint": "bfcf5426680f083437190aa1919b56f2495bcd1b799875953c2c3ac22d910ec2",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of ObservedPoolWorkSections/ObservedPoolWorkSections/startFolderDrag/callback/finish/callback",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-2074: new in the calm sidebar rebuild; it scans the sidebar's existing band and row lists only.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "apps/web/src/features/worklist/pool-sidebar.tsx",
+      "holder": "ObservedPoolWorkSections/ObservedPoolWorkSections/visibleKeys",
+      "rule": "consume:map",
+      "tokens": "a6a229a149509f1c2867e0cb1465c3a79730580e31f4e1587b59c252f0fb0598",
+      "gate": [],
+      "origin": [
+        "263287d055fdad254a3c751f4e42ff06e7abccb74e258db08b4938008da25df4"
+      ],
+      "fingerprint": "d2f7db906334beb87e0d900716d34e7ea2e17bada8c0a058672d138efa0b361c",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of ObservedPoolWorkSections/ObservedPoolWorkSections/visibleKeys",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-2074: new in the calm sidebar rebuild; it scans the sidebar's existing band and row lists only.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "apps/web/src/features/worklist/pool-sidebar.tsx",
+      "holder": "PoolSidebarUnified/PoolSidebarUnified/count/useMemo:callback/computed:callback/slots",
+      "rule": "helper-consumer",
+      "tokens": "62d773599230ad0f725d585ec063a46cd37942742112c07db05868910f427018",
+      "gate": [
+        "exit:then:3897776c72fcd22131898b34dd9b1a71e1d9d57cd0183aaa0072afd75db56ff3"
+      ],
+      "origin": [
+        "263287d055fdad254a3c751f4e42ff06e7abccb74e258db08b4938008da25df4"
+      ],
+      "fingerprint": "1479f0287ff722742f295023bd72307fb6a5709a856e210297a8bd4c0064f628",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of PoolSidebarUnified/PoolSidebarUnified/count/useMemo:callback/computed:callback/slots",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-2074: new in the calm sidebar rebuild; it scans the sidebar's existing band and row lists only.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "apps/web/src/features/worklist/work-folders.tsx",
+      "holder": "placeInFullOrder/rest",
+      "rule": "consume:filter",
+      "tokens": "beb33505afa8a4a80d740c222d3c563c65201ee7c2be0accc05bfcec34947375",
+      "gate": [],
+      "origin": [
+        "263287d055fdad254a3c751f4e42ff06e7abccb74e258db08b4938008da25df4"
+      ],
+      "fingerprint": "d23f490f113113c81ba1fe8242eb5d7b28e33fbbffc302c169d4f84f8fef349f",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of placeInFullOrder/rest",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "consume:filter carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-2074: new in the calm sidebar rebuild; it scans the sidebar's existing band and row lists only.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     }
   ]

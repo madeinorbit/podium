@@ -588,7 +588,7 @@ This is agent mail, not the operator's latest prompt.
     expect(container.querySelector('[data-testid="sticky-user-message"]')).toBeNull()
 
     const mailRow = [...container.querySelectorAll<HTMLElement>('.transcript-row')].find((el) =>
-      el.textContent?.includes('1 note from Podium'),
+      el.querySelector('.mail-group') !== null,
     )
     expect(mailRow).toBeDefined()
     expect(mailRow?.dataset.operatorPrompt).toBeUndefined()

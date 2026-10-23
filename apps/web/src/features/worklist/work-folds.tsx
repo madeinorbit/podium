@@ -3,36 +3,22 @@ import { relativeTime } from '@podium/client-core/focus'
 import {
   type IssueNavigationModel,
   issueClosedFoldAt,
-  type UnifiedIssueRow as UnifiedIssueRowView,
-  type UnifiedWorkRow,
 } from '@podium/client-core/values'
 import { canonicalIssueCloseReason, ISSUE_STATUS_LABELS } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import { observer } from '@podium/client-graph/react'
 import type { WorklistIssue } from '@podium/client-graph/worklist/issue'
-import { Archive, ChevronRight, Pin } from 'lucide-react'
+import { Archive } from 'lucide-react'
 import * as m from 'motion/react-m'
 import type { JSX, MouseEvent as ReactMouseEvent, ReactNode } from 'react'
-import { useEffect, useId, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import { PanelVisible, usePanelVisible } from '@/app/panel-visible'
-import { type RowTransitionItem, useArrivals } from '@/lib/motion'
 import { useReducedMotion } from '@/lib/use-reduced-motion'
 import { NotSavedMark } from '@/components/NotSavedMark'
 import { cn } from '@/lib/utils'
-import { closedFoldKey, snoozedFoldKey } from './fold-keys'
-import { useCollapsed } from './sidebar-common'
-import { ID_GUTTER_W } from './WorkRowShell'
-
-/** The two TAIL folds — suspended work, settled closures — in the 3a voice: a
- *  count, a rule, the chevron holding its right end. `12 closed`, not
- *  `Closed · 12`: the quantity is what you are deciding about, and leading with
- *  the label made these look like the SECTION BANDS, which own a name. */
-/*  The artboard's box is `padding:16px 13px 0` — sixteen of air above the line
- *  and NOTHING under it, so the fold sits directly on the rows it opens onto.
- *  Ours carried a 4px tail, which read as a gap the fold did not own, and the
- *  count sat a rung too faint to be the thing you are deciding about. */
-const TAIL_FOLD_CLASS =
-  'flex w-full items-center gap-[9px] px-[13px] pt-4 text-left font-mono text-[10px] tracking-[.02em] tabular-nums text-text-dim hover:text-muted-foreground focus-visible:outline focus-visible:outline-1 focus-visible:outline-border-strong focus-visible:outline-offset-[-2px]'
+import type { RowTone } from './pool-row-data'
+import { RowStatusMark, rowToneInk } from './WorkRowShell'
+import { EASE_FOLD, EASE_IN, EASE_OUT, MOTION_S } from './worklist-motion-tokens'
 
 /**
  * THE SECTION BAND (POD-1057, the 3a design).
@@ -64,150 +50,10 @@ const TAIL_FOLD_CLASS =
 export const SECTION_BAND_CLASS =
   'flex h-[35px] w-full flex-none items-center gap-[9px] border-b border-hairline-bar bg-muted px-[13px] text-left'
 
-/** The gap ABOVE a section that is not the first (POD-1078, the design's 14px).
- *  The band already said where a group STARTS; nothing said where one ended, so
- *  a project's last row and the next project's band met on a single hairline and
- *  the two groups read as one run. 14px of the column's ground parts them, and
- *  it stays well under the band's 35px so the band is still the thing you see
- *  when you scan.
- *
- *  It sits on the section, not between sections (no `gap` on the scroller): the
- *  pinned block and every project group are independently mounted and animated,
- *  and a parent gap would apply to a section that a filter had just emptied. The
- *  FIRST rendered section takes no gap — the list opens flush under the search
- *  field, the way it opens flush under the header in the design. */
-export const SECTION_GAP_CLASS = 'mt-[14px]'
-
 /** The band's label voice — mono, tracked, `--muted-foreground` because the band
  *  is a header rather than a floating caption. */
 export const SECTION_BAND_LABEL_CLASS =
   'label-mono min-w-0 flex-1 truncate tracking-[.16em] text-muted-foreground'
-
-function SectionBand({
-  label,
-  count,
-  collapsed,
-  onToggle,
-  testId,
-  countTestId,
-  icon,
-}: {
-  label: string
-  /** Rows in this section's open lane — the design's right-aligned count. */
-  count: number
-  collapsed: boolean
-  onToggle: () => void
-  testId: string
-  countTestId?: string
-  icon?: JSX.Element
-}): JSX.Element {
-  return (
-    <button
-      data-pressable
-      type="button"
-      data-testid={testId}
-      data-collapsed={collapsed ? 'true' : 'false'}
-      aria-expanded={!collapsed}
-      onClick={onToggle}
-      title={`${collapsed ? 'Expand' : 'Collapse'} ${label}`}
-      className={cn(
-        SECTION_BAND_CLASS,
-        'group/band transition-colors hover:bg-accent focus-visible:outline focus-visible:outline-1 focus-visible:outline-border-strong focus-visible:outline-offset-[-2px]',
-      )}
-    >
-      {icon}
-      {/* --muted-foreground, not --label: the band is a HEADER now, not a
-          floating caption, and the design sets it a step darker to match. */}
-      <span className={SECTION_BAND_LABEL_CLASS}>{label}</span>
-      <ChevronRight
-        size={11}
-        aria-hidden="true"
-        className={cn(
-          'flex-none text-text-faint transition-[transform,opacity] duration-150',
-          !collapsed && 'rotate-90',
-          collapsed ? 'opacity-100' : 'opacity-0 group-hover/band:opacity-100',
-        )}
-      />
-      {count > 0 && (
-        <span
-          className="shell-type-micro flex-none font-mono tabular-nums text-muted-foreground"
-          data-testid={countTestId}
-        >
-          {count}
-        </span>
-      )}
-    </button>
-  )
-}
-
-/** Project section band. `first` is gone from the signature: a band owns its own
- *  top rule wherever it lands. */
-export function ProjectGroupLabel({
-  label,
-  count,
-  collapsed,
-  onToggle,
-}: {
-  label: string
-  count: number
-  collapsed: boolean
-  onToggle: () => void
-}): JSX.Element {
-  return (
-    <SectionBand
-      label={label}
-      count={count}
-      collapsed={collapsed}
-      onToggle={onToggle}
-      testId="project-group-label"
-      countTestId="project-group-count"
-    />
-  )
-}
-
-/** PINNED section band (POD-166, R3): the one section above all project groups,
- *  and the only band with a mark — every other band is a project, so the pin is
- *  what says "this one is not". */
-export function PinnedSectionLabel({
-  count,
-  collapsed,
-  onToggle,
-}: {
-  count: number
-  collapsed: boolean
-  onToggle: () => void
-}): JSX.Element {
-  return (
-    <SectionBand
-      label="Pinned"
-      count={count}
-      collapsed={collapsed}
-      onToggle={onToggle}
-      testId="pinned-section-label"
-      icon={<Pin size={9} className="flex-none text-attention" aria-hidden="true" />}
-    />
-  )
-}
-
-export type WorkPlacement =
-  | {
-      lane: 'pinned' | 'open'
-      groupKey: string
-      groupLabel: string
-      row: UnifiedWorkRow
-    }
-  | {
-      lane: 'closed'
-      groupKey: string
-      groupLabel: string
-      row: UnifiedIssueRowView
-    }
-  | {
-      lane: 'snoozed'
-      groupKey: string
-      groupLabel: string
-      row: UnifiedIssueRowView
-    }
 
 /**
  * THE DISCLOSURE, ANIMATED (POD-1253).
@@ -241,23 +87,26 @@ export type WorkPlacement =
  * sliding over another rather than a list dissolving.
  */
 /**
- * THE CURVE, MEASURED RATHER THAN CHOSEN BY NAME. The first cut used the
- * shell's usual `[0.32, 0.72, 0, 1]` expo-out, which is right for a chip
- * arriving and wrong for six hundred pixels of column: sampled frame by frame it
- * spent 76% of the travel in the first 18% of the time and then crawled the last
- * hundred pixels, which reads as a snap followed by a drift rather than as one
- * fold. `[0.4, 0, 0.2, 1]` is the standard accelerate-and-settle arc — ~14% of
- * the travel at a fifth of the way, ~62% at half, a soft landing — and over this
- * distance that is the one that reads as a single continuous movement.
+ * THE CURVE AND THE TIMING come from `worklist-motion-tokens` (POD-2080): the
+ * standard decelerate arc, 200ms open and 160ms shut. The first cut ran 320ms
+ * and 260ms on `[0.4, 0, 0.2, 1]`, which the operator found too slow; the
+ * strong expo-out the shell uses for chips is still wrong over this distance
+ * (POD-1253 measured it spending 76% of the travel in the first 18% of the
+ * time, a snap followed by a drift).
  */
-const FOLD_EASE = [0.4, 0, 0.2, 1] as const
 const FOLD_IN = {
-  height: { duration: 0.32, ease: FOLD_EASE },
-  opacity: { duration: 0.22, delay: 0.06, ease: 'easeOut' as const },
+  height: { duration: MOTION_S.foldOpen, ease: EASE_FOLD },
+  opacity: { duration: MOTION_S.foldOpen - 0.06, delay: 0.04, ease: EASE_OUT },
+}
+/** A folder header's drag folds its rows away and back within ≈120ms, so the
+ *  header is what moves and the gesture never waits on the fold (POD-2074). */
+const FOLD_QUICK = {
+  height: { duration: MOTION_S.foldQuick, ease: EASE_FOLD },
+  opacity: { duration: 0.08, ease: EASE_OUT },
 }
 const FOLD_OUT = {
-  height: { duration: 0.26, ease: FOLD_EASE },
-  opacity: { duration: 0.12, ease: 'easeIn' as const },
+  height: { duration: MOTION_S.foldClose, ease: EASE_FOLD },
+  opacity: { duration: 0.08, ease: EASE_IN },
 }
 
 /**
@@ -276,6 +125,7 @@ export function FoldPanel({
   testId,
   dragScope,
   retain = false,
+  quick = false,
   children,
 }: {
   open: boolean
@@ -287,6 +137,8 @@ export function FoldPanel({
   dragScope?: string
   /** Keep a visited project group's DOM, with hidden readers and clocks paused. */
   retain?: boolean
+  /** Use the drag's quick fold in both directions. */
+  quick?: boolean
   children: ReactNode
 }): JSX.Element | null {
   const reduceMotion = useReducedMotion()
@@ -319,8 +171,8 @@ export function FoldPanel({
       initial={firstPaint ? false : { height: 0, opacity: 0 }}
       animate={
         open
-          ? { height: 'auto', opacity: 1, transition: reduceMotion ? { duration: 0 } : FOLD_IN }
-          : { height: 0, opacity: 0, transition: reduceMotion ? { duration: 0 } : FOLD_OUT }
+          ? { height: 'auto', opacity: 1, transition: reduceMotion ? { duration: 0 } : quick ? FOLD_QUICK : FOLD_IN }
+          : { height: 0, opacity: 0, transition: reduceMotion ? { duration: 0 } : quick ? FOLD_QUICK : FOLD_OUT }
       }
       onAnimationComplete={() => {
         // Only the CLOSING one retires the subtree; the opening animation
@@ -332,14 +184,6 @@ export function FoldPanel({
     </m.div>
   )
 }
-
-export const ROW_LAYOUT_TRANSITION = {
-  type: 'spring' as const,
-  stiffness: 105,
-  damping: 20,
-  mass: 0.95,
-}
-export type TransitionWorkRow = RowTransitionItem<WorkPlacement>
 
 /** How a folded row ended, in one dim mono word (POD-293). Merged is the common
  *  closed outcome; snooze shows the time left. Nothing here is an ask, so none
@@ -368,258 +212,110 @@ export function foldedMarker(
   return 'closed'
 }
 
-/** A folded (closed / suspended) issue on ONE dim line (POD-293): ref · title ·
- *  how it ended. Out of triage means no avatars, timers, pills, git or unread —
- *  the whole vocabulary of an open row drops away. Roughly half a live row's
- *  height, so a long archive scans in a glance. Clicking reopens the issue;
- *  the fold's own archive overlay still rides on top for closed rows. */
+/** How a folded row ended, as the calm row's status voice (POD-2074): Done
+ *  with a check, a stop with a minus, a snooze with its time left. */
+export function foldedVoice(
+  issue: IssueNavigationModel,
+  lane: 'closed' | 'snoozed',
+): { tone: RowTone; word: string } {
+  if (lane === 'snoozed') return { tone: 'idle', word: 'Snoozed' }
+  const reason = canonicalIssueCloseReason(issue.closedReason)
+  if (!reason || reason === 'done') return { tone: 'done', word: 'Done' }
+  return { tone: 'closed', word: reason === 'cancelled' ? 'Closed' : ISSUE_STATUS_LABELS[reason] }
+}
+
+/** A folded (closed / snoozed) issue in the Snoozed and Closed lanes: the live
+ *  row's two lines, with none of its live vocabulary — no fleet, git or unread.
+ *  Clicking selects the issue; a closed row's archive rides over its age. */
 function FoldedWorkRowInner({
   model,
   issue: suppliedIssue,
   lane,
-  now,
   active,
   onSelect,
   onContextMenu,
+  onArchive,
 }: {
   model?: WorklistIssue
   issue?: IssueNavigationModel
   lane: 'closed' | 'snoozed'
-  now: number
+  now?: number
   active: boolean
   onSelect: () => void
   onContextMenu?: (e: ReactMouseEvent) => void
+  /** Archive this closed row (remove it from the sidebar). */
+  onArchive?: () => void
 }): JSX.Element {
-  const issue = model ? model.issue as unknown as IssueNavigationModel : suppliedIssue!
-  // How long ago the work entered this fold — manually tucked rows date from
-  // the tuck, while never-tucked closures fall back to their finish time.
-  // Suspended rows date from their last activity (POD-293). One dim
-  // stamp so a fold still answers "when", without pulling any live-row chrome
-  // back in.
-  // Keep this source shared with grouping: Closed must not say "tucked 5m ago"
-  // while placing the row by a days-old close time.
-  const stampIso = lane === 'closed' ? model?.foldAt ?? issueClosedFoldAt(issue) : issue.updatedAt
+  const issue = model ? (model.issue as unknown as IssueNavigationModel) : suppliedIssue!
+  // Closed rows date from the fold (the tuck, else the finish) — the same
+  // stamp grouping uses; snoozed rows from their last activity (POD-293).
+  const stampIso = lane === 'closed' ? (model?.foldAt ?? issueClosedFoldAt(issue)) : issue.updatedAt
+  const voice = foldedVoice(issue, lane)
   return (
-    <button
-      data-pressable
-      type="button"
-      data-testid="folded-work-row"
-      data-lane={lane}
-      data-selected={active ? 'true' : 'false'}
-      onClick={onSelect}
-      onContextMenu={onContextMenu}
-      title={`${issueDisplayRef(issue)} · ${issue.title}`}
-      className={cn(
-        // Full-bleed like the live rows above it: same 13px inset, same 26px
-        // number gutter, one line tall, no radius of its own.
-        'group/crow flex w-full min-w-0 items-center gap-[11px] py-[3px] pr-8 pl-[13px] text-left transition-colors',
-        active ? 'bg-accent' : 'hover:bg-muted',
-      )}
-    >
-      <span
-        className="shell-type-micro flex flex-none justify-end font-mono tabular-nums text-text-faint"
-        style={{ width: ID_GUTTER_W }}
-      >
-        {issue.seq}
-      </span>
-      <span className="min-w-0 flex-1 truncate text-[12px] text-muted-foreground">
-        {issue.title}
-      </span>
-      <NotSavedMark kind="issue" id={issue.id} />
-      <span className="shell-type-micro flex flex-none items-center gap-1.5 font-mono">
-        <FoldMarker issue={issue} lane={lane} />
-        {stampIso && <FoldAge stamp={stampIso} />}
-      </span>
-    </button>
-  )
-}
-
-/** Project-local disclosure for actively deferred work. Disclosure changes
- * reuse the row-arrival one-shot: collapsing prunes the visible keys, so each
- * later expansion gets one fresh arrival without inventing another motion. */
-export function SnoozedIssueFold<T extends RowTransitionItem<unknown>>({
-  groupKey,
-  rows,
-  renderRow,
-  settleTransition,
-  renderRows,
-  revealKey,
-}: {
-  groupKey: string
-  rows: T[]
-  renderRow: (row: T, animate: boolean) => JSX.Element
-  settleTransition: (key: string, placement: string) => void
-  renderRows?: (rows: T[], render: (row: T) => JSX.Element) => ReactNode
-  revealKey?: string | null
-}): JSX.Element {
-  const [collapsed, toggle] = useCollapsed(snoozedFoldKey(groupKey), true)
-  useEffect(() => {
-    if (revealKey && collapsed) toggle()
-  }, [revealKey])
-  const contentId = useId()
-  const visibleKeys = collapsed ? [] : rows.map((row) => row.key)
-  const { arrivals, settle } = useArrivals(visibleKeys)
-  const render = (row: T) => {
-    const arriving = arrivals.has(row.key) || row.phase === 'entering'
-    return (
-      <div
-        key={row.key}
-        className={cn('min-w-0', arriving && 'row-arrive')}
-        data-testid="snoozed-fold-row"
-        onAnimationEnd={
-          arriving
-            ? (event) => {
-                if (event.animationName !== 'podium-arrive-wash') return
-                settle(row.key)
-                settleTransition(row.key, row.placement)
-              }
-            : undefined
-        }
-      >
-        {renderRow(row, false)}
-      </div>
-    )
-  }
-  return (
-    <div className="min-w-0" data-testid="snoozed-issue-fold">
+    <div className="group/closed relative min-w-0 px-2 py-px" data-testid={lane === 'closed' ? 'closed-fold-row' : 'snoozed-fold-row'}>
       <button
         data-pressable
         type="button"
-        className={TAIL_FOLD_CLASS}
-        aria-expanded={!collapsed}
-        aria-controls={contentId}
-        onClick={toggle}
-        data-testid="snoozed-fold-toggle"
+        data-testid="folded-work-row"
+        data-lane={lane}
+        data-selected={active ? 'true' : 'false'}
+        onClick={onSelect}
+        onContextMenu={onContextMenu}
+        title={`${issueDisplayRef(issue)} · ${issue.title}`}
+        className={cn(
+          'shell-work-row flex w-full min-w-0 flex-col gap-1 text-left leading-[normal]',
+          !active && 'hover:bg-[var(--work-row-hover)]',
+        )}
       >
-        <span>{rows.length} snoozed</span>
-        <span className="h-px min-w-4 flex-1 bg-hairline-soft" aria-hidden="true" />
-        <ChevronRight
-          size={13}
-          className={cn('flex-none transition-transform duration-200', !collapsed && 'rotate-90')}
-          aria-hidden="true"
-        />
+        <span className="flex w-full min-w-0 items-center gap-2">
+          <span
+            className={cn(
+              'shell-work-row-title min-w-0 flex-1 truncate',
+              active ? 'font-semibold text-text-strong' : lane === 'closed' ? 'text-text-dim' : 'text-foreground',
+            )}
+          >
+            {issue.title}
+          </span>
+          <NotSavedMark kind="issue" id={issue.id} />
+          <span
+            className={cn(
+              'work-row-meta flex-none font-mono tabular-nums text-text-faint',
+              onArchive && 'group-hover/closed:invisible group-focus-within/closed:invisible',
+            )}
+          >
+            {stampIso && <FoldAge stamp={stampIso} />}
+          </span>
+        </span>
+        <span className="shell-work-row-status flex w-full min-w-0 items-center gap-[7px]" data-tone={voice.tone}>
+          <RowStatusMark tone={voice.tone} />
+          <span className="flex min-w-0 flex-1 items-center gap-[5px] overflow-hidden whitespace-nowrap">
+            <span style={{ color: rowToneInk(voice.tone) }}>{voice.word}</span>
+            <FoldMarker issue={issue} lane={lane} />
+          </span>
+          <span className="work-row-ref flex-none font-mono tabular-nums text-text-faint">
+            <span className="sr-only">{issueDisplayRef(issue)}</span>
+            <span aria-hidden="true">#{issue.seq}</span>
+          </span>
+        </span>
       </button>
-      <FoldPanel open={!collapsed} id={contentId} testId="snoozed-fold-rows">
-        <div className="min-w-0">{renderRows ? renderRows(rows, render) : rows.map(render)}</div>
-      </FoldPanel>
-    </div>
-  )
-}
-
-/** Project-local disclosure for settled top-level closures (POD-183). Rows are
- * derived newest-tucked-first; Archive is the explicit removal gesture. */
-export function ClosedIssueFold<T>({
-  groupKey,
-  rows,
-  renderRow,
-  issueForRow,
-  onArchive,
-  renderRows,
-  revealKey,
-}: {
-  groupKey: string
-  rows: T[]
-  renderRow: (row: T) => JSX.Element
-  issueForRow: (row: T) => UnifiedIssueRowView
-  onArchive: (id: string) => void
-  renderRows?: (rows: T[], render: (row: T) => JSX.Element) => ReactNode
-  revealKey?: string | null
-}): JSX.Element {
-  const [collapsed, toggle] = useCollapsed(closedFoldKey(groupKey), true)
-  useEffect(() => {
-    if (revealKey && collapsed) toggle()
-  }, [revealKey])
-  const contentId = useId()
-  // NO IN-FLIGHT ARCHIVE SET (POD-781). This fold used to take one, to disable
-  // the buttons and fade their icons while the server was asked. Archiving is
-  // outboxed now: the row is gone from `rows` on the press, so a "still
-  // archiving" state has nobody to describe — and a control whose only job was
-  // to look busy during a wait that no longer happens is not a control.
-  const archiveAll = (event: ReactMouseEvent): void => {
-    event.preventDefault()
-    event.stopPropagation()
-    for (const row of rows) onArchive(issueForRow(row).issue.id)
-  }
-  const render = (row: T) => {
-    const issueRow = issueForRow(row)
-    return (
-      <div
-        key={issueRow.issue.id}
-        className="group/closed relative min-w-0"
-        data-testid="closed-fold-row"
-      >
-        {renderRow(row)}
+      {onArchive && (
         <button
           data-pressable
           type="button"
           data-hover-reveal
-          className="absolute top-1/2 right-2.5 z-20 flex size-5 -translate-y-1/2 items-center justify-center rounded-[5px] border border-hairline-bar bg-chip text-label opacity-0 shadow-sm transition-[color,opacity,background-color] group-hover/closed:opacity-100 group-focus-within/closed:opacity-100 hover:bg-accent hover:text-foreground focus-visible:opacity-100 focus-visible:outline focus-visible:outline-1 focus-visible:outline-border-strong"
-          aria-label={`Archive ${issueDisplayRef(issueRow.issue)}`}
+          className="absolute top-[7px] right-[18px] z-20 flex size-5 items-center justify-center rounded-[5px] text-text-dim opacity-0 transition-[color,opacity,background-color] group-hover/closed:opacity-100 group-focus-within/closed:opacity-100 hover:bg-accent hover:text-foreground focus-visible:opacity-100 focus-visible:outline focus-visible:outline-1 focus-visible:outline-border-strong"
+          aria-label={`Archive ${issueDisplayRef(issue)}`}
           title="Archive — remove from sidebar"
           data-testid="closed-issue-archive"
           onClick={(event) => {
             event.preventDefault()
             event.stopPropagation()
-            onArchive(issueRow.issue.id)
+            onArchive()
           }}
         >
           <Archive size={11} aria-hidden="true" />
         </button>
-      </div>
-    )
-  }
-  return (
-    <div className="min-w-0" data-testid="closed-issue-fold">
-      <button
-        data-pressable
-        type="button"
-        className={TAIL_FOLD_CLASS}
-        aria-expanded={!collapsed}
-        aria-controls={contentId}
-        onClick={toggle}
-        data-testid="closed-fold-toggle"
-      >
-        <span>{rows.length} closed</span>
-        <span className="h-px min-w-4 flex-1 bg-hairline-soft" aria-hidden="true" />
-        <ChevronRight
-          size={13}
-          className={cn('flex-none transition-transform duration-200', !collapsed && 'rotate-90')}
-          aria-hidden="true"
-        />
-      </button>
-      <FoldPanel open={!collapsed} id={contentId} testId="closed-fold-rows">
-        <div className="min-w-0">{renderRows ? renderRows(rows, render) : rows.map(render)}</div>
-        {/* THE BULK GESTURE SITS AFTER THE THING IT ACTS ON (POD-1458). The
-         * chip used to ride the title row, where the fold's own count and
-         * chevron live: a destructive press crowding the one control whose job
-         * is to open and shut the list, and pressable while that list was still
-         * shut. It is a FOOTER now — last in the reading order, right-aligned
-         * to the same inset as the per-row archive buttons it generalises, and
-         * inside the panel, so it exists only while the rows it would take are
-         * on screen.
-         *
-         * AND IT IS RESIDENT, not hover-revealed like the per-row archives. Ten
-         * icons that only appear under the cursor keep the column quiet; ONE
-         * chip at the foot of an opened list is the list's last line, not
-         * noise. Revealing it would have meant a hover group around the whole
-         * fold, and `index.css` reveals EVERY `data-hover-reveal` under a
-         * focused group — tabbing into one row would have lit all ten row
-         * icons. So it stays dim and borderless until it is wanted. */}
-        <div className="flex justify-end px-2.5 pt-1.5 pb-1">
-          <button
-            data-pressable
-            type="button"
-            aria-label={`Archive all ${rows.length} closed issues`}
-            title="Archive all closed issues"
-            onClick={archiveAll}
-            className="shell-type-micro flex h-5 items-center gap-1 rounded-[5px] border border-transparent px-1.5 font-mono font-medium tracking-[.02em] text-text-dim transition-[color,border-color,background-color] duration-100 hover:border-hairline-bar hover:bg-accent hover:text-foreground focus-visible:outline focus-visible:outline-1 focus-visible:outline-border-strong"
-            data-testid="closed-issues-archive-all"
-          >
-            <Archive size={10} aria-hidden="true" />
-            <span>Archive all</span>
-          </button>
-        </div>
-      </FoldPanel>
+      )}
     </div>
   )
 }
@@ -627,10 +323,15 @@ export function ClosedIssueFold<T>({
 export const FoldedWorkRow = FoldedWorkRowInner
 export const WorklistFoldedRow = observer(FoldedWorkRowInner)
 
+/** The sub-fact after the folded word: `· merged`, `· 3h left`. */
 const FoldMarker = observer(function FoldMarker({ issue, lane }: { issue: IssueNavigationModel; lane: 'closed' | 'snoozed' }) {
   const marker = foldedMarker(issue, lane, useClock(60_000, lane === 'snoozed'))
-  return <span className={cn(marker === 'merged' ? 'text-info/70' : 'text-text-faint')}>{marker}</span>
+  const sub =
+    lane === 'snoozed'
+      ? marker === 'snoozed' ? null : `${marker.replace('snoozed ', '')} left`
+      : marker === 'merged' ? 'merged' : null
+  return sub ? <span className="text-text-faint">· {sub}</span> : null
 })
 function FoldAge({ stamp }: { stamp: string }) {
-  return <span className="tabular-nums text-text-dim">{relativeTime(stamp, useAgeNow(stamp))}</span>
+  return <span>{relativeTime(stamp, useAgeNow(stamp)).replace(/ ago$/, '').replace('just now', 'now')}</span>
 }

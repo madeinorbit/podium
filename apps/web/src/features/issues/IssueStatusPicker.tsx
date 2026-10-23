@@ -30,7 +30,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { cn } from '@/lib/utils'
-import { StatusGlyph } from './issue-glyphs'
+import { CalmStatusMark, StatusGlyph } from './issue-glyphs'
 
 // Latched per page, so the measurement/revert arm uses the same product build.
 const lazyMenus =
@@ -78,11 +78,14 @@ export const IssueStatusPicker = observer(function IssueStatusPicker({
   size = 12,
   align = 'start',
   className,
+  calm = false,
   onPick,
 }: {
   /** Anything carrying the two fields the status projection reads. */
   issue: IssueStatusFields
   size?: number
+  /** Draw the sidebar's calm dot instead of the progress circle. */
+  calm?: boolean
   align?: 'start' | 'center' | 'end'
   className?: string
   /** The picked entry's encoded value — parse with `parseIssueStatusValue`. */
@@ -116,7 +119,11 @@ export const IssueStatusPicker = observer(function IssueStatusPicker({
         className={cn('grid flex-none place-items-center', className)}
         title={`${detail} · handled by the shipping service`}
       >
-        <StatusGlyph status={status} size={size} />
+        {calm ? (
+          <CalmStatusMark status={status} size={size} />
+        ) : (
+          <StatusGlyph status={status} size={size} />
+        )}
       </span>
     )
   }
@@ -200,7 +207,11 @@ export const IssueStatusPicker = observer(function IssueStatusPicker({
         )
       }}
     >
-      <StatusGlyph status={status} size={size} />
+      {calm ? (
+        <CalmStatusMark status={status} size={size} />
+      ) : (
+        <StatusGlyph status={status} size={size} />
+      )}
     </span>
   )
   return (

@@ -12,7 +12,7 @@ import '@/test-support/mock-pool-fixture'
 //  - POD-43 closed weeks ago and was never tucked. The finished-grace backstop
 //    folds it whether anyone tucked it or not, so clearing a tuck it does not
 //    have would move nothing — the item says so instead of lying.
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SidebarUnified } from './SidebarUnified'
 
@@ -162,7 +162,7 @@ vi.mock('@/lib/hooks/use-session-guard', () => ({
 
 /** Open the Closed fold and hand back the folded row carrying `title`. */
 async function foldedRow(title: string): Promise<HTMLElement> {
-  await act(async () => { fireEvent.click(screen.getByTestId('closed-fold-toggle')) })
+  await act(async () => { fireEvent.click(screen.getByTestId('work-lane-closed')) })
   const row = screen.getByText(title).closest('[data-testid=folded-work-row]')
   if (!(row instanceof HTMLElement)) throw new Error(`no folded row for "${title}"`)
   return row
@@ -181,9 +181,9 @@ describe('bring a tucked row back out of the fold (POD-1188)', () => {
 
     // A right-click must not also select the row: the menu is the gesture.
     fireEvent.contextMenu(row)
-    expect(screen.getByRole('menu', { name: 'Folded task actions' })).toBeTruthy()
+    const menu = screen.getByRole('menu', { name: 'Folded task actions' })
     // The panel names the row it acts on, like every other menu in this column.
-    expect(screen.getByText('POD-42')).toBeTruthy()
+    expect(within(menu).getByText('POD-42')).toBeTruthy()
 
     await act(async () => { fireEvent.click(screen.getByTestId('bring-back')) })
 
@@ -210,7 +210,7 @@ describe('bring a tucked row back out of the fold (POD-1188)', () => {
 
   it('does not open on a SUSPENDED row, whose inverse is Unsnooze', async () => {
     render(<SidebarUnified />)
-    await act(async () => { fireEvent.click(screen.getByTestId('snoozed-fold-toggle')) })
+    await act(async () => { fireEvent.click(screen.getByTestId('work-lane-snoozed')) })
     const row = screen.getByText('Suspended work').closest('[data-testid=folded-work-row]')
     expect(row).toBeTruthy()
     expect((row as HTMLElement).getAttribute('data-lane')).toBe('snoozed')

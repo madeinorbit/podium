@@ -6,7 +6,7 @@ import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 import type { RoutedUiState } from '@podium/client-core/ui-state'
 import { normalizeSettings } from '@podium/runtime'
 import { act, cleanup, fireEvent, render } from '@testing-library/react'
-import { useMemo, useSyncExternalStore } from 'react'
+import { useMemo, useState, useSyncExternalStore } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { insideReader, measureWork } from '../../../../../tests/worklist/harness/src/work-meter'
 
@@ -40,7 +40,18 @@ vi.mock('@/lib/use-harness-descriptors', () => ({
 }))
 
 import { SettingsView } from './SettingsView'
-import { ManageProjectsButton } from '../worklist/ManageProjectsDialog'
+import { ManageProjectsDialog } from '../worklist/ManageProjectsDialog'
+
+/** The dialog behind a plain opener, as the sidebar's folder ⋯ menu opens it. */
+function ManageProjectsButton() {
+  const [open, setOpen] = useState(false)
+  return (
+    <>
+      <button type="button" aria-label="Manage projects" onClick={() => setOpen(true)} />
+      <ManageProjectsDialog open={open} onOpenChange={setOpen} />
+    </>
+  )
+}
 
 afterEach(() => {
   cleanup()

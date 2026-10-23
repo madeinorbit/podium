@@ -1,16 +1,16 @@
 import type { IssueId, MachineId } from '@podium/model'
-import { asIssueId } from '@podium/model'
+import { asIssueId, machinePathBasename } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
-import { ChevronRight, ListTree } from 'lucide-react'
+import { ListTree } from 'lucide-react'
 import type { JSX } from 'react'
 import { useEffect, useRef, useState } from 'react'
-import { useExplorerCrumbs } from './explorer-pool-data'
 import { cn } from '@/lib/utils'
 import { IssuePanelView } from '../IssuePanelView'
+import { IssueViewsContext, useIssueViews } from '../issue-page/opening-context'
 import { useIssueExplorer } from './explorer-context'
 import { crumbTrail } from './explorer-nav'
+import { useExplorerCrumbs } from './explorer-pool-data'
 import { IssueExplorerList } from './IssueExplorerList'
-import { IssueViewsContext, useIssueViews } from '../issue-page/opening-context'
 import { ExplorerViewsContext, useExplorerViews } from './opening-context'
 
 /** How long a level takes to come in. Matches the shell's one-shot morph band
@@ -133,7 +133,13 @@ function IssueExplorerBody({
 export function IssueExplorerCrumbs(): JSX.Element {
   const { stack, popTo } = useIssueExplorer()
   const trail = crumbTrail(stack)
-  const issues = useExplorerCrumbs(trail.flatMap(crumb => crumb.kind === 'issue' ? [crumb.id] : []))
+  const issues = useExplorerCrumbs(
+    trail.flatMap((crumb) => (crumb.kind === 'issue' ? [crumb.id] : [])),
+  )
+  // The root reads as the PROJECT once a task is open (POD-2077: "Pipp /
+  // PIPP-150"): level 0 is every task in that repo, so its name is the honest
+  // label for the step back. With no task open it stays "Tasks".
+  const project = issues[0]?.repoPath ? machinePathBasename(issues[0].repoPath) : ''
   return (
     <nav
       className="flex min-w-0 flex-1 items-center gap-px"
@@ -143,7 +149,12 @@ export function IssueExplorerCrumbs(): JSX.Element {
       {trail.map((crumb, index) => {
         const last = index === trail.length - 1
         const sep = index > 0 && (
-          <ChevronRight size={11} className="flex-none text-text-faint" aria-hidden="true" />
+          <span
+            className="flex-none px-0.5 font-mono text-[11px] text-text-faint/70"
+            aria-hidden="true"
+          >
+            /
+          </span>
         )
         if (crumb.kind === 'gap') {
           return (
@@ -156,7 +167,8 @@ export function IssueExplorerCrumbs(): JSX.Element {
           )
         }
         const issue = crumb.kind === 'issue' ? issues.find((i) => i.id === crumb.id) : undefined
-        const label = crumb.kind === 'root' ? 'Tasks' : issue ? issueDisplayRef(issue) : crumb.id
+        const label =
+          crumb.kind === 'root' ? project || 'Tasks' : issue ? issueDisplayRef(issue) : crumb.id
         return (
           <span key={crumb.kind === 'root' ? 'root' : crumb.id} className="contents">
             {sep}
@@ -165,6 +177,9 @@ export function IssueExplorerCrumbs(): JSX.Element {
               type="button"
               disabled={last}
               aria-current={last ? 'page' : undefined}
+              aria-label={
+                crumb.kind === 'root' ? `All tasks${project ? ` in ${project}` : ''}` : undefined
+              }
               title={
                 crumb.kind === 'root'
                   ? 'All tasks'
@@ -174,13 +189,13 @@ export function IssueExplorerCrumbs(): JSX.Element {
               }
               onClick={() => popTo(crumb.depth)}
               className={cn(
-                'flex h-6 min-w-0 flex-none items-center gap-1.5 rounded-md px-1.5 font-mono text-[10.5px] whitespace-nowrap',
+                'flex h-6 min-w-0 flex-none items-center gap-1.5 rounded-md px-1 font-mono text-[11px] whitespace-nowrap',
                 last
-                  ? 'font-medium text-secondary-foreground'
+                  ? 'text-muted-foreground'
                   : 'text-text-dim hover:bg-accent/60 hover:text-foreground',
               )}
             >
-              {crumb.kind === 'root' && <ListTree size={12} aria-hidden="true" />}
+              {crumb.kind === 'root' && !project && <ListTree size={12} aria-hidden="true" />}
               {label}
               {issue?.archived ? ' · archived' : ''}
             </button>

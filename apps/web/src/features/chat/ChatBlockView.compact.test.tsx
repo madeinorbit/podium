@@ -88,8 +88,8 @@ describe('compact chat blocks (POD-164)', () => {
 
   it('keeps full-size rendering untouched apart from the clock, which is now in the foot', () => {
     mount(answer('Done.\n→ next: nothing'), { compact: false })
-    const label = host.querySelector('.transcript-answer-label')
-    expect(label?.textContent).toContain('Answer')
+    // POD-2076: the stage answer carries no eyebrow; ink alone sets it apart.
+    expect(host.querySelector('.transcript-answer-label')).toBeNull()
     // POD-701 put a clock on both widths; POD-993 moved it under the message.
     const foot = host.querySelector('.msg-foot')
     expect(foot?.getAttribute('data-side')).toBe('left')

@@ -1,11 +1,9 @@
-import { relativeTime } from '@podium/client-core/focus'
 import type { Store } from '@podium/client-core/react'
 import type { SessionView } from '@podium/client-core/session-values'
 import { shallowEqual } from '@podium/client-core/shallow-equal'
 import {
   type IssueNavigationModel,
   isSessionWorking,
-  issueClosedFoldAt,
   planReorderKeys,
 } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph'
@@ -23,11 +21,10 @@ import type { SidebarSections, SidebarState } from '@podium/client-graph/worklis
 import { sidebarView } from '@podium/client-graph/worklist/sidebar'
 import type { SidebarRowValues } from '@podium/client-graph/worklist/sidebar-row'
 import { worklistView } from '@podium/client-graph/worklist/view-model'
-import { asIssueId, machinePathKey, machinePathsEqual, type SessionId } from '@podium/model/browser'
+import { machinePathKey, machinePathsEqual, type SessionId } from '@podium/model/browser'
 import * as m from 'motion/react-m'
 import {
   type AnimationEvent,
-  type CSSProperties,
   isValidElement,
   type JSX,
   type MouseEvent,
@@ -48,21 +45,20 @@ import { useRuntimeSelector } from '@/app/store'
 import { useWorklistPool, useWorklistPoolProjection } from '@/app/store-worklist-pool'
 import { MobilePromoCard } from '@/features/mobile-handoff/MobilePromoCard'
 import { PHONE_APP_IN_STORES } from '@/features/mobile-handoff/mobile-handoff'
-import { issueColorHex } from '@/lib/issueColors'
 import { type RowTransitionItem, type RowTransitionTarget, useRowTransitions } from '@/lib/motion'
 import type { ContextMenuAnchor } from '@/lib/session-context-menu'
 import { useReducedMotion } from '@/lib/use-reduced-motion'
 import { cn } from '@/lib/utils'
 import { FoldedRowMenu } from './FoldedRowMenu'
 import { PINNED_FOLD_KEY, projectFoldKey } from './fold-keys'
-import { ManageProjectsButton } from './ManageProjectsDialog'
-import { AddRepositoryButton, NewTaskRow, StartFirstTaskRow } from './new-task-row'
+import { ManageProjectsDialog } from './ManageProjectsDialog'
+import { useNewTask } from './new-task'
+import { NewTaskDraftRow, NewTaskRow, type SidebarDraft } from './new-task-row'
 import {
   navigationIssue,
   poolIssueDisplay,
   poolIssueRow,
   poolSessionPaint,
-  poolWorktreeRow,
   sidebarExitSnapshot,
   worklistIssueHaystack,
 } from './pool-row-data'
@@ -75,17 +71,15 @@ import { useRowDrag } from './useRowDrag'
 import { WorkListEmpty } from './WorkListEmpty'
 import { normalizeWorkQuery } from './work-filter'
 import {
-  ClosedIssueFold,
-  FoldedWorkRow,
-  FoldPanel,
-  foldedMarker,
-  PinnedSectionLabel,
-  ProjectGroupLabel,
-  ROW_LAYOUT_TRANSITION,
-  SECTION_GAP_CLASS,
-  SnoozedIssueFold,
-  WorklistFoldedRow,
-} from './work-folds'
+  AddRepositoryFooter,
+  ClosedLaneHeader,
+  ProjectFolderHeader,
+  placeInFullOrder,
+  useProjectOrderWriter,
+  type WorkLane,
+  WorkLaneSwitch,
+} from './work-folders'
+import { FoldedWorkRow, FoldPanel, WorklistFoldedRow } from './work-folds'
 import {
   useWorkFilterState,
   WorkFilterEmpty,
@@ -93,6 +87,13 @@ import {
   WorkSearchField,
 } from './work-search'
 import { WorklistMotion } from './worklist-motion'
+import {
+  cssEase,
+  EASE_IN,
+  EASE_OUT,
+  MOTION_S,
+  ROW_LAYOUT_TRANSITION,
+} from './worklist-motion-tokens'
 import { WorklistWindow } from './worklist-window'
 
 type Slot = {
@@ -172,7 +173,15 @@ const PoolEviction = observer(function PoolEviction({ pool }: { pool: MobxPool }
   return null
 })
 
-export const PoolSidebarUnified = observer(function PoolSidebarUnified(): JSX.Element {
+/** The lane a slot belongs to, as the top switch names it. Pinned rows are open. */
+const laneOf = (slot: Slot): WorkLane => (slot.lane === 'pinned' ? 'open' : slot.lane)
+
+export const PoolSidebarUnified = observer(function PoolSidebarUnified({
+  draft = null,
+}: {
+  /** The New task overlay's task in progress, drawn in the folder it lands in. */
+  draft?: SidebarDraft | null
+} = {}): JSX.Element {
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const pool = useWorklistPool()
   const state = usePoolLayoutState()
@@ -180,47 +189,68 @@ export const PoolSidebarUnified = observer(function PoolSidebarUnified(): JSX.El
   useEffect(() => {
     model?.setLayout(state)
   }, [model, state])
+  const [lane, setLane] = useState<WorkLane>('open')
+  // A lane change swaps the whole list in one commit; the list fades up into
+  // place over 140ms so the swap reads as the switch's answer (POD-2080). One
+  // compositor animation on the scroller, never per row.
+  const reduceMotion = useReducedMotion()
+  const shownLane = useRef(lane)
+  useLayoutEffect(() => {
+    if (shownLane.current === lane) return
+    shownLane.current = lane
+    const list = scrollRef.current
+    if (reduceMotion || typeof list?.animate !== 'function') return
+    list.animate(
+      [
+        { opacity: 0, transform: 'translateY(3px)' },
+        { opacity: 1, transform: 'none' },
+      ],
+      { duration: MOTION_S.lane * 1000, easing: cssEase(EASE_OUT) },
+    )
+  }, [lane, reduceMotion])
   const input = useWorkFilterState()
   const needle = normalizeWorkQuery(input.deferredQuery)
   const count = useMemo(
     () =>
       computed(
         () => {
-          if (!pool) return { total: 0, hits: 0 }
-          const live = slotsFor(sidebarView(pool).sections(state)).filter(
-            (slot) => slot.value.lane === 'pinned' || slot.value.lane === 'open',
-          )
+          const counts: Record<WorkLane, number> = { open: 0, snoozed: 0, closed: 0 }
+          if (!pool) return { total: 0, hits: 0, counts }
+          const slots = slotsFor(sidebarView(pool).sections(state))
+          for (const slot of slots) if (slot.value.kind === 'issue') counts[laneOf(slot.value)]++
+          const live = slots.filter((slot) => laneOf(slot.value) === lane)
           return {
             total: live.length,
             hits: needle
               ? live.filter((slot) => matches(pool, slot.value, needle)).length
               : live.length,
+            counts,
           }
         },
         { equals: compareStructural },
       ),
-    [pool, state, needle],
+    [pool, state, needle, lane],
   ).get()
   return (
     <WorklistProvider model={model}>
       <NewTaskRow />
-      <WorkSearchField
-        filter={{ ...input, ...count }}
-        trailing={
-          <div className="flex flex-none items-center gap-1">
-            <ManageProjectsButton />
-            <AddRepositoryButton />
-          </div>
-        }
-      />
+      <WorkSearchField filter={{ ...input, total: count.total, hits: count.hits }} />
+      <WorkLaneSwitch lane={lane} counts={count.counts} onChange={setLane} />
       <div
         ref={scrollRef}
         data-testid="work-scroll"
         style={{ overflowAnchor: 'none' }}
-        className="scroll-none flex min-h-0 flex-1 flex-col overflow-x-clip overflow-y-auto pb-2.5"
+        className="work-scroll scroll-none flex min-h-0 flex-1 flex-col overflow-x-clip overflow-y-auto border-t border-hairline-bar pb-2.5"
       >
-        <PoolWorkSections query={input.deferredQuery} scrollRef={scrollRef} />
+        <PoolWorkSections
+          query={input.deferredQuery}
+          scrollRef={scrollRef}
+          lane={lane}
+          onLaneChange={setLane}
+          draft={draft}
+        />
       </div>
+      <AddRepositoryFooter />
       {PHONE_APP_IN_STORES && <MobilePromoCard />}
     </WorklistProvider>
   )
@@ -229,18 +259,32 @@ export const PoolSidebarUnified = observer(function PoolSidebarUnified(): JSX.El
 export function PoolWorkSections({
   query = '',
   scrollRef,
+  lane = 'open',
+  onLaneChange,
+  draft = null,
 }: {
   query?: string
   scrollRef?: RefObject<HTMLElement | null>
+  draft?: SidebarDraft | null
+  /** Which lane of the top switch is showing. */
+  lane?: WorkLane
+  /** Reveal a selection that lives in another lane. */
+  onLaneChange?: (lane: WorkLane) => void
 }): JSX.Element | null {
   const pool = useWorklistPool()
   const fallbackScroll = useRef<HTMLElement | null>(null)
   return pool ? (
-    <ObservedPoolWorkSections pool={pool} query={query} scrollRef={scrollRef ?? fallbackScroll} />
+    <ObservedPoolWorkSections
+      pool={pool}
+      query={query}
+      scrollRef={scrollRef ?? fallbackScroll}
+      lane={lane}
+      onLaneChange={onLaneChange}
+      draft={draft}
+    />
   ) : null
 }
 
-const ObservedClosedIssueFold = observer(ClosedIssueFold<Item>)
 const MemoFoldedWorkRow = memo(FoldedWorkRow)
 const stampPaint = (node: ReactNode) =>
   isValidElement<{ title?: string; children?: ReactNode }>(node)
@@ -257,14 +301,23 @@ const MemoPanelRow = memo(
     compareStructural(poolSessionPaint(a.session), poolSessionPaint(b.session)),
 )
 
+/** A folder drag in flight: which header, and the order it is showing. */
+type FolderDrag = { key: string; start: readonly string[]; order: readonly string[] }
+
 const ObservedPoolWorkSections = observer(function ObservedPoolWorkSections({
   pool,
   query,
   scrollRef,
+  lane,
+  onLaneChange,
+  draft,
 }: {
   pool: MobxPool
   query: string
   scrollRef: RefObject<HTMLElement | null>
+  lane: WorkLane
+  onLaneChange?: (lane: WorkLane) => void
+  draft: SidebarDraft | null
 }): JSX.Element {
   const state = usePoolLayoutState()
   const actions = usePoolUnifiedWork(pool)
@@ -293,6 +346,9 @@ const ObservedPoolWorkSections = observer(function ObservedPoolWorkSections({
   const layoutGroupId = useId()
   const [quickArchive, setQuickArchive] = useState<ReadonlySet<string>>(() => new Set())
   const [menu, setMenu] = useState<{ id: string; anchor: ContextMenuAnchor } | null>(null)
+  const [manageOpen, setManageOpen] = useState(false)
+  const { startNewTask } = useNewTask()
+  const writeOrder = useProjectOrderWriter()
   const keys = [PINNED_FOLD_KEY, ...sections.bands.map((band) => band.foldKey)]
   const [collapsed, toggle] = useCollapsedKeys(keys)
   const needle = normalizeWorkQuery(query)
@@ -308,10 +364,12 @@ const ObservedPoolWorkSections = observer(function ObservedPoolWorkSections({
     const selected = slotById.get(selectedId)
     if (!selected) return
     revealedSelection.current = selectedId
+    // Selection is the reveal request: switch to its lane and open its folder;
+    // folding the current selection afterwards stays folded.
+    if (laneOf(selected) !== lane) onLaneChange?.(laneOf(selected))
     const key = selected.lane === 'pinned' ? PINNED_FOLD_KEY : projectFoldKey(selected.groupKey)
     if (collapsed.has(key)) toggle(key)
-    // Selection is the reveal request; folding the current selection stays folded.
-  }, [selectedId, slotById, collapsed, toggle])
+  }, [selectedId, slotById, collapsed, toggle, lane, onLaneChange])
   const search = useMemo(
     () =>
       computed(
@@ -319,15 +377,13 @@ const ObservedPoolWorkSections = observer(function ObservedPoolWorkSections({
           new Set(
             targets
               .filter(
-                (target) =>
-                  (target.value.lane === 'pinned' || target.value.lane === 'open') &&
-                  matches(pool, target.value, needle),
+                (target) => laneOf(target.value) === lane && matches(pool, target.value, needle),
               )
               .map((target) => target.key),
           ),
         { equals: compareStructural },
       ),
-    [pool, targets, needle],
+    [pool, targets, needle, lane],
   ).get()
   const issue = (id: string) => {
     const value = sidebarView(pool).row(id)
@@ -379,20 +435,52 @@ const ObservedPoolWorkSections = observer(function ObservedPoolWorkSections({
     setQuickArchive((current) => new Set(current).add(id))
     void actions.archiveIssue(id).catch(() => forgetQuickArchive([id]))
   }
-  const signature = targets.map((target) => `${target.key}:${target.placement}`).join('|')
+  // Rows take a stable archive handle, or every row would re-render with the list.
+  const archiveRef = useRef(archive)
+  archiveRef.current = archive
+  const archiveRow = useCallback((id: string) => archiveRef.current(id), [])
+
+  // ---- Folder order: the saved order, a drag's live order, or a write in flight.
+  const naturalOrder = sections.bands.map((band) => band.key)
+  const [folderDrag, setFolderDrag] = useState<FolderDrag | null>(null)
+  // A folder drag folds EVERY folder's rows away (≈140ms) so only headers
+  // move, and the drop restores them on the same quick fold.
+  const [quickFold, setQuickFold] = useState(false)
+  const [pendingOrder, setPendingOrder] = useState<readonly string[] | null>(null)
+  const naturalSignature = naturalOrder.join('\u0000')
+  useEffect(() => {
+    if (!pendingOrder) return
+    // The write landed (or another device moved them): the saved order rules.
+    if (pendingOrder.join('\u0000') === naturalSignature) {
+      setPendingOrder(null)
+      return
+    }
+    const expire = window.setTimeout(() => setPendingOrder(null), 4000)
+    return () => window.clearTimeout(expire)
+  }, [pendingOrder, naturalSignature])
+
+  // Keyed on the RENDERED rows, not the targets: a removed row is retained
+  // through its exit, and the neighbours only slide into its place when it is
+  // finally dropped. Keyed on targets, that drop changed no layoutDependency
+  // and the rows below jumped into the hole (POD-2080).
+  const signature = `${items.map((item) => `${item.key}:${item.placement}`).join('|')}#${(folderDrag?.order ?? pendingOrder ?? naturalOrder).join('|')}`
   const revision = useRef({ signature: '', value: 0 })
   if (!dragging && revision.current.signature !== signature)
     revision.current = { signature, value: revision.current.value + 1 }
-  const shortcutIds = targets
-    .filter(
-      (target) =>
-        target.value.kind === 'issue' &&
-        (target.value.lane === 'pinned'
-          ? !collapsed.has(PINNED_FOLD_KEY)
-          : target.value.lane === 'open' && !collapsed.has(projectFoldKey(target.value.groupKey))),
-    )
-    .slice(0, MAX_ROW_SHORTCUTS)
-    .map((target) => target.value.id)
+  const shortcutIds =
+    lane === 'open'
+      ? targets
+          .filter(
+            (target) =>
+              target.value.kind === 'issue' &&
+              (target.value.lane === 'pinned'
+                ? !collapsed.has(PINNED_FOLD_KEY)
+                : target.value.lane === 'open' &&
+                  !collapsed.has(projectFoldKey(target.value.groupKey))),
+          )
+          .slice(0, MAX_ROW_SHORTCUTS)
+          .map((target) => target.value.id)
+      : []
   const { numbers } = useRowShortcuts(
     shortcutIds.map((id) => ({
       id,
@@ -420,67 +508,142 @@ const ObservedPoolWorkSections = observer(function ObservedPoolWorkSections({
       discardExit={discardExit}
       onGrip={onGrip}
       openMenu={openMenu}
+      onArchive={archiveRow}
+      muteSelection={draftKey !== undefined}
     />
   )
-  const pinned = items.filter(
-    (item) => item.value.lane === 'pinned' && (!filtering || search.has(item.key)),
-  )
-  const bands = sections.bands
-    .map((band) => ({
-      ...band,
-      live: items.filter(
-        (item) =>
-          item.value.groupKey === band.key &&
-          item.value.lane === 'open' &&
-          (!filtering || search.has(item.key)),
-      ),
-      snoozed: filtering
-        ? []
-        : items.filter((item) => item.value.groupKey === band.key && item.value.lane === 'snoozed'),
-      closed: filtering
-        ? []
-        : items.filter((item) => item.value.groupKey === band.key && item.value.lane === 'closed'),
-    }))
-    .filter((band) => !filtering || band.live.length > 0)
+  const inLane = (item: Item) => laneOf(item.value) === lane && (!filtering || search.has(item.key))
+  const pinned =
+    lane === 'open' ? items.filter((item) => item.value.lane === 'pinned' && inLane(item)) : []
+  type ShownBand = { key: string; label: string; repoPath: string; foldKey: string; rows: Item[] }
+  const bandList: ShownBand[] = sections.bands.map((band) => ({
+    key: band.key,
+    label: band.label,
+    repoPath: band.repoPath,
+    foldKey: band.foldKey,
+    rows: items.filter(
+      (item) => item.value.lane !== 'pinned' && item.value.groupKey === band.key && inLane(item),
+    ),
+  }))
   // Exits can briefly outlive the band's pool membership.
   for (const item of items)
     if (
       item.value.lane !== 'pinned' &&
-      !bands.some((band) => band.key === item.value.groupKey) &&
-      !filtering
+      !bandList.some((band) => band.key === item.value.groupKey) &&
+      inLane(item)
     )
-      bands.push({
+      bandList.push({
         key: item.value.groupKey,
         label: item.value.groupLabel,
-        aliases: [],
         repoPath: '',
-        rowIds: [],
-        worktreeIds: [],
-        snoozedIds: [],
-        closedIds: [],
-        collapsed: false,
-        snoozedCollapsed: true,
-        closedCollapsed: true,
         foldKey: projectFoldKey(item.value.groupKey),
-        snoozedFoldKey: '',
-        closedFoldKey: '',
-        startFirstTask: false,
-        live: items.filter(
-          (row) => row.value.groupKey === item.value.groupKey && row.value.lane === 'open',
-        ),
-        snoozed: items.filter(
-          (row) => row.value.groupKey === item.value.groupKey && row.value.lane === 'snoozed',
-        ),
-        closed: items.filter(
-          (row) => row.value.groupKey === item.value.groupKey && row.value.lane === 'closed',
-        ),
+        rows: items.filter((row) => row.value.groupKey === item.value.groupKey && inLane(row)),
       })
+  // Open keeps every project in its place (an empty one greyed and shut);
+  // Snoozed, Closed and a filter show only the folders with something in them.
+  const order = folderDrag?.order ?? pendingOrder
+  const bands = bandList
+    .filter((band) => (lane === 'open' && !filtering) || band.rows.length > 0)
+    .sort((a, b) => (order ? rank(order, a.key) - rank(order, b.key) : 0))
+  const visibleKeys = bands.map((band) => band.key)
+  // The draft row's folder: the project the overlay will start the task in.
+  const draftKey =
+    draft && lane === 'open' && !filtering
+      ? sections.bands.find(
+          (band) =>
+            machinePathsEqual(band.repoPath, draft.repoPath) ||
+            band.aliases.some((alias) => machinePathsEqual(alias, draft.repoPath)),
+        )?.key
+      : undefined
+
+  const commitOrder = (visible: readonly string[], moved: string) => {
+    const full = placeInFullOrder(pendingOrder ?? naturalOrder, visible, moved)
+    if (full.join('\u0000') === (pendingOrder ?? naturalOrder).join('\u0000')) return
+    setPendingOrder(full)
+    const byKey = new Map(sections.bands.map((band) => [band.key, band] as const))
+    void writeOrder(
+      full.flatMap((key) => {
+        const band = byKey.get(key)
+        return band ? [{ key, name: band.label, aliases: band.aliases }] : []
+      }),
+    ).catch(() => setPendingOrder(null))
+  }
+  const moveBy = (key: string, delta: -1 | 1) => {
+    const at = visibleKeys.indexOf(key)
+    const to = at + delta
+    if (at < 0 || to < 0 || to >= visibleKeys.length) return
+    const next = [...visibleKeys]
+    next.splice(at, 1)
+    next.splice(to, 0, key)
+    commitOrder(next, key)
+  }
+  // Refs so the window listeners of one drag always read this render's facts.
+  const dragFacts = useRef({ commitOrder, visibleKeys })
+  dragFacts.current = { commitOrder, visibleKeys }
+  const startFolderDrag = (event: PointerEvent, key: string) => {
+    if (event.button !== 0 || filtering) return
+    event.preventDefault()
+    event.stopPropagation()
+    const start = dragFacts.current.visibleKeys
+    let current: FolderDrag = { key, start, order: start }
+    setFolderDrag(current)
+    setQuickFold(true)
+    const scroller = scrollRef.current
+    const onMove = (move: globalThis.PointerEvent) => {
+      if (!scroller) return
+      const bounds = scroller.getBoundingClientRect()
+      // Edge scroll, so a folder can travel past the visible window.
+      if (move.clientY < bounds.top + 36) scroller.scrollTop -= 12
+      else if (move.clientY > bounds.bottom - 36) scroller.scrollTop += 12
+      const others = current.order.filter((item) => item !== key)
+      let index = 0
+      for (const other of others) {
+        const node = scroller.querySelector<HTMLElement>(`[data-folder-key="${CSS.escape(other)}"]`)
+        if (!node) continue
+        const rect = node.getBoundingClientRect()
+        if (move.clientY > rect.top + rect.height / 2) index++
+      }
+      const next = [...others]
+      next.splice(index, 0, key)
+      if (next.join('\u0000') === current.order.join('\u0000')) return
+      current = { ...current, order: next }
+      setFolderDrag(current)
+    }
+    const finish = (commit: boolean) => {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      window.removeEventListener('pointercancel', onCancel)
+      window.removeEventListener('keydown', onKey, true)
+      setFolderDrag(null)
+      window.setTimeout(() => setQuickFold(false), MOTION_S.foldQuick * 1000 + 80)
+      if (commit) dragFacts.current.commitOrder(current.order, key)
+    }
+    const onUp = () => finish(true)
+    const onCancel = () => finish(false)
+    const onKey = (keyEvent: KeyboardEvent) => {
+      if (keyEvent.key !== 'Escape') return
+      keyEvent.preventDefault()
+      keyEvent.stopPropagation()
+      finish(false)
+    }
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+    window.addEventListener('pointercancel', onCancel)
+    window.addEventListener('keydown', onKey, true)
+  }
+  const setAllCollapsed = (shut: boolean) => {
+    for (const band of bands)
+      if (band.rows.length > 0 && collapsed.has(band.foldKey) !== shut) toggle(band.foldKey)
+  }
+  const anyOpen = bands.some((band) => band.rows.length > 0 && !collapsed.has(band.foldKey))
+  const anyShut = bands.some((band) => band.rows.length > 0 && collapsed.has(band.foldKey))
+
   // A filtered viewport is not a complete reorder scope.
   const windowRows = (
     rows: readonly Item[],
     render = renderRow,
     dragScope?: string,
-    estimateSize = 50,
+    estimateSize = 53,
   ) => (
     <WorklistWindow
       rows={rows}
@@ -489,7 +652,7 @@ const ObservedPoolWorkSections = observer(function ObservedPoolWorkSections({
       scrollRef={scrollRef}
       selectedKey={selectedId ? `issue:${selectedId}` : null}
       draggingKey={draggedId ? `issue:${draggedId}` : null}
-      dragScope={filtering ? undefined : dragScope}
+      dragScope={filtering || lane !== 'open' ? undefined : dragScope}
       dragId={itemDragId}
       estimateSize={estimateSize}
     />
@@ -509,127 +672,113 @@ const ObservedPoolWorkSections = observer(function ObservedPoolWorkSections({
       </>
     )
   const transition = reduceMotion ? { duration: 0 } : { layout: ROW_LAYOUT_TRANSITION }
+  // Headers trade places under a drag on a short ease, not the rows' spring:
+  // the slot has to keep up with the pointer.
+  const folderTransition = reduceMotion
+    ? { duration: 0 }
+    : folderDrag
+      ? { layout: { duration: MOTION_S.slot, ease: EASE_OUT } }
+      : transition
+  const closedRows = lane === 'closed' ? bands.flatMap((band) => band.rows) : []
   return (
     <WorklistMotion layoutGroupId={layoutGroupId}>
       <PoolEviction pool={pool} />
+      {lane === 'closed' && (
+        <ClosedLaneHeader
+          count={closedRows.length}
+          onArchiveAll={() => {
+            for (const row of closedRows) archive(row.value.id)
+          }}
+        />
+      )}
+      {lane !== 'open' && bands.length === 0 && (
+        <div data-testid="work-lane-empty" className="px-[22px] py-6 text-[11.5px] text-text-faint">
+          {lane === 'snoozed' ? 'Nothing snoozed.' : 'Nothing closed in the last 7 days.'}
+        </div>
+      )}
       {pinned.length > 0 && (
         <m.div
           layout="position"
           layoutDependency={revision.current.value}
           transition={transition}
-          className="flex min-w-0 flex-col"
+          className="flex min-w-0 flex-col border-b border-hairline-bar pt-1 pb-1.5"
           data-testid="pinned-section"
           data-drag-section
         >
-          <PinnedSectionLabel
+          <ProjectFolderHeader
+            label="Pinned"
+            pinned
             count={pinned.length}
             collapsed={collapsed.has(PINNED_FOLD_KEY)}
             onToggle={() => toggle(PINNED_FOLD_KEY)}
+            testId="pinned-section-label"
           />
           <FoldPanel open={!collapsed.has(PINNED_FOLD_KEY)} testId="pinned-section-rows">
             {windowRows(pinned, renderRow, 'pinned')}
           </FoldPanel>
         </m.div>
       )}
-      {bands.map((band, index) => (
-        <m.div
-          key={band.key}
-          layout="position"
-          layoutDependency={revision.current.value}
-          transition={transition}
-          className={cn(
-            'flex min-w-0 flex-col',
-            (index > 0 || pinned.length > 0) && SECTION_GAP_CLASS,
-          )}
-          data-testid="project-group"
-          data-empty={band.startFirstTask ? 'true' : undefined}
-          data-collapsed={collapsed.has(band.foldKey) ? 'true' : 'false'}
-          data-drag-section={band.startFirstTask ? undefined : true}
-        >
-          <ProjectGroupLabel
-            label={band.label}
-            count={band.live.length}
-            collapsed={collapsed.has(band.foldKey)}
-            onToggle={() => toggle(band.foldKey)}
-          />
-          <FoldPanel
-            open={!collapsed.has(band.foldKey)}
-            testId={band.startFirstTask ? `project-group-empty:${band.key}` : 'project-group-rows'}
-          >
-            {band.startFirstTask ? (
-              <StartFirstTaskRow repoPath={band.repoPath} />
-            ) : (
-              <>
-                {windowRows(band.live, renderRow, `group:${band.key}`)}
-                {band.snoozed.length > 0 && (
-                  <m.div
-                    layout="position"
-                    layoutDependency={revision.current.value}
-                    transition={transition}
-                  >
-                    <SnoozedIssueFold
-                      groupKey={band.key}
-                      rows={band.snoozed}
-                      renderRow={renderRow}
-                      settleTransition={settle}
-                      revealKey={
-                        band.snoozed.some((item) => item.value.id === selectedId)
-                          ? selectedId
-                          : null
-                      }
-                      renderRows={(rows, render) => windowRows(rows, render, undefined, 26)}
-                    />
-                  </m.div>
-                )}
-                {band.closed.length > 0 && (
-                  <m.div
-                    layout="position"
-                    layoutDependency={revision.current.value}
-                    transition={transition}
-                  >
-                    <ObservedClosedIssueFold
-                      groupKey={band.key}
-                      rows={band.closed}
-                      renderRow={renderRow}
-                      issueForRow={(item) => {
-                        const value = issue(item.value.id)
-                        return value
-                          ? {
-                              kind: 'issue',
-                              issue: value.issue as unknown as IssueNavigationModel,
-                              sessions: value.sessions as unknown as SessionView[],
-                              activityAt: value.visibleActivityAt,
-                            }
-                          : {
-                              kind: 'issue',
-                              issue: {
-                                id: asIssueId(item.value.id),
-                                seq: 0,
-                              } as IssueNavigationModel,
-                              sessions: [],
-                              activityAt: 0,
-                            }
-                      }}
-                      onArchive={archive}
-                      revealKey={
-                        band.closed.some((item) => item.value.id === selectedId) ? selectedId : null
-                      }
-                      renderRows={(rows, render) => windowRows(rows, render, undefined, 26)}
-                    />
-                  </m.div>
-                )}
-              </>
+      {bands.map((band, index) => {
+        const hasDraft = band.key === draftKey
+        const empty = band.rows.length === 0 && !hasDraft
+        const shut = collapsed.has(band.foldKey) && !hasDraft
+        const draggingThis = folderDrag?.key === band.key
+        return (
+          <m.div
+            key={band.key}
+            layout="position"
+            layoutDependency={revision.current.value}
+            transition={folderTransition}
+            className={cn(
+              'relative flex min-w-0 flex-col border-b border-hairline-bar pt-1 pb-1.5',
+              draggingThis && 'z-10',
             )}
-          </FoldPanel>
-        </m.div>
-      ))}
+            data-testid="project-group"
+            data-folder-key={band.key}
+            data-empty={empty ? 'true' : undefined}
+            data-collapsed={shut || empty ? 'true' : 'false'}
+            data-drag-section={empty ? undefined : true}
+          >
+            <ProjectFolderHeader
+              label={band.label}
+              count={band.rows.length + (hasDraft ? 1 : 0)}
+              collapsed={shut}
+              empty={empty}
+              dragging={draggingThis}
+              onToggle={() => toggle(band.foldKey)}
+              onGripDown={
+                filtering || sections.bands.length < 2
+                  ? undefined
+                  : (event) => startFolderDrag(event, band.key)
+              }
+              onNewTask={band.repoPath ? () => startNewTask(band.repoPath) : undefined}
+              menu={{
+                onMoveUp: index > 0 && !filtering ? () => moveBy(band.key, -1) : undefined,
+                onMoveDown:
+                  index < bands.length - 1 && !filtering ? () => moveBy(band.key, 1) : undefined,
+                onToggle: () => toggle(band.foldKey),
+                onCollapseAll: anyOpen ? () => setAllCollapsed(true) : undefined,
+                onExpandAll: anyShut ? () => setAllCollapsed(false) : undefined,
+                onManage: () => setManageOpen(true),
+              }}
+            />
+            {!empty && (
+              <FoldPanel
+                open={!shut && folderDrag === null}
+                quick={quickFold}
+                retain={folderDrag !== null}
+                testId="project-group-rows"
+              >
+                {hasDraft && draft && <NewTaskDraftRow title={draft.title} />}
+                {band.rows.length > 0 && windowRows(band.rows, renderRow, `group:${band.key}`)}
+              </FoldPanel>
+            )}
+          </m.div>
+        )
+      })}
       {filtering && (
         <WorkFilterFootnote
-          total={
-            targets.filter(
-              (target) => target.value.lane === 'pinned' || target.value.lane === 'open',
-            ).length
-          }
+          total={targets.filter((target) => laneOf(target.value) === lane).length}
         />
       )}
       {menu && (
@@ -641,9 +790,15 @@ const ObservedPoolWorkSections = observer(function ObservedPoolWorkSections({
           close={() => setMenu(null)}
         />
       )}
+      <ManageProjectsDialog open={manageOpen} onOpenChange={setManageOpen} />
     </WorklistMotion>
   )
 })
+
+function rank(order: readonly string[], key: string): number {
+  const at = order.indexOf(key)
+  return at < 0 ? order.length : at
+}
 
 const PoolFoldedMenu = observer(function PoolFoldedMenu({
   pool,
@@ -686,6 +841,8 @@ const PoolMotionRow = observer(function PoolMotionRow({
   discardExit,
   onGrip,
   openMenu,
+  onArchive,
+  muteSelection,
 }: {
   pool: MobxPool
   item: Item
@@ -700,6 +857,9 @@ const PoolMotionRow = observer(function PoolMotionRow({
   discardExit: (key: string, placement: string) => void
   onGrip: (event: PointerEvent, id: string) => void
   openMenu: (id: string, event: MouseEvent) => void
+  onArchive: (id: string) => void
+  /** The draft row holds the column's one raised row while it exists. */
+  muteSelection: boolean
 }): JSX.Element | null {
   const { id, kind, lane } = item.value
   const worklist = useWorklistModel() ?? worklistView(pool)
@@ -722,7 +882,7 @@ const PoolMotionRow = observer(function PoolMotionRow({
   const draftPane = useRuntimeSelector(
     (s) => visible && draftOnly === true && s.paneA === firstSessionId,
   )
-  const active = visible && companion?.selected === true
+  const active = visible && !muteSelection && companion?.selected === true
   const arriving = animate && item.phase === 'entering'
   const exiting = item.phase === 'exiting'
   const draggable =
@@ -750,6 +910,7 @@ const PoolMotionRow = observer(function PoolMotionRow({
     [onGrip],
   )
   const contextMenu = useCallback((event: MouseEvent) => openMenu(id, event), [openMenu, id])
+  const archiveRow = useCallback(() => onArchive(id), [onArchive, id])
   const row = snapshot ? poolIssueRow(snapshot) : undefined
   const display = snapshot ? poolIssueDisplay(snapshot) : undefined
   if (kind === 'issue' && fresh === undefined && snapshot === undefined) return null
@@ -766,6 +927,7 @@ const PoolMotionRow = observer(function PoolMotionRow({
         active={active}
         onSelect={select}
         onContextMenu={lane === 'closed' ? contextMenu : undefined}
+        onArchive={lane === 'closed' ? archiveRow : undefined}
       />
     ) : folded && snapshot ? (
       <MemoFoldedWorkRow
@@ -814,22 +976,7 @@ const PoolMotionRow = observer(function PoolMotionRow({
       layoutDependency={layoutRevision}
       transition={reduceMotion ? { duration: 0 } : { layout: ROW_LAYOUT_TRANSITION }}
       {...(draggable ? { 'data-drag-key': id } : {})}
-      className={cn(
-        'min-w-0',
-        arriving && 'row-arrive',
-        exiting && 'pointer-events-none',
-        folded &&
-          'opacity-50 transition-opacity duration-150 hover:opacity-80 focus-within:opacity-80',
-      )}
-      style={
-        arriving && fresh !== undefined && fresh !== LOADING
-          ? ({
-              '--arrive-tint': issueColorHex(
-                fresh.issue.color as Parameters<typeof issueColorHex>[0],
-              ),
-            } as CSSProperties)
-          : undefined
-      }
+      className={cn('min-w-0', arriving && 'row-arrive', exiting && 'pointer-events-none')}
       onAnimationEnd={
         arriving
           ? (event: AnimationEvent) => {
@@ -840,28 +987,13 @@ const PoolMotionRow = observer(function PoolMotionRow({
       data-transition-phase={item.phase}
     >
       <m.div
-        initial={arriving && !reduceMotion ? { opacity: 0, y: -8 } : false}
-        animate={exiting ? { opacity: 0, y: -6 } : { opacity: 1, y: 0 }}
+        initial={arriving && !reduceMotion ? { opacity: 0, y: -4 } : false}
+        animate={exiting ? { opacity: 0, y: -4 } : { opacity: 1, y: 0 }}
         onAnimationComplete={
           exiting && quickArchive ? () => discardExit(item.key, item.placement) : undefined
         }
         transition={
-          reduceMotion
-            ? { duration: 0 }
-            : exiting
-              ? quickArchive
-                ? {
-                    opacity: { duration: 0.14, ease: 'easeOut' },
-                    y: { duration: 0.18, ease: [0.4, 0, 1, 1] },
-                  }
-                : {
-                    opacity: { duration: 0.64, ease: 'easeInOut' },
-                    y: { duration: 0.7, ease: [0.4, 0, 1, 1] },
-                  }
-              : {
-                  opacity: { duration: 0.72, delay: arriving ? 0.22 : 0, ease: 'easeInOut' },
-                  y: { duration: 0.78, delay: arriving ? 0.14 : 0, ease: [0.22, 1, 0.36, 1] },
-                }
+          reduceMotion ? { duration: 0 } : exiting ? ROW_EXIT : arriving ? ROW_ENTER : ROW_RESTORE
         }
       >
         {inner}
@@ -869,6 +1001,22 @@ const PoolMotionRow = observer(function PoolMotionRow({
     </m.div>
   )
 })
+
+/** A row leaves on a short ease-in and arrives on a strong ease-out, both
+ *  under 200ms (POD-2080). The arrival's opacity waits one frame or two so the
+ *  neighbours have begun opening its slot before it shows in it. */
+const ROW_EXIT = {
+  opacity: { duration: MOTION_S.exit - 0.02, ease: EASE_IN },
+  y: { duration: MOTION_S.exit, ease: EASE_IN },
+}
+const ROW_ENTER = {
+  opacity: { duration: MOTION_S.enter - 0.04, delay: 0.04, ease: EASE_OUT },
+  y: { duration: MOTION_S.enter, ease: EASE_OUT },
+}
+const ROW_RESTORE = {
+  opacity: { duration: MOTION_S.enter, ease: EASE_OUT },
+  y: { duration: MOTION_S.enter, ease: EASE_OUT },
+}
 
 const PoolWorktreeRow = observer(function PoolWorktreeRow({
   pool,

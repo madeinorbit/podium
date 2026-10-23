@@ -163,7 +163,7 @@ describe('tuck-away persistence (POD-333)', () => {
   it('offers Tuck away on an untucked finish and dismisses through the store action', () => {
     render(<SidebarUnified />)
     // Untucked server truth: the finished row is still live and carries the control.
-    expect(screen.queryByTestId('closed-issue-fold')).toBeNull()
+    expect(screen.getByTestId('work-lane-closed').textContent).toBe('Closed0')
     const control = screen.getByTestId('tuck-away')
 
     fireEvent.click(control)
@@ -193,7 +193,7 @@ describe('tuck-away persistence (POD-333)', () => {
 
     render(<SidebarUnified />)
 
-    expect(screen.getByTestId('closed-issue-fold')).toBeTruthy()
+    expect(screen.getByTestId('work-lane-closed').textContent).toBe('Closed1')
     expect(screen.queryByTestId('tuck-away')).toBeNull()
     expect(setIssueTucked).not.toHaveBeenCalled()
   })
@@ -208,7 +208,7 @@ describe('tuck-away persistence (POD-333)', () => {
     // Folded on first paint, and the control is gone — it is already dismissed.
     // (The fold's own open/collapsed preference is still a local ui-state key;
     // what must NOT come from local storage is WHICH rows are in the fold.)
-    expect(screen.getByTestId('closed-issue-fold')).toBeTruthy()
+    expect(screen.getByTestId('work-lane-closed').textContent).toBe('Closed1')
     expect(screen.queryByTestId('tuck-away')).toBeNull()
     expect(tuckKeys(uiState.get.mock.calls)).toEqual([])
   })
@@ -219,12 +219,12 @@ describe('tuck-away persistence (POD-333)', () => {
     state.tuckedAt = new Date(Date.now() - 10_000).toISOString()
 
     render(<SidebarUnified />)
-    fireEvent.click(screen.getByTestId('closed-fold-toggle'))
+    fireEvent.click(screen.getByTestId('work-lane-closed'))
 
     const row = (await screen.findByText('Settled issue')).closest(
       '[data-testid="folded-work-row"]',
     )
-    expect(row?.textContent).toContain('just now')
-    expect(row?.textContent).not.toContain('1m ago')
+    expect(row?.textContent).toContain('now')
+    expect(row?.textContent).not.toContain('1m')
   })
 })

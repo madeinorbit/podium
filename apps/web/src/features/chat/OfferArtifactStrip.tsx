@@ -3,7 +3,7 @@ import { shallowEqual } from '@podium/client-core/shallow-equal'
 import { artifactKind, artifactUrl, basename } from '@podium/client-core/values'
 import { resolveMachinePath } from '@podium/model'
 import type { IssuePanelArtifact, SessionOffer } from '@podium/model/browser'
-import { FileText, Play } from 'lucide-react'
+import { FileText, Paperclip, Play } from 'lucide-react'
 import { type JSX, useState } from 'react'
 import { useRuntimeSelector } from '@/app/store'
 import { ArtifactLightbox, artifactLightboxKey } from '@/components/ArtifactLightbox'
@@ -173,5 +173,45 @@ export function OfferArtifactStrip({
         />
       )}
     </div>
+  )
+}
+
+/**
+ * The offer card's quiet "N attachments" (POD-2076). The evidence strip no
+ * longer sits in the card at rest; this count stands in for it and opens the
+ * card's fold, where the strip renders. Renders nothing when the offer names
+ * no artifacts.
+ */
+export function OfferAttachmentCount({
+  offer,
+  session,
+  open,
+  onToggle,
+}: {
+  offer: SessionOffer
+  session: Pick<SessionView, 'sessionId' | 'issueId' | 'lastInputAt'>
+  open: boolean
+  onToggle: () => void
+}): JSX.Element | null {
+  const issue = useChatArtifactIssue(session)
+  if (!issue) return null
+  const count = resolveOfferArtifacts({
+    offer,
+    issue,
+    ...(session.lastInputAt ? { lastInputAt: session.lastInputAt } : {}),
+  }).length
+  if (count === 0) return null
+  return (
+    <button
+      data-pressable
+      type="button"
+      data-testid="offer-attachments"
+      aria-expanded={open}
+      onClick={onToggle}
+      className="offer-card-attachments"
+    >
+      <Paperclip size={12} aria-hidden="true" />
+      {count} {count === 1 ? 'attachment' : 'attachments'}
+    </button>
   )
 }

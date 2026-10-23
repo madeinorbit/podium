@@ -1,3 +1,4 @@
+import type { TranscriptToolRun } from '@podium/client-core/conversation'
 import {
   formatClock,
   resolveToolEdit,
@@ -6,16 +7,19 @@ import {
   toolEditHasDiff,
   toolEditUnifiedDiff,
 } from '@podium/client-core/values'
-import { machinePathKey, machinePathRelativeToRoot, resolveMachinePath } from '@podium/model/browser'
 import type { SessionId } from '@podium/model/browser'
-import type { TranscriptToolRun } from '@podium/client-core/conversation'
-import { observer } from 'mobx-react-lite'
+import {
+  machinePathKey,
+  machinePathRelativeToRoot,
+  resolveMachinePath,
+} from '@podium/model/browser'
 import { ChevronDown } from 'lucide-react'
+import { observer } from 'mobx-react-lite'
 import type { JSX, ReactNode } from 'react'
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { throughRestarts } from '@/lib/chunk-recovery'
-import { WorkingMark } from '@/lib/motion/WorkingMark'
 import { useAgeNow } from '@/lib/clock-hooks'
+import { WorkingMark } from '@/lib/motion/WorkingMark'
 import { cn } from '@/lib/utils'
 import { type ProcessPosition, processClass, type TurnPosition, turnClass } from './ChatBlockView'
 import {
@@ -324,13 +328,16 @@ export const ToolBatchView = observer(function ToolBatchView({
   // A tools row always folds ≥1 block, so the last one exists.
   const lastItem = (run?.lastBlock ?? row.blocks[count - 1]!).item
   const title = run?.title ?? row.title
+  // The folded face says how much happened ("Ran 4 commands"); the named
+  // subjects stay in the tooltip and the unfolded rows (POD-2076).
+  const summary = run?.summary ?? row.summary ?? title
   const settling = useSettleFlash(computing)
   const pushing = usePushFlash(count)
   const phrase = activeWaiting
     ? `${activeWaiting.label}${activeWaiting.detail ? ` · ${activeWaiting.detail}` : ''}`
     : live
       ? toolCallPhrase(lastItem)
-      : title
+      : summary
   const accessibleSummary =
     `${phrase}. ${count} ${count === 1 ? 'call' : 'calls'}` +
     `${failed > 0 ? `. ${failed} failed` : ''}.`
@@ -353,7 +360,6 @@ export const ToolBatchView = observer(function ToolBatchView({
       <span className="work-line-phrase">{phrase}</span>
       {failed > 0 && <span className="work-line-fail">✕ {failed} failed</span>}
       <ToolElapsed run={run} blocks={row.blocks} active={active} live={live} count={count} />
-      <span className="work-line-count">{count}</span>
       <ChevronDown className="work-line-chev" size={11} aria-hidden="true" />
     </>
   )
@@ -372,7 +378,6 @@ export const ToolBatchView = observer(function ToolBatchView({
           wider than the feed's beat — a run of calls is a solid in the document,
           and it needs air on both sides that plain prose does not. */}
       <div className="transcript-body">
-        {process === 'start' && <div className="transcript-process-label">Process</div>}
         <div
           className="work-line"
           data-state={activeWaiting ? 'wait' : active ? 'live' : live ? 'handoff' : 'done'}
@@ -384,12 +389,6 @@ export const ToolBatchView = observer(function ToolBatchView({
           data-ends-feed={endsFeed ? 'true' : undefined}
           data-testid="work-line"
         >
-          {/* The fanned deck: two same-tone tiers, hidden for a lone call and
-              once the run is unfolded. */}
-          <div className="work-line-deck" aria-hidden="true">
-            <i />
-            <i />
-          </div>
           {/* NO HOVER PANEL (POD-993 round 7). A folded run used to preview its
               calls in a tooltip, so that finding out WHICH four files were read
               did not cost a click that moves the page. Retired at the operator's
@@ -448,12 +447,25 @@ export const ToolBatchView = observer(function ToolBatchView({
   )
 })
 
-const ToolElapsed = observer(function ToolElapsed({ run, blocks, active, live, count }: {
-  run?: TranscriptToolRun; blocks: ChatBlock[]; active: boolean; live: boolean; count: number
+const ToolElapsed = observer(function ToolElapsed({
+  run,
+  blocks,
+  active,
+  live,
+  count,
+}: {
+  run?: TranscriptToolRun
+  blocks: ChatBlock[]
+  active: boolean
+  live: boolean
+  count: number
 }) {
   const first = run?.firstBlock ?? blocks[0]
   const now = useAgeNow(first?.item.ts ?? '', 0, active)
-  const elapsedMs = run ? run.elapsed(active ? now : undefined) : toolRunElapsedMs(blocks, active ? now : undefined)
-  const show = elapsedMs !== undefined && (active || (!live && count > 1 && elapsedMs >= MIN_SETTLED_SPAN_MS))
+  const elapsedMs = run
+    ? run.elapsed(active ? now : undefined)
+    : toolRunElapsedMs(blocks, active ? now : undefined)
+  const show =
+    elapsedMs !== undefined && (active || (!live && count > 1 && elapsedMs >= MIN_SETTLED_SPAN_MS))
   return show ? <span className="work-line-time">{formatClock(elapsedMs)}</span> : null
 })

@@ -941,11 +941,12 @@
    float, because it is the one the operator is looking at. It replaced a 1px
    issue line along the tab's top edge, which was invisible the moment the tab
    stopped being a browser tab welded to the strip's bottom. */
+/* POD-2078 (calm redesign 4a/5a): the ring is the sheet's own hairline, not
+   the issue colour — the leading dot already says which issue this is. */
 @utility native-tab-active {
   box-shadow:
     0 1px 2px color-mix(in srgb, var(--carve-drop) 90%, transparent),
-    inset 0 0 0 1px
-      color-mix(in srgb, var(--issue) calc(35 * var(--issue-line-scale, 1%)), transparent);
+    inset 0 0 0 1px var(--border);
 }
 
 @layer base {

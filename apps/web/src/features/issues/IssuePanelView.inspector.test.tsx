@@ -12,12 +12,16 @@ import type { IssueEvent } from '@podium/client-core/values'
 import { asIssueId, asSessionId } from '@podium/model'
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { DockHeaderSlotProvider } from '@/app/DockHeaderSlot'
 import { OperatorFocusProvider } from '@/app/operator-focus'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
 import { makeIssue } from '@/lib/test-issue'
 import { IssuePanelView } from './IssuePanelView'
 
 vi.mock('@/lib/use-feature', () => ({ useFeature: () => false }))
+
+const openArtifactsTab = vi.hoisted(() => vi.fn())
+vi.mock('@/features/files/artifacts-tab', () => ({ useOpenArtifactsTab: () => openArtifactsTab }))
 
 const ROOT = makeIssue({
   id: 'root',
@@ -103,6 +107,8 @@ const BASE_EVENT_ROWS: IssueEvent[] = [
   },
 ]
 let eventRows = BASE_EVENT_ROWS
+let commentRows: unknown[] = []
+const commentsQuery = vi.fn(async () => commentRows)
 // Honours `subject` the way the SQL does (POD-532), so a caller that forgets to
 // send it fails here instead of quietly rendering another issue's history.
 const eventsQuery = vi.fn(async (input?: unknown) => {
@@ -124,7 +130,8 @@ vi.mock('@/app/store', () => {
   // whose revision update renders another snapshot and starts the cycle again.
   const trpc = {
     issues: {
-      comments: { query: vi.fn(async () => []) },
+      // The mock factory is hoisted before commentRows initializes.
+      comments: { query: () => commentsQuery() },
       // The mock factory is hoisted before eventsQuery initializes.
       events: { query: (input?: unknown) => eventsQuery(input) },
       start: { mutate: vi.fn(async () => ({})) },
@@ -171,6 +178,7 @@ beforeEach(() => {
   mockIssues = [ROOT, OPEN_CHILD, DONE_CHILD, GRANDCHILD]
   mockSessions = []
   eventRows = BASE_EVENT_ROWS
+  commentRows = []
 })
 
 afterEach(() => {
@@ -179,73 +187,65 @@ afterEach(() => {
 })
 
 describe('IssuePanelView inspector', () => {
-  // POD-743 re-ordered this scroll. It used to run by how fast each fact moves,
-  // which put the evidence below two sections of roster; that was right when
-  // this panel was the only place a task's shape was visible. The Flight Deck
-  // draws the shape now, so what the operator came here to do — judge the work
-  // and act on it — comes first, and the structure the deck already shows sits
-  // underneath as reference.
-  it('renders one scroll, judgement first and structure underneath', () => {
+  // THE CALM COLUMN (POD-2077): head, description, the latest update, then
+  // artifacts, relations, comments and cost. The roster, the activity log, the
+  // branch address and the needs-you band all left the panel — the deck, the
+  // chat and the footer already say those things.
+  it('renders one scroll in the design order', () => {
     render(<IssuePanelView cwd="/r" />)
 
-    expect(parts()).toEqual([
-      'Current update',
-      'Recent activity',
-      'Subtasks',
-      'Relations',
-      'Agents & sessions',
-      // The accounting sits directly under the roster it accounts for: the
-      // roster answers "who is on this now", Cost answers it for every session
-      // that ever was (POD-1859).
-      'Cost',
-      'Branch & worktree',
-    ])
+    expect(parts()).toEqual(['Current update', 'Comments', 'Cost'])
+    for (const gone of ['dock-sessions', 'dock-checkout', 'dock-recent-activity']) {
+      expect(screen.queryByTestId(gone)).toBeNull()
+    }
   })
 
-  it('drops the collapsible section chrome — headings are text, not toggles', () => {
+  it('keeps headings as text, not toggles', () => {
     render(<IssuePanelView cwd="/r" />)
 
-    for (const title of ['Current update', 'Agents & sessions', 'Relations']) {
+    for (const title of ['Comments', 'Cost']) {
       expect(screen.getByText(title).closest('button')).toBeNull()
     }
   })
 
-  // The TITLE came back to the panel in POD-743: the dock title bar carries the
-  // explorer's trail now, which is a position rather than a name. It is bounded
-  // at two lines because this head sits above the single scroll and anything
-  // unbounded up here comes out of the scroll's budget; the description stays
-  // uncapped, down in the scroll where there is no budget to protect.
-  it('names the task in a two-line head, over an uncapped description', () => {
+  it('names the task over its status and an uncapped description', () => {
     render(<IssuePanelView cwd="/r" />)
 
     const head = within(screen.getByTestId('dock-inspect-head'))
-    // NO REF EYEBROW (POD-1457). The dock's trail prints the same ref twenty
-    // pixels above this head, so the panel used to open by saying the same
-    // thing twice in the same mono grey.
+    // NO REF EYEBROW (POD-1457): the dock's trail prints the ref.
     expect(head.queryByText('#1')).toBeNull()
     const title = screen.getByTestId('dock-title')
     expect(title.textContent).toBe('Operator workspace')
-    expect(title.className).toContain('line-clamp-2')
+    expect(title.className).toContain('line-clamp-3')
+    expect(head.getByTestId('dock-subtasks-toggle').textContent).toBe('1 of 2 subtasks done')
     const description = screen.getByTestId('dock-description')
     expect(description.textContent).toBe('Rework the dock into one scroll.')
     expect(description.className).not.toContain('line-clamp')
-    // ...and the head still does not name the panel it is already inside.
-    expect(head.queryByText('Task')).toBeNull()
-    expect(screen.queryByText('P2')).toBeNull()
-    expect(screen.queryByText(/subissues done/)).toBeNull()
   })
 
-  it('keeps an archived child visible in the explorer, marked archived', () => {
+  it('folds the subtasks behind their count, one tier deep', () => {
+    render(<IssuePanelView cwd="/r" />)
+
+    expect(screen.queryByTestId('dock-subissues')).toBeNull()
+    fireEvent.click(screen.getByTestId('dock-subtasks-toggle'))
+    const work = screen.getByTestId('dock-subissues')
+    expect(within(work).getByText('Flat sidebar')).toBeTruthy()
+    expect(within(work).getByText('Tray removal')).toBeTruthy()
+    // The grandchild belongs to its own parent's list, not this one.
+    expect(within(work).queryByText('Rail badge')).toBeNull()
+  })
+
+  it('keeps an archived child visible, marked archived', () => {
     mockIssues = [ROOT, OPEN_CHILD, { ...DONE_CHILD, archived: true }, GRANDCHILD]
     render(<IssuePanelView cwd="/r" />)
-    const work = screen.getByTestId('dock-subissues')
-    fireEvent.click(within(work).getByText(/Show 1 completed/))
-    const archivedRow = within(work).getByText('Tray removal').closest('button')
-    expect(archivedRow).toBeTruthy()
+    fireEvent.click(screen.getByTestId('dock-subtasks-toggle'))
+    const archivedRow = within(screen.getByTestId('dock-subissues'))
+      .getByText('Tray removal')
+      .closest('button')
     expect(within(archivedRow as HTMLElement).getByText('archived')).toBeTruthy()
   })
 
-  it('keeps an archived parent visible in the explorer, marked archived', () => {
+  it('lists an archived parent under Relations, marked archived', () => {
     const archivedParent = makeIssue({
       id: 'epic',
       seq: 10,
@@ -264,249 +264,110 @@ describe('IssuePanelView inspector', () => {
     render(<IssuePanelView cwd="/r/child" issueId={orphaned.id} />)
 
     const parent = screen.getByTestId('dock-parent')
+    expect(within(parent).getByText('Parent')).toBeTruthy()
     expect(within(parent).getByText('Shipped epic')).toBeTruthy()
     expect(within(parent).getByText('archived')).toBeTruthy()
   })
 
-  it('puts the meter with the subtasks it counts, and counts only those', () => {
+  it('groups relations by kind and prints each label once', () => {
+    const blockerA = makeIssue({ id: 'b1', repoPath: '/r', seq: 20, title: 'First blocker' })
+    const blockerB = makeIssue({ id: 'b2', repoPath: '/r', seq: 21, title: 'Second blocker' })
+    mockIssues = [
+      {
+        ...ROOT,
+        deps: [
+          { id: 'b1' as never, type: 'blocked-by' },
+          { id: 'b2' as never, type: 'blocked-by' },
+        ],
+      },
+      OPEN_CHILD,
+      DONE_CHILD,
+      GRANDCHILD,
+      blockerA,
+      blockerB,
+    ]
     render(<IssuePanelView cwd="/r" />)
 
-    const work = screen.getByTestId('dock-subissues')
-    // 2 direct children, one done. Neither the issue itself nor the grandchild
-    // is in the count — the meter describes the rows underneath it.
-    expect(within(work).getByTestId('dock-subtasks-meter').textContent).toContain('1 of 2 done')
-    // ...and it is no longer floating under the current update.
-    expect(
-      within(screen.getByTestId('dock-current-update')).queryByTestId('dock-subtasks-meter'),
-    ).toBeNull()
-    expect(within(work).getByText('Flat sidebar')).toBeTruthy()
-    // The grandchild belongs to its own parent's Subtasks list, not this one.
-    expect(within(work).queryByText('Rail badge')).toBeNull()
-    // Completed work folds away until asked for.
-    expect(within(work).queryByText('Tray removal')).toBeNull()
-    fireEvent.click(within(work).getByText(/Show 1 completed/))
-    expect(within(work).getByText('Tray removal')).toBeTruthy()
+    const relations = within(screen.getByTestId('dock-relations'))
+    expect(relations.getAllByText('Blocked by')).toHaveLength(1)
+    expect(relations.getByText('First blocker')).toBeTruthy()
+    expect(relations.getByText('Second blocker')).toBeTruthy()
+    expect(relations.getByText('#21')).toBeTruthy()
   })
 
-  // Amber, in the same place and the same weight the sidebar and the Flight
-  // Deck put it, so one task does not read three ways in three columns.
+  // Amber, in the same place the sidebar and the Flight Deck put it.
   it('marks a subtask that needs the operator in attention ink', () => {
     mockIssues = [ROOT, { ...OPEN_CHILD, needsHuman: true }, DONE_CHILD, GRANDCHILD]
     render(<IssuePanelView cwd="/r" />)
+    fireEvent.click(screen.getByTestId('dock-subtasks-toggle'))
 
-    const work = screen.getByTestId('dock-subissues')
-    const marked = [...work.querySelectorAll<HTMLElement>('[data-needs-you]')]
-    expect(marked).toHaveLength(1)
-    const row = marked[0] as HTMLElement
-    expect(row.textContent).toContain('Flat sidebar')
-    expect(within(row).getByText('Needs you').className).toContain('text-attention')
+    const work = within(screen.getByTestId('dock-subissues'))
+    expect(work.getByText('Needs you').className).toContain('text-attention')
   })
 
-  // The current update says WHAT happened and when; who said it is the roster's
-  // job, two sections down, and saying it twice is what the operator flagged.
-  it('keeps the update to its words and its age, and offers no exit to the Tasks tool', () => {
-    mockSessions = [session()]
+  // The update is a quiet, clamped block: the chat beside the panel narrates
+  // the work, and the offer card in chat is where a decision is asked for.
+  it('clamps the update and raises no needs-you band', () => {
+    mockIssues = [{ ...ROOT, needsHuman: true }, OPEN_CHILD, DONE_CHILD, GRANDCHILD]
     render(<IssuePanelView cwd="/r" />)
 
     const update = screen.getByTestId('dock-current-update')
     expect(update.textContent).toContain('Spine direction is fixed')
-    expect(update.textContent).not.toContain('Workspace coordinator')
-    // The "Full update timeline" link crossed into the Tasks tool, and this
-    // panel does not link there any more (POD-1457) — entering that tool is a
-    // decision the operator makes in the toolbar. Recent activity is the next
-    // section down, so nothing left this column.
-    expect(screen.queryByTestId('dock-open-full-activity')).toBeNull()
-    expect(screen.getByTestId('dock-recent-activity')).toBeTruthy()
-  })
-
-  // A branch is an address, not a verification result.
-  it('gives the branch and worktree their own section instead of trailing the artifacts', () => {
-    mockIssues = [
-      {
-        ...ROOT,
-        branch: 'issue/554-host-resource-lifecycle-policy',
-        gitState: {
-          updatedAt: '2026-08-07T00:00:00.000Z',
-          branch: 'issue/554-host-resource-lifecycle-policy',
-          shared: false,
-          dirtyFiles: 0,
-        },
-        panel: {
-          todos: [],
-          artifacts: [
-            { path: 'docs/runtime-verification.md', addedAt: '2026-08-07T00:00:00.000Z' },
-          ],
-          deferred: [],
-        },
-      },
-      OPEN_CHILD,
-      DONE_CHILD,
-      GRANDCHILD,
-    ]
-    render(<IssuePanelView cwd="/r" />)
-
-    const checkout = screen.getByTestId('dock-checkout')
-    expect(within(checkout).getByText('issue/554-host-resource-lifecycle-policy')).toBeTruthy()
-    expect(within(checkout).getByTitle('/r')).toBeTruthy()
-    expect(
-      within(screen.getByTestId('dock-artifacts')).queryByText(
-        'issue/554-host-resource-lifecycle-policy',
-      ),
-    ).toBeNull()
-  })
-
-  it('lists the agents and sessions working the task', () => {
-    mockSessions = [session(), session({ sessionId: 's2', name: 'Flight deck builder' })]
-    render(<IssuePanelView cwd="/r" />)
-
-    const agents = screen.getByTestId('dock-sessions')
-    expect(within(agents).getByText('Workspace coordinator')).toBeTruthy()
-    expect(within(agents).getByText('Flight deck builder')).toBeTruthy()
-    expect(within(agents).queryByTestId('dock-presence-note')).toBeNull()
-  })
-
-  // The roster is live-only BY DESIGN, and since POD-1859 it is also complete:
-  // every open session is listed, however many there are. Retired sessions stay
-  // folded — they are a different question, and the Cost section below answers
-  // it with the money rather than with another list of names.
-  it('lists every active session and keeps the retired ones folded', () => {
-    mockSessions = [
-      ...Array.from({ length: 6 }, (_, i) => session({ sessionId: `s${i}`, name: `Agent ${i}` })),
-      session({ sessionId: 'gone', name: 'Retired agent', archived: true }),
-    ]
-    render(<IssuePanelView cwd="/r" />)
-
-    const agents = screen.getByTestId('dock-sessions')
-    for (let i = 0; i < 6; i++) expect(within(agents).getByText(`Agent ${i}`)).toBeTruthy()
-    expect(within(agents).queryByText(/more active/)).toBeNull()
-
-    expect(within(agents).queryByText('Retired agent')).toBeNull()
-    fireEvent.click(within(agents).getByText(/Retired · 1/))
-    expect(within(agents).getByText('Retired agent')).toBeTruthy()
-  })
-
-  // The words come from mission.ts so the deck and the dock cannot drift; the
-  // only amber case is in-progress work its agent vacated.
-  it('explains an empty roster instead of leaving a blank section', () => {
-    render(<IssuePanelView cwd="/r" />)
-
-    const note = screen.getByTestId('dock-presence-note')
-    expect(note.dataset.presence).toBe('attention')
-    expect(note.textContent).toContain('Agent left · choose a handoff')
-  })
-
-  it('reads work that has not started as ready, not as abandoned', () => {
-    mockIssues = [{ ...ROOT, stage: 'planning' }, OPEN_CHILD, DONE_CHILD, GRANDCHILD]
-    render(<IssuePanelView cwd="/r" />)
-
-    const note = screen.getByTestId('dock-presence-note')
-    expect(note.dataset.presence).toBe('ready')
-    expect(note.textContent).toContain('Ready to start')
-  })
-
-  // mission.ts is total over the stage vocabulary, so the dock keeps NO words of
-  // its own for the empty case — a local fallback is exactly what would drift.
-  it('takes even the unaccepted case from the shared vocabulary', () => {
-    mockIssues = [{ ...ROOT, stage: 'proposed' }, OPEN_CHILD, DONE_CHILD, GRANDCHILD]
-    render(<IssuePanelView cwd="/r" />)
-
-    expect(screen.getByTestId('dock-presence-note').textContent).toContain('Proposed · not started')
-  })
-
-  it('says where the session went when it moved', () => {
-    mockSessions = [session({ archived: true, handoffTarget: 'POD-612' })]
-    render(<IssuePanelView cwd="/r" />)
-
-    expect(screen.getByTestId('dock-presence-note').textContent).toContain(
-      'Session moved to POD-612',
-    )
-  })
-
-  it('raises the decision band only when the issue needs you', () => {
-    render(<IssuePanelView cwd="/r" />)
+    expect(update.querySelector('p')?.className).toContain('line-clamp-4')
     expect(screen.queryByTestId('dock-decision-band')).toBeNull()
-    cleanup()
+    expect(screen.queryByText('Needs you')).toBeNull()
+  })
 
-    mockIssues = [
+  it('drops the update block when nothing has been posted', () => {
+    mockIssues = [{ ...ROOT, activityNotes: '' }, OPEN_CHILD, DONE_CHILD, GRANDCHILD]
+    render(<IssuePanelView cwd="/r" />)
+    expect(screen.queryByTestId('dock-current-update')).toBeNull()
+  })
+
+  it('shows the comment thread over an add-a-comment field', async () => {
+    commentRows = [
       {
-        ...ROOT,
-        needsHuman: true,
-        asked: {
-          question: 'Merge this or send it back?',
-          at: 'asked-at',
-          by: 's-asker' as never,
-          attribution: { actor: { kind: 'agent', id: 's-asker' as never }, onBehalfOf: null },
-        },
+        id: 'c1',
+        author: 'Martin Kuehn',
+        body: 'Hold until legal signs off.',
+        createdAt: '2026-08-07T00:00:00.000Z',
       },
-      OPEN_CHILD,
-      DONE_CHILD,
-      GRANDCHILD,
-    ]
-    render(<IssuePanelView cwd="/r" />)
-    const band = screen.getByTestId('dock-decision-band')
-    expect(band.textContent).toContain('Needs you')
-    expect(band.textContent).toContain('Merge this or send it back?')
-  })
-
-  it('asks the server for this issue events only', async () => {
+      { id: 'c2', author: 'steward', body: 'Noted.', createdAt: '2026-08-07T00:05:00.000Z' },
+    ] as never
     render(<IssuePanelView cwd="/r" />)
 
-    const feed = await screen.findByTestId('dock-recent-activity')
-    expect(eventsQuery).toHaveBeenCalledWith(expect.objectContaining({ subject: 'root' }))
-    // The child's own creation event belongs to the child's feed, not this one.
-    expect(await within(feed).findAllByText('created')).toHaveLength(1)
-    // Publishing the fetched history must not replace its transport and retain
-    // another history effect on every observer render (POD-5810).
-    expect(eventsQuery).toHaveBeenCalledTimes(1)
+    const comments = within(screen.getByTestId('dock-comments'))
+    expect(await comments.findByText('Hold until legal signs off.')).toBeTruthy()
+    expect(comments.getByText('Martin Kuehn')).toBeTruthy()
+    expect(comments.getByText('MK')).toBeTruthy()
+    expect(comments.getByText('Steward')).toBeTruthy()
+    expect(comments.getByPlaceholderText('Add a comment…')).toBeTruthy()
+    // Comments only: the panel asks for no event pages.
+    expect(eventsQuery).not.toHaveBeenCalled()
   })
 
-  it('keeps semantic updates when later read receipts arrive', async () => {
-    eventRows = [
-      BASE_EVENT_ROWS[0]!,
-      {
-        id: 3,
-        ts: '2026-08-07T00:02:00.000Z',
-        kind: 'issue.stage_changed',
-        subject: 'root',
-        repoPath: '/r',
-        payload: { to: 'review' },
-      },
-      ...Array.from({ length: 6 }, (_, index) => ({
-        id: 10 + index,
-        ts: `2026-08-07T00:${String(10 + index).padStart(2, '0')}:00.000Z`,
-        kind: 'issue.read',
-        subject: 'root',
-        repoPath: '/r',
-        payload: null,
-      })),
-    ]
-    render(<IssuePanelView cwd="/r" />)
-
-    const feed = await screen.findByTestId('dock-recent-activity')
-    expect(within(feed).getByText('moved to Review')).toBeTruthy()
-    expect(within(feed).getByText('created')).toBeTruthy()
-    expect(within(feed).queryByText('read')).toBeNull()
-  })
-
-  it('names the crossing after the view it opens, and offers no other', () => {
-    // THE ISOLATION RULE (POD-1457). The explorer is a place to read tasks from;
-    // the Tasks tool is a place you go on purpose, from the toolbar. The one
-    // crossing this panel offers goes to WORK, and it says so in the label.
+  it('puts Open in Work in the dock title bar, and nowhere else', () => {
+    // THE ISOLATION RULE (POD-1457): the one crossing goes to WORK.
+    const host = document.createElement('div')
+    document.body.appendChild(host)
     render(
-      <OperatorFocusProvider missionId="root">
-        <IssuePanelView cwd="/r" onNavigate={vi.fn()} />
-      </OperatorFocusProvider>,
+      <DockHeaderSlotProvider value={host}>
+        <OperatorFocusProvider missionId="root">
+          <IssuePanelView cwd="/r" onNavigate={vi.fn()} />
+        </OperatorFocusProvider>
+      </DockHeaderSlotProvider>,
     )
 
-    expect(screen.getByTestId('task-open-in-work').textContent).toContain('Open in Work')
-    fireEvent.click(screen.getByTestId('task-open-in-work'))
+    const open = within(host).getByTestId('task-open-in-work')
+    expect(open.getAttribute('aria-label')).toBe('Open in Work')
+    fireEvent.click(open)
     expect(setView).toHaveBeenCalledWith('workspace')
     expect(setView).not.toHaveBeenCalledWith('issues')
+    host.remove()
   })
 
-  // The dock shows what the work PRODUCED and what it parked. An agent's todo
-  // list is not one of those — it is the agent's own plan, and the dock stopped
-  // rendering it (POD-1071); the full issue page is where it still lives.
+  // What the work PRODUCED and what it parked — never the agent's todo list
+  // (POD-1071).
   it('shows artifacts and deferred notes only when the issue has any, and never todos', () => {
     render(<IssuePanelView cwd="/r" />)
     expect(screen.queryByTestId('dock-artifacts')).toBeNull()
@@ -533,11 +394,58 @@ describe('IssuePanelView inspector', () => {
       GRANDCHILD,
     ]
     render(<IssuePanelView cwd="/r" />)
-    expect(within(screen.getByTestId('dock-artifacts')).getByText('Spine direction')).toBeTruthy()
+    const artifacts = within(screen.getByTestId('dock-artifacts'))
+    expect(artifacts.getByText('Spine direction')).toBeTruthy()
+    expect(artifacts.getByText('08-07')).toBeTruthy()
     expect(
       within(screen.getByTestId('dock-deferred')).getByText('Second pass on the rail'),
     ).toBeTruthy()
     expect(screen.queryByText('Runtime verification')).toBeNull()
+  })
+
+  it('lists a few artifacts, newest first, and hands View all to the host', () => {
+    const artifacts = Array.from({ length: 5 }, (_, i) => ({
+      path: `docs/note-${i}.md`,
+      title: `Note ${i}`,
+      addedAt: `2026-08-0${i + 1}T00:00:00.000Z`,
+    }))
+    mockIssues = [
+      { ...ROOT, panel: { todos: [], artifacts, deferred: [] } },
+      OPEN_CHILD,
+      DONE_CHILD,
+      GRANDCHILD,
+    ]
+    const onViewAll = vi.fn()
+    render(<IssuePanelView cwd="/r" onViewAllArtifacts={onViewAll} />)
+
+    const section = within(screen.getByTestId('dock-artifacts'))
+    expect(section.getAllByTestId('dock-artifact-row').map((r) => r.textContent)).toEqual([
+      'Note 408-05',
+      'Note 308-04',
+      'Note 208-03',
+    ])
+    fireEvent.click(section.getByTestId('dock-artifacts-view-all'))
+    expect(onViewAll).toHaveBeenCalledWith('root')
+  })
+
+  it('opens the Artifacts stage tab when no host opener is given', () => {
+    const artifacts = Array.from({ length: 5 }, (_, i) => ({
+      path: `docs/note-${i}.md`,
+      title: `Note ${i}`,
+      addedAt: `2026-08-0${i + 1}T00:00:00.000Z`,
+    }))
+    mockIssues = [
+      { ...ROOT, panel: { todos: [], artifacts, deferred: [] } },
+      OPEN_CHILD,
+      DONE_CHILD,
+      GRANDCHILD,
+    ]
+    render(<IssuePanelView cwd="/r" />)
+
+    const section = within(screen.getByTestId('dock-artifacts'))
+    expect(section.getAllByTestId('dock-artifact-row')).toHaveLength(3)
+    fireEvent.click(section.getByTestId('dock-artifacts-view-all'))
+    expect(openArtifactsTab).toHaveBeenCalledWith(ROOT.id, '/r')
   })
 })
 

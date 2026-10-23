@@ -201,6 +201,8 @@ export interface ToolBatchRow {
   /** Each child's index in the flat ChatBlock[] — lets search map a hit to its row. */
   blockIndices: number[]
   title: string
+  /** The folded face's count-only line ("Ran 4 commands"); `title` names subjects. */
+  summary?: string
 }
 /** Anything that isn't a quiet tool call: prose, prompts, the AskUserQuestion card. */
 export interface SingleRow {
@@ -225,7 +227,7 @@ export function buildChatRows(blocks: ChatBlock[]): ChatRow[] {
       kind: 'tools',
       blocks: run.blocks,
       blockIndices: run.indices,
-      title: toolBatchTitle(run.blocks),
+      ...toolBatchTitles(run.blocks),
     })
     run = null
   }
@@ -400,6 +402,15 @@ const clauseFor = (verb: string, noun: string, count: number): string =>
  * than to nothing.
  */
 export function toolBatchTitle(blocks: ChatBlock[]): string {
+  return toolBatchTitles(blocks).title
+}
+
+/**
+ * The named title and the count-only summary a folded run shows ("Ran 4
+ * commands", POD-2076), from ONE walk of the run: the calm transcript keeps
+ * the named title for the tooltip and the unfolded rows.
+ */
+export function toolBatchTitles(blocks: ChatBlock[]): { title: string; summary: string } {
   const order: string[] = []
   const tally = new Map<string, { verb: string; noun: string; subjects: string[]; count: number }>()
   for (const b of blocks) {
@@ -425,7 +436,10 @@ export function toolBatchTitle(blocks: ChatBlock[]): string {
     const distinct = [...new Set(subjects)]
     return { verb, noun, subjects: distinct.slice(0, SUBJECTS_PER_CLAUSE), count }
   })
-  return toolBatchTitleFromClauses(clauses)
+  return {
+    title: toolBatchTitleFromClauses(clauses),
+    summary: toolBatchTitleFromClauses(clauses.map((clause) => ({ ...clause, subjects: [] }))),
+  }
 }
 
 export interface ToolTitleClause {

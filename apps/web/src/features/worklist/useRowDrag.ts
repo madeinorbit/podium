@@ -3,7 +3,7 @@
  *
  * Pointer-based, no dnd lib: the ⠿ grip's pointerdown starts a drag; the row
  * follows the pointer (lifted, tight transient shadow) while displaced siblings
- * FLIP 180ms via transform transitions. Drops are confined to the SIBLING SCOPE
+ * FLIP 160ms via transform transitions. Drops are confined to the SIBLING SCOPE
  * (a `[data-drag-scope]` container) — except the PINNED section, which is a
  * legal cross-target for a top-level row (into/out of PINNED toggles `pinned`).
  *
@@ -85,6 +85,7 @@
 
 import type { PointerEvent as ReactPointerEvent } from 'react'
 import { useCallback, useRef, useState } from 'react'
+import { cssEase, EASE_OUT, MOTION_S } from './worklist-motion-tokens'
 
 export interface RowDrop {
   /** Scope the row was picked up from. */
@@ -116,7 +117,7 @@ interface FrozenRow {
   key: string
 }
 
-const FLIP = 'transform 180ms cubic-bezier(.22,1,.36,1)'
+const FLIP = `transform ${MOTION_S.slot * 1000}ms ${cssEase(EASE_OUT)}`
 /** Slop on a container's edges when deciding which scope the pointer is in. */
 const SCOPE_SLOP = 6
 /** How close to the scroll container's edge the pointer must be to auto-scroll. */

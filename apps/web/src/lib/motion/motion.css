@@ -17,6 +17,16 @@
   --motion-waiting: #d9b477; /* bisque: waiting on you */
   --motion-waiting-ink: #191308; /* text on a bisque pill */
   --motion-total: #6c6c78; /* grey ∑ total on done rows */
+
+  /* Timing for the work sidebar (POD-2080). The Motion side reads the same
+     numbers from features/worklist/worklist-motion-tokens.ts; keep them equal. */
+  --motion-ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --motion-ease-in: cubic-bezier(0.4, 0, 1, 1);
+  --motion-ease-fold: cubic-bezier(0.2, 0, 0, 1);
+  --motion-enter: 180ms;
+  --motion-exit: 140ms;
+  --motion-move: 200ms;
+  --motion-fold: 200ms;
 }
 
 /* Podium light (Paper, POD-725). The values above are tuned to be legible on
@@ -226,21 +236,49 @@
   animation: podium-lineage 1.6s ease-out;
 }
 
-/* Sidebar row flow (POD-167, POD-242, POD-254): Motion owns geometry, opacity,
-   and the interruptible spring settle. CSS keeps only the quiet colour wash —
-   a self-contained flourish that does not affect layout. Yellow is never used:
-   this motion communicates structure, not a request. */
+/* Sidebar row flow (POD-167, POD-242, POD-254): Motion owns geometry and
+   opacity. CSS keeps only the quiet wash that marks a row as new. Yellow is
+   never used: this motion communicates structure, not a request.
+
+   POD-2080: the wash is a pseudo-element fading its OPACITY, not the row's
+   background repainting every frame, and it lasts 600ms instead of 1.57s.
+   `isolation` keeps the z-index:-1 layer above whatever ground the row sits
+   on and under its text; the row shell is its own positioned box, so making
+   this wrapper `relative` re-homes nothing. Its animationend still settles the
+   row (`settle` in pool-sidebar.tsx), so the name stays. */
 @keyframes podium-arrive-wash {
-  0% {
-    background: color-mix(in srgb, var(--arrive-tint, #64748b) 26%, transparent);
+  from {
+    opacity: 1;
   }
-  100% {
-    background: transparent;
+  to {
+    opacity: 0;
   }
 }
 .row-arrive > * {
+  position: relative;
+  isolation: isolate;
+}
+.row-arrive > *::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
   border-radius: 7px;
-  animation: podium-arrive-wash 1.45s 0.12s cubic-bezier(0.4, 0, 0.2, 1) backwards;
+  background: color-mix(in srgb, var(--arrive-tint, #64748b) 22%, transparent);
+  pointer-events: none;
+  animation: podium-arrive-wash 0.6s 0.06s var(--motion-ease-fold) both;
+}
+
+/* A row that mounts in place, without the pool's enter/exit bookkeeping (the
+   New task draft row): the same arrival as a pool row, in CSS. */
+@keyframes podium-row-enter {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+.row-enter {
+  animation: podium-row-enter var(--motion-enter) var(--motion-ease-out) both;
 }
 
 /* Worklist row progress sweep (POD-516 round 3). The RUNNING segment of a
@@ -302,7 +340,8 @@
   .morph-flip-ago,
   .morph-icon-flash,
   .morph-lineage,
-  .row-arrive > * {
+  .row-arrive > *::before,
+  .row-enter {
     animation: none;
   }
   .phase-surface {

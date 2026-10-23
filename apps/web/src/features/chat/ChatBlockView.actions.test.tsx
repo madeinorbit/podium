@@ -169,7 +169,8 @@ describe('the message foot’s two registers, in the stylesheet', () => {
 
   it('fades the clock, not the whole foot', () => {
     expect(block('.msg-foot')).not.toMatch(/opacity:/)
-    expect(block('.msg-foot .chat-clk')).toMatch(/opacity:\s*0\.4/)
+    // POD-2076: no per-block time at rest; it comes up with the actions.
+    expect(block('.msg-foot .chat-clk')).toMatch(/opacity:\s*0;/)
   })
 
   it('needs no exemption to keep a caption or a mark at full ink', () => {

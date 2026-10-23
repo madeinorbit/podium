@@ -89,7 +89,8 @@ describe('podium mail', () => {
       ),
     )
     expect(host.querySelectorAll('.mail-group')).toHaveLength(1)
-    expect(host.textContent).toContain('1 note from Podium')
+    // POD-2076: one quiet line naming the sender, not "1 note from Podium".
+    expect(host.textContent).toContain('Note from auto-continue')
     expect(host.textContent).not.toContain('[podium message')
   })
 
@@ -99,7 +100,9 @@ describe('podium mail', () => {
   it('arrives folded to a single counted line, and opens on a click of it', () => {
     mount(userItem(frame('msg_5', 'issue:POD-84', 'your session', 'background noise')))
     expect(group()?.getAttribute('data-open')).toBe('false')
-    expect(host.textContent).toContain('1 note from Podium')
+    expect(host.textContent).toContain('Note from POD-84')
+    // No message id on the fold line (POD-2076).
+    expect(toggle()?.textContent).not.toContain('msg_5')
     expect(toggle()?.getAttribute('aria-expanded')).toBe('false')
     expect(host.querySelector('.mail-card')).toBeNull()
     click(toggle())
@@ -116,8 +119,7 @@ describe('podium mail', () => {
     )
     // One group, one fold line, one count — not two rows.
     expect(host.querySelectorAll('.mail-group')).toHaveLength(1)
-    expect(host.textContent).toContain('2 notes from Podium')
-    expect(host.textContent).toContain('POD-84 · POD-90')
+    expect(host.textContent).toContain('2 notes from POD-84 · POD-90')
     click(toggle())
     expect(host.querySelectorAll('[data-testid="mail-item"]')).toHaveLength(2)
     expect(host.textContent).toContain('Worktree synced')

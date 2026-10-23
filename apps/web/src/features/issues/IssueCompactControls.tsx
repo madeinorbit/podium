@@ -27,7 +27,7 @@ import {
   MoreHorizontal,
   RotateCcw,
 } from 'lucide-react'
-import { type JSX, lazy, Suspense, useMemo, useState } from 'react'
+import { type JSX, lazy, type ReactNode, Suspense, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import { usePoolMachines } from '@/app/header-data'
 import type { IssueViewModel } from '@/app/store'
@@ -45,7 +45,7 @@ import type { ContextMenuAnchor } from '@/lib/session-context-menu'
 import { cn } from '@/lib/utils'
 import { SessionNameEditor, sessionDisplayName, WorkerLabel } from '@/lib/WorkerLabel'
 import { IssueStatusMenuContent } from './IssueStatusPicker'
-import { StatusGlyph } from './issue-glyphs'
+import { CalmStatusMark } from './issue-glyphs'
 import type { IssueCloseReason } from './issue-lifecycle'
 import { PoolIssueContextMenu } from './issue-menu-pool-inputs'
 import { edgeIssue, useIssueEdgeResolver } from './issue-page/issue-edges'
@@ -81,6 +81,11 @@ export const DOCK_ROW = 'text-[12px] leading-[1.4]'
 /** Machine voice at the floor of the scale: trailing state words, timestamps,
  *  the facts a row parks on its right edge. */
 export const DOCK_STAMP = 'font-mono shell-type-micro leading-none'
+
+/** The status pill: a quiet 24px tag on the card fill, the same object whether
+ *  it opens the status menu or (shipping) is held by the service. */
+const STATUS_PILL =
+  'h-6 flex-none gap-1.5 rounded-[6px] border border-border bg-card px-[9px] text-[12px] font-normal text-foreground'
 
 /** A session is still present when its process is: an exited-but-unarchived
  *  session is gone, and reading it as "standing by" would tell the operator an
@@ -516,8 +521,11 @@ const PlacementMenu = observer(function PlacementMenu({
 export const IssueCompactControls = observer(function IssueCompactControls({
   issue,
   onRename,
+  meta,
 }: {
   issue: IssueViewModel
+  /** One quiet fact read beside the status pill — the panel's subtask count. */
+  meta?: ReactNode
   /** Open the head's inline title editor. Supplying it is what puts `Rename`
    *  in the menu below (`renameEnabled: onRename !== undefined`) — this strip
    *  has no editor of its own, so a menu entry with nowhere to land would be a
@@ -572,18 +580,19 @@ export const IssueCompactControls = observer(function IssueCompactControls({
 
   if (isSystemOwnedIssueStage(issue.stage)) {
     return (
-      <div className="mt-2.5 flex items-center gap-2">
+      <div className="flex items-center gap-2">
         <Button
           type="button"
           variant="ghost"
           size="sm"
           disabled
           aria-label="Shipping controls are managed by the shipping service"
-          className="h-7 flex-none gap-1.5 border-border bg-card px-2.5 text-[11.5px] font-medium text-text-strong"
+          className={STATUS_PILL}
         >
-          <StatusGlyph status={issue.stage} size={12} />
+          <CalmStatusMark status={issue.stage} size={10} decorative />
           {statusLabel}
         </Button>
+        {meta}
       </div>
     )
   }
@@ -666,7 +675,7 @@ export const IssueCompactControls = observer(function IssueCompactControls({
     // would not be — the head must not grow with DATA, and a line break here is
     // a function of width, not of how much this task has to say. The box is
     // bounded the same way: two picker rows and a button, whatever it holds.
-    <div className="mt-2.5 flex flex-col gap-3.5">
+    <div className="flex flex-col gap-3.5">
       <div className="flex flex-wrap items-center gap-2">
         {/* STATUS, exposed as a first-class dock action. Built from the shell's
             own dropdown rather than a native <select>, which exists nowhere in
@@ -689,11 +698,10 @@ export const IssueCompactControls = observer(function IssueCompactControls({
                 size="sm"
                 aria-label="Status"
                 title={statusDetail !== statusLabel ? statusDetail : undefined}
-                className="h-7 flex-none gap-1.5 border-border bg-card px-2.5 text-[11.5px] font-medium text-text-strong"
+                className={STATUS_PILL}
               >
-                <StatusGlyph status={issueStatusOf(issue)} size={12} />
+                <CalmStatusMark status={issueStatusOf(issue)} size={10} decorative />
                 {statusLabel}
-                <ChevronDown size={13} className="size-[13px] text-text-faint" aria-hidden="true" />
               </Button>
             }
           />
@@ -706,12 +714,13 @@ export const IssueCompactControls = observer(function IssueCompactControls({
             onPick={(value) => status.pick(issue, value)}
           />
         </DropdownMenu>
+        {meta}
         {closed ? (
           <Button
             type="button"
             variant="outline"
             size="sm"
-            className="h-7 gap-1.5 px-3 text-[11.5px]"
+            className="h-6 gap-1.5 rounded-[6px] px-2.5 text-[12px]"
             onClick={() =>
               updateIssue(issue.id, { stage: 'backlog' }).catch((error: unknown) =>
                 toast.error(error instanceof Error ? error.message : String(error)),
@@ -740,7 +749,7 @@ export const IssueCompactControls = observer(function IssueCompactControls({
             data-testid="task-primary-action"
             data-action={action.kind}
             disabled={starting}
-            className="btn-primary-rim h-7 border px-2.5 text-[11.5px] font-semibold"
+            className="btn-primary-rim h-6 rounded-[6px] border px-2.5 text-[12px] font-semibold"
             onClick={runAction}
           >
             {action.label}
@@ -750,7 +759,7 @@ export const IssueCompactControls = observer(function IssueCompactControls({
           type="button"
           variant="ghost"
           size="icon-sm"
-          className="ml-auto size-7 text-text-dim"
+          className="ml-auto size-6 text-text-faint hover:text-foreground"
           title="More issue actions"
           aria-label="More issue actions"
           onClick={(event) => {

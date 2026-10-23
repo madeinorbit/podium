@@ -185,7 +185,7 @@ describe('SidebarUnified per-row working grammar (#41)', () => {
     const groups = screen.getAllByTestId('project-group-label')
     expect(groups).toHaveLength(1)
     // Repo name, then the group's size pushed to the right edge (POD-725).
-    expect(groups[0]?.firstElementChild?.textContent).toBe('repo')
+    expect(groups[0]?.textContent?.startsWith('repo')).toBe(true)
     expect(groups[0]?.querySelector('[data-testid="project-group-count"]')?.textContent).toBe('8')
     // Both issues render exactly once, inside the group.
     expect(screen.getAllByText('Fully working issue')).toHaveLength(1)
@@ -204,11 +204,13 @@ describe('SidebarUnified per-row working grammar (#41)', () => {
       .closest('[data-testid="unified-issue-row"]') as HTMLElement
     expect(workingRow.querySelector('[data-phase="working"]')).toBeTruthy()
     const meta = workingRow.querySelector('[data-testid="row-meta-column"]') as HTMLElement
-    // The spinner rides the clock, and both are in the meta column.
-    expect(meta.querySelector('.pod-mark')).toBeTruthy()
+    // The clock is in the meta column; the working mark is line 2's status
+    // mark, beside the word (POD-2074).
+    expect(meta.querySelector('.pod-mark')).toBeNull()
     expect(meta.textContent).toMatch(/\d+:\d\d/)
     const workingStatus = workingRow.querySelector('[data-testid="row-lifecycle-status"]')
-    expect(workingStatus?.textContent).toContain('in progress')
+    expect(workingStatus?.querySelector('.pod-mark')).toBeTruthy()
+    expect(workingStatus?.textContent).toContain('Working')
     // The partially-working issue has a question waiting → the row reads
     // waiting (stillness), and says so in line 2's one ochre sentence.
     const waitingRow = screen
@@ -245,8 +247,8 @@ describe('SidebarUnified per-row working grammar (#41)', () => {
     // only "an agent is computing" mark rather than a second one.
     expect(waitingRow.querySelector('.pod-mark')).toBeTruthy()
     const status = waitingRow.querySelector('[data-testid="row-lifecycle-status"]')
-    // The spinner carries live agent activity. The words remain the task stage.
-    expect(status?.textContent).toContain('in progress')
+    // The spinner carries live agent activity; the words say the ask.
+    expect(status?.textContent).toContain('Waiting on you')
     expect(status?.textContent).not.toContain('agents')
     // A waiting row with nothing running stays perfectly still.
     const merge = screen
@@ -256,16 +258,14 @@ describe('SidebarUnified per-row working grammar (#41)', () => {
     expect(merge.querySelector('.pod-mark')).toBeNull()
   })
 
-  // POD-516 §1.1: agents are a fleet stack and nothing else in this column.
-  // There is no roster band and no disclosure to reveal one — the operator saw
-  // the old chevron as the sidebar growing a second navigation tree.
-  it('shows agents as a fleet stack with no roster band and no disclosure', () => {
+  // POD-516 §1.1: no roster band and no disclosure in this column. The calm
+  // row (POD-2074) draws no agent stack either — the Flight Deck owns the fleet.
+  it('shows no agent roster, stack or disclosure on a row', () => {
     render(<SidebarUnified />)
     const waitingRow = screen
       .getByText('Partly working issue')
       .closest('[data-testid="unified-issue-row"]') as HTMLElement
-    const fleet = waitingRow.querySelector('[data-testid="issue-fleet-summary"]') as HTMLElement
-    expect(fleet).toBeTruthy()
+    expect(waitingRow.querySelector('[data-testid="issue-fleet-summary"]')).toBeNull()
     expect(waitingRow.querySelector('[data-testid="agent-roster-band"]')).toBeNull()
     expect(screen.queryByRole('button', { name: 'Expand Partly working issue' })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Collapse Partly working issue' })).toBeNull()
@@ -278,13 +278,10 @@ describe('SidebarUnified per-row working grammar (#41)', () => {
       .closest('[data-testid="unified-issue-row"]') as HTMLElement
     const status = doneRow.querySelector('[data-testid="row-lifecycle-status"]') as HTMLElement
     expect(status.getAttribute('data-phase')).toBe('done')
-    expect(status.textContent).toContain('done')
-    expect(status.textContent).toContain('5:40 total')
-    // Completion is stated in words now (POD-293): the done ✓ glyph is gone from
-    // line 2 — "done · 5:40 total" in mono carries it, one clean voice, no icon.
-    // Scoped to the lockup's own children: the fleet glyphs are SVGs too, and
-    // they live one level in (POD-1057).
-    expect(status.querySelector(':scope > svg')).toBeNull()
+    // Done is a check and a word, muted, and the row stays in Open until it
+    // is tucked (POD-2074, design 7b).
+    expect(status.textContent).toContain('Done')
+    expect(status.querySelector('[data-testid="row-status-check"]')).toBeTruthy()
     expect(doneRow.querySelector('[data-testid="git-stamp"]')).toBeNull()
   })
 
@@ -299,28 +296,6 @@ describe('SidebarUnified per-row working grammar (#41)', () => {
       .getByText('Nested parent')
       .closest('[data-testid="unified-issue-row"]') as HTMLElement
     expect(parentRow.querySelector('[data-testid="agent-roster-band"]')).toBeNull()
-    // The child's session is still counted: two agents, one harness kind.
-    const fleet = parentRow.querySelector('[data-testid="issue-fleet-summary"]') as HTMLElement
-    expect(fleet).toBeTruthy()
-    expect(fleet.getAttribute('aria-label')).toBe('2 agents')
-    expect(fleet.querySelectorAll('[data-agent-kind]')).toHaveLength(1)
-    expect(fleet.querySelector('[data-testid="issue-fleet-total"]')?.textContent).toBe('2')
-  })
-
-  // POD-741: the fleet stack has ONE rule — an agent on the issue or anywhere in
-  // its subtree shows. A draft vessel used to be the exception, which left the
-  // row that is nothing but an agent as the only row that never named one.
-  it('stacks the agent on a draft vessel row too', () => {
-    render(<SidebarUnified />)
-    const draftRow = screen
-      .getByText('Push the commits')
-      .closest('[data-testid="unified-issue-row"]') as HTMLElement
-    const fleet = draftRow.querySelector('[data-testid="issue-fleet-summary"]') as HTMLElement
-    expect(fleet).toBeTruthy()
-    expect(fleet.getAttribute('aria-label')).toBe('1 agent')
-    expect(fleet.querySelector('[data-agent-kind="claude-code"]')).toBeTruthy()
-    // A lone agent shows its tile and no total — the number would say nothing.
-    expect(fleet.querySelector('[data-testid="issue-fleet-total"]')).toBeNull()
   })
 
   it('shows unmerged done work as a tint-only branch attention chip', () => {
@@ -335,11 +310,14 @@ describe('SidebarUnified per-row working grammar (#41)', () => {
     expect(row.querySelector('[aria-label="1 waiting on you"]')).toBeNull()
     expect(row.querySelector('[data-testid="need-count"]')).toBeNull()
     const chip = row.querySelector('[data-testid="awaiting-merge-status"]') as HTMLElement
-    expect(chip.textContent).toBe('ready to merge · 2')
-    // POD-293: the ask is the row's one amber voice as a plain weighted word —
+    expect(chip.textContent).toBe('Ready to merge')
+    const status = row.querySelector('[data-testid="row-lifecycle-status"]') as HTMLElement
+    expect(status.textContent).toContain('· 2')
+    // POD-293: the ask is the row's one bronze voice as a plain weighted word —
     // no boxed chip, no icon (the boxed pill made every review row shout).
-    expect(chip.className).toContain('text-attention')
-    expect(chip.className).toContain('font-semibold')
+    const phrase = row.querySelector('[data-testid="row-status-phrase"]') as HTMLElement
+    expect(phrase.style.color).toBe('var(--attention)')
+    expect(phrase.className).toContain('font-semibold')
     expect(chip.querySelector('svg')).toBeNull()
     // The word absorbs the merge axis: the git stamp must not repeat
     // "2 commits ahead" in a second amber counter (POD-279).
@@ -359,11 +337,14 @@ describe('SidebarUnified per-row working grammar (#41)', () => {
     // The decision word is the row's one amber voice (POD-293) — no count pill.
     expect(merge.querySelector('[aria-label="1 waiting on you"]')).toBeNull()
     const mergeChip = merge.querySelector('[data-decision="merge"]') as HTMLElement
-    expect(mergeChip.textContent).toBe('ready to merge · 1')
+    expect(mergeChip.textContent).toBe('Ready to merge')
+    expect(
+      merge.querySelector('[data-testid="row-lifecycle-status"]')?.textContent,
+    ).toContain('· 1')
 
     const review = rowFor('Review without branch')
     expect(review.querySelector('[data-phase="waiting"]')).toBeTruthy()
     const reviewChip = review.querySelector('[data-decision="review"]') as HTMLElement
-    expect(reviewChip.textContent).toBe('needs review')
+    expect(reviewChip.textContent).toBe('Needs review')
   })
 })

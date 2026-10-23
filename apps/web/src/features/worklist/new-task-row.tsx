@@ -1,5 +1,5 @@
 /**
- * THE COLUMN'S TWO CONTROLS (POD-1469), replacing `spawn-row.tsx`.
+ * THE COLUMN'S HEAD (POD-1469), replacing `spawn-row.tsx`.
  *
  * The sidebar's head used to be `New <Agent> in <Repo>` — a chip that spawned a
  * harness on click, with a chevron inside its own outline holding the agent →
@@ -16,22 +16,15 @@
  * a first-run operator with no projects would never look. The strip is gone and
  * the button is up here in words.
  *
- * IT SHARES THE FILTER'S LINE, AND THE FILTER IS WHAT GIVES. At the column's
- * 306px default both fit whole. At its 200px minimum they cannot — a spelled-out
- * button is ~115px of the 180px inside the insets — so the button drops to its
- * glyph and the field keeps the room. That direction is not arbitrary: a filter
- * field with a search glyph and no visible placeholder still reads as a filter
- * field, while `Add Reposi…` reads as a bug. The threshold is a CONTAINER query
- * on the column, not a viewport one — this column is resized by hand on a
- * display of any width, and `sm:` knows nothing about that.
+ * (POD-2074) `Add repository` has since moved again, to a pinned foot under
+ * the list (`AddRepositoryFooter` in `work-folders.tsx`), and the per-project
+ * "Start first task" band gave way to each folder header's +.
  */
-import { FolderPlus, Plus } from 'lucide-react'
+import { Plus } from 'lucide-react'
 import type { JSX } from 'react'
-import { openAddProject } from '@/app/desktop-menu'
 import { modChord } from '@/lib/mod-chord'
-import { cn } from '@/lib/utils'
 import { newTaskChordBound, useNewTask } from './new-task'
-import { ID_GUTTER_W } from './WorkRowShell'
+import { WorkRowShell } from './WorkRowShell'
 
 /**
  * The one top row: a full-width raised card that opens a blank mission.
@@ -57,7 +50,7 @@ export function NewTaskRow(): JSX.Element {
   // states one shortcut, on the control that answers it.
   const chord = newTaskChordBound()
   return (
-    <div className="flex flex-none items-center gap-2 px-[10px] pt-[9px]">
+    <div className="flex flex-none items-center gap-2 px-3 pt-3">
       <button
         data-pressable
         type="button"
@@ -82,90 +75,45 @@ export function NewTaskRow(): JSX.Element {
   )
 }
 
-/**
- * `Add repository`, spelled out while there is room for the words.
- *
- * A 30px control, not the filter's 32: the field beside it is the line's
- * subject and this is the utility riding along, so it sits a hair inside the
- * field's height rather than squaring up to it. Chip ground, chip rim — the same
- * raised vocabulary the head above uses, one tier quieter.
- */
-export function AddRepositoryButton({ className }: { className?: string }): JSX.Element {
-  return (
-    <button
-      data-pressable
-      type="button"
-      data-testid="add-repository"
-      title="Add repository"
-      aria-label="Add repository"
-      onClick={openAddProject}
-      className={cn(
-        'flex h-8 flex-none items-center gap-[6px] rounded-[7px] border border-input bg-chip px-[9px] text-[11.5px] font-medium leading-none text-muted-foreground transition-colors hover:bg-accent hover:text-text-strong focus-visible:outline focus-visible:outline-1 focus-visible:outline-border-strong focus-visible:outline-offset-[-2px]',
-        className,
-      )}
-    >
-      <FolderPlus size={13} aria-hidden="true" className="flex-none" />
-      {/* The words go first, and only below the column's own 340px — a
-          `@container worklist` rule in styles.css, so the width being read is
-          the COLUMN's, which is the only width that matters to a control the
-          operator drags the edge of. */}
-      <span className="worklist-add-repo-label">Add repository</span>
-    </button>
-  )
+/** The task being written in the New task overlay, as the folder it will
+ *  land in shows it (design 6a). */
+export interface SidebarDraft {
+  repoPath: string
+  title: string
 }
 
 /**
- * A PROJECT WITH NOTHING IN IT STILL HAS A BAND, AND THE BAND HAS A DOOR
- * (POD-1469).
- *
- * Groups are built from rows, so a repo that has never been worked contributed
- * nothing and vanished from the column entirely: adding a project appeared to do
- * nothing at all, which is the worst possible answer to the one gesture whose
- * whole purpose is to make a project exist. The band is drawn from the project
- * tree now, and this is what stands under it.
- *
- * IT IS DRAWN, NOT WRITTEN, AND IT IS QUIETER FOR IT. The first cut was a `+`
- * and two words in `--muted-foreground` — a text link parked inside a band,
- * which is both louder than an empty project deserves and says nothing about
- * what would appear if you pressed it. This is a ROW-SHAPED HOLE instead: the
- * live row's own geometry (`shell-work-row`, the 13px inset, `ID_GUTTER_W`, the
- * 11px gap) with a dashed tile where the ID square goes, so it lands on the
- * column's one vertical datum and reads as the slot the first task will fill.
- * The ink is the ghost ramp the empty list already uses, a rung under the
- * faintest text in the column — graphical enough to be seen, quiet enough that
- * a fleet of untouched projects does not shout.
- *
- * The whole row lifts on hover, tile and label together, which is what says it
- * is a control at all. Everything else about an empty project stays still.
- *
- * It seeds the composer with THIS project, so the sentence the operator lands on
- * names the repo whose band they clicked.
+ * THE DRAFT ROW (POD-2074, design 6a). While the New task overlay is open, the
+ * project it will start in holds a raised row at its head — the one selected
+ * row in the column — so the operator sees where the task lands before it
+ * exists. It is the live row's own shell with a hollow ring, `Draft` and
+ * `writing…`, and no ref: nothing has been created yet.
  */
-export function StartFirstTaskRow({ repoPath }: { repoPath: string }): JSX.Element {
-  const { startNewTask } = useNewTask()
+export function NewTaskDraftRow({ title }: { title: string }): JSX.Element {
+  const label = title.trim().split('\n')[0]?.trim() || 'New task'
+  // Arrives like a pool row (POD-2080); it mounts once per draft, so a CSS
+  // one-shot is all it needs.
   return (
-    <button
-      data-pressable
-      type="button"
-      data-testid="start-first-task"
-      onClick={() => startNewTask(repoPath)}
-      title="Start the first task in this project"
-      className="group/first shell-work-row flex min-h-[44px] w-full min-w-0 items-center px-[13px] text-left transition-colors hover:bg-accent focus-visible:outline focus-visible:outline-1 focus-visible:outline-border-strong focus-visible:outline-offset-[-2px]"
-    >
-      {/* The identity gutter, right-aligned exactly as the live rows align their
-          digits — so the tile's right edge and every row number's share one x,
-          and the label below starts where every title starts. */}
-      <span className="flex flex-none justify-end" style={{ width: ID_GUTTER_W }}>
-        <span
-          aria-hidden="true"
-          className="flex size-[21px] items-center justify-center rounded-[6px] border border-dashed border-(--ghost-1) text-(--ghost-1) transition-colors group-hover/first:border-text-faint group-hover/first:text-text-dim"
-        >
-          <Plus size={12} strokeWidth={2.25} />
-        </span>
-      </span>
-      <span className="ml-[11px] min-w-0 truncate text-[11.5px] text-text-faint transition-colors group-hover/first:text-text-strong">
-        Start first task
-      </span>
-    </button>
+    <div className="row-enter">
+      <WorkRowShell
+        testId="new-task-draft-row"
+        idNumber=""
+        idLabel="Draft task"
+        label={label}
+        tone="draft"
+        phase="queued"
+        statusLine="Draft"
+        statusTime="writing…"
+        active
+        onSelect={focusPrompt}
+      />
+    </div>
   )
+}
+
+/** Pressing the draft returns to the prompt it stands for (POD-2079). */
+const focusPrompt = (): void => {
+  ;(
+    globalThis as { __PODIUM_FOCUS_SESSION_PROMPT__?: () => void }
+  ).__PODIUM_FOCUS_SESSION_PROMPT__?.()
 }

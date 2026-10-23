@@ -490,10 +490,10 @@ describe('issue page rendered pool parity', () => {
         ([name]) => name.startsWith('issue-page.') || name === 'replica.issueViews',
       ),
     ).toEqual([])
-    if (surface !== 'list') {
-      expect(comments).toHaveBeenCalled()
-      expect(events).toHaveBeenCalled()
-    }
+    if (surface !== 'list') expect(comments).toHaveBeenCalled()
+    // The calm task panel reads comments only (history window 0, no event
+    // pages); the full page still loads its activity.
+    if (surface === 'page') expect(events).toHaveBeenCalled()
   })
 
   it('preserves the rendered continuation after multiple spin-off hops', async () => {

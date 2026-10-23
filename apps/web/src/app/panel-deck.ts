@@ -301,9 +301,9 @@ export function paneBoxStyle(rect: PaneRect): CSSProperties {
   }
 }
 
-/** How much of a pane its own chrome takes: the `--section-bar-h` strip plus the
- *  1px hairline it closes with. The panel starts BELOW that line, not under it. */
-const PANE_HEADER = 'calc(var(--section-bar-h) + 1px)'
+/** How much of a pane its own chrome takes: the tab strip, hairline included
+ *  (`--tab-strip-h`, border-box). The panel starts BELOW that line, not under it. */
+const PANE_HEADER = 'var(--tab-strip-h)'
 
 /** A pane's PANEL box — the chrome box less its tab strip, so an absolutely
  *  positioned panel lands under the strip of the pane it belongs to. */

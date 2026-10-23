@@ -23,14 +23,14 @@ exports[`issue page rendered pool parity > preserves the page text, labels, orde
 
 exports[`issue page rendered pool parity > preserves the panel text, labels, order, layout and loader results with zero legacy derivations > rendered output 1`] = `
 {
-  "bytes": 84141,
-  "sha256": "3ba80705145efbb674355edca16c7eb913c5cf0917c018278c00338853f6b9ff",
+  "bytes": 29924,
+  "sha256": "9fa041c10b47350780b897fcf67f1b09f2d81cb3204d0314c2902433e5c4ac6a",
 }
 `;
 
 exports[`issue page rendered pool parity > preserves the rendered continuation after multiple spin-off hops > rendered output 1`] = `
 {
-  "bytes": 54349,
-  "sha256": "24ad34380138abb8f281fc068750e9151c562d6033997a94fb5bb57e1814a300",
+  "bytes": 34442,
+  "sha256": "7c61f05cad3709b8dd08bfe5e127795bbfd306d8fc4a3c7222ac22b992c1dfbb",
 }
 `;

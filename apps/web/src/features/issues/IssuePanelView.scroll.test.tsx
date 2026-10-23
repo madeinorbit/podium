@@ -169,79 +169,15 @@ describe('the task dock scrolls', () => {
     expect(root.className).toContain('min-h-0')
   })
 
-  it('never lets the region above the scroll grow with the data', () => {
-    // React mints a fresh id per mount for the menu trigger; it says nothing
-    // about the box's size.
-    const shape = (el: HTMLElement): string => el.innerHTML.replace(/base-ui-[\w-]+/g, 'id')
-
-    mockSessions = [offering('s1', 'Coordinator')]
-    const one = render(<IssuePanelView cwd="/r" />)
-    const fixedWithOne = shape(within(one.container).getByTestId('dock-fixed'))
-    cleanup()
-
-    mockSessions = [
-      offering('s1', 'Coordinator'),
-      offering('s2', 'Deck builder'),
-      offering('s3', 'Dock designer'),
-      offering('s4', 'Sidebar designer'),
-    ]
-    const four = render(<IssuePanelView cwd="/r" />)
-
-    // Four agents are waiting instead of one, and the fixed region is byte-for-
-    // byte the same box. Everything that varies moved into the scroll.
-    expect(shape(within(four.container).getByTestId('dock-fixed'))).toBe(fixedWithOne)
-    expect(within(four.container).getAllByTestId('dock-session-row')).toHaveLength(4)
-  })
-
-  it('keeps the offer cards out of the dock entirely', () => {
+  // The offers live in chat now (POD-2077): a waiting agent's card is the one
+  // place that asks, so the panel draws no band, no badge and no roster row.
+  it('keeps the offers and the needs-you band out of the dock entirely', () => {
     mockSessions = [offering('s1', 'Coordinator'), offering('s2', 'Deck builder')]
     render(<IssuePanelView cwd="/r" />)
 
     expect(screen.queryAllByTestId('offer-bar')).toHaveLength(0)
-    // The band stays one line: the headline, and no answers of its own.
-    const band = screen.getByTestId('dock-decision-band')
-    expect(band.textContent).toContain('Needs you')
-    expect(within(band).queryByText('Land it')).toBeNull()
-  })
-})
-
-describe('needs-you lives on the session that asked', () => {
-  it('badges the waiting session instead of unfolding its offer', () => {
-    mockSessions = [session({ sessionId: 'quiet', name: 'Quiet agent' }), offering('ask', 'Asker')]
-    render(<IssuePanelView cwd="/r" />)
-
-    const rows = screen.getAllByTestId('dock-session-row')
-    // The one that stopped and asked sorts first — the roster folds at five and
-    // a waiting agent must never be the one behind the fold.
-    expect(rows[0]?.dataset.needsYou).toBe('true')
-    expect(within(rows[0] as HTMLElement).getByText('Asker')).toBeTruthy()
-    expect(rows[1]?.dataset.needsYou).toBeUndefined()
-
-    // POD-1269: a badge, and nothing else. The headline and its one-click
-    // answers were a whole conversation transplanted into a roster.
-    const badge = within(rows[0] as HTMLElement).getByTestId('dock-session-needs-you')
-    expect(badge.textContent).toBe('Needs you')
-    expect(within(rows[0] as HTMLElement).queryByTestId('dock-session-answer')).toBeNull()
-    expect(rows[0]?.textContent).not.toContain('Asker asks: land this?')
-    expect(within(rows[0] as HTMLElement).queryByText('Land it')).toBeNull()
-    expect(sendText).not.toHaveBeenCalled()
-  })
-
-  it('opens the conversation from the row, which is where the answer is given', () => {
-    mockSessions = [offering('ask', 'Asker')]
-    render(<IssuePanelView cwd="/r" />)
-
-    fireEvent.click(screen.getByText('Asker'))
-    expect(setPane).toHaveBeenCalledWith('A', 'ask')
-  })
-
-  it('leaves a working session unbadged, wearing its state word', () => {
-    mockSessions = [session()]
-    render(<IssuePanelView cwd="/r" />)
-
-    const row = screen.getByTestId('dock-session-row')
-    expect(row.dataset.needsYou).toBeUndefined()
-    expect(within(row).queryByTestId('dock-session-needs-you')).toBeNull()
-    expect(row.textContent).toContain('Idle')
+    expect(screen.queryByTestId('dock-decision-band')).toBeNull()
+    expect(screen.queryAllByTestId('dock-session-row')).toHaveLength(0)
+    expect(screen.queryByText('Needs you')).toBeNull()
   })
 })

@@ -111,7 +111,8 @@ it('observes retained failure and count facts while folded, then shows current c
   act(() =>
     graph.apply({ changed: [call({ id: 'c', toolUseId: 'c' })], insertions: [{ id: 'c' }] }),
   )
-  expect(host.querySelector('.work-line-count')?.textContent).toBe('3')
+  // POD-2076: no count badge; the count rides the summary and the label.
+  expect(host.querySelector('.work-line-row')?.getAttribute('aria-label')).toContain('3 calls')
   expect(host.querySelector('.work-line-list')).toBeNull()
   act(() => host.querySelector<HTMLButtonElement>('.work-line-row')!.click())
   expect(host.querySelector('.work-line-list')?.textContent).toContain('failed')
@@ -150,24 +151,17 @@ describe('ToolBatchView — the work line', () => {
   it('sheds secondary chrome progressively when its own inline size contracts', () => {
     const css = readFileSync(resolve(import.meta.dirname, '../../styles.css'), 'utf8')
     const workLine = css.match(/\.work-line \{(?<body>[^}]*)\}/)?.groups?.body ?? ''
-    const frontTier = css.match(/\.work-line-deck i \{(?<body>[^}]*)\}/)?.groups?.body ?? ''
-    const rearTier =
-      css.match(/\.work-line-deck i:last-child \{(?<body>[^}]*)\}/)?.groups?.body ?? ''
     const elapsedRung = css.indexOf('@container work-line (max-width: 280px)')
     const countRung = css.indexOf('@container work-line (max-width: 120px)')
     const disclosureRung = css.indexOf('@container work-line (max-width: 92px)')
 
     expect(workLine).toContain('container-type: inline-size')
-    expect(frontTier).toMatch(/right: min\(9px, 8%\)[\s\S]*left: min\(9px, 8%\)/)
-    expect(frontTier).toContain('min(8px, 3cqi)')
-    expect(rearTier).toMatch(/right: min\(18px, 16%\)[\s\S]*left: min\(18px, 16%\)/)
+    // POD-2076: one hairline row — no fanned deck, no count badge.
+    expect(css).not.toMatch(/\.work-line-deck|\.work-line-count/)
     expect(elapsedRung).toBeGreaterThan(-1)
     expect(countRung).toBeGreaterThan(elapsedRung)
     expect(disclosureRung).toBeGreaterThan(countRung)
     expect(css.slice(elapsedRung, countRung)).toMatch(/\.work-line-time\s*\{[^}]*display: none/s)
-    expect(css.slice(countRung, disclosureRung)).toMatch(
-      /\.work-line-count\s*\{[^}]*display: none/s,
-    )
     expect(css.slice(disclosureRung)).toMatch(/\.work-line-chev\s*\{[^}]*display: none/s)
   })
 
@@ -189,7 +183,7 @@ describe('ToolBatchView — the work line', () => {
     const line = host.querySelector('[data-testid="work-line"]')!
     expect(line.getAttribute('data-state')).toBe('live')
     expect(line.querySelector('.work-line-phrase')?.textContent).toBe('Editing ChatView.tsx')
-    expect(line.querySelector('.work-line-count')?.textContent).toBe('2')
+    expect(line.querySelector('.work-line-row')?.getAttribute('aria-label')).toContain('2 calls')
     // Counted from the FIRST call, not the latest one.
     expect(line.querySelector('.work-line-time')?.textContent).toBe('0:07')
   })
@@ -205,6 +199,19 @@ describe('ToolBatchView — the work line', () => {
     expect(line.getAttribute('data-state')).toBe('done')
     expect(line.querySelector('.work-line-phrase')?.textContent).toBe('Read a file, ran a command')
     expect(line.querySelector('.work-line-time')?.textContent).toBe('0:09')
+  })
+
+  // POD-2076: the folded face counts; the subjects stay in the tooltip.
+  it('folds to a count-only summary and keeps the named title as the tooltip', () => {
+    mount(
+      batchOf([
+        call({ id: 'a', toolName: 'Edit', toolPaths: ['/r/apps/web/src/ChatView.tsx'] }),
+        call({ id: 'b', toolName: 'Edit', toolPaths: ['/r/apps/web/src/OfferBar.tsx'] }),
+      ]),
+    )
+    const row = host.querySelector('.work-line-row')!
+    expect(row.querySelector('.work-line-phrase')?.textContent).toBe('Edited 2 files')
+    expect(row.getAttribute('title')).toContain('ChatView.tsx')
   })
 
   it('renders a named external wait without a second spinner', () => {

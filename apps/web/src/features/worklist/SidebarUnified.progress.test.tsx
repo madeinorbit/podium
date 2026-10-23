@@ -187,11 +187,6 @@ const setUp = (sessions: Record<string, unknown>[], issues = MISSION): void => {
 const meterOf = (container: HTMLElement, issueId: string): HTMLElement | null =>
   container.querySelector(`[data-issue-row="${issueId}"] [data-testid="row-progress"]`)
 
-const widthsOf = (meter: HTMLElement): number[] =>
-  [...(meter.children as unknown as HTMLElement[])].map((segment) =>
-    Number.parseFloat(segment.style.width),
-  )
-
 describe('per-entry progress in the worklist (POD-516 round 3)', () => {
   it('no longer summarises the whole column above the first row', () => {
     setUp([sess('lead', 'root')])
@@ -200,80 +195,29 @@ describe('per-entry progress in the worklist (POD-516 round 3)', () => {
     expect(view.container.querySelector('[data-testid="worklist-status-meter"]')).toBeNull()
   })
 
-  it.each([
-    // The row speaks for its whole mission, so a subtree with no rows of its
-    // own is still what the meter measures.
-    { id: 'root', why: 'a five-task mission', meter: true },
-    // One issue, one agent: 0% until it is 100%, which the status word already
-    // says in a word. "if it makes sense" — this does not.
-    { id: 'solo', why: 'one issue with no subtree', meter: false },
-  ])('$why → meter: $meter', ({ id, meter }) => {
+  // THE CALM ROWS (POD-2074) DRAW NO BAR. The per-row meter was the loudest
+  // repeated mark in the column; a mission now tallies its tasks as one quiet
+  // fact on line 2, and a lone issue, whose tally would only say 0/1 or 1/1,
+  // says nothing.
+  it('tallies a mission on line 2 instead of drawing a per-row bar', () => {
     setUp([sess('lead', 'root')])
     const view = render(<SidebarUnified />)
-    expect(view.container.querySelector(`[data-issue-row="${id}"]`)).toBeTruthy()
-    expect(meterOf(view.container, id) !== null).toBe(meter)
-  })
-
-  it('draws exclusive buckets that cannot exceed the bar', () => {
-    setUp([sess('lead', 'root')])
-    const view = render(<SidebarUnified />)
-    const meter = meterOf(view.container, 'root') as HTMLElement
+    expect(meterOf(view.container, 'root')).toBeNull()
+    const status = (id: string) =>
+      view.container.querySelector(`[data-issue-row="${id}"] [data-testid="row-lifecycle-status"]`)
+        ?.textContent ?? ''
     // FOUR tasks, not five: POD-710 stopped counting the mission root beside
-    // its own members. The root is the container being measured — its stage is
-    // a roll-up OF a, b, c and d, so counting it as a fifth unit double-counted
-    // exactly the work the bar is drawing.
-    expect(meter.getAttribute('data-total')).toBe('4')
-    // One lit segment now — done — over the trough. The in-progress ROOT was
-    // the only thing that had been running, and it is no longer a unit. The
-    // blocked child and the backlog child are both NOT MOVING and stay in the
-    // trough, where the tooltip still accounts for them.
-    expect(widthsOf(meter)).toEqual([(2 / 4) * 100, 0])
-    expect(widthsOf(meter).reduce((sum, width) => sum + width, 0)).toBeLessThanOrEqual(100)
-    expect(meter.getAttribute('aria-label')).toBe(
-      '4 tasks · 2 done · 0 underway · 1 blocked · 1 waiting',
-    )
+    // its own members.
+    expect(status('root')).toContain('2/4')
+    expect(status('solo')).not.toMatch(/\d+\/\d+/)
   })
 
-  it('sweeps the running segment only while an agent is actually computing', () => {
-    // The task is `in_progress` and its agent has stopped: the run segment keeps
-    // its colour (the task IS running) but nothing moves — stillness is signal.
-    //
-    // The running task has to be a MEMBER now, not the root: since POD-710 the
-    // root is the container being measured rather than a unit inside itself, so
-    // a mission whose only `in_progress` issue was the root draws no run segment
-    // at all — and this test would have been asserting stillness against an
-    // empty segment, which passes for the wrong reason.
-    //
-    // The AGENT has to be on that member too (POD-1314): a started task with
-    // nobody on it is `stall`, not `run`, so parking the crew on the root would
-    // empty the segment again the same way. Present but idle is exactly the
-    // state this test is about — the task is running, the agent is not.
-    const running = MISSION.map((i) => (i.id === 'd' ? { ...i, stage: 'in_progress' } : i))
-    setUp(
-      [sess('lead', 'd', { agentState: { phase: 'idle', since: '2026-07-06T12:00:00.000Z' } })],
-      running,
-    )
-    const idle = render(<SidebarUnified />)
-    const parked = meterOf(idle.container, 'root') as HTMLElement
-    expect(parked.getAttribute('data-working')).toBe('false')
-    expect(parked.querySelector('.row-progress-sweep')).toBeNull()
-    expect(widthsOf(parked)[1]).toBe((1 / 4) * 100)
-    cleanup()
-
-    setUp([sess('lead', 'd')], running)
-    const live = render(<SidebarUnified />)
-    const moving = meterOf(live.container, 'root') as HTMLElement
-    expect(moving.getAttribute('data-working')).toBe('true')
-    expect(moving.querySelector('.row-progress-sweep')).toBeTruthy()
-  })
-
-  it('spends no amber on the meter — colour is reserved for what needs you', () => {
+  it('spends no amber on the tally — colour is reserved for what needs you', () => {
     setUp([sess('lead', 'root')])
     const view = render(<SidebarUnified />)
-    const meter = meterOf(view.container, 'root') as HTMLElement
-    const classes = [meter, ...meter.querySelectorAll('*')].flatMap((node) => [...node.classList])
-    for (const banned of ['bg-attention', 'text-attention', 'bg-warning', 'text-warning']) {
-      expect(classes).not.toContain(banned)
-    }
+    const status = view.container.querySelector(
+      '[data-issue-row="root"] [data-testid="row-lifecycle-status"]',
+    ) as HTMLElement
+    expect(status.getAttribute('data-tone')).not.toBe('needs')
   })
 })

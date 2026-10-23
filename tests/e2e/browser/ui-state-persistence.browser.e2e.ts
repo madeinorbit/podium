@@ -237,7 +237,7 @@ test('a stored collapsed layout paints collapsed — the default branch never mo
   // Belt and braces, because this test is LAST for the same reason: the tests
   // above share that state with each other already and are order-sensitive about
   // it (POD-709), so a new test in the middle changes which of them loses.
-  await page.locator('[aria-label="Expand Flight Deck"]').first().click()
+  await page.locator('[aria-label="Open flight deck"]').first().click()
   await expect(page.locator(expandedFlightDeck)).toBeVisible()
   await page.locator('[aria-label="Expand sidebar"]').click()
   await expect(page.locator(expandedSidebar)).toBeVisible()

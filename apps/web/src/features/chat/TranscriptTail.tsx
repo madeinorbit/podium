@@ -1,16 +1,16 @@
 import type { SessionView } from '@podium/client-core/session-values'
-import type { SessionModel } from '@podium/client-graph/models'
-import { observer } from 'mobx-react-lite'
 import {
   type ChatActivity,
   type ChatRow,
   formatClock,
   toolCallPhrase,
 } from '@podium/client-core/values'
+import type { SessionModel } from '@podium/client-graph/models'
 import type { TranscriptItem } from '@podium/model/browser'
+import { observer } from 'mobx-react-lite'
 import type { JSX } from 'react'
-import { WorkingMark } from '@/lib/motion/WorkingMark'
 import { useAgeNow } from '@/lib/clock-hooks'
+import { WorkingMark } from '@/lib/motion/WorkingMark'
 
 /**
  * THE TAIL (POD-376) — the end of the feed, as ONE object in three states.
@@ -47,7 +47,6 @@ const WAITING_LABEL: Record<string, string> = {
   'needs answer': 'Waiting for your answer',
   'needs permission': 'Waiting for your approval',
   'plan ready': 'Plan ready for your approval',
-  'waiting on decision': 'Waiting on your decision',
 }
 
 type TailMode = 'working' | 'sending' | 'wait' | 'waiting' | 'error' | 'interrupted' | 'note'
@@ -116,7 +115,8 @@ export function transcriptTailState(
   lastRow: ChatRow | undefined,
   since?: string | undefined,
 ): TranscriptTailState | null {
-  const fallbackSince = (session && 'agentSince' in session ? session.agentSince : session?.agentState?.since) ?? since
+  const fallbackSince =
+    (session && 'agentSince' in session ? session.agentSince : session?.agentState?.since) ?? since
   // THE HAND-OFF IS ALREADY THE TURN (POD-993). The optimistic YOU bubble
   // records delivery, and this is the mark under it: the moment the operator
   // presses send, the feed shows their message and something breathing beneath
@@ -139,8 +139,11 @@ export function transcriptTailState(
       }
       if (unresolved && dependency === 'agent') {
         const count =
-          session && 'agentNativeSubagentCount' in session ? session.agentNativeSubagentCount :
-            session?.agentState?.nativeSubagentCount ?? session?.agentState?.nativeSubagents?.length ?? 1
+          session && 'agentNativeSubagentCount' in session
+            ? session.agentNativeSubagentCount
+            : (session?.agentState?.nativeSubagentCount ??
+              session?.agentState?.nativeSubagents?.length ??
+              1)
         return {
           mode: 'wait',
           label: count === 1 ? 'Waiting on 1 agent' : `Waiting on ${count} agents`,
@@ -161,6 +164,10 @@ export function transcriptTailState(
   if (activity?.tone === 'working') {
     return { mode: 'working', label: activity.label.replace(/…$/, ''), since: fallbackSince }
   }
+  // NEEDS-YOU IS SAID ONCE (POD-2076). A pending decision is an offer, and the
+  // offer card above the composer already says "Needs your decision · 8h"; a
+  // second divider at the foot of the feed saying the same thing was noise.
+  if (activity?.tone === 'attention' && activity.label === 'waiting on decision') return null
   if (activity?.tone === 'attention') {
     return {
       mode: 'waiting',

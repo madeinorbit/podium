@@ -825,7 +825,7 @@ describe('real pool row mutations and receipts', () => {
     fireEvent.click(within(row()).getByTestId('tuck-away'))
     await accept(await request('issues.setTucked'))
     await act(async () => patchIssue(fixture, TARGET, { tuckedAt: new Date(NOW).toISOString() }))
-    fireEvent.click(screen.getByTestId('closed-fold-toggle'))
+    fireEvent.click(screen.getByTestId('work-lane-closed'))
     const folded = await screen.findByText('Only responsive target', {
       selector: '[data-testid="folded-work-row"] *',
     })
@@ -839,6 +839,8 @@ describe('real pool row mutations and receipts', () => {
     const bringBack = await request('issues.setTucked')
     expect(bringBack.input).toMatchObject({ id: TARGET, tucked: false })
     await waitFor(() => expect(sidebarView(pool!).sections().bands[0]!.rowIds).toContain(TARGET))
+    // Brought back to Open: the row is there once that lane shows (POD-2074).
+    fireEvent.click(screen.getByTestId('work-lane-open'))
     await waitFor(() => expect(row()?.textContent).toContain('Only responsive target'))
     await parity()
     await refuse(bringBack)
@@ -851,7 +853,7 @@ describe('real pool row mutations and receipts', () => {
         closedAt: new Date(NOW - 2 * 86400000).toISOString(),
       }),
     )
-    fireEvent.click(screen.getByTestId('closed-fold-toggle'))
+    fireEvent.click(screen.getByTestId('work-lane-closed'))
     const folded = await screen.findByTestId('folded-work-row')
     fireEvent.contextMenu(folded)
     const blocked = await screen.findByTestId('bring-back-blocked')
@@ -864,7 +866,7 @@ describe('real pool row mutations and receipts', () => {
 
   it('archives through the closed-fold dismiss, hides optimistically and returns on refusal', async () => {
     await mount()
-    fireEvent.click(screen.getByTestId('closed-fold-toggle'))
+    fireEvent.click(screen.getByTestId('work-lane-closed'))
     fireEvent.click(await screen.findByTestId('closed-issue-archive'))
     await parity()
     expect(
@@ -1094,7 +1096,7 @@ describe('real pool row mutations and receipts', () => {
         tuckedAt: new Date(NOW - 500).toISOString(),
       }),
     )
-    fireEvent.click(screen.getByTestId('closed-fold-toggle'))
+    fireEvent.click(screen.getByTestId('work-lane-closed'))
     fireEvent.click(await screen.findByTestId('closed-issues-archive-all'))
     await parity()
     expect(

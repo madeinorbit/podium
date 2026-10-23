@@ -33,6 +33,7 @@ it('an archived resident merge row exits with its previous paint and supplies no
     expect(row.ready).toBeUndefined()
     expect(sidebarView(pool).row('merge')).toBeUndefined()
     expect(screen.getByTestId('unified-issue-row').textContent).toBe(paint)
-    expect(screen.getByTestId('awaiting-merge-status').textContent).toContain('ready to merge · 3')
+    expect(screen.getByTestId('awaiting-merge-status').textContent).toBe('Ready to merge')
+    expect(screen.getByTestId('row-lifecycle-status').textContent).toContain('· 3')
   } finally { pool.dispose() }
 })

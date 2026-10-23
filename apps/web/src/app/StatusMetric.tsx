@@ -11,7 +11,7 @@ import {
   useState,
 } from 'react'
 
-const GRAPH_HEIGHT = 12
+const GRAPH_HEIGHT = 10
 const TIP_PAD_PX = 8
 
 /** Shift (px) that keeps a laid-out tooltip inside the viewport. */
@@ -179,10 +179,7 @@ export function StatusMetric({
             const height =
               bucket.value <= 0
                 ? 1
-                : Math.max(
-                    1,
-                    Math.round((bucket.value / chartMax) * GRAPH_HEIGHT),
-                  )
+                : Math.max(1, Math.round((bucket.value / chartMax) * GRAPH_HEIGHT))
             const ageStrength = 0.36 + (index / Math.max(1, lastIndex)) * 0.34
             return (
               <span

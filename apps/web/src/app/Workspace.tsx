@@ -1,19 +1,22 @@
 import { beginSwitch } from '@podium/client-core/perf'
 import type { SessionView } from '@podium/client-core/session-values'
 import { FIRST_TASK_ACTIVATION_DRAFT_KEY } from '@podium/client-core/ui-state'
-import type { Pane, WorktreeView } from '@podium/client-core/values'
 import {
   allTabIds,
   emptyWorkspace,
+  motionPhase,
+  type Pane,
   reposToViews,
   resizeSplit,
   type SplitAxis,
+  type WorktreeView,
 } from '@podium/client-core/values'
 import { machinePathBasename } from '@podium/model'
 import { asSessionId, type IssueId, type SessionId } from '@podium/model/browser'
 import {
   Columns2,
   Crosshair,
+  LayoutGrid,
   PanelRightClose,
   Plus,
   SquareSplitHorizontal,
@@ -35,10 +38,12 @@ import {
 } from 'react'
 import { createPortal } from 'react-dom'
 import { Button } from '@/components/ui/button'
+import { isArtifactsTab, useArtifactCount } from '@/features/files/artifacts-tab'
 import { FileTypeIcon } from '@/features/files/file-icon'
 import { readFirstTaskDraft } from '@/features/setup/first-task-draft'
 import { AgentPanelBoundary } from '@/features/terminal/AgentPanelBoundary'
 import { useWarmSet } from '@/features/terminal/use-warm-set'
+import { useNewTaskOverlayOpen } from '@/features/worklist/new-task-overlay'
 import { throughRestarts } from '@/lib/chunk-recovery'
 import { MENU_ITEM, MENU_ITEM_DISABLED, MENU_PANEL, MENU_RULE } from '@/lib/menu-surface'
 import { AgentStatusGlyph } from '@/lib/motion'
@@ -46,7 +51,6 @@ import type { ContextMenuAnchor } from '@/lib/session-context-menu'
 import { cn } from '@/lib/utils'
 import { SessionNameEditor, sessionDisplayName, WorkerLabel } from '@/lib/WorkerLabel'
 import { useRuntimeActions, useRuntimeUiValue } from './keyed-runtime'
-import { useWorkspaceMission } from './workspace-mission'
 import { NewPanelMenu } from './NewPanelMenu'
 import { useOperatorFocus } from './operator-focus'
 import { PanelDeck } from './PanelDeck'
@@ -70,6 +74,7 @@ import { REVEAL_IN_DECK_EVENT } from './shell-state'
 import type { FileTab } from './store'
 import { closeActiveWorkspaceTab } from './workspace-close'
 import { useOrphanWorkspaceSession, useWorkspaceInputs } from './workspace-inputs'
+import { useWorkspaceMission } from './workspace-mission'
 import type {
   PendingTabDragActivation,
   TabDragComponents,
@@ -215,7 +220,32 @@ const keyboardSnapshot = (event: KeyboardEvent): TabDragKeyboardEventSnapshot =>
 // actually live. Closing a tab closes the view and never touches the session.
 type WTab = DeckTab
 
-const tabName = (t: WTab): string => (t.kind === 'file' ? machinePathBasename(t.file.path) : '')
+const tabName = (t: WTab): string =>
+  t.kind === 'file' ? (isArtifactsTab(t.file) ? 'Artifacts' : machinePathBasename(t.file.path)) : ''
+
+/** A file tab's leading glyph and name. The Artifacts index (POD-2078) is a file
+ *  tab underneath, so it is told apart here and nowhere else in the strip. */
+function FileTabLabel({ tab }: { tab: Extract<WTab, { kind: 'file' }> }): JSX.Element {
+  if (isArtifactsTab(tab.file) && tab.file.issueId)
+    return <ArtifactsTabLabel issueId={tab.file.issueId} />
+  return (
+    <>
+      <FileTypeIcon name={tab.file.path} size={13} />
+      <span className="truncate">{tabName(tab)}</span>
+    </>
+  )
+}
+
+function ArtifactsTabLabel({ issueId }: { issueId: string }): JSX.Element {
+  const count = useArtifactCount(issueId)
+  return (
+    <>
+      <LayoutGrid size={13} aria-hidden="true" className="flex-none text-muted-foreground" />
+      <span className="truncate">Artifacts</span>
+      {count > 0 && <span className="native-tab-count">{count}</span>}
+    </>
+  )
+}
 
 /** Smallest pane a drag may leave behind, in px — below this a pane is a sliver
  *  the operator has to fish for to get back. */
@@ -232,6 +262,7 @@ export function Workspace({
   loadDragRuntime?: LoadWorkspaceTabDrag
 } = {}): JSX.Element {
   const warmRecency = useRef<SessionId[]>([])
+  const newTaskOpen = useNewTaskOverlayOpen()
   // Subscribe to the addressed raw value; unrelated UI publications do not
   // invalidate the pending-launch recovery check.
   const activationDraftRaw = useRuntimeUiValue(FIRST_TASK_ACTIVATION_DRAFT_KEY)
@@ -903,6 +934,10 @@ export function Workspace({
   if (missionLoading && deckTabs.length === 0)
     return <section className="native-agents-pane relative" aria-busy="true" />
   if (!missionOnScreen && deckTabs.length === 0) {
+    // The New task overlay already shows this composer over the column; two
+    // mounted copies would race each other over one draft (POD-2079).
+    if (newTaskOpen)
+      return <section className="native-agents-pane relative" data-testid="workspace-cold-deck" />
     return (
       <section className="native-agents-pane relative" data-testid="workspace-cold-deck">
         <div className="workspace-sheet relative flex min-h-0 flex-1">
@@ -1251,7 +1286,7 @@ function PaneChrome({
         }}
         onKeyDownCapture={onColdKeyDown}
         className={cn(
-          'pointer-events-auto relative flex h-[38px] flex-none items-center gap-[4px] border-b border-hairline-soft issue-base-tabstrip px-[10px]',
+          'native-tab-strip pointer-events-auto relative flex flex-none items-center gap-[4px] border-b border-hairline-soft issue-base-tabstrip px-[8px]',
           isOver
             ? 'issue-mix-24 issue-mix-slate-18'
             : focused
@@ -1286,7 +1321,7 @@ function PaneChrome({
               <button
                 data-pressable
                 type="button"
-                className="flex size-[26px] cursor-pointer items-center justify-center rounded-lg text-text-dim hover:bg-secondary hover:text-foreground"
+                className="flex size-[28px] cursor-pointer items-center justify-center rounded-[7px] text-text-dim hover:bg-secondary hover:text-foreground"
                 title="New panel"
                 aria-label="New panel"
               >
@@ -1297,7 +1332,7 @@ function PaneChrome({
           <button
             data-pressable
             type="button"
-            className="flex size-[26px] cursor-pointer items-center justify-center rounded-lg text-text-dim hover:bg-secondary hover:text-foreground"
+            className="flex size-[28px] cursor-pointer items-center justify-center rounded-[7px] text-text-dim hover:bg-secondary hover:text-foreground"
             title="Split Right"
             aria-label="Split Right"
             onClick={() => onSplit('row')}
@@ -1311,7 +1346,7 @@ function PaneChrome({
             <button
               data-pressable
               type="button"
-              className="flex size-[26px] cursor-pointer items-center justify-center rounded-lg text-text-dim hover:bg-secondary hover:text-foreground"
+              className="flex size-[28px] cursor-pointer items-center justify-center rounded-[7px] text-text-dim hover:bg-secondary hover:text-foreground"
               title="Close pane"
               aria-label="Close pane"
               onClick={onClosePane}
@@ -1490,14 +1525,7 @@ function DropZone({
 function TabGhost({ tab }: { tab: WTab }): JSX.Element {
   return (
     <div className="pointer-events-none flex max-w-[220px] cursor-grabbing items-center gap-1.5 rounded-[3px] border border-border-strong bg-chip px-2 py-1 text-[10.5px] whitespace-nowrap text-text-strong shadow-popover">
-      {tab.kind === 'session' ? (
-        <WorkerLabel session={tab.session} />
-      ) : (
-        <>
-          <FileTypeIcon name={tab.file.path} size={12} />
-          <span className="truncate">{tabName(tab)}</span>
-        </>
-      )}
+      {tab.kind === 'session' ? <WorkerLabel session={tab.session} /> : <FileTabLabel tab={tab} />}
     </div>
   )
 }
@@ -1557,6 +1585,10 @@ function SortableTab({
   // — full strength on the active tab, faded on the rest. The agent's identity
   // accent left the tab (spec G2); agent identity lives in the panel header
   // chip. `parked` keeps the hibernated grayed/italic label hook.
+  // ONE LEADING MARK (fidelity review P2-1). A working or waiting agent shows
+  // its status in the leading slot instead of the issue square; a second dot
+  // at the tail read as two signals on one tab.
+  const phase = tab.kind === 'session' ? motionPhase(tab.session) : null
   const issueDot = (
     <span
       className={cn(
@@ -1584,15 +1616,22 @@ function SortableTab({
       // issue ring — the one place inside the sheet that borrows the sheet's own
       // floating idiom, because it is the one thing you are looking at.
       className={cn(
-        'group relative flex h-[28px] max-w-[220px] flex-none items-center rounded-lg',
+        // The active tab grows to fit its title; the rest stay compact. Never
+        // past the strip, so a narrow pane still shows the ellipsis and the ×.
+        'native-tab group relative flex flex-none items-center',
+        active ? 'max-w-[min(440px,100%)]' : 'max-w-[min(240px,100%)]',
         // The overlay carries the tab while it is dragged; what stays behind is
         // the gap it will come back to.
         isDragging ? 'cursor-grabbing opacity-30' : 'cursor-grab',
-        active ? 'native-tab-active bg-card' : isDragging ? 'issue-mix-10' : 'hover:issue-mix-8',
+        active
+          ? 'native-tab-active bg-card'
+          : isDragging
+            ? 'issue-mix-10'
+            : 'hover:bg-secondary/60',
       )}
       data-session={tab.id}
       data-preview={preview ? 'true' : undefined}
-      title={tab.kind === 'file' ? tab.file.path : undefined}
+      title={tab.kind === 'file' && !isArtifactsTab(tab.file) ? tab.file.path : undefined}
       // Mouse and pen only: a tap is not a hover, and on touch the highlight
       // would arrive with the selection it already made redundant.
       onPointerEnter={
@@ -1629,8 +1668,8 @@ function SortableTab({
           data-pressable
           type="button"
           className={cn(
-            'inline-flex h-full min-w-0 flex-1 cursor-[inherit] items-center gap-[7px] rounded-lg px-[11px] text-[11.5px] whitespace-nowrap',
-            active ? 'font-semibold text-text-strong' : 'text-text-dim',
+            'inline-flex h-full min-w-0 flex-1 cursor-[inherit] items-center gap-[7px] rounded-[7px] pl-[12px] pr-[6px] text-[12.5px] whitespace-nowrap',
+            active ? 'font-medium text-text-strong' : 'text-muted-foreground',
             // A temporary tab reads italic and nothing else — no badge, no second
             // colour. It is the same tab, held lightly.
             preview && 'italic',
@@ -1645,26 +1684,30 @@ function SortableTab({
         >
           {tab.kind === 'session' ? (
             <>
-              {issueDot} <WorkerLabel session={tab.session} />
+              {phase === 'working' || phase === 'waiting' ? (
+                <AgentStatusGlyph
+                  session={tab.session}
+                  variant="tab"
+                  className={phase === 'waiting' ? 'size-[7px] rounded-[2.5px]' : undefined}
+                />
+              ) : (
+                issueDot
+              )}{' '}
+              <WorkerLabel session={tab.session} />
+              {/* A quiet suffix, not a badge (design 4a): the role is a fact
+                  about the tab, not an alert on it. */}
               {coordinator && (
                 <span
-                  className="flex-none rounded border border-sky-500/50 bg-sky-500/15 px-1 shell-type-micro font-semibold uppercase tracking-wide text-sky-600 dark:text-sky-400"
+                  className="native-tab-suffix"
                   data-testid="coordinator-tab-badge"
                   title="Coordinator session — drives this issue"
                 >
-                  coord
+                  Coordinator
                 </span>
               )}
-              {/* Status grammar (§2.8): braille spinner while working, still
-                  amber dot when waiting on you, nothing otherwise. Semantic
-                  colours — never the issue colour. */}
-              <AgentStatusGlyph session={tab.session} variant="tab" />
             </>
           ) : (
-            <>
-              <FileTypeIcon name={tab.file.path} size={12} />
-              <span className="truncate">{tabName(tab)}</span>
-            </>
+            <FileTabLabel tab={tab} />
           )}
         </button>
       )}
@@ -1674,7 +1717,7 @@ function SortableTab({
         data-pressable
         type="button"
         className={cn(
-          'h-5 w-5 flex-none cursor-pointer items-center justify-center rounded text-(--issue-muted) hover:text-destructive',
+          'mr-[6px] h-5 w-5 flex-none cursor-pointer items-center justify-center rounded text-text-faint hover:bg-secondary hover:text-foreground',
           active ? 'inline-flex' : 'hidden group-hover:inline-flex',
         )}
         title="Close tab"

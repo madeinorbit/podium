@@ -61,7 +61,7 @@ describe('UnifiedIssueRow handoff copy', () => {
       />,
     )
 
-    expect(screen.getByText('continued · POD-815')).toBeTruthy()
+    expect(screen.getByText('Continued · POD-815')).toBeTruthy()
     expect(screen.queryByTestId('spinoff-origin-tick')).toBeNull()
   })
 
@@ -112,7 +112,7 @@ describe('UnifiedIssueRow handoff copy', () => {
     )
 
     expect(screen.queryByTestId('needs-review-status')).toBeNull()
-    expect(screen.getByText('continued · POD-1192')).toBeTruthy()
+    expect(screen.getByText('Continued · POD-1192')).toBeTruthy()
     const stamp = screen.getByTestId('git-stamp')
     expect(stamp.textContent).toContain('merged')
     expect(stamp.textContent).not.toContain('ahead')

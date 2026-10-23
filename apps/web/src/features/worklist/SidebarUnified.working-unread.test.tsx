@@ -169,7 +169,7 @@ describe('SidebarUnified WORKING rows suppress unread emphasis (#138 FIX B)', ()
   // suppression is now carried entirely by the issue row (asserted above) and
   // the session's own weight is a Flight Deck / dock question. What is asserted
   // here instead is that the column really has stopped rendering sessions.
-  it('renders no session rows of its own — the fleet stack speaks for them', () => {
+  it('renders no session rows of its own — the Flight Deck holds them', () => {
     render(<SidebarUnified />)
     expect(screen.queryByText('working-child')).toBeNull()
     expect(screen.queryByText('idle-child')).toBeNull()
@@ -177,8 +177,8 @@ describe('SidebarUnified WORKING rows suppress unread emphasis (#138 FIX B)', ()
     const partial = screen
       .getByText('Partially working')
       .closest('[data-testid="unified-issue-row"]') as HTMLElement
-    expect(
-      partial.querySelector('[data-testid="issue-fleet-summary"]')?.getAttribute('aria-label'),
-    ).toBe('2 agents')
+    // The row says its one status; the agents are the Flight Deck's to list.
+    expect(partial.querySelector('[data-testid="issue-fleet-summary"]')).toBeNull()
+    expect(partial.querySelector('.pod-mark')).toBeTruthy()
   })
 })

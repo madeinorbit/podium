@@ -1,6 +1,9 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 
-export const ROW_EXIT_MS = 820
+/** How long a removed row is retained: its exit (140ms in the work sidebar's
+ *  motion tokens) plus a frame, so the neighbours close the gap only once the
+ *  row has gone (POD-2080; it was 820ms). */
+export const ROW_EXIT_MS = 160
 
 export interface RowTransitionTarget<T> {
   key: string

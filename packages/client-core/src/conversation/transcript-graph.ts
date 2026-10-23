@@ -177,6 +177,7 @@ export class TranscriptGraph {
           kind: 'tools',
           get blocks() { return run.blocks },
           get title() { return run.title },
+          get summary() { return run.summary },
           get blockIndices() { return members.map(member => graph.blockPosition(member) ?? -1) },
         }
   }
@@ -743,6 +744,7 @@ export class TranscriptGraph {
     const graph = this
     return { kind: 'tools', blocks,
       get title() { return run.title },
+      get summary() { return run.summary },
       get blockIndices() { return run.ids.map(id => graph.blockPosition(id) ?? -1) },
     }
   }

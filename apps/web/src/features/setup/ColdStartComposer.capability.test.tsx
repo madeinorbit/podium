@@ -169,13 +169,15 @@ describe('a signed-out harness still starts headed', () => {
     await openMenu()
     fireEvent.click(row('Grok'))
 
-    expect(screen.getByText(/Grok is not signed in on Studio Mac\. It opens in its terminal/)).toBeTruthy()
+    expect(
+      screen.getByText(/Grok is not signed in on Studio Mac\. It opens in its terminal/),
+    ).toBeTruthy()
     expect(screen.queryByText(/Open Settings → Agents/)).toBeNull()
 
     fireEvent.change(screen.getByLabelText('What do you want to work on?'), {
       target: { value: 'Sign in, then do the thing' },
     })
-    fireEvent.click(screen.getByRole('button', { name: 'Start work' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Start task' }))
 
     expect(store.spawnDraftAgent).toHaveBeenCalledWith(
       expect.objectContaining({ agentKind: 'grok' }),
@@ -189,13 +191,6 @@ describe('the empty-state prompt answers the session focus chord', () => {
     return screen.getByLabelText('What do you want to work on?') as HTMLTextAreaElement
   }
 
-  it('advertises the chord on the closed box', () => {
-    render(<ColdStartComposer first={false} />)
-    const hint = screen.getByTestId('composer-chord')
-    expect(hint.getAttribute('data-show')).toBe('true')
-    expect(hint.textContent).toMatch(/to focus/)
-  })
-
   it('puts the caret in the box from the shared slash chord', () => {
     render(<ColdStartComposer first={false} />)
     expect(document.activeElement).not.toBe(textarea())
@@ -205,7 +200,6 @@ describe('the empty-state prompt answers the session focus chord', () => {
     })
 
     expect(document.activeElement).toBe(textarea())
-    expect(screen.getByTestId('cold-start-field').getAttribute('data-expanded')).toBe('true')
   })
 
   it('puts the caret in the box from the native Focus Session Prompt hook', () => {

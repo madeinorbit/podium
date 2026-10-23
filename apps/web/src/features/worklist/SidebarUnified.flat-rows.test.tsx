@@ -24,7 +24,7 @@ import '@/test-support/mock-pool-fixture'
  */
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { closedFoldKey } from './fold-keys'
+import { projectFoldKey } from './fold-keys'
 import { SidebarUnified } from './SidebarUnified'
 
 /**
@@ -263,7 +263,9 @@ describe('the worklist is one flat row per mission (POD-516 §1.1)', () => {
     // A grandchild session is asking, so the row keeps its attention colour.
     // Its words describe the task tree instead of adopting the session state.
     const status = missionRow().querySelector('[data-testid="row-lifecycle-status"]') as HTMLElement
-    expect(status.textContent).toContain('0/2 subtasks done · 2 underway')
+    // The calm row (POD-2074) says the ask once, with the task tally beside it.
+    expect(status.textContent).toContain('Waiting on you')
+    expect(status.textContent).toContain('0/2')
     // The ochre is on the PHRASE, not the whole line: the trailing facts (git,
     // the spin-off tick) must not inherit an ask they are not part of.
     expect(
@@ -282,69 +284,30 @@ describe('the worklist is one flat row per mission (POD-516 §1.1)', () => {
     ).not.toBe('var(--attention)')
   })
 
-  it('stacks real harness kinds with the agent total and the native-child count', async () => {
+  it('draws no agent stack on the row: the Flight Deck owns the fleet (POD-2074)', async () => {
     render(<SidebarUnified />)
-    const fleet = missionRow().querySelector('[data-testid="issue-fleet-summary"]') as HTMLElement
-    // KINDS, not agents: five sessions across three harnesses is three tiles.
-    expect(
-      [...fleet.querySelectorAll('[data-agent-kind]')].map((tile) =>
-        tile.getAttribute('data-agent-kind'),
-      ),
-    ).toEqual(['claude-code', 'codex', 'cursor'])
-    expect(fleet.querySelector('[data-testid="issue-fleet-total"]')?.textContent).toBe('5')
-    expect(fleet.querySelector('[data-testid="issue-fleet-subagent-count"]')?.textContent).toBe(
-      '×3',
-    )
-    expect(fleet.getAttribute('title')).toBe('5 agents · 3 native children')
+    expect(missionRow().querySelector('[data-testid="issue-fleet-summary"]')).toBeNull()
   })
 
-  it('keeps a PARKED agent on its issue, ghosted (POD-756)', async () => {
+  it('moves closures to the Closed lane, and folds only folders', async () => {
     render(<SidebarUnified />)
-    // `solo`'s only agent is hibernated: Podium stopped its process to reclaim
-    // memory, which says nothing about who is on the task. The row used to drop
-    // it and render no stack at all — the state every Codex agent in the fleet
-    // was in.
-    const solo = screen
-      .getByText('Sidebar unread dot')
-      .closest('[data-testid="unified-issue-row"]') as HTMLElement
-    const fleet = solo.querySelector('[data-testid="issue-fleet-summary"]') as HTMLElement
-    const tile = fleet.querySelector('[data-agent-kind="grok"]') as HTMLElement
-    expect(tile.getAttribute('data-parked')).toBe('')
-    // Ghosted. In the work row's glyph variant (POD-1057) the marks carry no
-    // tint of their own, so parked is said by ink alone rather than by swapping
-    // the harness's tile pair.
-    expect(fleet.getAttribute('data-variant')).toBe('glyphs')
-    expect(tile.className).toContain('opacity-45')
-    // A lone agent shows its tile and no total — the number would say nothing.
-    expect(fleet.querySelector('[data-testid="issue-fleet-total"]')).toBeNull()
-    expect(fleet.getAttribute('title')).toBe('1 agent · 1 parked')
-  })
-
-  it('ends the column with the tucked-away fold, and folds only bands', async () => {
-    render(<SidebarUnified />)
-    const closed = screen.getByTestId('closed-fold-toggle')
-    // The tail fold leads with the QUANTITY (POD-1057): what you are deciding
-    // about is whether the pile is worth opening.
-    expect(closed.textContent).toContain('1 closed')
-    expect(closed.getAttribute('aria-expanded')).toBe('false')
-    // WHAT MAY FOLD, EXHAUSTIVELY: the section bands (POD-1057 made every one of
-    // them a header you can shut) and the column's tail fold. No ROW has a
-    // disclosure of its own — that is the tree this column refuses to grow.
+    const closed = screen.getByTestId('work-lane-closed')
+    expect(closed.textContent).toContain('1')
+    expect(closed.getAttribute('aria-selected')).toBe('false')
+    expect(screen.queryByText('Balanced desktop shell')).toBeNull()
+    // WHAT MAY FOLD, EXHAUSTIVELY: the folder headers. No ROW has a disclosure
+    // of its own — that is the tree this column refuses to grow.
     const foldables = screen
       .getAllByRole('button')
       .filter(
         (button) => button.hasAttribute('aria-expanded') && !button.hasAttribute('aria-haspopup'),
       )
-    expect(foldables).toContain(closed)
-    for (const button of foldables) {
-      const testId = button.getAttribute('data-testid')
-      expect([
-        'project-group-label',
-        'pinned-section-label',
-        'closed-fold-toggle',
-        'snoozed-fold-toggle',
-      ]).toContain(testId)
-    }
+    for (const button of foldables)
+      expect(['project-group-label', 'pinned-section-label']).toContain(
+        button.getAttribute('data-testid'),
+      )
+    await act(async () => { fireEvent.click(closed) })
+    expect(screen.getByText('Balanced desktop shell')).toBeTruthy()
   })
 
   /**
@@ -364,9 +327,10 @@ describe('the worklist is one flat row per mission (POD-516 §1.1)', () => {
     expect(screen.queryByTestId('proposed-issue-fold')).toBeNull()
     expect(screen.queryByText('Review captures')).toBeNull()
     // Not hiding in the two folds that remain, either.
-    await act(async () => { fireEvent.click(screen.getByTestId('closed-fold-toggle')) })
+    await act(async () => { fireEvent.click(screen.getByTestId('work-lane-closed')) })
     expect(screen.queryByText('Review captures')).toBeNull()
-    expect(screen.queryByTestId('snoozed-fold-toggle')).toBeNull()
+    await act(async () => { fireEvent.click(screen.getByTestId('work-lane-snoozed')) })
+    expect(screen.queryByText('Review captures')).toBeNull()
   })
 
   // POD-540. The fold keys are per-user REPLICATED (that is what the
@@ -378,21 +342,20 @@ describe('the worklist is one flat row per mission (POD-516 §1.1)', () => {
   // that bug is the whole of the column's memory.
   it('restores a fold from replicated layout state that lands after mount', async () => {
     render(<SidebarUnified />)
-    const toggle = () => screen.getByTestId('closed-fold-toggle')
-    expect(toggle().getAttribute('aria-expanded')).toBe('false')
-
-    await act(async () => ui.hydrate(closedFoldKey('/repo'), 'false'))
-
+    const toggle = () => screen.getByTestId('project-group-label')
     expect(toggle().getAttribute('aria-expanded')).toBe('true')
-    expect(screen.getAllByTestId('closed-fold-row')).toHaveLength(1)
+
+    await act(async () => ui.hydrate(projectFoldKey('/repo'), 'true'))
+
+    expect(toggle().getAttribute('aria-expanded')).toBe('false')
   })
 
   it('writes a fold through the store rather than holding it in local state', async () => {
     render(<SidebarUnified />)
-    await act(async () => { fireEvent.click(screen.getByTestId('closed-fold-toggle')) })
+    await act(async () => { fireEvent.click(screen.getByTestId('project-group-label')) })
     // The press wrote; the value came back through the subscription. One source
     // of truth, so the rendered fold and the stored row cannot diverge.
-    expect(ui.get(closedFoldKey('/repo'))).toBe('false')
-    expect(screen.getByTestId('closed-fold-toggle').getAttribute('aria-expanded')).toBe('true')
+    expect(ui.get(projectFoldKey('/repo'))).toBe('true')
+    expect(screen.getByTestId('project-group-label').getAttribute('aria-expanded')).toBe('false')
   })
 })

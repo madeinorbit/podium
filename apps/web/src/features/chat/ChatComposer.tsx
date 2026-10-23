@@ -1,7 +1,9 @@
-import { observer } from 'mobx-react-lite'
+import { issueAgentKind, issueDefaultAgentKind } from '@podium/client-core/agent-models'
 import type { SessionView } from '@podium/client-core/session-values'
+import type { TranscriptFreshness } from '@podium/client-core/transcript'
 import type { useVoiceInput } from '@podium/terminal-client-react'
 import { ArrowUp, CloudOff, MessageSquareText, Paperclip, RefreshCw, Square, X } from 'lucide-react'
+import { observer } from 'mobx-react-lite'
 import type { JSX, RefObject } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { usePanelVisible } from '@/app/panel-visible'
@@ -10,18 +12,16 @@ import { Textarea } from '@/components/ui/textarea'
 import { AtMentionMenu } from '@/lib/at-mention/AtMentionMenu'
 import { useAtMenu, useAtTrigger } from '@/lib/at-mention/useAtMention'
 import { useFileMentions } from '@/lib/at-mention/useFileMentions'
-import { issueAgentKind, issueDefaultAgentKind } from '@podium/client-core/agent-models'
 import { AllConnectorsModelPicker, EffortPicker } from '@/lib/ModelEffortPicker'
-import { usePromptAutoGrow } from '@/lib/use-prompt-auto-grow'
 import { useNativeDraftText } from '@/lib/use-native-draft-text'
+import { usePromptAutoGrow } from '@/lib/use-prompt-auto-grow'
 import { cn } from '@/lib/utils'
 import { AttachmentStrip } from './AttachmentStrip'
 import { OfferBar } from './OfferBar'
 import { QuoteStrip, type UseQuotesResult } from './QuoteStrip'
 import type { UseAttachmentsResult } from './use-attachments'
 import { useChatMentions } from './use-chat-context'
-import { chordLabel, useComposerChord } from './use-composer-chord'
-import type { TranscriptFreshness } from '@podium/client-core/transcript'
+import { useComposerChord } from './use-composer-chord'
 import { VoiceButton } from './VoiceButton'
 
 /**
@@ -184,7 +184,9 @@ export const ChatComposer = observer(function ChatComposer({
   onOfferAction: (prompt: string, offerAt: string) => Promise<void>
   /** "None of these" — clears the offer without sending a turn. */
   onOfferDismiss: (offerAt: string) => Promise<void>
-  session: Pick<SessionView, 'sessionId' | 'issueId' | 'lastInputAt' | 'cwd' | 'machineId'> | undefined
+  session:
+    | Pick<SessionView, 'sessionId' | 'issueId' | 'lastInputAt' | 'cwd' | 'machineId'>
+    | undefined
   turnError: string | null
   /** Whether the visible transcript is being checked, rendered, or remains saved-only. */
   transcriptFreshness: TranscriptFreshness
@@ -208,13 +210,10 @@ export const ChatComposer = observer(function ChatComposer({
   const lastInterruptEscapeAt = useRef<number | null>(null)
   // The reset default is a mount seed, never a mirror of the live draft.
   const initialDraft = useRef(draft)
-  // THE FOCUS CHORD (POD-993). ⌘/ puts the caret here from anywhere in the pane,
-  // and the box says so in its corner while it is unfocused and empty — the one
-  // thing about a prompt box a reader cannot discover by looking at it. What the
-  // corner names is `chordLabel()`, which is ⌘L on the macOS shell: the View menu
-  // owns that accelerator and the focused panel already answers it.
+  // THE FOCUS CHORD (POD-993). ⌘L (macOS shell) puts the caret here from
+  // anywhere in the pane. The corner hint that named it is gone (POD-2076); the
+  // shortcut itself stays.
   const [rootEl, setRootEl] = useState<HTMLDivElement | null>(null)
-  const [focused, setFocused] = useState(false)
   const [transcriptAnnouncement, setTranscriptAnnouncement] = useState('')
   const previousTranscriptStatus = useRef<{
     freshness: TranscriptFreshness
@@ -613,7 +612,7 @@ export const ChatComposer = observer(function ChatComposer({
           'relative',
           compact
             ? 'prompt-well'
-            : 'chat-composer-well flex flex-col gap-1.5 rounded-[12px] pt-[11px] pr-3 pb-[9px] pl-[15px]',
+            : 'chat-composer-well flex flex-col gap-1.5 rounded-[9px] py-3 pr-[10px] pl-4',
         )}
       >
         {/* THE DESTINATION, LIT (POD-1595 second pass). Not a hit area — the
@@ -636,21 +635,6 @@ export const ChatComposer = observer(function ChatComposer({
           </div>
         )}
         <AtMentionMenu mention={mention} hint="↑↓ to move · ↵ to insert · esc to dismiss" />
-        {/* Shown only while the box is unfocused AND empty, so it can never land
-            on the operator's own words — a placeholder line never reaches it.
-            It names what it does, not just the keys: a bare chord in the corner of
-            a text field is a puzzle, and the two extra words cost nothing at the
-            moment the field is empty. */}
-        {!compact && (
-          <span
-            className="composer-chord"
-            data-show={!focused && draft === '' ? 'true' : undefined}
-            data-testid="composer-chord"
-            aria-hidden="true"
-          >
-            {chordLabel()} to focus
-          </span>
-        )}
         <input
           ref={attachments.fileInputRef}
           type="file"
@@ -660,7 +644,7 @@ export const ChatComposer = observer(function ChatComposer({
         />
         <div className={cn('flex min-w-0 flex-col gap-0.5', compact && 'flex-1')}>
           {quotes && <QuoteStrip quotes={quotes.quotes} onRemove={quotes.remove} />}
-          <div className="flex items-start gap-2">
+          <div className={cn('flex gap-2', compact ? 'items-start' : 'items-end')}>
             <Textarea
               ref={taRef}
               rows={1}
@@ -755,23 +739,13 @@ export const ChatComposer = observer(function ChatComposer({
                 }
               }}
               onPaste={attachments.onPaste}
-              onFocus={() => {
-                setFocused(true)
-              }}
-              onBlur={() => {
-                setFocused(false)
-              }}
             />
-            {/* Compact only: the dock's box has no room for a second row. */}
-            {compact && actionCluster}
+            {/* ONE CALM LINE (POD-2076): the field and its attach · mic · send
+                cluster share a row in both modes; the cluster rides the last
+                line as the field grows. */}
+            {actionCluster}
           </div>
           <AttachmentStrip attachments={attachments.attachments} onRemove={attachments.remove} />
-          {/* THE BOTTOM ROW (POD-993). The field takes the whole width and the
-              cluster sits under it, right-aligned. It briefly carried a
-              send/newline caption; that is gone — the chord chip in the corner
-              is the one hint this box needs, and it appears only when it can
-              still be acted on. */}
-          {!compact && <div className="composer-row">{actionCluster}</div>}
         </div>
       </div>
       {/* The field's ref must attach before sync, then sizing reads the adopted

@@ -6,8 +6,8 @@
  * row with its own header, so a turn receiving three notes spent three rows
  * before the answer got a word in.
  *
- * The whole burst is now ONE object — a counted, tinted line that opens into a
- * real mail list. See `.mail-group` in styles.css for the shape and its reasons.
+ * The whole burst is now ONE object — a quiet "Note from steward · 03:13" line
+ * (POD-2076: no tint, no ids) that opens into a real mail list. See `.mail-group` in styles.css for the shape and its reasons.
  *
  * WHAT OPENS ON ARRIVAL: any frame that asks a question or requests a reply,
  * because folding it would hide the one kind of mail with a consequence.
@@ -44,6 +44,16 @@ function PrincipalLabel({ label }: { label: string }): JSX.Element {
       {p.post}
     </>
   )
+}
+
+/** The fold line's short sender (POD-2076): "steward", not "system:steward";
+ *  a task's ref, not "task POD-12 · agent". The open card keeps the full route. */
+function senderName(label: string): string {
+  const system = /^system:(\S+)$/.exec(label)
+  if (system?.[1]) return system[1]
+  const p = envelopePrincipal(label)
+  if (p.ref !== null) return p.ref
+  return /^session:/.test(label) ? 'an agent' : label
 }
 
 /** First line of a frame as a subject, and the rest as a preview.
@@ -179,20 +189,17 @@ export function MessageEnvelopeGroup({
   const toggle = (): void => setFold((f) => ({ opened: true, open: !f.open }))
   const single = envelopes.length === 1
   const first = envelopes[0]
-  const tags = useMemo(() => {
-    const seen: string[] = []
-    for (const e of envelopes) {
-      const p = envelopePrincipal(e.from)
-      const tag = p.ref ?? ((p.pre + p.post).trim() || e.from)
-      if (!seen.includes(tag)) seen.push(tag)
-    }
-    return seen
-  }, [envelopes])
   const stamp = parseTs(ts)
   // The route only names a sender when the whole burst shares one; otherwise the
   // senders are the card's left column and repeating one of them in the header
   // would be a lie about the other two.
   const sharedFrom = envelopes.every((e) => e.from === first?.from) ? first?.from : undefined
+  const count = envelopes.length
+  const noun = single ? 'Note' : `${count} notes`
+  // Distinct short senders, in arrival order: "Note from steward",
+  // "2 notes from POD-84 · POD-90".
+  const senders = [...new Set(envelopes.map((e) => senderName(e.from)))].join(' · ')
+  const foldLabel = `${noun} from ${senders}`
 
   return (
     <div
@@ -214,22 +221,13 @@ export function MessageEnvelopeGroup({
             onClick={toggle}
           >
             <MailIcon className="mail-fold-icon" size={13} aria-hidden="true" />
-            <span className="mail-fold-count">
-              {envelopes.length} {envelopes.length === 1 ? 'note' : 'notes'} from Podium
-            </span>
-            <span className="mail-fold-tags">{tags.join(' · ')}</span>
-            <span className="mail-fold-gap" />
-            {single && first && (
-              <span className="mail-fold-meta">
-                {stamp && (
-                  <time dateTime={ts} title={fullTimeLabel(stamp)}>
-                    {clockLabel(stamp)}
-                  </time>
-                )}
-                {stamp && ' · '}
-                {first.id}
-              </span>
+            <span className="mail-fold-count">{foldLabel}</span>
+            {stamp && (
+              <time className="mail-fold-meta" dateTime={ts} title={fullTimeLabel(stamp)}>
+                · {clockLabel(stamp)}
+              </time>
             )}
+            <span className="mail-fold-gap" />
             <ChevronDown className="mail-fold-chev" size={14} aria-hidden="true" />
           </button>
           {open && (

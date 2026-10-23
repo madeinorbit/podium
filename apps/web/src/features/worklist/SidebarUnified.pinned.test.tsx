@@ -189,6 +189,14 @@ vi.mock('@/lib/hooks/use-session-guard', () => ({
   useSessionGuard: () => ({ guardedDelete: vi.fn(), guardedEnd: vi.fn(), guardedArchive: vi.fn() }),
 }))
 
+/** The Closed lane's tab, asserting the count it shows (POD-2074). */
+function closedTab(count: number): HTMLElement {
+  const tab = screen.getByTestId('work-lane-closed')
+  expect(tab.textContent).toBe(`Closed${count}`)
+  return tab
+}
+const openTab = (): HTMLElement => screen.getByTestId('work-lane-open')
+
 function rowButton(label: string): HTMLElement {
   const span = screen.getByText(label)
   const btn = span.closest('button')
@@ -262,14 +270,11 @@ describe('SidebarUnified PINNED section (POD-166, R3)', () => {
     expect(group.style.zIndex).toBe('')
   })
 
-  it('a coloured, unselected row is hover-tintable via the var-driven background (§7 fix)', async () => {
+  it('rows carry no project tint: the selected row is the only raised one (POD-2074)', async () => {
     render(<SidebarUnified />)
     const row = rowButton('Pinned issue').closest('[class*="group/row"]') as HTMLElement
-    // Backgrounds ride CSS vars so hover: can win over the resting tint —
-    // an inline `background` would always beat the hover class.
-    expect(row.className).toContain('bg-[var(--row-bg)]')
-    expect(row.className).toContain('hover:bg-[var(--row-hover-bg)]')
-    expect(row.getAttribute('style')).toContain('--row-hover-bg')
+    expect(row.className).not.toContain('--row-bg')
+    expect(row.getAttribute('style') ?? '').not.toContain('--row-bg')
   })
 
   it('folds settled closures per project; selected open finished rows keep the full lane', async () => {
@@ -278,8 +283,8 @@ describe('SidebarUnified PINNED section (POD-166, R3)', () => {
     // Unread no longer blocks fold eligibility (manual tuck path). Past-grace
     // finished rows — read or not — land in Closed; only selection stickiness
     // keeps a selected finished row open without an explicit tuck.
-    const toggle = screen.getByRole('button', { name: '3 closed' })
-    expect(toggle.getAttribute('aria-expanded')).toBe('false')
+    const toggle = closedTab(3)
+    expect(toggle.getAttribute('aria-selected')).toBe('false')
     expect(screen.queryByText('Closed alpha')).toBeNull()
     expect(screen.queryByText('Closed beta')).toBeNull()
     expect(screen.queryByText('Closed result unseen')).toBeNull()
@@ -287,27 +292,21 @@ describe('SidebarUnified PINNED section (POD-166, R3)', () => {
 
     await act(async () => { fireEvent.click(toggle) })
 
-    expect(toggle.getAttribute('aria-expanded')).toBe('true')
+    expect(toggle.getAttribute('aria-selected')).toBe('true')
     expect(screen.getByText('Closed alpha')).toBeTruthy()
     expect(screen.getByText('Closed beta')).toBeTruthy()
     expect(screen.getByText('Closed result unseen')).toBeTruthy()
-    expect(rowButton('Closed alpha').closest('[data-drag-key="closed-a"]')?.className).toContain(
-      'opacity-50',
-    )
+    // The selected open closure is Open's, not Closed's.
+    expect(screen.queryByText('Closed result selected')).toBeNull()
 
-    await act(async () => { fireEvent.click(toggle) })
-    // A SHUT FOLD IS NOT AN INSTANT UNMOUNT ANY MORE (POD-1253). The disclosure
-    // clips its own height away and the rows leave with it, so they are still in
-    // the DOM for the length of that exit — `waitFor` is asserting the same
-    // thing this always asserted, at the end of the gesture rather than in the
-    // frame the click landed in.
+    await act(async () => { fireEvent.click(openTab()) })
     await waitFor(() => expect(screen.queryByText('Closed alpha')).toBeNull())
   })
 
   it('keeps the selected open closure in standalone work sections too', async () => {
     render(<WorkSections />)
 
-    expect(screen.getByRole('button', { name: '3 closed' })).toBeTruthy()
+    expect(screen.queryByText('Closed alpha')).toBeNull()
     expect(
       rowButton('Closed result selected').closest('[data-testid="folded-work-row"]'),
     ).toBeNull()
@@ -315,7 +314,7 @@ describe('SidebarUnified PINNED section (POD-166, R3)', () => {
 
   it('folds the selected open closure when focus moves away', async () => {
     const { rerender } = render(<SidebarUnified />)
-    expect(screen.getByRole('button', { name: '3 closed' })).toBeTruthy()
+    closedTab(3)
 
     await act(async () => { fireEvent.click(rowButton('Plain issue')) })
 
@@ -324,13 +323,13 @@ describe('SidebarUnified PINNED section (POD-166, R3)', () => {
     // components re-read the fixture, as an eviction publish does.
     publishPoolFixture()
     rerender(<SidebarUnified />)
-    await waitFor(() => expect(screen.getByRole('button', { name: '4 closed' })).toBeTruthy())
+    await waitFor(() => closedTab(4))
     await waitFor(() => expect(screen.queryByText('Closed result selected')).toBeNull())
   })
 
   it('keeps a closure clicked in Closed folded, and forgets that latch after focus moves', async () => {
     const { rerender } = render(<SidebarUnified />)
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: '3 closed' })) })
+    await act(async () => { fireEvent.click(closedTab(3)) })
     // The click lands on a folded row: declare the gesture context the pool
     // would learn from the action, then republish so the memo'd pool
     // components re-read the fixture.
@@ -340,15 +339,16 @@ describe('SidebarUnified PINNED section (POD-166, R3)', () => {
     rerender(<SidebarUnified />)
 
     expect(selection.issueId).toBe('closed-a')
-    const toggle = await screen.findByRole('button', { name: '4 closed' })
+    await waitFor(() => closedTab(4))
     expect(rowButton('Closed alpha').getAttribute('data-selected')).toBe('true')
     expect(rowButton('Closed alpha').getAttribute('data-lane')).toBe('closed')
 
-    await act(async () => { fireEvent.click(toggle) })
+    await act(async () => { fireEvent.click(openTab()) })
     await waitFor(() => expect(screen.queryByText('Closed alpha')).toBeNull())
-    await act(async () => { fireEvent.click(toggle) })
+    await act(async () => { fireEvent.click(closedTab(4)) })
     expect(rowButton('Closed alpha').getAttribute('data-lane')).toBe('closed')
 
+    await act(async () => { fireEvent.click(openTab()) })
     await act(async () => { fireEvent.click(rowButton('Plain issue')) })
     publishPoolFixture()
     rerender(<SidebarUnified />)
@@ -359,7 +359,7 @@ describe('SidebarUnified PINNED section (POD-166, R3)', () => {
     publishPoolFixture()
     rerender(<SidebarUnified />)
 
-    await waitFor(() => expect(screen.getByRole('button', { name: '3 closed' })).toBeTruthy())
+    await waitFor(() => closedTab(3))
     await waitFor(() =>
       expect(rowButton('Closed alpha').closest('[data-testid="folded-work-row"]')).toBeNull(),
     )
@@ -369,8 +369,9 @@ describe('SidebarUnified PINNED section (POD-166, R3)', () => {
     selection.tuckedAt = '2026-06-11T00:00:00.000Z'
     render(<SidebarUnified />)
 
-    expect(screen.getByRole('button', { name: '4 closed' })).toBeTruthy()
-    expect(screen.queryByText('Closed result selected')).toBeNull()
+    // Tucked means Closed, selected or not; the selection reveals its lane.
+    await waitFor(() => expect(closedTab(4).getAttribute('aria-selected')).toBe('true'))
+    expect(rowButton('Closed result selected').getAttribute('data-lane')).toBe('closed')
   })
 
   it('counts the selected open closure in the live filter pool', async () => {
@@ -422,7 +423,7 @@ describe('SidebarUnified PINNED section (POD-166, R3)', () => {
     expect(ui.get('podium:sidebar:pinned-fold')).toBeNull()
   })
 
-  it('shuts a project band over its rows AND its closed fold', async () => {
+  it('shuts a project folder over its rows', async () => {
     render(<SidebarUnified />)
     const group = screen.getByTestId('project-group')
     const groupKey = screen
@@ -431,7 +432,6 @@ describe('SidebarUnified PINNED section (POD-166, R3)', () => {
       ?.getAttribute('data-drag-scope')
       ?.replace(/^group:/, '')
     const band = screen.getByTestId('project-group-label')
-    expect(screen.getByTestId('closed-fold-toggle')).toBeTruthy()
 
     await act(async () => { fireEvent.click(band) })
 
@@ -444,9 +444,6 @@ describe('SidebarUnified PINNED section (POD-166, R3)', () => {
       const row = screen.getByText('Plain issue').closest('[data-testid="unified-issue-row"]')
       expect(row?.closest('[aria-hidden="true"]')).toBeTruthy()
       expect(row?.closest('[inert]')).toBeTruthy()
-      const toggle = screen.getByTestId('closed-fold-toggle')
-      expect(toggle.closest('[aria-hidden="true"]')).toBeTruthy()
-      expect(toggle.closest('[inert]')).toBeTruthy()
     })
     // Pinned work lives above every project group, so it is not a project's to
     // hide (POD-166, R3) — and this is the assertion that proves the two bands
@@ -456,6 +453,5 @@ describe('SidebarUnified PINNED section (POD-166, R3)', () => {
 
     await act(async () => { fireEvent.click(band) })
     expect(screen.getByText('Plain issue')).toBeTruthy()
-    expect(screen.getByTestId('closed-fold-toggle')).toBeTruthy()
   })
 })

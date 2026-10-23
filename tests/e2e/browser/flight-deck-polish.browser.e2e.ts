@@ -138,20 +138,16 @@ test('issue-first hierarchy, distinct live status, and animated open/close contr
     `closing widths ${JSON.stringify(closing)} from ${openWidth}; reduced motion=${reducedMotion}`,
   ).toBe(true)
 
-  const activity = page.getByTestId('flight-deck-activity')
-  const attention = page.getByTestId('flight-deck-attention')
-  await expect(activity).toBeVisible()
-  await expect(attention).toBeVisible()
-  const activityBox = await activity.boundingBox()
-  const attentionBox = await attention.boundingBox()
-  expect(activityBox).not.toBeNull()
-  expect(attentionBox).not.toBeNull()
-  // Obligation first: the folded bar stacks what needs you above the crew.
-  if (activityBox && attentionBox) expect(attentionBox.y).toBeLessThan(activityBox.y)
+  // Closed, the deck is a handle: the open control and the done/total count.
+  const open = page.getByRole('button', { name: 'Open flight deck' })
+  const count = page.getByTestId('flight-deck-gauge')
+  await expect(open).toBeVisible()
+  await expect(count).toBeVisible()
+  await expect(count).toHaveText(/^\d+\/\d+$/)
   await page.screenshot({ path: resolve(ARTIFACT_DIR, 'flight-deck-folded.png'), fullPage: true })
 
   const openingSamples = widthSamples(page, 1_000)
-  await attention.click()
+  await open.click()
   const opening = await openingSamples
   await expect(shell).toHaveAttribute('data-flight-deck-shell', 'open')
   await expect(deck).toBeVisible()

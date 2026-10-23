@@ -175,6 +175,15 @@ export function QuotaIndicator({
         return `${agentLabel(group.agent, descriptors)}${account} ${Math.round(percent)}% used${scoped}`
       })
       .join('; ')
+    // The calm bar (POD-2075) draws one meter: the pool closest to its limit,
+    // the one that decides whether work can continue. The others stay in the
+    // DOM for the label and the panel, and the bar's CSS hides them.
+    const headline =
+      pools.reduce<QuotaPool | undefined>(
+        (worst, pool) =>
+          pool.percent !== null && (worst?.percent ?? -1) < pool.percent ? pool : worst,
+        undefined,
+      ) ?? pools[0]
     return (
       <HealthPopover
         popupClassName="health-popover-quota"
@@ -210,6 +219,7 @@ export function QuotaIndicator({
                       surging.has(group.key) && 'header-quota-surge',
                     )}
                     data-harness={group.agent}
+                    data-headline={group.key === headline?.group.key ? 'true' : undefined}
                   >
                     <QuotaHarnessIcon agent={group.agent} descriptors={descriptors} />
                     <span className="header-mark">{agentShortLabel(group.agent, descriptors)}</span>

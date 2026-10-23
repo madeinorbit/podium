@@ -24,7 +24,6 @@ import {
 import {
   ArrowDownToLine,
   Ellipsis,
-  Folder,
   Keyboard,
   MessageSquareText,
   Mic,
@@ -53,7 +52,6 @@ import { FileLinkPathIndex } from '@/features/chat/chat'
 import { OfferBar } from '@/features/chat/OfferBar'
 import { OfferDismissalContext, useOfferDismissalHost } from '@/features/chat/offer-dismissal'
 import { OfferLiftContext, useOfferLiftHost } from '@/features/chat/offer-lift'
-import { agentBrandDot } from '@/lib/agent-tone'
 import { useSessionGuard } from '@/lib/hooks/use-session-guard'
 import { issueAgentKind } from '@podium/client-core/agent-models'
 import { EffortPicker, ModelPicker } from '@/lib/ModelEffortPicker'
@@ -63,7 +61,6 @@ import { SnoozeControl } from '@/lib/SnoozeControl'
 import { sessionMenuEligibility } from '@/lib/session-context-menu'
 import { useClock, useDeadlineNow } from '@/lib/clock-hooks'
 import { cn } from '@/lib/utils'
-import { KindIcon, sessionDisplayName } from '@/lib/WorkerLabel'
 import type { AgentPanelProps } from './agent-panel-props'
 import { applyInitialTerminalAppearance, paneTintedBackground, withBackground } from './appearance'
 import { createDraftSync } from './draft-sync'
@@ -71,7 +68,6 @@ import { EchoHud, echoHudEnabled } from './EchoHud'
 import { HandoverPane, useHandoverView } from './HandoverPane'
 import { hibernateAction } from './lifecycle-actions'
 import { PaneGitStamp } from './PaneGitStamp'
-import { prettyCwd } from './pretty-cwd'
 import {
   ExitedBanner,
   ExitedPane,
@@ -856,19 +852,14 @@ export function AgentPanel({
           // `offer-lift-header`: the band the pane slides under when an offer
           // fold opens. It has to outrank the lifted surface to cast its shadow
           // over it, hence the z-rung.
-          className="offer-lift-header relative z-[1] flex h-[36px] flex-none items-center overflow-hidden gap-3 border-b border-hairline-soft px-4"
+          className="offer-lift-header relative z-[1] flex h-[34px] flex-none items-center overflow-hidden gap-2 border-b border-hairline-soft pr-2 pl-[18px] text-[11.5px] text-text-dim"
         >
-          {session && (
-            <>
-              <KindIcon kind={session.agentKind} />
-              <span
-                className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-[11.5px] font-medium text-text-strong"
-                title={sessionDisplayName(session)}
-              >
-                {sessionDisplayName(session)}
-              </span>
-            </>
-          )}
+          {/* ONE QUIET LINE (POD-2076): where the work happens on the left —
+              the branch, or the working directory when there is none — and
+              "model · effort" with the mode switch and ⋯ on the right. The
+              session's name lives on the stage tab above, so it is not
+              repeated here. */}
+          <PaneGitStamp sessionId={sessionId} cwd={session?.cwd} />
           {/* Machine badge: only when > 1 machine is connected, so single-machine
             users see no change. Shows which daemon host this session runs on. */}
           {machines.length > 1 && session?.machineName && (
@@ -880,18 +871,6 @@ export function AgentPanel({
               {session.machineName}
             </Badge>
           )}
-          {/* The agent's working directory — context for which checkout/worktree this
-            session runs in. Truncates; full path on hover. */}
-          {session?.cwd && (
-            <span
-              className="hidden min-w-0 max-w-[34%] items-center gap-1 truncate font-mono text-[10.5px] text-text-dim sm:inline-flex"
-              title={session.cwd}
-            >
-              <Folder size={11} aria-hidden="true" className="flex-none" />
-              <span className="truncate">{prettyCwd(session.cwd)}</span>
-            </span>
-          )}
-          <PaneGitStamp sessionId={sessionId} />
           {/* Right cluster [POD-121]: model token · mode segment · the triage pair
             (snooze, archive) · overflow. Transient utilities (take control, copy
             resume, ask superagent, hibernate) live in the overflow menu. */}
@@ -913,9 +892,9 @@ export function AgentPanel({
               OBSERVED in the transcript (plain, because it is simply true) or
               merely REQUESTED at spawn and not yet seen (dotted rule, the
               typographic mark for provisional). The tooltip names it in words. */}
-            {session && modelToken(session) && (
+            {session && !(runtimeAgentKind && canConfigureRuntime) && modelToken(session) && (
               <span
-                className="model-token hidden flex-none items-center gap-[5px] font-mono text-[10px] text-(--issue-muted) lg:inline-flex"
+                className="model-token hidden flex-none items-center gap-[5px] lg:inline-flex"
                 data-provenance={session.observedModel ? 'observed' : 'requested'}
                 title={
                   // POD-3087: whether the model can be changed HERE is now a
@@ -945,17 +924,6 @@ export function AgentPanel({
                         '')
                 }
               >
-                {/* Brand mark for harnesses that have one — a table lookup, so a new
-                  harness adds a row rather than another branch here. */}
-                {agentBrandDot(session.agentKind) && (
-                  <span
-                    className={cn(
-                      'size-[6px] flex-none rounded-full',
-                      agentBrandDot(session.agentKind),
-                    )}
-                    aria-hidden="true"
-                  />
-                )}
                 <span className="model-token-text">{modelToken(session)}</span>
               </span>
             )}
@@ -964,16 +932,17 @@ export function AgentPanel({
               a missing report is not permission to guess from driver family. */}
             {session && runtimeAgentKind && canConfigureRuntime && (
               <>
+                <span className="hidden flex-none items-center lg:inline-flex">
                 <ModelPicker
                   agentKind={runtimeAgentKind}
                   value={runtimeModel}
                   onChange={(model) => {
                     void configureRuntime({ model })
                   }}
-                  variant="pill"
-                  className="hidden flex-none lg:inline-flex"
+                  variant="quiet"
                   machineId={session.machineId}
                 />
+                <span aria-hidden="true">·</span>
                 <EffortPicker
                   disabled={!canConfigureRuntimeEffort}
                   agentKind={runtimeAgentKind}
@@ -982,10 +951,10 @@ export function AgentPanel({
                   onChange={(effort) => {
                     void configureRuntime({ effort })
                   }}
-                  variant="pill"
-                  className="hidden flex-none lg:inline-flex"
+                  variant="quiet"
                   machineId={session.machineId}
                 />
+                </span>
               </>
             )}
             {/* Mode switch [POD-121, replaces #20's toggle]: one two-segment

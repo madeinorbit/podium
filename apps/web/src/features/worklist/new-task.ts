@@ -9,12 +9,13 @@
  * after the two decisions they had no opinion about — and the chevron hid a
  * whole menu of placement inside a control that read as a single button.
  *
- * `New task` makes none of those choices. It clears the selection, which is the
- * one state the shell already reads as "no mission on screen": the flight deck
- * folds and the workspace goes to the cold-start composer, which is
- * where agent, model, machine, repo AND prompt are all one instrument. Nothing
- * is created until the operator launches — an abandoned new task leaves no
- * empty vessel in the column behind it.
+ * `New task` makes none of those choices. It opens the cold-start composer,
+ * where agent, model, machine, repo AND prompt are all one instrument, as an
+ * OVERLAY over whatever is on screen (POD-2079; see `new-task-overlay.ts`). It
+ * used to clear the selection instead, which reached the same composer by
+ * throwing the screen behind it away; now Cancel or Esc hands that screen back
+ * exactly as it was. Nothing is created until the operator launches — an
+ * abandoned new task leaves no empty vessel in the column behind it.
  *
  * SEEDING THE PROJECT IS THE WHOLE REASON THIS TAKES AN ARGUMENT. An empty
  * project's `Start first task` names a repo, and arriving at a composer pointed
@@ -24,11 +25,8 @@
  */
 
 import { shallowEqual } from '@podium/client-core/shallow-equal'
+import { FIRST_TASK_ACTIVATION_DRAFT_KEY } from '@podium/client-core/ui-state'
 import { machinePathsEqual } from '@podium/model/browser'
-import {
-  FIRST_TASK_ACTIVATION_DRAFT_KEY,
-  SUPERAGENT_MODE_KEY,
-} from '@podium/client-core/ui-state'
 import { useEffect, useRef } from 'react'
 import { useRuntimeSelector } from '@/app/store'
 import {
@@ -37,6 +35,7 @@ import {
   readFirstTaskDraft,
 } from '@/features/setup/first-task-draft'
 import { nativeDesktopBridge } from '@/lib/nativeDesktop'
+import { newTaskOverlayOrigin, openNewTaskOverlay } from './new-task-overlay'
 
 export interface NewTask {
   /** Take the shell to a blank mission. `repoPath` preselects the project. */
@@ -53,40 +52,67 @@ export function useNewTask(
    */
   { bindChord = false }: { bindChord?: boolean } = {},
 ): NewTask {
-  const { uiState, setSelectedIssueId, setSelectedWorktree, setView } = useRuntimeSelector(
+  const { uiState, view, selectedIssueId, setView } = useRuntimeSelector(
     (store) => ({
       uiState: store.uiState,
-      setSelectedIssueId: store.setSelectedIssueId,
-      setSelectedWorktree: store.setSelectedWorktree,
+      view: store.view,
+      selectedIssueId: store.selectedIssueId,
       setView: store.setView,
     }),
     shallowEqual,
   )
 
   const startNewTask = (repoPath?: string): void => {
-    // THE PROMPT IS CLEARED, THE INSTRUMENTS ARE NOT. A half-written prompt from
-    // a task the operator walked away from has no business being the first thing
-    // they read on the next one — but the agent, model, effort and machine they
-    // chose are settings, not content, and re-picking them every time is the
-    // friction this whole flow exists to remove. The retry ids go with the
-    // prompt: they belong to a specific create that is now abandoned.
+    // THE PROMPT SURVIVES A CANCEL (POD-2082). Esc and Cancel close the overlay
+    // and nothing else, so reopening New task shows the half-written prompt
+    // again; only a Start clears it (the composer does, once the launch
+    // settles). The agent, model, effort and machine are settings and always
+    // carry over. The retry ids do not: they belong to a create that was
+    // abandoned. A launch still in flight keeps its prompt to itself — showing
+    // it again would invite a second Start of the same words.
     const previous = readFirstTaskDraft(uiState.get(FIRST_TASK_ACTIVATION_DRAFT_KEY))
+    // Already open: the prompt on screen is the one being written, so it stays.
+    // A project's + only re-points it at that project.
+    if (newTaskOverlayOrigin()) {
+      if (repoPath && !machinePathsEqual(repoPath, previous.repoPath))
+        persistFirstTaskDraft(uiState, {
+          ...EMPTY_FIRST_TASK_DRAFT,
+          ...previous,
+          repoPath,
+          machineId: '',
+          // A reserved create belongs to the project it was reserved for.
+          launchKind: '',
+          pendingIssueId: '',
+          createIssueId: '',
+          createSessionId: '',
+          createMutationId: '',
+          startMutationId: '',
+          attachmentPaths: [],
+          launchError: '',
+        })
+      return
+    }
     persistFirstTaskDraft(uiState, {
       ...EMPTY_FIRST_TASK_DRAFT,
       repoPath: repoPath ?? previous.repoPath,
       // A named project brings its own machine with it; keeping the last one
       // would point the composer at a host that may not hold this repo at all.
-        machineId: repoPath && !machinePathsEqual(repoPath, previous.repoPath) ? '' : previous.machineId,
+      machineId:
+        repoPath && !machinePathsEqual(repoPath, previous.repoPath) ? '' : previous.machineId,
       agent: previous.agent,
       model: previous.model,
       effort: previous.effort,
+      title: previous.launchKind && !previous.launchError ? '' : previous.title,
     })
-    // Give the new prompt the space until there is a task to follow.
-    // Keep the folded rail available so Flightdeck can still be opened explicitly.
-    uiState.set(SUPERAGENT_MODE_KEY, 'folded')
-    setSelectedIssueId(null)
-    setSelectedWorktree(null)
-    setView('workspace')
+    // Opened over the current screen, which stays mounted and selected
+    // underneath; only the view is switched, and only if it has to be.
+    const active = document.activeElement
+    openNewTaskOverlay({
+      view,
+      selectedIssueId,
+      returnFocus: active instanceof HTMLElement && active !== document.body ? active : null,
+    })
+    if (view !== 'workspace') setView('workspace')
   }
 
   // ⌘N — the chord the spawn row used to answer with a spawn (POD-790). Two

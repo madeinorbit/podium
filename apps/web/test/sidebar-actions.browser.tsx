@@ -127,6 +127,14 @@ const fixture = {
     }
     synthetic.patchIssue(id, patch)
   },
+  reopen: (id: string) => {
+    synthetic.patchIssue(id, {
+      stage: 'in_progress',
+      closedReason: null,
+      closedAt: null,
+      tuckedAt: null,
+    })
+  },
 }
 Object.assign(window, { __sidebarActions: fixture })
 declare global {

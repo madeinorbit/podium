@@ -1,16 +1,25 @@
 import { shallowEqual } from '@podium/client-core/shallow-equal'
 import { mergeVisibleProjectOrder } from '@podium/client-core/values'
 import { isAbsoluteMachinePath } from '@podium/model'
-import { ArrowDown, ArrowUp, SlidersHorizontal } from 'lucide-react'
+import { ArrowDown, ArrowUp } from 'lucide-react'
 import type { JSX } from 'react'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useRuntimeSelector } from '@/app/store'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
 import { useSidebarProjects } from './use-sidebar-projects'
 
-/** A deliberate edit mode for project order; the busy worklist stays untouched. */
-export function ManageProjectsButton(): JSX.Element {
+/** A deliberate edit mode for project order; the busy worklist stays untouched.
+ *  Opened from a folder's ⋯ menu ("Reorder projects…") now that the column's
+ *  display-options button is gone (POD-2074); dragging a folder header is the
+ *  everyday route. */
+export function ManageProjectsDialog({
+  open,
+  onOpenChange: setOpen,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+}): JSX.Element {
   const projects = useSidebarProjects()
   const { setSidebarSettings, savedOrder } = useRuntimeSelector(
     (state) => ({
@@ -19,11 +28,17 @@ export function ManageProjectsButton(): JSX.Element {
     }),
     shallowEqual,
   )
-  const [open, setOpen] = useState(false)
   const [draft, setDraft] = useState<string[]>([])
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [announcement, setAnnouncement] = useState('')
+  // biome-ignore lint/correctness/useExhaustiveDependencies: seeded once per opening, not on every project publish.
+  useEffect(() => {
+    if (!open) return
+    setDraft(projects.map((project) => project.key))
+    setError(null)
+    setAnnouncement('')
+  }, [open])
 
   const visible = useMemo(() => {
     if (!open) return []
@@ -65,24 +80,7 @@ export function ManageProjectsButton(): JSX.Element {
   }
 
   return (
-    <>
-      <button
-        data-pressable
-        type="button"
-        data-testid="manage-projects"
-        title="Manage projects"
-        aria-label="Manage projects"
-        onClick={() => {
-          setDraft(projects.map((project) => project.key))
-          setError(null)
-          setAnnouncement('')
-          setOpen(true)
-        }}
-        className="flex size-8 flex-none items-center justify-center rounded-[7px] border border-input bg-chip text-muted-foreground transition-colors hover:bg-accent hover:text-text-strong focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
-      >
-        <SlidersHorizontal size={14} aria-hidden="true" />
-      </button>
-      <Dialog open={open} onOpenChange={(next) => !saving && setOpen(next)}>
+    <Dialog open={open} onOpenChange={(next) => !saving && setOpen(next)}>
         <DialogContent className="flex max-h-[min(680px,calc(100dvh-32px))] flex-col gap-0 overflow-hidden p-0 sm:max-w-[480px]">
           <div className="border-b border-border px-5 py-4">
             <DialogTitle className="text-base font-semibold">Manage projects</DialogTitle>
@@ -162,6 +160,5 @@ export function ManageProjectsButton(): JSX.Element {
           </div>
         </DialogContent>
       </Dialog>
-    </>
   )
 }
