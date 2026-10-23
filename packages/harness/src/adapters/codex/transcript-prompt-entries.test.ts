@@ -67,7 +67,18 @@ describe('Codex measured prompt entries', () => {
     const compacted = records.filter((record) => record.type === 'compacted')
     expect(compacted).toHaveLength(1)
     expect(JSON.stringify(compacted[0].payload.replacement_history)).toContain('ONE first')
-    expect(compacted.flatMap(codexRecordToItems)).toEqual([])
+    const summaries = compacted.flatMap(codexRecordToItems)
+    expect(summaries).toEqual([
+      expect.objectContaining({
+        role: 'system',
+        systemKind: 'compaction',
+        promptEntry: false,
+        text: compacted[0].payload.message.trim(),
+      }),
+    ])
+    const summary = TranscriptItem.parse(summaries[0])
+    expect(summary.systemKind).toBe('compaction')
+    expect(transcriptEchoAcceptCorrelation.accepts(summary)).toBe(false)
     const prompts = records.flatMap(codexRecordToItems).filter((item) => item.role === 'user')
     expect(prompts.map((item) => item.text)).toEqual([
       'ONE first',
@@ -76,6 +87,15 @@ describe('Codex measured prompt entries', () => {
       'RACE-B second',
     ])
     expect(prompts.every((item) => item.promptEntry === true)).toBe(true)
+  })
+
+  it('does not substitute replayed history when a compaction has no summary', () => {
+    expect(
+      codexRecordToItems({
+        type: 'compacted',
+        payload: { message: ' ', replacement_history: [{ role: 'user', content: 'old prompt' }] },
+      }),
+    ).toEqual([])
   })
 
   it('keeps the interrupt action visible while excluding it from prompt matching', () => {

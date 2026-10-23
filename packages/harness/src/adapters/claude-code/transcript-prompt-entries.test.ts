@@ -43,6 +43,7 @@ describe('Claude user records that are not a prompt entry', () => {
       {
         id: '179d28f0-8e9a-4b95-9d4d-90618f457f84',
         role: 'system',
+        systemKind: 'compaction',
         ts: '2026-09-29T16:19:21.604Z',
         text: expect.stringContaining('r62w1 r62w2 r62w3'),
       },

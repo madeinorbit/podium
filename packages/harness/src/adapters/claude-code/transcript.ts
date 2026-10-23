@@ -169,7 +169,18 @@ function mapClaudeRecord(record: unknown): TranscriptItem[] {
 
   if (r.type === 'user') {
     const note = claudeUserNote(r, message)
-    if (note !== undefined) return note ? [{ id: uuid ?? '', role: 'system', ts, text: note }] : []
+    if (note !== undefined)
+      return note
+        ? [
+            {
+              id: uuid ?? '',
+              role: 'system',
+              ts,
+              text: note,
+              ...(r.isCompactSummary === true ? { systemKind: 'compaction' as const } : {}),
+            },
+          ]
+        : []
     const items = userItems(uuid, ts, message, promptSource)
     const results = items.filter((item) => item.toolResult !== undefined)
     // One sibling envelope cannot be attributed to several parallel results.

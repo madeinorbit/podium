@@ -102,9 +102,23 @@ export function codexRecordToItems(record: unknown): TranscriptItem[] {
       : []
   }
 
-  // Compaction replays older prompts in replacement_history. Expanding those
-  // here would put an old identical prompt after a new send's history floor.
-  if (type === 'compacted') return []
+  // Show only the summary. replacement_history replays older prompts; expanding
+  // it would put an old identical prompt after a new send's history floor.
+  if (type === 'compacted') {
+    const text = stringField(payload, 'message')?.trim()
+    return text
+      ? [
+          {
+            id: stringField(payload, 'id') ?? SYNTHESIZED_ITEM_ID_PREFIX,
+            role: 'system',
+            systemKind: 'compaction',
+            promptEntry: false,
+            ...(ts ? { ts } : {}),
+            text,
+          },
+        ]
+      : []
+  }
   if (type !== 'response_item') return []
 
   switch (ptype) {

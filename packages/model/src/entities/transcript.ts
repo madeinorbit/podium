@@ -170,8 +170,9 @@ export const TranscriptItem = z.object({
   /** Distinguishes special system items so the chat can render them apart from a
    *  generic "System" line: 'recap' = Claude Code's away/while-you-were-gone
    *  summary (subtype away_summary); 'duration' = a turn's churn time (subtype
-   *  turn_duration), carried in `durationMs`. Absent on plain system messages. */
-  systemKind: z.enum(['recap', 'duration']).optional(),
+   *  turn_duration), carried in `durationMs`; 'compaction' = the summary saved
+   *  when the harness compacts its context. Absent on plain system messages. */
+  systemKind: z.enum(['recap', 'duration', 'compaction']).optional(),
   /** Wall-clock duration of the turn in ms (set with systemKind 'duration'),
    *  surfaced as "Churned for Xm Ys". */
   durationMs: z.number().optional(),

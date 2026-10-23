@@ -4893,6 +4893,63 @@ html[data-density="compact"] .brief-shelf {
   }
 }
 
+.compaction-note-head {
+  display: flex;
+  width: 100%;
+  min-height: 32px;
+  align-items: center;
+  gap: 7px;
+  border-radius: 4px;
+  color: var(--muted-foreground);
+  text-align: left;
+  cursor: pointer;
+  transition: color 120ms ease-out;
+}
+.compaction-note-head:hover {
+  color: var(--foreground);
+}
+.compaction-note-head:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 3px;
+}
+.compaction-note-head > svg {
+  flex: none;
+}
+.compaction-note-label {
+  font-size: 12px;
+  font-weight: 500;
+}
+.compaction-note-action {
+  margin-left: 5px;
+  color: var(--text-dim, var(--muted-foreground));
+  font-size: 11px;
+}
+.compaction-note-chevron {
+  transition: transform 120ms ease-out;
+}
+.compaction-note-head[aria-expanded="true"] .compaction-note-chevron {
+  transform: rotate(90deg);
+}
+.compaction-note-rule {
+  flex: 1;
+  min-width: 8px;
+  height: 1px;
+  margin-inline: 3px;
+  background: var(--hairline-soft, var(--border));
+}
+.compaction-note-body {
+  margin-top: 6px;
+  padding-left: 12px;
+  border-left: 1px solid var(--hairline-soft, var(--border));
+  color: var(--muted-foreground);
+}
+@media (prefers-reduced-motion: reduce) {
+  .compaction-note-head,
+  .compaction-note-chevron {
+    transition: none;
+  }
+}
+
 .machine-context-head {
   display: flex;
   width: 100%;

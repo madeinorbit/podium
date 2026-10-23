@@ -1,8 +1,8 @@
 import {
   formatChurn,
-  isInterviewQuestion,
   isImagePath,
   isInteractiveTool,
+  isInterviewQuestion,
   MACHINE_CONTEXT_RE,
   mcpLabel,
   parseEnvelopeBatch,
@@ -10,13 +10,20 @@ import {
 } from '@podium/client-core/values'
 import { codexQuestionReplyText } from '@podium/harness/browser'
 import { machinePathBasename, resolveMachinePath } from '@podium/model'
-import type { SessionId } from '@podium/model/browser'
-import { Clock, FileText, Image as ImageIcon, MessageCircleQuestion } from 'lucide-react'
+import type { SessionId, TranscriptItem } from '@podium/model/browser'
+import {
+  ChevronRight,
+  Clock,
+  FileText,
+  Image as ImageIcon,
+  Layers2,
+  MessageCircleQuestion,
+} from 'lucide-react'
 import type { JSX, MouseEvent as ReactMouseEvent, ReactNode } from 'react'
-import { memo, useCallback, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useId, useMemo, useRef, useState } from 'react'
 import { assetUrl } from '@/lib/asset-url'
-import type { QuoteInput } from '@/lib/quote/quote-sinks'
 import { renderMarkdown, sanitizeRenderedMarkdown } from '@/lib/markdown'
+import type { QuoteInput } from '@/lib/quote/quote-sinks'
 import { useKnownRefPrefixesVersion } from '@/lib/use-known-ref-prefixes'
 import { cn } from '@/lib/utils'
 import { AskUserQuestionCard } from './AskUserQuestionCard'
@@ -244,6 +251,82 @@ const StableMarkdown = memo(function StableMarkdown({
   )
 })
 
+/** Compaction is background context. Keep the summary readable on request and
+ * expose it automatically when search lands inside it. */
+function CompactionNote({
+  item,
+  cls,
+  index,
+  highlighted,
+  sessionId,
+  cwd,
+  openFile,
+  markdownHtml,
+  onQuote,
+}: {
+  item: TranscriptItem
+  cls: string
+  index: number
+  highlighted: boolean
+  sessionId: SessionId
+  cwd: string
+  openFile: (sessionId: SessionId, path: string) => void
+  markdownHtml?: ReadonlyMap<string, string> | undefined
+  onQuote?: ((quote: QuoteInput) => void) | undefined
+}): JSX.Element {
+  const [expanded, setExpanded] = useState(false)
+  const open = expanded || highlighted
+  const bodyId = useId()
+  const refPrefixesVersion = useKnownRefPrefixesVersion()
+  const unsafeHtml = markdownHtml?.get(item.text)
+  // biome-ignore lint/correctness/useExhaustiveDependencies: prefix registration changes reference links.
+  const html = useMemo(() => {
+    if (!open) return ''
+    return unsafeHtml === undefined
+      ? renderMarkdown(item.text)
+      : sanitizeRenderedMarkdown(unsafeHtml)
+  }, [open, unsafeHtml, item.text, refPrefixesVersion])
+  return (
+    <div className={cls} data-block={index} data-row-key={item.id} data-system-kind="compaction">
+      <div className="transcript-rail transcript-rail--none" aria-hidden="true" />
+      <div className="transcript-body compaction-note">
+        <button
+          type="button"
+          className="compaction-note-head"
+          aria-expanded={open}
+          aria-controls={bodyId}
+          onClick={() => setExpanded((value) => !value)}
+        >
+          <Layers2 size={13} strokeWidth={1.5} aria-hidden="true" />
+          <span className="compaction-note-label">Context compacted</span>
+          <span className="compaction-note-action">{open ? 'Hide summary' : 'Show summary'}</span>
+          <ChevronRight
+            className="compaction-note-chevron"
+            size={12}
+            strokeWidth={1.5}
+            aria-hidden="true"
+          />
+          <span className="compaction-note-rule" aria-hidden="true" />
+          <BlockClock ts={item.ts} />
+        </button>
+        <div id={bodyId} hidden={!open} className="compaction-note-body">
+          {open && (
+            <>
+              <StableMarkdown html={html} sessionId={sessionId} cwd={cwd} openFile={openFile} />
+              <MessageActions
+                text={item.text}
+                onQuote={onQuote}
+                quoteSource="the context compaction summary"
+                side="left"
+              />
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // Memoized: ChatView re-renders on every search keystroke, every 700ms
 // transcript poll, and every session-state change in the store. Block identity
 // is stable across renders that don't change `items` (the compute client reuses
@@ -344,6 +427,8 @@ export const ChatBlockView = memo(function ChatBlockView({
   const refPrefixesVersion = useKnownRefPrefixesVersion()
   // biome-ignore lint/correctness/useExhaustiveDependencies: refPrefixesVersion is a deliberate recompute trigger — linkifyRefs reads the prefix registry.
   const html = useMemo(() => {
+    // A summary can be many pages. Its disclosure renders markdown only on open.
+    if (item.role === 'system' && item.systemKind === 'compaction') return ''
     const unsafeHtml = markdownHtml?.get(displayText)
     return unsafeHtml === undefined
       ? renderMarkdown(displayText)
@@ -354,7 +439,7 @@ export const ChatBlockView = memo(function ChatBlockView({
     // fleet state: it changes when a repo prefix appears, and a row rendered
     // before the registry arrived has no ref links until it re-renders
     // (POD-4966).
-  }, [displayText, markdownHtml, refPrefixesVersion])
+  }, [displayText, markdownHtml, refPrefixesVersion, item.role, item.systemKind])
   // Envelopes render as rows AHEAD of this block's own row (a provider turn can
   // deliver several frames before the operator's text), so when they exist they
   // are what opens the exchange and the body row binds to them.
@@ -387,6 +472,21 @@ export const ChatBlockView = memo(function ChatBlockView({
   // showing a giant "You" bubble (ported from the old SuperagentView renderer).
   if (collapseContext && item.role === 'user' && MACHINE_CONTEXT_RE.test(item.text))
     return <MachineContextRow item={item} cls={rowClass} index={index} />
+
+  if (item.role === 'system' && item.systemKind === 'compaction')
+    return (
+      <CompactionNote
+        item={item}
+        cls={rowClass}
+        index={index}
+        highlighted={highlighted}
+        sessionId={sessionId}
+        cwd={cwd}
+        openFile={openFile}
+        markdownHtml={markdownHtml}
+        onQuote={onQuote}
+      />
+    )
 
   if (isInterviewQuestion(item))
     return (
