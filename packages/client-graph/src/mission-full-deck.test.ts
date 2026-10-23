@@ -359,6 +359,25 @@ describe('counting', () => {
     expect(pool.issueObject('release').stage).toBe('in_progress')
   })
 
+  it('completes an empty phase only once the phase issue is closed', async () => {
+    const fixture = mission()
+    fixture.issues.push(
+      issue('empty-closed', 40, 'root', {
+        sortKey: 'i',
+        type: 'phase',
+        stage: 'done',
+        closedAt: stamp,
+      }),
+      issue('empty-open', 41, 'root', { sortKey: 'j', type: 'phase', stage: 'backlog' }),
+    )
+    const { full } = await open(fixture)
+    expect(tracked(() => full.task('empty-closed').workComplete)).toBe(true)
+    expect(tracked(() => full.task('empty-open').workComplete)).toBe(false)
+    expect(tracked(() => full.task('empty-closed').matches)).toBe(false)
+    expect(tracked(() => full.task('empty-open').matches)).toBe(true)
+    expect(tracked(() => full.doneLine)).toEqual({ phases: 2, tasks: 4 })
+  })
+
   it('does not move totals with folds, search or Show done', async () => {
     const { screen, full } = await open()
     const before = tracked(() => full.counts)

@@ -157,10 +157,12 @@ export class FullDeckTask {
     return { done, total }
   }
   /** A phase's work is all done. Rendering never closes the phase issue:
-   * this is read from its tasks, and `closed` stays the issue's own stage. */
+   * this is read from its tasks, and `closed` stays the issue's own stage.
+   * A phase with no tasks has no work to read, so it is complete once the
+   * phase issue itself is closed; an open empty phase is still waiting. */
   @lazy get workComplete(): boolean {
     const { done, total } = this.counter
-    return total > 0 && done === total
+    return total > 0 ? done === total : this.closed
   }
 
   // Seats
