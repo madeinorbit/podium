@@ -9,8 +9,8 @@
  * The whole burst is now ONE object — a quiet "Note from steward · 03:13" line
  * (POD-2076: no tint, no ids) that opens into a real mail list. See `.mail-group` in styles.css for the shape and its reasons.
  *
- * WHAT OPENS ON ARRIVAL: any frame that asks a question or requests a reply,
- * because folding it would hide the one kind of mail with a consequence.
+ * NOTHING OPENS ON ARRIVAL (POD-2070): a question or reply request binds the
+ * receiving agent, not the reader, so the fold line only flags it.
  * WHAT IS NOT LOST: the two-line preview is a preview — clicking an item opens
  * that frame's full markdown, refs and code live.
  */
@@ -175,18 +175,18 @@ export function MessageEnvelopeGroup({
    *  every frame in it, the same way a run of tool calls unfolds. */
   forceOpen?: boolean
 }): JSX.Element {
-  const consequential = envelopes.some((e) => e.question || e.expectsReply)
-  // A burst GROWS. The first frame of a provider turn can be background noise —
-  // the group mounts folded — and the second, arriving on the next poll into the
-  // same block, can be the one asking the operator to answer something. Reading
-  // `consequential` once at mount would leave that frame hidden behind a fold
-  // line, which is precisely the case the fold is not for. Adjusted during
-  // render rather than in an effect: no frame of the wrong state, and a manual
-  // fold afterwards still sticks.
-  const [fold, setFold] = useState({ opened: consequential, open: consequential })
-  if (consequential && !fold.opened) setFold({ opened: true, open: true })
-  const open = fold.open || forceOpen
-  const toggle = (): void => setFold((f) => ({ opened: true, open: !f.open }))
+  // ALWAYS FOLDED ON ARRIVAL (POD-2070). A question or a reply request in agent
+  // mail binds the RECEIVING AGENT, not the person reading the chat, so opening
+  // the card for it put a box in front of the reader for something they had
+  // nothing to do about. The fold line names the ask instead.
+  const [userOpen, setUserOpen] = useState(false)
+  const open = userOpen || forceOpen
+  const toggle = (): void => setUserOpen((o) => !o)
+  const flag = envelopes.some((e) => e.question)
+    ? 'question'
+    : envelopes.some((e) => e.expectsReply)
+      ? 'reply asked'
+      : undefined
   const single = envelopes.length === 1
   const first = envelopes[0]
   const stamp = parseTs(ts)
@@ -217,7 +217,7 @@ export function MessageEnvelopeGroup({
             className="mail-fold"
             data-testid="message-envelope-toggle"
             aria-expanded={open}
-            aria-label={open ? 'Fold these notes' : 'Unfold these notes'}
+            aria-label={`${open ? 'Fold' : 'Unfold'} these notes${flag ? `, ${flag}` : ''}`}
             onClick={toggle}
           >
             <MailIcon className="mail-fold-icon" size={13} aria-hidden="true" />
@@ -227,6 +227,7 @@ export function MessageEnvelopeGroup({
                 · {clockLabel(stamp)}
               </time>
             )}
+            {flag && <span className="mail-fold-flag">· {flag}</span>}
             <span className="mail-fold-gap" />
             <ChevronDown className="mail-fold-chev" size={14} aria-hidden="true" />
           </button>

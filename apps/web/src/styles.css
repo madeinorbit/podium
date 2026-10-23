@@ -4709,6 +4709,12 @@ button.pane-branch:hover {
 .mail-fold:hover {
   color: var(--muted-foreground);
 }
+/* The ask an agent-mail frame carries is the receiving agent's, so it is a
+   word on the line, not a reason to open the card (POD-2070). */
+.mail-fold-flag {
+  flex: none;
+  color: var(--text-faint);
+}
 .mail-fold-icon {
   flex: none;
 }

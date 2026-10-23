@@ -15,6 +15,8 @@
  * quoted frames stay quoted inside the rendered body.
  */
 
+import { LEGACY_TURN_CLOSE_RULE, TURN_CLOSE_RULE } from '@podium/commands'
+
 export interface ParsedEnvelope {
   /** The message id (`msg_…`) — links the transcript block to the ledger. */
   id: string
@@ -43,6 +45,15 @@ export interface ParsedEnvelope {
 const HEAD_RE =
   /^\[podium message (\S+) · from (.+?) · to (.+?)(?: · reply: podium mail reply \1)?\]\n/
 
+/** Remove the server's turn-close rule, matched as the EXACT suffix the server
+ *  appends, so a sender's own lines that merely look like it stay in the body. */
+function stripTurnCloseRule(body: string): string {
+  for (const rule of [TURN_CLOSE_RULE, LEGACY_TURN_CLOSE_RULE]) {
+    if (body.endsWith(rule)) return body.slice(0, body.length - rule.length)
+  }
+  return body
+}
+
 export interface ParsedEnvelopeBatch {
   envelopes: ParsedEnvelope[]
   /** Human-authored text delivered in the same transcript turn after one or
@@ -63,8 +74,12 @@ export function parseMessageEnvelope(text: string): ParsedEnvelope | null {
   if (!trimmed.endsWith(endTag)) return null
   let body = trimmed.slice(head[0].length, trimmed.length - endTag.length)
   // Server boilerplate sits on the lines just before the end frame, in render
-  // order body → note → question/response rule. Strip back-to-front and mark
-  // the block instead of rendering the raw instructions.
+  // order body → note → question/response rule → turn-close rule. Strip
+  // back-to-front and mark the block instead of rendering the raw instructions.
+  // The turn-close lines come last and must go first: left in place, they hid
+  // every rule above them, so agent mail showed the instructions as body text
+  // and never read as a question or a reply request (POD-2070).
+  body = stripTurnCloseRule(body)
   const questionRe = /\n?\[this is a question: [^\n]*\]\n?$/
   const question = questionRe.test(body)
   if (question) body = body.replace(questionRe, '')

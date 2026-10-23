@@ -126,7 +126,9 @@ describe('podium mail', () => {
     expect(host.textContent).toContain('Asset path needs confirming')
   })
 
-  it('opens on arrival when any frame in the burst asks something', () => {
+  // POD-2070: the ask binds the RECEIVING AGENT, not the reader, so it is a word
+  // on the fold line rather than a reason to open the card.
+  it('stays folded when a frame in the burst asks something, and flags it on the line', () => {
     mount(
       userItem(
         frame('msg_a', 'issue:POD-84', 'your session', 'background noise') +
@@ -139,15 +141,16 @@ describe('podium mail', () => {
           ),
       ),
     )
-    expect(group()?.getAttribute('data-open')).toBe('true')
+    expect(group()?.getAttribute('data-open')).toBe('false')
+    expect(host.querySelector('.mail-fold-flag')?.textContent).toBe('· reply asked')
+    click(toggle())
     // The frame that asked says so, on its own item, and names the reply target.
     expect(host.querySelector('.mail-item-reply')?.textContent).toContain('msg_6')
   })
 
   // A burst GROWS: the next poll can extend the same block with a frame that
-  // asks the operator something. Reading `consequential` once at mount would
-  // leave exactly that frame folded away.
-  it('opens when a later frame turns the burst consequential', () => {
+  // asks something. The line picks the flag up; the group stays folded.
+  it('flags a later frame that asks something without opening the group', () => {
     const background = frame('msg_a', 'issue:POD-84', 'your session', 'background noise')
     mount(userItem(background))
     expect(group()?.getAttribute('data-open')).toBe('false')
@@ -163,7 +166,8 @@ describe('podium mail', () => {
           ),
       ),
     )
-    expect(group()?.getAttribute('data-open')).toBe('true')
+    expect(group()?.getAttribute('data-open')).toBe('false')
+    expect(host.querySelector('.mail-fold-flag')?.textContent).toBe('· reply asked')
   })
 
   it('keeps an opened mail body DOM-stable across an unrelated markdown cache update', () => {
@@ -264,6 +268,7 @@ describe('podium mail', () => {
         ),
       ),
     )
+    click(toggle())
     const env = host.querySelector('[data-testid="message-envelope"]')
     expect(env?.textContent).toContain('reply · msg_3')
     expect(env?.textContent).not.toContain('a response was requested')

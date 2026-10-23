@@ -1,3 +1,4 @@
+import { LEGACY_TURN_CLOSE_RULE, TURN_CLOSE_RULE } from '@podium/commands'
 import { describe, expect, it } from 'vitest'
 import {
   envelopePrincipal,
@@ -58,6 +59,34 @@ describe('parseMessageEnvelope', () => {
       expectsReply: true,
       question: false,
     })
+  })
+
+  // Agent mail ends with the turn-close rule, AFTER the response rule. Left in
+  // place it hid the response rule from the strip above it, so the preview
+  // showed the instructions and the reply flag never set (POD-2070).
+  it.each([
+    ['current', TURN_CLOSE_RULE],
+    ['POD-604', LEGACY_TURN_CLOSE_RULE],
+  ])('strips the %s turn-close rule and still reads the response rule', (_, rule) => {
+    const p = parseMessageEnvelope(
+      frame(
+        'msg_t',
+        'issue:POD-84',
+        'your session',
+        'please confirm',
+        '[a response was requested: reply within this thread (`podium mail reply msg_t`) when you have handled it — any substantive reply satisfies it]\n' +
+          rule,
+      ),
+    )
+    expect(p).toMatchObject({ body: 'please confirm', expectsReply: true, question: false })
+  })
+
+  it('keeps a sender line that only looks like the turn-close rule', () => {
+    const quoted = '[before you go idle: say who mailed you]'
+    const p = parseMessageEnvelope(
+      frame('msg_q', 'issue:POD-84', 'your session', `the old rule was:\n${quoted}`),
+    )
+    expect(p?.body).toBe(`the old rule was:\n${quoted}`)
   })
 
   it('strips the cross-machine note into machineNote', () => {

@@ -235,8 +235,9 @@ describe('characterization: envelope byte-fidelity (D2)', () => {
     await h.svc.send({ kind: 'operator' }, { to: { kind: 'issue', id: iss.id }, body })
     expect(h.pushes[0]!.text).toBe(
       "[podium] 1 message(s) from operator — run 'podium issue mail inbox' to read them, " +
-        'then close your turn by saying briefly who mailed you and what you did, repeating ' +
-        'your previous summary below that, and leaving your standing offer as it is',
+        'then close your turn without repeating your last answer: no message if they needed ' +
+        'nothing or only a reply, one sentence if you acted on them, more only if they change ' +
+        'what you told the human; leave your standing offer as it is',
     )
   })
 })
@@ -1028,12 +1029,12 @@ describe('characterization: sender-queryable status (D12)', () => {
   })
 })
 
-describe('characterization: the mail turn-closing rule (D13) [POD-604]', () => {
+describe('characterization: the mail turn-closing rule (D13) [POD-604, POD-2070]', () => {
   // Mail only ever lands on an IDLE session, so almost every delivery interrupts
-  // an agent that has just finished and reported. The rule is what keeps the
-  // human's two artefacts — the summary they read and the offer they click —
-  // from being buried by the mail-handling turn.
-  it('appends the rule to agent mail, naming the summary AND the standing offer', async () => {
+  // an agent that has just finished and reported. The rule keeps the mail turn
+  // quiet so the summary the human reads stays on screen, and keeps the offer
+  // they click from being replaced by one about the mail.
+  it('appends the rule to agent mail: no repeated summary, the standing offer kept', async () => {
     const h = await mailHarness()
     const from = await h.createIssue({ title: 'sender' })
     const to = await h.createIssue({ title: 'receiver' })
@@ -1044,13 +1045,14 @@ describe('characterization: the mail turn-closing rule (D13) [POD-604]', () => {
     )
     expect(h.pushes[0]!.text).toContain(TURN_CLOSE_RULE)
     expect(TURN_CLOSE_RULE).toBe(
-      '[before you go idle: a human returning here reads only your LAST message. In one or two ' +
-        'plain sentences say who mailed you, what they wanted and what you did — then repeat, ' +
-        'below that, the summary of your own work this interrupted, so it is still what they ' +
-        'see.]\n' +
-        '[your standing offer survived this mail: leave it, or re-post it unchanged — never ' +
-        'replace it with one about the mail. Check the issue stage still matches reality before ' +
-        'you stop.]\n',
+      '[when you finish with this mail: the human already has your last answer — do not repeat ' +
+        'it. If the mail needed nothing from you, or only a reply, end your ' +
+        'turn without a message; the reply goes through `podium mail reply` and is never echoed ' +
+        'here. If you did something about it beyond replying, say what in one plain sentence. If ' +
+        'it changes what you told the human, say clearly what changed and what now holds.]\n' +
+        '[your standing offer survived this mail: leave it as it is unless this mail changed ' +
+        'what the human must decide. Check the issue stage still matches reality before you ' +
+        'stop.]\n',
     )
   })
 
@@ -1064,7 +1066,7 @@ describe('characterization: the mail turn-closing rule (D13) [POD-604]', () => {
     )
     // Queued for UI pickup, never pushed into a session — the human reading it
     // has no turn to close and no offer to preserve.
-    expect(await h.svc.renderFor(r.message)).not.toContain('before you go idle')
+    expect(await h.svc.renderFor(r.message)).not.toContain('when you finish with this mail')
   })
 
   it('omits the rule for an operator question — that human is still reading the session', async () => {
@@ -1076,6 +1078,6 @@ describe('characterization: the mail turn-closing rule (D13) [POD-604]', () => {
       { to: { kind: 'session', id: 's1' }, body: 'why this?', kind: 'question' },
     )
     expect(h.pushes[0]!.text).toContain('this is a question')
-    expect(h.pushes[0]!.text).not.toContain('before you go idle')
+    expect(h.pushes[0]!.text).not.toContain('when you finish with this mail')
   })
 })

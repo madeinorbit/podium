@@ -356,6 +356,7 @@ export {
   senderBrakeKey,
   senderLabel,
 } from './mail/principal'
+export { LEGACY_TURN_CLOSE_RULE, TURN_CLOSE_RULE } from './mail/turn-close-rule'
 export {
   AGENT_PROFILE_CONTRACT_NAMES,
   AGENT_PROFILE_CONTRACTS,
