@@ -157,14 +157,11 @@ export function OfferBar({
    *  [POD-120] (needs the session to find its issue + input recency). */
   session?: Pick<SessionView, 'sessionId' | 'issueId' | 'lastInputAt'>
 }): JSX.Element {
-  // `expanded` is the FOLD (feedback, errors); `collapsed` is the card itself
-  // folded down to its header and headline.
-  const [expanded, setExpanded] = useState(false)
+  // `collapsed` is the card itself folded down to its header and headline.
   const [collapsed, setCollapsed] = useState(false)
   // Callback ref, not useRef: the fold has to be measured the moment its body
   // lands in the DOM, and a plain ref never re-renders to say so.
   const [bodyEl, setBodyEl] = useState<HTMLDivElement | null>(null)
-  const { lifted, capped } = useOfferFoldLift(bodyEl, expanded)
   // The input-action awaiting feedback (index into offer.actions), if any.
   const [pending, setPending] = useState<number | null>(null)
   const [feedback, setFeedback] = useState('')
@@ -172,6 +169,11 @@ export function OfferBar({
   const dismissal = useOfferDismissal(offer.createdAt)
   const dismissPhase = dismissal.phase
   const [error, setError] = useState<string | null>(null)
+  // The FOLD is open exactly while it has something to show, a feedback field
+  // or an error, so clearing the last of them (Escape, Cancel, a send) closes
+  // it and an empty fold can never hold a lift.
+  const expanded = pending !== null || error !== null
+  const { lifted, capped } = useOfferFoldLift(bodyEl, expanded)
   const mounted = useRef(true)
   const currentOfferAt = useRef(offer.createdAt)
   const previousOfferAt = useRef(offer.createdAt)
@@ -198,7 +200,6 @@ export function OfferBar({
   useEffect(() => {
     if (previousOfferAt.current === offer.createdAt) return
     previousOfferAt.current = offer.createdAt
-    setExpanded(false)
     setCollapsed(false)
     setPending(null)
     setFeedback('')
@@ -219,7 +220,6 @@ export function OfferBar({
       }
     } catch {
       if (currentOfferAt.current === invokedAt) {
-        setExpanded(true)
         setError('Could not send this action. Try again.')
       }
     } finally {
@@ -232,7 +232,6 @@ export function OfferBar({
     if (!action) return
     if (action.input === true) {
       setPending(index)
-      setExpanded(true)
       setError(null)
       return
     }
@@ -255,7 +254,6 @@ export function OfferBar({
       // A host that optimistically hides the server-backed offer may remount
       // this component itself. Hosts that keep it mounted recover here.
       if (mounted.current) {
-        setExpanded(true)
         setError('Could not dismiss this offer. Try again.')
       }
       throw cause
@@ -264,7 +262,6 @@ export function OfferBar({
 
   const dismiss = (): void => {
     if (!onDismiss || dismissPhase !== 'visible' || submitting !== null) return
-    setExpanded(false)
     setPending(null)
     setFeedback('')
     setError(null)
@@ -301,9 +298,9 @@ export function OfferBar({
   const detailId = `offer-detail-${offer.createdAt}`
   const toggleCollapsed = (): void => {
     if (!collapsed) {
-      setExpanded(false)
       setPending(null)
       setFeedback('')
+      setError(null)
     }
     setCollapsed(!collapsed)
   }
@@ -382,7 +379,6 @@ export function OfferBar({
               onClick={() => {
                 setPending(null)
                 setFeedback('')
-                setExpanded(false)
               }}
               className="offer-fold-action offer-fold-action--ghost"
             >

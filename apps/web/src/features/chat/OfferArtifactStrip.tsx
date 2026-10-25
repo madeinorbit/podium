@@ -170,7 +170,8 @@ export function OfferArtifactStrip({
             >
               <span className="offer-evidence-preview">
                 {media && kind === 'image' ? (
-                  <img src={src as string} alt={label} />
+                  // alt="": the caption under it already names the button.
+                  <img src={src as string} alt="" />
                 ) : media ? (
                   <>
                     <video src={src as string} preload="metadata" muted />

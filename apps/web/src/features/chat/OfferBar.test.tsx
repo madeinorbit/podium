@@ -507,7 +507,8 @@ describe('OfferBar', () => {
           (b) => b.textContent === 'Cancel',
         )
         if (cancel) cancel.click()
-        else within.querySelector<HTMLButtonElement>('[data-testid="offer-primary-action"]')?.click()
+        else
+          within.querySelector<HTMLButtonElement>('[data-testid="offer-primary-action"]')?.click()
       })
     }
 
@@ -537,6 +538,37 @@ describe('OfferBar', () => {
         )
 
         toggleDisclosure()
+        expect(lifts.at(-1)).toBe(0)
+      } finally {
+        restore()
+      }
+    })
+
+    it('Escape in the feedback field closes the fold and takes the lift back', () => {
+      const restore = withNaturalDetailHeight(210)
+      const { host, lifts } = liftHost(1000)
+      try {
+        act(() =>
+          root.render(
+            <OfferLiftContext.Provider value={host}>
+              <OfferBar offer={inputOffer} disabled={false} onAction={() => {}} />
+            </OfferLiftContext.Provider>,
+          ),
+        )
+        toggleDisclosure()
+        expect(lifts.at(-1)).toBe(210)
+
+        const field = container.querySelector('textarea')
+        act(() => {
+          field?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+        })
+        expect(container.querySelector('textarea')).toBeNull()
+        expect(container.querySelector('.offer-fold-root')?.className).not.toContain(
+          'offer-fold-root--expanded',
+        )
+        expect(
+          container.querySelector('[data-testid="offer-detail"]')?.getAttribute('aria-hidden'),
+        ).toBe('true')
         expect(lifts.at(-1)).toBe(0)
       } finally {
         restore()

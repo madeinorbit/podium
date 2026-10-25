@@ -7,7 +7,7 @@ import {
   type IssuePanelArtifact,
   type SessionOffer,
 } from '@podium/model'
-import { act } from '@testing-library/react'
+import { act, within } from '@testing-library/react'
 import { Profiler, useRef, useSyncExternalStore } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -268,6 +268,8 @@ describe('OfferArtifactStrip [POD-120, POD-2111]', () => {
     )
     const thumb = container.querySelector<HTMLButtonElement>('[data-testid="offer-artifact-thumb"]')
     expect(thumb?.querySelector('img')).not.toBeNull()
+    // The caption names the tile once; the picture above it is decorative.
+    expect(within(container).getByRole('button', { name: 'shot.png' })).toBe(thumb)
     act(() => thumb?.click())
     // Lightbox portals to <body>; the surrounding card click never fired.
     expect(document.body.querySelector('[role="dialog"] img[alt="shot.png"]')).not.toBeNull()
