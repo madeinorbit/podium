@@ -14,8 +14,28 @@ import {
 import type { ContextMenuAnchor } from '@/lib/session-context-menu'
 import { useCursorMenu } from '@/lib/use-cursor-menu'
 
-/** One return action per folded lane: clear snooze, or bring a tucked task
- * back while it is still inside the finished-grace window. */
+/**
+ * THE FOLDED ROW'S RETURN GESTURE (POD-1188).
+ *
+ * A live row carries the "Tuck" chip in its meta column, and pressing it drops
+ * the finished row into Closed. A snooze moves a row into Snoozed. Right-click
+ * offers the inverse for each lane: Bring back clears a tucked row's tuck;
+ * Unsnooze clears a snoozed row's deferral so it returns to Open.
+ *
+ * ONE ITEM, NOT THE ISSUE MENU. The full `IssueContextMenu` is what a LIVE row
+ * offers: stage, priority, colour, labels, handoff, delete. A row in the fold is
+ * out of triage. `FoldedWorkRow` keeps the task's identity and folded status,
+ * without its live vocabulary, and putting sixteen items behind this
+ * right-click would be re-triaging from inside the fold. Bring it back or
+ * unsnooze it and the live row's own menu is right there.
+ *
+ * DISABLED WITH ITS REASON, NEVER HIDDEN (POD-821's rule, POD-1077's reading of
+ * it): a closed row past the finished-grace window is held down by the backstop
+ * rather than by the tuck, so clearing the tuck would move nothing. An item that
+ * quietly did nothing, or a right-click that opened nothing at all, are both
+ * indistinguishable from a broken gate, so Bring back says why it is disabled.
+ * Unsnooze clears the deferral without that closed-row grace-window restriction.
+ */
 export function FoldedRowMenu({
   issue,
   canBringBack,

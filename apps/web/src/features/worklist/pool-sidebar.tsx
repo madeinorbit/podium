@@ -902,7 +902,7 @@ const PoolMotionRow = observer(function PoolMotionRow({
         now={now}
         active={active}
         onSelect={select}
-        onContextMenu={contextMenu}
+        onContextMenu={lane === 'closed' || lane === 'snoozed' ? contextMenu : undefined}
         onArchive={lane === 'closed' ? archiveRow : undefined}
       />
     ) : folded && snapshot ? (
@@ -912,7 +912,7 @@ const PoolMotionRow = observer(function PoolMotionRow({
         now={now}
         active={active}
         onSelect={select}
-        onContextMenu={contextMenu}
+        onContextMenu={lane === 'closed' || lane === 'snoozed' ? contextMenu : undefined}
       />
     ) : fresh ? (
       <WorklistIssueRow
