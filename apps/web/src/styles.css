@@ -13387,6 +13387,30 @@ button.waterfall-fold:hover {
 .flight-v6-state[data-word='error'] { color: var(--destructive); }
 .flight-v6-state[data-word='needs-you'] { color: var(--attention); }
 .flight-v6-state[data-word='error']::before, .flight-v6-state[data-word='needs-you']::before { content: ''; width: 5px; height: 5px; flex: none; border-radius: 50%; background: currentColor; }
+/* The Working glint [POD-2108]. The window is 40% of the word and travels from
+   -100% to 250% of its own width; its ::after is the whole word (250% of the
+   window) and travels 40% → -100% of its own width, which cancels the window's
+   offset at every instant. Same keyframe stops and easing on both, or the copy
+   drifts off the letters. The last third of the period is a rest. */
+.flight-v6-working { position: relative; overflow: hidden; }
+.flight-v6-glint {
+  position: absolute; inset-block: 0; left: 0; width: 40%; overflow: hidden; pointer-events: none;
+  mask-image: linear-gradient(90deg, transparent, #000 50%, transparent);
+  --v6-glint-period: 2.2s;
+  animation: flight-v6-glint-window var(--v6-glint-period) ease-in-out infinite;
+  animation-delay: calc(var(--v6-glint-phase, 0) * -1 * var(--v6-glint-period));
+  will-change: transform;
+}
+.flight-v6-glint::after {
+  content: attr(data-text) / '';
+  position: absolute; top: 0; left: 0; width: 250%; white-space: nowrap; color: var(--text-strong);
+  animation: flight-v6-glint-copy var(--v6-glint-period) ease-in-out infinite;
+  animation-delay: calc(var(--v6-glint-phase, 0) * -1 * var(--v6-glint-period));
+  will-change: transform;
+}
+@keyframes flight-v6-glint-window { 0% { transform: translateX(-100%); } 66%, 100% { transform: translateX(250%); } }
+@keyframes flight-v6-glint-copy { 0% { transform: translateX(40%); } 66%, 100% { transform: translateX(-100%); } }
+@media (prefers-reduced-motion: reduce) { .flight-v6-glint { display: none; } }
 .flight-v6-sessions { margin: 0 4px 4px; padding: 3px 4px 3px 20px; border-radius: 5px; background: var(--bar); }
 .flight-v6-session-line { position: relative; display: flex; align-items: center; min-height: 28px; border-radius: 5px; }
 .flight-v6-session-line:hover { background: var(--muted); }

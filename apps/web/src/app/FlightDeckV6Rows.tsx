@@ -266,7 +266,11 @@ export const FlightDeckV6Task = observer(function FlightDeckV6Task({
                   </span>
                 )}
                 <span className="flight-v6-state" data-word={task.word}>
-                  {TASK_WORD_LABEL[task.word]}
+                  {task.word === 'working' ? (
+                    <WorkingWord label={TASK_WORD_LABEL.working} seed={task.row.displayRef} />
+                  ) : (
+                    TASK_WORD_LABEL[task.word]
+                  )}
                 </span>
               </TaskBody>
             )}
@@ -596,6 +600,24 @@ export const FlightDeckV6Session = observer(function FlightDeckV6Session({
   )
 })
 
+/** "Working" with a glint sweeping through it. The word stays plain text; an
+ * empty aria-hidden window slides across it carrying a bright copy (its
+ * ::after) that slides back the same distance, so the copy stays over the
+ * letters. Both moves are transforms, so the compositor runs the sweep and the
+ * word is never repainted. `seed` fixes each row's phase: rows sweep out of
+ * step, and a re-render doesn't restart one. */
+function WorkingWord({ label, seed }: { label: string; seed: string }) {
+  let hash = 0
+  for (let i = 0; i < seed.length; i++) hash = (hash * 31 + seed.charCodeAt(i)) | 0
+  const phase = ((hash >>> 0) % 1000) / 1000
+  return (
+    <span className="flight-v6-working" style={{ '--v6-glint-phase': phase } as CSSProperties}>
+      {label}
+      <span aria-hidden className="flight-v6-glint" data-text={label} />
+    </span>
+  )
+}
+
 /** Only this small timer subscribes to the shared clock. Working deliberately
  * omits the accumulated base: D5 shows this turn, Done shows the total. */
 const SessionState = observer(function SessionState({
@@ -607,7 +629,11 @@ const SessionState = observer(function SessionState({
   const since = session.stateSinceMs
   return (
     <span className="flight-v6-state" data-word={word}>
-      <span>{SESSION_WORD_LABEL[word]}</span>
+      {word === 'working' ? (
+        <WorkingWord label={SESSION_WORD_LABEL.working} seed={session.sessionId} />
+      ) : (
+        <span>{SESSION_WORD_LABEL[word]}</span>
+      )}
       {word === 'working' && Number.isFinite(since) && since > 0 && (
         <PhaseTimer phase="working" sinceMs={since} size={10} showSpinner={false} mutedWorking />
       )}
