@@ -19,17 +19,13 @@ import { isApplePlatform } from '@/lib/mod-chord'
 export function RowShortcutBadge({
   digit,
   size = 30,
-  radius,
 }: {
   digit: number
   /** Size of the identity mark or reference underneath, in px. */
   size?: number
-  /** Corner override, matched to the mark underneath — the rail's tile takes a
-   *  9px corner, and a badge that covers it exactly must take the same one. */
-  radius?: number
 }): JSX.Element {
   const style: CSSProperties = {
-    borderRadius: radius ?? (size >= 26 ? 7 : Math.round((size / 26) * 7)),
+    borderRadius: size >= 26 ? 7 : Math.round((size / 26) * 7),
     // The modifier and digit must fit together without changing the mark's
     // bounds. Smaller type and tighter tracking leave room for both glyphs;
     // the 10px floor keeps the compact row-reference overlay legible at a glance.
