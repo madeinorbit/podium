@@ -74,8 +74,12 @@ describe('IdSquare identity', () => {
     ).toBe('ENG')
   })
 
-  it('keeps the fixed 26px square, 7px radius and the two-line mono lockup', () => {
-    render(<IdSquare issue={issue({ linearIdentifier: 'pod-128' })} state="working" />)
+  it.each([
+    { size: 20, radius: 5, fontSize: '7px' },
+    { size: 26, radius: 7, fontSize: '9.1px' },
+    { size: 30, radius: 7, fontSize: '10.5px' },
+  ])('keeps both identifier lines in a $size px square', ({ size, radius, fontSize }) => {
+    render(<IdSquare issue={issue({ linearIdentifier: 'pod-128' })} size={size} state="working" />)
     const el = square()
     expect(el.getAttribute('data-prefix')).toBe('POD')
     expect(el.getAttribute('data-number')).toBe('128')
