@@ -80,18 +80,18 @@ describe('IdSquare identity', () => {
     expect(el.getAttribute('data-prefix')).toBe('POD')
     expect(el.getAttribute('data-number')).toBe('128')
     expect(el.textContent).toBe('POD128')
-    expect(el.getAttribute('style')).toContain('width: 26px')
-    expect(el.getAttribute('style')).toContain('height: 26px')
-    expect(el.getAttribute('style')).toContain('border-radius: 7px')
+    expect(el.style.width).toBe(`${size}px`)
+    expect(el.style.height).toBe(`${size}px`)
+    expect(el.style.borderRadius).toBe(`${radius}px`)
     expect(el.className).toContain('font-mono')
     expect(el.className).toContain('font-semibold')
     // The number sets the square's size; the prefix matches it and recedes by
     // ink alone (POD-783). Sub-30px squares stay proportional to the 10.5px
     // desktop pair rather than to a second, smaller ratio.
-    expect(el.style.fontSize).toBe('9.1px')
+    expect(el.style.fontSize).toBe(fontSize)
     const prefix = el.firstElementChild as HTMLElement
     expect(prefix.textContent).toBe('POD')
-    expect(prefix.style.fontSize).toBe('9.1px')
+    expect(prefix.style.fontSize).toBe(fontSize)
   })
 
   it('sets the desktop row square on the shell’s 10.5px micro floor, prefix included', () => {
