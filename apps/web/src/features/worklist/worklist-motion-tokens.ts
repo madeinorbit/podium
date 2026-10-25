@@ -26,7 +26,7 @@ export const EASE_FOLD = [0.2, 0, 0, 1] as const
 
 /** Seconds, as Motion takes them. */
 export const MOTION_S = {
-  /** A row or the draft row arriving. */
+  /** A worklist row arriving. */
   enter: 0.18,
   /** A row leaving. `ROW_EXIT_MS` holds the row just past this. */
   exit: 0.14,

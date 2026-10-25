@@ -8,11 +8,7 @@ const PANEL =
 export const MENU_PANEL = `${PANEL} p-[6px]`
 
 
-/** A READ-ONLY overlay on the same shell: the collapsed rail's hover card
- *  (POD-1178). It is not a menu — nothing in it is clickable — but it opens
- *  from the same gesture, one pixel off the same column, so it has to be the
- *  same object. Its own padding, because the card holds two stacked lines of
- *  text rather than a grid or a list of rows. */
+/** A read-only hover card using the menu shell with padding for stacked text. */
 export const MENU_HOVER_CARD = `${PANEL} px-[11px] py-[8px]`
 
 /** Menu heading with an optional trailing task reference. */

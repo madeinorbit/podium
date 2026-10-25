@@ -4,12 +4,12 @@
 import { readFileSync } from 'node:fs'
 import { homedir, hostname } from 'node:os'
 import { join } from 'node:path'
-import { createRoutedUiState, UI_STATE_KEYS } from '@podium/client-core/ui-state'
+import { createRoutedUiState } from '@podium/client-core/ui-state'
 import { MobxPool } from '@podium/client-graph'
 import { omitGone } from '@podium/client-graph/lookup'
 import { attachPreferenceSource } from '@podium/client-graph/preference-source'
-import { layoutKeyFromLegacy } from '@podium/model'
 import { checkPreferences } from '../../../tests/worklist/diagnostics/preference-check'
+import { preferenceReplayKeys } from './preference-replay-keys'
 
 if (hostname() !== 'ludovico') throw new Error('Operator preference replay is ludovico-only')
 const { token, expiresAt } = JSON.parse(
@@ -38,24 +38,20 @@ const ui = createRoutedUiState({
     subscribe: none,
   },
 })
-const known = [...Object.values(UI_STATE_KEYS), 'podium:sidebar:pinned', 'podium:superagent:mode']
-const keys = Object.keys(values).map(
-  (canonical) =>
-    known.find((key) => layoutKeyFromLegacy(key) === canonical) ??
-    (canonical.startsWith('sidebar.section.')
-      ? `podium:sidebar:${canonical.slice('sidebar.section.'.length)}`
-      : null),
-)
-const unsupported = keys.filter((key) => key === null).length
-if (unsupported)
-  throw new Error(`Replay needs declarations for ${unsupported} stored key positions`)
+const keys = preferenceReplayKeys(values)
 const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
 try {
   attachPreferenceSource(pool, ui)
-  for (const key of keys) omitGone(pool.row('preference', key!))
+  for (const key of keys) omitGone(pool.row('preference', key))
   await Promise.resolve()
   const result = checkPreferences(pool, ui)
-  console.log(JSON.stringify({ ...result, storedKeys: keys.length }))
+  console.log(
+    JSON.stringify({
+      ...result,
+      storedKeys: Object.keys(values).length,
+      replayedKeys: keys.length,
+    }),
+  )
   if (!keys.length || result.differences || result.pending) process.exitCode = 1
 } finally {
   pool.dispose()

@@ -405,18 +405,16 @@ describe('served-local launchMode classification (POD-2510)', () => {
     // claim it — an unowned accelerator never reaches WKWebView.
     expect(mainSource).toMatch(/"open-settings"[^;]*\.accelerator\("CmdOrCtrl\+,"\)/)
     expect(mainSource).toContain('MenuItemBuilder::with_id("add-project", "Add Project…")')
-    expect(mainSource).toContain()
+    expect(mainSource).not.toContain('toggle-left-sidebar')
+    expect(mainSource).not.toContain('__PODIUM_TOGGLE_LEFT_SIDEBAR__')
     expect(mainSource).toContain(
       'MenuItemBuilder::with_id("toggle-flight-deck", "Toggle Flight Deck")',
     )
     expect(mainSource).toContain(
       'MenuItemBuilder::with_id("toggle-right-sidebar", "Toggle Right Sidebar")',
     )
-    // Pin the pairing, not just the two chords: the bare ⌘B belongs to the
-    // right dock and ⇧⌘B to the left work list. Asserting the id and the
-    // accelerator separately stays green through a swap. `[^;]*` keeps each
-    // match inside its own let-statement so it cannot borrow the other
-    // item's accelerator.
+    // The right dock owns ⌘B. Match its id and accelerator within the same
+    // let-statement so another menu item cannot satisfy this assertion.
     expect(mainSource).toMatch(/"toggle-right-sidebar"[^;]*\.accelerator\("CmdOrCtrl\+B"\)/)
     expect(mainSource).toContain('__PODIUM_ABOUT__')
     expect(mainSource).toContain('__PODIUM_CHECK_UPDATES__')

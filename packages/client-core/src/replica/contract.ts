@@ -85,7 +85,7 @@ export interface ReplicaRows {
   automations: AutomationWire
   automationRuns: AutomationRunWire
   /**
-   * This principal's replicated shell layout [POD-1350] — sidebar collapsed,
+   * This principal's replicated shell layout [POD-1350] — sidebar section folds,
    * Flight Deck folded, right-panel tab, per-session presentation.
    *
    * It is a cache of authority rows like every other kind here, and it is one

@@ -141,8 +141,7 @@ export async function gotoWorkspace(page: Page): Promise<void> {
  * empty-state Launch press matches the composer's `cold-start-launch` testid:
  * after `Start first task` the box is closed, so Launch is named
  * `Start a <Agent> session`, not `Start work` — the name gotoWorkspace clicks.
- * A folded sidebar (auto-fold below 1600px) is expanded first so the work list
- * is reachable.
+ * The sidebar stays visible at every desktop viewport width.
  */
 export async function openWorkspace(page: Page): Promise<void> {
   await openHome(page)
