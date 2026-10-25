@@ -547,23 +547,20 @@ html[data-podium-desktop="true"] body {
    needs ~1900px, so without shedding the well clips inside its own box below
    that. Both rungs reuse the shed order's treatments, firing only where the
    bar would otherwise clip:
-   - 1600px: well pressure (quota label, hostname, agent inventory, quiet
+   - 1600px: well pressure (quota label, hostname, quiet
      numbers — ok-toned only, a crossed threshold is never shed) plus a
      tighter search. Tools keep their labels, so 1440–1600px laptop screens
      still read the full bar.
    - 1400px: tool labels go (icons plus tooltips carry it, the design's own
      fallback). 1280px boards fit with room for the search to breathe.
    Marks and meters never go: the bar stays glanceable. Balanced density
-   already hides marks, values and agent detail, so for the default bar the
+   already hides marks and values, so for the default bar the
    1600 rung costs words only. Past three hosts at 1280 the well still clips
    its leftmost chip — bounded degradation inside its own box, never over the
    slot. */
 @media (max-width: 1600px) {
   .topbar-tools-search {
     flex-basis: 150px;
-  }
-  .header-agent-readout {
-    display: none;
   }
   .header-value[data-tone="ok"] {
     display: none;
@@ -841,11 +838,6 @@ html[data-podium-platform="macos"] .desktop-shell-row {
 html[data-density="balanced"] .header-host-indicators :is(.header-mark, .header-value) {
   display: none;
 }
-/* Agent inventory and idle-target detail are operator readouts — hide both at
-   balanced density. LOAD inherits the mark/value hide above and reads as a bare meter. */
-html[data-density="balanced"] .header-agent-readout {
-  display: none;
-}
 html[data-density="balanced"] .header-quota-label {
   font-size: 0;
   letter-spacing: 0;
@@ -989,21 +981,26 @@ html[data-density="balanced"] .header-machine-meters > .header-readout {
 .header-quota-chip[data-popup-open] .header-quota-rail-seg > span {
   opacity: 0.85;
 }
-/* The calm status well shows host health and one quota meter per account.
-   Host pressure readings appear when they cross a threshold; each account's
-   meter stays visible with its provider mark and percentage. */
+/* The calm status well keeps memory, load and disk meters visible alongside
+   one quota meter per account. Balanced density shows the machine tracks;
+   compact density includes their labels and values. Agent counts live in the footer. */
 .header-host-indicators.topbar-well {
-  height: 28px;
+  height: auto;
+  min-height: 28px;
   padding: 0 2px;
   border-radius: 8px;
   background: color-mix(in srgb, var(--foreground) 4.5%, transparent);
   box-shadow: none;
 }
 .header-host-indicators :is(.header-machine-chip, .header-quota-chip),
-.header-host-indicators .header-machine-chip:has(.header-machine-meters),
 html[data-density="balanced"] .header-host-indicators .header-machine-chip {
   height: 24px;
   border-radius: 6px;
+}
+html:not([data-density="balanced"])
+  .header-host-indicators
+  .header-machine-chip:has(.header-machine-meters) {
+  height: 36px;
 }
 .header-host-indicators .header-machine-name {
   max-width: 14ch;
@@ -1014,13 +1011,7 @@ html[data-density="balanced"] .header-host-indicators .header-machine-chip {
   margin: 0 2px;
   background: var(--border);
 }
-/* Agents are the footer's to count; pressure is the panel's to itemise. A meter
-   that crossed a threshold is the exception, and it is never shed. */
-.header-host-indicators .header-agent-readout,
-.header-host-indicators .header-machine-meters:not(:has(.header-value:is([data-tone="warn"], [data-tone="crit"]))),
-.header-host-indicators
-  .header-machine-meters
-  > .header-readout:not(:has(.header-value:is([data-tone="warn"], [data-tone="crit"]))) {
+.header-host-indicators .header-agent-readout {
   display: none;
 }
 .header-host-indicators .header-quota-label,
@@ -1059,13 +1050,6 @@ html .header-host-indicators .header-quota-chip .header-value:is([data-tone="cri
    ordered block above .topbar-mode's breakpoints. */
 @media (max-width: 1024px) {
   .header-value[data-tone="ok"] {
-    display: none;
-  }
-}
-/* Below the mark-shed rung, agent inventory/idle details go entirely. MEM and
-   LOAD never do — they are the pressure readout (POD-563). */
-@media (max-width: 940px) {
-  .header-agent-readout {
     display: none;
   }
 }

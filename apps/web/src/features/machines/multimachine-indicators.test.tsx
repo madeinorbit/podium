@@ -592,6 +592,42 @@ describe('header chips flag version skew', () => {
 
 // POD-563: host pressure extends the machine chip (no strip) with LOAD + AGT.
 describe('header machine chip carries host-pressure readouts', () => {
+  it.each([
+    'balanced',
+    'compact',
+  ])('keeps healthy machine meters visible at %s density while hiding agent counts', async (density) => {
+    const style = document.createElement('style')
+    style.textContent = readFileSync('src/styles.css', 'utf8')
+    document.head.append(style)
+    const previousDensity = document.documentElement.getAttribute('data-density')
+    document.documentElement.setAttribute('data-density', density)
+    const view = render(<HeaderHostIndicators />)
+    try {
+      await waitFor(() => expect(settingsGet).toHaveBeenCalled())
+      const chips = document.querySelectorAll('.header-machine-chip')
+      expect(chips.length).toBeGreaterThanOrEqual(2)
+      for (const chip of chips) {
+        const meters = chip.querySelector('.header-machine-meters')
+        expect(meters).not.toBeNull()
+        if (!meters) throw new Error('Missing machine meters')
+        expect(getComputedStyle(meters).display).not.toBe('none')
+        const readouts = meters.querySelectorAll('.header-readout')
+        expect(readouts).toHaveLength(3)
+        for (const readout of readouts) {
+          expect(getComputedStyle(readout).display).not.toBe('none')
+        }
+        for (const agents of chip.querySelectorAll('.header-agent-readout')) {
+          expect(getComputedStyle(agents).display).toBe('none')
+        }
+      }
+    } finally {
+      view.unmount()
+      style.remove()
+      if (previousDensity === null) document.documentElement.removeAttribute('data-density')
+      else document.documentElement.setAttribute('data-density', previousDensity)
+    }
+  })
+
   it('renders MEM, LOAD, and AGT marks on each machine chip', async () => {
     render(<HeaderHostIndicators />)
     await waitFor(() => expect(settingsGet).toHaveBeenCalled())
