@@ -1,16 +1,14 @@
+import { writeFileSync } from 'node:fs'
 import { omitGone } from '@podium/client-graph/lookup'
 import type { IssueViewInput } from '../../../../../tests/worklist/diagnostics/reference/issue-views'
-import { writeFileSync } from 'node:fs'
 import { expectPoolOutput } from '../../../../../tests/worklist/harness/src/oracle/pool-output'
 // @vitest-environment happy-dom
 import '@/test-support/mock-store-action-ports'
 import '@/test-support/model-catalog-mock'
 import type { ClientRuntime } from '@podium/client-core/engine'
-import { dedupeSessions } from '../../../../../tests/worklist/diagnostics/reference-state'
 import { recordSliceDerivation, storeStats } from '@podium/client-core/perf'
 import { useStoreHandle } from '@podium/client-core/react'
-import { type IssueViewModel } from '@podium/client-core/replica'
-import { deriveIssueRollups, deriveIssueViews } from '../../../../../tests/worklist/diagnostics/reference/issue-views'
+import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
 import { createPoolHost, type PoolHost } from '@podium/client-graph/host'
 import { ISSUE_BOARD_ENTITIES } from '@podium/client-graph/issue-board-schema'
@@ -27,6 +25,8 @@ import { OperatorFocusProvider } from '@/app/operator-focus'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
 import { makeIssue } from '@/lib/test-issue'
+import { deriveIssueRollups, deriveIssueViews } from '../../../../../tests/worklist/diagnostics/reference/issue-views'
+import { dedupeSessions } from '../../../../../tests/worklist/diagnostics/reference-state'
 import { IssuePage } from './IssuePage'
 import { IssuePanelView } from './IssuePanelView'
 import { PoolIssuePage } from './pool-issue-page'
@@ -231,7 +231,7 @@ function seed(
       needsHuman: true,
       asked: { question: 'A synthetic decision?', options: ['One', 'Two'] },
       estimateMin: 45,
-      color: 'blue',
+
       deps: [
         { id: 'target', type: 'blocked-by' },
         { id: 'invisible', type: 'related' },

@@ -144,7 +144,6 @@ export interface IssueShowWire<S = IssueTreeSession> {
   /** The agent profile under the three fields above (POD-6107). */
   agentProfileId?: string | null
   machineId?: MachineId | null
-  color?: string | null
   /** Designated coordinator session id (bare). */
   coordinatorSessionId?: SessionId | null
   /** Member sessions currently on this issue [spec:SP-99d3]. */

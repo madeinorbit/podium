@@ -96,40 +96,7 @@ const MENU_GLYPH = 'size-3.5 flex-none'
  *  14px column, so the names still line up with the labels above them. */
 const MACHINE_DOT = 'mx-[4px] size-1.5 flex-none'
 
-/**
- * The "+" menu: start a fresh agent or shell in this checkout.
- *
- * ---------------------------------------------------------------------------
- * NO RESUME REGION (POD-1201)
- * ---------------------------------------------------------------------------
- *
- * It used to end in a RESUME section — a server-indexed mini-search over
- * discovered conversations, with its own filter field that took the menu's focus
- * on open and forced the panel non-modal so the mobile keyboard could pin. The
- * operator's call is that the "+" is for STARTING something: a history search
- * competing for the same 248px is a second, differently-shaped tool wearing the
- * new-panel menu's clothes, and it was the region that decided this menu's focus
- * behaviour for every other row in it. Picking up an old conversation is its own
- * gesture and does not belong on the tab strip's plus.
- *
- * ---------------------------------------------------------------------------
- * THE HOUSE VOCABULARY (POD-1084)
- * ---------------------------------------------------------------------------
- *
- * This menu opens one pixel from the tab strip's own context menu and, before
- * POD-1084, wore a different skin than every other overlay in the shell: stock
- * shadcn popover tokens over `--popover`, a `ring-foreground/10` hairline,
- * `shadow-md`, 14px rows, and section headings invented here in Geist Sans small
- * caps. `lib/menu-surface` (POD-380) is the vocabulary the session menu, the
- * issue menu and the colour picker already share, and it exists precisely
- * because two overlays a pixel apart must read as one family.
- *
- * POD-1084 dressed this one menu through a pair of opt-in bridge constants;
- * POD-1099 moved the preset into `components/ui/dropdown-menu` itself, so the
- * panel, the rows and the rules below are simply what a dropdown looks like now
- * and this file only says what is particular to it — its width, its header, its
- * search field, and the sections it names.
- */
+
 export function NewPanelMenu(
   props: Omit<Parameters<typeof NewPanelMenuBody>[0], 'data'>,
 ): JSX.Element {
@@ -253,7 +220,7 @@ const NewPanelMenuBody = observer(function NewPanelMenuBody({
   }
 
   const header = (
-    // The header the session menu and the colour picker wear (POD-380) — the
+    // The shared menu header (POD-380) — the
     // label in machine voice, the SUBJECT pushed right in normal case. The
     // subject here is where a pick will land: every row in this panel opens in
     // one specific checkout, and until now nothing in it said which.

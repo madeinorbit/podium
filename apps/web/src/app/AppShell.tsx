@@ -6,7 +6,7 @@ import {
 } from '@podium/client-core/ui-state'
 import { observer } from '@podium/client-graph/react'
 import { ChevronLeft } from 'lucide-react'
-import type { CSSProperties, JSX, ReactNode } from 'react'
+import type { JSX, ReactNode } from 'react'
 import { lazy, Suspense, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { flushSync } from 'react-dom'
 import { toast } from 'sonner'
@@ -22,6 +22,7 @@ import {
   shouldStartBrowserAtProjectIntake,
   shouldStartRemoteClientAtHandoff,
 } from '@/features/setup/activation-route'
+import { NewTaskOverlay } from '@/features/setup/NewTaskOverlay'
 import { restartPodiumShell } from '@/features/setup/restart-shell'
 import { SetupGate } from '@/features/setup/SetupGate'
 import { useActivationRoute } from '@/features/setup/use-activation-route'
@@ -32,6 +33,7 @@ import { loadAgentPanel } from '@/features/terminal/AgentPanelBoundary'
 import { DockShellLifecycle } from '@/features/terminal/dock-shell-lifecycle'
 import { UpdatesProvider } from '@/features/updates/updates-context'
 import { CollapsedSidebar } from '@/features/worklist/CollapsedSidebar'
+import { useNewTaskOverlayOpen } from '@/features/worklist/new-task-overlay'
 import { SidebarUnified } from '@/features/worklist/SidebarUnified'
 import {
   COLUMN_FOLD_EASE,
@@ -47,7 +49,6 @@ import {
 import { useColumnFold } from '@/features/worklist/use-column-fold'
 import { throughRestarts } from '@/lib/chunk-recovery'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
-import { effectiveIssueColorHex, FLOW_CSS } from '@/lib/issueColors'
 import { nativeDesktopBridge } from '@/lib/nativeDesktop'
 import { prefetchAfterFirstPaint } from '@/lib/prefetch-after-first-paint'
 import { QuoteLayer } from '@/lib/quote/QuoteLayer'
@@ -79,8 +80,6 @@ import { RightRail } from './RightRail'
 import { MainViewOutlet } from './routes'
 import { StatusStrip } from './StatusStrip'
 import { SyncLoader, WarmSyncStatus } from './SyncLoader'
-import { NewTaskOverlay } from '@/features/setup/NewTaskOverlay'
-import { useNewTaskOverlayOpen } from '@/features/worklist/new-task-overlay'
 import { useShellActions, useShellChrome } from './shell-data'
 import {
   CLOSE_RIGHT_PANEL,
@@ -438,8 +437,6 @@ function AppBodyView({ syncProgress }: { syncProgress: SyncProgressStore }): JSX
     repoCount,
     worktreeCount,
     sessionCount,
-    colorIssue,
-    colorById,
     selectedIssueId,
     missionRoot: flightDeckMission,
   } = useShellChrome()
@@ -950,15 +947,6 @@ function AppBodyView({ syncProgress }: { syncProgress: SyncProgressStore }): JSX
     )
   }
 
-  // The one reactive colour source (§4.2): the selected issue's flow colour —
-  // own palette slot, else the nearest coloured ancestor's (an uncoloured
-  // sub-issue runs its parent's context) — scoped as --issue on the shell
-  // root. data-issue-colored drives the quieter slate percentages, and
-  // .issue-scope derives the text ramp and the .4s crossfade (index.css).
-  const effectiveHex = effectiveIssueColorHex(colorIssue, colorById)
-  const issueAccent = effectiveHex ?? FLOW_CSS
-  const issueStyle = { '--issue': issueAccent } as CSSProperties
-
   return (
     <OperatorFocusProvider missionId={selectedIssueId}>
       {/* The issue explorer's stack lives ABOVE the dock (POD-743): the panel
@@ -969,9 +957,7 @@ function AppBodyView({ syncProgress }: { syncProgress: SyncProgressStore }): JSX
         {menuHost}
         <DockShellLifecycle />
         <div
-          className="desktop-shell issue-scope"
-          data-issue-colored={effectiveHex ? 'true' : 'false'}
-          style={issueStyle}
+          className="desktop-shell"
         >
           <TopBar revealing={revealingChrome} />
           <WarmSyncStatus store={syncProgress} />
@@ -1101,7 +1087,7 @@ function AppBodyView({ syncProgress }: { syncProgress: SyncProgressStore }): JSX
                 onCollapsed={() => setDockPanel(null)}
                 className="max-w-[45vw]"
               >
-                {/* No issue tint: the dock is a dark default surface (POD-516
+                {/* The dock uses the theme's default surface (POD-516
                   item 9) — see `.right-dock-shell` in styles.css. */}
                 {dockPanel && (
                   <aside className="right-dock-shell">

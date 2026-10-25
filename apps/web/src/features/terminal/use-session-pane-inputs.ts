@@ -1,13 +1,12 @@
-import { assertReactiveRead } from '@podium/mobx-helpers'
-import type { SessionPanes } from '@podium/client-graph/session-pane-view'
 import type { SessionView } from '@podium/client-core/session-values'
 import type { IssueModel, MobxPool, SessionModel } from '@podium/client-graph'
 import type { SessionPaneRows } from '@podium/client-graph/session-pane-schema'
+import type { SessionPanes } from '@podium/client-graph/session-pane-view'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
+import { assertReactiveRead } from '@podium/mobx-helpers'
 import { asSessionId, type IssueId, type IssueStatus, type MachineWire, type SessionId } from '@podium/model/browser'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useWorklistPool, useWorklistPoolProjection } from '@/app/store-worklist-pool'
-import { issueColorHex } from '@/lib/issueColors'
 
 /** The lazy runtime installs the view before publishing the pool to hooks. */
 function sessionPanes(pool: MobxPool): SessionPanes {
@@ -89,11 +88,6 @@ const selectedIssueRead = (pool: MobxPool) => sessionPanes(pool).selectedIssueId
 /** The selected issue: a selection fact, independent of the pane's session. */
 export function usePaneSelectedIssueId(): IssueId | null {
   return useWorklistPoolProjection(selectedIssueRead, null)
-}
-const issueHexRead = (pool: MobxPool) => sessionPanes(pool).issueHex(issueColorHex)
-/** The selected issue's inherited tint, independent of the pane's session. */
-export function usePaneIssueHex(): string | undefined {
-  return useWorklistPoolProjection(issueHexRead, undefined)
 }
 /** The issue a session pane stamps, read inside the stamp's observer. */
 export function usePaneStampIssue(id: SessionId): IssueModel | undefined {

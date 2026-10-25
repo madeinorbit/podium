@@ -150,10 +150,10 @@ export function HandoverPane({
           rather than lifted — nothing here is a card. */}
       <div
         className={cn(
-          'mt-[30px] flex w-full items-center gap-[16px] border-y issue-hairline-28 issue-hairline-slate-22 px-[22px] py-[15px] font-mono text-[11px] leading-none',
+          'mt-[30px] flex w-full items-center gap-[16px] border-y surface-hairline-22 px-[22px] py-[15px] font-mono text-[11px] leading-none',
           arrived && 'handover-wire-done',
         )}
-        style={{ backgroundColor: 'color-mix(in srgb, var(--issue) 6%, transparent)' }}
+        style={{ backgroundColor: 'color-mix(in srgb, var(--neutral) 6%, transparent)' }}
       >
         <span
           className="min-w-0 max-w-[38%] truncate text-(--handover-dim)"

@@ -8,7 +8,6 @@ import type {
   Attribution,
   Geometry,
   HarnessRefEntry,
-  IssueColorSlot,
   IssueId,
   MachineId,
   MachinePresenceSource,
@@ -464,10 +463,6 @@ export interface IssueRow {
    *  sibling scope. Optional so pre-existing row literals stay valid; null/
    *  absent = legacy row (sorts after keyed siblings). */
   sortKey?: string | null
-  /** User-assigned colour SLOT NAME [spec:SP-b4d1] ('rose' … 'lime', the palette
-   *  in @podium/model); null/absent = no colour = the neutral slate flow.
-   *  Optional so pre-existing row literals stay valid. */
-  color?: IssueColorSlot | null
   estimateMin: number | null
   needsHuman: boolean
   humanQuestion: string | null

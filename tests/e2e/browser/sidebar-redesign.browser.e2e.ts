@@ -7,11 +7,11 @@ import { RELAY } from './_harness'
 /**
  * Runtime verification of the #41 work-sidebar redesign against the real Live
  * UI: two-line rows with the motion grammar (spinner+timer while working, amber
- * pill + frozen stamp while waiting), the selected row's colour-flowed
+ * pill + frozen stamp while waiting), the selected row's neutral
  * background and bridge notch physically crossing the aside border, dimmed
  * queued rows, and the collapsed 58px rail in its 3b dress (POD-1178): named
  * project groups, the 36x32 identity tile, corner badges, the selection spine
- * flush with the column edge, the hover card, select-then-pick clicks.
+ * flush with the column edge, the hover card, and task navigation.
  */
 test.skip(({ isMobile }) => isMobile, 'desktop verification: the sidebar/rail are desktop-only')
 
@@ -72,7 +72,7 @@ async function resolveColor(page: Page, expression: string): Promise<string> {
   }, expression)
 }
 
-test('rows carry the motion grammar, the selected row grows the bridge notch, colour flows', async ({
+test('rows carry the motion grammar and the selected row grows the bridge notch', async ({
   page,
   request,
 }) => {
@@ -150,20 +150,6 @@ test('rows carry the motion grammar, the selected row grows the bridge notch, co
     // be clipped by the scroll container.
     expect(notchBox.x + notchBox.width).toBeGreaterThan(asideBox.x + asideBox.width - 0.1)
   }
-
-  // ---- Colour flows live: pick Violet, the row background re-mixes. ----
-  await square.click()
-  const picker = page.getByRole('dialog', { name: /Task colour for / })
-  await expect(picker).toBeVisible()
-  await picker.getByRole('button', { name: 'Violet' }).click()
-  await expect(square).toHaveAttribute('data-color', 'violet')
-  const selectedViolet = await resolveColor(page, 'color-mix(in srgb, #8b5cf6 28%, #16161c)')
-  await expect
-    .poll(async () =>
-      rowSurface.evaluate((el) => getComputedStyle(el as HTMLElement).backgroundColor),
-    )
-    .toBe(selectedViolet)
-  await expect(square).toHaveAttribute('aria-busy', 'false', { timeout: 15_000 })
 
   // ---- DONE: the real Stop hook replaces motion with check + explicit copy. ----
   const stopped = await fetch(hookUrl as string, {
@@ -243,10 +229,9 @@ test('collapsed 58px rail keeps the square language and select-then-pick clicks 
   await firstSquare.hover()
   await expect(page.getByTestId('rail-hover-card')).toBeVisible({ timeout: 5_000 })
 
-  // ---- …click #2 on the selected square opens the colour picker. ----
+  // A selected tile retains navigation and exposes no color picker.
   await firstSquare.click()
-  await expect(page.getByRole('dialog', { name: /Task colour for / })).toBeVisible()
-  await page.keyboard.press('Escape')
+  await expect(page.getByRole('dialog')).toHaveCount(0)
 
   if (process.env.RAIL_SHOT) {
     await rail.screenshot({ path: process.env.RAIL_SHOT })

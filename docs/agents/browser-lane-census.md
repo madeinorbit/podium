@@ -199,7 +199,6 @@ verification notes in the POD-4701 handoff.
 | unified-sidebar.browser.e2e.ts | 0 | 3 | 6 |
 | ux-batch.browser.e2e.ts | 0 | 3 | 6 |
 | warm-panel-residency.browser.e2e.ts | 0 | 3 | 0 |
-| colour-flow.browser.e2e.ts | 0 | 2 | 4 |
 | desktop-session-shortcuts.browser.e2e.ts | 1 | 2 | 0 |
 | desktop-shell.browser.e2e.ts | 0 | 2 | 4 |
 | expo-mobile-draft-launch.browser.e2e.ts | 0 | 2 | 7 |
@@ -249,7 +248,6 @@ verification notes in the POD-4701 handoff.
 | finished-delegate-sidebar.browser.e2e.ts | 0 | 1 | 2 |
 | flight-deck-polish.browser.e2e.ts | 0 | 1 | 2 |
 | group-by-repo.browser.e2e.ts | 0 | 1 | 2 |
-| issue-color-picker.browser.e2e.ts | 0 | 1 | 2 |
 | issue-peek.browser.e2e.ts | 0 | 1 | 2 |
 | issue-session-delete.browser.e2e.ts | 0 | 1 | 2 |
 | issues-hierarchy.browser.e2e.ts | 0 | 1 | 2 |

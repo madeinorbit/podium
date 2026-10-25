@@ -4,11 +4,9 @@
 import { DEFAULT_THEME } from '@podium/terminal-client/appearance'
 import { describe, expect, it, vi } from 'vitest'
 import {
+  applyInitialTerminalAppearance,
   FONT_SIZE_MAX,
   FONT_SIZE_MIN,
-  applyInitialTerminalAppearance,
-  mixHex,
-  paneTintedBackground,
   parseTerminalAppearance,
   TERMINAL_DEFAULTS,
   toTerminalAppearance,
@@ -73,22 +71,9 @@ describe('toTerminalAppearance', () => {
   })
 })
 
-describe('pane-tinted terminal background (native-pane spec §2.5)', () => {
-  it('mixHex mirrors color-mix(in srgb): pct% of colour over base', () => {
-    expect(mixHex('#ffffff', '#000000', 50)).toBe('#808080')
-    expect(mixHex('#8b5cf6', '#0e0e12', 0)).toBe('#0e0e12')
-    expect(mixHex('#8b5cf6', '#0e0e12', 100)).toBe('#8b5cf6')
-  })
+describe('terminal palette helpers', () => {
 
-  it('tints 12% of a coloured issue over the terminal base', () => {
-    // violet #8b5cf6 12% over #0e0e12 → channel-wise (0.12*c + 0.88*b)
-    expect(paneTintedBackground('#8b5cf6')).toBe(mixHex('#8b5cf6', '#0e0e12', 12))
-    expect(paneTintedBackground('#8b5cf6')).not.toBe(TERMINAL_DEFAULTS.background)
-  })
 
-  it('uncoloured issues get the neutral 9% slate flow, never flat black', () => {
-    expect(paneTintedBackground(undefined)).toBe(mixHex('#94a3b8', '#0e0e12', 9))
-  })
 
   it('withBackground merges the tint over the full palette, cursorAccent tracking', () => {
     const a = withBackground({ fontSize: 15 }, '#1a1622')

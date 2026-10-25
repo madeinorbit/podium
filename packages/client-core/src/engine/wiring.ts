@@ -98,7 +98,7 @@ export type OutboxKinds = {
    *
    * ONE GENERIC PATCH KIND rather than one kind per field, and the precedent is
    * `settingsUpdatePersonal` directly above: the command is `issues.update` and
-   * its input is a partial patch, so a `issueRename` / `issueSetColor` /
+   * its input is a partial patch, so a `issueRename` / `issueSetPriority` /
    * `issueSetStage` family would be N kinds all naming ONE contract, N routing
    * rows and N overlay cases that differ only in which key they carry. The
    * distinctions those kinds would encode are not distinctions the queue has —
@@ -543,7 +543,7 @@ export const OUTBOX_ROUTING: {
   //
   // `issueUpdate` gets NO COLLAPSE, for the reason `layoutSet` and
   // `settingsUpdatePersonal` get none: it is a PARTIAL patch. Two updates to one
-  // issue are usually two different fields — rename then recolour — and
+  // issue are usually two different fields — title then priority — and
   // collapsing them on the row id would drop the rename. There is no cell to key
   // on, because the kind does not name a cell; it names a patch.
   issueUpdate: (i) => ({ partitionKey: `issue:${i.id}` }),

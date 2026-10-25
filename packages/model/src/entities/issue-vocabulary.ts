@@ -16,9 +16,8 @@
  * dependency one-directional: BOTH `./issue.ts` and `../fields/issue.ts` import
  * from here, and neither imports the other.
  *
- * This follows the pattern `./issue-color.ts` already set, and the layout table
- * in `../../README.md` already names: `entities/` holds "entity aggregates AND
- * their field vocabularies".
+ * The layout table in `../../README.md` names this separation: `entities/`
+ * holds entity aggregates and their field vocabularies.
  *
  * Everything below is MOVED VERBATIM — same members, same order, same
  * optionality, same `.default()`s and `.catch()`es. The move is byte-identical on
@@ -29,7 +28,7 @@
 
 import { z } from 'zod'
 import { ArtifactIdField, IssueIdField } from '../ids'
-import { ISSUE_COLOR_SLOTS } from './issue-color'
+import { LABEL_COLOR_SLOTS } from './label-color'
 
 // ---------------------------------------------------------------------------
 // Issue vocabularies
@@ -144,25 +143,16 @@ export const ISSUE_DEP_TYPES = [
 export const StoredIssueDepType = z.enum(ISSUE_DEP_TYPES)
 export type StoredIssueDepType = z.infer<typeof StoredIssueDepType>
 
-/** The 10 user-pickable issue colour SLOTS [spec:SP-b4d1] — stored/transmitted
- *  as the slot NAME, never a hex (the palette maps slots to full colouring
- *  schemes client-side).
- *
- *  Built FROM {@link ISSUE_COLOR_SLOTS} rather than restating the list. Before
- *  POD-300 this enum was a second hand-maintained copy in `@podium/protocol`
- *  (protocol could not import the domain package) with a drift test in
- *  apps/server pinning the two; now that both live in L0 the drift is
- *  structurally impossible, which is the whole point of "every entity defined
- *  once". Same members, same order — byte-identical. */
-export const IssueColor = z.enum(ISSUE_COLOR_SLOTS)
-export type IssueColor = z.infer<typeof IssueColor>
+/** Color names accepted by the label vocabulary. */
+export const LabelColor = z.enum(LABEL_COLOR_SLOTS)
+export type LabelColor = z.infer<typeof LabelColor>
 
 /** One entry of the label vocabulary (POD-6106, D3) as the wire carries it. A
  *  label is named by its NAME (unique ignoring case); its id stays server-local.
- *  `color` is a colour slot, like an issue's. */
+ *  `color` is an optional palette slot. */
 export const IssueLabelWire = z.object({
   name: z.string(),
-  color: IssueColor.optional(),
+  color: LabelColor.optional(),
   description: z.string().optional(),
 })
 export type IssueLabelWire = z.infer<typeof IssueLabelWire>

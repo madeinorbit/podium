@@ -62,9 +62,7 @@ export function FoldedRowMenu({
       // The host opens this on contextmenu; suppress a nested browser menu.
       onContextMenu={(e) => e.preventDefault()}
     >
-      {/* The same header the issue menu, the session menu and the colour picker
-          wear (POD-380) — these panels open one pixel apart in this column and
-          have to read as one object. */}
+      {}
       <div className={`${MENU_HEADER} px-[5px]`}>
         <span>TASK</span>
         <span className={`${MENU_HEADER_REF} tabular-nums`}>{issueDisplayRef(issue)}</span>

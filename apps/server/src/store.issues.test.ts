@@ -41,7 +41,6 @@ describe('issues schema migration (P1)', () => {
       // 'pinned' was here until POD-1076 re-keyed it onto `issue_user_state`; the
       // absence is asserted positively in the per-user describe block below, not
       // by silently shortening this list.
-      'color',
       'estimate_min',
       // needs-human question metadata (issue #53, migration 018)
       'human_question_options',
@@ -50,6 +49,7 @@ describe('issues schema migration (P1)', () => {
     ]) {
       expect(cols.has(c), `missing column ${c}`).toBe(true)
     }
+    expect(cols.has('color')).toBe(false)
   })
 })
 
@@ -167,7 +167,6 @@ describe('IssueRow rich fields round-trip (P1)', () => {
         closedReason: 'duplicate',
         supersededBy: asIssueId('iss_new'),
         duplicateOf: asIssueId('iss_canon'),
-        color: 'violet',
         estimateMin: 30,
       }),
     )
@@ -176,7 +175,6 @@ describe('IssueRow rich fields round-trip (P1)', () => {
     expect(r.type).toBe('decision')
     expect(r.assignee).toBe('agent:claude')
     expect(r.parentId).toBe('iss_epic')
-    expect(r.color).toBe('violet')
     expect(r.estimateMin).toBe(30)
     expect(r.deferUntil).toBe('2026-07-05')
     expect(r.closedReason).toBe('duplicate')
@@ -188,16 +186,8 @@ describe('IssueRow rich fields round-trip (P1)', () => {
     const r = (await store.issues.getIssue('iss_x'))!
     expect(r.priority).toBe(2)
     expect(r.type).toBe('task')
-    expect(r.color).toBeNull()
   })
 
-  it('persists palette slots and clears them back to null', async () => {
-    const store = await openIssueStore()
-    await store.issues.upsertIssue(baseRow({ color: 'teal' }))
-    expect((await store.issues.getIssue('iss_x'))?.color).toBe('teal')
-    await store.issues.upsertIssue(baseRow({ color: null }))
-    expect((await store.issues.getIssue('iss_x'))?.color).toBeNull()
-  })
 })
 
 // PER-USER issue state (POD-1076). This used to assert that `read_at` was an

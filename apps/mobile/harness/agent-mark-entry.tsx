@@ -95,19 +95,17 @@ function App() {
         ))}
       </View>
 
-      <Text style={styles.sub}>
-        the chat header — task square (the TASK's colour) then the harness mark
-      </Text>
+      <Text style={styles.sub}>the chat header — neutral task square then the harness mark</Text>
       <View style={styles.card}>
         {[
-          { kind: 'claude-code', name: 'Harness brand marks port', colour: '#22c55e', ref: 'POD' },
-          { kind: 'codex', name: 'Quota panel copy', colour: '#f43f5e', ref: 'POD' },
-          { kind: 'shell', name: 'bun install', colour: '#3b82f6', ref: 'POD' },
+          { kind: 'claude-code', name: 'Harness brand marks port', ref: 'POD' },
+          { kind: 'codex', name: 'Quota panel copy', ref: 'POD' },
+          { kind: 'shell', name: 'bun install', ref: 'POD' },
         ].map((row) => (
           <View key={row.kind} style={styles.header}>
             <Text style={styles.chevron}>‹</Text>
             <View style={styles.ident}>
-              <View style={[styles.idSquare, { backgroundColor: row.colour }]}>
+              <View style={styles.idSquare}>
                 <Text style={styles.idPrefix}>{row.ref}</Text>
                 <Text style={styles.idPrefix}>1355</Text>
               </View>
@@ -151,10 +149,11 @@ const styles = StyleSheet.create({
     width: 18,
     height: 18,
     borderRadius: 5,
+    backgroundColor: color.bgSunken,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  idPrefix: { ...mono(600), color: 'rgba(0,0,0,0.75)', fontSize: 4.5 },
+  idPrefix: { ...mono(600), color: color.textDim, fontSize: 4.5 },
   headerTitle: { ...sans(600), color: color.text, fontSize: 15 },
   headerSub: { ...sans(400), color: color.textFaint, fontSize: 11, marginTop: 1 },
   ladder: { gap: 18 },

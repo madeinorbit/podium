@@ -158,7 +158,7 @@ const SESSIONS = [
 ]
 
 const ISSUES = [
-  issue('root', 'Operator workspace', { childCount: 1, color: 'violet' }),
+  issue('root', 'Operator workspace', { childCount: 1, }),
   issue('child', 'Flight deck spine', { parentId: 'root', seq: 2 }),
   issue('grandchild', 'Task inspector', { parentId: 'child', seq: 3 }),
   issue('solo', 'Sidebar unread dot', { seq: 4 }),

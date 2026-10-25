@@ -1,12 +1,13 @@
-import { modelCatalogFixture } from '@/test-support/model-catalog-mock'
+import { ConversationCache, type ConversationCacheOptions, DraftStore } from '@podium/client-core/conversation'
+import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
+import { headerEntities } from '@podium/client-graph/header-entities'
 import { omitGone } from '@podium/client-graph/lookup'
 import { observer } from '@podium/client-graph/react'
-import { headerEntities } from '@podium/client-graph/header-entities'
-import { ConversationCache, DraftStore, type ConversationCacheOptions } from '@podium/client-core/conversation'
 import { createPoolTransactions } from '@podium/client-graph/write/transactions'
-import { setFixtureSpawnPrompt } from '../../../../../tests/worklist/diagnostics/session-pane-fixture'
-import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
+import { modelCatalogFixture } from '@/test-support/model-catalog-mock'
 import type { ReferenceState } from '../../../../../tests/worklist/diagnostics/reference-state'
+import { setFixtureSpawnPrompt } from '../../../../../tests/worklist/diagnostics/session-pane-fixture'
+
 type Store = ReferenceState<import('@/app/trpc').Trpc>
 
 import {
@@ -18,10 +19,6 @@ import {
 import type { SessionView } from '@podium/client-core/session-values'
 import type { IssueReferenceSource } from '@podium/client-core/values'
 import { MobxPool } from '@podium/client-graph'
-import {
-  SESSION_PANE_NOW,
-  sessionPaneFixture,
-} from '../../../../../tests/worklist/diagnostics/session-pane-fixture'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
 import {
   SESSION_PANE_ENTITIES,
@@ -36,6 +33,10 @@ import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react
 // @vitest-environment happy-dom
 import { useMemo, useSyncExternalStore } from 'react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import {
+  SESSION_PANE_NOW,
+  sessionPaneFixture,
+} from '../../../../../tests/worklist/diagnostics/session-pane-fixture'
 import { expectPoolOutput } from '../../../../../tests/worklist/harness/src/oracle/pool-output'
 
 const f = vi.hoisted(() => ({
@@ -157,15 +158,15 @@ vi.mock('./use-terminal-appearance', () => ({
 vi.mock('@/lib/clock-hooks', () => ({ useClock: () => SESSION_PANE_NOW, useDeadlineNow: () => SESSION_PANE_NOW, useAgeNow: () => SESSION_PANE_NOW }))
 
 const useFixtureIssues = () => f.issues
-import { useChatSession } from '../chat/use-chat-context'
-import { usePoolMachine } from '@/app/header-data'
+
 import { isMachineOfflineForLiveTerminal } from '@podium/model/browser'
+import { usePoolMachine } from '@/app/header-data'
+import { useChatSession } from '../chat/use-chat-context'
 import { AgentPanel } from './AgentPanel'
 import { DockShellPanel } from './DockShellPanel'
 import {
   useDockPaneInputs,
   usePaneMachines,
-  usePaneIssueHex,
   usePanePanelModes,
   usePaneSelectedIssueId,
   usePaneSession,
@@ -475,11 +476,10 @@ it('never accesses legacy session, machine or window collections on the pool inp
     const confirmed = usePaneSpawnConfirmed(id),
       dock = useDockPaneInputs('/synthetic/w19', null)
     const ownership = { selectedIssueId: usePaneSelectedIssueId(), stampIssue: usePaneStampIssue(id),
-      issueHex: usePaneIssueHex() }
+      }
     expect(ownership).toMatchObject({
       selectedIssueId: null,
       stampIssue: undefined,
-      issueHex: undefined,
     })
     return (
       <div>

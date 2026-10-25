@@ -193,12 +193,8 @@ function UnifiedIssueRowInner({
   // The published row carries the Flight Deck's child-task rollup. Direct
   // component fixtures can supply the same rollup on their addressed row.
   const progress = progressProp && progressProp !== LOADING ? progressProp : row?.missionRollup?.progress ?? fallbackEmptyProgress()
-  // THE ROW'S IDENTITY IS ITS NUMBER (POD-1057). The 30px square carried the
-  // ref, the phase, a corner badge and the colour picker — four jobs on the
-  // smallest object in the row. Each went somewhere it reads better: the ref is
-  // these digits, the phase and the ask are line 2's one ochre sentence, the
-  // spinner is the meta column's clock, the picker is in the context menu. The
-  // colour stayed: it is the band's ground.
+  // THE ROW'S IDENTITY IS ITS NUMBER (POD-1057). These digits carry the ref;
+  // line 2 carries the phase and ask, and the meta column carries the spinner.
   const idLabel = idSquareLabel(issue)
   // Spin-off provenance (POD-85): an outgoing discovered-from edge names the
   // issue this one was spun off from. One quiet ⤷ tick on line 2; selecting

@@ -1,39 +1,4 @@
-/**
- * WHO ELSE IS ON THIS SESSION (POD-1535) — the product surface for ADR 7's
- * rooms, and Phase 6's second named multi-user deliverable
- * (`docs/multi-user-readiness.md` §5).
- *
- * Shared terminals are the cheapest collaboration surface in the product
- * (§2): one driver, N watchers, already substrated by `Session.controllerId`.
- * What was missing was identity on it. This strip is that.
- *
- * ---------------------------------------------------------------------------
- * THE TWO STATES, AND WHY THEY MUST NOT LOOK ALIKE
- * ---------------------------------------------------------------------------
- *
- * Presence is stream · live: lossy, dropped rather than buffered, and answered
- * on failure with one reason-free frame. So "we do not know who is here" is a
- * real state and it is NOT "nobody is here". The view type carries no member
- * list while the answer is unknown, and this component renders the two
- * differently and says so in words:
- *
- *   unknown  → a dimmed glyph, no count, "Presence unavailable"
- *   present  → chips for the others, or a quiet "Only you"
- *
- * `data-presence-status` puts the distinction in the DOM so it is testable.
- *
- * ---------------------------------------------------------------------------
- * DESIGN NOTES (apps/web/DESIGN.md)
- * ---------------------------------------------------------------------------
- *
- * Chips are NEUTRAL, deliberately: The Reserved Hues Rule keeps the signal
- * hues and terracotta out of identity, and a per-person hue palette would
- * collide with the issue-color channel this header is already tinted by.
- * Identity reads from the mono token, not from colour. Machine voice (ids,
- * counts) is Geist Mono per The Machine Voice Rule. No motion — presence
- * changes are state, not activity, and the Agent State Grammar reserves
- * perpetual motion for an agent actually computing.
- */
+
 
 import { useCurrentPrincipal, usePresenceRoom } from '@podium/client-core/react'
 import type { SessionId } from '@podium/model/browser'
@@ -90,7 +55,7 @@ export function SessionWatchers({ sessionId, view, className }: SessionWatchersP
           size={12}
           aria-hidden="true"
           className={cn(
-            presence.status === 'unknown' ? 'text-(--issue-faint)' : 'text-(--issue-muted)',
+            presence.status === 'unknown' ? 'text-(--text-faint)' : 'text-(--label)',
           )}
         />
       ) : (
@@ -99,7 +64,7 @@ export function SessionWatchers({ sessionId, view, className }: SessionWatchersP
             <span
               key={watcher.key}
               data-testid="session-watcher-chip"
-              className="-ml-[4px] inline-flex size-[18px] flex-none items-center justify-center rounded-full border issue-hairline-45 bg-secondary font-mono shell-type-micro font-medium tracking-[0.02em] text-(--issue-bright) first:ml-0"
+              className="-ml-[4px] inline-flex size-[18px] flex-none items-center justify-center rounded-full border surface-hairline-45 bg-secondary font-mono shell-type-micro font-medium tracking-[0.02em] text-(--foreground) first:ml-0"
             >
               {watcher.isAgent ? <Bot size={10} aria-hidden="true" /> : watcher.initials}
             </span>
@@ -107,7 +72,7 @@ export function SessionWatchers({ sessionId, view, className }: SessionWatchersP
           {overflow > 0 && (
             <span
               data-testid="session-watcher-overflow"
-              className="-ml-[4px] inline-flex h-[18px] flex-none items-center justify-center rounded-full border issue-hairline-45 bg-secondary px-[5px] font-mono shell-type-micro tabular-nums text-(--issue-muted)"
+              className="-ml-[4px] inline-flex h-[18px] flex-none items-center justify-center rounded-full border surface-hairline-45 bg-secondary px-[5px] font-mono shell-type-micro tabular-nums text-(--label)"
             >
               +{overflow}
             </span>

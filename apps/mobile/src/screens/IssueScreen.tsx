@@ -1,19 +1,9 @@
-import { IssueOpening, useIssueOpening } from '../client/issue-opening'
-import { issueObserver as observer } from '../client/issue-observer'
-import { type PageIssue } from '@podium/client-graph/issue-page'
-import { issueActivity } from '@podium/client-graph/issue-activity'
-import { useMobilePool } from '../client/mobile-pool'
-import { resolveEdgeFromPool } from '../client/use-issue-model'
-import {
-  PhoneMail,
-  PhoneTimeline,
-  PhoneProperties,
-  PhoneNow,
-} from '../components/task-detail/IssueModelSections'
 import { withoutShells } from '@podium/client-core/focus'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
 import { resolveIssueEdge } from '@podium/client-core/values'
+import { issueActivity } from '@podium/client-graph/issue-activity'
+import type { PageIssue } from '@podium/client-graph/issue-page'
 import {
   type IssueCloseReason,
   type IssueId,
@@ -30,8 +20,11 @@ import { useLocalSearchParams, useRouter } from 'expo-router'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { ScrollView, StyleSheet, View } from 'react-native'
 import { useConnected, useStoreActions, useTrpc } from '../client/hooks'
+import { issueObserver as observer } from '../client/issue-observer'
+import { IssueOpening, useIssueOpening } from '../client/issue-opening'
+import { useMobilePool } from '../client/mobile-pool'
 import { useIssueCloseGuard } from '../client/use-issue-close'
-import { useHasIssueMates, useIssueModel, useIssueTargets } from '../client/use-issue-model'
+import { resolveEdgeFromPool, useHasIssueMates, useIssueModel, useIssueTargets } from '../client/use-issue-model'
 import {
   useSessionContextBooting as useBooting,
   useSessionContextIssue as useIssue,
@@ -42,12 +35,10 @@ import { ConfiguredIssueLaunchSheet } from '../components/ConfiguredIssueLaunchS
 import { Icon } from '../components/Icon'
 import { IdSquare } from '../components/IdSquare'
 import { IssueCloseSheet } from '../components/IssueCloseSheet'
-import { IssueColorSheet } from '../components/IssueColorSheet'
 import { IssueQuestionCard } from '../components/IssueQuestionCard'
 import { IssueTargetSheet } from '../components/IssueTargetSheet'
 import { MoreHorizontal } from '../components/icons'
 import { BootstrapCrossfade, DetailSkeleton } from '../components/LaunchPlaceholders'
-import { PressableScale } from '../components/PressableScale'
 import { HeaderButton, Screen } from '../components/Screen'
 import { PriorityGlyph, StageGlyph } from '../components/StageGlyph'
 import { ErrorNote } from '../components/task-detail/chrome'
@@ -62,6 +53,12 @@ import {
   LongFormFields,
   StatusStrip,
 } from '../components/task-detail/IssueBody'
+import {
+  PhoneMail,
+  PhoneNow,
+  PhoneProperties,
+  PhoneTimeline,
+} from '../components/task-detail/IssueModelSections'
 import { IssueNow } from '../components/task-detail/IssueNow'
 import { IssueProperties, PropertyBar } from '../components/task-detail/IssueProperties'
 import { IssueSubIssues } from '../components/task-detail/IssueSubIssues'
@@ -74,7 +71,6 @@ import { issueCommands, type RunMutation } from '../lib/issue-detail'
 import { sessionHref } from '../lib/session-route'
 import { DELETE_TASK_TITLE, deleteTaskSubtitle } from '../lib/task-delete'
 import { useIssueActivity } from '../lib/use-issue-detail'
-import { issueColorHex } from '../theme/issueColors'
 import { color, space } from '../theme/theme'
 
 /**
@@ -189,7 +185,6 @@ type OpenSheet =
   | { kind: 'child-status'; child: IssueViewModel }
   | { kind: 'confirm-child-close'; child: IssueViewModel; reason: IssueCloseReason }
   | { kind: 'flag' }
-  | { kind: 'colour' }
   | { kind: 'launch' }
 
 /** The relation kinds the phone offers. `supersedes` and `duplicates` are
@@ -302,7 +297,6 @@ const IssueContent = observer(function IssueContent({
   const breadcrumb = parent
     ? `${repoName} › ${issueDisplayRef(parent)}${parent.archived ? ' · archived' : ''}`
     : repoName
-  const hex = issueColorHex(issue.color)
 
   return (
     <Screen
@@ -315,14 +309,7 @@ const IssueContent = observer(function IssueContent({
       onBack={onBack}
       backAs={dismiss ? 'text' : 'chevron'}
       backLabel={dismiss ? 'Done' : undefined}
-      {...(hex ? { accent: hex } : {})}
       leading={
-        <PressableScale
-          accessibilityRole="button"
-          accessibilityLabel="Change task colour"
-          onPress={() => setSheet({ kind: 'colour' })}
-          hitSlop={8}
-        >
           <IdSquare
             issue={issue}
             size={22}
@@ -336,7 +323,6 @@ const IssueContent = observer(function IssueContent({
                     : 'queued'
             }
           />
-        </PressableScale>
       }
       right={
         <HeaderButton label="More actions" onPress={() => setSheet({ kind: 'menu' })}>
@@ -621,10 +607,6 @@ const IssueContent = observer(function IssueContent({
         onClose={closeIf('flag')}
       />
 
-      <IssueColorSheet
-        issue={sheet?.kind === 'colour' ? issue : null}
-        onClose={closeIf('colour')}
-      />
       <ConfiguredIssueLaunchSheet
         issue={sheet?.kind === 'launch' ? issue : null}
         onClose={closeIf('launch')}

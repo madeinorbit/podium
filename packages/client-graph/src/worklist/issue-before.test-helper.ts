@@ -1,28 +1,27 @@
-import { omitGone } from '../lookup'
-import { parseMs } from '../views'
+import { companion, lazy } from '@podium/mobx-helpers'
 import { compareStructural, untracked } from 'mobx'
-import { lazy, companion } from '@podium/mobx-helpers'
-import { type RowOriginTick, type RowRank, type RowView, isDraftNameSession } from '../shared/row-view'
-import type { SliceIssue, SlicePhase, SliceSession } from '../shared/slice-types'
-import { isExcluded } from '../shared/predicates'
-import { activityAtOf, ownPartOfRow, displayTitleOf, type Label, loadingPartOf, NO_ROLLUP,
-  type OwnPart, originIdPartOf, originTickPartOf, rankOfPart, sessionIdsPartOf } from '../views'
-import { type Placement, placementOfPart, withWaiting } from './groups'
-import { NO_SEATS, type SeatSummary } from './seat-verdicts'
-import { type Aggregate, ownAttentionFields, unitOwnFields, unitsBelowFields,
-  LOADING, type OwnAttention, type OwnFacts, type Rollup, rollupPartOf, phaseOf, askingOf,
-  seatActivityPartOf, tipPartOf, type UnitOwn, type Units, waitingPartOf } from './rollup'
-import { NO_SIDEBAR_SESSIONS, sidebarLifecycle, sidebarTimingFromFacts, type SidebarRowValues, type SidebarProgress, type SidebarSessionFacts } from './sidebar-row'
-import { worklistLists } from './lists-before.test-helper'
-import { createIdentityQuery } from '../query-identity-before.test-helper'
-import { mobileWaitingCount, type MobileRowValues } from './mobile-row'
-import { childIdsPartOf, type HeldIssue, type HiddenIssue, hiddenPresenceOf, keptBelowPartOf,
-  laneMemberIdsPartOf, memberIdsPartOf, nestCandidatePartOf, nestParentPartOf,
-  flatPartOf, keepsPartOf, retainedSeatIdsPartOf, rosterIdsPartOf, openOwnPartOf,
-  laneRetainedSeatIdsPartOf, mergeIds, standingOf, type Standing, spinOffIdsPartOf, unreadPartOf } from './visible'
+import { omitGone } from '../lookup'
 import type { IssueModel, ModelHost } from '../models'
-import type { Worklist } from './view-model'
+import { createIdentityQuery } from '../query-identity-before.test-helper'
+import { isExcluded } from '../shared/predicates'
+import { isDraftNameSession, type RowOriginTick, type RowRank, type RowView } from '../shared/row-view'
+import type { SliceIssue, SlicePhase, SliceSession } from '../shared/slice-types'
+import { activityAtOf, displayTitleOf, type Label, loadingPartOf, NO_ROLLUP,
+  type OwnPart, originIdPartOf, originTickPartOf, ownPartOfRow, parseMs, rankOfPart, sessionIdsPartOf } from '../views'
 import { AttentionFields } from './attention'
+import { type Placement, placementOfPart, withWaiting } from './groups'
+import { worklistLists } from './lists-before.test-helper'
+import { type MobileRowValues, mobileWaitingCount } from './mobile-row'
+import { type Aggregate, askingOf,
+  LOADING, type OwnAttention, type OwnFacts, ownAttentionFields, phaseOf, type Rollup, rollupPartOf,
+  seatActivityPartOf, tipPartOf, type UnitOwn, type Units, unitOwnFields, unitsBelowFields,waitingPartOf } from './rollup'
+import { NO_SEATS, type SeatSummary } from './seat-verdicts'
+import { NO_SIDEBAR_SESSIONS, type SidebarProgress, type SidebarRowValues, type SidebarSessionFacts, sidebarLifecycle, sidebarTimingFromFacts } from './sidebar-row'
+import type { Worklist } from './view-model'
+import { childIdsPartOf,
+  flatPartOf, type HeldIssue, type HiddenIssue, hiddenPresenceOf, keepsPartOf, keptBelowPartOf,
+  laneMemberIdsPartOf,
+  laneRetainedSeatIdsPartOf, memberIdsPartOf, mergeIds, nestCandidatePartOf, nestParentPartOf,openOwnPartOf,retainedSeatIdsPartOf, rosterIdsPartOf, type Standing, spinOffIdsPartOf, standingOf, unreadPartOf } from './visible'
 
 // Identity-only ports and helpers are allocated on demand by companion().
 // Their owner is the view's row companion; their answers remain @lazy fields.
@@ -1182,7 +1181,7 @@ export class WorklistIssueBefore implements HeldIssue, RowView {
   createSidebarPort(): SidebarRowValues {
     const row = this
     return {
-      get idNumber() { return row.issue.seq }, get color() { return row.issue.color ?? null },
+      get idNumber() { return row.issue.seq },
       get title() { return row.title }, get timing() { return row.rowTiming },
       get working() { return row.rowWorking }, get asking() { return row.rowAsking },
       get originTick() { return row.rowOriginTick }, get decision() { return row.rowDecision },
@@ -1211,7 +1210,7 @@ export class WorklistIssueBefore implements HeldIssue, RowView {
       get timing() { return row.rowTiming }, get working() { return row.rowWorking },
       get waitingCount() { return row.mobileWaitingCount }, get decision() { return row.rowDecision },
       get unread() { return row.mobileUnread }, get draftOnly() { return row.rowDraftAgentOnly },
-      get draftQuiet() { return row.mobileDraftQuiet }, get color() { return row.issue.color ?? null },
+      get draftQuiet() { return row.mobileDraftQuiet },
       get internal() { return row.rowInternal }, get pinned() { return row.issue.pinned === true },
       get snoozed() { return row.rowDeferred }, get unsnoozed() { return row.rowUnsnoozed },
       get tuckable() { return row.rowAwaitsTuck }, get fleet() { return row.sidebarRecord.fleet },

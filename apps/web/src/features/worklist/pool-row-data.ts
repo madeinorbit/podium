@@ -1,5 +1,3 @@
-import type { WorklistIssue } from '@podium/client-graph/worklist/issue'
-import { LOADING } from '@podium/client-graph'
 import type { SessionView } from '@podium/client-core/session-values'
 import {
   errorPhrase,
@@ -7,6 +5,8 @@ import {
   type UnifiedIssueRow,
   type UnifiedWorkRow,
 } from '@podium/client-core/values'
+import { LOADING } from '@podium/client-graph'
+import type { WorklistIssue } from '@podium/client-graph/worklist/issue'
 import type { SidebarWorktree } from '@podium/client-graph/worklist/sidebar'
 import type { SidebarRowValues, SidebarTiming } from '@podium/client-graph/worklist/sidebar-row'
 import { ISSUE_STATUS_LABELS, issueStatusLabel, issueStatusOf } from '@podium/model/browser'
@@ -29,7 +29,6 @@ export function poolIssuePaint(value: SidebarRowValues) {
       linearIdentifier: issue.linearIdentifier,
       title: issue.title,
       audience: issue.audience,
-      color: issue.color,
       branch: issue.branch,
       gitState: issue.gitState,
       stage: issue.stage,
@@ -188,7 +187,7 @@ export function sidebarExitSnapshot(value: WorklistIssue): SidebarRowValues {
   const progress = value.progress
   if (progress === LOADING) throw LOADING
   return {
-    idNumber: issue.seq, color: issue.color ?? null, title: value.title,
+    idNumber: issue.seq, title: value.title,
     timing: value.timing, working: value.visibleWorking, asking: value.visibleAsking,
     originTick: value.origin, decision: value.decision, mergeCommits: value.mergeCommits,
     progress, fromChildren: value.hasChildProgress, statusFromChildren: value.showsChildProgress,
@@ -198,7 +197,7 @@ export function sidebarExitSnapshot(value: WorklistIssue): SidebarRowValues {
     firstSessionId: value.firstSessionId, continuation: value.continuation, fleet: value.visibleFleet,
     issue: {
       id: issue.id, seq: issue.seq, displayRef: issue.displayRef, linearIdentifier: issue.linearIdentifier,
-      title: issue.title, audience: issue.audience, color: issue.color, branch: issue.branch,
+      title: issue.title, audience: issue.audience, branch: issue.branch,
       gitState: issue.gitState, stage: issue.stage, closedReason: issue.closedReason, closedAt: issue.closedAt,
       needsHuman: issue.needsHuman, asked: issue.asked, updatedAt: issue.updatedAt,
       tuckedAt: issue.tuckedAt, deferUntil: issue.deferUntil, worktreePath: issue.worktreePath,

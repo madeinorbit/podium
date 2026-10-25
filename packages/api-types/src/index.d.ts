@@ -1772,7 +1772,6 @@ type Input_issues_create = {
     assignee?: string | undefined;
     audience?: "agent" | "human" | undefined;
     brief?: string | undefined;
-    color?: "blue" | "cyan" | "fuchsia" | "green" | "indigo" | "lime" | "pink" | "rose" | "teal" | "violet" | undefined;
     createLabels?: boolean | undefined;
     defaultAgent?: string | undefined;
     defaultEffort?: string | undefined;
@@ -1898,7 +1897,6 @@ type Input_issues_update = {
         assignee?: string | undefined;
         brief?: string | undefined;
         closedReason?: string | undefined;
-        color?: "blue" | "cyan" | "fuchsia" | "green" | "indigo" | "lime" | "pink" | "rose" | "teal" | "violet" | null | undefined;
         defaultAgent?: string | undefined;
         defaultEffort?: string | undefined;
         defaultModel?: string | undefined;
@@ -2918,7 +2916,6 @@ type Output_issues_action = {
         brief?: string | undefined;
         closedAt?: string | undefined;
         closedReason?: string | undefined;
-        color?: "blue" | "cyan" | "fuchsia" | "green" | "indigo" | "lime" | "pink" | "rose" | "teal" | "violet" | undefined;
         coordinatorSessionId?: (string & z.BRAND<"SessionId">) | undefined;
         createdAt: string;
         createdBy: {
@@ -3055,7 +3052,6 @@ type Output_issues_action = {
         brief?: string | undefined;
         closedAt?: string | undefined;
         closedReason?: string | undefined;
-        color?: "blue" | "cyan" | "fuchsia" | "green" | "indigo" | "lime" | "pink" | "rose" | "teal" | "violet" | undefined;
         coordinatorSessionId?: (string & z.BRAND<"SessionId">) | undefined;
         createdAt: string;
         createdBy: {
@@ -3158,7 +3154,7 @@ type Output_issues_action = {
         updatedAt: string;
         visibility: "deployment-substrate" | "owned-compute" | "per-user-state" | "personal" | "secret";
         worktreePath?: string | undefined;
-    }, ("acceptance" | "activityNotes" | "agentProfileId" | "asked" | "assignee" | "branch" | "brief" | "closedAt" | "closedReason" | "color" | "coordinatorSessionId" | "deferUntil" | "deletedAt" | "dependencyNote" | "dueAt" | "duplicateOf" | "estimateMin" | "lastLifecycleActor" | "linearId" | "linearIdentifier" | "linearUrl" | "machineId" | "notesUpdatedAt" | "panel" | "parentId" | "prUrl" | "repoId" | "revision" | "sortKey" | "startedBySession" | "suggestedReason" | "suggestedStage" | "supersededBy" | "worktreePath") | ("archived" | "audience" | "blockedByNotes" | "createdAt" | "createdBy" | "defaultAgent" | "defaultEffort" | "defaultModel" | "description" | "id" | "intentOrigin" | "isDraftVessel" | "labels" | "needsHuman" | "owner" | "parentBranch" | "priority" | "seq" | "stage" | "title" | "type" | "updatedAt" | "visibility")> & {
+    }, ("acceptance" | "activityNotes" | "agentProfileId" | "asked" | "assignee" | "branch" | "brief" | "closedAt" | "closedReason" | "coordinatorSessionId" | "deferUntil" | "deletedAt" | "dependencyNote" | "dueAt" | "duplicateOf" | "estimateMin" | "lastLifecycleActor" | "linearId" | "linearIdentifier" | "linearUrl" | "machineId" | "notesUpdatedAt" | "panel" | "parentId" | "prUrl" | "repoId" | "revision" | "sortKey" | "startedBySession" | "suggestedReason" | "suggestedStage" | "supersededBy" | "worktreePath") | ("archived" | "audience" | "blockedByNotes" | "createdAt" | "createdBy" | "defaultAgent" | "defaultEffort" | "defaultModel" | "description" | "id" | "intentOrigin" | "isDraftVessel" | "labels" | "needsHuman" | "owner" | "parentBranch" | "priority" | "seq" | "stage" | "title" | "type" | "updatedAt" | "visibility")> & {
         blocked: boolean;
         branch: null | string;
         childCount: number;
@@ -3218,7 +3214,6 @@ type Output_issues_addComment = _podium_model.IssueUserOverlay & Omit<{
     brief?: string | undefined;
     closedAt?: string | undefined;
     closedReason?: string | undefined;
-    color?: "blue" | "cyan" | "fuchsia" | "green" | "indigo" | "lime" | "pink" | "rose" | "teal" | "violet" | undefined;
     coordinatorSessionId?: (string & z.BRAND<"SessionId">) | undefined;
     createdAt: string;
     createdBy: {
@@ -3355,7 +3350,6 @@ type Output_issues_addComment = _podium_model.IssueUserOverlay & Omit<{
     brief?: string | undefined;
     closedAt?: string | undefined;
     closedReason?: string | undefined;
-    color?: "blue" | "cyan" | "fuchsia" | "green" | "indigo" | "lime" | "pink" | "rose" | "teal" | "violet" | undefined;
     coordinatorSessionId?: (string & z.BRAND<"SessionId">) | undefined;
     createdAt: string;
     createdBy: {
@@ -3458,7 +3452,7 @@ type Output_issues_addComment = _podium_model.IssueUserOverlay & Omit<{
     updatedAt: string;
     visibility: "deployment-substrate" | "owned-compute" | "per-user-state" | "personal" | "secret";
     worktreePath?: string | undefined;
-}, ("acceptance" | "activityNotes" | "agentProfileId" | "asked" | "assignee" | "branch" | "brief" | "closedAt" | "closedReason" | "color" | "coordinatorSessionId" | "deferUntil" | "deletedAt" | "dependencyNote" | "dueAt" | "duplicateOf" | "estimateMin" | "lastLifecycleActor" | "linearId" | "linearIdentifier" | "linearUrl" | "machineId" | "notesUpdatedAt" | "panel" | "parentId" | "prUrl" | "repoId" | "revision" | "sortKey" | "startedBySession" | "suggestedReason" | "suggestedStage" | "supersededBy" | "worktreePath") | ("archived" | "audience" | "blockedByNotes" | "createdAt" | "createdBy" | "defaultAgent" | "defaultEffort" | "defaultModel" | "description" | "id" | "intentOrigin" | "isDraftVessel" | "labels" | "needsHuman" | "owner" | "parentBranch" | "priority" | "seq" | "stage" | "title" | "type" | "updatedAt" | "visibility")> & {
+}, ("acceptance" | "activityNotes" | "agentProfileId" | "asked" | "assignee" | "branch" | "brief" | "closedAt" | "closedReason" | "coordinatorSessionId" | "deferUntil" | "deletedAt" | "dependencyNote" | "dueAt" | "duplicateOf" | "estimateMin" | "lastLifecycleActor" | "linearId" | "linearIdentifier" | "linearUrl" | "machineId" | "notesUpdatedAt" | "panel" | "parentId" | "prUrl" | "repoId" | "revision" | "sortKey" | "startedBySession" | "suggestedReason" | "suggestedStage" | "supersededBy" | "worktreePath") | ("archived" | "audience" | "blockedByNotes" | "createdAt" | "createdBy" | "defaultAgent" | "defaultEffort" | "defaultModel" | "description" | "id" | "intentOrigin" | "isDraftVessel" | "labels" | "needsHuman" | "owner" | "parentBranch" | "priority" | "seq" | "stage" | "title" | "type" | "updatedAt" | "visibility")> & {
     blocked: boolean;
     branch: null | string;
     childCount: number;
@@ -3517,7 +3511,6 @@ type Output_issues_answerQuestion = {
         brief?: string | undefined;
         closedAt?: string | undefined;
         closedReason?: string | undefined;
-        color?: "blue" | "cyan" | "fuchsia" | "green" | "indigo" | "lime" | "pink" | "rose" | "teal" | "violet" | undefined;
         coordinatorSessionId?: (string & z.BRAND<"SessionId">) | undefined;
         createdAt: string;
         createdBy: {
@@ -3654,7 +3647,6 @@ type Output_issues_answerQuestion = {
         brief?: string | undefined;
         closedAt?: string | undefined;
         closedReason?: string | undefined;
-        color?: "blue" | "cyan" | "fuchsia" | "green" | "indigo" | "lime" | "pink" | "rose" | "teal" | "violet" | undefined;
         coordinatorSessionId?: (string & z.BRAND<"SessionId">) | undefined;
         createdAt: string;
         createdBy: {
@@ -3757,7 +3749,7 @@ type Output_issues_answerQuestion = {
         updatedAt: string;
         visibility: "deployment-substrate" | "owned-compute" | "per-user-state" | "personal" | "secret";
         worktreePath?: string | undefined;
-    }, ("acceptance" | "activityNotes" | "agentProfileId" | "asked" | "assignee" | "branch" | "brief" | "closedAt" | "closedReason" | "color" | "coordinatorSessionId" | "deferUntil" | "deletedAt" | "dependencyNote" | "dueAt" | "duplicateOf" | "estimateMin" | "lastLifecycleActor" | "linearId" | "linearIdentifier" | "linearUrl" | "machineId" | "notesUpdatedAt" | "panel" | "parentId" | "prUrl" | "repoId" | "revision" | "sortKey" | "startedBySession" | "suggestedReason" | "suggestedStage" | "supersededBy" | "worktreePath") | ("archived" | "audience" | "blockedByNotes" | "createdAt" | "createdBy" | "defaultAgent" | "defaultEffort" | "defaultModel" | "description" | "id" | "intentOrigin" | "isDraftVessel" | "labels" | "needsHuman" | "owner" | "parentBranch" | "priority" | "seq" | "stage" | "title" | "type" | "updatedAt" | "visibility")> & {
+    }, ("acceptance" | "activityNotes" | "agentProfileId" | "asked" | "assignee" | "branch" | "brief" | "closedAt" | "closedReason" | "coordinatorSessionId" | "deferUntil" | "deletedAt" | "dependencyNote" | "dueAt" | "duplicateOf" | "estimateMin" | "lastLifecycleActor" | "linearId" | "linearIdentifier" | "linearUrl" | "machineId" | "notesUpdatedAt" | "panel" | "parentId" | "prUrl" | "repoId" | "revision" | "sortKey" | "startedBySession" | "suggestedReason" | "suggestedStage" | "supersededBy" | "worktreePath") | ("archived" | "audience" | "blockedByNotes" | "createdAt" | "createdBy" | "defaultAgent" | "defaultEffort" | "defaultModel" | "description" | "id" | "intentOrigin" | "isDraftVessel" | "labels" | "needsHuman" | "owner" | "parentBranch" | "priority" | "seq" | "stage" | "title" | "type" | "updatedAt" | "visibility")> & {
         blocked: boolean;
         branch: null | string;
         childCount: number;
@@ -3875,7 +3867,6 @@ type Output_issues_create = (_podium_model.IssueUserOverlay & Omit<{
     brief?: string | undefined;
     closedAt?: string | undefined;
     closedReason?: string | undefined;
-    color?: "blue" | "cyan" | "fuchsia" | "green" | "indigo" | "lime" | "pink" | "rose" | "teal" | "violet" | undefined;
     coordinator?: string;
     coordinatorSessionId?: (string & z.BRAND<"SessionId">) | undefined;
     createdAt: string;
@@ -3980,7 +3971,7 @@ type Output_issues_create = (_podium_model.IssueUserOverlay & Omit<{
     visibility: "deployment-substrate" | "owned-compute" | "per-user-state" | "personal" | "secret";
     warning: string;
     worktreePath?: string | undefined;
-}, ("acceptance" | "activityNotes" | "agentProfileId" | "asked" | "assignee" | "branch" | "brief" | "closedAt" | "closedReason" | "color" | "coordinatorSessionId" | "deferUntil" | "deletedAt" | "dependencyNote" | "dueAt" | "duplicateOf" | "estimateMin" | "lastLifecycleActor" | "linearId" | "linearIdentifier" | "linearUrl" | "machineId" | "notesUpdatedAt" | "panel" | "parentId" | "prUrl" | "repoId" | "revision" | "sortKey" | "startedBySession" | "suggestedReason" | "suggestedStage" | "supersededBy" | "worktreePath") | ("archived" | "audience" | "blockedByNotes" | "createdAt" | "createdBy" | "defaultAgent" | "defaultEffort" | "defaultModel" | "description" | "id" | "intentOrigin" | "isDraftVessel" | "labels" | "needsHuman" | "owner" | "parentBranch" | "priority" | "seq" | "stage" | "title" | "type" | "updatedAt" | "visibility")> & Omit<{
+}, ("acceptance" | "activityNotes" | "agentProfileId" | "asked" | "assignee" | "branch" | "brief" | "closedAt" | "closedReason" | "coordinatorSessionId" | "deferUntil" | "deletedAt" | "dependencyNote" | "dueAt" | "duplicateOf" | "estimateMin" | "lastLifecycleActor" | "linearId" | "linearIdentifier" | "linearUrl" | "machineId" | "notesUpdatedAt" | "panel" | "parentId" | "prUrl" | "repoId" | "revision" | "sortKey" | "startedBySession" | "suggestedReason" | "suggestedStage" | "supersededBy" | "worktreePath") | ("archived" | "audience" | "blockedByNotes" | "createdAt" | "createdBy" | "defaultAgent" | "defaultEffort" | "defaultModel" | "description" | "id" | "intentOrigin" | "isDraftVessel" | "labels" | "needsHuman" | "owner" | "parentBranch" | "priority" | "seq" | "stage" | "title" | "type" | "updatedAt" | "visibility")> & Omit<{
     acceptance?: string | undefined;
     activityNotes?: string | undefined;
     agentProfileId?: string | undefined;
@@ -4014,7 +4005,6 @@ type Output_issues_create = (_podium_model.IssueUserOverlay & Omit<{
     brief?: string | undefined;
     closedAt?: string | undefined;
     closedReason?: string | undefined;
-    color?: "blue" | "cyan" | "fuchsia" | "green" | "indigo" | "lime" | "pink" | "rose" | "teal" | "violet" | undefined;
     coordinatorSessionId?: (string & z.BRAND<"SessionId">) | undefined;
     createdAt: string;
     createdBy: {
@@ -4173,7 +4163,6 @@ type Output_issues_create = (_podium_model.IssueUserOverlay & Omit<{
     brief?: string | undefined;
     closedAt?: string | undefined;
     closedReason?: string | undefined;
-    color?: "blue" | "cyan" | "fuchsia" | "green" | "indigo" | "lime" | "pink" | "rose" | "teal" | "violet" | undefined;
     coordinator?: string;
     coordinatorSessionId?: (string & z.BRAND<"SessionId">) | undefined;
     createdAt: string;
@@ -4277,7 +4266,7 @@ type Output_issues_create = (_podium_model.IssueUserOverlay & Omit<{
     updatedAt: string;
     visibility: "deployment-substrate" | "owned-compute" | "per-user-state" | "personal" | "secret";
     worktreePath?: string | undefined;
-}, ("acceptance" | "activityNotes" | "agentProfileId" | "asked" | "assignee" | "branch" | "brief" | "closedAt" | "closedReason" | "color" | "coordinatorSessionId" | "deferUntil" | "deletedAt" | "dependencyNote" | "dueAt" | "duplicateOf" | "estimateMin" | "lastLifecycleActor" | "linearId" | "linearIdentifier" | "linearUrl" | "machineId" | "notesUpdatedAt" | "panel" | "parentId" | "prUrl" | "repoId" | "revision" | "sortKey" | "startedBySession" | "suggestedReason" | "suggestedStage" | "supersededBy" | "worktreePath") | ("archived" | "audience" | "blockedByNotes" | "createdAt" | "createdBy" | "defaultAgent" | "defaultEffort" | "defaultModel" | "description" | "id" | "intentOrigin" | "isDraftVessel" | "labels" | "needsHuman" | "owner" | "parentBranch" | "priority" | "seq" | "stage" | "title" | "type" | "updatedAt" | "visibility")> & Omit<{
+}, ("acceptance" | "activityNotes" | "agentProfileId" | "asked" | "assignee" | "branch" | "brief" | "closedAt" | "closedReason" | "coordinatorSessionId" | "deferUntil" | "deletedAt" | "dependencyNote" | "dueAt" | "duplicateOf" | "estimateMin" | "lastLifecycleActor" | "linearId" | "linearIdentifier" | "linearUrl" | "machineId" | "notesUpdatedAt" | "panel" | "parentId" | "prUrl" | "repoId" | "revision" | "sortKey" | "startedBySession" | "suggestedReason" | "suggestedStage" | "supersededBy" | "worktreePath") | ("archived" | "audience" | "blockedByNotes" | "createdAt" | "createdBy" | "defaultAgent" | "defaultEffort" | "defaultModel" | "description" | "id" | "intentOrigin" | "isDraftVessel" | "labels" | "needsHuman" | "owner" | "parentBranch" | "priority" | "seq" | "stage" | "title" | "type" | "updatedAt" | "visibility")> & Omit<{
     acceptance?: string | undefined;
     activityNotes?: string | undefined;
     agentProfileId?: string | undefined;
@@ -4311,7 +4300,6 @@ type Output_issues_create = (_podium_model.IssueUserOverlay & Omit<{
     brief?: string | undefined;
     closedAt?: string | undefined;
     closedReason?: string | undefined;
-    color?: "blue" | "cyan" | "fuchsia" | "green" | "indigo" | "lime" | "pink" | "rose" | "teal" | "violet" | undefined;
     coordinatorSessionId?: (string & z.BRAND<"SessionId">) | undefined;
     createdAt: string;
     createdBy: {
@@ -4452,7 +4440,6 @@ type Output_issues_get = (null) | ({
     childDoneCount: number;
     closedAt?: string | undefined;
     closedReason?: string | undefined;
-    color?: "blue" | "cyan" | "fuchsia" | "green" | "indigo" | "lime" | "pink" | "rose" | "teal" | "violet" | undefined;
     commentCount: number;
     coordinatorSessionId?: (string & z.BRAND<"SessionId">) | undefined;
     createdAt: string;
@@ -4884,7 +4871,6 @@ type Output_issues_searchNormalized = Array<{
     brief?: string | undefined;
     closedAt?: string | undefined;
     closedReason?: string | undefined;
-    color?: "blue" | "cyan" | "fuchsia" | "green" | "indigo" | "lime" | "pink" | "rose" | "teal" | "violet" | undefined;
     coordinatorSessionId?: (string & z.BRAND<"SessionId">) | undefined;
     createdAt: string;
     createdBy: {
@@ -5141,7 +5127,6 @@ type Output_issues_start = _podium_model.IssueUserOverlay & Omit<Partial<{
     brief?: string | undefined;
     closedAt?: string | undefined;
     closedReason?: string | undefined;
-    color?: "blue" | "cyan" | "fuchsia" | "green" | "indigo" | "lime" | "pink" | "rose" | "teal" | "violet" | undefined;
     coordinatorSessionId?: (string & z.BRAND<"SessionId">) | undefined;
     createdAt: string;
     createdBy: {
@@ -5244,7 +5229,7 @@ type Output_issues_start = _podium_model.IssueUserOverlay & Omit<Partial<{
     updatedAt: string;
     visibility: "deployment-substrate" | "owned-compute" | "per-user-state" | "personal" | "secret";
     worktreePath?: string | undefined;
-}, ("acceptance" | "activityNotes" | "agentProfileId" | "asked" | "assignee" | "branch" | "brief" | "closedAt" | "closedReason" | "color" | "coordinatorSessionId" | "deferUntil" | "deletedAt" | "dependencyNote" | "dueAt" | "duplicateOf" | "estimateMin" | "lastLifecycleActor" | "linearId" | "linearIdentifier" | "linearUrl" | "machineId" | "notesUpdatedAt" | "panel" | "parentId" | "prUrl" | "repoId" | "revision" | "sortKey" | "startedBySession" | "suggestedReason" | "suggestedStage" | "supersededBy" | "worktreePath") | ("archived" | "audience" | "blockedByNotes" | "createdAt" | "createdBy" | "defaultAgent" | "defaultEffort" | "defaultModel" | "description" | "id" | "intentOrigin" | "isDraftVessel" | "labels" | "needsHuman" | "owner" | "parentBranch" | "priority" | "seq" | "stage" | "title" | "type" | "updatedAt" | "visibility")> & Omit<{
+}, ("acceptance" | "activityNotes" | "agentProfileId" | "asked" | "assignee" | "branch" | "brief" | "closedAt" | "closedReason" | "coordinatorSessionId" | "deferUntil" | "deletedAt" | "dependencyNote" | "dueAt" | "duplicateOf" | "estimateMin" | "lastLifecycleActor" | "linearId" | "linearIdentifier" | "linearUrl" | "machineId" | "notesUpdatedAt" | "panel" | "parentId" | "prUrl" | "repoId" | "revision" | "sortKey" | "startedBySession" | "suggestedReason" | "suggestedStage" | "supersededBy" | "worktreePath") | ("archived" | "audience" | "blockedByNotes" | "createdAt" | "createdBy" | "defaultAgent" | "defaultEffort" | "defaultModel" | "description" | "id" | "intentOrigin" | "isDraftVessel" | "labels" | "needsHuman" | "owner" | "parentBranch" | "priority" | "seq" | "stage" | "title" | "type" | "updatedAt" | "visibility")> & Omit<{
     acceptance?: string | undefined;
     activityNotes?: string | undefined;
     agentProfileId?: string | undefined;
@@ -5278,7 +5263,6 @@ type Output_issues_start = _podium_model.IssueUserOverlay & Omit<Partial<{
     brief?: string | undefined;
     closedAt?: string | undefined;
     closedReason?: string | undefined;
-    color?: "blue" | "cyan" | "fuchsia" | "green" | "indigo" | "lime" | "pink" | "rose" | "teal" | "violet" | undefined;
     coordinatorSessionId?: (string & z.BRAND<"SessionId">) | undefined;
     createdAt: string;
     createdBy: {

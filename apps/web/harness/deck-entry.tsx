@@ -32,7 +32,6 @@ declare global {
       /** Swap the fixture; `bump` re-renders against the new one. */
       setMission: (name: keyof typeof MISSIONS) => void
       setDisplay: (display: 'compact' | 'expanded') => void
-      setIssueColor: (hex: string | null) => void
       setTheme: (mode: 'light' | 'dark') => void
       point: (sessionId: string | null) => void
     }
@@ -919,7 +918,6 @@ function Harness(): JSX.Element {
   const [width, setWidth] = useState(366)
   const [display, setDisplay] = useState<'compact' | 'expanded'>('compact')
   const [mission, setMission] = useState<keyof typeof MISSIONS>('asking')
-  const [color, setColor] = useState<string | null>(null)
   const [, bump] = useState(0)
 
   // Phase history belongs to the fixture that declared it; a swap must not
@@ -940,7 +938,6 @@ function Harness(): JSX.Element {
         bump((v) => v + 1)
       },
       setDisplay: changeDisplay,
-      setIssueColor: (hex) => setColor(hex),
       setTheme: (mode) => {
         document.documentElement.classList.toggle('dark', mode === 'dark')
       },
@@ -952,9 +949,7 @@ function Harness(): JSX.Element {
 
   return (
     <div
-      className="desktop-shell issue-scope"
-      data-issue-colored={color ? 'true' : 'false'}
-      style={{ '--issue': color ?? 'var(--flow)' } as never}
+      className="desktop-shell"
     >
       {/* The shell spends its top bar and status strip before the row gets any
           height; a harness without them hands the deck a taller pane than

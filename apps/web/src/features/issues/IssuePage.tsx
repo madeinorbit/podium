@@ -1,9 +1,7 @@
-import { issueObserver as observer } from './issue-page/issue-observer'
 import type { IssueId } from '@podium/model/browser'
-import type { CSSProperties, JSX } from 'react'
+import type { JSX } from 'react'
 import { useEffect, useState } from 'react'
 import type { IssueViewModel } from '@/app/store'
-import { issueColorHex } from '@/lib/issueColors'
 import { IssueCloseDialog, type IssueCloseReason, useIssueCloseGuard } from './issue-lifecycle'
 import { CommentComposer, IssueActivitySection, MailSection } from './issue-page/IssueActivity'
 import { IssueAgentActivity } from './issue-page/IssueAgentActivity'
@@ -16,13 +14,15 @@ import {
   StatusStrip,
 } from './issue-page/IssueBody'
 import { IssueDetailHeader } from './issue-page/IssueDetailHeader'
+import { PageComment, PageMail, PageTimeline } from './issue-page/IssueHistory'
 import { IssueNow } from './issue-page/IssueNow'
 import { IssueProperties } from './issue-page/IssueProperties'
 import { IssueSubIssues } from './issue-page/IssueSubIssues'
+import { issueObserver as observer } from './issue-page/issue-observer'
+import { useDetailDesktop } from './issue-page/use-detail-viewport'
 import { useEvictionGuard } from './issue-page/use-eviction-guard'
 import { issuePageCommands } from './issue-page-commands'
 import { useIssuePageModel } from './issue-page-model'
-
 /**
  * The full issue page — an in-view (not overlay) replacement for the detail
  * drawer. A header with breadcrumb + prev/next + overflow menu, a scrolling main
@@ -58,8 +58,6 @@ import { useIssuePageModel } from './issue-page-model'
  * and the eviction guard below. Pushing any of those down would duplicate them.
  */
 import { PoolIssuePage } from './pool-issue-page'
-import { PageComment, PageMail, PageTimeline } from './issue-page/IssueHistory'
-import { useDetailDesktop } from './issue-page/use-detail-viewport'
 
 export const IssuePage = observer(function IssuePage(
   props: Parameters<typeof IssuePageBody>[0],
@@ -156,18 +154,10 @@ export const IssuePageBody = observer(function IssuePageBody({
 
   const desktop = useDetailDesktop()
   const [detailsOpen, setDetailsOpen] = useState(false)
-  const issueHex = issueColorHex(issue.color)
 
   return (
-    // The page runs the issue-colour channel (POD-591): `--issue` is scoped
-    // here, so the todo meter, the activity timeline's nodes and the sub-task
-    // rows all pick up this task's own colour — the same channel the sidebar
-    // row, its tab and its workspace pane already use for it. Uncoloured issues
-    // inherit the neutral slate flow and the mechanics run identically.
     <div
-      className="issue-scope flex min-h-0 min-w-0 flex-1 flex-col"
-      style={issueHex ? ({ '--issue': issueHex } as CSSProperties) : undefined}
-      data-issue-colored={issueHex ? 'true' : 'false'}
+      className="flex min-h-0 min-w-0 flex-1 flex-col"
       data-testid="issue-page"
     >
       <IssueDetailHeader

@@ -1,7 +1,7 @@
 import type { Store } from '@podium/client-core/engine'
 import type { SessionView } from '@podium/client-core/session-values'
-import type { SliceIssue } from './shared/slice-types'
 import type { WorktreeView } from '@podium/client-core/values'
+import type { SliceIssue } from './shared/slice-types'
 
 /** Read-side declarations; the existing runtime still owns every write. */
 export interface CommandLaunchRows {
@@ -49,7 +49,7 @@ export const COMMAND_RELATIONS = [
 /** Declared before pool construction. Small browsing/placement projections;
  * contextual commands request the full selected row through the batched loader. */
 export const COMMAND_SUMMARIES = {
-  issue: ['id', 'seq', 'title', 'stage', 'closedReason', 'displayRef', 'linearIdentifier', 'color', 'parentId', 'archived', 'deletedAt', 'isDraftVessel', 'updatedAt', 'worktreePath', 'repoId', 'repoPath'],
+  issue: ['id', 'seq', 'title', 'stage', 'closedReason', 'displayRef', 'linearIdentifier', 'parentId', 'archived', 'deletedAt', 'isDraftVessel', 'updatedAt', 'worktreePath', 'repoId', 'repoPath'],
   session: ['sessionId', 'cwd', 'machineId', 'issueId', 'agentKind', 'headless', 'lastActiveAt', 'archived', 'status', 'name', 'title', 'displayRef', 'createdAt', 'readAt', 'unread', 'snoozedUntil', 'resumable', 'harnessHandoff', 'resume'],
 } as const
 export type CommandSessionSummary = Pick<SessionView, typeof COMMAND_SUMMARIES.session[number]>

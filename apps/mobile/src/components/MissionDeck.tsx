@@ -1,9 +1,3 @@
-import { useAgeNow } from '../lib/clock-hooks'
-import type { MissionScreen } from '@podium/client-graph/mission-screen'
-import { type MissionDeckIssueModel, settled } from '@podium/client-graph/mission-view'
-import { LOADING } from '@podium/client-graph/worklist/rollup'
-import type { SessionModel } from '@podium/client-graph/models'
-import { observer } from 'mobx-react-lite'
 import { relativeTime } from '@podium/client-core/focus'
 import type { SessionView } from '@podium/client-core/session-values'
 import {
@@ -19,10 +13,16 @@ import {
   sessionTitle,
   treeGuides,
 } from '@podium/client-core/values'
+import type { MissionScreen } from '@podium/client-graph/mission-screen'
+import { type MissionDeckIssueModel, settled } from '@podium/client-graph/mission-view'
+import type { SessionModel } from '@podium/client-graph/models'
+import { LOADING } from '@podium/client-graph/worklist/rollup'
 import type { IssueId, SessionId } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
+import { observer } from 'mobx-react-lite'
 import { memo, useCallback, useEffect, useMemo } from 'react'
 import { ScrollView, StyleSheet, Text, View } from 'react-native'
+import { useAgeNow } from '../lib/clock-hooks'
 import { deckContentHeight } from '../lib/deck-rows'
 import { stageColor } from '../theme/stage'
 import { color, font, mono, radius, sans, space } from '../theme/theme'
@@ -69,8 +69,8 @@ const toRailStyle = (rail: Rail) => ({ width: rail.width, backgroundColor: rail.
  * POD-767 brings it onto the LEAD RAIL the web deck landed in POD-758, so the
  * same mission reads the same on both. Two fills and no more — grey for a task
  * in every state, fuchsia for a proposal — with selection and attention as
- * square ticks in the rail's gutter, a lead's branch drawn in the mission
- * accent, agent rows reduced to contents rather than objects, a census behind
+ * square ticks in the rail's gutter, a lead's branch drawn in the theme
+ * ink, agent rows reduced to contents rather than objects, a census behind
  * every fold, and proposals sunk to a tail that names who filed them.
  */
 
@@ -82,7 +82,6 @@ const MODES: Array<{ id: FlightDeckMode; label: string }> = [
 
 export const MissionDeck = observer(function MissionDeck({
   screen,
-  accent,
   currentSessionId,
   onOpenSession,
   onOpenTask,
@@ -95,8 +94,6 @@ export const MissionDeck = observer(function MissionDeck({
 }: {
   /** The opened mission: its rows, folds, mode and the root's answers. */
   screen: MissionScreen
-  /** The mission's own accent — what the lead rail and every tick are drawn in. */
-  accent: string
   /** The session the conversation underneath is showing — the deck marks it so
    *  the panel answers "where am I" as well as "what else is there". */
   currentSessionId: SessionId | undefined
@@ -141,7 +138,7 @@ export const MissionDeck = observer(function MissionDeck({
   const guides = useMemo(() => treeGuides(spineRows as MissionDeckIssueModel[]), [spineRows])
 
   /**
-   * THE TASKS THAT HAVE A LEAD — the set the coloured rails are drawn from.
+   * THE TASKS THAT HAVE A LEAD — the set the lead rails are drawn from.
    *
    * A designated coordinator whose session has exited is not leading anything,
    * so the predicate is over LIVE sessions: a rail that stayed lit after its
@@ -301,7 +298,7 @@ export const MissionDeck = observer(function MissionDeck({
           <View
             style={[
               styles.topRailLine,
-              { left: ROOT_RAIL, ...toRailStyle(railFor(leadTone(rootId), accent)) },
+              { left: ROOT_RAIL, ...toRailStyle(railFor(leadTone(rootId))) },
             ]}
           />
         </View>
@@ -329,7 +326,6 @@ export const MissionDeck = observer(function MissionDeck({
                 depth={0}
                 carries={[]}
                 rails={[leadTone(rootId)]}
-                accent={accent}
                 // The root's rail carries on into the spine below it, so the
                 // last agent's elbow must not close the line.
                 stops={i === rootSessions.length - 1 && spineRows.length === 0}
@@ -359,7 +355,6 @@ export const MissionDeck = observer(function MissionDeck({
             row={row}
             carries={guides[index] ?? []}
             rails={rails[index] ?? []}
-            accent={accent}
             stops={!(guides[index + 1] ?? [])[row.depth - 1]}
             childFollows={(spineRows[index + 1]?.depth ?? 0) > row.depth}
             mode={mode}
@@ -445,7 +440,6 @@ export const SpineRow = observer(function SpineRow({
   row,
   carries,
   rails,
-  accent,
   stops,
   childFollows,
   mode,
@@ -459,7 +453,6 @@ export const SpineRow = observer(function SpineRow({
   row: MissionDeckIssueModel
   carries: readonly boolean[]
   rails: readonly RailTone[]
-  accent: string
   stops: boolean
   /** Whether the next RENDERED row is a child of this task. Its agents and its
    *  children share one line, so the line has to survive the gap between this
@@ -501,7 +494,6 @@ export const SpineRow = observer(function SpineRow({
           depth={row.depth}
           carries={carries}
           rails={rails}
-          accent={accent}
           // The strip's own rail is its PARENT's descent, at the parent's x. It
           // ends at this elbow when no sibling follows — the agents and children
           // below hang one step further in, on a different line.
@@ -530,7 +522,6 @@ export const SpineRow = observer(function SpineRow({
             depth={row.depth}
             carries={carries}
             rails={rails}
-            accent={accent}
             stops={i === bands.length - 1 && !childFollows}
             current={session.sessionId === currentSessionId}
             onPress={() => onOpenSession(session)}
@@ -557,7 +548,6 @@ const Band = observer(function Band({
   depth,
   carries,
   rails,
-  accent,
   stops,
   current,
   onPress,
@@ -567,7 +557,6 @@ const Band = observer(function Band({
   depth: number
   carries: readonly boolean[]
   rails: readonly RailTone[]
-  accent: string
   stops: boolean
   current: boolean
   onPress: () => void
@@ -586,7 +575,6 @@ const Band = observer(function Band({
       depth={depth}
       carries={carries}
       rails={rails}
-      accent={accent}
       stops={stops}
       name={sessionTitle(session)}
       displayRef={session.displayRef?.trim() || undefined}

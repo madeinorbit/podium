@@ -205,8 +205,7 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
   view.mount(el)
 
   // The background last applied to the view — a later setAppearance compares
-  // against it to detect a real colour change (issue recolour, user theme
-  // edit) worth reporting to a mode-2031 subscriber.
+  // against it to detect a theme change worth reporting to a mode-2031 subscriber.
   let lastBackground = (opts.appearance?.theme ?? DEFAULT_THEME).background
 
   let active = opts.active ?? true

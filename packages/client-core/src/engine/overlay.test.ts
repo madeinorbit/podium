@@ -20,8 +20,6 @@ import {
 } from '@podium/model'
 
 import { describe, expect, it } from 'vitest'
-import type { OutboxEntry } from '../outbox'
-import { ACTION_STATE_REDUCER_COMMANDS } from './actions'
 import {
   AWAITING_TRUTH_TTL_MS,
   type AwaitingTruth,
@@ -36,6 +34,8 @@ import {
   pruneAwaiting,
   rowFingerprint,
 } from '../command-reducers'
+import type { OutboxEntry } from '../outbox'
+import { ACTION_STATE_REDUCER_COMMANDS } from './actions'
 
 const entry = (kind: string, input: unknown, queuedAt = 1751500800000): OutboxEntry => ({
   mutationId: asMutationId(`m-`),
@@ -233,16 +233,16 @@ describe('overlayForOutboxEntry projection', () => {
   })
 
   it('issueUpdate treats a cleared field as covered by an ABSENT one — null and undefined are one value', () => {
-    // `issues.update` clears a colour with `color: null`; `OverlayRow.color` is
+    // `issues.update` clears acceptance with `acceptance: null`; `OverlayRow.acceptance` is
     // optional and simply absent once cleared. A strict `===` would leave every
     // clear painted until its TTL.
     const cleared = overlayForOutboxEntry(
-      entry('issueUpdate', { id: 'i1', patch: { color: null } }),
+      entry('issueUpdate', { id: 'i1', patch: { acceptance: null } }),
     )
     if (cleared?.op !== 'patch') throw new Error('expected patch overlay')
     expect(cleared.coveredBy({} as OverlayRow)).toBe(true)
-    expect(cleared.coveredBy({ color: undefined } as OverlayRow)).toBe(true)
-    expect(cleared.coveredBy({ color: 'amber' } as unknown as OverlayRow)).toBe(false)
+    expect(cleared.coveredBy({ acceptance: undefined } as OverlayRow)).toBe(true)
+    expect(cleared.coveredBy({ acceptance: 'Keep this requirement' } as unknown as OverlayRow)).toBe(false)
   })
 
   it('an EMPTY issueUpdate patch projects to null rather than parking a no-op overlay', () => {

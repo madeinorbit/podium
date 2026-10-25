@@ -16,7 +16,7 @@
  *    ring — The Signal Rule's one voice — marked the column under the cursor.
  *    The gesture is now pointer-based: the card lifts into a portalled proxy
  *    with the popover shadow (the one elevation tier DESIGN.md licenses, because
- *    it will disappear), the target column takes an issue-tint wash, and a line
+ *    it will disappear), the target column takes a neutral wash, and a line
  *    opens at the index the drop will ACTUALLY produce — see `plannedDropIndex`,
  *    which simulates the sort rather than following the cursor.
  *
@@ -29,7 +29,6 @@
 import type { IssueBoardStage, IssueId, IssueStage } from '@podium/model/browser'
 import { Plus } from 'lucide-react'
 import type {
-  CSSProperties,
   JSX,
   MouseEvent as ReactMouseEvent,
   PointerEvent as ReactPointerEvent,
@@ -39,10 +38,9 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { CardBoundary } from '@/app/CardBoundary'
 import type { IssueViewModel } from '@/app/store'
-import { issueColorHex } from '@/lib/issueColors'
 import { cn } from '@/lib/utils'
-import { BoardIssueCard, IssueCard } from './IssueCard'
 import { useBoardColumn, useBoardDropIndex } from './board-pool-data'
+import { BoardIssueCard, IssueCard } from './IssueCard'
 import type { BoardFilter } from './issue-board-filter'
 import { STAGE_LABELS } from './issue-card'
 import { StageGlyph } from './issue-glyphs'
@@ -280,7 +278,6 @@ export function IssuesKanban(props: IssuesKanbanProps): JSX.Element {
   }, [])
 
   const selectedIds = useMemo(() => new Set(props.selected), [props.selected])
-  const dragHex = drag ? issueColorHex(drag.issue.color) : undefined
 
   return (
     <div
@@ -304,7 +301,6 @@ export function IssuesKanban(props: IssuesKanbanProps): JSX.Element {
           now={now}
           drop={drag?.over?.stage === stage ? drag.over : null}
           draggedIssueId={drag?.issue.id ?? null}
-          dragHex={dragHex}
           onOpen={props.onOpen}
           onApprove={props.onApprove}
           onCreateIn={props.onCreateIn}
@@ -385,8 +381,8 @@ function DragProxy({
 function DropLine(): JSX.Element {
   return (
     <div
-      className="my-px h-0.5 flex-none rounded-full bg-[var(--issue)]"
-      style={{ boxShadow: '0 0 0 3px color-mix(in srgb, var(--issue) 18%, transparent)' }}
+      className="my-px h-0.5 flex-none rounded-full bg-[var(--neutral)]"
+      style={{ boxShadow: '0 0 0 3px color-mix(in srgb, var(--neutral) 18%, transparent)' }}
       data-testid="kanban-drop-line"
       aria-hidden="true"
     />
@@ -403,7 +399,6 @@ const IssueColumn = memo(function IssueColumn({
   now,
   drop,
   draggedIssueId,
-  dragHex,
   onOpen,
   onApprove,
   onCreateIn,
@@ -424,7 +419,6 @@ const IssueColumn = memo(function IssueColumn({
   now: number
   drop: DragState['over']
   draggedIssueId: IssueId | null
-  dragHex: string | undefined
   onOpen: (id: IssueId) => void
   onApprove: (id: IssueId) => void
   onCreateIn: (stage: IssueStage) => void
@@ -466,11 +460,9 @@ const IssueColumn = memo(function IssueColumn({
       data-kanban-column={stage}
       data-testid="issue-column"
       className={cn(
-        'issue-scope group/col flex w-[304px] min-w-[304px] flex-col border-border/55 border-r transition-colors duration-150',
-        over && 'issue-mix-5',
+        'group/col flex w-[304px] min-w-[304px] flex-col border-border/55 border-r transition-colors duration-150',
+        over && 'surface-mix-5',
       )}
-      style={dragHex ? ({ '--issue': dragHex } as CSSProperties) : undefined}
-      data-issue-colored={dragHex ? 'true' : 'false'}
     >
       <div
         className={cn(
@@ -481,7 +473,7 @@ const IssueColumn = memo(function IssueColumn({
           // stage glyph and the `+` sit on the exact edges the cards do, so one
           // left edge and one right edge run the whole height of the column.
           'flex h-(--section-bar-h) flex-none select-none items-center gap-2 border-hairline-bar border-b bg-bar px-3 transition-colors duration-150',
-          over && 'issue-mix-9',
+          over && 'surface-mix-9',
         )}
       >
         <StageGlyph stage={stage} size={13} />

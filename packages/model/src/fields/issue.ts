@@ -4,7 +4,6 @@ import { z } from 'zod'
 // dependent, and because these are zod schema VALUES evaluated at module load it
 // failed at RUNTIME rather than at lint — which is why POD-367 could not compose
 import {
-  IssueColor,
   IssueGitState,
   IssuePanel,
   IssueSessionSummary,
@@ -16,7 +15,7 @@ import { Attribution } from './attribution'
 import { OpStreamDocument } from './op-stream'
 import { Revision } from './primitives'
 
-export { IssueColor, IssueGitState, IssuePanel, IssueSessionSummary, IssueStage, IssueType }
+export { IssueGitState, IssuePanel, IssueSessionSummary, IssueStage, IssueType }
 
 // ---------------------------------------------------------------------------
 // Identity and text
@@ -112,7 +111,7 @@ export type IssueLifecycle = z.infer<typeof IssueLifecycle>
 
 /** PRIORITISATION AND ROUTING. `assignee` becomes a branded `UserId` (free text
  *  today, inventory §9) — ownership-adjacent rather than attribution, but the
- *  same brand. `color` is a slot NAME, never a hex ([spec:SP-b4d1]).
+ *  same brand.
  *
  *  `pinned` is DELIBERATELY ABSENT: it is per-user state (inventory §7.1), and
  *  it is a SECOND pin mechanism beside the `pins` table which POD-1076 collapses. */
@@ -122,7 +121,6 @@ export const IssueTriage = z.object({
   assignee: UserIdField.optional(),
   labels: z.array(z.string()),
   estimateMin: z.number().int().optional(),
-  color: IssueColor.optional(),
   /** Fractional sort key, lexicographic ascending = top of the scope. */
   sortKey: z.string().optional(),
   dueAt: z.string().optional(),

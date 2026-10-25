@@ -6,8 +6,6 @@ exports[`awaiting-merge > mobile.attentionAction equals its old port 1`] = `"Rev
 
 exports[`awaiting-merge > mobile.branch equals its old port 1`] = `"issue/merge"`;
 
-exports[`awaiting-merge > mobile.color equals its old port 1`] = `null`;
-
 exports[`awaiting-merge > mobile.decision equals its old port 1`] = `"merge"`;
 
 exports[`awaiting-merge > mobile.draftOnly equals its old port 1`] = `false`;
@@ -95,8 +93,6 @@ exports[`awaiting-merge > sidebar.awaitsTuck equals its old port 1`] = `false`;
 
 exports[`awaiting-merge > sidebar.canBringBack equals its old port 1`] = `false`;
 
-exports[`awaiting-merge > sidebar.color equals its old port 1`] = `null`;
-
 exports[`awaiting-merge > sidebar.continuation equals its old port 1`] = `null`;
 
 exports[`awaiting-merge > sidebar.decision equals its old port 1`] = `"merge"`;
@@ -172,8 +168,6 @@ exports[`folded-parent > mobile.activityAt equals its old port 1`] = `1791460800
 exports[`folded-parent > mobile.attentionAction equals its old port 1`] = `null`;
 
 exports[`folded-parent > mobile.branch equals its old port 1`] = `null`;
-
-exports[`folded-parent > mobile.color equals its old port 1`] = `null`;
 
 exports[`folded-parent > mobile.decision equals its old port 1`] = `null`;
 
@@ -281,8 +275,6 @@ exports[`folded-parent > sidebar.awaitsTuck equals its old port 1`] = `false`;
 
 exports[`folded-parent > sidebar.canBringBack equals its old port 1`] = `false`;
 
-exports[`folded-parent > sidebar.color equals its old port 1`] = `null`;
-
 exports[`folded-parent > sidebar.continuation equals its old port 1`] = `null`;
 
 exports[`folded-parent > sidebar.decision equals its old port 1`] = `null`;
@@ -374,8 +366,6 @@ exports[`merge > mobile.attentionAction equals its old port 1`] = `null`;
 
 exports[`merge > mobile.branch equals its old port 1`] = `null`;
 
-exports[`merge > mobile.color equals its old port 1`] = `null`;
-
 exports[`merge > mobile.decision equals its old port 1`] = `null`;
 
 exports[`merge > mobile.draftOnly equals its old port 1`] = `false`;
@@ -462,8 +452,6 @@ exports[`merge > sidebar.awaitsTuck equals its old port 1`] = `false`;
 
 exports[`merge > sidebar.canBringBack equals its old port 1`] = `false`;
 
-exports[`merge > sidebar.color equals its old port 1`] = `null`;
-
 exports[`merge > sidebar.continuation equals its old port 1`] = `null`;
 
 exports[`merge > sidebar.decision equals its old port 1`] = `null`;
@@ -538,8 +526,6 @@ exports[`next-message > mobile.activityAt equals its old port 1`] = `17914608000
 exports[`next-message > mobile.attentionAction equals its old port 1`] = `null`;
 
 exports[`next-message > mobile.branch equals its old port 1`] = `null`;
-
-exports[`next-message > mobile.color equals its old port 1`] = `null`;
 
 exports[`next-message > mobile.decision equals its old port 1`] = `null`;
 
@@ -647,8 +633,6 @@ exports[`next-message > sidebar.awaitsTuck equals its old port 1`] = `false`;
 
 exports[`next-message > sidebar.canBringBack equals its old port 1`] = `false`;
 
-exports[`next-message > sidebar.color equals its old port 1`] = `null`;
-
 exports[`next-message > sidebar.continuation equals its old port 1`] = `null`;
 
 exports[`next-message > sidebar.decision equals its old port 1`] = `null`;
@@ -739,8 +723,6 @@ exports[`origin > mobile.activityAt equals its old port 1`] = `1791460800000`;
 exports[`origin > mobile.attentionAction equals its old port 1`] = `null`;
 
 exports[`origin > mobile.branch equals its old port 1`] = `null`;
-
-exports[`origin > mobile.color equals its old port 1`] = `null`;
 
 exports[`origin > mobile.decision equals its old port 1`] = `null`;
 
@@ -848,8 +830,6 @@ exports[`origin > sidebar.awaitsTuck equals its old port 1`] = `false`;
 
 exports[`origin > sidebar.canBringBack equals its old port 1`] = `false`;
 
-exports[`origin > sidebar.color equals its old port 1`] = `null`;
-
 exports[`origin > sidebar.continuation equals its old port 1`] = `null`;
 
 exports[`origin > sidebar.decision equals its old port 1`] = `null`;
@@ -947,8 +927,6 @@ exports[`quiet-draft > mobile.activityAt equals its old port 1`] = `179146080000
 exports[`quiet-draft > mobile.attentionAction equals its old port 1`] = `null`;
 
 exports[`quiet-draft > mobile.branch equals its old port 1`] = `null`;
-
-exports[`quiet-draft > mobile.color equals its old port 1`] = `null`;
 
 exports[`quiet-draft > mobile.decision equals its old port 1`] = `null`;
 
@@ -1056,8 +1034,6 @@ exports[`quiet-draft > sidebar.awaitsTuck equals its old port 1`] = `false`;
 
 exports[`quiet-draft > sidebar.canBringBack equals its old port 1`] = `false`;
 
-exports[`quiet-draft > sidebar.color equals its old port 1`] = `null`;
-
 exports[`quiet-draft > sidebar.continuation equals its old port 1`] = `null`;
 
 exports[`quiet-draft > sidebar.decision equals its old port 1`] = `null`;
@@ -1148,8 +1124,6 @@ exports[`snoozed > mobile.activityAt equals its old port 1`] = `1791460800000`;
 exports[`snoozed > mobile.attentionAction equals its old port 1`] = `null`;
 
 exports[`snoozed > mobile.branch equals its old port 1`] = `null`;
-
-exports[`snoozed > mobile.color equals its old port 1`] = `null`;
 
 exports[`snoozed > mobile.decision equals its old port 1`] = `null`;
 
@@ -1257,8 +1231,6 @@ exports[`snoozed > sidebar.awaitsTuck equals its old port 1`] = `false`;
 
 exports[`snoozed > sidebar.canBringBack equals its old port 1`] = `false`;
 
-exports[`snoozed > sidebar.color equals its old port 1`] = `null`;
-
 exports[`snoozed > sidebar.continuation equals its old port 1`] = `null`;
 
 exports[`snoozed > sidebar.decision equals its old port 1`] = `null`;
@@ -1349,8 +1321,6 @@ exports[`waiting > mobile.activityAt equals its old port 1`] = `1791460800000`;
 exports[`waiting > mobile.attentionAction equals its old port 1`] = `"Answer"`;
 
 exports[`waiting > mobile.branch equals its old port 1`] = `null`;
-
-exports[`waiting > mobile.color equals its old port 1`] = `null`;
 
 exports[`waiting > mobile.decision equals its old port 1`] = `null`;
 
@@ -1459,8 +1429,6 @@ exports[`waiting > sidebar.awaitsTuck equals its old port 1`] = `false`;
 
 exports[`waiting > sidebar.canBringBack equals its old port 1`] = `false`;
 
-exports[`waiting > sidebar.color equals its old port 1`] = `null`;
-
 exports[`waiting > sidebar.continuation equals its old port 1`] = `null`;
 
 exports[`waiting > sidebar.decision equals its old port 1`] = `null`;
@@ -1552,8 +1520,6 @@ exports[`working > mobile.activityAt equals its old port 1`] = `1791460800000`;
 exports[`working > mobile.attentionAction equals its old port 1`] = `null`;
 
 exports[`working > mobile.branch equals its old port 1`] = `null`;
-
-exports[`working > mobile.color equals its old port 1`] = `null`;
 
 exports[`working > mobile.decision equals its old port 1`] = `null`;
 
@@ -1660,8 +1626,6 @@ exports[`working > sidebar.awaitingFirstPrompt equals its old port 1`] = `false`
 exports[`working > sidebar.awaitsTuck equals its old port 1`] = `false`;
 
 exports[`working > sidebar.canBringBack equals its old port 1`] = `false`;
-
-exports[`working > sidebar.color equals its old port 1`] = `null`;
 
 exports[`working > sidebar.continuation equals its old port 1`] = `null`;
 

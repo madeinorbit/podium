@@ -19,17 +19,18 @@
  * own states: build the candidate however that issue builds it, then
  * `checkNoWrongNumber(ask(control, qs), ask(candidate, qs))`.
  */
-import { omitGone } from '@podium/client-graph/lookup'
-import { createIssueBoardSource } from '@podium/client-graph/issue-board-source'
-import { BOARD_EXPLORER_TABS } from '@podium/client-graph/issue-board-schema'
+
+import { isDeepStrictEqual } from 'node:util'
 import { chatMentionMatches } from '@podium/client-graph/chat-context'
+import { BOARD_EXPLORER_TABS } from '@podium/client-graph/issue-board-schema'
+import { createIssueBoardSource } from '@podium/client-graph/issue-board-source'
+import { omitGone } from '@podium/client-graph/lookup'
 import { missionView } from '@podium/client-graph/mission-view'
 import type { MobxPool } from '@podium/client-graph/pool'
 import type { RowRecord } from '@podium/client-graph/shared/source'
-import { sidebarView } from '@podium/client-graph/worklist/sidebar'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
+import { sidebarView } from '@podium/client-graph/worklist/sidebar'
 import { autorun } from 'mobx'
-import { isDeepStrictEqual } from 'node:util'
 
 /** The question groups the brief names, plus the first screen itself. */
 export type StartupGroup = 'first-screen' | 'counts' | 'search' | 'board-archive' | 'closed-children'
@@ -135,7 +136,7 @@ export function startupQuestions(targets: StartupTargets): StartupQuestion[] {
     const progress = row.progress
     if (progress === LOADING) return LOADING
     return {
-      id: row.id, title: row.title, seq: row.issue.seq, color: row.issue.color,
+      id: row.id, title: row.title, seq: row.issue.seq,
       stage: row.issue.stage, timing: row.timing, working: row.visibleWorking,
       asking: row.visibleAsking, origin: row.origin, decision: row.decision,
       mergeCommits: row.mergeCommits, progress, showsChildProgress: row.showsChildProgress,

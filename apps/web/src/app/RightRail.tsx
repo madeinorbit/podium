@@ -9,14 +9,8 @@ import { type RightPanelTab, rightPanelAllowed } from './shell-state'
  * The 44px right rail (handoff §2.5): one cell per dock panel — Tasks,
  * Superagent, Git, Files, Shell, Messages, Queues, Shipping.
  *
- * The Tasks cell used to be the SELECTED ISSUE'S ID SQUARE, wearing that
- * issue's colour and its working/waiting corner badge, because the panel it
- * opened was one issue's inspector. It opens an explorer over every task in the
- * repo now (POD-743), so it is an ordinary rail cell with a list glyph: a
- * coloured square would name a task this panel is not about, and a status badge
- * would report on an agent it is not showing. Recolouring an issue was the ID
- * square's other job here; the Colour submenu on every issue's context menu
- * (POD-380) is where that lives.
+ * The Tasks cell opens an explorer over every task in the repo (POD-743), so
+ * it uses an ordinary list glyph rather than the selected task's identity.
  *
  * The Superagent cell used to carry a numbered badge: the PORTFOLIO attention
  * count, every task anywhere waiting on a decision. Sitting on the superagent
@@ -28,7 +22,7 @@ import { type RightPanelTab, rightPanelAllowed } from './shell-state'
  * over board scope (POD-1581), so a draft vessel whose agent is waiting is
  * counted by neither — its sidebar row IS the agent, and carries the pill.
  *
- * The rail carries NO issue tint (POD-516 item 9). It hosts Superagent, Git,
+ * The rail uses neutral chrome (POD-516 item 9). It hosts Superagent, Git,
  * Files, Shell and Messages alongside the task cell, so a tint pulled from the
  * selected issue asserted a relationship most of these cells do not have.
  */

@@ -1,26 +1,27 @@
-import { observer } from 'mobx-react-lite'
-import { useMobilePool } from '../client/mobile-pool'
-import type { SessionModel } from '@podium/client-graph/models'
-import { isFinished } from '@podium/model/browser'
+import { issueAgentKind, issueAgentLabel, modelLabel } from '@podium/client-core/agent-models'
 import { useHarnessDescriptors } from '@podium/client-core/react'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
 import { type MissionProgress, missionCrewLabel } from '@podium/client-core/values'
+import type { SessionModel } from '@podium/client-graph/models'
+import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { asIssueId, type SessionId } from '@podium/model'
+import { isFinished } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import * as Haptics from 'expo-haptics'
 import { useLocalSearchParams, useRouter } from 'expo-router'
+import { observer } from 'mobx-react-lite'
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { StyleSheet, Text, View } from 'react-native'
 import { useMissionOpening, useStoreActions } from '../client/hooks'
+import { useMobilePool } from '../client/mobile-pool'
 import type { MobileTrpc } from '../client/trpc'
+import { useIssueCloseGuard } from '../client/use-issue-close'
 import { ActionSheet, type SheetAction } from '../components/ActionSheet'
 import { HarnessChip } from '../components/AgentMark'
 import { ConfiguredIssueLaunchSheet } from '../components/ConfiguredIssueLaunchSheet'
 import { Icon } from '../components/Icon'
 import { IssueCloseSheet } from '../components/IssueCloseSheet'
-import { IssueColorSheet } from '../components/IssueColorSheet'
 import { ChevronRight, MoreVertical, SquareTerminal } from '../components/icons'
 import { BootstrapCrossfade, DetailSkeleton } from '../components/LaunchPlaceholders'
 import { PressableScale } from '../components/PressableScale'
@@ -29,8 +30,6 @@ import { SessionConversation } from '../components/SessionConversation'
 import { TaskSheet } from '../components/TaskSheet'
 import { EmptyState } from '../components/ui'
 import { WorkingMark } from '../components/WorkingMark'
-import { issueAgentKind, issueAgentLabel, modelLabel } from '@podium/client-core/agent-models'
-import { useIssueCloseGuard } from '../client/use-issue-close'
 import { mostRelevantSession } from '../lib/mission-session'
 import { alpha } from '../theme/mix'
 import { color, font, mono, monoLabel, space } from '../theme/theme'
@@ -84,7 +83,6 @@ export const MissionScreen = observer(function MissionScreen() {
   const [peek, setPeek] = useState<IssueViewModel | null>(null)
   const [menuOpen, setMenuOpen] = useState(false)
   const [launchOpen, setLaunchOpen] = useState(false)
-  const [colorOpen, setColorOpen] = useState(false)
   const [fileRootPending, setFileRootPending] = useState(false)
   const [findRequest, setFindRequest] = useState(0)
 
@@ -159,7 +157,6 @@ export const MissionScreen = observer(function MissionScreen() {
         },
       },
       { label: 'Launch an agent…', onPress: () => setLaunchOpen(true) },
-      { label: 'Colour…', onPress: () => setColorOpen(true) },
       ...(current
         ? [
             {
@@ -263,10 +260,6 @@ export const MissionScreen = observer(function MissionScreen() {
       <ConfiguredIssueLaunchSheet
         issue={launchOpen ? (root ?? null) : null}
         onClose={() => setLaunchOpen(false)}
-      />
-      <IssueColorSheet
-        issue={colorOpen ? (root ?? null) : null}
-        onClose={() => setColorOpen(false)}
       />
       {root ? (
         <IssueCloseSheet

@@ -28,10 +28,11 @@ import {
 import { type JSX, useCallback, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { toast } from 'sonner'
-import type { Trpc } from '@/app/trpc'
 import { useWorklistPoolProjection } from '@/app/store-worklist-pool'
+import type { Trpc } from '@/app/trpc'
 import { useSessionGuard } from '@/lib/hooks/use-session-guard'
 import { useFeature } from '@/lib/use-feature'
+import { useDeadlineNow } from './clock-hooks'
 import {
   MENU_EMPTY,
   MENU_HEADER,
@@ -52,7 +53,6 @@ import {
   sessionMenuEligibility,
 } from './session-context-menu'
 import { useCursorMenu } from './use-cursor-menu'
-import { useDeadlineNow } from './clock-hooks'
 import { sessionDisplayName } from './WorkerLabel'
 
 /**
@@ -151,8 +151,7 @@ export function SessionContextMenu({
       // The host opens this on contextmenu; suppress a nested browser menu.
       onContextMenu={(e) => e.preventDefault()}
     >
-      {/* Same header the issue menu and the colour picker wear (POD-380): the
-          two sidebar menus open one pixel apart and must read as one family. */}
+      {}
       <div className={`${MENU_HEADER} px-[5px]`}>
         <span>AGENT</span>
         <span className={`${MENU_HEADER_REF} min-w-0 truncate normal-case`}>

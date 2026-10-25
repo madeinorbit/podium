@@ -20,7 +20,7 @@ export const SESSION_PANE_SCHEMA = {
     'queuedMessageCount', 'createdAt', 'lastActiveAt', 'archived', 'readAt', 'unread', 'geometry', 'draftSyncEngine', 'controllerId',
   ] },
   machine: { source: 'header:machine', relation: 'session.machine' },
-  issue: { source: 'pool:issue', fields: ['branch', 'gitState'], relations: ['parent', 'worktree.issues'], summary: ['id', 'seq', 'archived', 'deletedAt', 'parentId', 'color', 'worktreePath'] },
+  issue: { source: 'pool:issue', fields: ['branch', 'gitState'], relations: ['parent', 'worktree.issues'], summary: ['id', 'seq', 'archived', 'deletedAt', 'parentId', 'worktreePath'] },
   ownership: { explicit: 'session.issueId', fallback: 'worktree.issues over cwd path ancestors, nearest eligible path first', excludes: ['archived', 'deletedAt'], tie: 'inverse bucket order at the same path' },
 } as const
 export const SESSION_PANE_SUMMARIES = { issue: SESSION_PANE_SCHEMA.issue.summary }

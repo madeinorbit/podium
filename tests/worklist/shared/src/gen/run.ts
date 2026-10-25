@@ -1,6 +1,5 @@
+import { referenceState, watchReference } from '../../../diagnostics/reference-state'
 import { SYNTHETIC_CLAUDE_KIND, SYNTHETIC_CODEX_KIND, SYNTHETIC_CODEX_TITLE } from '../../../harness/src/fixture/fixture-kinds.fixtures'
-import { watchReference } from '../../../diagnostics/reference-state'
-import { referenceState } from '../../../diagnostics/reference-state'
 import { upsertIssue } from '../scenarios'
 /**
  * POD-4555 (L4a) — applies generated changes through the real scenario engine.
@@ -39,12 +38,12 @@ import { upsertIssue } from '../scenarios'
  */
 
 import type { OnlineEvents } from '@podium/client-core/outbox'
-import { type RowSourceHandle } from '@podium/client-graph/shared/row-source'
-import { createRowSource } from '../row-source'
-import type { TxId } from '../write-contract'
+import type { RowSourceHandle } from '@podium/client-graph/shared/row-source'
 import type { FixtureCorpus } from '../../../harness/src/fixture/index'
+import { createRowSource } from '../row-source'
 import { evict, remove, type ScenarioEngine, startEngineOnCorpus, upsert } from '../scenarios'
 import type { RowSourceEvent } from '../stats'
+import type { TxId } from '../write-contract'
 import type { ArmEditPatch } from './arm-edits'
 import { type Change, genCorpus, ROW_KINDS, type RowChange } from './changes'
 
@@ -531,7 +530,7 @@ export async function startGenRun(opts: GenRunOptions = {}): Promise<GenRun> {
             pinned: true,
             readAt: stamp,
             commentCount: 3,
-            color: 'violet',
+
             linearIdentifier: 'EXT-42',
           },
           { pinned: false, deferUntil: new Date(now + 60_000).toISOString() },
@@ -550,7 +549,7 @@ export async function startGenRun(opts: GenRunOptions = {}): Promise<GenRun> {
           {
             gitState: { shared: true, merged: true, ahead: 0, dirtyFiles: 0, updatedAt: stamp },
             commentCount: 5,
-            color: 'blue',
+
             linearIdentifier: null,
           },
           { audience: 'agent', isDraftVessel: true, intentOrigin: 'agent', worktreePath: null },

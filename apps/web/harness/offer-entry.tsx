@@ -42,8 +42,8 @@ declare global {
  *  of which collects feedback. */
 const OFFER: SessionOffer = {
   message: [
-    'Light sidebar rows now read as colours, not smudges.',
-    'Issue tint on the paper work row goes from ~2.8% to ~4.2% resting (hover ~4.4% → ~6.6%) via a new row-only scale; dark is untouched and the deck/tab-strip surfaces stay where POD-725 put them.',
+    'Light sidebar rows have stronger neutral contrast.',
+    'The paper work row uses a stronger resting and hover tint through its row-only scale. The deck and tab-strip surfaces keep their current contrast.',
     'The one thing to judge is the dose — the sweep artifact shows 0.4 / 0.5 / 0.6 / 0.7% side by side.',
   ].join('\n'),
   actions: [

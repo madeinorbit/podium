@@ -116,7 +116,7 @@ vi.mock('@/app/store', () => {
     pins: { panels: [], worktrees: [], repos: [] },
     setPinned: vi.fn(),
     issues: [
-      issue('pin', 'Pinned issue', { pinned: true, color: 'violet' }),
+      issue('pin', 'Pinned issue', { pinned: true, }),
       issue('plain', 'Plain issue'),
       issue('closed-a', 'Closed alpha', {
         stage: 'done',

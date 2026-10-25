@@ -6,11 +6,7 @@
    handoff. */
 
 :root {
-  /* Reserved motion colours (handoff 4b, retuned by POD-166 R10: working is
-     calm blue, never green or red). The issue palette's blue slot (#3b82f6)
-     stays a different hue band, and the whole warm accent band is excluded
-     entirely, so these never collide with an issue colour and are safe to
-     hardcode here. */
+  /* Status motion colors (handoff 4b, POD-166 R10): working is calm blue. */
   --motion-working: #6f9dff; /* working mark + counting timer */
   --motion-working-bright: #9dbcff; /* mark/✓ glyph inside dark badges */
   --motion-badge-bg: #0e1a2e; /* dark navy badge fill behind the glyph */
@@ -181,15 +177,11 @@
   transition:
     opacity 0.34s cubic-bezier(0.22, 1, 0.36, 1),
     filter 0.34s cubic-bezier(0.22, 1, 0.36, 1);
-  /* The veil covers the TERMINAL surface, which is dark in every theme (xterm's
-     own background, issue-tinted) — so it pins its own ink ramp instead of
-     inheriting the theme's, whose ink goes dark on a light theme and would
-     vanish here. Same mixes as .issue-scope, with the dark-surface ramp
-     constants inlined, so the issue-colour channel still tints the copy. */
-  --handover-ink: color-mix(in srgb, var(--issue) 10%, #f3f3f8);
-  --handover-bright: color-mix(in srgb, var(--issue) 25%, #d7d7e0);
-  --handover-muted: color-mix(in srgb, var(--issue) 26%, #9aa3b2);
-  --handover-dim: color-mix(in srgb, var(--issue) 28%, #6c7690);
+
+  --handover-ink: color-mix(in srgb, var(--neutral) 10%, #f3f3f8);
+  --handover-bright: color-mix(in srgb, var(--neutral) 25%, #d7d7e0);
+  --handover-muted: color-mix(in srgb, var(--neutral) 26%, #9aa3b2);
+  --handover-dim: color-mix(in srgb, var(--neutral) 28%, #6c7690);
   --handover-label: #7a84a0;
 }
 .handover-veil-out {

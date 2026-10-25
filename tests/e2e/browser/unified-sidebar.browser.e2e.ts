@@ -159,7 +159,6 @@ test('nested fleets fold cleanly and unattached main sessions never become sideb
     title: parentTitle,
     startNow: true,
   })
-  await rpc(request, 'issues.update', { id: parent.id, patch: { color: 'pink' } })
   await rpc<{ id: string }>(request, 'issues.create', {
     repoPath,
     title: childTitle,

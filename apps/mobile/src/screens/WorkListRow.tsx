@@ -1,27 +1,26 @@
-import { useAgeNow } from '../lib/clock-hooks'
-import { here } from '@podium/client-graph/lookup'
-import { mobileWorkView } from '@podium/client-graph/worklist/mobile'
-import { worklistView } from '@podium/client-graph/worklist/view-model'
-import type { WorklistIssue } from '@podium/client-graph/worklist/issue'
-import type { WorklistWorktree } from '@podium/client-graph/worklist/worktree'
-import { useWorklistModel } from '@podium/client-graph/react'
 /** Native work-row paint from one addressed pool projection. */
 import type { IssueNavigationModel } from '@podium/client-core/values'
+import { here } from '@podium/client-graph/lookup'
+import { useWorklistModel } from '@podium/client-graph/react'
+import type { WorklistIssue } from '@podium/client-graph/worklist/issue'
 import type { MobileWorkRef } from '@podium/client-graph/worklist/mobile'
-import { issueDisplayRef } from '@podium/protocol'
+import { mobileWorkView } from '@podium/client-graph/worklist/mobile'
+import { worklistView } from '@podium/client-graph/worklist/view-model'
+import type { WorklistWorktree } from '@podium/client-graph/worklist/worktree'
 import type { IssueGitState, SessionId } from '@podium/model'
+import { issueDisplayRef } from '@podium/protocol'
 import { observer } from 'mobx-react-lite'
 import { memo, useCallback, useEffect, useState } from 'react'
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native'
 import { useMobilePool } from '../client/mobile-pool'
 import { Icon } from '../components/Icon'
 import { AlarmClock, ArrowDownToLine, Pin } from '../components/icons'
-import { PressableScale } from '../components/PressableScale'
 import { NotSavedMark } from '../components/NotSavedMark'
+import { PressableScale } from '../components/PressableScale'
 import { WorkingMark } from '../components/WorkingMark'
 import { FleetSummary, GitStampLine, RowProgressMeter } from '../components/WorkRowParts'
+import { useAgeNow } from '../lib/clock-hooks'
 import { mobileRowStamp, worklistRowStatus } from '../lib/work-sections'
-import { flow, issueColorHex } from '../theme/issueColors'
 import { alpha } from '../theme/mix'
 import { color, font, mono, monoLabel, radius, sans, space } from '../theme/theme'
 
@@ -66,7 +65,6 @@ export const WorkRow = observer(function WorkRow({
   const isIssue = 'issue' in row
   const issue = isIssue ? row.issue : undefined
   const ref = issue ? issueDisplayRef(issue) : null
-  const issueColor = issue?.color
   const internal = issue?.audience === 'agent'
   const pinned = issue?.pinned === true
   const label = row.title
@@ -76,8 +74,6 @@ export const WorkRow = observer(function WorkRow({
   const statusLine = worklistRowStatus(row, row.worklist.pool.clock.peekNow())
   const snoozed = issue?.deferred === true
   const unsnoozed = isIssue && row.returnedFromDefer
-  const hex = isIssue ? issueColorHex(issueColor) : undefined
-  const rowBg = hex ? flow.rowBg(hex) : color.engraved
   const phase = row.timing.phase, working = row.visibleWorking, waiting = row.waitingCount
   const decision = isIssue ? row.decision : null
   const unread = isIssue ? row.emphasizeUnread : row.visibleUnread
@@ -88,7 +84,7 @@ export const WorkRow = observer(function WorkRow({
     <View
       style={[
         rowStyles.row,
-        attention ? rowStyles.rowAttention : hex ? { backgroundColor: rowBg } : null,
+        attention ? rowStyles.rowAttention : null,
         phase === 'queued' && rowStyles.rowQueued,
         phase === 'done' && !onTuck && rowStyles.rowDone,
         internal && rowStyles.rowInternal,
@@ -113,7 +109,6 @@ export const WorkRow = observer(function WorkRow({
               style={[
                 rowStyles.rowTitle,
                 unread && rowStyles.rowTitleUnread,
-                hex ? { color: flow.text(hex) } : null,
               ]}
               numberOfLines={1}
             >
@@ -199,11 +194,6 @@ export const WorkRow = observer(function WorkRow({
  * folded rows there still read it.
  */
 const rowStyles = StyleSheet.create({
-  // TINT, NOT OUTLINE. The issue colour arrives as a row BACKGROUND — the same
-  // `flow.rowBg` recipe the desktop row uses — and nothing draws a coloured
-  // border around it: four outlined rows in four different hues read as a stack
-  // of cards, which is precisely what a worklist must not look like. The 3pt gap
-  // is the separator.
   row: {
     flexDirection: 'row',
     alignItems: 'stretch',

@@ -13,12 +13,12 @@ import {
   selectedMissionRoot,
   shippingPanelModel,
 } from '@podium/client-core/values'
-import { allIssueViewModels } from './reference/issue-view-models'
-import type { ReferenceState as Store } from './reference-state'
 import type { MobxPool } from '@podium/client-graph/pool'
 import { SHELL_SCHEMA, SHELL_SUMMARIES } from '@podium/client-graph/shell-schema'
 import { shellViews } from '@podium/client-graph/shell-views'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
+import { allIssueViewModels } from './reference/issue-view-models'
+import type { ReferenceState as Store } from './reference-state'
 import { type CheckRow, compareSidebarSnapshots, type SidebarSnapshot } from './sidebar-check'
 
 const fields = (value: object, keys: readonly string[]) =>
@@ -26,19 +26,6 @@ const fields = (value: object, keys: readonly string[]) =>
 const row = (id: string, value: object): CheckRow => ({ id, fields: { value } })
 const missionExpanded = (value: Pick<IssueNavigationModel, 'type' | 'childCount'> | undefined) =>
   Boolean(value && value.childCount >= 6)
-function colorChain(
-  current: { id: string; color?: string | null; parentId?: string | null } | undefined,
-  byId: (id: string) => typeof current,
-) {
-  const values: object[] = [],
-    seen = new Set<string>()
-  while (current && !seen.has(current.id)) {
-    values.push(fields(current, ['id', 'color', 'parentId']))
-    seen.add(current.id)
-    current = current.parentId ? byId(current.parentId) : undefined
-  }
-  return values
-}
 function closeFields(
   layout: Store['workspaces'][string] | undefined,
   key: string,
@@ -131,10 +118,6 @@ export function legacyShellSnapshot(
           repoCount: repos.length,
           worktreeCount: repos.reduce((sum, repo) => sum + repo.worktrees.length, 0),
           sessionCount: sessions.length,
-          colors: colorChain(
-            issues.find(issue => issue.id === state.selectedIssueId && !issue.archived && !issue.deletedAt),
-            id => issues.find(issue => issue.id === id),
-          ),
           missionRootId: missionRoot?.id ?? null,
           missionExpanded: missionExpanded(missionRoot),
         },
@@ -238,7 +221,6 @@ export function poolShellSnapshot(pool: MobxPool): SidebarSnapshot {
               repoCount: chrome.repoCount,
               worktreeCount: chrome.worktreeCount,
               sessionCount: chrome.sessionCount,
-              colors: colorChain(chrome.colorIssue, chrome.colorById),
               missionRootId: chrome.missionRoot?.id ?? null,
               missionExpanded: missionExpanded(chrome.missionRoot),
             }

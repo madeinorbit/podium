@@ -1,21 +1,19 @@
-import { omitGone } from '@podium/client-graph/lookup'
-import { worklistView } from '@podium/client-graph/worklist/view-model'
-import { worklistRowStatus } from '../../../../apps/mobile/src/lib/work-sections'
-import { sidebarComparable } from '../../diagnostics/oracle'
-import { MobileTasksBoard } from '@podium/client-graph/mobile-tasks'
-import { createCommandPalette } from '@podium/client-graph/command-launch-views'
-import { createLaunchCatalogPicker, createLaunchWorkPicker } from '@podium/client-graph/launch-option-views'
 import { createReferencePicker } from '@podium/client-graph/chat-context'
-import { sidebarView } from '@podium/client-graph/worklist/sidebar'
-import { poolIssuePaint } from '../../../../apps/web/src/features/worklist/pool-row-data'
-import { effectiveIssueColorHex } from '../../../../apps/web/src/lib/issueColors'
-import { isComplexFlightDeckMission } from '../../../../apps/web/src/app/flight-deck-display'
-import { mobileWorkView } from '@podium/client-graph/worklist/mobile'
+import { createCommandPalette } from '@podium/client-graph/command-launch-views'
 import { headerView } from '@podium/client-graph/header-views'
-import { launchOptionViews } from '@podium/client-graph/launch-option-views'
+import { referenceView } from '@podium/client-graph/issue-reference'
+import { createLaunchCatalogPicker, createLaunchWorkPicker, launchOptionViews } from '@podium/client-graph/launch-option-views'
+import { omitGone } from '@podium/client-graph/lookup'
+import { MobileTasksBoard } from '@podium/client-graph/mobile-tasks'
 import { sessionPaneView } from '@podium/client-graph/session-pane-view'
 import { settingsView } from '@podium/client-graph/settings-views'
-import { referenceView } from '@podium/client-graph/issue-reference'
+import { mobileWorkView } from '@podium/client-graph/worklist/mobile'
+import { sidebarView } from '@podium/client-graph/worklist/sidebar'
+import { worklistView } from '@podium/client-graph/worklist/view-model'
+import { worklistRowStatus } from '../../../../apps/mobile/src/lib/work-sections'
+import { isComplexFlightDeckMission } from '../../../../apps/web/src/app/flight-deck-display'
+import { poolIssuePaint } from '../../../../apps/web/src/features/worklist/pool-row-data'
+import { sidebarComparable } from '../../diagnostics/oracle'
 import { referenceState } from '../../diagnostics/reference-state'
 /** All app-wide pool readers, retained as their consumers retain them. No timers or walls are judged. */
 
@@ -30,16 +28,17 @@ import {
 import { ChatContextSource } from '@podium/client-graph/chat-context-source'
 import { COMMAND_SUMMARIES } from '@podium/client-graph/command-launch-schema'
 import { attachCommandLaunchSource } from '@podium/client-graph/command-launch-source'
+import { boardCards } from '@podium/client-graph/issue-board-cards'
+import { readBoardCatalog } from '@podium/client-graph/issue-board-readers'
 import {
   ISSUE_BOARD_ENTITIES,
   ISSUE_BOARD_SUMMARIES,
 } from '@podium/client-graph/issue-board-schema'
-import { boardCards } from '@podium/client-graph/issue-board-cards'
 import { createIssueBoardSource } from '@podium/client-graph/issue-board-source'
-import { readBoardCatalog } from '@podium/client-graph/issue-board-readers'
 import { issuePages } from '@podium/client-graph/issue-page'
 import { ISSUE_PAGE_SUMMARIES } from '@podium/client-graph/issue-page-schema'
 import { attachIssuePageSource } from '@podium/client-graph/issue-page-source'
+import { missionRootId } from '@podium/client-graph/mission-screen'
 import {
   missionView,
   readMissionActionInputs,
@@ -103,12 +102,11 @@ import {
 import {
   readFiles,
   readLaunchOrigin,
-  readTargetMachines,
   readOpen,
   readPalette,
+  readTargetMachines,
 } from '../../../../apps/web/src/app/command-launch-readers'
-import { missionPaneReader } from './mission-pane'
-import { missionRootId } from '@podium/client-graph/mission-screen'
+import { createPoolNavigationProvider } from '../../../../apps/web/src/app/pool-navigation-provider'
 import {
   coordinatorsOf,
   fieldOf,
@@ -117,7 +115,6 @@ import {
   onScreenOf,
   rootOf,
 } from '../../../../apps/web/src/app/workspace-mission-reads'
-import { createPoolNavigationProvider } from '../../../../apps/web/src/app/pool-navigation-provider'
 import {
   type FixtureScale,
   type ScenarioEngine,
@@ -127,6 +124,7 @@ import {
 } from '../../shared/src/scenarios'
 import { type AsyncLedger, installAsyncLedger } from './async-ledger'
 import { FIXED_NOW } from './fixture/corpus'
+import { missionPaneReader } from './mission-pane'
 import { SCREEN_ACTIONS, type ScreenAction, type ScreenWorkCell } from './screen-work-ratios'
 import { insideReader, measureWork } from './work-meter'
 
@@ -190,7 +188,6 @@ function seedNeighbourhood(ctx: ScenarioEngine, scale: FixtureScale): string {
       supersededBy: null,
       duplicateOf: null,
       deferUntil: null,
-      color: null,
       linearIdentifier: null,
       updatedAt: ctx.stamp(),
     })
@@ -492,12 +489,9 @@ async function measureScreenCells(
     add('shell.chrome', ['AppBody', 'AppShell'], () => {
       const value = shell.chrome()
       if (!value || value === LOADING) return value
-      // AppShell reads color scalars late from stable companions. Count those
-      // watched reads too, and retain their answer rather than the live port.
-      const { colorIssue, colorById, missionRoot, ...chrome } = value
+      const { missionRoot, ...chrome } = value
       return { ...chrome, missionRootId: missionRoot?.id,
-        missionExpanded: isComplexFlightDeckMission(missionRoot),
-        color: effectiveIssueColorHex(colorIssue, colorById) }
+        missionExpanded: isComplexFlightDeckMission(missionRoot) }
     })
     // RightDock reads each routing field where a panel shows it.
     add('shell.dock', ['AppShell'], () => ({
@@ -754,7 +748,6 @@ async function measureScreenCells(
         ownership: {
           selectedIssueId: panes.selectedIssueId,
           stamp: panes.loaded(SESSION)?.stampIssue,
-          issueHex: panes.issueHex((color) => color ?? undefined),
         },
       }
     })

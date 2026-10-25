@@ -14,7 +14,7 @@ import '@/test-support/mock-pool-fixture'
  *      section it has in the wide column, so both columns are in the same order
  *      and a ⌘-digit cannot mean two different missions.
  *   2. THE MARK IS A TILE. 36×32, the number set alone. Still `IdSquare`, so
- *      the square language stays central and the colour picker survives.
+ *      the square language stays central.
  *   3. PROGRESS IS ON THE MARK, under the same "two or more tasks" rule the
  *      wide list's baseline rule follows — never on a row that is one task.
  *   4. SELECTION IS A SPINE, not the old gradient notch bridging the border.

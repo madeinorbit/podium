@@ -163,7 +163,7 @@ const issues = [
   ...TITLES.slice(0, 5).map((t, i) =>
     issue(`pin-${i}`, 844 - i, t, {
       pinned: true,
-      ...(i % 2 === 0 ? { color: 'violet' } : {}),
+      ...(i % 2 === 0 ? { } : {}),
       // A real subtree on every other row, so the taller (metered) box renders.
       ...(i % 2 === 0 ? { childCount: 8, childDoneCount: 5 } : {}),
     }),

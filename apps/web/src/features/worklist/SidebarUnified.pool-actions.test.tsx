@@ -1,7 +1,3 @@
-import { worklistView } from '@podium/client-graph/worklist/view-model'
-import { sidebarView } from '@podium/client-graph/worklist/sidebar'
-import { worklistGroups } from '@podium/client-graph/worklist/groups'
-import { referenceState } from '../../../../../tests/worklist/diagnostics/reference-state'
 import {
   type ClientRuntime,
   createEngineOutbox,
@@ -10,13 +6,12 @@ import {
 import { beginSwitch } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
-
-import { allIssueViewModels } from '../../../../../tests/worklist/diagnostics/reference/issue-view-models'
 import { missionIssueIds, missionRootFor, pickPaneSession, planReorderKeys, sessionsForIssueNav } from '@podium/client-core/values'
-import { worklistSlice } from '../../../../../tests/worklist/diagnostics/reference/worklist'
 import { LOADING, type MobxPool } from '@podium/client-graph'
-import { poolSidebarSnapshot } from '../../../../../tests/worklist/diagnostics/sidebar-check'
 import type { SliceIssue } from '@podium/client-graph/shared/slice-types'
+import { worklistGroups } from '@podium/client-graph/worklist/groups'
+import { sidebarView } from '@podium/client-graph/worklist/sidebar'
+import { worklistView } from '@podium/client-graph/worklist/view-model'
 import { spreadSortKeys } from '@podium/model'
 import { asIssueId, asSessionId, asUserId } from '@podium/model/browser'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
@@ -26,6 +21,10 @@ import { OperatorFocusProvider, useOperatorFocus } from '@/app/operator-focus'
 import { attachWorklistPool, useWorklistPool } from '@/app/store-worklist-pool'
 import { IssueContextMenu } from '@/features/issues/IssueContextMenu'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
+import { allIssueViewModels } from '../../../../../tests/worklist/diagnostics/reference/issue-view-models'
+import { worklistSlice } from '../../../../../tests/worklist/diagnostics/reference/worklist'
+import { referenceState } from '../../../../../tests/worklist/diagnostics/reference-state'
+import { poolSidebarSnapshot } from '../../../../../tests/worklist/diagnostics/sidebar-check'
 import { expectPoolOutput } from '../../../../../tests/worklist/harness/src/oracle/pool-output'
 import { createSidebarActionsFixture } from '../../../test/sidebar-actions-fixture'
 import { SidebarUnified } from './SidebarUnified'
@@ -921,15 +920,8 @@ describe('real pool row mutations and receipts', () => {
     await refuse(write)
   })
 
-  it('sets colour and unread state through the shared menu actions', async () => {
+  it('sets unread state through the shared menu actions', async () => {
     await mount()
-    await menu()
-    fireEvent.click(await item('Set colour'))
-    fireEvent.click(screen.getByRole('button', { name: 'Violet' }))
-    const color = await request('issues.update')
-    expect(color.input).toMatchObject({ patch: { color: 'violet' } })
-    expect(value().issue.color).toBe('violet')
-    await refuse(color)
     await menu()
     fireEvent.click(await item('Mark as unread'))
     const unread = await request('issues.markUnread')
@@ -950,7 +942,6 @@ describe('real pool row mutations and receipts', () => {
       'Rename',
       'Mark as unread',
       'Set status',
-      'Set colour',
       'Snooze / defer',
       'Pin',
       'Archive…',

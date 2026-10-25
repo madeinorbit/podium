@@ -1,14 +1,14 @@
-import { here } from '@podium/client-graph/lookup'
-import { sidebarView } from '@podium/client-graph/worklist/sidebar'
-import { worklistView } from '@podium/client-graph/worklist/view-model'
 import type { SessionView } from '@podium/client-core/session-values'
 import { shallowEqual } from '@podium/client-core/shallow-equal'
 import { agentBadge, type MotionPhase, mostUrgentSession, STALE_INACTIVE_MS } from '@podium/client-core/values'
 import { LOADING, type MobxPool } from '@podium/client-graph'
-import { compareStructural, computed, observer, WorklistProvider, useWorklistModel } from '@podium/client-graph/react'
+import { here } from '@podium/client-graph/lookup'
+import { compareStructural, computed, observer, useWorklistModel, WorklistProvider } from '@podium/client-graph/react'
 import { motionPhase } from '@podium/client-graph/worklist/rollup'
 import type { SidebarWorktree } from '@podium/client-graph/worklist/sidebar'
+import { sidebarView } from '@podium/client-graph/worklist/sidebar'
 import type { SidebarRowValues } from '@podium/client-graph/worklist/sidebar-row'
+import { worklistView } from '@podium/client-graph/worklist/view-model'
 import { machinePathBasename, machinePathsEqual } from '@podium/model/browser'
 
 import { FolderPlus, GitBranch, Plus, Search } from 'lucide-react'
@@ -223,7 +223,6 @@ const PoolRailTile = observer(function PoolRailTile({
           numberOnly
           titleHint={null}
           onPrimary={() => actions.selectIssue(id)}
-          onColorChange={(color) => actions.setIssueColor(id, color)}
         />
         <RailProgressMeter progress={value.progress === LOADING ? { total: 0, done: 0, run: 0, review: 0, stall: 0, block: 0, wait: 0 } : value.progress} />
         {digit !== undefined && <RowShortcutBadge digit={digit} size={32} radius={9} />}

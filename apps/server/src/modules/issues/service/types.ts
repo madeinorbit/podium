@@ -435,7 +435,6 @@ export interface CreateIssueInput
       | 'type'
       | 'assignee'
       | 'parentId'
-      | 'color'
       | 'draft'
     > {
   /** Client-minted id for the first session when `startNow` is true. */
@@ -487,7 +486,6 @@ export type IssuePatch = Partial<
     | 'supersededBy'
     | 'duplicateOf'
     | 'sortKey'
-    | 'color'
     | 'estimateMin'
     | 'needsHuman'
     | 'humanQuestion'

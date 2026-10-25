@@ -1,10 +1,7 @@
-import { useAgeNow } from '../lib/clock-hooks'
-import { observer } from '@podium/client-graph/react'
+import { issueAgentLabel, issueDefaultAgentKind } from '@podium/client-core/agent-models'
 import { relativeTime } from '@podium/client-core/focus'
 import type { IssueViewModel } from '@podium/client-core/replica'
-import { issueAgentLabel, issueDefaultAgentKind } from '@podium/client-core/agent-models'
-import { useSettingsRecord } from '../client/use-settings-record'
-
+import { observer } from '@podium/client-graph/react'
 import * as Haptics from 'expo-haptics'
 import { StyleSheet, Text, useWindowDimensions, View } from 'react-native'
 import { GestureDetector, usePanGesture } from 'react-native-gesture-handler'
@@ -20,9 +17,9 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated'
 import { scheduleOnRN } from 'react-native-worklets'
+import { useSettingsRecord } from '../client/use-settings-record'
 import { useReduceMotion } from '../hooks/useReduceMotion'
-import { FLOW_HEX, flow, issueColorHex } from '../theme/issueColors'
-import { alpha } from '../theme/mix'
+import { useAgeNow } from '../lib/clock-hooks'
 import {
   color,
   elevation,
@@ -198,7 +195,6 @@ export const ScreeningCard = observer(function ScreeningCard({
     },
   })
 
-  const hex = issueColorHex(issue.color) ?? FLOW_HEX
   const cardStyle = useAnimatedStyle(() => ({
     opacity: exitOpacity.get(),
     transform: [
@@ -237,7 +233,7 @@ export const ScreeningCard = observer(function ScreeningCard({
         style={[
           styles.card,
           elevation.raised,
-          { backgroundColor: flow.rowBg(hex), borderColor: alpha(hex, 0.35) },
+          { backgroundColor: color.surface, borderColor: color.border },
           cardStyle,
         ]}
       >
@@ -255,7 +251,7 @@ export const ScreeningCard = observer(function ScreeningCard({
         </Animated.View>
 
         <View style={styles.identity}>
-          <IdSquare issue={issue} state="queued" size={26} ringColor={flow.rowBg(hex)} />
+          <IdSquare issue={issue} state="queued" size={26} ringColor={color.surface} />
           <View style={styles.identityText}>
             <Text style={styles.ref}>{issue.displayRef ?? `#${issue.seq}`}</Text>
             <Text style={styles.origin} numberOfLines={1}>
@@ -273,7 +269,7 @@ export const ScreeningCard = observer(function ScreeningCard({
           </PressableScale>
         </View>
 
-        <Text style={[styles.title, { color: flow.text(hex) }]} numberOfLines={3}>
+        <Text style={[styles.title, { color: color.text }]} numberOfLines={3}>
           {issue.title}
         </Text>
 

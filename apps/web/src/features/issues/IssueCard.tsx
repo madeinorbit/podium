@@ -1,43 +1,11 @@
-import { CardAge } from './CardAge'
 import type { SessionView } from '@podium/client-core/session-values'
-/**
- * ONE BOARD CARD — three slots, in this order, always:
- *
- *   ref · priority · origin ……………………………… fleet · age
- *   title (≤2 lines)
- *   state line (only when there is state; never wraps)
- *
- * Before POD-591 the third slot was a `flex-wrap` bag of up to twelve badge
- * atoms in source order, so a column's cards were all different heights and none
- * of them could be scanned. The ranking now lives in `issueCardStateSlots`
- * (pure, ordered, tested) and this file only draws it; the line is
- * `overflow-hidden` rather than wrapping, so what falls off the end is always
- * the least important thing on the card.
- *
- * THE CARD IS ONE INTERACTIVE ELEMENT. It used to be a native button containing
- * a second `role="button"` span for the assignee menu — invalid nesting the
- * source worked around rather than fixed, and two tab stops where the operator
- * sees one. Assignee changes belong to the context menu and the bulk bar, both
- * of which already carry them.
- *
- * (That sentence says "native button" in prose rather than writing the tag on
- * purpose: `components/ui/interaction-contract.test.ts` greps the source for
- * button tags and cannot tell a comment from an element, so one named in a doc
- * block reads to it as a control with no pressable contract.)
- *
- * THE CARD IS ISSUE-TINTED. `--issue` is scoped per card and every surface on it
- * is a `color-mix` over the panel — DESIGN.md's Tint, Never Fill rule and the
- * board's first use of the product's own colour channel. Hover steps the tint
- * and the hairline; it does NOT paint a yellow border, which is what the board
- * did to every card the mouse crossed and which spends The Signal Rule's one
- * voice on a mouse position.
- */
 import { deriveFleetPresence } from '@podium/client-core/values'
 import { type BoardIssue, boardCards } from '@podium/client-graph/issue-board-cards'
 import type { IssueId } from '@podium/model/browser'
 import { Flag, ShieldAlert } from 'lucide-react'
 import type { JSX, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react'
 import { useWorklistPool } from '@/app/store-worklist-pool'
+import { CardAge } from './CardAge'
 
 /** Selection belongs to the visible card. Passing the resulting booleans to
  * the memoized leaf lets an unchanged card keep its own row subscription. */
@@ -47,14 +15,13 @@ export function BoardIssueCard({ id, focusId, selectedIds, ...props }: Omit<Issu
 }) {
   return <IssueCard {...props} id={id} focused={focusId === id} selected={selectedIds.has(id)} />
 }
+
 import type { IssueViewModel } from '@/app/store'
 import { IssueFleetSummary } from '@/components/IssueFleetSummary'
 import { NotSavedMark } from '@/components/NotSavedMark'
 import { UnreadDot } from '@/components/UnreadMark'
-import { issueColorHex } from '@/lib/issueColors'
 import { WorkingMark } from '@/lib/motion'
 import { cn } from '@/lib/utils'
-import { issueObserver as observer } from './issue-page/issue-observer'
 import {
   type CardStateSlot,
   cardAge,
@@ -65,6 +32,7 @@ import {
 } from './issue-card'
 import { PriorityGlyph, StageGlyph } from './issue-glyphs'
 import { isEpic } from './issue-hierarchy'
+import { issueObserver as observer } from './issue-page/issue-observer'
 import type { IssuesDisplay } from './issues-display'
 
 /** Slot → pixels. One switch, so the rank order in `issue-card.ts` is the only
@@ -129,7 +97,7 @@ function StateSlot({ slot }: { slot: CardStateSlot }): JSX.Element | null {
         >
           <span className="h-[3px] w-[26px] overflow-hidden rounded-full bg-muted">
             <span
-              className="block h-full rounded-full bg-[var(--issue)] transition-[width] duration-300"
+              className="block h-full rounded-full bg-[var(--neutral)] transition-[width] duration-300"
               style={{ width: `${Math.round((slot.done / slot.total) * 100)}%` }}
             />
           </span>
@@ -161,7 +129,7 @@ function StateSlot({ slot }: { slot: CardStateSlot }): JSX.Element | null {
           {slot.labels.map((label) => (
             <span
               key={label}
-              className="size-[5px] rounded-[1.5px] bg-flow"
+              className="size-[5px] rounded-[1.5px] bg-neutral"
               style={{ backgroundColor: labelDotColor(label) }}
               aria-hidden="true"
             />
@@ -292,16 +260,13 @@ const IssueCardLeaf = observer(function IssueCardLeaf({
   const issue = boardCards(pool).issue(id)
   // No declared facts yet: the addressed summary is on its way.
   if (issue.finished === undefined) return <CardLoading />
-  const hex = issueColorHex(issue.color)
   const epic = isEpic(issue)
   return (
     <div
       className={cn(
-        'issue-scope group/card relative',
+        'group/card relative',
         dragging && 'pointer-events-none opacity-30 saturate-50',
       )}
-      style={hex ? ({ '--issue': hex } as React.CSSProperties) : undefined}
-      data-issue-colored={hex ? 'true' : 'false'}
       onPointerDown={(event) => onDragStart(event, issue)}
     >
       <button
@@ -317,16 +282,16 @@ const IssueCardLeaf = observer(function IssueCardLeaf({
           // column read as one run of loose lines rather than as a stack of
           // objects. Separation between things must beat separation within one.
           'flex w-full select-none flex-col gap-1.5 rounded-[9px] p-3 text-left',
-          'issue-mix-6 issue-base-card issue-hairline-24 border',
+          'surface-mix-6 surface-base-card surface-hairline-24 border',
           'transition-[background-color,border-color] duration-150 ease-out',
           // Hover is conditioned on the selection rather than layered over it.
           // Both write `background-color` from one class each, so the variant
           // won on source order and putting the mouse on a SELECTED card took
           // it from 20% back down to 11% — the card visibly deselected itself
           // under the cursor. Selected hover steps up instead.
-          !selected && 'hover:issue-mix-11 hover:issue-hairline-42',
-          selected && 'issue-mix-20 issue-hairline-55 hover:issue-mix-26',
-          focused && 'ring-2 ring-[var(--issue)]/60',
+          !selected && 'hover:surface-mix-11 hover:surface-hairline-42',
+          selected && 'surface-mix-20 surface-hairline-55 hover:surface-mix-26',
+          focused && 'ring-2 ring-[var(--neutral)]/60',
         )}
         title={issueIdTitle(issue)}
         onClick={(event) => (event.shiftKey ? onToggleSelect(issue.id) : onOpen(issue.id))}
@@ -339,7 +304,7 @@ const IssueCardLeaf = observer(function IssueCardLeaf({
         <div className="flex h-[16px] items-center gap-1.5">
           <span
             className={cn(
-              'font-mono text-[10px] text-[var(--issue-dim)] tabular-nums transition-opacity',
+              'font-mono text-[10px] text-[var(--text-faint)] tabular-nums transition-opacity',
               'group-hover/card:opacity-0',
               selected && 'opacity-0',
             )}
@@ -349,7 +314,7 @@ const IssueCardLeaf = observer(function IssueCardLeaf({
           <PriorityGlyph priority={issue.priority} size={11} />
           {epic && (
             <span
-              className="font-mono shell-type-micro text-[var(--issue-muted)] uppercase tracking-[0.08em]"
+              className="font-mono shell-type-micro text-[var(--label)] uppercase tracking-[0.08em]"
               title="Epic"
             >
               epic
@@ -390,7 +355,7 @@ const IssueCardLeaf = observer(function IssueCardLeaf({
 
         <div
           className={cn(
-            'flex min-w-0 items-start gap-1.5 text-[13.5px] text-[var(--issue-bright)] leading-[1.35]',
+            'flex min-w-0 items-start gap-1.5 text-[13.5px] text-[var(--foreground)] leading-[1.35]',
             issue.unread ? 'font-semibold' : 'font-medium',
           )}
         >
@@ -425,7 +390,7 @@ const IssueCardLeaf = observer(function IssueCardLeaf({
           'absolute top-[15px] left-[13px] size-3 rounded-[3px] border transition-opacity',
           'opacity-0 group-hover/card:opacity-100 focus-visible:opacity-100',
           selected
-            ? 'border-transparent bg-[var(--issue)] opacity-100'
+            ? 'border-transparent bg-[var(--neutral)] opacity-100'
             : 'border-border-strong bg-background hover:border-muted-foreground',
         )}
         onPointerDown={(event) => event.stopPropagation()}
@@ -463,7 +428,7 @@ const IssueCardLeaf = observer(function IssueCardLeaf({
           className="pointer-events-none absolute right-3 bottom-3 flex translate-y-0.5 items-center gap-1 pl-14 opacity-0 transition-[opacity,transform] duration-150 ease-out group-hover/card:pointer-events-auto group-hover/card:translate-y-0 group-hover/card:opacity-100 focus-within:pointer-events-auto focus-within:translate-y-0 focus-within:opacity-100"
           style={{
             background:
-              'linear-gradient(90deg, transparent, color-mix(in srgb, var(--issue) calc(11 * var(--issue-tint-scale, 1%)), var(--card)) 56px)',
+              'linear-gradient(90deg, transparent, color-mix(in srgb, var(--neutral) calc(11 * var(--surface-tint-scale, 1%)), var(--card)) 56px)',
           }}
           data-testid="proposal-actions"
         >

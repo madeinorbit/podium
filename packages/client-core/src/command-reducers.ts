@@ -166,7 +166,7 @@ export function rowFingerprint(row: object): string {
  *
  * `null` and `undefined` are ONE value here, and that is not laziness about
  * types: the wire spells "unset" both ways for the same field. `issues.update`
- * clears a colour with `color: null` while `IssueProjection.color` is `optional()` —
+ * clears acceptance with `acceptance: null` while `IssueProjection.acceptance` is `optional()` —
  * absent once cleared — so a strict `===` would leave every clear painted until
  * its TTL. `rowFingerprint` above already makes the same collapse for the same
  * reason (JSON.stringify drops undefined-valued keys).

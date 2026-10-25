@@ -1,16 +1,14 @@
-import { CommandPlaceTitle, CommandPlaceHint } from './command-place-labels'
 import type { SpawnTarget } from '@podium/client-core'
 import type { IssueNavigationModel } from '@podium/client-core/values'
 import {
   issueReferenceModel,
-  panelLabel,
   isUnstartedSession,
+  panelLabel,
   resolveDefaultAgent,
 } from '@podium/client-core/values'
 import { LOADING } from '@podium/client-graph'
-import { useSettingsRecord } from '@/features/settings/record-readers'
-import { IssueModel } from '@podium/client-graph/models'
 import { commandIssueReference, commandIssueSearchRef } from '@podium/client-graph/command-launch-views'
+import { IssueModel } from '@podium/client-graph/models'
 import { machinePathBasename } from '@podium/model'
 import type { AgentKind, IssueId, SessionId } from '@podium/model/browser'
 import { isSnoozed, snoozeUntil1h, snoozeUntilTomorrow5am } from '@podium/model/browser'
@@ -41,10 +39,10 @@ import {
   Trash2,
   Workflow,
 } from 'lucide-react'
+import { observer } from 'mobx-react-lite'
 import type { JSX } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
-import { observer } from 'mobx-react-lite'
 import { openAddProject } from '@/app/desktop-menu'
 import { IssueReference } from '@/components/IssueReference'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
@@ -57,6 +55,7 @@ import {
 import { paletteIssueMenuData } from '@/features/issues/issue-menu-palette'
 import { issueMenuPaletteCommands } from '@/features/issues/issue-menu-palette-commands'
 import { NewIssueDialog } from '@/features/issues/NewIssueDialog'
+import { useSettingsRecord } from '@/features/settings/record-readers'
 import { SETTINGS_TABS } from '@/features/settings/SettingsView'
 import { agentIconFor } from '@/lib/agent-tone'
 import { useSessionGuard } from '@/lib/hooks/use-session-guard'
@@ -65,28 +64,29 @@ import { sessionMenuEligibility } from '@/lib/session-context-menu'
 import { useFeature } from '@/lib/use-feature'
 import { normalizeTitle, sessionDisplayName } from '@/lib/WorkerLabel'
 import {
+  useCommandIssue,
   useCommandLaunchActions,
-  useCommandPaletteData,
-  useCommandPaletteSnapshot,
+  type useCommandPaletteData,
   useCommandPaletteOpen,
+  useCommandPaletteSnapshot,
   useCommandSession,
   useCommandSessionLookup,
-  useCommandIssue,
 } from './command-launch-data'
 import {
   defaultHighlight,
   filterCommandCandidates,
-  type PaletteCandidate,
   flattenGroups,
   GROUP_CAP,
   isResting,
-  orderCommandGroups,
   moveHighlight,
+  orderCommandGroups,
+  type PaletteCandidate,
   type PaletteCommand,
   type PaletteGroup,
   type PaletteGroupId,
   type PaletteIcon,
 } from './command-palette'
+import { CommandPlaceHint, CommandPlaceTitle } from './command-place-labels'
 import { RIGHT_PANELS } from './RightDock'
 import {
   CLOSE_RIGHT_PANEL,
@@ -98,7 +98,7 @@ import type { IssueViewModel, MainView } from './store'
 
 type PaletteIssue = Pick<
   IssueViewModel,
-  'id' | 'seq' | 'title' | 'stage' | 'displayRef' | 'linearIdentifier' | 'color' | 'parentId'
+  'id' | 'seq' | 'title' | 'stage' | 'displayRef' | 'linearIdentifier' | 'parentId'
 > & Partial<Pick<IssueViewModel, 'archived' | 'deletedAt' | 'isDraftVessel'>>
 
 const SEARCH_DEBOUNCE_MS = 150

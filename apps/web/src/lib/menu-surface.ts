@@ -1,18 +1,4 @@
-/**
- * The overlay-menu surface vocabulary (POD-380).
- *
- * Derived from the IdSquare colour picker, which the operator already reads as
- * the house look: the raised `--chip` surface over a `--border-strong` seam,
- * the popover lift, mono micro-caps for machine voice, `--hairline-soft` rules
- * between regions. The two context menus used stock shadcn popover tokens
- * (`bg-popover` + `shadow-md` + a `ring-foreground/10` hairline, 13px rows), so
- * right-clicking a row and clicking its square opened two different-looking
- * panels one pixel apart.
- *
- * Everything here is a token class, never a literal — the picker's original
- * hexes were podium-dark values hardcoded, which is why it never followed the
- * theme. All three overlays now derive from the preset together.
- */
+/** Shared overlay surfaces, spacing, headings and row styles. */
 
 /** Shared shell: surface, seam, radius and the one lifted shadow tier. */
 const PANEL =
@@ -21,9 +7,6 @@ const PANEL =
 /** A menu panel — padding tuned for rows. */
 export const MENU_PANEL = `${PANEL} p-[6px]`
 
-/** The colour-picker panel: same shell, but the picker's own 196px/11px
- *  geometry so the swatch grid keeps identical cell sizes wherever it opens. */
-export const MENU_PICKER_PANEL = `${PANEL} w-[196px] px-[11px] py-[10px]`
 
 /** A READ-ONLY overlay on the same shell: the collapsed rail's hover card
  *  (POD-1178). It is not a menu — nothing in it is clickable — but it opens
@@ -32,10 +15,7 @@ export const MENU_PICKER_PANEL = `${PANEL} w-[196px] px-[11px] py-[10px]`
  *  text rather than a grid or a list of rows. */
 export const MENU_HOVER_CARD = `${PANEL} px-[11px] py-[8px]`
 
-/** The picker's header line — a mono micro-caps label with the issue ref
- *  pushed to the right edge. `MENU_HEADER_REF` goes on that trailing span.
- *  Carries no horizontal padding: the picker sits flush with its swatch grid,
- *  the menu insets it to the row text column. */
+/** Menu heading with an optional trailing task reference. */
 export const MENU_HEADER =
   'mb-[9px] flex items-center gap-1.5 font-mono shell-type-micro tracking-[.12em] text-label'
 export const MENU_HEADER_REF = 'ml-auto tracking-normal text-text-faint'
@@ -47,14 +27,14 @@ export const MENU_HEADER_REF = 'ml-auto tracking-normal text-text-faint'
 export const MENU_SECTION_LABEL = 'px-[5px] font-mono shell-type-micro tracking-[.12em] text-label'
 
 /** A section rule that names itself. The menu's regions were anonymous <hr>s;
- *  the picker labels its regions, so they do too. */
+ *  named headings distinguish their regions. */
 export const MENU_SECTION = `mt-[6px] mb-[3px] border-t border-hairline-soft pt-[7px] ${MENU_SECTION_LABEL}`
 
 /** An unlabelled divider, for groups whose heading would be noise. */
 export const MENU_RULE = 'my-[5px] h-px border-0 bg-hairline-soft'
 
 /** A menu row. Hover lifts ink to `--text-strong` over the same
- *  `--hairline-soft` wash the picker uses for its own divider tone. */
+ *  `--hairline-soft` wash used by the dividers. */
 export const MENU_ITEM =
   'flex w-full cursor-pointer items-center gap-2 rounded-md px-[5px] py-[4.5px] text-left text-[11.5px] outline-none hover:bg-hairline-soft hover:text-text-strong focus-visible:bg-hairline-soft focus-visible:text-text-strong'
 

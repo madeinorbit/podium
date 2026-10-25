@@ -1,14 +1,15 @@
-import type { Trpc } from '@/app/trpc'
-import { useWorklistPool } from '@/app/store-worklist-pool'
-import { readSessions } from '@/app/command-launch-readers'
-import { useStoreHandle } from '@podium/client-core/react'
-import { observe, reaction } from 'mobx'
-import { useConversation } from '@/features/chat/use-conversation'
 import { beginSwitch, isSwitchTraced, markSwitch } from '@podium/client-core/perf'
+import { useStoreHandle } from '@podium/client-core/react'
 import { effectivePanelMode, type PanelMode } from '@podium/client-core/ui-state'
+import { observe, reaction } from 'mobx'
+import { readSessions } from '@/app/command-launch-readers'
+import { useWorklistPool } from '@/app/store-worklist-pool'
+import type { Trpc } from '@/app/trpc'
+import { useConversation } from '@/features/chat/use-conversation'
 
 export { effectivePanelMode, effectivePanelMode as initialPanelMode, type PanelMode }
 
+import { issueAgentKind } from '@podium/client-core/agent-models'
 import { attentionGroup } from '@podium/client-core/focus'
 import { formatClock, panelLabel, resumeCommand, sessionWaking } from '@podium/client-core/values'
 import type { SessionId } from '@podium/model/browser'
@@ -52,17 +53,16 @@ import { FileLinkPathIndex } from '@/features/chat/chat'
 import { OfferBar } from '@/features/chat/OfferBar'
 import { OfferDismissalContext, useOfferDismissalHost } from '@/features/chat/offer-dismissal'
 import { OfferLiftContext, useOfferLiftHost } from '@/features/chat/offer-lift'
+import { useClock, useDeadlineNow } from '@/lib/clock-hooks'
 import { useSessionGuard } from '@/lib/hooks/use-session-guard'
-import { issueAgentKind } from '@podium/client-core/agent-models'
 import { EffortPicker, ModelPicker } from '@/lib/ModelEffortPicker'
 import { isKnownRefPrefix } from '@/lib/markdown-references'
 import { activateRef } from '@/lib/ref-activation'
 import { SnoozeControl } from '@/lib/SnoozeControl'
 import { sessionMenuEligibility } from '@/lib/session-context-menu'
-import { useClock, useDeadlineNow } from '@/lib/clock-hooks'
 import { cn } from '@/lib/utils'
 import type { AgentPanelProps } from './agent-panel-props'
-import { applyInitialTerminalAppearance, paneTintedBackground, withBackground } from './appearance'
+import { applyInitialTerminalAppearance, TERMINAL_DEFAULTS, withBackground } from './appearance'
 import { createDraftSync } from './draft-sync'
 import { EchoHud, echoHudEnabled } from './EchoHud'
 import { HandoverPane, useHandoverView } from './HandoverPane'
@@ -79,7 +79,6 @@ import { SessionWatchers } from './SessionWatchers'
 import { sessionAgeMs, startupOverlay } from './startup-overlay'
 import { usePanelSurface } from './use-panel-surface'
 import {
-  usePaneIssueHex,
   usePaneMachines,
   usePaneReferenceStages,
   usePaneSelectedIssueId,
@@ -225,7 +224,6 @@ export function AgentPanel({
   const session = usePaneSession(sessionId)
   const machines = usePaneMachines()
   const selectedIssueId = usePaneSelectedIssueId()
-  const issueHex = usePaneIssueHex()
   const [loginTerminalBusy, setLoginTerminalBusy] = useState(false)
   const [loginTerminalError, setLoginTerminalError] = useState<string | null>(null)
   const [pendingLoginSessionId, setPendingLoginSessionId] = useState<SessionId | null>(null)
@@ -557,11 +555,8 @@ export function AgentPanel({
   // `appearance` is memoized on the stored blob, so a settings change applies to
   // the LIVE terminal via useTerminalSession's setAppearance effect — no remount.
   const { settings: termSettings, appearance: termAppearance } = useTerminalAppearance()
-  // The terminal floats on the pane's issue-tinted surface (native-pane spec
-  // §2.5): the selected issue's colour (slate flow when uncoloured) mixed over
-  // the terminal base, mirrored into the xterm theme via setAppearance — no
-  // remount. A user-set custom background wins over the tint (Q6).
-  const termBg = termSettings.background ?? paneTintedBackground(issueHex)
+  // A custom terminal background takes precedence over the default palette.
+  const termBg = termSettings.background ?? TERMINAL_DEFAULTS.background
   const appearance = useMemo(
     () => (termSettings.background ? termAppearance : withBackground(termAppearance, termBg)),
     [termSettings.background, termAppearance, termBg],
@@ -1024,7 +1019,7 @@ export function AgentPanel({
                         variant="ghost"
                         size="icon"
                         data-testid="header-menu"
-                        className="size-[26px] rounded-[6px] text-(--issue-muted-bright)"
+                        className="size-[26px] rounded-[6px] text-(--muted-foreground)"
                         title="More session actions"
                         aria-label="More session actions"
                       >
@@ -1336,9 +1331,9 @@ export function AgentPanel({
                     : {})}
                 />
               )}
-              {/* The container is pinned to the TERMINAL's background — the pane's
-              issue tint (§2.5), or the user's custom color from the appearance
-              settings — regardless of the app theme: otherwise a light theme
+              {/* The container follows the terminal's background, including a
+              custom color from appearance settings, regardless of the app theme:
+              otherwise a light theme
               shows a white container edge around the terminal, and a custom
               background a dark one. */}
               <div
@@ -1411,7 +1406,7 @@ export function AgentPanel({
                 )}
                 style={{ backgroundColor: termBg }}
               >
-                <div className="border-t issue-hairline-35" aria-hidden="true" />
+                <div className="border-t surface-hairline-35" aria-hidden="true" />
                 {session?.harnessPromptModeHints === true && (
                   <div className="flex items-center gap-1.5 px-[2px] pt-[5px] pb-[7px] shell-type-micro text-text-dim">
                     <span>(shift+tab to cycle modes)</span>

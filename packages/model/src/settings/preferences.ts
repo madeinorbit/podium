@@ -100,7 +100,7 @@ export const CodingRole = RoleBackend.extend({
   /** Which panel a new session opens on. */
   startScreen: z.enum(['native', 'chat', 'auto']).default('native'),
   /** Seed spawned agent CLIs with per-session OFFICIAL theme flags so their
-   *  rendering follows the terminal's issue-tinted colours (Claude Code
+   *  rendering follows the terminal's colors (Claude Code
    *  `--settings {"theme":"auto"}`, Codex `-c tui.theme=ansi`). Default ON;
    *  off = no flags at all, the CLI's own theme behaviour is untouched. Podium
    *  never edits a user's global CLI config either way. [spec:SP-a04d] */

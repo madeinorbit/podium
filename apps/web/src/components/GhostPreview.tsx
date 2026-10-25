@@ -135,8 +135,7 @@ export function GhostSquare({
 
 /** A dead status dot. The ONE place a ghost is allowed a hue: the deck's
  *  session dots are what say "this pane is a status readout", and they take the
- *  semantic status colours at a ghost's opacity — never an issue colour, the
- *  same rule the live rows follow. */
+ *  same semantic status colours as the live rows, at a ghost's opacity. */
 export function GhostDot({
   tone,
   size = 7,

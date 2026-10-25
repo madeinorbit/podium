@@ -19,7 +19,7 @@ it('requests no choice catalog for main, status or colour controls at 1x/4x hist
     const ids = vi.spyOn(pool.queries, 'ids'),
       row = vi.spyOn(pool, 'row')
     try {
-      for (const kind of [undefined, 'status', 'color', 'handoff'] as const) {
+      for (const kind of [undefined, 'status', 'handoff'] as const) {
         expect(readIssueMenuChoices(pool, kind)).toBeUndefined()
         expect(ids).not.toHaveBeenCalled()
         expect(row).not.toHaveBeenCalled()

@@ -18,19 +18,9 @@ import {
   type TerminalControlState,
   terminalControlCopy,
 } from '../../../src/terminal/terminal-control'
-import { FLOW_HEX, flow, issueColorHex } from '../../../src/theme/issueColors'
 import { color } from '../../../src/theme/theme'
 
-/**
- * The native-CLI view of a session.
- *
- * IT IS THE SAME TASK AS THE CHAT, SO IT MUST LOOK LIKE IT (POD-724). This
- * screen used to render `<Screen title="Session">` over a grey pane while the
- * chat view of the SAME session wore the issue colour, the ID square, and the
- * session's real name. Two views of one piece of work wearing two identities is
- * how an operator loses their place — so identity is resolved here exactly as
- * SessionScreen resolves it, from the same hooks and the same colour flow.
- */
+/** Native CLI for the same session and task shown by the chat view. */
 export default function TerminalRoute() {
   const router = useRouter()
   // Route params are RAW URL values, so the brand is applied once here — the
@@ -40,9 +30,6 @@ export default function TerminalRoute() {
   const sessionId = raw ? asSessionId(raw) : undefined
   const session = useSession(sessionId)
   const issue = useIssue(session?.issueId)
-  // The issue colour flows through the chrome; slate when the issue is
-  // uncoloured, nothing at all when the session carries no task.
-  const accent = issue ? (issueColorHex(issue.color) ?? FLOW_HEX) : undefined
 
   const [active, setActive] = useState(true)
   useFocusEffect(
@@ -64,7 +51,6 @@ export default function TerminalRoute() {
       subtitle={controlCopy && kindLabel ? `${kindLabel} · ${controlCopy.status}` : kindLabel}
       onBack={() => router.back()}
       backLabel="Chat"
-      accent={accent}
       safeBottom
       // Identity resolves exactly as the chat resolves it, harness mark included
       // [POD-1355] — same session, same pair of facts, same order.
@@ -97,7 +83,7 @@ export default function TerminalRoute() {
       // attach lands has nothing to claim, and a dead tap is worse than no tap.
       right={control?.ready ? <TerminalControlAction control={control} /> : undefined}
     >
-      <View style={[styles.pane, accent ? { backgroundColor: flow.paneBg(accent) } : null]}>
+      <View style={styles.pane}>
         {sessionId ? (
           <TerminalPane
             sessionId={sessionId}
@@ -116,8 +102,7 @@ const styles = StyleSheet.create({
   pane: {
     flex: 1,
     // The terminal paints its own dark canvas, so this shows only in the crop
-    // gutters around the server grid — exactly where the task tint belongs,
-    // which is why `accent` overrides it above.
+    // gutters around the server grid.
     backgroundColor: color.bgSunken,
   },
 })

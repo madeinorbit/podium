@@ -13,7 +13,6 @@ import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
 import { planReorderKeys } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph/pool'
-import type { MobileWorkSection } from '../lib/work-sections'
 import {
   asUserId,
   issueStatusMenuEntries,
@@ -28,6 +27,7 @@ import { createSidebarActionsFixture } from '../../../web/test/sidebar-actions-f
 import type { MobilePool } from '../client/mobile-pool'
 import { WorkIssueMenu } from '../components/WorkIssueMenu'
 import { type PoolWorkMenuData, resolvePoolWorkMenu } from '../lib/pool-work-menu'
+import type { MobileWorkSection } from '../lib/work-sections'
 
 const state = vi.hoisted(() => ({
   host: null as MobilePool | null,
@@ -657,20 +657,6 @@ describe('mobile pool work-list actions', () => {
     await settle(write)
     expect(value().issue.stage).toBe('in_progress')
   })
-
-  for (const color of ['green', null] as const)
-    it(`sets colour ${color ?? 'none'} and restores on refusal`, async () => {
-      await mount((f) => f.patchIssue(TARGET, { color: 'blue' }))
-      await openMenu()
-      await choose('Set colour')
-      await choose(color ?? 'No colour')
-      const write = await request('issues.update')
-      expect(write.input).toMatchObject({ patch: { color } })
-      expect(value().issue.color).toBe(color)
-      await parity()
-      await settle(write)
-      expect(value().issue.color).toBe('blue')
-    })
 
   for (const placement of ['own', 'mission'] as const)
     it(`moves placement to ${placement} and rolls back the native bands`, async () => {

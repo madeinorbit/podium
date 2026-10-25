@@ -96,7 +96,6 @@ const fullRow = (): IssueRow => ({
   supersededBy: asIssueId('iss_super'),
   duplicateOf: asIssueId('iss_dupe'),
   sortKey: 'a0',
-  color: 'rose',
   estimateMin: 90,
   needsHuman: true,
   humanQuestion: 'which branch?',
@@ -157,7 +156,6 @@ const emptyRow = (): IssueRow => ({
   supersededBy: null,
   duplicateOf: null,
   sortKey: null,
-  color: null,
   estimateMin: null,
   needsHuman: false,
   humanQuestion: null,
@@ -206,7 +204,6 @@ describe('StoredIssue members ARE the shared field-group instances', () => {
     ['type', IssueTriage.shape.type],
     ['assignee', IssueTriage.shape.assignee],
     ['estimateMin', IssueTriage.shape.estimateMin],
-    ['color', IssueTriage.shape.color],
     ['sortKey', IssueTriage.shape.sortKey],
     ['dueAt', IssueTriage.shape.dueAt],
     ['parentId', IssueGraphRefs.shape.parentId],
@@ -343,11 +340,6 @@ describe('fromStorage / toStorage round-trip per key', () => {
     expect(fromStorage(row).panel).toEqual({ todos: [], artifacts: [], deferred: [] })
   })
 
-  it('degrades an unknown colour slot to no colour rather than throwing', () => {
-    const row = fullRow()
-    row.color = 'chartreuse' as IssueRow['color']
-    expect(fromStorage(row).color).toBeUndefined()
-  })
 
   it('passes an unrecognised stage through instead of refusing the row', () => {
     // A decoder on a persisted format that refuses what it cannot classify makes

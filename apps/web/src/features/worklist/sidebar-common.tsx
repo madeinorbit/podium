@@ -601,7 +601,7 @@ export function AgentRosterBand({
   if (variant === 'rail') {
     // Hung on a light neutral guide, no card — the roster is detail behind the
     // chevron, not a boxed section (POD-293). The hairline-bar guide keeps agents
-    // visually distinct from the issue-tinted subtask tree.
+    // visually distinct from the subtask tree.
     return (
       <div className={cn('relative min-w-0 pl-3', className)} data-testid={testId}>
         <span
@@ -758,9 +758,8 @@ function PanelRowInner({
       className={cn(
         'group relative flex min-w-0 items-center transition-colors',
         roster ? 'min-h-6 rounded' : dotRight ? 'min-h-7 rounded-md' : 'min-h-8 rounded-md',
-        // Roster rows live on the rail band — a muted hover, no issue tint.
-        // Elsewhere var-driven so a coloured issue's unfolded block
-        // (SidebarUnified sets --child-*-bg on .tree-children) tints these.
+        // Roster rows use the rail band's muted hover. Other rows can inherit
+        // --child-*-bg from an unfolded tree block.
         roster
           ? active
             ? 'bg-accent'

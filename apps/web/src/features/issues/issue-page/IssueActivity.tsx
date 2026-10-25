@@ -1,4 +1,5 @@
 import { issueObserver as observer } from './issue-observer'
+
 /**
  * The activity half of the issue page: agent mail, the assistant note, the
  * day-grouped comment/event feed, and the comment composer.
@@ -27,8 +28,6 @@ import { issueObserver as observer } from './issue-observer'
  * pixels of history is a reply box nobody reaches.
  */
 
-import type { IssueId } from '@podium/model'
-import { IssueAge, IssueDayLabel } from './IssueAge'
 import {
   type ActivityDay,
   type ActivityEntry,
@@ -39,6 +38,8 @@ import {
   type IssueEventIcon,
   type IssueEventLine,
 } from '@podium/client-core/values'
+import type { IssueHistoryView } from '@podium/client-graph/issue-activity'
+import type { IssueId } from '@podium/model'
 import {
   ArrowRight,
   CheckCircle2,
@@ -61,11 +62,11 @@ import { useEffect, useState } from 'react'
 import type { IssueViewModel } from '@/app/store'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
+import { modChord } from '@/lib/mod-chord'
 import { cn } from '@/lib/utils'
 import type { IssueMailMessage, IssuePageCommands } from '../issue-page-commands'
-import type { IssueHistoryView } from '@podium/client-graph/issue-activity'
 import { MACHINE_LABEL, SectionHeading } from './chrome'
-import { modChord } from '@/lib/mod-chord'
+import { IssueAge, IssueDayLabel } from './IssueAge'
 
 /** Agent mail addressed to this issue (issue #103) — durable messages other
  *  agents sent to whoever works it. Read-only operator view; listing here never
@@ -141,7 +142,7 @@ const EVENT_ICONS: Record<IssueEventIcon, LucideIcon> = {
 /**
  * One transition line on the timeline. The left rule and its node are drawn by
  * the row itself (a 1px hairline plus a 5px dot) so the feed reads as one
- * continuous spine — a real transition lights its node in the issue colour, a
+ * continuous spine — a real transition lights its node in neutral ink, a
  * minor one leaves it grey.
  */
 const ActivityEvent = observer(function ActivityEvent({
@@ -165,7 +166,7 @@ const ActivityEvent = observer(function ActivityEvent({
         aria-hidden="true"
         className={cn(
           '-left-[3px] absolute top-[10px] size-[5px] rounded-full',
-          minor ? 'bg-border' : 'bg-[var(--issue)]',
+          minor ? 'bg-border' : 'bg-[var(--neutral)]',
         )}
       />
       <Icon size={12} aria-hidden="true" className="shrink-0 opacity-70" />

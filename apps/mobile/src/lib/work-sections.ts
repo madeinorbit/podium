@@ -1,8 +1,3 @@
-import { worklistGroups } from '@podium/client-graph/worklist/groups'
-import { mapQueryResult } from '@podium/client-graph/query-result'
-import type { WorklistIssue } from '@podium/client-graph/worklist/issue'
-import type { WorklistWorktree } from '@podium/client-graph/worklist/worktree'
-import { mobileWorkView } from '@podium/client-graph/worklist/mobile'
 import { relativeTime } from '@podium/client-core/focus'
 import {
   deriveGitStamp,
@@ -12,8 +7,14 @@ import {
   type UnifiedWorkRow,
 } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph/pool'
-import type { MobileWorkSection as WorkSection, MobileWorkRef } from '@podium/client-graph/worklist/mobile'
+import { mapQueryResult } from '@podium/client-graph/query-result'
+import { worklistGroups } from '@podium/client-graph/worklist/groups'
+import type { WorklistIssue } from '@podium/client-graph/worklist/issue'
+import type { MobileWorkRef, MobileWorkSection as WorkSection } from '@podium/client-graph/worklist/mobile'
+import { mobileWorkView } from '@podium/client-graph/worklist/mobile'
+import type { WorklistWorktree } from '@podium/client-graph/worklist/worktree'
 export type MobileWorkSection = Omit<WorkSection, 'data'> & { readonly data: readonly MobileWorkRef[] }
+
 import type { MobileRowValues } from '@podium/client-graph/worklist/mobile-row'
 import { type IssueGitState, issueStatusLabel } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
@@ -37,7 +38,6 @@ export function mobileRowPaint(value: MobileRowValues, now: number) {
     kind: value.kind,
     label: value.label,
     ref: issue ? issueDisplayRef(issue) : null,
-    color: value.color,
     internal: value.internal,
     pinned: value.pinned,
     branch: value.kind === 'worktree' ? value.branch : null,

@@ -1,11 +1,9 @@
-import { ChevronLeft } from './icons'
 import type { ReactNode } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { flow } from '../theme/issueColors'
-import { alpha } from '../theme/mix'
 import { color, font, mono, radius, sans, space, tracking } from '../theme/theme'
 import { Icon } from './Icon'
+import { ChevronLeft } from './icons'
 import { PressableScale } from './PressableScale'
 
 /**
@@ -14,10 +12,6 @@ import { PressableScale } from './PressableScale'
  * Two header modes:
  *  - `large` (tab roots): title block with the actions row on the same line.
  *  - compact (pushed screens): back chevron + title, 44px-bar density.
- *
- * `accent` runs the issue colour flow through the chrome (colour-flow §2.8):
- * header 16% tint over the card surface with a .45-alpha bottom hairline, body
- * 10% over the canvas. Pass FLOW_HEX for issues without a colour.
  */
 export function Screen({
   title,
@@ -31,7 +25,6 @@ export function Screen({
   large,
   noHeader,
   safeBottom,
-  accent,
   bareBack = false,
   monoSubtitle = false,
 }: {
@@ -53,21 +46,14 @@ export function Screen({
   noHeader?: boolean
   /** Pay the bottom safe area when no tab bar or sheet owns that inset. */
   safeBottom?: boolean
-  accent?: string
   /** Pocket chat uses an unboxed navigation chevron. */
   bareBack?: boolean
   /** Ledger/chat metadata uses the compact monospace datum voice. */
   monoSubtitle?: boolean
 }) {
   const insets = useSafeAreaInsets()
-  const tint = accent
-    ? {
-        header: { backgroundColor: flow.headerBg(accent), borderBottomColor: alpha(accent, 0.45) },
-        body: { backgroundColor: flow.paneBg(accent) },
-      }
-    : null
   return (
-    <View style={[styles.root, tint ? tint.body : null]}>
+    <View style={styles.root}>
       <View
         style={[
           styles.inner,
@@ -93,7 +79,7 @@ export function Screen({
             {right ? <View style={styles.right}>{right}</View> : null}
           </View>
         ) : (
-          <View style={[styles.header, tint ? tint.header : null, { paddingTop: insets.top + 6 }]}>
+          <View style={[styles.header, { paddingTop: insets.top + 6 }]}>
             {onBack ? (
               backAs === 'text' ? (
                 <PressableScale

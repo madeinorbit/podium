@@ -76,7 +76,6 @@ describe('issueRowToProjection [POD-796]', () => {
       stage: 'in_progress',
       type: 'task',
       priority: 2,
-      color: 'violet',
       estimateMin: 45,
       worktreePath: '/repo/.worktrees/x',
       branch: 'issue/13',
@@ -185,7 +184,7 @@ describe('issueRowToProjection [POD-796]', () => {
     // different in-memory value, and the replica's restoreNullValues treats the
     // two the same only because POD-795 made it (`=== undefined`, not `in`).
     const p = issueRowToProjection(
-      row({ worktreePath: null, branch: null, assignee: null, deferUntil: null, color: null }),
+      row({ worktreePath: null, branch: null, assignee: null, deferUntil: null }),
       NO_LABELS,
     )
     expect(p).not.toHaveProperty('worktreePath')
@@ -217,7 +216,6 @@ describe('issueRowToProjection [POD-796]', () => {
       'machineId',
       'deletedAt',
       'readAt',
-      'color',
       'panel',
       'humanQuestionOptions',
       'humanQuestionAskedBy',

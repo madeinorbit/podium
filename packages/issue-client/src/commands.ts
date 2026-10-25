@@ -4,10 +4,6 @@ import {
   type DeliveryReceipt,
   HOST_REPOS,
   ISSUE_TYPES,
-  IssueColor,
-  isIssueStage,
-  issueStatusLabel,
-  issueStatusOf,
   type IssueDeck,
   type IssueId,
   type IssueLabelWire,
@@ -15,6 +11,9 @@ import {
   type IssueShowWire,
   type IssueTreeNode,
   type IssueTreeSession,
+  isIssueStage,
+  issueStatusLabel,
+  issueStatusOf,
   machineByRef,
   machineRejectionMessage,
   machinesFor,
@@ -441,7 +440,6 @@ function renderShow(
       ? `agent=${i.defaultAgent ?? 'auto'} model=${i.defaultModel ?? 'auto'} effort=${i.defaultEffort ?? 'auto'}`
       : null,
     i.machineId ? `machine=${i.machineId}` : null,
-    i.color ? `color=${i.color}` : null,
     i.labels?.length ? `labels=${i.labels.join(',')}` : null,
     i.branch ? `branch=${i.branch}` : null,
     i.needsHuman ? `NEEDS HUMAN${i.humanQuestion ? `: ${i.humanQuestion}` : ''}` : null,
@@ -718,8 +716,6 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
       // POD-6106: an agent applies only existing labels; this adds missing ones.
       createLabel: z.boolean().optional(),
       parentBranch: z.string().optional(),
-      // Colour slot [spec:SP-b4d1]: rose|pink|fuchsia|violet|indigo|blue|cyan|teal|green|lime.
-      color: IssueColor.optional(),
       start: z.boolean().optional(),
     }),
     async run(c, a) {
@@ -744,7 +740,6 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
         ...(a.profile ? { agentProfile: a.profile as string } : {}),
         ...(machineId ? { machineId } : {}),
         ...(a.assignee ? { assignee: a.assignee as string } : {}),
-        ...(a.color ? { color: a.color as never } : {}),
         // --labels is comma-separated on the CLI; the proc takes an array.
         ...(a.labels
           ? {
@@ -855,8 +850,6 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
       // row's sibling scope. Normally written by the sidebar drag; exposed here
       // so agents/scripts can reorder too.
       sortKey: z.string().optional(),
-      // Colour slot [spec:SP-b4d1]; 'none' clears back to the neutral flow.
-      color: z.union([IssueColor, z.literal('none')]).optional(),
       estimateMin: z.coerce.number().int().optional(),
       // Closing through update (`--stage done`, `--closed-reason`) takes close's guard.
       confirmInterrupt: z.boolean().optional(),
@@ -890,8 +883,6 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
       if (a.profile != null) patch.agentProfile = a.profile === 'none' ? null : a.profile
       // 'none' clears the pin (back to repo-affinity routing).
       if (a.machine != null) patch.machineId = a.machine === 'none' ? null : a.machine
-      // 'none' clears the colour (back to the neutral slate flow) [spec:SP-b4d1].
-      if (a.color != null) patch.color = a.color === 'none' ? null : a.color
       // An empty patch is a caller mistake (typo'd/absent flags), not a success (#345).
       if (Object.keys(patch).length === 0) {
         throw new Error('update: no fields given — nothing changed (see update --help for flags)')

@@ -98,8 +98,8 @@ test('desktop shell controls, collapse, dock switching, and widths persist', asy
   )
   expect(Math.round((await page.getByTestId('right-rail').boundingBox())?.width ?? 0)).toBe(44)
 
-  // Designed right-side issue borders (#65): the rail and the open dock wear
-  // the same issue-tinted hairline (35% coloured / 30% slate — never none),
+  // Designed right-side borders (#65): the rail and the open dock wear
+  // the same neutral hairline,
   // and the rail's issue cell is the bordered ID-square language, not a bare
   // text cell.
   const railBorder = await page

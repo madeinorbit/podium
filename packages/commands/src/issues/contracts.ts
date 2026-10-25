@@ -57,7 +57,6 @@
  */
 
 import {
-  IssueColor,
   IssueIdField,
   IssueStage,
   IssueType,
@@ -301,10 +300,6 @@ export const createInput = z.object({
   // lets it add the missing ones. The operator always creates-or-picks.
   createLabels: z.boolean().optional(),
   parentId: IssueIdField.optional(),
-  // Colour slot name [spec:SP-b4d1]; absent = no colour (slate flow). Top-level
-  // only (POD-697): a create that also names a `parentId` is a sub-task, which
-  // runs under its mission's colour, and the service drops the field.
-  color: IssueColor.optional(),
   // #198: an agent opts a work item onto the human's top-level board with
   // `audience: 'human'`. `origin` is NOT accepted — it is derived from the
   // caller (operator vs constrained agent), so provenance cannot be forged.
@@ -361,10 +356,6 @@ export const updateInput = z.object({
     // `SORT_KEY_COMPACT_LEN` keeps scopes under, which is what makes the
     // refusal unreachable rather than merely rare.
     sortKey: z.string().max(SORT_KEY_MAX_LEN).refine(isSortKey, 'malformed sort key').optional(),
-    // Colour slot name [spec:SP-b4d1]; null clears back to the slate flow.
-    // Top-level only (POD-697): the service refuses a slot on a sub-task, which
-    // takes its mission's colour. Clearing stays legal at any depth.
-    color: IssueColor.nullable().optional(),
     estimateMin: z.number().int().optional(),
   }),
   /** Same as `close`'s: the patch closes the issue while a session on it works [POD-5762]. */

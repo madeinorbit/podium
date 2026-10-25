@@ -1,19 +1,19 @@
-import { omitGone } from './lookup'
 import {
   confirmedWorkingAgentCount,
   operationalState,
-  rankedTaskStateSlots,
   type RankedTaskIssue,
+  rankedTaskStateSlots,
 } from '@podium/client-core/values'
 import { issueDisplayRef } from '@podium/protocol'
 import { autorun, runInAction } from 'mobx'
 import { afterEach, expect, it, vi } from 'vitest'
-import { insideArm, insideReader, measureWork } from '../../../tests/worklist/harness/src/work-meter'
 import { inBoardCheck } from '../../../tests/worklist/diagnostics/issue-board-check'
 import { readLegacyBoardCard } from '../../../tests/worklist/diagnostics/legacy-board-card'
+import { insideArm, insideReader, measureWork } from '../../../tests/worklist/harness/src/work-meter'
 import { BoardCard, boardCards, ExplorerRow } from './issue-board-cards'
 import { ISSUE_BOARD_ENTITIES, ISSUE_BOARD_SOURCE_KEY, ISSUE_BOARD_SUMMARIES } from './issue-board-schema'
 import { createIssueBoardSource } from './issue-board-source'
+import { omitGone } from './lookup'
 import { IssueModel } from './models'
 import { MobxPool } from './pool'
 import { LOADING } from './worklist/rollup'
@@ -147,7 +147,7 @@ it('answers every board and explorer card field like the old card graph on neste
         const fleet = old.fleet
         const working = confirmedWorkingAgentCount(fleet, pool.clock.peekNow())
         pairs[id] = {
-          ...Object.fromEntries((['title', 'color', 'type', 'priority', 'assignee', 'dueAt', 'estimateMin',
+          ...Object.fromEntries((['title', 'type', 'priority', 'assignee', 'dueAt', 'estimateMin',
             'deletedAt', 'gitState', 'updatedAt', 'intentOrigin', 'stage', 'closedReason', 'seq'] as const)
             .map((key) => [key, [old.issue[key] ?? null, model[key] ?? null]])),
           // The old overlay defaulted absent flags to false; cards read them as truth values.

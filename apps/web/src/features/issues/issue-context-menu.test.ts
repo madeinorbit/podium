@@ -3,10 +3,10 @@ import { asIssueId, asMachineId, asRepoId, asSessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { makeIssue } from '@/lib/test-issue'
 import {
+  cascadeSessionCount,
   contextMenuTargets,
   deferDateFromNow,
   describeCascade,
-  cascadeSessionCount,
   issueHandoffAvailability,
   issueHasCloseReason,
   issueMenuEligibility,
@@ -83,7 +83,6 @@ describe('issueMenuEligibility', () => {
       canSetPriority: true,
       canAssignAgent: true,
       canSetLabels: true,
-      canSetColor: true,
       canClose: true,
       canDefer: true,
       canUndefer: false,
@@ -97,21 +96,6 @@ describe('issueMenuEligibility', () => {
       canMarkRead: false,
       canMarkUnread: true,
     })
-  })
-
-  // POD-697: the colour names a mission. A sub-issue runs under its parent's by
-  // inheritance, so the entry is offered on top-level targets only — and one
-  // sub-issue in a selection takes it away for the whole set.
-  it('offers colour on top-level tasks only', () => {
-    expect(issueMenuEligibility([makeIssue()]).canSetColor).toBe(true)
-    expect(issueMenuEligibility([makeIssue({ parentId: 'iss_epic' })]).canSetColor).toBe(false)
-    expect(
-      issueMenuEligibility([makeIssue(), makeIssue({ parentId: 'iss_epic' })]).canSetColor,
-    ).toBe(false)
-    // Every other bulk item on that mixed selection is untouched.
-    expect(
-      issueMenuEligibility([makeIssue(), makeIssue({ parentId: 'iss_epic' })]).canSetStage,
-    ).toBe(true)
   })
 
   // POD-1077: the flight deck is its own surface. Archive and Pin both act on

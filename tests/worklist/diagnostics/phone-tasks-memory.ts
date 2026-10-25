@@ -1,12 +1,12 @@
 /** Run on flatblock: bun --conditions=@podium/source
  * tests/worklist/diagnostics/phone-tasks-memory.ts before|after. */
 import { createRequire } from 'node:module'
+
 const { heapStats } = createRequire(import.meta.url)('bun:jsc') as {
   heapStats(): { heapSize: number }
 }
 const bunRuntime = globalThis as unknown as { Bun: { gc(force: boolean): void } }
-import { enableDebugNames, lazyKeptCount } from '@podium/mobx-helpers'
-import { autorun, computed } from 'mobx'
+
 import { attachMobileScreens } from '@podium/client-graph/mobile-screens'
 import {
   MOBILE_SCREEN_SUMMARIES,
@@ -15,6 +15,8 @@ import {
 import { MobileTasksBoard } from '@podium/client-graph/mobile-tasks'
 import { MobxPool } from '@podium/client-graph/pool'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
+import { enableDebugNames, lazyKeptCount } from '@podium/mobx-helpers'
+import { autorun, computed } from 'mobx'
 import { createLegacyMobileTasks } from './legacy-mobile-tasks'
 
 const mode = process.argv[2]
@@ -139,7 +141,6 @@ if (mode === 'before') {
           issue.type
           issue.priority
           issue.repoPath
-          issue.color
           issue.needsHuman
           issue.blocked
           issue.dependents

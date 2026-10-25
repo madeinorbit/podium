@@ -86,8 +86,8 @@ export const BAND_H = 44
  * The spine has exactly two fills: grey for a task, fuchsia for a proposal.
  * Selection and attention are therefore not allowed to be surfaces, or the one
  * thing a colour means in this column stops being one thing. They arrive
- * instead as a short square tick standing in the rail's own gutter — the issue
- * accent for the row you are on, bisque one notch further out for a row with a
+ * instead as a short square tick standing in the rail's own gutter — the theme
+ * ink for the row you are on, bisque one notch further out for a row with a
  * session asking inside it. Two ticks stand side by side without either
  * becoming the other, which a border and a background cannot.
  */
@@ -101,8 +101,8 @@ const TICK_ATTENTION_X = -RAIL_INSET
 /**
  * THE LEAD RAIL.
  *
- * A branch whose owner has a live coordinator draws its guide in the mission's
- * own accent instead of a hairline, so "who is running this" is answered by the
+ * A branch whose owner has a live coordinator draws its guide in the theme
+ * ink instead of a hairline, so "who is running this" is answered by the
  * line rather than by a badge. Two tiers, because the same device names the
  * mission's lead and a task's lead and those are not the same claim. Un-led
  * branches keep the hairline, which is what stops the coloured line from
@@ -119,9 +119,9 @@ const HAIRLINE: Rail = { color: color.hairline, width: StyleSheet.hairlineWidth 
 
 /** 45% for the mission's own lead, 22% for a task's — quiet enough to trace
  *  from the header to the row, never loud enough to read as a highlight. */
-export function railFor(tone: RailTone, accent: string): Rail {
-  if (tone === 'mission') return { color: alpha(accent, 0.45), width: 2 }
-  if (tone === 'task') return { color: alpha(accent, 0.22), width: 2 }
+export function railFor(tone: RailTone): Rail {
+  if (tone === 'mission') return { color: alpha(color.textFaint, 0.45), width: 2 }
+  if (tone === 'task') return { color: alpha(color.textFaint, 0.22), width: 2 }
   return HAIRLINE
 }
 
@@ -222,7 +222,6 @@ function Guides({
   carries,
   toX,
   rails,
-  accent,
   railTop = true,
   stops,
   ownX,
@@ -235,7 +234,6 @@ function Guides({
   toX: number
   /** The tone of the rail at each level, `rails[level - 1]`. */
   rails: readonly RailTone[]
-  accent: string
   railTop?: boolean
   /** This row is the last thing on its own rail, so the rail stops at the elbow. */
   stops: boolean
@@ -244,12 +242,12 @@ function Guides({
   /** The elbow's colour, when this row is the one its branch is about. */
   elbowColor?: string
 }) {
-  const own = railFor(rails[depth - 1] ?? null, accent)
+  const own = railFor(rails[depth - 1] ?? null)
   return (
     <View pointerEvents="none" style={[StyleSheet.absoluteFill, { width: toX }]}>
       {carries.map((on, level) => {
         if (!on || level + 1 === depth) return null
-        const rail = railFor(rails[level] ?? null, accent)
+        const rail = railFor(rails[level] ?? null)
         return (
           <View
             // biome-ignore lint/suspicious/noArrayIndexKey: level IS the identity
@@ -305,7 +303,6 @@ export function TaskStrip({
   depth,
   carries,
   rails,
-  accent,
   stops,
   title,
   displayRef,
@@ -326,7 +323,6 @@ export function TaskStrip({
   depth: number
   carries: readonly boolean[]
   rails: readonly RailTone[]
-  accent: string
   stops: boolean
   title: string
   displayRef: string
@@ -359,7 +355,6 @@ export function TaskStrip({
         depth={depth}
         carries={carries}
         rails={rails}
-        accent={accent}
         toX={bandLeft}
         ownX={ownX}
         stops={stops}
@@ -381,7 +376,7 @@ export function TaskStrip({
           pointerEvents="none"
           style={[
             styles.tick,
-            { left: ownX + TICK_SELECTED_X, top: mid - TICK_H / 2, backgroundColor: accent },
+            { left: ownX + TICK_SELECTED_X, top: mid - TICK_H / 2, backgroundColor: color.text },
           ]}
         />
       ) : null}
@@ -545,7 +540,6 @@ export function SessionBand({
   depth,
   carries,
   rails,
-  accent,
   stops,
   name,
   displayRef,
@@ -565,7 +559,6 @@ export function SessionBand({
   depth: number
   carries: readonly boolean[]
   rails: readonly RailTone[]
-  accent: string
   stops: boolean
   name: string
   /** The permanent birth ref — the handle an operator types and says out loud. */
@@ -602,7 +595,6 @@ export function SessionBand({
         depth={depth + 1}
         carries={[...carries, false]}
         rails={rails}
-        accent={accent}
         toX={pad}
         ownX={ownX}
         stops={stops}
@@ -611,12 +603,12 @@ export function SessionBand({
         // joined to it in that colour, so the branch names one agent instead of
         // tinting the roster. Attention has its own tick outside the rail, so
         // the elbow remains provenance instead of becoming a second ask mark.
-        elbowColor={lead ? railFor(railTone, accent).color : color.hairline}
+        elbowColor={lead ? railFor(railTone).color : color.hairline}
       />
       {coordinator ? (
         <View
           pointerEvents="none"
-          style={[styles.leadFill, { left: fillLeft, backgroundColor: alpha(accent, 0.08) }]}
+          style={[styles.leadFill, { left: fillLeft, backgroundColor: alpha(color.textFaint, 0.08) }]}
         />
       ) : null}
       {asking ? (
@@ -641,7 +633,7 @@ export function SessionBand({
           pointerEvents="none"
           style={[
             styles.tick,
-            { left: ownX + TICK_SELECTED_X, top: mid - TICK_H / 2, backgroundColor: accent },
+            { left: ownX + TICK_SELECTED_X, top: mid - TICK_H / 2, backgroundColor: color.text },
           ]}
         />
       ) : null}
@@ -674,7 +666,7 @@ export function SessionBand({
                 lead
                   ? {
                       ...styles.roleLead,
-                      color: accent,
+                      color: color.textDim,
                       opacity: role?.kind === 'coordinator' ? 1 : 0.7,
                     }
                   : null,

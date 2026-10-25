@@ -1,45 +1,45 @@
-import type { AccountModel, MemberModel, DeviceModel, PodiumSettingsModel, RepositoryModel } from './requested-models'
-import type { MessageModel, PendingInteractionModel } from './message-models'
-import { type Lookup, omitGone, isGone } from './lookup'
-import { issuePendingDecision, type IssueNavigationModel } from '@podium/client-core/values'
+import { type IssueNavigationModel, issuePendingDecision } from '@podium/client-core/values'
 import type { IssueGitState, IssueProjection } from '@podium/model'
+import { isGone, type Lookup, omitGone } from './lookup'
+import type { MessageModel, PendingInteractionModel } from './message-models'
+import type { AccountModel, DeviceModel, MemberModel, PodiumSettingsModel, RepositoryModel } from './requested-models'
 import type { AutomationModel, AutomationRunModel, MachineModel } from './synced-models'
+
 export type { AutomationModel, AutomationRunModel, MachineModel } from './synced-models'
-import type { IssueSessionFactReader } from './shared/issue-session-facts'
+
 import { attentionGroup, effectiveRecency } from '@podium/client-core/focus'
 import type { SessionView } from '@podium/client-core/session-values'
-import { asSessionId, isFinished, isExcluded, type SessionWord, type SessionWordFacts, sessionWord, wordWantsAttention } from '@podium/model/browser'
-import { groupRelations, type IssueCloseMemberCounts, type IssueCloseScalarSubject, type ReferentExit, type TaskProgress } from '@podium/client-core/values'
+import { groupRelations, type IssueCloseMemberCounts, type IssueCloseScalarSubject, type ReferentExit, motionPhase as sessionMotion, type TaskProgress } from '@podium/client-core/values'
+import { asSessionId, isExcluded, isFinished, type SessionWord, type SessionWordFacts, sessionWord, wordWantsAttention } from '@podium/model/browser'
 import type { ReaderQueries } from './reader-queries'
-import { motionPhase as sessionMotion } from '@podium/client-core/values'
+import type { IssueSessionFactReader } from './shared/issue-session-facts'
 
 /** One shared object per server record. Schema fields and relations are installed
  * once; derived entity facts use @lazy. Views own their per-record companions. */
 
-import { compareShallow, compareStructural, observable, runInAction, action } from 'mobx'
 import { lazy } from '@podium/mobx-helpers'
+import { action, compareShallow, compareStructural, observable, runInAction } from 'mobx'
 import type { Residence } from './pool'
 import type { SeatRelation } from './session-seats'
 import type { CollectionName, IsLazy, SingleName, SubsetName, TargetOf } from './shared/links'
 import type { RelationReader } from './shared/relation-reader'
 import { FEED_SPELLING } from './shared/repo-from-lane'
-import { type EntityName, type ModelSchema, SCHEMA, awaitingMergeOf } from './shared/schema'
+import { awaitingMergeOf, type EntityName, type ModelSchema, SCHEMA } from './shared/schema'
 import { computingDeadlineOf } from './shared/session-facts'
 import type { SliceIssue, SliceSession, SliceWorktree } from './shared/slice-types'
-import { type EditableStage, type EditPatch, EDITABLE_FIELDS, type TxId, type WritableKind } from './write/commands'
 import type { StoredRow } from './tables'
-import { DEFER_NEXT_MESSAGE } from './views'
-import { activityMsOf, displayRefOf, parseMs, type RepoRow, repoTargetPartOf, prefixPartOf, originRefPartOf, type ViewInputs } from './views'
-import { LOADING, type Loaded as LoadedRow, type OwnFacts, ownFactsOf, type RollupInputs, isSessionWorking } from './worklist/rollup'
+import { activityMsOf, DEFER_NEXT_MESSAGE, displayRefOf, originRefPartOf, parseMs, prefixPartOf, type RepoRow, repoTargetPartOf, type ViewInputs } from './views'
+import { isSessionWorking, LOADING, type Loaded as LoadedRow, type OwnFacts, ownFactsOf, type RollupInputs } from './worklist/rollup'
+import { fleetOf, type SidebarSessionFacts, unstarted } from './worklist/sidebar-row'
 import type { VisibleInputs } from './worklist/visible'
-import { fleetOf, unstarted, type SidebarSessionFacts } from './worklist/sidebar-row'
+import { EDITABLE_FIELDS, type EditableStage, type EditPatch, type TxId, type WritableKind } from './write/commands'
 
 const EMPTY_DEPENDENTS: readonly { id: string; type: string }[] = Object.freeze([])
 
 // Direct work-row paint readers need scalar equality when an unrelated stored
 // field changes. Other installed stored getters stay plain.
 const ISSUE_PAINT_FIELDS: ReadonlySet<string> = new Set([
-  'title', 'color', 'audience', 'pinned', 'linearIdentifier', 'seq', 'acceptance',
+  'title', 'audience', 'pinned', 'linearIdentifier', 'seq', 'acceptance',
   'stage', 'closedReason', 'blocked', 'branch', 'gitState', 'parentBranch',
 ])
 

@@ -1,21 +1,20 @@
-import { omitGone } from '@podium/client-graph/lookup'
-import { sidebarView } from '@podium/client-graph/worklist/sidebar'
-import { allowImperativeRead } from '@podium/mobx-helpers'
 import { beginSwitch } from '@podium/client-core/perf'
 import { useStoreHandle } from '@podium/client-core/react'
 import type { SessionView } from '@podium/client-core/session-values'
 import { pickPaneSession } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph'
 import { LOADING } from '@podium/client-graph/loading'
+import { omitGone } from '@podium/client-graph/lookup'
 import { missions } from '@podium/client-graph/mission'
 import { missionView, readMissionActionInputs } from '@podium/client-graph/mission-view'
 import type { SliceIssue } from '@podium/client-graph/shared/slice-types'
+import { sidebarView } from '@podium/client-graph/worklist/sidebar'
+import { allowImperativeRead } from '@podium/mobx-helpers'
 import {
   asIssueId,
   asSessionId,
-  machinePathsEqual,
-  type IssueColorSlot,
   type IssueId,
+  machinePathsEqual,
   type SessionId,
 } from '@podium/model/browser'
 import { useMemo, useRef } from 'react'
@@ -249,8 +248,6 @@ export function createPoolWorkActions(
     renameIssue: (id: string, title: string) => {
       void runtime.access.updateIssue(id, { title })
     },
-    setIssueColor: (id: string, color: IssueColorSlot | null) =>
-      runtime.access.updateIssue(id, { color }),
     archiveIssue: (id: string) => runtime.access.archiveIssue(id),
     deleteIssue: (id: string) => runtime.access.deleteIssue(id),
     applySortPatches: (patches: { id: string; sortKey: string; pinned?: boolean }[]) =>

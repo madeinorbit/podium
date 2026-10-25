@@ -8,12 +8,12 @@ import {
   parseIssueStatusValue,
 } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
-import { useEffect, useState } from 'react'
 import { observer } from 'mobx-react-lite'
-import { useMobilePool } from '../client/mobile-pool'
-import { useIssueModel } from '../client/use-issue-model'
+import { useEffect, useState } from 'react'
 import { useStoreActions } from '../client/hooks'
+import { useMobilePool } from '../client/mobile-pool'
 import { useIssueCloseGuard } from '../client/use-issue-close'
+import { useIssueModel } from '../client/use-issue-model'
 import { DELETE_TASK_TITLE, deleteTaskSubtitle } from '../lib/task-delete'
 import {
   type WorkIssueMenuTarget,
@@ -23,7 +23,6 @@ import {
 import { color } from '../theme/theme'
 import { ActionSheet, type SheetAction } from './ActionSheet'
 import { IssueCloseSheet } from './IssueCloseSheet'
-import { IssueColorSheet } from './IssueColorSheet'
 import { StageGlyph } from './StageGlyph'
 import { PromptSheet } from './task-detail/PromptSheet'
 
@@ -34,7 +33,6 @@ type MenuSheet =
   | { kind: 'menu' }
   | { kind: 'rename' }
   | { kind: 'status' }
-  | { kind: 'color' }
   | { kind: 'confirm-delete' }
   | { kind: 'confirm-close'; reason: IssueCloseReason }
 
@@ -161,7 +159,6 @@ export const WorkIssueMenu = observer(function WorkIssueMenu({
         onClose={closeIf('confirm-close')}
       />
 
-      <IssueColorSheet issue={sheet?.kind === 'color' ? issue : null} onClose={closeIf('color')} />
     </>
   )
 
@@ -177,8 +174,6 @@ export const WorkIssueMenu = observer(function WorkIssueMenu({
         }
       case 'status':
         return { label: 'Set status', onPress: () => setSheet({ kind: 'status' }) }
-      case 'color':
-        return { label: 'Set colour', onPress: () => setSheet({ kind: 'color' }) }
       case 'placement': {
         if (!placement) return null
         const originId = placement.originId

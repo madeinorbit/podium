@@ -1286,12 +1286,12 @@ function PaneChrome({
         }}
         onKeyDownCapture={onColdKeyDown}
         className={cn(
-          'native-tab-strip pointer-events-auto relative flex flex-none items-center gap-[4px] border-b border-hairline-soft issue-base-tabstrip px-[8px]',
+          'native-tab-strip pointer-events-auto relative flex flex-none items-center gap-[4px] border-b border-hairline-soft surface-base-tabstrip px-[8px]',
           isOver
-            ? 'issue-mix-24 issue-mix-slate-18'
+            ? 'surface-mix-18'
             : focused
-              ? 'issue-mix-3 issue-mix-slate-2'
-              : 'issue-mix-1 issue-mix-slate-0',
+              ? 'surface-mix-2'
+              : 'surface-mix-0',
         )}
       >
         {drag ? (
@@ -1581,8 +1581,8 @@ function SortableTab({
     if (!isSessionTab) return
     return () => clearHoveredSession(tab.id)
   }, [isSessionTab, tab.id])
-  // The 7×7px leading square is the ISSUE colour (via --issue / .tab-issue-dot)
-  // — full strength on the active tab, faded on the rest. The agent's identity
+  // The 7×7px leading square uses neutral ink (.tab-issue-dot), full strength
+  // on the active tab and faded on the rest. The agent's identity
   // accent left the tab (spec G2); agent identity lives in the panel header
   // chip. `parked` keeps the hibernated grayed/italic label hook.
   // ONE LEADING MARK (fidelity review P2-1). A working or waiting agent shows
@@ -1626,7 +1626,7 @@ function SortableTab({
         active
           ? 'native-tab-active bg-card'
           : isDragging
-            ? 'issue-mix-10'
+            ? 'surface-mix-10'
             : 'hover:bg-secondary/60',
       )}
       data-session={tab.id}

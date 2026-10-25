@@ -1,10 +1,10 @@
-import { here } from '@podium/client-graph/lookup'
-import { allowImperativeRead, assertReactiveRead } from '@podium/mobx-helpers'
 import { useStoreHandle } from '@podium/client-core/react'
 import type { IssueViewModel } from '@podium/client-core/replica'
-import type { ShellDock, shellViews } from '@podium/client-graph/shell-views'
+import { here } from '@podium/client-graph/lookup'
 import type { MobxPool } from '@podium/client-graph/pool'
+import type { ShellDock, shellViews } from '@podium/client-graph/shell-views'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
+import { allowImperativeRead, assertReactiveRead } from '@podium/mobx-helpers'
 import { useMemo } from 'react'
 import type { Store } from './store'
 import { useWorklistPool } from './store-worklist-pool'
@@ -150,8 +150,6 @@ const EMPTY_CHROME = {
   sessionCount: 0,
   selectedIssueId: null as Store['selectedIssueId'],
   missionRoot: undefined as IssueViewModel | undefined,
-  colorIssue: undefined,
-  colorById: (_id: string) => undefined,
 }
 export function useShellChrome() {
   if (import.meta.env.DEV) assertReactiveRead('useShellChrome')

@@ -1,19 +1,19 @@
-import { omitGone } from './lookup'
-import { headerEntities } from './header-entities'
-import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 import type { ClientRuntime } from '@podium/client-core/engine'
-import type { ReferenceState as Store } from '../../../tests/worklist/diagnostics/reference-state'
 import type { SessionView } from '@podium/client-core/session-values'
+import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 import type { MachineWire } from '@podium/model/browser'
 import { autorun, observable, runInAction } from 'mobx'
 import { expect, it, vi } from 'vitest'
+import type { ReferenceState as Store } from '../../../tests/worklist/diagnostics/reference-state'
 import { checkSessionPanes } from '../../../tests/worklist/diagnostics/session-pane-check'
-import { sessionPaneFixture, SESSION_PANE_NOW } from '../../../tests/worklist/diagnostics/session-pane-fixture'
+import { SESSION_PANE_NOW, sessionPaneFixture } from '../../../tests/worklist/diagnostics/session-pane-fixture'
+import { headerEntities } from './header-entities'
+import { omitGone } from './lookup'
 import { MobxPool } from './pool'
-import { paneSession, paneWindow, paneSpawnConfirmed, paneIssueColor } from './session-pane'
-import { sessionPaneView } from './session-pane-view'
-import { SessionPaneSource } from './session-pane-source'
+import { paneSession, paneSpawnConfirmed, paneWindow } from './session-pane'
 import { SESSION_PANE_ENTITIES, SESSION_PANE_SUMMARIES } from './session-pane-schema'
+import { SessionPaneSource } from './session-pane-source'
+import { sessionPaneView } from './session-pane-view'
 import { LOADING } from './worklist/rollup'
 
 
@@ -147,30 +147,6 @@ it('chooses the nearest eligible cwd ancestor at exact slash boundaries, includi
     expect(paneStampIssue(pool, session)).toMatchObject({ id: 'inner' })
     expect(paneStampIssue(pool, { ...session, cwd: '/synthetic/nested-other/file' })).toMatchObject({ id: 'outer' })
     expect(paneStampIssue(pool, { ...session, cwd: '/synthetic-other/file' })).toBeUndefined()
-  } finally { pool.dispose() }
-})
-it('inherits the selected issue tint through summary fields and stops on a parent cycle', () => {
-  const pool = new MobxPool({ selectedIssueId: 'child', coarseNow: SESSION_PANE_NOW })
-  try {
-    pool.apply({ type: 'replace', rows: [issue('root', null, { color: 'violet' }), issue('child', null, { parentId: 'root' })].map(row => ({ kind: 'issue', id: row.id, value: row as never })) })
-    const hex = (name: string | null | undefined) => name === 'violet' ? '#abc' : undefined
-    expect(paneIssueColor(pool, 'child', hex)).toBe('#abc')
-    const f = fixture()
-    try {
-      const rows = [issue('root', null, { color: 'violet' }), issue('child', null, { parentId: 'root' })]
-      f.pool.apply({ type: 'update', rows: rows.map(row => ({ kind: 'issue', id: row.id, value: row as never })) })
-      f.pool.applyLocals({ selectedIssueId: 'child', coarseNow: SESSION_PANE_NOW }, new Set(['selectedIssueId']))
-      f.change({ selectedIssueId: 'child' as Store['selectedIssueId'] })
-      f.settle()
-      expect(checkSessionPanes(f.pool, f.state(), undefined, rows as never, hex).differences).toBe(0)
-      f.pool.apply({ type: 'update', rows: [{ kind: 'issue', id: 'root', value: issue('root', null) as never }] })
-      expect(checkSessionPanes(f.pool, f.state(), undefined, rows as never, hex).first?.section).toBe(3)
-    } finally { f.pool.dispose() }
-    // Tint traversal owns its cycle guard; unrelated sidebar presence reactions
-    // need not consume this malformed parent graph in the focused reader proof.
-    const cycle = { row: (_entity: string, id: string) =>
-      id === 'child' ? issue('child', null, { parentId: 'root' }) : issue('root', null, { parentId: 'child' }) } as unknown as MobxPool
-    expect(paneIssueColor(cycle, 'child', hex)).toBeUndefined()
   } finally { pool.dispose() }
 })
 

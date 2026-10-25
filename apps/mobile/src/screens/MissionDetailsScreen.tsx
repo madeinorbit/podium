@@ -1,9 +1,9 @@
 import type { IssueNavigationModel } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph/pool'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
-import { observer } from 'mobx-react-lite'
 import { asIssueId } from '@podium/model'
 import { useLocalSearchParams, useRouter } from 'expo-router'
+import { observer } from 'mobx-react-lite'
 import { useCallback, useState } from 'react'
 import { useMissionOpening, useStoreActions } from '../client/hooks'
 import { useMobilePoolProjection } from '../client/mobile-pool'
@@ -13,7 +13,6 @@ import { MissionDeck } from '../components/MissionDeck'
 import { Screen } from '../components/Screen'
 import { EmptyState } from '../components/ui'
 import { WorkIssueMenu } from '../components/WorkIssueMenu'
-import { FLOW_HEX, issueColorHex } from '../theme/issueColors'
 
 const ignoreContentHeight = (_height: number): void => undefined
 
@@ -47,7 +46,6 @@ export const MissionDetailsScreen = observer(function MissionDetailsScreen() {
       ) : root && screen ? (
         <MissionDeck
           screen={screen}
-          accent={issueColorHex(root.color) ?? FLOW_HEX}
           currentSessionId={
             screen.crew.find((session) => session.sessionId === rawSession)?.sessionId
           }

@@ -2273,42 +2273,7 @@ html .header-host-indicators .header-quota-chip .header-value:is([data-tone="cri
   color: var(--text-dim);
 }
 
-/* ─────────────────────────────────────────────────────────────────────────────
-   THE COMMAND PALETTE (POD-745)
 
-   THE PALETTE IS THE COMMAND BAR, ARRIVED.
-
-   It used to be a stock dialog: a bordered input over 13px rows with a grey
-   `bg-accent` wash on the selected one. Nothing in it was made of this system —
-   not the well, not the mono machine voice, not the ID square, not the agent
-   state grammar — which is why the one surface the operator reaches for most
-   was the one that looked least like Podium. This is that surface built out of
-   the shell's own parts:
-
-     · THE FIELD IS A WELL. The command bar's signature control at full width,
-       down to its recipe: `--well-floor` under the same three insets
-       `.topbar-well` wears. The floor is the TOKEN and never a tier name — POD-737
-       lifted the bar off the deepest tier in both grounds, so which direction a
-       groove cuts is a per-ground call the `--well-*` values already carry. A
-       literal `--bar` here was right for one week and wrong the moment the
-       chassis changed.
-     · THE SELECTED ROW IS A RAISED CELL on `--secondary` — the same fill the
-       active mode tab takes, under the `--well-cell-*` bevel. Not `--well-cell`
-       itself: on paper that token resolves to `--card`, which is correct for a
-       cell sitting in the BAR and invisible here, where the panel is already
-       white. The bevel flips with the ground; the fill has to differ from the
-       surface it sits on, and only `--secondary` does that in both.
-     · GROUPS SPEAK MONO. Section labels are the Label role — the same voice the
-       overlay menus and the colour picker name their regions in.
-     · ONE YELLOW THING. `.cmdk-row-cap` marks what Enter will do, on the row it
-       will do it to, and nothing else in the surface may take the signal.
-
-   DialogContent is a full-viewport STAGE, not the card. The component's
-   viewport position mode omits its usual centering and animation utilities,
-   so this rule owns the stage while `.cmdk-surface` owns the visible card.
-   Keeping those responsibilities separate prevents an enter keyframe from
-   replacing the transform that positions the palette.
-   ───────────────────────────────────────────────────────────────────────────*/
 /* The palette keeps the SHARED backdrop rather than inventing a deeper one.
    A literal black scrim was one step darker on the old navy chassis and simply
    wrong on Paper — "black at 0.85 on paper reads as dirt, not depth" is the
@@ -2817,14 +2782,7 @@ html .header-host-indicators .header-quota-chip .header-value:is([data-tone="cri
   background: transparent;
   color: var(--text-dim);
 }
-/* THE FLIGHT DECK'S COLUMN (POD-725). The one column that is about ONE issue —
-   which is why it, alone, wears the issue colour as a surface: the selected
-   row's 3px spine in the work list continues across this column's top edge and
-   fades down into the card tone over 240px. Read left to right, the spine says
-   "this is the same thing" twice, then stops.
-   That is also where the tint the workspace pane used to carry has gone. A wash
-   over the stage claimed the whole centre of the window for one issue; here the
-   claim is true and the gradient is spent on a column narrow enough to make it. */
+/* The flight deck's neutral top edge fades into the card tone over 240px. */
 /* NOT ENGRAVED ANY MORE, despite the name (POD-725). The column kept a groove
    down both sides and a border on its right; the design has neither. Columns
    are separated by TONE — work list, deck, gutter are three steps of stone —
@@ -2845,36 +2803,20 @@ html .header-host-indicators .header-quota-chip .header-value:is([data-tone="cri
   flex-direction: column;
   background: linear-gradient(
     180deg,
-    color-mix(in srgb, var(--issue) calc(16 * var(--issue-tint-scale, 1%)), var(--deck-surface)),
+    color-mix(in srgb, var(--neutral) calc(13 * var(--surface-tint-scale, 1%)), var(--deck-surface)),
     var(--deck-surface) 240px
   );
   box-shadow:
-    inset 0 3px 0 var(--issue),
+    inset 0 3px 0 color-mix(in srgb, var(--neutral) 55%, transparent),
     0 1px 2px color-mix(in srgb, var(--carve-drop) 50%, transparent);
 }
-/* The mission chrome remains visually fixed while the column itself owns the
-   scrollport. Inheriting the column's issue wash keeps rows moving beneath an
-   opaque continuation of the same surface rather than behind clear glass. */
 .deck-chrome {
   background: inherit;
-}
-/* The no-colour flow runs the same mechanics quieter (handoff 1b). */
-[data-issue-colored="false"] .engraved-column {
-  background: linear-gradient(
-    180deg,
-    color-mix(in srgb, var(--issue) calc(13 * var(--issue-tint-scale, 1%)), var(--deck-surface)),
-    var(--deck-surface) 240px
-  );
-  box-shadow:
-    inset 0 3px 0 color-mix(in srgb, var(--issue) 55%, transparent),
-    0 1px 2px color-mix(in srgb, var(--carve-drop) 50%, transparent);
 }
 /* Folding must not change the column's MATERIAL (POD-725), only its width: the
    folded bar sits on the deck's own surface. Since the calm redesign (POD-2075,
    design 4a) it is a handle rather than an instrument — the open control and the
-   mission's done/total under it — so it wears the surface flat: no issue fade,
-   no spine down the left edge, nothing that competes with the sidebar row and the
-   task panel, which already carry the mission's colour. */
+   mission's done/total under it — so it wears the surface flat. */
 .folded-superagent {
   display: flex;
   flex: 0 0 44px;
@@ -2921,15 +2863,7 @@ html .header-host-indicators .header-quota-chip .header-value:is([data-tone="cri
      lying on the ground, so this element is now the ground around it: the app
      background, unpainted, with the gutter as padding. Asymmetric because the
      left neighbour (the flight deck) already ends in its own surface and the
-     right one (the issue panel) does not.
-     The issue tint that used to wash this pane is gone with it — a tint over a
-     surface that is now just the gap between two objects has nothing to be
-     about. The colour it carried moved to where the design puts it: the flight
-     deck's fade, the selected row's band, and the active tab's dot and ring.
-     The index.css wash this replaced is now DELETED, not overridden: its slate
-     half was a descendant selector that outranked this rule, so the gutter kept
-     the tint whenever the mission had no colour. `.native-agents-pane` has one
-     consumer (Workspace.tsx) and mobile is not it. */
+     right one (the issue panel) does not. */
   display: flex;
   padding: 12px 12px 12px 14px;
   background-color: var(--background);
@@ -3018,21 +2952,7 @@ html[data-setup-only="true"] [data-testid="update-panel"] {
     animation: none;
   }
 }
-/* The right dock is a DARK DEFAULT surface (POD-516 item 9), not an
-   issue-tinted one. It used to wear `issue-base-card issue-fade`, but a tint
-   only means something when the surface IS that issue — and this dock also
-   hosts Superagent, Git, Files, Shell, Messages and the queues panel, so the
-   selected issue's colour asserted a relationship that is usually untrue.
-   Deliberately narrows §2's issue-colour channel on this one surface; the ID
-   square in the rail keeps its own colour, because it identifies one issue.
 
-   Written in TOKENS, not a dark literal: the dock body takes --engraved (§2's
-   own name for "flat, steps away from the work, no issue tint") and the icon
-   rail takes --rail — so the right edge steps AWAY from the workspace in every
-   theme, the dock tone on the dark ground and the darkest stone on paper, where
-   a hard-coded dark value would have been a hole. Same tonal ordering as the POD-491
-   artifact, whose dock sits a step under the pane and whose icon rail sits
-   under the dock. */
 .right-dock-shell {
   display: flex;
   width: 100%;
@@ -3048,7 +2968,7 @@ html[data-setup-only="true"] [data-testid="update-panel"] {
   background: var(--engraved);
   /* Content INSIDE the dock may still be about one issue (the task panel). Its
      tints mix over the dock's own surface, not the --card default. */
-  --issue-base: var(--engraved);
+  --surface-base: var(--engraved);
 }
 
 /* ── The issue explorer (POD-743) ──────────────────────────────────────────
@@ -3207,7 +3127,7 @@ html[data-setup-only="true"] [data-testid="update-panel"] {
      theme's frame was still the darkest thing in the window; now that the bar
      lifts, --bar would have made the rail brighter than the columns it edges. */
   background: var(--rail);
-  --issue-base: var(--rail);
+  --surface-base: var(--rail);
 }
 .right-rail-cell {
   display: flex;
@@ -3223,11 +3143,8 @@ html[data-setup-only="true"] [data-testid="update-panel"] {
      Messages, none of which belong to the selected issue. */
   color: var(--text-dim);
 }
-/* THE OPEN PANEL'S CELL (POD-725). The design raises it out of the rail onto the
-   card with a small drop and a 1px issue ring, and puts the issue's own colour
-   in the glyph — the same "raised, ringed, and it is about THIS issue" recipe
-   the active workspace tab uses, so the two objects that say "you are here"
-   say it the same way.
+/* THE OPEN PANEL'S CELL (POD-725). A small drop, neutral ring and glyph mark
+   the selected panel, matching the active workspace tab.
    It was `bg-secondary text-primary`: brand YELLOW on a light chip, which on
    paper measured 1.6:1 and is the exact assignment DESIGN.md forbids. Yellow
    fills; it never writes. */
@@ -3236,8 +3153,8 @@ html[data-setup-only="true"] [data-testid="update-panel"] {
   box-shadow:
     0 1px 2px color-mix(in srgb, var(--carve-drop) 90%, transparent),
     inset 0 0 0 1px
-    color-mix(in srgb, var(--issue) calc(35 * var(--issue-line-scale, 1%)), transparent);
-  color: var(--issue);
+    color-mix(in srgb, var(--neutral) calc(35 * var(--surface-line-scale, 1%)), transparent);
+  color: var(--neutral);
 }
 /* Shipping attention is a durable hold, not selection tint. It wins even when
    the panel is open; the separate grey count remains inventory, not alarm. */
@@ -3266,7 +3183,7 @@ html[data-setup-only="true"] [data-testid="update-panel"] {
   top: 50%;
   width: 6px;
   height: 1px;
-  /* Inherits a coloured issue's tint when the wrapper sets --tree-guide. */
+  /* Inherits the tree-guide tone from its wrapper. */
   background: var(--tree-guide, var(--border));
   pointer-events: none;
 }
@@ -3694,27 +3611,7 @@ html[data-setup-only="true"] [data-testid="update-panel"] {
   background-color: transparent;
 }
 
-/* THE OPERATOR'S TURN IS A BRIEF, NOT A BUBBLE (POD-725).
-   It used to be the one elevated surface in the field: a tinted, engraved panel
-   with its own border and radius. The design retires the panel outright, and the
-   reason is a reading order rather than a taste. In a bubble transcript the
-   loudest object on screen is the thing the reader already knows — they typed
-   it. The design makes the brief the QUIETEST register in the document (13.5px
-   at muted ink, under a micro eyebrow) and gives the weight to the answer, then
-   ends the brief with a hairline so the eye has the seam it was looking for
-   without a box to find it by. What survives is the structure: an eyebrow, the
-   words, a rule.
 
-   THE ISSUE TINT CHANNEL. The panel is where `--issue` used to be spent on the
-   feed — once per exchange, saying "this conversation belongs to POD-411". With
-   no panel to tint, the whole spend lands on the eyebrow instead, at a dose you
-   read as warmth in the grey rather than as a colour. The bulk of the feed's
-   colour moved out of the chat entirely, onto the flight deck's fade and the
-   selected row's spine (see .engraved-column).
-
-   --transcript-ground is the surface the brief lies on, needed by the clamp's
-   fade and by nothing else. It is the SHEET, not the app background: the stage
-   is a card now, and a fade to --background would have ended in a visible band. */
 /* THE OPERATOR'S TURN IS A CHAT ENTRY (POD-993).
    The brief-and-hairline above is superseded, and the reason is the one thing a
    two-voice document cannot state with type alone: WHICH SIDE SPOKE. POD-725's
@@ -4398,9 +4295,8 @@ html[data-density="compact"] .brief-shelf {
      answer   the strongest neutral, near-white. Where an exchange concludes —
               the brightest thing on the map because it is what you came for.
               Full width.
-     you      the issue's own hue, lifted a little toward strong ink so an
-              uncoloured issue's slate still clears the field under it. Where an
-              exchange BEGINS. Full width, and the only hue on the column.
+     you      neutral ink lifted toward strong text. Where an exchange BEGINS.
+              Full width.
      agent    narration. Faint, stepped in 2px.
      work     machine activity. Faintest, stepped in 4px.
 
@@ -4411,7 +4307,7 @@ html[data-density="compact"] .brief-shelf {
   inset-inline: 0;
   background: color-mix(
     in oklab,
-    var(--issue, var(--info)) 80%,
+    var(--neutral) 80%,
     var(--text-strong, var(--foreground))
   );
 }
@@ -4453,12 +4349,12 @@ html[data-density="compact"] .brief-shelf {
   min-height: 3px;
   border-radius: 1px;
   pointer-events: none;
-  background: color-mix(in oklab, var(--issue, var(--info)) 62%, transparent);
+  background: color-mix(in oklab, var(--neutral) 62%, transparent);
 }
 .minimap-mark--active {
   width: 3px;
-  background: color-mix(in oklab, var(--issue, var(--info)) 78%, var(--foreground));
-  box-shadow: 0 0 6px color-mix(in oklab, var(--issue, var(--info)) 38%, transparent);
+  background: color-mix(in oklab, var(--neutral) 78%, var(--foreground));
+  box-shadow: 0 0 6px color-mix(in oklab, var(--neutral) 38%, transparent);
 }
 /* Where you ARE, over a map whose bands now carry the issue hue themselves — so
    the viewport frame goes neutral and bright rather than tinted, or "you are
@@ -5431,7 +5327,7 @@ button.pane-branch:hover {
   border: 1px solid
     color-mix(
       in srgb,
-      var(--issue, transparent) calc(32 * var(--issue-line-scale, 1%)),
+      var(--neutral) calc(32 * var(--surface-line-scale, 1%)),
       var(--border)
     );
   border-radius: 9px;
@@ -5746,9 +5642,9 @@ button.pane-branch:hover {
 }
 .transcript-search-hit {
   border-radius: 6px;
-  outline: 1px solid color-mix(in oklab, var(--issue, var(--info)) 68%, var(--foreground));
+  outline: 1px solid color-mix(in oklab, var(--neutral) 68%, var(--foreground));
   outline-offset: 4px;
-  background: color-mix(in oklab, var(--issue, transparent) 5%, transparent);
+  background: color-mix(in oklab, var(--neutral) 5%, transparent);
 }
 
 /* Timeline is a compact return brief, built on the linked concept from POD-1842.
@@ -7540,15 +7436,7 @@ html[data-density="compact"] .chat-md {
   text-decoration: underline;
   cursor: pointer;
 }
-/* Human-facing ref links (#474): PREFIX-N tokens linkified in markdown.
-   An info-tinted inline chip with a small kind icon — deliberately NOT a
-   text-decoration style: dotted underlines render very differently across
-   Chromium and WebKit (the Tauri shell), a chip renders identically in both.
-   The chip chrome stays independent of the ambient `--issue` scope: that scope
-   names the issue whose chat is open, not the issue named by this link. The
-   leading glyph below carries the referenced issue's own live stage colour.
-   `a.ref-link` outranks `.chat-md a`, which would otherwise force its solid
-   underline back on. */
+
 a.ref-link {
   --ref-accent: var(--info);
   color: var(--ref-accent);
@@ -7638,12 +7526,7 @@ a.ref-link--issue[data-issue-status="duplicate"]::before {
 a.ref-link--issue[data-issue-status="superseded"]::before {
   --ref-icon-mask: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2014%2014%22%3E%3Cdefs%3E%3Cmask%20id%3D%22m%22%3E%3Crect%20width%3D%2214%22%20height%3D%2214%22%20fill%3D%22white%22%2F%3E%3Cpath%20d%3D%22M4.4%207h4.5M7.1%205.2%208.9%207l-1.8%201.8%22%20stroke%3D%22black%22%20stroke-width%3D%221.45%22%20fill%3D%22none%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%2F%3E%3C%2Fmask%3E%3C%2Fdefs%3E%3Ccircle%20cx%3D%227%22%20cy%3D%227%22%20r%3D%226%22%20fill%3D%22black%22%20mask%3D%22url%28%23m%29%22%2F%3E%3C%2Fsvg%3E");
 }
-/* Unknown to this client: no live row answers for the token. Two spellings —
-   no `data-issue-status` at all (the ref never resolved) and an empty one (the
-   issue resolved but is deleted, so it has no stage). Muted rather than the
-   `--issue`/`--info` accent: a ref the client simply has not received yet must
-   not wear a colour that reads as a workflow state (POD-676). Session refs are
-   never "unknown" in this sense and keep the accent. */
+
 a.ref-link--issue:not([data-issue-status]),
 a.ref-link--issue[data-issue-status=""] {
   --ref-accent: var(--muted-foreground);
@@ -9684,7 +9567,7 @@ a.ref-link--session::before {
   padding: 6px 6px 6px 10px;
   background-color: var(--well-floor);
   box-shadow:
-    inset 0 0 0 1px color-mix(in srgb, var(--issue, var(--border-strong)) 28%, var(--border-strong)),
+    inset 0 0 0 1px color-mix(in srgb, var(--neutral) 28%, var(--border-strong)),
     inset 0 2px 3px -2px var(--well-lip),
     inset 0 -1px 0 var(--well-lit);
   transition:
@@ -9698,10 +9581,10 @@ a.ref-link--session::before {
 .prompt-well:focus-within {
   background-image: linear-gradient(var(--well-hover), var(--well-hover));
   box-shadow:
-    inset 0 0 0 1px color-mix(in srgb, var(--issue, var(--text-dim)) 52%, var(--text-dim)),
+    inset 0 0 0 1px color-mix(in srgb, var(--neutral) 52%, var(--text-dim)),
     inset 0 2px 4px -2px var(--well-lip),
     inset 0 -1px 0 var(--well-lit),
-    0 0 0 2px color-mix(in srgb, var(--issue, var(--foreground)) 14%, transparent);
+    0 0 0 2px color-mix(in srgb, var(--neutral) 14%, transparent);
 }
 
 /* THE FIELD (POD-725, retuned POD-993 round 2). A quiet WELL on the sheet: a
@@ -10118,7 +10001,7 @@ a.ref-link--session::before {
 
 /* ── Blocked hatch (POD-516 round 3 §8) ──────────────────────────────────────
    A stopped task is drawn over, not framed: a shallow diagonal rule laid across
-   whatever ground the band already has (`bg-rail` at rest, the issue tint when
+   whatever ground the band already has (`bg-rail` at rest, a neutral tint when
    selected), so it composites rather than replacing a surface. No border, no
    second box, no hue — the tint channel and the elevation vocabulary are both
    left alone.
@@ -10129,7 +10012,7 @@ a.ref-link--session::before {
    tell obligation from state. Blocked
    asks nothing; it just is not moving. The rule is drawn in the theme's own
    foreground at 5%, which is one step of texture in both dark and Paper and
-   still legible when a strip already carries an issue tint. */
+   still legible over the strip's neutral tint. */
 .deck-hatch {
   background-image: repeating-linear-gradient(
     135deg,
@@ -10138,21 +10021,12 @@ a.ref-link--session::before {
   );
 }
 
-/* ── THE LEAD RAIL — who is running this, said by the line (POD-758) ─────────
-   A branch whose owner has a live coordinator draws its guide in the mission's
-   own accent instead of a hairline, at two tiers: the mission's lead owns the
-   spine's main rail, a task's lead owns its own sub-branch. Deliberately QUIET
-   — enough to trace from the header to the row, not enough to read as a
-   highlight — because the line is a name, not a selection. Un-led branches keep
-   the hairline, which is what stops the colour from being decoration.
 
-   `--issue` falls back to `--flow` on an uncoloured mission, so the worst case
-   is a rail one step warmer than the hairline rather than a broken one. */
 .deck-rail-mission {
-  background: color-mix(in oklab, var(--issue) 45%, transparent);
+  background: color-mix(in oklab, var(--neutral) 45%, transparent);
 }
 .deck-rail-task {
-  background: color-mix(in oklab, var(--issue) 22%, transparent);
+  background: color-mix(in oklab, var(--neutral) 22%, transparent);
 }
 
 /* THE ONE AGENT ROW WITH A FILL. The mission's coordinator owns the whole
@@ -10162,39 +10036,15 @@ a.ref-link--session::before {
    card. Over `--bar` rather than `--card` so it reads as a tint on the column's
    own paper in both themes. */
 .deck-lead-fill {
-  background: color-mix(in oklab, var(--issue) 8%, var(--bar));
+  background: color-mix(in oklab, var(--neutral) 8%, var(--bar));
 }
 
-/* ── WHERE YOU ARE vs WHERE YOU ARE POINTING (POD-1480) ─────────────────────
-   A tab and a deck row are the same session drawn twice, and the column now
-   answers two questions at once: which row is the tab you are IN, and which
-   row is the tab you are POINTING at. One device — the gutter tick — carries
-   both, and HUE is what separates them.
 
-   The split was previously one hue at two strengths (100% / 45%), which failed
-   twice over: 45% of a 3px tick is not a difference you catch peripherally,
-   and only the POINTED row took a ground, so the state that vanishes when the
-   mouse moves was the loudest mark in the column.
-
-   Active takes `--issue` — the identity channel, which is what "this is the
-   one you are working in" deserves. Pointed takes `--flow`, the no-colour
-   neutral, which is what that token already means everywhere else in the
-   shell: traceable, transient, not a selection.
-
-   THE UNCOLOURED CASE IS NOT AN EDGE CASE. `--issue` is scoped once on the
-   shell root from the SELECTED issue (AppShell) and falls back to `--flow`
-   whenever nothing coloured is selected — so on the default the two ticks
-   would be the identical grey. The active mark therefore falls back to the ink
-   the sidebar already uses for its selected-row spine, which keeps the two
-   marks a full ramp apart in both appearances. */
 .deck-mark-active {
-  background: var(--issue);
-}
-[data-issue-colored="false"] .deck-mark-active {
   background: var(--text-strong);
 }
 .deck-mark-pointed {
-  background: var(--flow);
+  background: var(--neutral);
 }
 
 /* THE ACTIVE ROW GETS A GROUND. Not decoration — it is what stops a hover from
@@ -10229,7 +10079,7 @@ a.ref-link--session::before {
 .deck-agent-row.deck-agent-active {
   background: color-mix(
     in oklab,
-    var(--issue) calc(14 * var(--issue-row-tint-scale, var(--issue-tint-scale, 1%))),
+    var(--neutral) calc(14 * var(--surface-row-tint-scale, var(--surface-tint-scale, 1%))),
     var(--bar)
   );
 }
@@ -10246,7 +10096,7 @@ a.ref-link--session::before {
 .deck-agent-row.deck-agent-active[data-pointed="true"] {
   background: color-mix(
     in oklab,
-    var(--issue) calc(18 * var(--issue-row-tint-scale, var(--issue-tint-scale, 1%))),
+    var(--neutral) calc(18 * var(--surface-row-tint-scale, var(--surface-tint-scale, 1%))),
     var(--bar)
   );
 }
@@ -10467,7 +10317,7 @@ a.ref-link--session::before {
   scale: 0.96;
 }
 .waterfall-row-zoom:focus-visible {
-  outline: 2px solid var(--issue);
+  outline: 2px solid var(--neutral);
   outline-offset: 1px;
 }
 .waterfall-column-resizer {
@@ -10493,7 +10343,7 @@ a.ref-link--session::before {
 .waterfall-column-resizer:hover::after,
 .waterfall-column-resizer:focus-visible::after,
 .waterfall-column-resizer[data-dragging]::after {
-  background: var(--issue);
+  background: var(--neutral);
 }
 .waterfall-column-resizer:focus-visible {
   outline: none;
@@ -10653,8 +10503,8 @@ a.ref-link--session::before {
   background: color-mix(in srgb, var(--chip) 32%, var(--card));
 }
 .waterfall-issue-row[data-focused="true"] .waterfall-issue-cell {
-  background: color-mix(in srgb, var(--issue) calc(9 * var(--issue-tint-scale, 1%)), var(--card));
-  box-shadow: inset 2px 0 0 color-mix(in srgb, var(--issue) 70%, transparent);
+  background: color-mix(in srgb, var(--neutral) calc(9 * var(--surface-tint-scale, 1%)), var(--card));
+  box-shadow: inset 2px 0 0 color-mix(in srgb, var(--neutral) 70%, transparent);
 }
 .waterfall-issue-row[data-attention="true"]:not([data-focused="true"]) .waterfall-issue-cell {
   box-shadow: inset 2px 0 0 color-mix(in srgb, var(--attention) 78%, transparent);
@@ -10664,7 +10514,7 @@ a.ref-link--session::before {
   inset-block: 0;
   left: calc(10px + var(--waterfall-depth) * 12px);
   width: 1px;
-  background: color-mix(in srgb, var(--issue) 38%, var(--hairline-soft));
+  background: color-mix(in srgb, var(--neutral) 38%, var(--hairline-soft));
   opacity: min(1, var(--waterfall-depth));
 }
 .waterfall-tree-guides::after {
@@ -10673,7 +10523,7 @@ a.ref-link--session::before {
   top: 50%;
   left: 0;
   width: 7px;
-  border-top: 1px solid color-mix(in srgb, var(--issue) 38%, var(--hairline-soft));
+  border-top: 1px solid color-mix(in srgb, var(--neutral) 38%, var(--hairline-soft));
 }
 .waterfall-fold {
   display: inline-flex;
@@ -10899,18 +10749,18 @@ button.waterfall-fold:hover {
 }
 .waterfall-session-bar[data-selected="true"] {
   box-shadow:
-    inset 0 0 0 1px var(--issue),
-    0 0 0 2px color-mix(in srgb, var(--issue) 34%, transparent),
+    inset 0 0 0 1px var(--neutral),
+    0 0 0 2px color-mix(in srgb, var(--neutral) 34%, transparent),
     0 3px 8px color-mix(in srgb, black 15%, transparent);
   opacity: 1;
 }
 .waterfall-session-bar[data-coordinator="true"]:not([data-selected="true"]) {
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--issue) 68%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--neutral) 68%, transparent);
 }
 .waterfall-session-lane[data-pointed="true"] .waterfall-session-bar:not([data-selected="true"]) {
   box-shadow:
-    inset 0 0 0 1px var(--flow),
-    inset 0 -2px 0 color-mix(in srgb, var(--flow) 56%, transparent);
+    inset 0 0 0 1px var(--neutral),
+    inset 0 -2px 0 color-mix(in srgb, var(--neutral) 56%, transparent);
 }
 /* Tab-strip → waterfall reveal: one pulse, then it is just the selection. */
 .waterfall-session-bar[data-flash] {
@@ -10919,12 +10769,12 @@ button.waterfall-fold:hover {
 @keyframes waterfall-flash {
   0% {
     box-shadow:
-      inset 0 0 0 1px var(--issue),
-      0 0 0 4px color-mix(in srgb, var(--issue) 45%, transparent);
+      inset 0 0 0 1px var(--neutral),
+      0 0 0 4px color-mix(in srgb, var(--neutral) 45%, transparent);
   }
   100% {
     box-shadow:
-      inset 0 0 0 1px var(--issue),
+      inset 0 0 0 1px var(--neutral),
       0 0 0 0 transparent;
   }
 }
@@ -10940,7 +10790,7 @@ button.waterfall-fold:hover {
 .waterfall-live-resume:focus-visible,
 .waterfall-axis-controls > button:focus-visible,
 .waterfall-fold:focus-visible {
-  outline: 2px solid var(--issue);
+  outline: 2px solid var(--neutral);
   outline-offset: 1px;
 }
 .waterfall-bar-content {
@@ -11029,7 +10879,7 @@ button.waterfall-fold:hover {
   width: 4px;
   height: 4px;
   border-radius: 999px;
-  background: var(--issue);
+  background: var(--neutral);
 }
 .waterfall-session-tools {
   position: absolute;
@@ -11074,7 +10924,7 @@ button.waterfall-fold:hover {
   width: max(var(--waterfall-width), 96px);
   height: var(--waterfall-bar-height);
   padding: 1px 4px;
-  border: 1px solid var(--issue);
+  border: 1px solid var(--neutral);
   border-radius: var(--radius-md);
   background: var(--bar);
   translate: 0 -50%;
@@ -13431,12 +13281,12 @@ button.waterfall-fold:hover {
 .flight-v6-guide[data-guide='last']::before { border-bottom-left-radius: 4px; }
 .flight-v6-guide[data-guide='middle']::after, .flight-v6-guide[data-guide='carry']::after { content: ''; position: absolute; left: 11px; top: 16px; bottom: 0; border-left: 1px solid var(--border); }
 .flight-v6-guide[data-guide='empty']::before { display: none; }
-.flight-v6-rows button:focus-visible { outline: 1px solid var(--issue); outline-offset: 1px; }
+.flight-v6-rows button:focus-visible { outline: 1px solid var(--neutral); outline-offset: 1px; }
 .flight-v6-session[data-pointed='true'][data-selected='false'] > .flight-v6-session-line { background: var(--muted); }
 
 /* Full phase sections and done line. All rules stay inside Full's renderer. */
 .flight-full-done-line { display: flex; align-items: center; gap: 8px; width: calc(100% - 16px); min-height: 26px; margin: 3px 4px 10px 12px; padding: 3px 8px; border: 1px dashed var(--secondary); border-radius: 6px; color: var(--text-faint); font-size: 11.5px; text-align: left; }
-.flight-full-done-line > svg { flex: none; color: var(--issue); }
+.flight-full-done-line > svg { flex: none; color: var(--neutral); }
 .flight-full-done-line > span:first-of-type { flex: 1; }
 .flight-full-done-line:hover { color: var(--text-dim); border-color: var(--text-faint); }
 /* The gap matches the design's spacing between groups, so the mission's
@@ -13454,14 +13304,14 @@ button.waterfall-fold:hover {
 .flight-full-phase-name { color: var(--text-strong); font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
 .flight-full-phase-hairline { flex: 1; height: 1px; min-width: 12px; background: var(--border); }
 .flight-full-phase-meter { display: flex; flex: none; width: 36px; height: 3px; overflow: hidden; border-radius: 2px; background: var(--border); }
-.flight-full-phase-meter > span { background: var(--issue); }
+.flight-full-phase-meter > span { background: var(--neutral); }
 .flight-full-phase-content { margin-left: 11px; border-left: 2px solid var(--border); padding-left: 9px; }
 .flight-full-phase-content[data-has-lead='true'] { border-left-color: color-mix(in srgb, var(--text-dim) 50%, transparent); }
 .flight-full-phase-content[hidden] { display: none; }
 .flight-full-phase-lead:empty { display: none; }
 .flight-full-phase-lead > .flight-v6-sessions { margin-left: 0; }
 .flight-full-phase[data-complete='true'] > .flight-full-phase-section > .flight-full-phase-header .flight-full-phase-name { color: var(--text-dim); }
-.flight-full-groups button:focus-visible { outline: 1px solid var(--issue); outline-offset: 1px; }
+.flight-full-groups button:focus-visible { outline: 1px solid var(--neutral); outline-offset: 1px; }
 
 /* Full proposal triage. Magenta belongs to this section; action widths survive
    narrow decks while the live title yields its space. Other views keep theirs. */
@@ -13531,7 +13381,7 @@ button.waterfall-fold:hover {
 .flight-full-tools { display: flex; align-items: center; gap: 2px; margin-left: auto; }
 .flight-full-tool { display: inline-grid; flex: none; place-items: center; width: 24px; height: 24px; border-radius: 6px; color: var(--text-faint); }
 .flight-full-controls button:disabled { opacity: .5; cursor: default; }
-.flight-full-controls button:focus-visible, .flight-full-search input:focus-visible { outline: 1px solid var(--issue); outline-offset: 1px; }
+.flight-full-controls button:focus-visible, .flight-full-search input:focus-visible { outline: 1px solid var(--neutral); outline-offset: 1px; }
 .flight-full-search { display: flex; align-items: center; gap: 8px; min-height: 32px; margin-bottom: 4px; padding: 0 8px 0 16px; border-bottom: 1px solid var(--hairline-soft); color: var(--text-faint); }
 .flight-full-search input { flex: 1; min-width: 0; background: transparent; color: var(--foreground); font-size: 12px; outline: none; }
 .flight-full-search input::placeholder { color: var(--text-faint); }

@@ -1,11 +1,3 @@
-import { IssueOpening, useIssueOpening } from '../client/issue-opening'
-import { readPageIssue, type PageIssue } from '@podium/client-graph/issue-page'
-import { LOADING } from '@podium/client-graph/worklist/rollup'
-import { useMobilePool } from '../client/mobile-pool'
-import { resolveEdgeFromPool } from '../client/use-issue-model'
-import type { DetailSession } from '@podium/client-graph/issue-page'
-import { issueObserver as observer } from '../client/issue-observer'
-import type { MobxPool } from '@podium/client-graph/pool'
 import { relativeTime } from '@podium/client-core/focus'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
@@ -16,6 +8,10 @@ import {
   sessionTitle,
   subIssuesOf,
 } from '@podium/client-core/values'
+import type { DetailSession } from '@podium/client-graph/issue-page'
+import { type PageIssue, readPageIssue } from '@podium/client-graph/issue-page'
+import type { MobxPool } from '@podium/client-graph/pool'
+import { LOADING } from '@podium/client-graph/worklist/rollup'
 import {
   type IssueCloseReason,
   type IssuePanelArtifact,
@@ -30,10 +26,13 @@ import { useRouter } from 'expo-router'
 import { useMemo, useState } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
 import { useHttpOrigin, useStoreActions, useTrpc } from '../client/hooks'
+import { issueObserver as observer } from '../client/issue-observer'
+import { IssueOpening, useIssueOpening } from '../client/issue-opening'
+import { useMobilePool } from '../client/mobile-pool'
 import { useOptionalServerProfile } from '../client/server-profile-context'
 import { useIssueCloseGuard } from '../client/use-issue-close'
+import { resolveEdgeFromPool } from '../client/use-issue-model'
 import { issueArtifactHref, issueArtifactLabel } from '../lib/issue-artifacts'
-import { FLOW_HEX, issueColorHex } from '../theme/issueColors'
 import { alpha } from '../theme/mix'
 import {
   color,
@@ -106,7 +105,6 @@ export const TaskSheet = observer(function TaskSheet({
   const resolved = suppliedIssue && pool ? readPageIssue(pool, suppliedIssue.id) : null
   const issue = typeof resolved === 'symbol' ? null : resolved
   const router = useRouter()
-  const hex = issue ? (issueColorHex(issue.color) ?? FLOW_HEX) : FLOW_HEX
 
   const post = (body: string) => {
     if (!issue) return
@@ -141,11 +139,10 @@ export const TaskSheet = observer(function TaskSheet({
           visible={issue !== null}
           onClose={onClose}
           mode="detented"
-          accent={hex}
           testID="task-sheet"
           head={
             issue ? (
-              <SheetHead pool={pool} issue={issue} hex={hex} onOpenSession={onOpenSession} />
+              <SheetHead pool={pool} issue={issue} onOpenSession={onOpenSession} />
             ) : null
           }
           footer={issue ? <Composer placeholder="Comment on this task…" onSend={post} /> : null}
@@ -184,12 +181,10 @@ export const TaskSheet = observer(function TaskSheet({
 const SheetHead = observer(function SheetHead({
   pool,
   issue,
-  hex,
   onOpenSession,
 }: {
   pool?: MobxPool | null
   issue: IssueViewModel
-  hex: string
   onOpenSession: (session: SessionView) => void
 }) {
   const trpc = useTrpc()
@@ -218,9 +213,9 @@ const SheetHead = observer(function SheetHead({
           style={[
             styles.chip,
             {
-              borderColor: alpha(hex, 0.45),
-              color: alpha(hex, 0.95),
-              backgroundColor: alpha(hex, 0.12),
+              borderColor: color.border,
+              color: color.textDim,
+              backgroundColor: color.elevated,
             },
           ]}
         >

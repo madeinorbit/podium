@@ -2,10 +2,10 @@
  * shared issue getter change. No production counters or persistent snapshots. */
 import { createRequire } from 'node:module'
 import { hostname } from 'node:os'
-import { autorun, computed } from 'mobx'
-import { enableDebugNames } from '@podium/mobx-helpers'
 import { MobxPool } from '@podium/client-graph/pool'
 import { worklistView } from '@podium/client-graph/worklist/view-model'
+import { enableDebugNames } from '@podium/mobx-helpers'
+import { autorun, computed } from 'mobx'
 import { buildCorpus } from '../harness/src/fixture/corpus'
 
 if (hostname() !== 'flatblock') throw new Error('Worklist memory measurement runs on flatblock')
@@ -56,7 +56,7 @@ const stop = autorun(() => {
     row.visibleFleet; row.sessions; row.visibleSessionIds; row.awaitingFirstPrompt
     row.waitingCount; row.quietDraft; row.attentionAction; row.navigation; row.visibleActivityAt
     const issue = row.issue
-    issue.seq; issue.color; issue.audience; issue.gitState; issue.branch
+    issue.seq; issue.audience; issue.gitState; issue.branch
     issue.stage; issue.closedAt; issue.closedReason; issue.needsHuman; issue.asked
     issue.updatedAt; issue.tuckedAt; issue.deferUntil; issue.pinned; issue.deferred
   }

@@ -327,7 +327,7 @@
       "file": "apps/mobile/src/components/MissionDeck.tsx",
       "holder": "MissionDeck/MissionDeck",
       "rule": "consume:map",
-      "tokens": "4c44bfa8e62c8dfe180729de026cb24c902e8a630bc3ab2a6541f4eadac77058",
+      "tokens": "8c42f1e4f45946d600f9a0eeb35e38db14a71df3252bd197da78dc0ed20b034c",
       "gate": [
         "then:bb16e8893e1f6d243ea256f4f6e367f3730d365e4e71bc793141c2b766373761"
       ],
@@ -335,13 +335,13 @@
         "b8cdc3d00c4706f8792c0027be18cfc111aecd6b3c1c1bef71648ffa7ce6b092",
         "bcad65414540153c7722e20fdbcc0043462d6e149f0c74dd988f2f638f7defb3"
       ],
-      "fingerprint": "5586849f455f4dd5bd9f6954e625a23c9f06f6623f13ab6c3e3fd714107187b5",
+      "fingerprint": "68c593b389e8fc6ab0a8644fcfa9f32c29cd48ecd98d923864c9d8d47dd5ef7e",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of MissionDeck/MissionDeck",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-5827 moves the existing read to the opening or model field; its collection classification is unchanged.",
+      "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-5827 moves the existing read to the opening or model field; its collection classification is unchanged. POD-2102 removes task color controls and tint props; the retained operation keeps its trigger and classification, with collection demand unchanged or reduced.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -369,19 +369,19 @@
       "file": "apps/mobile/src/components/MissionDeck.tsx",
       "holder": "SpineRow/SpineRow/content/settled:callback",
       "rule": "consume:map",
-      "tokens": "2d8987e8da39c328ba035f6b92b39dc554d885e597ebf6278324e09ab307d64a",
+      "tokens": "a9fbdae848f2c235611066c5c2b66439e3a5210d5c12e4d037c520b19a517acc",
       "gate": [],
       "origin": [
         "b8cdc3d00c4706f8792c0027be18cfc111aecd6b3c1c1bef71648ffa7ce6b092",
         "bcad65414540153c7722e20fdbcc0043462d6e149f0c74dd988f2f638f7defb3"
       ],
-      "fingerprint": "c79aa95a392b0a1c749ff6698cce798510e5929e56f4ce00c7c2dc10a5a95f9b",
+      "fingerprint": "1261284a28e09e38b2e27f28fa7facd0d37cdeea41b16b334b10ceda23418498",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of SpineRow/SpineRow",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-5827 moves the existing read to the opening or model field; its collection classification is unchanged.",
+      "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-5827 moves the existing read to the opening or model field; its collection classification is unchanged. POD-2102 removes task color controls and tint props; the retained operation keeps its trigger and classification, with collection demand unchanged or reduced.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -4836,7 +4836,7 @@
       "file": "apps/web/src/features/issues/IssueContextMenu.tsx",
       "holder": "IssueContextMenu/IssueContextMenu",
       "rule": "consume:map",
-      "tokens": "cdeb3ab858efece6fa22987f7eeb0880bd0d4395e18e992ba826eadff0f230bd",
+      "tokens": "3c101cd00d81f2da3242cd4b4ba892796e9d73ffaba17b5483afa7415496e03b",
       "gate": [
         "exit:then:76f123297670b5a163440e69aeda15a69e75e517f0b03f56f0c40859ebf71a7d",
         "exit:then:c6f4dae444f8a54d4e095bf0f49d5e62cda06c9f73521f138f21e11eadb25806",
@@ -4846,20 +4846,20 @@
         "142ce232e07c2ee207ed502d501148109468c5c6165df98d46c4c487fd44a9a3",
         "3e7d83c093f342f9c72adf3375f191a3f606ba8bdd1f64449e50715b9e25bda5"
       ],
-      "fingerprint": "177443fc4e54d2fd2077274d7bc1165abe0fd51291121da0d84522e502b29f4f",
+      "fingerprint": "31b2e33cdd870265fc48e0017aab47c095a81ed6cdffa7e35c552ceec23ba704",
       "count": 1,
       "classification": "visible output",
       "owner": "POD-5672",
       "trigger": "An opened Handoff submenu requests its destination choices.",
       "bound": "The source is one addressed session and repository; destination machines and clone identities are projected only while their target list is shown.",
-      "reason": "The new origins flow through the existing menu-entry projection and its displayed Handoff choices. Hidden history worktrees are not walked.",
+      "reason": "The new origins flow through the existing menu-entry projection and its displayed Handoff choices. Hidden history worktrees are not walked. POD-2102 removes task color controls and tint props; the retained operation keeps its trigger and classification, with collection demand unchanged or reduced.",
       "guard": "mission-menu.test.ts proves no destination reads or publications before opening and releases them after closing at 1x/4x; real SessionContextMenu and IssueContextMenu tests preserve targets and blocker text."
     },
     {
       "file": "apps/web/src/features/issues/IssueContextMenu.tsx",
       "holder": "IssueContextMenu/IssueContextMenu",
       "rule": "loop:for-of",
-      "tokens": "ad6bb80fffa19b55b5ec2fa6bb52e3cd05c16a00b110f211bc799dc0c98a7ce7",
+      "tokens": "6eaa915fefc4a2f67f05472bcd62b9a072288e51cc567a01066a5c88f6a457ea",
       "gate": [
         "exit:then:76f123297670b5a163440e69aeda15a69e75e517f0b03f56f0c40859ebf71a7d",
         "exit:then:c6f4dae444f8a54d4e095bf0f49d5e62cda06c9f73521f138f21e11eadb25806",
@@ -4869,13 +4869,13 @@
         "142ce232e07c2ee207ed502d501148109468c5c6165df98d46c4c487fd44a9a3",
         "3e7d83c093f342f9c72adf3375f191a3f606ba8bdd1f64449e50715b9e25bda5"
       ],
-      "fingerprint": "c45c569ffa60ac9de8cc723d235da64a291ed0553c848ec730051588f4860b46",
+      "fingerprint": "8cbef0e4e83c1719a98a24368abd82c0939677a128a53311ca12ed56898505b0",
       "count": 1,
       "classification": "visible output",
       "owner": "POD-5672",
       "trigger": "An opened Handoff submenu requests its destination choices.",
       "bound": "The source is one addressed session and repository; destination machines and clone identities are projected only while their target list is shown.",
-      "reason": "The new origins flow through the existing menu-entry projection and its displayed Handoff choices. Hidden history worktrees are not walked.",
+      "reason": "The new origins flow through the existing menu-entry projection and its displayed Handoff choices. Hidden history worktrees are not walked. POD-2102 removes task color controls and tint props; the retained operation keeps its trigger and classification, with collection demand unchanged or reduced.",
       "guard": "mission-menu.test.ts proves no destination reads or publications before opening and releases them after closing at 1x/4x; real SessionContextMenu and IssueContextMenu tests preserve targets and blocker text."
     },
     {
@@ -5147,7 +5147,7 @@
       "file": "apps/web/src/features/issues/IssueContextMenu.tsx",
       "holder": "IssueContextMenu/IssueContextMenu/renderedEntries",
       "rule": "consume:map",
-      "tokens": "64de4236eefed8e18c4c3f2adaab2a173b0c91a5c343af96c13b19daa9c6b422",
+      "tokens": "c64f6ab78c2cf449243436401f3c3aa1626685050f0a2296c49c5f569ff6362f",
       "gate": [
         "exit:then:76f123297670b5a163440e69aeda15a69e75e517f0b03f56f0c40859ebf71a7d",
         "exit:then:c6f4dae444f8a54d4e095bf0f49d5e62cda06c9f73521f138f21e11eadb25806",
@@ -5157,13 +5157,13 @@
         "142ce232e07c2ee207ed502d501148109468c5c6165df98d46c4c487fd44a9a3",
         "3e7d83c093f342f9c72adf3375f191a3f606ba8bdd1f64449e50715b9e25bda5"
       ],
-      "fingerprint": "d704167aeadaf36e316522d8557f149bb3e7bc98e6b25f1d28ad766189a44bac",
+      "fingerprint": "3e6696ff8478e2c3e8dcbf10b30df48f829022dc830623c33da8842e1165ee35",
       "count": 1,
       "classification": "visible output",
       "owner": "POD-5672",
       "trigger": "An opened Handoff submenu requests its destination choices.",
       "bound": "The source is one addressed session and repository; destination machines and clone identities are projected only while their target list is shown.",
-      "reason": "The new origins flow through the existing menu-entry projection and its displayed Handoff choices. Hidden history worktrees are not walked.",
+      "reason": "The new origins flow through the existing menu-entry projection and its displayed Handoff choices. Hidden history worktrees are not walked. POD-2102 removes task color controls and tint props; the retained operation keeps its trigger and classification, with collection demand unchanged or reduced.",
       "guard": "mission-menu.test.ts proves no destination reads or publications before opening and releases them after closing at 1x/4x; real SessionContextMenu and IssueContextMenu tests preserve targets and blocker text."
     },
     {
@@ -6100,46 +6100,6 @@
     },
     {
       "file": "apps/web/src/features/issues/issue-context-menu.ts",
-      "holder": "issueMenuEligibility/canSetColor",
-      "rule": "consume:every",
-      "tokens": "5c5759643bae55efdf42fb17e455130370862e007275cf1c0bca772da5e4f3d0",
-      "gate": [
-        "&&:3e110a68bf8f2597a09cfa77a7fa0d86545fb0c672b6c0dd137e8673e720ab85"
-      ],
-      "origin": [
-        "f24505789455e2c55095fa0290828c5143297781764cb354740b029bae6cd540"
-      ],
-      "fingerprint": "eac8484e3b864059308dd3ca80edeacac66ad0794790001d80031a9c1e3494fe",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "issueMenuEligibility/canSetColor",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:every carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Opening-answer tests and selected 1x/4x heartbeat render tests cover this reader; classification retained, not a scan repair claim."
-    },
-    {
-      "file": "apps/web/src/features/issues/issue-context-menu.ts",
-      "holder": "issueMenuEligibility/canSetColor",
-      "rule": "consume:every",
-      "tokens": "5c5759643bae55efdf42fb17e455130370862e007275cf1c0bca772da5e4f3d0",
-      "gate": [
-        "&&:3e110a68bf8f2597a09cfa77a7fa0d86545fb0c672b6c0dd137e8673e720ab85"
-      ],
-      "origin": [
-        "d2f48b2296d00184f5a35fe973e4c0bf927b72405ec419d2973782656df13ae6"
-      ],
-      "fingerprint": "519e921af54d1155191a28ef115ee9cd84ae74026ad667ae365cc6fbf1acfb4d",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of issueMenuEligibility/canSetColor",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:every carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/features/issues/issue-context-menu.ts",
       "holder": "issueMenuEligibility/hasDeleted",
       "rule": "consume:some",
       "tokens": "8f833103365ddd05561fa5997fe813e3c11f5d01e5bfa4e9f2467b0210fdf5e8",
@@ -6571,29 +6531,6 @@
       "file": "apps/web/src/features/issues/issue-menu-commands.ts",
       "holder": "runIssueMenuCommand",
       "rule": "consume:map",
-      "tokens": "08e4136ac5ca1249205eecce159f28e26baa3195fc8a549384c3ffae8308ef67",
-      "gate": [
-        "exit:then:34fbd9309765a9958e997e147c21fe0eebe79179bc489fcbecb1cf4271763891",
-        "switch:b228e5a3778a12a509b91e33da28198b1cc643c5725cf87e78afb088f8fdabc2",
-        "case:c2104ee98d18f62b0080a516db4f3b18e52507a6605a035a22c7368c0de0da6e",
-        "exit:then:0e0dffd0dfc969e5b1b3fa71c26ac8d1d2da532dd5418006c72d99d2dbbada44"
-      ],
-      "origin": [
-        "3903a6754ec7fa02a816a6d8713a2805aa29e381584d9ecf615c64c81e65c86f"
-      ],
-      "fingerprint": "97cbbb2e162f1af2607b9058a33fd37b72f845c840af719161bd4d8d5b06412e",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of runIssueMenuCommand",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/features/issues/issue-menu-commands.ts",
-      "holder": "runIssueMenuCommand",
-      "rule": "consume:map",
       "tokens": "205f8c35cd2885b87768befa6a036ef3c24eeb52f09a9ea3594d46301f723fbd",
       "gate": [
         "then:6fc6171510488d8c181edf13147bec2c5d9962f16053968c34b4cc660980c0ae",
@@ -6788,42 +6725,6 @@
       "trigger": "Invocation of runIssueMenuCommand/sessions",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "materialize:Set carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/features/issues/issue-menu-config.ts",
-      "holder": "ISSUE_MENU_CONFIG/options/callback/checked",
-      "rule": "consume:every",
-      "tokens": "b20af0e92f64010a5e562acc821b78023a1c53d09026526dca7fb85a1097f927",
-      "gate": [],
-      "origin": [
-        "d1de0bc9490d70827333af51661b390e6f684e9cac2529ce98915b38411fa17e"
-      ],
-      "fingerprint": "c031cb8fc6c3682c091451caaa7906fbba0ddd810419ea48b8f19848dca0ec03",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of ISSUE_MENU_CONFIG/options/callback/checked",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:every carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/features/issues/issue-menu-config.ts",
-      "holder": "ISSUE_MENU_CONFIG/options/callback/map:callback/checked",
-      "rule": "consume:every",
-      "tokens": "69f0e25f8f14eaa35b28e3835dad4c5ed9f968b3279fcbeed279b84b69435e7b",
-      "gate": [],
-      "origin": [
-        "1f47d12e8b80ef18a3982a84bfc1d64c7a7a4846664b3ecddd93c9f367cf8d10"
-      ],
-      "fingerprint": "2cc04df9221dd11022705caca3bc14f646173302942405b720b3a179510f9af2",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of ISSUE_MENU_CONFIG/options/callback/map:callback/checked",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:every carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -7150,13 +7051,12 @@
       "file": "apps/web/src/features/issues/issue-menu-palette-commands.ts",
       "holder": "issueMenuPaletteCommands/flatMap:callback/map:callback/run/callback",
       "rule": "reader-summary",
-      "tokens": "a0ba701bc480f8c94f453e16af38f5241379e58cca8c8e4bbc9d6696d21821da",
+      "tokens": "43621ace820216f223ae0c7391ef8729228fdab214eef70003ab68fc8fcb3418",
       "gate": [
         "exit:then:6fc6171510488d8c181edf13147bec2c5d9962f16053968c34b4cc660980c0ae"
       ],
       "origin": [
         "20bb0ab9ebe08b78d9cdcacee0f5b35cc24a86bc6da2f53ba0dfc546efba9f38",
-        "3903a6754ec7fa02a816a6d8713a2805aa29e381584d9ecf615c64c81e65c86f",
         "570003f505ff4f9aac9051384237bcbc90dd0b87c83ac0423040189901d24846",
         "5a4523014c83bc64f0677aabe3644c873f17021f6d0e66add4630d64be39bc94",
         "686603e5b6f70c1960b09be168319e48184d24c525908097749255ab47fce0d5",
@@ -7164,26 +7064,25 @@
         "b113e78a03300f7c52a422ad46268d024325c5393b6b00a92a600ef146c075bd",
         "d705a7840084cbf09f265329532882761dd59cd72e922cf59ff51762dd6bad14"
       ],
-      "fingerprint": "277e21b811d79688dd07d1eca8a1acd8dff5b99fb0c23735886d88c8a7653baa",
+      "fingerprint": "f8d8e24625b0dd1015ade8a4036c53e99bf1a5f3e802d14fec563bd35ca47fe8",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of issueMenuPaletteCommands/flatMap:callback/map:callback/run/callback",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-2102 removes task color controls and tint props; the retained operation keeps its trigger and classification, with collection demand unchanged or reduced.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
       "file": "apps/web/src/features/issues/issue-menu-palette-commands.ts",
       "holder": "issueMenuPaletteCommands/flatMap:callback/run/callback",
       "rule": "reader-summary",
-      "tokens": "bf2b7c77d52464a49fdc9dd3e08953013e315160c9de635b61fb0771c1036f66",
+      "tokens": "0b73b8e25184371a586bcb7e9eb3f8ae8db0e9ee1e934e344a42af36b920697f",
       "gate": [
         "then:6fc6171510488d8c181edf13147bec2c5d9962f16053968c34b4cc660980c0ae"
       ],
       "origin": [
         "20bb0ab9ebe08b78d9cdcacee0f5b35cc24a86bc6da2f53ba0dfc546efba9f38",
-        "3903a6754ec7fa02a816a6d8713a2805aa29e381584d9ecf615c64c81e65c86f",
         "570003f505ff4f9aac9051384237bcbc90dd0b87c83ac0423040189901d24846",
         "5a4523014c83bc64f0677aabe3644c873f17021f6d0e66add4630d64be39bc94",
         "686603e5b6f70c1960b09be168319e48184d24c525908097749255ab47fce0d5",
@@ -7191,93 +7090,93 @@
         "b113e78a03300f7c52a422ad46268d024325c5393b6b00a92a600ef146c075bd",
         "d705a7840084cbf09f265329532882761dd59cd72e922cf59ff51762dd6bad14"
       ],
-      "fingerprint": "913fa1ec48b0ca36946104bb2e9a9ec014fe350c1ebdd933442a778f41245d61",
+      "fingerprint": "cb5127fbc2f71dfd7a22ad0b719cbe646da6fd837530fa51e84a4e7001eaf586",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of issueMenuPaletteCommands/flatMap:callback/run/callback",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-2102 removes task color controls and tint props; the retained operation keeps its trigger and classification, with collection demand unchanged or reduced.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
       "file": "apps/web/src/features/issues/issue-menu-palette.ts",
       "holder": "paletteIssueMenuData",
       "rule": "helper-consumer",
-      "tokens": "f2125725b7ebd72c0a781c0ee202687bff8fcf62c02ec01b64eef071679bbbe8",
+      "tokens": "2400c07c7df0ef70eb71649f555711685d6dbb1a445aee9c434fc6e14cf43c61",
       "gate": [
         "exit:then:4e83d6ec988459cc6cd5b27d35905c83d45b86939b8786ff127a71af3ee9a302"
       ],
       "origin": [
         "f24505789455e2c55095fa0290828c5143297781764cb354740b029bae6cd540"
       ],
-      "fingerprint": "e373939e10dc10f69dc7e94c1ff37893040a8ca7a385cae2d0b42ac8d9a8ede8",
+      "fingerprint": "149b8b164555136c6c3f561f21a063e12146d4b45764d6cca85920481fa481e7",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "paletteIssueMenuData",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-2102 removes task color controls and tint props; the retained operation keeps its trigger and classification, with collection demand unchanged or reduced.",
       "guard": "Opening-answer tests and selected 1x/4x heartbeat render tests cover this reader; classification retained, not a scan repair claim."
     },
     {
       "file": "apps/web/src/features/issues/issue-menu-palette.ts",
       "holder": "paletteIssueMenuData",
       "rule": "reader-summary",
-      "tokens": "ba775be3a06fa9cf8070fee1c98600aba11f36e2f15bfa1dc74c441a55f7e3ea",
+      "tokens": "5a6a72acbccf02b573cf3e6d72ce7a6c1ecddc8cb90d4c184337f20aade267d8",
       "gate": [
         "exit:then:4e83d6ec988459cc6cd5b27d35905c83d45b86939b8786ff127a71af3ee9a302"
       ],
       "origin": [
         "f24505789455e2c55095fa0290828c5143297781764cb354740b029bae6cd540"
       ],
-      "fingerprint": "65e38e64a891d0acf005c12cfe2cea12ba0fc7dd04fe087e070d7da9dd1fb686",
+      "fingerprint": "cfc3e5675c0de4fff94da1383f635d2b7d5d2023a3eacc6158f1e21a224e9f6b",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "paletteIssueMenuData",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-2102 removes task color controls and tint props; the retained operation keeps its trigger and classification, with collection demand unchanged or reduced.",
       "guard": "Opening-answer tests and selected 1x/4x heartbeat render tests cover this reader; classification retained, not a scan repair claim."
     },
     {
       "file": "apps/web/src/features/issues/issue-menu-palette.ts",
       "holder": "paletteIssueMenuData/eligibility",
       "rule": "helper-consumer",
-      "tokens": "683bd0a1b7d003964f37b8e0746527c8fff8a28a2850e6393624c1f594a6f81d",
+      "tokens": "49e1438c18beb20153f4c5713e04d5baee137c0ce50de29962a4f463e3f785df",
       "gate": [
         "exit:then:4e83d6ec988459cc6cd5b27d35905c83d45b86939b8786ff127a71af3ee9a302"
       ],
       "origin": [
         "f24505789455e2c55095fa0290828c5143297781764cb354740b029bae6cd540"
       ],
-      "fingerprint": "317b54957a0028ddceb74709bebaeda05e08e214fcb64812a41a11cfef2bcff2",
+      "fingerprint": "0bd431966796945872cb932029e75dac40195d83818f94103437e21045f51760",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "paletteIssueMenuData/eligibility",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-2102 removes task color controls and tint props; the retained operation keeps its trigger and classification, with collection demand unchanged or reduced.",
       "guard": "Opening-answer tests and selected 1x/4x heartbeat render tests cover this reader; classification retained, not a scan repair claim."
     },
     {
       "file": "apps/web/src/features/issues/issue-menu-palette.ts",
       "holder": "paletteIssueMenuData/eligibility",
       "rule": "reader-summary",
-      "tokens": "61be6748093906fa467369c169478e20d7add2a459178e53e982340af753b880",
+      "tokens": "1ae532efe03b2f4c142ebbb5dc6c7656399619eebcb550560f22a2a1f5fd0e1d",
       "gate": [
         "exit:then:4e83d6ec988459cc6cd5b27d35905c83d45b86939b8786ff127a71af3ee9a302"
       ],
       "origin": [
         "f24505789455e2c55095fa0290828c5143297781764cb354740b029bae6cd540"
       ],
-      "fingerprint": "e6e3a51de44028e496084d3cf1513a2e66a1e2489305d8254211c85b68c55beb",
+      "fingerprint": "936f27fbed96f2b62b599ce127dcb2135f28fdcc36632fb2b53f0e5c24a49dbb",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "paletteIssueMenuData/eligibility",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-2102 removes task color controls and tint props; the retained operation keeps its trigger and classification, with collection demand unchanged or reduced.",
       "guard": "Opening-answer tests and selected 1x/4x heartbeat render tests cover this reader; classification retained, not a scan repair claim."
     },
     {
@@ -11016,21 +10915,21 @@
       "file": "apps/web/src/features/worklist/pool-sidebar.tsx",
       "holder": "PoolMotionRow/PoolMotionRow/useLayoutEffect:callback",
       "rule": "reader-summary",
-      "tokens": "ce46d35d8ae7d53d2be233ddc3e7209b890de8c9e7a86eec5b8018deda4a0872",
+      "tokens": "ab315f6caadc6a6f4081d3fcb943aa0f700e4a40a6e802a648eb039ccc30d225",
       "gate": [
         "then:d78c51a60f0bcfc5e87ead3cdf92db8c322b4bde327b7f2f536d35afb6b6d57c"
       ],
       "origin": [
         "5fb011b6d63de924d14891107da00c6a551ffac1d10bda80c70dedbf6de2783c"
       ],
-      "fingerprint": "c9ebb3932740788bfcb223f6818246e5187de8edc45786c02e0d30b2f1e600d0",
+      "fingerprint": "b855cad0d3dd97c968401976f361e5a53a408d027c47637e331e488ec3ef0e0b",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Layout effect after a committed worklist issue row render.",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
-      "reason": "The motion row now selects the direct canonical IssueModel/WorklistIssue fields. It carries the former row reader origin; no broader collection repair is claimed. Predecessor: 77ee4d9cb3b1fce931a729ae412b8594f4c2f5c51abe59a555e04f1047008877. The same frozen departure capture now runs after commit; its collection cardinality is unchanged and remains repair debt. Previous capture fingerprint: b06929b8edf370ac4188132847ad3e4b6cc4349924b49e61da868bc6d5a00937."
+      "reason": "The motion row now selects the direct canonical IssueModel/WorklistIssue fields. It carries the former row reader origin; no broader collection repair is claimed. Predecessor: 77ee4d9cb3b1fce931a729ae412b8594f4c2f5c51abe59a555e04f1047008877. The same frozen departure capture now runs after commit; its collection cardinality is unchanged and remains repair debt. Previous capture fingerprint: b06929b8edf370ac4188132847ad3e4b6cc4349924b49e61da868bc6d5a00937. POD-2102 removes task color controls and tint props; the retained operation keeps its trigger and classification, with collection demand unchanged or reduced."
     },
     {
       "file": "apps/web/src/features/worklist/pool-sidebar.tsx",
@@ -13826,7 +13725,7 @@
       "file": "apps/web/src/test-support/mock-screen-pool.ts",
       "holder": "useFixturePool/useMemo:callback/pool/sidebar/row/callback",
       "rule": "helper-consumer",
-      "tokens": "42a7a4cbdf8835995c5d813f2f59ca122316e5fb023eb687c24b3691f06951c1",
+      "tokens": "ef3b814f8692cfd0073bd56e72fa5f9c3dbbb2b178a774f536a333df71b8212d",
       "gate": [
         "exit:then:2b4f18499c8215cdd61f2462bac62beed1908aa8157f047393ee49214db8ff66"
       ],
@@ -13835,13 +13734,13 @@
         "a835815122562d1d0dd22a71ddbd055fbfba7f823cba8712a4b31941ff575f25",
         "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
       ],
-      "fingerprint": "7c0641c6432e80ecfda3092ace8059534e8264a356cb3b4484e3efc1ac33063e",
+      "fingerprint": "b00bdaef43c2b434d5a5ff46cc016086300043e14109a25220a18c660e17d3ce",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Fixture sidebar projection over normalized synthetic issues (POD-5566)",
       "bound": "Test fixture collection; no production import caller. Exact taint remains monitored.",
-      "reason": "Test-only reference implementations changed to match addressed APIs. Conservative fixture taint retained, not a product regression or fixed runtime path. Session execution, presence and timestamp predicates now borrow shared model facts; the same collection and demand bounds remain.",
+      "reason": "Test-only reference implementations changed to match addressed APIs. Conservative fixture taint retained, not a product regression or fixed runtime path. Session execution, presence and timestamp predicates now borrow shared model facts; the same collection and demand bounds remain. POD-2102 removes task color controls and tint props; the retained operation keeps its trigger and classification, with collection demand unchanged or reduced.",
       "guard": "apps/web/src/features/worklist/SidebarUnified.search.test.tsx; exact fingerprint remains monitored."
     },
     {

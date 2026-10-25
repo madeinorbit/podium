@@ -3170,58 +3170,6 @@ describe('IssueService field mutations (P1)', () => {
   })
 })
 
-/**
- * COLOUR IS A TOP-LEVEL PROPERTY (POD-697) [spec:SP-b4d1].
- *
- * The palette slot names a MISSION — it is what tells the sidebar's rows apart
- * and what the flight deck, terminal tint and rail flow from. A sub-issue takes
- * its mission's colour by inheritance (the client walks to the nearest coloured
- * ancestor), so a slot of its own could only compete with the parent's. The
- * three write paths that could produce one all close here.
- */
-describe('issue colour belongs to top-level tasks (POD-697)', () => {
-  it('drops a colour on a sub-task create and refuses one on an existing sub-task', async () => {
-    const { svc } = await harness()
-    const epic = await svc.crud.create({ repoPath: '/r', title: 'E', startNow: false, color: 'violet' })
-    expect(epic.color).toBe('violet')
-    const child = await svc.crud.create({
-      repoPath: '/r',
-      title: 'C',
-      startNow: false,
-      parentId: epic.id,
-      color: 'teal',
-    })
-    expect(child.color).toBeUndefined()
-    // Refused rather than ignored: the CLI (and any older client) must hear that
-    // the field does not apply here, not appear to have written it.
-    await expect(svc.crud.update(child.id, { color: 'teal' })).rejects.toThrow(/top-level/)
-    // Clearing stays legal at any depth — that is how a legacy slot goes away.
-    expect((await svc.crud.update(child.id, { color: null })).color).toBeUndefined()
-  })
-
-  it('gives up the colour when a top-level task becomes a sub-task', async () => {
-    const { svc } = await harness()
-    const epic = await svc.crud.create({ repoPath: '/r', title: 'E', startNow: false })
-    const viaReparent = await svc.crud.create({
-      repoPath: '/r',
-      title: 'R',
-      startNow: false,
-      color: 'lime',
-    })
-    expect((await svc.hierarchy.reparent(viaReparent.id, epic.id)).color).toBeUndefined()
-    const viaUpdate = await svc.crud.create({
-      repoPath: '/r',
-      title: 'U',
-      startNow: false,
-      color: 'cyan',
-    })
-    expect((await svc.crud.update(viaUpdate.id, { parentId: epic.id })).color).toBeUndefined()
-    // Promotion back to top level is a fresh choice, not a restore.
-    expect((await svc.hierarchy.reparent(viaReparent.id, null)).color).toBeUndefined()
-    expect((await svc.crud.update(viaReparent.id, { color: 'lime' })).color).toBe('lime')
-  })
-})
-
 describe('IssueService hierarchy reconciliation (P2a / I2)', () => {
   it('create({parentId}) sets parent_id; wire deps/dependents synthesize the edge (#164)', async () => {
     const { svc, store } = await harness()

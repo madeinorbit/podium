@@ -247,22 +247,6 @@ describe('definitive issue refusals (POD-5429)', () => {
     expect(await projection(issue.id)).toEqual(issue)
   })
 
-  it('refuses a colour on a sub-task', async () => {
-    const parent = await seed()
-    const child = await registry.issues.crud.create({
-      repoPath: '/repo',
-      title: 'child',
-      startNow: false,
-      parentId: parent.id,
-    })
-    await refuse(
-      'update',
-      { id: child.id, patch: { color: 'blue' } },
-      `colour belongs to top-level tasks: ${child.id} is a sub-task and takes its parent's colour`,
-    )
-    expect(await projection(child.id)).toEqual(child)
-  })
-
   it('refuses a self-dependency', async () => {
     const issue = await seed()
     await refuse(

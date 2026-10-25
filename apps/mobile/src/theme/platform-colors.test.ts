@@ -1,4 +1,3 @@
-import { ISSUE_COLOR_HEX } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 
 const native = vi.hoisted(() => ({
@@ -9,7 +8,6 @@ const native = vi.hoisted(() => ({
 vi.mock('react-native', () => native)
 vi.mock('./platform-colors', () => import('./platform-colors.native'))
 
-import { FLOW_HEX, flow } from './issueColors'
 import { adaptiveColor, fadeDynamicColor } from './platform-colors.native'
 import { STAGE_COLOR } from './stage'
 import { proseColor, syntaxColor, syntaxPalette, syntaxScopeToken } from './syntax'
@@ -73,28 +71,6 @@ describe('native Increase Contrast values (no device verification)', () => {
       [syntaxPalette.highContrastDark.ink, '#2c2c2e'],
     ] as const)
       expect(contrast(ink, ground)).toBeGreaterThanOrEqual(7)
-  })
-  it.each([
-    FLOW_HEX,
-    ...Object.values(ISSUE_COLOR_HEX),
-  ])('keeps flow inks readable on every flow ground for %s', (tint) => {
-    const grounds = [
-      flow.paneBg,
-      flow.headerBg,
-      flow.paneHeaderBg,
-      flow.rowBg,
-      flow.rowSelectedBg,
-      flow.rowActiveBg,
-    ].map((f) => slots(f(tint)))
-    const text = [flow.text, flow.body, flow.muted].map((f) => slots(f(tint)))
-    for (const s of [...grounds, ...text]) {
-      expect(s.highContrastLight).not.toBe(s.light)
-      expect(s.highContrastDark).not.toBe(s.dark)
-    }
-    for (const ink of text)
-      for (const bg of grounds)
-        for (const mode of ['highContrastLight', 'highContrastDark'] as const)
-          expect(contrast(ink[mode], bg[mode])).toBeGreaterThanOrEqual(7)
   })
   it('preserves accessibility slots through fading', () => {
     const value = adaptiveColor('#123456', '#abcdef', '#012345', '#fedcba')

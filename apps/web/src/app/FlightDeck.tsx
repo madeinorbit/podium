@@ -705,9 +705,8 @@ function ShellDeck(): JSX.Element {
  *
  * The DOT IS THE POINT. Two coloured dots — one working, one waiting on you —
  * are the fastest way for this column to say "I am a status readout" before
- * there is any status to read. They take the semantic status tokens and nothing
- * else: never an issue colour, the same rule the live rows follow, because a
- * hue that means "stage" in one row and "which task" in another means neither.
+ * there is any status to read. They take the same semantic status tokens as
+ * the live rows.
  */
 function GhostSessionRow({
   tone,
@@ -1630,10 +1629,9 @@ export const FlightDeckContent = observer(function FlightDeckContent({
       <div className="deck-chrome sticky top-0 z-10 flex-none">
         {/* THE MISSION HEADER IS THE ROOT OF THE TREE (round 3 §2, §4, §10).
           Roomy because it is read once where the strips below are scanned.
-          It carries NO fill of its own any more (POD-725): the column ITSELF
-          now runs the mission's colour. What is left is the geometry the
-          artifact measures — a 32px eyebrow row, then the title block — and
-          the seam under it belongs to the filter bar. */}
+          Its surface comes from the column (POD-725). The geometry is a 32px
+          eyebrow row followed by the title block, and the seam under it
+          belongs to the filter bar. */}
         {/* The header IS the root's strip (round 3 §4), so it takes the strips'
           menu as well as their click: right-clicking the mission has to
           reach the mission's own actions, or the one task in the column with

@@ -1,12 +1,12 @@
-import { createPanePoolFixture } from './test-support/pane-pool.test.fixture'
-import { useRuntimeSelector } from '@/app/store'
-import { poolFixtureStore } from '@/test-support/pool-issue-fixture'
 // @vitest-environment happy-dom
 import { asSessionId, type SessionMeta, type SessionMetaInput } from '@podium/model'
 import { act, StrictMode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { useRuntimeSelector } from '@/app/store'
 import { makeIssue } from '@/lib/test-issue'
+import { poolFixtureStore } from '@/test-support/pool-issue-fixture'
+import { createPanePoolFixture } from './test-support/pane-pool.test.fixture'
 
 // ---------------------------------------------------------------------------
 // Capture the latest MountedSession handed back by mountSession so we can assert
@@ -226,7 +226,7 @@ describe('AgentPanel active wiring', () => {
         branch: 'issue/1',
         worktreePath: '/w',
         repoPath: '/w',
-        color: 'blue',
+
         gitState: {
           branch: 'issue/1',
           ahead: 3,

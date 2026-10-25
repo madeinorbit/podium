@@ -1,5 +1,5 @@
-import { ISSUE_COLOR_SLOTS, IssueColor, asSessionId } from '@podium/model'
 import { ISSUE_COMMANDS } from '@podium/issue-client'
+import { asSessionId, LABEL_COLOR_SLOTS, LabelColor } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { z } from 'zod'
 import { issueRegistry } from './registry'
@@ -94,25 +94,14 @@ describe('CLI table ↔ server registry FIELD drift (#347)', () => {
     expect(input.safeParse({ sessionId: asSessionId('s1'), confirmRehome: true }).success).toBe(true)
   })
 
-  it('issue colour palette: the protocol wire enum mirrors the domain slot list [spec:SP-b4d1]', () => {
-    // Domain is a zero-dependency leaf and protocol stays dependency-free, so
-    // the 10 slot names are declared in both — this pin is what keeps them one.
-    expect(IssueColor.options).toEqual([...ISSUE_COLOR_SLOTS])
-  })
-
-  it('accepts palette slot names on create/update and null only on update', () => {
-    const create = issueRegistry.defs.create.input
-    const update = issueRegistry.defs.update.input
-    expect(
-      create.safeParse({ repoPath: '/r', title: 'x', startNow: false, color: 'violet' }).success,
-    ).toBe(true)
-    expect(
-      create.safeParse({ repoPath: '/r', title: 'x', startNow: false, color: null }).success,
-    ).toBe(false)
-    expect(update.safeParse({ id: '1', patch: { color: 'teal' } }).success).toBe(true)
-    expect(update.safeParse({ id: '1', patch: { color: null } }).success).toBe(true)
-    expect(update.safeParse({ id: '1', patch: { color: '#14b8a6' } }).success).toBe(false)
-    expect(update.safeParse({ id: '1', patch: { color: 'amber' } }).success).toBe(false)
+  it('keeps the label palette and excludes task color flags', () => {
+    expect(LabelColor.options).toEqual([...LABEL_COLOR_SLOTS])
+    for (const name of ['create', 'update']) {
+      const command = ISSUE_COMMANDS.find(command => command.name === name)!
+      const input = name === 'create' ? { repoPath: '/r', title: 'x' } : { id: '1' }
+      expect(command.args.safeParse(input).success).toBe(true)
+      expect(command.args.safeParse({ ...input, color: 'violet' }).success).toBe(false)
+    }
   })
 
   it('every CLI command arg schema is strict (unknown flags are rejected, #345)', () => {

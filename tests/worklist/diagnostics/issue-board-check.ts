@@ -1,13 +1,13 @@
-import { omitGone } from '@podium/client-graph/lookup'
 /** Values stay in the check process; reports contain counts/positions only. */
 import type { IssueViewModel } from '@podium/client-core/replica'
 import { operationalState, type TaskProgress } from '@podium/client-core/values'
-import { asIssueId } from '@podium/model/browser'
-import { autorun } from 'mobx'
-import type { BoardOptions, BoardSnapshotData, PoolExplorerData } from '@podium/client-graph/issue-board-schema'
 import { boardCards } from '@podium/client-graph/issue-board-cards'
+import type { BoardOptions, BoardSnapshotData, PoolExplorerData } from '@podium/client-graph/issue-board-schema'
+import { omitGone } from '@podium/client-graph/lookup'
 import type { MobxPool } from '@podium/client-graph/pool'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
+import { asIssueId } from '@podium/model/browser'
+import { autorun } from 'mobx'
 import { issuePageFirstDifference } from './issue-page-check'
 /** Observe the same computed demand as the screen, then release it. A batch
  * alone is untracked and would repeatedly expand dependency-free ID answers. */
@@ -52,7 +52,7 @@ export const BOARD_CHECK_FIELDS = [
   'deferred',
   'ready',
   'needsHuman',
-  'color',
+
   'gitState',
   'deps',
   'dependents',

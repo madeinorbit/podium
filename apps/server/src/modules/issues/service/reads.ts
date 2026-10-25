@@ -11,8 +11,8 @@ import {
   type IssueReport,
   type IssueSearchFilter,
   type IssueStats,
-  isIssueColorSlot,
   isIssueStage,
+  isLabelColorSlot,
   isReadyIssueStage,
   isSystemOwnedIssueStage,
   machinePathKey,
@@ -674,7 +674,7 @@ export class IssueReportsModule {
   async labelList(): Promise<IssueLabelWire[]> {
     return (await this.store.deps.store.issues.listLabels()).map((l) => ({
       name: l.name,
-      ...(isIssueColorSlot(l.color) ? { color: l.color } : {}),
+      ...(isLabelColorSlot(l.color) ? { color: l.color } : {}),
       ...(l.description ? { description: l.description } : {}),
     }))
   }

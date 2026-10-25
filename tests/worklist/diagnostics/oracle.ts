@@ -1,26 +1,26 @@
-import { omitGone } from '@podium/client-graph/lookup'
-import type { WorklistIssue } from '@podium/client-graph/worklist/issue'
-import { worklistView } from '@podium/client-graph/worklist/view-model'
-import { sidebarView } from '@podium/client-graph/worklist/sidebar'
 /** POD-4953: the current real sidebar, as its rows and sections read it.
  * Only this oracle imports the legacy derivations. Product code never does.
  */
-import { deriveFleetPresence, splitPinnedWork, isDraftAgentVessel, isUnstartedSession, issueDisplayTitle, missionRollup, orderProjectItems, orderedSidebarProjects, partitionStaleSessions, rowAwaitsTuck, rowCanBringBack, rowErrorLine, rowMotionPhase, rowMotionTiming, rowPendingDecision, rowUnreadEmphasized, rowStatusLine, rowHasWorkingSession, rowWaitingCount, type UnifiedIssueRow } from '@podium/client-core/values'
-import { groupUnifiedWorkRows } from '../legacy-values/index'
-import { issueReturnedFromDefer, isIssueDeferred, asIssueId } from '@podium/model'
-import { compareStructural as isDeepStrictEqual } from 'mobx'
-import type { SidebarRowValues } from '@podium/client-graph/worklist/sidebar-row'
-import type { SidebarSections, SidebarState } from '@podium/client-graph/worklist/sidebar'
-import type { LegacyDerivation } from './legacy'
+import { deriveFleetPresence, isDraftAgentVessel, issueDisplayTitle, isUnstartedSession, missionRollup, orderedSidebarProjects, orderProjectItems, partitionStaleSessions, rowAwaitsTuck, rowCanBringBack, rowErrorLine, rowHasWorkingSession, rowMotionPhase, rowMotionTiming, rowPendingDecision, rowStatusLine, rowUnreadEmphasized, rowWaitingCount, splitPinnedWork, type UnifiedIssueRow } from '@podium/client-core/values'
+import { omitGone } from '@podium/client-graph/lookup'
 import type { MobxPool } from '@podium/client-graph/pool'
+import type { WorklistIssue } from '@podium/client-graph/worklist/issue'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
+import type { SidebarSections, SidebarState } from '@podium/client-graph/worklist/sidebar'
+import { sidebarView } from '@podium/client-graph/worklist/sidebar'
+import type { SidebarRowValues } from '@podium/client-graph/worklist/sidebar-row'
+import { worklistView } from '@podium/client-graph/worklist/view-model'
+import { asIssueId, isIssueDeferred, issueReturnedFromDefer } from '@podium/model'
+import { compareStructural as isDeepStrictEqual } from 'mobx'
+import { groupUnifiedWorkRows } from '../legacy-values/index'
+import type { LegacyDerivation } from './legacy'
 
 
 
 /** All fields the existing row reads from its own issue. Presentation is kept
  * in that component, including refs, colours, labels and status formatting. */
 export const ISSUE_CONTENT_FIELDS = [
-  'id', 'seq', 'displayRef', 'linearIdentifier', 'color', 'title', 'stage', 'closedReason', 'closedAt', 'updatedAt',
+  'id', 'seq', 'displayRef', 'linearIdentifier', 'title', 'stage', 'closedReason', 'closedAt', 'updatedAt',
   'audience', 'isDraftVessel', 'pinned', 'tuckedAt', 'readAt', 'unread', 'gitState',
   'repoPath', 'worktreePath', 'branch', 'parentBranch', 'parentId', 'needsHuman', 'blocked',
   'asked', 'intentOrigin',
@@ -43,7 +43,7 @@ export const sessionComparable = (session: unknown) => pick(session, SESSION_CON
  * reads. No old record's irrelevant server supplement enters the oracle. */
 export function sidebarComparable(value: SidebarRowValues | WorklistIssue): Record<string, unknown> {
   if ('worklist' in value) return {
-    idNumber: value.issue.seq, color: value.issue.color ?? null, title: value.title,
+    idNumber: value.issue.seq, title: value.title,
     timing: value.timing, working: value.visibleWorking, asking: value.visibleAsking,
     originTick: value.origin, decision: value.decision, mergeCommits: value.mergeCommits,
     progress: value.progress, fromChildren: value.hasChildProgress, statusFromChildren: value.showsChildProgress,
@@ -71,7 +71,7 @@ export function legacySidebarRow(row: UnifiedIssueRow, derivation: LegacyDerivat
   const originId = issue.deps?.find(dep => dep.type === 'discovered-from')?.id
   const origin = originId ? derivation.models.find(model => model.id === originId) : undefined
   return sidebarComparable({
-    idNumber: issue.seq, color: issue.color ?? null,
+    idNumber: issue.seq,
     title: issueDisplayTitle(issue, derivation.sessions, derivation.allWorktreePaths),
     timing: rowMotionTiming(row), decision,
     working: rowHasWorkingSession(row), asking: rowWaitingCount(row) > 0,

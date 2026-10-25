@@ -101,9 +101,7 @@ test('podium dark foundation exposes canonical tokens and semantic styling at ru
       '--attention-foreground': '#161006',
       '--live': '#10b981',
       '--claude': '#d97757',
-      '--flow': '#94a3b8',
-      // --issue is a registered <color>, so computed style returns a normalized RGB value.
-      '--issue': 'rgb(148, 163, 184)',
+      '--neutral': '#949aa4',
     },
   })
   expect(foundation.bodyFont).toContain('Geist Variable')

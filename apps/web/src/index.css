@@ -49,9 +49,9 @@
 
   /* ── Redesign surface tiers (handoff v2) ─────────────────────────────────
      --engraved: recessed dock/column surfaces — a flat surface
-       paired with shadow-engraved (it carries no issue tint).
+       paired with shadow-engraved.
      --bar:      compact section bars (panel headers, key-bar strip).
-     --tabstrip: native tab-strip base (before the issue-colour mix).
+     --tabstrip: native tab-strip base.
      --rail:     icon-rail base.
      --chip:     raised button chips / popover surface. */
   --color-engraved: var(--engraved);
@@ -76,17 +76,12 @@
   --color-text-faint: var(--text-faint);
   --color-label: var(--label);
 
-  /* Semantic accents. --attention = "waiting on you" (separate from the
-     primary fill so light mode can use legible bronze text); --claude = the
-     Claude brand terracotta (agent icons, cursor block, ⏺ glyphs); --flow = the
-     neutral slate that colours the whole context flow when an issue has no
-     assigned colour. Reserved: none of these three hues may ever be used as an
-     issue palette colour (see lib/issueColors.ts). */
+  /* Status, harness identity and neutral theme accents. */
   --color-attention: var(--attention);
   --color-attention-foreground: var(--attention-foreground);
   --color-claude: var(--claude);
-  --color-flow: var(--flow);
-  --color-flow-foreground: var(--flow-foreground);
+  --color-neutral: var(--neutral);
+  --color-neutral-foreground: var(--neutral-foreground);
 
   --color-chart-1: var(--chart-1);
   --color-chart-2: var(--chart-2);
@@ -118,15 +113,6 @@
   --radius-row: 7px;
   --radius-composer: 9px;
   --radius-tray: 10px;
-
-  /* Engraved / elevation shadows. The GEOMETRY is constant across appearances; the
-     carve INK is not. A dark ground can take a real bite of black, but the same
-     black on paper reads as dirt rather than depth, so light themes override
-     --carve-* with their own ink at a much lower alpha (POD-372). The defaults
-     below are the dark-ground values.
-     engraved: the recessed middle column; engraved-bar: the folded 44px vertical
-     bar; bar-drop: drop below compact section bars; popover: colour-picker /
-     panel-menu overlays. */
   --carve-engraved: rgb(0 0 0 / 0.85);
   --carve-drop: rgb(0 0 0 / 0.9);
   --carve-popover-far: rgb(0 0 0 / 0.65);
@@ -306,13 +292,9 @@
   --primary-rim: #b08c4e;
 
   --claude: #b8532e;
-  /* The no-colour flow. Warm taupe, not slate — a blue-grey flow over stone is
-     the one thing that reliably makes this palette look broken. */
-  --flow: #85817a;
-  --flow-foreground: #ffffff;
-  /* Issue-accent channel: components override --issue per shell subtree
-     (style={{ '--issue': hex }}); default is the neutral flow. */
-  --issue: var(--flow);
+  /* Warm neutral ink for surfaces on paper. */
+  --neutral: #85817a;
+  --neutral-foreground: #ffffff;
 
   /* GHOST-PREVIEW RAMP (POD-1058). Mixes over transparent so it serves every
      surface; the dark appearance below needs a lighter dose for the same step. */
@@ -353,35 +335,11 @@
   --well-cell: var(--card);
   --well-cell-lit: rgb(255 255 255 / 1);
   --well-cell-lip: rgb(29 28 25 / 0.1);
-
-  /* Issue-tint scales — see the issue-accent channel below. Down from 0.5%
-     (POD-725): the issue palette is the Tailwind-500 ramp, chosen against navy,
-     and a saturated hue mixed into WARM stone reads about twice as loud as the
-     same mix into the cool grey Daylight used. At 0.5% a teal issue turned the
-     whole centre of the window green. 0.4% puts the handoff's headline doses
-     back where the design draws them: the deck's fade at 6%, the tab strip at
-     7%, the selected row's ground at 11% over the card it is lifted onto.
-     Lines are barely touched — a hairline has to stay visible to do its job. */
-  --issue-tint-scale: 0.4%;
-  --issue-line-scale: 0.8%;
-  /* THE WORK ROW GETS ITS OWN DOSE ON PAPER (POD-1456). The warning above is
-     about tint over WIDE surfaces — the deck's fade, the tab strip, the stage —
-     where a hue spread across half the window stops being an accent. A sidebar
-     row is the opposite case: a 306px band, stacked twenty deep, whose tint is
-     the only thing saying WHOSE row this is. At the general 0.4% the row's 7%
-     resting dose lands ~2.8% over warm stone, which reads as a smudge of warmth
-     rather than as a colour — you can see that a row is tinted but not which
-     colour it is, so the channel carries no information.
-     1% — the SAME dose dark ships — is the settled value: the row rests at 7%
-     and hovers at 11% in both appearances, so an issue's colour is the same
-     statement whichever theme you are in, which is the point of an identity
-     channel. That is deliberately louder than the 0.6% first tried here; on
-     paper 0.6% named the hue but still asked you to look for it, and a row you
-     have to look at is not a row you can scan past.
-     Paper and dark agreeing on the ROW does not undo the split — the general
-     scale stays 0.4% here, so the wide surfaces the warning above is about are
-     untouched. The token is what lets those two facts coexist. */
-  --issue-row-tint-scale: 1%;
+  --surface-tint-scale: 0.4%;
+  --surface-line-scale: 0.8%;
+  /* Rows use the same neutral contrast dose in both appearances (POD-1456).
+     Wide surfaces keep a lighter dose on paper. */
+  --surface-row-tint-scale: 1%;
 }
 
 /* ── Podium theme — dark ("Dark Ink") [POD-737] ───────────────────────────────────
@@ -391,9 +349,7 @@
    blue for what MOVES. Three rules:
 
    1. NEUTRAL, NOT NAVY. Every surface and every line is a cool-neutral ink
-      (chroma ≤ 10 across the ramp). A tinted ground competes with the issue-accent
-      channel — the whole point of that channel is that a hue on a surface MEANS
-      something, and navy chrome meant nothing while looking like it did.
+      (chroma ≤ 10 across the ramp), leaving color for semantic signals.
    2. THE FRAME LIFTS. The tier order inverts the old navy ramp, the same way
       Paper's does: background #16171a is the darkest thing in the window and the
       stage sheet #23262d the brightest, with the title bar and status strip
@@ -476,10 +432,9 @@
   --attention: #d9b477;
   --attention-foreground: #191308;
   --claude: #d97757;
-  /* The no-colour flow is a true neutral, not slate: a blue-grey default tint
-     over neutral ink reads as an issue colour nobody chose. */
-  --flow: #949aa4;
-  --flow-foreground: #16171a;
+  /* Cool neutral ink for dark surfaces. */
+  --neutral: #949aa4;
+  --neutral-foreground: #16171a;
 
   /* Restore the dark-ground values for everything the light block above
      introduces — `[data-theme="podium"]` matches this element too, so an
@@ -512,12 +467,12 @@
   --well-cell: color-mix(in srgb, var(--secondary) 85%, transparent);
   --well-cell-lit: rgb(255 255 255 / 0.07);
   --well-cell-lip: rgb(0 0 0 / 0.35);
-  --issue-tint-scale: 1%;
-  --issue-line-scale: 1%;
+  --surface-tint-scale: 1%;
+  --surface-line-scale: 1%;
   /* Unchanged from the general scale — see the paper block's note (POD-1456).
      Spelled out rather than left to the fallback so the row's dose in both
      appearances is one grep away. */
-  --issue-row-tint-scale: 1%;
+  --surface-row-tint-scale: 1%;
   --ghost-1: color-mix(in srgb, var(--foreground) 12%, transparent);
   --ghost-2: color-mix(in srgb, var(--foreground) 9%, transparent);
   --ghost-3: color-mix(in srgb, var(--foreground) 5.5%, transparent);
@@ -654,62 +609,8 @@
   color: var(--syntax-punct);
 }
 
-/* ── Issue-accent channel [spec:SP-b4d1] ─────────────────────────────────────
-   Every issue-coloured surface is a color-mix TINT over a base surface — never
-   a flat fill. A shell subtree sets `--issue` (style={{ '--issue': hex }}) from
-   the issue's palette colour (lib/issueColors.ts); unset, it inherits the
-   neutral slate --flow. The percentages come straight from the handoff:
-     selected sidebar row 28 (over card) · pane header 24 (over background) ·
-     rail fade 16 · attention rows 11–13 ·
-     hairlines 30–50 · selection rings 35.
-   A dose is also CAPPED BY THE NEXT SURFACE UP (POD-748): a mix always walks
-   toward a lighter colour, so a tint that carries its surface past the one above
-   it inverts the ramp. The tab strip is the tight one — three levels under the
-   sheet on Dark Ink — and runs at 1–3 (Workspace.tsx), not the handoff's 18.
-   Two surfaces are deliberately OUTSIDE this channel. The Superagent pane stays
-   a flat --engraved surface in both modes. And the RIGHT DOCK, with its icon
-   rail, is a dark default (POD-516 item 9, styles.css `.right-dock-shell`): the
-   dock hosts Superagent, Git, Files, Shell, Messages and the queues panel as
-   often as it hosts the task, so a tint drawn from the selected issue claimed a
-   relationship that usually is not there — a tint only carries meaning when the
-   surface IS that issue. The dock's ID square keeps its own colour; it names one
-   specific issue and is how the operator finds their place in the rail.
-   The base defaults to --background; put issue-base-{card,tabstrip,rail}
-   alongside a mix utility to tint over a different surface. */
-
-/* Registering --issue lets the VARIABLE itself transition: reselecting or
-   recolouring an issue crossfades every derived color-mix, gradient and inset
-   shadow together (§2.10's .4s), which per-property transitions cannot do —
-   background-image gradients don't interpolate. Browsers without @property
-   (Safari < 16.4) simply snap. */
-@property --issue {
-  syntax: "<color>";
-  inherits: true;
-  initial-value: #94a3b8;
-}
-
-/* An issue-colour scope: every element that (re)sets `--issue` (the desktop
-   shell root, the sidebar bridge notches) carries this class,
-   plus data-issue-colored='true'|'false' so the no-colour slate flow can run
-   the same mechanics quieter (the *-slate-* utilities and overrides below).
-   The scope also derives the tinted text ramp, recomputed wherever --issue is
-   re-scoped (handoff refs, violet/slate: text #f6f3ff/#f2f5fa · bright
-   #c5bede/#c3cddb · muted-bright #a89fc2/#9aa3b2 · muted #8d84a6/#8b93a2 ·
-   dim #4d4466/#4a5261). */
-.issue-scope {
-  --issue-text: color-mix(in srgb, var(--issue) 10%, var(--text-strong));
-  --issue-bright: color-mix(in srgb, var(--issue) 25%, var(--foreground));
-  --issue-muted-bright: color-mix(in srgb, var(--issue) 28%, var(--muted-foreground));
-  --issue-muted: color-mix(in srgb, var(--issue) 22%, var(--label));
-  --issue-dim: color-mix(in srgb, var(--issue) 30%, var(--text-faint));
-}
+/* Neutral surface treatments follow the theme in both appearances. */
 @media (prefers-reduced-motion: no-preference) {
-  .issue-scope {
-    transition: --issue 0.4s;
-  }
-  /* Rows, ID squares and rail icons transition their solid colours (1d):
-     select/deselect, queued dimming and a fresh colour pick all crossfade.
-     Deliberately no box-shadow here — the picker's open-ring must be instant. */
   .phase-surface {
     transition:
       background-color 0.4s,
@@ -718,92 +619,28 @@
       opacity 0.4s;
   }
 }
-@utility issue-mix-* {
+@utility surface-mix-* {
   background-color: color-mix(
     in srgb,
-    var(--issue) calc(--value(integer) * var(--issue-tint-scale, 1%)),
-    var(--issue-base, var(--background))
+    var(--neutral) calc(--value(integer) * var(--surface-tint-scale, 1%)),
+    var(--surface-base, var(--background))
   );
 }
-@utility issue-base-card {
-  --issue-base: var(--card);
+@utility surface-base-card {
+  --surface-base: var(--card);
 }
-@utility issue-base-tabstrip {
-  --issue-base: var(--tabstrip);
+@utility surface-base-tabstrip {
+  --surface-base: var(--tabstrip);
 }
-@utility issue-base-rail {
-  --issue-base: var(--rail);
-}
-@utility issue-base-engraved {
-  --issue-base: var(--engraved);
-}
-@utility issue-base-sidebar {
-  --issue-base: var(--sidebar);
-}
-/* Issue-tinted hairline: border-color at N% opacity of the issue colour. */
-@utility issue-hairline-* {
+@utility surface-hairline-* {
   border-color: color-mix(
     in srgb,
-    var(--issue) calc(--value(integer) * var(--issue-line-scale, 1%)),
+    var(--neutral) calc(--value(integer) * var(--surface-line-scale, 1%)),
     transparent
   );
 }
-/* Slate (no colour) runs the identical mechanics slightly quieter (handoff 1b).
-   A surface whose percentage differs in the slate flow pairs its coloured
-   utility with a *-slate-* one carrying the 1b value; the slate one wins under
-   a data-issue-colored='false' scope by specificity (0-2-0 over 0-1-0).
-   Surfaces whose percentage is the same in both states need no pair. */
-@utility issue-mix-slate-* {
-  [data-issue-colored='false'] & {
-    background-color: color-mix(
-      in srgb,
-      var(--issue) calc(--value(integer) * var(--issue-tint-scale, 1%)),
-      var(--issue-base, var(--background))
-    );
-  }
-}
-@utility issue-hairline-slate-* {
-  [data-issue-colored='false'] & {
-    border-color: color-mix(
-      in srgb,
-      var(--issue) calc(--value(integer) * var(--issue-line-scale, 1%)),
-      transparent
-    );
-  }
-}
-/* Selection ring around the active ID square / swatch (2px at 35%). */
-@utility issue-ring {
-  box-shadow: 0 0 0 2px
-    color-mix(in srgb, var(--issue) calc(35 * var(--issue-line-scale, 1%)), transparent);
-}
-/* Rail fade: issue tint at the top of the icon rail, flat by 240px. */
-@utility issue-fade {
-  background: linear-gradient(
-    180deg,
-    color-mix(in srgb, var(--issue) calc(16 * var(--issue-tint-scale, 1%)), var(--issue-base, var(--card))),
-    var(--issue-base, var(--card)) 240px
-  );
-}
-/* The primary button's rim — bronze on Paper, pale bisque on Dark Ink. Both
-   appearances set it now; it is transparent nowhere.
-   Plain (unlayered) so it beats the base variant's `border-transparent`
-   utility regardless of source order. */
 .btn-primary-rim {
   border-color: var(--primary-rim, transparent);
-}
-
-/* Handoff-1b quiet values for the fixed-percentage surfaces. Plain (unlayered)
-   rules, so they beat the layered utilities regardless of order. */
-[data-issue-colored='false'] .issue-ring {
-  box-shadow: 0 0 0 2px
-    color-mix(in srgb, var(--issue) calc(30 * var(--issue-line-scale, 1%)), transparent);
-}
-[data-issue-colored='false'] .issue-fade {
-  background: linear-gradient(
-    180deg,
-    color-mix(in srgb, var(--issue) calc(13 * var(--issue-tint-scale, 1%)), var(--issue-base, var(--card))),
-    var(--issue-base, var(--card)) 240px
-  );
 }
 
 /* ── Mono micro-typography ────────────────────────────────────────────────────
@@ -915,26 +752,10 @@
   }
 }
 
-/* ── Native agents pane (.design/specs/native-pane.md) ───────────────────────
-   The pane's chrome is tinted by the selected issue via the --issue channel
-   (slate --flow when uncoloured); its derived text shades come from the
-   .issue-scope ramp above, inherited from the shell root.
-   The pane SURFACE is no longer tinted. POD-725 turned the stage into a sheet
-   and made this element the ground around it, so styles.css `.native-agents-pane`
-   paints it flat --background. The 12%/9% wash that used to live here outlived
-   that: it was written as a bare class and a `[data-issue-colored='false']`
-   descendant, and the slate half (0-2-0) outranked the styles.css override
-   (0-1-0) no matter which file loaded last — so an uncoloured mission's gutter
-   rendered #212326 where the Dark Ink mock draws its ground at #16171a, and a
-   coloured one rendered the mock's value. The ground is not a tintable surface;
-   the colour it used to carry lives in the deck's fade, the selected row's band
-   and the active tab's dot and ring. */
-/* Tab leading square: the 7×7 issue-colour dot (radius 2.5px). Beats the
-   unlayered `.dot` circle rule in styles.css by specificity while keeping the
-   `.dot.parked + .worker-label` hibernated-row hook intact. */
+/* Neutral tab identity mark. The status glyph remains independent. */
 .native-agents-pane .tab-issue-dot {
   border-radius: 2.5px;
-  background: var(--issue);
+  background: var(--neutral);
 }
 /* The active tab, raised (POD-725). A small real drop plus a 1px issue ring —
    the design's own recipe, and the only object inside the sheet allowed to
@@ -942,7 +763,7 @@
    issue line along the tab's top edge, which was invisible the moment the tab
    stopped being a browser tab welded to the strip's bottom. */
 /* POD-2078 (calm redesign 4a/5a): the ring is the sheet's own hairline, not
-   the issue colour — the leading dot already says which issue this is. */
+   a task accent. */
 @utility native-tab-active {
   box-shadow:
     0 1px 2px color-mix(in srgb, var(--carve-drop) 90%, transparent),

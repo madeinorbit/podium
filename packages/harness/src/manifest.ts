@@ -867,7 +867,7 @@ export interface InstrumentationDestination {
   endpointUrl: string
   /** Instance-scoped stable socket, when the harness's hook command posts over one. */
   socketPath?: string
-  /** Seed the harness theme for issue-tinted terminal colours [spec:SP-a04d]. */
+  /** Seed the harness theme to follow terminal colors [spec:SP-a04d]. */
   seedTheme?: boolean
   /** Directory holding the per-session settings file the install writes. */
   settingsDir: string

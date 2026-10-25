@@ -1,7 +1,7 @@
 import { SessionIdField } from '@podium/model'
 import { z } from 'zod'
 
-// The issue aggregate, its vocabularies (IssueStage/IssueType/IssueColor) and
+// The issue aggregate, its vocabularies (IssueStage/IssueType) and
 // its read projections live in @podium/model (POD-300). What stays here is the
 // FRAMES that carry them and the agent relay.
 

@@ -420,6 +420,7 @@
         "src/migrations/personal-preference-store.test.ts",
         "src/migrations/pre-migrated-fixture.test.ts",
         "src/migrations/proposed-backfill.test.ts",
+        "src/migrations/remove-task-colors.test.ts",
         "src/migrations/repair.ts",
         "src/migrations/restore.test.ts",
         "src/migrations/restore.ts",

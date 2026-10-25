@@ -1,8 +1,8 @@
 /** Mobile presentation facts. Copy, clock formatting, colours and local
  * navigation feedback remain in the existing native components. */
 import type { SliceSession } from '../shared/slice-types'
-import { fleetOf, sidebarTiming, type SidebarRowValues, type SidebarTiming } from './sidebar-row'
-import { isSessionWorking, motionPhase, type Aggregate } from './rollup'
+import { type Aggregate, isSessionWorking, motionPhase } from './rollup'
+import { fleetOf, type SidebarRowValues, type SidebarTiming, sidebarTiming } from './sidebar-row'
 
 export interface MobileRowValues {
   readonly id: string
@@ -17,7 +17,6 @@ export interface MobileRowValues {
   readonly unread: boolean
   readonly draftOnly: boolean
   readonly draftQuiet: boolean
-  readonly color: string | null
   readonly internal: boolean
   readonly pinned: boolean
   readonly snoozed: boolean
@@ -37,7 +36,7 @@ export interface MobileRowValues {
 
 export const MOBILE_ROW_FIELDS = [
   'id', 'kind', 'label', 'progress', 'originSeq', 'timing', 'working', 'waitingCount',
-  'decision', 'unread', 'draftOnly', 'draftQuiet', 'color', 'internal', 'pinned',
+  'decision', 'unread', 'draftOnly', 'draftQuiet', 'internal', 'pinned',
   'snoozed', 'unsnoozed', 'tuckable', 'fleet', 'branch', 'gitState', 'suppressAhead',
   'attentionAction', 'navigation', 'sidebar', 'sessions', 'activityAt',
 ] as const satisfies readonly (keyof MobileRowValues)[]
@@ -58,7 +57,7 @@ export function mobileIssueValues(sidebar: SidebarRowValues, waitingCount: numbe
     id: sidebar.issue.id, kind: 'issue', label: sidebar.title, progress: sidebar.progress,
     originSeq: sidebar.originTick?.seq ?? null, timing: sidebar.timing, working: sidebar.working,
     waitingCount, decision: sidebar.decision, unread: sidebar.unread && !draftQuiet,
-    draftOnly: sidebar.draftAgentOnly, draftQuiet, color: sidebar.color, internal: sidebar.internal,
+    draftOnly: sidebar.draftAgentOnly, draftQuiet, internal: sidebar.internal,
     pinned: sidebar.issue.pinned === true, snoozed: sidebar.deferred, unsnoozed: sidebar.unsnoozed,
     tuckable: sidebar.awaitsTuck, fleet: sidebar.fleet, branch: sidebar.issue.branch ?? null,
     gitState: sidebar.gitState, suppressAhead: sidebar.decision === 'merge',
@@ -82,7 +81,7 @@ export function mobileWorktreeValues(id: string, repoName: string, branch: strin
     progress: null, originSeq: null, timing: sidebarTiming(sessions, phase, false, activityAt, undefined, sessionWorking, stateSince),
     working, waitingCount: phases.filter(value => value === 'waiting').length, decision: null,
     unread: !working && sessions.some(session => session.unread), draftOnly: false, draftQuiet: false,
-    color: null, internal: false, pinned: false, snoozed: false, unsnoozed: false, tuckable: false,
+    internal: false, pinned: false, snoozed: false, unsnoozed: false, tuckable: false,
     fleet: fleetOf(sessions, sessionOpen), branch: branch ?? null, gitState: undefined, suppressAhead: false,
     attentionAction: null, navigation: sessions[0] ? { kind: 'session', id: sessions[0].sessionId } : null,
     sidebar: null, sessions, activityAt,

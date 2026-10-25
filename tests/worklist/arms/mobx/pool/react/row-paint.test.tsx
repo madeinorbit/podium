@@ -22,7 +22,7 @@ const stamp = '2026-10-06T12:00:00Z'
  * web paint projection stay intact, and the model's coarse fields stay fixed. */
 function payload(): SidebarRowValues {
   return {
-    idNumber: 1, color: null, title: 'Ancestor',
+    idNumber: 1, title: 'Ancestor',
     timing: { phase: 'working', sinceMs: 10, baseMs: 20, totalMs: 30 },
     working: true, asking: false,
     originTick: { id: 'origin', seq: 2, title: 'Origin', ref: 'SYN-2' },
@@ -35,7 +35,7 @@ function payload(): SidebarRowValues {
     fleet: { total: 1, parkedCount: 0, nativeCount: 0, tiles: [{ kind: 'codex', parked: false }] },
     issue: {
       id: 'ancestor', seq: 1, displayRef: 'SYN-1', linearIdentifier: 'EXT-1', title: 'Ancestor',
-      audience: 'human', color: '#112233', branch: 'issue/ancestor',
+      audience: 'human', branch: 'issue/ancestor',
       gitState: { ahead: 1, behind: 0, merged: false } as SidebarRowValues['gitState'],
       stage: 'planning', closedReason: null, closedAt: null, needsHuman: false,
       asked: { question: 'Help?', options: ['Yes'], at: stamp, by: 'asker' },
@@ -62,7 +62,7 @@ function put(value: unknown, path: readonly string[], next: unknown): void {
 
 function changePaintField(base: SidebarRowValues, path: readonly string[]): SidebarRowValues {
   const next = structuredClone(base)
-  let source = [...path]
+  const source = [...path]
   if (source[0] === 'display') source.shift()
   if (source[0] === 'origin') source[0] = 'originTick'
   if (source[0] === 'errorLine') {

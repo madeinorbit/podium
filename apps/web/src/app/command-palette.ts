@@ -9,7 +9,7 @@ import type { SessionId } from '@podium/model/browser'
  * The first version had three groups — navigate / global / session — and one
  * cap of 8 on `navigate`. Everything that was not a global or session action
  * went into `navigate`: sessions, worktrees, tasks, AND the ~40 rows the issue
- * context menu projects for the selected task ("POD-745: Set colour: Amber").
+ * context menu projects for the selected task ("POD-745: Set status: Planning").
  * Two failures followed from that single bucket, and neither was a styling
  * problem:
  *
@@ -29,8 +29,7 @@ import type { SessionId } from '@podium/model/browser'
  */
 
 
-import type { WorktreeView } from '@podium/client-core/values'
-import type { IssueReferenceModel } from '@podium/client-core/values'
+import type { IssueReferenceModel, WorktreeView } from '@podium/client-core/values'
 import type { IssueModel } from '@podium/client-graph'
 import type { ComponentType } from 'react'
 

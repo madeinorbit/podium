@@ -1,7 +1,3 @@
-import { headerView } from '@podium/client-graph/header-views'
-/** Diagnostic-only side-by-side value check. Values stay in this process;
- * reports contain comparison positions and field names, never payloads. */
-import type { ReferenceState as Store } from './reference-state'
 import type { PodiumClientApi } from '@podium/client-core/api'
 import type { ConnectionHealth } from '@podium/client-core/socket-transport'
 import {
@@ -9,10 +5,14 @@ import {
   missionProgress,
   reposToViews, resolveActiveWorktree, selectedMissionRoot, shippingPanelModel,
 } from '@podium/client-core/values'
-import { isAgentConfirmedComputing, isMachineOfflineForLiveTerminal, type HostMetricsWire, type MachineQuotaWire } from '@podium/model/browser'
-import type { MobxPool } from '@podium/client-graph/pool'
 import type { HeaderRows } from '@podium/client-graph/header-schema'
+import { headerView } from '@podium/client-graph/header-views'
+import type { MobxPool } from '@podium/client-graph/pool'
+import { type HostMetricsWire, isAgentConfirmedComputing, isMachineOfflineForLiveTerminal, type MachineQuotaWire } from '@podium/model/browser'
 import { legacyDerivationFromStore } from './legacy'
+/** Diagnostic-only side-by-side value check. Values stay in this process;
+ * reports contain comparison positions and field names, never payloads. */
+import type { ReferenceState as Store } from './reference-state'
 import { compareSidebarSnapshots, type SidebarSnapshot } from './sidebar-check'
 
 export interface HeaderCheckInputs {
@@ -26,8 +26,8 @@ const roster = (sessions: ReturnType<ReturnType<typeof headerView>['working']>) 
   sessionId: session.sessionId, name: session.name ?? null, title: session.title,
   displayRef: session.displayRef ?? null, agentKind: session.agentKind ?? null,
 }))
-const selected = (issue: { id: string; title: string; seq: number; stage: string; displayRef?: string; color?: string | null } | undefined) =>
-  issue ? { id: issue.id, title: issue.title, seq: issue.seq, stage: issue.stage, displayRef: issue.displayRef ?? `#${issue.seq}`, color: issue.color ?? null } : null
+const selected = (issue: { id: string; title: string; seq: number; stage: string; displayRef?: string } | undefined) =>
+  issue ? { id: issue.id, title: issue.title, seq: issue.seq, stage: issue.stage, displayRef: issue.displayRef ?? `#${issue.seq}` } : null
 function sections(values: Record<string, unknown>, pending = 0): SidebarSnapshot {
   return { pending, sections: Object.entries(values).map(([key, value]) => ({ key, fields: { value }, rows: [] })) }
 }
