@@ -21,7 +21,7 @@ import type { HarnessDescriptorWire } from '@podium/protocol'
 import { Gauge } from 'lucide-react'
 import type { JSX } from 'react'
 import { useState } from 'react'
-import { useHeaderActions, usePoolHeaderQuotas } from '@/app/header-data'
+import { usePoolHeaderQuotas } from '@/app/header-data'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { agentIconFor } from '@/lib/agent-tone'
@@ -135,7 +135,6 @@ export function QuotaIndicator({
   /** Render the worst window as inline text ("Claude Code 68% · resets in 2h 14m"). */
   detail?: boolean
 }): JSX.Element | null {
-  const { trpc } = useHeaderActions()
   const machines = usePoolHeaderQuotas()
   const [open, setOpen] = useState(false)
 
@@ -175,15 +174,6 @@ export function QuotaIndicator({
         return `${agentLabel(group.agent, descriptors)}${account} ${Math.round(percent)}% used${scoped}`
       })
       .join('; ')
-    // The calm bar (POD-2075) draws one meter: the pool closest to its limit,
-    // the one that decides whether work can continue. The others stay in the
-    // DOM for the label and the panel, and the bar's CSS hides them.
-    const headline =
-      pools.reduce<QuotaPool | undefined>(
-        (worst, pool) =>
-          pool.percent !== null && (worst?.percent ?? -1) < pool.percent ? pool : worst,
-        undefined,
-      ) ?? pools[0]
     return (
       <HealthPopover
         popupClassName="health-popover-quota"
@@ -219,7 +209,6 @@ export function QuotaIndicator({
                       surging.has(group.key) && 'header-quota-surge',
                     )}
                     data-harness={group.agent}
-                    data-headline={group.key === headline?.group.key ? 'true' : undefined}
                   >
                     <QuotaHarnessIcon agent={group.agent} descriptors={descriptors} />
                     <span className="header-mark">{agentShortLabel(group.agent, descriptors)}</span>

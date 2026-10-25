@@ -989,11 +989,9 @@ html[data-density="balanced"] .header-machine-meters > .header-readout {
 .header-quota-chip[data-popup-open] .header-quota-rail-seg > span {
   opacity: 0.85;
 }
-/* THE CALM GAUGE (POD-2075, design 4a). The well is one small pill reading
-   `● host │ quota ▬ 62%`: which machine and whether it is healthy, then how much
-   of the tightest plan is spent. Everything else the well used to carry stays
-   one hover away in the chips' panels, and comes back onto the bar only when it
-   matters — a host meter that crossed a threshold, an offline host, an update. */
+/* The calm status well shows host health and one quota meter per account.
+   Host pressure readings appear when they cross a threshold; each account's
+   meter stays visible with its provider mark and percentage. */
 .header-host-indicators.topbar-well {
   height: 28px;
   padding: 0 2px;
@@ -1023,13 +1021,6 @@ html[data-density="balanced"] .header-host-indicators .header-machine-chip {
 .header-host-indicators
   .header-machine-meters
   > .header-readout:not(:has(.header-value:is([data-tone="warn"], [data-tone="crit"]))) {
-  display: none;
-}
-/* One meter: the pool closest to its limit (QuotaIndicator marks it). The pool
-   marks and harness glyphs named pools apart; with one pool on the bar the panel
-   does that. */
-.header-host-indicators .header-quota-pool:not([data-headline]),
-.header-host-indicators .header-quota-chip :is(.header-harness-icon, .header-mark) {
   display: none;
 }
 .header-host-indicators .header-quota-label,

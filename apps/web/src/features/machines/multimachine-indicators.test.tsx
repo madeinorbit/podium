@@ -3,6 +3,7 @@ import { enableFixtureHeader } from '@/test-support/pool-fixture'
 
 enableFixtureHeader()
 import '@/test-support/mock-pool-store-handle'
+import { readFileSync } from 'node:fs'
 // @vitest-environment happy-dom
 /**
  * #136: the host status strip is machine-aware.
@@ -263,35 +264,55 @@ describe('quota overlay groups by account', () => {
     })
     quotaSummary.mockResolvedValue([mixed])
 
-    render(<QuotaIndicator header />)
-
-    const chip = await screen.findByRole('button', {
-      name: /Agent quota: Claude Code \(claude@example.com\) 98% used; Codex \(codex@example.com\) 10% used/i,
-    })
-    expect(within(chip).getByText('CC')).toBeTruthy()
-    expect(within(chip).getByText('CX')).toBeTruthy()
-    const harnessIcons = chip.querySelectorAll<SVGElement>('.header-harness-icon')
-    expect(harnessIcons).toHaveLength(2)
-    expect(harnessIcons[0]?.closest('[data-harness]')?.getAttribute('data-harness')).toBe(
-      'claude-code',
+    const style = document.createElement('style')
+    style.textContent = readFileSync('src/styles.css', 'utf8')
+    document.head.append(style)
+    const view = render(
+      <div className="header-host-indicators topbar-well">
+        <QuotaIndicator header />
+      </div>,
     )
-    expect(harnessIcons[1]?.closest('[data-harness]')?.getAttribute('data-harness')).toBe('codex')
-    expect([...harnessIcons].every((icon) => icon.getAttribute('aria-hidden') === 'true')).toBe(
-      true,
-    )
-    const meters = chip.querySelectorAll<HTMLElement>('.header-quota-meter > span')
-    expect(meters).toHaveLength(2)
-    expect(meters[0]?.style.width).toBe('98%')
-    expect(meters[1]?.style.width).toBe('10%')
-    expect(meters[0]?.className).toContain('bg-destructive')
-    expect(meters[1]?.className).toContain('bg-success')
+    try {
+      const chip = await screen.findByRole('button', {
+        name: /Agent quota: Claude Code \(claude@example.com\) 98% used; Codex \(codex@example.com\) 10% used/i,
+      })
+      expect(within(chip).getByText('CC')).toBeTruthy()
+      expect(within(chip).getByText('CX')).toBeTruthy()
+      const harnessIcons = chip.querySelectorAll<SVGElement>('.header-harness-icon')
+      expect(harnessIcons).toHaveLength(2)
+      expect(harnessIcons[0]?.closest('[data-harness]')?.getAttribute('data-harness')).toBe(
+        'claude-code',
+      )
+      expect(harnessIcons[1]?.closest('[data-harness]')?.getAttribute('data-harness')).toBe('codex')
+      expect([...harnessIcons].every((icon) => icon.getAttribute('aria-hidden') === 'true')).toBe(
+        true,
+      )
+      const meters = chip.querySelectorAll<HTMLElement>('.header-quota-meter > span')
+      expect(meters).toHaveLength(2)
+      expect(meters[0]?.style.width).toBe('98%')
+      expect(meters[1]?.style.width).toBe('10%')
+      expect(meters[0]?.className).toContain('bg-destructive')
+      expect(meters[1]?.className).toContain('bg-success')
 
-    fireEvent.click(chip)
-    await waitFor(() => expect(screen.getByText('1 constrained')).toBeTruthy())
-    expect(screen.getByText('1 healthy')).toBeTruthy()
-    const verdictItems = document.querySelectorAll('.health-popover-quota .hp-verdict-item')
-    expect(verdictItems).toHaveLength(2)
-    expect([...verdictItems].every((item) => item.querySelector('i'))).toBe(true)
+      const pools = chip.querySelectorAll<HTMLElement>('.header-quota-pool')
+      expect(pools).toHaveLength(2)
+      for (const pool of pools) {
+        expect(getComputedStyle(pool).display).not.toBe('none')
+      }
+      for (const icon of harnessIcons) {
+        expect(getComputedStyle(icon).display).not.toBe('none')
+      }
+
+      fireEvent.click(chip)
+      await waitFor(() => expect(screen.getByText('1 constrained')).toBeTruthy())
+      expect(screen.getByText('1 healthy')).toBeTruthy()
+      const verdictItems = document.querySelectorAll('.health-popover-quota .hp-verdict-item')
+      expect(verdictItems).toHaveLength(2)
+      expect([...verdictItems].every((item) => item.querySelector('i'))).toBe(true)
+    } finally {
+      view.unmount()
+      style.remove()
+    }
   })
 
   it('keeps Grok visible when its quota read expires', async () => {
