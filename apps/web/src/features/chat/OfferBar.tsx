@@ -5,7 +5,7 @@ import { ChevronDown, Pencil, X } from 'lucide-react'
 import { type JSX, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useClock } from '@/lib/clock-hooks'
 import { cn } from '@/lib/utils'
-import { OfferArtifactStrip, OfferAttachmentCount } from './OfferArtifactStrip'
+import { OfferArtifactStrip } from './OfferArtifactStrip'
 import { OfferText } from './OfferText'
 import { useOfferDismissal } from './offer-dismissal'
 import { chargeSeat, useOfferLift } from './offer-lift'
@@ -70,8 +70,8 @@ function useOfferFoldLift(
         close()
       }
     }
-    // The detail grows on its own while open — the feedback field appears, the
-    // artifact strip loads — and the lift has to follow it.
+    // The detail grows on its own while open — the feedback field appears, an
+    // error lands under it — and the lift has to follow it.
     const observer = new ResizeObserver(publish)
     observer.observe(body)
     return () => {
@@ -122,10 +122,15 @@ function OfferAge({ since }: { since: string }): JSX.Element | null {
 /**
  * Agent action offer [spec:SP-c7f1]. THE ONE PLACE "NEEDS YOU" IS SAID
  * (POD-2076): a card whose header reads "Needs your decision · 8h", then the
- * headline, the body, and every action in one row — the recommendation filled,
- * the alternatives outlined — with a quiet "N attachments" at the right. The
- * chevron collapses the card to its header and headline. The evidence strip and
- * an action's feedback field open in the fold below (the lifted reveal).
+ * headline, the body, the evidence, and every action in one row — the
+ * recommendation filled, the alternatives outlined. The chevron collapses the
+ * card to its header and headline.
+ *
+ * The evidence ({@link OfferArtifactStrip}) sits in the card's own flow, between
+ * the text and the actions, because it is what the decision is judged on: the
+ * user reads the claim, looks at the proof, then answers, top to bottom. Only
+ * what the user asked for opens in the fold below (the lifted reveal): an input
+ * action's feedback field, and an error that needs a retry.
  *
  * Dismissal is deliberately recoverable. The offer leaves immediately, an
  * Undo row remains for ten seconds, and only after that window does onDismiss
@@ -148,12 +153,12 @@ export function OfferBar({
   /** Take the offer off every surface without answering it. Absent on a host
    *  that cannot write (the offer then keeps its two original exits). */
   onDismiss?: (offerCreatedAt: string) => Promise<void> | void
-  /** When given, the offer's issue-artifact evidence renders as a thumbnail
-   *  strip [POD-120] (needs the session to find its issue + input recency). */
+  /** When given, the offer's issue-artifact evidence renders as a row of tiles
+   *  [POD-120] (needs the session to find its issue + input recency). */
   session?: Pick<SessionView, 'sessionId' | 'issueId' | 'lastInputAt'>
 }): JSX.Element {
-  // `expanded` is the FOLD (evidence, feedback, errors); `collapsed` is the
-  // card itself folded down to its header and headline.
+  // `expanded` is the FOLD (feedback, errors); `collapsed` is the card itself
+  // folded down to its header and headline.
   const [expanded, setExpanded] = useState(false)
   const [collapsed, setCollapsed] = useState(false)
   // Callback ref, not useRef: the fold has to be measured the moment its body
@@ -339,22 +344,11 @@ export function OfferBar({
           </button>
         )
       })}
-      <span className="offer-card-gap" />
-      {session && (
-        <OfferAttachmentCount
-          offer={offer}
-          session={session}
-          open={expanded && !pendingAction}
-          onToggle={() => setExpanded((open) => !open)}
-        />
-      )}
     </div>
   )
 
   const detailBody = (
     <div ref={setBodyEl} className="offer-fold-detail-body">
-      {session && !pendingAction && <OfferArtifactStrip offer={offer} session={session} />}
-
       {pendingAction && (
         <div className="offer-feedback flex flex-col gap-1.5" data-testid="offer-feedback">
           <textarea
@@ -465,6 +459,7 @@ export function OfferBar({
       {!collapsed && (
         <>
           {detail && <OfferText text={detail} className="offer-card-body" />}
+          {session && <OfferArtifactStrip offer={offer} session={session} />}
           {!pendingAction && actionRow}
         </>
       )}

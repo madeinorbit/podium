@@ -12,11 +12,15 @@ import { Profiler, useRef, useSyncExternalStore } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import '@/test-support/mock-screen-pool'
+import { ARTIFACTS_TAB_ARTIFACT_ID } from '@/features/files/artifacts-tab-id'
 import { OfferArtifactStrip } from './OfferArtifactStrip'
+import { OfferBar } from './OfferBar'
 
-// Offer evidence thumbnails [POD-120]: ≤3 thumbs + "+N", media click opens the
-// lightbox (session untouched), file click opens the artifact tab, and clicks
-// never bubble to a surrounding card.
+// Offer evidence row [POD-120, POD-2111]: always shown in the card, at most four
+// slots with the last one turned into "+N" (which opens the Artifacts tab), as
+// many as the row's width holds; media click opens the lightbox (session
+// untouched), file click opens the artifact tab, and clicks never bubble to a
+// surrounding card.
 
 const openArtifact = vi.fn()
 const openFileInWorktree = vi.fn()
@@ -119,9 +123,15 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount())
   container.remove()
+  vi.restoreAllMocks()
 })
 
-describe('OfferArtifactStrip [POD-120]', () => {
+const thumbs = () => container.querySelectorAll('[data-testid="offer-artifact-thumb"]')
+const extraTile = () =>
+  container.querySelector<HTMLButtonElement>('[data-testid="offer-artifact-extra"]')
+const pngs = (n: number) => Array.from({ length: n }, (_, i) => `shot-${i}.png`)
+
+describe('OfferArtifactStrip [POD-120, POD-2111]', () => {
   it('does not rerender when a store publication leaves its selected fields unchanged', () => {
     issues = [makeIssue([art('shot.png', '2026-07-21T09:00:00.000Z')])]
     let updates = 0
@@ -145,24 +155,97 @@ describe('OfferArtifactStrip [POD-120]', () => {
     expect(container.querySelector('[data-testid="offer-artifacts"]')).not.toBeNull()
   })
 
-  it('shows at most 3 thumbnails plus a +N chip', () => {
-    issues = [
-      makeIssue(
-        ['a.png', 'b.png', 'c.png', 'd.png', 'e.png'].map((p) =>
-          art(p, '2026-07-21T09:00:00.000Z'),
-        ),
+  it('shows the evidence in the offer card without any interaction', () => {
+    issues = [makeIssue(['a.png', 'b.html'].map((p) => art(p, '2026-07-21T09:00:00.000Z')))]
+    const offer = { ...offerWith(['a.png', 'b.html']), message: 'Ready\nThe one thing to judge.' }
+    act(() =>
+      root.render(
+        <OfferBar offer={offer} disabled={false} onAction={() => {}} session={session} />,
       ),
+    )
+    const row = container.querySelector('[data-testid="offer-artifacts"]')
+    expect(thumbs().length).toBe(2)
+    // In the card's own flow, not in the fold that opens for feedback.
+    expect(row?.closest('[data-testid="offer-detail"]')).toBeNull()
+
+    // The chevron folds the card to its headline; the evidence goes with the body.
+    act(() =>
+      container.querySelector<HTMLButtonElement>('[data-testid="offer-disclosure"]')?.click(),
+    )
+    expect(container.querySelector('[data-testid="offer-artifacts"]')).toBeNull()
+  })
+
+  it('fills all four slots when the list fits exactly', () => {
+    issues = [makeIssue(pngs(4).map((p) => art(p, '2026-07-21T09:00:00.000Z')))]
+    act(() => root.render(<OfferArtifactStrip offer={offerWith(pngs(4))} session={session} />))
+    expect(thumbs().length).toBe(4)
+    expect(extraTile()).toBeNull()
+  })
+
+  it('turns the last slot into +N, which opens the issue Artifacts tab without bubbling', () => {
+    issues = [makeIssue(pngs(6).map((p) => art(p, '2026-07-21T09:00:00.000Z')))]
+    const cardClick = vi.fn()
+    act(() =>
+      root.render(
+        // biome-ignore lint/a11y/noStaticElementInteractions: stand-in for a clickable host surface
+        // biome-ignore lint/a11y/useKeyWithClickEvents: test scaffold
+        <div onClick={cardClick}>
+          <OfferArtifactStrip offer={offerWith(pngs(6))} session={session} />
+        </div>,
+      ),
+    )
+    expect(thumbs().length).toBe(3)
+    expect(extraTile()?.querySelector('.offer-evidence-more')?.textContent).toBe('+3')
+    act(() => extraTile()?.click())
+    expect(openArtifact).toHaveBeenCalledWith({
+      issueId: 'iss_1',
+      artifactId: ARTIFACTS_TAB_ARTIFACT_ID,
+      path: 'Artifacts',
+      worktreePath: '/wt',
+    })
+    expect(cardClick).not.toHaveBeenCalled()
+  })
+
+  it('shows only as many tiles as the row is wide, never scrolling', () => {
+    // A 250px row of 112px tiles with 10px gaps holds two slots: one tile + "+N".
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(250)
+    const computed = window.getComputedStyle
+    vi.spyOn(window, 'getComputedStyle').mockImplementation((el) => {
+      const style = computed(el)
+      if (!(el as HTMLElement).classList.contains('offer-evidence')) return style
+      return {
+        ...style,
+        columnGap: '10px',
+        getPropertyValue: (name: string) => (name === '--offer-tile-w' ? '112px' : ''),
+      } as CSSStyleDeclaration
+    })
+    issues = [makeIssue(pngs(3).map((p) => art(p, '2026-07-21T09:00:00.000Z')))]
+    act(() => root.render(<OfferArtifactStrip offer={offerWith(pngs(3))} session={session} />))
+    expect(thumbs().length).toBe(1)
+    expect(extraTile()?.querySelector('.offer-evidence-more')?.textContent).toBe('+2')
+  })
+
+  it('gives a non-media artifact the same tile, wearing its kind', () => {
+    issues = [
+      makeIssue([
+        art('concept.html', '2026-07-21T09:00:00.000Z'),
+        art('notes/plan.md', '2026-07-21T09:00:00.000Z'),
+      ]),
     ]
     act(() =>
       root.render(
         <OfferArtifactStrip
-          offer={offerWith(['a.png', 'b.png', 'c.png', 'd.png', 'e.png'])}
+          offer={offerWith(['concept.html', 'notes/plan.md'])}
           session={session}
         />,
       ),
     )
-    expect(container.querySelectorAll('[data-testid="offer-artifact-thumb"]').length).toBe(3)
-    expect(container.querySelector('[data-testid="offer-artifact-extra"]')?.textContent).toBe('+2')
+    const [html, md] = Array.from(thumbs())
+    expect(html?.querySelector('img')).toBeNull()
+    expect(html?.querySelector('[data-testid="offer-artifact-kind"]')?.textContent).toBe('HTML')
+    expect(html?.querySelector('.offer-evidence-caption')?.textContent).toBe('concept.html')
+    expect(md?.querySelector('[data-testid="offer-artifact-kind"]')?.textContent).toBe('MD')
+    expect(md?.querySelector('.offer-evidence-caption')?.textContent).toBe('plan.md')
   })
 
   it('renders nothing (no strip) when no path resolves', () => {
@@ -176,7 +259,7 @@ describe('OfferArtifactStrip [POD-120]', () => {
     const cardClick = vi.fn()
     act(() =>
       root.render(
-        // biome-ignore lint/a11y/noStaticElementInteractions: stand-in for the tray card wrapper
+        // biome-ignore lint/a11y/noStaticElementInteractions: stand-in for a clickable host surface
         // biome-ignore lint/a11y/useKeyWithClickEvents: test scaffold
         <div onClick={cardClick}>
           <OfferArtifactStrip offer={offerWith(['shot.png'])} session={session} />
@@ -212,7 +295,7 @@ describe('OfferArtifactStrip [POD-120]', () => {
     const paths = ['first.png', 'notes.md', 'second.png', 'third.png', 'fourth.png']
     issues = [makeIssue(paths.map((path, i) => art(path, '2026-07-21', asArtifactId(`art_${i}`))))]
     act(() => root.render(<OfferArtifactStrip offer={offerWith(paths)} session={session} />))
-    expect(container.querySelector('[data-testid="offer-artifact-extra"]')?.textContent).toBe('+2')
+    expect(extraTile()?.querySelector('.offer-evidence-more')?.textContent).toBe('+2')
     act(() =>
       container.querySelector<HTMLButtonElement>('[data-testid="offer-artifact-thumb"]')?.click(),
     )

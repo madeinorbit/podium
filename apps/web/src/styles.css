@@ -6656,10 +6656,10 @@ button.pane-branch:hover {
 }
 
 /* THE DECISION CARD (POD-2076) — design 4a. The one place "needs you" is said:
-   a bronze-dotted header with the wait, the headline, the body, then every
-   action in one row and a quiet attachment count at its end. It sits on the
-   sheet as a faintly warm card with a hairline edge; nothing in it is tinted
-   but the dot and the recommendation. */
+   a bronze-dotted header with the wait, the headline, the body, the evidence
+   row, then every action in one row. It sits on the sheet as a faintly warm
+   card with a hairline edge; nothing in it is tinted but the dot and the
+   recommendation. */
 .offer-card {
   display: flex;
   flex-direction: column;
@@ -6743,26 +6743,117 @@ button.pane-branch:hover {
   align-items: center;
   gap: 8px;
 }
-.offer-card-gap {
-  flex: 1 1 auto;
+/* THE EVIDENCE ROW (POD-2111). The offer's artifacts as equal tiles between
+   its text and its actions: a fixed-size preview over a one-line caption, so
+   the card's height is settled before a single image loads and the row reads
+   as one strip whatever mix of kinds it holds. The tile size lives in custom
+   properties because OfferArtifactStrip reads `--offer-tile-w` back to decide
+   how many tiles fit; the row clips rather than scrolls, and the component
+   turns the last slot that fits into "+N". */
+.offer-evidence {
+  --offer-tile-w: 148px;
+  --offer-tile-h: 92px;
+  display: flex;
+  gap: 10px;
+  min-width: 0;
+  overflow: hidden;
 }
-.offer-card-attachments {
-  display: inline-flex;
-  align-items: center;
+/* The card is the container (`.offer-fold-root`): a narrow dock gets smaller
+   tiles so it can still show more than one before the "+N". */
+@container (max-width: 520px) {
+  .offer-evidence {
+    --offer-tile-w: 112px;
+    --offer-tile-h: 70px;
+  }
+}
+.offer-evidence-tile {
+  flex: none;
+  width: var(--offer-tile-w);
+  display: flex;
+  flex-direction: column;
   gap: 6px;
-  padding: 4px 2px;
+  padding: 0;
   border: 0;
   background: transparent;
-  color: var(--text-dim, var(--muted-foreground));
-  font-size: 12px;
+  text-align: left;
   cursor: pointer;
+}
+.offer-evidence-tile--media {
+  cursor: zoom-in;
+}
+.offer-evidence-preview {
+  position: relative;
+  height: var(--offer-tile-h);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+  background: var(--well-floor);
+  transition: border-color 120ms ease;
+}
+.offer-evidence-tile:hover .offer-evidence-preview {
+  border-color: color-mix(in srgb, var(--primary) 60%, var(--border-strong));
+}
+.offer-evidence-preview > img,
+.offer-evidence-preview > video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  pointer-events: none;
+}
+.offer-evidence-play {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.offer-evidence-play > span {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: rgb(0 0 0 / 0.55);
+  color: #fff;
+}
+/* A file with no picture says what it is instead: kind icon over its type. */
+.offer-evidence-kind {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-dim);
+}
+.offer-evidence-kind-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  line-height: 1;
+}
+.offer-evidence-more {
+  color: var(--muted-foreground);
+  font-size: 15px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+.offer-evidence-caption {
+  overflow: hidden;
+  color: var(--muted-foreground);
+  font-size: 11.5px;
+  line-height: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   transition: color 120ms ease;
 }
-.offer-card-attachments:hover,
-.offer-card-attachments[aria-expanded="true"] {
-  color: var(--text-strong, var(--foreground));
+.offer-evidence-tile:hover .offer-evidence-caption {
+  color: var(--text-strong);
 }
-/* The fold under the card (evidence, feedback, errors) hangs flush with the
+/* The fold under the card (feedback, errors) hangs flush with the
    card's own text rather than under a signal badge that no longer exists. */
 .offer-card .offer-fold-detail-body {
   padding: 0;

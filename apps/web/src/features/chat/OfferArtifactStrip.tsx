@@ -3,36 +3,83 @@ import { shallowEqual } from '@podium/client-core/shallow-equal'
 import { artifactKind, artifactUrl, basename } from '@podium/client-core/values'
 import { resolveMachinePath } from '@podium/model'
 import type { IssuePanelArtifact, SessionOffer } from '@podium/model/browser'
-import { FileText, Paperclip, Play } from 'lucide-react'
-import { type JSX, useState } from 'react'
+import { Code, FileText, Play } from 'lucide-react'
+import { type JSX, useLayoutEffect, useState } from 'react'
 import { useRuntimeSelector } from '@/app/store'
 import { ArtifactLightbox, artifactLightboxKey } from '@/components/ArtifactLightbox'
+import { openArtifactsTab } from '@/features/files/artifacts-tab'
 import { currentWorkspaceSlug } from '@/lib/workspace-request'
 import { resolveOfferArtifacts } from './offer-artifacts'
 import { useChatArtifactIssue } from './use-chat-context'
 
-/** How many thumbnails an offer shows before collapsing into a "+N" chip. */
-const MAX_THUMBS = 3
+/** The most slots the row spends, the "+N" tile included. Past four the row
+ *  stops being evidence and becomes a gallery, which is the Artifacts tab. */
+const MAX_TILES = 4
+
+/** What a non-media tile wears under its icon: the file's extension, the one
+ *  word that says what clicking it will open. */
+function kindLabel(file: string): string {
+  const name = basename(file)
+  const dot = name.lastIndexOf('.')
+  return dot > 0 ? name.slice(dot + 1).toUpperCase() : 'FILE'
+}
+
+const isHtml = (file: string): boolean => /\.html?$/i.test(file)
 
 /**
- * Offer evidence thumbnails [POD-120]: a modest row of the issue artifacts an
- * offer names (or, when it names none, those published since the user's last
- * input). Rendered inside the chat/native offer bars and the tray card.
+ * How many slots fit the row's width, capped at {@link MAX_TILES}.
+ *
+ * The tile size is CSS's call (a container query shrinks it on a narrow card),
+ * so it is read back from the row's own `--offer-tile-w` rather than repeated
+ * here. A row that cannot be measured (jsdom, a parked pane) keeps the cap.
+ */
+function useTileSlots(row: HTMLElement | null): number {
+  const [slots, setSlots] = useState(MAX_TILES)
+  useLayoutEffect(() => {
+    if (!row) return
+    const measure = (): void => {
+      const width = row.clientWidth
+      const style = getComputedStyle(row)
+      const tile = Number.parseFloat(style.getPropertyValue('--offer-tile-w'))
+      const gap = Number.parseFloat(style.columnGap) || 0
+      if (width <= 0 || !(tile > 0)) return
+      setSlots(Math.max(1, Math.min(MAX_TILES, Math.floor((width + gap) / (tile + gap)))))
+    }
+    measure()
+    if (typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(measure)
+    observer.observe(row)
+    return () => observer.disconnect()
+  }, [row])
+  return slots
+}
+
+/**
+ * OFFER EVIDENCE [POD-120, POD-2111]: the issue artifacts an offer names (or,
+ * when it names none, those published since the user's last input), drawn as a
+ * row of equal tiles between the offer's text and its actions.
+ *
+ * Always visible, because the evidence is half of the question: an offer that
+ * says "the one thing to judge is the error state" cannot be answered until the
+ * error state is on screen. Every tile has one footprint, a preview over a
+ * one-line caption, so a screenshot and an HTML concept weigh the same; an
+ * artifact with no picture shows its kind in the preview's place.
+ *
+ * The row never scrolls sideways. It shows as many tiles as its width holds (at
+ * most four), and when the list is longer the last slot becomes "+N", which
+ * opens the issue's Artifacts tab, where the full list already lives.
+ *
  * Clicking an image/video opens the shared media lightbox WITHOUT entering the
- * session; other kinds open the artifact file tab. Clicks never bubble — on
- * the tray card the surrounding card click navigates, and a thumbnail tap must
- * only preview.
+ * session, with every offered media artifact navigable, hidden ones included;
+ * other kinds open the artifact file tab. Clicks never bubble, so a host that
+ * makes its whole surface clickable still gets a preview, not a navigation.
  */
 export function OfferArtifactStrip({
   offer,
   session,
-  className,
 }: {
   offer: SessionOffer
   session: Pick<SessionView, 'sessionId' | 'issueId' | 'lastInputAt'>
-  /** Extra classes on the strip root (spacing differs per host surface). Only
-   *  applied when the strip renders — an empty strip must not leave margins. */
-  className?: string
 }): JSX.Element | null {
   const { httpOrigin, openArtifact, openFileInWorktree } = useRuntimeSelector(
     (s) => ({
@@ -44,6 +91,9 @@ export function OfferArtifactStrip({
   )
   const issue = useChatArtifactIssue(session)
   const [lightbox, setLightbox] = useState<string | null>(null)
+  // Callback ref: the row is measured the moment it lands in the DOM.
+  const [row, setRow] = useState<HTMLDivElement | null>(null)
+  const slots = useTileSlots(row)
 
   // The session's issue: direct issueId link first, then membership (sessions
   // grouped onto an issue by cwd carry no issueId of their own).
@@ -56,12 +106,11 @@ export function OfferArtifactStrip({
 
   const root = issue.worktreePath ?? issue.repoPath
   const machineId = issue.machineId
-  const shown = resolved.slice(0, MAX_THUMBS)
+  const shown = resolved.length <= slots ? resolved : resolved.slice(0, slots - 1)
   const extra = resolved.length - shown.length
 
-  const open = (a: IssuePanelArtifact): void => {
-    const kind = artifactKind(a.entry ?? a.path)
-    const src = artifactUrl({
+  const srcOf = (a: IssuePanelArtifact): string | null =>
+    artifactUrl({
       httpOrigin,
       workspace: currentWorkspaceSlug(),
       issueId: issue.id,
@@ -69,7 +118,10 @@ export function OfferArtifactStrip({
       ...(root ? { root } : {}),
       ...(machineId ? { machineId } : {}),
     })
-    if (src && (kind === 'image' || kind === 'video')) {
+
+  const open = (a: IssuePanelArtifact): void => {
+    const kind = artifactKind(a.entry ?? a.path)
+    if (srcOf(a) && (kind === 'image' || kind === 'video')) {
       setLightbox(artifactLightboxKey(a))
       return
     }
@@ -93,73 +145,73 @@ export function OfferArtifactStrip({
   }
 
   return (
-    <div
-      data-testid="offer-artifacts"
-      className={`flex min-w-0 flex-wrap items-center gap-1.5${className ? ` ${className}` : ''}`}
-    >
-      {shown.map((a) => {
-        const kind = artifactKind(a.entry ?? a.path)
-        const label = a.title ?? basename(a.path)
-        const src = artifactUrl({
-          httpOrigin,
-          workspace: currentWorkspaceSlug(),
-          issueId: issue.id,
-          artifact: a,
-          ...(root ? { root } : {}),
-          ...(machineId ? { machineId } : {}),
-        })
-        const media = src !== null && (kind === 'image' || kind === 'video')
-        return (
+    <>
+      <div ref={setRow} data-testid="offer-artifacts" className="offer-evidence">
+        {shown.map((a) => {
+          const file = a.entry ?? a.path
+          const kind = artifactKind(file)
+          const label = a.title ?? basename(a.path)
+          const src = srcOf(a)
+          const media = src !== null && (kind === 'image' || kind === 'video')
+          return (
+            <button
+              data-pressable
+              key={`${a.path}@${a.addedAt}`}
+              type="button"
+              title={label}
+              data-testid="offer-artifact-thumb"
+              className={
+                media ? 'offer-evidence-tile offer-evidence-tile--media' : 'offer-evidence-tile'
+              }
+              onClick={(e) => {
+                e.stopPropagation()
+                open(a)
+              }}
+            >
+              <span className="offer-evidence-preview">
+                {media && kind === 'image' ? (
+                  <img src={src as string} alt={label} />
+                ) : media ? (
+                  <>
+                    <video src={src as string} preload="metadata" muted />
+                    <span className="offer-evidence-play">
+                      <span>
+                        <Play size={10} aria-hidden="true" className="translate-x-px" />
+                      </span>
+                    </span>
+                  </>
+                ) : (
+                  <span data-testid="offer-artifact-kind" className="offer-evidence-kind">
+                    {isHtml(file) ? (
+                      <Code size={20} strokeWidth={1.6} aria-hidden="true" />
+                    ) : (
+                      <FileText size={20} strokeWidth={1.6} aria-hidden="true" />
+                    )}
+                    <span className="offer-evidence-kind-label">{kindLabel(file)}</span>
+                  </span>
+                )}
+              </span>
+              <span className="offer-evidence-caption">{label}</span>
+            </button>
+          )
+        })}
+        {extra > 0 && (
           <button
             data-pressable
-            key={`${a.path}@${a.addedAt}`}
             type="button"
-            title={label}
-            data-testid="offer-artifact-thumb"
-            className={
-              media
-                ? // 70×44 thumbs on the r5 radius (engraved-column.md §2.3-v3).
-                  'relative h-11 w-[70px] flex-none cursor-zoom-in overflow-hidden rounded-[5px] border border-border/70 transition-colors hover:border-primary/60'
-                : 'flex max-w-40 flex-none cursor-pointer items-center gap-1 rounded-[5px] border border-border/70 bg-muted/30 px-1.5 py-1 text-[10px] text-muted-foreground transition-colors hover:border-primary/60 hover:text-foreground'
-            }
+            data-testid="offer-artifact-extra"
+            title={`All ${resolved.length} artifacts`}
+            className="offer-evidence-tile"
             onClick={(e) => {
               e.stopPropagation()
-              open(a)
+              openArtifactsTab(openArtifact, { issueId: issue.id, worktreePath: root })
             }}
           >
-            {media && kind === 'image' ? (
-              <img src={src as string} alt={label} className="block size-full object-cover" />
-            ) : media ? (
-              <>
-                <video
-                  src={src as string}
-                  preload="metadata"
-                  muted
-                  className="pointer-events-none block size-full object-cover"
-                />
-                <span className="absolute inset-0 flex items-center justify-center">
-                  <span className="flex size-5 items-center justify-center rounded-full bg-black/55 text-white">
-                    <Play size={10} aria-hidden="true" className="translate-x-px" />
-                  </span>
-                </span>
-              </>
-            ) : (
-              <>
-                <FileText size={12} aria-hidden="true" className="flex-none" />
-                <span className="min-w-0 truncate">{label}</span>
-              </>
-            )}
+            <span className="offer-evidence-preview offer-evidence-more">+{extra}</span>
+            <span className="offer-evidence-caption">View all</span>
           </button>
-        )
-      })}
-      {extra > 0 && (
-        <span
-          data-testid="offer-artifact-extra"
-          className="flex-none font-mono shell-type-micro text-text-faint"
-        >
-          +{extra}
-        </span>
-      )}
+        )}
+      </div>
       {lightbox && (
         <ArtifactLightbox
           artifacts={resolved}
@@ -172,46 +224,6 @@ export function OfferArtifactStrip({
           machineId={machineId}
         />
       )}
-    </div>
-  )
-}
-
-/**
- * The offer card's quiet "N attachments" (POD-2076). The evidence strip no
- * longer sits in the card at rest; this count stands in for it and opens the
- * card's fold, where the strip renders. Renders nothing when the offer names
- * no artifacts.
- */
-export function OfferAttachmentCount({
-  offer,
-  session,
-  open,
-  onToggle,
-}: {
-  offer: SessionOffer
-  session: Pick<SessionView, 'sessionId' | 'issueId' | 'lastInputAt'>
-  open: boolean
-  onToggle: () => void
-}): JSX.Element | null {
-  const issue = useChatArtifactIssue(session)
-  if (!issue) return null
-  const count = resolveOfferArtifacts({
-    offer,
-    issue,
-    ...(session.lastInputAt ? { lastInputAt: session.lastInputAt } : {}),
-  }).length
-  if (count === 0) return null
-  return (
-    <button
-      data-pressable
-      type="button"
-      data-testid="offer-attachments"
-      aria-expanded={open}
-      onClick={onToggle}
-      className="offer-card-attachments"
-    >
-      <Paperclip size={12} aria-hidden="true" />
-      {count} {count === 1 ? 'attachment' : 'attachments'}
-    </button>
+    </>
   )
 }
