@@ -165,14 +165,14 @@ describe('Composer floating dock', () => {
 
   it('measures the field without its placeholder, so a wrapping one still rests at one line', () => {
     // A TEXTAREA'S scrollHeight COUNTS ITS PLACEHOLDER (WebKit and Blink both),
-    // and "Message — resumes the agent…" wraps onto two lines on a phone. The
+    // and "Message the agent to resume it…" wraps onto two lines on a phone. The
     // empty composer used to measure two lines tall and — because the resting
     // height is only reported while the field looks at rest — the transcript
     // underneath never learned the composer's height and its last message
     // scrolled behind the prompt box [POD-1666]. The fake below reproduces the
     // browser: a set placeholder costs a line.
     const { container } = render(
-      <Composer placeholder="Message — resumes the agent…" onSend={vi.fn()} />,
+      <Composer placeholder="Message the agent to resume it…" onSend={vi.fn()} />,
     )
     const input = container.querySelector('textarea') as HTMLTextAreaElement
     const field = input.parentElement as HTMLElement
@@ -187,7 +187,7 @@ describe('Composer floating dock', () => {
     expect(field.style.height).toBe(`${COMPOSER_LINE}px`)
     // Measuring must not COST the placeholder — it is put back in the same
     // effect, before anything paints.
-    expect(input.placeholder).toBe('Message — resumes the agent…')
+    expect(input.placeholder).toBe('Message the agent to resume it…')
   })
 })
 

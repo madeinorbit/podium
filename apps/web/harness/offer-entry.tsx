@@ -93,7 +93,7 @@ function ChatHost({ expanded }: { expanded: boolean }): JSX.Element {
         </div>
         <div className="chat-composer-well flex flex-col gap-1.5 rounded-[12px] pt-[11px] pr-3 pb-[9px] pl-[15px]">
           <span className="text-[14px] leading-[24px] text-muted-foreground">
-            Message — resumes the agent…
+            Message the agent to resume it…
           </span>
           <div className="composer-row">
             <span className="size-7 rounded-[8px] bg-chip" />

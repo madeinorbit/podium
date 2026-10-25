@@ -362,7 +362,7 @@ export function OfferBar({
             rows={4}
             value={feedback}
             disabled={disabled || submitting !== null}
-            placeholder={`${pendingAction.label} — add your feedback…`}
+            placeholder={`${pendingAction.label}: add your feedback…`}
             onChange={(event) => setFeedback(event.target.value)}
             onKeyDown={(event) => {
               if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) send()

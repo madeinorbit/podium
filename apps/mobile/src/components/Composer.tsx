@@ -82,10 +82,10 @@ export function composerVoiceStatus(
  * THE CONTROLS SIT ON THEIR OWN ROW UNDER THE FIELD. They used to flank it —
  * attach and mic to its left, send to its right — which spent three 44pt
  * targets of the one line the prose had. On a 390pt phone that left the field
- * roughly half the capsule, and a placeholder of ordinary length ("Message —
- * resumes the agent…") did not fit in it: POD-1666 stopped it wrapping the
+ * roughly half the capsule, and a placeholder of ordinary length ("Message the
+ * agent to resume it…") did not fit in it: POD-1666 stopped it wrapping the
  * composer to two lines, but it stops fitting either way, and what the operator
- * reads is "Message — resumes the ag…". Stacking is the other half of that fix
+ * reads is "Message the agent to re…". Stacking is the other half of that fix
  * — the field is 1.78× wider here, the placeholder fits whole, and a grown
  * prompt spends FEWER lines than it did flanked despite the extra row.
  *

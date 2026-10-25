@@ -4118,20 +4118,20 @@
       "file": "apps/web/src/features/chat/use-conversation.ts",
       "holder": "createWebConversation/sends/deliver/callback/composer",
       "rule": "helper-consumer",
-      "tokens": "30a3456bc0fd5d6b7f5e3e7f66b0d188cd8779a3a4310a689886b9e1c155e8d3",
+      "tokens": "4db9c354c9354677c1f15c54a36c81c7d44ea40f39cd03132b8d93ef633e320e",
       "gate": [
         "exit:then:e7faca80913fcec9acba0724fbf6fa5f9a649a71055137d715dde8fc1f5fb0ae"
       ],
       "origin": [
         "adfc80928fa7e8f33d73591c8c752a6ec1006cdeb81b7b8014d0d4921ac12d7c"
       ],
-      "fingerprint": "4081e5af4b05943809b6caf1efc125e48f41d1046d331a9e21df08c0dc472c0e",
+      "fingerprint": "02ce3305fd8bde13cb4c4a3a75877ee50f8f6b7f0621b57569bc365d18937b78",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Compute composer state immediately before one addressed delivery.",
       "bound": "Composer state is scalar, but the helper inherits the session/context taint previously held in the React send hook.",
-      "reason": "The web Conversation migration moves ownership and preserves existing collection-taint debt; this record makes no claim that generic context construction or delivery is bounded. POD-5872: Record facts now come from shared models and the remaining machinery is a warm service read through a per-opening view model; existing collection demand is unchanged. Predecessor: 8cb8c08cce444f4545e166ce4bbb082edbe8026c494a5d7d9a8f6e083b0e15e2. POD-6093: superagent sends carry staged attachment paths in their text instead of refusing them; collection demand is unchanged. Predecessor: 54ee6cc52ad003b794c32c0a781ced6c08f06ea5f2be7bfa30da9a392ef2c585.",
+      "reason": "The web Conversation migration moves ownership and preserves existing collection-taint debt; this record makes no claim that generic context construction or delivery is bounded. POD-5872: Record facts now come from shared models and the remaining machinery is a warm service read through a per-opening view model; existing collection demand is unchanged. Predecessor: 8cb8c08cce444f4545e166ce4bbb082edbe8026c494a5d7d9a8f6e083b0e15e2. POD-6093: superagent sends carry staged attachment paths in their text instead of refusing them; collection demand is unchanged. Predecessor: 54ee6cc52ad003b794c32c0a781ced6c08f06ea5f2be7bfa30da9a392ef2c585. POD-2109: composer placeholders are rewritten as sentences without em dashes; collection demand is unchanged. Predecessor: 4081e5af4b05943809b6caf1efc125e48f41d1046d331a9e21df08c0dc472c0e.",
       "guard": "Exact fingerprint and multiplicity remain enforced. conversation-renders.test.tsx and conversation-sends.optimistic.test.ts cover migrated observation and delivery behavior, not a new collection bound."
     },
     {

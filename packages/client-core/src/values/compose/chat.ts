@@ -501,6 +501,11 @@ export interface ComposerState {
   readonly refusalReason?: string
 }
 
+/** Two sentences, the first closed with a period unless the provider detail already ends one. */
+function asSentences(first: string, second: string): string {
+  return (/[.!?]$/.test(first) ? first : first + '.') + ' ' + second
+}
+
 export function composerState(input: {
   session: (Pick<SessionView, 'status' | 'resumable' | 'agentState' | 'queuedMessageCount'> & { readonly archived?: boolean }) | undefined
   headless: boolean
@@ -543,7 +548,7 @@ export function composerState(input: {
     ? archived
       ? 'Session is archived.'
       : turnRunning
-      ? 'Working — stop to interject…'
+      ? 'Agent is working. Stop it to interject…'
       : compact
         ? // The fresh-thread box says this too. It is ONE box either side of the
           // first turn, so its statement of scope must not change under the
@@ -553,13 +558,13 @@ export function composerState(input: {
     : archived
       ? 'Session is archived.'
       : terminalError
-      ? formatAgentError(terminalError) + ' — ' + agentErrorRecoveryInstruction(terminalError)
+      ? asSentences(formatAgentError(terminalError), agentErrorRecoveryInstruction(terminalError))
       : waking
-        ? 'Waking the agent — message queues…'
+        ? 'Waking the agent. Your message will queue…'
         : sendable
           ? 'Message the agent…'
           : canResume
-            ? 'Message — resumes the agent…'
+            ? 'Message the agent to resume it…'
             : 'Session is not running.'
   return {
     deliverable,
