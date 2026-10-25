@@ -75,7 +75,7 @@ export const SIDEBAR_ASIDE_CLASS =
   'worklist-column flex w-full min-h-0 flex-col bg-sidebar text-sidebar-foreground'
 
 export const SIDEBAR_WIDTH_KEY = 'podium:sidebar:width'
-export const SIDEBAR_WIDTH_MIN = 220
+export const SIDEBAR_WIDTH_MIN = 240
 export const SIDEBAR_WIDTH_MAX = 360
 export const SIDEBAR_WIDTH_DEFAULT = 306
 

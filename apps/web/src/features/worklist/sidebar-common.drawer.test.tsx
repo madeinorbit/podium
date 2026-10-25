@@ -83,7 +83,7 @@ describe('ResizableColumn drawer anchoring', () => {
 })
 
 describe('sidebar resizing', () => {
-  it('keeps keyboard resizing inside 220–360px', () => {
+  it('keeps keyboard resizing inside 240–360px', () => {
     render(<ResizableAside>Work list</ResizableAside>)
     const handle = screen.getByRole('separator', { name: 'Resize sidebar' })
     fireEvent.keyDown(handle, { key: 'End' })
@@ -92,7 +92,7 @@ describe('sidebar resizing', () => {
     expect(handle.parentElement?.style.width).toBe('360px')
     fireEvent.keyDown(handle, { key: 'Home' })
     fireEvent.keyDown(handle, { key: 'ArrowLeft' })
-    expect(handle.getAttribute('aria-valuenow')).toBe('220')
-    expect(handle.parentElement?.style.width).toBe('220px')
+    expect(handle.getAttribute('aria-valuenow')).toBe('240')
+    expect(handle.parentElement?.style.width).toBe('240px')
   })
 })
