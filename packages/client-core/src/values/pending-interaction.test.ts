@@ -189,7 +189,8 @@ describe('pendingInteractionCard', () => {
       }),
     )
     expect(card.actions).toEqual([])
-    expect(card.surface).toBe('aggregate')
+    expect(card.surface).toBe('transcript')
+    expect(card.note).toContain('conversation')
   })
 
   it('keeps a STRUCTURED question on the aggregate — no transcript card exists for it', () => {
