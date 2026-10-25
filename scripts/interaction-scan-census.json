@@ -37475,19 +37475,19 @@
       "rule": "consume:map",
       "tokens": "7e22b0879195c29ca52e5a1ba27b3bee9f8b7041333a4a1c01e907d3331b5dcf",
       "gate": [
-        "exit:then:c1e3d1143ee70675ad2df3f937e746912e734d54f0b8e9f4bf94caff9f8f4e11",
-        "exit:then:d176ccc98ba79ffb9a6ecec0d8eb44226eceddc563eb2197b2ee84cc1248f90c"
+        "exit:then:bda260f28db78d5aa0f0e060f88748d206296bc71b3e4914ef1b3f75c71310c3",
+        "exit:then:366b508823e1da90bcfbb656ba6bb0fee61d7f7e602c84bc3ae425f4222b43e5"
       ],
       "origin": [
         "263287d055fdad254a3c751f4e42ff06e7abccb74e258db08b4938008da25df4"
       ],
-      "fingerprint": "ccc861e4686a8708784a1099ecc4c55d6ade0b3487d99fdff5a987877871cf00",
+      "fingerprint": "c7c91bf36d220c074d68237a22928e02cfc7c07dc83c271a242a15abe1be4a01",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation or observation of ObservedPoolWorkSections/ObservedPoolWorkSections",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "Desktop project-band rendering now uses canonical section fields. Viewport row mounting remains bounded; outer group metadata still has no cardinality cap. Predecessor: 74a629ec672ae8824310d0a26cded6e6321e3bab5c31cdaaa69db827a2cc7d98. POD-2074: the calm sidebar rebuild (lane switch, project folders, folder drag) moved this scan; its collection demand is unchanged. Predecessor: 1ccc53eb555e775472d36a495b6db5645304b7e1727bd5a8335dce8cb06e4eb0. POD-2069: integrating the sidebar with the New task overlay draft row moved this scan; its collection demand is unchanged. Predecessor: 29a412500aaf2c9dfbcf157a63d946af8f0e0ec1bcf8e664fbc7e21a87354bba. POD-2069: integrating the sidebar motion pass with the New task draft row moved this scan; its collection demand is unchanged. Predecessor: 65aa1ddcc361cb2ae02d5276cf54c14d2e49cf2550aebab8bc53bc7aa09fc510. POD-2099: project-band rendering no longer includes the overlay draft row. Collection demand and repair classification are unchanged. Predecessor: a2d66633effecafa96d8fe5e54978cd99f0e8454a3c4cba1fae57e0489328402.",
+      "reason": "Desktop project-band rendering now uses canonical section fields. Viewport row mounting remains bounded; outer group metadata still has no cardinality cap. Predecessor: 74a629ec672ae8824310d0a26cded6e6321e3bab5c31cdaaa69db827a2cc7d98. POD-2074: the calm sidebar rebuild (lane switch, project folders, folder drag) moved this scan; its collection demand is unchanged. Predecessor: 1ccc53eb555e775472d36a495b6db5645304b7e1727bd5a8335dce8cb06e4eb0. POD-2069: integrating the sidebar with the New task overlay draft row moved this scan; its collection demand is unchanged. Predecessor: 29a412500aaf2c9dfbcf157a63d946af8f0e0ec1bcf8e664fbc7e21a87354bba. POD-2069: integrating the sidebar motion pass with the New task draft row moved this scan; its collection demand is unchanged. Predecessor: 65aa1ddcc361cb2ae02d5276cf54c14d2e49cf2550aebab8bc53bc7aa09fc510. POD-2106: keeping the Undo card through empty-lane states changed the preceding return guards; this collection operation is unchanged. Predecessor: a2d66633effecafa96d8fe5e54978cd99f0e8454a3c4cba1fae57e0489328402.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -37514,20 +37514,20 @@
       "rule": "consume:filter",
       "tokens": "5ba87352bd54fd23c8d6cfbaa6e36fbbbf991c5ea96b4493fe78a32a8998f891",
       "gate": [
-        "exit:then:c1e3d1143ee70675ad2df3f937e746912e734d54f0b8e9f4bf94caff9f8f4e11",
-        "exit:then:d176ccc98ba79ffb9a6ecec0d8eb44226eceddc563eb2197b2ee84cc1248f90c",
+        "exit:then:bda260f28db78d5aa0f0e060f88748d206296bc71b3e4914ef1b3f75c71310c3",
+        "exit:then:366b508823e1da90bcfbb656ba6bb0fee61d7f7e602c84bc3ae425f4222b43e5",
         "&&:203f7bf8b982cee18daeb88a71c72fd732bfe0e8ff84549ef7b76b283c933eda"
       ],
       "origin": [
         "263287d055fdad254a3c751f4e42ff06e7abccb74e258db08b4938008da25df4"
       ],
-      "fingerprint": "78f32d7f62b09609627ec7ac8b0206b9d50697f95ec0a56dfd1d104cee3da36b",
+      "fingerprint": "5dfca5802a58df6196bbcc3ac409d8a3ff4b849e4abb7724de204baa874f4e0a",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of ObservedPoolWorkSections/ObservedPoolWorkSections",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:filter carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-2074: the calm sidebar rebuild (lane switch, project folders, folder drag) moved this scan; its collection demand is unchanged. Predecessor: 739d874c055e842d14e7acd8549186d79bd3735560ea213e893730a8de98877e.",
+      "reason": "consume:filter carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-2074: the calm sidebar rebuild (lane switch, project folders, folder drag) moved this scan; its collection demand is unchanged. Predecessor: 739d874c055e842d14e7acd8549186d79bd3735560ea213e893730a8de98877e. POD-2106: keeping the Undo card through empty-lane states changed the preceding return guards; this collection operation is unchanged. Predecessor: 78f32d7f62b09609627ec7ac8b0206b9d50697f95ec0a56dfd1d104cee3da36b.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -37536,20 +37536,20 @@
       "rule": "helper-consumer",
       "tokens": "bd7ba624116745706a12ac9bbbac29b8a1d8378f3b8aa4d3bd8a91d7038dfb44",
       "gate": [
-        "exit:then:c1e3d1143ee70675ad2df3f937e746912e734d54f0b8e9f4bf94caff9f8f4e11",
-        "exit:then:d176ccc98ba79ffb9a6ecec0d8eb44226eceddc563eb2197b2ee84cc1248f90c",
+        "exit:then:bda260f28db78d5aa0f0e060f88748d206296bc71b3e4914ef1b3f75c71310c3",
+        "exit:then:366b508823e1da90bcfbb656ba6bb0fee61d7f7e602c84bc3ae425f4222b43e5",
         "&&:76e1ed1ad990c37d9486b42fc3c505c539bb9abe79b14db229055813b7db135d"
       ],
       "origin": [
         "263287d055fdad254a3c751f4e42ff06e7abccb74e258db08b4938008da25df4"
       ],
-      "fingerprint": "590078976d7e3ba4d0a348e41e9432e4c68f8ddfba5da61eb774b824f193e593",
+      "fingerprint": "a4f52385b3637b04a9703bf2b145bea33d4f7a1994902691b881f4c7f362a4c8",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Sidebar membership snapshot changes for cached indexes, or section rendering for the unchanged outer bands.",
       "bound": "Leaf DOM is capped by the viewport; the upstream membership metadata has no cardinality cap.",
-      "reason": "The viewport fix bounds mounted rows, not full membership metadata. Cached ID indexes run only when membership changes; existing outer-band and key preparation work remains classified as repair, not as a bounded reader fix. POD-2074: the calm sidebar rebuild (lane switch, project folders, folder drag) moved this scan; its collection demand is unchanged. Predecessor: d833ebf4544937e5f226b9dc5a3e5febb0c71b0fb7373fbedd48aa22e5a3d90a. POD-2099: project-band rendering no longer includes the overlay draft row. Collection demand and repair classification are unchanged. Predecessor: 873e45f596ef73f3860f0dfcb75a33f67f3fb5e946c6528e591451f9876b2799.",
+      "reason": "The viewport fix bounds mounted rows, not full membership metadata. Cached ID indexes run only when membership changes; existing outer-band and key preparation work remains classified as repair, not as a bounded reader fix. POD-2074: the calm sidebar rebuild (lane switch, project folders, folder drag) moved this scan; its collection demand is unchanged. Predecessor: d833ebf4544937e5f226b9dc5a3e5febb0c71b0fb7373fbedd48aa22e5a3d90a. POD-2106: keeping the Undo card through empty-lane states changed the preceding return guards; this collection operation is unchanged. Predecessor: 873e45f596ef73f3860f0dfcb75a33f67f3fb5e946c6528e591451f9876b2799.",
       "guard": "Exact fingerprint and multiplicity; worklist-window tests prove DOM retention and selection/reveal behavior, not a bound on membership acquisition."
     },
     {
@@ -37684,44 +37684,44 @@
       "file": "apps/web/src/features/worklist/pool-sidebar.tsx",
       "holder": "ObservedPoolWorkSections/ObservedPoolWorkSections/callback",
       "rule": "loop:for-of",
-      "tokens": "a950a59cab20f0798c31c20b8276f528612686a79f86b0a7b1e53c5b02d78626",
+      "tokens": "96ad66e7062d116f428c0a8c033f2d034081c25f30a4ee3968e00b40f74989cf",
       "gate": [
-        "exit:then:c1e3d1143ee70675ad2df3f937e746912e734d54f0b8e9f4bf94caff9f8f4e11",
-        "exit:then:d176ccc98ba79ffb9a6ecec0d8eb44226eceddc563eb2197b2ee84cc1248f90c",
+        "exit:then:bda260f28db78d5aa0f0e060f88748d206296bc71b3e4914ef1b3f75c71310c3",
+        "exit:then:366b508823e1da90bcfbb656ba6bb0fee61d7f7e602c84bc3ae425f4222b43e5",
         "&&:211fc948f772e5316efe7940b958afd7836a7eb73c506608a1bc2dd610bc10da"
       ],
       "origin": [
         "263287d055fdad254a3c751f4e42ff06e7abccb74e258db08b4938008da25df4"
       ],
-      "fingerprint": "aa2ef6cf39d25c4432aced98b0df2b0be127717babc44179db5a03f39e67df83",
+      "fingerprint": "5839b66e446368ae536b41e57419be7e0822ffa9f3552c7a3a906b3a1a1f50ad",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of ObservedPoolWorkSections/ObservedPoolWorkSections/callback",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "loop:for-of carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-2074: new in the calm sidebar rebuild; it scans the sidebar's existing band and row lists only.",
+      "reason": "POD-2106: Archive all captures IDs for Undo in the existing archive loop. It visits the current filtered Closed lane, with no cardinality cap. Predecessor: aa2ef6cf39d25c4432aced98b0df2b0be127717babc44179db5a03f39e67df83.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
       "file": "apps/web/src/features/worklist/pool-sidebar.tsx",
       "holder": "ObservedPoolWorkSections/ObservedPoolWorkSections/closedRows",
-      "rule": "consume:flatMap",
-      "tokens": "42a00cc0069e9eff1f34e77b15dd7188f08531584bcb9d76bfb78657eaa1b752",
+      "rule": "consume:filter",
+      "tokens": "3da4147b67815f0c58a24c0dcb81a48fd396cde9ab5c42ed5b309862033d5b1a",
       "gate": [
-        "exit:then:c1e3d1143ee70675ad2df3f937e746912e734d54f0b8e9f4bf94caff9f8f4e11",
-        "exit:then:d176ccc98ba79ffb9a6ecec0d8eb44226eceddc563eb2197b2ee84cc1248f90c",
+        "exit:then:bda260f28db78d5aa0f0e060f88748d206296bc71b3e4914ef1b3f75c71310c3",
+        "exit:then:366b508823e1da90bcfbb656ba6bb0fee61d7f7e602c84bc3ae425f4222b43e5",
         "then:211fc948f772e5316efe7940b958afd7836a7eb73c506608a1bc2dd610bc10da"
       ],
       "origin": [
         "263287d055fdad254a3c751f4e42ff06e7abccb74e258db08b4938008da25df4"
       ],
-      "fingerprint": "cc698ed5c75329f33cd389cdcf0a91e3444ab4bcd1d0c33eadd6724a37c8dda0",
+      "fingerprint": "b479e326688351a55bf0e0b20f319d721b4ea7615bc3d9da1ac9f302f3cf6992",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of ObservedPoolWorkSections/ObservedPoolWorkSections/closedRows",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:flatMap carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-2074: new in the calm sidebar rebuild; it scans the sidebar's existing band and row lists only.",
+      "reason": "POD-2106: the Closed card reads current lane targets, excluding exiting rows, instead of flattening animated bands. The source is still the uncapped sidebar working set; this is not a bounded reader repair. Predecessor: cc698ed5c75329f33cd389cdcf0a91e3444ab4bcd1d0c33eadd6724a37c8dda0.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {

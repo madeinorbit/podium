@@ -1099,7 +1099,7 @@ describe('real pool row mutations and receipts', () => {
     await parity()
   })
 
-  it('archives every closed row from the fold footer through the same outbox', async () => {
+  it('archives every closed row from the summary card through the same outbox', async () => {
     await mount((fixture) =>
       patchIssue(fixture, TARGET, {
         stage: 'done',
@@ -1109,7 +1109,9 @@ describe('real pool row mutations and receipts', () => {
       }),
     )
     fireEvent.click(screen.getByTestId('work-lane-closed'))
-    fireEvent.click(await screen.findByTestId('closed-issues-archive-all'))
+    expect(screen.getByTestId('closed-lane-header').textContent).toContain('2 closed this week')
+    fireEvent.click(await screen.findByRole('button', { name: 'Archive all 2 closed tasks' }))
+    expect(screen.getByTestId('closed-lane-header').textContent).toContain('2 tasks archived')
     await parity()
     expect(
       runtime.outbox
@@ -1123,6 +1125,69 @@ describe('real pool row mutations and receipts', () => {
     for (const entry of runtime.outbox.pending().filter((entry) => entry.kind === 'issueArchive'))
       await refuse(await request('issues.archive', (entry.input as { id: string }).id))
     expect(sidebarView(pool!).sections().bands[0]!.closedIds).toHaveLength(2)
+    await waitFor(() => expect(screen.queryByTestId('closed-issues-undo')).toBeNull())
+  })
+
+  it('undoes exactly the archived batch through issue updates when another task closes', async () => {
+    const fixture = await mount((fixture) =>
+      patchIssue(fixture, TARGET, {
+        stage: 'done',
+        closedReason: 'done',
+        closedAt: new Date(NOW - 1000).toISOString(),
+        tuckedAt: new Date(NOW - 500).toISOString(),
+      }),
+    )
+    fireEvent.click(screen.getByTestId('work-lane-closed'))
+    fireEvent.click(await screen.findByTestId('closed-issues-archive-all'))
+    for (const entry of runtime.outbox.pending().filter((entry) => entry.kind === 'issueArchive')) {
+      const id = (entry.input as { id: string }).id
+      const write = await request('issues.archive', id)
+      await act(async () => patchIssue(fixture, id, { archived: true }))
+      await accept(write)
+    }
+    await waitFor(() =>
+      expect(screen.getByTestId('work-lane-empty').textContent).toBe(
+        'Nothing closed in the last 7 days.',
+      ),
+    )
+    // The batch remains available after the rows finish leaving and the feed changes.
+    await act(async () =>
+      patchIssue(fixture, 'synthetic-2', {
+        stage: 'done',
+        closedReason: 'done',
+        closedAt: new Date(NOW).toISOString(),
+        tuckedAt: new Date(NOW).toISOString(),
+      }),
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Undo' }))
+    const restores = runtime.outbox.pending().filter((entry) => entry.kind === 'issueUpdate')
+    expect(
+      restores
+        .map((entry) => entry.input)
+        .sort((a, b) => (a as { id: string }).id.localeCompare((b as { id: string }).id)),
+    ).toEqual([TARGET, 'synthetic-5'].map((id) => ({ id, patch: { archived: false } })))
+    await parity()
+    expect(
+      sidebarView(pool!)
+        .sections()
+        .bands.flatMap((band) => band.closedIds)
+        .sort(),
+    ).toEqual([TARGET, 'synthetic-2', 'synthetic-5'].sort())
+    expect(screen.queryByTestId('closed-issues-undo')).toBeNull()
+    expect(screen.getByTestId('closed-lane-header').textContent).toContain('3 closed this week')
+  })
+
+  it('drops the archive Undo when leaving the Closed lane', async () => {
+    await mount()
+    fireEvent.click(screen.getByTestId('work-lane-closed'))
+    fireEvent.click(await screen.findByTestId('closed-issues-archive-all'))
+    expect(screen.getByRole('button', { name: 'Undo' })).toBeTruthy()
+    fireEvent.click(screen.getByTestId('work-lane-open'))
+    fireEvent.click(screen.getByTestId('work-lane-closed'))
+    await waitFor(() => expect(screen.queryByTestId('closed-lane-header')).toBeNull())
+    expect((await screen.findByTestId('work-lane-empty')).textContent).toBe(
+      'Nothing closed in the last 7 days.',
+    )
   })
 
   it('preserves archive and delete confirmation before enqueuing and rewinds both refusals', async () => {

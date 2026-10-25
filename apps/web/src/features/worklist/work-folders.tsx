@@ -12,7 +12,7 @@ import { shallowEqual } from '@podium/client-core/shallow-equal'
 import { mergeVisibleProjectOrder } from '@podium/client-core/values'
 import { Archive, ChevronRight, Ellipsis, GripVertical, Pin, Plus } from 'lucide-react'
 import type { JSX, PointerEvent as ReactPointerEvent } from 'react'
-import { useCallback } from 'react'
+import { useCallback, useLayoutEffect, useRef } from 'react'
 import { openAddProject } from '@/app/desktop-menu'
 import { useRuntimeSelector } from '@/app/store'
 import {
@@ -22,7 +22,9 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { useReducedMotion } from '@/lib/use-reduced-motion'
 import { cn } from '@/lib/utils'
+import { cssEase, EASE_OUT, MOTION_S } from './worklist-motion-tokens'
 
 export type WorkLane = 'open' | 'snoozed' | 'closed'
 
@@ -90,34 +92,75 @@ export function WorkLaneSwitch({
   )
 }
 
-/** The Closed lane's own head: what the lane holds, and the one bulk gesture. */
+/** The Closed lane's count and the most recent bulk archive's Undo. */
 export function ClosedLaneHeader({
   count,
+  archivedCount = 0,
   onArchiveAll,
+  onUndo,
 }: {
   count: number
+  archivedCount?: number
   onArchiveAll: () => void
-}): JSX.Element {
+  onUndo: () => void
+}): JSX.Element | null {
+  const content = useRef<HTMLDivElement | null>(null)
+  const hasUndo = archivedCount > 0
+  const shownUndo = useRef(hasUndo)
+  const reduceMotion = useReducedMotion()
+  useLayoutEffect(() => {
+    if (shownUndo.current === hasUndo) return
+    shownUndo.current = hasUndo
+    if (reduceMotion || typeof content.current?.animate !== 'function') return
+    const animation = content.current.animate([{ opacity: 0 }, { opacity: 1 }], {
+      duration: MOTION_S.lane * 1000,
+      easing: cssEase(EASE_OUT),
+    })
+    return () => animation.cancel()
+  }, [hasUndo, reduceMotion])
+  if (count === 0 && archivedCount === 0) return null
   return (
     <div
-      className="flex h-8 flex-none items-center gap-2 pr-5 pl-[22px] text-[11.5px] text-text-dim"
+      className="closed-lane-card mx-3 mt-[10px] mb-[10px] flex-none rounded-[8px] bg-(--work-well) py-[10px] pr-[10px] pl-3"
       data-testid="closed-lane-header"
     >
-      <span className="min-w-0 flex-1 truncate">Closed in the last 7 days</span>
-      {count > 0 && (
-        <button
-          data-pressable
-          type="button"
-          aria-label={`Archive all ${count} closed issues`}
-          title="Archive all closed issues — remove them from the sidebar"
-          onClick={onArchiveAll}
-          data-testid="closed-issues-archive-all"
-          className="flex items-center gap-[5px] rounded-[5px] px-1 text-muted-foreground transition-colors hover:text-text-strong focus-visible:outline focus-visible:outline-1 focus-visible:outline-border-strong"
-        >
-          <Archive size={12} aria-hidden="true" />
-          Archive all
-        </button>
-      )}
+      <div ref={content} className="closed-lane-content flex items-center gap-[10px]">
+        <div className="flex min-w-0 flex-1 flex-col gap-[2px]">
+          <span aria-live="polite" className="text-[12px] font-medium text-text-strong">
+            {archivedCount > 0
+              ? `${archivedCount} ${archivedCount === 1 ? 'task' : 'tasks'} archived`
+              : `${count} closed this week`}
+          </span>
+          {archivedCount === 0 && (
+            <span title="Cleared after 7 days" className="truncate text-[11px] text-text-dim">
+              Cleared after 7 days
+            </span>
+          )}
+        </div>
+        {archivedCount > 0 ? (
+          <button
+            data-pressable
+            type="button"
+            onClick={onUndo}
+            data-testid="closed-issues-undo"
+            className="h-7 flex-none rounded-[6px] px-2 text-[11.5px] font-medium text-text-strong underline decoration-border-strong underline-offset-[3px] hover:decoration-text-dim focus-visible:outline focus-visible:outline-1 focus-visible:outline-border-strong"
+          >
+            Undo
+          </button>
+        ) : (
+          <button
+            data-pressable
+            type="button"
+            aria-label={`Archive all ${count} closed ${count === 1 ? 'task' : 'tasks'}`}
+            onClick={onArchiveAll}
+            data-testid="closed-issues-archive-all"
+            className="closed-lane-archive flex h-7 flex-none items-center gap-[5px] rounded-[6px] border border-border-strong bg-chip px-[10px] text-[11.5px] font-medium text-foreground hover:text-text-strong focus-visible:outline focus-visible:outline-1 focus-visible:outline-border-strong"
+          >
+            <Archive size={12} className="text-text-dim" aria-hidden="true" />
+            Archive all
+          </button>
+        )}
+      </div>
     </div>
   )
 }

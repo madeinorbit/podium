@@ -40,6 +40,7 @@ import {
   useRef,
   useState,
 } from 'react'
+import { toast } from 'sonner'
 import { usePanelVisible } from '@/app/panel-visible'
 import { useRuntimeSelector } from '@/app/store'
 import { useWorklistPool, useWorklistPoolProjection } from '@/app/store-worklist-pool'
@@ -332,6 +333,16 @@ const ObservedPoolWorkSections = observer(function ObservedPoolWorkSections({
   const { items, settle, discardExit } = useRowTransitions(targets)
   const reduceMotion = useReducedMotion()
   const layoutGroupId = useId()
+  // A gesture snapshot: Undo restores this batch even if other tasks close later.
+  const [archivedIds, setArchivedIds] = useState<readonly string[]>([])
+  useEffect(() => {
+    if (lane !== 'closed') setArchivedIds([])
+  }, [lane])
+  useEffect(() => {
+    // A refused archive or an external restore puts the task back in the lane.
+    if (archivedIds.some((id) => slotById.has(id)))
+      setArchivedIds((current) => current.filter((id) => !slotById.has(id)))
+  }, [archivedIds, slotById])
   const [quickArchive, setQuickArchive] = useState<ReadonlySet<string>>(() => new Set())
   const [menu, setMenu] = useState<{ id: string; anchor: ContextMenuAnchor } | null>(null)
   const { startNewTask } = useNewTask()
@@ -419,8 +430,20 @@ const ObservedPoolWorkSections = observer(function ObservedPoolWorkSections({
     })
   }, [items, quickArchive])
   const archive = (id: string) => {
+    setArchivedIds([])
     setQuickArchive((current) => new Set(current).add(id))
-    void actions.archiveIssue(id).catch(() => forgetQuickArchive([id]))
+    void actions.archiveIssue(id).catch(() => {
+      forgetQuickArchive([id])
+      setArchivedIds((current) => current.filter((archivedId) => archivedId !== id))
+    })
+  }
+  const undoArchive = () => {
+    const ids = archivedIds
+    setArchivedIds([])
+    forgetQuickArchive(ids)
+    void Promise.all(ids.map((id) => actions.unarchiveIssue(id))).catch(() =>
+      toast.error('Could not restore archived tasks'),
+    )
   }
   // Rows take a stable archive handle, or every row would re-render with the list.
   const archiveRef = useRef(archive)
@@ -633,14 +656,14 @@ const ObservedPoolWorkSections = observer(function ObservedPoolWorkSections({
       estimateSize={estimateSize}
     />
   )
-  if (items.length === 0 && sections.bands.length === 0)
+  if (lane === 'open' && items.length === 0 && sections.bands.length === 0)
     return (
       <>
         <PoolEviction pool={pool} />
         <WorkListEmpty />
       </>
     )
-  if (filtering && pinned.length === 0 && bands.length === 0)
+  if (filtering && pinned.length === 0 && bands.length === 0 && archivedIds.length === 0)
     return (
       <>
         <PoolEviction pool={pool} />
@@ -655,16 +678,26 @@ const ObservedPoolWorkSections = observer(function ObservedPoolWorkSections({
     : folderDrag
       ? { layout: { duration: MOTION_S.slot, ease: EASE_OUT } }
       : transition
-  const closedRows = lane === 'closed' ? bands.flatMap((band) => band.rows) : []
+  const closedRows =
+    lane === 'closed'
+      ? targets.filter((row) => search.has(row.key) && !quickArchive.has(row.value.id))
+      : []
   return (
     <WorklistMotion layoutGroupId={layoutGroupId}>
       <PoolEviction pool={pool} />
       {lane === 'closed' && (
         <ClosedLaneHeader
           count={closedRows.length}
+          archivedCount={archivedIds.length}
           onArchiveAll={() => {
-            for (const row of closedRows) archive(row.value.id)
+            const ids: string[] = []
+            for (const row of closedRows) {
+              ids.push(row.value.id)
+              archive(row.value.id)
+            }
+            setArchivedIds(ids)
           }}
+          onUndo={undoArchive}
         />
       )}
       {lane !== 'open' && bands.length === 0 && (

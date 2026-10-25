@@ -204,14 +204,18 @@ describe('closed issue fold lifecycle', () => {
     // wait that no longer happens is not a control.
   })
 
-  it('archives every closed issue from the action under the list', async () => {
+  it('archives every closed issue from the summary card', async () => {
     render(<SidebarUnified />)
     // The bulk action lives in the Closed lane's head (POD-2074): the Open
     // lane offers no way to archive rows nobody can see.
-    expect(screen.queryByRole('button', { name: 'Archive all 2 closed issues' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Archive all 2 closed tasks' })).toBeNull()
 
-    await act(async () => { fireEvent.click(screen.getByTestId('work-lane-closed')) })
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Archive all 2 closed issues' })) })
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('work-lane-closed'))
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Archive all 2 closed tasks' }))
+    })
 
     expect(archiveIssue).toHaveBeenCalledTimes(2)
     expect(archiveIssue).toHaveBeenCalledWith('closed')

@@ -93,6 +93,22 @@ html[data-density="compact"] {
   --work-well: color-mix(in srgb, var(--foreground) 4.5%, transparent);
   --work-row-hover-bg: color-mix(in srgb, var(--foreground) 4%, transparent);
 }
+.closed-lane-card {
+  container: closed-lane-card / inline-size;
+}
+/* The Closed lane's raised archive chip follows the theme's ink. */
+.closed-lane-archive {
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--text-strong) 6%, transparent);
+}
+@container closed-lane-card (max-width: 250px) {
+  .closed-lane-content {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .closed-lane-content > button {
+    align-self: flex-start;
+  }
+}
 /* THE CALM WORK ROW (POD-2074). Two lines on an inset, rounded surface: the
    design's `padding:8px 12px 8px 22px; border-radius:8px` with a 4px gap
    between title and status. No rule between rows and no tint: the rows part by

@@ -249,6 +249,7 @@ export function createPoolWorkActions(
       void runtime.access.updateIssue(id, { title })
     },
     archiveIssue: (id: string) => runtime.access.archiveIssue(id),
+    unarchiveIssue: (id: string) => runtime.access.updateIssue(id, { archived: false }),
     deleteIssue: (id: string) => runtime.access.deleteIssue(id),
     applySortPatches: (patches: { id: string; sortKey: string; pinned?: boolean }[]) =>
       Promise.all(patches.map(({ id, ...patch }) => runtime.access.updateIssue(id, patch))),
