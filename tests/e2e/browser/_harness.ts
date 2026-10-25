@@ -161,12 +161,6 @@ export async function openWorkspace(page: Page): Promise<void> {
   const list = onDesktop ? sidebar : mobileShell
   if (!onDesktop) await page.locator('button[title="Tasks"]').click({ timeout: 15_000 })
 
-  // A folded sidebar hides the work list; unfold it before looking for rows.
-  if (onDesktop) {
-    const expand = page.getByRole('button', { name: 'Expand sidebar' }).first()
-    if (await expand.isVisible().catch(() => false)) await expand.click({ timeout: 15_000 })
-  }
-
   // Work rows load with the repos/sessions feeds — give the top row a
   // loaded-host window (15s) to appear (it exists whenever earlier specs or a
   // pre-reload page already created sessions).
@@ -189,16 +183,6 @@ export async function openWorkspace(page: Page): Promise<void> {
   }
   // Confirm the workspace loaded by waiting for the "New panel" button.
   await newPanelBtn.waitFor({ state: 'visible', timeout: 30_000 })
-}
-
-/**
- * Unfold the work sidebar when the window boots it folded (below 1600px, or a
- * synced collapse), so work-list rows are reachable (POD-4733). No-op when
- * already open.
- */
-export async function expandSidebarIfFolded(page: Page): Promise<void> {
-  const expand = page.getByRole('button', { name: 'Expand sidebar' }).first()
-  if (await expand.isVisible().catch(() => false)) await expand.click({ timeout: 15_000 })
 }
 
 /**

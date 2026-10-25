@@ -3,7 +3,9 @@ import { openApp } from './_harness'
 
 test.skip(({ isMobile }) => isMobile, 'desktop shell interaction coverage')
 
-test('desktop shell controls, collapse, dock switching, and widths persist', async ({ page }) => {
+test('desktop shell controls, Flight Deck folding, dock switching, and widths persist', async ({
+  page,
+}) => {
   await openApp(page)
 
   const header = page.getByTestId('desktop-topbar')
@@ -30,8 +32,6 @@ test('desktop shell controls, collapse, dock switching, and widths persist', asy
     'data-width',
     '262',
   )
-  await page.getByRole('button', { name: 'Collapse sidebar' }).click()
-  await expect(page.getByRole('complementary', { name: 'Collapsed work sidebar' })).toBeVisible()
 
   await page.getByTitle('Fold the tray and superagent column').click()
   await expect(
@@ -42,12 +42,10 @@ test('desktop shell controls, collapse, dock switching, and widths persist', asy
   await page.waitForFunction(() => !document.querySelector('.app-loading'), undefined, {
     timeout: 45_000,
   })
-  await expect(page.getByRole('complementary', { name: 'Collapsed work sidebar' })).toBeVisible()
   await expect(
     page.getByRole('complementary', { name: 'Folded tray and superagent' }),
   ).toBeVisible()
 
-  await page.getByRole('button', { name: 'Expand sidebar' }).click()
   await expect(page.locator('[data-resizable-column="podium:sidebar:width"]')).toHaveAttribute(
     'data-width',
     '262',
@@ -127,7 +125,7 @@ test('all open workspace columns yield to a compact viewport before the right ra
 
   // Exercise the most hostile saved layout: in a small laptop window, every
   // resizable column asks for its maximum width.
-  // The saved widths remain preferences; flex layout must compress the four
+  // The saved widths remain preferences; flex layout must compress the remaining
   // content columns so the fixed rail is still the final 44px on screen.
   await page.setViewportSize({ width: 1100, height: 700 })
   await page.getByRole('separator', { name: 'Resize sidebar' }).press('End')

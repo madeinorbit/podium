@@ -24,7 +24,6 @@ import { Plus } from 'lucide-react'
 import type { JSX } from 'react'
 import { modChord } from '@/lib/mod-chord'
 import { newTaskChordBound, useNewTask } from './new-task'
-import { WorkRowShell } from './WorkRowShell'
 
 /**
  * The one top row: a full-width raised card that opens a blank mission.
@@ -34,8 +33,7 @@ import { WorkRowShell } from './WorkRowShell'
  * the selected row takes (`--chip` in both themes). It is the tallest thing in
  * the column and the only RAISED one, which is what makes it read as an
  * invitation rather than as a search box. `px-[11px]` plus the rim is the mock's
- * 12px inset; 10px on the right of the block is exactly enough for the collapse
- * control, which is 18px wide at `translateX(50%)`.
+ * 12px inset.
  *
  * NO YELLOW. It is the primary action of this column, and the Signal Rule would
  * license the fill — but the rows underneath spend attention gold on "this one
@@ -73,47 +71,4 @@ export function NewTaskRow(): JSX.Element {
       </button>
     </div>
   )
-}
-
-/** The task being written in the New task overlay, as the folder it will
- *  land in shows it (design 6a). */
-export interface SidebarDraft {
-  repoPath: string
-  title: string
-}
-
-/**
- * THE DRAFT ROW (POD-2074, design 6a). While the New task overlay is open, the
- * project it will start in holds a raised row at its head — the one selected
- * row in the column — so the operator sees where the task lands before it
- * exists. It is the live row's own shell with a hollow ring, `Draft` and
- * `writing…`, and no ref: nothing has been created yet.
- */
-export function NewTaskDraftRow({ title }: { title: string }): JSX.Element {
-  const label = title.trim().split('\n')[0]?.trim() || 'New task'
-  // Arrives like a pool row (POD-2080); it mounts once per draft, so a CSS
-  // one-shot is all it needs.
-  return (
-    <div className="row-enter">
-      <WorkRowShell
-        testId="new-task-draft-row"
-        idNumber=""
-        idLabel="Draft task"
-        label={label}
-        tone="draft"
-        phase="queued"
-        statusLine="Draft"
-        statusTime="writing…"
-        active
-        onSelect={focusPrompt}
-      />
-    </div>
-  )
-}
-
-/** Pressing the draft returns to the prompt it stands for (POD-2079). */
-const focusPrompt = (): void => {
-  ;(
-    globalThis as { __PODIUM_FOCUS_SESSION_PROMPT__?: () => void }
-  ).__PODIUM_FOCUS_SESSION_PROMPT__?.()
 }

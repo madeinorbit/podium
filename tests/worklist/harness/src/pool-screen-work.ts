@@ -2,7 +2,11 @@ import { createReferencePicker } from '@podium/client-graph/chat-context'
 import { createCommandPalette } from '@podium/client-graph/command-launch-views'
 import { headerView } from '@podium/client-graph/header-views'
 import { referenceView } from '@podium/client-graph/issue-reference'
-import { createLaunchCatalogPicker, createLaunchWorkPicker, launchOptionViews } from '@podium/client-graph/launch-option-views'
+import {
+  createLaunchCatalogPicker,
+  createLaunchWorkPicker,
+  launchOptionViews,
+} from '@podium/client-graph/launch-option-views'
 import { omitGone } from '@podium/client-graph/lookup'
 import { MobileTasksBoard } from '@podium/client-graph/mobile-tasks'
 import { sessionPaneView } from '@podium/client-graph/session-pane-view'
@@ -39,10 +43,7 @@ import { issuePages } from '@podium/client-graph/issue-page'
 import { ISSUE_PAGE_SUMMARIES } from '@podium/client-graph/issue-page-schema'
 import { attachIssuePageSource } from '@podium/client-graph/issue-page-source'
 import { missionRootId } from '@podium/client-graph/mission-screen'
-import {
-  missionView,
-  readMissionActionInputs,
-} from '@podium/client-graph/mission-view'
+import { missionView, readMissionActionInputs } from '@podium/client-graph/mission-view'
 import { MISSION_VIEW_SUMMARIES } from '@podium/client-graph/mission-view-schema'
 import {
   MOBILE_INBOX_ENTITIES,
@@ -401,7 +402,10 @@ async function measureScreenCells(
     const shell = shellViews(pool),
       page = issuePages(pool),
       chat = createChatContextReader(pool)
-    const palettePicker = createCommandPalette(pool), catalogPicker = createLaunchCatalogPicker(pool), phonePicker = createLaunchWorkPicker(pool), referencePicker = createReferencePicker(pool)
+    const palettePicker = createCommandPalette(pool),
+      catalogPicker = createLaunchCatalogPicker(pool),
+      phonePicker = createLaunchWorkPicker(pool),
+      referencePicker = createReferencePicker(pool)
     // These consumers represent open menus. The action owns their ordering,
     // outside any reaction; reopen is also exercised by the focused answer tests.
     palettePicker.open()
@@ -409,10 +413,20 @@ async function measureScreenCells(
     phonePicker.open()
     // The chat mention menu, as just after typing '@': a bounded source window.
     referencePicker.search('', 5)
-    stops.push(() => palettePicker.close(), () => referencePicker.close())
+    stops.push(
+      () => palettePicker.close(),
+      () => referencePicker.close(),
+    )
     const panelOrigin = readLaunchOrigin(pool, '/repo-000')
-    const panelPreferred = panelOrigin !== LOADING && panelOrigin.repo
-      ? runInAction(() => readTargetMachines(pool, panelOrigin.repo, panelOrigin.machines, ['claude-code', 'codex'])) : {}
+    const panelPreferred =
+      panelOrigin !== LOADING && panelOrigin.repo
+        ? runInAction(() =>
+            readTargetMachines(pool, panelOrigin.repo, panelOrigin.machines, [
+              'claude-code',
+              'codex',
+            ]),
+          )
+        : {}
     const mobileInbox = createMobileInboxViews(pool),
       mobileSession = createMobileSessionReader(pool)
     stops.push(() => mobileInbox.dispose())
@@ -440,37 +454,56 @@ async function measureScreenCells(
     const add = (name: string, consumers: readonly string[], read: () => unknown) => {
       if (!only || only.has(name)) readers.push({ name, consumers, read })
     }
-    add('sidebar.sections', ['PoolSidebar', 'PoolSidebarRail', 'useSidebarProjectSections'], () =>
-      sidebarView(pool).sections(layout),
-    )
+    add('sidebar.sections', ['PoolSidebar'], () => sidebarView(pool).sections(layout))
     const worktree = pool.tables.worktree.keys().next().value!
     // Retain the actual painted fields in the watched read at both versions.
     // Serializing a wire issue would also observe menu/history-only fields;
     // retaining only a live companion's port would observe readiness alone.
-    const rowAnswers = (value: unknown) => value === undefined || typeof value === 'symbol'
-      ? value : JSON.parse(JSON.stringify(value))
-    add('sidebar.row', ['PoolRowSlot', 'PoolSidebarRail'], () => {
+    const rowAnswers = (value: unknown) =>
+      value === undefined || typeof value === 'symbol' ? value : JSON.parse(JSON.stringify(value))
+    add('sidebar.row', ['PoolRowSlot'], () => {
       const row = sidebarView(pool).row(selected())
-      return row === undefined || row === LOADING ? row : rowAnswers(poolIssuePaint(sidebarComparable(row) as never))
+      return row === undefined || row === LOADING
+        ? row
+        : rowAnswers(poolIssuePaint(sidebarComparable(row) as never))
     })
-    add('sidebar.worktree', ['PoolWorktreeRow', 'PoolSidebarRail'], () =>
-      sidebarView(pool).worktree(worktree, layout),
-    )
+    add('sidebar.worktree', ['PoolWorktreeRow'], () => sidebarView(pool).worktree(worktree, layout))
     add('sidebar.selection', ['PoolSidebar'], () => sidebarView(pool).selectionGone())
-    add('mobile-work.sections', ['PoolWorkScreen', 'GroupHeader'], () =>
-      { const view = mobileWorkView(pool).mobileSections(); return {
-        sectionKeys: view.sectionKeys, orderingSectionKeys: view.orderingSectionKeys,
-        issueCount: view.issueCount, pinnedCount: view.pinnedCount,
-        attentionCount: view.attentionCount, pending: view.pending,
-      } },
-    )
+    add('mobile-work.sections', ['PoolWorkScreen', 'GroupHeader'], () => {
+      const view = mobileWorkView(pool).mobileSections()
+      return {
+        sectionKeys: view.sectionKeys,
+        orderingSectionKeys: view.orderingSectionKeys,
+        issueCount: view.issueCount,
+        pinnedCount: view.pinnedCount,
+        attentionCount: view.attentionCount,
+        pending: view.pending,
+      }
+    })
     const search = new MobileSearchSections()
     add('mobile-work.search', ['PoolWorkScreen'], () =>
       searchMobileSections(pool, mobileWorkView(pool).mobileSections().sectionKeys, '', search),
     )
     add('mobile-work.row', ['PoolWorkRowSlot'], () => {
       const row = mobileWorkView(pool).mobileRow({ kind: 'issue', id: selected() })
-      return row === undefined || row === LOADING ? row : rowAnswers({ id: row.id, title: row.title, timing: row.timing, working: row.visibleWorking, waiting: row.waitingCount, fleet: row.visibleFleet, ...('issue' in row ? { progress: row.progress, unread: row.emphasizeUnread, status: worklistRowStatus(row, pool.clock.peekNow()), issue: sidebarComparable(row).issue } : {}) })
+      return row === undefined || row === LOADING
+        ? row
+        : rowAnswers({
+            id: row.id,
+            title: row.title,
+            timing: row.timing,
+            working: row.visibleWorking,
+            waiting: row.waitingCount,
+            fleet: row.visibleFleet,
+            ...('issue' in row
+              ? {
+                  progress: row.progress,
+                  unread: row.emphasizeUnread,
+                  status: worklistRowStatus(row, pool.clock.peekNow()),
+                  issue: sidebarComparable(row).issue,
+                }
+              : {}),
+          })
     })
     add('header.folded', ['FoldedFlightDeckBar'], () => headerView(pool).folded())
     add('header.shipping', ['useShippingCounts'], () => headerView(pool).shipping())
@@ -518,23 +551,37 @@ async function measureScreenCells(
     add('launcher.launch', ['NewIssueDialog'], () =>
       // NewIssueDialog mounts only when opened. The fresh
       // background terminal recipe has triggers, with no launch catalog demand.
-      scene === 'background-terminal' ? undefined : {
-        catalog: catalogPicker.catalog(),
-        origin: readLaunchOrigin(pool, '/repo-000'),
-      },
+      scene === 'background-terminal'
+        ? undefined
+        : {
+            catalog: catalogPicker.catalog(),
+            origin: readLaunchOrigin(pool, '/repo-000'),
+          },
     )
     add('launcher.panel', ['NewPanelMenu'], () => {
       if (scene === 'background-terminal') return undefined
       const origin = readLaunchOrigin(pool, '/repo-000')
       if (origin === LOADING) return origin
-      return { ...origin, targets: origin.repo
-        ? readTargetMachines(pool, origin.repo, origin.machines, ['claude-code', 'codex'], panelPreferred) : {} }
+      return {
+        ...origin,
+        targets: origin.repo
+          ? readTargetMachines(
+              pool,
+              origin.repo,
+              origin.machines,
+              ['claude-code', 'codex'],
+              panelPreferred,
+            )
+          : {},
+      }
     })
     add('launcher.phone', ['NewWorkButton', 'NewIssueScreen'], () =>
-      scene === 'background-terminal' ? undefined : {
-        work: phonePicker.newWork(),
-        paths: phonePicker.repositoryPaths,
-      },
+      scene === 'background-terminal'
+        ? undefined
+        : {
+            work: phonePicker.newWork(),
+            paths: phonePicker.repositoryPaths,
+          },
     )
     add('launcher.palette', ['CommandPalette'], () => palettePicker.palette())
     // Close facts are asked for the action's issue at press time. Closed
@@ -566,7 +613,12 @@ async function measureScreenCells(
         onScreen: onScreenOf(pool, id),
         hasAnyTask: hasAnyTaskOf(pool),
         folded: folded?.ready
-          ? { progress: folded.progress, live: folded.liveCount, working: folded.workingCount, needs: folded.needsCount }
+          ? {
+              progress: folded.progress,
+              live: folded.liveCount,
+              working: folded.workingCount,
+              needs: folded.needsCount,
+            }
           : LOADING,
       }
     })
@@ -638,7 +690,8 @@ async function measureScreenCells(
         relations: issue.relationGroups,
       }
     }
-    add('issue-page.detail',
+    add(
+      'issue-page.detail',
       ['IssuePage', 'IssueTitle', 'IssueDescription', 'IssueSubIssues', 'IssueNow'],
       () => detail('page'),
     )
@@ -681,7 +734,8 @@ async function measureScreenCells(
     )
     // A mounted desktop card reads the shared issue model and its board rule.
     add('board.card', ['PoolBoardCard'], () => {
-      const cards = boardCards(pool), issue = cards.issue(selected())
+      const cards = boardCards(pool),
+        issue = cards.issue(selected())
       return {
         title: issue.title,
         stage: issue.stage,
@@ -695,25 +749,29 @@ async function measureScreenCells(
       }
     })
     add('board.model', ['IssueBoard', 'useBoardData'], () =>
-      omitGone(pool.row(
-        'issueBoardModel',
-        JSON.stringify({
-          display: { layout: 'board', ordering: 'priority', showAgentTasks: false },
-          filter: {},
-          expanded: [],
-          isMobile: false,
-          openIssueId: selected(),
-          now: 0,
-          windowed: true,
-        }),
-      )),
+      omitGone(
+        pool.row(
+          'issueBoardModel',
+          JSON.stringify({
+            display: { layout: 'board', ordering: 'priority', showAgentTasks: false },
+            filter: {},
+            expanded: [],
+            isMobile: false,
+            openIssueId: selected(),
+            now: 0,
+            windowed: true,
+          }),
+        ),
+      ),
     )
     add('board.explorer', ['IssueExplorer'], () =>
-      omitGone(pool.row('issueExplorerModel', JSON.stringify({ tab: null, query: '', windowed: true }))),
+      omitGone(
+        pool.row('issueExplorerModel', JSON.stringify({ tab: null, query: '', windowed: true })),
+      ),
     )
     add('chat.detail', ['SessionConversation', 'AgentPanel'], () => ({
       issue: chat.issue(selected()),
-      interactions: chat.interactions( SESSION),
+      interactions: chat.interactions(SESSION),
       records: chat.records(SESSION),
       artifact: chat.artifactIssue({ sessionId: asSessionId(SESSION), issueId: asIssueId(ROOT) }),
       threads: chat.threads(),
@@ -739,9 +797,14 @@ async function measureScreenCells(
         machines: panes.machines(),
         window: panes.window(),
         dock: {
-          mapped, present: !!mappedPane, hasSessions: panes.hasSessions(), reposLoaded: controls.reposLoaded,
-          status: mappedPane?.session.status, archived: mappedPane?.session.archived,
-          machineId: mappedPane?.session.machineId, machineName: mappedPane?.session.machineName,
+          mapped,
+          present: !!mappedPane,
+          hasSessions: panes.hasSessions(),
+          reposLoaded: controls.reposLoaded,
+          status: mappedPane?.session.status,
+          archived: mappedPane?.session.archived,
+          machineId: mappedPane?.session.machineId,
+          machineName: mappedPane?.session.machineName,
           geometry: mappedPane?.session.geometry,
         },
         confirmed: panes.spawnConfirmed(SESSION),
@@ -812,7 +875,10 @@ async function measureScreenCells(
           booting: mobileInbox.inbox().booting,
           outboxSize: mobileInbox.inbox().outboxSize,
         },
-        screening: { queue: mobileInbox.screening().queue, booting: mobileInbox.screening().booting },
+        screening: {
+          queue: mobileInbox.screening().queue,
+          booting: mobileInbox.screening().booting,
+        },
         row: mobileInbox.issue(ROOT),
         ref: mobileInbox.session(ref),
         route: mobileInbox.route({ kind: 'issue', issue: '#999999', search: '', hash: '' }),
@@ -1019,7 +1085,9 @@ async function measureScreenCells(
       await drain(pool)
       assertObservedParity(readers, values)
       proveAction(action)
-      const pane = values.get('mission.pane') as ReturnType<ReturnType<typeof missionPaneReader>['read']> | undefined
+      const pane = values.get('mission.pane') as
+        | ReturnType<ReturnType<typeof missionPaneReader>['read']>
+        | undefined
       if (values.has('mission.pane') && (pane === LOADING || pane?.root !== ROOT))
         throw new Error('Mission output lost its root')
       const row = omitGone(pool.row('issue', ROOT))

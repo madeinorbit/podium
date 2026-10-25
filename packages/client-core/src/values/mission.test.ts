@@ -8,7 +8,9 @@ import type { SessionView, SessionViewInput } from '../session-values'
 // filters, and the per-row operational state that drives the status column.
 
 import { asIssueId, ISSUE_STAGES, type UnbrandIds } from '@podium/model'
+import { isFinished as issueClosed, sessionWord, wordWantsAttention } from '@podium/model/browser'
 import { describe, expect, it } from 'vitest'
+import { type IssueNavigationModel, issuePendingDecision } from './compose/issues'
 import {
   buildFlightDeckRows,
   coordinatorCount,
@@ -43,8 +45,6 @@ import {
   sessionNeedsHuman,
   waitingNote,
 } from './mission'
-import { type IssueNavigationModel, issuePendingDecision } from './compose/issues'
-import { isFinished as issueClosed, sessionWord, wordWantsAttention } from '@podium/model/browser'
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -1777,9 +1777,9 @@ describe('missionProgress', () => {
   // -------------------------------------------------------------------------
   // ONE COMPUTE PER PUBLISH, PER ROOT (POD-1685).
   //
-  // Four surfaces ask this about the same root inside one replica publish —
-  // `UnifiedIssueRow` once per visible row, `SidebarRail` once per root, the
-  // Flight Deck and its folded bar once each — and each of them used to walk the
+  // Three surfaces ask this about the same root inside one replica publish —
+  // `UnifiedIssueRow` once per visible row, the Flight Deck and its folded bar
+  // once each — and each of them used to walk the
   // whole mission from scratch, filtering the entire session slice once per
   // member issue. The answer depends on the two slices and the root and nothing
   // else, so it is computed once and read by the rest.

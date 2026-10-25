@@ -495,13 +495,6 @@ async function runActions(f) {
         await capture(f,'sidebar-select',()=>row(id).click(),`aside [data-issue-row="${id}"][data-selected="true"]`)
       }
     })
-    await attempt('sidebar-fold',async()=>{
-      const label='Collapse sidebar', expandedLabel='Expand sidebar'
-      for(let i=0;i<samples+diagnosticSamples;i++) {
-        await capture(f,'sidebar-collapse',()=>page.getByRole('button',{name:label,exact:true}).click(),`button[aria-label="${expandedLabel}"]`)
-        await capture(f,'sidebar-expand',()=>page.getByRole('button',{name:expandedLabel,exact:true}).click(),`button[aria-label="${label}"]`)
-      }
-    })
     await attempt('sidebar-group-fold',async()=>{
       // A root can already be mounted in Pinned while its project is off screen.
       await revealSidebarGroup(page,rankedCorpusRoots[0])

@@ -2173,9 +2173,6 @@ fn main() {
                     .paste()
                     .select_all()
                     .build()?;
-                let toggle_left = MenuItemBuilder::with_id("toggle-left-sidebar", "Toggle Left Sidebar")
-                    .accelerator("Shift+CmdOrCtrl+B")
-                    .build(app)?;
                 let toggle_flight =
                     MenuItemBuilder::with_id("toggle-flight-deck", "Toggle Flight Deck")
                         .accelerator("Alt+CmdOrCtrl+F")
@@ -2199,7 +2196,6 @@ fn main() {
                     .item(&focus_session_prompt)
                     .item(&toggle_session_view)
                     .separator()
-                    .item(&toggle_left)
                     .item(&toggle_flight)
                     .item(&toggle_right)
                     .build()?;
@@ -2265,10 +2261,6 @@ fn main() {
                     MenuItemBuilder::with_id("toggle-session-view", "Toggle Chat / Native View")
                         .accelerator("Shift+CmdOrCtrl+L")
                         .build(app)?;
-                let toggle_left =
-                    MenuItemBuilder::with_id("toggle-left-sidebar", "Toggle Left Sidebar")
-                        .accelerator("Shift+CmdOrCtrl+B")
-                        .build(app)?;
                 let toggle_flight =
                     MenuItemBuilder::with_id("toggle-flight-deck", "Toggle Flight Deck")
                         .accelerator("Alt+CmdOrCtrl+F")
@@ -2283,7 +2275,6 @@ fn main() {
                     .item(&focus_session_prompt)
                     .item(&toggle_session_view)
                     .separator()
-                    .item(&toggle_left)
                     .item(&toggle_flight)
                     .item(&toggle_right)
                     .build()?;
@@ -2651,7 +2642,6 @@ fn main() {
             "open-settings" => eval_menu_hook(app, "__PODIUM_SETTINGS__"),
             "focus-session-prompt" => eval_menu_hook(app, "__PODIUM_FOCUS_SESSION_PROMPT__"),
             "toggle-session-view" => eval_menu_hook(app, "__PODIUM_TOGGLE_SESSION_VIEW__"),
-            "toggle-left-sidebar" => eval_menu_hook(app, "__PODIUM_TOGGLE_LEFT_SIDEBAR__"),
             "toggle-flight-deck" => eval_menu_hook(app, "__PODIUM_TOGGLE_FLIGHT_DECK__"),
             "toggle-right-sidebar" => eval_menu_hook(app, "__PODIUM_TOGGLE_RIGHT_SIDEBAR__"),
             // Cmd+W (macOS app menu). The web app registers __PODIUM_CLOSE_TAB__

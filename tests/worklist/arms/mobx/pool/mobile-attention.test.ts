@@ -6,7 +6,7 @@ import { engineLocals, openFenceFeeds } from '../../../harness/src/fence-scenari
 import { legacyDerivationFromStore, visibleIssueRows } from '../../../harness/src/oracle/oracle'
 import { startScenarioEngine } from '../../../shared/src/scenarios'
 
-describe('composed sidebar rail counts', () => {
+describe('composed mobile attention counts', () => {
   for (const scale of [1, 4] as const)
     it(`matches every legacy badge count at ${scale}x without walking the subtree`, async () => {
       const ctx = await startScenarioEngine(scale)

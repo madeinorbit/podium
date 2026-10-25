@@ -1,5 +1,3 @@
-import { preferenceSource } from '@podium/client-graph/preference-source'
-import { referenceState } from '../../../tests/worklist/diagnostics/reference-state'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
@@ -11,9 +9,11 @@ import {
   useRepoLocks,
   useStoreHandle,
 } from '@podium/client-core/react'
+import { preferenceSource } from '@podium/client-graph/preference-source'
 import { asUserId } from '@podium/model/browser'
 import { Profiler, useEffect } from 'react'
 import { createRoot } from 'react-dom/client'
+import { referenceState } from '../../../tests/worklist/diagnostics/reference-state'
 import { DensityProvider, useDensity } from '../src/app/density'
 import { attachWorklistPool, useWorklistPool } from '../src/app/store-worklist-pool'
 import { useTerminalAppearance } from '../src/features/terminal/use-terminal-appearance'
@@ -35,7 +35,7 @@ const parse = (value: string | null) => value ?? 'default'
 function CurrentReaders() {
   const sticky = useStickyPromptsPreference()
   const density = useDensity()
-  const fold = usePersistedUiValue('podium:sidebar:collapsed', parse)
+  const fold = usePersistedUiValue('podium:sidebar:pinned', parse)
   useTerminalAppearance()
   useModelCatalogState()
   useHarnessDescriptors(undefined)
@@ -126,7 +126,7 @@ const driver = {
     for (let step = 0; step < 20; step++) {
       owner.ui.set('podium.chat.stickyPrompts', step % 2 ? null : 'false')
       owner.ui.set('podium.shell.density', step % 2 ? 'balanced' : 'compact')
-      owner.ui.set('podium:sidebar:collapsed', step % 2 ? 'false' : 'true')
+      owner.ui.set('podium:sidebar:pinned', step % 2 ? 'false' : 'true')
       await nextFrame()
     }
   },
@@ -139,7 +139,7 @@ const driver = {
         (sum, row) => sum + Object.values(row.slices).reduce((a, n) => a + n, 0),
         0,
       ),
-      pool: (pool ? (preferenceSource(pool)?.counts ?? null) : undefined),
+      pool: pool ? (preferenceSource(pool)?.counts ?? null) : undefined,
       commits,
       commitMs,
       failures,
@@ -147,7 +147,9 @@ const driver = {
   },
   async check() {
     if (!pool) return null
-    const { checkPreferences } = await import('../../../tests/worklist/diagnostics/preference-check')
+    const { checkPreferences } = await import(
+      '../../../tests/worklist/diagnostics/preference-check'
+    )
     return checkPreferences(pool, owner.ui)
   },
   close: () => root.unmount(),

@@ -16,19 +16,13 @@ export function openAboutPodium(): void {
   window.dispatchEvent(new Event(ABOUT_EVENT))
 }
 
-/**
- * Sidebar chords for the desktop shell. ⌘B / Ctrl+B is the right dock — the
- * bare chord goes to the sidebar reached for most often. ⇧⌘B / Shift+Ctrl+B
- * is the left work list — same letter, one extra modifier, no Option (ISO
- * keyboards, and ⌥⌘B is easy to miss). Option on either chord is refused so
- * it cannot collide with the flight-deck toggle (⌥⌘F).
- */
+/** The desktop right dock uses Cmd/Ctrl+B. Modified chords remain unclaimed. */
 export function sidebarToggleFromEvent(
   event: Pick<KeyboardEvent, 'key' | 'metaKey' | 'ctrlKey' | 'altKey' | 'shiftKey'>,
-): 'left' | 'right' | null {
-  if (!(event.metaKey || event.ctrlKey) || event.altKey) return null
+): 'right' | null {
+  if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey) return null
   if (event.key.toLowerCase() !== 'b') return null
-  return event.shiftKey ? 'left' : 'right'
+  return 'right'
 }
 
 type MenuHook = () => void | boolean
@@ -38,7 +32,6 @@ export interface DesktopMenuHooks {
   checkUpdates?: MenuHook
   settings?: MenuHook
   addProject?: MenuHook
-  toggleLeftSidebar?: MenuHook
   toggleFlightDeck?: MenuHook
   toggleRightSidebar?: MenuHook
   closeTab?: () => boolean
@@ -51,7 +44,6 @@ type DesktopMenuGlobals = {
   __PODIUM_CHECK_UPDATES__?: MenuHook
   __PODIUM_SETTINGS__?: MenuHook
   __PODIUM_ADD_PROJECT__?: MenuHook
-  __PODIUM_TOGGLE_LEFT_SIDEBAR__?: MenuHook
   __PODIUM_TOGGLE_FLIGHT_DECK__?: MenuHook
   __PODIUM_TOGGLE_RIGHT_SIDEBAR__?: MenuHook
   __PODIUM_CLOSE_TAB__?: () => boolean
@@ -64,7 +56,6 @@ const GLOBAL_KEYS = [
   ['checkUpdates', '__PODIUM_CHECK_UPDATES__'],
   ['settings', '__PODIUM_SETTINGS__'],
   ['addProject', '__PODIUM_ADD_PROJECT__'],
-  ['toggleLeftSidebar', '__PODIUM_TOGGLE_LEFT_SIDEBAR__'],
   ['toggleFlightDeck', '__PODIUM_TOGGLE_FLIGHT_DECK__'],
   ['toggleRightSidebar', '__PODIUM_TOGGLE_RIGHT_SIDEBAR__'],
   ['closeTab', '__PODIUM_CLOSE_TAB__'],

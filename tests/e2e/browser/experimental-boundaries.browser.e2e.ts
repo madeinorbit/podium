@@ -8,11 +8,6 @@ test('enabled experimental chrome drives each real surface', async ({ page }) =>
   await page.setViewportSize({ width: 1440, height: 900 })
   await openApp(page)
 
-  // A fresh workspace starts with the sidebar collapsed; the rail Search the
-  // test drives lives inside it, so expand first as an operator would.
-  const expand = page.getByRole('button', { name: 'Expand sidebar' })
-  if (await expand.isVisible().catch(() => false)) await expand.click()
-
   const search = page.getByRole('button', { name: 'Search', exact: true })
   await expect(search).toBeVisible({ timeout: 15_000 })
   await search.click()
@@ -55,10 +50,7 @@ test('enabled experimental chrome drives each real surface', async ({ page }) =>
 
   // POD-318 moved Settings into the top bar; POD-365 made it an inset sheet
   // (role=dialog) whose rail marks the current tab with aria-current="page".
-  await page
-    .getByRole('banner')
-    .getByRole('button', { name: 'Settings', exact: true })
-    .click()
+  await page.getByRole('banner').getByRole('button', { name: 'Settings', exact: true }).click()
   const settings = page.getByRole('dialog', { name: 'Settings' })
   await expect(settings).toBeVisible()
   const notifications = settings.getByRole('button', {

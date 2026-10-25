@@ -51,9 +51,8 @@ import { useReducedMotion } from '@/lib/use-reduced-motion'
 import { cn } from '@/lib/utils'
 import { FoldedRowMenu } from './FoldedRowMenu'
 import { PINNED_FOLD_KEY, projectFoldKey } from './fold-keys'
-import { ManageProjectsDialog } from './ManageProjectsDialog'
 import { useNewTask } from './new-task'
-import { NewTaskDraftRow, NewTaskRow, type SidebarDraft } from './new-task-row'
+import { NewTaskRow } from './new-task-row'
 import {
   navigationIssue,
   poolIssueDisplay,
@@ -176,12 +175,7 @@ const PoolEviction = observer(function PoolEviction({ pool }: { pool: MobxPool }
 /** The lane a slot belongs to, as the top switch names it. Pinned rows are open. */
 const laneOf = (slot: Slot): WorkLane => (slot.lane === 'pinned' ? 'open' : slot.lane)
 
-export const PoolSidebarUnified = observer(function PoolSidebarUnified({
-  draft = null,
-}: {
-  /** The New task overlay's task in progress, drawn in the folder it lands in. */
-  draft?: SidebarDraft | null
-} = {}): JSX.Element {
+export const PoolSidebarUnified = observer(function PoolSidebarUnified(): JSX.Element {
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const pool = useWorklistPool()
   const state = usePoolLayoutState()
@@ -247,7 +241,6 @@ export const PoolSidebarUnified = observer(function PoolSidebarUnified({
           scrollRef={scrollRef}
           lane={lane}
           onLaneChange={setLane}
-          draft={draft}
         />
       </div>
       <AddRepositoryFooter />
@@ -261,11 +254,9 @@ export function PoolWorkSections({
   scrollRef,
   lane = 'open',
   onLaneChange,
-  draft = null,
 }: {
   query?: string
   scrollRef?: RefObject<HTMLElement | null>
-  draft?: SidebarDraft | null
   /** Which lane of the top switch is showing. */
   lane?: WorkLane
   /** Reveal a selection that lives in another lane. */
@@ -280,7 +271,6 @@ export function PoolWorkSections({
       scrollRef={scrollRef ?? fallbackScroll}
       lane={lane}
       onLaneChange={onLaneChange}
-      draft={draft}
     />
   ) : null
 }
@@ -310,14 +300,12 @@ const ObservedPoolWorkSections = observer(function ObservedPoolWorkSections({
   scrollRef,
   lane,
   onLaneChange,
-  draft,
 }: {
   pool: MobxPool
   query: string
   scrollRef: RefObject<HTMLElement | null>
   lane: WorkLane
   onLaneChange?: (lane: WorkLane) => void
-  draft: SidebarDraft | null
 }): JSX.Element {
   const state = usePoolLayoutState()
   const actions = usePoolUnifiedWork(pool)
@@ -346,7 +334,6 @@ const ObservedPoolWorkSections = observer(function ObservedPoolWorkSections({
   const layoutGroupId = useId()
   const [quickArchive, setQuickArchive] = useState<ReadonlySet<string>>(() => new Set())
   const [menu, setMenu] = useState<{ id: string; anchor: ContextMenuAnchor } | null>(null)
-  const [manageOpen, setManageOpen] = useState(false)
   const { startNewTask } = useNewTask()
   const writeOrder = useProjectOrderWriter()
   const keys = [PINNED_FOLD_KEY, ...sections.bands.map((band) => band.foldKey)]
@@ -509,7 +496,6 @@ const ObservedPoolWorkSections = observer(function ObservedPoolWorkSections({
       onGrip={onGrip}
       openMenu={openMenu}
       onArchive={archiveRow}
-      muteSelection={draftKey !== undefined}
     />
   )
   const inLane = (item: Item) => laneOf(item.value) === lane && (!filtering || search.has(item.key))
@@ -546,16 +532,6 @@ const ObservedPoolWorkSections = observer(function ObservedPoolWorkSections({
     .filter((band) => (lane === 'open' && !filtering) || band.rows.length > 0)
     .sort((a, b) => (order ? rank(order, a.key) - rank(order, b.key) : 0))
   const visibleKeys = bands.map((band) => band.key)
-  // The draft row's folder: the project the overlay will start the task in.
-  const draftKey =
-    draft && lane === 'open' && !filtering
-      ? sections.bands.find(
-          (band) =>
-            machinePathsEqual(band.repoPath, draft.repoPath) ||
-            band.aliases.some((alias) => machinePathsEqual(alias, draft.repoPath)),
-        )?.key
-      : undefined
-
   const commitOrder = (visible: readonly string[], moved: string) => {
     const full = placeInFullOrder(pendingOrder ?? naturalOrder, visible, moved)
     if (full.join('\u0000') === (pendingOrder ?? naturalOrder).join('\u0000')) return
@@ -719,9 +695,8 @@ const ObservedPoolWorkSections = observer(function ObservedPoolWorkSections({
         </m.div>
       )}
       {bands.map((band, index) => {
-        const hasDraft = band.key === draftKey
-        const empty = band.rows.length === 0 && !hasDraft
-        const shut = collapsed.has(band.foldKey) && !hasDraft
+        const empty = band.rows.length === 0
+        const shut = collapsed.has(band.foldKey)
         const draggingThis = folderDrag?.key === band.key
         return (
           <m.div
@@ -741,7 +716,7 @@ const ObservedPoolWorkSections = observer(function ObservedPoolWorkSections({
           >
             <ProjectFolderHeader
               label={band.label}
-              count={band.rows.length + (hasDraft ? 1 : 0)}
+              count={band.rows.length}
               collapsed={shut}
               empty={empty}
               dragging={draggingThis}
@@ -759,7 +734,6 @@ const ObservedPoolWorkSections = observer(function ObservedPoolWorkSections({
                 onToggle: () => toggle(band.foldKey),
                 onCollapseAll: anyOpen ? () => setAllCollapsed(true) : undefined,
                 onExpandAll: anyShut ? () => setAllCollapsed(false) : undefined,
-                onManage: () => setManageOpen(true),
               }}
             />
             {!empty && (
@@ -769,7 +743,6 @@ const ObservedPoolWorkSections = observer(function ObservedPoolWorkSections({
                 retain={folderDrag !== null}
                 testId="project-group-rows"
               >
-                {hasDraft && draft && <NewTaskDraftRow title={draft.title} />}
                 {band.rows.length > 0 && windowRows(band.rows, renderRow, `group:${band.key}`)}
               </FoldPanel>
             )}
@@ -790,7 +763,6 @@ const ObservedPoolWorkSections = observer(function ObservedPoolWorkSections({
           close={() => setMenu(null)}
         />
       )}
-      <ManageProjectsDialog open={manageOpen} onOpenChange={setManageOpen} />
     </WorklistMotion>
   )
 })
@@ -842,7 +814,6 @@ const PoolMotionRow = observer(function PoolMotionRow({
   onGrip,
   openMenu,
   onArchive,
-  muteSelection,
 }: {
   pool: MobxPool
   item: Item
@@ -858,8 +829,6 @@ const PoolMotionRow = observer(function PoolMotionRow({
   onGrip: (event: PointerEvent, id: string) => void
   openMenu: (id: string, event: MouseEvent) => void
   onArchive: (id: string) => void
-  /** The draft row holds the column's one raised row while it exists. */
-  muteSelection: boolean
 }): JSX.Element | null {
   const { id, kind, lane } = item.value
   const worklist = useWorklistModel() ?? worklistView(pool)
@@ -882,7 +851,7 @@ const PoolMotionRow = observer(function PoolMotionRow({
   const draftPane = useRuntimeSelector(
     (s) => visible && draftOnly === true && s.paneA === firstSessionId,
   )
-  const active = visible && !muteSelection && companion?.selected === true
+  const active = visible && companion?.selected === true
   const arriving = animate && item.phase === 'entering'
   const exiting = item.phase === 'exiting'
   const draggable =

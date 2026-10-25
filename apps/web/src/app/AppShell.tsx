@@ -5,7 +5,6 @@ import {
   FLIGHT_DECK_FULL_DISPLAY_KEY,
 } from '@podium/client-core/ui-state'
 import { observer } from '@podium/client-graph/react'
-import { ChevronLeft } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
 import { lazy, Suspense, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { flushSync } from 'react-dom'
@@ -32,7 +31,6 @@ import { vpsIntroState } from '@/features/setup/vps-activation'
 import { loadAgentPanel } from '@/features/terminal/AgentPanelBoundary'
 import { DockShellLifecycle } from '@/features/terminal/dock-shell-lifecycle'
 import { UpdatesProvider } from '@/features/updates/updates-context'
-import { CollapsedSidebar } from '@/features/worklist/CollapsedSidebar'
 import { useNewTaskOverlayOpen } from '@/features/worklist/new-task-overlay'
 import { SidebarUnified } from '@/features/worklist/SidebarUnified'
 import {
@@ -40,13 +38,7 @@ import {
   COLUMN_FOLD_MS,
   ResizableAside,
   ResizableColumn,
-  SIDEBAR_RAIL_WIDTH,
-  SIDEBAR_WIDTH_DEFAULT,
-  SIDEBAR_WIDTH_KEY,
-  SIDEBAR_WIDTH_MAX,
-  SIDEBAR_WIDTH_MIN,
 } from '@/features/worklist/sidebar-common'
-import { useColumnFold } from '@/features/worklist/use-column-fold'
 import { throughRestarts } from '@/lib/chunk-recovery'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
 import { nativeDesktopBridge } from '@/lib/nativeDesktop'
@@ -88,11 +80,9 @@ import {
   OPEN_RIGHT_PANEL_EVENT,
   RIGHT_PANEL_KEY,
   type RightPanelTab,
-  readBooleanState,
   readFlightDeckCollapsed,
   readRightPanel,
   rightPanelAllowed,
-  SIDEBAR_COLLAPSED_KEY,
   SUPERAGENT_MODE_KEY,
 } from './shell-state'
 import { describeWireSkew, reportSkew } from './skew-notice'
@@ -569,17 +559,6 @@ function AppBodyView({ syncProgress }: { syncProgress: SyncProgressStore }): JSX
     setSelectedIssueId(null)
     setView('workspace')
   }
-  // SUBSCRIBED, not seeded — the same bug as the two below, on the worklist
-  // column (POD-540 handoff patch 1c). `sidebar.collapsed` is per-user
-  // REPLICATED, so a `useState` initializer read it before the replica had the
-  // row and never ran again: a collapsed sidebar came back expanded on every
-  // reload. Its WIDTH survived, which is what made the asymmetry legible —
-  // that key is device-local and already in the cache at mount.
-  const [savedSidebarCollapsed, saveSidebarCollapsed] = usePersistedUiState(
-    SIDEBAR_COLLAPSED_KEY,
-    readBooleanState,
-    String,
-  )
   // SUBSCRIBED, not seeded into local state. This key is per-user REPLICATED
   // layout, and a `useState` initializer reads it on the first render — before
   // the replica has the row — then never runs again, so a stored "folded" is
@@ -608,18 +587,11 @@ function AppBodyView({ syncProgress }: { syncProgress: SyncProgressStore }): JSX
     readRightPanel,
     writeRightPanel,
   )
-  const {
-    compact,
-    sidebarCollapsed,
-    rightPanel: responsiveRightPanel,
-    setSidebarCollapsed,
-    setRightPanel: setRightPanelStored,
-  } = useResponsiveSidebars({
-    sidebarCollapsed: savedSidebarCollapsed,
-    rightPanel,
-    setSidebarCollapsed: saveSidebarCollapsed,
-    setRightPanel: saveRightPanel,
-  })
+  const { rightPanel: responsiveRightPanel, setRightPanel: setRightPanelStored } =
+    useResponsiveSidebars({
+      rightPanel,
+      setRightPanel: saveRightPanel,
+    })
   const commandPaletteEnabled = useFeature('command-palette')
   const gitPanelEnabled = useFeature('git-panel')
   const messagesPanelEnabled = useFeature('messages-panel')
@@ -649,10 +621,7 @@ function AppBodyView({ syncProgress }: { syncProgress: SyncProgressStore }): JSX
     // Seed Full from a valid old width, without ever writing back to it.
     const legacyKey =
       display === 'expanded' ? FLIGHT_DECK_EXPANDED_WIDTH_KEY : 'podium:superagent:width'
-    return readFlightDeckWidth(
-      uiState.get(sizing.storageKey) ?? uiState.get(legacyKey),
-      display,
-    )
+    return readFlightDeckWidth(uiState.get(sizing.storageKey) ?? uiState.get(legacyKey), display)
   }
   const animateFlightDeckWidth = (from: number, to: number, onFinish?: () => void): void => {
     const shell = flightDeckShellRef.current
@@ -733,27 +702,6 @@ function AppBodyView({ syncProgress }: { syncProgress: SyncProgressStore }): JSX
     animateFlightDeckWidth(measured, target, () => setFlightDeckWidth(null))
   }
 
-  // THE LEFT FOLD (POD-1584). The work list and the identity rail are separate
-  // subtrees, so flipping `sidebarCollapsed` swapped one for the other in a
-  // single frame and ~250px of window arrived or vanished with no gesture
-  // attached to it. Every other column in this shell folds; the left one — the
-  // one an operator opens and shuts most — read as a glitch.
-  //
-  // The mechanics are the flight deck's above, lifted into a hook so the
-  // gesture has somewhere to be tested and the harness can drive the shipping
-  // code rather than a copy of it. See `use-column-fold.ts`.
-  const persistedSidebarWidth = (): number => {
-    const stored = Number(uiState.get(SIDEBAR_WIDTH_KEY))
-    return Number.isFinite(stored) && stored >= SIDEBAR_WIDTH_MIN && stored <= SIDEBAR_WIDTH_MAX
-      ? stored
-      : SIDEBAR_WIDTH_DEFAULT
-  }
-  const sidebarFold = useColumnFold({
-    resetKey: compact,
-    foldedWidth: SIDEBAR_RAIL_WIDTH,
-    openWidth: persistedSidebarWidth,
-    onFold: setSidebarCollapsed,
-  })
   const setRightPanel = (panel: RightPanelTab | null): void => {
     if (!panelAllowed(panel)) return
     setRightPanelStored(panel)
@@ -761,7 +709,6 @@ function AppBodyView({ syncProgress }: { syncProgress: SyncProgressStore }): JSX
   }
   const lastRightPanel = useRef<RightPanelTab>('issue')
   if (rightPanel && panelAllowed(rightPanel)) lastRightPanel.current = rightPanel
-  const toggleLeftSidebar = (): void => sidebarFold.fold(!sidebarCollapsed)
   const toggleFlightDeck = (): void => {
     if (flightDeckCollapsed) expandFlightDeck()
     else collapseFlightDeck()
@@ -881,7 +828,6 @@ function AppBodyView({ syncProgress }: { syncProgress: SyncProgressStore }): JSX
   const menuHost = (
     <DesktopMenuHost
       openSettings={() => setView('settings')}
-      toggleLeftSidebar={toggleLeftSidebar}
       toggleFlightDeck={toggleFlightDeck}
       toggleRightSidebar={toggleRightSidebar}
     />
@@ -961,149 +907,93 @@ function AppBodyView({ syncProgress }: { syncProgress: SyncProgressStore }): JSX
         >
           <TopBar revealing={revealingChrome} />
           <WarmSyncStatus store={syncProgress} />
-          <div className="desktop-shell-row" data-sidebar-collapsed={sidebarCollapsed}>
-            {/* The work list is persistent chrome: it stays mounted in every mode,
-              so switching modes swaps the CONTENT REGION rather than the window
-              (POD-365). The engraved column, dock and rail are workspace
-              instruments and stay with the workspace. */}
-            {/* THE OPEN COLUMN STAYS MOUNTED FOR THE WHOLE FOLD, both ways
-                (POD-1584). Swapping the rail in on the press instead would
-                leave a 58px rail sitting in a wrapper still 300px wide, with a
-                quarter of the window's worth of empty ground closing beside it
-                — the fold has to CLIP a column, not slide a gap shut. Clipping
-                this one ends the collapse on its leftmost 58px, which is the
-                identity-tile gutter the rail already is, so the cut at the end
-                lands on matching pixels. */}
-            <div
-              ref={sidebarFold.ref}
-              className="sidebar-shell"
-              data-sidebar-shell={sidebarCollapsed ? 'folded' : 'open'}
-              data-sidebar-folding={sidebarFold.folding ? 'true' : undefined}
-              style={{ width: sidebarFold.width ?? undefined }}
-            >
-              {sidebarCollapsed && !sidebarFold.folding ? (
-                <CollapsedSidebar onExpand={() => sidebarFold.fold(false)} />
-              ) : (
-                <div className="relative z-10 flex min-w-0 flex-[0_1_auto]">
-                  <ResizableAside>
-                    <SidebarUnified />
-                  </ResizableAside>
-                  <button
-                    data-pressable
-                    type="button"
-                    className="sidebar-collapse-control"
-                    aria-label="Collapse sidebar"
-                    title="Collapse sidebar"
-                    onClick={() => sidebarFold.fold(true)}
-                  >
-                    <ChevronLeft size={12} aria-hidden="true" />
-                  </button>
-                </div>
-              )}
-              {/* THE GHOST OF THE FOLDED COLUMN (POD-1658). Rendered only while
-                  the fold runs, pinned over the clip, and dissolved in or out by
-                  the hook. It is what the swap at the end of the gesture happens
-                  UNDERNEATH: by then this is already an opaque rail sitting on
-                  the pixels the real one is about to occupy, so the frame where
-                  the work list becomes the rail has nothing visible in it. Inert
-                  and aria-hidden — there are briefly two rails in the tree and
-                  only one of them is the column. */}
-              {sidebarFold.folding && (
-                <div ref={sidebarFold.ghostRef} className="sidebar-fold-ghost" aria-hidden="true">
-                  {/* The lid and what is on it are two layers (POD-1672). The
-                      ghost holds still and carries the opacity and the blur —
-                      it is what covers the clip, and a cover that moves is a
-                      gap. This node carries the slide that makes the rail
-                      ARRIVE instead of appear. */}
-                  <div ref={sidebarFold.ghostContentRef} className="sidebar-fold-ghost-inner">
-                    <CollapsedSidebar />
-                  </div>
-                </div>
-              )}
-            </div>
+          <div className="desktop-shell-row">
+            <ResizableAside>
+              <SidebarUnified />
+            </ResizableAside>
             {/* THE NEW TASK OVERLAY'S HOST (POD-2079): the deck, the stage and
                 the dock, so the overlay covers exactly the workspace column and
-                leaves the sidebar and rail in place. */}
+                leaves the sidebar in place. */}
             <div className="new-task-host" data-new-task-open={newTaskOpen || undefined}>
-            {/* The folded bar belongs to a task: with nothing selected there is
+              {/* The folded bar belongs to a task: with nothing selected there is
                 no deck to unfold (POD-2079). */}
-            {workspaceActive && (!flightDeckCollapsed || selectedIssueId !== null) && (
-              <div
-                ref={flightDeckShellRef}
-                className="flex min-h-0 min-w-0 flex-[0_1_auto] overflow-hidden"
-                data-flight-deck-shell={flightDeckCollapsed ? 'folded' : 'open'}
-                data-flight-deck-display={flightDeckDisplay}
-                style={{ width: flightDeckWidth ?? (flightDeckCollapsed ? 44 : undefined) }}
-              >
-                {flightDeckCollapsed ? (
-                  <Suspense fallback={null}>
-                    <FoldedFlightDeckBar onExpand={expandFlightDeck} />
-                  </Suspense>
-                ) : (
-                  <ResizableColumn
-                    storageKey={flightDeckSize.storageKey}
-                    min={flightDeckSize.min}
-                    max={flightDeckSize.max}
-                    defaultWidth={persistedFlightDeckWidth()}
-                    handleLabel="Resize Flight Deck"
-                    className={
-                      flightDeckDisplay === 'expanded'
-                        ? 'max-w-[calc(100vw-300px)]'
-                        : 'max-w-[45vw]'
-                    }
-                  >
-                    <Suspense fallback={<RouteFallback />}>
-                      {/* The arrival latch and the scrolling node both belong
+              {workspaceActive && (!flightDeckCollapsed || selectedIssueId !== null) && (
+                <div
+                  ref={flightDeckShellRef}
+                  className="flex min-h-0 min-w-0 flex-[0_1_auto] overflow-hidden"
+                  data-flight-deck-shell={flightDeckCollapsed ? 'folded' : 'open'}
+                  data-flight-deck-display={flightDeckDisplay}
+                  style={{ width: flightDeckWidth ?? (flightDeckCollapsed ? 44 : undefined) }}
+                >
+                  {flightDeckCollapsed ? (
+                    <Suspense fallback={null}>
+                      <FoldedFlightDeckBar onExpand={expandFlightDeck} />
+                    </Suspense>
+                  ) : (
+                    <ResizableColumn
+                      storageKey={flightDeckSize.storageKey}
+                      min={flightDeckSize.min}
+                      max={flightDeckSize.max}
+                      defaultWidth={persistedFlightDeckWidth()}
+                      handleLabel="Resize Flight Deck"
+                      className={
+                        flightDeckDisplay === 'expanded'
+                          ? 'max-w-[calc(100vw-300px)]'
+                          : 'max-w-[45vw]'
+                      }
+                    >
+                      <Suspense fallback={<RouteFallback />}>
+                        {/* The arrival latch and the scrolling node both belong
                           to one mission; carrying either into the next one
                           turns its existing sessions into late arrivals. */}
-                      <FlightDeck
-                        key={flightDeckMissionId}
-                        onCollapse={collapseFlightDeck}
-                        display={flightDeckDisplay}
-                        onDisplayChange={setFlightDeckDisplay}
-                      />
-                    </Suspense>
-                  </ResizableColumn>
-                )}
-              </div>
-            )}
-            <MainViewOutlet
-              workspace={
-                <Suspense fallback={<RouteFallback />}>
-                  <Workspace />
-                </Suspense>
-              }
-              view={baseView}
-            />
-            {workspaceActive && (
-              <ResizableColumn
-                storageKey="podium:rightdock:width"
-                min={280}
-                max={860}
-                defaultWidth={316}
-                handleLabel="Resize right dock"
-                handleSide="left"
-                collapsed={!visibleRightPanel}
-                onCollapsed={() => setDockPanel(null)}
-                className="max-w-[45vw]"
-              >
-                {/* The dock uses the theme's default surface (POD-516
-                  item 9) — see `.right-dock-shell` in styles.css. */}
-                {dockPanel && (
-                  <aside className="right-dock-shell">
-                    <RightDock tab={dockPanel} onClose={() => setRightPanel(null)} />
-                  </aside>
-                )}
-              </ResizableColumn>
-            )}
-            {workspaceActive && newTaskOpen && (
-              <NewTaskOverlay
-                selectedIssueId={selectedIssueId}
-                view={view}
-                baseView={baseView}
-                setView={setView}
+                        <FlightDeck
+                          key={flightDeckMissionId}
+                          onCollapse={collapseFlightDeck}
+                          display={flightDeckDisplay}
+                          onDisplayChange={setFlightDeckDisplay}
+                        />
+                      </Suspense>
+                    </ResizableColumn>
+                  )}
+                </div>
+              )}
+              <MainViewOutlet
+                workspace={
+                  <Suspense fallback={<RouteFallback />}>
+                    <Workspace />
+                  </Suspense>
+                }
+                view={baseView}
               />
-            )}
+              {workspaceActive && (
+                <ResizableColumn
+                  storageKey="podium:rightdock:width"
+                  min={280}
+                  max={860}
+                  defaultWidth={316}
+                  handleLabel="Resize right dock"
+                  handleSide="left"
+                  collapsed={!visibleRightPanel}
+                  onCollapsed={() => setDockPanel(null)}
+                  className="max-w-[45vw]"
+                >
+                  {/* The dock uses the theme's default surface (POD-516
+                  item 9) — see `.right-dock-shell` in styles.css. */}
+                  {dockPanel && (
+                    <aside className="right-dock-shell">
+                      <RightDock tab={dockPanel} onClose={() => setRightPanel(null)} />
+                    </aside>
+                  )}
+                </ResizableColumn>
+              )}
+              {workspaceActive && newTaskOpen && (
+                <NewTaskOverlay
+                  selectedIssueId={selectedIssueId}
+                  view={view}
+                  baseView={baseView}
+                  setView={setView}
+                />
+              )}
             </div>
             {workspaceActive && (
               <RightRail rightPanel={visibleRightPanel} onPanelChange={setRightPanel} />

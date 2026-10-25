@@ -405,9 +405,7 @@ describe('served-local launchMode classification (POD-2510)', () => {
     // claim it — an unowned accelerator never reaches WKWebView.
     expect(mainSource).toMatch(/"open-settings"[^;]*\.accelerator\("CmdOrCtrl\+,"\)/)
     expect(mainSource).toContain('MenuItemBuilder::with_id("add-project", "Add Project…")')
-    expect(mainSource).toContain(
-      'MenuItemBuilder::with_id("toggle-left-sidebar", "Toggle Left Sidebar")',
-    )
+    expect(mainSource).toContain()
     expect(mainSource).toContain(
       'MenuItemBuilder::with_id("toggle-flight-deck", "Toggle Flight Deck")',
     )
@@ -420,12 +418,10 @@ describe('served-local launchMode classification (POD-2510)', () => {
     // match inside its own let-statement so it cannot borrow the other
     // item's accelerator.
     expect(mainSource).toMatch(/"toggle-right-sidebar"[^;]*\.accelerator\("CmdOrCtrl\+B"\)/)
-    expect(mainSource).toMatch(/"toggle-left-sidebar"[^;]*\.accelerator\("Shift\+CmdOrCtrl\+B"\)/)
     expect(mainSource).toContain('__PODIUM_ABOUT__')
     expect(mainSource).toContain('__PODIUM_CHECK_UPDATES__')
     expect(mainSource).toContain('__PODIUM_SETTINGS__')
     expect(mainSource).toContain('__PODIUM_ADD_PROJECT__')
-    expect(mainSource).toContain('__PODIUM_TOGGLE_LEFT_SIDEBAR__')
     expect(mainSource).toContain('__PODIUM_TOGGLE_FLIGHT_DECK__')
     expect(mainSource).toContain('__PODIUM_TOGGLE_RIGHT_SIDEBAR__')
   })

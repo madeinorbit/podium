@@ -94,7 +94,7 @@ export interface ReplicaRows {
    * network-only (`api.layout.get.query()`), so every reload painted the
    * defaults until the server answered — the full-size column appearing and
    * snapping shut — and a failed fetch painted them for the whole session, which
-   * is a collapsed sidebar silently coming back expanded offline (POD-571).
+   * is a folded Flight Deck silently coming back expanded offline (POD-571).
    *
    * `userLayout` was already a feed entity and already in the authority's
    * bootstrap (`latestChangeStates`); only the client's kind table was missing

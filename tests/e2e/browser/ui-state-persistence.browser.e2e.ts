@@ -155,7 +155,7 @@ test('native mode stays selected after a delayed layout feed', async ({ page }) 
   await expect(nativeTab).toHaveAttribute('aria-selected', 'true')
 })
 
-test('a stored collapsed layout paints collapsed — the default branch never mounts', async ({
+test('a stored folded Flight Deck paints folded — the default branch never mounts', async ({
   page,
 }) => {
   // POD-571. POD-540 made the stored value WIN; it still arrived late, so the
@@ -174,16 +174,13 @@ test('a stored collapsed layout paints collapsed — the default branch never mo
     { timeout: 30_000 },
   )
 
-  const expandedSidebar = '[aria-label="Collapse sidebar"]'
   const expandedFlightDeck = 'aside[aria-label="Flight Deck"]'
 
-  // Collapse both columns the way a user does, so the server rows are written
+  // Fold the Flight Deck the way a user does, so the server rows are written
   // through the real command path rather than planted.
   await expect(page.locator(expandedFlightDeck)).toBeVisible({ timeout: 30_000 })
   await page.getByTitle('Collapse Flight Deck').click()
   await expect(page.locator('[data-flight-deck-mode="folded"]')).toBeVisible()
-  await page.locator(expandedSidebar).click()
-  await expect(page.locator('aside.collapsed-sidebar')).toBeVisible()
 
   // Replicated layout writes are optimistic; cross the durable Outbox boundary
   // before a process-losing reload, exactly as the specs above do.
@@ -193,15 +190,13 @@ test('a stored collapsed layout paints collapsed — the default branch never mo
   // assertion below requires both answers. A probe that only ever reports
   // `false` is indistinguishable from a probe that never ran — and this one is
   // asserting an absence, which is exactly the shape that passes for the wrong
-  // reason. Seeing the folded bar and the rail appear is what proves it was
+  // reason. Seeing the folded bar appear is what proves it was
   // watching at all.
   await page.addInitScript(() => {
-    const seen = { sidebar: false, flightDeck: false, rail: false, foldedBar: false }
+    const seen = { flightDeck: false, foldedBar: false }
     ;(window as unknown as { __firstPaintProbe: typeof seen }).__firstPaintProbe = seen
     const check = (): void => {
-      if (document.querySelector('[aria-label="Collapse sidebar"]')) seen.sidebar = true
       if (document.querySelector('aside[aria-label="Flight Deck"]')) seen.flightDeck = true
-      if (document.querySelector('aside.collapsed-sidebar')) seen.rail = true
       if (document.querySelector('[data-flight-deck-mode="folded"]')) seen.foldedBar = true
     }
     // Observe `document`, NOT `document.documentElement`: an init script runs at
@@ -219,7 +214,6 @@ test('a stored collapsed layout paints collapsed — the default branch never mo
   })
   // Settle first: the probe's claim is only worth making once the layout the
   // server holds has certainly had time to arrive and repaint.
-  await expect(page.locator('aside.collapsed-sidebar')).toBeVisible({ timeout: 30_000 })
   await expect(page.locator('[data-flight-deck-mode="folded"]')).toBeVisible({ timeout: 30_000 })
   await page.waitForTimeout(2_000)
 
@@ -239,9 +233,7 @@ test('a stored collapsed layout paints collapsed — the default branch never mo
   // it (POD-709), so a new test in the middle changes which of them loses.
   await page.locator('[aria-label="Open flight deck"]').first().click()
   await expect(page.locator(expandedFlightDeck)).toBeVisible()
-  await page.locator('[aria-label="Expand sidebar"]').click()
-  await expect(page.locator(expandedSidebar)).toBeVisible()
   await page.waitForTimeout(1_000)
 
-  expect(probe).toEqual({ sidebar: false, flightDeck: false, rail: true, foldedBar: true })
+  expect(probe).toEqual({ flightDeck: false, foldedBar: true })
 })

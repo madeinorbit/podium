@@ -214,15 +214,6 @@ try {
       await page.getByTitle(/^Collapse pinned$/i).click()
       await checkpoint('pinned fold')
       await page.getByTitle(/^Expand pinned$/i).click()
-      await page.getByTestId('manage-projects').click()
-      const projects = page.getByRole('dialog')
-      await projects.getByRole('button', { name: 'Move empty up' }).click()
-      await projects.getByRole('button', { name: 'Save order' }).click()
-      await projects.waitFor({ state: 'hidden' })
-      await page.waitForFunction(
-        () => window.__sidebarRenderer.state().projectOrder?.[0] === 'empty-repo',
-      )
-      await checkpoint('manage projects')
       await page.evaluate(() => window.__sidebarRenderer.palette(true))
       const palette = page.getByRole('dialog', { name: 'Command palette' })
       await palette.waitFor()
@@ -230,36 +221,11 @@ try {
       await checkpoint('command palette')
       await palette.getByRole('combobox').press('Escape')
       await palette.waitFor({ state: 'hidden' })
-      // Restore the shared comparison fixture's original project order.
-      await page.getByTestId('manage-projects').click()
-      await projects.getByRole('button', { name: 'Move project up' }).click()
-      await projects.getByRole('button', { name: 'Save order' }).click()
-      await projects.waitFor({ state: 'hidden' })
     }
     await page.locator('[data-session="synthetic-guest-0"] button').first().click()
     await page.waitForFunction(() => window.__sidebarRenderer.state().pane === 'synthetic-guest-0')
     const guestNavigation = await page.evaluate(() => window.__sidebarRenderer.state())
     await checkpoint('guest selection')
-    await page.evaluate(() => window.__sidebarRenderer.rail(true))
-    await page.getByTestId('sidebar-rail').waitFor()
-    const rail = await page.locator('[data-testid="sidebar-rail"]').innerText()
-    await checkpoint('collapsed rail')
-    if (worklistProof) {
-      await page.getByTestId('sidebar-rail').getByText(targetSeq, { exact: true }).click()
-      await page.waitForFunction(
-        (target) => window.__sidebarRenderer.state().selected === target,
-        target,
-      )
-      await checkpoint('rail selection')
-      await page.evaluate(() => window.__sidebarRenderer.update({ title: 'Rail feed update' }))
-      await page.getByTestId('sidebar-rail').getByText(targetSeq, { exact: true }).hover()
-      await page
-        .getByTestId('rail-hover-card')
-        .getByText(/Rail feed update$/)
-        .waitFor()
-      await checkpoint('rail incoming update', true)
-    }
-    await page.evaluate(() => window.__sidebarRenderer.rail(false))
     await page.getByTestId('work-scroll').waitFor()
     await checkpoint('expanded sidebar')
     if (worklistProof) {
@@ -326,7 +292,6 @@ try {
       folded,
       filter,
       updated,
-      rail,
       builds,
       ...(worklistProof ? { checkpoints } : {}),
     }
@@ -338,10 +303,9 @@ try {
     folded: unknown
     filter: unknown
     updated: unknown
-    rail: unknown
   }
   const pool = results['pool'] as typeof legacy
-  for (const field of ['initial', 'folded', 'filter', 'updated', 'rail'] as const)
+  for (const field of ['initial', 'folded', 'filter', 'updated'] as const)
     if (JSON.stringify(legacy[field]) !== JSON.stringify(pool[field]))
       throw new Error(`Sidebar parity differs at ${field}`)
   if (

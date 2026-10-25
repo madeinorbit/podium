@@ -1,19 +1,18 @@
-import { MobxPool } from '@podium/client-graph'
-import { attachSettingsSource } from '../../test-support/settings-source.test.fixture'
-import { attachPreferenceSource } from '@podium/client-graph/preference-source'
-import { createPoolProjection } from '@podium/client-graph/runtime-pool'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 import type { RoutedUiState } from '@podium/client-core/ui-state'
+import { MobxPool } from '@podium/client-graph'
+import { attachPreferenceSource } from '@podium/client-graph/preference-source'
+import { createPoolProjection } from '@podium/client-graph/runtime-pool'
 import { normalizeSettings } from '@podium/runtime'
 import { act, cleanup, fireEvent, render } from '@testing-library/react'
-import { useMemo, useState, useSyncExternalStore } from 'react'
+import { useMemo, useSyncExternalStore } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { insideReader, measureWork } from '../../../../../tests/worklist/harness/src/work-meter'
+import { attachSettingsSource } from '../../test-support/settings-source.test.fixture'
 
 const seam = vi.hoisted(() => ({
   pool: undefined as MobxPool | undefined,
   owner: undefined as any,
-  projects: [] as any[],
 }))
 vi.mock('@/app/store-worklist-pool', () => ({
   useWorklistPool: () => seam.pool,
@@ -29,7 +28,6 @@ vi.mock('./stable-access', () => ({
 vi.mock('@/app/store', () => ({
   useRuntimeSelector: (read: (state: any) => unknown) => read(seam.owner),
 }))
-vi.mock('../worklist/use-sidebar-projects', () => ({ useSidebarProjects: () => seam.projects }))
 vi.mock('@/lib/use-feature', () => ({ useFeature: () => false, invalidateFeatures() {} }))
 vi.mock('@/lib/use-model-catalog', () => ({
   useModelCatalog: () => ({}),
@@ -40,18 +38,6 @@ vi.mock('@/lib/use-harness-descriptors', () => ({
 }))
 
 import { SettingsView } from './SettingsView'
-import { ManageProjectsDialog } from '../worklist/ManageProjectsDialog'
-
-/** The dialog behind a plain opener, as the sidebar's folder ⋯ menu opens it. */
-function ManageProjectsButton() {
-  const [open, setOpen] = useState(false)
-  return (
-    <>
-      <button type="button" aria-label="Manage projects" onClick={() => setOpen(true)} />
-      <ManageProjectsDialog open={open} onOpenChange={setOpen} />
-    </>
-  )
-}
 
 afterEach(() => {
   cleanup()
@@ -65,36 +51,7 @@ const settle = async () => {
     })
 }
 
-function projectDialog() {
-  const save = vi.fn(async () => {})
-  seam.projects = [
-    { key: 'repo-a', name: 'Alpha', aliases: ['repo-a', '/alpha'] },
-    { key: 'repo-b', name: 'Beta', aliases: ['repo-b', '/beta'] },
-  ]
-  seam.owner = { sidebarSettings: { repoOrder: ['repo-a', 'repo-b'] }, setSidebarSettings: save }
-  const view = render(<ManageProjectsButton />)
-  fireEvent.click(view.getByLabelText('Manage projects'))
-  return { view, save }
-}
-
-it('saves the displayed project order after a move', async () => {
-  const { view, save } = projectDialog()
-  fireEvent.click(view.getByLabelText('Move Alpha down'))
-  expect(view.getByRole('status').textContent).toBe('Alpha moved to position 2')
-  await act(async () => fireEvent.click(view.getByRole('button', { name: 'Save order' })))
-  expect(save).toHaveBeenCalledWith({ repoSort: 'custom', repoOrder: ['repo-b', 'repo-a'] })
-})
-
-it('discards the project draft on cancel and restores order on reopen', () => {
-  const { view, save } = projectDialog()
-  fireEvent.click(view.getByLabelText('Move Alpha down'))
-  fireEvent.click(view.getByRole('button', { name: 'Cancel' }))
-  fireEvent.click(view.getByLabelText('Manage projects'))
-  expect(view.getByLabelText('Move Alpha up').hasAttribute('disabled')).toBe(true)
-  expect(save).not.toHaveBeenCalled()
-})
-
-it('measures the mounted settings sections and project dialog at 1x and 4x', async () => {
+it('measures the mounted settings sections at 1x and 4x', async () => {
   for (const scale of [1, 4]) {
     const machines = Array.from({ length: 16 * scale }, (_, i) => ({
       id: `machine-${i}`,
@@ -148,19 +105,11 @@ it('measures the mounted settings sections and project dialog at 1x and 4x', asy
         }
       },
     })
-    const pool = (seam.pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.now() }))
+    const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.now() })
+    seam.pool = pool
     attachSettingsSource(pool, owner)
     attachPreferenceSource(pool, ui)
     const rowReads = vi.spyOn(pool, 'row')
-    let projectKeyReads = 0
-    seam.projects = repos.map((repo, i) => ({
-      get key() {
-        projectKeyReads++
-        return `repo-${i}`
-      },
-      name: `Project ${i}`,
-      aliases: [repo.path],
-    }))
     const settings = normalizeSettings({})
     const trpc = {
       settings: {
@@ -189,8 +138,6 @@ it('measures the mounted settings sections and project dialog at 1x and 4x', asy
       trpc,
       uiState: ui,
       setSettingsTab() {},
-      sidebarSettings: { repoOrder: seam.projects.map((p) => p.key) },
-      setSidebarSettings: async () => {},
     }
     vi.stubGlobal(
       'fetch',
@@ -205,23 +152,17 @@ it('measures the mounted settings sections and project dialog at 1x and 4x', asy
       state = { ...state, ...patch }
       for (const wake of listeners) wake()
     }
-    for (const tab of ['sessions', 'updates', 'repos', 'devices', 'projects']) {
-      publish({ machines, repos, settingsTab: tab === 'projects' ? 'sessions' : tab })
-      const Surface = () =>
-        insideReader(tab, () =>
-          tab === 'projects' ? ManageProjectsButton() : SettingsView({ onClose() {} }),
-        )
+    for (const tab of ['sessions', 'updates', 'repos', 'devices']) {
+      publish({ machines, repos, settingsTab: tab })
+      const Surface = () => insideReader(tab, () => SettingsView({ onClose() {} }))
       let view!: ReturnType<typeof render>
       const record = async (action: string, run: () => void) => {
-        projectKeyReads = 0
         rowReads.mockClear()
         const result = await measureWork(
           async () => {
             await act(async () => run())
             await settle()
             if (action === 'open') {
-              if (tab === 'projects')
-                await act(async () => fireEvent.click(view.getByLabelText('Manage projects')))
               if (tab === 'updates') await view.findByRole('button', { name: 'Check now' })
               if (tab === 'repos') await view.findByText('project-0')
               if (tab === 'devices') await view.findByText('Phone 0')
@@ -234,23 +175,20 @@ it('measures the mounted settings sections and project dialog at 1x and 4x', asy
           rowsByEntity[entity] = (rowsByEntity[entity] ?? 0) + 1
         console.log(
           'SETTINGS_WORK',
-          JSON.stringify({ scale, tab, action, projectKeyReads, rowsByEntity, ...result.work }),
+          JSON.stringify({ scale, tab, action, rowsByEntity, ...result.work }),
         )
         if (tab === 'updates') expect(rowsByEntity['settingsRepository'] ?? 0).toBe(0)
         if (tab === 'updates' && action === 'device')
           expect(rowsByEntity['settingsMachine'] ?? 0).toBeLessThanOrEqual(3)
         if (tab === 'updates' && action === 'repository')
           expect(rowsByEntity['settingsMachine'] ?? 0).toBe(0)
-        if (tab === 'projects' && action === 'setting')
-          expect(projectKeyReads).toBeLessThanOrEqual(seam.projects.length * 8)
       }
       await record('open', () => {
         view = render(<Surface />)
       })
       expect(view.baseElement.textContent?.length).toBeGreaterThan(20)
       await record('setting', () => {
-        if (tab === 'projects') fireEvent.click(view.getByLabelText('Move Project 0 down'))
-        else if (tab === 'sessions')
+        if (tab === 'sessions')
           fireEvent.click(view.container.querySelector('[data-slot="switch"]')!)
         else ui.set('probe-setting', 'changed')
       })

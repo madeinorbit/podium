@@ -1,22 +1,9 @@
-import type { SessionView } from '../session-values'
 import type { IssueProjection } from '@podium/model'
-import {
-  type AgentKind,
-  asIssueId,
-  asSessionId,
-  type IssueId,
-  type SessionId,
-} from '@podium/model'
-import { type HarnessDescriptorWire, issueDisplayRef } from '@podium/protocol'
-import { sessionParked, sessionPresentOnTask } from './fleet'
-import { agentLabel } from './quota'
-import { sessionsForIssueNav } from './session-ownership'
-import { motionPhase, sessionErrored, sessionErrorLabel } from './session-status'
-import { type IssueNavigationModel, isEmptyDraftVessel, issueAbandoned } from './compose/issues'
+import { type AgentKind, asIssueId, asSessionId, type IssueId, type SessionId } from '@podium/model'
 import {
   isDecisionIssue,
-  isFinished as issueClosed,
   isPhaseIssue,
+  isFinished as issueClosed,
   sessionWord,
   TASK_WORD_LABEL,
   type TaskWord,
@@ -24,7 +11,16 @@ import {
   taskWord,
   wordWantsAttention,
 } from '@podium/model/browser'
+import { type HarnessDescriptorWire, issueDisplayRef } from '@podium/protocol'
+import type { SessionView } from '../session-values'
+import { type IssueNavigationModel, isEmptyDraftVessel, issueAbandoned } from './compose/issues'
+import { sessionParked, sessionPresentOnTask } from './fleet'
+import { agentLabel } from './quota'
+import { sessionsForIssueNav } from './session-ownership'
+import { motionPhase, sessionErrored, sessionErrorLabel } from './session-status'
+
 export { isFinished as issueClosed } from '@podium/model/browser'
+
 import { isCoordinatorSession } from './compose/terminal'
 
 /**
@@ -580,10 +576,18 @@ const emptyLegacyMissionCounts = () => ({ missionIssueIds: 0, indexMissionSessio
 let legacyMissionCounting = false
 let legacyMissionCounts = emptyLegacyMissionCounts()
 export const missionLegacyStats = {
-  enable() { legacyMissionCounting = true },
-  disable() { legacyMissionCounting = false },
-  reset() { legacyMissionCounts = emptyLegacyMissionCounts() },
-  read() { return { ...legacyMissionCounts } },
+  enable() {
+    legacyMissionCounting = true
+  },
+  disable() {
+    legacyMissionCounting = false
+  },
+  reset() {
+    legacyMissionCounts = emptyLegacyMissionCounts()
+  },
+  read() {
+    return { ...legacyMissionCounts }
+  },
 }
 
 function missionSessionIndex(sessions: readonly SessionView[]): MissionSessionIndex {
@@ -738,10 +742,7 @@ function preferredSpinOffTip(
 ): IssueNavigationModel | null {
   if (candidates.length === 0) return null
   const staffed = candidates.filter((issue) => issueStaffed(sessions, issue.id, sessionIndex))
-  const pool =
-    staffed.length > 0
-      ? staffed
-      : candidates.filter((issue) => !issueClosed(issue))
+  const pool = staffed.length > 0 ? staffed : candidates.filter((issue) => !issueClosed(issue))
   const pick = (pool.length > 0 ? pool : candidates).slice()
   pick.sort((a, b) =>
     lastActiveAt(b, sessions, sessionIndex).localeCompare(lastActiveAt(a, sessions, sessionIndex)),
@@ -832,7 +833,10 @@ export function isVacatedOrigin(
  * not on the root, not on the sessions — so they can be built once and reused.
  */
 /** Facts needed for workspace membership, without a render-model dependency. */
-export type MissionIssueTopology = Pick<IssueProjection, 'id' | 'parentId' | 'archived' | 'deletedAt' | 'stage' | 'startedBySession'> & {
+export type MissionIssueTopology = Pick<
+  IssueProjection,
+  'id' | 'parentId' | 'archived' | 'deletedAt' | 'stage' | 'startedBySession'
+> & {
   deps?: readonly { id: string; type: string }[]
 }
 
@@ -859,7 +863,7 @@ interface MissionIssueIndex<T extends MissionIssueTopology = MissionIssueTopolog
   /** Child id → parent id, for walking UP the formal tree. `children` answers
    *  "what is under this"; {@link staffedSubtreeIds} needs the other direction,
    *  and rebuilding it per call would undo exactly what this index is for —
-   *  `SidebarRail` asks for `missionProgress` once per visible row. */
+   *  `UnifiedIssueRow` asks for `missionProgress` once per visible row. */
   parents: Map<string, string>
   /**
    * EVERY issue by id — archived and deleted included, exactly as the per-call
@@ -927,11 +931,17 @@ let lastMissionIndexIssues: readonly MissionIssueTopology[] | undefined
 let lastMissionIndex: MissionIssueIndex | undefined
 
 /** Formal-tree eligibility, shared with the incremental relationship index. */
-export function missionParentId(issue: { parentId?: string | null; archived?: boolean; deletedAt?: string | null }): string | null {
+export function missionParentId(issue: {
+  parentId?: string | null
+  archived?: boolean
+  deletedAt?: string | null
+}): string | null {
   return issue.archived || issue.deletedAt ? null : issue.parentId || null
 }
 
-function missionIssueIndex<T extends MissionIssueTopology>(issues: readonly T[]): MissionIssueIndex<T> {
+function missionIssueIndex<T extends MissionIssueTopology>(
+  issues: readonly T[],
+): MissionIssueIndex<T> {
   const cached = missionIndexes.get(issues)
   if (cached) return cached as MissionIssueIndex<T>
   // Same rows, new array: `[...issues]`, a fresh fold, a fresh view-model `all`
@@ -1022,8 +1032,7 @@ export function missionIndexStats(): {
  * adds no assumption); the innermost is a plain `Map` because a root id is a
  * string. The whole table for a superseded publish dies with its issue array.
  *
- * WHAT THIS BUYS. `SidebarRail` asks for `missionProgress` once per visible
- * root, `UnifiedIssueRow` once per visible row, and `FlightDeck` and
+ * `UnifiedIssueRow` asks for `missionProgress` once per visible row, and `FlightDeck` and
  * `FoldedFlightDeckBar` once each for the open mission — all inside the same
  * publish, all with the identical slices. Without this each of those recomputed
  * the whole derivation; with it the first one computes and the rest read.
@@ -1359,9 +1368,8 @@ export function missionRollup(
   sessionIndex?: MissionSessionIndex,
 ): MissionRollup {
   if (!rootId) return EMPTY_ROLLUP
-  // FROZEN, AND SHARED. Four surfaces ask this about the same root inside one
-  // publish (`UnifiedIssueRow` per row, `SidebarRail` per root, the deck and its
-  // folded bar); they all read the six counts and none writes, and the freeze is
+  // FROZEN, AND SHARED. Three surfaces ask this about the same root inside one
+  // publish (`UnifiedIssueRow` per row, the deck and its folded bar); they all read the six counts and none writes, and the freeze is
   // what keeps it that way now that they read the same object.
   return memoBySlices(missionProgressCache, issues, sessions, rootId, () =>
     Object.freeze(computeMissionRollup(issues, sessions, rootId, sessionIndex)),
@@ -1899,7 +1907,9 @@ export function deckIssueState(
     closedReason: issue.closedReason,
     needsHuman: issue.needsHuman,
     blocked:
-      issue.blocked || context.unmetDependency === true || waitingRefs(issue, context.byId).length > 0,
+      issue.blocked ||
+      context.unmetDependency === true ||
+      waitingRefs(issue, context.byId).length > 0,
   }
   const state = taskWord(facts, {
     sessions: sessions.map((session) => sessionWord(session, { issueClosed: closed })),
@@ -2563,10 +2573,7 @@ export function issueIsActionable(
   sessions: readonly SessionView[],
 ): boolean {
   return (
-    !issue.archived &&
-    !issue.deletedAt &&
-    !issueClosed(issue) &&
-    issueNeedsHuman(issue, sessions)
+    !issue.archived && !issue.deletedAt && !issueClosed(issue) && issueNeedsHuman(issue, sessions)
   )
 }
 

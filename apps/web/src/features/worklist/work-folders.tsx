@@ -129,7 +129,6 @@ export interface FolderMenu {
   onToggle: () => void
   onCollapseAll?: () => void
   onExpandAll?: () => void
-  onManage?: () => void
 }
 
 /**
@@ -296,12 +295,6 @@ function FolderOptions({
         {menu.onExpandAll && (
           <DropdownMenuItem onClick={menu.onExpandAll}>Expand all projects</DropdownMenuItem>
         )}
-        {menu.onManage && (
-          <>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={menu.onManage}>Reorder projects…</DropdownMenuItem>
-          </>
-        )}
       </DropdownMenuContent>
     </DropdownMenu>
   )
@@ -315,7 +308,7 @@ export interface OrderedProject {
 }
 
 /**
- * The project-order writer the old Manage projects dialog used, shared with the
+ * The project-order writer shared by the
  * folder drag and the ⋯ menu's Move up / Move down: the same `repoOrder`
  * setting, merged so projects not on screen keep their saved slots.
  */

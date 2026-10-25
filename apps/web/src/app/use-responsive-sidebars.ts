@@ -7,25 +7,19 @@ export const SIDEBARS_RESTORE_AT = 1680
 
 interface WindowLayout {
   compact: boolean
-  sidebarRevealed: boolean
   rightPanelRevealed: boolean
 }
 
 /** Automatic folds belong to this window; only explicit actions write preferences. */
 export function useResponsiveSidebars({
-  sidebarCollapsed: savedSidebarCollapsed,
   rightPanel: savedRightPanel,
-  setSidebarCollapsed: saveSidebarCollapsed,
   setRightPanel: saveRightPanel,
 }: {
-  sidebarCollapsed: boolean
   rightPanel: RightPanelTab | null
-  setSidebarCollapsed: (collapsed: boolean) => void
   setRightPanel: (panel: RightPanelTab | null) => void
 }) {
   const [layout, setLayout] = useState<WindowLayout>(() => ({
     compact: typeof window !== 'undefined' && window.innerWidth < SIDEBARS_FOLD_BELOW,
-    sidebarRevealed: false,
     rightPanelRevealed: false,
   }))
 
@@ -35,9 +29,7 @@ export function useResponsiveSidebars({
       setLayout((previous) => {
         const compact = width < (previous.compact ? SIDEBARS_RESTORE_AT : SIDEBARS_FOLD_BELOW)
         // Keep manual reveals throughout a compact visit, including small resizes.
-        return compact === previous.compact
-          ? previous
-          : { compact, sidebarRevealed: false, rightPanelRevealed: false }
+        return compact === previous.compact ? previous : { compact, rightPanelRevealed: false }
       })
     }
     window.addEventListener('resize', onResize)
@@ -45,13 +37,6 @@ export function useResponsiveSidebars({
     return () => window.removeEventListener('resize', onResize)
   }, [])
 
-  const setSidebarCollapsed = useCallback(
-    (collapsed: boolean) => {
-      setLayout((previous) => ({ ...previous, sidebarRevealed: !collapsed }))
-      saveSidebarCollapsed(collapsed)
-    },
-    [saveSidebarCollapsed],
-  )
   const setRightPanel = useCallback(
     (panel: RightPanelTab | null) => {
       setLayout((previous) => ({ ...previous, rightPanelRevealed: panel !== null }))
@@ -62,9 +47,7 @@ export function useResponsiveSidebars({
 
   return {
     compact: layout.compact,
-    sidebarCollapsed: savedSidebarCollapsed || (layout.compact && !layout.sidebarRevealed),
     rightPanel: layout.compact && !layout.rightPanelRevealed ? null : savedRightPanel,
-    setSidebarCollapsed,
     setRightPanel,
   }
 }

@@ -5,12 +5,7 @@
  * its rows, its bands and its folds are exactly what ships and only the data
  * underneath is invented.
  *
- * WHY A HARNESS AND NOT THE LIVE COLUMN. This exists to measure the FOLD's
- * motion, and the live instance on this host is fed by a running fleet: an idle
- * second of its sidebar delivers 2 frames and two 1.2s long tasks with nothing
- * clicked at all. Against that baseline a butter-smooth fold and a jump cut
- * measure the same. Here the column is still until something is pressed, so the
- * frames the fold delivers are the fold's.
+ * The fixture stays still until an interaction, so layout checks are repeatable.
  *
  * The fixtures are ported from `SidebarUnified.pinned.test.tsx`'s `vi.hoisted`
  * block rather than invented, so the harness and the unit suite agree about what
@@ -216,7 +211,7 @@ const store = {
       updatePersonal: { mutate: async () => ({}) },
     },
     issues: { defer: { mutate: async () => ({}) }, update: { mutate: async () => ({}) } },
-    // The rail's footer search is behind `command-palette`; without this the
+    // Search uses the `command-palette` feature; without this the
     // harness would draw a footer the shipping column does not have.
     features: {
       state: {

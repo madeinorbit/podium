@@ -2,19 +2,12 @@ import { describe, expect, it } from 'vitest'
 import {
   isOverlayView,
   nextBaseView,
-  readBooleanState,
   readFlightDeckCollapsed,
   readRightPanel,
   rightPanelAllowed,
 } from './shell-state'
 
 describe('desktop shell persistence readers', () => {
-  it('restores independent sidebar collapse state without treating corrupt values as true', () => {
-    expect(readBooleanState('true')).toBe(true)
-    expect(readBooleanState('0', true)).toBe(false)
-    expect(readBooleanState('wat', false)).toBe(false)
-  })
-
   it('accepts only a known right-dock panel', () => {
     expect(readRightPanel('superagent')).toBe('superagent')
     expect(readRightPanel('git')).toBe('git')

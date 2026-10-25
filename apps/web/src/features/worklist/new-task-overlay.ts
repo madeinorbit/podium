@@ -15,10 +15,8 @@
  * behind it, and the prompt survives in the composer's own persisted draft.
  */
 
-import { FIRST_TASK_ACTIVATION_DRAFT_KEY, type MainView } from '@podium/client-core/ui-state'
+import type { MainView } from '@podium/client-core/ui-state'
 import { useSyncExternalStore } from 'react'
-import { readFirstTaskDraft } from '@/features/setup/first-task-draft'
-import { usePersistedUiValue } from '@/lib/use-persisted-ui-state'
 
 export interface NewTaskOverlayOrigin {
   /** The main view behind the overlay, restored on cancel. */
@@ -69,15 +67,4 @@ export function useNewTaskOverlayOpen(): boolean {
     () => origin !== null,
     () => false,
   )
-}
-
-/**
- * What the sidebar's draft row shows while the overlay is open: the project the
- * task will land in and the prompt so far. Null while the overlay is shut.
- */
-export function useNewTaskDraftRow(): { repoPath: string; title: string } | null {
-  const open = useNewTaskOverlayOpen()
-  const draft = usePersistedUiValue(FIRST_TASK_ACTIVATION_DRAFT_KEY, readFirstTaskDraft)
-  if (!open) return null
-  return { repoPath: draft.repoPath, title: draft.title }
 }

@@ -46,12 +46,8 @@ describe('sidebar fold state is per-user replicated layout', () => {
     expect(layoutKeyFromLegacy(key)).toMatch(/^sidebar\.section\./)
   })
 
-  it('does not collide with the reserved sidebar keys', () => {
-    // `width` is deliberately device-local (pixel geometry) and `collapsed` is an
-    // exact layout key; a fold key must never be mistaken for either.
-    const reserved = ['sidebar.collapsed', null]
-    for (const [, key] of FOLD_KEYS) {
-      expect(reserved).not.toContain(layoutKeyFromLegacy(key))
-    }
+  it('keeps the width and retired column fold out of section routing', () => {
+    expect(layoutKeyFromLegacy('podium:sidebar:width')).toBeNull()
+    expect(layoutKeyFromLegacy('podium:sidebar:collapsed')).toBeNull()
   })
 })

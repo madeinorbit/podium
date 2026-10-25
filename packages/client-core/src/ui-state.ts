@@ -380,7 +380,6 @@ export function readStoredDensity(ui: Pick<UiState, 'get'>): ShellDensity {
 }
 /** Superagent column mode (open | folded) — replicated via layout-state. */
 export const SUPERAGENT_MODE_KEY = 'podium:superagent:mode'
-export const SIDEBAR_COLLAPSED_KEY = 'podium:sidebar:collapsed'
 
 /**
  * Keys that are not UI view-state but must still appear in the routing table so

@@ -81,12 +81,12 @@ describe('sidebarToggleFromEvent', () => {
       ...mods,
     })
 
-  it('maps ⌘B to the right sidebar and ⇧⌘B to the left', () => {
+  it('maps ⌘B to the right sidebar and ignores ⇧⌘B', () => {
     expect(chord('b', { metaKey: true })).toBe('right')
     expect(chord('B', { metaKey: true })).toBe('right')
     expect(chord('b', { ctrlKey: true })).toBe('right')
-    expect(chord('b', { metaKey: true, shiftKey: true })).toBe('left')
-    expect(chord('b', { ctrlKey: true, shiftKey: true })).toBe('left')
+    expect(chord('b', { metaKey: true, shiftKey: true })).toBeNull()
+    expect(chord('b', { ctrlKey: true, shiftKey: true })).toBeNull()
   })
 
   it('ignores Option, other letters, and an unmodified B', () => {

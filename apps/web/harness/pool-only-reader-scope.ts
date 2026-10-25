@@ -38,8 +38,6 @@ export const WORKSPACE_READER_FILES = [
   'apps/web/src/features/issues/board-data-layer.ts',
   'apps/web/src/features/issues/IssuePanelView.tsx',
   'apps/web/src/features/worklist/SidebarUnified.tsx',
-  'apps/web/src/features/worklist/use-sidebar-projects.ts',
-  'apps/web/src/features/worklist/SidebarRail.tsx',
   'apps/web/src/features/chat/IssueChipLiveness.tsx',
   'apps/web/src/features/issues/issue-page/pool-screen.ts',
   'apps/web/src/features/issues/explorer/explorer-context.tsx',

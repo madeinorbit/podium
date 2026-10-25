@@ -1,22 +1,22 @@
-import { deadlineClock, setClockWakeSource } from '@podium/mobx-helpers'
-import { browserClockWakeSource } from '../src/lib/clock-wake-source'
-import { referenceState } from '../../../tests/worklist/diagnostics/reference-state'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
+import { deadlineClock, setClockWakeSource } from '@podium/mobx-helpers'
 import { asIssueId, asUserId } from '@podium/model/browser'
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import { flushSync } from 'react-dom'
 import { createRoot } from 'react-dom/client'
+import { referenceState } from '../../../tests/worklist/diagnostics/reference-state'
 import { CommandPaletteBoundary } from '../src/app/CommandPaletteBoundary'
 import {
   attachWorklistPool,
   useWorklistPool,
   worklistPoolSurvivors,
 } from '../src/app/store-worklist-pool'
-import { SidebarRail } from '../src/features/worklist/SidebarRail'
 import { SidebarUnified } from '../src/features/worklist/SidebarUnified'
+import { ResizableAside } from '../src/features/worklist/sidebar-common'
+import { browserClockWakeSource } from '../src/lib/clock-wake-source'
 import { ConfirmProvider } from '../src/lib/hooks/use-confirm'
 import { createSidebarFixture } from './sidebar-fixture'
 import '../src/index.css'
@@ -32,17 +32,14 @@ if (worklistProof) storeStats.enable()
 const synthetic = createSidebarFixture(count)
 let runtime: ClientRuntime | undefined
 let ready = false
-let toggleRail: ((value: boolean) => void) | undefined
 let config = { httpOrigin: 'http://offline.invalid', wsClientUrl: 'ws://offline.invalid' }
 const failures: string[] = []
 const root = createRoot(document.getElementById('root')!)
 
 function Fixture() {
-  const [rail, setRail] = useState(false)
   const owner = useStoreHandle() as ClientRuntime
   const pool = useWorklistPool()
   useEffect(() => {
-    toggleRail = setRail
     runtime = owner
     void referenceState(owner)
       .refreshRepos()
@@ -52,21 +49,13 @@ function Fixture() {
     return () => {
       runtime = undefined
       ready = false
-      toggleRail = undefined
     }
   }, [owner, pool])
   return (
     <main className="flex h-screen bg-background text-foreground">
-      <aside
-        data-sidebar-shell
-        className={
-          rail
-            ? 'flex w-[58px] flex-col bg-sidebar'
-            : 'worklist-column flex w-[320px] flex-col bg-sidebar'
-        }
-      >
-        {rail ? <SidebarRail /> : <SidebarUnified />}
-      </aside>
+      <ResizableAside>
+        <SidebarUnified />
+      </ResizableAside>
       <div className="p-6 text-sm text-text-dim">Synthetic StoreProvider fixture · {'pool'}</div>
       {worklistProof && <CommandPaletteBoundary />}
     </main>
@@ -102,7 +91,6 @@ const fixture = {
   ready: () => ready,
   failures: () => [...failures],
   show,
-  rail: (value: boolean) => toggleRail?.(value),
   palette: (value: boolean) => runtime?.access.setPaletteOpen(value),
   update: (patch: Record<string, unknown>) =>
     synthetic.patch('issueProjection', `synthetic-${count - 1}`, patch),

@@ -3,7 +3,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
   openSettings: vi.fn(),
-  toggleLeft: vi.fn(),
   toggleFlight: vi.fn(),
   toggleRight: vi.fn(),
 }))
@@ -38,7 +37,6 @@ afterEach(() => {
   delete (globalThis as { __PODIUM_ABOUT__?: unknown }).__PODIUM_ABOUT__
   delete (globalThis as { __PODIUM_SETTINGS__?: unknown }).__PODIUM_SETTINGS__
   delete (globalThis as { __PODIUM_ADD_PROJECT__?: unknown }).__PODIUM_ADD_PROJECT__
-  delete (globalThis as { __PODIUM_TOGGLE_LEFT_SIDEBAR__?: unknown }).__PODIUM_TOGGLE_LEFT_SIDEBAR__
 })
 
 describe('DesktopMenuHost', () => {
@@ -46,7 +44,6 @@ describe('DesktopMenuHost', () => {
     render(
       <DesktopMenuHost
         openSettings={mocks.openSettings}
-        toggleLeftSidebar={mocks.toggleLeft}
         toggleFlightDeck={mocks.toggleFlight}
         toggleRightSidebar={mocks.toggleRight}
       />,
@@ -56,7 +53,6 @@ describe('DesktopMenuHost', () => {
       __PODIUM_ABOUT__?: () => void
       __PODIUM_SETTINGS__?: () => void
       __PODIUM_ADD_PROJECT__?: () => void
-      __PODIUM_TOGGLE_LEFT_SIDEBAR__?: () => void
       __PODIUM_TOGGLE_FLIGHT_DECK__?: () => void
       __PODIUM_TOGGLE_RIGHT_SIDEBAR__?: () => void
     }
@@ -71,20 +67,17 @@ describe('DesktopMenuHost', () => {
     g.__PODIUM_ADD_PROJECT__?.()
     await waitFor(() => expect(screen.getByRole('dialog', { name: 'Add project' })).toBeTruthy())
 
-    g.__PODIUM_TOGGLE_LEFT_SIDEBAR__?.()
     g.__PODIUM_TOGGLE_FLIGHT_DECK__?.()
     g.__PODIUM_TOGGLE_RIGHT_SIDEBAR__?.()
-    expect(mocks.toggleLeft).toHaveBeenCalledOnce()
     expect(mocks.toggleFlight).toHaveBeenCalledOnce()
     expect(mocks.toggleRight).toHaveBeenCalledOnce()
   })
 
-  it('toggles the right sidebar on ⌘B and the left on ⇧⌘B in the desktop shell', () => {
+  it('toggles the right sidebar on ⌘B and ignores ⇧⌘B in the desktop shell', () => {
     desktopGlobal.__PODIUM_DESKTOP__ = { platform: 'macos' }
     render(
       <DesktopMenuHost
         openSettings={mocks.openSettings}
-        toggleLeftSidebar={mocks.toggleLeft}
         toggleFlightDeck={mocks.toggleFlight}
         toggleRightSidebar={mocks.toggleRight}
       />,
@@ -92,12 +85,11 @@ describe('DesktopMenuHost', () => {
 
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'b', metaKey: true, bubbles: true }))
     expect(mocks.toggleRight).toHaveBeenCalledOnce()
-    expect(mocks.toggleLeft).not.toHaveBeenCalled()
 
     window.dispatchEvent(
       new KeyboardEvent('keydown', { key: 'b', metaKey: true, shiftKey: true, bubbles: true }),
     )
-    expect(mocks.toggleLeft).toHaveBeenCalledOnce()
+    expect(mocks.toggleRight).toHaveBeenCalledOnce()
     expect(mocks.toggleFlight).not.toHaveBeenCalled()
   })
 
@@ -105,7 +97,6 @@ describe('DesktopMenuHost', () => {
     render(
       <DesktopMenuHost
         openSettings={mocks.openSettings}
-        toggleLeftSidebar={mocks.toggleLeft}
         toggleFlightDeck={mocks.toggleFlight}
         toggleRightSidebar={mocks.toggleRight}
       />,

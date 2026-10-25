@@ -21,7 +21,6 @@ import { worklistSlice } from '../../../../../tests/worklist/diagnostics/referen
 import { referenceState } from '../../../../../tests/worklist/diagnostics/reference-state'
 import { expectPoolOutput } from '../../../../../tests/worklist/harness/src/oracle/pool-output'
 import { createSidebarFixture } from '../../../test/sidebar-fixture'
-import { SidebarRail } from './SidebarRail'
 import { SidebarUnified } from './SidebarUnified'
 
 const mode = vi.hoisted(() => ({
@@ -100,9 +99,16 @@ vi.mock('./work-folds', async (importOriginal) => {
       if (id) mode.commits.set(id, (mode.commits.get(id) ?? 0) + 1)
     })
     // POD-3911: the profiler sees the clock leaf; the effect above counts row bodies.
-    return <Profiler id={`fold-age:${id}`} onRender={() => {
-      if (id) mode.ageCommits.set(id, (mode.ageCommits.get(id) ?? 0) + 1)
-    }}>{original.FoldedWorkRow(props)}</Profiler>
+    return (
+      <Profiler
+        id={`fold-age:${id}`}
+        onRender={() => {
+          if (id) mode.ageCommits.set(id, (mode.ageCommits.get(id) ?? 0) + 1)
+        }}
+      >
+        {original.FoldedWorkRow(props)}
+      </Profiler>
+    )
   }
   return { ...original, FoldedWorkRow: CountedFolded, WorklistFoldedRow: observer(CountedFolded) }
 })
@@ -124,7 +130,7 @@ function guestUserStateId(layer: 'pool') {
   return sessionUserStateRowId(asUserId(`sidebar-${layer}`), asSessionId('synthetic-guest-0'))
 }
 
-async function mount(layer: 'pool', rail = false, count = 12) {
+async function mount(layer: 'pool', count = 12) {
   localStorage.clear()
   window.history.replaceState(null, '', '/')
   mode.reads = 0
@@ -150,7 +156,7 @@ async function mount(layer: 'pool', rail = false, count = 12) {
     >
       <ConfirmProvider>
         <Capture />
-        {rail ? <SidebarRail /> : <SidebarUnified />}
+        <SidebarUnified />
         <CommandPalette />
       </ConfirmProvider>
     </StoreProvider>,
@@ -158,10 +164,7 @@ async function mount(layer: 'pool', rail = false, count = 12) {
   await act(async () => {
     await referenceState(runtime).refreshRepos()
   })
-  await waitFor(
-    () => expect(screen.getByTestId(rail ? 'sidebar-rail' : 'work-scroll')).toBeTruthy(),
-    { timeout: 10000 },
-  )
+  await waitFor(() => expect(screen.getByTestId('work-scroll')).toBeTruthy(), { timeout: 10000 })
   if (layer === 'pool') await waitFor(() => expect(pool).not.toBeNull())
   await waitFor(() => expect(screen.getByText('Only responsive target')).toBeTruthy(), {
     timeout: 10000,
@@ -475,10 +478,11 @@ describe('real sidebar pool cutover', () => {
     await act(async () => {
       fireEvent.click(screen.getAllByTestId('folder-options')[0]!)
     })
+    expect(screen.queryByRole('menuitem', { name: 'Reorder projects…' })).toBeNull()
+    expect(screen.getByRole('menuitem', { name: 'Move down' })).toBeTruthy()
     await act(async () => {
-      fireEvent.click(await screen.findByRole('menuitem', { name: 'Reorder projects…' }))
+      fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' })
     })
-    expect(screen.getByRole('dialog')).toBeTruthy()
     await act(async () => {
       referenceState(runtime).setPaletteOpen(true)
     })
@@ -527,36 +531,6 @@ describe('real sidebar pool cutover', () => {
     await waitFor(() => expect(screen.getAllByTestId('unified-issue-row')).toHaveLength(1))
     expect(screen.getByTestId('work-search-count').textContent).toBe('1/9')
     expect(mode.reads).toBe(0)
-  })
-
-  it('keeps the collapsed rail off the legacy worklist', async () => {
-    vi.useFakeTimers({ toFake: ['Date'] })
-    vi.setSystemTime(NOW)
-    mode.reads = 0
-    const fixture = createSidebarFixture(12, NOW)
-    render(
-      <StoreProvider
-        principal={asClientPrincipal(asUserId('rail-pool'))}
-        config={{ httpOrigin: 'http://offline.invalid', wsClientUrl: 'ws://offline.invalid' }}
-        api={fixture.api}
-        createReplicaFn={() => fixture.replica}
-        networkEnabled={false}
-        onFatalError={(message) => {
-          throw new Error(message)
-        }}
-        attachRuntime={(owner) =>
-          attachWorklistPool(owner, (error) => {
-            throw error
-          })
-        }
-      >
-        <Capture />
-        <SidebarRail />
-      </StoreProvider>,
-    )
-    await waitFor(() => expect(screen.getByTestId('sidebar-rail')).toBeTruthy())
-    expect(mode.reads).toBe(0)
-    expect(screen.getAllByTestId('issue-id-square').length).toBeGreaterThan(0)
   })
 
   it('preserves legacy navigation membership for exited, headless and archived sessions', async () => {

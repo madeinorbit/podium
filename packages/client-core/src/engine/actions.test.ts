@@ -1,8 +1,10 @@
 import type { IssueProjection, LayoutSnapshot, SessionId, SessionMeta } from '@podium/model'
 import { asIssueId, asMutationId, asSessionId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
+import { fixtureNavigation } from '../../test-support/navigation'
 import type { PodiumClientApi } from '../api'
 import type { OutboxEntry } from '../outbox'
+import type { SessionView } from '../session-values'
 import type { SocketHub } from '../socket-transport'
 import type { Router } from '../ui-state'
 import { allTabIds, emptyWorkspace, openTab, splitPane, type WorkspaceLayout } from '../values'
@@ -16,8 +18,6 @@ import { type NavigationIntent, planNavigation } from './navigation'
 import type { EngineState } from './state'
 import type { StoreNotices } from './types'
 import type { EngineOutbox, OutboxKinds } from './wiring'
-import { fixtureNavigation } from '../../test-support/navigation'
-import type { SessionView } from '../session-values'
 
 const sessionId = asSessionId('session-1')
 
@@ -160,7 +160,12 @@ function harness(
   const navigation = fixtureNavigation({
     issues: () => state.issueProjections as IssueProjection[],
     sessions: () => state.sessions as SessionView[],
-    follow: listener => { listeners.add(listener); return () => { listeners.delete(listener) } },
+    follow: (listener) => {
+      listeners.add(listener)
+      return () => {
+        listeners.delete(listener)
+      }
+    },
   })
   Object.assign(state, { navigation })
   return {
@@ -295,12 +300,12 @@ describe('engine action ownership boundary', () => {
   it('paints a persisted layout base with no fetch, no await and no frame in between', () => {
     // POD-571. The controller used to start empty and fill from
     // `api.layout.get.query()`, so the shell mounted its DEFAULT branch first —
-    // an expanded sidebar, an open Flight Deck — and swapped when the network
+    // expanded sidebar sections, an open Flight Deck — and swapped when the network
     // answered. Read SYNCHRONOUSLY here on purpose: an assertion behind an
     // `await` would pass just as happily against the bug it is pinning.
-    const h = harness({ seed: { 'sidebar.collapsed': 'true', 'superagent.mode': 'folded' } })
+    const h = harness({ seed: { 'sidebar.section.pinned': 'true', 'superagent.mode': 'folded' } })
 
-    expect(h.actions.replicatedLayout.get('sidebar.collapsed')).toBe('true')
+    expect(h.actions.replicatedLayout.get('sidebar.section.pinned')).toBe('true')
     expect(h.actions.replicatedLayout.get('podium:superagent:mode')).toBe('folded')
   })
 
@@ -308,11 +313,11 @@ describe('engine action ownership boundary', () => {
     // The offline-reload fold (#263) has to survive the seed: durable optimism
     // is NEWER than the base it was queued against, so a restored queue still
     // wins. Otherwise a reload would paint the value the user just toggled away.
-    const h = harness({ seed: { 'sidebar.collapsed': 'true' } })
+    const h = harness({ seed: { 'sidebar.section.pinned': 'true' } })
 
-    h.actions.replicatedLayout.set('sidebar.collapsed', 'false')
+    h.actions.replicatedLayout.set('sidebar.section.pinned', 'false')
 
-    expect(h.actions.replicatedLayout.get('sidebar.collapsed')).toBe('false')
+    expect(h.actions.replicatedLayout.get('sidebar.section.pinned')).toBe('false')
     await vi.waitFor(() => expect(h.queued).toHaveLength(1))
   })
 
@@ -321,7 +326,7 @@ describe('engine action ownership boundary', () => {
     // round-trip is pointless, and persisting an unaccepted local write would
     // let it survive a reload as though the server had taken it.
     const installed: LayoutSnapshot[] = []
-    const h = harness({ seed: { 'sidebar.collapsed': 'true' }, installed })
+    const h = harness({ seed: { 'sidebar.section.pinned': 'true' }, installed })
 
     expect(installed).toEqual([])
 
@@ -329,8 +334,8 @@ describe('engine action ownership boundary', () => {
     await vi.waitFor(() => expect(h.queued).toHaveLength(1))
     expect(installed).toEqual([])
 
-    h.actions.replicatedLayout.replace({ 'sidebar.collapsed': 'false' })
-    expect(installed).toEqual([{ 'sidebar.collapsed': 'false' }])
+    h.actions.replicatedLayout.replace({ 'sidebar.section.pinned': 'false' })
+    expect(installed).toEqual([{ 'sidebar.section.pinned': 'false' }])
   })
 
   it('drops a non-layout key from the seed rather than projecting it', () => {
@@ -338,9 +343,11 @@ describe('engine action ownership boundary', () => {
     // disk it was read from. `installBase`'s filter is the same one every other
     // install path goes through — a device-local key must not acquire a
     // replicated home by being written into the cache.
-    const h = harness({ seed: { 'sidebar.collapsed': 'true', 'podium.shell.density': 'compact' } })
+    const h = harness({
+      seed: { 'sidebar.section.pinned': 'true', 'podium.shell.density': 'compact' },
+    })
 
-    expect(h.actions.replicatedLayout.get('sidebar.collapsed')).toBe('true')
+    expect(h.actions.replicatedLayout.get('sidebar.section.pinned')).toBe('true')
     expect(() => h.actions.replicatedLayout.get('podium.shell.density')).toThrow(
       /not a replicated layout key/,
     )

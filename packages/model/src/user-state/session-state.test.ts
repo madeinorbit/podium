@@ -28,10 +28,10 @@ import {
 import {
   DEVICE_LOCAL_UI_KEYS,
   isLayoutKey,
-  layoutKeyFromLegacy,
+  LAYOUT_KEY_FROM_LEGACY,
   LayoutSnapshot,
   LayoutState,
-  LAYOUT_KEY_FROM_LEGACY,
+  layoutKeyFromLegacy,
 } from './layout-state'
 import { PersonalPreferenceState } from './preference-state'
 import {
@@ -43,7 +43,7 @@ import {
 } from './session-state'
 
 describe('the family list is the thing every totality assertion below reads', () => {
-  it('covers inventory §7.1 completely: eight schemas plus one declared non-member, plus POD-1380\'s ninth member from outside §7.1', () => {
+  it("covers inventory §7.1 completely: eight schemas plus one declared non-member, plus POD-1380's ninth member from outside §7.1", () => {
     // Eight + one = the nine distinct facts §7.1 enumerates once the three issue
     // markers are recognised as one key. If a member is ever dropped, this fails
     // BEFORE the it.each blocks below quietly stop checking it.
@@ -212,8 +212,9 @@ describe('the projection overlays', () => {
   })
 
   it('`pinned` is derived from pinnedAt in exactly one place', () => {
-    expect(issueOverlayOf({ readAt: null, tuckedAt: null, pinnedAt: '2026-01-01T00:00:00.000Z' }))
-      .toEqual({ readAt: null, tuckedAt: null, pinned: true })
+    expect(
+      issueOverlayOf({ readAt: null, tuckedAt: null, pinnedAt: '2026-01-01T00:00:00.000Z' }),
+    ).toEqual({ readAt: null, tuckedAt: null, pinned: true })
   })
 
   it('the empty session overlay is never-opened and never-snoozed, and they differ', () => {
@@ -263,7 +264,7 @@ describe('layout key routing (POD-1350 / POD-403 shared vocabulary)', () => {
   it('maps legacy ui-state keys onto layout keys, and leaves device-local keys unmapped', () => {
     expect(layoutKeyFromLegacy('podium.dockTab')).toBe('dockTab')
     expect(layoutKeyFromLegacy('podium.superOpen.v2')).toBe('superOpen')
-    expect(layoutKeyFromLegacy('podium:sidebar:collapsed')).toBe('sidebar.collapsed')
+    expect(layoutKeyFromLegacy('podium:sidebar:collapsed')).toBeNull()
     expect(layoutKeyFromLegacy('podium:sidebar:projects')).toBe('sidebar.section.projects')
     // Retired with DockSection (POD-559) — no longer a layout family.
     expect(layoutKeyFromLegacy('podium.dock.section.mail')).toBeNull()
@@ -297,9 +298,9 @@ describe('layout key routing (POD-1350 / POD-403 shared vocabulary)', () => {
     expect(
       LayoutState.safeParse({ userId: 'user:sole', entityId: 'view', value: 'workspace' }).success,
     ).toBe(false)
-    expect(
-      LayoutSnapshot.safeParse({ dockTab: 'files', 'podium.view': 'workspace' }).success,
-    ).toBe(false)
+    expect(LayoutSnapshot.safeParse({ dockTab: 'files', 'podium.view': 'workspace' }).success).toBe(
+      false,
+    )
     expect(LayoutSnapshot.safeParse({ dockTab: 'files' }).success).toBe(true)
   })
 })

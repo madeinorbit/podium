@@ -1,4 +1,9 @@
-import { isAbsoluteMachinePath, isValidMachinePath, machinePathSeparator, normalizeMachinePath } from '../machine-path'
+import {
+  isAbsoluteMachinePath,
+  isValidMachinePath,
+  machinePathSeparator,
+  normalizeMachinePath,
+} from '../machine-path'
 /**
  * PER-USER STATE FAMILY — SIDEBAR AND TAB LAYOUT (POD-1350).
  *
@@ -68,8 +73,6 @@ export const LAYOUT_EXACT_KEYS = [
   'panelModeDefault',
   /** Sidebar chrome layout variant (e.g. unified). */
   'sidebarLayout',
-  /** Whether the sidebar rail is collapsed. */
-  'sidebar.collapsed',
   /** Legacy sidebar sub-tab when present. */
   'sidebarTab',
   /** Home surface mode preference. */
@@ -138,7 +141,6 @@ export const LAYOUT_KEY_FROM_LEGACY: Readonly<Record<string, LayoutExactKey>> = 
   // spellings outside packages/client-core/src/ui-state.ts. They are mapped in
   // {@link layoutKeyFromLegacy} by composition instead.
   'podium.sidebarLayout': 'sidebarLayout',
-  'podium:sidebar:collapsed': 'sidebar.collapsed',
   'podium.sidebarTab': 'sidebarTab',
   'podium.homeMode': 'homeMode',
   'podium.issues.display': 'issues.display',
@@ -169,8 +171,7 @@ export function layoutKeyFromLegacy(legacyKey: string): string | null {
   // Section collapses: podium:sidebar:<name> except the reserved width/collapsed.
   if (legacyKey.startsWith('podium:sidebar:')) {
     const rest = legacyKey.slice('podium:sidebar:'.length)
-    if (!rest || rest === 'width' || rest === 'collapsed')
-      return rest === 'collapsed' ? 'sidebar.collapsed' : null
+    if (!rest || rest === 'width' || rest === 'collapsed') return null
     return `sidebar.section.${rest}`
   }
   return null
