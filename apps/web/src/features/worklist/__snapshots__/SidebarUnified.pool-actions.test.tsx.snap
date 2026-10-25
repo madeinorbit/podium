@@ -609,6 +609,55 @@ exports[`real pool row mutations and receipts > dispatches Snooze / defer throug
 }
 `;
 
+exports[`real pool row mutations and receipts > does not archive a partial batch while a descendant summary is loading > sidebar action output 1`] = `
+{
+  "bytes": 42654,
+  "sha256": "fff4c49e7d8872675886b5384c77fbecad3a5f54ee20f7f52ccc8d442c432124",
+}
+`;
+
+exports[`real pool row mutations and receipts > does not delay an Undo past a newer archive of a promoted child > sidebar action output 1`] = `
+{
+  "bytes": 42656,
+  "sha256": "1b5e910152b9454a3d8382e5a28cf13f23e8425b556c577397b271730b13ef52",
+}
+`;
+
+exports[`real pool row mutations and receipts > does not delay an Undo past a newer archive of a promoted child > sidebar action output 2`] = `
+{
+  "bytes": 36946,
+  "sha256": "223e10135cfd1a31510b200f649e4dab6295fc1cb6015bae1dd55db2f69567ef",
+}
+`;
+
+exports[`real pool row mutations and receipts > does not delay an Undo past a newer archive of a promoted child > sidebar action output 3`] = `
+{
+  "bytes": 36946,
+  "sha256": "223e10135cfd1a31510b200f649e4dab6295fc1cb6015bae1dd55db2f69567ef",
+}
+`;
+
+exports[`real pool row mutations and receipts > does not restore descendants when a pending parent archive is refused > sidebar action output 1`] = `
+{
+  "bytes": 42654,
+  "sha256": "fff4c49e7d8872675886b5384c77fbecad3a5f54ee20f7f52ccc8d442c432124",
+}
+`;
+
+exports[`real pool row mutations and receipts > does not restore descendants when a pending parent archive is refused > sidebar action output 2`] = `
+{
+  "bytes": 42654,
+  "sha256": "fff4c49e7d8872675886b5384c77fbecad3a5f54ee20f7f52ccc8d442c432124",
+}
+`;
+
+exports[`real pool row mutations and receipts > drops the archive Undo when leaving the Closed lane > sidebar action output 1`] = `
+{
+  "bytes": 44403,
+  "sha256": "d5210564fe43ade70178fe49145dd4a9a0fba23df33c9917030a56bfcdcc7699",
+}
+`;
+
 exports[`real pool row mutations and receipts > hands the pool-resolved session to the same shared Handoff menu command > sidebar action output 1`] = `
 {
   "bytes": 43788,
@@ -634,6 +683,20 @@ exports[`real pool row mutations and receipts > keeps Bring back disabled with i
 {
   "bytes": 44405,
   "sha256": "75b95f7fe1fb864202544fc8e8a1f8c3d3fa2027153316af92151faf797ac880",
+}
+`;
+
+exports[`real pool row mutations and receipts > keeps the Undo card above the empty result under an active filter > sidebar action output 1`] = `
+{
+  "bytes": 44461,
+  "sha256": "701e7e158a5a4e09f8a1db9b3be7308c826d396d08718830d5ca30028516b22c",
+}
+`;
+
+exports[`real pool row mutations and receipts > keeps the Undo card above the empty result under an active filter > sidebar action output 2`] = `
+{
+  "bytes": 40665,
+  "sha256": "c7c9dd3255c3c4a92e07b14a4b97d5180ad85caa1dbea71a3e8482a195a3e016",
 }
 `;
 
@@ -952,282 +1015,65 @@ exports[`real pool row mutations and receipts > tucks and brings back with the s
 }
 `;
 
-exports[`real pool row mutations and receipts > unsnoozes from the snoozed row context menu and restores it on refusal > sidebar action output 1`] = `
-{
-  "bytes": 44973,
-  "sha256": "9019dc46af0715b564e53eeb3a07c2aaaccca621194e4f0bf13f3d6e15a10a1f",
-}
-`;
-
-exports[`real pool row mutations and receipts > dispatches Snooze / defer through the existing menu and outbox > sidebar action output 3`] = `
-{
-  "bytes": 44975,
-  "sha256": "86df5d747253ec6118e1c4fcc0b5057189316697c4007ea0e03fbcd3de01aa70",
-}
-`;
-
-exports[`real pool row mutations and receipts > does not archive a partial batch while a descendant summary is loading > sidebar action output 1`] = `
-{
-  "bytes": 43200,
-  "sha256": "b127b4b2e3757ba1adcf0a46cdaaebffdc75167325e42085e700dae7a571c796",
-}
-`;
-
-exports[`real pool row mutations and receipts > does not delay an Undo past a newer archive of a promoted child > sidebar action output 1`] = `
-{
-  "bytes": 43202,
-  "sha256": "f496a4c35eb4e9101973ebc42730cbce15fa98cd3e94da509019bf300e0f3c9f",
-}
-`;
-
-exports[`real pool row mutations and receipts > does not delay an Undo past a newer archive of a promoted child > sidebar action output 2`] = `
-{
-  "bytes": 37414,
-  "sha256": "a957a7d965d8cf1e749b34b6c4485828329fb0855c1f5894557e6533ec674088",
-}
-`;
-
-exports[`real pool row mutations and receipts > does not delay an Undo past a newer archive of a promoted child > sidebar action output 3`] = `
-{
-  "bytes": 37414,
-  "sha256": "a957a7d965d8cf1e749b34b6c4485828329fb0855c1f5894557e6533ec674088",
-}
-`;
-
-exports[`real pool row mutations and receipts > does not restore descendants when a pending parent archive is refused > sidebar action output 1`] = `
-{
-  "bytes": 43200,
-  "sha256": "b127b4b2e3757ba1adcf0a46cdaaebffdc75167325e42085e700dae7a571c796",
-}
-`;
-
-exports[`real pool row mutations and receipts > does not restore descendants when a pending parent archive is refused > sidebar action output 2`] = `
-{
-  "bytes": 43200,
-  "sha256": "b127b4b2e3757ba1adcf0a46cdaaebffdc75167325e42085e700dae7a571c796",
-}
-`;
-
-exports[`real pool row mutations and receipts > drops the archive Undo when leaving the Closed lane > sidebar action output 1`] = `
-{
-  "bytes": 44975,
-  "sha256": "86df5d747253ec6118e1c4fcc0b5057189316697c4007ea0e03fbcd3de01aa70",
-}
-`;
-
-exports[`real pool row mutations and receipts > hands the pool-resolved session to the same shared Handoff menu command > sidebar action output 1`] = `
-{
-  "bytes": 44360,
-  "sha256": "cd43f56d1a34f85fe0aee0bc357017973a9464ae376da15fe6843e29a12d4137",
-}
-`;
-
-exports[`real pool row mutations and receipts > hands the pool-resolved session to the same shared Handoff menu command > sidebar action output 2`] = `
-{
-  "bytes": 44360,
-  "sha256": "cd43f56d1a34f85fe0aee0bc357017973a9464ae376da15fe6843e29a12d4137",
-}
-`;
-
-exports[`real pool row mutations and receipts > keeps Bring back disabled with its explanation after the grace window > sidebar action output 1`] = `
-{
-  "bytes": 44977,
-  "sha256": "f99bdf2bc609e06c52694f9738e47ca6f2781ff49c416a259a9b95c1bd0768e2",
-}
-`;
-
-exports[`real pool row mutations and receipts > keeps Bring back disabled with its explanation after the grace window > sidebar action output 2`] = `
-{
-  "bytes": 44977,
-  "sha256": "f99bdf2bc609e06c52694f9738e47ca6f2781ff49c416a259a9b95c1bd0768e2",
-}
-`;
-
-exports[`real pool row mutations and receipts > keeps the Undo card above the empty result under an active filter > sidebar action output 1`] = `
-{
-  "bytes": 45033,
-  "sha256": "607687ed73ca91e632ef3c497ab0f4aa20da5fa4566720bb1cef398425109912",
-}
-`;
-
-exports[`real pool row mutations and receipts > keeps the Undo card above the empty result under an active filter > sidebar action output 2`] = `
-{
-  "bytes": 41185,
-  "sha256": "c9269119236bc2cf50c29f76b06b7fe2c193d9e872a7ade05ff087a790c119bf",
-}
-`;
-
-exports[`real pool row mutations and receipts > marks an unread task read, clears deferral and unpins through the actual menu > sidebar action output 1`] = `
-{
-  "bytes": 44923,
-  "sha256": "ffc3f21bea5ef61eeca0d97b617a829140c57316e780ca1b6eb5deb872cd79ac",
-}
-`;
-
-exports[`real pool row mutations and receipts > marks an unread task read, clears deferral and unpins through the actual menu > sidebar action output 2`] = `
-{
-  "bytes": 44971,
-  "sha256": "85a25b1d0ad86ec233cbfa990f46b1f3cfa7fa6d1f96fd7335c660be272e76d1",
-}
-`;
-
-exports[`real pool row mutations and receipts > marks an unread task read, clears deferral and unpins through the actual menu > sidebar action output 3`] = `
-{
-  "bytes": 44923,
-  "sha256": "ffc3f21bea5ef61eeca0d97b617a829140c57316e780ca1b6eb5deb872cd79ac",
-}
-`;
-
-exports[`real pool row mutations and receipts > marks an unread task read, clears deferral and unpins through the actual menu > sidebar action output 4`] = `
-{
-  "bytes": 44923,
-  "sha256": "d370041f3c570d14a093dd1272aad56bd37515804089acffbd447027979b0689",
-}
-`;
-
-exports[`real pool row mutations and receipts > marks an unread task read, clears deferral and unpins through the actual menu > sidebar action output 5`] = `
-{
-  "bytes": 44923,
-  "sha256": "ffc3f21bea5ef61eeca0d97b617a829140c57316e780ca1b6eb5deb872cd79ac",
-}
-`;
-
-exports[`real pool row mutations and receipts > marks an unread task read, clears deferral and unpins through the actual menu > sidebar action output 6`] = `
-{
-  "bytes": 44923,
-  "sha256": "ffc3f21bea5ef61eeca0d97b617a829140c57316e780ca1b6eb5deb872cd79ac",
-}
-`;
-
-exports[`real pool row mutations and receipts > moves discovered work to mission through the existing placement action > sidebar action output 1`] = `
-{
-  "bytes": 45117,
-  "sha256": "db9a31d7b44e715e8d00b23d9c497d06d91f83e25b4a7c8c7f2397796e63eb77",
-}
-`;
-
-exports[`real pool row mutations and receipts > moves discovered work to mission through the existing placement action > sidebar action output 2`] = `
-{
-  "bytes": 43206,
-  "sha256": "6ba4d99aabc7c386dfb4f175f374c4af6890e127ef88e60b0dcceda26199428c",
-}
-`;
-
-exports[`real pool row mutations and receipts > moves discovered work to mission through the existing placement action > sidebar action output 3`] = `
-{
-  "bytes": 45117,
-  "sha256": "db9a31d7b44e715e8d00b23d9c497d06d91f83e25b4a7c8c7f2397796e63eb77",
-}
-`;
-
-exports[`real pool row mutations and receipts > moves discovered work to own through the existing placement action > sidebar action output 1`] = `
-{
-  "bytes": 43135,
-  "sha256": "eb740b65303063f9c135e22100d8cfd4d4443ffe625cd1fbeff8f5d59d133b00",
-}
-`;
-
-exports[`real pool row mutations and receipts > moves discovered work to own through the existing placement action > sidebar action output 2`] = `
-{
-  "bytes": 44975,
-  "sha256": "86df5d747253ec6118e1c4fcc0b5057189316697c4007ea0e03fbcd3de01aa70",
-}
-`;
-
-exports[`real pool row mutations and receipts > moves discovered work to own through the existing placement action > sidebar action output 3`] = `
-{
-  "bytes": 43135,
-  "sha256": "eb740b65303063f9c135e22100d8cfd4d4443ffe625cd1fbeff8f5d59d133b00",
-}
-`;
-
-exports[`real pool row mutations and receipts > offers the same sidebar menu vocabulary and resolves live cascade counts and members on open > sidebar action output 1`] = `
-{
-  "bytes": 44975,
-  "sha256": "86df5d747253ec6118e1c4fcc0b5057189316697c4007ea0e03fbcd3de01aa70",
-}
-`;
-
-exports[`real pool row mutations and receipts > offers the same sidebar menu vocabulary and resolves live cascade counts and members on open > sidebar action output 2`] = `
-{
-  "bytes": 44975,
-  "sha256": "86df5d747253ec6118e1c4fcc0b5057189316697c4007ea0e03fbcd3de01aa70",
-}
-`;
-
-exports[`real pool row mutations and receipts > opens the task page without changing the workspace pane > sidebar action output 1`] = `
-{
-  "bytes": 44975,
-  "sha256": "86df5d747253ec6118e1c4fcc0b5057189316697c4007ea0e03fbcd3de01aa70",
-}
-`;
-
-exports[`real pool row mutations and receipts > opens the task page without changing the workspace pane > sidebar action output 2`] = `
-{
-  "bytes": 44975,
-  "sha256": "86df5d747253ec6118e1c4fcc0b5057189316697c4007ea0e03fbcd3de01aa70",
-}
-`;
-
-exports[`real pool row mutations and receipts > pins immediately from the actual issue menu and returns to the original band on refusal > sidebar action output 1`] = `
-{
-  "bytes": 44975,
-  "sha256": "86df5d747253ec6118e1c4fcc0b5057189316697c4007ea0e03fbcd3de01aa70",
-}
-`;
-
-exports[`real pool row mutations and receipts > pins immediately from the actual issue menu and returns to the original band on refusal > sidebar action output 2`] = `
-{
-  "bytes": 44973,
-  "sha256": "175077c195d8e523b821fbc5137c239d486a3e1d3ca5d72f7f3baef2672cc084",
-}
-`;
-
-exports[`real pool row mutations and receipts > unsnoozes from the snoozed row context menu and restores it on refusal > sidebar action output 3`] = `
-{
-  "bytes": 44973,
-  "sha256": "9019dc46af0715b564e53eeb3a07c2aaaccca621194e4f0bf13f3d6e15a10a1f",
-}
-`;
-
 exports[`real pool row mutations and receipts > undoes archived descendants after the parent cascade, preserving already archived children > sidebar action output 1`] = `
 {
-  "bytes": 28166,
-  "sha256": "065d5bb46311154d783c9fb5a67e0199ff526ab3b2238c868d1ca864dc9c0930",
+  "bytes": 27828,
+  "sha256": "bbed5b1143c8c25b8f9fa4096ca44f26b6b8a97d7e38b7c4477fdc9a56bf9848",
 }
 `;
 
 exports[`real pool row mutations and receipts > undoes archived descendants after the parent cascade, preserving already archived children > sidebar action output 2`] = `
 {
-  "bytes": 29928,
-  "sha256": "62d5529f12796c190ff6498ef3716595d0196720c64f2e4186a65d5218da8ce4",
+  "bytes": 29564,
+  "sha256": "5681b5e7baf6e23161a800177a9487e3b276279786a0ea747d077b2f5446bf4a",
 }
 `;
 
 exports[`real pool row mutations and receipts > undoes exactly the archived batch through issue updates when another task closes > sidebar action output 1`] = `
 {
-  "bytes": 45033,
-  "sha256": "607687ed73ca91e632ef3c497ab0f4aa20da5fa4566720bb1cef398425109912",
+  "bytes": 44461,
+  "sha256": "701e7e158a5a4e09f8a1db9b3be7308c826d396d08718830d5ca30028516b22c",
 }
 `;
 
 exports[`real pool row mutations and receipts > undoes exactly the archived batch through issue updates when another task closes > sidebar action output 2`] = `
 {
-  "bytes": 37376,
-  "sha256": "9d110226dc28af14bdbad9c6a7ee9fcb89ab033d0965b7cf67b15c4d410c6098",
+  "bytes": 36908,
+  "sha256": "c7df237ba7a8208bb056165e9128214f98957e905503ee390137e8f8fec73cb4",
 }
 `;
 
 exports[`real pool row mutations and receipts > undoes exactly the archived batch through issue updates when another task closes > sidebar action output 3`] = `
 {
-  "bytes": 37376,
-  "sha256": "9d110226dc28af14bdbad9c6a7ee9fcb89ab033d0965b7cf67b15c4d410c6098",
+  "bytes": 36908,
+  "sha256": "c7df237ba7a8208bb056165e9128214f98957e905503ee390137e8f8fec73cb4",
 }
 `;
 
 exports[`real pool row mutations and receipts > undoes exactly the archived batch through issue updates when another task closes > sidebar action output 4`] = `
 {
-  "bytes": 45092,
-  "sha256": "a08811dd8f3d6321078bb5dc8d00b4f6a4a7567902d751961eb3aa1b421f5a0d",
+  "bytes": 44520,
+  "sha256": "8bbbec07fe19001fa617b32ac2aa458ad800ebbfd276ac2349004bbf68b296a8",
+}
+`;
+
+exports[`real pool row mutations and receipts > unsnoozes from the snoozed row context menu and restores it on refusal > sidebar action output 1`] = `
+{
+  "bytes": 44401,
+  "sha256": "342cdab79f75122359f6877066c84d08fee8be7614141ede2a28c577067aff36",
+}
+`;
+
+exports[`real pool row mutations and receipts > unsnoozes from the snoozed row context menu and restores it on refusal > sidebar action output 2`] = `
+{
+  "bytes": 44401,
+  "sha256": "e432d67c82045e10f4f5e4f63d43f80175f901e5315ee0ab0f8ec32b7720baa1",
+}
+`;
+
+exports[`real pool row mutations and receipts > unsnoozes from the snoozed row context menu and restores it on refusal > sidebar action output 3`] = `
+{
+  "bytes": 44401,
+  "sha256": "342cdab79f75122359f6877066c84d08fee8be7614141ede2a28c577067aff36",
 }
 `;
