@@ -124,7 +124,7 @@ it('uses zero legacy selectors and derivations and retains open, dismiss, answer
   openNotices()
   await click('Dismiss')
   await click('Open chat')
-  await click('I signed in — retry')
+  await click('I signed in, retry')
   await click('Discard')
   expect(mock.open).toHaveBeenCalledWith('missing-session')
   expect(mock.dismiss).toHaveBeenCalledWith({ id: 'notice-message-2' })

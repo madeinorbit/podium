@@ -212,7 +212,7 @@ export function pendingInteractionCard(row: PendingInteractionWire): PendingInte
         actions: [
           {
             id: 'completed',
-            label: 'I signed in — retry',
+            label: 'I signed in, retry',
             tone: 'primary',
             answer: { kind: 'login', outcome: 'completed' },
           },

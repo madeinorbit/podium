@@ -234,7 +234,7 @@ export function isAgentAuthenticationError(error: Pick<AgentError, 'class'>): bo
 /** The action sentence for a blocked send, shared by server and client surfaces. */
 export function agentErrorRecoveryInstruction(error: Pick<AgentError, 'class'>): string {
   return isAgentAuthenticationError(error)
-    ? 'Re-authenticate with the provider, then choose “I signed in — retry”.'
+    ? 'Re-authenticate with the provider, then choose “I signed in, retry”.'
     : 'Fix the provider issue, then choose “Resume the session”.'
 }
 

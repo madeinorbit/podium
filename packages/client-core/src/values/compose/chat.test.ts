@@ -438,7 +438,7 @@ describe('composer, queue, offer and activity', () => {
         compact: false,
       }).placeholder,
     ).toBe(
-      'Provider authentication failed: token expired. Re-authenticate with the provider, then choose “I signed in — retry”.',
+      'Provider authentication failed: token expired. Re-authenticate with the provider, then choose “I signed in, retry”.',
     )
   })
 

@@ -98,7 +98,7 @@ try {
     await page.waitForFunction(() => window.__notices.stats().actions.dismissed === 1)
     await page.getByRole('button', { name: 'Open chat', exact: true }).first().click()
     await page.waitForFunction(() => window.__notices.stats().opened === 'cold-notice-session')
-    await page.getByRole('button', { name: 'I signed in — retry', exact: true }).click()
+    await page.getByRole('button', { name: 'I signed in, retry', exact: true }).click()
     await page.waitForFunction(() => window.__notices.stats().actions.answered === 1)
     await page.getByTestId('outbox-recovery-chip').click()
     await page.getByRole('button', { name: 'Discard', exact: true }).first().click()
