@@ -1,6 +1,6 @@
 import type { IssueNavigationModel } from '@podium/client-core/values'
 import { issueDisplayRef } from '@podium/protocol'
-import { ArrowUpFromLine } from 'lucide-react'
+import { AlarmClockOff, ArrowUpFromLine } from 'lucide-react'
 import type { JSX } from 'react'
 import { createPortal } from 'react-dom'
 import {
@@ -14,34 +14,15 @@ import {
 import type { ContextMenuAnchor } from '@/lib/session-context-menu'
 import { useCursorMenu } from '@/lib/use-cursor-menu'
 
-/**
- * THE FOLDED ROW'S ONE GESTURE (POD-1188): Bring back.
- *
- * A live row carries the "Tuck" chip in its meta column, and pressing it drops
- * the finished row into Closed. Nothing carried the inverse: a row tucked away
- * by mistake could be clicked back into the panel, archived, or reopened — but
- * not simply put back where it was. So the folded row answers a right-click, and
- * what it answers with is the one move that is missing.
- *
- * ONE ITEM, NOT THE ISSUE MENU. The full `IssueContextMenu` is what a LIVE row
- * offers: stage, priority, colour, labels, handoff, delete. A row in the fold is
- * out of triage — the whole point of `FoldedWorkRow` dropping to one dim line is
- * that the vocabulary of an open row does not apply to it — and putting sixteen
- * items behind this right-click would be re-triaging from inside the archive.
- * Bring it back and the live row's own menu is right there.
- *
- * DISABLED WITH ITS REASON, NEVER HIDDEN (POD-821's rule, POD-1077's reading of
- * it): a folded row past the finished-grace window is held down by the backstop
- * rather than by the tuck, so clearing the tuck would move nothing. An item that
- * quietly did nothing, or a right-click that opened nothing at all, are both
- * indistinguishable from a broken gate — so the row says which one it is.
- */
+/** One return action per folded lane: clear snooze, or bring a tucked task
+ * back while it is still inside the finished-grace window. */
 export function FoldedRowMenu({
   issue,
   canBringBack,
   anchor,
   onClose,
   onBringBack,
+  onUnsnooze,
 }: {
   issue: IssueNavigationModel
   /** Would clearing the tuck actually return the row to the live list?
@@ -50,6 +31,7 @@ export function FoldedRowMenu({
   anchor: ContextMenuAnchor
   onClose: () => void
   onBringBack: () => void
+  onUnsnooze?: () => void
 }): JSX.Element {
   const { ref, pos } = useCursorMenu(anchor, onClose)
   return createPortal(
@@ -67,7 +49,20 @@ export function FoldedRowMenu({
         <span>TASK</span>
         <span className={`${MENU_HEADER_REF} tabular-nums`}>{issueDisplayRef(issue)}</span>
       </div>
-      {canBringBack ? (
+      {onUnsnooze ? (
+        <button
+          data-pressable
+          type="button"
+          role="menuitem"
+          className={MENU_ITEM}
+          onClick={() => {
+            onUnsnooze()
+            onClose()
+          }}
+        >
+          <AlarmClockOff size={14} aria-hidden="true" /> Unsnooze
+        </button>
+      ) : canBringBack ? (
         <button
           data-pressable
           type="button"

@@ -222,9 +222,9 @@ export function useFirstTaskRepositoryPicker(
   return { repoChoices, onOpenChange }
 }
 
-/** Delegation default and explicit native exception. [spec:SP-f7a5] */
+/** Optional instructions for coordinating a complex epic. */
 export const COORDINATOR_PROMPT =
-  'You are the coordinator of this epic. Break this into Podium sub-issues, delegate independent work to Podium sessions, and coordinate the results. Use native harness tools for agents and task tracking only if I explicitly request them for this work. Check with me on key decisions.'
+  'This is a complex epic. You are the designated coordinator. Organize your work accordingly. Check with me on key decisions.'
 
 /** Words, as a person counts them: runs of non-space. */
 export function countWords(text: string): number {
@@ -1344,7 +1344,7 @@ export function ColdStartComposer({
                 onClick={insertCoordinatorPrompt}
                 title="Adds a prompt that has the agent break the work into sub-issues and coordinate other sessions"
               >
-                Try a coordinator prompt
+                Try adding a coordinator prompt
               </button>
             </p>
           )}

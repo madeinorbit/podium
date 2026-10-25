@@ -252,6 +252,7 @@ export function createPoolWorkActions(
     deleteIssue: (id: string) => runtime.access.deleteIssue(id),
     applySortPatches: (patches: { id: string; sortKey: string; pinned?: boolean }[]) =>
       Promise.all(patches.map(({ id, ...patch }) => runtime.access.updateIssue(id, patch))),
+    undeferIssue: (id: string) => runtime.access.undeferIssue(id),
     setIssueTucked: (id: string, tucked: boolean) =>
       runtime.access.setIssueTucked(id, tucked),
     resolveMenuData: (id: string): UnifiedIssueRowMenuData => allowImperativeRead(() => {

@@ -13,7 +13,7 @@ import {
 } from '@podium/model'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { COORDINATOR_PROMPT, ColdStartComposer } from './ColdStartComposer'
+import { ColdStartComposer } from './ColdStartComposer'
 
 const styles = readFileSync(resolve(import.meta.dirname, '../../styles.css'), 'utf8')
 
@@ -745,8 +745,10 @@ describe('ColdStartComposer', () => {
     render(<ColdStartComposer first={false} />)
     const field = screen.getByLabelText('What do you want to work on?') as HTMLTextAreaElement
     fireEvent.change(field, { target: { value: 'Rebuild billing' } })
-    fireEvent.click(screen.getByTestId('cold-start-coordinator'))
-    expect(field.value).toBe(`Rebuild billing\n\n${COORDINATOR_PROMPT}`)
+    fireEvent.click(screen.getByRole('button', { name: 'Try adding a coordinator prompt' }))
+    expect(field.value).toBe(
+      'Rebuild billing\n\nThis is a complex epic. You are the designated coordinator. Organize your work accordingly. Check with me on key decisions.',
+    )
     expect(screen.queryByTestId('cold-start-coordinator')).toBeNull()
   })
 

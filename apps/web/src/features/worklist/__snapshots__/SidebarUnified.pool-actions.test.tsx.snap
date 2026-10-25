@@ -951,3 +951,24 @@ exports[`real pool row mutations and receipts > tucks and brings back with the s
   "sha256": "f6a9ecfe433ba146bf23428b3a7d21567ff02b5ff2f40219f9e096d2d8707211",
 }
 `;
+
+exports[`real pool row mutations and receipts > unsnoozes from the snoozed row context menu and restores it on refusal > sidebar action output 1`] = `
+{
+  "bytes": 44973,
+  "sha256": "9019dc46af0715b564e53eeb3a07c2aaaccca621194e4f0bf13f3d6e15a10a1f",
+}
+`;
+
+exports[`real pool row mutations and receipts > unsnoozes from the snoozed row context menu and restores it on refusal > sidebar action output 2`] = `
+{
+  "bytes": 44973,
+  "sha256": "175077c195d8e523b821fbc5137c239d486a3e1d3ca5d72f7f3baef2672cc084",
+}
+`;
+
+exports[`real pool row mutations and receipts > unsnoozes from the snoozed row context menu and restores it on refusal > sidebar action output 3`] = `
+{
+  "bytes": 44973,
+  "sha256": "9019dc46af0715b564e53eeb3a07c2aaaccca621194e4f0bf13f3d6e15a10a1f",
+}
+`;

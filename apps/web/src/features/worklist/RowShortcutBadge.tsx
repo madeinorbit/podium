@@ -1,25 +1,15 @@
 import type { CSSProperties, JSX } from 'react'
+import { isApplePlatform } from '@/lib/mod-chord'
 
-/**
- * The ⌘-hold digit (POD-790), drawn OVER the row's identity square.
- *
- * It covers the square exactly rather than sitting beside it. Two reasons: the
- * row's geometry cannot change because a modifier is down — a column that
- * reflows under your hand is unusable — and the square is the one mark in the
- * row that is already an identifier, so the digit stands in for it for as long
- * as the digit is what you would type. Nothing else in the row moves or fades.
- *
- * Chip ground and a strong rim: the shell's raised-control vocabulary, so the
- * badge reads as a KEY sitting on the row rather than as new status about it.
- * No colour — this says nothing about the task, only about the keyboard.
- */
+/** A modifier-and-digit shortcut over the row's identity square. The overlay
+ * keeps row geometry fixed while the modifier is held. */
 export function RowShortcutBadge({
   digit,
   size = 30,
   radius,
 }: {
   digit: number
-  /** Square edge in px, matched to the mark underneath (30 wide rows, 32 rail). */
+  /** Size of the identity mark or reference underneath, in px. */
   size?: number
   /** Corner override, matched to the mark underneath — the rail's tile takes a
    *  9px corner, and a badge that covers it exactly must take the same one. */
@@ -27,10 +17,8 @@ export function RowShortcutBadge({
 }): JSX.Element {
   const style: CSSProperties = {
     borderRadius: radius ?? (size >= 26 ? 7 : Math.round((size / 26) * 7)),
-    // The digit runs a step larger than the square's own number: it is a single
-    // glyph on an empty ground, and it has to be legible at a glance in the
-    // moment before the operator commits to a keystroke.
-    fontSize: Math.round(size * 0.44),
+    fontSize: Math.max(10, Math.round(size * 0.4)),
+    letterSpacing: '-0.05em',
   }
   return (
     <span
@@ -40,6 +28,7 @@ export function RowShortcutBadge({
       className="pointer-events-none absolute inset-0 z-[2] flex items-center justify-center bg-chip font-mono leading-none font-semibold tabular-nums text-text-strong shadow-[inset_0_0_0_1px_var(--border-strong)]"
       style={style}
     >
+      {isApplePlatform() ? '⌘' : '⌃'}
       {digit}
     </span>
   )

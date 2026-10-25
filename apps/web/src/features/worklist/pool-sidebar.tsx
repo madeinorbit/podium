@@ -790,6 +790,13 @@ const PoolFoldedMenu = observer(function PoolFoldedMenu({
     <FoldedRowMenu
       issue={navigationIssue(value.issue)}
       canBringBack={value.canBringBack}
+      onUnsnooze={
+        value.issue.deferred
+          ? () => {
+              void actions.undeferIssue(id)
+            }
+          : undefined
+      }
       anchor={anchor}
       onClose={close}
       onBringBack={() => {
@@ -895,7 +902,7 @@ const PoolMotionRow = observer(function PoolMotionRow({
         now={now}
         active={active}
         onSelect={select}
-        onContextMenu={lane === 'closed' ? contextMenu : undefined}
+        onContextMenu={contextMenu}
         onArchive={lane === 'closed' ? archiveRow : undefined}
       />
     ) : folded && snapshot ? (
@@ -905,7 +912,7 @@ const PoolMotionRow = observer(function PoolMotionRow({
         now={now}
         active={active}
         onSelect={select}
-        onContextMenu={lane === 'closed' ? contextMenu : undefined}
+        onContextMenu={contextMenu}
       />
     ) : fresh ? (
       <WorklistIssueRow

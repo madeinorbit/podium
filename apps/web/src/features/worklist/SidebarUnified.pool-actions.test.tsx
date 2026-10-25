@@ -846,6 +846,27 @@ describe('real pool row mutations and receipts', () => {
     expect(sidebarView(pool!).sections().bands[0]!.closedIds).toContain(TARGET)
   })
 
+  it('unsnoozes from the snoozed row context menu and restores it on refusal', async () => {
+    await mount((fixture) =>
+      patchIssue(fixture, TARGET, { deferUntil: new Date(NOW + 3600000).toISOString() }),
+    )
+    fireEvent.click(screen.getByTestId('work-lane-snoozed'))
+    const title = await screen.findByText('Only responsive target', {
+      selector: '[data-testid="snoozed-fold-row"] *',
+    })
+    fireEvent.contextMenu(title, { clientX: 30, clientY: 40 })
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Unsnooze' }))
+    const write = await request('issues.undefer')
+    expect(write.input).toMatchObject({ id: TARGET })
+    expect(value().issue.deferred).toBe(false)
+    expect(screen.queryByRole('menu', { name: 'Folded task actions' })).toBeNull()
+    expect(sidebarView(pool!).sections().bands[0]!.rowIds).toContain(TARGET)
+    await parity()
+    await refuse(write)
+    expect(value().issue.deferred).toBe(true)
+    expect(sidebarView(pool!).sections().bands[0]!.snoozedIds).toContain(TARGET)
+  })
+
   it('keeps Bring back disabled with its explanation after the grace window', async () => {
     await mount((fixture) =>
       patchIssue(fixture, 'synthetic-5', {
