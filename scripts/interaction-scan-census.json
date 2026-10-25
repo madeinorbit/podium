@@ -10937,94 +10937,78 @@
       "file": "apps/web/src/features/worklist/use-pool-unified-work.ts",
       "holder": "createPoolWorkActions/captureArchiveBatch/callback/allowImperativeRead:callback",
       "rule": "helper-consumer",
-      "tokens": "97068585cdede1b0d9ad0e02aef9e038d409c7e8ea5e8fc199254f8d87caa3bd",
+      "tokens": "ce71995c637764b9568fe0533ac30e4019c31925a1d580e0c96274b1f1a30c7a",
       "gate": [],
       "origin": [
         "263287d055fdad254a3c751f4e42ff06e7abccb74e258db08b4938008da25df4"
       ],
-      "fingerprint": "fc31e8f6328b434d6991d565ad42dba2171d15fa71c69c5c39611239de18426a",
+      "fingerprint": "688b3a98ec59923c76b0f386883a14819a02249fcb7f5a3a983c08b5d9aa1b74",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Archive all captures the selected Closed roots and their formal descendants; Undo restores that captured batch.",
       "bound": "Gesture-local roots and their captured cascade IDs; no cardinality cap.",
-      "reason": "POD-2106 review fix: subtree capture and Undo consume the same filtered Closed lane and its explicitly addressed formal descendants. The upstream sidebar working set remains uncapped; this is not a bounded reader repair.",
+      "reason": "POD-2106 review fix: subtree capture and Undo consume the same filtered Closed lane and its explicitly addressed formal descendants. The upstream sidebar working set remains uncapped; this is not a bounded reader repair. POD-2106: a pending-archive guard and local enqueue flag changed this path; descendant capture and its collection demand are unchanged. Predecessor: fc31e8f6328b434d6991d565ad42dba2171d15fa71c69c5c39611239de18426a.",
+      "guard": "Exact fingerprint and multiplicity only. This entry documents debt and does not establish bounded work."
+    },
+    {
+      "file": "apps/web/src/features/worklist/use-pool-unified-work.ts",
+      "holder": "createPoolWorkActions/archiveBatchPending/callback",
+      "rule": "consume:some",
+      "tokens": "bf8ceb88000dee5fc95285aca7b788154ce2f282283fa64565e08a55a802b73c",
+      "gate": [
+        "&&:10dc18e8ff72cd7e341c4361b016180715b496e531d557cbd8036e2c2d8c41d6"
+      ],
+      "origin": [
+        "0ad228487a44f1019d526cae9e1c15c62da0d0a25bcea4b59bbd65f698891f00"
+      ],
+      "fingerprint": "1ea274974750cad1c03cce15138bf0b20e62f64e39e764e6a0786d3997c1bd46",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "The archive batch or the shared outbox changes.",
+      "bound": "Gesture-local roots and their captured cascade IDs; no cardinality cap.",
+      "reason": "POD-2106: the view reads local enqueue completion and pending root archive commands to disable Undo until receipts arrive. Batch membership has no cardinality cap. No receipt waiter or deferred restore is retained. Predecessor: 740bf668d5a5ce798095e086bc3f614ce20bd0710aedc1ed868437145be6c88e.",
       "guard": "Exact fingerprint and multiplicity only. This entry documents debt and does not establish bounded work."
     },
     {
       "file": "apps/web/src/features/worklist/use-pool-unified-work.ts",
       "holder": "createPoolWorkActions/unarchiveBatch/callback",
-      "rule": "consume:every",
-      "tokens": "96562189e803c6d67ddbef855209bd98aafe40f5f70de46bb067d9ff0630f3fb",
-      "gate": [],
-      "origin": [
-        "5e58631867134d9c3e05ddb312989026cd46c38bbd62bf33fd86db8aed7d68dd"
-      ],
-      "fingerprint": "740bf668d5a5ce798095e086bc3f614ce20bd0710aedc1ed868437145be6c88e",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Archive all captures the selected Closed roots and their formal descendants; Undo restores that captured batch.",
-      "bound": "Gesture-local roots and their captured cascade IDs; no cardinality cap.",
-      "reason": "POD-2106 review fix: subtree capture and Undo consume the same filtered Closed lane and its explicitly addressed formal descendants. The upstream sidebar working set remains uncapped; this is not a bounded reader repair.",
-      "guard": "Exact fingerprint and multiplicity only. This entry documents debt and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/features/worklist/use-pool-unified-work.ts",
-      "holder": "createPoolWorkActions/unarchiveBatch/callback/restore/callback",
       "rule": "consume:flatMap",
-      "tokens": "9249d732434fa2fd890ac046167cdb751d70a7bfb4bb9f1fefc7cea42ba100ba",
+      "tokens": "d57c65ca1522f6981be2b6ea2719abe827e77e25e0ef1522af2940985a4cb9bc",
       "gate": [],
       "origin": [
         "5e58631867134d9c3e05ddb312989026cd46c38bbd62bf33fd86db8aed7d68dd"
       ],
-      "fingerprint": "1cfd2b446bf57b27d599c643b8ba2cbbc253e86e1cb25e20b4558169b8add0ff",
+      "fingerprint": "b7d8440976b0daf237470f94e669abde98777cf5058063c7752cd65e2a08f719",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Archive all captures the selected Closed roots and their formal descendants; Undo restores that captured batch.",
+      "trigger": "The operator presses enabled Undo after all root archive receipts.",
       "bound": "Gesture-local roots and their captured cascade IDs; no cardinality cap.",
-      "reason": "POD-2106 review fix: subtree capture and Undo consume the same filtered Closed lane and its explicitly addressed formal descendants. The upstream sidebar working set remains uncapped; this is not a bounded reader repair.",
+      "reason": "POD-2106: synchronously enqueue each captured descendant restore through updateIssue in one gesture. The captured batch has no cardinality cap. Predecessor: 1cfd2b446bf57b27d599c643b8ba2cbbc253e86e1cb25e20b4558169b8add0ff.",
       "guard": "Exact fingerprint and multiplicity only. This entry documents debt and does not establish bounded work."
     },
     {
       "file": "apps/web/src/features/worklist/use-pool-unified-work.ts",
-      "holder": "createPoolWorkActions/unarchiveBatch/callback/waitForCascade/callback/roots",
-      "rule": "consume:map",
-      "tokens": "27b443aeaadc8cc7a9468364c5804acd56f7a85236055705336f2d0ae7ad9878",
+      "holder": "createPoolWorkActions/archiveBatchPending/callback/some:callback",
+      "rule": "consume:some",
+      "tokens": "221a1da6ec15693416d9cef6c6d652b4718188d44b1e7101ed21b0564a68e9b3",
       "gate": [
-        "exit:then:96562189e803c6d67ddbef855209bd98aafe40f5f70de46bb067d9ff0630f3fb"
+        "&&:10dc18e8ff72cd7e341c4361b016180715b496e531d557cbd8036e2c2d8c41d6",
+        "||:bf8ceb88000dee5fc95285aca7b788154ce2f282283fa64565e08a55a802b73c",
+        "&&:299856b033676bac2e9e47ae439452e4cb944a870b4e6f785447ae882fd2e064"
       ],
       "origin": [
-        "5e58631867134d9c3e05ddb312989026cd46c38bbd62bf33fd86db8aed7d68dd"
+        "0ad228487a44f1019d526cae9e1c15c62da0d0a25bcea4b59bbd65f698891f00"
       ],
-      "fingerprint": "bb6eb58301dbc5df2ee83298bad5f62e95deeb0d214d3702f66e9e572f1d7a6e",
+      "fingerprint": "345e53f57e23ce803a41eba812d1972035954a3a03371d51288299f9ffdf42d3",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Archive all captures the selected Closed roots and their formal descendants; Undo restores that captured batch.",
+      "trigger": "The archive batch or the shared outbox changes.",
       "bound": "Gesture-local roots and their captured cascade IDs; no cardinality cap.",
-      "reason": "POD-2106 review fix: subtree capture and Undo consume the same filtered Closed lane and its explicitly addressed formal descendants. The upstream sidebar working set remains uncapped; this is not a bounded reader repair.",
-      "guard": "Exact fingerprint and multiplicity only. This entry documents debt and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/features/worklist/use-pool-unified-work.ts",
-      "holder": "createPoolWorkActions/unarchiveBatch/callback/waitForCascade/callback/roots",
-      "rule": "materialize:Set",
-      "tokens": "ea30e721f655840ef8360e9ae83fb629e66a3c0d52da9234c6317075d982ae19",
-      "gate": [
-        "exit:then:96562189e803c6d67ddbef855209bd98aafe40f5f70de46bb067d9ff0630f3fb"
-      ],
-      "origin": [
-        "5e58631867134d9c3e05ddb312989026cd46c38bbd62bf33fd86db8aed7d68dd"
-      ],
-      "fingerprint": "eec489fe81b2648624172e91cb76e6faca5799547c877cb394993d5b72fc4976",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Archive all captures the selected Closed roots and their formal descendants; Undo restores that captured batch.",
-      "bound": "Gesture-local roots and their captured cascade IDs; no cardinality cap.",
-      "reason": "POD-2106 review fix: subtree capture and Undo consume the same filtered Closed lane and its explicitly addressed formal descendants. The upstream sidebar working set remains uncapped; this is not a bounded reader repair.",
+      "reason": "POD-2106: the view reads local enqueue completion and pending root archive commands to disable Undo until receipts arrive. Batch membership has no cardinality cap. No receipt waiter or deferred restore is retained. Predecessor: bb6eb58301dbc5df2ee83298bad5f62e95deeb0d214d3702f66e9e572f1d7a6e.",
       "guard": "Exact fingerprint and multiplicity only. This entry documents debt and does not establish bounded work."
     },
     {
@@ -38063,18 +38047,19 @@
       "tokens": "d7c01444efaec9f88cdb302287437c7a1b4cecb70b17d536318ee2235239f213",
       "gate": [
         "exit:then:366b508823e1da90bcfbb656ba6bb0fee61d7f7e602c84bc3ae425f4222b43e5",
-        "&&:211fc948f772e5316efe7940b958afd7836a7eb73c506608a1bc2dd610bc10da"
+        "&&:211fc948f772e5316efe7940b958afd7836a7eb73c506608a1bc2dd610bc10da",
+        "exit:then:cfdb0de41b72048550eb24ce83f977051ac5df69188c608972b73534440c9131"
       ],
       "origin": [
         "263287d055fdad254a3c751f4e42ff06e7abccb74e258db08b4938008da25df4"
       ],
-      "fingerprint": "8f64cb5652b207ee89859e965af3f4425d09a3cb9bc802bf807dac777c2549b8",
+      "fingerprint": "89d009a5f975ffab5e94a1328b51a6b2112e20659c4bef4ec3d02865544b7e46",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of ObservedPoolWorkSections/ObservedPoolWorkSections/callback",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "POD-2106: Archive all captures IDs for Undo in the existing archive loop. It visits the current filtered Closed lane, with no cardinality cap. Predecessor: aa2ef6cf39d25c4432aced98b0df2b0be127717babc44179db5a03f39e67df83. POD-2106 review fix: the filter-empty card now renders independently; archive targets are captured before any mutations. This scan still has no cardinality cap. Predecessor: 5839b66e446368ae536b41e57419be7e0822ffa9f3552c7a3a906b3a1a1f50ad.",
+      "reason": "POD-2106: Archive all captures IDs for Undo in the existing archive loop. It visits the current filtered Closed lane, with no cardinality cap. Predecessor: aa2ef6cf39d25c4432aced98b0df2b0be127717babc44179db5a03f39e67df83. POD-2106 review fix: the filter-empty card now renders independently; archive targets are captured before any mutations. This scan still has no cardinality cap. Predecessor: 5839b66e446368ae536b41e57419be7e0822ffa9f3552c7a3a906b3a1a1f50ad. POD-2106: a pending-archive guard and local enqueue flag changed this path; descendant capture and its collection demand are unchanged. Predecessor: 8f64cb5652b207ee89859e965af3f4425d09a3cb9bc802bf807dac777c2549b8.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -38487,21 +38472,22 @@
       "file": "apps/web/src/features/worklist/pool-sidebar.tsx",
       "holder": "ObservedPoolWorkSections/ObservedPoolWorkSections/callback/trees",
       "rule": "helper-consumer",
-      "tokens": "068b245a57b00cd36762a247079516ffd1a8c02f9da77c3f0f9e10d9df51d650",
+      "tokens": "0d229bb78e00e7cd1201543a3cf87db40abcc979dd362a491827c1f8e83d4fbd",
       "gate": [
         "exit:then:366b508823e1da90bcfbb656ba6bb0fee61d7f7e602c84bc3ae425f4222b43e5",
-        "&&:211fc948f772e5316efe7940b958afd7836a7eb73c506608a1bc2dd610bc10da"
+        "&&:211fc948f772e5316efe7940b958afd7836a7eb73c506608a1bc2dd610bc10da",
+        "exit:then:cfdb0de41b72048550eb24ce83f977051ac5df69188c608972b73534440c9131"
       ],
       "origin": [
         "263287d055fdad254a3c751f4e42ff06e7abccb74e258db08b4938008da25df4"
       ],
-      "fingerprint": "9e467badc25a27735caa50c28c9e812bbfd4d50e2349efd779908a2c195c0456",
+      "fingerprint": "c052e35b3313cca6b69434f1eda97f0100d20edb5250da470e59720c075b68dd",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Archive all captures the selected Closed roots and their formal descendants; Undo restores that captured batch.",
       "bound": "Gesture-local roots and their captured cascade IDs; no cardinality cap.",
-      "reason": "POD-2106 review fix: subtree capture and Undo consume the same filtered Closed lane and its explicitly addressed formal descendants. The upstream sidebar working set remains uncapped; this is not a bounded reader repair.",
+      "reason": "POD-2106 review fix: subtree capture and Undo consume the same filtered Closed lane and its explicitly addressed formal descendants. The upstream sidebar working set remains uncapped; this is not a bounded reader repair. POD-2106: a pending-archive guard and local enqueue flag changed this path; descendant capture and its collection demand are unchanged. Predecessor: 9e467badc25a27735caa50c28c9e812bbfd4d50e2349efd779908a2c195c0456.",
       "guard": "Exact fingerprint and multiplicity only. This entry documents debt and does not establish bounded work."
     },
     {

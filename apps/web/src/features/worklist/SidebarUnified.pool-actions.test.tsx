@@ -1111,7 +1111,7 @@ describe('real pool row mutations and receipts', () => {
     fireEvent.click(screen.getByTestId('work-lane-closed'))
     expect(screen.getByTestId('closed-lane-header').textContent).toContain('2 closed this week')
     fireEvent.click(await screen.findByRole('button', { name: 'Archive all 2 closed tasks' }))
-    expect(screen.getByTestId('closed-lane-header').textContent).toContain('2 tasks archived')
+    expect(screen.getByTestId('closed-lane-header').textContent).toContain('Archiving…')
     await parity()
     expect(
       runtime.outbox
@@ -1140,11 +1140,16 @@ describe('real pool row mutations and receipts', () => {
     fireEvent.click(screen.getByTestId('work-lane-closed'))
     fireEvent.click(await screen.findByTestId('closed-issues-archive-all'))
     for (const entry of runtime.outbox.pending().filter((entry) => entry.kind === 'issueArchive')) {
+      expect((screen.getByRole('button', { name: 'Undo' }) as HTMLButtonElement).disabled).toBe(
+        true,
+      )
       const id = (entry.input as { id: string }).id
       const write = await request('issues.archive', id)
       await act(async () => patchIssue(fixture, id, { archived: true }))
       await accept(write)
     }
+    expect((screen.getByRole('button', { name: 'Undo' }) as HTMLButtonElement).disabled).toBe(false)
+    expect(screen.getByText('2 tasks archived')).toBeTruthy()
     await waitFor(() =>
       expect(screen.getByTestId('work-lane-empty').textContent).toBe(
         'Nothing closed in the last 7 days.',
@@ -1216,11 +1221,12 @@ describe('real pool row mutations and receipts', () => {
     expect(pool!.tables.issue.has('synthetic-6')).toBe(false)
     fireEvent.click(screen.getByTestId('work-lane-closed'))
     fireEvent.click(await screen.findByTestId('closed-issues-archive-all'))
-    expect(screen.getByTestId('closed-lane-header').textContent).toContain('3 tasks archived')
+    expect(screen.getByTestId('closed-lane-header').textContent).toContain('Archiving…')
     await act(async () => {
       await Promise.resolve()
     })
-    expect(screen.getByRole('button', { name: 'Undo' })).toBeTruthy()
+    expect((screen.getByRole('button', { name: 'Undo' }) as HTMLButtonElement).disabled).toBe(true)
+    expect(screen.queryByTestId('closed-issues-archive-all')).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Undo' }))
     const archive = await request('issues.archive', 'synthetic-5')
     expect(runtime.outbox.pending().filter((entry) => entry.kind === 'issueUpdate')).toHaveLength(0)
@@ -1229,18 +1235,48 @@ describe('real pool row mutations and receipts', () => {
       for (const id of ids) patchIssue(fixture, id, { archived: true })
     })
     await accept(archive)
-    await waitFor(() =>
-      expect(
-        runtime.outbox
-          .pending()
-          .filter((entry) => entry.kind === 'issueUpdate')
-          .map((entry) => entry.input),
-      ).toEqual(ids.map((id) => ({ id, patch: { archived: false } }))),
-    )
+    expect(screen.getByText('3 tasks archived')).toBeTruthy()
+    expect((screen.getByRole('button', { name: 'Undo' }) as HTMLButtonElement).disabled).toBe(false)
+    fireEvent.click(screen.getByRole('button', { name: 'Undo' }))
+    // No receipt waiter or microtask may stand between the gesture and any restore.
+    expect(
+      runtime.outbox
+        .pending()
+        .filter((entry) => entry.kind === 'issueUpdate')
+        .map((entry) => entry.input),
+    ).toEqual(ids.map((id) => ({ id, patch: { archived: false } })))
     for (const id of ids)
       expect(pool!.row('issue', id, 'summary-fields')).toMatchObject({ archived: false })
     expect(pool!.row('issue', 'synthetic-7', 'summary-fields')).toMatchObject({ archived: true })
     expect(pool!.row('issue', 'synthetic-9', 'summary-fields')).toMatchObject({ archived: false })
+  })
+
+  it('does not delay an Undo past a newer archive of a promoted child', async () => {
+    const fixture = await mount((fixture) =>
+      patchIssue(fixture, 'synthetic-6', {
+        parentId: 'synthetic-5',
+        stage: 'done',
+        closedReason: 'done',
+        closedAt: new Date(NOW - 1000).toISOString(),
+        tuckedAt: new Date(NOW - 500).toISOString(),
+      }),
+    )
+    fireEvent.click(screen.getByTestId('work-lane-closed'))
+    fireEvent.click(await screen.findByTestId('closed-issues-archive-all'))
+    const undo = screen.getByRole('button', { name: 'Undo' }) as HTMLButtonElement
+    expect(undo.disabled).toBe(true)
+    fireEvent.click(undo)
+    expect(screen.queryByTestId('closed-issues-archive-all')).toBeNull()
+    // A newer archive from another control must not be overwritten by an old Undo.
+    await act(async () => actions.archiveIssue('synthetic-6'))
+    const parentArchive = await request('issues.archive', 'synthetic-5')
+    await act(async () => {
+      for (const id of ['synthetic-5', 'synthetic-6']) patchIssue(fixture, id, { archived: true })
+    })
+    await accept(parentArchive)
+    await accept(await request('issues.archive', 'synthetic-6'))
+    expect(runtime.outbox.pending().filter((entry) => entry.kind === 'issueUpdate')).toHaveLength(0)
+    expect(pool!.row('issue', 'synthetic-6', 'summary-fields')).toMatchObject({ archived: true })
   })
 
   it('does not restore descendants when a pending parent archive is refused', async () => {
@@ -1272,7 +1308,7 @@ describe('real pool row mutations and receipts', () => {
       lookup.mockRestore()
     }
     fireEvent.click(screen.getByTestId('closed-issues-archive-all'))
-    expect(screen.getByTestId('closed-lane-header').textContent).toContain('2 tasks archived')
+    expect(screen.getByTestId('closed-lane-header').textContent).toContain('Archiving…')
   })
 
   it('keeps the Undo card above the empty result under an active filter', async () => {

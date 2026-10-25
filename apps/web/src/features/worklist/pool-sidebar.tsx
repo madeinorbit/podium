@@ -39,6 +39,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
 } from 'react'
 import { toast } from 'sonner'
 import { usePanelVisible } from '@/app/panel-visible'
@@ -339,6 +340,11 @@ const ObservedPoolWorkSections = observer(function ObservedPoolWorkSections({
   const layoutGroupId = useId()
   // A gesture snapshot: Undo restores this batch even if other tasks close later.
   const [archivedTrees, setArchivedTrees] = useState<readonly ArchiveIssueTree[]>([])
+  const archiving = useSyncExternalStore(
+    actions.subscribeArchiveChanges,
+    () => actions.archiveBatchPending(archivedTrees),
+    () => false,
+  )
   const archivedCount = archivedTrees.reduce((count, tree) => count + tree.ids.length, 0)
   useEffect(() => {
     if (lane !== 'closed') setArchivedTrees([])
@@ -438,12 +444,13 @@ const ObservedPoolWorkSections = observer(function ObservedPoolWorkSections({
   const archive = (id: string) => {
     setArchivedTrees([])
     setQuickArchive((current) => new Set(current).add(id))
-    void actions.archiveIssue(id).catch(() => {
+    return actions.archiveIssue(id).catch(() => {
       forgetQuickArchive([id])
       setArchivedTrees((current) => current.filter((tree) => tree.rootId !== id))
     })
   }
   const undoArchive = () => {
+    if (archiving) return
     const trees = archivedTrees
     setArchivedTrees([])
     forgetQuickArchive(trees.map((tree) => tree.rootId))
@@ -687,14 +694,21 @@ const ObservedPoolWorkSections = observer(function ObservedPoolWorkSections({
         <ClosedLaneHeader
           count={closedRows.length}
           archivedCount={archivedCount}
+          archiving={archiving}
           onArchiveAll={() => {
+            if (archiving) return
             try {
               const trees = actions.captureArchiveBatch(closedRows.map((row) => row.value.id))
               if (trees === LOADING) {
                 toast.error('Tasks are still loading. Try archiving again.')
                 return
               }
-              for (const tree of trees) archive(tree.rootId)
+              for (const tree of trees)
+                void archive(tree.rootId).then(() =>
+                  setArchivedTrees((current) =>
+                    current.map((item) => (item === tree ? { ...tree, queued: true } : item)),
+                  ),
+                )
               setArchivedTrees(trees)
             } catch {
               toast.error('Could not load all tasks to archive')

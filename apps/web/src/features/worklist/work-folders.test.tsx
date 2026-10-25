@@ -26,6 +26,28 @@ describe('Closed lane summary', () => {
     expect(undo).toHaveBeenCalledTimes(1)
   })
 
+  it('shows Archiving and disables Undo until receipts arrive', () => {
+    const undo = vi.fn()
+    const { rerender } = render(
+      <ClosedLaneHeader
+        count={0}
+        archivedCount={2}
+        archiving
+        onArchiveAll={vi.fn()}
+        onUndo={undo}
+      />,
+    )
+    expect(screen.getByText('Archiving…')).toBeTruthy()
+    const button = screen.getByRole('button', { name: 'Undo' }) as HTMLButtonElement
+    expect(button.disabled).toBe(true)
+    fireEvent.click(button)
+    expect(undo).not.toHaveBeenCalled()
+    rerender(<ClosedLaneHeader count={0} archivedCount={2} onArchiveAll={vi.fn()} onUndo={undo} />)
+    expect(screen.getByText('2 tasks archived')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Undo' }))
+    expect(undo).toHaveBeenCalledTimes(1)
+  })
+
   it('shows no card when there are no closed tasks or pending Undo', () => {
     render(<ClosedLaneHeader count={0} onArchiveAll={vi.fn()} onUndo={vi.fn()} />)
     expect(screen.queryByTestId('closed-lane-header')).toBeNull()

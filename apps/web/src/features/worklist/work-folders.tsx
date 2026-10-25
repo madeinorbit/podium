@@ -96,11 +96,13 @@ export function WorkLaneSwitch({
 export function ClosedLaneHeader({
   count,
   archivedCount = 0,
+  archiving = false,
   onArchiveAll,
   onUndo,
 }: {
   count: number
   archivedCount?: number
+  archiving?: boolean
   onArchiveAll: () => void
   onUndo: () => void
 }): JSX.Element | null {
@@ -127,9 +129,11 @@ export function ClosedLaneHeader({
       <div ref={content} className="closed-lane-content flex items-center gap-[10px]">
         <div className="flex min-w-0 flex-1 flex-col gap-[2px]">
           <span aria-live="polite" className="text-[12px] font-medium text-text-strong">
-            {archivedCount > 0
-              ? `${archivedCount} ${archivedCount === 1 ? 'task' : 'tasks'} archived`
-              : `${count} closed this week`}
+            {archiving
+              ? 'Archiving…'
+              : archivedCount > 0
+                ? `${archivedCount} ${archivedCount === 1 ? 'task' : 'tasks'} archived`
+                : `${count} closed this week`}
           </span>
           {archivedCount === 0 && (
             <span title="Cleared after 7 days" className="truncate text-[11px] text-text-dim">
@@ -142,8 +146,9 @@ export function ClosedLaneHeader({
             data-pressable
             type="button"
             onClick={onUndo}
+            disabled={archiving}
             data-testid="closed-issues-undo"
-            className="h-7 flex-none rounded-[6px] px-2 text-[11.5px] font-medium text-text-strong underline decoration-border-strong underline-offset-[3px] hover:decoration-text-dim focus-visible:outline focus-visible:outline-1 focus-visible:outline-border-strong"
+            className="h-7 flex-none rounded-[6px] px-2 text-[11.5px] font-medium text-text-strong underline decoration-border-strong underline-offset-[3px] hover:decoration-text-dim disabled:cursor-default disabled:text-text-dim disabled:no-underline focus-visible:outline focus-visible:outline-1 focus-visible:outline-border-strong"
           >
             Undo
           </button>

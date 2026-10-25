@@ -973,6 +973,27 @@ exports[`real pool row mutations and receipts > does not archive a partial batch
 }
 `;
 
+exports[`real pool row mutations and receipts > does not delay an Undo past a newer archive of a promoted child > sidebar action output 1`] = `
+{
+  "bytes": 43202,
+  "sha256": "f496a4c35eb4e9101973ebc42730cbce15fa98cd3e94da509019bf300e0f3c9f",
+}
+`;
+
+exports[`real pool row mutations and receipts > does not delay an Undo past a newer archive of a promoted child > sidebar action output 2`] = `
+{
+  "bytes": 37414,
+  "sha256": "a957a7d965d8cf1e749b34b6c4485828329fb0855c1f5894557e6533ec674088",
+}
+`;
+
+exports[`real pool row mutations and receipts > does not delay an Undo past a newer archive of a promoted child > sidebar action output 3`] = `
+{
+  "bytes": 37414,
+  "sha256": "a957a7d965d8cf1e749b34b6c4485828329fb0855c1f5894557e6533ec674088",
+}
+`;
+
 exports[`real pool row mutations and receipts > does not restore descendants when a pending parent archive is refused > sidebar action output 1`] = `
 {
   "bytes": 43200,
@@ -1178,8 +1199,8 @@ exports[`real pool row mutations and receipts > undoes archived descendants afte
 
 exports[`real pool row mutations and receipts > undoes archived descendants after the parent cascade, preserving already archived children > sidebar action output 2`] = `
 {
-  "bytes": 28166,
-  "sha256": "065d5bb46311154d783c9fb5a67e0199ff526ab3b2238c868d1ca864dc9c0930",
+  "bytes": 29928,
+  "sha256": "62d5529f12796c190ff6498ef3716595d0196720c64f2e4186a65d5218da8ce4",
 }
 `;
 

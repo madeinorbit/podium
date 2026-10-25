@@ -28,6 +28,7 @@ vi.mock('@podium/client-core/react', async (importOriginal) => {
       return state
     },
     services: {},
+    outbox: { pending: () => [], subscribe: () => () => {} },
     subscribe: (notify: () => void) =>
       selectMockSnapshot((state) => state.uiState)?.subscribe(notify) ?? (() => {}),
   })

@@ -130,7 +130,7 @@ function sessionMembership(
   return byIssue
 }
 
-export type ArchiveIssueTree = { rootId: string; ids: readonly string[] }
+export type ArchiveIssueTree = { rootId: string; ids: readonly string[]; queued: boolean }
 
 function poolArchiveBatch(
   pool: MobxPool,
@@ -155,7 +155,7 @@ function poolArchiveBatch(
       ids.push(id)
       stack.push(...pool.graph.many('issue', id, 'treeChildren'))
     }
-    if (ids.length) trees.push({ rootId, ids })
+    if (ids.length) trees.push({ rootId, ids, queued: false })
   }
   return trees
 }
@@ -163,7 +163,7 @@ function poolArchiveBatch(
 /** Pool reads are gesture-local. Writes and batching remain the app's actions. */
 export function createPoolWorkActions(
   pool: MobxPool,
-  runtime: Pick<ReturnType<typeof useStoreHandle>, 'access' | 'outbox' | 'subscribeOutboxOutcomes'>,
+  runtime: Pick<ReturnType<typeof useStoreHandle>, 'access' | 'outbox'>,
   focus: (id: string) => void,
 ) {
   let lastIssueNavigation: string | null = null
@@ -255,46 +255,6 @@ export function createPoolWorkActions(
       store.setView('workspace')
     })
   }
-  const unarchiveBatch = (trees: readonly ArchiveIssueTree[]) => {
-    const restore = (refused: ReadonlySet<string> = new Set()) =>
-      Promise.all(
-        trees.flatMap((tree) =>
-          refused.has(tree.rootId)
-            ? []
-            : tree.ids.map((id) => runtime.access.updateIssue(id, { archived: false })),
-        ),
-      )
-    if (trees.every((tree) => tree.ids.length === 1)) return restore()
-    const waitForCascade = async () => {
-      await runtime.outbox.flushLocalWrites?.()
-      const roots = new Set(trees.map((tree) => tree.rootId))
-      const pending = new Map(
-        runtime.outbox.pending().flatMap((entry) => {
-          const id = (entry.input as { id?: string }).id
-          return entry.kind === 'issueArchive' && id && roots.has(id)
-            ? [[entry.mutationId, id] as const]
-            : []
-        }),
-      )
-      if (!pending.size) return new Set<string>()
-      // A child's update has a different outbox partition from its parent.
-      // Wait for the parent archive to apply so its cascade cannot win later.
-      return new Promise<ReadonlySet<string>>((resolve) => {
-        const refused = new Set<string>()
-        const stop = runtime.subscribeOutboxOutcomes((outcome) => {
-          const rootId = pending.get(outcome.mutationId)
-          if (!rootId) return
-          if (outcome.type !== 'applied') refused.add(rootId)
-          pending.delete(outcome.mutationId)
-          if (!pending.size) {
-            stop()
-            resolve(refused)
-          }
-        })
-      })
-    }
-    return waitForCascade().then(restore)
-  }
   return {
     selectIssue: (id: string, paneSession?: SessionId) => allowImperativeRead(() => selectIssue(id, paneSession)),
     selectPanelForIssue: (id: string, sessionId: SessionId) => allowImperativeRead(() => selectIssue(id, sessionId)),
@@ -321,7 +281,23 @@ export function createPoolWorkActions(
     archiveIssue: (id: string) => runtime.access.archiveIssue(id),
     captureArchiveBatch: (rootIds: readonly string[]) =>
       allowImperativeRead(() => poolArchiveBatch(pool, rootIds)),
-    unarchiveBatch,
+    subscribeArchiveChanges: (notify: () => void) => runtime.outbox.subscribe(notify),
+    archiveBatchPending: (trees: readonly ArchiveIssueTree[]) =>
+      trees.length > 0 &&
+      (trees.some((tree) => !tree.queued) ||
+        runtime.outbox
+          .pending()
+          .some(
+            (entry) =>
+              entry.kind === 'issueArchive' &&
+              trees.some((tree) => tree.rootId === (entry.input as { id: string }).id),
+          )),
+    unarchiveBatch: (trees: readonly ArchiveIssueTree[]) =>
+      Promise.all(
+        trees.flatMap((tree) =>
+          tree.ids.map((id) => runtime.access.updateIssue(id, { archived: false })),
+        ),
+      ),
     deleteIssue: (id: string) => runtime.access.deleteIssue(id),
     applySortPatches: (patches: { id: string; sortKey: string; pinned?: boolean }[]) =>
       Promise.all(patches.map(({ id, ...patch }) => runtime.access.updateIssue(id, patch))),
