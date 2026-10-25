@@ -327,7 +327,7 @@ describe('pool navigation uses the existing gesture semantics', () => {
     const focus = vi.fn(() => {
       calls.push('focus')
     })
-    const work = createPoolWorkActions(pool!, { access: store }, focus)
+    const work = createPoolWorkActions(pool!, { ...runtime, access: store }, focus)
     work.selectPanelForIssue('synthetic-3', asSessionId('synthetic-session-3'))
     expect(calls).toEqual([
       'trace',
@@ -540,7 +540,7 @@ describe('pool navigation uses the existing gesture semantics', () => {
     const focus = vi.fn()
     const work = createPoolWorkActions(
       pool!,
-      { access: store },
+      { ...runtime, access: store },
       focus,
     )
     work.selectIssue('synthetic-3')
@@ -1188,6 +1188,122 @@ describe('real pool row mutations and receipts', () => {
     expect((await screen.findByTestId('work-lane-empty')).textContent).toBe(
       'Nothing closed in the last 7 days.',
     )
+  })
+
+  it('undoes archived descendants after the parent cascade, preserving already archived children', async () => {
+    const ids = ['synthetic-5', 'synthetic-6', 'synthetic-8']
+    const fixture = await mount((fixture) => {
+      for (const [id, parentId] of [
+        ['synthetic-6', 'synthetic-5'],
+        ['synthetic-8', 'synthetic-6'],
+      ] as const) {
+        patchIssue(fixture, id, {
+          parentId,
+          stage: 'done',
+          closedReason: 'done',
+          closedAt: new Date(NOW - 10 * 86400000).toISOString(),
+          readAt: null,
+        })
+        fixture.patch('session', id.replace('synthetic-', 'synthetic-session-'), {
+          archived: true,
+          status: 'exited',
+        })
+      }
+      patchIssue(fixture, 'synthetic-7', { parentId: 'synthetic-5', archived: true })
+      patchIssue(fixture, 'synthetic-9', { parentId: 'synthetic-7' })
+    })
+    // Cold payloads still have formal links and declared archive summaries.
+    expect(pool!.tables.issue.has('synthetic-6')).toBe(false)
+    fireEvent.click(screen.getByTestId('work-lane-closed'))
+    fireEvent.click(await screen.findByTestId('closed-issues-archive-all'))
+    expect(screen.getByTestId('closed-lane-header').textContent).toContain('3 tasks archived')
+    await act(async () => {
+      await Promise.resolve()
+    })
+    expect(screen.getByRole('button', { name: 'Undo' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Undo' }))
+    const archive = await request('issues.archive', 'synthetic-5')
+    expect(runtime.outbox.pending().filter((entry) => entry.kind === 'issueUpdate')).toHaveLength(0)
+    // Model the server's whole cascade before accepting the parent command.
+    await act(async () => {
+      for (const id of ids) patchIssue(fixture, id, { archived: true })
+    })
+    await accept(archive)
+    await waitFor(() =>
+      expect(
+        runtime.outbox
+          .pending()
+          .filter((entry) => entry.kind === 'issueUpdate')
+          .map((entry) => entry.input),
+      ).toEqual(ids.map((id) => ({ id, patch: { archived: false } }))),
+    )
+    for (const id of ids)
+      expect(pool!.row('issue', id, 'summary-fields')).toMatchObject({ archived: false })
+    expect(pool!.row('issue', 'synthetic-7', 'summary-fields')).toMatchObject({ archived: true })
+    expect(pool!.row('issue', 'synthetic-9', 'summary-fields')).toMatchObject({ archived: false })
+  })
+
+  it('does not restore descendants when a pending parent archive is refused', async () => {
+    await mount((fixture) => patchIssue(fixture, 'synthetic-6', { parentId: 'synthetic-5' }))
+    fireEvent.click(screen.getByTestId('work-lane-closed'))
+    fireEvent.click(await screen.findByTestId('closed-issues-archive-all'))
+    fireEvent.click(screen.getByRole('button', { name: 'Undo' }))
+    await refuse(await request('issues.archive', 'synthetic-5'))
+    expect(runtime.outbox.pending().filter((entry) => entry.kind === 'issueUpdate')).toHaveLength(0)
+    expect(pool!.row('issue', 'synthetic-6', 'summary-fields')).toMatchObject({ archived: false })
+  })
+
+  it('does not archive a partial batch while a descendant summary is loading', async () => {
+    await mount((fixture) => patchIssue(fixture, 'synthetic-6', { parentId: 'synthetic-5' }))
+    fireEvent.click(screen.getByTestId('work-lane-closed'))
+    const read = pool!.row.bind(pool!)
+    const lookup = vi
+      .spyOn(pool!, 'row')
+      .mockImplementation((entity, id, mode) =>
+        entity === 'issue' && id === 'synthetic-6' && mode === 'summary-fields'
+          ? LOADING
+          : read(entity, id, mode),
+      )
+    try {
+      fireEvent.click(await screen.findByTestId('closed-issues-archive-all'))
+      expect(runtime.outbox.pending()).toHaveLength(0)
+      expect(screen.queryByTestId('closed-issues-undo')).toBeNull()
+    } finally {
+      lookup.mockRestore()
+    }
+    fireEvent.click(screen.getByTestId('closed-issues-archive-all'))
+    expect(screen.getByTestId('closed-lane-header').textContent).toContain('2 tasks archived')
+  })
+
+  it('keeps the Undo card above the empty result under an active filter', async () => {
+    const fixture = await mount((fixture) =>
+      patchIssue(fixture, TARGET, {
+        stage: 'done',
+        closedReason: 'done',
+        closedAt: new Date(NOW - 1000).toISOString(),
+        tuckedAt: new Date(NOW - 500).toISOString(),
+      }),
+    )
+    fireEvent.click(screen.getByTestId('work-lane-closed'))
+    fireEvent.change(screen.getByTestId('work-search-input'), {
+      target: { value: 'Only responsive' },
+    })
+    fireEvent.click(await screen.findByRole('button', { name: 'Archive all 1 closed task' }))
+    const archive = await request('issues.archive')
+    await act(async () => patchIssue(fixture, TARGET, { archived: true }))
+    await accept(archive)
+    expect(await screen.findByTestId('work-filter-empty')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Undo' })).toBeTruthy()
+    expect(screen.queryByTestId('work-lane-empty')).toBeNull()
+    expect(screen.queryByTestId('work-filter-footnote')).toBeNull()
+    expect(
+      sidebarView(pool!)
+        .sections()
+        .bands.flatMap((band) => band.closedIds),
+    ).toEqual(['synthetic-5'])
+    fireEvent.click(screen.getByRole('button', { name: 'Undo' }))
+    await waitFor(() => expect(screen.queryByTestId('work-filter-empty')).toBeNull())
+    expect(screen.getByRole('button', { name: 'Archive all 1 closed task' })).toBeTruthy()
   })
 
   it('preserves archive and delete confirmation before enqueuing and rewinds both refusals', async () => {

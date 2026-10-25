@@ -966,6 +966,27 @@ exports[`real pool row mutations and receipts > dispatches Snooze / defer throug
 }
 `;
 
+exports[`real pool row mutations and receipts > does not archive a partial batch while a descendant summary is loading > sidebar action output 1`] = `
+{
+  "bytes": 43200,
+  "sha256": "b127b4b2e3757ba1adcf0a46cdaaebffdc75167325e42085e700dae7a571c796",
+}
+`;
+
+exports[`real pool row mutations and receipts > does not restore descendants when a pending parent archive is refused > sidebar action output 1`] = `
+{
+  "bytes": 43200,
+  "sha256": "b127b4b2e3757ba1adcf0a46cdaaebffdc75167325e42085e700dae7a571c796",
+}
+`;
+
+exports[`real pool row mutations and receipts > does not restore descendants when a pending parent archive is refused > sidebar action output 2`] = `
+{
+  "bytes": 43200,
+  "sha256": "b127b4b2e3757ba1adcf0a46cdaaebffdc75167325e42085e700dae7a571c796",
+}
+`;
+
 exports[`real pool row mutations and receipts > drops the archive Undo when leaving the Closed lane > sidebar action output 1`] = `
 {
   "bytes": 44975,
@@ -998,6 +1019,20 @@ exports[`real pool row mutations and receipts > keeps Bring back disabled with i
 {
   "bytes": 44977,
   "sha256": "f99bdf2bc609e06c52694f9738e47ca6f2781ff49c416a259a9b95c1bd0768e2",
+}
+`;
+
+exports[`real pool row mutations and receipts > keeps the Undo card above the empty result under an active filter > sidebar action output 1`] = `
+{
+  "bytes": 45033,
+  "sha256": "607687ed73ca91e632ef3c497ab0f4aa20da5fa4566720bb1cef398425109912",
+}
+`;
+
+exports[`real pool row mutations and receipts > keeps the Undo card above the empty result under an active filter > sidebar action output 2`] = `
+{
+  "bytes": 41185,
+  "sha256": "c9269119236bc2cf50c29f76b06b7fe2c193d9e872a7ade05ff087a790c119bf",
 }
 `;
 
@@ -1131,6 +1166,20 @@ exports[`real pool row mutations and receipts > unsnoozes from the snoozed row c
 {
   "bytes": 44973,
   "sha256": "9019dc46af0715b564e53eeb3a07c2aaaccca621194e4f0bf13f3d6e15a10a1f",
+}
+`;
+
+exports[`real pool row mutations and receipts > undoes archived descendants after the parent cascade, preserving already archived children > sidebar action output 1`] = `
+{
+  "bytes": 28166,
+  "sha256": "065d5bb46311154d783c9fb5a67e0199ff526ab3b2238c868d1ca864dc9c0930",
+}
+`;
+
+exports[`real pool row mutations and receipts > undoes archived descendants after the parent cascade, preserving already archived children > sidebar action output 2`] = `
+{
+  "bytes": 28166,
+  "sha256": "065d5bb46311154d783c9fb5a67e0199ff526ab3b2238c868d1ca864dc9c0930",
 }
 `;
 

@@ -66,7 +66,11 @@ import { MAX_ROW_SHORTCUTS, useRowShortcuts } from './row-shortcuts'
 import { PanelRow, useCollapsedKeys } from './sidebar-common'
 import { UnifiedIssueRow, WorklistIssueRow } from './UnifiedIssueRow'
 import { UnifiedWorktreeRow } from './UnifiedWorktreeRow'
-import { type PoolWorkActions, usePoolUnifiedWork } from './use-pool-unified-work'
+import {
+  type ArchiveIssueTree,
+  type PoolWorkActions,
+  usePoolUnifiedWork,
+} from './use-pool-unified-work'
 import { useRowDrag } from './useRowDrag'
 import { WorkListEmpty } from './WorkListEmpty'
 import { normalizeWorkQuery } from './work-filter'
@@ -334,15 +338,17 @@ const ObservedPoolWorkSections = observer(function ObservedPoolWorkSections({
   const reduceMotion = useReducedMotion()
   const layoutGroupId = useId()
   // A gesture snapshot: Undo restores this batch even if other tasks close later.
-  const [archivedIds, setArchivedIds] = useState<readonly string[]>([])
+  const [archivedTrees, setArchivedTrees] = useState<readonly ArchiveIssueTree[]>([])
+  const archivedCount = archivedTrees.reduce((count, tree) => count + tree.ids.length, 0)
   useEffect(() => {
-    if (lane !== 'closed') setArchivedIds([])
+    if (lane !== 'closed') setArchivedTrees([])
   }, [lane])
   useEffect(() => {
-    // A refused archive or an external restore puts the task back in the lane.
-    if (archivedIds.some((id) => slotById.has(id)))
-      setArchivedIds((current) => current.filter((id) => !slotById.has(id)))
-  }, [archivedIds, slotById])
+    // A refused root archive or an external restore ends that tree's Undo.
+    // Descendants can remain visible until the server's cascade arrives.
+    if (archivedTrees.some((tree) => slotById.has(tree.rootId)))
+      setArchivedTrees((current) => current.filter((tree) => !slotById.has(tree.rootId)))
+  }, [archivedTrees, slotById])
   const [quickArchive, setQuickArchive] = useState<ReadonlySet<string>>(() => new Set())
   const [menu, setMenu] = useState<{ id: string; anchor: ContextMenuAnchor } | null>(null)
   const { startNewTask } = useNewTask()
@@ -430,20 +436,18 @@ const ObservedPoolWorkSections = observer(function ObservedPoolWorkSections({
     })
   }, [items, quickArchive])
   const archive = (id: string) => {
-    setArchivedIds([])
+    setArchivedTrees([])
     setQuickArchive((current) => new Set(current).add(id))
     void actions.archiveIssue(id).catch(() => {
       forgetQuickArchive([id])
-      setArchivedIds((current) => current.filter((archivedId) => archivedId !== id))
+      setArchivedTrees((current) => current.filter((tree) => tree.rootId !== id))
     })
   }
   const undoArchive = () => {
-    const ids = archivedIds
-    setArchivedIds([])
-    forgetQuickArchive(ids)
-    void Promise.all(ids.map((id) => actions.unarchiveIssue(id))).catch(() =>
-      toast.error('Could not restore archived tasks'),
-    )
+    const trees = archivedTrees
+    setArchivedTrees([])
+    forgetQuickArchive(trees.map((tree) => tree.rootId))
+    void actions.unarchiveBatch(trees).catch(() => toast.error('Could not restore archived tasks'))
   }
   // Rows take a stable archive handle, or every row would re-render with the list.
   const archiveRef = useRef(archive)
@@ -663,13 +667,7 @@ const ObservedPoolWorkSections = observer(function ObservedPoolWorkSections({
         <WorkListEmpty />
       </>
     )
-  if (filtering && pinned.length === 0 && bands.length === 0 && archivedIds.length === 0)
-    return (
-      <>
-        <PoolEviction pool={pool} />
-        <WorkFilterEmpty />
-      </>
-    )
+  const filterEmpty = filtering && pinned.length === 0 && bands.length === 0
   const transition = reduceMotion ? { duration: 0 } : { layout: ROW_LAYOUT_TRANSITION }
   // Headers trade places under a drag on a short ease, not the rows' spring:
   // the slot has to keep up with the pointer.
@@ -688,19 +686,25 @@ const ObservedPoolWorkSections = observer(function ObservedPoolWorkSections({
       {lane === 'closed' && (
         <ClosedLaneHeader
           count={closedRows.length}
-          archivedCount={archivedIds.length}
+          archivedCount={archivedCount}
           onArchiveAll={() => {
-            const ids: string[] = []
-            for (const row of closedRows) {
-              ids.push(row.value.id)
-              archive(row.value.id)
+            try {
+              const trees = actions.captureArchiveBatch(closedRows.map((row) => row.value.id))
+              if (trees === LOADING) {
+                toast.error('Tasks are still loading. Try archiving again.')
+                return
+              }
+              for (const tree of trees) archive(tree.rootId)
+              setArchivedTrees(trees)
+            } catch {
+              toast.error('Could not load all tasks to archive')
             }
-            setArchivedIds(ids)
           }}
           onUndo={undoArchive}
         />
       )}
-      {lane !== 'open' && bands.length === 0 && (
+      {filterEmpty && <WorkFilterEmpty />}
+      {!filterEmpty && lane !== 'open' && bands.length === 0 && (
         <div data-testid="work-lane-empty" className="px-[22px] py-6 text-[11.5px] text-text-faint">
           {lane === 'snoozed' ? 'Nothing snoozed.' : 'Nothing closed in the last 7 days.'}
         </div>
@@ -782,7 +786,7 @@ const ObservedPoolWorkSections = observer(function ObservedPoolWorkSections({
           </m.div>
         )
       })}
-      {filtering && (
+      {filtering && !filterEmpty && (
         <WorkFilterFootnote
           total={targets.filter((target) => laneOf(target.value) === lane).length}
         />
