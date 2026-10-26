@@ -60,12 +60,22 @@ function timeLabel(
   count: number,
   bucketMs: number,
 ): string {
+  // The current bucket is still filling, so its reading is a peak or total so
+  // far, not a live value; naming its window keeps it from reading as "now".
+  if (index === count - 1) return currentWindowLabel(bucketMs)
   const endMs = bucketEndMs(bucket, index, count, bucketMs)
-  if (endMs === null) return 'now'
-  return new Date(endMs).toLocaleTimeString([], {
-    hour: '2-digit',
-    minute: '2-digit',
-  })
+  if (endMs === null || !bucket) return ''
+  return `${clockTime(bucket.startMs)}–${clockTime(endMs)}`
+}
+
+function currentWindowLabel(bucketMs: number): string {
+  if (bucketMs === 30 * 60 * 1_000) return 'this half hour'
+  if (bucketMs === 60 * 60 * 1_000) return 'this hour'
+  return 'so far'
+}
+
+function clockTime(ms: number): string {
+  return new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
 
 function xIntent(text: string): string {
@@ -164,7 +174,7 @@ export function StatusMetric({
           aria-valuemin={0}
           aria-valuemax={lastIndex}
           aria-valuenow={safeIndex}
-          aria-valuetext={`${activeReading.value} ${activeReading.label} in the bucket ending ${activeTime}`}
+          aria-valuetext={`${activeReading.value} ${activeReading.label}${activeTime ?`, ${activeTime}` : ''}`}
           style={{ '--history-columns': buckets.length } as CSSProperties}
           onBlur={() => setActiveIndex(lastIndex)}
           onKeyDown={moveWithKeyboard}

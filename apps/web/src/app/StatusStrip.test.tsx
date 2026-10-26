@@ -202,6 +202,16 @@ describe('StatusStrip agent concurrency history', () => {
     await waitFor(() => expect(fixture.query).toHaveBeenCalled())
   })
 
+  it('labels the filling bucket by its window and older buckets by their range', async () => {
+    render(<StatusStrip />)
+    await waitFor(() => expect(fixture.query).toHaveBeenCalled())
+    const graph = screen.getByTestId('agent-concurrency-history')
+
+    await waitFor(() => expect(graph.getAttribute('aria-valuetext')).toContain('this half hour'))
+    fireEvent.keyDown(graph, { key: 'Home' })
+    expect(graph.getAttribute('aria-valuetext')).toMatch(/, \d{2}:\d{2}.*–\d{2}:\d{2}/)
+  })
+
   it('shares the live concurrency reading through a prefilled X intent', () => {
     fixture.sessions.push({
       sessionId: 's1',
