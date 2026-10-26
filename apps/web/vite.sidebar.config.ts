@@ -1,6 +1,4 @@
-// Throwaway harness config (POD-1253) — the real vite config with the PWA
-// plugin dropped and `@/app/store` aliased to a stub, so the SHIPPING
-// SidebarUnified renders without a server behind it.
+// Standalone sidebar layout with synthetic pool data and no PWA service worker.
 import { fileURLToPath } from 'node:url'
 import { defineConfig, type PluginOption } from 'vite'
 import base from './vite.config'
@@ -22,7 +20,6 @@ export default defineConfig(async (env) => {
         /pwa|workbox/i.test(String((p as { name: string }).name))
       ),
   )
-  const resolve = (real.resolve ?? {}) as { alias?: Record<string, string> }
   return {
     ...real,
     plugins: [
@@ -47,18 +44,8 @@ export default defineConfig(async (env) => {
         },
       } as PluginOption,
     ],
-    resolve: {
-      ...resolve,
-      // BEFORE the spread, or the real config's bare '@' alias swallows it.
-      alias: {
-        '@/app/store': fileURLToPath(new URL('./harness/sidebar-store.ts', import.meta.url)),
-        ...(resolve.alias ?? {}),
-      },
-    },
     root: fileURLToPath(new URL('.', import.meta.url)),
-    // ONLY the harness page. The real `index.html` pulls in the whole app, whose
-    // other surfaces import store exports this stub has no reason to carry — and
-    // the build fails on them rather than tree-shaking them away.
+    // Build only the standalone layout page.
     build: {
       ...((real.build as object) ?? {}),
       rollupOptions: {
