@@ -18,12 +18,13 @@
 import type {
   ContractInput,
   mailCancelContract,
-  mailDismissNoticeContract,
   mailDismissContract,
+  mailDismissNoticeContract,
   mailRecordsContract,
   mailShowContract,
   mailStatusContract,
 } from '@podium/commands'
+import { MAIL_VIEW_REFUSED } from '@podium/commands/mail-pointer-nudge'
 import type { MessageRecordWire } from '@podium/model'
 import type { MessageWire } from '../gate'
 import type { MailHandlerContext } from './context'
@@ -34,7 +35,7 @@ async function viewable(ctx: MailHandlerContext, id: string): Promise<MessageWir
   const m = await deps.messages.message(id)
   if (!m) throw new Error(`unknown message ${id}`)
   if (!access.mayView(caller.capability, m)) {
-    throw new Error('not allowed to view a message you neither sent nor received')
+    throw new Error(MAIL_VIEW_REFUSED)
   }
   return await access.wire(m)
 }

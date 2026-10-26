@@ -17,9 +17,13 @@
  * AN INBOX POINTER IS A NOTE TOO (POD-2143): an oversized mail reaches the agent
  * as one line naming its id, so its item fetches the body when the card opens.
  */
-import { envelopePrincipal, type ParsedEnvelope } from '@podium/client-core/values'
+import {
+  envelopePrincipal,
+  type ParsedEnvelope,
+  pointerFallbackBody,
+} from '@podium/client-core/values'
 import { ChevronDown, Mail as MailIcon, X } from 'lucide-react'
-import type { JSX, MouseEvent as ReactMouseEvent } from 'react'
+import type { JSX, MouseEvent as ReactMouseEvent, ReactNode } from 'react'
 import { memo, useMemo, useState } from 'react'
 import { renderMarkdown, sanitizeRenderedMarkdown } from '@/lib/markdown'
 import { isKnownRefPrefix } from '@/lib/markdown-references'
@@ -98,10 +102,6 @@ const StableEnvelopeMarkdown = memo(function StableEnvelopeMarkdown({ html }: { 
   )
 })
 
-/** What a legacy pointer (typed before it named its ids) can still say. */
-const LEGACY_POINTER_BODY =
-  'Delivered via the inbox\nToo long to type into the session, so the agent read it from its inbox.'
-
 /** A pointer's item: the body the agent was not typed, fetched by id. */
 function PointerEnvelopeItem(props: {
   envelope: ParsedEnvelope
@@ -113,8 +113,22 @@ function PointerEnvelopeItem(props: {
       ? mail.body
       : mail.status === 'loading'
         ? 'Loading…'
-        : `Could not load this message\nRead it with \`podium mail show ${props.envelope.id}\`.`
-  return <EnvelopeItem {...props} body={body} />
+        : mail.status === 'denied'
+          ? "You can't view this message\nOnly its sender, its recipients and an admin can open it."
+          : 'Could not load this message'
+  return (
+    <EnvelopeItem
+      {...props}
+      body={body}
+      footer={
+        mail.status === 'error' && (
+          <button data-pressable type="button" className="mail-item-retry" onClick={mail.retry}>
+            Retry
+          </button>
+        )
+      }
+    />
+  )
 }
 
 function EnvelopeItem({
@@ -122,10 +136,13 @@ function EnvelopeItem({
   body = envelope.body,
   markdownHtml,
   forceFull = false,
+  footer,
 }: {
   envelope: ParsedEnvelope
   /** The body when the frame did not carry it (an inbox pointer). */
   body?: string
+  /** An action under the body, such as retrying a failed load. */
+  footer?: ReactNode
   markdownHtml?: ReadonlyMap<string, string> | undefined
   /** The active search hit: the matched word may be anywhere in the body, so
    *  the preview is not enough. */
@@ -171,6 +188,7 @@ function EnvelopeItem({
           <span className="mail-item-note">{envelope.machineNote}</span>
         )}
         {envelope.expectsReply && <span className="mail-item-reply">reply · {envelope.id}</span>}
+        {footer}
       </span>
     </div>
   )
@@ -298,7 +316,7 @@ export function MessageEnvelopeGroup({
                     <EnvelopeItem
                       key={envelope.id}
                       envelope={envelope}
-                      body={envelope.pointer === 'legacy' ? LEGACY_POINTER_BODY : envelope.body}
+                      body={envelope.pointer ? pointerFallbackBody(envelope) : envelope.body}
                       markdownHtml={markdownHtml}
                       forceFull={forceOpen}
                     />

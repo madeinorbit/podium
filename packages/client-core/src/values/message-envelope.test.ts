@@ -6,6 +6,7 @@ import {
   envelopePrincipalLabel,
   parseEnvelopeBatch,
   parseMessageEnvelope,
+  pointerFallbackBody,
 } from './message-envelope'
 
 const frame = (id: string, from: string, to: string, body: string, extra = '') =>
@@ -204,6 +205,32 @@ describe('parseEnvelopeBatch: inbox pointers (POD-2143)', () => {
     ])
   })
 
+  // Every tail the server has typed, newest first (git log -G'read them' --
+  // apps/server/src/modules/messages/render.ts): b6a1cb23f7, b97e13ccc0, 574f9922a1.
+  it.each([
+    ['POD-2070 no-repeat rule', legacyPointer(1, 'issue:POD-9')],
+    [
+      'POD-604 restate-your-summary rule',
+      "[podium] 1 message(s) from issue:POD-9 — run 'podium issue mail inbox' to read them, " +
+        'then close your turn by saying briefly who mailed you and what you did, repeating ' +
+        'your previous summary below that, and leaving your standing offer as it is',
+    ],
+    [
+      'bare stem',
+      "[podium] 1 message(s) from issue:POD-9 — run 'podium issue mail inbox' to read them",
+    ],
+  ])('reads the %s legacy tail as internal, with a follow-up line kept as operator text', (_, line) => {
+    expect(parseEnvelopeBatch(`${line}\nand then ship it`)).toEqual({
+      envelopes: [{ ...pointer, id: 'pointer:0', from: 'issue:POD-9', pointer: 'legacy' }],
+      operatorText: 'and then ship it',
+    })
+  })
+
+  it('refuses an id-carrying pointer whose tail is not the current one', () => {
+    const line = renderMailPointer(1, [{ from: 'operator', ids: ['msg_a'] }])
+    expect(parseEnvelopeBatch(line.replace('leave your standing offer', 'drop'))).toBeNull()
+  })
+
   it('reads a legacy pointer without ids, one entry per sender', () => {
     const batch = parseEnvelopeBatch(legacyPointer(2, 'issue:#212, superagent'))
     expect(batch).toEqual({
@@ -222,6 +249,15 @@ describe('parseEnvelopeBatch: inbox pointers (POD-2143)', () => {
     const batch = parseEnvelopeBatch(text)
     expect(batch?.envelopes.map((e) => e.id)).toEqual(['msg_x', 'msg_y'])
     expect(batch?.operatorText).toBe('now ship it')
+  })
+
+  it('says where an unloaded pointer body went, and how to read a by-id one', () => {
+    const [byId] = parseEnvelopeBatch(renderMailPointer(1, [{ from: 'operator', ids: ['msg_z'] }]))!
+      .envelopes
+    const [legacy] = parseEnvelopeBatch(legacyPointer(1, 'operator'))!.envelopes
+    expect(pointerFallbackBody(byId!)).toMatch(/^Delivered via the inbox\n.*podium mail show msg_z/s)
+    expect(pointerFallbackBody(legacy!)).toMatch(/^Delivered via the inbox\n/)
+    expect(pointerFallbackBody(legacy!)).not.toContain('mail show')
   })
 
   it('leaves look-alike human text alone', () => {

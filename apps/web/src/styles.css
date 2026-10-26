@@ -4491,6 +4491,21 @@ button.pane-branch:hover {
   font-size: var(--shell-type-micro);
   color: var(--muted-foreground);
 }
+/* A pointer whose body failed to load (POD-2143): asking again is the one
+   thing the reader can do about it. */
+.mail-item-retry {
+  align-self: flex-start;
+  margin-top: 7px;
+  padding: 2px 7px;
+  border: 1px solid var(--chat-rule);
+  border-radius: 5px;
+  font-size: var(--shell-type-micro);
+  line-height: 1.6;
+  color: var(--muted-foreground);
+}
+.mail-item-retry:hover {
+  color: var(--foreground);
+}
 /* The one frame in a burst that is asking for something says so, in the live
    hue, at the bottom of its own item — where a reader has just finished reading
    what it is asking about. */

@@ -37670,12 +37670,12 @@
       "file": "apps/web/src/features/chat/MessageEnvelopeGroup.tsx",
       "holder": "PointerEnvelopeItem/mail",
       "rule": "reader-summary",
-      "tokens": "1500fefe9f90c4ce4fc4a93150ede552323248513783431122d08e735cd6cb0d",
+      "tokens": "c346aa1549e663d4c05b7bbe870e68523978a4a28d5b9a0fe92b01d9c315592c",
       "gate": [],
       "origin": [
         "ff59db5fed9024e0f06b8042d373d334ad76d2cefde5517fb3d14d2234e1e676"
       ],
-      "fingerprint": "2af949c400bb83fd35c3d7614e4927cb56dbd2f4ff236b176adfe8ec904d65be",
+      "fingerprint": "2e876ffff2d6edc7c384fc0d2cc07b3ca73111c99a72409ec75729c8bf66a3ae",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-2143",

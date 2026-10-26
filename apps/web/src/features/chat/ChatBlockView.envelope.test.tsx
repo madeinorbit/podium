@@ -20,10 +20,14 @@ vi.mock('@/lib/ref-activation', () => ({
 // An inbox pointer's body comes from the server by id (POD-2143); the stub
 // records which ids were asked for.
 const bodyRequests: string[] = []
+let bodyAnswer: (id: string) => unknown = (id) => ({
+  status: 'ready',
+  body: `Long review notes\nfull body of ${id}`,
+})
 vi.mock('./mail-body', () => ({
   useMailBody: (id: string) => {
     bodyRequests.push(id)
-    return { status: 'ready', body: `Long review notes\nfull body of ${id}` }
+    return bodyAnswer(id)
   },
 }))
 
@@ -389,6 +393,27 @@ describe('inbox pointer notes (POD-2143)', () => {
     expect(host.textContent).toContain('Long review notes')
     click(host.querySelector('.mail-item-head'))
     expect(host.querySelector('.mail-item-body')?.textContent).toContain('full body of msg_big')
+  })
+
+  it('tells a refused body apart from a failed load, and offers a retry only for the latter', () => {
+    const pointerLine = renderMailPointer(1, [{ from: 'issue:POD-2128', ids: ['msg_big'] }])
+    const keep = bodyAnswer
+    try {
+      bodyAnswer = () => ({ status: 'denied' })
+      mount(userItem(pointerLine))
+      click(toggle())
+      expect(host.textContent).toContain("You can't view this message")
+      expect(host.querySelector('.mail-item-retry')).toBeNull()
+
+      const retry = vi.fn()
+      bodyAnswer = () => ({ status: 'error', retry })
+      mount({ ...userItem(pointerLine), id: 'i2' } as TranscriptItem)
+      expect(host.textContent).toContain('Could not load this message')
+      click(host.querySelector('.mail-item-retry'))
+      expect(retry).toHaveBeenCalledOnce()
+    } finally {
+      bodyAnswer = keep
+    }
   })
 
   it('folds a legacy pointer without ids and says the body went to the inbox', () => {

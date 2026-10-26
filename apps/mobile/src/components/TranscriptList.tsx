@@ -5,6 +5,7 @@ import {
   failLine,
   formatChurn,
   type ParsedEnvelope,
+  pointerFallbackBody,
   resultPreview,
   toolBatchTitle,
   toolRunFailures,
@@ -189,6 +190,12 @@ function EnvelopePrincipalLabel({
   )
 }
 
+/** An inbox pointer (POD-2143) carries no body. This list shows every envelope
+ *  open, so fetching one here would load it unasked; say where it went instead. */
+function envelopeText(envelope: ParsedEnvelope): string {
+  return envelope.pointer ? pointerFallbackBody(envelope) : envelope.body
+}
+
 function EnvelopeRow({
   envelope,
   onRefPress,
@@ -202,15 +209,19 @@ function EnvelopeRow({
         <Text style={styles.envelopeKind}>Internal</Text>
         <Text style={styles.envelopeRoute} numberOfLines={1}>
           <EnvelopePrincipalLabel label={envelope.from} onRefPress={onRefPress} />
-          {' → '}
-          <EnvelopePrincipalLabel label={envelope.to} onRefPress={onRefPress} />
+          {envelope.to ? (
+            <>
+              {' → '}
+              <EnvelopePrincipalLabel label={envelope.to} onRefPress={onRefPress} />
+            </>
+          ) : null}
         </Text>
         {envelope.question ? <Text style={styles.envelopeQuestion}>question</Text> : null}
         {envelope.expectsReply ? <Text style={styles.envelopeReply}>reply requested</Text> : null}
       </View>
-      <Text style={styles.envelopeId}>{envelope.id}</Text>
+      {envelope.pointer === 'legacy' ? null : <Text style={styles.envelopeId}>{envelope.id}</Text>}
       <View style={styles.envelopeBody}>
-        <RichMarkdown text={envelope.body} onRefPress={onRefPress} />
+        <RichMarkdown text={envelopeText(envelope)} onRefPress={onRefPress} />
       </View>
       {envelope.machineNote ? (
         <Text style={styles.envelopeMachine}>{envelope.machineNote}</Text>
@@ -725,7 +736,7 @@ const TranscriptFeedRow = memo(
       case 'envelope':
         content = row.envelope
           ? message(
-              row.envelope.body,
+              envelopeText(row.envelope),
               <EnvelopeRow envelope={row.envelope} onRefPress={onRefPress} />,
             )
           : null

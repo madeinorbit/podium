@@ -155,6 +155,16 @@ function pointerEnvelopes(senders: MailPointerSender[], offset: number): ParsedE
   )
 }
 
+/** A pointer entry's text while its body is not loaded (or cannot be): where
+ *  the body went, and for a by-id pointer how to read it. Never an empty card. */
+export function pointerFallbackBody(envelope: ParsedEnvelope): string {
+  const where =
+    'Delivered via the inbox\nToo long to type into the session, so the agent read it from its inbox.'
+  return envelope.pointer === 'by-id'
+    ? `${where} Read it with \`podium mail show ${envelope.id}\`.`
+    : where
+}
+
 /** A principal label split for rendering: `pre` + `ref` + `post`, where `ref`
  *  is a nice-id issue ref (`POD-13`) the header can render as a clickable
  *  ref-link chip, or null when the label carries none (legacy `#seq`,
