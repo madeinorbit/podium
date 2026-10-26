@@ -9419,171 +9419,6 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "apps/web/src/features/worklist/UnifiedWorktreeRow.tsx",
-      "holder": "UnifiedWorktreeRow/UnifiedWorktreeRow",
-      "rule": "consume:map",
-      "tokens": "75748db34b25bda879ffa00e020ea9b01d55fbf464be8de0f58b52d1dadd2417",
-      "gate": [],
-      "origin": [
-        "1d5c3697ed6bc20b7ee2b58602e08642e79bed5f0a8697027c9bdf81daade0f3",
-        "ff30a302fe9c11004576bba005ff9995073007e2d7d847fc3261c2c056e45c73"
-      ],
-      "fingerprint": "4f2ede26205233c08dd046fc416905b9bf8ee14f3e51b9c99199b2d243bd9a9f",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation or observation of UnifiedWorktreeRow/UnifiedWorktreeRow",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
-      "reason": "The desktop worktree observer renders the direct visible shared-session list rather than the port projection. Its rendered roster has no hard cardinality cap. Predecessor: 36f9b737f557c1c681578e60babccb9bf8f96844e91f3e1ae9b54db52fcb27e4."
-    },
-    {
-      "file": "apps/web/src/features/worklist/UnifiedWorktreeRow.tsx",
-      "holder": "UnifiedWorktreeRow/UnifiedWorktreeRow/renderRow/callback/attachedIssueDisplayRef",
-      "rule": "consume:find",
-      "tokens": "695558ff8c087f65938a0fca3f1b8d704d21087bd24695399fdb9732a86ab8b4",
-      "gate": [
-        "then:c34742c9a465beb79cf24aeb8fae894ca5d8764458681a3f08e309c14261044f"
-      ],
-      "origin": [
-        "213df1507857ac3b784875f4163fac60cd38af0ce03f81ac61f3865317597531"
-      ],
-      "fingerprint": "586eab04668dab0a9710d8e3629c035449ab7ad3374382761e2e848365fdb8ea",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation or observation of UnifiedWorktreeRow/UnifiedWorktreeRow/renderRow/callback/attachedIssueDisplayRef",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
-      "reason": "The existing attached-issue lookup is now traced through the direct worktree model. It searches only the represented-issue list but that list has no proven hard cap. Predecessor: 4ad3ccf145b93c929b0f58ca62140c15e420db522c0cce6e6db8a95334e01336."
-    },
-    {
-      "file": "apps/web/src/features/worklist/UnifiedWorktreeRow.tsx",
-      "holder": "UnifiedWorktreeRow/UnifiedWorktreeRow/renderRow/callback/orphan",
-      "rule": "helper-consumer",
-      "tokens": "866a4271b85cb1dd36a8d0716c57d469a71d2d616f98d3d7a7e4f756bf01faa0",
-      "gate": [],
-      "origin": [
-        "213df1507857ac3b784875f4163fac60cd38af0ce03f81ac61f3865317597531"
-      ],
-      "fingerprint": "a284d6bbd83ab33fbbfa3edff2fef6b0b66b4595980f7caedb00bd2fb4bfd6f7",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation or observation of UnifiedWorktreeRow/UnifiedWorktreeRow/renderRow/callback/orphan",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
-      "reason": "The existing orphan-provenance formatter is now traced through the direct worktree model. Its represented-issue input remains uncapped. Predecessor: 4ad3ccf145b93c929b0f58ca62140c15e420db522c0cce6e6db8a95334e01336."
-    },
-    {
-      "file": "apps/web/src/features/worklist/UnifiedWorktreeRow.tsx",
-      "holder": "UnifiedWorktreeRow/UnifiedWorktreeRow/stale",
-      "rule": "helper-consumer",
-      "tokens": "fdd2d95b811533c8bef5db02a783ebe1d8c9b5a568de19525e6f53b3f25f1f9a",
-      "gate": [
-        "else:6b7bfde69ab7261007b3fbdea21c8ae462f4cd5e311c50ec005a7ac9eebb559a",
-        "??:b5d4c997fd5044abfe45c814c7af5c1b263dc89dd3263c86dba065a26653b6ef"
-      ],
-      "origin": [
-        "1d5c3697ed6bc20b7ee2b58602e08642e79bed5f0a8697027c9bdf81daade0f3",
-        "ff30a302fe9c11004576bba005ff9995073007e2d7d847fc3261c2c056e45c73"
-      ],
-      "fingerprint": "9efc0ea8f3e49cc9d577ae0be4bf6b0c7bce9e4969f77fb99d28640f5a09e9d5",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation or observation of UnifiedWorktreeRow/UnifiedWorktreeRow/stale",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
-      "reason": "The legacy partition fallback is unchanged for non-model worktree callers. Direct model callers use the incremental roster fields; the generic fallback retains its collection debt. Predecessor: 4ad3ccf145b93c929b0f58ca62140c15e420db522c0cce6e6db8a95334e01336."
-    },
-    {
-      "file": "apps/web/src/features/worklist/UnifiedWorktreeRow.tsx",
-      "holder": "UnifiedWorktreeRow/UnifiedWorktreeRow/stale",
-      "rule": "reader-summary",
-      "tokens": "30a83dde9182525e2d75f1326e74b0e917ef0ae9c62eab8e443ef6aeb1d406bc",
-      "gate": [
-        "else:6b7bfde69ab7261007b3fbdea21c8ae462f4cd5e311c50ec005a7ac9eebb559a",
-        "??:b5d4c997fd5044abfe45c814c7af5c1b263dc89dd3263c86dba065a26653b6ef"
-      ],
-      "origin": [
-        "1d5c3697ed6bc20b7ee2b58602e08642e79bed5f0a8697027c9bdf81daade0f3",
-        "ff30a302fe9c11004576bba005ff9995073007e2d7d847fc3261c2c056e45c73"
-      ],
-      "fingerprint": "532a553e0f873f9d13e5cc057dd94de34c37011dd6ba936d8b2721a4e962da13",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation or observation of UnifiedWorktreeRow/UnifiedWorktreeRow/stale",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
-      "reason": "The worktree observer reads the canonical stale session field. The legacy fallback remains available for other callers; no roster cap is established. Predecessor: a1076de9eb758e77a9a85074fd193760a132bf9707d66867a7fe66076b653c8f."
-    },
-    {
-      "file": "apps/web/src/features/worklist/UnifiedWorktreeRow.tsx",
-      "holder": "UnifiedWorktreeRow/UnifiedWorktreeRow/visible",
-      "rule": "helper-consumer",
-      "tokens": "fdd2d95b811533c8bef5db02a783ebe1d8c9b5a568de19525e6f53b3f25f1f9a",
-      "gate": [
-        "else:6b7bfde69ab7261007b3fbdea21c8ae462f4cd5e311c50ec005a7ac9eebb559a",
-        "??:b5d4c997fd5044abfe45c814c7af5c1b263dc89dd3263c86dba065a26653b6ef"
-      ],
-      "origin": [
-        "1d5c3697ed6bc20b7ee2b58602e08642e79bed5f0a8697027c9bdf81daade0f3",
-        "ff30a302fe9c11004576bba005ff9995073007e2d7d847fc3261c2c056e45c73"
-      ],
-      "fingerprint": "ad2675ef9593d4789be8d8c4234a060307c7754615e84b18584f78e98e93cc49",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation or observation of UnifiedWorktreeRow/UnifiedWorktreeRow/visible",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
-      "reason": "The legacy partition fallback is unchanged for non-model worktree callers. Direct model callers use the incremental roster fields; the generic fallback retains its collection debt. Predecessor: 4ad3ccf145b93c929b0f58ca62140c15e420db522c0cce6e6db8a95334e01336."
-    },
-    {
-      "file": "apps/web/src/features/worklist/UnifiedWorktreeRow.tsx",
-      "holder": "UnifiedWorktreeRow/UnifiedWorktreeRow/visible",
-      "rule": "reader-summary",
-      "tokens": "30a83dde9182525e2d75f1326e74b0e917ef0ae9c62eab8e443ef6aeb1d406bc",
-      "gate": [
-        "else:6b7bfde69ab7261007b3fbdea21c8ae462f4cd5e311c50ec005a7ac9eebb559a",
-        "??:b5d4c997fd5044abfe45c814c7af5c1b263dc89dd3263c86dba065a26653b6ef"
-      ],
-      "origin": [
-        "1d5c3697ed6bc20b7ee2b58602e08642e79bed5f0a8697027c9bdf81daade0f3",
-        "ff30a302fe9c11004576bba005ff9995073007e2d7d847fc3261c2c056e45c73"
-      ],
-      "fingerprint": "b6504af66b9e4d2ed799ab612f1b90bd6dee1a009c552b539964f2974ba22709",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation or observation of UnifiedWorktreeRow/UnifiedWorktreeRow/visible",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
-      "reason": "The worktree observer reads the canonical visible session field instead of the forwarded projection. The roster has no hard cardinality cap. Predecessor: a1076de9eb758e77a9a85074fd193760a132bf9707d66867a7fe66076b653c8f."
-    },
-    {
-      "file": "apps/web/src/features/worklist/UnifiedWorktreeRow.tsx",
-      "holder": "orphanProvenance/issue",
-      "rule": "consume:find",
-      "tokens": "682740bbeb1cac93ba74683e0da3c8d7d7c0bbda6ac922801e77e4d62d6f2703",
-      "gate": [
-        "exit:then:20fe15b90cad429c3be6142905d8bc62bd0fec6a974b10ad827018acb7f65741"
-      ],
-      "origin": [
-        "a8806a4123cfd57e764f7b3ae33012da95d7f35bbfff180c1c99f9710cafb9ea"
-      ],
-      "fingerprint": "10b1350834bb6843e4ede38de11f6e16de85abce1ab7797656cc47d4f3a3f30c",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of orphanProvenance/issue",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:find carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
       "file": "apps/web/src/features/worklist/pool-row-data.ts",
       "holder": "sidebarExitSnapshot/sessions",
       "rule": "consume:map",
@@ -20063,27 +19898,6 @@
         "exit:then:bbb4d3ccbd8684c152ac023ac12edff01d2c6feed76d58e470629da380320b35"
       ],
       "origin": [
-        "1d5c3697ed6bc20b7ee2b58602e08642e79bed5f0a8697027c9bdf81daade0f3",
-        "ff30a302fe9c11004576bba005ff9995073007e2d7d847fc3261c2c056e45c73"
-      ],
-      "fingerprint": "62373f43385c54a45618ff46e427f08cfcd590521f421d7b112912bf54379120",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation or observation of partitionStaleSessions/byRecency",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
-      "reason": "POD-5822 changes only the upstream collection origin after removing forwarding ports. Operation tokens are unchanged; the existing REQUIRED REPAIR classification and bounds remain. Predecessor: 428b08a0265a94225af44272f9b3a4b97bfed4413bdb4cd69f0b65f61b82f704."
-    },
-    {
-      "file": "packages/client-core/src/values/compose/worklist/session-groups.ts",
-      "holder": "partitionStaleSessions/byRecency",
-      "rule": "consume:sort",
-      "tokens": "c1ee20b5c9a9017360bc692b51470eba76322f59451a0ae206edb75e6f23d2b2",
-      "gate": [
-        "exit:then:bbb4d3ccbd8684c152ac023ac12edff01d2c6feed76d58e470629da380320b35"
-      ],
-      "origin": [
         "8c2b20567b1c8233b09ae3aa4f32e83b3b3374ab9af75a51ea7f885362eb9a33"
       ],
       "fingerprint": "7dd5c3a9764a9f12cef24842a50cfbaf0d59c5fb3c4a2f6c9efc48a23f223bc4",
@@ -20122,25 +19936,6 @@
       "tokens": "5210ef88fc0b32eff8e6290d29c2c971397b2692076b96b631cb5db9999098d9",
       "gate": [],
       "origin": [
-        "1d5c3697ed6bc20b7ee2b58602e08642e79bed5f0a8697027c9bdf81daade0f3",
-        "ff30a302fe9c11004576bba005ff9995073007e2d7d847fc3261c2c056e45c73"
-      ],
-      "fingerprint": "0ec796439f28cdea868eeef6fc19ce3bec36871f515e648b18f876b9a7c21264",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation or observation of partitionStaleSessions/candidates",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
-      "reason": "POD-5822 changes only the upstream collection origin after removing forwarding ports. Operation tokens are unchanged; the existing REQUIRED REPAIR classification and bounds remain. Predecessor: 9703946946443449e1cf3b10eb240da76d6868cf86cfb255ad3389cc775c3540."
-    },
-    {
-      "file": "packages/client-core/src/values/compose/worklist/session-groups.ts",
-      "holder": "partitionStaleSessions/candidates",
-      "rule": "consume:filter",
-      "tokens": "5210ef88fc0b32eff8e6290d29c2c971397b2692076b96b631cb5db9999098d9",
-      "gate": [],
-      "origin": [
         "8c2b20567b1c8233b09ae3aa4f32e83b3b3374ab9af75a51ea7f885362eb9a33"
       ],
       "fingerprint": "fecd4f21886a97f6ba5f2e2cd06bc9ccadde20f8ff612f7e45487d31a6b0d65d",
@@ -20151,27 +19946,6 @@
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "consume:filter carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-core/src/values/compose/worklist/session-groups.ts",
-      "holder": "partitionStaleSessions/stale",
-      "rule": "consume:filter",
-      "tokens": "114b817199529bb620be1e94a77543ce6c25137eba9a49de8f548d346b461476",
-      "gate": [
-        "exit:then:bbb4d3ccbd8684c152ac023ac12edff01d2c6feed76d58e470629da380320b35"
-      ],
-      "origin": [
-        "1d5c3697ed6bc20b7ee2b58602e08642e79bed5f0a8697027c9bdf81daade0f3",
-        "ff30a302fe9c11004576bba005ff9995073007e2d7d847fc3261c2c056e45c73"
-      ],
-      "fingerprint": "55174680ee560529c2ad9d05fe7225e3625fafb23dac097a1edc884ea4ce3863",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation or observation of partitionStaleSessions/stale",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
-      "reason": "POD-5822 changes only the upstream collection origin after removing forwarding ports. Operation tokens are unchanged; the existing REQUIRED REPAIR classification and bounds remain. Predecessor: e81856e50058e8b311d7fe116b9a7173ca63013c1b2ccc30060b1ebd90c87b6f."
     },
     {
       "file": "packages/client-core/src/values/compose/worklist/session-groups.ts",
@@ -20216,48 +19990,6 @@
     {
       "file": "packages/client-core/src/values/compose/worklist/session-groups.ts",
       "holder": "partitionStaleSessions/staleIds",
-      "rule": "consume:map",
-      "tokens": "6aba6eefb19b9b35e845d9678f36a35ec13fca29731dd4aa58a086873717e27a",
-      "gate": [
-        "exit:then:bbb4d3ccbd8684c152ac023ac12edff01d2c6feed76d58e470629da380320b35"
-      ],
-      "origin": [
-        "1d5c3697ed6bc20b7ee2b58602e08642e79bed5f0a8697027c9bdf81daade0f3",
-        "ff30a302fe9c11004576bba005ff9995073007e2d7d847fc3261c2c056e45c73"
-      ],
-      "fingerprint": "b12cbc6f661b198446740dd4a1839910e60021d143e46190d390ef148b7b3e47",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation or observation of partitionStaleSessions/staleIds",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
-      "reason": "POD-5822 changes only the upstream collection origin after removing forwarding ports. Operation tokens are unchanged; the existing REQUIRED REPAIR classification and bounds remain. Predecessor: ae9a9130041a15f0c4cb5043a1f7de0226b6d0912964f91a509048322c5b3fda."
-    },
-    {
-      "file": "packages/client-core/src/values/compose/worklist/session-groups.ts",
-      "holder": "partitionStaleSessions/staleIds",
-      "rule": "materialize:Set",
-      "tokens": "0da4717214e2d1576eae115801ca607f345a1ac16d238ba3c6d1168125d96413",
-      "gate": [
-        "exit:then:bbb4d3ccbd8684c152ac023ac12edff01d2c6feed76d58e470629da380320b35"
-      ],
-      "origin": [
-        "1d5c3697ed6bc20b7ee2b58602e08642e79bed5f0a8697027c9bdf81daade0f3",
-        "ff30a302fe9c11004576bba005ff9995073007e2d7d847fc3261c2c056e45c73"
-      ],
-      "fingerprint": "707f58934f8a7a8d09d1fc78cce52630ee2e4c7a47cd5df24166730a72b28143",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation or observation of partitionStaleSessions/staleIds",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
-      "reason": "POD-5822 changes only the upstream collection origin after removing forwarding ports. Operation tokens are unchanged; the existing REQUIRED REPAIR classification and bounds remain. Predecessor: 2f6fec72114dde545bcf6298b9c7bf37f0120051c1fa39fb89d1ce436b4fe424."
-    },
-    {
-      "file": "packages/client-core/src/values/compose/worklist/session-groups.ts",
-      "holder": "partitionStaleSessions/staleIds",
       "rule": "materialize:Set",
       "tokens": "0da4717214e2d1576eae115801ca607f345a1ac16d238ba3c6d1168125d96413",
       "gate": [
@@ -20274,27 +20006,6 @@
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "materialize:Set carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-core/src/values/compose/worklist/session-groups.ts",
-      "holder": "partitionStaleSessions/visible",
-      "rule": "consume:filter",
-      "tokens": "8c01a30b9c21512d37918c83c1d40ec40b8973ac130f3badc41dee35eebd16cd",
-      "gate": [
-        "exit:then:bbb4d3ccbd8684c152ac023ac12edff01d2c6feed76d58e470629da380320b35"
-      ],
-      "origin": [
-        "1d5c3697ed6bc20b7ee2b58602e08642e79bed5f0a8697027c9bdf81daade0f3",
-        "ff30a302fe9c11004576bba005ff9995073007e2d7d847fc3261c2c056e45c73"
-      ],
-      "fingerprint": "18f19596c1419aa9ef69731a17b52a9aca22d01b223d95beaf1da49c5979008f",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation or observation of partitionStaleSessions/visible",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
-      "reason": "POD-5822 changes only the upstream collection origin after removing forwarding ports. Operation tokens are unchanged; the existing REQUIRED REPAIR classification and bounds remain. Predecessor: 87285b46846886482ca53b97873fb4ea01d9d88d6ee20df6b9319f38d39cf74f."
     },
     {
       "file": "packages/client-core/src/values/compose/worklist/session-groups.ts",

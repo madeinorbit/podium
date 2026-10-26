@@ -3,11 +3,9 @@ import {
   errorPhrase,
   type IssueNavigationModel,
   type UnifiedIssueRow,
-  type UnifiedWorkRow,
 } from '@podium/client-core/values'
 import { LOADING } from '@podium/client-graph'
 import type { WorklistIssue } from '@podium/client-graph/worklist/issue'
-import type { SidebarWorktree } from '@podium/client-graph/worklist/sidebar'
 import type { SidebarRowValues, SidebarTiming } from '@podium/client-graph/worklist/sidebar-row'
 import { ISSUE_STATUS_LABELS, issueLanding, issueStatusLabel, issueStatusOf } from '@podium/model/browser'
 
@@ -71,21 +69,6 @@ export function poolIssueRow(value: SidebarRowValues): UnifiedIssueRow {
     ...(value.continuation
       ? { continuation: `${value.continuation.kind} · ${value.continuation.ref}` }
       : {}),
-  }
-}
-
-export function poolWorktreeRow(
-  value: SidebarWorktree,
-): Extract<UnifiedWorkRow, { kind: 'worktree' }> {
-  return {
-    kind: 'worktree',
-    activityAt: value.activityAt,
-    worktree: {
-      ...value.worktree,
-      isMain: value.worktree.isMain === true,
-      sessions: value.sessions as SessionView[],
-      issues: value.issues as unknown as IssueNavigationModel[],
-    } as Extract<UnifiedWorkRow, { kind: 'worktree' }>['worktree'],
   }
 }
 

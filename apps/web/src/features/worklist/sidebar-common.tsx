@@ -16,7 +16,7 @@ import {
 } from '@podium/client-core/values'
 
 import { idleVerdictFinishedTurn, isSnoozed, returnedFromSnooze } from '@podium/model/browser'
-import { ChevronDown, ChevronRight, X } from 'lucide-react'
+import { ChevronDown, ChevronRight } from 'lucide-react'
 import type {
   JSX,
   KeyboardEvent as ReactKeyboardEvent,
@@ -40,7 +40,6 @@ import { Button } from '@/components/ui/button'
 import { AttributionPair } from '@/features/issues/issue-page/AttributionPair'
 import { throughRestarts } from '@/lib/chunk-recovery'
 import { sessionDotClass } from '@/lib/derive'
-import { useSessionGuard } from '@/lib/hooks/use-session-guard'
 import { SnoozeControl } from '@/lib/SnoozeControl'
 import type { ContextMenuAnchor } from '@/lib/session-context-menu'
 import { usePersistedUiState } from '@/lib/use-persisted-ui-state'
@@ -592,63 +591,31 @@ export function AgentRosterBand({
   )
 }
 
-function PanelRowInner({
+/** One session in a roster band (POD-170, L2): mono machine voice, chip
+ *  hover, status dot on the right. */
+export function PanelRow({
   session,
   active,
   onSelect,
-  attention = false,
-  dotRight = false,
-  suppressUnread = false,
-  trailingMeta,
-  coordinator = false,
-  roster = false,
-  stub = false,
   issueDisplayRef,
-  guardWorking,
   snoozeState,
 }: {
   session: SessionView
   active: boolean
   onSelect: () => void
-  /** True only for the NEEDS YOUR ATTENTION rows: shows the snooze control
-   *  (rightmost, always visible) and reveals close on hover. */
-  attention?: boolean
-  /** Unified WORK-list child rows: the status dot moves to the RIGHT edge,
-   *  slightly smaller, vertically aligned under the parent row's summary dot
-   *  (same pr-3 + a w-2 slot centering the smaller dot). Rows are also more
-   *  indented and tighter, so the group reads as belonging to its parent. */
-  dotRight?: boolean
-  /** WORKING-section rows (#138): a session that's actively in progress is not
-   *  "new unseen work", so its unread emphasis is suppressed even when unread. */
-  suppressUnread?: boolean
-  /** Small right-side stamp before the status dot (WORKING's elapsed timer). */
-  trailingMeta?: ReactNode
-  /** M6: this session is the issue's designated coordinator/driver. */
-  coordinator?: boolean
-  /** Roster-band row (POD-170, L2): terracotta glyph, tighter box, chip hover —
-   *  the mono-voiced agent grammar. Controls (close/continue/snooze) carry over. */
-  roster?: boolean
-  /** Draw the tree connector stub from the roster rail to this row (POD-293):
-   *  the agent list reads as a tree hung on its guide, like the concept. Only
-   *  the rail-hung issue roster sets it — the boxed worktree band has no guide. */
-  stub?: boolean
   /** Human-facing ref for the session's attached issue. Legacy sessions may
    *  lack their own minted displayRef, but internal issue IDs must stay hidden. */
   issueDisplayRef?: string
-  /** Pool-supplied fact: the guard reads actions without the legacy roster. */
-  guardWorking?: boolean
   /** Pool clock verdicts change only when this session's snooze expires. */
   snoozeState?: { readonly snoozed: boolean; readonly returned: boolean }
 }): JSX.Element {
   const continueSession = useRuntimeSelector((s) => s.continueSession)
   const renameSession = useRuntimeSelector((s) => s.renameSession)
-  const { guardedEnd } = useSessionGuard(session.sessionId, guardWorking, [session])
   const badge = agentBadge(session)
   const [editing, setEditing] = useState(false)
   const [menuAnchor, setMenuAnchor] = useState<ContextMenuAnchor | null>(null)
-  // Snooze control shows: on attention rows always (to snooze); elsewhere ONLY
-  // when already snoozed — so worktree/pinned rows surface an un-snooze affordance
-  // for a snoozed session, but never a plain "snooze" icon.
+  // The snooze control shows only when already snoozed: an un-snooze
+  // affordance, never a plain "snooze" icon.
   const now = useDeadlineNow(
     snoozeState === undefined && session.snoozedUntil && session.snoozedUntil !== 'forever'
       ? Date.parse(session.snoozedUntil)
@@ -697,16 +664,14 @@ function PanelRowInner({
         session.status === 'exited'
       ? 'finished'
       : null
-  // Nested child rows (dotRight) and roster rows: the session's own mono ref.
-  const issueLinkage = dotRight || roster ? sessionIssueLinkage(session, issueDisplayRef) : null
-  // Email-style unread emphasis (#126), suppressed (#138) for WORKING-section
-  // rows AND any currently-working session; also while snoozed. And never on the
+  const issueLinkage = sessionIssueLinkage(session, issueDisplayRef)
+  // Email-style unread emphasis (#126), suppressed (#138) for any currently
+  // working session; also while snoozed. And never on the
   // ACTIVE row (POD-272): that session is the open pane, so its incoming message
   // is already on screen — nagging "new" about what you're reading is the bug.
   // (The engine marks it read eagerly too; this keeps the row honest in the gap
   // before that mutation's echo lands, and while the row is merely re-rendering.)
-  const unreadEmphasis =
-    session.unread && !active && !suppressUnread && !isSessionWorking(session) && !snoozed
+  const unreadEmphasis = session.unread && !active && !isSessionWorking(session) && !snoozed
   // The weight bump alone was invisible when scanning after a notification
   // sound (POD-81) — name the news in a chip. A finished turn is the case with
   // no other signal at all (attention/error rows carry their amber meta, a
@@ -724,36 +689,13 @@ function PanelRowInner({
     // overlay cluster on hover so the row's layout never shifts.
     <div
       className={cn(
-        'group relative flex min-w-0 items-center transition-colors',
-        roster ? 'min-h-6 rounded' : dotRight ? 'min-h-7 rounded-md' : 'min-h-8 rounded-md',
-        // Roster rows use the rail band's muted hover. Other rows can inherit
-        // --child-*-bg from an unfolded tree block.
-        roster
-          ? active
-            ? 'bg-accent'
-            : 'hover:bg-muted'
-          : active
-            ? 'bg-[var(--child-active-bg,var(--accent))]'
-            : 'hover:bg-[var(--child-hover-bg,var(--muted))]',
+        'group relative flex min-h-6 min-w-0 items-center rounded transition-colors',
+        active ? 'bg-accent' : 'hover:bg-muted',
       )}
       data-session={session.sessionId}
     >
-      {stub && (
-        // Tree connector to the roster rail (POD-293): a short horizontal seam
-        // ties this agent row back to the vertical guide, so the fan-out reads
-        // as a tree rather than a loose stack.
-        <span
-          aria-hidden="true"
-          className="pointer-events-none absolute top-1/2 left-[-8px] h-[1.5px] w-[7px] -translate-y-1/2 rounded-full bg-hairline-bar"
-        />
-      )}
       {editing ? (
-        <div
-          className={cn(
-            'flex min-w-0 flex-1 items-center gap-2 py-[3px] pr-2',
-            roster ? 'pl-1' : dotRight ? 'pl-[30px]' : 'pl-2',
-          )}
-        >
+        <div className="flex min-w-0 flex-1 items-center gap-2 py-[3px] pr-2 pl-1">
           <SessionNameEditor
             value={sessionDisplayName(session)}
             onCommit={(name) => {
@@ -768,16 +710,10 @@ function PanelRowInner({
           data-pressable
           type="button"
           className={cn(
-            'flex min-w-0 flex-1 cursor-pointer items-center text-left',
-            roster
-              ? 'gap-1.5 py-[4px] pr-1.5 pl-1 text-[12px]'
-              : dotRight
-                ? 'gap-2 py-[5px] pr-2 pl-[30px] text-[12.5px]'
-                : 'gap-2 py-1.5 pr-2 pl-2 text-[13.5px]',
+            'flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 py-[4px] pr-1.5 pl-1 text-left text-[12px]',
             // Selection is the accent background ALONE — never a heavier font
             // (#170), so it can't be confused with UNREAD's weight signal.
             active ? 'text-text-strong' : 'text-muted-foreground hover:text-foreground',
-            !dotRight && !active && 'text-foreground',
             // Email-style unread emphasis (#126): an unread session reads at
             // medium weight, lifting it out of the muted baseline. The ACTIVE row
             // never carries it (POD-272) — you are looking at that session.
@@ -799,23 +735,8 @@ function PanelRowInner({
             <WorkerLabel session={session} chip />
           </span>
           <NotSavedMark kind="session" id={session.sessionId} />
-          {/* M6 coordinator/driver badge — who is driving this issue.
-              On `--info`, not raw sky-500: the Flight Deck's spine says `coord`
-              about the same session in the same words, and two columns naming
-              one role in two different blues is how a palette comes apart. Sky
-              is not in this theme's palette (navy · yellow · red · blue) and
-              was never tokenised. */}
-          {coordinator && (
-            <span
-              className="shell-type-micro flex-none rounded border border-info/45 bg-info/10 px-1 font-semibold tracking-wide text-info uppercase"
-              data-testid="coordinator-badge"
-              title="Coordinator session — drives this issue"
-            >
-              coord
-            </span>
-          )}
-          {/* Nested remote-subagent rows: surface the child's own issue linkage
-              (sub-issue) when SessionView carries displayRef or issueId. */}
+          {/* The session's own issue linkage when SessionView carries
+              displayRef or issueId. */}
           {issueLinkage && (
             <span
               className="shell-type-micro flex-none font-mono text-text-dim tabular-nums"
@@ -931,7 +852,6 @@ function PanelRowInner({
               aria-hidden="true"
             />
           )}
-          {trailingMeta}
           <span className="flex w-2 flex-none justify-center">
             <span className={cn(sessionDotClass(session), 'size-[7px] min-w-[7px]')} />
           </span>
@@ -948,41 +868,9 @@ function PanelRowInner({
           Continue
         </Button>
       )}
-      {/* Hover overlay: END, floated over the row's right edge (before the dot)
-          so revealing it never reflows the row. Sub-agent roster rows omit it
-          (POD-293): a task's workers aren't dismissed one-off from the list —
-          teardown stays on the row's right-click menu. Panel-pinning is retired
-          (POD-169) — issue-pinning is the only pin concept.
-
-          THIS IS THE REVERSIBLE ONE (POD-1077). It used to be `guardedKill`
-          under the label "Close session", which tombstoned the row and its
-          transcript from a single hover click — the most destructive action in
-          the shell reachable by the least deliberate gesture. A hover ✕ is
-          exactly where the recoverable verb belongs: the process stops, the
-          worktree frees, the branch and transcript stay, and Resume rebuilds it.
-          Deleting is still offered, in the menu, behind a confirm. */}
-      {!roster && (
-        <div
-          data-hover-reveal
-          className={cn(
-            'absolute top-1/2 right-5 hidden -translate-y-1/2 items-center gap-0 rounded-md group-hover:flex',
-            active ? 'bg-accent' : 'bg-muted',
-          )}
-        >
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            className="size-6 flex-none text-muted-foreground/70 hover:text-destructive"
-            title="End session — stops the agent, keeps its transcript"
-            onClick={() => void guardedEnd(session.sessionId)}
-          >
-            <X size={12} aria-hidden="true" />
-          </Button>
-        </div>
-      )}
-      {/* Rightmost + always visible. On attention rows: the snooze control.
-          Elsewhere only when snoozed (an un-snooze affordance). */}
-      {(attention || snoozed) && <SnoozeControl session={session} className="flex-none" />}
+      {/* Rightmost + always visible while snoozed (an un-snooze affordance).
+          Teardown lives on the right-click menu (POD-293). */}
+      {snoozed && <SnoozeControl session={session} className="flex-none" />}
       {menuAnchor && (
         <Suspense fallback={null}>
           <PoolSessionContextMenu
@@ -999,5 +887,3 @@ function PanelRowInner({
     </div>
   )
 }
-
-export const PanelRow = PanelRowInner

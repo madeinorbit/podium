@@ -1371,6 +1371,8 @@ describe('real pool row mutations and receipts', () => {
       referenceState(runtime).setSelectedIssueId(asIssueId(TARGET))
     })
     expect(referenceState(runtime).selectedIssueId).toBe(TARGET)
+    const guestBands = () => sidebarView(pool!).sections().bands.flatMap((band) => band.worktreeIds)
+    const guestsBefore = guestBands()
     const records = ['issueProjection'].map((entity) => fixture.records.get(`${entity}:${TARGET}`)!)
     await act(async () => {
       for (const entity of ['issueProjection']) {
@@ -1383,6 +1385,8 @@ describe('real pool row mutations and receipts', () => {
     await waitFor(() => expect(sidebarView(pool!).row(TARGET)).toBeUndefined())
     expect(pool!.row('issue', TARGET, 'mark')).toEqual({ kind: 'gone', reason: 'not-visible' })
     expect(requests).toHaveLength(0)
+    // POD-2129: the evicted task's seats never fall through to a guest band.
+    expect(guestBands()).toEqual(guestsBefore)
     await parity()
     await act(async () => {
       for (const record of records) {

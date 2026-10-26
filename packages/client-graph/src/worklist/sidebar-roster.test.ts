@@ -198,8 +198,8 @@ it('derives sidebar ownership inside the applying action without refiling seats'
 })
 
 /** Most resident paths have represented owners, so only the unowned path is
- * drawn. Evicting one owner adds its path without revisiting the other paths. */
-async function evictionWork(scale: number, plant = false) {
+ * drawn. Unplacing one owner adds its path without revisiting the other paths. */
+async function unplacementWork(scale: number, plant = false) {
   const group = 'synthetic-repo'
   const repoPath = '/synthetic/group'
   const paths = Array.from({ length: 32 * scale }, (_, n) => `/synthetic/seat-${String(n).padStart(3, '0')}`)
@@ -219,6 +219,9 @@ async function evictionWork(scale: number, plant = false) {
         agentKind: 'codex', status: 'live', lastActiveAt: new Date(NOW).toISOString() } as never })),
   ] })
   expect(pool.graph.size('repo', group, 'worktrees')).toBe(paths.length + 1)
+  // An agent-audience owner stays known but unplaced, so its seat is a guest.
+  // (An evicted owner's seats stay hidden: POD-2129.)
+  const unplaced = { ...issues[0]!, audience: 'agent' } as never
   const roster = sidebarRosterView(pool)
   const original = roster.band.bind(roster)
   const planted = plant ? vi.spyOn(roster, 'band').mockImplementation(key => ({
@@ -229,8 +232,8 @@ async function evictionWork(scale: number, plant = false) {
   const stop = autorun(() => { band = roster.band(group) })
   try {
     expect(band.ids).toEqual([unowned])
-    const removed = await measureWork(async () => insideReader('sidebar eviction', () => {
-      pool.apply({ type: 'update', rows: [{ kind: 'issue', id: issues[0]!.id, value: undefined }] })
+    const removed = await measureWork(async () => insideReader('sidebar unplacement', () => {
+      pool.apply({ type: 'update', rows: [{ kind: 'issue', id: issues[0]!.id, value: unplaced }] })
     }), { pool })
     expect(band.ids).toEqual([paths[0], unowned])
     const restored = await measureWork(async () => insideReader('sidebar restore', () => {
@@ -250,7 +253,7 @@ async function evictionWork(scale: number, plant = false) {
     expect(band.ids).toEqual([])
     stop()
     const detached = await measureWork(async () => {
-      pool.apply({ type: 'update', rows: [{ kind: 'issue', id: issues[0]!.id, value: undefined }] })
+      pool.apply({ type: 'update', rows: [{ kind: 'issue', id: issues[0]!.id, value: unplaced }] })
     }, { pool })
     expect(Object.keys(detached.work.derivationsBy).filter(name =>
       /\.(?:hasCandidates|rosterIds)(?:\.|$)/.test(name))).toEqual([])
@@ -262,21 +265,21 @@ async function evictionWork(scale: number, plant = false) {
   } finally { stop(); planted?.mockRestore(); pool.dispose() }
 }
 
-function assertAddressedRoster(first: Awaited<ReturnType<typeof evictionWork>>, second: Awaited<ReturnType<typeof evictionWork>>) {
-  expect(second.removed, 'eviction work grows with unrelated paths').toBeLessThanOrEqual(first.removed)
+function assertAddressedRoster(first: Awaited<ReturnType<typeof unplacementWork>>, second: Awaited<ReturnType<typeof unplacementWork>>) {
+  expect(second.removed, 'unplacement work grows with unrelated paths').toBeLessThanOrEqual(first.removed)
   expect(second.restored, 'restore work grows with unrelated paths').toBeLessThanOrEqual(first.restored)
 }
 
-it('keeps observed group IDs addressed across eviction, restore and roster churn', async () => {
-  const first = await evictionWork(1)
-  const second = await evictionWork(4)
-  console.info('[sidebar eviction work]', JSON.stringify({ at1x: first, at4x: second }))
+it('keeps observed group IDs addressed across unplacement, restore and roster churn', async () => {
+  const first = await unplacementWork(1)
+  const second = await unplacementWork(4)
+  console.info('[sidebar unplacement work]', JSON.stringify({ at1x: first, at4x: second }))
   assertAddressedRoster(first, second)
 })
 
-it('rejects a planted whole-group path filter on eviction', async () => {
-  const first = await evictionWork(1, true)
-  const second = await evictionWork(4, true)
+it('rejects a planted whole-group path filter on unplacement', async () => {
+  const first = await unplacementWork(1, true)
+  const second = await unplacementWork(4, true)
   expect(() => assertAddressedRoster(first, second)).toThrow(/work grows with unrelated paths/)
 })
 

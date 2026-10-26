@@ -69,22 +69,15 @@ describe('AgentRosterBand', () => {
   })
 })
 
-describe('PanelRow roster variant', () => {
-  it('drops the redundant terracotta glyph and keeps the mono ref + coordinator badge', () => {
+describe('PanelRow', () => {
+  it('drops the redundant terracotta glyph and keeps the mono ref', () => {
     render(
-      <PanelRow
-        session={session({ displayRef: 'POD-210-A' })}
-        active={false}
-        onSelect={vi.fn()}
-        roster
-        coordinator
-      />,
+      <PanelRow session={session({ displayRef: 'POD-210-A' })} active={false} onSelect={vi.fn()} />,
     )
     // The kind chip already marks the agent, so the extra ✳ was the same fact
     // twice in one row (POD-293 / POD-281): removed.
     expect(screen.queryByText('✳')).toBeNull()
     expect(screen.getByTestId('session-issue-linkage').textContent).toBe('POD-210-A')
-    expect(screen.getByTestId('coordinator-badge')).toBeTruthy()
   })
 
   it('uses the issue display ref for a legacy session and never renders its internal ID', () => {
@@ -93,7 +86,6 @@ describe('PanelRow roster variant', () => {
         session={session({ issueId: 'iss_internal-uuid' })}
         active={false}
         onSelect={vi.fn()}
-        roster
         issueDisplayRef="POD-100"
       />,
     )
@@ -109,7 +101,6 @@ describe('PanelRow roster variant', () => {
         session={session({ issueId: 'iss_internal-uuid' })}
         active={false}
         onSelect={vi.fn()}
-        roster
       />,
     )
     expect(screen.queryByTestId('session-issue-linkage')).toBeNull()
@@ -129,7 +120,6 @@ describe('PanelRow roster variant', () => {
         } as Partial<SessionViewInput>)}
         active={false}
         onSelect={vi.fn()}
-        roster
       />,
     )
     expect(screen.getByTitle("Send 'continue' to the errored agent")).toBeTruthy()

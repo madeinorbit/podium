@@ -50,9 +50,12 @@ export class WorklistSession implements SessionVisibility {
   get phase() { return this.session.motion }
   @lazy get rosterCandidate(): boolean {
     const retention = this.retention
-    if (!retention?.seat || retention.shell) return false
+    if (!retention?.seat) return false
     const pool = this.host as MobxPool, view = worklistView(pool)
     const owner = retention.issueId ? view.knownRow(retention.issueId)?.rosterOwner : undefined
+    // A seat whose issue the client no longer holds (archived or deleted and
+    // already evicted) belongs to that issue, never to its worktree's band.
+    if (retention.issueId && !owner) return false
     if (owner?.represented || owner?.excluded) return false
     if (parkedOnFinishedIssue(this.session.status, owner && owner.finishAt !== undefined)) return false
     const retainedBy = (value: SidebarOwner | undefined) => retains(retention,

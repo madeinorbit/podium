@@ -27,10 +27,7 @@ const mode = vi.hoisted(() => ({
   reads: 0,
   commits: new Map<string, number>(),
   ageCommits: new Map<string, number>(),
-  worktrees: new Map<
-    string,
-    { onSelect: () => void; onSelectPanel: (id: SessionId) => void; commits: number }
-  >(),
+  worktrees: new Map<string, { onSelect: () => void; renderSession: unknown; commits: number }>(),
 }))
 vi.mock('@podium/client-core/perf', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@podium/client-core/perf')>()),
@@ -43,10 +40,10 @@ vi.mock('./UnifiedWorktreeRow', async (importOriginal) => {
     ...original,
     UnifiedWorktreeRow: (props: Parameters<typeof original.UnifiedWorktreeRow>[0]) => {
       useLayoutEffect(() => {
-        const path = (props.model?.worktree ?? props.row!.worktree).path
+        const path = props.model.worktree.path
         mode.worktrees.set(path, {
           onSelect: props.onSelect,
-          onSelectPanel: props.onSelectPanel,
+          renderSession: props.renderSession,
           commits: (mode.worktrees.get(path)?.commits ?? 0) + 1,
         })
       })
@@ -396,7 +393,7 @@ describe('real sidebar pool cutover', () => {
       expect(document.querySelector('[data-session="synthetic-guest-0"]')).toBeNull(),
     )
     expect(worktreeHandlers(path).onSelect).toBe(handlers.onSelect)
-    expect(worktreeHandlers(path).onSelectPanel).toBe(handlers.onSelectPanel)
+    expect(worktreeHandlers(path).renderSession).toBe(handlers.renderSession)
     fireEvent.click(screen.getByTitle(path))
     expect(referenceState(runtime).paneA).toBe('synthetic-guest-1')
     expect(referenceState(runtime).selectedWorktree).toBe(path)
@@ -415,7 +412,7 @@ describe('real sidebar pool cutover', () => {
       referenceState(runtime).setPane('A', asSessionId('synthetic-guest-1'))
     })
     expect(worktreeHandlers(path).onSelect).toBe(handlers.onSelect)
-    expect(worktreeHandlers(path).onSelectPanel).toBe(handlers.onSelectPanel)
+    expect(worktreeHandlers(path).renderSession).toBe(handlers.renderSession)
     fireEvent.click(screen.getByTitle(path))
     expect(referenceState(runtime).paneA).toBe('synthetic-guest-1')
   })
@@ -430,7 +427,7 @@ describe('real sidebar pool cutover', () => {
     await act(async () => {
       referenceState(runtime).setPane('A', asSessionId('synthetic-guest-1'))
     })
-    expect(worktreeHandlers(path).onSelectPanel).toBe(handlers.onSelectPanel)
+    expect(worktreeHandlers(path).renderSession).toBe(handlers.renderSession)
     vi.mocked(beginSwitch).mockClear()
     fireEvent.click(screen.getByText('Synthetic guest 1'))
     expect(referenceState(runtime).selectedWorktree).toBe(path)

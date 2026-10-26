@@ -1,11 +1,7 @@
 import type { Store } from '@podium/client-core/react'
 import type { SessionView } from '@podium/client-core/session-values'
 import { shallowEqual } from '@podium/client-core/shallow-equal'
-import {
-  type IssueNavigationModel,
-  isSessionWorking,
-  planReorderKeys,
-} from '@podium/client-core/values'
+import { type IssueNavigationModel, planReorderKeys } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph'
 import { LOADING } from '@podium/client-graph/loading'
 import { here, omitGone } from '@podium/client-graph/lookup'
@@ -25,12 +21,10 @@ import { machinePathKey, machinePathsEqual, type SessionId } from '@podium/model
 import * as m from 'motion/react-m'
 import {
   type AnimationEvent,
-  isValidElement,
   type JSX,
   type MouseEvent,
   memo,
   type PointerEvent,
-  type ReactNode,
   type RefObject,
   useCallback,
   useEffect,
@@ -286,10 +280,6 @@ export function PoolWorkSections({
 }
 
 const MemoFoldedWorkRow = memo(FoldedWorkRow)
-const stampPaint = (node: ReactNode) =>
-  isValidElement<{ title?: string; children?: ReactNode }>(node)
-    ? { title: node.props.title, children: node.props.children }
-    : node
 const MemoPanelRow = memo(
   PanelRow,
   (a, b) =>
@@ -297,7 +287,6 @@ const MemoPanelRow = memo(
     a.onSelect === b.onSelect &&
     a.issueDisplayRef === b.issueDisplayRef &&
     compareStructural(a.snoozeState, b.snoozeState) &&
-    compareStructural(stampPaint(a.trailingMeta), stampPaint(b.trailingMeta)) &&
     compareStructural(poolSessionPaint(a.session), poolSessionPaint(b.session)),
 )
 
@@ -1090,9 +1079,8 @@ const PoolWorktreeRow = observer(function PoolWorktreeRow({
   const entity = here(pool.model('worktree', path))
   const model = entity ? worklistView(pool).tree(entity) : undefined
   const select = useCallback(() => actions.selectWorktree(path), [actions, path])
-  const panel = useCallback((sid: SessionId) => actions.selectPanel(path, sid), [actions, path])
   const renderSession = useCallback(
-    (session: SessionView, active: boolean, ref: string | undefined, trailing: ReactNode) => (
+    (session: SessionView, active: boolean) => (
       <PoolPanelRow
         key={session.sessionId}
         pool={pool}
@@ -1100,8 +1088,6 @@ const PoolWorktreeRow = observer(function PoolWorktreeRow({
         active={active}
         actions={actions}
         path={path}
-        issueDisplayRef={ref}
-        trailingMeta={trailing}
       />
     ),
     [pool, actions, path],
@@ -1112,10 +1098,8 @@ const PoolWorktreeRow = observer(function PoolWorktreeRow({
       model={model}
       active={model.active(state)}
       paneA={state.paneA}
-      now={0}
       renderSession={renderSession}
       onSelect={select}
-      onSelectPanel={panel}
     />
   )
 })
@@ -1126,16 +1110,12 @@ const PoolPanelRow = observer(function PoolPanelRow({
   path,
   actions,
   active,
-  issueDisplayRef,
-  trailingMeta,
 }: {
   pool: MobxPool
   id: string
   path: string
   actions: PoolWorkActions
   active: boolean
-  issueDisplayRef?: string
-  trailingMeta: ReactNode
 }) {
   const visible = usePanelVisible()
   const projection = useMemo(
@@ -1175,6 +1155,11 @@ const PoolPanelRow = observer(function PoolPanelRow({
   )
   const readSnooze = useCallback(() => snoozeProjection.get(), [snoozeProjection])
   const snoozeState = useWorklistPoolProjection(readSnooze, undefined, visible, true)
+  // A guest whose issue is known but unplaced names that issue by its ref.
+  const owner =
+    value && value !== LOADING && value.issueId
+      ? here(pool.model('issue', value.issueId))
+      : undefined
   return value === LOADING ? (
     <div aria-busy="true" data-testid="pool-row-loading" className="min-h-6" />
   ) : value === undefined ? null : (
@@ -1182,12 +1167,8 @@ const PoolPanelRow = observer(function PoolPanelRow({
       session={value}
       active={active}
       onSelect={select}
-      dotRight
-      roster
-      guardWorking={isSessionWorking(value)}
       snoozeState={snoozeState}
-      issueDisplayRef={issueDisplayRef}
-      trailingMeta={trailingMeta}
+      issueDisplayRef={owner?.displayRef}
     />
   )
 })
