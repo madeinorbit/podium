@@ -60,15 +60,16 @@ export function DesktopMenuHost({
     })
   })
 
-  // The native menu owns Cmd/Ctrl+B on macOS; other desktop shells use keydown.
-  // Browser tabs keep their own shortcut.
+  // The native menu owns Cmd/Ctrl+B and Option+Cmd/Ctrl+B on macOS; other
+  // desktop shells use keydown. Browser tabs keep their own shortcuts.
   useEffect(() => {
     if (!nativeDesktopBridge()) return
     const onKey = (event: KeyboardEvent): void => {
       const which = sidebarToggleFromEvent(event)
       if (!which) return
       event.preventDefault()
-      toggleRightSidebar()
+      if (which === 'flight-deck') toggleFlightDeck()
+      else toggleRightSidebar()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)

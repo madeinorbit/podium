@@ -2175,13 +2175,15 @@ fn main() {
                     .paste()
                     .select_all()
                     .build()?;
+                // Cmd+B opens and closes the flight deck; the right dock takes
+                // Option+Cmd+B, VS Code's chord for its secondary sidebar.
                 let toggle_flight =
                     MenuItemBuilder::with_id("toggle-flight-deck", "Toggle Flight Deck")
-                        .accelerator("Alt+CmdOrCtrl+F")
+                        .accelerator("CmdOrCtrl+B")
                         .build(app)?;
                 let toggle_right =
                     MenuItemBuilder::with_id("toggle-right-sidebar", "Toggle Right Sidebar")
-                        .accelerator("CmdOrCtrl+B")
+                        .accelerator("Alt+CmdOrCtrl+B")
                         .build(app)?;
                 // Session-input commands use one mnemonic pair. Like Cmd+W/N above,
                 // these must be real menu accelerators: WKWebView never receives a
@@ -2265,11 +2267,11 @@ fn main() {
                         .build(app)?;
                 let toggle_flight =
                     MenuItemBuilder::with_id("toggle-flight-deck", "Toggle Flight Deck")
-                        .accelerator("Alt+CmdOrCtrl+F")
+                        .accelerator("CmdOrCtrl+B")
                         .build(app)?;
                 let toggle_right =
                     MenuItemBuilder::with_id("toggle-right-sidebar", "Toggle Right Sidebar")
-                        .accelerator("CmdOrCtrl+B")
+                        .accelerator("Alt+CmdOrCtrl+B")
                         .build(app)?;
                 let view_menu = SubmenuBuilder::new(app, "View")
                     .item(&settings)

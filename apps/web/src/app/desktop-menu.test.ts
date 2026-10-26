@@ -70,10 +70,11 @@ describe('desktop menu hooks', () => {
 describe('sidebarToggleFromEvent', () => {
   const chord = (
     key: string,
-    mods: Partial<Pick<KeyboardEvent, 'metaKey' | 'ctrlKey' | 'altKey' | 'shiftKey'>> = {},
+    mods: Partial<Pick<KeyboardEvent, 'code' | 'metaKey' | 'ctrlKey' | 'altKey' | 'shiftKey'>> = {},
   ) =>
     sidebarToggleFromEvent({
       key,
+      code: `Key${key.toUpperCase()}`,
       metaKey: false,
       ctrlKey: false,
       altKey: false,
@@ -81,18 +82,25 @@ describe('sidebarToggleFromEvent', () => {
       ...mods,
     })
 
-  it('maps ⌘B to the right sidebar and ignores ⇧⌘B', () => {
-    expect(chord('b', { metaKey: true })).toBe('right')
-    expect(chord('B', { metaKey: true })).toBe('right')
-    expect(chord('b', { ctrlKey: true })).toBe('right')
+  it('maps ⌘B to the flight deck and ignores ⇧⌘B', () => {
+    expect(chord('b', { metaKey: true })).toBe('flight-deck')
+    expect(chord('B', { metaKey: true })).toBe('flight-deck')
+    expect(chord('b', { ctrlKey: true })).toBe('flight-deck')
     expect(chord('b', { metaKey: true, shiftKey: true })).toBeNull()
     expect(chord('b', { ctrlKey: true, shiftKey: true })).toBeNull()
   })
 
-  it('ignores Option, other letters, and an unmodified B', () => {
-    expect(chord('b', { metaKey: true, altKey: true })).toBeNull()
+  it('maps ⌥⌘B to the right sidebar by physical key', () => {
+    // macOS reports ⌥B as "∫"; only `code` still names the B key.
+    expect(chord('∫', { code: 'KeyB', metaKey: true, altKey: true })).toBe('right')
+    expect(chord('b', { ctrlKey: true, altKey: true })).toBe('right')
     expect(chord('b', { metaKey: true, altKey: true, shiftKey: true })).toBeNull()
+  })
+
+  it('ignores other letters and an unmodified B', () => {
     expect(chord('n', { metaKey: true })).toBeNull()
+    expect(chord('f', { metaKey: true, altKey: true })).toBeNull()
     expect(chord('b')).toBeNull()
+    expect(chord('b', { altKey: true })).toBeNull()
   })
 })

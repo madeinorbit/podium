@@ -16,13 +16,17 @@ export function openAboutPodium(): void {
   window.dispatchEvent(new Event(ABOUT_EVENT))
 }
 
-/** The desktop right dock uses Cmd/Ctrl+B. Modified chords remain unclaimed. */
+/**
+ * Cmd/Ctrl+B toggles the flight deck and Option/Alt+Cmd/Ctrl+B the right dock.
+ * Shifted chords remain unclaimed. Option rewrites `key` on macOS (⌥B is "∫"),
+ * so the physical key decides.
+ */
 export function sidebarToggleFromEvent(
-  event: Pick<KeyboardEvent, 'key' | 'metaKey' | 'ctrlKey' | 'altKey' | 'shiftKey'>,
-): 'right' | null {
-  if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey) return null
-  if (event.key.toLowerCase() !== 'b') return null
-  return 'right'
+  event: Pick<KeyboardEvent, 'key' | 'code' | 'metaKey' | 'ctrlKey' | 'altKey' | 'shiftKey'>,
+): 'flight-deck' | 'right' | null {
+  if (!(event.metaKey || event.ctrlKey) || event.shiftKey) return null
+  if (event.code !== 'KeyB' && event.key.toLowerCase() !== 'b') return null
+  return event.altKey ? 'right' : 'flight-deck'
 }
 
 type MenuHook = () => void | boolean

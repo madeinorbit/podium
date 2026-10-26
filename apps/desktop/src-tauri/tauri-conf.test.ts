@@ -415,9 +415,12 @@ describe('served-local launchMode classification (POD-2510)', () => {
     expect(mainSource).toContain(
       'MenuItemBuilder::with_id("toggle-right-sidebar", "Toggle Right Sidebar")',
     )
-    // The right dock owns ⌘B. Match its id and accelerator within the same
-    // let-statement so another menu item cannot satisfy this assertion.
-    expect(mainSource).toMatch(/"toggle-right-sidebar"[^;]*\.accelerator\("CmdOrCtrl\+B"\)/)
+    // The flight deck owns ⌘B and the right dock ⌥⌘B. Match each id and
+    // accelerator within the same let-statement so another menu item cannot
+    // satisfy the assertion.
+    expect(mainSource).toMatch(/"toggle-flight-deck"[^;]*\.accelerator\("CmdOrCtrl\+B"\)/)
+    expect(mainSource).toMatch(/"toggle-right-sidebar"[^;]*\.accelerator\("Alt\+CmdOrCtrl\+B"\)/)
+    expect(mainSource).not.toMatch(/"toggle-right-sidebar"[^;]*\.accelerator\("CmdOrCtrl\+B"\)/)
     expect(mainSource).toContain('__PODIUM_ABOUT__')
     expect(mainSource).toContain('__PODIUM_CHECK_UPDATES__')
     expect(mainSource).toContain('__PODIUM_SETTINGS__')

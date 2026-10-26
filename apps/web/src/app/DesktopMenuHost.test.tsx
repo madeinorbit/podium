@@ -73,7 +73,7 @@ describe('DesktopMenuHost', () => {
     expect(mocks.toggleRight).toHaveBeenCalledOnce()
   })
 
-  it('toggles the right sidebar on ⌘B and ignores ⇧⌘B in the desktop shell', () => {
+  it('toggles the flight deck on ⌘B and the right sidebar on ⌥⌘B in the desktop shell', () => {
     desktopGlobal.__PODIUM_DESKTOP__ = { platform: 'macos' }
     render(
       <DesktopMenuHost
@@ -83,14 +83,28 @@ describe('DesktopMenuHost', () => {
       />,
     )
 
-    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'b', metaKey: true, bubbles: true }))
+    window.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'b', code: 'KeyB', metaKey: true, bubbles: true }),
+    )
+    expect(mocks.toggleFlight).toHaveBeenCalledOnce()
+    expect(mocks.toggleRight).not.toHaveBeenCalled()
+
+    window.dispatchEvent(
+      new KeyboardEvent('keydown', {
+        key: '∫',
+        code: 'KeyB',
+        metaKey: true,
+        altKey: true,
+        bubbles: true,
+      }),
+    )
     expect(mocks.toggleRight).toHaveBeenCalledOnce()
 
     window.dispatchEvent(
       new KeyboardEvent('keydown', { key: 'b', metaKey: true, shiftKey: true, bubbles: true }),
     )
+    expect(mocks.toggleFlight).toHaveBeenCalledOnce()
     expect(mocks.toggleRight).toHaveBeenCalledOnce()
-    expect(mocks.toggleFlight).not.toHaveBeenCalled()
   })
 
   it('leaves ⌘B to the browser when this is not the desktop shell', () => {
@@ -103,6 +117,7 @@ describe('DesktopMenuHost', () => {
     )
 
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'b', metaKey: true, bubbles: true }))
+    expect(mocks.toggleFlight).not.toHaveBeenCalled()
     expect(mocks.toggleRight).not.toHaveBeenCalled()
   })
 })
