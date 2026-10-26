@@ -13,6 +13,9 @@
  * receiving agent, not the reader, so the fold line only flags it.
  * WHAT IS NOT LOST: the two-line preview is a preview — clicking an item opens
  * that frame's full markdown, refs and code live.
+ *
+ * AN INBOX POINTER IS A NOTE TOO (POD-2143): an oversized mail reaches the agent
+ * as one line naming its id, so its item fetches the body when the card opens.
  */
 import { envelopePrincipal, type ParsedEnvelope } from '@podium/client-core/values'
 import { ChevronDown, Mail as MailIcon, X } from 'lucide-react'
@@ -21,6 +24,7 @@ import { memo, useMemo, useState } from 'react'
 import { renderMarkdown, sanitizeRenderedMarkdown } from '@/lib/markdown'
 import { isKnownRefPrefix } from '@/lib/markdown-references'
 import { useKnownRefPrefixesVersion } from '@/lib/use-known-ref-prefixes'
+import { useMailBody } from './mail-body'
 import { clockLabel, fullTimeLabel, parseTs } from './transcript-time'
 
 /** An envelope-header principal: the nice-id issue ref renders as the same
@@ -94,12 +98,34 @@ const StableEnvelopeMarkdown = memo(function StableEnvelopeMarkdown({ html }: { 
   )
 })
 
+/** What a legacy pointer (typed before it named its ids) can still say. */
+const LEGACY_POINTER_BODY =
+  'Delivered via the inbox\nToo long to type into the session, so the agent read it from its inbox.'
+
+/** A pointer's item: the body the agent was not typed, fetched by id. */
+function PointerEnvelopeItem(props: {
+  envelope: ParsedEnvelope
+  forceFull?: boolean
+}): JSX.Element {
+  const mail = useMailBody(props.envelope.id)
+  const body =
+    mail.status === 'ready'
+      ? mail.body
+      : mail.status === 'loading'
+        ? 'Loading…'
+        : `Could not load this message\nRead it with \`podium mail show ${props.envelope.id}\`.`
+  return <EnvelopeItem {...props} body={body} />
+}
+
 function EnvelopeItem({
   envelope,
+  body = envelope.body,
   markdownHtml,
   forceFull = false,
 }: {
   envelope: ParsedEnvelope
+  /** The body when the frame did not carry it (an inbox pointer). */
+  body?: string
   markdownHtml?: ReadonlyMap<string, string> | undefined
   /** The active search hit: the matched word may be anywhere in the body, so
    *  the preview is not enough. */
@@ -108,18 +134,16 @@ function EnvelopeItem({
   const [opened, setOpened] = useState(false)
   const full = opened || forceFull
   const setFull = setOpened
-  const { subject, preview } = useMemo(() => splitSubject(envelope.body), [envelope.body])
-  const cachedHtml = markdownHtml?.get(envelope.body)
+  const { subject, preview } = useMemo(() => splitSubject(body), [body])
+  const cachedHtml = markdownHtml?.get(body)
   const refPrefixesVersion = useKnownRefPrefixesVersion()
   // biome-ignore lint/correctness/useExhaustiveDependencies: refPrefixesVersion is a deliberate recompute trigger — linkifyRefs reads the prefix registry.
   const html = useMemo(() => {
     if (!full) return ''
-    return cachedHtml === undefined
-      ? renderMarkdown(envelope.body)
-      : sanitizeRenderedMarkdown(cachedHtml)
+    return cachedHtml === undefined ? renderMarkdown(body) : sanitizeRenderedMarkdown(cachedHtml)
     // Ref chips are state-free transcript content (see ChatBlockView); only the
     // prefix registry arriving re-renders them (POD-4966).
-  }, [cachedHtml, envelope.body, full, refPrefixesVersion])
+  }, [cachedHtml, body, full, refPrefixesVersion])
   return (
     <div className="mail-item" data-testid="mail-item" data-full={full ? 'true' : undefined}>
       <span className="mail-item-from">
@@ -160,6 +184,7 @@ export function MessageEnvelopeGroup({
   ts,
   onBodyClick,
   forceOpen = false,
+  direction = 'from',
 }: {
   envelopes: readonly ParsedEnvelope[]
   className: string
@@ -174,6 +199,9 @@ export function MessageEnvelopeGroup({
    *  the word they searched for. The active hit unfolds the whole group and
    *  every frame in it, the same way a run of tool calls unfolds. */
   forceOpen?: boolean
+  /** Whose notes these are: mail that arrived (`from`, names the senders) or
+   *  mail this session sent (`to`, names the recipients). */
+  direction?: 'from' | 'to'
 }): JSX.Element {
   // ALWAYS FOLDED ON ARRIVAL (POD-2070). A question or a reply request in agent
   // mail binds the RECEIVING AGENT, not the person reading the chat, so opening
@@ -198,8 +226,10 @@ export function MessageEnvelopeGroup({
   const noun = single ? 'Note' : `${count} notes`
   // Distinct short senders, in arrival order: "Note from steward",
   // "2 notes from POD-84 · POD-90".
-  const senders = [...new Set(envelopes.map((e) => senderName(e.from)))].join(' · ')
-  const foldLabel = `${noun} from ${senders}`
+  const names = [
+    ...new Set(envelopes.map((e) => senderName(direction === 'from' ? e.from : e.to))),
+  ].join(' · ')
+  const foldLabel = `${noun} ${direction} ${names}`
 
   return (
     <div
@@ -241,10 +271,10 @@ export function MessageEnvelopeGroup({
                   {sharedFrom !== undefined && (
                     <>
                       <PrincipalLabel label={sharedFrom} />
-                      <span className="mail-card-arrow">→</span>
+                      {first?.to && <span className="mail-card-arrow">→</span>}
                     </>
                   )}
-                  {first && <PrincipalLabel label={first.to} />}
+                  {first?.to && <PrincipalLabel label={first.to} />}
                 </span>
                 <button
                   data-pressable
@@ -257,14 +287,23 @@ export function MessageEnvelopeGroup({
                 </button>
               </div>
               <div className="mail-card-list">
-                {envelopes.map((envelope) => (
-                  <EnvelopeItem
-                    key={envelope.id}
-                    envelope={envelope}
-                    markdownHtml={markdownHtml}
-                    forceFull={forceOpen}
-                  />
-                ))}
+                {envelopes.map((envelope) =>
+                  envelope.pointer === 'by-id' ? (
+                    <PointerEnvelopeItem
+                      key={envelope.id}
+                      envelope={envelope}
+                      forceFull={forceOpen}
+                    />
+                  ) : (
+                    <EnvelopeItem
+                      key={envelope.id}
+                      envelope={envelope}
+                      body={envelope.pointer === 'legacy' ? LEGACY_POINTER_BODY : envelope.body}
+                      markdownHtml={markdownHtml}
+                      forceFull={forceOpen}
+                    />
+                  ),
+                )}
               </div>
             </div>
           )}

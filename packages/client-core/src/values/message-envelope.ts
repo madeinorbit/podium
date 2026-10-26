@@ -15,6 +15,7 @@
  * quoted frames stay quoted inside the rendered body.
  */
 
+import { type MailPointerSender, parseMailPointer } from '@podium/commands/mail-pointer-nudge'
 import { LEGACY_TURN_CLOSE_RULE, TURN_CLOSE_RULE } from '@podium/commands/mail-turn-close-rule'
 
 export interface ParsedEnvelope {
@@ -37,6 +38,11 @@ export interface ParsedEnvelope {
    *  machine …"), when the sender runs elsewhere — rendered as a footer, not
    *  body text. */
   machineNote?: string
+  /** Set on an inbox POINTER [POD-2143]: the line the server types in place of
+   *  an oversized body. Its `body` is empty and `to` unknown. `by-id`: `id` is
+   *  the message id to fetch the body by. `legacy`: a pointer typed before it
+   *  carried ids, whose `id` is only unique within its turn. */
+  pointer?: 'by-id' | 'legacy'
 }
 
 /** The head line. The reply part is absent from the short frame a server job
@@ -113,7 +119,15 @@ export function parseEnvelopeBatch(text: string): ParsedEnvelopeBatch | null {
   let rest = text.replace(/\r\n?/g, '\n').trim()
   const envelopes: ParsedEnvelope[] = []
 
-  while (rest.startsWith('[podium message ')) {
+  for (;;) {
+    if (!rest.startsWith('[podium message ')) {
+      // An inbox pointer is Podium's too, never the human's (POD-2143).
+      const pointer = parseMailPointer(rest)
+      if (!pointer) break
+      envelopes.push(...pointerEnvelopes(pointer.senders, envelopes.length))
+      rest = pointer.rest.trimStart()
+      continue
+    }
     const head = HEAD_RE.exec(rest)
     const id = head?.[1]
     if (!head || !id) break
@@ -128,6 +142,17 @@ export function parseEnvelopeBatch(text: string): ParsedEnvelopeBatch | null {
   }
 
   return envelopes.length > 0 ? { envelopes, operatorText: rest.trim() } : null
+}
+
+/** One entry per message a pointer names; a legacy pointer names none, so it
+ *  gets one per sender. */
+function pointerEnvelopes(senders: MailPointerSender[], offset: number): ParsedEnvelope[] {
+  const base = { to: '', body: '', question: false, expectsReply: false }
+  return senders.flatMap<ParsedEnvelope>(({ from, ids }, i) =>
+    ids.length > 0
+      ? ids.map((id) => ({ ...base, id, from, pointer: 'by-id' as const }))
+      : [{ ...base, id: `pointer:${offset + i}`, from, pointer: 'legacy' as const }],
+  )
 }
 
 /** A principal label split for rendering: `pre` + `ref` + `post`, where `ref`

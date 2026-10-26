@@ -17,6 +17,7 @@
  */
 
 import { AUTO_CONTINUE_SENDER, deliversUnwrapped, type MailSenderPrincipal } from '@podium/commands'
+import { renderMailPointer } from '@podium/commands/mail-pointer-nudge'
 import { TURN_CLOSE_RULE } from '@podium/commands/mail-turn-close-rule'
 import type { SessionId, SessionMeta } from '@podium/model'
 import type { MessageRow } from '../../store'
@@ -259,17 +260,17 @@ export class MessageRenderer {
     return (await this.deps.sessionById(receiverSessionId))?.agentKind === 'shell'
   }
 
-  /** The pointer rendering: the line typed in place of an oversized body. */
+  /** The pointer rendering: the line typed in place of an oversized body,
+   *  naming each sender's message ids so the chat can open the body [POD-2143]. */
   async pointerText(rows: MessageRow[]): Promise<string> {
-    const senders = [...new Set(await Promise.all(rows.map(async (m) => await this.fromLabel(m))))]
-    // The pointer path closes its turn by the same rule as the envelope's
-    // TURN_CLOSE_RULE [POD-604, POD-2070]. Said in one line here because a
-    // coalesced nudge has to stay a nudge.
-    return (
-      `[podium] ${rows.length} message(s) from ${senders.join(', ')} — ` +
-      `run 'podium issue mail inbox' to read them, then close your turn without repeating your ` +
-      `last answer: no message if they needed nothing or only a reply, one sentence if you acted ` +
-      `on them, more only if they change what you told the human; leave your standing offer as it is`
+    const senders = new Map<string, string[]>()
+    for (const m of rows) {
+      const from = await this.fromLabel(m)
+      senders.set(from, [...(senders.get(from) ?? []), m.id])
+    }
+    return renderMailPointer(
+      rows.length,
+      [...senders].map(([from, ids]) => ({ from, ids })),
     )
   }
 

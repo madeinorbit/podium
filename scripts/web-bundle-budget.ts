@@ -777,7 +777,9 @@ if (checkBudget) {
   // The envelope parser shares dependency-free mail text with the server.
   // Every other command source still belongs behind its owning feature.
   const eagerCommandSources = report.eager.commandSources.filter(
-    (source) => !source.endsWith('packages/commands/src/mail/turn-close-rule.ts'),
+    (source) =>
+      !source.endsWith('packages/commands/src/mail/turn-close-rule.ts') &&
+      !source.endsWith('packages/commands/src/mail/pointer-nudge.ts'),
   )
   if (eagerCommandSources.length > 0)
     errors.push(`command sources are eager: ${eagerCommandSources.join(', ')}`)

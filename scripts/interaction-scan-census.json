@@ -37647,6 +37647,42 @@
       "bound": "One repository's checkouts (the repository table is always resident, tens of rows) and one checkout's worktree list.",
       "reason": "Reads the checkout the write goes through and the branch names it already reports, so the picker needs no branch-listing request. The component mounts only while its menu is open.",
       "guard": "BaseBranchMenu.test.tsx and IssueParentBranch.test.tsx cover the menus; repo-base-branch.test.ts covers the lookup."
+    },
+    {
+      "file": "apps/web/src/features/chat/mail-body.ts",
+      "holder": "useMailBody/useEffect:callback",
+      "rule": "reader-summary",
+      "tokens": "6c46e94c6561cb4b58ec462e5fe95b3a5a1cbf36f8227913665052c539207cee",
+      "gate": [],
+      "origin": [
+        "ff59db5fed9024e0f06b8042d373d334ad76d2cefde5517fb3d14d2234e1e676"
+      ],
+      "fingerprint": "dd803fe1fd7f9e4122b48f08762f6223b5b06b17516f3f34168a626a2e4c0ebf",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-2143",
+      "trigger": "The reader opens a chat mail note whose message reached the agent as an inbox pointer.",
+      "bound": "One addressed message id per opened pointer item; the body is cached per id for the page, so a reopen does not query again.",
+      "reason": "The messages value is the TRPC mail API, not message rows. useMailBody calls messages.show for one id and enumerates no records.",
+      "guard": "ChatBlockView.envelope.test.tsx proves the body is requested only after the note opens, by the pointer id; legacy pointers request nothing."
+    },
+    {
+      "file": "apps/web/src/features/chat/MessageEnvelopeGroup.tsx",
+      "holder": "PointerEnvelopeItem/mail",
+      "rule": "reader-summary",
+      "tokens": "1500fefe9f90c4ce4fc4a93150ede552323248513783431122d08e735cd6cb0d",
+      "gate": [],
+      "origin": [
+        "ff59db5fed9024e0f06b8042d373d334ad76d2cefde5517fb3d14d2234e1e676"
+      ],
+      "fingerprint": "2af949c400bb83fd35c3d7614e4927cb56dbd2f4ff236b176adfe8ec904d65be",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-2143",
+      "trigger": "The reader opens a chat mail note whose message reached the agent as an inbox pointer.",
+      "bound": "One addressed message id per opened pointer item; the body is cached per id for the page, so a reopen does not query again.",
+      "reason": "The messages value is the TRPC mail API, not message rows. useMailBody calls messages.show for one id and enumerates no records.",
+      "guard": "ChatBlockView.envelope.test.tsx proves the body is requested only after the note opens, by the pointer id; legacy pointers request nothing."
     }
   ]
 }

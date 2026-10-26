@@ -1,3 +1,4 @@
+import { renderMailPointer } from '@podium/commands/mail-pointer-nudge'
 import type { TranscriptItem } from '@podium/model'
 import { asSessionId } from '@podium/model'
 import { act } from 'react'
@@ -13,6 +14,16 @@ const activations: string[] = []
 vi.mock('@/lib/ref-activation', () => ({
   activateRef: (ref: string) => {
     activations.push(ref)
+  },
+}))
+
+// An inbox pointer's body comes from the server by id (POD-2143); the stub
+// records which ids were asked for.
+const bodyRequests: string[] = []
+vi.mock('./mail-body', () => ({
+  useMailBody: (id: string) => {
+    bodyRequests.push(id)
+    return { status: 'ready', body: `Long review notes\nfull body of ${id}` }
   },
 }))
 
@@ -66,6 +77,7 @@ function click(el: Element | null | undefined): void {
 beforeEach(() => {
   setKnownRefPrefixes(['POD'])
   activations.length = 0
+  bodyRequests.length = 0
   host = document.createElement('div')
   document.body.appendChild(host)
   root = createRoot(host)
@@ -361,6 +373,37 @@ describe('operator events', () => {
     expect(card?.getAttribute('data-attention')).toBe('plan')
     expect(card?.textContent).toContain('Plan ready · needs you')
     expect(card?.textContent).toContain('Review the proposed rollout plan')
+  })
+})
+
+describe('inbox pointer notes (POD-2143)', () => {
+  it('folds a pointer as a note, not the human, and fetches its body only on open', () => {
+    mount(userItem(renderMailPointer(1, [{ from: 'issue:POD-2128', ids: ['msg_big'] }])), true)
+    expect(host.querySelectorAll('.mail-group')).toHaveLength(1)
+    expect(toggle()?.textContent).toContain('Note from POD-2128')
+    expect(host.textContent).not.toContain('podium issue mail inbox')
+    expect(host.querySelector('[data-sticky-prompt]')).toBeNull()
+    expect(bodyRequests).toEqual([])
+    click(toggle())
+    expect(bodyRequests).toContain('msg_big')
+    expect(host.textContent).toContain('Long review notes')
+    click(host.querySelector('.mail-item-head'))
+    expect(host.querySelector('.mail-item-body')?.textContent).toContain('full body of msg_big')
+  })
+
+  it('folds a legacy pointer without ids and says the body went to the inbox', () => {
+    mount(
+      userItem(
+        "[podium] 1 message(s) from issue:POD-84 — run 'podium issue mail inbox' to read them, " +
+          'then close your turn without repeating your last answer: no message if they needed ' +
+          'nothing or only a reply, one sentence if you acted on them, more only if they change ' +
+          'what you told the human; leave your standing offer as it is',
+      ),
+    )
+    expect(toggle()?.textContent).toContain('Note from POD-84')
+    click(toggle())
+    expect(bodyRequests).toEqual([])
+    expect(host.textContent).toContain('Delivered via the inbox')
   })
 })
 

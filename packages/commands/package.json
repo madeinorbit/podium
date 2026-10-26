@@ -22,6 +22,11 @@
       "types": "./src/mail/stop-nudge.ts",
       "import": "./src/mail/stop-nudge.ts"
     },
+    "./mail-pointer-nudge": {
+      "@podium/source": "./src/mail/pointer-nudge.ts",
+      "types": "./src/mail/pointer-nudge.ts",
+      "import": "./src/mail/pointer-nudge.ts"
+    },
     "./settings-write-plan": {
       "@podium/source": "./src/settings/write-plan.ts",
       "types": "./src/settings/write-plan.ts",
