@@ -5,6 +5,7 @@
   "license": "Apache-2.0",
   "type": "module",
   "dependencies": {
+    "@podium/commands": "workspace:*",
     "@podium/logger": "workspace:*",
     "@podium/model": "workspace:*",
     "@podium/harness": "workspace:*",

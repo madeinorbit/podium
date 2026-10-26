@@ -1,3 +1,4 @@
+import { mailUnreadNudge } from '@podium/commands/mail-stop-nudge'
 import { describe, expect, it } from 'vitest'
 import { recordUuid, stampCursors } from '../../store/cursor-codec.js'
 import { codexRecordToItems } from '../codex/transcript.js'
@@ -945,6 +946,10 @@ describe('claudeRecordToItems toolPaths', () => {
     expect(
       claudeRecordToItems({ ...summary, preventedContinuation: true, stopReason: 'Tests failed' }),
     ).toMatchObject([{ text: 'A stop hook halted the agent: Tests failed' }])
+    // Podium's mail nudge is a block reason for the agent; the human sees the mail.
+    expect(
+      claudeRecordToItems({ ...summary, hookErrors: [mailUnreadNudge(1, ['issue:#27'])] }),
+    ).toEqual([])
   })
 
   it('maps an away_summary system record to a recap item', () => {

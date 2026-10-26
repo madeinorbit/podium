@@ -87,6 +87,7 @@
     "access": "public"
   },
   "dependencies": {
+    "@podium/commands": "workspace:*",
     "@podium/logger": "workspace:*",
     "@podium/model": "workspace:*",
     "@podium/protocol": "workspace:*",

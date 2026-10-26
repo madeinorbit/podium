@@ -46,6 +46,7 @@
       "name": "@podium/daemon",
       "version": "0.0.0",
       "dependencies": {
+        "@podium/commands": "workspace:*",
         "@podium/harness": "workspace:*",
         "@podium/logger": "workspace:*",
         "@podium/model": "workspace:*",
@@ -359,6 +360,7 @@
       "name": "@podium/harness",
       "version": "0.0.0",
       "dependencies": {
+        "@podium/commands": "workspace:*",
         "@podium/logger": "workspace:*",
         "@podium/model": "workspace:*",
         "@podium/protocol": "workspace:*",

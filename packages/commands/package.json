@@ -17,6 +17,11 @@
       "types": "./src/mail/turn-close-rule.ts",
       "import": "./src/mail/turn-close-rule.ts"
     },
+    "./mail-stop-nudge": {
+      "@podium/source": "./src/mail/stop-nudge.ts",
+      "types": "./src/mail/stop-nudge.ts",
+      "import": "./src/mail/stop-nudge.ts"
+    },
     "./settings-write-plan": {
       "@podium/source": "./src/settings/write-plan.ts",
       "types": "./src/settings/write-plan.ts",

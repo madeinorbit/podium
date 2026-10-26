@@ -1,3 +1,4 @@
+import { isMailNudge } from '@podium/commands/mail-stop-nudge'
 import type { TranscriptItem, TranscriptTag } from '@podium/model'
 import { machinePathBasename } from '@podium/model'
 import { fileTranscript, supported, type TranscriptSourceInput } from '../../manifest.js'
@@ -219,10 +220,13 @@ function mapClaudeRecord(record: unknown): TranscriptItem[] {
       ]
     }
     // A clean stop-hook run tells the user nothing. hookErrors holds both hook
-    // failures and a blocking hook's reason, with nothing to tell them apart.
+    // failures and a blocking hook's reason, with nothing to tell them apart;
+    // Podium's own mail nudges are for the agent, the human sees the mail itself.
     if (subtype === 'stop_hook_summary') {
       const errors = Array.isArray(r.hookErrors)
-        ? r.hookErrors.filter((e): e is string => typeof e === 'string' && e.trim() !== '')
+        ? r.hookErrors.filter(
+            (e): e is string => typeof e === 'string' && e.trim() !== '' && !isMailNudge(e),
+          )
         : []
       const lines = errors.map((e) => `Stop hook reported: ${e}`)
       if (r.preventedContinuation === true) {
