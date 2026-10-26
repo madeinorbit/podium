@@ -272,6 +272,26 @@ describe('attachSession', () => {
     }
   })
 
+  it("newSubissue inherits the repository's base branch (POD-2065)", async () => {
+    const { svc, store, issueBySession } = await harness([
+      sess(asSessionId('s1'), '/r/.worktrees/epic'),
+      sess(asSessionId('s2'), '/r/.worktrees/epic'),
+    ])
+    await store.repos.setRepoDefaultParentBranch(store.hostMachineId, '/r', 'release')
+    const parent = await svc.crud.create({ repoPath: '/r', title: 'Epic', startNow: false })
+    expect(parent.parentBranch).toBe('release')
+    await svc.crud.update(parent.id, { worktreePath: '/r/.worktrees/epic' })
+    issueBySession.set(asSessionId('s1'), parent.id)
+    issueBySession.set(asSessionId('s2'), parent.id)
+    await svc.crud.setCoordinator(parent.id, asSessionId('s2'))
+    const w = await svc.attention.attachSession({
+      sessionId: asSessionId('s1'),
+      newSubissue: { title: 'Side quest', origin: 'human' },
+      confirmRehome: true,
+    })
+    expect(w.parentBranch).toBe('release')
+  })
+
   it('newSubissue with no current issue requires targetId as parent', async () => {
     const { svc, issueBySession } = await harness([sess(asSessionId('s1'))])
     await expect(

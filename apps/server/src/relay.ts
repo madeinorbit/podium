@@ -2952,10 +2952,14 @@ export class SessionRegistry {
       label: `Shipping ${orderId} attempt ${generation}`,
       workspace: null,
     })
-    const shippingPolicy = new CompatibilityShippingPolicyResolver(
-      async () =>
-        (await this.store.settings.getSettings()).gitWorkflow.defaultParentBranch || 'main',
-    )
+    // Repo base branch → instance default → main, for the issue's repo [POD-2065].
+    const shippingPolicy = new CompatibilityShippingPolicyResolver(async (issue) => {
+      const instance = (await this.store.settings.getSettings()).gitWorkflow.defaultParentBranch
+      const repo = issue.repoPath
+        ? await this.store.repos.defaultParentBranchForIssueRepo(issue.repoPath, issue.machineId)
+        : null
+      return repo || instance.trim() || 'main'
+    })
     const shippingEvidence = new ShippingEvidenceRegistry(this.store.shipping)
     const shipwright = new ShipwrightService({
       headless,

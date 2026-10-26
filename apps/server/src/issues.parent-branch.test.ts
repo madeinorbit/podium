@@ -1,28 +1,35 @@
-import { asSessionId } from '@podium/model'
+import { asSessionId, type IssueReport } from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
 import { describe, expect, it, vi } from 'vitest'
 import { type IssueDeps, IssueService } from './modules/issues/service'
 import { checkedOutBranch, defaultParentBranchFor } from './modules/issues/service/parent-branch'
 import { issueTestPlumbing } from './modules/issues/service/test-plumbing'
+import { CompatibilityShippingPolicyResolver } from './modules/shipping/policy'
 import { openTestStore } from './test-support/open-test-store'
 import { sessionReadPorts } from './test-support/session-facts'
 
 /**
  * POD-2065: an instance-wide default parent branch (`tf.dev`, for Podium
  * development) was stamped onto issues in repositories that have no such ref,
- * and their start died on git's `fatal: invalid reference: tf.dev`.
+ * and their start died on git's `fatal: invalid reference: tf.dev`. Each
+ * repository now carries its own base branch (`repoDefault`), which wins over the
+ * instance default.
  *
  * The fake repository answers `revParseVerify` from `refs` and `statusProbe`
  * from `head`; `answers: false` models a daemon that cannot be reached.
  */
 async function harness(opts: {
   defaultParentBranch: string
+  repoDefault?: string
   refs: string[]
   head?: string
   answers?: boolean
 }) {
   const store = await openTestStore(':memory:')
   await store.repos.addRepo('/r', store.hostMachineId)
+  if (opts.repoDefault) {
+    await store.repos.setRepoDefaultParentBranch(store.hostMachineId, '/r', opts.repoDefault)
+  }
   const git = { refs: new Set(opts.refs), answers: opts.answers ?? true }
   const ops: { op: string; args?: Record<string, string> }[] = []
   const broadcast = vi.fn()
@@ -65,39 +72,59 @@ async function harness(opts: {
     onWorktreesChanged: vi.fn(),
     now: () => '2026-10-26T00:00:00.000Z',
   }
-  return { svc: await IssueService.create(deps), deps, git, ops }
+  return { svc: await IssueService.create(deps), deps, git, ops, store }
 }
 
 describe('parent branch for a new issue (POD-2065)', () => {
-  it('keeps the configured default in a repository that has it', async () => {
-    const { svc } = await harness({ defaultParentBranch: 'tf.dev', refs: ['main', 'tf.dev'] })
+  it("takes the repository's base branch over the instance default, unprobed", async () => {
+    const { svc, ops } = await harness({
+      defaultParentBranch: 'main',
+      repoDefault: 'tf.dev',
+      refs: ['main', 'tf.dev'],
+    })
     const w = await svc.crud.create({ repoPath: '/r', title: 'Podium work', startNow: false })
     expect(w.parentBranch).toBe('tf.dev')
+    expect(ops).toEqual([])
   })
 
-  it("falls back to the repository's own base when the default is missing there", async () => {
-    const { svc } = await harness({ defaultParentBranch: 'tf.dev', refs: ['main'] })
+  it('stores the instance default as configured, without probing or falling back', async () => {
+    const { svc, ops } = await harness({ defaultParentBranch: 'tf.dev', refs: ['main'] })
     const w = await svc.crud.create({ repoPath: '/r', title: 'Other repo', startNow: false })
-    expect(w.parentBranch).toBe('main')
+    expect(w.parentBranch).toBe('tf.dev')
+    expect(ops).toEqual([])
   })
 
-  it('uses master, then the checked-out branch, when there is no main', async () => {
-    const master = await harness({ defaultParentBranch: 'tf.dev', refs: ['master'] })
+  it('detects main, master, then the checked-out branch when nothing is configured', async () => {
+    const main = await harness({ defaultParentBranch: '', refs: ['main', 'master'] })
     expect(
-      (await master.svc.crud.create({ repoPath: '/r', title: 'a', startNow: false })).parentBranch,
+      (await main.svc.crud.create({ repoPath: '/r', title: 'a', startNow: false })).parentBranch,
+    ).toBe('main')
+    const master = await harness({ defaultParentBranch: '', refs: ['master'] })
+    expect(
+      (await master.svc.crud.create({ repoPath: '/r', title: 'b', startNow: false })).parentBranch,
     ).toBe('master')
     const trunk = await harness({
-      defaultParentBranch: 'tf.dev',
+      defaultParentBranch: '',
       refs: ['trunk'],
       head: 'trunk...origin/trunk',
     })
     expect(
-      (await trunk.svc.crud.create({ repoPath: '/r', title: 'b', startNow: false })).parentBranch,
+      (await trunk.svc.crud.create({ repoPath: '/r', title: 'c', startNow: false })).parentBranch,
     ).toBe('trunk')
   })
 
+  it('uses main when nothing is configured and the repository does not answer', async () => {
+    const { svc } = await harness({ defaultParentBranch: '', refs: [], answers: false })
+    const w = await svc.crud.create({ repoPath: '/r', title: 'Offline', startNow: false })
+    expect(w.parentBranch).toBe('main')
+  })
+
   it('keeps an explicit (stacked) parent without probing it', async () => {
-    const { svc, ops } = await harness({ defaultParentBranch: 'tf.dev', refs: ['main'] })
+    const { svc, ops } = await harness({
+      defaultParentBranch: '',
+      repoDefault: 'tf.dev',
+      refs: ['main', 'tf.dev'],
+    })
     const w = await svc.crud.create({
       repoPath: '/r',
       title: 'Stacked',
@@ -105,41 +132,56 @@ describe('parent branch for a new issue (POD-2065)', () => {
       startNow: false,
     })
     expect(w.parentBranch).toBe('issue/7-base')
-    expect(ops.filter((o) => o.op === 'revParseVerify')).toEqual([])
-  })
-
-  it('keeps `main` without probing when no default is configured', async () => {
-    const { svc, ops } = await harness({ defaultParentBranch: '', refs: ['master'] })
-    const w = await svc.crud.create({ repoPath: '/r', title: 'Unset', startNow: false })
-    expect(w.parentBranch).toBe('main')
     expect(ops).toEqual([])
   })
 
-  it('keeps the configured default when the repository does not answer', async () => {
-    const { svc } = await harness({ defaultParentBranch: 'tf.dev', refs: [], answers: false })
-    const w = await svc.crud.create({ repoPath: '/r', title: 'Offline', startNow: false })
-    expect(w.parentBranch).toBe('tf.dev')
+  it("changing the repository's base branch leaves existing issues where they were", async () => {
+    const h = await harness({
+      defaultParentBranch: '',
+      repoDefault: 'main',
+      refs: ['main', 'tf.dev'],
+    })
+    const before = await h.svc.crud.create({ repoPath: '/r', title: 'Before', startNow: false })
+    await h.store.repos.setRepoDefaultParentBranch(h.store.hostMachineId, '/r', 'tf.dev')
+    const after = await h.svc.crud.create({ repoPath: '/r', title: 'After', startNow: false })
+    expect((await h.svc.reports.get(before.id))?.parentBranch).toBe('main')
+    expect(after.parentBranch).toBe('tf.dev')
   })
 })
 
 describe('starting an issue whose parent branch is missing (POD-2065)', () => {
-  it("refuses with the fix instead of git's error, and leaves the parent alone", async () => {
-    const h = await harness({ defaultParentBranch: 'tf.dev', refs: ['main', 'tf.dev'] })
+  it("refuses with both fixes instead of git's error, and leaves the parent alone", async () => {
+    const h = await harness({ defaultParentBranch: 'tf.dev', refs: ['main'] })
     const w = await h.svc.crud.create({ repoPath: '/r', title: 'Existing', startNow: false })
     expect(w.parentBranch).toBe('tf.dev')
-    // The branch disappears after the issue was created — the TFT-33 shape.
-    h.git.refs.delete('tf.dev')
 
     const start = h.svc.gitWorkflow.start(w.id)
     await expect(start).rejects.toThrow(/parent branch 'tf\.dev' does not exist in \/r\./)
-    await expect(h.svc.gitWorkflow.start(w.id)).rejects.toThrow(
-      /--parent-branch main .*or create 'tf\.dev'/,
+    const message = await h.svc.gitWorkflow.start(w.id).catch((e: Error) => e.message)
+    expect(message).toContain("is the instance's default parent branch")
+    expect(message).toContain(
+      "set this repository's base branch (sidebar project menu → Base branch, or Settings → Repositories)",
     )
+    expect(message).toMatch(/podium issue update --id \S+ --parent-branch main\./)
     // git refused the add, so nothing was built and no session was spawned.
     expect(h.deps.spawnSession).not.toHaveBeenCalled()
     const after = await h.svc.reports.get(w.id)
     expect(after?.parentBranch).toBe('tf.dev')
     expect(after?.worktreePath).toBeNull()
+  })
+
+  it("says when the missing branch is the repository's own base branch", async () => {
+    const h = await harness({
+      defaultParentBranch: '',
+      repoDefault: 'tf.dev',
+      refs: ['main', 'tf.dev'],
+    })
+    const w = await h.svc.crud.create({ repoPath: '/r', title: 'Existing', startNow: false })
+    // The branch disappears after the issue was created — the TFT-33 shape.
+    h.git.refs.delete('tf.dev')
+    const message = await h.svc.gitWorkflow.start(w.id).catch((e: Error) => e.message)
+    expect(message).toContain("'tf.dev' is this repository's base branch, which it no longer has.")
+    expect(message).not.toContain('instance')
   })
 
   it('starts once the parent is pointed at a branch that exists', async () => {
@@ -153,6 +195,29 @@ describe('starting an issue whose parent branch is missing (POD-2065)', () => {
   })
 })
 
+describe('landing base (POD-2065)', () => {
+  it("is the repository's base branch, then the instance default, then main", async () => {
+    const repo = await harness({ defaultParentBranch: 'dev', repoDefault: 'tf.dev', refs: [] })
+    expect(await repo.svc.reports.store.landingBase('/r')).toBe('tf.dev')
+    expect(await repo.svc.reports.store.landingBase('/r/.worktrees/x')).toBe('tf.dev')
+    const instance = await harness({ defaultParentBranch: 'dev', refs: [] })
+    expect(await instance.svc.reports.store.landingBase('/r')).toBe('dev')
+    const none = await harness({ defaultParentBranch: '', refs: [] })
+    expect(await none.svc.reports.store.landingBase('/r')).toBe('main')
+  })
+
+  it('hands the shipping policy the issue, so its default can be per repository', async () => {
+    const policy = new CompatibilityShippingPolicyResolver((issue) =>
+      issue.repoPath === '/r' ? 'tf.dev' : 'main',
+    )
+    const issue = { parentBranch: '', repoPath: '/r' } as IssueReport
+    expect((await policy.resolve(issue)).targetBranch).toBe('tf.dev')
+    expect((await policy.resolve({ ...issue, parentBranch: 'issue/7' })).targetBranch).toBe(
+      'issue/7',
+    )
+  })
+})
+
 describe('parent-branch helpers', () => {
   it('reads the checked-out branch from a status header', () => {
     expect(checkedOutBranch('## main...origin/main [ahead 1]\n M x')).toBe('main')
@@ -163,6 +228,6 @@ describe('parent-branch helpers', () => {
 
   it('gives up on a slow repository within its budget', async () => {
     const never = () => new Promise<{ ok: boolean; output: string }>(() => {})
-    await expect(defaultParentBranchFor(never, '/r', 'tf.dev', 10)).resolves.toBe('tf.dev')
+    await expect(defaultParentBranchFor(never, '/r', 10)).resolves.toBe('main')
   })
 })

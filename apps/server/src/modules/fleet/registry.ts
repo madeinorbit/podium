@@ -43,6 +43,7 @@ import {
   repoCreateRepoHandler,
   repoRenameFolderHandler,
   repoRemoveHandler,
+  repoSetDefaultParentBranchHandler,
   repoSetPrefixHandler,
 } from './handlers'
 
@@ -111,6 +112,10 @@ export const FLEET_COMMANDS = {
   'repos.setPrefix': {
     contract: FLEET_CONTRACTS['repos.setPrefix'],
     handler: repoSetPrefixHandler,
+  },
+  'repos.setDefaultParentBranch': {
+    contract: FLEET_CONTRACTS['repos.setDefaultParentBranch'],
+    handler: repoSetDefaultParentBranchHandler,
   },
   'repos.cloneGithub': {
     contract: FLEET_CONTRACTS['repos.cloneGithub'],

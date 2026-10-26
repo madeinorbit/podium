@@ -141,6 +141,36 @@ export class RepoRegistry {
   }
 
   /**
+   * Set (or clear, with null) the repo's base branch: the parent new issues in it
+   * are cut from and the branch they land on [POD-2065]. Refused unless the branch
+   * exists in the checkout at `path`, asked of the machine that holds it. Existing
+   * issues keep their parent; only issues created afterwards pick this up.
+   */
+  async setDefaultParentBranch(
+    path: string,
+    branch: string | null,
+    machineId?: MachineId,
+  ): Promise<void> {
+    const mid = machineId ?? (await this.sessionReg.modules.machines.defaultMachine())
+    const p = normalizeRepoPath(path)
+    const name = branch?.trim() || null
+    if (name !== null) {
+      const rpc = this.sessionReg.modules.rpc
+      const found = await rpc.repoOp('revParseVerify', p, { ref: `refs/heads/${name}` }, mid)
+      if (!found.ok) {
+        // A repository that cannot resolve HEAD either did not answer; say that
+        // rather than blaming the branch.
+        const head = await rpc.repoOp('revParseVerify', p, { ref: 'HEAD' }, mid)
+        if (!head.ok)
+          throw new Error(`could not read the repository at ${p}: ${head.output.trim()}`)
+        throw new Error(`branch '${name}' does not exist in ${p}`)
+      }
+    }
+    await this.store.repos.setRepoDefaultParentBranch(mid, p, name)
+    await this.publishRepos()
+  }
+
+  /**
    * Publish the repo truth onto the feed [POD-822].
    *
    * The prefix is the join input for every `displayRef` a replica derives, and

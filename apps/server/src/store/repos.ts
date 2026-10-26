@@ -87,6 +87,7 @@ export class ReposRepository {
   private cached: {
     rows: RegistryRow[]
     prefixes: Map<string, string>
+    baseBranches: Map<string, string>
   } | null = null
   private readonly rootDb: StoreDrizzle
   protected readonly createOrJoinTransaction: TransactionRunner
@@ -152,7 +153,11 @@ export class ReposRepository {
    * issue per call — rather than as finished objects, so the machine-scoped
    * variant filters the same materialization instead of forcing a second query.
    */
-  private async registry(): Promise<{ rows: RegistryRow[]; prefixes: Map<string, string> }> {
+  private async registry(): Promise<{
+    rows: RegistryRow[]
+    prefixes: Map<string, string>
+    baseBranches: Map<string, string>
+  }> {
     if (this.cached) return this.cached
     const rows = await this.db
       .select({
@@ -166,14 +171,19 @@ export class ReposRepository {
       // documents that it depends on the insertion order this gives.
       .orderBy(sql`rowid ASC`)
       .all()
-    const prefixes = new Map(
-      (await this.db
-        .select({ repoId: repoPrefixes.repoId, prefix: repoPrefixes.prefix })
-        .from(repoPrefixes)
-        .all())
-        .map((r) => [r.repoId, r.prefix] as const),
+    const prefixRows = await this.db
+      .select({
+        repoId: repoPrefixes.repoId,
+        prefix: repoPrefixes.prefix,
+        defaultParentBranch: repoPrefixes.defaultParentBranch,
+      })
+      .from(repoPrefixes)
+      .all()
+    const prefixes = new Map(prefixRows.map((r) => [r.repoId, r.prefix] as const))
+    const baseBranches = new Map(
+      prefixRows.flatMap((r) => (r.defaultParentBranch ? [[r.repoId, r.defaultParentBranch] as const] : [])),
     )
-    this.cached = { rows, prefixes }
+    this.cached = { rows, prefixes, baseBranches }
     return this.cached
   }
 
@@ -184,8 +194,9 @@ export class ReposRepository {
     originUrl: string | null
     repoId: RepoId | null
     prefix: string | null
+    defaultParentBranch: string | null
   }[]> {
-    const { rows: allRows, prefixes } = await this.registry()
+    const { rows: allRows, prefixes, baseBranches } = await this.registry()
     // Same rows, same `ORDER BY rowid ASC` order, filtered in memory: the
     // machine-scoped statement this replaces read the same table with the same
     // ordering, and repo-discovery documents that it depends on that order.
@@ -196,6 +207,7 @@ export class ReposRepository {
       originUrl: r.originUrl,
       repoId: r.repoId,
       prefix: (r.repoId ? prefixes.get(r.repoId) : undefined) ?? null,
+      defaultParentBranch: (r.repoId ? baseBranches.get(r.repoId) : undefined) ?? null,
     }))
   }
 
@@ -309,6 +321,46 @@ export class ReposRepository {
       .insert(repoPrefixes)
       .values({ repoId, prefix }))
       .onConflictDoUpdate({ target: repoPrefixes.repoId, set: { prefix: sql`excluded.prefix` } })
+      .run()
+  }
+
+  // ---- base branches [POD-2065] ----
+  //
+  // A column on `repo_prefixes` because it is the same kind of fact: one value per
+  // LOGICAL repo, shared by every checkout of one origin. NULL defers to the
+  // instance-wide `gitWorkflow.defaultParentBranch`.
+
+  /** The base branch chosen for the logical repo `repoId` (or null). */
+  async defaultParentBranchForRepoId(repoId: RepoId): Promise<string | null> {
+    return (await this.registry()).baseBranches.get(repoId) ?? null
+  }
+
+  /** The base branch for the repo an ISSUE in `repoPath` belongs to (or null),
+   *  resolved the way the issue's own repo_id is ({@link issueRepoIdResolver}).
+   *  A registry read only — it never touches git. */
+  async defaultParentBranchForIssueRepo(repoPath: string, machineId?: MachineId | null): Promise<string | null> {
+    const id = (await this.issueRepoIdResolver())(repoPath, machineId)
+    return id ? await this.defaultParentBranchForRepoId(id) : null
+  }
+
+  /**
+   * Set (or clear, with null) a repo's base branch. Keyed by the logical repo_id
+   * like the prefix. The caller checks the branch exists; this only stores it, and
+   * existing issues keep the parent they were created with.
+   */
+  async setRepoDefaultParentBranch(machineId: MachineId, path: string, branch: string | null): Promise<void> {
+    const normalizedPath = normalizeRepoPath(path)
+    const repoId = await this.resolveRepoIdForPath(normalizedPath, machineId)
+    // The row is the prefix row, which registration mints; a repo registered
+    // before prefixes existed gets one here rather than losing the write.
+    if (branch !== null && await this.prefixForRepoId(repoId) === null) {
+      await this.ensurePrefixForRepoId(repoId, machinePathBasename(normalizedPath) || normalizedPath)
+    }
+    await this.invalidateRegistry()
+    ;await this.db
+      .update(repoPrefixes)
+      .set({ defaultParentBranch: branch })
+      .where(eq(repoPrefixes.repoId, repoId))
       .run()
   }
 

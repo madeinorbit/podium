@@ -75,6 +75,18 @@ export const RepoIdentity = z.object({
    * failure, one repo's whole issue list reading `#13`.
    */
   prefix: z.string().nullable(),
+  /**
+   * The branch new issues in this repo are cut from and land on — the repo's
+   * BASE branch [POD-2065]. `null` when the repo has not been given one, which
+   * defers to the instance-wide `gitWorkflow.defaultParentBranch` and then to
+   * auto-detection. Stored beside `prefix` for the same reason: it is a fact of
+   * the logical repo, shared by every checkout of one origin.
+   *
+   * NOT validated as a resolvable ref here, as `prefix` is not validated: the
+   * repo registry checks the branch exists where the write happens, and a branch
+   * deleted later is the start-time refusal's to report, not a parse failure.
+   */
+  defaultParentBranch: z.string().nullable(),
   /** A registered root path for this logical repo. Older rows omit it. */
   repoPath: z.string().nullable(),
 })

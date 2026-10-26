@@ -477,6 +477,8 @@ export const settingsAuditEvents = sqliteTable(
 export const repoPrefixes = sqliteTable('repo_prefixes', {
   repoId: text('repo_id').$type<RepoId>().primaryKey(),
   prefix: text().notNull().unique(),
+  // The repo's base branch [POD-2065]; NULL defers to the instance default.
+  defaultParentBranch: text('default_parent_branch'),
 })
 
 export const issueRefLetters = sqliteTable('issue_ref_letters', {

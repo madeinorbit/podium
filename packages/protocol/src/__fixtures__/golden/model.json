@@ -7967,12 +7967,13 @@
       "wire": {
         "id": "id",
         "prefix": null,
+        "defaultParentBranch": null,
         "repoPath": null
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"id\":\"id\",\"prefix\":null,\"repoPath\":null}"
+      "encoded": "{\"id\":\"id\",\"prefix\":null,\"defaultParentBranch\":null,\"repoPath\":null}"
     },
     {
       "schema": "Repo",
@@ -7980,12 +7981,13 @@
       "wire": {
         "id": "id",
         "prefix": "prefix",
+        "defaultParentBranch": "defaultParentBranch",
         "repoPath": "repoPath"
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"id\":\"id\",\"prefix\":\"prefix\",\"repoPath\":\"repoPath\"}"
+      "encoded": "{\"id\":\"id\",\"prefix\":\"prefix\",\"defaultParentBranch\":\"defaultParentBranch\",\"repoPath\":\"repoPath\"}"
     },
     {
       "schema": "RepoId",
@@ -8011,12 +8013,13 @@
       "wire": {
         "id": "id",
         "prefix": null,
+        "defaultParentBranch": null,
         "repoPath": null
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"id\":\"id\",\"prefix\":null,\"repoPath\":null}"
+      "encoded": "{\"id\":\"id\",\"prefix\":null,\"defaultParentBranch\":null,\"repoPath\":null}"
     },
     {
       "schema": "RepoIdentity",
@@ -8024,12 +8027,13 @@
       "wire": {
         "id": "id",
         "prefix": "prefix",
+        "defaultParentBranch": "defaultParentBranch",
         "repoPath": "repoPath"
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"id\":\"id\",\"prefix\":\"prefix\",\"repoPath\":\"repoPath\"}"
+      "encoded": "{\"id\":\"id\",\"prefix\":\"prefix\",\"defaultParentBranch\":\"defaultParentBranch\",\"repoPath\":\"repoPath\"}"
     },
     {
       "schema": "RepoIdField",
@@ -8066,12 +8070,13 @@
       "wire": {
         "id": "id",
         "prefix": "prefix",
+        "defaultParentBranch": "defaultParentBranch",
         "repoPath": "repoPath"
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"id\":\"id\",\"prefix\":\"prefix\",\"repoPath\":\"repoPath\"}"
+      "encoded": "{\"id\":\"id\",\"prefix\":\"prefix\",\"defaultParentBranch\":\"defaultParentBranch\",\"repoPath\":\"repoPath\"}"
     },
     {
       "schema": "RequestRecordKey",

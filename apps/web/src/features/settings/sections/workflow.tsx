@@ -24,7 +24,7 @@ export const WorkflowSection = observer(function WorkflowSection({
     <Section title="Git workflow" hint="Defaults for task worktrees and the quick-action buttons.">
       <Row
         label="Default parent branch"
-        description="New tasks branch from this when their repository has it. Repositories without it use their own main branch."
+        description="New tasks branch from this in repositories without their own base branch. Leave empty to use each repository's main branch."
       >
         <Input
           type="text"

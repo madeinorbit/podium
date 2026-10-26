@@ -181,6 +181,8 @@ export {
   repoAddManyInput,
   repoRemoveContract,
   repoRemoveInput,
+  repoSetDefaultParentBranchContract,
+  repoSetDefaultParentBranchInput,
   repoSetPrefixContract,
   repoSetPrefixInput,
 } from './fleet/contracts'

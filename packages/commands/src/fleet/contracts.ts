@@ -2,7 +2,7 @@
  * THE TWELVE FLEET COMMAND CONTRACTS (POD-384; ADR 3 D1, POD-311's L1/L3 split).
  *
  * `machines.rename · machines.share · machines.unshare · machines.revoke · machines.pairingCode ·
- *  repos.add · repos.addMany · repos.remove · repos.setPrefix ·
+ *  repos.add · repos.addMany · repos.remove · repos.setPrefix · repos.setDefaultParentBranch ·
  *  discovery.refreshRepos · discovery.scanFolder · discovery.scanMachine`
  *
  * L1 DATA ONLY. Every handler lives with the fleet feature in `apps/server`
@@ -232,6 +232,13 @@ export const repoRemoveInput = z.object({ path: z.string(), machineId: machineSe
 export const repoSetPrefixInput = z.object({
   path: z.string(),
   prefix: z.string(),
+  machineId: machineSelector,
+})
+
+/** `branch: null` clears the repo's base branch back to the instance default. */
+export const repoSetDefaultParentBranchInput = z.object({
+  path: z.string(),
+  branch: z.string().nullable(),
   machineId: machineSelector,
 })
 
@@ -1025,6 +1032,40 @@ export const repoSetPrefixContract = {
     'Server-wide uniqueness is the arbitration: a concurrent claim of the same prefix is REFUSED as a collision rather than merged, and the refusal is reported as one',
 } as const satisfies FleetCommandContract<typeof repoSetPrefixInput>
 
+export const repoSetDefaultParentBranchContract = {
+  name: 'repos.setDefaultParentBranch',
+  version: 1,
+  visibility: 'owned-compute',
+  input: repoSetDefaultParentBranchInput,
+  policy: {
+    action: 'write',
+    roleFloor: 'member',
+    resource: 'machine',
+    machineVerb: 'manage',
+    confirmation: 'none',
+    rationale:
+      'Sets the branch new issues in a repo are cut from and land on (POD-2065). It lives on ' +
+      '`ROW.repoPrefix` beside the prefix — the same `owned-compute` row as the registration — so it ' +
+      'authorizes against the machine like `repos.setPrefix`. The branch must exist in the checkout; a ' +
+      'missing one surfaces as BAD_REQUEST. Existing issues keep their parent, so no confirmation.',
+  },
+  exposure: SERVED_ON,
+  delivery: FLEET_DELIVERY,
+  redaction: PUBLIC_REDACTION,
+  ownership: { creates: [], note: 'Edits the existing prefix row; the registration created it.' },
+  attribution: FLEET_ATTRIBUTION,
+  errorConsistency: {
+    callerSuppliedTargetId: true,
+    invisibleFailsAs: 'nonexistent',
+    distinguishesUnauthorizedFromUnreachable: false,
+    note: 'As `repos.setPrefix`. A missing branch is reported as missing; the caller already holds the checkout it names.',
+  },
+  serverRole: 'core',
+  conflict: 'cmd',
+  conflictRule:
+    'Last write wins: the value is one branch name per logical repo, and neither write depends on the other',
+} as const satisfies FleetCommandContract<typeof repoSetDefaultParentBranchInput>
+
 // ---------------------------------------------------------------------------
 // discovery.* — the `use` family: work placed on someone else's hardware
 // ---------------------------------------------------------------------------
@@ -1332,6 +1373,7 @@ export const FLEET_CONTRACTS = {
   'repos.addMany': repoAddManyContract,
   'repos.remove': repoRemoveContract,
   'repos.setPrefix': repoSetPrefixContract,
+  'repos.setDefaultParentBranch': repoSetDefaultParentBranchContract,
   'repos.cloneGithub': repoCloneGithubContract,
   'repos.createFolder': repoCreateFolderContract,
   'repos.createRepo': repoCreateRepoContract,

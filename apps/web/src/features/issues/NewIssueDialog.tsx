@@ -77,8 +77,9 @@ import { PriorityGlyph, StageGlyph } from './issue-glyphs'
  *
  * Type, labels, assignee, branch and Linear linking left the composer entirely:
  * they are set on the issue after it exists, and the server picks the parent
- * branch: `settings.gitWorkflow.defaultParentBranch` when the selected repository
- * has it, else that repository's own base (POD-2065).
+ * branch: the selected repository's base branch, else
+ * `settings.gitWorkflow.defaultParentBranch`, else the repository's own main
+ * branch (POD-2065).
  */
 
 /**

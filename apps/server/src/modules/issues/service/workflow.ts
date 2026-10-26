@@ -110,13 +110,6 @@ type ParentBranchGroup = {
  *  meaningfully delaying the sweep (batches are sequential, the tick is 30s). */
 const GIT_PROBE_FANOUT = 8
 
-/** Default branch work lands on when an issue's cut parent is not itself the
- *  shared integration branch. Mirrors create-time fallback in crud.ts. */
-function landingBaseFromSettings(defaultParentBranch: string | undefined): string {
-  const trimmed = defaultParentBranch?.trim() ?? ''
-  return trimmed !== '' ? trimmed : 'main'
-}
-
 /**
  * Git-workflow capability: ONE issue's git life — worktree start/cleanup, PR/merge
  * actions, extra sessions, Linear search, and the per-session git projection whose
@@ -1914,13 +1907,15 @@ export class IssueGitWorkflowModule {
     if (!row.parentBranch) return null
     try {
       const at = machineId ?? (await this.store.resolveWorktreeMachine(undefined, row.repoPath))
+      const defaults = await this.store.baseBranchDefaults(row.repoPath, row.machineId)
       const refusal = await missingParentBranchRefusal(
         (op, cwd, args) => this.store.d.repoOp(op, cwd, args, at),
         {
           repoPath: row.repoPath,
           parentBranch: row.parentBranch,
           issueRef: await this.issueRef(row),
-          configured: (await this.store.d.getSettings()).gitWorkflow.defaultParentBranch,
+          repoDefault: defaults.repo,
+          instanceDefault: defaults.instance,
         },
       )
       return refusal ? new IssueRefusal(refusal) : null
@@ -2013,9 +2008,18 @@ export class IssueGitWorkflowModule {
    * fanning out across every issue at boot would be pure cost.
    */
   async sweepParentBranchMovement(): Promise<void> {
-    const landingBase = landingBaseFromSettings(
-      (await this.store.d.getSettings()).gitWorkflow.defaultParentBranch,
-    )
+    // The landing base is per repository [POD-2065]; one registry read per
+    // (machine, repo) per sweep.
+    const landingBases = new Map<string, string>()
+    const landingBaseOf = async (row: IssueRow): Promise<string> => {
+      const key = parentBranchKey(row.machineId, row.repoPath, '')
+      let base = landingBases.get(key)
+      if (base === undefined) {
+        base = await this.store.landingBase(row.repoPath, row.machineId)
+        landingBases.set(key, base)
+      }
+      return base
+    }
     const groups = new Map<string, ParentBranchGroup>()
     const addToGroup = (row: IssueRow, ref: string) => {
       if (ref === '') return
@@ -2038,6 +2042,7 @@ export class IssueGitWorkflowModule {
       // Stacked issue: also watch the landing base, because that is the ref the
       // hard land procedure moves. Without this, a dead sibling parent freezes
       // the watch forever (POD-576).
+      const landingBase = await landingBaseOf(row)
       if (row.parentBranch !== landingBase) addToGroup(row, landingBase)
     }
     // Forget tips no live issue watches any more (closed out, worktree freed) so
@@ -2091,9 +2096,7 @@ export class IssueGitWorkflowModule {
     try {
       const members = await this.store.sessionsFor(row)
       const attribution = this.gitAttributionFor(members)
-      const landingBranch = landingBaseFromSettings(
-        (await this.store.d.getSettings()).gitWorkflow.defaultParentBranch,
-      )
+      const landingBranch = await this.store.landingBase(row.repoPath, row.machineId)
       const state = await probeGitState(
         {
           repoOp: async (op, opCwd, args, machineId) =>

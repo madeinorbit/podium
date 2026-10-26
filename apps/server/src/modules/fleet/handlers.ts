@@ -399,6 +399,18 @@ export const repoSetPrefixHandler = async ({
   return await ctx.registry.sessionStore.repos.listRepos()
 }
 
+export const repoSetDefaultParentBranchHandler = async ({
+  ctx,
+  input,
+}: FleetArgs<{ path: string; branch: string | null; machineId?: MachineId }>) => {
+  try {
+    await ctx.repos.setDefaultParentBranch(input.path, input.branch, input.machineId)
+  } catch (e) {
+    badRequest(e)
+  }
+  return await ctx.registry.sessionStore.repos.listRepos()
+}
+
 export const repoCloneGithubHandler = async ({
   ctx,
   input,

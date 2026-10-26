@@ -185,6 +185,29 @@ export class IssueStore {
   }
 
   /**
+   * The base branches an issue in `repoPath` defaults to [POD-2065]: the repo's
+   * own (`repos.setDefaultParentBranch`, null when unset), then the instance's
+   * (`gitWorkflow.defaultParentBranch`, '' when unset). Registry and settings
+   * reads only, so it is safe inside a span.
+   */
+  async baseBranchDefaults(
+    repoPath: string,
+    machineId?: MachineId | null,
+  ): Promise<{ repo: string | null; instance: string }> {
+    return {
+      repo: await this.deps.store.repos.defaultParentBranchForIssueRepo(repoPath, machineId),
+      instance: (await this.deps.getSettings()).gitWorkflow.defaultParentBranch.trim(),
+    }
+  }
+
+  /** The branch an issue in `repoPath` lands on: the repo's base branch, then the
+   *  instance default, then `main` [POD-2065]. */
+  async landingBase(repoPath: string, machineId?: MachineId | null): Promise<string> {
+    const { repo, instance } = await this.baseBranchDefaults(repoPath, machineId)
+    return repo || instance || 'main'
+  }
+
+  /**
    * WHOSE per-user markers the broadcast carries. `firstAdminMemberId()` spelled
    * out, never a default: an unidentified principal must fail closed rather than
    * resolve to an operator identity (readiness §3.1.6 S4). POD-1077 replaces the

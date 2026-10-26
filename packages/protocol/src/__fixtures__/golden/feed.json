@@ -411,6 +411,7 @@
             "value": {
               "id": "changes[0].value.id",
               "prefix": "changes[0].value.prefix",
+              "defaultParentBranch": "changes[0].value.defaultParentBranch",
               "repoPath": "changes[0].value.repoPath"
             }
           }
@@ -424,7 +425,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"feedBootstrap\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":4,\"seq\":4,\"minAvailableSeq\":4,\"changes\":[{\"seq\":4,\"entity\":\"repo\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"id\":\"changes[0].value.id\",\"prefix\":\"changes[0].value.prefix\",\"repoPath\":\"changes[0].value.repoPath\"}}],\"last\":false,\"totalRows\":4,\"countsByEntity\":{\"countsByEntity.key\":4}}"
+      "encoded": "{\"type\":\"feedBootstrap\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":4,\"seq\":4,\"minAvailableSeq\":4,\"changes\":[{\"seq\":4,\"entity\":\"repo\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"id\":\"changes[0].value.id\",\"prefix\":\"changes[0].value.prefix\",\"defaultParentBranch\":\"changes[0].value.defaultParentBranch\",\"repoPath\":\"changes[0].value.repoPath\"}}],\"last\":false,\"totalRows\":4,\"countsByEntity\":{\"countsByEntity.key\":4}}"
     },
     {
       "schema": "FeedBootstrapMessage",
@@ -1409,13 +1410,14 @@
         "value": {
           "id": "value.id",
           "prefix": "value.prefix",
+          "defaultParentBranch": "value.defaultParentBranch",
           "repoPath": "value.repoPath"
         }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"seq\":4,\"entity\":\"repo\",\"entityId\":\"entityId\",\"op\":\"evict\",\"value\":{\"id\":\"value.id\",\"prefix\":\"value.prefix\",\"repoPath\":\"value.repoPath\"}}"
+      "encoded": "{\"seq\":4,\"entity\":\"repo\",\"entityId\":\"entityId\",\"op\":\"evict\",\"value\":{\"id\":\"value.id\",\"prefix\":\"value.prefix\",\"defaultParentBranch\":\"value.defaultParentBranch\",\"repoPath\":\"value.repoPath\"}}"
     },
     {
       "schema": "FeedChange",
@@ -2283,6 +2285,7 @@
             "value": {
               "id": "changes[0].value.id",
               "prefix": "changes[0].value.prefix",
+              "defaultParentBranch": "changes[0].value.defaultParentBranch",
               "repoPath": "changes[0].value.repoPath"
             }
           }
@@ -2291,7 +2294,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"feedDelta\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":4,\"seq\":4,\"minAvailableSeq\":4,\"changes\":[{\"seq\":4,\"entity\":\"repo\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"id\":\"changes[0].value.id\",\"prefix\":\"changes[0].value.prefix\",\"repoPath\":\"changes[0].value.repoPath\"}}]}"
+      "encoded": "{\"type\":\"feedDelta\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":4,\"seq\":4,\"minAvailableSeq\":4,\"changes\":[{\"seq\":4,\"entity\":\"repo\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"id\":\"changes[0].value.id\",\"prefix\":\"changes[0].value.prefix\",\"defaultParentBranch\":\"changes[0].value.defaultParentBranch\",\"repoPath\":\"changes[0].value.repoPath\"}}]}"
     },
     {
       "schema": "FeedDeltaMessage",

@@ -24,11 +24,15 @@ export interface ShippingPolicyResolver {
 /** First-slice policy: only the guarded local ff-only compatibility executor.
  * Provider queues and outward publication are intentionally not inferred. */
 export class CompatibilityShippingPolicyResolver implements ShippingPolicyResolver {
-  constructor(private readonly defaultTargetBranch: () => string | Promise<string>) {}
+  /** `defaultTargetBranch` is handed the issue so the default can be its
+   *  repository's base branch rather than one instance-wide value [POD-2065]. */
+  constructor(
+    private readonly defaultTargetBranch: (issue: IssueReport) => string | Promise<string>,
+  ) {}
 
   async resolve(issue: IssueReport): Promise<ResolvedShippingPolicy> {
     const targetBranch =
-      issue.parentBranch.trim() || (await this.defaultTargetBranch()).trim() || 'main'
+      issue.parentBranch.trim() || (await this.defaultTargetBranch(issue)).trim() || 'main'
     return {
       id: `compatibility-local:${targetBranch}`,
       targetBranch,

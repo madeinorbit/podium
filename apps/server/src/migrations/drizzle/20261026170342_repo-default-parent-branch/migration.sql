@@ -1,0 +1,1 @@
+ALTER TABLE `repo_prefixes` ADD `default_parent_branch` text;

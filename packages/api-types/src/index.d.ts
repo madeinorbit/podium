@@ -5570,6 +5570,7 @@ type Output_repos_githubList = {
     };
 };
 type Output_repos_listDetailed = Array<{
+    defaultParentBranch: null | string;
     machineId: _podium_model.MachineId;
     originUrl: null | string;
     path: string;
@@ -7888,6 +7889,15 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
             output: {
                 path: string;
             };
+            meta: unknown;
+        }>;
+        "setDefaultParentBranch": TRPC.TRPCMutationProcedure<{
+            input: {
+                branch: null | string;
+                machineId?: string | undefined;
+                path: string;
+            };
+            output: Output_repos_listDetailed;
             meta: unknown;
         }>;
         "setPrefix": TRPC.TRPCMutationProcedure<{

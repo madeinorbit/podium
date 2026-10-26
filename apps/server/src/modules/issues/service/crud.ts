@@ -1026,18 +1026,21 @@ export class IssueCrudModule {
   }
 
   /**
-   * The parent an issue in `repoPath` is cut from when the caller named none: the
-   * configured default when this repository has it, else the repository's own base
-   * [POD-2065]. Probed on the machine that holds the source repo, which is where a
-   * start resolves the start point before shipping it to a pinned target.
+   * The parent an issue in `repoPath` is cut from when the caller named none
+   * [POD-2065]: the repository's base branch, else the instance default — both as
+   * configured, unprobed, so a missing one is the start refusal's to explain —
+   * else, with neither set, the repository's detected base. Detection probes the
+   * machine that holds the source repo, which is where a start resolves the start
+   * point before shipping it to a pinned target.
    */
-  private async defaultParentBranch(repoPath: string): Promise<string> {
+  private async defaultParentBranch(repoId: RepoId, repoPath: string): Promise<string> {
+    const repoDefault = await this.store.deps.store.repos.defaultParentBranchForRepoId(repoId)
+    if (repoDefault) return repoDefault
     const configured = (await this.store.deps.getSettings()).gitWorkflow.defaultParentBranch.trim()
+    if (configured) return configured
     const readRepo = this.store.deps.readRepo
-    // No instance default: `main`, unprobed, as before. A missing `main` is caught
-    // at start with the same recovery message.
-    if (!configured || !readRepo) return configured || 'main'
-    return await defaultParentBranchFor(readRepo, repoPath, configured)
+    if (!readRepo) return 'main'
+    return await defaultParentBranchFor(readRepo, repoPath)
   }
 
   async create(input: CreateIssueInput): Promise<IssueProjection> {
@@ -1081,7 +1084,7 @@ export class IssueCrudModule {
       stage: (input.stage ?? 'backlog') as StoredIssue['stage'],
       worktreePath: null,
       branch: null,
-      parentBranch: input.parentBranch || (await this.defaultParentBranch(input.repoPath)),
+      parentBranch: input.parentBranch || (await this.defaultParentBranch(repoId, input.repoPath)),
       // The issue stores picks only (POD-6133): an unnamed harness, model or effort
       // stays `auto`, so the profile and then the Settings current at each
       // session start decide it, and a stored harness is always a real pick.
