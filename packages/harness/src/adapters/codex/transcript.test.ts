@@ -240,9 +240,11 @@ describe('codexRecordToItems', () => {
       }),
     )
 
-    expect(item).toMatchObject({ toolName: 'request_user_input_async',
-      toolUseId: 'call_async', toolInput: 'Where should these fixes land?',
-      })
+    expect(item).toMatchObject({
+      toolName: 'request_user_input_async',
+      toolUseId: 'call_async',
+      toolInput: 'Where should these fixes land?',
+    })
     expect(JSON.parse(item?.toolInputJson ?? '')).toEqual({
       questions: [
         {
@@ -415,7 +417,61 @@ describe('codexRecordToItems', () => {
     )
 
     expect(poll[0]).toMatchObject({ toolName: 'Bash', toolInput: 'command session 6663' })
-    expect(parallel[0]).toMatchObject({ toolName: 'Workflow', toolTitle: '2 commands' })
+    expect(parallel).toHaveLength(1)
+    expect(parallel[0]).toMatchObject({ toolName: 'Script', toolTitle: '2 commands' })
+    expect(JSON.parse(parallel[0]?.toolInputJson ?? '{}')).toEqual({
+      kind: 'script-calls',
+      calls: [
+        { tool: 'Bash', input: 'bun test' },
+        { tool: 'Bash', input: 'bun run typecheck' },
+      ],
+    })
+  })
+
+  it("lists a mixed script's calls on one row, single-quoted commands included", () => {
+    const items = codexRecordToItems(
+      env('response_item', {
+        type: 'custom_tool_call',
+        name: 'exec',
+        call_id: 'call_mixed',
+        input:
+          "text(await tools.exec_command({cmd:'git status --short',max_output_tokens:1000}));\ntext(await tools.apply_patch(\"*** Begin Patch\\n*** Update File: a.ts\\n@@\\n-a\\n+b\\n*** End Patch\"));\ntext(await tools.exec_command({cmd:'echo it\\'s \"done\"'}));",
+      }),
+    )
+
+    expect(items).toHaveLength(1)
+    expect(items[0]).toMatchObject({
+      id: 'call_mixed',
+      toolUseId: 'call_mixed',
+      toolName: 'Script',
+      toolTitle: '3 actions',
+    })
+    expect(JSON.parse(items[0]?.toolInputJson ?? '{}').calls).toEqual([
+      { tool: 'Bash', input: 'git status --short' },
+      { tool: 'Edit', input: 'a.ts' },
+      { tool: 'Bash', input: 'echo it\'s "done"' },
+    ])
+  })
+
+  it("keeps a failed script's output as the result of its one row", () => {
+    const items = codexRecordToItems(
+      env('response_item', {
+        type: 'custom_tool_call_output',
+        call_id: 'call_mixed',
+        output: [
+          { type: 'input_text', text: 'Script failed\nWall time 0.2 seconds\nOutput:\n' },
+          { type: 'input_text', text: 'Script error:\nexec_command failed' },
+        ],
+      }),
+    )
+
+    expect(items).toEqual([
+      expect.objectContaining({
+        id: 'call_mixed:out',
+        toolUseId: 'call_mixed',
+        toolResult: expect.stringContaining('Script error:\nexec_command failed'),
+      }),
+    ])
   })
 
   it('keeps unrecognized exec scripts quiet without exposing their JavaScript', () => {
@@ -427,7 +483,8 @@ describe('codexRecordToItems', () => {
       }),
     )
 
-    expect(items[0]).toMatchObject({ toolName: 'Workflow', toolTitle: 'automation' })
+    expect(items[0]).toMatchObject({ toolName: 'Script', toolTitle: 'automation' })
+    expect(items[0]?.toolInputJson).toBeUndefined()
     expect(items[0]?.toolInput).toBeUndefined()
   })
 

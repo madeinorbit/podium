@@ -4669,6 +4669,13 @@ button.pane-branch:hover {
   color: var(--text-strong, var(--foreground));
 }
 
+/* A Codex script's calls, one line each, between its row and its output. */
+.tool-script-calls {
+  margin: 2px 0 0 21px;
+  padding: 0;
+  list-style: none;
+}
+
 /* The agent's description of a command, demoted beneath the command itself. */
 .tool-aside {
   margin: 0 0 1px 21px;

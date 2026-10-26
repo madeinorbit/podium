@@ -66,6 +66,35 @@ function expandedCommand(item: TranscriptItem): {
   return { command: item.toolInput, truncated: false }
 }
 
+/** The calls a Codex `exec` script made, as its adapter listed them
+ *  (`kind: 'script-calls'`): one compact line each, above the script's output. */
+function scriptCalls(item: TranscriptItem): Array<{ tool: string; input: string }> | undefined {
+  if (item.toolName !== 'Script' || !item.toolInputJson) return undefined
+  try {
+    const payload: unknown = JSON.parse(item.toolInputJson)
+    if (
+      !payload ||
+      typeof payload !== 'object' ||
+      !('kind' in payload) ||
+      payload.kind !== 'script-calls'
+    )
+      return undefined
+    const calls = 'calls' in payload && Array.isArray(payload.calls) ? payload.calls : []
+    return calls.flatMap((call: unknown) =>
+      call && typeof call === 'object' && 'tool' in call && typeof call.tool === 'string'
+        ? [
+            {
+              tool: call.tool,
+              input: 'input' in call && typeof call.input === 'string' ? call.input : '',
+            },
+          ]
+        : [],
+    )
+  } catch {
+    return undefined
+  }
+}
+
 /** One tool call inside an expanded batch (Flat Field, POD-159): a muted
  *  one-line mono row — verdict glyph, name, input preview, inline file links —
  *  with a failed call's first result line surfaced beneath it. Click toggles
@@ -129,6 +158,7 @@ export function ToolBlock({
     () => (open && isCommand ? expandedCommand(item) : undefined),
     [open, isCommand, item],
   )
+  const calls = useMemo(() => (open ? scriptCalls(item) : undefined), [open, item])
   // The agent's own description of a command it ran — a detail, so it stays
   // behind this row's own disclosure, which is exactly where the operator asked
   // for details to live.
@@ -198,6 +228,24 @@ export function ToolBlock({
         </>
       )}
       {aside && open && <div className="tool-aside">{aside}</div>}
+      {calls && calls.length > 0 && (
+        <ul className="tool-script-calls">
+          {calls.map((call, index) => (
+            // biome-ignore lint/suspicious/noArrayIndexKey: a script's call list never reorders
+            <li key={index} className="tool-row min-w-0">
+              <span className="tool-name">{call.tool}</span>
+              <span
+                className={cn(
+                  'min-w-0 truncate',
+                  call.tool === 'Bash' ? 'tool-cmd' : 'tool-subject',
+                )}
+              >
+                {call.tool === 'Bash' ? <BashCommand command={call.input} /> : call.input}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
       {verdict === 'err' && (
         <div className="tool-fail-line">
           {abnormal ? 'Tool interrupted or timed out' : failLine(result)}

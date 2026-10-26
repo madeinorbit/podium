@@ -556,7 +556,7 @@ export function toolRunFailures(blocks: ChatBlock[]): number {
 export type ToolVerdict = 'ok' | 'err' | 'none'
 
 const TOOL_ERR_RE =
-  /^\s*(?:error(?::|\b)|[A-Za-z]*Error:|exception\b|traceback \(most recent call last\)|fatal:|command failed|exit code [1-9]|exited with (?:code [1-9]|non-zero))/i
+  /^\s*(?:error(?::|\b)|[A-Za-z]*Error:|exception\b|traceback \(most recent call last\)|fatal:|command failed|script failed\b|exit code [1-9]|exited with (?:code [1-9]|non-zero))/i
 
 export function toolVerdict(
   result: string | undefined,

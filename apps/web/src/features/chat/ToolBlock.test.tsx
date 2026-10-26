@@ -316,3 +316,48 @@ it('defers folded edit-body work across streamed results and unfolds the latest 
     }),
   )
 })
+
+describe('Codex script rows', () => {
+  it('lists the script calls above its own output once unfolded', () => {
+    mount({
+      toolName: 'Script',
+      toolTitle: '2 actions',
+      toolInputJson: JSON.stringify({
+        kind: 'script-calls',
+        calls: [
+          { tool: 'Bash', input: 'git diff --stat' },
+          { tool: 'Edit', input: 'src/a.ts' },
+        ],
+      }),
+      toolResult: 'Script completed\nOutput:\n 1 file changed',
+    })
+    expect(host.querySelector('.tool-name')?.textContent).toBe('Script')
+    expect(host.querySelector('.tool-subject')?.textContent).toBe('2 actions')
+    expect(host.querySelector('.tool-script-calls')).toBeNull()
+
+    unfold()
+    const lines = [...host.querySelectorAll('.tool-script-calls li')].map((line) =>
+      [...line.children].map((part) => part.textContent),
+    )
+    expect(lines).toEqual([
+      ['Bash', 'git diff --stat'],
+      ['Edit', 'src/a.ts'],
+    ])
+    expect(
+      host.querySelector('.tool-script-calls .hljs-built_in, .tool-script-calls .tool-cmd'),
+    ).not.toBeNull()
+    expect(host.querySelector('pre.tool-result-full')?.textContent).toBe(
+      'Script completed\nOutput:\n 1 file changed',
+    )
+  })
+
+  it('marks a failed script as failed', () => {
+    mount({
+      toolName: 'Script',
+      toolTitle: '2 commands',
+      toolResult:
+        'Script failed\nWall time 0.2 seconds\nOutput:\n\nScript error:\nexec_command failed',
+    })
+    expect(host.querySelector('.tool-block')?.getAttribute('data-verdict')).toBe('err')
+  })
+})
