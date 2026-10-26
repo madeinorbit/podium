@@ -1145,7 +1145,7 @@ function ownerOf(input: VisibleInputs, sessionId: string): string | null {
 /** The nesting group (see the header). */
 export interface Nesting {
   readonly nestParent: string | null
-  /** Reaches the screen: under a placed nest parent, or top-level and not agent-audience. */
+  /** Reaches the screen: under a placed nest parent, or top-level (any audience). */
   readonly placed: boolean
   readonly visible: boolean
 }
@@ -1163,7 +1163,7 @@ export function nestingOf(
   if (!present) return UNPLACED
   const nestParent = nestParentPartOf(input, id, candidate)
   const placed =
-    nestParent !== null ? input.issue(nestParent)?.placed === true : standing?.agent === false
+    nestParent !== null ? input.issue(nestParent)?.placed === true : standing !== undefined
   return { nestParent, placed, visible: placed }
 }
 

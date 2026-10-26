@@ -156,6 +156,15 @@ export interface SessionStartPorts {
   broadcastSessions(): void
   /** The issue that owns this cwd's worktree, if exactly one does. */
   soleOwnerForCwd(cwd: string): Promise<IssueId | undefined>
+  /** A new draft task for an agent started outside every task; undefined
+   *  when the cwd is in no known repo. Absent = such starts stay task-less. */
+  draftForStart?(input: {
+    cwd: string
+    agentKind?: AgentKind
+    ownerUserId: UserId
+  }): Promise<IssueId | undefined>
+  /** Drop a draft made for a start that failed before its session existed. */
+  discardUnlaunchedDraft?(issueId: IssueId): Promise<void>
   instructionsForStart(input: {
     sessionId: SessionId
     cwd: string
@@ -215,51 +224,79 @@ export interface SessionStartPorts {
   }): void
 }
 
+export interface SessionStartInput {
+  /** Authenticated human owner; every production caller supplies this. */
+  ownerUserId?: UserId
+  agentKind?: AgentKind
+  cwd: string
+  title?: string
+  name?: string
+  machineId?: MachineId
+  initialPrompt?: string
+  /** Files claimed into the session's issue for the first prompt (POD-2148).
+   *  They ride its queued row, so a prompt carrying them is never argv. */
+  initialAttachments?: readonly RuntimeAttachmentRef[]
+  model?: string
+  effort?: string
+  accountId?: AccountId
+  forceUnknownModel?: boolean
+  /** Server-internal issue launch answer, already vetted before workflow mutations. */
+  launchSelection?: Pick<ResolvedLaunchSelection, 'model' | 'effort' | 'forced'>
+  spawnedBy?: string
+  workflowRunId?: string
+  workflowStepId?: string
+  /**
+   * The agent profile to start from (POD-6107). Unless the caller already
+   * vetted a `launchSelection`, the profile's first usable candidate decides
+   * the harness, model and effort, with `agentKind`/`model`/`effort` applied
+   * on top. Recorded on the session either way.
+   */
+  agentProfileId?: string
+  issueId?: IssueId
+  sessionId?: SessionId
+  workflowRevisionId?: string
+  use?: MachineUseResolver
+  binding?: Omit<SessionBindingSpawnInstruction, 'transitionId' | 'machineAccess' | 'issueId'>
+  loginHarness?: Exclude<AgentKind, 'shell'>
+  /** Explicit driver request from a picker or API caller: a concrete driver
+   * id selects that driver; absent is the manifest's headed terminal
+   * default. Non-picker producers use requestTerminalDriver to resolve an
+   * omitted request from the target machine's inventory instead of the UI flag. */
+  requestedDriverId?: string
+  /** Non-picker producers request the advertised headed driver after placement. */
+  requestTerminalDriver?: boolean
+}
+
 export class SessionStart {
   constructor(private readonly ports: SessionStartPorts) {}
 
-  async create(input: {
-    /** Authenticated human owner; every production caller supplies this. */
-    ownerUserId?: UserId
-    agentKind?: AgentKind
-    cwd: string
-    title?: string
-    name?: string
-    machineId?: MachineId
-    initialPrompt?: string
-    /** Files claimed into the session's issue for the first prompt (POD-2148).
-     *  They ride its queued row, so a prompt carrying them is never argv. */
-    initialAttachments?: readonly RuntimeAttachmentRef[]
-    model?: string
-    effort?: string
-    accountId?: AccountId
-    forceUnknownModel?: boolean
-    /** Server-internal issue launch answer, already vetted before workflow mutations. */
-    launchSelection?: Pick<ResolvedLaunchSelection, 'model' | 'effort' | 'forced'>
-    spawnedBy?: string
-    workflowRunId?: string
-    workflowStepId?: string
-    /**
-     * The agent profile to start from (POD-6107). Unless the caller already
-     * vetted a `launchSelection`, the profile's first usable candidate decides
-     * the harness, model and effort, with `agentKind`/`model`/`effort` applied
-     * on top. Recorded on the session either way.
-     */
-    agentProfileId?: string
-    issueId?: IssueId
-    sessionId?: SessionId
-    workflowRevisionId?: string
-    use?: MachineUseResolver
-    binding?: Omit<SessionBindingSpawnInstruction, 'transitionId' | 'machineAccess' | 'issueId'>
-    loginHarness?: Exclude<AgentKind, 'shell'>
-    /** Explicit driver request from a picker or API caller: a concrete driver
-     * id selects that driver; absent is the manifest's headed terminal
-     * default. Non-picker producers use requestTerminalDriver to resolve an
-     * omitted request from the target machine's inventory instead of the UI flag. */
-    requestedDriverId?: string
-    /** Non-picker producers request the advertised headed driver after placement. */
-    requestTerminalDriver?: boolean
-  }): Promise<SessionSpawnResult> {
+  /**
+   * Explicit attachment wins; otherwise starting in an issue-owned worktree
+   * means continuing that issue (spec: issue-as-workspace). Any other agent
+   * gets its own draft task, so every agent has a row in the task list.
+   * Shells stay task-less.
+   */
+  async create(input: SessionStartInput): Promise<SessionSpawnResult> {
+    const issueId = input.issueId ?? (await this.ports.soleOwnerForCwd(input.cwd))
+    if (issueId) return await this.start({ ...input, issueId })
+    const draftId =
+      input.agentKind === 'shell' || !input.ownerUserId
+        ? undefined
+        : await this.ports.draftForStart?.({
+            cwd: input.cwd,
+            ownerUserId: input.ownerUserId,
+            ...(input.agentKind ? { agentKind: input.agentKind } : {}),
+          })
+    if (!draftId) return await this.start(input)
+    try {
+      return await this.start({ ...input, issueId: draftId })
+    } catch (error) {
+      await this.ports.discardUnlaunchedDraft?.(draftId)
+      throw error
+    }
+  }
+
+  private async start(input: SessionStartInput): Promise<SessionSpawnResult> {
     if (process.env.PODIUM_REHEARSAL === '1') throw new Error('Session spawn disabled during upgrade rehearsal')
     // THE PROFILE, RESOLVED ONCE (POD-6107): profile candidates with the
     // caller's fields on top, first usable one wins. A caller that already
@@ -337,9 +374,7 @@ export class SessionStart {
       if (!norm.ok) throw new Error(norm.reason)
       curatedName = norm.name
     }
-    // Explicit attachment wins; otherwise starting in an issue-owned worktree
-    // means continuing that issue (spec: issue-as-workspace).
-    const issueId = input.issueId ?? (await this.ports.soleOwnerForCwd(input.cwd)) ?? undefined
+    const issueId = input.issueId
     const sessionId = input.sessionId ?? asSessionId(randomUUID())
     const preparedInstructions = await this.ports.instructionsForStart({
       sessionId,

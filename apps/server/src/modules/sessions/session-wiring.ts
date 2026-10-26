@@ -345,6 +345,10 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     soleOwnerForCwd: async (cwd) => (await bag.deps.issueAccess.soleOwnerForCwd(cwd)) ?? undefined,
     instructionsForStart: (i) => bag.deps.instructionsForStart(i),
     ...(bag.deps.agentLaunch ? { agentLaunch: bag.deps.agentLaunch } : {}),
+    ...(bag.deps.draftForStart ? { draftForStart: bag.deps.draftForStart } : {}),
+    ...(bag.deps.discardUnlaunchedDraft
+      ? { discardUnlaunchedDraft: bag.deps.discardUnlaunchedDraft }
+      : {}),
     sessionOwner: (sessionId) => ownership.sessionOwner(sessionId),
     setSessionDraft: (input) => bag.state.setDraft(input),
     queueInitialPrompt: (i) => bag.inbox.queueInitialPrompt(i),

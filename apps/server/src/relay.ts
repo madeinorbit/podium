@@ -1691,6 +1691,20 @@ export class SessionRegistry {
       onWorktreesChanged: broadcastWorktreesChanged,
       instructionsForStart: (input) => sessionInstructions.prepare(input),
       agentLaunch: async (input) => await agentProfiles.launch(input),
+      // The issue service is composed after sessions; these run only on a start.
+      draftForStart: async ({ cwd, agentKind, ownerUserId }) =>
+        (await this.store.repos.issueRepoIdResolver())(cwd)
+          ? (
+              await this.issues.attention.createDraftFor(cwd, agentKind, undefined, {
+                ownerUserId,
+                createdByActor: ownerUserId,
+                createdByOnBehalfOf: ownerUserId,
+              })
+            ).id
+          : undefined,
+      discardUnlaunchedDraft: async (issueId) => {
+        await this.issues.attention.discardUnlaunchedDraft(issueId)
+      },
       // POD-1081: clientCount is a degenerate view of session-room occupancy.
       // Attach still owns frame delivery; presence rooms own who-is-watching.
       // PTY attach auto-joins the room so the two stay one mechanism.

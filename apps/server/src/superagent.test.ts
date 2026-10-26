@@ -193,6 +193,20 @@ describe('start_agent tool wiring (issue #60)', () => {
     expect(meta?.spawnedBy).toBe('superagent:global')
   })
 
+  it('gives an agent started in a repo by cwd its own draft task', async () => {
+    const { registry, sa } = await harness()
+    const out = JSON.parse(
+      await sa.callMcpTool(
+        'start_agent',
+        { agentKind: 'claude-code', cwd: '/r', confirmed: true },
+        asThreadId('global'),
+      ),
+    ) as { sessionId: string }
+    const meta = (await clientSessionViews(registry)).find((s) => s.sessionId === out.sessionId)
+    expect(meta?.issueId).toBeDefined()
+    expect((await registry.issues.reports.get(meta?.issueId ?? ''))?.draft).toBe(true)
+  })
+
   it('tags spawnedBy with the executing thread when known', async () => {
     const { registry, sa } = await harness()
     const out = JSON.parse(

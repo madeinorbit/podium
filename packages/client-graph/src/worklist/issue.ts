@@ -177,7 +177,7 @@ export class WorklistIssue implements HeldIssue, RowView {
     const parent = this.nestParent
     return parent !== null
       ? this.host.visibleInputs.issue(parent)?.placed === true
-      : this.standing?.agent === false
+      : this.standing !== undefined
   }
 
   @lazy

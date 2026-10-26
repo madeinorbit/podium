@@ -274,6 +274,9 @@ export interface SessionLifecycleDeps {
   }): Promise<PreparedSessionInstructions>
   /** Agent-profile launch resolver (POD-6107); absent = profiles are ignored. */
   agentLaunch?: SessionStartPorts['agentLaunch']
+  /** The draft task an agent started outside every task joins; absent = none. */
+  draftForStart?: SessionStartPorts['draftForStart']
+  discardUnlaunchedDraft?: SessionStartPorts['discardUnlaunchedDraft']
   /**
    * Presence-room occupancy for a session (POD-1081). When provided,
    * `clientCount` is derived from it and attach/watch policy can consult the
