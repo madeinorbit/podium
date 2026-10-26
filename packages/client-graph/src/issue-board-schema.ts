@@ -12,25 +12,6 @@ import { ISSUE_PAGE_SUMMARIES } from './issue-page-schema'
 import type { MissionActionInputs } from './mission-view'
 import { mergePoolSummaries } from './source-registry'
 
-export type BoardExplorerTab =
-  | 'needs'
-  | 'proposed'
-  | 'backlog'
-  | 'planning'
-  | 'in_progress'
-  | 'review'
-  | 'done'
-  | 'cancelled'
-export const BOARD_EXPLORER_TABS: readonly BoardExplorerTab[] = [
-  'needs',
-  'in_progress',
-  'review',
-  'planning',
-  'backlog',
-  'proposed',
-  'done',
-  'cancelled',
-]
 export interface BoardOptions {
   display: { layout: 'board' | 'list'; ordering: IssuesOrdering; showAgentTasks: boolean }
   filter: BoardFilter
@@ -95,17 +76,6 @@ export interface BoardSnapshotData {
     orderedIdsForOpen: IssueId[]
   }
 }
-export interface PoolExplorerData {
-  counts: Record<BoardExplorerTab, number>
-  tab: BoardExplorerTab
-  total: number
-  /** Complete order only; production card payloads belong to mounted rows. */
-  ids: string[]
-  rows: IssueViewModel[]
-  sessions: SessionView[]
-  byId: Map<string, IssueViewModel>
-  rowSessions: Map<string, SessionView[]>
-}
 export interface BoardCatalog {
   scope: string[]
   projectPaths: string[]
@@ -113,11 +83,9 @@ export interface BoardCatalog {
   labels: string[]
 }
 export interface BoardQuery {
-  kind: 'board' | 'explorer'
+  kind: 'board'
   filter?: BoardFilter
   showAgentTasks?: boolean
-  tab?: BoardExplorerTab
-  query?: string
 }
 export interface IssueBoardSourceRows {
   issueBoardWindow: { openIssueId: IssueId | null }
@@ -129,7 +97,6 @@ export interface IssueBoardSourceRows {
   issueBoardOpenIds: IssueId[]
   issueBoardMenu: MissionActionInputs
   issueBoardDropIndex: { index: number }
-  issueExplorerModel: PoolExplorerData
   issueBoardRow: IssueViewModel
   issueBoardSessions: SessionView[]
 }
@@ -147,7 +114,6 @@ export const ISSUE_BOARD_ENTITIES = [
   'issueBoardOpenIds',
   'issueBoardMenu',
   'issueBoardDropIndex',
-  'issueExplorerModel',
   'issueBoardRow',
   'issueBoardSessions',
 ] as const

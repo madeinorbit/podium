@@ -44,7 +44,7 @@ import {
   DropdownMenuContent,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { useIssueExplorer } from '@/features/issues/explorer/explorer-context'
+import { useDockIssue } from '@/features/issues/dock-issue'
 import type { IssueContextMenu } from '@/features/issues/IssueContextMenu'
 import { IssueStatusPicker } from '@/features/issues/IssueStatusPicker'
 import { STAGE_LABELS } from '@/features/issues/issue-card'
@@ -879,11 +879,11 @@ const FullDeckBrief = observer(function FullDeckBrief({
 /** The gauge, the price and the mission's one action, on one baseline. */
 const DeckGaugeRow = observer(function DeckGaugeRow({
   screen,
-  onOpenInExplorer,
+  onOpenTask,
   onAdd,
 }: {
   screen: MissionScreen
-  onOpenInExplorer: () => void
+  onOpenTask: () => void
   onAdd: (agentKind?: IssueAgentKind) => Promise<void>
 }): JSX.Element {
   const target = screen.rootAgentTarget
@@ -900,13 +900,13 @@ const DeckGaugeRow = observer(function DeckGaugeRow({
         row, so it inherits the wrap above rather than adding a drop
         rung of its own, and it renders NOTHING at all until there
         is a figure — see {@link MissionCostChip}. Its last line
-        takes the header's own promotion, because "open in explorer"
+        takes the header's own promotion, because "open task"
         and a double click on the header are the same request. */}
       {screen.rootRow && (
         <MissionCostChip
           key={`cost:${screen.rootId}`}
           issueId={screen.rootId as IssueId}
-          onOpenInExplorer={onOpenInExplorer}
+          onOpenTask={onOpenTask}
         />
       )}
       {screen.rootClosable && (
@@ -1095,18 +1095,18 @@ export const FlightDeckContent = observer(function FlightDeckContent({
   )
   const { setFocusedIssueId } = useOperatorFocus()
   // WHAT THE TASK DOCK IS ACTUALLY SHOWING, so a row can answer for it. The
-  // explorer's own stack top — not this column's focus — because the operator
-  // may have walked the explorer somewhere else since, and a row that claims to
-  // already be open there has to mean the level on screen.
+  // panel's own pointer — not this column's focus — because a chip or a linked
+  // row may have pointed it somewhere else since, and a row that claims to
+  // already be open there has to mean the task on screen.
   //
-  // THROUGH REFS, read when the click resolves rather than when the row
-  // rendered. A strip's memo deliberately ignores its handler props, so a
-  // strip goes on holding the closure from the render BEFORE the explorer
-  // followed the focus — which is exactly the render whose answer is stale.
-  const { current: explorerIssueId } = useIssueExplorer()
+  // THROUGH REFS, read when the click resolves rather than when the row rendered.
+  // A strip's memo deliberately ignores its handler props, so a strip goes on
+  // holding the closure from the render BEFORE the panel followed the focus —
+  // which is exactly the render whose answer is stale.
+  const { issueId: dockIssueId, show: showInDock } = useDockIssue()
   const rightPanel = usePersistedUiValue(RIGHT_PANEL_KEY, readRightPanel)
-  const explorerIssueRef = useRef(explorerIssueId)
-  explorerIssueRef.current = explorerIssueId
+  const dockIssueRef = useRef(dockIssueId)
+  dockIssueRef.current = dockIssueId
   const dockPanelRef = useRef(rightPanel)
   dockPanelRef.current = rightPanel
   const headerIntent = useClickIntent()
@@ -1242,19 +1242,20 @@ export const FlightDeckContent = observer(function FlightDeckContent({
     // THE SAME ROW CLOSES WHAT IT OPENED (POD-1639). A single click whose task
     // is the one the dock is already showing is the operator asking for the
     // stage back — the first click was the request to see this task, so the
-    // second can only be about the panel. The explorer keeps its stack above
-    // the dock, so this costs nothing: the next click returns to this level.
+    // second can only be about the panel.
     //
     // The PREVIEW click only. A promotion (double click, or the strip menu's
     // Open) is an unambiguous "show me this task" and must never end with the
     // inspector shut.
     const dockShowsThisIssue =
-      dockPanelRef.current === 'issue' && explorerIssueRef.current === row.issue.id
+      dockPanelRef.current === 'issue' && dockIssueRef.current === row.issue.id
     setFocusedIssueId(row.issue.id)
+    // Pointed explicitly too: when the focus does not move — the row is already
+    // focused but a chip took the panel elsewhere — this is what brings it back.
+    showInDock(row.issue.id)
     // A deliberate task pick asks to SEE its inspector, not merely retarget an
     // inspector that happens to be open. Reopen the Task dock even when the
-    // operator previously dismissed it; the provider follows the focus update
-    // above and retargets the explorer to this issue.
+    // operator previously dismissed it.
     window.dispatchEvent(
       new CustomEvent(OPEN_RIGHT_PANEL_EVENT, {
         detail: !permanent && dockShowsThisIssue ? CLOSE_RIGHT_PANEL : 'issue',
@@ -1547,7 +1548,7 @@ export const FlightDeckContent = observer(function FlightDeckContent({
             {/* ONE 26px FAMILY, ON ONE BASELINE (POD-1146). */}
             <DeckGaugeRow
               screen={screen}
-              onOpenInExplorer={() => rootRow && selectIssue(rootRow, true)}
+              onOpenTask={() => rootRow && selectIssue(rootRow, true)}
               onAdd={addMissionAgent}
             />
           </div>

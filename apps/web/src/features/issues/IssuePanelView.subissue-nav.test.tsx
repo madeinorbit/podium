@@ -153,10 +153,9 @@ describe('IssuePanelView subissue rows', () => {
     expect(setView).toHaveBeenCalledWith('workspace')
   })
 
-  // Inside the explorer the same row BROWSES instead: there is a trail there to
-  // walk back along, and a relation click that silently re-pointed the
-  // workspace would be a navigation the trail cannot show or undo.
-  it('pushes a level instead of moving the shell when the explorer owns it', () => {
+  // In the dock the same row points the PANEL at the task instead, and leaves
+  // the sidebar's selection and the workspace where they are.
+  it('shows the task in the panel instead of moving the shell when docked', () => {
     const onNavigate = vi.fn()
     render(
       <OperatorFocusProvider missionId="p">
@@ -176,7 +175,7 @@ describe('IssuePanelView subissue rows', () => {
   // chip called "Work on this", sitting one gap from `Start work` — two
   // adjacent controls both promising to begin the work. It is now a link in the
   // head's chrome line, named after the view it opens (POD-1457).
-  it('moves the shell from Open in Work, and only offers it inside the explorer', () => {
+  it('moves the shell from Open in Work, and only offers it in the dock', () => {
     const { unmount } = render(<IssuePanelView cwd="/r" />)
     expect(screen.queryByTestId('task-open-in-work')).toBeNull()
     unmount()

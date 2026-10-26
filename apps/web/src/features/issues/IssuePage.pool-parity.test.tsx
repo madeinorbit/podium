@@ -18,7 +18,7 @@ import { MobxPool } from '@podium/client-graph/pool'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
 import type { SliceIssue } from '@podium/client-graph/shared/slice-types'
 import { asIssueId, asSessionId, asUserId } from '@podium/model/browser'
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { type ReactNode, useEffect, useRef } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { OperatorFocusProvider } from '@/app/operator-focus'
@@ -159,17 +159,6 @@ vi.mock('@podium/client-graph/runtime-pool', async (importOriginal) => ({
 }))
 vi.mock('@/lib/use-feature', () => ({ useFeature: () => false }))
 vi.mock('../cost/useTaskCost', () => ({ useTaskCost: () => ({ view: null }) }))
-vi.mock('./explorer/explorer-context', () => ({
-  useIssueExplorer: () => ({
-    tab: null,
-    setTab: vi.fn(),
-    query: '',
-    setQuery: vi.fn(),
-    push: vi.fn(),
-    listScrollTop: () => 0,
-    rememberListScrollTop: vi.fn(),
-  }),
-}))
 
 const session = (id: string, issueId: string, patch: Record<string, unknown> = {}) =>
   ({
@@ -406,7 +395,7 @@ function wrap(child: ReactNode) {
     </TooltipProvider>
   )
 }
-async function arm(surface: 'page' | 'panel' | 'list') {
+async function arm(surface: 'page' | 'panel') {
   forbidden = true
   legacyReads = 0
   storeStats.reset()
@@ -421,30 +410,20 @@ async function arm(surface: 'page' | 'panel' | 'list') {
           onNavigate={navigate}
         />
       ) : (
-        <IssuePanelView
-          cwd={surface === 'list' ? '/unknown' : '/synthetic/work'}
-          issueId={surface === 'panel' ? issue.id : undefined}
-        />
+        <IssuePanelView cwd="/synthetic/work" issueId={issue.id} />
       ),
     ),
   )
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 0))
   })
-  await waitFor(() =>
-    expect(
-      surface === 'list'
-        ? screen.getByRole('textbox', { name: 'Search tasks' })
-        : screen.getAllByText('Exact page title').length,
-    ).toBeTruthy(),
-  )
-  if (surface !== 'list')
-    await waitFor(() => expect(screen.getAllByText('Synthetic comment').length).toBeGreaterThan(0))
+  await waitFor(() => expect(screen.getAllByText('Exact page title').length).toBeTruthy())
+  await waitFor(() => expect(screen.getAllByText('Synthetic comment').length).toBeGreaterThan(0))
   const main = rendered(view.container)
   if (surface === 'page') {
     fireEvent.click(screen.getByTitle('More actions'))
     await screen.findByRole('menu')
-  } else if (surface === 'panel') {
+  } else {
     const completed = screen.queryByText(/Show 1 completed/)
     if (completed) fireEvent.click(completed)
     const retired = screen.queryByText(/Show .*retired/)
@@ -477,7 +456,6 @@ describe('issue page rendered pool parity', () => {
   it.each([
     'page',
     'panel',
-    'list',
   ] as const)('preserves the %s text, labels, order, layout and loader results with zero legacy derivations', async (surface) => {
     const next = await arm(surface)
     if (process.env.PODIUM_DETAIL_PARITY_CAPTURE)
@@ -490,7 +468,7 @@ describe('issue page rendered pool parity', () => {
         ([name]) => name.startsWith('issue-page.') || name === 'replica.issueViews',
       ),
     ).toEqual([])
-    if (surface !== 'list') expect(comments).toHaveBeenCalled()
+    expect(comments).toHaveBeenCalled()
     // The calm task panel reads comments only (history window 0, no event
     // pages); the full page still loads its activity.
     if (surface === 'page') expect(events).toHaveBeenCalled()
@@ -532,34 +510,6 @@ describe('issue page rendered pool parity', () => {
     expect(next.text).toContain('Work continued in SYN-24')
     // POD-3911: freeze the reported-model catalog UI, replacing baked model/effort menus.
     expectPoolOutput({ main: next.main, expanded: next.expanded }, 'rendered output')
-    expect(next.reads).toBe(0)
-  })
-
-  it('preserves the fallback list close dialog, working members, child counts, question and delivery words', async () => {
-    pool.dispose()
-    seed({ parentId: undefined })
-    async function closeFromList() {
-      forbidden = true
-      legacyReads = 0
-      const view = render(wrap(<IssuePanelView cwd="/unknown" />))
-      await screen.findByRole('textbox', { name: 'Search tasks' })
-      const row = (await screen.findAllByTestId('explorer-row')).find((node) =>
-        node.textContent?.includes('Exact page title'),
-      )
-      if (!row) throw new Error('Missing close test issue row')
-      fireEvent.click(within(row).getByTestId('issue-status-picker'))
-      fireEvent.click(await screen.findByRole('menuitem', { name: /^Done$/ }))
-      const dialog = await screen.findByRole('alertdialog')
-      const result = { tree: rendered(dialog), text: dialog.textContent, reads: legacyReads }
-      expect(state.closeIssue).not.toHaveBeenCalled()
-      cleanup()
-      return result
-    }
-    const next = await closeFromList()
-    expect(next.text).toContain('still working')
-    expect(next.text).toContain('A synthetic decision?')
-    expect(next.text).toContain('awaiting delivery')
-    expectPoolOutput(next.tree, 'close dialog')
     expect(next.reads).toBe(0)
   })
 

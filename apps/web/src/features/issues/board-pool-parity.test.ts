@@ -1,4 +1,3 @@
-import { omitGone } from '@podium/client-graph/lookup'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 
 import { dedupeSessions } from '../../../../../tests/worklist/diagnostics/reference-state'
@@ -9,7 +8,6 @@ import { sessionViews } from '@podium/client-core/session-values'
 import { LOADING } from '@podium/client-graph'
 import {
   readBoardSnapshot,
-  explorerSnapshot,
   inBoardCheck,
 } from '../../../../../tests/worklist/diagnostics/issue-board-check'
 import {
@@ -45,17 +43,7 @@ function expectBoard(
   // POD-3911: freeze current shared-model values after retiring the legacy projection.
   expectPoolOutput(value, JSON.stringify(options))
 }
-function expectExplorer(
-  pool: import('@podium/client-graph').MobxPool,
-  tab: import('@podium/client-graph/issue-board-schema').PoolExplorerData['tab'] | null,
-  query: string,
-) {
-  const value = inBoardCheck(() => omitGone(pool.row('issueExplorerModel', JSON.stringify({ tab, query }))))
-  if (!value || value === LOADING) throw new Error('Explorer fixture is loading')
-  expectPoolOutput(explorerSnapshot(value), JSON.stringify({ tab, query }))
-}
-
-it('matches legacy columns, values, nested positions, facets, progress and explorer tabs on the normalized synthetic corpus', async () => {
+it('matches legacy columns, values, nested positions, facets, progress on the normalized synthetic corpus', async () => {
   const corpus = buildCorpus(1, 4443),
     cache = seedAcceptanceCache(corpus, 'board-check')
   const replica = createKernelReplica({
@@ -116,10 +104,6 @@ it('matches legacy columns, values, nested positions, facets, progress and explo
         })
       }
     }
-    for (const tab of [null, 'needs', 'in_progress', 'planning', 'done', 'cancelled'] as const)
-      expectExplorer(handle.pool, tab, '')
-    for (const query of ['task', 'POD-12', ''])
-      expectExplorer(handle.pool, null, query)
     expectBoard(handle.pool, {
       display: { ...DEFAULT_DISPLAY, layout: 'list', ordering: 'updated', showAgentTasks: true },
       filter: {},

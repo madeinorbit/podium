@@ -41,7 +41,7 @@ const lazyMenus =
  * THE STATUS GLYPH, MADE INTO A CONTROL (Linear's move).
  *
  * Every list in the shell already draws an issue's status as a glyph — the
- * board list, the sub-task list, the panel's Work rows, the explorer, the
+ * board list, the sub-task list, the panel's Work rows, the
  * flight deck. Until now that glyph was a READOUT: to move a task one lane you
  * opened it, or found the right-click menu's Status submenu. Linear treats the
  * same mark as the door — click it, pick the state, done — without leaving the

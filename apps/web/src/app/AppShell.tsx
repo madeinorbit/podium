@@ -14,7 +14,7 @@ import { Toaster } from '@/components/ui/sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { WaitingForServer } from '@/components/WaitingForServer'
 import { chordLabel } from '@/features/chat/use-composer-chord'
-import { IssueExplorerProvider } from '@/features/issues/explorer/explorer-context'
+import { DockIssueProvider } from '@/features/issues/dock-issue'
 import {
   hasActivationState,
   isActivationEligible,
@@ -902,11 +902,9 @@ function AppBodyView({ syncProgress }: { syncProgress: SyncProgressStore }): JSX
 
   return (
     <OperatorFocusProvider missionId={selectedIssueId}>
-      {/* The issue explorer's stack lives ABOVE the dock (POD-743): the panel
-          unmounts when the dock closes, and closing it must cost the operator
-          nothing — reopen and the same task, trail, tab and query are there.
-          It also keeps tracking the shell's target while closed. */}
-      <IssueExplorerProvider>
+      {/* The task panel's pointer lives ABOVE the dock: the panel unmounts when
+          the dock closes, and the pointer keeps following the shell meanwhile. */}
+      <DockIssueProvider>
         {menuHost}
         <DockShellLifecycle />
         <div className="desktop-shell">
@@ -1051,7 +1049,7 @@ function AppBodyView({ syncProgress }: { syncProgress: SyncProgressStore }): JSX
           <RefPrefixSync />
           <RefMiniviewHost />
         </Suspense>
-      </IssueExplorerProvider>
+      </DockIssueProvider>
     </OperatorFocusProvider>
   )
 }

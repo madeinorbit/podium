@@ -22,7 +22,7 @@ import { useOperatorFocus } from '@/app/operator-focus'
 import { readIssueMenuOrigins } from '@/features/issues/issue-menu-readers'
 import type { UnifiedIssueRowMenuData } from './UnifiedIssueRow'
 
-/** Addressed mission target seam shared with the explorer. It reads the raw
+/** Addressed mission target seam shared with the dock's task panel. It reads the raw
  * parent relation so an archived ancestor stops the walk, as in navigation. */
 export function poolMissionRoot(
   pool: MobxPool,

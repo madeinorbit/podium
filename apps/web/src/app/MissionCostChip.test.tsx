@@ -98,7 +98,7 @@ afterEach(() => {
  * first and loudly.
  */
 const mountAndSettle = async (onOpen = vi.fn()): Promise<ReturnType<typeof vi.fn>> => {
-  render(<MissionCostChip issueId="iss_root" onOpenInExplorer={onOpen} />)
+  render(<MissionCostChip issueId="iss_root" onOpenTask={onOpen} />)
   await act(async () => {
     for (let i = 0; i < 4; i += 1) await Promise.resolve()
   })
@@ -129,7 +129,7 @@ describe('the chip', () => {
 
 describe('a mission with nothing to report', () => {
   it('renders no chip before the read has answered', () => {
-    render(<MissionCostChip issueId="iss_root" onOpenInExplorer={vi.fn()} />)
+    render(<MissionCostChip issueId="iss_root" onOpenTask={vi.fn()} />)
     // Deliberately NOT settled: while the query is in flight nothing is known,
     // so nothing is drawn — not a slot, not a dash.
     expect(screen.queryByTestId('mission-cost-chip')).toBeNull()
@@ -279,7 +279,7 @@ describe('the popover', () => {
     expect(panel.textContent).not.toContain('Attribution')
   })
 
-  it('offers the explorer as its LAST line, not as the chip itself', async () => {
+  it('offers the task panel as its LAST line, not as the chip itself', async () => {
     const onOpen = await mountAndSettle()
     await open()
     expect(onOpen).not.toHaveBeenCalled()

@@ -18,7 +18,7 @@ import { buildFlightDeckRows, missionIssueIds } from '@podium/client-core/values
 
 import { act, cleanup, fireEvent, render, screen, waitFor, } from '@testing-library/react'
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { IssueExplorerProvider } from '@/features/issues/explorer/explorer-context'
+import { DockIssueProvider } from '@/features/issues/dock-issue'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
 import { fixtureStoreSnapshot } from '@/test-support/fixture-store'
 import { syncPoolFixture } from '@/test-support/pool-fixture'
@@ -275,16 +275,16 @@ function DeckHarness() {
     // app-wide dialog (POD-1077), exactly as AppShell supplies it in the app.
     <ConfirmProvider>
       <OperatorFocusProvider missionId="root">
-        {/* The explorer's stack lives above the dock in the app, and the deck
+        {/* The task panel's pointer lives above the dock in the app, and the deck
             reads it to know which task the dock is already showing — so the
             harness supplies the real provider rather than the default context. */}
-        <IssueExplorerProvider>
+        <DockIssueProvider>
           <FlightDeck
             onCollapse={vi.fn()}
             display={harness.display}
             onDisplayChange={harness.onDisplayChange}
           />
-        </IssueExplorerProvider>
+        </DockIssueProvider>
       </OperatorFocusProvider>
     </ConfirmProvider>
   )
@@ -334,7 +334,7 @@ describe('task detail picks (POD-1639)', () => {
   }
 
   it('closes the dock when it already shows the mission', async () => {
-    // The explorer follows the selected mission, so its root is on screen.
+    // The task panel follows the selected mission, so its root is on screen.
     harness.ui.set(RIGHT_PANEL_KEY, 'issue')
     const details = panelRequests()
     await deck()

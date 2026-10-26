@@ -20,7 +20,7 @@ import { createReadOnlyRuntimePool } from '../../../tests/worklist/shared/src/re
 import { CLIENT_WIRE_VERSION } from '@podium/protocol'
 import { ScenarioCache } from '../../../tests/worklist/shared/src/scenarios'
 import { DEFAULT_DISPLAY } from '../src/features/issues/issues-display'
-import { checkBoard, checkExplorer } from './board-control'
+import { checkBoard } from './board-control'
 
 let phase = 0
 async function main() {
@@ -120,8 +120,6 @@ async function main() {
           ),
         )
     }
-    for (const tab of [null, 'needs', 'in_progress', 'planning', 'done', 'cancelled'] as const)
-      reports.push(inBoardCheck(() => checkExplorer(runtime as never, handle.pool, tab, '')))
     console.log(
       JSON.stringify({
         phase,

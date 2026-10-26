@@ -11,10 +11,10 @@ import { isSystemOwnedIssueStage } from '@podium/model'
  *
  * A DRAFT issue is the vessel a bare session lives in until it is given a real
  * title — a session container, not work. It has always been off the desktop
- * board; the phone board and the right dock's issue explorer derive from this
- * same function so all three agree (POD-338, POD-1581). The explorer listed the
- * vessels for a while, and a row reading `Draft` with no description was the one
- * place in the product where a bare agent posed as a task.
+ * board; the phone board derives from this same function so both agree
+ * (POD-338, POD-1581). A since-removed task list showed the vessels for a while,
+ * and a row reading `Draft` with no description was the one place in the
+ * product where a bare agent posed as a task.
  *
  * Keys on `audience` (who the issue is FOR, #198 [spec:SP-a859]), NOT `origin`:
  * an agent acting for the human can cut a human-audience issue that belongs on the

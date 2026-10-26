@@ -2563,8 +2563,8 @@ export function portfolioActionableCount(
  * every attention count in the product.
  *
  * Exported because the number has to be the same number wherever it appears:
- * the rail badge counts it over the portfolio, the issue explorer's "Needs you"
- * tab lists exactly the tasks it returns true for. Two surfaces re-deriving
+ * the Flight Deck's "Needs you" filter lists exactly the tasks it returns true
+ * for. Two surfaces re-deriving
  * "needs me" independently is how a badge reading 3 comes to sit above a list
  * of 5.
  */

@@ -10,7 +10,7 @@ describe('pool startup bundle boundary', () => {
   }
   const sources: Record<string, string[]> = {
     'assets/app.js': ['../../src/app/main.tsx'],
-    'assets/shared.js': ['../../src/features/issues/explorer/explorer-context.tsx'],
+    'assets/shared.js': ['../../src/features/issues/dock-issue.tsx'],
     'assets/loading.js': ['../../../../packages/client-graph/src/loading.ts'],
     'assets/board.js': ['../../../../packages/client-graph/src/issue-board-projection.ts'],
   }

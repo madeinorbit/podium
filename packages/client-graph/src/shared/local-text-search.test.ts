@@ -200,7 +200,7 @@ function setupBoard(rows: ReturnType<typeof boardRow>[]) {
   return { pool, source, load, stop: () => { source.dispose(); pool.dispose() } }
 }
 
-describe('board/explorer cheap local search (POD-5561)', () => {
+describe('board cheap local search (POD-5561)', () => {
   it('matches title/ref parity and never searches descriptions', () => {
     const rows = [
       boardRow('alpha', { title: 'Login bug', seq: 1234 }),
@@ -219,16 +219,16 @@ describe('board/explorer cheap local search (POD-5561)', () => {
       expect(f.source.queryIds({ kind: 'board', filter: { text: '1234' } })).toEqual({
         ids: ['alpha'],
       })
-      expect(f.source.queryIds({ kind: 'explorer', tab: 'in_progress', query: 'dark' })).toEqual({
+      expect(f.source.queryIds({ kind: 'board', filter: { text: 'dark' } })).toEqual({
         ids: ['beta'],
       })
       // Description-only tokens never match locally.
       expect(f.source.queryIds({ kind: 'board', filter: { text: 'body-token-beta' } })).toEqual({
         ids: [],
       })
-      expect(
-        f.source.queryIds({ kind: 'explorer', tab: 'in_progress', query: 'body-token-alpha' }),
-      ).toEqual({ ids: [] })
+      expect(f.source.queryIds({ kind: 'board', filter: { text: 'body-token-alpha' } })).toEqual({
+        ids: [],
+      })
     } finally {
       f.stop()
     }

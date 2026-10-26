@@ -13,7 +13,6 @@ import type { ReaderQuestion } from '@podium/client-graph/shared/reader-question
 import type { RowRecord } from '@podium/client-graph/shared/source'
 import { LOADING, type Loaded } from '@podium/client-graph/worklist/rollup'
 import type { SessionView } from '@podium/client-core/session-values'
-import { issueIsActionable } from '@podium/client-core/values'
 import { autorun, compareStructural, getDependencyTree, untracked } from 'mobx'
 import { describe, expect, it, vi } from 'vitest'
 import { poolScreenCellsAt } from './pool-screen-work'
@@ -129,7 +128,7 @@ function fixture(scale: number) {
   return { pool, values, patch }
 }
 
-type Mechanism = 'summary' | 'count' | 'roster' | 'identity' | 'attention'
+type Mechanism = 'summary' | 'count' | 'roster' | 'identity'
 async function measured(
   scale: number,
   mechanism: Mechanism,
@@ -150,26 +149,7 @@ async function measured(
       .filter((id) => !f.pool.graph.isCollapsed('session', id))
       .map((id) => omitGone(f.pool.row('session', id, 'summary')))
       .filter((value) => value !== undefined)
-  const fullAttention = () => {
-    const row = omitGone(f.pool.row('issue', 'root', 'summary-fields'))
-    const seats = fullRoster()
-    if (row === LOADING || seats.includes(LOADING)) return LOADING
-    const asking =
-      row &&
-      issueIsActionable(
-        row as Parameters<typeof issueIsActionable>[0],
-        (seats as unknown as SessionView[]).filter((seat) => !seat.archived),
-      )
-    return { ids: asking ? ['root'] : [] }
-  }
   try {
-    if (mechanism === 'attention' && plant) {
-      const original = board.queryIds.bind(board)
-      vi.spyOn(board, 'queryIds').mockImplementation((question) => {
-        original(question)
-        return plant === 'wrong' ? { ids: [] } : fullAttention()
-      })
-    }
     if (mechanism === 'identity' && plant) {
       const original = f.pool.queries.ids.bind(f.pool.queries)
       vi.spyOn(f.pool.queries, 'ids').mockImplementation((question) => {
@@ -220,13 +200,11 @@ async function measured(
     if (mechanism !== 'count')
       stop = autorun(() => {
         actual =
-          mechanism === 'attention'
-            ? board.queryIds({ kind: 'explorer', tab: 'needs' })
-            : mechanism === 'identity'
-              ? f.pool.queries.ids({ kind: 'pageIssues' })
-              : mechanism === 'summary'
-                ? page.issues()
-                : board.sessions('root')
+          mechanism === 'identity'
+            ? f.pool.queries.ids({ kind: 'pageIssues' })
+            : mechanism === 'summary'
+              ? page.issues()
+              : board.sessions('root')
       })
     const result = await measureWork(
       async () => {
@@ -249,13 +227,11 @@ async function measured(
             f.patch(
               kind,
               id,
-              mechanism === 'attention'
-                ? { ...row, offer: { createdAt: old } }
-                : mechanism === 'identity'
-                  ? { ...row, id }
-                  : mechanism === 'summary'
-                    ? { ...row, description: 'Unrelated body' }
-                    : { ...row, title: 'Updated seat' },
+              mechanism === 'identity'
+                ? { ...row, id }
+                : mechanism === 'summary'
+                  ? { ...row, description: 'Unrelated body' }
+                  : { ...row, title: 'Updated seat' },
             )
           })
       },
@@ -264,21 +240,19 @@ async function measured(
     const expected =
       mechanism === 'count'
         ? f.pool.coldIndex().count('session')
-        : mechanism === 'attention'
-          ? fullAttention()
-          : mechanism === 'identity'
-            ? [
-                ...new Set([
-                  ...residentIds(f.pool, 'issue'),
-                  ...f.pool.coldIndex().readerIds({ kind: 'pageIssues' }),
-                ]),
-              ]
-            : mechanism === 'roster'
-              ? fullRoster()
-              : f.pool.queries
-                  .ids({ kind: 'pageIssues' })
-                  .sort()
-                  .map((id) => page.summary(id))
+        : mechanism === 'identity'
+          ? [
+              ...new Set([
+                ...residentIds(f.pool, 'issue'),
+                ...f.pool.coldIndex().readerIds({ kind: 'pageIssues' }),
+              ]),
+            ]
+          : mechanism === 'roster'
+            ? fullRoster()
+            : f.pool.queries
+                .ids({ kind: 'pageIssues' })
+                .sort()
+                .map((id) => page.summary(id))
     // pageIssues supplies candidate identities, not presentation order. Its only
     // production reader, IssuePage.issues(), projects them in ID order through
     // createQueryResult. Compare every identity (including duplicates) in that
@@ -331,7 +305,6 @@ describe('pool screens work ratios: declared query incrementality', () => {
     'count',
     'roster',
     'identity',
-    'attention',
   ] as const)('%s stays flat and rejects a real full rebuild with identical output', async (mechanism) => {
     const one = await measured(1, mechanism),
       four = await measured(4, mechanism)

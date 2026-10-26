@@ -175,7 +175,7 @@ it('MessageLedgerView acquires the existing runtime API without a snapshot subsc
 
 it('MissionCostChip acquires the existing runtime API without a snapshot subscription', async () => {
   const ctx = setup()
-  render(<MissionCostChip issueId={issue.id} onOpenInExplorer={() => {}} />, {
+  render(<MissionCostChip issueId={issue.id} onOpenTask={() => {}} />, {
     wrapper: ctx.Wrapper,
   })
   await ctx.prove()

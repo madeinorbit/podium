@@ -5,8 +5,7 @@ import type { ComponentProps } from 'react'
 import { useCallback } from 'react'
 import { useWorklistPool, useWorklistPoolProjection } from '@/app/store-worklist-pool'
 import { IssuePageBody } from './IssuePage'
-import { IssuePanelBody } from './IssuePanelView'
-import { IssueExplorerList } from './explorer/IssueExplorerList'
+import { IssuePanelBody, IssuePanelEmpty } from './IssuePanelView'
 import { IssuePageContext } from './issue-page/issue-page-data'
 import { IssueViewsContext, useIssueViews } from './issue-page/opening-context'
 import { useEvictionPresenceGuard } from './issue-page/use-eviction-guard'
@@ -44,12 +43,7 @@ export function PoolIssuePanelView(props: ComponentProps<typeof IssuePanelBody>)
   )
   const data = useWorklistPoolProjection<Loaded<PageIssue>>(read, undefined)
   if (!views || !pool || typeof data === 'symbol') return null
-  if (!data)
-    return (
-      <IssueViewsContext.Provider value={views}>
-        <PoolIssueExplorerList />
-      </IssueViewsContext.Provider>
-    )
+  if (!data) return <IssuePanelEmpty />
   return (
     <IssueViewsContext.Provider value={views}>
       <IssuePageContext.Provider value={{ issue: data, views }}>
@@ -57,8 +51,4 @@ export function PoolIssuePanelView(props: ComponentProps<typeof IssuePanelBody>)
       </IssuePageContext.Provider>
     </IssueViewsContext.Provider>
   )
-}
-
-function PoolIssueExplorerList() {
-  return <IssueExplorerList />
 }

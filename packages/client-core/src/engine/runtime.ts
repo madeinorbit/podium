@@ -1574,7 +1574,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
 
   // Land a just-opened file/artifact tab on screen (#101) — the file-tab twin of
   // navigateToSession: opening a tab from a non-workspace view (the issues page,
-  // the issue explorer) must switch to the workspace through the router.
+  // the dock's task panel) must switch to the workspace through the router.
   // Selecting the tab's issue/worktree keeps fileTabsForWorkspace from dropping
   // the tab and bouncing the pane.
   private revealFileTab(args: Parameters<EngineActionRuntime<TApi>['revealFileTab']>[0]): void {

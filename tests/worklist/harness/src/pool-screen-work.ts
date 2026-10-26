@@ -702,7 +702,7 @@ async function measureScreenCells(
     add('issue-page.inspector', ['TaskSheet', 'SessionConversation peek'], () =>
       detail('inspector'),
     )
-    add('issue-page.catalog', ['IssueContextMenu', 'IssueExplorer'], () => ({
+    add('issue-page.catalog', ['IssueContextMenu'], () => ({
       issues: page.issues(),
       explorer: page.explorer(),
     }))
@@ -729,7 +729,7 @@ async function measureScreenCells(
         dependents: issue.dependents,
       }
     })
-    add('board.query', ['IssueBoard', 'IssueExplorer'], () =>
+    add('board.query', ['IssueBoard'], () =>
       board.queryIds({ kind: 'board', showAgentTasks: false }),
     )
     // A mounted desktop card reads the shared issue model and its board rule.
@@ -745,7 +745,6 @@ async function measureScreenCells(
         dependents: issue.dependents,
         fleet: issue.presentMembers,
         stages: cards.card(issue, false).stageCounts,
-        word: cards.explorerRow(issue).state,
       }
     })
     add('board.model', ['IssueBoard', 'useBoardData'], () =>
@@ -762,11 +761,6 @@ async function measureScreenCells(
             windowed: true,
           }),
         ),
-      ),
-    )
-    add('board.explorer', ['IssueExplorer'], () =>
-      omitGone(
-        pool.row('issueExplorerModel', JSON.stringify({ tab: null, query: '', windowed: true })),
       ),
     )
     add('chat.detail', ['SessionConversation', 'AgentPanel'], () => ({

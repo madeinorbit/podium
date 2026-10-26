@@ -38,8 +38,7 @@ import { attachWorklistPool, useWorklistPool } from '../src/app/store-worklist-p
 import { ToolbarSlotProvider, ToolbarSlotTarget } from '../src/app/ToolbarSlot'
 import { Workspace } from '../src/app/Workspace'
 import { TooltipProvider } from '../src/components/ui/tooltip'
-import { IssueExplorerProvider } from '../src/features/issues/explorer/explorer-context'
-import { IssueExplorerList } from '../src/features/issues/explorer/IssueExplorerList'
+import { DockIssueProvider } from '../src/features/issues/dock-issue'
 import { IssuePage } from '../src/features/issues/IssuePage'
 import { IssuesView } from '../src/features/issues/IssuesView'
 import { SidebarUnified } from '../src/features/worklist/SidebarUnified'
@@ -200,7 +199,7 @@ function Fixture() {
   }, [runtime, pool])
   return (
     <OperatorFocusProvider missionId={selected}>
-      <IssueExplorerProvider>
+      <DockIssueProvider>
         {measured && <MeasurementBinding />}
         <CommandPaletteBoundary />
         <div className="desktop-shell">
@@ -249,11 +248,6 @@ function Fixture() {
                 ))}
               </div>
             )}
-            {(scrollSurface || params.get('surface') === 'explorer') && (
-              <aside className="flex min-h-0 w-[316px] flex-none">
-                <IssueExplorerList />
-              </aside>
-            )}
             {pageSurface && <IssuePageProbe ids={pageTargets} />}
             {full && (
               <>
@@ -274,7 +268,7 @@ function Fixture() {
             )}
           </div>
         </div>
-      </IssueExplorerProvider>
+      </DockIssueProvider>
     </OperatorFocusProvider>
   )
 }

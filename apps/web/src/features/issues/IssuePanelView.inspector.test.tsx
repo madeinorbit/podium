@@ -449,18 +449,17 @@ describe('IssuePanelView inspector', () => {
   })
 })
 
-// An id that resolves to no task is not a state worth describing: the panel
-// renders the explorer's own level 0, which is what "no task" looks like
-// everywhere else in this dock and is a place the operator can act from.
+// An id that resolves to no task gets the panel's one quiet empty state — not
+// an intake form, and not an error.
 describe('IssuePanelView with no task', () => {
-  it('renders the task index, not an empty state of its own', () => {
+  it('renders the empty state', () => {
     mockSessions = [session({ sessionId: 'fresh', issueId: undefined, name: 'New Codex' })]
     render(<IssuePanelView cwd="/elsewhere" sessionId={asSessionId('fresh')} />)
 
-    expect(screen.getByTestId('explorer-list')).toBeTruthy()
+    expect(screen.getByTestId('dock-issue-empty')).toBeTruthy()
     expect(screen.queryByTestId('dock-intake')).toBeNull()
     expect(document.body.textContent).not.toMatch(/Conversation workspace|Taking shape/)
-    expect(document.body.textContent).not.toMatch(/no task|not found|error/i)
+    expect(document.body.textContent).not.toMatch(/not found|error/i)
   })
 
   it('shows an archived task rather than substituting another (POD-1277)', () => {

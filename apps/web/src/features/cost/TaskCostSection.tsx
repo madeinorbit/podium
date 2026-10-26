@@ -1,5 +1,5 @@
 /**
- * WHAT THIS TASK COST — the section body, shared by the explorer's task detail
+ * WHAT THIS TASK COST — the section body, shared by the dock's task panel
  * panel and the task detail page (POD-1859, reused by POD-1860).
  *
  * ─────────────────────────────────────────────────────────────────────────────

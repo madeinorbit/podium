@@ -31,7 +31,6 @@ function cardOf(pool: MobxPool, id: string) {
   const cards = boardCards(pool), issue = cards.issue(id)
   return {
     issue: { id: issue.id, childCount: issue.childCount },
-    sessions: cards.explorerRow(issue).sessions.map((seat) => seat.id),
     fleet: issue.presentMembers.map((seat) => seat.id),
     stageCounts: cards.card(issue, false).stageCounts,
     progress: issue.taskProgress,
@@ -73,7 +72,7 @@ function setup(rows = [row('hot'), row('cold', { archived: true, stage: 'done' }
     },
   }
 }
-it('releases explorer query demand without a resident reverse index', () => {
+it('releases board query demand without a resident reverse index', () => {
   const rows = Array.from({ length: 512 }, (_, index) =>
     row(`resident-${index}`, { priority: index === 0 ? 1 : 2 }),
   )
@@ -85,7 +84,7 @@ it('releases explorer query demand without a resident reverse index', () => {
     paint('resident-1', { title: 'Changed while closed' })
     source.issue('resident-0')
     expect(source.stats().residentRows).toBe(0)
-    closeBoard = autorun(() => source.queryIds({ kind: 'explorer', tab: 'in_progress' }))
+    closeBoard = autorun(() => source.queryIds({ kind: 'board', filter: { stage: 'in_progress' } }))
     expect(source.stats().residentRows).toBe(0)
     closeCatalog = autorun(() => source.catalog(false))
     // An imperative snapshot must not release the index of an open surface.
@@ -111,7 +110,7 @@ it('releases explorer query demand without a resident reverse index', () => {
   }
 })
 
-it('retains catalogue metadata across stage, heartbeat and title changes without the explorer index', () => {
+it('retains catalogue metadata across stage, heartbeat and title changes without a resident index', () => {
   const f = setup([row('one', { assignee: 'owner', labels: ['bug'] })])
   let value: ReturnType<typeof f.source.catalog>
   const stop = autorun(() => { value = f.source.catalog(false) })
@@ -131,53 +130,6 @@ it('retains catalogue metadata across stage, heartbeat and title changes without
   }
 })
 
-it('updates explorer counts by address at 1x/4x and releases all count demand when closed', async () => {
-  async function measured(scale: 1 | 4) {
-    const rows = [row('count-parent'), ...Array.from({ length: 128 * scale }, (_, n) =>
-      row(`count-${n}`, { audience: 'agent', parentId: 'count-parent' })),
-      ...Array.from({ length: 128 * scale }, (_, n) => row(`other-parent-${n}`))]
-    const f = setup(rows)
-    // Many distinct addressed observers must not become a new scan on ingest.
-    const scopeStops = Array.from({ length: 128 * scale }, (_, n) =>
-      autorun(() => f.pool.queries.issueScope(`other-parent-${n}`)))
-    let counts: unknown
-    const stop = autorun(() => { counts = f.source.explorerCounts() })
-    try {
-      expect(counts).toMatchObject({ in_progress: rows.length, planning: 0 })
-      const ids = vi.spyOn(f.pool.queries, 'ids')
-      const { work } = await measureWork(async () => insideReader('explorer count update', () => {
-        f.pool.apply({ type: 'update', rows: [{ kind: 'issue', id: 'count-0', value: row('count-0', {
-          stage: 'planning', audience: 'agent', parentId: 'count-parent',
-        }) }] })
-      }), { pool: f.pool })
-      expect(counts).toMatchObject({ in_progress: rows.length - 1, planning: 1 })
-      expect(ids).not.toHaveBeenCalled()
-      const ancestor = await measureWork(async () => insideReader('explorer ancestor title update', () => {
-        f.pool.apply({ type: 'update', rows: [{ kind: 'issue', id: 'count-parent', value: row('count-parent', { title: 'Renamed parent' }) }] })
-      }), { pool: f.pool })
-      expect(counts).toMatchObject({ in_progress: rows.length - 1, planning: 1 })
-      ids.mockRestore()
-      stop()
-      for (const stop of scopeStops) stop()
-      const closed = vi.spyOn(f.pool, 'row')
-      f.pool.apply({ type: 'update', rows: [{ kind: 'issue', id: 'count-0', value: row('count-0', { stage: 'review' }) }] })
-      // Ingest may inspect the changed issue, but no aggregate reader remains.
-      expect(closed.mock.calls.some(([entity, id]) => entity === 'issue' && id !== 'count-0')).toBe(false)
-      expect(f.source.stats()).toMatchObject({ residentRows: 0, cached: 0 })
-      closed.mockRestore()
-      expect(f.load).not.toHaveBeenCalled()
-      return { work, ancestor: ancestor.work }
-    } finally { stop(); for (const stop of scopeStops) stop(); f.stop() }
-  }
-  const first = await measured(1), second = await measured(4)
-  console.info('explorer count update work 1x/4x', JSON.stringify({ first, second }))
-  for (const action of ['work', 'ancestor'] as const) {
-    expect(second[action].rows).toBe(first[action].rows)
-    expect(second[action].derivations).toBe(first[action].derivations)
-    expect(second[action].elements).toBe(first[action].elements)
-    expect(second[action].visits).toBe(first[action].visits)
-  }
-})
 
 it('releases demanded ID results on filter change and unmount', () => {
   const { source, stop } = setup()
@@ -241,7 +193,6 @@ it('keeps rich card derivations inside the virtual window and addresses selectio
     expect(issueBoardStats.read().rowModels ?? 0).toBe(0)
     expect(cardOf(pool, 'cold')).toMatchObject({
       issue: { id: 'cold', childCount: 0 },
-      sessions: [],
       progress: null,
     })
     // The card reads the shared model: one card rule, no row overlay.
@@ -302,7 +253,6 @@ it('orders a virtual fleet by declared member IDs after resume collapse', () => 
   })
   try {
     const value = cardOf(pool, 'root')
-    expect(value.sessions).toEqual(['z', 'm'])
     expect(value.fleet).toEqual(['m', 'z'])
   } finally {
     stop()
@@ -342,17 +292,7 @@ it('stage changes examine the matching resident bucket, independent of hidden re
     stop()
   }
 })
-it('keeps an empty review with a discovered continuation out of Needs you', () => {
-  const { source, stop } = setup([
-    row('origin', { stage: 'review' }),
-    row('tip', { deps: [{ id: 'origin', type: 'discovered-from' }] }),
-  ])
-  try {
-    expect(source.queryIds({ kind: 'explorer', tab: 'needs' })).toEqual({ ids: [] })
-  } finally {
-    stop()
-  }
-})
+
 it('preserves an opaque parent reference without loading an absent parent', () => {
   const { source, pool, load, stop } = setup([row('child', { parentId: 'absent-parent' })])
   try {

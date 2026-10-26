@@ -19,7 +19,7 @@ import { createRoot } from 'react-dom/client'
 import { FlightDeck } from '@/app/FlightDeck'
 import { OperatorFocusProvider } from '@/app/operator-focus'
 import { setHoveredSession } from '@/app/session-hover'
-import { IssueExplorerProvider } from '@/features/issues/explorer/explorer-context'
+import { DockIssueProvider } from '@/features/issues/dock-issue'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
 import '@/index.css'
 import '@/styles.css'
@@ -971,13 +971,13 @@ function Harness(): JSX.Element {
           >
             <OperatorFocusProvider missionId="root">
               <ConfirmProvider>
-                <IssueExplorerProvider>
+                <DockIssueProvider>
                   <FlightDeck
                     onCollapse={() => {}}
                     display={display}
                     onDisplayChange={changeDisplay}
                   />
-                </IssueExplorerProvider>
+                </DockIssueProvider>
               </ConfirmProvider>
             </OperatorFocusProvider>
           </div>

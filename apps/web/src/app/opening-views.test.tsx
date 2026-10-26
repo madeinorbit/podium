@@ -4,7 +4,6 @@ import { useOpeningView } from '@podium/client-graph/react'
 import { createIssuePageViews } from '@podium/client-graph/issue-page'
 import { createSettingsViews } from '@podium/client-graph/settings-views'
 import { createAutomationViews } from '@podium/client-graph/automation-views'
-import { createExplorerViews } from '@podium/client-graph/issue-board-cards'
 import { MobxPool } from '@podium/client-graph/pool'
 import { createSettingsMachineReaders as webMachines } from '../features/settings/settings-machine-readers'
 import { createSettingsMachineReaders as phoneMachines } from '../../../mobile/src/screens/settings-machine-readers'
@@ -16,7 +15,6 @@ import { expect, it, vi } from 'vitest'
 
 const factories = [
   ['issue detail, menu and sheet', createIssuePageViews],
-  ['explorer companions', createExplorerViews],
   ['settings and setup', createSettingsViews],
   ['automations, dialog and specs', createAutomationViews],
   ['web settings machines', webMachines],

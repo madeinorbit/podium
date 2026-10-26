@@ -27,10 +27,10 @@ import { isFinished } from '@podium/model/browser'
  *
  * The settings are owned by IssueAgentSettings, also used in the ref miniview.
  * IT LIVES IN TWO PLACES (POD-1457). The issue page's Sessions block owns it,
- * and the right dock's task panel — the issue explorer — mounts the same box in
+ * and the right dock's task panel mounts the same box in
  * place of the bare `Start work` chip it used to carry. The dock's chip could
  * say WHETHER to start and (for discovered work) WHERE, but never with what: an
- * operator who wanted Codex on this one had to leave the explorer, open the full
+ * operator who wanted Codex on this one had to leave the panel, open the full
  * page, set it there, and come back. One box, one grammar, both surfaces.
  *
  * IT EXISTS ONLY BEFORE THE WORK STARTS (POD-1585). The box is a LAUNCH
@@ -82,7 +82,7 @@ export function LaunchBox({
   commands: LaunchCommands
   machines: LaunchMachine[]
   /** WHERE the work will live, offered at the moment it starts (POD-679). The
-   *  explorer hands in its placement chevron, which then rides the right edge of
+   *  dock panel hands in its placement chevron, which then rides the right edge of
    *  Start work as one split control. */
   fork?: (busy: boolean) => ReactNode
 }): JSX.Element {

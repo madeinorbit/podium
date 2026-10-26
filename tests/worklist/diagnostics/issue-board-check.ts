@@ -1,8 +1,8 @@
 /** Values stay in the check process; reports contain counts/positions only. */
 import type { IssueViewModel } from '@podium/client-core/replica'
-import { operationalState, type TaskProgress } from '@podium/client-core/values'
+import type { TaskProgress } from '@podium/client-core/values'
 import { boardCards } from '@podium/client-graph/issue-board-cards'
-import type { BoardOptions, BoardSnapshotData, PoolExplorerData } from '@podium/client-graph/issue-board-schema'
+import type { BoardOptions, BoardSnapshotData } from '@podium/client-graph/issue-board-schema'
 import { omitGone } from '@podium/client-graph/lookup'
 import type { MobxPool } from '@podium/client-graph/pool'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
@@ -165,26 +165,6 @@ export function readBoardSnapshot(pool: MobxPool, options: BoardOptions) {
     }))
   }
   return boardSnapshot(data)
-}
-export function explorerSnapshot(data: PoolExplorerData) {
-  return {
-    counts: data.counts,
-    tab: data.tab,
-    total: data.total,
-    rows: data.rows.map((row) => ({
-      fields: fields(row),
-      state: operationalState(row, data.rowSessions.get(row.id) ?? [], data.byId),
-      sessions: (data.rowSessions.get(row.id) ?? []).map((seat) => ({
-        sessionId: seat.sessionId,
-        issueId: seat.issueId,
-        status: seat.status,
-        agentKind: seat.agentKind,
-        archived: seat.archived,
-        agentState: seat.agentState,
-        offer: seat.offer,
-      })),
-    })),
-  }
 }
 export function compareBoardValues(expected: unknown, actual: unknown) {
   const field = issuePageFirstDifference(expected, actual)

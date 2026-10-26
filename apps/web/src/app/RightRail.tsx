@@ -6,21 +6,16 @@ import { useShellShipping } from './shell-data'
 import { type RightPanelTab, rightPanelAllowed } from './shell-state'
 
 /**
- * The 44px right rail (handoff §2.5): one cell per dock panel — Tasks,
+ * The 44px right rail (handoff §2.5): one cell per dock panel — Task,
  * Superagent, Git, Files, Shell, Messages, Queues, Shipping.
- *
- * The Tasks cell opens an explorer over every task in the repo (POD-743), so
- * it uses an ordinary list glyph rather than the selected task's identity.
  *
  * The Superagent cell used to carry a numbered badge: the PORTFOLIO attention
  * count, every task anywhere waiting on a decision. Sitting on the superagent
  * glyph, the number read as a fact about the superagent — the one thing it
  * never was — so the rail now names panels and reports on nothing. The count
  * itself is unchanged and still readable where it belongs to something: the
- * explorer's Needs tab and the Flight Deck's "Needs you" filter, both on
- * `issueIsActionable`, the predicate that badge summed. The explorer runs it
- * over board scope (POD-1581), so a draft vessel whose agent is waiting is
- * counted by neither — its sidebar row IS the agent, and carries the pill.
+ * Flight Deck's "Needs you" filter, on `issueIsActionable`, the predicate that
+ * badge summed.
  *
  * The rail uses neutral chrome (POD-516 item 9). It hosts Superagent, Git,
  * Files, Shell and Messages alongside the task cell, so a tint pulled from the

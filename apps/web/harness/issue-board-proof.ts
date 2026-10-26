@@ -236,11 +236,7 @@ try {
           board: Record<string, number>
           runtimes: { rowBuilds: number }[]
         }
-        if (
-          stats.runtimes.some((runtime) => runtime.rowBuilds) ||
-          stats.board['legacy.board'] ||
-          stats.board['legacy.explorer']
-        )
+        if (stats.runtimes.some((runtime) => runtime.rowBuilds) || stats.board['legacy.board'])
           throw new Error('Enabled board entered legacy derivation')
       }
       if (final.state.residentIssues !== initial.residentIssues) {
@@ -250,57 +246,15 @@ try {
       if (countsOnly) {
         const check = await page.evaluate(() => ({
           board: Reflect.get(window, '__boardCheck')(),
-          explorer: Reflect.get(window, '__boardExplorerCheck')(),
         }))
         console.log(JSON.stringify({ check }))
-        if (
-          check.board.differences ||
-          check.board.pending ||
-          check.explorer.differences ||
-          check.explorer.pending
-        )
+        if (check.board.differences || check.board.pending)
           throw new Error('Board diagnostic differs')
       }
     }
     if (errors.length || final.errors.length)
       throw new Error(`Fixture errors: ${JSON.stringify([...errors, ...final.errors])}`)
-    await page.evaluate(() => Reflect.get(window, '__boardHarness').reset())
-    await page.locator('[data-explorer-open]').click()
-    await page.getByTestId('explorer-row').first().waitFor()
-    await page.evaluate(
-      () =>
-        new Promise<void>((done) =>
-          requestAnimationFrame(() => requestAnimationFrame(() => done())),
-        ),
-    )
-    const explorer = await rendered(page)
-    await page.getByRole('tab').filter({ hasText: 'Planning' }).click()
-    await page.getByRole('tab', { selected: true }).filter({ hasText: 'Planning' }).waitFor()
-    await page.evaluate(
-      () =>
-        new Promise<void>((done) =>
-          requestAnimationFrame(() => requestAnimationFrame(() => done())),
-        ),
-    )
-    const explorerPlanning = await rendered(page)
-    outputs[arm] ??= [full, filtered, explorer, explorerPlanning]
-    const explorerStats = await page.evaluate(() => Reflect.get(window, '__boardHarness').stats())
-    if (countsOnly)
-      for (const key of Object.keys(explorerStats.board))
-        if (key.endsWith('Ms')) delete explorerStats.board[key]
-    if (arm === 'pool') {
-      if (
-        explorerStats.runtimes.some((runtime: { rowBuilds: number }) => runtime.rowBuilds) ||
-        explorerStats.board['legacy.explorer']
-      )
-        throw new Error('Enabled explorer entered legacy derivation')
-      const residency = await page.evaluate(
-        () => Reflect.get(window, '__boardHarness').state().residentIssues,
-      )
-      if (residency !== initial.residentIssues) throw new Error('Explorer promoted cold issues')
-    }
-    if (arm === 'pool' && run === 1)
-      await page.screenshot({ path: resolve(root, `${label}-pool-explorer.png`) })
+    outputs[arm] ??= [full, filtered]
     runs.push({
       arm,
       status: 'planning',
@@ -311,7 +265,6 @@ try {
       final: final.state,
       open,
       filter,
-      explorerStats,
     })
     console.log(
       JSON.stringify({
@@ -328,7 +281,7 @@ try {
     await context.close()
   }
   if (outputs.pool && JSON.stringify(outputs.pool) !== JSON.stringify(outputs.legacy))
-    throw new Error('Rendered board/explorer parity differs')
+    throw new Error('Rendered board parity differs')
   const report = {
     sourceSha: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
     label,

@@ -9,6 +9,7 @@ import { issueDisplayRef } from '@podium/protocol'
 import {
   ArrowRight,
   Bot,
+  CircleDot,
   ExternalLink,
   FileText,
   Film,
@@ -31,7 +32,6 @@ import { currentWorkspaceSlug } from '@/lib/workspace-request'
 import { TaskCostLine } from '../cost/TaskCostSection'
 import { useTaskCost } from '../cost/useTaskCost'
 import { inlineRenameEditor, useInlineRename } from '../worklist/use-inline-rename'
-import { IssueExplorerList } from './explorer/IssueExplorerList'
 import { IssueCompactControls } from './IssueCompactControls'
 import { IssueStatusPicker } from './IssueStatusPicker'
 import { issueIdTitle } from './issue-card'
@@ -210,8 +210,8 @@ const InspectHead = observer(function InspectHead({
    *  placeholder there. */
   title: string
   onRename: (next: string) => void
-  /** Point the rest of the shell at this task. The explorer syncs INWARD, so
-   *  browsing a task must never drag the deck along; this is the one way to. */
+  /** Point the rest of the shell at this task. The panel syncs INWARD, so
+   *  looking at a task must never drag the deck along; this is the one way to. */
   onOpenInWork?: () => void
   subtasks?: ReactNode
 }): JSX.Element {
@@ -695,6 +695,22 @@ const ArtifactsPart = observer(function ArtifactsPart({
   )
 })
 
+/** What the task panel says when it has no task to show. */
+export function IssuePanelEmpty(): JSX.Element {
+  return (
+    <div
+      className="flex min-h-0 flex-1 flex-col items-center justify-center gap-1.5 px-8 pb-16 text-center"
+      data-testid="dock-issue-empty"
+    >
+      <CircleDot size={20} strokeWidth={1.6} className="mb-1 text-text-faint" aria-hidden="true" />
+      <p className="text-[13px] font-medium text-text-strong">No task selected</p>
+      <p className="text-[12px] leading-[1.5] text-pretty text-muted-foreground">
+        Pick a task in the sidebar or the Flight Deck and its details show up here.
+      </p>
+    </div>
+  )
+}
+
 /**
  * Issue tab of the right dock: the task panel. One scroll — head, description,
  * the latest update (clamped), artifacts, relations, comments, cost.
@@ -722,8 +738,9 @@ export const IssuePanelBody = observer(function IssuePanelBody({
    *  session attachment and cwd containment. */
   issueId?: IssueId
   /**
-   * Where a linked task goes when it is clicked (POD-743). Inside the explorer
-   * this PUSHES a level; without it a linked row moves the shell instead.
+   * Where a linked task goes when it is clicked. In the dock this points the
+   * panel at it and leaves the shell alone; without it a linked row moves the
+   * shell instead.
    */
   onNavigate?: (issueId: IssueId) => void
   /** Open the Artifacts stage tab for an issue (POD-2078). Absent, "View all"
@@ -802,8 +819,8 @@ export const IssuePanelBody = observer(function IssuePanelBody({
     ],
   )
 
-  /** What a linked task row does: browse deeper in the explorer, or — with no
-   *  trail to browse in — move the shell. */
+  /** What a linked task row does: show it in this panel, or — outside the
+   *  dock — move the shell. */
   const openLinked = useCallback(
     (target: IssueViewModel): void => {
       if (onNavigate) {
@@ -821,11 +838,7 @@ export const IssuePanelBody = observer(function IssuePanelBody({
   const continuation = issue ? detail.continuation : null
   const relations = issue.relationGroups
 
-  // NO ISSUE, NO PANEL OF ITS OWN (POD-1277): the explorer's level 0 is what
-  // "no task" looks like.
-  if (!issue) {
-    return <IssueExplorerList />
-  }
+  if (!issue) return <IssuePanelEmpty />
 
   const openChildren = children.filter((c) => !isFinished(c))
   const doneChildren = children.filter((c) => isFinished(c))
@@ -853,8 +866,8 @@ export const IssuePanelBody = observer(function IssuePanelBody({
         data-testid="dock-scroll"
         data-dock-scroll=""
       >
-        {/* Offered only where it can arrive: inside the explorer, for a task the
-            deck can put on screen and there is still work to do on (POD-1151,
+        {/* Offered only where it can arrive: in the dock, for a task the deck
+            can put on screen and there is still work to do on (POD-1151,
             POD-1269). */}
         <InspectHead
           issue={issue}

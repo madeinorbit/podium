@@ -2,10 +2,10 @@ import { asIssueId } from '@podium/model/browser'
 import { observer } from '@podium/client-graph/react'
 import { LOADING, type Loaded } from '@podium/client-graph/worklist/rollup'
 import {
+  CircleDot,
   FolderTree,
   GitBranch,
   ListOrdered,
-  ListTree,
   type LucideIcon,
   Mail,
   Sparkles,
@@ -92,11 +92,10 @@ function DockPanelFallback(): JSX.Element {
 export type { RightPanelTab } from './shell-state'
 
 export const RIGHT_PANELS: { id: RightPanelTab; label: string; icon: LucideIcon }[] = [
-  // A LIST glyph, not a task glyph (POD-743): this cell opens an explorer
-  // over every task in the repo, so an icon that stands for one issue — and,
-  // before this, the selected issue's own ID square wearing its status badge —
-  // named the wrong thing and claimed a relationship the panel no longer has.
-  { id: 'issue', label: 'Tasks', icon: ListTree },
+  // One task: the shell's, or one a chip or linked row pointed the panel at.
+  // A plain issue glyph — not the selected issue's own ID square wearing its
+  // status badge, which tinted the rail with one task's state.
+  { id: 'issue', label: 'Task', icon: CircleDot },
   { id: 'superagent', label: 'Superagent', icon: Sparkles },
   { id: 'git', label: 'Git', icon: GitBranch },
   { id: 'files', label: 'Files', icon: FolderTree },
@@ -151,11 +150,10 @@ export const RightDock = observer(function RightDock({
             close — the Paper shell's head metrics (POD-725 §7). */}
         <div className="flex h-11 flex-none items-center gap-[9px] border-b border-border px-3.5">
           {tab === 'issue' ? (
-            // The one panel whose header is not a name. The explorer moves
-            // between tasks, so what belongs up here is where you are and how
-            // to get back — the task's own name is the head of the panel below.
+            // The one panel whose header is not a name: it names the task it
+            // shows by ref, and the task's own name heads the panel below.
             <Suspense fallback={<span className="min-w-0 flex-1" aria-hidden="true" />}>
-              <RightDockIssuePanel kind="crumbs" />
+              <RightDockIssuePanel kind="header" />
             </Suspense>
           ) : (
             <span className="flex min-w-0 flex-1 items-center gap-[9px]">
@@ -215,12 +213,12 @@ export const RightDock = observer(function RightDock({
             ))}
           {tab === 'issue' &&
             (active ? (
-              // Not keyed on the worktree: the explorer's whole point is that it
-              // outlives what the workspace is pointed at. `cwd` only tells it
-              // where to serve the artifacts of a task with no checkout of its own.
-              <RightDockIssuePanel kind="explorer" cwd={active.cwd} machineId={active.machineId} />
+              // Not keyed on the worktree: the panel follows its own pointer, not
+              // the workspace. `cwd` only tells it where to serve the artifacts
+              // of a task with no checkout of its own.
+              <RightDockIssuePanel kind="panel" cwd={active.cwd} machineId={active.machineId} />
             ) : (
-              <RightDockIssuePanel kind="explorer" cwd="" />
+              <RightDockIssuePanel kind="panel" cwd="" />
             ))}
           {tab === 'superagent' && <SuperagentView />}
           {tab === 'shell' &&

@@ -1,6 +1,5 @@
 import {
   confirmedWorkingAgentCount,
-  operationalState,
   type RankedTaskIssue,
   rankedTaskStateSlots,
 } from '@podium/client-core/values'
@@ -10,7 +9,7 @@ import { afterEach, expect, it, vi } from 'vitest'
 import { inBoardCheck } from '../../../tests/worklist/diagnostics/issue-board-check'
 import { readLegacyBoardCard } from '../../../tests/worklist/diagnostics/legacy-board-card'
 import { insideArm, insideReader, measureWork } from '../../../tests/worklist/harness/src/work-meter'
-import { BoardCard, boardCards, ExplorerRow } from './issue-board-cards'
+import { BoardCard, boardCards } from './issue-board-cards'
 import { ISSUE_BOARD_ENTITIES, ISSUE_BOARD_SOURCE_KEY, ISSUE_BOARD_SUMMARIES } from './issue-board-schema'
 import { createIssueBoardSource } from './issue-board-source'
 import { omitGone } from './lookup'
@@ -131,7 +130,7 @@ const mutants: Record<string, (value: unknown) => unknown> = {
   undefined: () => 'defined',
 }
 
-it('answers every board and explorer card field like the old card graph on nested, archived, cold and collapsed fixtures', async () => {
+it('answers every board card field like the old card graph on nested, archived, cold and collapsed fixtures', async () => {
   const { pool } = await setupBoard(ROWS, SEATS)
   const cards = boardCards(pool)
   const killed = new Set<string>()
@@ -143,7 +142,7 @@ it('answers every board and explorer card field like the old card graph on neste
         if (old === LOADING) throw LOADING
         if (!old) throw new Error(`${id} has no old card`)
         const model = cards.issue(id)
-        const card = cards.card(model, agents), row = cards.explorerRow(model)
+        const card = cards.card(model, agents)
         const fleet = old.fleet
         const working = confirmedWorkingAgentCount(fleet, pool.clock.peekNow())
         pairs[id] = {
@@ -165,8 +164,6 @@ it('answers every board and explorer card field like the old card graph on neste
           stageCounts: [old.stageCounts, [...card.stageCounts]],
           slots: [rankedTaskStateSlots(old.issue as unknown as RankedTaskIssue, { workingAgents: working, progress: old.progress }),
             rankedTaskStateSlots(model as unknown as RankedTaskIssue, { workingAgents: model.confirmedWorkingAgents, progress: model.taskProgress })],
-          explorerSessions: [old.sessions.map((seat) => seat.sessionId), row.sessions.map((seat) => seat.id)],
-          explorerState: [operationalState(old.issue, old.sessions, old.byId), row.state],
         }
       }
       return pairs
@@ -198,11 +195,11 @@ it('answers every board and explorer card field like the old card graph on neste
     for (const id of IDS) {
       const model = cards.issue(id)
       out[id] = { progress: model.taskProgress, working: model.confirmedWorkingAgents, unread: model.unread,
-        stages: cards.card(model, false).stageCounts.length, state: cards.explorerRow(model).state.state,
+        stages: cards.card(model, false).stageCounts.length,
         fleet: model.presentMembers.length }
     }
     return out
-  }) as Record<string, { progress: unknown; working: number; unread: boolean; stages: number; state: string; fleet: number }>
+  }) as Record<string, { progress: unknown; working: number; unread: boolean; stages: number; fleet: number }>
   expect(pairs.root!.progress).toEqual({ total: 6, done: 2, liveAgents: 4 })
   expect(pairs.root!.working).toBe(1)
   expect(pairs.root!.stages).toBeGreaterThan(1)
@@ -212,8 +209,6 @@ it('answers every board and explorer card field like the old card graph on neste
   // Archived history stays cold: summaries answer it, no payload is loaded.
   expect(pool.tables.issue.has('c6')).toBe(false)
   expect(pairs.root!.unread).toBe(true)
-  expect(new Set(Object.values(pairs).map((value) => value.state))).toEqual(
-    new Set(['error', 'needs-you', 'working', 'waiting', 'retired', 'ready', 'done']))
   expect(killed.size).toBeGreaterThan(20)
 })
 
@@ -236,7 +231,7 @@ it('loads and keeps no row the old card graph did not', async () => {
         void [model.title, model.color, model.labels, model.displayRef, model.unread, model.childCount,
           model.childDoneCount, model.dependents, model.confirmedWorkingAgents, model.taskProgress,
           model.presentMembers.map((seat) => [seat.agentKind, seat.status, seat.agentState]),
-          cards.card(model, agents).stageCounts, cards.explorerRow(model).state]
+          cards.card(model, agents).stageCounts]
       }
     })
   }
@@ -254,12 +249,11 @@ function readCard(pool: MobxPool, id: string, agents = false) {
   return [model.title, model.color, model.labels, model.displayRef, model.unread, model.childCount,
     model.childDoneCount, model.dependents, model.confirmedWorkingAgents, model.taskProgress,
     model.presentMembers.map((seat) => [seat.agentKind, seat.status, seat.agentState]),
-    cards.card(model, agents).stageCounts, cards.explorerRow(model).state]
+    cards.card(model, agents).stageCounts]
 }
 const PRESENTATION = [
   [IssueModel.prototype, ['taskProgress', 'confirmedWorkingAgents', 'presentMembers', 'unread', 'dependents']],
   [BoardCard.prototype, ['stageCounts']],
-  [ExplorerRow.prototype, ['state', 'sessions']],
 ] as const
 function spyPresentation() {
   const spies = PRESENTATION.flatMap(([prototype, fields]) =>
@@ -290,7 +284,6 @@ it('resolves no presentation field for hidden, folded or unmounted cards', async
         settle(pool, () => {
           const board = omitGone(pool.row('issueBoardModel', JSON.stringify(options)))
           if (board === LOADING) throw LOADING
-          omitGone(pool.row('issueExplorerModel', JSON.stringify({ tab: null, query: '', windowed: true })))
         })
       }
     // Layouts publish ids only: no card answered anything.

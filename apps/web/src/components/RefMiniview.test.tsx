@@ -33,7 +33,7 @@ const hostStore = vi.hoisted(() => ({
   updateIssue: vi.fn(async () => {}),
   setSelectedIssueId: vi.fn(),
   setFocusedIssueId: vi.fn(),
-  retarget: vi.fn(),
+  showInDock: vi.fn(),
 }))
 
 vi.mock('@podium/client-core/react', async (importOriginal) => {
@@ -116,8 +116,8 @@ vi.mock('@/app/operator-focus', () => ({
   }),
 }))
 
-vi.mock('@/features/issues/explorer/explorer-context', () => ({
-  useIssueExplorer: () => ({ retarget: hostStore.retarget }),
+vi.mock('@/features/issues/dock-issue', () => ({
+  useDockIssue: () => ({ show: hostStore.showInDock }),
 }))
 
 const parent: RefIssueLike = {
@@ -168,7 +168,7 @@ describe('RefMiniviewHost issue resolution', () => {
     hostStore.replicaIssues = []
     hostStore.setSelectedIssueId.mockClear()
     hostStore.setFocusedIssueId.mockClear()
-    hostStore.retarget.mockClear()
+    hostStore.showInDock.mockClear()
     container = document.createElement('div')
     document.body.appendChild(container)
     root = createRoot(container)
@@ -243,11 +243,11 @@ describe('RefMiniviewHost issue resolution', () => {
     expect(getMiniviewState()).toBeNull()
   })
 
-  // POD-1265: the escalation is a LOOK, not a move. Pointing the explorer used
+  // POD-1265: the escalation is a LOOK, not a move. Pointing the task panel used
   // to run through the shell selection, which is also what the sidebar
   // highlights and what keys the tab area's workspace — so reading a ref in
   // chat dragged the whole workspace onto whatever task was mentioned.
-  it('points the explorer at the task without moving the shell', () => {
+  it('points the task panel at the task without moving the shell', () => {
     hostStore.replicaIssues = [rich, parent]
     const panels: unknown[] = []
     const onPanel = (event: Event): void => {
@@ -258,12 +258,12 @@ describe('RefMiniviewHost issue resolution', () => {
       act(() => root.render(<RefMiniviewHost />))
       act(() => openMiniview('POD-517', { x: 100, y: 100 }))
       const open = [...document.body.querySelectorAll('button')].find((b) =>
-        b.textContent?.includes('Open in explorer'),
+        b.textContent?.includes('Open task'),
       )
       expect(open).toBeDefined()
       act(() => open?.click())
 
-      expect(hostStore.retarget).toHaveBeenCalledWith('iss_1')
+      expect(hostStore.showInDock).toHaveBeenCalledWith('iss_1')
       expect(panels).toEqual(['issue'])
       expect(hostStore.setSelectedIssueId).not.toHaveBeenCalled()
       expect(hostStore.setFocusedIssueId).not.toHaveBeenCalled()
@@ -964,13 +964,13 @@ describe('RefCard escalations (POD-786)', () => {
   const button = (text: string): HTMLButtonElement | undefined =>
     [...container.querySelectorAll('button')].find((b) => b.textContent?.includes(text))
 
-  it('sends the reader to the explorer, not to a peek drawer', () => {
+  it('sends the reader to the task panel, not to a peek drawer', () => {
     const onOpenFull = vi.fn()
     renderWith(rich, [], { onOpenFull })
     expect(container.textContent).not.toContain('Open issue peek')
-    const explorer = button('Open in explorer')
-    expect(explorer).toBeDefined()
-    act(() => explorer?.click())
+    const open = button('Open task')
+    expect(open).toBeDefined()
+    act(() => open?.click())
     expect(onOpenFull).toHaveBeenCalled()
   })
 
@@ -1016,7 +1016,7 @@ describe('RefCard escalations (POD-786)', () => {
     renderWith(rich, [])
     expect(button('Go to session')).toBeUndefined()
     expect(button('Parent session')).toBeUndefined()
-    expect(button('Open in explorer')).toBeDefined()
+    expect(button('Open task')).toBeDefined()
   })
 })
 

@@ -22,7 +22,6 @@
 
 import { isDeepStrictEqual } from 'node:util'
 import { chatMentionMatches } from '@podium/client-graph/chat-context'
-import { BOARD_EXPLORER_TABS } from '@podium/client-graph/issue-board-schema'
 import { createIssueBoardSource } from '@podium/client-graph/issue-board-source'
 import { omitGone } from '@podium/client-graph/lookup'
 import { missionView } from '@podium/client-graph/mission-view'
@@ -149,7 +148,6 @@ export function startupQuestions(targets: StartupTargets): StartupQuestion[] {
   add('counts', 'issues', (pool) => pool.queries.count('issue'))
   add('counts', 'sessions', (pool) => pool.queries.count('session'))
   add('counts', 'undeleted-issues', (pool) => pool.undeletedIssueCount)
-  add('counts', 'board-tabs', (pool) => board(pool).explorerCounts())
   add('counts', 'proposed', (pool) => pool.queries.ids({ kind: 'proposedIssues' }).length)
 
   add('search', 'command-issues', (pool) => pool.queries.ids({ kind: 'commandIssues' }))
@@ -160,16 +158,11 @@ export function startupQuestions(targets: StartupTargets): StartupQuestion[] {
       return pendingOr(found.pending, found.issues.map((issue) => issue.id))
     })
     add('search', `board:${needle}`, (pool) => {
-      const found = board(pool).explorer({ tab: null, query: needle, windowed: true })
-      return found === LOADING || found === undefined ? found : { tab: found.tab, ids: found.ids }
+      const found = board(pool).queryIds({ kind: 'board', filter: { text: needle } })
+      return found === LOADING || found === undefined ? found : found.ids
     })
   }
 
-  for (const tab of BOARD_EXPLORER_TABS)
-    add('board-archive', `tab:${tab}`, (pool) => {
-      const found = board(pool).explorer({ tab, query: '', windowed: true })
-      return found === LOADING || found === undefined ? found : { total: found.total, ids: found.ids }
-    })
   add('board-archive', 'archived', (pool) => pool.queries.ids({ kind: 'boardIssues', archived: true }))
 
   for (const id of targets.parents) {

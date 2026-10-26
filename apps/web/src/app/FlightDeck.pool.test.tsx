@@ -21,7 +21,7 @@ import { createPoolProjection, createRuntimeWorklistPool } from '@podium/client-
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { Profiler, type ProfilerOnRenderCallback, useMemo, useSyncExternalStore } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { IssueExplorerProvider } from '@/features/issues/explorer/explorer-context'
+import { DockIssueProvider } from '@/features/issues/dock-issue'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
 import { buildCorpus } from '../../../../tests/worklist/harness/src/fixture/corpus'
 import { expectPoolOutput } from '../../../../tests/worklist/harness/src/oracle/pool-output'
@@ -202,9 +202,9 @@ function deck() {
   return (
     <ConfirmProvider>
       <OperatorFocusProvider missionId={state.selectedIssueId}>
-        <IssueExplorerProvider>
+        <DockIssueProvider>
           <FlightDeck onCollapse={() => {}} />
-        </IssueExplorerProvider>
+        </DockIssueProvider>
       </OperatorFocusProvider>
     </ConfirmProvider>
   )

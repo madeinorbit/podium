@@ -9,10 +9,9 @@
  * (never animate, always fade out) and why they live in CSS rather than at the
  * call sites.
  *
- * WHY A SHARED PRIMITIVE AND NOT FOUR LOCAL COPIES. Four surfaces ghost
- * themselves — the work list its rows, the flight deck its tree, the task
- * explorer its rows, the tab strip its tabs — and the thing they must agree on
- * is the RAMP. Four independently-tuned sets of greys is how one of them ends
+ * WHY A SHARED PRIMITIVE AND NOT LOCAL COPIES. Several surfaces ghost
+ * themselves — the work list its rows, the flight deck its tree, the tab strip
+ * its tabs — and the thing they must agree on is the RAMP. Independently-tuned sets of greys is how one of them ends
  * up reading as loading while the other three read as a hint, and the ramp is
  * also the part that has to survive a theme swap in both directions.
  *

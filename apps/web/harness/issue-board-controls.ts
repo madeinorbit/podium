@@ -23,7 +23,7 @@ const cases = [
   {
     name: 'browser-rendered',
     file: source,
-    browserError: 'Rendered board/explorer parity differs',
+    browserError: 'Rendered board parity differs',
     from: 'issue: row, sessions: roster ?? [],',
     to: "issue: { ...row, title: 'Planted incorrect title' }, sessions: roster ?? [],",
   },

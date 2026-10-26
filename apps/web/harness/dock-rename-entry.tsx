@@ -9,7 +9,7 @@
  *
  * jsdom proves both branches; it cannot show that the editor lands where the
  * name was, at the size the name was, which is the part a reviewer has to see.
- * So the shipping `IssueExplorer` is mounted here against the real stylesheet
+ * So the shipping dock task panel is mounted here against the real stylesheet
  * with the explorer harness's stubbed store.
  *
  *   cd apps/web && bunx vite --config vite.explorer-harness.config.ts
@@ -20,12 +20,9 @@ import type { JSX } from 'react'
 import { useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { OperatorFocusProvider } from '@/app/operator-focus'
+import RightDockIssuePanel from '@/app/RightDockIssuePanel'
 import { ThemeProvider } from '@/app/theme'
-import {
-  IssueExplorerProvider,
-  useIssueExplorer,
-} from '@/features/issues/explorer/explorer-context'
-import { IssueExplorer, IssueExplorerCrumbs } from '@/features/issues/explorer/IssueExplorer'
+import { DockIssueProvider, useDockIssue } from '@/features/issues/dock-issue'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
 import { makeIssue } from '@/lib/test-issue'
 import '@/index.css'
@@ -69,17 +66,17 @@ state.issues = [
 ]
 state.sessions = [AGENT]
 
-/** Point the explorer at the draft, once — re-pointing every render would undo
+/** Point the panel at the draft, once — re-pointing every render would undo
  *  whatever the shot script just opened. */
 function PointAtDraft(): JSX.Element {
-  const { retarget } = useIssueExplorer()
+  const { show } = useDockIssue()
   useEffect(() => {
-    retarget('i-1609')
-  }, [retarget])
+    show('i-1609')
+  }, [show])
   return <span />
 }
 
-/** The dock column as `RightDock` builds it: a 44px head carrying the trail,
+/** The dock column as `RightDock` builds it: a 44px head naming the task,
  *  then the panel, at the width the operator actually reads it in. */
 function Dock(): JSX.Element {
   return (
@@ -89,14 +86,14 @@ function Dock(): JSX.Element {
       data-right-dock-panel="issue"
     >
       <div className="flex h-11 flex-none items-center gap-[9px] border-b border-border px-3.5">
-        <IssueExplorerCrumbs />
+        <RightDockIssuePanel kind="header" />
       </div>
-      <IssueExplorer cwd="/r" />
+      <RightDockIssuePanel kind="panel" cwd="/r" />
     </div>
   )
 }
 
-/** Owns the replica the way `explorer-entry`'s does: the stub store patches
+/** Owns the replica: the stub store patches
  *  `state.issues` on a rename and wakes its listeners, and this is what turns
  *  that into a re-render of the column. */
 function Harness(): JSX.Element {
@@ -125,9 +122,9 @@ if (root) {
     <ThemeProvider>
       <ConfirmProvider>
         <OperatorFocusProvider missionId={null}>
-          <IssueExplorerProvider>
+          <DockIssueProvider>
             <Harness />
-          </IssueExplorerProvider>
+          </DockIssueProvider>
         </OperatorFocusProvider>
       </ConfirmProvider>
     </ThemeProvider>,

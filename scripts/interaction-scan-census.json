@@ -5264,543 +5264,6 @@
       "guard": "mission-menu.test.ts proves no destination reads or publications before opening and releases them after closing at 1x/4x; real SessionContextMenu and IssueContextMenu tests preserve targets and blocker text."
     },
     {
-      "file": "apps/web/src/features/issues/explorer/IssueExplorer.tsx",
-      "holder": "IssueExplorer/views",
-      "rule": "reader-summary",
-      "tokens": "bd5149cc889d5f58774048939961719ee0fe9f46c79bbd0ab25e991cecf21bd3",
-      "gate": [],
-      "origin": [
-        "07cb6cd219d8b29bc3dd2c7b3a1e1ca227fe25c0b4b896649fd749265d86c704",
-        "85325d201169d4fbd9afaea57541e9a592de21b635525504418f6b65df0681a6",
-        "86ea9df660f0f4ecbc862c4893ac26bbb1de968a0a06d26d6812b68ebc44dcad"
-      ],
-      "fingerprint": "3a8902eff807b2ce74f14e9274d74dfed4d8ac86fcfc69dad392f786533d4a7c",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5866",
-      "trigger": "Invocation of IssueExplorer/views",
-      "bound": "Opening ownership bounds lifetime, not collection cardinality; the existing collection path still requires a named-demand or cardinality bound.",
-      "reason": "The explorer opening context exposes the existing reader-summary collection path. This lifetime change does not claim to repair its collection work.",
-      "guard": "Exact fingerprint and multiplicity only; POD-5866 opening tests prove release, IssueExplorer.test.tsx preserves navigation answers, and speed:structural compares work with the pilot baseline. This entry is not a collection-work fix."
-    },
-    {
-      "file": "apps/web/src/features/issues/explorer/explorer-list.ts",
-      "holder": "explorerCounts",
-      "rule": "loop:for-of",
-      "tokens": "c24b93d0364c13556582aa1544af1dfbf7b6ec54684456d3b79cbc7fd8f99f7c",
-      "gate": [],
-      "origin": [
-        "630a2d7a39c6a67402845265883ba5e3b9ee8fa65c96204ffd425311e6ab41ff"
-      ],
-      "fingerprint": "5a2d076b73f6bd13f3256224baa333121e15b7a4f27e0ecb8501e535a9f567d4",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of explorerCounts",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "loop:for-of carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/features/issues/explorer/explorer-list.ts",
-      "holder": "explorerCounts/byIssue",
-      "rule": "helper-consumer",
-      "tokens": "05bcdbad27853864be83d7d3b10e005902ec54efa08269b0feec5886d354b7d0",
-      "gate": [],
-      "origin": [
-        "630a2d7a39c6a67402845265883ba5e3b9ee8fa65c96204ffd425311e6ab41ff",
-        "d035e186a3d1b2ae9a9b7e5529f03b2f485bba113db07234505a264a654a2ccb"
-      ],
-      "fingerprint": "11a42aefe470ad75580805f0f9b9ec47e4183c223a006d089bbcfb5af0f6019f",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of explorerCounts/byIssue",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/features/issues/explorer/explorer-list.ts",
-      "holder": "explorerCounts/scoped",
-      "rule": "helper-consumer",
-      "tokens": "a81ce62b3c96e77e96a0051f452d118574ddb9dadd85b5b668da3dcae90fbdcc",
-      "gate": [],
-      "origin": [
-        "630a2d7a39c6a67402845265883ba5e3b9ee8fa65c96204ffd425311e6ab41ff"
-      ],
-      "fingerprint": "944b1a7b8bb1213e2cbba38196e5eab5119b2b23680a07bfabe89ff56e3822f4",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of explorerCounts/scoped",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/features/issues/explorer/explorer-list.ts",
-      "holder": "explorerCounts/scoped",
-      "rule": "reader-summary",
-      "tokens": "02633de2d986ba26dce2f943f0bb3d8cc7ad5339795f6ba89b6cfd502028f370",
-      "gate": [],
-      "origin": [
-        "630a2d7a39c6a67402845265883ba5e3b9ee8fa65c96204ffd425311e6ab41ff"
-      ],
-      "fingerprint": "2b709419144fd199c07732cbc6a4e0e31a3b6790543451d9a734fc0d6358b5a4",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of explorerCounts/scoped",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/features/issues/explorer/explorer-list.ts",
-      "holder": "explorerRows",
-      "rule": "consume:filter",
-      "tokens": "5ccc4d3487ee3d557e7c22a451c78da1775ec3ea93ef14c7f972481f900c610b",
-      "gate": [
-        "exit:then:07860dde44519dac7980f402c66b9f854f03023dce9fd143bd88c920cb48c1d1",
-        "then:617d5805426c71ab0257e8e0fcb2ad4f27619be486debb056456a5cab11bc006"
-      ],
-      "origin": [
-        "0419a9bc1adc5c57b33521348e51ac9a0c2c64f8742c6ca84a542280e6a9498d"
-      ],
-      "fingerprint": "9bb05f60c7ef37e040996e106b6f5e00ecc1c9a458c95bd11e421eabbacd6a95",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of explorerRows",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:filter carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/features/issues/explorer/explorer-list.ts",
-      "holder": "explorerRows",
-      "rule": "consume:filter",
-      "tokens": "385120fdcc19d7386898966da60a25b2d8dc0dd106921f3ddbc6d2bf8aa92831",
-      "gate": [
-        "exit:then:617d5805426c71ab0257e8e0fcb2ad4f27619be486debb056456a5cab11bc006",
-        "exit:then:07860dde44519dac7980f402c66b9f854f03023dce9fd143bd88c920cb48c1d1"
-      ],
-      "origin": [
-        "0419a9bc1adc5c57b33521348e51ac9a0c2c64f8742c6ca84a542280e6a9498d"
-      ],
-      "fingerprint": "f5862dd0f5f8571e134c9ca1c9c884e2d84cc81656dfbd905682f679e7ec1413",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of explorerRows",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:filter carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/features/issues/explorer/explorer-list.ts",
-      "holder": "explorerRows",
-      "rule": "consume:sort",
-      "tokens": "1d7d694dffd0326df795697c059abccd9425effe8af961abd32673689cdb9d97",
-      "gate": [
-        "exit:then:07860dde44519dac7980f402c66b9f854f03023dce9fd143bd88c920cb48c1d1",
-        "then:617d5805426c71ab0257e8e0fcb2ad4f27619be486debb056456a5cab11bc006"
-      ],
-      "origin": [
-        "0419a9bc1adc5c57b33521348e51ac9a0c2c64f8742c6ca84a542280e6a9498d"
-      ],
-      "fingerprint": "7ebc637c02f16979a61dd0c9cf6f710a3bc200b48892bb8684c1b623748cf4b0",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of explorerRows",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:sort carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/features/issues/explorer/explorer-list.ts",
-      "holder": "explorerRows",
-      "rule": "consume:sort",
-      "tokens": "4e17a6e069230c3da4c60d81991535212f387d01a6751c271ed5862f66b76512",
-      "gate": [
-        "then:07860dde44519dac7980f402c66b9f854f03023dce9fd143bd88c920cb48c1d1"
-      ],
-      "origin": [
-        "0419a9bc1adc5c57b33521348e51ac9a0c2c64f8742c6ca84a542280e6a9498d"
-      ],
-      "fingerprint": "c2df12535c85501048595d9e2eed167722e5d10c38477eb7ea2ea8b204d94bb3",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of explorerRows",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:sort carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/features/issues/explorer/explorer-list.ts",
-      "holder": "explorerRows",
-      "rule": "consume:sort",
-      "tokens": "dfc54fe25d1b253117fb35ea9f6417aaca339dfe0e2b9dff5ef7b7bac81d0c3c",
-      "gate": [
-        "exit:then:617d5805426c71ab0257e8e0fcb2ad4f27619be486debb056456a5cab11bc006",
-        "exit:then:07860dde44519dac7980f402c66b9f854f03023dce9fd143bd88c920cb48c1d1"
-      ],
-      "origin": [
-        "0419a9bc1adc5c57b33521348e51ac9a0c2c64f8742c6ca84a542280e6a9498d"
-      ],
-      "fingerprint": "d93027071705057b95a809a5e90a8b3e2d2859fe8f0d5ad31e3bd17a45cda064",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of explorerRows",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:sort carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/features/issues/explorer/explorer-list.ts",
-      "holder": "explorerRows",
-      "rule": "spread",
-      "tokens": "53bb4fe34011f93badc06a804cfe863ed28e7d5e26c3b3ac86ec1ad7b4608ad1",
-      "gate": [
-        "then:07860dde44519dac7980f402c66b9f854f03023dce9fd143bd88c920cb48c1d1"
-      ],
-      "origin": [
-        "0419a9bc1adc5c57b33521348e51ac9a0c2c64f8742c6ca84a542280e6a9498d"
-      ],
-      "fingerprint": "61b3edaa92611c6ca7ab400dc36ac2fdbca859d181ec08167f8083c486e8abb7",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of explorerRows",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "spread carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/features/issues/explorer/explorer-list.ts",
-      "holder": "explorerRows",
-      "rule": "spread",
-      "tokens": "a73ebddb30085f7f1dbf96c78af880c7f4629bd2a3f1f6347dd5fc739cbfadc7",
-      "gate": [
-        "then:07860dde44519dac7980f402c66b9f854f03023dce9fd143bd88c920cb48c1d1"
-      ],
-      "origin": [
-        "0419a9bc1adc5c57b33521348e51ac9a0c2c64f8742c6ca84a542280e6a9498d"
-      ],
-      "fingerprint": "b44a2d50de6162a72f80bb3495f5b4057e6cb74c26e4162182c40cc5908e8cde",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of explorerRows",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "spread carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/features/issues/explorer/explorer-list.ts",
-      "holder": "explorerRows/byIssue",
-      "rule": "helper-consumer",
-      "tokens": "05bcdbad27853864be83d7d3b10e005902ec54efa08269b0feec5886d354b7d0",
-      "gate": [
-        "exit:then:07860dde44519dac7980f402c66b9f854f03023dce9fd143bd88c920cb48c1d1",
-        "then:617d5805426c71ab0257e8e0fcb2ad4f27619be486debb056456a5cab11bc006"
-      ],
-      "origin": [
-        "0419a9bc1adc5c57b33521348e51ac9a0c2c64f8742c6ca84a542280e6a9498d",
-        "f021b390c862baa0d2e960bdb7f52d692c368b6ece6043e05ab71be6b04592c7"
-      ],
-      "fingerprint": "01afad0e9786de8a1e8bd831745f56f85fb8ef9deae5b2fdae5cbdcf1c66709e",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of explorerRows/byIssue",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/features/issues/explorer/explorer-list.ts",
-      "holder": "explorerRows/exactRef",
-      "rule": "consume:filter",
-      "tokens": "7c446bf7576aa1fd787a66b335b39d08b65e9e953e16432f0b3507d5ffcb74ae",
-      "gate": [
-        "then:07860dde44519dac7980f402c66b9f854f03023dce9fd143bd88c920cb48c1d1"
-      ],
-      "origin": [
-        "0419a9bc1adc5c57b33521348e51ac9a0c2c64f8742c6ca84a542280e6a9498d"
-      ],
-      "fingerprint": "2f116ae7b50bcd77dcca88ae41e72a5f6d308dd6651776fd688a33d8264c7316",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of explorerRows/exactRef",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:filter carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/features/issues/explorer/explorer-list.ts",
-      "holder": "explorerRows/matched",
-      "rule": "consume:filter",
-      "tokens": "b814e71f65eee5d8aaf882ae1214adb56d36534361c6ff5201a15b4e7aceb933",
-      "gate": [
-        "then:07860dde44519dac7980f402c66b9f854f03023dce9fd143bd88c920cb48c1d1"
-      ],
-      "origin": [
-        "0419a9bc1adc5c57b33521348e51ac9a0c2c64f8742c6ca84a542280e6a9498d"
-      ],
-      "fingerprint": "2f0535b7ef0221e3a7ee7c1db64eaf7b267b7d2dd306a261533afcbabf6f7a92",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of explorerRows/matched",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:filter carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/features/issues/explorer/explorer-list.ts",
-      "holder": "explorerRows/open",
-      "rule": "consume:filter",
-      "tokens": "a9eebf507a340ff90bcb9cf594931f4503b8b53e4fceb3330dcbea16053909ed",
-      "gate": [],
-      "origin": [
-        "0419a9bc1adc5c57b33521348e51ac9a0c2c64f8742c6ca84a542280e6a9498d"
-      ],
-      "fingerprint": "5a3165a8a1dba6519ff5d2df07d3e7ded3bd0bdf66a59c20db5c9e061420a887",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of explorerRows/open",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:filter carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/features/issues/explorer/explorer-list.ts",
-      "holder": "explorerRows/scoped",
-      "rule": "helper-consumer",
-      "tokens": "a81ce62b3c96e77e96a0051f452d118574ddb9dadd85b5b668da3dcae90fbdcc",
-      "gate": [],
-      "origin": [
-        "0419a9bc1adc5c57b33521348e51ac9a0c2c64f8742c6ca84a542280e6a9498d"
-      ],
-      "fingerprint": "613e6554bd0eaba458ccfb26f3aafec0213a843f3c8d493cf509c6b325769585",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of explorerRows/scoped",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/features/issues/explorer/explorer-list.ts",
-      "holder": "explorerRows/scoped",
-      "rule": "reader-summary",
-      "tokens": "02633de2d986ba26dce2f943f0bb3d8cc7ad5339795f6ba89b6cfd502028f370",
-      "gate": [],
-      "origin": [
-        "0419a9bc1adc5c57b33521348e51ac9a0c2c64f8742c6ca84a542280e6a9498d"
-      ],
-      "fingerprint": "e8f78bfb66925ff06ae405c88e55cfda61593fb19eef98f7fcf902c487c4d144",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of explorerRows/scoped",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/features/issues/explorer/explorer-list.ts",
-      "holder": "explorerRows/seen",
-      "rule": "consume:map",
-      "tokens": "c9a4306cbbfcf922e025abf271fbef958216bf0d202eb83244a60e881497b1e9",
-      "gate": [
-        "then:07860dde44519dac7980f402c66b9f854f03023dce9fd143bd88c920cb48c1d1"
-      ],
-      "origin": [
-        "0419a9bc1adc5c57b33521348e51ac9a0c2c64f8742c6ca84a542280e6a9498d"
-      ],
-      "fingerprint": "309a99b384f81bbc995423450c2e499a4835856ea07c640c97dbf0decc34b6c1",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of explorerRows/seen",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/features/issues/explorer/explorer-list.ts",
-      "holder": "explorerRows/seen",
-      "rule": "materialize:Set",
-      "tokens": "92ca9f0bd3574d030b5b8dc4da353f4e19b407f59d4ae87aa5fbddc3c0508f8a",
-      "gate": [
-        "then:07860dde44519dac7980f402c66b9f854f03023dce9fd143bd88c920cb48c1d1"
-      ],
-      "origin": [
-        "0419a9bc1adc5c57b33521348e51ac9a0c2c64f8742c6ca84a542280e6a9498d"
-      ],
-      "fingerprint": "16edbbbefca87624c767cbcd9b845e42d1938d9c2567355c391afb1fed7c8c9b",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of explorerRows/seen",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "materialize:Set carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/features/issues/explorer/explorer-list.ts",
-      "holder": "inScope",
-      "rule": "helper-consumer",
-      "tokens": "066279f6de1d7f41e54a18f4c685905b77ec21fbe6e9a347f609d203c85fef9a",
-      "gate": [],
-      "origin": [
-        "0419a9bc1adc5c57b33521348e51ac9a0c2c64f8742c6ca84a542280e6a9498d"
-      ],
-      "fingerprint": "1869b1277a0c9be60addf1d758c05c5436f6afc8171f73bb464b68b421009d61",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of inScope",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/features/issues/explorer/explorer-list.ts",
-      "holder": "inScope",
-      "rule": "helper-consumer",
-      "tokens": "066279f6de1d7f41e54a18f4c685905b77ec21fbe6e9a347f609d203c85fef9a",
-      "gate": [],
-      "origin": [
-        "630a2d7a39c6a67402845265883ba5e3b9ee8fa65c96204ffd425311e6ab41ff"
-      ],
-      "fingerprint": "bf7c0498c2d3fc1236cbd07aef1832caddf63e030fee13cc41d4499d04e9738d",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of inScope",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/features/issues/explorer/explorer-list.ts",
-      "holder": "inScope",
-      "rule": "helper-consumer",
-      "tokens": "066279f6de1d7f41e54a18f4c685905b77ec21fbe6e9a347f609d203c85fef9a",
-      "gate": [],
-      "origin": [
-        "08b77b26ff5d4b30a94a0bc7de21cdf3145591f706c7926a09cfbd32be9e71ea"
-      ],
-      "fingerprint": "dab95f5a8a7483861b5da0a50b86d61e3435aa4a665201243c0acd853b23ee06",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of inScope",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/features/issues/explorer/explorer-list.ts",
-      "holder": "inScope",
-      "rule": "reader-summary",
-      "tokens": "e0437243134bf4dabd876563bbbc10ce1801bea9ac3fd5115453c65dbee44aa7",
-      "gate": [],
-      "origin": [
-        "0419a9bc1adc5c57b33521348e51ac9a0c2c64f8742c6ca84a542280e6a9498d"
-      ],
-      "fingerprint": "25197ec0868925ba6fb1ffbb4b101f3d5c84f3ea5845d6cee66844bcc16c4d84",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of inScope",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/features/issues/explorer/explorer-list.ts",
-      "holder": "inScope",
-      "rule": "reader-summary",
-      "tokens": "e0437243134bf4dabd876563bbbc10ce1801bea9ac3fd5115453c65dbee44aa7",
-      "gate": [],
-      "origin": [
-        "630a2d7a39c6a67402845265883ba5e3b9ee8fa65c96204ffd425311e6ab41ff"
-      ],
-      "fingerprint": "9b47a5e2e59aba25e3798894ac36b8b780728de2e4da0d821179534841c1de91",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of inScope",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/features/issues/explorer/explorer-list.ts",
-      "holder": "inScope",
-      "rule": "reader-summary",
-      "tokens": "e0437243134bf4dabd876563bbbc10ce1801bea9ac3fd5115453c65dbee44aa7",
-      "gate": [],
-      "origin": [
-        "08b77b26ff5d4b30a94a0bc7de21cdf3145591f706c7926a09cfbd32be9e71ea"
-      ],
-      "fingerprint": "b80ca33f1fec9ae25321cd03652caf090888ce790720d5e768b20a9a76fa067e",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of inScope",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/features/issues/explorer/explorer-list.ts",
-      "holder": "sessionsByIssue",
-      "rule": "loop:for-of",
-      "tokens": "b844be69551419f0781866d1bc77c95b2f4377c153e987295382eb40e2b43f82",
-      "gate": [],
-      "origin": [
-        "a2cff7d35b7f49d4964976e3f0942cd080c19d6014ca2200585621181e02707b"
-      ],
-      "fingerprint": "7eff94e9d9bfc6d87de21add6b604528489466cd3708d3fe05f9f07a6fab8cf0",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of sessionsByIssue",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "loop:for-of carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/features/issues/explorer/explorer-list.ts",
-      "holder": "sessionsByIssue",
-      "rule": "loop:for-of",
-      "tokens": "1fd1355ef1061619b2deb476ef181f8f69a29f6c707b431a0f9728037f249ea7",
-      "gate": [],
-      "origin": [
-        "ec77af56fef0663b7bd3efeba00d8f3d510c3e4b7aeec85511b1f33623a3afb2"
-      ],
-      "fingerprint": "ff22c553e67c527cf66b5df0213c27ea43f446a155c22883f7ae1112e02f125d",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of sessionsByIssue",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "loop:for-of carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
       "file": "apps/web/src/features/issues/issue-context-menu.ts",
       "holder": "cascadeSessionCount",
       "rule": "consume:reduce",
@@ -11823,9 +11286,7 @@
         "a835815122562d1d0dd22a71ddbd055fbfba7f823cba8712a4b31941ff575f25",
         "b62af815f9048d102aca17f2695d460f40e618bcc845d7a0d3bc1c8b90140c10",
         "b8acefbfd479a9d30488941c28b0bfbee2b5c12262c758d33711f20f844df269",
-        "b96acfd84b2033370088de370a18d23b05dd7a705e36f9f0bfe0d4451ba4f632",
         "bb63b4681ff02087ae40a98960805396f267dab5048105a4197489c59a30f7d1",
-        "c0417b5362c72c3fe73d067ff2b07daae43a7d03bf2ac5cbf8398bf5309c49f8",
         "c590f274705443e80f2449456407c0144a830068008eac7ad06d35cf7f54313c",
         "c77b0b5df1a56c21e04e74a107655690b236422a60b5f219909ed19cf4e82dcd",
         "cfaa16c1a3326e86b2ab2bda33551103ec76b60336edcc1bc9a1c0d4486e580c",
@@ -11835,7 +11296,7 @@
         "ee146fea4afb84b56b3e0b90929f3fa73313f6e9d06d70719b0415c24524c64f",
         "f35fbf75a9191b6b6b2796aba1314c0b716360ad6ffbe40bb2a13c777d8a0061"
       ],
-      "fingerprint": "d5a389982af1553f17760f30baad0825bd5e711e7a7dabed87de31781d31388e",
+      "fingerprint": "5ba1d84a658c0ed4a3834f2fe14771589c5f1a1a6cdf74d7c34576b2380d3a23",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -11885,14 +11346,14 @@
       "file": "apps/web/src/test-support/mock-screen-pool.ts",
       "holder": "useFixturePool/useLayoutEffect:callback",
       "rule": "helper-consumer",
-      "tokens": "ab5c55309cc03d952d8908006c76bd149ae544e6816e53d76aefaf8074215fcb",
+      "tokens": "9639a029f6381d6de956489681399a76ee5744e47156cb93d99ead78086f3e16",
       "gate": [],
       "origin": [
         "5641f8f84581485a31d010b99e085652ec205d16df8e17343cb00db585a2e662",
         "a835815122562d1d0dd22a71ddbd055fbfba7f823cba8712a4b31941ff575f25",
         "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
       ],
-      "fingerprint": "7e66e99925a84584c7eefdf16bb8f39e551ea77f22a6cb66f444654ecfd5ca2f",
+      "fingerprint": "840d1564f2c4885f340c3a03323dff9ded81cf83256fb7591a372343b43b4323",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-5872",
@@ -13529,14 +12990,14 @@
       "file": "apps/web/src/test-support/mock-screen-pool.ts",
       "holder": "useFixturePool/useMemo:callback/records/callback",
       "rule": "helper-consumer",
-      "tokens": "e03bc7037ed237aea4035e19d40fbc59645a2d01457f296eb677adff49bb1875",
+      "tokens": "e6704fbfde2c70e52a3a207898f2d899a904967a5b3e99230ebcc20629e0ce9a",
       "gate": [],
       "origin": [
         "5641f8f84581485a31d010b99e085652ec205d16df8e17343cb00db585a2e662",
         "a835815122562d1d0dd22a71ddbd055fbfba7f823cba8712a4b31941ff575f25",
         "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
       ],
-      "fingerprint": "b0203631fc0ea511803aaf14219896d14344dd20c9b94b645614730361df36ee",
+      "fingerprint": "789ed0db44187b00a33b30a0c8ef8d7ec384269af8cdae0694a319ddb2e08661",
       "count": 1,
       "classification": "ingest",
       "owner": "POD-5888",
@@ -13690,15 +13151,13 @@
         "a835815122562d1d0dd22a71ddbd055fbfba7f823cba8712a4b31941ff575f25",
         "b62af815f9048d102aca17f2695d460f40e618bcc845d7a0d3bc1c8b90140c10",
         "b8acefbfd479a9d30488941c28b0bfbee2b5c12262c758d33711f20f844df269",
-        "b96acfd84b2033370088de370a18d23b05dd7a705e36f9f0bfe0d4451ba4f632",
-        "c0417b5362c72c3fe73d067ff2b07daae43a7d03bf2ac5cbf8398bf5309c49f8",
         "c77b0b5df1a56c21e04e74a107655690b236422a60b5f219909ed19cf4e82dcd",
         "ea8afd4c0bbd9c377334c4cd46d944878332ca52063521b489310ac768728729",
         "edccbaf426dca942750619e6960d69f0c560ebdaf7c2beb6a07ceb8fdc008aaf",
         "ee146fea4afb84b56b3e0b90929f3fa73313f6e9d06d70719b0415c24524c64f",
         "f35fbf75a9191b6b6b2796aba1314c0b716360ad6ffbe40bb2a13c777d8a0061"
       ],
-      "fingerprint": "6d0de75672cb452ccfbac2babc959426d051a20854bcc241428eada889304cc9",
+      "fingerprint": "ac43155d54389f9c4cabe2177eee9e5d0ab94770192f3da3e083a5745e8bccad",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -13725,15 +13184,13 @@
         "a835815122562d1d0dd22a71ddbd055fbfba7f823cba8712a4b31941ff575f25",
         "b62af815f9048d102aca17f2695d460f40e618bcc845d7a0d3bc1c8b90140c10",
         "b8acefbfd479a9d30488941c28b0bfbee2b5c12262c758d33711f20f844df269",
-        "b96acfd84b2033370088de370a18d23b05dd7a705e36f9f0bfe0d4451ba4f632",
-        "c0417b5362c72c3fe73d067ff2b07daae43a7d03bf2ac5cbf8398bf5309c49f8",
         "c77b0b5df1a56c21e04e74a107655690b236422a60b5f219909ed19cf4e82dcd",
         "ea8afd4c0bbd9c377334c4cd46d944878332ca52063521b489310ac768728729",
         "edccbaf426dca942750619e6960d69f0c560ebdaf7c2beb6a07ceb8fdc008aaf",
         "ee146fea4afb84b56b3e0b90929f3fa73313f6e9d06d70719b0415c24524c64f",
         "f35fbf75a9191b6b6b2796aba1314c0b716360ad6ffbe40bb2a13c777d8a0061"
       ],
-      "fingerprint": "12a716489ecf3d11e4328eb6ff748e5466a0f6da4e36096baacb255cbf55e93c",
+      "fingerprint": "0ff50077ec4a4c04f90d0f3e84e9850205f36bcafb72d48604afad44f7c34ea7",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -17916,69 +17373,9 @@
         "exit:then:06a8a4045a22626abe69002a6a201b01224e09cdd420000b9318d65c4bfcd18a"
       ],
       "origin": [
-        "0419a9bc1adc5c57b33521348e51ac9a0c2c64f8742c6ca84a542280e6a9498d"
-      ],
-      "fingerprint": "14c775bfe521c56cf70941432167463809e0ba2eee5c21b0fcf2d66877885685",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of filterBoardScope",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:filter carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-core/src/values/board-scope.ts",
-      "holder": "filterBoardScope",
-      "rule": "consume:filter",
-      "tokens": "0dd2beaa30630e14af807841c7aa3765891960cd1ec121922148917dff9c7396",
-      "gate": [
-        "exit:then:06a8a4045a22626abe69002a6a201b01224e09cdd420000b9318d65c4bfcd18a"
-      ],
-      "origin": [
         "d6d79cc34672ff88402242ae290b4f8559a5b718c109b3bf812d7f8cdb8178af"
       ],
       "fingerprint": "3b6b916ee49c35b3cc89a9a071dd0b3511f67b51f5312dddffdf263e76e2196a",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of filterBoardScope",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:filter carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-core/src/values/board-scope.ts",
-      "holder": "filterBoardScope",
-      "rule": "consume:filter",
-      "tokens": "0dd2beaa30630e14af807841c7aa3765891960cd1ec121922148917dff9c7396",
-      "gate": [
-        "exit:then:06a8a4045a22626abe69002a6a201b01224e09cdd420000b9318d65c4bfcd18a"
-      ],
-      "origin": [
-        "08b77b26ff5d4b30a94a0bc7de21cdf3145591f706c7926a09cfbd32be9e71ea"
-      ],
-      "fingerprint": "5bbec55d6ecd41a21f07557accacc751c60c4d03a4360a201bb9ef06dc7274f1",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of filterBoardScope",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:filter carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-core/src/values/board-scope.ts",
-      "holder": "filterBoardScope",
-      "rule": "consume:filter",
-      "tokens": "0dd2beaa30630e14af807841c7aa3765891960cd1ec121922148917dff9c7396",
-      "gate": [
-        "exit:then:06a8a4045a22626abe69002a6a201b01224e09cdd420000b9318d65c4bfcd18a"
-      ],
-      "origin": [
-        "630a2d7a39c6a67402845265883ba5e3b9ee8fa65c96204ffd425311e6ab41ff"
-      ],
-      "fingerprint": "90008f72eb83600c259a5739d621cba626d876c60e1ba9e3aff48ce502779ea2",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -18054,24 +17451,6 @@
       "tokens": "68a645c69b2871a6d4df426cc19a18e7914ca6784376b5cc627ffc0e8be55e8a",
       "gate": [],
       "origin": [
-        "630a2d7a39c6a67402845265883ba5e3b9ee8fa65c96204ffd425311e6ab41ff"
-      ],
-      "fingerprint": "01f4c80835e9fa0343648ea8b5ac0803f4c36eaf3cf09414addc91276ea5f285",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of filterBoardScope/noDrafts",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:filter carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-core/src/values/board-scope.ts",
-      "holder": "filterBoardScope/noDrafts",
-      "rule": "consume:filter",
-      "tokens": "68a645c69b2871a6d4df426cc19a18e7914ca6784376b5cc627ffc0e8be55e8a",
-      "gate": [],
-      "origin": [
         "d6d79cc34672ff88402242ae290b4f8559a5b718c109b3bf812d7f8cdb8178af"
       ],
       "fingerprint": "266549a1dce8cbdd66f6c6fc7fa45e17f253cea7e20d4680603aa41cb5c74c1a",
@@ -18090,45 +17469,9 @@
       "tokens": "68a645c69b2871a6d4df426cc19a18e7914ca6784376b5cc627ffc0e8be55e8a",
       "gate": [],
       "origin": [
-        "0419a9bc1adc5c57b33521348e51ac9a0c2c64f8742c6ca84a542280e6a9498d"
-      ],
-      "fingerprint": "3b63b446a17a6ada66fa618cf1ebd2316b6f0ab872f9e3aa1f2592c63044fdd4",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of filterBoardScope/noDrafts",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:filter carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-core/src/values/board-scope.ts",
-      "holder": "filterBoardScope/noDrafts",
-      "rule": "consume:filter",
-      "tokens": "68a645c69b2871a6d4df426cc19a18e7914ca6784376b5cc627ffc0e8be55e8a",
-      "gate": [],
-      "origin": [
         "7a0e71d5efcb403dff4f4d29e8a3e78a754a08d24026380873d7f85b72512639"
       ],
       "fingerprint": "91cee7aadc223babd1cd29b7ee297b5a701b131aea1961fcc5d81bf08ae83667",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of filterBoardScope/noDrafts",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:filter carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-core/src/values/board-scope.ts",
-      "holder": "filterBoardScope/noDrafts",
-      "rule": "consume:filter",
-      "tokens": "68a645c69b2871a6d4df426cc19a18e7914ca6784376b5cc627ffc0e8be55e8a",
-      "gate": [],
-      "origin": [
-        "08b77b26ff5d4b30a94a0bc7de21cdf3145591f706c7926a09cfbd32be9e71ea"
-      ],
-      "fingerprint": "eced385c2b23e63c5ce2a2d7b30a12845fc2495728d42f966aef6c39f7b69f21",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -23795,26 +23138,6 @@
     },
     {
       "file": "packages/client-core/src/values/mission.ts",
-      "holder": "issueErroredSession",
-      "rule": "consume:find",
-      "tokens": "93d48af91af052c5728f8308ff9e2145f16fbc99e914be2a1cffcaa1e5dac137",
-      "gate": [
-        "exit:then:cc71c20fca35ba20b176e7a04d1837e7e207e374d6ee195c208a1f2488055462"
-      ],
-      "origin": [
-        "d018788975fe3b8b3257aec548f46aa1fbf80ba9bfd0093a59f54a75abb6ed37"
-      ],
-      "fingerprint": "b8e5dd5b769919151e8233716a11ed9975314c07afec98c6b785671b3a52abf6",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of issueErroredSession",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:find carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-core/src/values/mission.ts",
       "holder": "issueIsActionable",
       "rule": "helper-consumer",
       "tokens": "11ccacb9a2f222daf2884ff4e78f304aaf3640b2c46f9b4be04cba544dc3dac8",
@@ -25104,24 +24427,6 @@
       "tokens": "a02258323fcbbc5cfb8ae7f34b9711e195323c7d5a0884fb7eb8a721ea1a633c",
       "gate": [],
       "origin": [
-        "d018788975fe3b8b3257aec548f46aa1fbf80ba9bfd0093a59f54a75abb6ed37"
-      ],
-      "fingerprint": "012a567f2fe98c805c677ccffb9bbfd7226f4f9e4c23d7d7b6359da5dfe3fbcd",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of operationalState/active",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:filter carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-core/src/values/mission.ts",
-      "holder": "operationalState/active",
-      "rule": "consume:filter",
-      "tokens": "a02258323fcbbc5cfb8ae7f34b9711e195323c7d5a0884fb7eb8a721ea1a633c",
-      "gate": [],
-      "origin": [
         "f05e31319d74a1fec622570542fb606e2b9167b8e368fa79f7da7c078aa454f9"
       ],
       "fingerprint": "d36f1b457d9125b399a34296dff3e93bfd465eaab57b5111c5f614f9c06ea78e",
@@ -25143,24 +24448,6 @@
         "f05e31319d74a1fec622570542fb606e2b9167b8e368fa79f7da7c078aa454f9"
       ],
       "fingerprint": "281ce5e679e64855ab6f9f284db582ffe1270875b411367496eda32737d12dae",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of operationalState/errored",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-core/src/values/mission.ts",
-      "holder": "operationalState/errored",
-      "rule": "helper-consumer",
-      "tokens": "9a84f37babae05c5542c4ed84da9bb08eda5d2ab3ef5dc7fefd973955c7614e9",
-      "gate": [],
-      "origin": [
-        "d018788975fe3b8b3257aec548f46aa1fbf80ba9bfd0093a59f54a75abb6ed37"
-      ],
-      "fingerprint": "c32854e618dd230f38b3f723a6d7e073eff24d00e4cc86d7554dd7521642fa47",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -31888,24 +31175,6 @@
       "guard": "packages/client-graph/src/issue-activity.test.ts verifies unchanged mail identity on addressed updates and release after the last view; the mail-not-reused fault control fails those assertions."
     },
     {
-      "file": "packages/client-graph/src/issue-board-cards.ts",
-      "holder": "ExplorerRow/state",
-      "rule": "helper-consumer",
-      "tokens": "bb429bacefa42dfca974a532161b87fd97f39d63accce850c8f832636b89a125",
-      "gate": [],
-      "origin": [
-        "d018788975fe3b8b3257aec548f46aa1fbf80ba9bfd0093a59f54a75abb6ed37"
-      ],
-      "fingerprint": "a244412fb8fe356700a69e0b40d8dc4a4b2869f0130fa2cc8a2fb5eefdfa2103",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of ExplorerRow/state",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
       "file": "packages/client-graph/src/issue-board-layout.ts",
       "holder": "createBoardLayout/columnIds/keyedComputed:callback/ids/callback/untracked:callback",
       "rule": "materialize:Set",
@@ -32135,44 +31404,6 @@
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-graph/src/issue-board-source.ts",
-      "holder": "createIssueBoardSource/tabCounts/ids/callback",
-      "rule": "question:boardCounts",
-      "tokens": "05af5f7e5164911a3f109798173194334917a9bd6c907a5d22c26c0ebdb11f58",
-      "gate": [],
-      "origin": [
-        "b96acfd84b2033370088de370a18d23b05dd7a705e36f9f0bfe0d4451ba4f632"
-      ],
-      "fingerprint": "8af5bd38f6dd588a2642e33fffff280438ca936486f3ee224d5e347053afe18e",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of createIssueBoardSource/tabCounts/ids/callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "question:boardCounts carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-graph/src/issue-explorer.ts",
-      "holder": "createIssueExplorer/ids/keyedComputed:callback/ids/callback",
-      "rule": "question:boardIssues",
-      "tokens": "66da7d574434190a30d31c88dc2f8bdd42a370dfae28f09ceb6e5a2bfad1a850",
-      "gate": [
-        "then:23e7f7135ebfd7da407a2beda114784e25f9882af0d80fe096b782587c7c1101"
-      ],
-      "origin": [
-        "c0417b5362c72c3fe73d067ff2b07daae43a7d03bf2ac5cbf8398bf5309c49f8"
-      ],
-      "fingerprint": "f8168a81fa711208e4e46f87691f919763b1b9a6d6268af397e93bdcff448b97",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Initial demand for an explorer query.",
-      "bound": "Query seeding can enumerate its candidate IDs; updates use addressed scalar answers and ordered snapshots.",
-      "reason": "Existing explorer candidate acquisition moved to the demand-scoped query helper; its classification is preserved.",
-      "guard": "packages/worklist-proto/harness/src/work-per-change.test.tsx"
     },
     {
       "file": "packages/client-graph/src/issue-page.ts",

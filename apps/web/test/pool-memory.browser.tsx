@@ -31,7 +31,7 @@ import { CommandPaletteBoundary } from '../src/app/CommandPaletteBoundary'
 import { OperatorFocusProvider } from '../src/app/operator-focus'
 import { attachWorklistPool, useWorklistPool } from '../src/app/store-worklist-pool'
 import { TooltipProvider } from '../src/components/ui/tooltip'
-import { IssueExplorerProvider } from '../src/features/issues/explorer/explorer-context'
+import { DockIssueProvider } from '../src/features/issues/dock-issue'
 import { SidebarUnified } from '../src/features/worklist/SidebarUnified'
 import { ConfirmProvider } from '../src/lib/hooks/use-confirm'
 import '../src/index.css'
@@ -141,7 +141,7 @@ function Fixture() {
   }, [runtime, pool])
   return (
     <OperatorFocusProvider missionId={selected}>
-      <IssueExplorerProvider>
+      <DockIssueProvider>
         <CommandPaletteBoundary />
         <div className="desktop-shell">
           <div className="desktop-shell-row" style={{ height: '100vh' }}>
@@ -154,7 +154,7 @@ function Fixture() {
             </aside>
           </div>
         </div>
-      </IssueExplorerProvider>
+      </DockIssueProvider>
     </OperatorFocusProvider>
   )
 }

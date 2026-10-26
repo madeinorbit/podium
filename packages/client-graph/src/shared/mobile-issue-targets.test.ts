@@ -46,7 +46,6 @@ describe('mobile target identity question', () => {
       shellIssues: { kind: 'shellIssues' },
       missionIssues: { kind: 'missionIssues' },
       boardCatalog: { kind: 'boardCatalog' },
-      boardCounts: { kind: 'boardCounts' },
       proposedIssues: { kind: 'proposedIssues' },
       commandSessions: { kind: 'commandSessions' },
       inboxSessions: { kind: 'inboxSessions' },

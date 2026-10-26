@@ -1,19 +1,5 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
-exports[`issue page rendered pool parity > preserves the fallback list close dialog, working members, child counts, question and delivery words > close dialog 1`] = `
-{
-  "bytes": 9167,
-  "sha256": "3c18aa07fdedff83253c1a47fb962cda7b4aadc9aa5c1c5749146ce37e4044cc",
-}
-`;
-
-exports[`issue page rendered pool parity > preserves the list text, labels, order, layout and loader results with zero legacy derivations > rendered output 1`] = `
-{
-  "bytes": 10846,
-  "sha256": "9cb573962893557ea2b1958a1c304e883de4b85c26a0ad7faba07e12b67b8d2e",
-}
-`;
-
 exports[`issue page rendered pool parity > preserves the page text, labels, order, layout and loader results with zero legacy derivations > rendered output 1`] = `
 {
   "bytes": 146374,

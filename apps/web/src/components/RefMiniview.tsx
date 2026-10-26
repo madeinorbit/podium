@@ -10,9 +10,9 @@ import {
   ChevronDown,
   ChevronUp,
   ExternalLink,
-  ListTree,
   LoaderCircle,
   MessagesSquare,
+  PanelRight,
   Play,
   User,
   X,
@@ -35,7 +35,7 @@ import { useWorklistPool, useWorklistPoolProjection } from '@/app/store-worklist
 import { DropdownMenuOwner } from '@/components/ui/dropdown-menu'
 import { IssueChipLiveness } from '@/features/chat/IssueChipLiveness'
 import { useChatReferenceMachines } from '@/features/chat/use-chat-context'
-import { useIssueExplorer } from '@/features/issues/explorer/explorer-context'
+import { useDockIssue } from '@/features/issues/dock-issue'
 import { IssueAgentSettings } from '@/features/issues/IssueAgentSettings'
 import { IssueStatusPicker } from '@/features/issues/IssueStatusPicker'
 import { PriorityGlyph } from '@/features/issues/issue-glyphs'
@@ -173,25 +173,21 @@ function RefMiniviewContents({
     }),
     shallowEqual,
   )
-  const { retarget } = useIssueExplorer()
+  const { show } = useDockIssue()
   const loadComments = useCallback((id: IssueId) => trpc.issues.comments.query({ id }), [trpc])
 
   /**
-   * The card's escalation (POD-786): point the ISSUE EXPLORER at this task and
-   * reveal the dock. It replaces the peek drawer, which was a second, parallel
-   * detail surface over the same `IssuePanelView` — the explorer already renders
-   * that panel, with a trail the drawer never had.
+   * The card's escalation (POD-786): point the dock's TASK PANEL at this task
+   * and reveal the dock.
    *
-   * IN THE EXPLORER, AND NOWHERE ELSE (POD-1265). This used to get there by
-   * moving the shell — select the mission root, focus the task — because that
-   * was the only lever the explorer followed. But the shell selection is also
-   * what the sidebar highlights and what keys the tab area's workspace, so
-   * reading a ref in chat swapped the operator's whole workspace over to
-   * whatever task the message happened to mention. The explorer now takes a
-   * target directly, and the deck is left exactly where the work is.
+   * IN THE PANEL, AND NOWHERE ELSE (POD-1265). Moving the shell instead —
+   * select the mission root, focus the task — would swap the operator's whole
+   * workspace and the sidebar's selection over to whatever task the message
+   * happened to mention. The panel takes a target directly, and the deck is
+   * left exactly where the work is.
    */
-  const openInExplorer = (issueId: IssueId): void => {
-    retarget(issueId)
+  const openInPanel = (issueId: IssueId): void => {
+    show(issueId)
     window.dispatchEvent(new CustomEvent(OPEN_RIGHT_PANEL_EVENT, { detail: 'issue' }))
   }
   const state = useSyncExternalStore(subscribeMiniview, getMiniviewState, getMiniviewState)
@@ -211,11 +207,11 @@ function RefMiniviewContents({
       onOpenFull={() => {
         if (!target) return
         closeMiniview()
-        // One rung up the ladder: an issue escalates INTO THE EXPLORER, which
+        // One rung up the ladder: an issue escalates INTO THE TASK PANEL, which
         // keeps the chat where it is; the full /issues/:id page stays one more
-        // step away (Cmd/Ctrl-click on the chip). Sessions have no explorer
-        // surface and still navigate.
-        if (target.kind === 'issue') openInExplorer(target.issue.id)
+        // step away (Cmd/Ctrl-click on the chip). Sessions have no panel of
+        // their own and still navigate.
+        if (target.kind === 'issue') openInPanel(target.issue.id)
         else navigateToSession(state.ref)
       }}
       onGoToSession={(sessionId) => {
@@ -656,8 +652,8 @@ function IssueActions({
  * The card is a glance. Both exits leave the chat exactly where it is, and each
  * answers a different question the glance provokes:
  *
- *  - "tell me more about this task" → the ISSUE EXPLORER, which owns task detail
- *    now. It replaced a peek drawer that rendered the same `IssuePanelView` on a
+ *  - "tell me more about this task" → the dock's TASK PANEL, which owns task
+ *    detail. It replaced a peek drawer that rendered the same `IssuePanelView` on a
  *    scrim, so what used to be a parallel surface is now the one surface.
  *  - "take me to the agent doing it" → the session. For a subtask that is usually
  *    the PARENT's session, and when it is, the button says so rather than
@@ -708,11 +704,11 @@ function IssueEscalations({
         data-pressable
         type="button"
         className="inline-flex h-8 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-lg text-[12px] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-        title="Show this task in the issue explorer"
+        title="Show this task in the side panel"
         onClick={onOpenFull}
       >
-        <ListTree size={12} className="flex-none" aria-hidden="true" />
-        <span className="truncate">Open in explorer</span>
+        <PanelRight size={12} className="flex-none" aria-hidden="true" />
+        <span className="truncate">Open task</span>
       </button>
     </div>
   )
