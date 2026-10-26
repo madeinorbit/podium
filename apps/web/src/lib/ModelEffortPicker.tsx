@@ -179,6 +179,7 @@ export function ModelPicker({
       }
       options={modelOptions(agentKind, live, served)}
       selectedValue={value || 'auto'}
+      typeahead={variant === 'inline'}
       allowFreeText={allowFreeText}
       placeholder={allowFreeText ? 'Model name…' : 'Filter…'}
       {...(footnote ? { footnote } : {})}
@@ -292,6 +293,7 @@ export function EffortPicker({
       }
       options={options}
       selectedValue={value || 'auto'}
+      typeahead={variant === 'inline'}
       placeholder="Effort…"
       onSelect={onChange}
     />

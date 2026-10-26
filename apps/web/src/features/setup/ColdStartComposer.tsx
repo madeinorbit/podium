@@ -1047,6 +1047,7 @@ export function ColdStartComposer({
           <h2 className="cold-start-head">
             {first ? 'First task in' : 'New task in'}
             <PropertyMenu
+              typeahead
               trigger={
                 <button
                   type="button"
@@ -1119,6 +1120,7 @@ export function ColdStartComposer({
                   only qualify it in a quieter ink. */}
               <span className={cn(chip, 'gap-0 px-0 hover:bg-transparent')}>
                 <CapabilityAgentMenu
+                  typeahead
                   trigger={
                     <button
                       type="button"
@@ -1179,6 +1181,7 @@ export function ColdStartComposer({
                 />
               </span>
               <PropertyMenu
+                typeahead
                 trigger={
                   <button type="button" data-pressable className={chip}>
                     <Monitor size={13} className="flex-none text-text-dim" aria-hidden="true" />
@@ -1204,6 +1207,7 @@ export function ColdStartComposer({
               {runtimeDriversEnabled &&
               (availableHeadedDriver !== undefined || availableHeadlessDrivers.length > 0) ? (
                 <PropertyMenu
+                  typeahead
                   trigger={
                     <button type="button" data-pressable aria-label="Driver" className={chip}>
                       {driverChoice === HEADED_DRIVER ? 'Headed' : runtimeDriverLabel(driverChoice)}

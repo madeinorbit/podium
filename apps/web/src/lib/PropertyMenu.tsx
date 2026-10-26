@@ -12,6 +12,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
 import { filterPropertyOptions, groupPropertyOptions } from './property-menu'
+import { useSelectTypeahead } from './use-select-typeahead'
 
 export interface PropertyOption {
   value: string
@@ -31,6 +32,7 @@ export interface PropertyOption {
 export function PropertyMenu({
   trigger,
   onOpenChange,
+  typeahead = false,
   ...props
 }: {
   trigger: ReactNode
@@ -49,8 +51,11 @@ export function PropertyMenu({
    */
   footnote?: string
   onOpenChange?: (open: boolean) => void
+  /** Select by typing on the closed, focused trigger, like a native select. */
+  typeahead?: boolean
 }): JSX.Element {
   const [open, setOpen] = useState(false)
+  const typing = useSelectTypeahead({ enabled: typeahead && !open, ...props })
   return (
     <DropdownMenu
       modal={false}
@@ -60,7 +65,7 @@ export function PropertyMenu({
         onOpenChange?.(next)
       }}
     >
-      <DropdownMenuTrigger render={trigger as JSX.Element} />
+      <DropdownMenuTrigger render={trigger as JSX.Element} {...typing} />
       {open && <PropertyMenuChoices {...props} />}
     </DropdownMenu>
   )

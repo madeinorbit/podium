@@ -12,6 +12,7 @@ import {
   type SessionMeta,
 } from '@podium/model'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ColdStartComposer } from './ColdStartComposer'
 
@@ -206,6 +207,48 @@ function recentSession(cwd: string): SessionMeta {
  * looks. The button keeps its own label when it is the focused thing, which is
  * where "Project:" is worth saying. */
 describe('ColdStartComposer', () => {
+  it('selects the project and machine by typing after tabbing into their fields', async () => {
+    const user = userEvent.setup()
+    const machineB = asMachineId('machine-b')
+    store.repos.push(
+      {
+        ...initialRepo,
+        path: '/work/beta',
+        name: 'beta',
+        originUrl: 'https://example.com/beta.git',
+      } as GitRepositoryWire,
+      {
+        ...initialRepo,
+        path: '/srv/beta',
+        name: 'beta',
+        machineId: machineB,
+        originUrl: 'https://example.com/beta.git',
+      } as GitRepositoryWire,
+    )
+    const primary = store.machines[0]
+    if (!primary) throw new Error('missing fixture machine')
+    store.machines.push({ ...primary, id: machineB, name: 'Build host' })
+    uiValues.set('podium.firstTaskActivation.draft', JSON.stringify({ repoPath: '/work/podium' }))
+    render(<ColdStartComposer first={false} />)
+    // happy-dom does not apply the file input's Tailwind `hidden` class.
+    fileInput().style.display = 'none'
+
+    await user.tab()
+    expect(screen.getByRole('button', { name: 'Project: podium' })).toBe(document.activeElement)
+    await user.keyboard('be')
+    expect(screen.getByRole('button', { name: 'Project: beta' })).toBe(document.activeElement)
+    // Prompt, agent, model, effort, then machine.
+    for (let step = 0; step < 5; step++) await user.tab()
+    expect(screen.getByRole('button', { name: 'Studio Mac' })).toBe(document.activeElement)
+    await user.keyboard('bu')
+    expect(screen.getByRole('button', { name: 'Build host' })).toBe(document.activeElement)
+    expect(screen.queryByRole('menu')).toBeNull()
+    expect(JSON.parse(uiValues.get('podium.firstTaskActivation.draft') ?? '{}')).toMatchObject({
+      repoPath: '/work/beta',
+      machineId: machineB,
+    })
+  })
+
   it.each([
     '/Users/bob/src/podium',
     'C:\\src\\podium',
