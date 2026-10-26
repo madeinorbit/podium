@@ -63,7 +63,8 @@ const ParentBranchChoices = observer(function ParentBranchChoices({
   onDone: () => void
 }): JSX.Element {
   const pool = useWorklistPool()
-  const scan = pool ? repositoryScanOf(pool, issue.repoId, issue.repoPath) : undefined
+  const scan =
+    pool && issue.repoId ? repositoryScanOf(pool, issue.repoId, issue.repoPath) : undefined
   const repo = pool && issue.repoId ? here(pool.model('repo', issue.repoId)) : undefined
   const choices = baseBranchChoices(scan, issue.parentBranch)
   const repoBase = repo?.defaultParentBranch
@@ -76,7 +77,7 @@ const ParentBranchChoices = observer(function ParentBranchChoices({
       choices={choices}
       note="Only this task changes. Other tasks keep their base branch."
       onSave={async (branch) => {
-        if (branch) commands.update({ parentBranch: branch })
+        if (branch) await commands.setParentBranch(branch)
       }}
       onDone={onDone}
     />

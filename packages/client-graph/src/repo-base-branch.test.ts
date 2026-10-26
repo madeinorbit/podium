@@ -33,6 +33,8 @@ it('offers the stored base, the checkout branch and non-task worktree branches, 
   }
   expect(baseBranchChoices(scan, 'release')).toEqual(['main', 'release', 'tf.dev'])
   expect(baseBranchChoices(undefined, null)).toEqual([])
+  // A stacked task's parent is a task branch: the stored value stays listed.
+  expect(baseBranchChoices(scan, 'issue/12-thing')).toEqual(['issue/12-thing', 'main', 'tf.dev'])
 })
 
 it('finds the checkout a base-branch write goes through and follows a remote base change', () => {
@@ -70,8 +72,9 @@ it('finds the checkout a base-branch write goes through and follows a remote bas
       },
     ])
     expect(repositoryScanOf(p, repoId, '/repo')?.machineId).toBe(machineId)
-    expect(repositoryScanOf(p, null, '/elsewhere')?.path).toBe('/elsewhere')
-    expect(repositoryScanOf(p, null, '/missing')).toBeUndefined()
+    // Another checkout of the same repo answers when the path differs; a path alone never does.
+    expect(repositoryScanOf(p, repoId, '/moved')?.path).toBe('/repo')
+    expect(repositoryScanOf(p, asRepoId('unknown'), '/elsewhere')).toBeUndefined()
 
     const row = new SettingsRepositories(p).rows.find((r) => r.path === '/repo')!
     const seen: (string | null)[] = []
@@ -93,6 +96,32 @@ it('finds the checkout a base-branch write goes through and follows a remote bas
     })
     expect(seen).toEqual([null, 'release'])
     stop()
+  } finally {
+    p.dispose()
+  }
+})
+
+it('tells apart unrelated repos at the same path on two machines', () => {
+  const p = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
+  const one = asMachineId('one'),
+    two = asMachineId('two')
+  const a = asRepoId('repo-a'),
+    b = asRepoId('repo-b')
+  try {
+    headerEntities(p).apply([
+      {
+        kind: 'repository',
+        id: 'a',
+        value: { kind: 'repository', machineId: one, path: '/src/app', repoId: a, worktrees: [] },
+      },
+      {
+        kind: 'repository',
+        id: 'b',
+        value: { kind: 'repository', machineId: two, path: '/src/app', repoId: b, worktrees: [] },
+      },
+    ])
+    expect(repositoryScanOf(p, a, '/src/app')?.machineId).toBe(one)
+    expect(repositoryScanOf(p, b, '/src/app')?.machineId).toBe(two)
   } finally {
     p.dispose()
   }

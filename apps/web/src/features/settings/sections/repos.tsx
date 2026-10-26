@@ -146,7 +146,7 @@ const RepoPrefixRow = observer(function RepoPrefixRow({
           </>
         ) : (
           <>
-            <RepoBaseBranchControl row={row} />
+            {row.repoId && <RepoBaseBranchControl row={row} repoId={row.repoId} />}
             <span className="settings-value flex-none">
               {row.prefix ?? <span className="text-muted-foreground">none</span>}
             </span>
@@ -177,8 +177,10 @@ const RepoPrefixRow = observer(function RepoPrefixRow({
 /** The repo's base branch, or "Podium default", opening the shared branch menu. */
 const RepoBaseBranchControl = observer(function RepoBaseBranchControl({
   row,
+  repoId,
 }: {
   row: SettingsRepository
+  repoId: string
 }): JSX.Element {
   const [open, setOpen] = useState(false)
   const name = machinePathBasename(row.path)
@@ -206,7 +208,7 @@ const RepoBaseBranchControl = observer(function RepoBaseBranchControl({
       />
       {open && (
         <RepoBaseBranchMenu
-          repoId={row.repoId}
+          repoId={repoId}
           path={row.path}
           machineId={row.machineId}
           align="end"

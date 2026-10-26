@@ -36782,38 +36782,38 @@
       "file": "apps/web/src/features/worklist/pool-sidebar.tsx",
       "holder": "ObservedPoolWorkSections/ObservedPoolWorkSections",
       "rule": "consume:map",
-      "tokens": "ffcf3724bbc9fc189fb6a0caf323413a47dfc510337bb06f41625c59ec1da0b0",
+      "tokens": "5d7adcf2d486157e6b1f61e6a8262c18704f5e8cfd5bdafaa3ab7b73806a90f5",
       "gate": [
         "exit:then:366b508823e1da90bcfbb656ba6bb0fee61d7f7e602c84bc3ae425f4222b43e5"
       ],
       "origin": [
         "263287d055fdad254a3c751f4e42ff06e7abccb74e258db08b4938008da25df4"
       ],
-      "fingerprint": "7fc238ca890468ac8077565c9d6e246ca4f9edcd0deded6ed983fecd9e9ccd04",
+      "fingerprint": "30c0b6807412aa99e3f2e314f8b7d02a02e540faf391b58809da735ea1cb58d4",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation or observation of ObservedPoolWorkSections/ObservedPoolWorkSections",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "Desktop project-band rendering now uses canonical section fields. Viewport row mounting remains bounded; outer group metadata still has no cardinality cap. Predecessor: 74a629ec672ae8824310d0a26cded6e6321e3bab5c31cdaaa69db827a2cc7d98. POD-2074: the calm sidebar rebuild (lane switch, project folders, folder drag) moved this scan; its collection demand is unchanged. Predecessor: 1ccc53eb555e775472d36a495b6db5645304b7e1727bd5a8335dce8cb06e4eb0. POD-2069: integrating the sidebar with the New task overlay draft row moved this scan; its collection demand is unchanged. Predecessor: 29a412500aaf2c9dfbcf157a63d946af8f0e0ec1bcf8e664fbc7e21a87354bba. POD-2069: integrating the sidebar motion pass with the New task draft row moved this scan; its collection demand is unchanged. Predecessor: 65aa1ddcc361cb2ae02d5276cf54c14d2e49cf2550aebab8bc53bc7aa09fc510. POD-2099: project-band rendering no longer includes the overlay draft row. Collection demand and repair classification are unchanged. Predecessor: a2d66633effecafa96d8fe5e54978cd99f0e8454a3c4cba1fae57e0489328402. POD-2106: keeping the Closed lane summary card through empty-lane states changed the preceding return guards; this collection operation is unchanged. Predecessor: ccc861e4686a8708784a1099ecc4c55d6ade0b3487d99fdff5a987877871cf00. POD-2153: the project folder menu now passes the band's repository path for \"Base branch…\", which moved this scan; its collection demand is unchanged. Predecessor: 669ca7a725c38379bb33edc25ca55fce208183023a5f7923e7a591ccc4cb053a.",
+      "reason": "Desktop project-band rendering now uses canonical section fields. Viewport row mounting remains bounded; outer group metadata still has no cardinality cap. Predecessor: 74a629ec672ae8824310d0a26cded6e6321e3bab5c31cdaaa69db827a2cc7d98. POD-2074: the calm sidebar rebuild (lane switch, project folders, folder drag) moved this scan; its collection demand is unchanged. Predecessor: 1ccc53eb555e775472d36a495b6db5645304b7e1727bd5a8335dce8cb06e4eb0. POD-2069: integrating the sidebar with the New task overlay draft row moved this scan; its collection demand is unchanged. Predecessor: 29a412500aaf2c9dfbcf157a63d946af8f0e0ec1bcf8e664fbc7e21a87354bba. POD-2069: integrating the sidebar motion pass with the New task draft row moved this scan; its collection demand is unchanged. Predecessor: 65aa1ddcc361cb2ae02d5276cf54c14d2e49cf2550aebab8bc53bc7aa09fc510. POD-2099: project-band rendering no longer includes the overlay draft row. Collection demand and repair classification are unchanged. Predecessor: a2d66633effecafa96d8fe5e54978cd99f0e8454a3c4cba1fae57e0489328402. POD-2106: keeping the Closed lane summary card through empty-lane states changed the preceding return guards; this collection operation is unchanged. Predecessor: ccc861e4686a8708784a1099ecc4c55d6ade0b3487d99fdff5a987877871cf00. POD-2153: the project folder menu now passes the band's repository path for \"Base branch…\", which moved this scan; its collection demand is unchanged. Predecessor: 669ca7a725c38379bb33edc25ca55fce208183023a5f7923e7a591ccc4cb053a. POD-2153: project bands now carry their registered repoId for the base-branch menu, which moved this scan; its collection demand is unchanged. Predecessor: 7fc238ca890468ac8077565c9d6e246ca4f9edcd0deded6ed983fecd9e9ccd04.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
       "file": "apps/web/src/features/worklist/pool-sidebar.tsx",
       "holder": "ObservedPoolWorkSections/ObservedPoolWorkSections/useMemo:callback",
       "rule": "loop:for-of",
-      "tokens": "2e4acd27b58dd72d46fdbc123263ea53c853b5ddf891735e63ca721f3795fd87",
+      "tokens": "b6fa36149ce7f2ee8260793e380735186c24eed5e962649e27e48485637c4251",
       "gate": [],
       "origin": [
         "263287d055fdad254a3c751f4e42ff06e7abccb74e258db08b4938008da25df4"
       ],
-      "fingerprint": "e30a788022c5904660260fd74541b51966e1a9faf8b37501668cd03d1f2f6307",
+      "fingerprint": "46c660b54cb54012c297ddc361a71299e629244db49d057b18c1b1061ec02506",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of ObservedPoolWorkSections/ObservedPoolWorkSections/useMemo:callback",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "loop:for-of carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-2074: the calm sidebar rebuild (lane switch, project folders, folder drag) moved this scan; its collection demand is unchanged. Predecessor: f3dc2bc17ae40366dd2d5caf0d19487b2e14645f87490b05c96648956c5f3463. POD-2127: moved into a useMemo keyed on the rendered rows. Predecessor: 718e70fd0390cff440b3fe105b8776c717b6eafdffeddb3424cb5154eea6bb58.",
+      "reason": "loop:for-of carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-2074: the calm sidebar rebuild (lane switch, project folders, folder drag) moved this scan; its collection demand is unchanged. Predecessor: f3dc2bc17ae40366dd2d5caf0d19487b2e14645f87490b05c96648956c5f3463. POD-2127: moved into a useMemo keyed on the rendered rows. Predecessor: 718e70fd0390cff440b3fe105b8776c717b6eafdffeddb3424cb5154eea6bb58. POD-2153: project bands now carry their registered repoId for the base-branch menu; its collection demand is unchanged. Predecessor: e30a788022c5904660260fd74541b51966e1a9faf8b37501668cd03d1f2f6307.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -36918,18 +36918,18 @@
       "file": "apps/web/src/features/worklist/pool-sidebar.tsx",
       "holder": "ObservedPoolWorkSections/ObservedPoolWorkSections/useMemo:callback/bandList",
       "rule": "consume:map",
-      "tokens": "935bce07985b5d92ed870c63ecc45596b79af1c01df18ec2c94be92a339064f7",
+      "tokens": "a1d74def83c4e223205eb3ca82bf41bcfffe488e60e5464f467a667632f91c1b",
       "gate": [],
       "origin": [
         "263287d055fdad254a3c751f4e42ff06e7abccb74e258db08b4938008da25df4"
       ],
-      "fingerprint": "bd975329ba8bef09ce66f4ecfef95d2163d614dc06f94eef62a9ef259ba85e94",
+      "fingerprint": "a7c58dded3bc11606371fbbf6fe4d9dd2d0015e0e0610c96ccfda5a8feb0a3a9",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of ObservedPoolWorkSections/ObservedPoolWorkSections/useMemo:callback/bandList",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-2074: new in the calm sidebar rebuild; it scans the sidebar's existing band and row lists only. POD-2127: moved into a useMemo keyed on the rendered rows. Predecessor: 5d28011a598ade1e0987a938b0f0a0a9993e1bf1194dabcb24ce70c8f69724ad.",
+      "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-2074: new in the calm sidebar rebuild; it scans the sidebar's existing band and row lists only. POD-2127: moved into a useMemo keyed on the rendered rows. Predecessor: 5d28011a598ade1e0987a938b0f0a0a9993e1bf1194dabcb24ce70c8f69724ad. POD-2153: project bands now carry their registered repoId for the base-branch menu; its collection demand is unchanged. Predecessor: bd975329ba8bef09ce66f4ecfef95d2163d614dc06f94eef62a9ef259ba85e94.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -37455,11 +37455,11 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "fingerprint": "7c39e54a9dcb2a97d88a7747f4c406a04fdd92905285e82e9d8ae0619348ca7a",
+      "fingerprint": "65b8de68a225049828b84568acc19e33727407c1a5a01b4984a12e64c85e0dbb",
       "file": "packages/client-graph/src/repo-base-branch.ts",
       "holder": "baseBranchChoices",
       "rule": "loop:for-of",
-      "tokens": "88f7f687703f311f49ab3da5a665736c486fb50a9ac2d766345162aca7fcffe9",
+      "tokens": "b3c96d325f29323f9b8727325a0622d592dc0ef3263d734898992357228d1970",
       "gate": [],
       "origin": [
         "5e9be1180bb801b80ed015d39dcc19c83d34787bc2af4c4b2aa3a7a73daafc7f"
@@ -37473,32 +37473,11 @@
       "guard": "repo-base-branch.test.ts covers choices and checkout lookup; BaseBranchMenu.test.tsx covers the menu."
     },
     {
-      "fingerprint": "2720d8967548eace8dff7abdf471c9aafecac23ae505bd56dcc6d33b3a6724ac",
+      "fingerprint": "91c6eb9b75fcd451c8e9da5b0ffa860a340c2e90bdc712b188c2ff9a7e1ef1de",
       "file": "packages/client-graph/src/repo-base-branch.ts",
       "holder": "repositoryScanOf",
       "rule": "consume:find",
       "tokens": "887dd99731bb267b286f1cbe0dcb7b89cd5b90110f5f5b0ab4936e693550bf79",
-      "gate": [
-        "??:117e98fc024c048348f362f8ba8a514b7410a283da228104a1b1e3263ed44226"
-      ],
-      "origin": [
-        "07fa37a49e76f28b0355824b49031c8f187f6d26d0bf571481c1b3dd44402138",
-        "d6d08c10f6c9fda6ca08c6338ed4fe868f0da1039cf90da973a5964db39a4795"
-      ],
-      "count": 1,
-      "classification": "bounded local work",
-      "owner": "POD-2153",
-      "trigger": "A base-branch picker (sidebar project menu, Settings → Repositories, task page) is open.",
-      "bound": "One row per per-machine repository scan; the repository table is always resident and holds tens of rows (schema: cold never).",
-      "reason": "Finds the checkout a repository base-branch write goes through; the menu that reads it mounts only while open.",
-      "guard": "repo-base-branch.test.ts covers choices and checkout lookup; BaseBranchMenu.test.tsx covers the menu."
-    },
-    {
-      "fingerprint": "6b237206ed6505cda27976d3c5f8a4411b0237cb2ef4087207468ca2987029a3",
-      "file": "packages/client-graph/src/repo-base-branch.ts",
-      "holder": "repositoryScanOf",
-      "rule": "consume:find",
-      "tokens": "b2c4aff8cfea43f4857c7a7c489f5fd7df44917c3a1fd89f57426a1c34edff4d",
       "gate": [],
       "origin": [
         "07fa37a49e76f28b0355824b49031c8f187f6d26d0bf571481c1b3dd44402138",
@@ -37509,28 +37488,7 @@
       "owner": "POD-2153",
       "trigger": "A base-branch picker (sidebar project menu, Settings → Repositories, task page) is open.",
       "bound": "One row per per-machine repository scan; the repository table is always resident and holds tens of rows (schema: cold never).",
-      "reason": "Finds the checkout a repository base-branch write goes through; the menu that reads it mounts only while open.",
-      "guard": "repo-base-branch.test.ts covers choices and checkout lookup; BaseBranchMenu.test.tsx covers the menu."
-    },
-    {
-      "fingerprint": "e0107cb30e611441f5c6e62200b1cb3f5fec37d662835f8325a6b1aa6987b51f",
-      "file": "packages/client-graph/src/repo-base-branch.ts",
-      "holder": "repositoryScanOf",
-      "rule": "consume:find",
-      "tokens": "58dded1c9268fa423761420fb3b51b60f0794b118c0352276ebf2f0c69e82e93",
-      "gate": [
-        "??:b2c4aff8cfea43f4857c7a7c489f5fd7df44917c3a1fd89f57426a1c34edff4d"
-      ],
-      "origin": [
-        "07fa37a49e76f28b0355824b49031c8f187f6d26d0bf571481c1b3dd44402138",
-        "d6d08c10f6c9fda6ca08c6338ed4fe868f0da1039cf90da973a5964db39a4795"
-      ],
-      "count": 1,
-      "classification": "bounded local work",
-      "owner": "POD-2153",
-      "trigger": "A base-branch picker (sidebar project menu, Settings → Repositories, task page) is open.",
-      "bound": "One row per per-machine repository scan; the repository table is always resident and holds tens of rows (schema: cold never).",
-      "reason": "Finds the checkout a repository base-branch write goes through; the menu that reads it mounts only while open.",
+      "reason": "Finds a checkout of one logical repository (repoId-qualified, never by path alone) for the base-branch write; the menu that reads it mounts only while open.",
       "guard": "repo-base-branch.test.ts covers choices and checkout lookup; BaseBranchMenu.test.tsx covers the menu."
     },
     {
@@ -37552,11 +37510,11 @@
       "guard": "repo-base-branch.test.ts covers choices and checkout lookup; BaseBranchMenu.test.tsx covers the menu."
     },
     {
-      "fingerprint": "81cf1c1c70eb7f9acc42e2a02c5354711748206dfdea283a46fe8521408a8300",
+      "fingerprint": "83dbdaa005c59077cb96ec1d04c01ce1ab124e0fc0862b39692b941b36bd4ec3",
       "file": "packages/client-graph/src/repo-base-branch.ts",
       "holder": "repositoryScanOf/scans",
       "rule": "consume:flatMap",
-      "tokens": "ad54ba534b1be5372ef154deba689b3553033179e221838f696839d7f40f2daa",
+      "tokens": "9fc794be9c5e93367a0a09078f2cd0869a8fe8d082fe43cba220c7ed76629433",
       "gate": [],
       "origin": [
         "07fa37a49e76f28b0355824b49031c8f187f6d26d0bf571481c1b3dd44402138",
@@ -37588,6 +37546,107 @@
       "bound": "One row per per-machine repository scan; the repository table is always resident and holds tens of rows (schema: cold never).",
       "reason": "Finds the checkout a repository base-branch write goes through; the menu that reads it mounts only while open.",
       "guard": "repo-base-branch.test.ts covers choices and checkout lookup; BaseBranchMenu.test.tsx covers the menu."
+    },
+    {
+      "fingerprint": "1a94f570cdafc8bff26886b878164fbde4ecc8da936f79c673cfa6c2e4d8f96a",
+      "file": "apps/web/src/features/issues/issue-page/IssueParentBranch.tsx",
+      "holder": "ParentBranchChoices/ParentBranchChoices/choices",
+      "rule": "helper-consumer",
+      "tokens": "78f82879d55a37adfba968e2785bf93812d4c04551638499d43c534540cb7dd2",
+      "gate": [],
+      "origin": [
+        "07fa37a49e76f28b0355824b49031c8f187f6d26d0bf571481c1b3dd44402138",
+        "d6d08c10f6c9fda6ca08c6338ed4fe868f0da1039cf90da973a5964db39a4795"
+      ],
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-2153",
+      "trigger": "The task page's base-branch picker is open.",
+      "bound": "One repository's checkouts (the repository table is always resident, tens of rows) and one checkout's worktree list.",
+      "reason": "Reads the checkout the write goes through and the branch names it already reports, so the picker needs no branch-listing request. The component mounts only while its menu is open.",
+      "guard": "BaseBranchMenu.test.tsx and IssueParentBranch.test.tsx cover the menus; repo-base-branch.test.ts covers the lookup."
+    },
+    {
+      "fingerprint": "a0b06ddb2bbd18aa5dabb12b66b90be9573b36e172ca74c519ad498211be6c83",
+      "file": "apps/web/src/features/issues/issue-page/IssueParentBranch.tsx",
+      "holder": "ParentBranchChoices/ParentBranchChoices/scan",
+      "rule": "reader-summary",
+      "tokens": "c85fae23904ee53e1d6a372127f324f66aff0b7a1c12cfb16d1254849de3e68b",
+      "gate": [
+        "then:17b3e6e7b4b85d37af4ba6bbb491d409946fbbdcd9cfe4c7311a4bb7da4f05f2"
+      ],
+      "origin": [
+        "07fa37a49e76f28b0355824b49031c8f187f6d26d0bf571481c1b3dd44402138",
+        "d6d08c10f6c9fda6ca08c6338ed4fe868f0da1039cf90da973a5964db39a4795"
+      ],
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-2153",
+      "trigger": "The task page's base-branch picker is open.",
+      "bound": "One repository's checkouts (the repository table is always resident, tens of rows) and one checkout's worktree list.",
+      "reason": "Reads the checkout the write goes through and the branch names it already reports, so the picker needs no branch-listing request. The component mounts only while its menu is open.",
+      "guard": "BaseBranchMenu.test.tsx and IssueParentBranch.test.tsx cover the menus; repo-base-branch.test.ts covers the lookup."
+    },
+    {
+      "fingerprint": "0f6e3fe6fd710212f8264ea79db9c5685a6684352e7164fc634b905e7985a090",
+      "file": "apps/web/src/lib/BaseBranchMenu.tsx",
+      "holder": "RepoBaseBranchMenu/RepoBaseBranchMenu",
+      "rule": "helper-consumer",
+      "tokens": "8ebecbf47382f8060e3aeb7cd5046ac432348b1da39768310edb480a83143ff4",
+      "gate": [],
+      "origin": [
+        "07fa37a49e76f28b0355824b49031c8f187f6d26d0bf571481c1b3dd44402138",
+        "d6d08c10f6c9fda6ca08c6338ed4fe868f0da1039cf90da973a5964db39a4795"
+      ],
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-2153",
+      "trigger": "A repository base-branch menu is open.",
+      "bound": "One repository's checkouts (the repository table is always resident, tens of rows) and one checkout's worktree list.",
+      "reason": "Reads the checkout the write goes through and the branch names it already reports, so the picker needs no branch-listing request. The component mounts only while its menu is open.",
+      "guard": "BaseBranchMenu.test.tsx and IssueParentBranch.test.tsx cover the menus; repo-base-branch.test.ts covers the lookup."
+    },
+    {
+      "fingerprint": "e8c44a3cb9f969a90798aac7db0837ecd000f6fa3cf65c34b9f97728b1650676",
+      "file": "apps/web/src/lib/BaseBranchMenu.tsx",
+      "holder": "RepoBaseBranchMenu/RepoBaseBranchMenu/callback",
+      "rule": "spread",
+      "tokens": "c9f051ad853d6b19cdbbc63af7f32bde52a93d5f0b3e1ab254a7e3c66a482ae7",
+      "gate": [
+        "exit:then:44a9adeb8d6e8b23084589fe45ba0e9f9a9f42eec1b6f4d7319d4f58fa303fc5"
+      ],
+      "origin": [
+        "07fa37a49e76f28b0355824b49031c8f187f6d26d0bf571481c1b3dd44402138",
+        "d6d08c10f6c9fda6ca08c6338ed4fe868f0da1039cf90da973a5964db39a4795"
+      ],
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-2153",
+      "trigger": "A repository base-branch menu is open.",
+      "bound": "One repository's checkouts (the repository table is always resident, tens of rows) and one checkout's worktree list.",
+      "reason": "Reads the checkout the write goes through and the branch names it already reports, so the picker needs no branch-listing request. The component mounts only while its menu is open.",
+      "guard": "BaseBranchMenu.test.tsx and IssueParentBranch.test.tsx cover the menus; repo-base-branch.test.ts covers the lookup."
+    },
+    {
+      "fingerprint": "6a0536e5b764db42899685483ca40f9a85d3391507278d2286066b7ee2620b48",
+      "file": "apps/web/src/lib/BaseBranchMenu.tsx",
+      "holder": "RepoBaseBranchMenu/RepoBaseBranchMenu/scan",
+      "rule": "reader-summary",
+      "tokens": "7b44c068ac5cb3dd0b3e6bd2e28d5208fc5c10052b65dca30f8086a40c0e5996",
+      "gate": [
+        "then:986f690ce3c4f8741f4341d67936aa814b16cd92511eb5fce83f5e04a025a80b"
+      ],
+      "origin": [
+        "07fa37a49e76f28b0355824b49031c8f187f6d26d0bf571481c1b3dd44402138",
+        "d6d08c10f6c9fda6ca08c6338ed4fe868f0da1039cf90da973a5964db39a4795"
+      ],
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-2153",
+      "trigger": "A repository base-branch menu is open.",
+      "bound": "One repository's checkouts (the repository table is always resident, tens of rows) and one checkout's worktree list.",
+      "reason": "Reads the checkout the write goes through and the branch names it already reports, so the picker needs no branch-listing request. The component mounts only while its menu is open.",
+      "guard": "BaseBranchMenu.test.tsx and IssueParentBranch.test.tsx cover the menus; repo-base-branch.test.ts covers the lookup."
     }
   ]
 }

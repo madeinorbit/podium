@@ -31,6 +31,8 @@ import {
 import { Input } from '@/components/ui/input'
 import { useSettingsRecord } from './settings-record'
 
+const LIST_KEYS = new Set(['Escape', 'ArrowDown', 'ArrowUp'])
+
 export interface BaseBranchMenuProps {
   heading: string
   /** The stored value; `null` when the default applies. */
@@ -111,8 +113,10 @@ export function BaseBranchMenuContent({
                 e.preventDefault()
                 void save(typed)
               }
-              // Let Escape close the menu; keep the rest out of the item typeahead.
-              if (e.key !== 'Escape') e.stopPropagation()
+              // Escape closes the menu and the arrows move into the list (so the
+              // keyboard reaches "Use Podium default"); every other key stays
+              // in the field, out of the items' typeahead.
+              if (!LIST_KEYS.has(e.key)) e.stopPropagation()
             }}
           />
         </div>
@@ -184,9 +188,10 @@ export const RepoBaseBranchMenu = observer(function RepoBaseBranchMenu({
   align,
   anchor,
 }: {
-  /** Read off the checkout's scan when not given. */
-  repoId?: string | null | undefined
+  /** The logical repository: what the menu reads and writes, never a path alone. */
+  repoId: string
   path: string
+  /** The checkout's machine when the caller has it; else a checkout of `repoId`'s. */
   machineId?: MachineId | undefined
   onDone: () => void
   align?: 'start' | 'end'
@@ -196,10 +201,14 @@ export const RepoBaseBranchMenu = observer(function RepoBaseBranchMenu({
   const trpc = useStoreHandle<Trpc>().access.trpc
   const podiumDefault = usePodiumDefaultParentBranch()
   const scan = pool ? repositoryScanOf(pool, repoId, path) : undefined
-  const id = repoId ?? scan?.repoId
-  const repo = pool && id ? here(pool.model('repo', id)) : undefined
+  const repo = pool ? here(pool.model('repo', repoId)) : undefined
   const current = repo?.defaultParentBranch ?? null
-  const machine = machineId ?? scan?.machineId
+  // The write names one checkout of this repo: the caller's, or a reported one.
+  const target = machineId
+    ? { path, machineId }
+    : scan?.machineId
+      ? { path: scan.path, machineId: scan.machineId }
+      : undefined
   return (
     <BaseBranchMenuContent
       heading="Base branch"
@@ -213,11 +222,8 @@ export const RepoBaseBranchMenu = observer(function RepoBaseBranchMenu({
       }}
       note="New tasks here branch from it and land on it. Existing tasks keep theirs."
       onSave={async (branch) => {
-        await trpc.repos.setDefaultParentBranch.mutate({
-          path,
-          branch,
-          ...(machine ? { machineId: machine } : {}),
-        })
+        if (!target) throw new Error('No machine reports this repository right now.')
+        await trpc.repos.setDefaultParentBranch.mutate({ ...target, branch })
       }}
       onDone={onDone}
       align={align}

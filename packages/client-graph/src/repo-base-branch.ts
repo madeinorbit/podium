@@ -42,45 +42,42 @@ export const podiumDefaultLabel = (podiumDefault: string | null | undefined): st
   named(podiumDefault) ?? 'auto-detect'
 
 /**
- * Branch names the picker can offer without asking the machine: the stored base,
- * the root checkout's branch and the branches its non-task worktrees have out.
- * Task branches (`issue/…`) are left out — a repository is never based on one
- * task's branch. The list is a convenience; the setter checks the name exists.
+ * Branch names the picker can offer without asking the machine: the stored
+ * value, always, then the root checkout's branch and the branches its non-task
+ * worktrees have out. Those incidental task branches (`issue/…`) are left out;
+ * a stored value is kept even when it is one, as a stacked task's parent is.
+ * The list is a convenience; the setter checks the name exists.
  */
 export function baseBranchChoices(
   scan: Pick<GitRepositoryWire, 'branch' | 'worktrees'> | undefined,
   current: string | null | undefined,
 ): string[] {
   const names = new Set<string>()
-  const add = (name: string | null | undefined) => {
+  const stored = named(current)
+  if (stored) names.add(stored)
+  const suggest = (name: string | null | undefined) => {
     const value = named(name)
     if (value && !value.startsWith('issue/')) names.add(value)
   }
-  add(current)
-  add(scan?.branch)
-  for (const worktree of scan?.worktrees ?? []) add(worktree.branch)
+  suggest(scan?.branch)
+  for (const worktree of scan?.worktrees ?? []) suggest(worktree.branch)
   return [...names].sort((a, b) => a.localeCompare(b))
 }
 
 /**
- * The per-machine checkout a base-branch write goes through: the scan of the
- * logical repo `repoId` at `path`, else another scan of that repo, else any scan
- * at `path`. `undefined` while no machine has reported it; the write then goes
- * out without a machine and the server picks one.
+ * The per-machine checkout of the logical repo `repoId` a base-branch write goes
+ * through: the one at `path`, else any other checkout of that repo. Never a
+ * checkout found by path alone — two machines can hold unrelated repos at the
+ * same path. `undefined` while no machine reports the repo.
  */
 export function repositoryScanOf(
   pool: MobxPool,
-  repoId: string | null | undefined,
+  repoId: string,
   path: string,
 ): RepositoryModel | undefined {
   const scans = [...pool.tables.repository.keys()].flatMap((id) => {
     const scan = here(pool.model('repository', id))
-    return scan ? [scan] : []
+    return scan && scan.repoId === repoId ? [scan] : []
   })
-  const sameRepo = (scan: RepositoryModel) => Boolean(repoId) && scan.repoId === repoId
-  return (
-    scans.find((scan) => sameRepo(scan) && scan.path === path) ??
-    scans.find(sameRepo) ??
-    scans.find((scan) => scan.path === path)
-  )
+  return scans.find((scan) => scan.path === path) ?? scans[0]
 }

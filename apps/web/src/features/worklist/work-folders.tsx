@@ -178,8 +178,8 @@ export interface FolderMenu {
   onToggle: () => void
   onCollapseAll?: () => void
   onExpandAll?: () => void
-  /** The project's repository root, when it is one: offers "Base branch…". */
-  repoPath?: string
+  /** The project's registered repository, when it is one: offers "Base branch…". */
+  repo?: { repoId: string; path: string }
 }
 
 /**
@@ -350,7 +350,7 @@ function FolderOptions({
           {menu.onExpandAll && (
             <DropdownMenuItem onClick={menu.onExpandAll}>Expand all projects</DropdownMenuItem>
           )}
-          {menu.repoPath && (
+          {menu.repo && (
             <>
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={() => setBranchOpen(true)}>Base branch…</DropdownMenuItem>
@@ -360,11 +360,12 @@ function FolderOptions({
       </DropdownMenu>
       {/* A second menu on the same ⋯, so the branch field is not nested inside
         the options list's typeahead. It opens as the options menu closes. */}
-      {menu.repoPath && (
+      {menu.repo && (
         <DropdownMenu modal={false} open={branchOpen} onOpenChange={setBranchOpen}>
           {branchOpen && (
             <RepoBaseBranchMenu
-              path={menu.repoPath}
+              repoId={menu.repo.repoId}
+              path={menu.repo.path}
               align="end"
               anchor={trigger.current}
               onDone={() => setBranchOpen(false)}

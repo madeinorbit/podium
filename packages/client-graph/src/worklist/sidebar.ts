@@ -34,6 +34,8 @@ export interface SidebarBand {
   readonly label: string
   readonly aliases: readonly string[]
   readonly repoPath: string
+  /** The registered repository this band shows, when it is one (POD-2153). */
+  readonly repoId?: string | null
   readonly rowIds: readonly string[]
   readonly worktreeIds: readonly string[]
   readonly snoozedIds: readonly string[]
@@ -309,10 +311,11 @@ export class SidebarIndex {
       label: string,
       path: string,
       aliases: readonly string[] = [key],
+      repoId: string | null = null,
     ): BandSpec => {
       const previous = specs.get(key)
       if (previous) return previous
-      const spec: BandSpec = { key, label, aliases, repoPath: path, group: false }
+      const spec: BandSpec = { key, label, aliases, repoPath: path, repoId, group: false }
       specs.set(key, spec)
       return spec
     }
@@ -322,6 +325,7 @@ export class SidebarIndex {
         repo.repoName,
         repo.repoPath,
         repo.projectAliases ?? [repo.repoId ?? repo.repoPath, repo.path],
+        repo.repoId ?? null,
       )
     for (const key of worklistGroups(this.pool).keys) {
       const facts = this.groupFacts(key)
@@ -384,6 +388,7 @@ export class SidebarIndex {
       label: spec.label,
       aliases: spec.aliases,
       repoPath: spec.repoPath,
+      repoId: spec.repoId,
       rowIds: rows?.sidebarRowIds ?? NO_IDS,
       worktreeIds,
       snoozedIds: rows?.sidebarSnoozedIds ?? NO_IDS,
@@ -404,6 +409,7 @@ interface BandSpec {
   readonly label: string
   readonly aliases: readonly string[]
   readonly repoPath: string
+  readonly repoId: string | null
   /** It holds the group's root rows. */
   readonly group: boolean
 }

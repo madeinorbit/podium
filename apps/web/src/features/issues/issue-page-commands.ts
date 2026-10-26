@@ -66,6 +66,10 @@ export function issuePageCommands({
 
   return {
     update,
+    /** The task's parent branch, awaited by its picker so a refusal shows
+     *  inline there instead of in a toast after the picker closed (POD-2153). */
+    setParentBranch: (parentBranch: string): Promise<unknown> =>
+      updateIssue(id, { parentBranch }),
 
     // ---- banners ----
     applySuggestion: (): void => {

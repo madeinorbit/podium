@@ -532,7 +532,14 @@ const ObservedPoolWorkSections = observer(function ObservedPoolWorkSections({
       onArchive={archiveRow}
     />
   )
-  type ShownBand = { key: string; label: string; repoPath: string; foldKey: string; rows: Item[] }
+  type ShownBand = {
+    key: string
+    label: string
+    repoPath: string
+    repoId: string | null
+    foldKey: string
+    rows: Item[]
+  }
   // Each folder's rows keep their identity until the rows themselves change, so
   // a selection or menu render neither refilters every folder nor hands each
   // virtual window a new key list to re-derive its geometry from.
@@ -545,6 +552,7 @@ const ObservedPoolWorkSections = observer(function ObservedPoolWorkSections({
       key: band.key,
       label: band.label,
       repoPath: band.repoPath,
+      repoId: band.repoId ?? null,
       foldKey: band.foldKey,
       rows: items.filter(
         (item) => item.value.lane !== 'pinned' && item.value.groupKey === band.key && inLane(item),
@@ -561,6 +569,7 @@ const ObservedPoolWorkSections = observer(function ObservedPoolWorkSections({
           key: item.value.groupKey,
           label: item.value.groupLabel,
           repoPath: '',
+          repoId: null,
           foldKey: projectFoldKey(item.value.groupKey),
           rows: items.filter((row) => row.value.groupKey === item.value.groupKey && inLane(row)),
         })
@@ -792,7 +801,10 @@ const ObservedPoolWorkSections = observer(function ObservedPoolWorkSections({
                 onToggle: () => toggle(band.foldKey),
                 onCollapseAll: anyOpen ? () => setAllCollapsed(true) : undefined,
                 onExpandAll: anyShut ? () => setAllCollapsed(false) : undefined,
-                repoPath: band.repoPath || undefined,
+                repo:
+                  band.repoId && band.repoPath
+                    ? { repoId: band.repoId, path: band.repoPath }
+                    : undefined,
               }}
             />
             {!empty && (
