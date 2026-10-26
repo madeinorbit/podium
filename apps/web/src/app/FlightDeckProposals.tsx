@@ -164,13 +164,11 @@ const FullProposal = observer(function FullProposal({
             }}
           >
             <span className="flight-proposal-ref">{ref}</span>
-            {drawable && (
-              <span className="flight-proposal-title" title={task.row.title}>
-                {task.row.title}
-              </span>
-            )}
+            {drawable && <span className="flight-proposal-title">{task.row.title}</span>}
           </TooltipTrigger>
-          {description && <TooltipContent>{description}</TooltipContent>}
+          {/* The row truncates the title; hovering reads it whole. Provenance stays
+              on the trigger's aria-description for assistive tech. */}
+          {drawable && <TooltipContent>{task.row.title}</TooltipContent>}
         </Tooltip>
         {success || (receipt && pending) ? (
           <span className="flight-proposal-result" role="status">

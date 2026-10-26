@@ -170,7 +170,7 @@ async function open(extra: Row[] = [], proposalPatch: Row = {}) {
   return { ui, pool, screen, rows, update, proposal, section, actions }
 }
 
-it('shows ref and live truncating title, with provenance and placement in a keyboard tooltip', async () => {
+it('shows ref and live truncating title, the full title in a keyboard tooltip, provenance for assistive tech', async () => {
   const f = await open([], {
     title: 'A very long proposal title that must yield space to every action',
   })
@@ -181,7 +181,11 @@ it('shows ref and live truncating title, with provenance and placement in a keyb
   const user = userEvent.setup()
   details.focus()
   await user.keyboard('{Tab}{Shift>}{Tab}{/Shift}')
-  expect(await f.ui.findByText('Proposed by POD-7-C · Here in this mission')).toBeTruthy()
+  expect(
+    await f.ui.findByText('A very long proposal title that must yield space to every action', {
+      selector: '[data-slot="tooltip-content"]',
+    }),
+  ).toBeTruthy()
   expect(f.proposal()!.getAttribute('data-depth')).toBeNull()
   expect(f.proposal()!.querySelector('.flight-proposal-title')?.textContent).toContain(
     'very long proposal',
