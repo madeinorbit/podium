@@ -6,6 +6,8 @@
 #![allow(non_snake_case)]
 
 mod bootstrap;
+#[cfg(target_os = "macos")]
+mod fullscreen_escape;
 mod handoff;
 mod logging;
 mod updater;
@@ -2611,8 +2613,14 @@ fn main() {
                         Some(args) => window_builder.additional_browser_args(&args),
                         None => window_builder,
                     };
-                    if let Err(error) = window_builder.build() {
-                        log::error!("window build failed: {error}");
+                    match window_builder.build() {
+                        Ok(_window) => {
+                            #[cfg(target_os = "macos")]
+                            if let Err(error) = fullscreen_escape::install(&_window) {
+                                log::error!("fullscreen Escape routing setup failed: {error}");
+                            }
+                        }
+                        Err(error) => log::error!("window build failed: {error}"),
                     }
                 });
                 // Local modes only: keep the window on a document that renders when the local
