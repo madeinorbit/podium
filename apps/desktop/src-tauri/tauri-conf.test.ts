@@ -197,15 +197,17 @@ describe('tauri desktop config', () => {
       'Desktop connections to non-loopback servers require HTTPS or WSS.',
     )
 
-    expect(startup.indexOf('bootstrap::validate_server_transport(server_url)')).toBeLessThan(
-      startup.indexOf('replacement_daemon_command('),
+    const transportValidation = startup.indexOf('bootstrap::validate_server_transport(server_url)')
+    expect(transportValidation).toBeGreaterThan(-1)
+    expect(
+      startup.indexOf('remote_parent_command(&runnable, &shutdown_file).spawn()'),
+    ).toBeGreaterThan(transportValidation)
+    expect(startup.indexOf('remote_capability_pattern(&window_origin)')).toBeGreaterThan(
+      transportValidation,
     )
-    expect(startup.indexOf('bootstrap::validate_server_transport(server_url)')).toBeLessThan(
-      startup.indexOf('remote_capability_pattern(&server_url)'),
-    )
-    expect(transfer.indexOf('remote_capability_pattern(server_url)?')).toBeLessThan(
-      transfer.indexOf('app.add_capability(capability)'),
-    )
+    const transferValidation = transfer.indexOf('remote_capability_pattern(server_url)?')
+    expect(transferValidation).toBeGreaterThan(-1)
+    expect(transfer.indexOf('app.add_capability(capability)')).toBeGreaterThan(transferValidation)
     expect(mainSource).toContain('BackendExitDecision::BlockedServerTransport { reason }')
     expect(mainSource).toContain('.title("Server connection blocked")')
     expect(mainSource).toContain('.on_navigation(move |url|')
