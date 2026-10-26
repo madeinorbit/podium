@@ -1,5 +1,5 @@
 import { here, omitGone } from '../lookup'
-import { machinePathKey, machinePathsEqual } from '@podium/model/browser'
+import { machinePathKey } from '@podium/model/browser'
 /** Resident roster seats, maintained by existing ingest.
  * No per-session reaction or full session/issue record is retained here.
  *
@@ -41,10 +41,8 @@ export class SidebarRosterIndex {
   private readonly lanes = observable.map<string, ObservableSet<string>>(undefined, {
     deep: false, name: debugName(() => 'pool.sidebar.rosterCandidates'),
   })
-  /** Project metadata and roster path lanes contain resident worktrees only. */
-  readonly projects = observable.set<string>(undefined, { deep: false, name: debugName(() => 'pool.sidebar.projects') })
-  private readonly projectCounts = observable.map<number | undefined, number>(undefined, { deep: false, name: debugName(() => 'pool.sidebar.projectCounts') })
-  private readonly worktrees = new Map<string, { readonly group: string; readonly project?: number }>()
+  /** Roster path lanes contain resident worktrees only. */
+  private readonly worktrees = new Map<string, { readonly group: string }>()
   private readonly paths = new SortedLanes<string, string>((a, b) => a < b ? -1 : a > b ? 1 : 0, 'pool.sidebar.rosterPaths')
   /** Membership is filed by ingest; eligibility is a tracked row answer.
    * The existing query owns its ordered snapshot and releases every row
@@ -131,32 +129,12 @@ export class SidebarRosterIndex {
     this.pool.worklist.need()
     return worklistGroups(this.pool).group(key).rosterBand
   }
-  unpinnedProjectLanes(project: number | undefined, pinned: readonly string[]): number {
-    let count = this.projectCounts.get(project) ?? 0
-    for (const path of pinned) {
-      const row = omitGone(this.pool.row('worktree', this.pool.queries.registeredWorktreePath(path) ?? path))
-      if (row !== undefined && row !== LOADING && (row as SliceWorktree).projectIndex === project) count -= 1
-    }
-    return count
-  }
   fileWorktree(path: string): void {
     const value = omitGone(this.pool.row('worktree', path, 'mark'))
     const lane = value === LOADING ? undefined : value as SliceWorktree | undefined
     const previous = this.worktrees.get(path)
-    const project = lane?.projectIndex
-    const count = (index: number | undefined, by: number) => {
-      const n = (this.projectCounts.get(index) ?? 0) + by
-      if (n) this.projectCounts.set(index, n)
-      else this.projectCounts.delete(index)
-    }
-    if ((previous !== undefined) !== (lane !== undefined) || previous?.project !== project) {
-      if (previous !== undefined) count(previous.project, -1)
-      if (lane !== undefined) count(project, 1)
-    }
     if (lane === undefined) this.worktrees.delete(path)
-    else this.worktrees.set(path, { group: lane.repoId ?? machinePathKey(lane.repoPath), project })
-    if (lane && machinePathsEqual(lane.path, lane.repoPath) && lane.projectRoot !== false) this.projects.add(path)
-    else this.projects.delete(path)
+    else this.worktrees.set(path, { group: lane.repoId ?? machinePathKey(lane.repoPath) })
     this.filePath(path, previous?.group)
   }
   advanceClock(now: number): void {
@@ -286,7 +264,7 @@ export class SidebarRosterIndex {
     this.stopDeadline?.(); this.stopDeadline = undefined; this.scheduledAt = undefined
     this.seats.clear()
     this.dirty.clear(); this.lanes.clear()
-    this.projects.clear(); this.projectCounts.clear(); this.worktrees.clear(); this.paths.clear()
+    this.worktrees.clear(); this.paths.clear()
     for (const listeners of [...this.candidateListeners.values()])
       for (const changed of [...listeners]) changed(undefined)
     for (const listeners of [...this.groupListeners.values()])

@@ -2,6 +2,7 @@ import { here, omitGone } from '../lookup'
 import { worklistGroups } from './groups'
 import { machinePathKey, machinePathsEqual } from '@podium/model/browser'
 import { sidebarRosterView } from './sidebar-roster'
+import { projectIndex } from './projects'
 /** The real sidebar's section projection over resident pool indexes.
  * The small state argument is caller-owned per-user layout/selection data.
  * It is never read from worklistSlice, a selector, or browser storage here.
@@ -296,20 +297,7 @@ export class SidebarIndex {
 
   private specValues(state: SidebarState): BandSpecs {
     const index = sidebarRosterView(this.pool)
-    const repos = [...index.projects]
-      .map((path) => omitGone(this.pool.row('worktree', path)))
-      .filter((row) => row !== undefined && row !== LOADING)
-      .filter(
-        (lane) =>
-          state.pinnedRepos?.some(path => machinePathsEqual(path, lane.path)) ||
-          index.unpinnedProjectLanes(lane.projectIndex, state.pinnedWorktrees ?? []) > 0,
-      )
-      .sort((a, b) => {
-        const ap = state.pinnedRepos?.findIndex(path => machinePathsEqual(path, a.path)) ?? -1,
-          bp = state.pinnedRepos?.findIndex(path => machinePathsEqual(path, b.path)) ?? -1
-        if (ap >= 0 || bp >= 0) return ap >= 0 && bp >= 0 ? ap - bp : ap >= 0 ? -1 : 1
-        return (a.projectIndex ?? 0) - (b.projectIndex ?? 0)
-      })
+    const repos = projectIndex(this.pool).registered(state)
     const specs = new Map<string, BandSpec>()
     const add = (
       key: string,

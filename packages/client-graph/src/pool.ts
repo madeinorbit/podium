@@ -138,6 +138,7 @@ import { NO_INTERACTIONS, type SeatInteractions } from '@podium/model/browser'
 import { SeatVerdicts } from './worklist/seat-verdicts'
 import { worklistView } from './worklist/view-model'
 import { sidebarRosterView } from './worklist/sidebar-roster'
+import { projectIndex } from './worklist/projects'
 import {
   type HeldIssue,
   HIDDEN_ISSUE_FIELDS,
@@ -498,6 +499,7 @@ export class MobxPool {
       ...(residency === null ? {} : { residency }),
     }
     const sidebarRosters = sidebarRosterView(this)
+    projectIndex(this)
     // Maintenance reads: untracked, so a summary never depends on a seat's row.
     this.seatVerdicts = new SeatVerdicts({
       // untracked-read: seat-membership-maintenance
