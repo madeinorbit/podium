@@ -1,3 +1,4 @@
+import { createLogger } from '@podium/logger'
 import { isMachinePathWithinRoot, machinePathKey, machinePathSeparator, normalizeMachinePath } from '@podium/model'
 /**
  * Repos aggregate — owns the `repos` table (registered repo roots per machine,
@@ -16,6 +17,8 @@ import { deriveRepoId, isPathFallbackRepoId, readLocalOriginUrl } from '../repo-
 import type { StoreDrizzle, StoreQueries, TransactionRunner } from './executor/sync-drizzle'
 import { currentTransaction } from './executor/sync-drizzle'
 import type { TableWrites } from './table-writes'
+
+const log = createLogger('server:store')
 
 export function normalizeRepoPath(path: string): string {
   const trimmed = path.trim()
@@ -330,6 +333,25 @@ export class ReposRepository {
   // LOGICAL repo, shared by every checkout of one origin. NULL defers to the
   // instance-wide `gitWorkflow.defaultParentBranch`.
 
+  /**
+   * A machine that reported the logical repo `repoId` at a root containing
+   * `repoPath`, or null when none has. `preferred` wins when it is one of them; it
+   * is ignored otherwise, since the same path there may be another repository. A
+   * registry read only.
+   */
+  async reportingMachineFor(
+    repoId: RepoId,
+    repoPath: string,
+    preferred?: MachineId | null,
+  ): Promise<MachineId | null> {
+    const path = machinePathKey(normalizeRepoPath(repoPath))
+    const reporters = (await this.sortedRoots())
+      .filter((r) => r.repoId === repoId && rootContains(r.path, path))
+      .map((r) => r.machineId)
+    if (preferred && reporters.includes(preferred)) return preferred
+    return reporters[0] ?? null
+  }
+
   /** The base branch chosen for the logical repo `repoId` (or null). */
   async defaultParentBranchForRepoId(repoId: RepoId): Promise<string | null> {
     return (await this.registry()).baseBranches.get(repoId) ?? null
@@ -515,8 +537,43 @@ export class ReposRepository {
           // UPDATE-CONFLICT STATEMENT POD-3406
           sql`UPDATE OR IGNORE repo_prefixes SET repo_id = ${newId} WHERE repo_id = ${row.repoId}`,
         )
+      } else if (row.repoId && row.repoId !== newId) {
+        await this.carryBaseBranch(row.repoId, newId)
       }
     }
+  }
+
+  /**
+   * Carry a base branch across an identity convergence whose destination already
+   * owns a prefix row, so the re-key above did not move it [POD-2065]. A base set
+   * on a path-derived id (a checkout whose origin was not reported yet) is the
+   * operator's choice for that repository and must not vanish when the checkout
+   * joins its origin. The rule: the source's base fills an UNSET destination; when
+   * both are set and differ, the destination's — already shared by the repo's other
+   * checkouts — wins, and the dropped one is logged.
+   */
+  private async carryBaseBranch(from: RepoId, to: RepoId): Promise<void> {
+    const { baseBranches } = await this.registry()
+    const source = baseBranches.get(from)
+    if (!source) return
+    const target = baseBranches.get(to)
+    if (target) {
+      if (target !== source) {
+        log.warn('repo identity converged with two base branches; keeping the destination\'s', {
+          from,
+          to,
+          kept: target,
+          dropped: source,
+        })
+      }
+      return
+    }
+    await this.invalidateRegistry()
+    ;await this.db
+      .update(repoPrefixes)
+      .set({ defaultParentBranch: source })
+      .where(eq(repoPrefixes.repoId, to))
+      .run()
   }
 
   /** Resolve a reported repo, or derive only under a machine explicitly named by the caller. */

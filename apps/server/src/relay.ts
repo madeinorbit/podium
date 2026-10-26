@@ -2015,7 +2015,7 @@ export class SessionRegistry {
         }),
       agentProfiles,
       repoOp: async (op, cwd, args, machineId) => await rpc.repoOp(op, cwd, args, machineId),
-      readRepo: async (op, cwd, args) => await rpc.repoOp(op, cwd, args),
+      readRepo: async (op, cwd, args, machineId) => await rpc.repoOp(op, cwd, args, machineId),
       resolveMachine: async (requested, cwd) => await machines.resolveMachine(requested, cwd),
       requireMachineForRepo: async (machineId, repoPath) =>
         await machines.requireMachineForRepo(machineId, repoPath),

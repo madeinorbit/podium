@@ -112,6 +112,50 @@ describe('repo base branches (POD-2065)', () => {
     await s.close()
   })
 
+  it('refuses revision syntax before asking the repository', async () => {
+    const s = await memStore()
+    await s.repos.addRepo('/a/podium', s.hostMachineId)
+    const { repos, asked } = registry(s, ['tf.dev', 'feature/tf.dev'])
+    for (const bad of ['tf.dev~1', 'tf.dev^{commit}', '-x', 'a..b', 'x@{1}', 'a b', 'x.lock', 'x/']) {
+      await expect(repos.setDefaultParentBranch('/a/podium', bad)).rejects.toThrow(
+        `invalid branch name '${bad}'`,
+      )
+    }
+    expect(asked).toEqual([])
+    await repos.setDefaultParentBranch('/a/podium', 'feature/tf.dev')
+    expect(asked).toEqual(['refs/heads/feature/tf.dev'])
+    await s.close()
+  })
+
+  it('keeps a base set before the checkout reported its origin', async () => {
+    const s = await memStore()
+    const a = asMachineId('machine-a')
+    const b = asMachineId('machine-b')
+    const origin = 'git@example.com:acme/podium.git'
+    await s.repos.addRepo('/a/podium', a, origin)
+    // B's checkout has no origin yet: a path-derived identity with its own prefix row.
+    await s.repos.addRepo('/b/podium', b)
+    await s.repos.setRepoDefaultParentBranch(b, '/b/podium', 'tf.dev')
+    await s.repos.updateRepoOrigin(b, '/b/podium', origin)
+    expect(await s.repos.defaultParentBranchForIssueRepo('/b/podium', b)).toBe('tf.dev')
+    expect(await s.repos.defaultParentBranchForIssueRepo('/a/podium', a)).toBe('tf.dev')
+    await s.close()
+  })
+
+  it("keeps the origin repository's base when both checkouts had one", async () => {
+    const s = await memStore()
+    const a = asMachineId('machine-a')
+    const b = asMachineId('machine-b')
+    const origin = 'git@example.com:acme/podium.git'
+    await s.repos.addRepo('/a/podium', a, origin)
+    await s.repos.addRepo('/b/podium', b)
+    await s.repos.setRepoDefaultParentBranch(a, '/a/podium', 'main')
+    await s.repos.setRepoDefaultParentBranch(b, '/b/podium', 'tf.dev')
+    await s.repos.updateRepoOrigin(b, '/b/podium', origin)
+    expect(await s.repos.defaultParentBranchForIssueRepo('/b/podium', b)).toBe('main')
+    await s.close()
+  })
+
   it('does not blame the branch when the repository did not answer', async () => {
     const s = await memStore()
     await s.repos.addRepo('/a/podium', s.hostMachineId)

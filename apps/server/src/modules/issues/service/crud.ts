@@ -18,6 +18,7 @@ import {
   machinePathBasename,
   machinePathRelativeToRoot,
   machinePathSegments,
+  type MachineId,
   normalizeClosedPatch,
   type RepoId,
   type SessionId,
@@ -1033,14 +1034,24 @@ export class IssueCrudModule {
    * machine that holds the source repo, which is where a start resolves the start
    * point before shipping it to a pinned target.
    */
-  private async defaultParentBranch(repoId: RepoId, repoPath: string): Promise<string> {
+  private async defaultParentBranch(
+    repoId: RepoId,
+    repoPath: string,
+    machineId: MachineId | null | undefined,
+  ): Promise<string> {
     const repoDefault = await this.store.deps.store.repos.defaultParentBranchForRepoId(repoId)
     if (repoDefault) return repoDefault
     const configured = (await this.store.deps.getSettings()).gitWorkflow.defaultParentBranch.trim()
     if (configured) return configured
     const readRepo = this.store.deps.readRepo
     if (!readRepo) return 'main'
-    return await defaultParentBranchFor(readRepo, repoPath)
+    // Ask a machine that reported THIS repository at this path: the same path on
+    // another machine can be a different repository with a different base.
+    const at = await this.store.deps.store.repos.reportingMachineFor(repoId, repoPath, machineId)
+    return await defaultParentBranchFor(
+      (op, cwd, args) => readRepo(op, cwd, args, at ?? undefined),
+      repoPath,
+    )
   }
 
   async create(input: CreateIssueInput): Promise<IssueProjection> {
@@ -1084,7 +1095,7 @@ export class IssueCrudModule {
       stage: (input.stage ?? 'backlog') as StoredIssue['stage'],
       worktreePath: null,
       branch: null,
-      parentBranch: input.parentBranch || (await this.defaultParentBranch(repoId, input.repoPath)),
+      parentBranch: input.parentBranch || (await this.defaultParentBranch(repoId, input.repoPath, input.machineId)),
       // The issue stores picks only (POD-6133): an unnamed harness, model or effort
       // stays `auto`, so the profile and then the Settings current at each
       // session start decide it, and a stored harness is always a real pick.

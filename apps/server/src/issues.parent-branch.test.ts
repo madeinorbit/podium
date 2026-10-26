@@ -1,4 +1,4 @@
-import { asSessionId, type IssueReport } from '@podium/model'
+import { asMachineId, asSessionId, type IssueReport } from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
 import { describe, expect, it, vi } from 'vitest'
 import { type IssueDeps, IssueService } from './modules/issues/service'
@@ -146,6 +146,46 @@ describe('parent branch for a new issue (POD-2065)', () => {
     const after = await h.svc.crud.create({ repoPath: '/r', title: 'After', startNow: false })
     expect((await h.svc.reports.get(before.id))?.parentBranch).toBe('main')
     expect(after.parentBranch).toBe('tf.dev')
+  })
+})
+
+describe('detecting the base on the right machine (POD-2065)', () => {
+  it('asks the machine that reported the repository at that path', async () => {
+    const store = await openTestStore(':memory:')
+    const a = asMachineId('machine-a')
+    const b = asMachineId('machine-b')
+    // The same path on two machines, holding two different repositories.
+    await store.repos.addRepo('/r', a, 'git@example.com:acme/alpha.git')
+    await store.repos.addRepo('/r', b, 'git@example.com:acme/beta.git')
+    const refs = new Map([
+      [a, new Set(['main'])],
+      [b, new Set(['master'])],
+    ])
+    const asked: (string | undefined)[] = []
+    const readRepo: NonNullable<IssueDeps['readRepo']> = async (op, _cwd, args, machineId) => {
+      asked.push(machineId)
+      if (op === 'statusProbe') return { ok: true, output: '## HEAD (no branch)\n' }
+      const has = machineId ? refs.get(machineId)?.has(args?.ref ?? '') : false
+      return has ? { ok: true, output: 'deadbeef' } : { ok: false, output: 'fatal' }
+    }
+    const deps: IssueDeps = {
+      store,
+      ...sessionReadPorts(() => []),
+      getSettings: async () => normalizeSettings({ sessionDefaults: { agent: 'claude-code' } }),
+      spawnSession: vi.fn(async () => ({ sessionId: asSessionId('s1'), machine: 'm' })),
+      readRepo,
+      repoOp: async () => ({ ok: true, output: '' }),
+      resolveMachine: vi.fn(async () => a),
+      ...issueTestPlumbing(vi.fn()),
+      setSessionArchived: vi.fn(),
+      clearSessionOffer: vi.fn(),
+      onWorktreesChanged: vi.fn(),
+      now: () => '2026-10-26T00:00:00.000Z',
+    }
+    const svc = await IssueService.create(deps)
+    const onB = await svc.crud.create({ repoPath: '/r', title: 'B', machineId: b, startNow: false })
+    expect(onB.parentBranch).toBe('master')
+    expect(new Set(asked)).toEqual(new Set([b]))
   })
 })
 

@@ -72,6 +72,24 @@ export function inferRepoFromRoots(roots: string[], path: string): string | unde
     .sort((a, b) => b.length - a.length)[0]
 }
 
+/**
+ * Whether `name` is a plain branch name by `git check-ref-format --branch` rules:
+ * no revision syntax (`~ ^ : ? * [ \`, `..`, `@{`), no control characters or
+ * spaces, no leading `-` or `/`, no trailing `/`, `.` or `.lock`, no empty or
+ * dot-led component [POD-2065].
+ */
+export function isBranchName(name: string): boolean {
+  if (name === '' || name === '@') return false
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: control characters are what it refuses
+  if (/[\x00-\x20\x7f~^:?*[\\]/u.test(name)) return false
+  if (name.includes('..') || name.includes('@{')) return false
+  if (name.startsWith('-') || name.startsWith('/')) return false
+  if (name.endsWith('/') || name.endsWith('.') || name.endsWith('.lock')) return false
+  return name
+    .split('/')
+    .every((part) => part !== '' && !part.startsWith('.') && !part.endsWith('.lock'))
+}
+
 /** Persisted list of absolute repo-root paths, backed by SessionStore. Shared by all
  *  clients so the repo list survives and shows on every device (desktop + phone).
  *
@@ -155,6 +173,9 @@ export class RepoRegistry {
     const p = normalizeRepoPath(path)
     const name = branch?.trim() || null
     if (name !== null) {
+      // A name, not a revision: `refs/heads/<x>` plus the daemon's `^{commit}` would
+      // otherwise let `tf.dev~1` resolve and be stored as a branch.
+      if (!isBranchName(name)) throw new Error(`invalid branch name '${name}'`)
       const rpc = this.sessionReg.modules.rpc
       const found = await rpc.repoOp('revParseVerify', p, { ref: `refs/heads/${name}` }, mid)
       if (!found.ok) {

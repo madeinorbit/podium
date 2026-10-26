@@ -207,14 +207,16 @@ export interface IssueDeps {
   /**
    * The read-only half of {@link repoOp} that create uses to choose a parent branch
    * the selected repository has [POD-2065]: `revParseVerify` and `statusProbe`
-   * only, routed to the machine that holds `cwd`. Its own member so the span lint
-   * can tell it from git writes: create runs inside spans (attach --subissue). Optional;
-   * without it create keeps the unprobed default.
+   * only, routed to `machineId` — the machine that reported the issue's repo at
+   * `cwd` — or, without one, to the machine that holds `cwd`. Its own member so the
+   * span lint can tell it from git writes: create runs inside spans (attach
+   * --subissue). Optional; without it create keeps the unprobed default.
    */
   readRepo?(
     op: Extract<RepoOp, 'revParseVerify' | 'statusProbe'>,
     cwd: string,
     args?: Record<string, string>,
+    machineId?: MachineId,
   ): Promise<{ ok: boolean; output: string }>
   repoOp(
     op: RepoOp,
