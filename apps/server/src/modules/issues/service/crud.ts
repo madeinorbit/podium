@@ -1046,12 +1046,12 @@ export class IssueCrudModule {
     const readRepo = this.store.deps.readRepo
     if (!readRepo) return 'main'
     // Ask a machine that reported THIS repository at this path: the same path on
-    // another machine can be a different repository with a different base.
+    // another machine can be a different repository with a different base. With no
+    // such machine there is nobody to ask — routing by path alone could probe that
+    // other repository — so the issue takes `main`, and start explains if it lacks it.
     const at = await this.store.deps.store.repos.reportingMachineFor(repoId, repoPath, machineId)
-    return await defaultParentBranchFor(
-      (op, cwd, args) => readRepo(op, cwd, args, at ?? undefined),
-      repoPath,
-    )
+    if (!at) return 'main'
+    return await defaultParentBranchFor((op, cwd, args) => readRepo(op, cwd, args, at), repoPath)
   }
 
   async create(input: CreateIssueInput): Promise<IssueProjection> {

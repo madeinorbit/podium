@@ -187,6 +187,43 @@ describe('detecting the base on the right machine (POD-2065)', () => {
     expect(onB.parentBranch).toBe('master')
     expect(new Set(asked)).toEqual(new Set([b]))
   })
+
+  it('probes nobody when no machine reported the repository the issue resolves to', async () => {
+    const store = await openTestStore(':memory:')
+    const a = asMachineId('machine-a')
+    const b = asMachineId('machine-b')
+    const c = asMachineId('machine-c')
+    // Two identities at one path, and the pin reported neither: ambiguous.
+    await store.repos.addRepo('/same', a, 'git@example.com:acme/alpha.git')
+    await store.repos.addRepo('/same', b, 'git@example.com:acme/beta.git')
+    const asked: (string | undefined)[] = []
+    const readRepo: NonNullable<IssueDeps['readRepo']> = async (op, _cwd, args, machineId) => {
+      asked.push(machineId)
+      // Routing by path alone lands on A, which has only `master`.
+      if (op === 'statusProbe') return { ok: true, output: '## HEAD (no branch)\n' }
+      return (machineId ?? a) === a && args?.ref === 'master'
+        ? { ok: true, output: 'deadbeef' }
+        : { ok: false, output: 'fatal' }
+    }
+    const deps: IssueDeps = {
+      store,
+      ...sessionReadPorts(() => []),
+      getSettings: async () => normalizeSettings({ sessionDefaults: { agent: 'claude-code' } }),
+      spawnSession: vi.fn(async () => ({ sessionId: asSessionId('s1'), machine: 'm' })),
+      readRepo,
+      repoOp: async () => ({ ok: true, output: '' }),
+      resolveMachine: vi.fn(async () => a),
+      ...issueTestPlumbing(vi.fn()),
+      setSessionArchived: vi.fn(),
+      clearSessionOffer: vi.fn(),
+      onWorktreesChanged: vi.fn(),
+      now: () => '2026-10-26T00:00:00.000Z',
+    }
+    const svc = await IssueService.create(deps)
+    const onC = await svc.crud.create({ repoPath: '/same', title: 'C', machineId: c, startNow: false })
+    expect(onC.parentBranch).toBe('main')
+    expect(asked).toEqual([])
+  })
 })
 
 describe('starting an issue whose parent branch is missing (POD-2065)', () => {

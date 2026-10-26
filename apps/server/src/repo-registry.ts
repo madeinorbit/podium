@@ -76,10 +76,14 @@ export function inferRepoFromRoots(roots: string[], path: string): string | unde
  * Whether `name` is a plain branch name by `git check-ref-format --branch` rules:
  * no revision syntax (`~ ^ : ? * [ \`, `..`, `@{`), no control characters or
  * spaces, no leading `-` or `/`, no trailing `/`, `.` or `.lock`, no empty or
- * dot-led component [POD-2065].
+ * dot-led component, and not `HEAD` [POD-2065].
+ *
+ * Stricter than git on one name: `@` alone. `check-ref-format --branch` reads it
+ * as the current branch's shorthand and answers with that branch, not with `@`,
+ * so there is no branch literally named `@` to store.
  */
 export function isBranchName(name: string): boolean {
-  if (name === '' || name === '@') return false
+  if (name === '' || name === '@' || name === 'HEAD') return false
   // biome-ignore lint/suspicious/noControlCharactersInRegex: control characters are what it refuses
   if (/[\x00-\x20\x7f~^:?*[\\]/u.test(name)) return false
   if (name.includes('..') || name.includes('@{')) return false

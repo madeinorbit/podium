@@ -4,6 +4,7 @@
  * migration backfill over colliding repo names.
  */
 import { asIssueId, asMachineId, asRepoId } from '@podium/model'
+import { sql } from 'drizzle-orm'
 import { describe, expect, it } from 'vitest'
 import type { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
@@ -116,7 +117,18 @@ describe('repo base branches (POD-2065)', () => {
     const s = await memStore()
     await s.repos.addRepo('/a/podium', s.hostMachineId)
     const { repos, asked } = registry(s, ['tf.dev', 'feature/tf.dev'])
-    for (const bad of ['tf.dev~1', 'tf.dev^{commit}', '-x', 'a..b', 'x@{1}', 'a b', 'x.lock', 'x/']) {
+    for (const bad of [
+      'tf.dev~1',
+      'tf.dev^{commit}',
+      '-x',
+      'a..b',
+      'x@{1}',
+      'a b',
+      'x.lock',
+      'x/',
+      'HEAD',
+      '@',
+    ]) {
       await expect(repos.setDefaultParentBranch('/a/podium', bad)).rejects.toThrow(
         `invalid branch name '${bad}'`,
       )
@@ -139,6 +151,31 @@ describe('repo base branches (POD-2065)', () => {
     await s.repos.updateRepoOrigin(b, '/b/podium', origin)
     expect(await s.repos.defaultParentBranchForIssueRepo('/b/podium', b)).toBe('tf.dev')
     expect(await s.repos.defaultParentBranchForIssueRepo('/a/podium', a)).toBe('tf.dev')
+    await s.close()
+  })
+
+  it('never overwrites a destination base set after the convergence read it', async () => {
+    const s = await memStore()
+    const a = asMachineId('machine-a')
+    const b = asMachineId('machine-b')
+    await s.repos.addRepo('/a/podium', a, 'git@example.com:acme/podium.git')
+    await s.repos.addRepo('/b/podium', b)
+    await s.repos.setRepoDefaultParentBranch(b, '/b/podium', 'tf.dev')
+    const ids = Object.fromEntries((await s.repos.listRepos()).map((r) => [r.path, r.repoId!]))
+    // The registry is read and held with the destination unset ...
+    expect(await s.repos.defaultParentBranchForRepoId(ids['/a/podium']!)).toBeNull()
+    // ... then a concurrent writer sets it without passing through this class's
+    // invalidation, as an interleaved scan would between read and write.
+    const repos = s.repos as unknown as {
+      rootDb: { run(q: unknown): Promise<unknown> }
+      carryBaseBranch(from: string, to: string): Promise<void>
+    }
+    await repos.rootDb.run(
+      sql`UPDATE repo_prefixes SET default_parent_branch = 'main' WHERE repo_id = ${ids['/a/podium']}`,
+    )
+    await repos.carryBaseBranch(ids['/b/podium']!, ids['/a/podium']!)
+    await s.repos.invalidateRegistry()
+    expect(await s.repos.defaultParentBranchForRepoId(ids['/a/podium']!)).toBe('main')
     await s.close()
   })
 

@@ -551,29 +551,31 @@ export class ReposRepository {
    * joins its origin. The rule: the source's base fills an UNSET destination; when
    * both are set and differ, the destination's — already shared by the repo's other
    * checkouts — wins, and the dropped one is logged.
+   *
+   * "Unset" is decided BY the write, never by an earlier read: scans converge
+   * concurrently, and a destination base set between a read and this UPDATE must
+   * not be overwritten. So the UPDATE is conditional on the column still being
+   * NULL, and only a write that changed nothing re-reads to report a conflict.
    */
   private async carryBaseBranch(from: RepoId, to: RepoId): Promise<void> {
-    const { baseBranches } = await this.registry()
-    const source = baseBranches.get(from)
+    const source = (await this.registry()).baseBranches.get(from)
     if (!source) return
-    const target = baseBranches.get(to)
-    if (target) {
-      if (target !== source) {
-        log.warn('repo identity converged with two base branches; keeping the destination\'s', {
-          from,
-          to,
-          kept: target,
-          dropped: source,
-        })
-      }
-      return
-    }
     await this.invalidateRegistry()
-    ;await this.db
+    const result = await this.db
       .update(repoPrefixes)
       .set({ defaultParentBranch: source })
-      .where(eq(repoPrefixes.repoId, to))
+      .where(and(eq(repoPrefixes.repoId, to), isNull(repoPrefixes.defaultParentBranch)))
       .run()
+    if (Number(result.changes ?? 0) > 0) return
+    const kept = await this.defaultParentBranchForRepoId(to)
+    if (kept && kept !== source) {
+      log.warn('repo identity converged with two base branches; keeping the destination\'s', {
+        from,
+        to,
+        kept,
+        dropped: source,
+      })
+    }
   }
 
   /** Resolve a reported repo, or derive only under a machine explicitly named by the caller. */
