@@ -312,6 +312,7 @@ describe('IssuePanelView inspector', () => {
     render(<IssuePanelView cwd="/r" />)
 
     const update = screen.getByTestId('dock-current-update')
+    expect(update.textContent).toContain('Agent status')
     expect(update.textContent).toContain('Spine direction is fixed')
     const body = screen.getByTestId('dock-current-update-body')
     expect(body.className).toContain('line-clamp-4')

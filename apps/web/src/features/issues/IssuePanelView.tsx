@@ -957,7 +957,7 @@ export const IssuePanelBody = observer(function IssuePanelBody({
             data-part="Current update"
           >
             <span className="text-[11px] text-text-faint">
-              Latest update
+              Agent status
               {notesAt ? (
                 <>
                   {' '}

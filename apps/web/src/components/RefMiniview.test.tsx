@@ -1097,7 +1097,7 @@ describe('RefCard details strip', () => {
     } as RefIssueLike)
     const text = container.textContent ?? ''
     expect(text).toContain('Subissues')
-    expect(text).not.toContain('Latest update')
+    expect(text).not.toContain('Agent status')
     expect(text).not.toContain('Card now shows')
     expect(text).not.toContain('Tasks')
     expect(text).not.toContain('Artifacts')
