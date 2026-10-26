@@ -3239,9 +3239,9 @@ html[data-setup-only="true"] [data-testid="update-panel"] {
   --chat-mail-bg: color-mix(in srgb, var(--live) 3.5%, transparent);
 }
 .dark {
-  /* Tool disclosures need a visible boundary against the dark chat sheet. */
-  --chat-tool-border: color-mix(in srgb, var(--border-strong) 60%, var(--foreground));
-  --chat-tool-border-hover: color-mix(in srgb, var(--border-strong) 40%, var(--foreground));
+  /* Match the offer card's rim; a small hover lift keeps disclosures distinct. */
+  --chat-tool-border: var(--border-strong);
+  --chat-tool-border-hover: color-mix(in srgb, var(--border-strong) 88%, var(--foreground));
   /* On a dark ground the plain hairline disappears against the tab-strip face a
      work line is drawn on — the two are four steps apart — so the rule is mixed
      one notch toward the strong border. On paper the hairline already reads,
