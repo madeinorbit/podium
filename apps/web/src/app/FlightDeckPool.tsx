@@ -1,12 +1,11 @@
 import { useStoreHandle } from '@podium/client-core/react'
 import type { SessionView } from '@podium/client-core/session-values'
-import { shallowEqual } from '@podium/client-core/shallow-equal'
 import type { RoutedUiState } from '@podium/client-core/ui-state'
 import type { FlightDeckMode } from '@podium/client-core/values'
 import { LOADING, type MobxPool } from '@podium/client-graph'
 import { missions } from '@podium/client-graph/mission'
 import { MissionScreen, missionRootId } from '@podium/client-graph/mission-screen'
-import { missionView, readMissionActionInputs, settled } from '@podium/client-graph/mission-view'
+import { missionView, readMissionActionInputs } from '@podium/client-graph/mission-view'
 import { observer } from '@podium/client-graph/react'
 import { followVisibleRequest } from '@podium/client-graph/visible-request'
 import {
@@ -27,13 +26,12 @@ import {
   FlightDeckContent,
   type FlightDeckProps,
   type FlightDeckSource,
-  MissionlessDeck,
   SettlingDeck,
 } from './FlightDeck'
 import { measurePoolMission } from './mission-pane-perf'
 import { useRuntimeSelector } from './store'
-import type { Trpc } from './trpc'
 import { useWorklistPool, useWorklistPoolProjection } from './store-worklist-pool'
+import type { Trpc } from './trpc'
 
 const IssueContextMenu = lazy(() =>
   throughRestarts(() => import('@/features/issues/IssueContextMenu')).then((module) => ({
@@ -44,9 +42,7 @@ const IssueContextMenu = lazy(() =>
 /** The same pool and mutation owner as the sidebar. This module loads only
  * for the mission pane: it resolves which mission the selection opens, and
  * each opening gets its own view model. */
-export default observer(function PoolFlightDeck(
-  props: FlightDeckProps,
-): JSX.Element {
+export default observer(function PoolFlightDeck(props: FlightDeckProps): JSX.Element {
   const selectedIssueId = useRuntimeSelector((store) => store.selectedIssueId)
   const pool = useWorklistPool()
   const owner = useStoreHandle()
@@ -55,35 +51,11 @@ export default observer(function PoolFlightDeck(
     [owner, selectedIssueId],
   )
   const rootId = useWorklistPoolProjection(readRoot, LOADING)
-  if (!pool || rootId === LOADING) return <SettlingDeck />
-  if (!rootId) return <PoolMissionlessDeck onCollapse={props.onCollapse} />
+  // The shell mounts this column only once the selection has a mission, so a
+  // missing root here is the selection catching up: a load, never a state.
+  if (!pool || !rootId || rootId === LOADING) return <SettlingDeck />
   return <MissionOpening key={rootId} pool={pool} rootId={rootId} {...props} />
 })
-
-/** What the column says with no mission: the focused session decides. */
-function PoolMissionlessDeck({ onCollapse }: { onCollapse: () => void }): JSX.Element {
-  const { paneA, paneB, split } = useRuntimeSelector(
-    (store) => ({ paneA: store.paneA, paneB: store.paneB, split: store.split }),
-    shallowEqual,
-  )
-  const read = useCallback(
-    (pool: MobxPool): 'shell' | 'settling' | 'none' => {
-      for (const id of [paneA, split ? paneB : null]) {
-        if (!id) continue
-        const session = settled(() => {
-          const model = pool.sessionObject(id)
-          return model.exists ? { agentKind: model.agentKind, issueId: model.issueId } : undefined
-        })
-        if (!session || session === LOADING) continue
-        return session.agentKind === 'shell' ? 'shell' : session.issueId ? 'settling' : 'none'
-      }
-      return 'none'
-    },
-    [paneA, paneB, split],
-  )
-  const focus = useWorklistPoolProjection(read, 'none')
-  return <MissionlessDeck onCollapse={onCollapse} focus={focus} />
-}
 
 /** One opening of a mission: creates its view model, closes it on unmount. */
 const MissionOpening = observer(function MissionOpening({
@@ -110,16 +82,25 @@ const MissionOpening = observer(function MissionOpening({
     [pool, rootId],
   )
   useEffect(() => () => screen.close(), [screen])
-  useEffect(() => followVisibleRequest(() => {
-    if (!screen.settingsRequest.loading)
-      void screen.settingsRequest.read(() => handleRef.current.access.trpc.settings.get.query())
-  }, {
-    visible: () => document.visibilityState !== 'hidden',
-    subscribe: changed => {
-      document.addEventListener('visibilitychange', changed)
-      return () => document.removeEventListener('visibilitychange', changed)
-    },
-  }), [screen])
+  useEffect(
+    () =>
+      followVisibleRequest(
+        () => {
+          if (!screen.settingsRequest.loading)
+            void screen.settingsRequest.read(() =>
+              handleRef.current.access.trpc.settings.get.query(),
+            )
+        },
+        {
+          visible: () => document.visibilityState !== 'hidden',
+          subscribe: (changed) => {
+            document.addEventListener('visibilitychange', changed)
+            return () => document.removeEventListener('visibilitychange', changed)
+          },
+        },
+      ),
+    [screen],
+  )
   const source = useMemo<FlightDeckSource>(() => {
     const reader = screen.reader
     return {
@@ -163,7 +144,9 @@ const PoolArchivedSessions = observer(function PoolArchivedSessions(props: {
   children: (sessions: readonly SessionView[]) => ReactNode
 }) {
   const owner = useStoreHandle()
-  const sessions = measurePoolMission(owner, () => props.screen.reader.archive(props.rootId, props.mode))
+  const sessions = measurePoolMission(owner, () =>
+    props.screen.reader.archive(props.rootId, props.mode),
+  )
   return sessions === LOADING ? null : props.children(sessions)
 })
 
@@ -173,7 +156,9 @@ function PoolIssueContextMenu(props: Omit<ComponentProps<typeof IssueContextMenu
   const ids = props.issues.map((issue) => issue.id).join('\n')
   const read = useCallback(
     (pool: MobxPool) =>
-      measurePoolMission(owner, () => readMissionActionInputs(missionView(pool), ids.split('\n'), undefined, handoffEnabled)),
+      measurePoolMission(owner, () =>
+        readMissionActionInputs(missionView(pool), ids.split('\n'), undefined, handoffEnabled),
+      ),
     [owner, ids, handoffEnabled],
   )
   const values = useWorklistPoolProjection(read, LOADING)

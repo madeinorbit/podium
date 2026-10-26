@@ -1264,14 +1264,14 @@
       "file": "apps/web/src/app/AppShell.tsx",
       "holder": "AppBodyView",
       "rule": "reader-summary",
-      "tokens": "5d071b481de52dfc745399956eeea496e7dc8d440743abf64f34e4e2b7381caa",
+      "tokens": "b6ae0138fd72fc1ad3c847388bee238bc7046ff98487812c173ba10e5b4539b9",
       "gate": [],
       "origin": [
         "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
         "1a74ec459850b1f319987a72ab57e72d8b1fe2530eb80d9e54f7390e033b37f1",
         "5ac8c2052ffe18ceeedb0d32f307b6092b6a667bf768249b43c2dc76112824b6"
       ],
-      "fingerprint": "66f69d470316944b5971513a436906cd7fbd3a77774f807ac389963c0860bae3",
+      "fingerprint": "b870f20a67460346c8aaca75c3b00cb6acb6b135dc635d91d15387c184062f4a",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -1477,12 +1477,12 @@
       "file": "apps/web/src/app/FlightDeck.tsx",
       "holder": "FlightDeckContent/FlightDeckContent/selectIssue/callback/active",
       "rule": "consume:filter",
-      "tokens": "55dfa7f4b480af7ac238b9effc7e52f9931dfd0dbc1d5bf480b9b95967cf8114",
+      "tokens": "48d608b865627a766a0a4ce2f04b7989caba88d9646d095e9a741ccf991f1c7a",
       "gate": [],
       "origin": [
         "65d819847d56cc62b1b73733ea4300614ab49e37db0ae088b9e50f973f311998"
       ],
-      "fingerprint": "16bb0072031c6d9c68f22f5dd9ee0cc2d4e53cd9ef1a9578a3e099a37edd80c6",
+      "fingerprint": "0117e0b2e224c25f23dccbf51de5791eb04a6cf06d44edbae3881d3aed5a0f67",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",

@@ -429,6 +429,7 @@ function AppBodyView({ syncProgress }: { syncProgress: SyncProgressStore }): JSX
     sessionCount,
     selectedIssueId,
     missionRoot: flightDeckMission,
+    settled: chromeSettled,
   } = useShellChrome()
   const sync = useSyncExternalStore(syncProgress.subscribe, syncProgress.getSnapshot)
   // Settings and Usage are utilities layered OVER a mode, not modes themselves
@@ -444,6 +445,12 @@ function AppBodyView({ syncProgress }: { syncProgress: SyncProgressStore }): JSX
   const newTaskOpen = useNewTaskOverlayOpen()
   const workspaceActive = baseView === 'workspace'
   const flightDeckMissionId = flightDeckMission?.id ?? 'empty'
+  // The deck exists only for a selected task with a mission. A loading chrome
+  // reads as "no mission", so the last settled answer holds through it rather
+  // than folding the column away mid-switch.
+  const [heldFlightDeck, setHeldFlightDeck] = useState(false)
+  const flightDeckShown = chromeSettled ? flightDeckMission !== undefined : heldFlightDeck
+  if (flightDeckShown !== heldFlightDeck) setHeldFlightDeck(flightDeckShown)
   const {
     state: activationState,
     setupInProgress,
@@ -902,9 +909,7 @@ function AppBodyView({ syncProgress }: { syncProgress: SyncProgressStore }): JSX
       <IssueExplorerProvider>
         {menuHost}
         <DockShellLifecycle />
-        <div
-          className="desktop-shell"
-        >
+        <div className="desktop-shell">
           <TopBar revealing={revealingChrome} />
           <WarmSyncStatus store={syncProgress} />
           <div className="desktop-shell-row">
@@ -915,9 +920,10 @@ function AppBodyView({ syncProgress }: { syncProgress: SyncProgressStore }): JSX
                 the dock, so the overlay covers exactly the workspace column and
                 leaves the sidebar in place. */}
             <div className="new-task-host" data-new-task-open={newTaskOpen || undefined}>
-              {/* The folded bar belongs to a task: with nothing selected there is
-                no deck to unfold (POD-2079). */}
-              {workspaceActive && (!flightDeckCollapsed || selectedIssueId !== null) && (
+              {/* The deck belongs to a task: with no task selected (or only an
+                empty draft) there is no column at all, open or folded. The
+                empty workspace is the composer's alone. */}
+              {workspaceActive && flightDeckShown && (
                 <div
                   ref={flightDeckShellRef}
                   className="flex min-h-0 min-w-0 flex-[0_1_auto] overflow-hidden"

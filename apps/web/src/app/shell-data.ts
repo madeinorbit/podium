@@ -150,10 +150,13 @@ const EMPTY_CHROME = {
   sessionCount: 0,
   selectedIssueId: null as Store['selectedIssueId'],
   missionRoot: undefined as IssueViewModel | undefined,
+  /** False while the snapshot loads: every field above is then a placeholder,
+   *  not an answer (a cold selection reads as "no mission"). */
+  settled: false,
 }
 export function useShellChrome() {
   if (import.meta.env.DEV) assertReactiveRead('useShellChrome')
   const pool = useWorklistPool(),
     value = pool ? shellView(pool).chrome() : LOADING
-  return value && value !== LOADING ? value : EMPTY_CHROME
+  return value && value !== LOADING ? { ...value, settled: true } : EMPTY_CHROME
 }

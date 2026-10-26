@@ -1,4 +1,3 @@
-import type { SessionModel } from '@podium/client-graph/models'
 import type { SessionView } from '@podium/client-core/session-values'
 import { shallowEqual } from '@podium/client-core/shallow-equal'
 import {
@@ -12,11 +11,12 @@ import {
   continuationPresenceLine as sharedContinuationPresenceLine,
   spawnIssueAgent,
 } from '@podium/client-core/values'
-import { settled } from '@podium/client-graph/mission-view'
 import type { MissionScreen } from '@podium/client-graph/mission-screen'
+import { settled } from '@podium/client-graph/mission-view'
+import type { SessionModel } from '@podium/client-graph/models'
 import type { MobxPool } from '@podium/client-graph/pool'
-import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { observer } from '@podium/client-graph/react'
+import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { asIssueId } from '@podium/model'
 import type { IssueId, MachineId, SessionId } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
@@ -34,12 +34,7 @@ import {
   UserPlus,
   X,
 } from 'lucide-react'
-import type {
-  JSX,
-  MouseEvent as ReactMouseEvent,
-  ReactNode,
-  RefObject,
-} from 'react'
+import type { JSX, MouseEvent as ReactMouseEvent, ReactNode, RefObject } from 'react'
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { GhostBar, GhostDot, GhostPreview, GhostSquare } from '@/components/GhostPreview'
@@ -67,14 +62,12 @@ import type { ContextMenuAnchor } from '@/lib/session-context-menu'
 import { usePersistedUiValue } from '@/lib/use-persisted-ui-state'
 import { cn } from '@/lib/utils'
 import { useClickIntent } from './click-intent'
-import { FlightDeckFullGroups } from './FlightDeckFullGroups'
-import { FlightDeckProposals } from './FlightDeckProposals'
-import { FlightDeckFullArchivedSession, FlightDeckFullCoordinator } from './FlightDeckFullSeats'
-import type { FlightDeckV6Actions } from './FlightDeckV6Rows'
-
-
 import { FlightDeckFullControls } from './FlightDeckFullControls'
+import { FlightDeckFullGroups } from './FlightDeckFullGroups'
+import { FlightDeckFullArchivedSession, FlightDeckFullCoordinator } from './FlightDeckFullSeats'
 import PoolFlightDeck from './FlightDeckPool'
+import { FlightDeckProposals } from './FlightDeckProposals'
+import type { FlightDeckV6Actions } from './FlightDeckV6Rows'
 import type { FlightDeckDisplay } from './flight-deck-display'
 import { MissionCostChip } from './MissionCostChip'
 import { MissionGauge } from './MissionGauge'
@@ -198,9 +191,27 @@ function MissionAgentMenuContent({
  * edge — which settles the same confusion without spending a second line on it,
  * and lets one branch line carry everything a task owns.
  */
-import { DEPTH_STEP, RAIL_INSET, GUTTER, STATE_COL, sessionSearchText, IssueNoteChip, SeatChip, seatFor, DeckFlatRows } from './FlightDeckRows'
-export { readFolds, writeFolds, hasPayload, defaultFolded, isFolded, deckTaskUnread } from './FlightDeckRows'
-export type { FoldState, FoldMap } from './FlightDeckRows'
+import {
+  DEPTH_STEP,
+  DeckFlatRows,
+  GUTTER,
+  IssueNoteChip,
+  RAIL_INSET,
+  SeatChip,
+  STATE_COL,
+  seatFor,
+  sessionSearchText,
+} from './FlightDeckRows'
+
+export type { FoldMap, FoldState } from './FlightDeckRows'
+export {
+  deckTaskUnread,
+  defaultFolded,
+  hasPayload,
+  isFolded,
+  readFolds,
+  writeFolds,
+} from './FlightDeckRows'
 
 /**
  * A NAMED REGION BELOW THE TREE (POD-710 §4.4).
@@ -630,10 +641,9 @@ export function RetiredSignpost({
  * follows is a real tree a beat later, so anything written here is a sentence
  * the operator watches get taken away.
  *
- * ONE TASK, ONE SESSION — not `EmptyDeck`'s four rows. That ghost teaches the
- * shape of the pane to someone who has never loaded it; this one stands in for
- * a specific tree that is exactly one strip deep, and a ghost that COLLAPSES on
- * resolve reads worse than no ghost at all.
+ * ONE TASK, ONE SESSION. It stands in for a specific tree that is exactly one
+ * strip deep, and a ghost that COLLAPSES on resolve reads worse than no ghost
+ * at all.
  */
 export function SettlingDeck(): JSX.Element {
   return (
@@ -650,51 +660,6 @@ export function SettlingDeck(): JSX.Element {
           />
           <GhostSessionRow tone="var(--success)" width="46%" tier={2} meta={22} />
         </div>
-      </GhostPreview>
-    </div>
-  )
-}
-
-/**
- * THE DECK BEHIND A SHELL (POD-1139).
- *
- * A shell reaches this column for real and durably: "New Shell" in the panel
- * menu creates a session with no `issueId` and no draft vessel, and it lands in
- * pane A like any other panel. It used to inherit the agent intake canvas,
- * which told the operator that "the agent will organize this workspace as you
- * talk" over a bash prompt that will do nothing of the kind.
- *
- * So it says the shell thing instead, in the shape `standbyCopy` already uses
- * for this exact case ("A shell keeps no transcript"): state the limit, then
- * point at where the answer actually is. The ghost stays — the column is still
- * a task tree, and picking one is what fills it.
- */
-function ShellDeck(): JSX.Element {
-  return (
-    <div className="flex min-h-0 flex-1 flex-col" data-testid="flight-shell">
-      <div className="flex-none px-[26px] pt-6 pr-11">
-        <h2 className="shell-type-column-title font-semibold tracking-[-.02em] text-text-strong">
-          A shell joins no task
-        </h2>
-        <p className="mt-2 text-[13px] leading-[1.55] text-muted-foreground text-pretty">
-          This pane runs commands beside the work, not on it. Pick a task on the left to see the
-          agents on it here.
-        </p>
-      </div>
-      <GhostPreview
-        className="mt-6 flex min-h-0 flex-1 flex-col gap-[15px] pr-6"
-        fadeTo="92%"
-        testId="flight-ghost-shell"
-      >
-        <GhostTaskRow tier={1} />
-        <div className="relative flex flex-col gap-[15px]">
-          <span
-            className="absolute w-px bg-(--ghost-4)"
-            style={{ left: GUTTER + RAIL_INSET, top: -6, bottom: 9 }}
-          />
-          <GhostSessionRow tone="var(--ghost-3)" width="52%" tier={3} />
-        </div>
-        <GhostTaskRow tier={3} />
       </GhostPreview>
     </div>
   )
@@ -730,89 +695,13 @@ function GhostSessionRow({
 
 /** A dead task strip: fold square, id chip, title, and the meta a live strip
  *  carries on its right. */
-function GhostTaskRow({
-  tier,
-  dashed,
-}: {
-  tier: 1 | 2 | 3 | 4
-  /** The last row stands for a PROPOSED task — the deck's own dashed id chip.
-   *  Proposals are part of what this pane is for, so the ghost says so. */
-  dashed?: boolean
-}): JSX.Element {
+function GhostTaskRow({ tier }: { tier: 1 | 2 | 3 | 4 }): JSX.Element {
   return (
     <div className="flex items-center gap-2.5" style={{ paddingLeft: GUTTER }}>
-      {dashed ? (
-        <span className="block h-[13px] w-[34px] flex-none rounded-[4px] border border-dashed border-(--ghost-1)" />
-      ) : (
-        <>
-          <GhostSquare tier={tier} className="rounded-[2px]" />
-          <GhostBar tier={tier} width="34px" height={13} className="flex-none" />
-        </>
-      )}
+      <GhostSquare tier={tier} className="rounded-[2px]" />
+      <GhostBar tier={tier} width="34px" height={13} className="flex-none" />
       <GhostBar tier={(tier + 1) as 1 | 2 | 3 | 4} height={9} className="min-w-0 flex-1" />
-      {!dashed && <GhostBar tier={4} width="14px" height={9} className="flex-none" />}
-    </div>
-  )
-}
-
-/**
- * THE DECK WITH NO MISSION IN IT (POD-1058, "ADE Empty States" 2a/2b).
- *
- * A GHOST TREE, NOT A GHOST STREAM. What this column is — `buildFlightDeckRows`
- * — is a tree of tasks with their agent sessions hanging under them, plus the
- * proposals they throw off. It is not a message log and not a diff feed; those
- * live in the panel. So the ghost draws two task strips with sessions under a
- * guide line and one dashed proposal, at the tree's real indents (GUTTER,
- * DEPTH_STEP), and a reader who has never seen a loaded deck still learns the
- * shape.
- *
- * NO BUTTON, AND NO HEADER TITLE. The work list and the composer own both ways
- * in; a third one here would be a third thing to explain.
- *
- * With no mission selected, keep the deck focused on how to start or select
- * a task. Repository sessions without a task do not belong in this view.
- */
-function EmptyDeck(): JSX.Element {
-  return (
-    <div className="flex min-h-0 flex-1 flex-col" data-testid="flight-empty">
-      <div className="flex-none px-[26px] pt-6 pr-11">
-        <h2 className="shell-type-column-title font-semibold tracking-[-.02em] text-text-strong">
-          Every agent, in one tree
-        </h2>
-        {/* Names BOTH ways in, like the work list: picking a task is the
-            everyday case, starting one is the first-run case. */}
-        <p className="mt-2 text-[13px] leading-[1.55] text-muted-foreground text-pretty">
-          Pick a task on the left or start a new one. You’ll see the agents on it, what each is
-          doing, and the follow-ups they propose.
-        </p>
-      </div>
-      <GhostPreview
-        className="mt-6 flex min-h-0 flex-1 flex-col gap-[15px] pr-6"
-        fadeTo="92%"
-        testId="flight-ghost-tree"
-      >
-        <GhostTaskRow tier={1} />
-        <div className="relative flex flex-col gap-[15px]">
-          {/* The guide line the live tree draws, on the live tree's own rail —
-              a ghost that mirrors the component it stands in has to land on the
-              same x, or the first real row will visibly step sideways. */}
-          <span
-            className="absolute w-px bg-(--ghost-4)"
-            style={{ left: GUTTER + RAIL_INSET, top: -6, bottom: 9 }}
-          />
-          <GhostSessionRow tone="var(--success)" width="46%" tier={2} meta={22} />
-          <GhostSessionRow tone="var(--attention)" width="60%" tier={3} />
-        </div>
-        <GhostTaskRow tier={3} />
-        <div className="relative flex flex-col gap-[15px]">
-          <span
-            className="absolute w-px bg-(--ghost-4)"
-            style={{ left: GUTTER + RAIL_INSET, top: -6, bottom: 9 }}
-          />
-          <GhostSessionRow tone="var(--ghost-3)" width="52%" tier={4} />
-        </div>
-        <GhostTaskRow tier={4} dashed />
-      </GhostPreview>
+      <GhostBar tier={4} width="14px" height={9} className="flex-none" />
     </div>
   )
 }
@@ -843,40 +732,6 @@ export interface FlightDeckSource {
 
 export function FlightDeck(props: FlightDeckProps): JSX.Element {
   return <PoolFlightDeck {...props} />
-}
-
-/** The column with no mission on screen: what the focused session says. */
-export function MissionlessDeck({
-  onCollapse,
-  focus,
-}: {
-  onCollapse: () => void
-  focus: 'shell' | 'settling' | 'none'
-}): JSX.Element {
-  return (
-    <aside className="engraved-column relative" aria-label="Flight Deck">
-      <Button
-        variant="ghost"
-        size="icon-sm"
-        className="deck-eyebrow-chevron absolute top-1 right-2 z-20 size-6 flex-none text-text-faint"
-        aria-label="Collapse Flight Deck"
-        title="Collapse Flight Deck"
-        onClick={onCollapse}
-      >
-        <ChevronLeft size={14} aria-hidden="true" />
-      </Button>
-      {focus === 'shell' ? (
-        // A shell will never become a task, so it never gets agent words.
-        <ShellDeck />
-      ) : focus === 'settling' ? (
-        // The session already knows its task; only the selection is behind. A
-        // load, so a ghost — never a sentence the resolve then contradicts.
-        <SettlingDeck />
-      ) : (
-        <EmptyDeck />
-      )}
-    </aside>
-  )
 }
 
 /** The eyebrow: status, reference, stage, the root's note and seat. */
@@ -945,9 +800,7 @@ const DeckTitle = observer(function DeckTitle({
         that outgrows the `reading` role: everything under it is a
         scanned list, so the mission's name is allowed to be read
         from across the desk. 17px is the artifact's own measure. */}
-      <h2 className="shell-type-column-title font-semibold text-text-strong">
-        {screen.rootTitle}
-      </h2>
+      <h2 className="shell-type-column-title font-semibold text-text-strong">{screen.rootTitle}</h2>
     </button>
   )
 })
@@ -968,12 +821,19 @@ const FullDeckBrief = observer(function FullDeckBrief({
   const contentId = useId()
   const hasDetails = Boolean(description || acceptance)
   return (
-    <div className="flight-full-description" data-testid="full-mission-description" data-open={open}>
+    <div
+      className="flight-full-description"
+      data-testid="full-mission-description"
+      data-open={open}
+    >
       <div className={open ? 'flight-full-description-panel' : undefined}>
         <div id={contentId} className={open ? 'flight-full-description-content' : undefined}>
           {description ? (
             <div
-              className={cn('flight-full-description-markdown', !open && 'flight-full-description-summary')}
+              className={cn(
+                'flight-full-description-markdown',
+                !open && 'flight-full-description-summary',
+              )}
               // biome-ignore lint/security/noDangerouslySetInnerHtml: renderReadoutMarkdown sanitizes through DOMPurify and drops every anchor
               dangerouslySetInnerHTML={{ __html: descriptionHtml }}
             />
@@ -993,7 +853,12 @@ const FullDeckBrief = observer(function FullDeckBrief({
         </div>
         {hasDetails && (
           <div className="flight-full-description-actions">
-            <button type="button" aria-expanded={open} aria-controls={contentId} onClick={() => setOpen(!open)}>
+            <button
+              type="button"
+              aria-expanded={open}
+              aria-controls={contentId}
+              onClick={() => setOpen(!open)}
+            >
               {open ? <ChevronUp size={11} aria-hidden="true" /> : null}
               {open ? 'Collapse' : 'Read more'}
               {!open ? <ChevronDown size={11} aria-hidden="true" /> : null}
@@ -1027,7 +892,9 @@ const DeckGaugeRow = observer(function DeckGaugeRow({
       {settled(() => screen.full.ready) === true ? (
         <MissionGauge full={screen.full} live={screen.liveCount} working={screen.workingCount} />
       ) : (
-        <span className="flex-1" role="status" aria-label="Loading mission progress"><GhostBar /></span>
+        <span className="flex-1" role="status" aria-label="Loading mission progress">
+          <GhostBar />
+        </span>
       )}
       {/* THE DECK'S ONE PRICE (POD-1862). One more object in this
         row, so it inherits the wrap above rather than adding a drop
@@ -1304,7 +1171,9 @@ export const FlightDeckContent = observer(function FlightDeckContent({
   /** `done` is the note's word for "closed, and nobody is on it" — the one
    *  empty-spine state that still has a decision left in it. */
   const rootRetired = rootEmptyNote?.kind === 'done'
-  const proposedRows = fullReady ? screen.full.proposalIds.map(id => screen.full.task(id).row) : []
+  const proposedRows = fullReady
+    ? screen.full.proposalIds.map((id) => screen.full.task(id).row)
+    : []
   const query = screen.query
 
   /**
@@ -1393,9 +1262,7 @@ export const FlightDeckContent = observer(function FlightDeckContent({
     )
     void markIssueRead(row.issue.id)
     if (row.issue.worktreePath) setSelectedWorktree(row.issue.worktreePath)
-    const active = row.sessions.filter(
-      (session) => (session as SessionModel).open,
-    )
+    const active = row.sessions.filter((session) => (session as SessionModel).open)
     // Contract order: coordinator → lone member → most recently active member →
     // no-session state. The pane you happen to be looking at is NOT a
     // preference — it made clicking one task open a different task's session.
@@ -1572,7 +1439,8 @@ export const FlightDeckContent = observer(function FlightDeckContent({
    * floating over it. As the last flex children of a row padded to 8px, expand
    * and collapse are simply 24px buttons and the reservation goes away.
    */
-  const displayLabel = display === 'expanded' ? 'Use compact Flight Deck' : 'Expand mission overview'
+  const displayLabel =
+    display === 'expanded' ? 'Use compact Flight Deck' : 'Expand mission overview'
   const columnControls = (
     <>
       <Button
@@ -1606,10 +1474,16 @@ export const FlightDeckContent = observer(function FlightDeckContent({
     activeSessionId,
     renameTarget,
     onOpenTask: (task) => selectIssue(task.row, false),
-    onSelectSession: (task, session, permanent) => selectSession(asIssueId(task.id), session, { permanent }),
+    onSelectSession: (task, session, permanent) =>
+      selectSession(asIssueId(task.id), session, { permanent }),
     onMenu: (task, event) => openIssueMenu(asIssueId(task.id), event),
     onStatusPick: (task, value) => pickRowStatus(task.id, value),
-    onRename: (task, title) => renameIssue(task.id, title, renameTarget?.id === task.id ? renameTarget.seed : task.row.title),
+    onRename: (task, title) =>
+      renameIssue(
+        task.id,
+        title,
+        renameTarget?.id === task.id ? renameTarget.seed : task.row.title,
+      ),
     onRenameDone: () => setRenameTarget(null),
   }
 
@@ -1689,7 +1563,8 @@ export const FlightDeckContent = observer(function FlightDeckContent({
           {...fullActions}
         />
         <div className="flex-none" data-testid="flight-deck-tail">
-          {fullReady && screen.full.rowIds.length === 0 &&
+          {fullReady &&
+            screen.full.rowIds.length === 0 &&
             proposedRows.length === 0 &&
             (query ? (
               <p className="shell-type-secondary px-4 py-6 text-text-dim">
@@ -1713,8 +1588,10 @@ export const FlightDeckContent = observer(function FlightDeckContent({
             ))}
           {/* THE SECTIONS BELOW THE TREE. PROPOSALS SINK: work being offered
             to the operator is not part of the mission's shape. */}
-          <FlightDeckProposals full={screen.full}
-            onMenu={(task, event) => openIssueMenu(asIssueId(task.id), event)} />
+          <FlightDeckProposals
+            full={screen.full}
+            onMenu={(task, event) => openIssueMenu(asIssueId(task.id), event)}
+          />
           {/* The archive is where the roster STOPS: a wider break (POD-1461). */}
           <DeckArchive
             screen={screen}
@@ -1722,7 +1599,9 @@ export const FlightDeckContent = observer(function FlightDeckContent({
             revealSessionId={revealSessionId}
             scrollRef={deckScrollerRef}
             activeSessionId={activeSessionId}
-            onSelect={(session, permanent) => selectSession(session.issueId ?? null, session, { permanent })}
+            onSelect={(session, permanent) =>
+              selectSession(session.issueId ?? null, session, { permanent })
+            }
           />
           {/* POD-679's departures — deliberately NOT folded into the proposals.
             A proposal is work nobody has triaged yet; a departure is work that
@@ -1788,7 +1667,9 @@ export const FlightDeckContent = observer(function FlightDeckContent({
 function useFocusedSessionId(tabId: string | null): SessionId | null {
   const read = useCallback(
     (pool: MobxPool): SessionId | null =>
-      tabId && settled(() => pool.sessionObject(tabId).exists) === true ? (tabId as SessionId) : null,
+      tabId && settled(() => pool.sessionObject(tabId).exists) === true
+        ? (tabId as SessionId)
+        : null,
     [tabId],
   )
   return useWorklistPoolProjection(read, null)
