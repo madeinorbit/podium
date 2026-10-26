@@ -67,10 +67,22 @@ function NestedWindowHarness({ keys = KEYS }: { keys?: string[] }): JSX.Element 
 }
 
 /** Stable refs, as WorklistWindow passes them: no render re-subscribes. */
-function SectionedWindowHarness({ late = false }: { late?: boolean }): JSX.Element {
+function SectionedWindowHarness({
+  late = false,
+  onScrollAnchor,
+}: {
+  late?: boolean
+  onScrollAnchor?: () => void
+}): JSX.Element {
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const containerRef = useRef<HTMLDivElement | null>(null)
-  const virtual = useBoundedVirtualList({ keys: KEYS, scrollRef, containerRef, estimateSize: 40 })
+  const virtual = useBoundedVirtualList({
+    keys: KEYS,
+    scrollRef,
+    containerRef,
+    estimateSize: 40,
+    onScrollAnchor,
+  })
   return (
     <div ref={scrollRef} data-testid="sectioned-scroll">
       {late ? <div data-testid="late-section" /> : null}
@@ -172,6 +184,33 @@ describe('bounded variable-height issue window', () => {
     precedingHeight = 0
     view.rerender(<NestedWindowHarness keys={[...KEYS]} />); flushViewport()
     expect(scroll.scrollTop).toBe(800)
+  })
+
+  it('follows a shifted section with unchanged keys and reports the correction', () => {
+    vi.useFakeTimers()
+    const anchored = vi.fn()
+    const view = render(<SectionedWindowHarness onScrollAnchor={anchored} />)
+    const scroll = view.getByTestId('sectioned-scroll')
+    const container = view.getByTestId('sectioned-container')
+    const section = container.parentElement as HTMLElement
+    sizeViewport(scroll, 320)
+    let precedingHeight = 400
+    Object.defineProperty(container, 'offsetParent', { configurable: true, value: section })
+    Object.defineProperty(section, 'offsetParent', { configurable: true, value: scroll })
+    vi.spyOn(section, 'offsetTop', 'get').mockImplementation(() => precedingHeight)
+    vi.spyOn(section, 'offsetHeight', 'get').mockReturnValue(KEYS.length * 40)
+    scroll.scrollTop = 800
+    fireEvent.scroll(scroll)
+    flushViewport()
+    view.rerender(<SectionedWindowHarness onScrollAnchor={anchored} />)
+    flushViewport()
+    expect(anchored).not.toHaveBeenCalled()
+    // An earlier section lost a row: the same key array, but this one moved up.
+    precedingHeight = 347
+    view.rerender(<SectionedWindowHarness onScrollAnchor={anchored} />)
+    flushViewport()
+    expect(scroll.scrollTop).toBe(747)
+    expect(anchored).toHaveBeenCalledTimes(1)
   })
 
   it('leaves the viewport alone when a section below its top edge shifts (POD-2127)', () => {

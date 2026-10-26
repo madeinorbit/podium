@@ -532,33 +532,40 @@ const ObservedPoolWorkSections = observer(function ObservedPoolWorkSections({
       onArchive={archiveRow}
     />
   )
-  const inLane = (item: Item) => laneOf(item.value) === lane && (!filtering || search.has(item.key))
-  const pinned =
-    lane === 'open' ? items.filter((item) => item.value.lane === 'pinned' && inLane(item)) : []
   type ShownBand = { key: string; label: string; repoPath: string; foldKey: string; rows: Item[] }
-  const bandList: ShownBand[] = sections.bands.map((band) => ({
-    key: band.key,
-    label: band.label,
-    repoPath: band.repoPath,
-    foldKey: band.foldKey,
-    rows: items.filter(
-      (item) => item.value.lane !== 'pinned' && item.value.groupKey === band.key && inLane(item),
-    ),
-  }))
-  // Exits can briefly outlive the band's pool membership.
-  for (const item of items)
-    if (
-      item.value.lane !== 'pinned' &&
-      !bandList.some((band) => band.key === item.value.groupKey) &&
-      inLane(item)
-    )
-      bandList.push({
-        key: item.value.groupKey,
-        label: item.value.groupLabel,
-        repoPath: '',
-        foldKey: projectFoldKey(item.value.groupKey),
-        rows: items.filter((row) => row.value.groupKey === item.value.groupKey && inLane(row)),
-      })
+  // Each folder's rows keep their identity until the rows themselves change, so
+  // a selection or menu render neither refilters every folder nor hands each
+  // virtual window a new key list to re-derive its geometry from.
+  const { pinned, bandList } = useMemo(() => {
+    const inLane = (item: Item) =>
+      laneOf(item.value) === lane && (!filtering || search.has(item.key))
+    const pinned =
+      lane === 'open' ? items.filter((item) => item.value.lane === 'pinned' && inLane(item)) : []
+    const bandList: ShownBand[] = sections.bands.map((band) => ({
+      key: band.key,
+      label: band.label,
+      repoPath: band.repoPath,
+      foldKey: band.foldKey,
+      rows: items.filter(
+        (item) => item.value.lane !== 'pinned' && item.value.groupKey === band.key && inLane(item),
+      ),
+    }))
+    // Exits can briefly outlive the band's pool membership.
+    for (const item of items)
+      if (
+        item.value.lane !== 'pinned' &&
+        !bandList.some((band) => band.key === item.value.groupKey) &&
+        inLane(item)
+      )
+        bandList.push({
+          key: item.value.groupKey,
+          label: item.value.groupLabel,
+          repoPath: '',
+          foldKey: projectFoldKey(item.value.groupKey),
+          rows: items.filter((row) => row.value.groupKey === item.value.groupKey && inLane(row)),
+        })
+    return { pinned, bandList }
+  }, [items, sections.bands, lane, filtering, search])
   // Open keeps every project in its place (an empty one greyed and shut);
   // Snoozed, Closed and a filter show only the folders with something in them.
   const order = folderDrag?.order ?? pendingOrder

@@ -46,6 +46,9 @@ interface BoundedVirtualListOptions {
   pinnedKeys?: readonly (string | null | undefined)[]
   /** Reveal independently of retention (a drag source must not pull scroll back). */
   revealKey?: string | null
+  /** Called in the commit whose layout change above the viewport the scroll
+   * position absorbed, before the browser paints it. */
+  onScrollAnchor?: () => void
 }
 
 interface BoundedVirtualList {
@@ -142,6 +145,7 @@ export function useBoundedVirtualList({
   initialItems = DEFAULT_INITIAL_ITEMS,
   pinnedKeys = [],
   revealKey,
+  onScrollAnchor,
 }: BoundedVirtualListOptions): BoundedVirtualList {
   const sizesRef = useRef(new Map<string, number>())
   const nodesRef = useRef(new Map<string, HTMLElement>())
@@ -340,34 +344,40 @@ export function useBoundedVirtualList({
   // Keep the same visible row at the same pixel when expansion, filtering or a
   // replica update inserts/removes rows above it. ID snapshots are immutable;
   // their identity already signals changes without joining the whole column
-  // on selection, heartbeat, or scroll renders.
+  // on selection, heartbeat, or scroll renders. A section of a grouped list
+  // must also follow its container when an earlier section changes, which no
+  // key of its own signals, so this checks every commit and returns early
+  // when neither the rows nor the container moved.
   useLayoutEffect(() => {
     const previous = layout
     // layoutRef already points at the current render, so retain the prior
     // render's geometry separately.
     const prior = priorLayoutRef.current
-    if (prior.keys.length > 0) {
-      const scroll = scrollRef.current
-      const currentTop = localScrollTop(scroll, containerRef?.current)
-      const saved = priorViewportRef.current
-      const top = saved && scroll ? saved.top + scroll.scrollTop - saved.scrollTop : currentTop
-      // Only the section holding the viewport's top edge may move a shared
-      // grouped-list viewport. A section further down also sees its container
-      // shift when a row above it leaves, but that row may sit below the top
-      // edge too, and compensating for it scrolls the whole list (POD-2127).
-      if (
-        scroll &&
-        top < prior.totalSize &&
-        top + scroll.clientHeight > 0 &&
-        holdsViewportTop(scroll, containerRef?.current)
-      ) {
-        const anchorIndex = itemAt(prior, Math.max(0, top))
-        const anchorKey = prior.keys[anchorIndex]
-        const currentIndex = anchorKey ? (previous.indexes.get(anchorKey) ?? -1) : -1
-        if (currentIndex >= 0) {
-          const delta =
-            offsetAt(previous, currentIndex) - offsetAt(prior, anchorIndex) + top - currentTop
-          if (delta !== 0) scroll.scrollTop += delta
+    const scroll = scrollRef.current
+    const currentTop = localScrollTop(scroll, containerRef?.current)
+    const saved = priorViewportRef.current
+    const top = saved && scroll ? saved.top + scroll.scrollTop - saved.scrollTop : currentTop
+    if (prior === previous && top === currentTop) return
+    // Only the section holding the viewport's top edge may move a shared
+    // grouped-list viewport. A section further down also sees its container
+    // shift when a row above it leaves, but that row may sit below the top
+    // edge too, and compensating for it scrolls the whole list (POD-2127).
+    if (
+      prior.keys.length > 0 &&
+      scroll &&
+      top < prior.totalSize &&
+      top + scroll.clientHeight > 0 &&
+      holdsViewportTop(scroll, containerRef?.current)
+    ) {
+      const anchorIndex = itemAt(prior, Math.max(0, top))
+      const anchorKey = prior.keys[anchorIndex]
+      const currentIndex = anchorKey ? (previous.indexes.get(anchorKey) ?? -1) : -1
+      if (currentIndex >= 0) {
+        const delta =
+          offsetAt(previous, currentIndex) - offsetAt(prior, anchorIndex) + top - currentTop
+        if (delta !== 0) {
+          scroll.scrollTop += delta
+          onScrollAnchor?.()
         }
       }
     }
@@ -377,7 +387,7 @@ export function useBoundedVirtualList({
       scrollTop: scrollRef.current?.scrollTop ?? 0,
     }
     publishViewport()
-  }, [layout, scrollRef, containerRef, publishViewport])
+  })
 
   const focusKey =
     revealKey === undefined

@@ -1,14 +1,17 @@
+import { LayoutGroup, MotionContext } from 'motion/react'
+import type { VisualElement } from 'motion-dom'
 import {
+  type Context,
   type JSX,
   type KeyboardEvent,
   type RefObject,
+  useContext,
   useEffect,
   useLayoutEffect,
   useMemo,
   useRef,
   useState,
 } from 'react'
-import { LayoutGroup } from 'motion/react'
 import { useBoundedVirtualList } from '@/features/issues/use-bounded-virtual-list'
 
 const focusable = 'button:not([disabled]), input:not([disabled]), [tabindex="0"], a[href]'
@@ -46,6 +49,10 @@ export function WorklistWindow<T>({
     const frame = requestAnimationFrame(() => setRevealKey(null))
     return () => cancelAnimationFrame(frame)
   }, [revealKey])
+  // A scroll correction means the change happened above the viewport and the
+  // visible rows did not move. Motion would still animate the folders whose
+  // on-screen box the correction shifted, so that update lands instantly.
+  const { visualElement } = useContext(MotionContext as Context<{ visualElement?: VisualElement }>)
   const virtual = useBoundedVirtualList({
     keys,
     scrollRef,
@@ -54,6 +61,7 @@ export function WorklistWindow<T>({
     overscan: 3,
     pinnedKeys: [focusedKey, draggingKey, revealKey],
     revealKey,
+    onScrollAnchor: () => visualElement?.projection?.root?.blockUpdate(),
   })
   useLayoutEffect(() => {
     const pending = pendingFocus.current
