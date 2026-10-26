@@ -313,7 +313,10 @@ describe('IssuePanelView inspector', () => {
 
     const update = screen.getByTestId('dock-current-update')
     expect(update.textContent).toContain('Spine direction is fixed')
-    expect(update.querySelector('p')?.className).toContain('line-clamp-4')
+    const body = screen.getByTestId('dock-current-update-body')
+    expect(body.className).toContain('line-clamp-4')
+    fireEvent.click(body)
+    expect(body.className).not.toContain('line-clamp-4')
     expect(screen.queryByTestId('dock-decision-band')).toBeNull()
     expect(screen.queryByText('Needs you')).toBeNull()
   })

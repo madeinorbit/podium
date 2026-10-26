@@ -362,7 +362,11 @@ const CommentsPart = observer(function CommentsPart({
                   <IssueAge stamp={comment.ts} />
                 </span>
               </div>
-              <CommentBody body={comment.body} />
+              <ClampedText
+                text={comment.body}
+                className="text-foreground"
+                testId="dock-comment-body"
+              />
             </div>
           </div>
         )
@@ -439,25 +443,34 @@ function ContinuationLine({
 }
 
 /**
- * A comment body, clamped to four lines with an ellipsis (fidelity review
- * P2-4). The full text rides the tooltip, and a click unfolds it in place.
- * `pre-line` keeps the author's line breaks.
+ * Text clamped to four lines with an ellipsis (fidelity review P2-4). The full
+ * text rides the tooltip, and a click unfolds it in place. `pre-line` keeps
+ * the author's line breaks. Comments and the latest update both use it.
  */
-function CommentBody({ body }: { body: string }): JSX.Element {
+function ClampedText({
+  text,
+  className,
+  testId,
+}: {
+  text: string
+  className: string
+  testId: string
+}): JSX.Element {
   const [open, setOpen] = useState(false)
   return (
     // biome-ignore lint/a11y/useKeyWithClickEvents: a reading convenience; the full text is in the title
     // biome-ignore lint/a11y/noNoninteractiveElementInteractions: same
     <p
       className={cn(
-        'text-[12.5px] leading-[18px] whitespace-pre-line break-words text-foreground',
+        'text-[12.5px] leading-[18px] whitespace-pre-line break-words',
+        className,
         !open && 'line-clamp-4 cursor-pointer',
       )}
-      title={open ? undefined : body}
-      data-testid="dock-comment-body"
+      title={open ? undefined : text}
+      data-testid={testId}
       onClick={() => setOpen(true)}
     >
-      {body}
+      {text}
     </p>
   )
 }
@@ -936,7 +949,7 @@ export const IssuePanelBody = observer(function IssuePanelBody({
 
         {/* The agent's latest posted update: quiet and clamped to four lines,
             because the chat beside this column is where the work is narrated.
-            The whole text rides the tooltip. */}
+            A click unfolds the whole text. */}
         {issue.activityNotes?.trim() && (
           <div
             className="-mt-2 flex flex-col gap-1"
@@ -952,12 +965,11 @@ export const IssuePanelBody = observer(function IssuePanelBody({
                 </>
               ) : null}
             </span>
-            <p
-              className="line-clamp-4 text-[12.5px] leading-[18px] whitespace-pre-wrap text-muted-foreground"
-              title={issue.activityNotes}
-            >
-              {issue.activityNotes}
-            </p>
+            <ClampedText
+              text={issue.activityNotes}
+              className="text-muted-foreground"
+              testId="dock-current-update-body"
+            />
           </div>
         )}
 
