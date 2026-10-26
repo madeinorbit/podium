@@ -3226,6 +3226,8 @@ html[data-setup-only="true"] [data-testid="update-panel"] {
   --chat-face: var(--tabstrip);
   --chat-rule: var(--border);
   --chat-rim: var(--border-strong);
+  --chat-tool-border: var(--hairline-soft, var(--chat-rule));
+  --chat-tool-border-hover: var(--chat-rim);
   --chat-bubble: var(--engraved);
   --chat-bubble-rim: var(--border-strong);
   --chat-chip: var(--muted);
@@ -3237,6 +3239,9 @@ html[data-setup-only="true"] [data-testid="update-panel"] {
   --chat-mail-bg: color-mix(in srgb, var(--live) 3.5%, transparent);
 }
 .dark {
+  /* Tool disclosures need a visible boundary against the dark chat sheet. */
+  --chat-tool-border: color-mix(in srgb, var(--border-strong) 60%, var(--foreground));
+  --chat-tool-border-hover: color-mix(in srgb, var(--border-strong) 40%, var(--foreground));
   /* On a dark ground the plain hairline disappears against the tab-strip face a
      work line is drawn on — the two are four steps apart — so the rule is mixed
      one notch toward the strong border. On paper the hairline already reads,
@@ -4712,7 +4717,7 @@ button.pane-branch:hover {
   width: 100%;
   min-height: 32px;
   padding: 0 12px;
-  border: 1px solid var(--hairline-soft, var(--chat-rule));
+  border: 1px solid var(--chat-tool-border);
   border-radius: 7px;
   background: transparent;
   text-align: left;
@@ -4720,7 +4725,7 @@ button.pane-branch:hover {
   transition: border-color 160ms ease;
 }
 .work-line-row:hover {
-  border-color: var(--chat-rim);
+  border-color: var(--chat-tool-border-hover);
 }
 .work-line-glyph {
   display: flex;
