@@ -231,6 +231,18 @@ describe('parseEnvelopeBatch: inbox pointers (POD-2143)', () => {
     expect(parseEnvelopeBatch(line.replace('leave your standing offer', 'drop'))).toBeNull()
   })
 
+  it('round-trips ids in either case, as MessageId accepts them', () => {
+    const upper = 'MSG_0A1B2C3D-0000-4000-8000-00000000000A'
+    const text = renderMailPointer(2, [
+      { from: 'issue:POD-1', ids: [upper] },
+      { from: 'superagent', ids: ['msg_0a1b2c3d-0000-4000-8000-00000000000b'] },
+    ])
+    expect(parseEnvelopeBatch(text)?.envelopes.map((e) => [e.id, e.from, e.pointer])).toEqual([
+      [upper, 'issue:POD-1', 'by-id'],
+      ['msg_0a1b2c3d-0000-4000-8000-00000000000b', 'superagent', 'by-id'],
+    ])
+  })
+
   it('reads a legacy pointer without ids, one entry per sender', () => {
     const batch = parseEnvelopeBatch(legacyPointer(2, 'issue:#212, superagent'))
     expect(batch).toEqual({
@@ -252,10 +264,13 @@ describe('parseEnvelopeBatch: inbox pointers (POD-2143)', () => {
   })
 
   it('says where an unloaded pointer body went, and how to read a by-id one', () => {
-    const [byId] = parseEnvelopeBatch(renderMailPointer(1, [{ from: 'operator', ids: ['msg_z'] }]))!
-      .envelopes
+    const [byId] = parseEnvelopeBatch(
+      renderMailPointer(1, [{ from: 'operator', ids: ['msg_z'] }]),
+    )!.envelopes
     const [legacy] = parseEnvelopeBatch(legacyPointer(1, 'operator'))!.envelopes
-    expect(pointerFallbackBody(byId!)).toMatch(/^Delivered via the inbox\n.*podium mail show msg_z/s)
+    expect(pointerFallbackBody(byId!)).toMatch(
+      /^Delivered via the inbox\n.*podium mail show msg_z/s,
+    )
     expect(pointerFallbackBody(legacy!)).toMatch(/^Delivered via the inbox\n/)
     expect(pointerFallbackBody(legacy!)).not.toContain('mail show')
   })

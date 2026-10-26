@@ -2568,6 +2568,7 @@ export class SessionRegistry {
         messages: messagesSvc,
         issues,
         sessionById: async (sessionId) => await sessionsSvc.sessionById(sessionId),
+        sessionOwner: async (sessionId) => await sessionsSvc.sessionOwner(sessionId),
         messageRecords: async (userId, ids) =>
           await readMessageRecords(
             { messages: this.store.messages, sessions: this.store.sessions },

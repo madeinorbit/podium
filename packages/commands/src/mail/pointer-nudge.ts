@@ -44,7 +44,8 @@ export function renderMailPointer(count: number, senders: readonly MailPointerSe
 }
 
 const HEAD_RE = /^\[podium\] (\d+) message\(s\) from /
-const SENDER_WITH_IDS_RE = /^(\S+) \((msg_[^\s,()]+(?:, msg_[^\s,()]+)*)\)(?:, |$)/
+/** A sender and its ids. The prefix is case-insensitive, as `MessageId` is. */
+const SENDER_WITH_IDS_RE = /^(\S+) \((msg_[^\s,()]+(?:, msg_[^\s,()]+)*)\)(?:, |$)/i
 
 /** Parse a pointer at the START of `text`. Returns its senders and the text
  *  after it, or null when `text` does not open with a pointer. A pointer with

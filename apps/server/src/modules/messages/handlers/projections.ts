@@ -29,12 +29,13 @@ import type { MessageRecordWire } from '@podium/model'
 import type { MessageWire } from '../gate'
 import type { MailHandlerContext } from './context'
 
-/** The shared read: resolve, gate on `mayView`, project. */
+/** The shared read: resolve, gate on `mayView` (or on reading the session it
+ *  was delivered to), project. */
 async function viewable(ctx: MailHandlerContext, id: string): Promise<MessageWire> {
   const { caller, deps, access } = ctx
   const m = await deps.messages.message(id)
   if (!m) throw new Error(`unknown message ${id}`)
-  if (!access.mayView(caller.capability, m)) {
+  if (!access.mayView(caller.capability, m) && !(await access.mayReadAsReceiverOwner(caller, m))) {
     throw new Error(MAIL_VIEW_REFUSED)
   }
   return await access.wire(m)

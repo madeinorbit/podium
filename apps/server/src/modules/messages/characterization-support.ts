@@ -165,6 +165,8 @@ export interface HarnessOptions {
   /** Gate spawn seam override — e.g. to characterize an unreachable machine. */
   spawnSession?: MessageGateDeps['spawnSession']
   resolveWorkflowStepLaunch?: MessageGateDeps['resolveWorkflowStepLaunch']
+  /** A session's owner and grants (POD-2143); absent = `mayView` alone. */
+  sessionOwner?: MessageGateDeps['sessionOwner']
   /** Omit the wake-spawn seam entirely (the unwired-server arm). */
   omitSpawnOnWake?: boolean
   /** Flag-on variant: wire the receipt-shaped transport (POD-1761 W4). Absent =
@@ -442,6 +444,7 @@ export async function mailHarness(opts?: HarnessOptions): Promise<MailHarness> {
       ...(opts?.resolveWorkflowStepLaunch
         ? { resolveWorkflowStepLaunch: opts.resolveWorkflowStepLaunch }
         : {}),
+      ...(opts?.sessionOwner ? { sessionOwner: opts.sessionOwner } : {}),
       createIssue: async (input) => await issues.crud.create({ ...input, startNow: false }),
       appendEvent: async (e) => {
         await store.events.appendEvent(e)

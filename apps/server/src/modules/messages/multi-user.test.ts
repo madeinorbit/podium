@@ -12,9 +12,11 @@
  * succeeding under a ceiling that allows it.
  */
 
-import { asIssueId, asMachineId, asSessionId } from '@podium/model'
+import { MAIL_VIEW_REFUSED } from '@podium/commands/mail-pointer-nudge'
+import { asIssueId, asMachineId, asSessionId, asUserId } from '@podium/model'
 import type { TRPCError } from '@trpc/server'
 import { describe, expect, it } from 'vitest'
+import { userCommandPrincipal } from '../../command-principal'
 import type { Capability } from '../../issue-authz'
 import {
   currentReadScope,
@@ -24,6 +26,7 @@ import {
 import { OPERATOR } from '../../test-support/capabilities'
 import { mailHarness } from './characterization-support'
 import { applyAuthFromCeiling } from './handlers/context'
+import { INLINE_BODY_MAX } from './render'
 
 /** A ceiling that hides exactly the named issue ids from the delegating human. */
 const ceilingHiding = (hidden: () => string[]) => ({
@@ -788,5 +791,34 @@ describe('sender identity is stamped from the capability and cannot be influence
       fromIssue: mine.id,
     })) as { id: string }
     expect((await h.svc.message(r.id))?.fromKind).toBe('operator')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// A member reads the body of mail delivered to a session they own (POD-2143)
+// ---------------------------------------------------------------------------
+
+describe('mail.show admits the owner of the session the mail was delivered to', () => {
+  it('a member opens the pointer body in their own agent’s chat; another member is refused', async () => {
+    const bob = asUserId('u_bob')
+    const h = await mailHarness({
+      sessionOwner: async (id) => (id === 'sBob' ? { owner: bob, grants: [] } : undefined),
+    })
+    const iss = await h.createIssue({ title: 'bob’s task' })
+    h.put({ sessionId: asSessionId('sBob'), issueId: iss.id, phase: 'idle' })
+    const body = 'x'.repeat(INLINE_BODY_MAX + 1)
+    const sent = await h.svc.send({ kind: 'operator' }, { to: { kind: 'issue', id: iss.id }, body })
+    await h.svc.onQueuedInputApplied(sent.message.id, asSessionId('sBob'))
+    expect((await h.svc.message(sent.message.id))?.deliveredTo).toBe('sBob')
+
+    // The web's own principal for a member: owned scope, no session.
+    const member = (user: string) => userCommandPrincipal(asUserId(user), 'member').capability
+    const shown = (await h.gate.dispatch(member('u_bob'), undefined, 'show', {
+      id: sent.message.id,
+    })) as { body: string }
+    expect(shown.body).toBe(body)
+    await expect(
+      h.gate.dispatch(member('u_carol'), undefined, 'show', { id: sent.message.id }),
+    ).rejects.toThrow(MAIL_VIEW_REFUSED)
   })
 })

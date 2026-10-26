@@ -39,7 +39,7 @@ import {
   type MachineId,
 } from '@podium/model'
 import { type CommandPrincipal, onBehalfOfUser } from '../../../command-principal'
-import { type Capability, checkIssueAccess } from '../../../issue-authz'
+import { type Capability, checkIssueAccess, mayReadOwned } from '../../../issue-authz'
 import type { MessageRow } from '../../../store'
 import { withReadScope } from '../../../store/executor/read-scope'
 import { failureNoticeId } from '../../../message-ids'
@@ -345,6 +345,25 @@ export class MailAccess {
       m.fromKind === 'agent' &&
       capability.scope.kind === 'subtree' &&
       m.fromIssue === capability.scope.rootId
+    )
+  }
+
+  /** A person reads a message delivered to a session they may read, by the
+   *  session queries' own rule (`mayReadOwned` over the session's owner and
+   *  grants) — the body of an inbox pointer in their own agent's chat, which
+   *  `mayView` misses because a person's capability names no session (POD-2143). */
+  async mayReadAsReceiverOwner(caller: MailCaller, m: MessageRow): Promise<boolean> {
+    if (caller.principal.kind !== 'user') return false
+    const receiver = m.deliveredTo ?? (m.toKind === 'session' ? m.toId : null)
+    if (!receiver) return false
+    const target = await this.deps.sessionOwner?.(asSessionId(receiver))
+    return (
+      target !== undefined &&
+      mayReadOwned(caller.principal.user, {
+        id: receiver,
+        owner: target.owner,
+        grants: target.grants,
+      })
     )
   }
 
