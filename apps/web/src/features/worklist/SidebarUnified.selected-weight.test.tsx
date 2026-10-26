@@ -197,14 +197,11 @@ describe('SidebarUnified selection weight (#41 redesign)', () => {
     expect(active.className.split(/\s+/)).not.toContain('border')
   })
 
-  it('a spin-off row carries the quiet ⤷ origin tick; a plain row does not (POD-85)', () => {
+  it('keeps spin-off origins out of the status line', () => {
     render(<SidebarUnified />)
     const spin = rowButton('Unread issue').closest('[class*="group/row"]') as HTMLElement
-    const tick = spin.querySelector('[data-testid="spinoff-origin-tick"]')
-    expect(tick).toBeTruthy()
-    expect(tick?.textContent).toContain('⤷ POD-1')
-    expect(tick?.getAttribute('title')).toContain('Spun off from')
-    expect(tick?.getAttribute('title')).toContain('Read selected issue')
+    expect(spin.querySelector('[data-testid="spinoff-origin-tick"]')).toBeNull()
+    expect(spin.textContent).not.toContain('⤷')
     const plain = rowButton('Read selected issue').closest('[class*="group/row"]') as HTMLElement
     expect(plain.querySelector('[data-testid="spinoff-origin-tick"]')).toBeNull()
     // The origin row is findable for the lineage flash.

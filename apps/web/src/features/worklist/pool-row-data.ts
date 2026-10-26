@@ -131,7 +131,6 @@ function formatIssueStatus(value: WorklistIssue | SidebarRowValues): string {
   return issueStatusLabel(navigationIssue(value.issue)).toLowerCase()
 }
 
-
 export function poolIssueDisplay(value: SidebarRowValues): PoolIssueDisplay {
   return {
     timing: value.timing,
@@ -260,8 +259,6 @@ export interface RowVoiceInput {
   progress: { done: number; total: number } | null
   issue: SidebarRowValues['issue'] | IssueNavigationModel
   continuation?: { kind: string; ref: string } | null
-  /** Commits a merge would land, for the `Ready to merge · 3` sub-fact. */
-  mergeCommits?: number
 }
 
 export function rowVoice(input: RowVoiceInput): RowVoice {
@@ -280,15 +277,12 @@ export function rowVoice(input: RowVoiceInput): RowVoice {
       word: `${capitalize(input.continuation.kind)} · ${input.continuation.ref}`,
       sub: null,
     }
-  // An ask outranks the lifecycle: a finished branch awaiting merge still
-  // needs you, and says how much it would land.
+  // A finished branch awaiting merge still needs you.
   if (input.decision === 'merge')
     return {
       tone: 'needs',
       word: 'Ready to merge',
-      sub: input.mergeCommits
-        ? `· ${input.mergeCommits} commit${input.mergeCommits === 1 ? '' : 's'}`
-        : sub,
+      sub,
     }
   if (input.decision === 'review') return { tone: 'needs', word: 'Needs review', sub }
   if (status === 'done') return { tone: 'done', word: 'Done', sub: null }
@@ -301,7 +295,11 @@ export function rowVoice(input: RowVoiceInput): RowVoice {
     return { tone: 'settled', word: 'Subtasks done', sub: fraction }
   if ((issue as { blocked?: boolean }).blocked) return { tone: 'idle', word: 'Blocked', sub }
   if (status === 'in_progress' || status === 'review' || status === 'shipping')
-    return { tone: 'active', word: status === 'review' ? 'In review' : capitalize(issueStatusLabel(issue).toLowerCase()), sub }
+    return {
+      tone: 'active',
+      word: status === 'review' ? 'In review' : capitalize(issueStatusLabel(issue).toLowerCase()),
+      sub,
+    }
   return { tone: 'idle', word: capitalize(issueStatusLabel(issue).toLowerCase()), sub }
 }
 

@@ -312,15 +312,14 @@ describe('SidebarUnified per-row working grammar (#41)', () => {
     const chip = row.querySelector('[data-testid="awaiting-merge-status"]') as HTMLElement
     expect(chip.textContent).toBe('Ready to merge')
     const status = row.querySelector('[data-testid="row-lifecycle-status"]') as HTMLElement
-    expect(status.textContent).toContain('· 2')
+    expect(status.textContent).not.toMatch(/commit|·\s*\d/)
     // POD-293: the ask is the row's one bronze voice as a plain weighted word —
     // no boxed chip, no icon (the boxed pill made every review row shout).
     const phrase = row.querySelector('[data-testid="row-status-phrase"]') as HTMLElement
     expect(phrase.style.color).toBe('var(--attention)')
     expect(phrase.className).toContain('font-semibold')
     expect(chip.querySelector('svg')).toBeNull()
-    // The word absorbs the merge axis: the git stamp must not repeat
-    // "2 commits ahead" in a second amber counter (POD-279).
+    // Git counters stay out of the sidebar.
     expect(row.querySelector('[data-testid="git-stamp"]')).toBeNull()
   })
 
@@ -338,9 +337,9 @@ describe('SidebarUnified per-row working grammar (#41)', () => {
     expect(merge.querySelector('[aria-label="1 waiting on you"]')).toBeNull()
     const mergeChip = merge.querySelector('[data-decision="merge"]') as HTMLElement
     expect(mergeChip.textContent).toBe('Ready to merge')
-    expect(
-      merge.querySelector('[data-testid="row-lifecycle-status"]')?.textContent,
-    ).toContain('· 1')
+    expect(merge.querySelector('[data-testid="row-lifecycle-status"]')?.textContent).not.toMatch(
+      /commit|·\s*\d/,
+    )
 
     const review = rowFor('Review without branch')
     expect(review.querySelector('[data-phase="waiting"]')).toBeTruthy()

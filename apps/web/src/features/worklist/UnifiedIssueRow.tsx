@@ -1,7 +1,8 @@
+import { relativeTime } from '@podium/client-core/focus'
 import type { SessionView } from '@podium/client-core/session-values'
 import {
-  type IssueNavigationModel,
   errorPhrase,
+  type IssueNavigationModel,
   isDraftAgentVessel,
   type MissionProgress,
   pendingDecisionTitle,
@@ -26,18 +27,17 @@ import {
 } from '@podium/model/browser'
 import type { JSX, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react'
 import { lazy, memo, Suspense, useState } from 'react'
-import { relativeTime } from '@podium/client-core/focus'
-import { useAgeNow } from '@/lib/clock-hooks'
 import { GitStamp } from '@/components/GitStamp'
 import { idSquareLabel } from '@/components/IdSquare'
 import { NotSavedMark } from '@/components/NotSavedMark'
 import type { IssueMenuPoolInputs } from '@/features/issues/issue-menu-pool-inputs'
 import { throughRestarts } from '@/lib/chunk-recovery'
+import { useAgeNow } from '@/lib/clock-hooks'
 import { issueIdTitle } from '@/lib/issue-labels'
 import { PhaseTimer, WorkingMark } from '@/lib/motion'
 import type { ContextMenuAnchor } from '@/lib/session-context-menu'
 import { SessionNameEditor } from '@/lib/WorkerLabel'
-import { rowVoice, worklistIssueStatus, type PoolIssueDisplay } from './pool-row-data'
+import { type PoolIssueDisplay, rowVoice, worklistIssueStatus } from './pool-row-data'
 import { inlineRenameEditor, useInlineRename } from './use-inline-rename'
 import { WorkRowShell } from './WorkRowShell'
 
@@ -66,10 +66,9 @@ function flashLineage(issueId: IssueId): void {
 }
 
 /**
- * The spin-off origin a row displays, narrowed to what the tick renders
+ * The spin-off origin used for the lineage flash
  * (POD-4421). The parent resolves the `discovered-from` edge once per list
- * through a by-id map and hands each row its own tick; the row never sees the
- * whole issue array. `null` = no origin tick.
+ * through a by-id map; the row never sees the whole issue array.
  */
 export interface UnifiedIssueRowOrigin {
   id: IssueId
@@ -163,8 +162,8 @@ function UnifiedIssueRowInner({
   const displayTitleProp = model?.title ?? suppliedTitle
   const progressProp = model?.progress ?? suppliedProgress
   const origin = (model?.origin ?? suppliedOrigin) as UnifiedIssueRowOrigin | null
-  const issue = model ? model.issue as unknown as IssueNavigationModel : row.issue
-  const mine = model ? model.sessions as unknown as SessionView[] : row.sessions
+  const issue = model ? (model.issue as unknown as IssueNavigationModel) : row.issue
+  const mine = model ? (model.sessions as unknown as SessionView[]) : row.sessions
   const unread = model?.visibleUnread ?? display?.unread ?? rowUnreadEmphasized(row)
   const [menuAnchor, setMenuAnchor] = useState<ContextMenuAnchor | null>(null)
   // WHAT THE ROW CALLS THIS TASK — never the raw title, which on a draft is the
@@ -188,31 +187,41 @@ function UnifiedIssueRowInner({
   const working = model?.visibleWorking ?? display?.working ?? rowHasWorkingSession(row)
   // What this row is asking of the human, if anything (POD-279).
   const decision = model ? model.decision : display ? display.decision : rowPendingDecision(row)
-  const errorLine = model ? model.errorClass === null ? null : errorPhrase(model.errorClass, 'lower') : display ? display.errorLine : rowErrorLine(row)
+  const errorLine = model
+    ? model.errorClass === null
+      ? null
+      : errorPhrase(model.errorClass, 'lower')
+    : display
+      ? display.errorLine
+      : rowErrorLine(row)
   const timing = model?.timing ?? display?.timing ?? rowMotionTiming(row)
   // The published row carries the Flight Deck's child-task rollup. Direct
   // component fixtures can supply the same rollup on their addressed row.
-  const progress = progressProp && progressProp !== LOADING ? progressProp : row?.missionRollup?.progress ?? fallbackEmptyProgress()
+  const progress =
+    progressProp && progressProp !== LOADING
+      ? progressProp
+      : (row?.missionRollup?.progress ?? fallbackEmptyProgress())
   // THE ROW'S IDENTITY IS ITS NUMBER (POD-1057). These digits carry the ref;
   // line 2 carries the phase and ask, and the meta column carries the spinner.
   const idLabel = idSquareLabel(issue)
-  // Spin-off provenance (POD-85): an outgoing discovered-from edge names the
-  // issue this one was spun off from. One quiet ⤷ tick on line 2; selecting
-  // the row flashes the origin. The parent supplies the addressed origin tick.
-  // A closed handoff points FORWARD. That answer outranks the provenance tick:
-  // an old row saying only "done ⤷ 766" explains its ancestry but gives no
-  // route to the task where the work actually continued.
-  //
+  // A closed handoff names where the work continued.
   // Read off the ROW, not recomputed here (POD-1193). The same verdict now
   // withdraws the row's amber in `rowPendingDecision`, and a list that decides
   // its attention from one derivation and its words from another can disagree
   // with itself. It is also a graph walk per row per render, gone.
-  const continuationStatus = model ? model.continuation ? `${model.continuation.kind} · ${model.continuation.ref}` : null : row.continuation ?? null
+  const continuationStatus = model
+    ? model.continuation
+      ? `${model.continuation.kind} · ${model.continuation.ref}`
+      : null
+    : (row.continuation ?? null)
   // The full status sentence stays the row's hover text.
-  const statusSentence = model ? worklistIssueStatus(model) : display?.statusLine ?? continuationStatus ?? rowStatusLine(row, now, 0)
+  const statusSentence = model
+    ? worklistIssueStatus(model)
+    : (display?.statusLine ?? continuationStatus ?? rowStatusLine(row, now, 0))
   // Draft vessel whose only content is agents → clicking opens the session.
   // Shared with the nesting rule so structure and rendering agree (POD-282).
-  const draftAgentOnly = model?.sessionOnlyDraft ?? display?.draftAgentOnly ?? isDraftAgentVessel(issue, mine)
+  const draftAgentOnly =
+    model?.sessionOnlyDraft ?? display?.draftAgentOnly ?? isDraftAgentVessel(issue, mine)
   const first = mine[0]
   const onContextMenu = (e: ReactMouseEvent) => {
     e.preventDefault()
@@ -263,7 +272,6 @@ function UnifiedIssueRowInner({
             ref: continuationStatus.split(' · ').slice(1).join(' · '),
           }
         : null),
-    mergeCommits: model?.mergeCommits ?? display?.mergeCommits,
   })
   // LINE 1'S ONE TIME FACT (POD-2074). A computing row counts in blue — the
   // design's only blue text — and every other row shows a compact age: how
@@ -334,7 +342,6 @@ function UnifiedIssueRowInner({
               issueBranch={issue.branch}
               git={issue.gitState}
               density="stamp"
-              suppressAhead={decision === 'merge'}
               className="flex-none text-text-faint"
             />
           )
@@ -364,15 +371,6 @@ function UnifiedIssueRowInner({
                 className="flex-none font-semibold text-destructive"
               >
                 · {errorLine}
-              </span>
-            )}
-            {origin && !continuationStatus && (
-              <span
-                className="flex-none tabular-nums text-text-faint"
-                data-testid="spinoff-origin-tick"
-                title={`Spun off from ${origin.ref} · ${origin.title}`}
-              >
-                ⤷ {origin.ref || `#${origin.seq}`}
               </span>
             )}
             {(model?.returnedFromDefer ??

@@ -59,10 +59,10 @@ describe('rowVoice (POD-2074 status map)', () => {
     } as unknown as RowVoiceInput['issue']
     expect(rowVoice({ ...base, issue: done })).toMatchObject({ tone: 'done', word: 'Done' })
     expect(rowVoice({ ...base, issue: cancelled })).toMatchObject({ tone: 'closed' })
-    expect(rowVoice({ ...base, issue: done, decision: 'merge', mergeCommits: 2 })).toEqual({
+    expect(rowVoice({ ...base, issue: done, decision: 'merge' })).toEqual({
       tone: 'needs',
       word: 'Ready to merge',
-      sub: '· 2 commits',
+      sub: null,
     })
   })
 })
