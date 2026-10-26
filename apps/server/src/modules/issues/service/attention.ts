@@ -171,10 +171,17 @@ export class IssueAttentionModule {
       // inert until accepted and closed/archived work is never resurrected.
       target = opts.newSpinoff ? await this.acceptedSpinoff(anchor, title) : undefined
       if (!target) {
+        // An anchor cut from a base the default rule picks (the configured default,
+        // `main`, `master`) already answered for this repository, so the new issue
+        // takes it instead of probing git inside this transaction [POD-2065]. Any
+        // other parent — a stack, a release branch — was the anchor's own choice.
+        const configured = (await this.store.d.getSettings()).gitWorkflow.defaultParentBranch.trim()
+        const inheritsBase = [configured, 'main', 'master'].includes(anchor.parentBranch)
         const wire = await this.crud().create({
           repoPath: anchor.repoPath,
           title,
           startNow: false,
+          ...(anchor.parentBranch && inheritsBase ? { parentBranch: anchor.parentBranch } : {}),
           // Subissue = decomposition, nests under the anchor. Spinoff = a sibling
           // at top level; its provenance is the discovered-from edge below.
           ...(opts.newSubissue ? { parentId: anchorId } : {}),

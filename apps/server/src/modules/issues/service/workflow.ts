@@ -36,6 +36,7 @@ import type { IssueStore } from './core'
 import type { IssueCrudModule } from './crud'
 import { IssueEpicIntegrationModule } from './integration'
 import type { IssueCommentsMailModule } from './mail'
+import { missingParentBranchRefusal } from './parent-branch'
 import { IssueRefusal } from './refusal'
 import type { CreateIssueInput } from './types'
 import { IssueWorktreeGcModule } from './worktree-gc'
@@ -508,11 +509,15 @@ export class IssueGitWorkflowModule {
       let startRepoPath = row.repoPath
       let startPoint = row.parentBranch
       if (homeMachineId && this.store.d.prepareMachineStart) {
-        const prepared = await this.store.d.prepareMachineStart({
-          repoPath: row.repoPath,
-          machineId: homeMachineId,
-          ...(row.parentBranch ? { startPoint: row.parentBranch } : {}),
-        })
+        const prepared = await this.store.d
+          .prepareMachineStart({
+            repoPath: row.repoPath,
+            machineId: homeMachineId,
+            ...(row.parentBranch ? { startPoint: row.parentBranch } : {}),
+          })
+          .catch(async (err: unknown) => {
+            throw (await this.missingParentBranch(row)) ?? err
+          })
         startRepoPath = prepared.repoPath
         // A bundled branch lands as OBJECTS, not as a ref, so the branch name does not
         // resolve on the target even though its commit does. prepareMachineStart hands
@@ -544,7 +549,15 @@ export class IssueGitWorkflowModule {
         { path, branch, ...(startPoint ? { startPoint } : {}) },
         worktreeMachineId,
       )
-      if (!res.ok) throw new Error(`worktree add failed: ${res.output}`)
+      if (!res.ok) {
+        throw (
+          // Same checkout as the source: ask it. A pinned start onto another layout
+          // already had its start point shipped, so a missing parent is not why.
+          (startRepoPath === row.repoPath
+            ? await this.missingParentBranch(row, worktreeMachineId)
+            : null) ?? new Error(`worktree add failed: ${res.output}`)
+        )
+      }
       // POD-665: the daemon just created this worktree out from under connected
       // clients — nudge them to re-fetch repos rather than sit invisible until reload.
       this.store.d.onWorktreesChanged?.(row.repoPath, worktreeMachineId)
@@ -1883,6 +1896,37 @@ export class IssueGitWorkflowModule {
     afterCommit(() => {
       void this.refreshGitState(row.id, sess.cwd).catch(() => {})
     }, 'issue-git-state-session-departed')
+  }
+
+  /**
+   * The refusal for a start that failed because the source repository has no
+   * `row.parentBranch` [POD-2065], or null when that is not why it failed.
+   *
+   * Asked only AFTER a start step failed, so a start that works pays nothing and a
+   * pinned start still does no git work before its machine pre-flight. Both steps it
+   * follows fail before building anything. The stored parent is left alone:
+   * retargeting an existing issue is the operator's call, and the message says how.
+   */
+  private async missingParentBranch(
+    row: IssueRow,
+    machineId?: MachineId,
+  ): Promise<IssueRefusal | null> {
+    if (!row.parentBranch) return null
+    try {
+      const at = machineId ?? (await this.store.resolveWorktreeMachine(undefined, row.repoPath))
+      const refusal = await missingParentBranchRefusal(
+        (op, cwd, args) => this.store.d.repoOp(op, cwd, args, at),
+        {
+          repoPath: row.repoPath,
+          parentBranch: row.parentBranch,
+          issueRef: await this.issueRef(row),
+          configured: (await this.store.d.getSettings()).gitWorkflow.defaultParentBranch,
+        },
+      )
+      return refusal ? new IssueRefusal(refusal) : null
+    } catch {
+      return null
+    }
   }
 
   /** The issue's human ref (`POD-98`, or `#98` before a prefix exists) — the

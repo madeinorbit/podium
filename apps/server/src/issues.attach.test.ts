@@ -244,6 +244,34 @@ describe('attachSession', () => {
     expect(await svc.reports.get(parent.id)).not.toBeNull()
   })
 
+  it("newSubissue takes the anchor's base parent branch, never a stack (POD-2065)", async () => {
+    for (const [anchorParent, expected] of [
+      ['master', 'master'],
+      ['issue/7-base', 'main'],
+    ] as const) {
+      const { svc, issueBySession } = await harness([
+        sess(asSessionId('s1'), '/r/.worktrees/epic'),
+        sess(asSessionId('s2'), '/r/.worktrees/epic'),
+      ])
+      const parent = await svc.crud.create({
+        repoPath: '/r',
+        title: 'Epic',
+        parentBranch: anchorParent,
+        startNow: false,
+      })
+      await svc.crud.update(parent.id, { worktreePath: '/r/.worktrees/epic' })
+      issueBySession.set(asSessionId('s1'), parent.id)
+      issueBySession.set(asSessionId('s2'), parent.id)
+      await svc.crud.setCoordinator(parent.id, asSessionId('s2'))
+      const w = await svc.attention.attachSession({
+        sessionId: asSessionId('s1'),
+        newSubissue: { title: 'Side quest', origin: 'human' },
+        confirmRehome: true,
+      })
+      expect(w.parentBranch).toBe(expected)
+    }
+  })
+
   it('newSubissue with no current issue requires targetId as parent', async () => {
     const { svc, issueBySession } = await harness([sess(asSessionId('s1'))])
     await expect(

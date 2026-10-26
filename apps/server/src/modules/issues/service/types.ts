@@ -204,6 +204,18 @@ export interface IssueDeps {
     /** The agent profile the session starts from (POD-6107). */
     agentProfileId?: string
   }): Promise<SpawnedSessionResult>
+  /**
+   * The read-only half of {@link repoOp} that create uses to choose a parent branch
+   * the selected repository has [POD-2065]: `revParseVerify` and `statusProbe`
+   * only, routed to the machine that holds `cwd`. Its own member so the span lint
+   * can tell it from git writes: create runs inside spans (attach --subissue). Optional;
+   * without it create keeps the unprobed default.
+   */
+  readRepo?(
+    op: Extract<RepoOp, 'revParseVerify' | 'statusProbe'>,
+    cwd: string,
+    args?: Record<string, string>,
+  ): Promise<{ ok: boolean; output: string }>
   repoOp(
     op: RepoOp,
     cwd: string,

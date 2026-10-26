@@ -36,6 +36,7 @@ import type { SessionFacts } from '../../sessions/facts'
 import { readIssue } from '../../world-index/issue-reader'
 import type { IssueStore } from './core'
 import { IssueNotFound } from './not-found'
+import { defaultParentBranchFor } from './parent-branch'
 import { IssueRefusal } from './refusal'
 import type { CreateIssueInput, IssueDeps, IssuePanelOp, IssuePatch } from './types'
 import { UNSNOOZE_BACKDATE_MS } from './types'
@@ -1024,6 +1025,21 @@ export class IssueCrudModule {
     )
   }
 
+  /**
+   * The parent an issue in `repoPath` is cut from when the caller named none: the
+   * configured default when this repository has it, else the repository's own base
+   * [POD-2065]. Probed on the machine that holds the source repo, which is where a
+   * start resolves the start point before shipping it to a pinned target.
+   */
+  private async defaultParentBranch(repoPath: string): Promise<string> {
+    const configured = (await this.store.deps.getSettings()).gitWorkflow.defaultParentBranch.trim()
+    const readRepo = this.store.deps.readRepo
+    // No instance default: `main`, unprobed, as before. A missing `main` is caught
+    // at start with the same recovery message.
+    if (!configured || !readRepo) return configured || 'main'
+    return await defaultParentBranchFor(readRepo, repoPath, configured)
+  }
+
   async create(input: CreateIssueInput): Promise<IssueProjection> {
     if ((input as { stage?: string }).stage === 'shipping') {
       throw new IssueRefusal('shipping stage is system-owned and requires a ship order')
@@ -1048,7 +1064,6 @@ export class IssueCrudModule {
     )
     const seq = await this.store.deps.store.issues.nextIssueSeq(repoId)
     const ts = this.store.now()
-    const settings = await this.store.deps.getSettings()
     const agentProfileId = input.agentProfile
       ? await this.agentProfileIdFor(input.agentProfile)
       : undefined
@@ -1066,7 +1081,7 @@ export class IssueCrudModule {
       stage: (input.stage ?? 'backlog') as StoredIssue['stage'],
       worktreePath: null,
       branch: null,
-      parentBranch: input.parentBranch || settings.gitWorkflow.defaultParentBranch || 'main',
+      parentBranch: input.parentBranch || (await this.defaultParentBranch(input.repoPath)),
       // The issue stores picks only (POD-6133): an unnamed harness, model or effort
       // stays `auto`, so the profile and then the Settings current at each
       // session start decide it, and a stored harness is always a real pick.
