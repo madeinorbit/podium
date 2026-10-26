@@ -163,6 +163,7 @@ describe('bounded variable-height issue window', () => {
     let precedingHeight = 0
     Object.defineProperty(container, 'offsetParent', { configurable: true, value: scroll })
     vi.spyOn(container, 'offsetTop', 'get').mockImplementation(() => precedingHeight)
+    vi.spyOn(container, 'offsetHeight', 'get').mockReturnValue(KEYS.length * 40)
     scroll.scrollTop = 800
     fireEvent.scroll(scroll); flushViewport()
     precedingHeight = 400
@@ -170,6 +171,27 @@ describe('bounded variable-height issue window', () => {
     expect(scroll.scrollTop).toBe(1200)
     precedingHeight = 0
     view.rerender(<NestedWindowHarness keys={[...KEYS]} />); flushViewport()
+    expect(scroll.scrollTop).toBe(800)
+  })
+
+  it('leaves the viewport alone when a section below its top edge shifts (POD-2127)', () => {
+    vi.useFakeTimers()
+    const view = render(<NestedWindowHarness />)
+    const scroll = view.getByTestId('nested-scroll')
+    const container = view.getByTestId('nested-container')
+    sizeViewport(scroll, 320)
+    // The window's section starts 200px below the top edge: a row leaving the
+    // section above it, inside the viewport, moves it up without any scroll.
+    let precedingHeight = 1000
+    Object.defineProperty(container, 'offsetParent', { configurable: true, value: scroll })
+    vi.spyOn(container, 'offsetTop', 'get').mockImplementation(() => precedingHeight)
+    vi.spyOn(container, 'offsetHeight', 'get').mockReturnValue(KEYS.length * 40)
+    scroll.scrollTop = 800
+    fireEvent.scroll(scroll)
+    flushViewport()
+    precedingHeight = 953
+    view.rerender(<NestedWindowHarness keys={[...KEYS]} />)
+    flushViewport()
     expect(scroll.scrollTop).toBe(800)
   })
   it.each([0, 48])('keeps selection redraw and scroll ID reads flat at 1x and 4x with height %i', height => {

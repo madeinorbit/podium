@@ -113,6 +113,18 @@ function containerOffset(scroll: HTMLElement, container: HTMLElement): number {
   return top(container) - top(scroll)
 }
 
+/** Whether the scroller's top edge lies in the section (a direct child of the
+ * scroller) that holds `container`, header included. A section below that
+ * edge cannot tell a change above the viewport from one inside it. */
+function holdsViewportTop(scroll: HTMLElement, container: HTMLElement | null | undefined): boolean {
+  if (!container || container === scroll) return true
+  let section: HTMLElement | null = container
+  while (section && section.parentElement !== scroll) section = section.parentElement
+  if (!section) return true
+  const start = containerOffset(scroll, section)
+  return start <= scroll.scrollTop && scroll.scrollTop < start + section.offsetHeight
+}
+
 /**
  * A small variable-height virtualizer specialised for Podium's issue surfaces.
  * It deliberately owns only mounting and geometry: full issue order, selection,
@@ -339,9 +351,16 @@ export function useBoundedVirtualList({
       const currentTop = localScrollTop(scroll, containerRef?.current)
       const saved = priorViewportRef.current
       const top = saved && scroll ? saved.top + scroll.scrollTop - saved.scrollTop : currentTop
-      // Only the section intersecting a shared grouped-list viewport may move
-      // that viewport. Offscreen sections update their geometry silently.
-      if (scroll && top < prior.totalSize && top + scroll.clientHeight > 0) {
+      // Only the section holding the viewport's top edge may move a shared
+      // grouped-list viewport. A section further down also sees its container
+      // shift when a row above it leaves, but that row may sit below the top
+      // edge too, and compensating for it scrolls the whole list (POD-2127).
+      if (
+        scroll &&
+        top < prior.totalSize &&
+        top + scroll.clientHeight > 0 &&
+        holdsViewportTop(scroll, containerRef?.current)
+      ) {
         const anchorIndex = itemAt(prior, Math.max(0, top))
         const anchorKey = prior.keys[anchorIndex]
         const currentIndex = anchorKey ? (previous.indexes.get(anchorKey) ?? -1) : -1
