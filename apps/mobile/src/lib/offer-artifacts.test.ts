@@ -100,7 +100,7 @@ describe('offerArtifactRows', () => {
     })
     expect(rows[0]?.url).toContain('/workspace/ws_b/')
   })
-  it('caps the strip and reports the remainder for the "+N" chip', () => {
+  it('reserves the fourth slot for +N when the list overflows', () => {
     const paths = ['a.png', 'b.png', 'c.png', 'd.png', 'e.png']
     const { rows, extra } = offerArtifactRows({
       offer: offerFor(paths),
@@ -109,6 +109,32 @@ describe('offerArtifactRows', () => {
     })
     expect(rows.map((r) => r.label)).toEqual(['a.png', 'b.png', 'c.png'])
     expect(extra).toBe(2)
+  })
+
+  it('shows four artifacts when no overflow slot is needed', () => {
+    const paths = ['a.png', 'b.png', 'c.png', 'd.png']
+    const { rows, extra } = offerArtifactRows({
+      offer: offerFor(paths),
+      issue: issue(paths.map((p) => art(p, '2026-08-20T00:00:00.000Z'))),
+      httpOrigin: ORIGIN,
+    })
+    expect(rows.map((r) => r.label)).toEqual(paths)
+    expect(extra).toBe(0)
+  })
+
+  it.each([
+    { max: 2, shown: ['a.png'], extra: 4 },
+    { max: 1, shown: [], extra: 5 },
+  ])('reserves overflow within $max narrow-card slots', ({ max, shown, extra }) => {
+    const paths = ['a.png', 'b.png', 'c.png', 'd.png', 'e.png']
+    const result = offerArtifactRows({
+      offer: offerFor(paths),
+      issue: issue(paths.map((p) => art(p, '2026-08-20T00:00:00.000Z'))),
+      httpOrigin: ORIGIN,
+      max,
+    })
+    expect(result.rows.map((r) => r.label)).toEqual(shown)
+    expect(result.extra).toBe(extra)
   })
 
   it('names an extensionless file by its preview class rather than a bare chip', () => {

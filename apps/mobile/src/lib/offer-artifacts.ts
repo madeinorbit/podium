@@ -52,11 +52,9 @@ export function resolveOfferArtifacts(args: {
 }
 
 /**
- * How many artifacts the offer strip shows before the rest collapse into a
- * "+N" chip — the desktop's cap [POD-120], and about what a 390pt column holds
- * at one 72pt thumbnail plus a named chip.
+ * Maximum tile slots in the offer strip, including the +N tile, matching web.
  */
-export const OFFER_STRIP_MAX = 3
+export const OFFER_STRIP_MAX = 4
 
 /** One tappable thing in the offer strip: what to draw, and what to open. */
 export type OfferArtifactRow = {
@@ -65,7 +63,7 @@ export type OfferArtifactRow = {
   artifact: IssuePanelArtifact
   label: string
   preview: IssueArtifactPreview
-  /** The mono tag a non-image chip wears — the file's extension, else its kind. */
+  /** The preview's kind label: the file's extension, else its kind. */
   kind: string
   /** Absent when the artifact lives on a machine this phone cannot reach; such
    *  a row is still counted and drawn, but inert rather than a tap that fails. */
@@ -78,7 +76,7 @@ export type OfferArtifactRow = {
  * renderer, a store, or a server profile.
  *
  * Order and dedupe are the resolver's (offer order, newest entry per path);
- * this only caps the list and reports the remainder as `extra`.
+ * The last slot becomes +N when the resolved list exceeds the available slots.
  */
 export function offerArtifactRows(args: {
   offer: SessionOffer
@@ -88,6 +86,7 @@ export function offerArtifactRows(args: {
   httpOrigin: string
   /** Selected hosted workspace id or route slug for browser-visible URLs. */
   workspace?: string
+  /** Available tile slots, including the overflow tile. */
   max?: number
 }): { rows: OfferArtifactRow[]; extra: number } {
   const resolved = resolveOfferArtifacts({
@@ -98,8 +97,8 @@ export function offerArtifactRows(args: {
   const issue = args.issue
   if (!issue || resolved.length === 0) return { rows: [], extra: 0 }
 
-  const max = args.max ?? OFFER_STRIP_MAX
-  const shown = resolved.slice(0, max)
+  const max = Math.max(1, Math.min(OFFER_STRIP_MAX, args.max ?? OFFER_STRIP_MAX))
+  const shown = resolved.length <= max ? resolved : resolved.slice(0, max - 1)
   return {
     rows: shown.map((artifact) => {
       const path = artifact.entry ?? artifact.path
@@ -118,7 +117,7 @@ export function offerArtifactRows(args: {
 }
 
 /** `notes/plan.md` → `MD`; an extensionless file falls back to its preview
- *  class, so the chip always says what kind of thing it is opening. */
+ *  class, so the tile always says what kind of thing it is opening. */
 function kindTag(path: string, preview: IssueArtifactPreview): string {
   const base = machinePathBasename(path)
   const dot = base.lastIndexOf('.')
