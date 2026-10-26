@@ -10,6 +10,7 @@ import {
   repositoryScanOf,
 } from './repo-base-branch'
 import { SettingsRepositories } from './settings-repositories'
+import { type SidebarSections, sidebarView } from './worklist/sidebar'
 
 it('resolves a new task base as repository base, then Podium default, then auto-detect', () => {
   expect(newTaskBase('release', 'tf.dev')).toEqual({ branch: 'release', source: 'repo' })
@@ -122,6 +123,110 @@ it('tells apart unrelated repos at the same path on two machines', () => {
     ])
     expect(repositoryScanOf(p, a, '/src/app')?.machineId).toBe(one)
     expect(repositoryScanOf(p, b, '/src/app')?.machineId).toBe(two)
+  } finally {
+    p.dispose()
+  }
+})
+
+it('gives every same-path band its own repository, through the sidebar pipeline', () => {
+  const NOW = Date.parse('2026-10-26T12:00:00Z')
+  const p = new MobxPool({ selectedIssueId: null, coarseNow: NOW })
+  const [a, b, c] = [asRepoId('repo-a'), asRepoId('repo-b'), asRepoId('repo-c')]
+  const [one, two, three] = [asMachineId('one'), asMachineId('two'), asMachineId('three')]
+  const at = new Date(NOW).toISOString()
+  const issue = (id: string, repoId: string) => ({
+    kind: 'issue' as const,
+    id,
+    value: {
+      id,
+      seq: id.length,
+      title: id,
+      repoId,
+      repoPath: '/src/app',
+      stage: 'in_progress',
+      audience: 'human',
+      createdAt: at,
+      updatedAt: at,
+    } as never,
+  })
+  try {
+    p.apply({
+      type: 'replace',
+      rows: [
+        ...[a, b, c].map((id) => ({
+          kind: 'repo' as const,
+          id,
+          value: { id, prefix: null, defaultParentBranch: null, repoPath: '/src/app' } as never,
+        })),
+        // One root lane per path: only repo-a seeds a band from the scan.
+        {
+          kind: 'worktree',
+          id: '/src/app',
+          value: { path: '/src/app', repoPath: '/src/app', repoName: 'app', repoId: a } as never,
+        },
+        // repo-c reaches the sidebar only through a worktree roster.
+        {
+          kind: 'worktree',
+          id: '/src/app/.wt/c',
+          value: {
+            path: '/src/app/.wt/c',
+            repoPath: '/src/app',
+            repoName: 'app',
+            repoId: c,
+            projectRoot: false,
+          } as never,
+        },
+        {
+          kind: 'session',
+          id: 'free',
+          value: {
+            sessionId: 'free',
+            cwd: '/src/app/.wt/c',
+            issueId: null,
+            agentKind: 'codex',
+            status: 'live',
+            lastActiveAt: at,
+          } as never,
+        },
+        issue('task-a', a),
+        issue('task-b', b),
+      ],
+    })
+    headerEntities(p).apply([
+      {
+        kind: 'repository',
+        id: 'sa',
+        value: { kind: 'repository', machineId: one, path: '/src/app', repoId: a, worktrees: [] },
+      },
+      {
+        kind: 'repository',
+        id: 'sb',
+        value: { kind: 'repository', machineId: two, path: '/src/app', repoId: b, worktrees: [] },
+      },
+      {
+        kind: 'repository',
+        id: 'sc',
+        value: { kind: 'repository', machineId: three, path: '/src/app', repoId: c, worktrees: [] },
+      },
+    ])
+    let sections!: SidebarSections
+    const stop = autorun(() => {
+      sections = sidebarView(p).sections()
+    })
+    try {
+      const bands = Object.fromEntries(sections.bands.map((band) => [band.key, band]))
+      for (const [repoId, machineId] of [
+        [a, one],
+        [b, two],
+        [c, three],
+      ] as const) {
+        const band = bands[repoId]
+        expect(band?.repoId).toBe(repoId)
+        expect(repositoryScanOf(p, band!.repoId!, band!.repoPath)?.machineId).toBe(machineId)
+      }
+    } finally {
+      stop()
+    }
   } finally {
     p.dispose()
   }

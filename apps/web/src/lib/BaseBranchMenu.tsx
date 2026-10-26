@@ -4,8 +4,10 @@
  * One menu body for the sidebar's project ⋯ menu, Settings → Repositories and
  * the task page. The web has no route that lists a checkout's branches, so the
  * list is what the client already knows (`baseBranchChoices`) and the field takes
- * any other name; the server's setter checks the branch exists and its refusal
- * is shown here, under the field, with the menu still open.
+ * any other name. Whatever `onSave` rejects with is shown under the field with
+ * the menu still open: for a repository that is the server's own refusal
+ * (`repos.setDefaultParentBranch` is a direct call that checks the branch
+ * exists); the task page's edit is queued, so it rejects only on enqueue.
  */
 import { useStoreHandle } from '@podium/client-core/react'
 import { here } from '@podium/client-graph/lookup'

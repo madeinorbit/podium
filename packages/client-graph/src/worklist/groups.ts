@@ -240,7 +240,7 @@ export class GroupNode {
   @lazy get rosterBand() {
     const pool = this.groups.pool, ids = sidebarRosterView(pool).groupIds(this.key)
     const head = ids[0] === undefined ? undefined : here(pool.model('worktree', ids[0]))
-    return { ids, label: head?.repoName ?? this.key, repoPath: head?.repoPath ?? this.key }
+    return { ids, label: head?.repoName ?? this.key, repoPath: head?.repoPath ?? this.key, repoId: head?.repoId ?? null }
   }
   private section?: MobileSection
   // Some non-phone group owners have no pool. Create this constant part only

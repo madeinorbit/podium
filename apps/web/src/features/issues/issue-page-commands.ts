@@ -66,8 +66,10 @@ export function issuePageCommands({
 
   return {
     update,
-    /** The task's parent branch, awaited by its picker so a refusal shows
-     *  inline there instead of in a toast after the picker closed (POD-2153). */
+    /** The task's parent branch (POD-2153). Resolves once the edit is durably
+     *  queued, not when the server settles it: the picker awaits it so a failed
+     *  enqueue shows inline, and a later server refusal reaches the user as the
+     *  outbox's "Couldn't save issue branch" notice like every other edit. */
     setParentBranch: (parentBranch: string): Promise<unknown> =>
       updateIssue(id, { parentBranch }),
 

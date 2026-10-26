@@ -6,6 +6,10 @@
  * its children or siblings, and the repository's base branch stays as it is.
  * The menu is the same body the sidebar and settings use for a repository's
  * base, without the "Podium default" row: a task always has a parent.
+ *
+ * The edit is optimistic like every issue write: the picker waits only for it
+ * to be queued (a failure there shows under the field). Whether the server
+ * accepts it is the outbox's to report, with its recovery notice.
  */
 import { here } from '@podium/client-graph/lookup'
 import { baseBranchChoices, repositoryScanOf } from '@podium/client-graph/repo-base-branch'

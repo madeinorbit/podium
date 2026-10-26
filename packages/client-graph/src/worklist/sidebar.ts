@@ -266,7 +266,12 @@ export class SidebarIndex {
       const group = worklistGroups(this.pool).group(key)
       const rowIds = group.sidebarRowIds, snoozedIds = group.sidebarSnoozedIds, closedIds = group.sidebarClosedIds
       const firstOpen = rowIds[0]
+      // The group's logical repo, from its issues: two repos can share a path,
+      // and only one of them seeds a root lane there (POD-2153).
+      const member = firstOpen ?? snoozedIds[0] ?? closedIds[0]
+      const issue = member === undefined ? undefined : here(this.pool.model('issue', member))
       return {
+        repoId: issue?.repoId ?? null,
         shown: rowIds.length > 0 || snoozedIds.length > 0 || closedIds.length > 0,
         label: group.sidebarMetadata.label,
         // Legacy uses the first open issue's path, then the key; folded rows
@@ -285,7 +290,7 @@ export class SidebarIndex {
   private rosterFacts(key: string): RosterFacts {
     return this.rosterViews(key, () => {
       const roster = sidebarRosterView(this.pool).band(key)
-      return { shown: roster.ids.length > 0, label: roster.label, repoPath: roster.repoPath }
+      return { shown: roster.ids.length > 0, label: roster.label, repoPath: roster.repoPath, repoId: roster.repoId }
     })
   }
 
@@ -331,8 +336,8 @@ export class SidebarIndex {
       const facts = this.groupFacts(key)
       if (!facts.shown) continue
       // A registered root was seeded above; its path stays.
-      const spec = add(key, facts.label, facts.path)
-      specs.set(key, { ...spec, label: facts.label, group: true })
+      const spec = add(key, facts.label, facts.path, [key], facts.repoId)
+      specs.set(key, { ...spec, label: facts.label, repoId: spec.repoId ?? facts.repoId, group: true })
     }
     for (const key of index.keys()) {
       const existing = specs.get(key)
@@ -342,11 +347,11 @@ export class SidebarIndex {
       if (existing && !(facts?.folded === true && facts.headBand2)) continue
       const roster = this.rosterFacts(key)
       if (!roster.shown) continue
-      const spec = add(key, roster.label, roster.repoPath)
+      const spec = add(key, roster.label, roster.repoPath, [key], roster.repoId)
       // The unified head names the section before folds: worktrees (band 1)
       // precede snoozed roots (band 2), even when a root is in the closed fold.
       const label = facts?.folded === true && facts.headBand2 ? roster.label : spec.label
-      specs.set(key, { ...spec, label })
+      specs.set(key, { ...spec, label, repoId: spec.repoId ?? roster.repoId })
     }
     const base = [...specs.values()]
     const registered = new Set(repos.map((repo) => repo.repoId ?? machinePathKey(repo.repoPath)))
@@ -419,6 +424,7 @@ interface BandSpecs {
 }
 interface GroupFacts {
   readonly shown: boolean
+  readonly repoId: string | null
   readonly label: string
   readonly path: string
   readonly folded: boolean
@@ -426,6 +432,7 @@ interface GroupFacts {
 }
 interface RosterFacts {
   readonly shown: boolean
+  readonly repoId: string | null
   readonly label: string
   readonly repoPath: string
 }

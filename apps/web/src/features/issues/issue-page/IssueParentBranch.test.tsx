@@ -25,7 +25,7 @@ it("lists a stacked task's stored parent, checked", async () => {
   expect(row.querySelector('[aria-label="Current"]')).not.toBeNull()
 })
 
-it('keeps the picker open until the write lands', async () => {
+it('keeps the picker open until the edit is queued', async () => {
   let land: () => void = () => {}
   const setParentBranch = vi.fn(
     () =>
@@ -42,20 +42,20 @@ it('keeps the picker open until the write lands', async () => {
   await waitFor(() => expect(screen.queryByRole('menu')).toBeNull())
 })
 
-it('shows a refused write inline and keeps the typed name', async () => {
+// A server refusal comes later, through the outbox's recovery notice
+// (kernel-outbox.refusal-release.test.ts); only a failed enqueue lands here.
+it('shows a failed enqueue inline and keeps the typed name', async () => {
   const setParentBranch = vi.fn(async () => {
-    throw new Error("Branch 'nope' is not a valid parent.")
+    throw new Error('Could not queue the change.')
   })
   render(<IssueParentBranch issue={issue} busy={false} commands={{ setParentBranch } as never} />)
   const field = await typeBranch('nope')
-  expect((await screen.findByRole('alert')).textContent).toBe(
-    "Branch 'nope' is not a valid parent.",
-  )
+  expect((await screen.findByRole('alert')).textContent).toBe('Could not queue the change.')
   expect(field.value).toBe('nope')
 })
 
-it('setParentBranch hands the update promise, and its rejection, to the caller', async () => {
-  const refusal = new Error('refused')
+it('setParentBranch hands the enqueue promise, and its rejection, to the caller', async () => {
+  const refusal = new Error('could not queue')
   const updateIssue = vi.fn(async () => {
     throw refusal
   })
