@@ -792,6 +792,7 @@ const ObservedPoolWorkSections = observer(function ObservedPoolWorkSections({
                 onToggle: () => toggle(band.foldKey),
                 onCollapseAll: anyOpen ? () => setAllCollapsed(true) : undefined,
                 onExpandAll: anyShut ? () => setAllCollapsed(false) : undefined,
+                repoPath: band.repoPath || undefined,
               }}
             />
             {!empty && (

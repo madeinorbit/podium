@@ -80,6 +80,7 @@ import type { IssuePageCommands } from '../issue-page-commands'
 import { labelPoolOf, mateOptionsOf, repoMatesOf } from '../issue-page-model'
 import { DateProperty, EstimateProperty } from './DateProperty'
 import { IssueAbout } from './IssueAbout'
+import { IssueParentBranch } from './IssueParentBranch'
 import { IssueParentRow } from './IssueParentRow'
 import { IssueRelations } from './IssueRelations'
 import { IssueSessionsBlock } from './IssueSessionsBlock'
@@ -239,6 +240,8 @@ export const IssueProperties = observer(function IssueProperties({
             />
           </div>
         </PropertyRow>
+
+        <IssueParentBranch issue={issue} busy={busy} commands={commands} />
 
         {shows('type') && (
           <PropertyRow label="Type">

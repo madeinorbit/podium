@@ -2,6 +2,8 @@ import { useSettingsRecord } from '@/features/settings/record-readers'
 import { observer } from 'mobx-react-lite'
 import type { RepoView } from '@podium/client-core/values'
 import { LOADING } from '@podium/client-graph'
+import { here } from '@podium/client-graph/lookup'
+import { newTaskBase } from '@podium/client-graph/repo-base-branch'
 import {
   agentCapabilityRejection,
   agentLoginCondition,
@@ -13,10 +15,11 @@ import {
   machinesForRepoOrClone,
   onlineMachinesForRepoOrClone,
 } from '@podium/model/browser'
-import { ArrowRight, ChevronDown, ChevronRight, FolderGit2, Server, X, Zap } from 'lucide-react'
+import { ArrowRight, ChevronDown, ChevronRight, FolderGit2, GitBranch, Server, X, Zap } from 'lucide-react'
 import type { ComponentProps, JSX, ReactNode } from 'react'
 import { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useCommandLaunchActions, useCommandLaunchCatalog, useCommandLaunchOrigin, useCommandTargetMachines } from '@/app/command-launch-data'
+import { useWorklistPool } from '@/app/store-worklist-pool'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
@@ -79,7 +82,8 @@ import { PriorityGlyph, StageGlyph } from './issue-glyphs'
  * they are set on the issue after it exists, and the server picks the parent
  * branch: the selected repository's base branch, else
  * `settings.gitWorkflow.defaultParentBranch`, else the repository's own main
- * branch (POD-2065).
+ * branch (POD-2065). The header says which with a quiet "from <branch>" line
+ * ({@link BaseBranchNote}); it is information, not a picker.
  */
 
 /**
@@ -110,6 +114,44 @@ const PillButton = forwardRef<
   </Button>
 ))
 PillButton.displayName = 'PillButton'
+
+const BASE_BRANCH_TITLE = {
+  repo: "This repository's base branch. Change it from the project's ⋯ menu or Settings → Repositories.",
+  podium:
+    'The Podium default parent branch (Settings → Git workflow). This repository has no base branch of its own.',
+  auto: 'Podium picks main, master or the checked-out branch when the task is created.',
+} as const
+
+/** What the new task will branch from: repository base, Podium default, or auto-detect. */
+const BaseBranchNote = observer(function BaseBranchNote({
+  repoId,
+  podiumDefault,
+}: {
+  repoId: string | undefined
+  podiumDefault: string | undefined
+}): JSX.Element {
+  const pool = useWorklistPool()
+  const repo = pool && repoId ? here(pool.model('repo', repoId)) : undefined
+  const base = newTaskBase(repo?.defaultParentBranch, podiumDefault)
+  return (
+    <span
+      className="flex min-w-0 items-center gap-[5px] pl-1 text-[11.5px] text-text-faint"
+      title={BASE_BRANCH_TITLE[base.source]}
+      data-testid="new-task-base-branch"
+      data-source={base.source}
+    >
+      <GitBranch size={12} aria-hidden="true" className="flex-none" />
+      <span className="truncate">
+        from{' '}
+        {base.branch ? (
+          <span className="font-mono text-[11px] text-text-dim">{base.branch}</span>
+        ) : (
+          'auto-detected branch'
+        )}
+      </span>
+    </span>
+  )
+})
 
 /**
  * WHO CAN HOST THIS TASK.
@@ -464,6 +506,12 @@ const NewIssueDialogBody = observer(function NewIssueDialogBody({
             selectedValue={stage}
             onSelect={(v) => setStage(v as IssueStage)}
           />
+          {settingsRequest?.model && (
+            <BaseBranchNote
+              repoId={repoView?.repoId}
+              podiumDefault={settingsRequest.model.gitWorkflow?.defaultParentBranch}
+            />
+          )}
           <span className="ml-auto font-mono text-[10px] text-text-faint">esc</span>
           <Button type="button" variant="ghost" size="icon-sm" aria-label="Close" onClick={onClose}>
             <X size={16} aria-hidden="true" />

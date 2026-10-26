@@ -12,7 +12,7 @@ import { shallowEqual } from '@podium/client-core/shallow-equal'
 import { mergeVisibleProjectOrder } from '@podium/client-core/values'
 import { Archive, ChevronRight, Ellipsis, GripVertical, Pin, Plus } from 'lucide-react'
 import type { JSX, PointerEvent as ReactPointerEvent } from 'react'
-import { useCallback, useLayoutEffect, useRef } from 'react'
+import { useCallback, useLayoutEffect, useRef, useState } from 'react'
 import { openAddProject } from '@/app/desktop-menu'
 import { useRuntimeSelector } from '@/app/store'
 import {
@@ -22,6 +22,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { RepoBaseBranchMenu } from '@/lib/BaseBranchMenu'
 import { useReducedMotion } from '@/lib/use-reduced-motion'
 import { cn } from '@/lib/utils'
 import { cssEase, EASE_OUT, MOTION_S } from './worklist-motion-tokens'
@@ -177,6 +178,8 @@ export interface FolderMenu {
   onToggle: () => void
   onCollapseAll?: () => void
   onExpandAll?: () => void
+  /** The project's repository root, when it is one: offers "Base branch…". */
+  repoPath?: string
 }
 
 /**
@@ -308,43 +311,68 @@ function FolderOptions({
   empty: boolean
   menu: FolderMenu
 }): JSX.Element {
+  const trigger = useRef<HTMLButtonElement>(null)
+  const [branchOpen, setBranchOpen] = useState(false)
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger
-        render={
-          <button
-            data-pressable
-            type="button"
-            title="Project options"
-            aria-label={`${label} options`}
-            data-testid="folder-options"
-            className="flex size-[22px] flex-none items-center justify-center rounded-[6px] text-text-dim opacity-0 transition-[opacity,color,background-color] duration-100 group-hover/folder:opacity-100 group-focus-within/folder:opacity-100 hover:bg-accent hover:text-text-strong focus-visible:opacity-100 focus-visible:outline focus-visible:outline-1 focus-visible:outline-border-strong data-[popup-open]:opacity-100"
-          />
-        }
-      >
-        <Ellipsis size={14} aria-hidden="true" />
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-52">
-        <DropdownMenuItem disabled={!menu.onMoveUp} onClick={menu.onMoveUp}>
-          Move up
-        </DropdownMenuItem>
-        <DropdownMenuItem disabled={!menu.onMoveDown} onClick={menu.onMoveDown}>
-          Move down
-        </DropdownMenuItem>
-        <DropdownMenuSeparator />
-        {!empty && (
-          <DropdownMenuItem onClick={menu.onToggle}>
-            {collapsed ? 'Expand' : 'Collapse'}
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          render={
+            <button
+              ref={trigger}
+              data-pressable
+              type="button"
+              title="Project options"
+              aria-label={`${label} options`}
+              data-testid="folder-options"
+              className="flex size-[22px] flex-none items-center justify-center rounded-[6px] text-text-dim opacity-0 transition-[opacity,color,background-color] duration-100 group-hover/folder:opacity-100 group-focus-within/folder:opacity-100 hover:bg-accent hover:text-text-strong focus-visible:opacity-100 focus-visible:outline focus-visible:outline-1 focus-visible:outline-border-strong data-[popup-open]:opacity-100"
+            />
+          }
+        >
+          <Ellipsis size={14} aria-hidden="true" />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-52">
+          <DropdownMenuItem disabled={!menu.onMoveUp} onClick={menu.onMoveUp}>
+            Move up
           </DropdownMenuItem>
-        )}
-        {menu.onCollapseAll && (
-          <DropdownMenuItem onClick={menu.onCollapseAll}>Collapse all projects</DropdownMenuItem>
-        )}
-        {menu.onExpandAll && (
-          <DropdownMenuItem onClick={menu.onExpandAll}>Expand all projects</DropdownMenuItem>
-        )}
-      </DropdownMenuContent>
-    </DropdownMenu>
+          <DropdownMenuItem disabled={!menu.onMoveDown} onClick={menu.onMoveDown}>
+            Move down
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          {!empty && (
+            <DropdownMenuItem onClick={menu.onToggle}>
+              {collapsed ? 'Expand' : 'Collapse'}
+            </DropdownMenuItem>
+          )}
+          {menu.onCollapseAll && (
+            <DropdownMenuItem onClick={menu.onCollapseAll}>Collapse all projects</DropdownMenuItem>
+          )}
+          {menu.onExpandAll && (
+            <DropdownMenuItem onClick={menu.onExpandAll}>Expand all projects</DropdownMenuItem>
+          )}
+          {menu.repoPath && (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => setBranchOpen(true)}>Base branch…</DropdownMenuItem>
+            </>
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
+      {/* A second menu on the same ⋯, so the branch field is not nested inside
+        the options list's typeahead. It opens as the options menu closes. */}
+      {menu.repoPath && (
+        <DropdownMenu modal={false} open={branchOpen} onOpenChange={setBranchOpen}>
+          {branchOpen && (
+            <RepoBaseBranchMenu
+              path={menu.repoPath}
+              align="end"
+              anchor={trigger.current}
+              onDone={() => setBranchOpen(false)}
+            />
+          )}
+        </DropdownMenu>
+      )}
+    </>
   )
 }
 

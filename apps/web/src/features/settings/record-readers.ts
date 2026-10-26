@@ -1,10 +1,9 @@
 import { followVisibleRequest } from '@podium/client-graph/visible-request'
 import { useSettingsOpening } from './opening-context'
 import { useOpeningView } from '@podium/client-graph/react'
-import { RecordRequest, SettingsRecordRequest } from '@podium/client-graph/requested-records'
+import { RecordRequest } from '@podium/client-graph/requested-records'
 import type { MobxPool, PoolRows } from '@podium/client-graph/pool'
 import type { RequestedEntity } from '@podium/client-graph/requested-records'
-import type { PodiumSettings } from '@podium/runtime'
 import { useCallback, useEffect, useMemo } from 'react'
 import { useWorklistPool } from '@/app/store-worklist-pool'
 
@@ -30,18 +29,7 @@ export function useSettingsRecords<E extends Exclude<RequestedEntity, 'podiumSet
   return { request, reload }
 }
 
-const createSettingsRecord = (pool: MobxPool) => new SettingsRecordRequest(pool)
-export function useSettingsRecord(read: () => Promise<PodiumSettings>) {
-  const request = useOpeningView(useWorklistPool(), createSettingsRecord)
-  useEffect(() => {
-    if (!request) return
-    return followVisibleRequest(() => { if (!request.loading) void request.read(read) }, {
-      visible: () => document.visibilityState !== 'hidden',
-      subscribe: changed => { document.addEventListener('visibilitychange', changed); return () => document.removeEventListener('visibilitychange', changed) },
-    })
-  }, [request, read])
-  return request
-}
+export { useSettingsRecord } from '@/lib/settings-record'
 export const accountKey = (row: PoolRows['account']) => row.id
 export const memberKey = (row: PoolRows['member']) => row.id
 export const deviceKey = (row: PoolRows['device']) => row.sessionId

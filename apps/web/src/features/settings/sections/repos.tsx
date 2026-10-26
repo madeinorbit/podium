@@ -9,14 +9,20 @@ import { useWorklistPool } from '@/app/store-worklist-pool'
  * prefix inline (repos.setPrefix). Server-side validation (^[A-Z]{2,5}$ +
  * server-wide uniqueness) errors surface next to the editor; changing an
  * existing prefix warns that previously written refs stop resolving.
+ *
+ * Each row also shows the repo's base branch (POD-2065) and edits it with the
+ * same branch menu as the sidebar's project ⋯ menu (repos.setDefaultParentBranch).
  */
 import type { MachineId, RepoId } from '@podium/model'
 import { machinePathBasename } from '@podium/model/browser'
 import { isValidPrefix } from '@podium/protocol'
+import { GitBranch } from 'lucide-react'
 import type { JSX } from 'react'
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
+import { DropdownMenu, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
+import { RepoBaseBranchMenu } from '@/lib/BaseBranchMenu'
 import { useSettingsTrpc } from '@/features/settings/stable-access'
 import { REF_PREFIXES_CHANGED_EVENT } from '@/lib/ref-activation'
 import { Section } from './shared'
@@ -40,7 +46,7 @@ export const ReposSection = observer(function ReposSection(): JSX.Element {
   return (
     <Section
       title="Repositories"
-      hint="Each registered repo has a short uppercase prefix used in human-facing ids like POD-13. Prefixes are unique across the server."
+      hint="Each registered repo has a short uppercase prefix used in human-facing ids like POD-13. Prefixes are unique across the server. A repo's base branch is where its new tasks branch from; without one, the Podium default from Git workflow applies."
     >
       {!rows ? (
         <p className="settings-prose py-1">Loading repos…</p>
@@ -140,6 +146,7 @@ const RepoPrefixRow = observer(function RepoPrefixRow({
           </>
         ) : (
           <>
+            <RepoBaseBranchControl row={row} />
             <span className="settings-value flex-none">
               {row.prefix ?? <span className="text-muted-foreground">none</span>}
             </span>
@@ -164,5 +171,48 @@ const RepoPrefixRow = observer(function RepoPrefixRow({
         <p className="mt-1 max-w-[62ch] settings-prose text-destructive">{error}</p>
       )}
     </div>
+  )
+})
+
+/** The repo's base branch, or "Podium default", opening the shared branch menu. */
+const RepoBaseBranchControl = observer(function RepoBaseBranchControl({
+  row,
+}: {
+  row: SettingsRepository
+}): JSX.Element {
+  const [open, setOpen] = useState(false)
+  const name = machinePathBasename(row.path)
+  return (
+    <DropdownMenu modal={false} open={open} onOpenChange={setOpen}>
+      <DropdownMenuTrigger
+        render={
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            className="max-w-[40%] flex-none gap-1.5 px-2 font-normal"
+            title="Base branch: where new tasks in this repo branch from"
+            aria-label={`Base branch for ${name}`}
+            data-testid="repo-base-branch"
+          >
+            <GitBranch size={12} aria-hidden="true" className="flex-none text-text-faint" />
+            {row.defaultParentBranch ? (
+              <span className="truncate font-mono text-[12px]">{row.defaultParentBranch}</span>
+            ) : (
+              <span className="truncate text-muted-foreground">Podium default</span>
+            )}
+          </Button>
+        }
+      />
+      {open && (
+        <RepoBaseBranchMenu
+          repoId={row.repoId}
+          path={row.path}
+          machineId={row.machineId}
+          align="end"
+          onDone={() => setOpen(false)}
+        />
+      )}
+    </DropdownMenu>
   )
 })
