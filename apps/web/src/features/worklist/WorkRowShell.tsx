@@ -34,6 +34,21 @@ const TONE_INK: Record<RowTone, string> = {
   error: 'var(--destructive)',
 }
 
+/** The tuck chip's box, shared by the chip and the meta slot it reserves. */
+const TUCK_CHIP_BOX =
+  'shell-type-micro flex h-5 items-center gap-1 px-[7px] font-mono leading-none tracking-[0.02em]'
+
+const tuckChipFace = (
+  <>
+    <ArrowDownToLine
+      size={11}
+      aria-hidden="true"
+      className="text-text-faint transition-[transform,color] duration-150 group-hover/tuck:translate-y-px group-hover/tuck:text-muted-foreground"
+    />
+    <span>Tuck</span>
+  </>
+)
+
 /** The 6px status dot, or its glyph stand-in. The working tone is the shared
  *  `WorkingMark`, never a dot of its own (operator decision). */
 export function RowStatusMark({ tone }: { tone: RowTone }): JSX.Element {
@@ -70,7 +85,7 @@ export function rowToneInk(tone: RowTone): string {
  * The work row, as the calm design draws it (POD-2074):
  *
  *     Title of the mission                         • 14h
- *     ● Needs review · 7/7                            #324
+ *     ● Needs review · 7/7                        POD-324
  *
  * Two lines on a rounded, inset surface. Line 1 is the title and one time fact;
  * line 2 is the one status voice, its sub-facts, and the ref at the far end, so
@@ -78,7 +93,6 @@ export function rowToneInk(tone: RowTone): string {
  * gutter. The selected row is the only raised white row in the column.
  */
 export function WorkRowShell({
-  idNumber,
   idLabel,
   label,
   statusLine,
@@ -104,9 +118,7 @@ export function WorkRowShell({
   onTuck,
   shortcutDigit,
 }: {
-  /** The ref's digits, drawn as `#324` at the end of line 2. */
-  idNumber: string
-  /** The FULL ref (`POD-844`), read in the digits' place by assistive tech. */
+  /** The full ref (`POD-844`), drawn at the end of line 2. */
   idLabel: string
   label: string
   /** Line 2's status word — the row's one state voice. */
@@ -158,8 +170,7 @@ export function WorkRowShell({
       className="work-row-ref relative flex-none font-mono tabular-nums text-text-faint"
       data-testid="row-id-number"
     >
-      <span className="sr-only">{idLabel}</span>
-      {idNumber && <span aria-hidden="true">#{idNumber}</span>}
+      {idLabel}
       {shortcutDigit !== undefined && <RowShortcutBadge digit={shortcutDigit} size={18} />}
     </span>
   )
@@ -228,7 +239,16 @@ export function WorkRowShell({
                 )}
                 data-testid="row-meta-column"
               >
-                {timeMeta}
+                {/* A tuckable row reserves the chip's own width (not its
+                    height), so the chip drawn over this slot never covers the
+                    unread dot. */}
+                {onTuck ? (
+                  <span aria-hidden="true" className={cn(TUCK_CHIP_BOX, 'h-0 overflow-hidden')}>
+                    {tuckChipFace}
+                  </span>
+                ) : (
+                  timeMeta
+                )}
               </span>
             </span>
             <span
@@ -283,7 +303,10 @@ export function WorkRowShell({
             transition={
               reduceMotion ? { duration: 0 } : { duration: MOTION_S.enter, ease: EASE_OUT }
             }
-            className="shell-type-micro group/tuck absolute right-[10px] flex h-5 items-center gap-1 rounded-[6px] px-[7px] font-mono leading-none tracking-[0.02em] text-text-dim shadow-[inset_0_0_0_1px_var(--border-strong)] transition-colors hover:bg-accent hover:text-text-strong"
+            className={cn(
+              TUCK_CHIP_BOX,
+              'group/tuck absolute right-[10px] rounded-[6px] text-text-dim shadow-[inset_0_0_0_1px_var(--border-strong)] transition-colors hover:bg-accent hover:text-text-strong',
+            )}
             style={{ top: 'calc(var(--work-row-pad) - 2px)' }}
             title="Tuck this finished task into Closed — it stays reachable there (click to reopen, or start an agent to pick it back up). Nothing is killed or closed."
             aria-label={`Tuck ${label} into Closed`}
@@ -292,12 +315,7 @@ export function WorkRowShell({
               onTuck()
             }}
           >
-            <ArrowDownToLine
-              size={11}
-              aria-hidden="true"
-              className="text-text-faint transition-[transform,color] duration-150 group-hover/tuck:translate-y-px group-hover/tuck:text-muted-foreground"
-            />
-            <span>Tuck</span>
+            {tuckChipFace}
           </m.button>
         )}
       </div>

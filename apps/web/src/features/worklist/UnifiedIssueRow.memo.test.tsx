@@ -233,12 +233,12 @@ describe('worklist row memo (POD-4421)', () => {
     // Frozen output from the last green parity control, ages (which move with
     // the wall clock) stripped.
     expect(fixedText.replace(/\d+[mhd](?=In )/g, '')).toBe(
-      'AlphaIn progress· 1/3POD-1#1Bravo!In progress· 0/2⤷ 1POD-2#2CharlieIn progress· 2/4POD-3#3',
+      'AlphaIn progress· 1/3POD-1Bravo!In progress· 0/2⤷ POD-1POD-2CharlieIn progress· 2/4POD-3',
     )
     for (const title of ['Alpha', 'Bravo!', 'Charlie']) {
       expect(fixedText).toContain(title)
     }
     // The addressed origin tick remains visible.
-    expect(fixedText).toContain('⤷ 1')
+    expect(fixedText).toContain('⤷ POD-1')
   })
 })

@@ -295,7 +295,6 @@ function UnifiedIssueRowInner({
       <WorkRowShell
         testId="unified-issue-row"
         deemphasized={issue.audience === 'agent'}
-        idNumber={idLabel.number}
         idLabel={idLabel.full}
         shortcutDigit={shortcutDigit}
         label={label}
@@ -373,7 +372,7 @@ function UnifiedIssueRowInner({
                 data-testid="spinoff-origin-tick"
                 title={`Spun off from ${origin.ref} · ${origin.title}`}
               >
-                ⤷ {origin.seq}
+                ⤷ {origin.ref || `#${origin.seq}`}
               </span>
             )}
             {(model?.returnedFromDefer ??

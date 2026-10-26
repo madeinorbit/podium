@@ -202,7 +202,7 @@ describe('SidebarUnified selection weight (#41 redesign)', () => {
     const spin = rowButton('Unread issue').closest('[class*="group/row"]') as HTMLElement
     const tick = spin.querySelector('[data-testid="spinoff-origin-tick"]')
     expect(tick).toBeTruthy()
-    expect(tick?.textContent).toContain('⤷ 1')
+    expect(tick?.textContent).toContain('⤷ POD-1')
     expect(tick?.getAttribute('title')).toContain('Spun off from')
     expect(tick?.getAttribute('title')).toContain('Read selected issue')
     const plain = rowButton('Read selected issue').closest('[class*="group/row"]') as HTMLElement

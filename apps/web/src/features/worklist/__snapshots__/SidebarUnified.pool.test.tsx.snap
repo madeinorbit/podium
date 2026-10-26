@@ -2,7 +2,7 @@
 
 exports[`real sidebar pool cutover > draws the same rows, bands and folds as legacy, without a worklistSlice read > rows and bands 1`] = `
 {
-  "bytes": 1863,
-  "sha256": "d90030ffc7cee69fc8d278b5237221b4ac67485dce33a730a99ccc5b0bdf3fd3",
+  "bytes": 1823,
+  "sha256": "c0e2e9f0baf3fd519fadf1dc42900b189168f3501005fe28ddc16b807be7a6dc",
 }
 `;
