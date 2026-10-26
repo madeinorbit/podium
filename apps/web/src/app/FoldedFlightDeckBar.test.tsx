@@ -28,6 +28,7 @@ vi.mock('./store-worklist-pool', () => ({
 async function mount(
   onExpand = vi.fn(),
   options: { stages?: string[]; crew?: string[]; needs?: boolean; stage?: string } = {},
+  drag: { onDragWidth?: (width: number) => void; onDragEnd?: (width: number) => void } = {},
 ) {
   const stamp = '2026-10-01T12:00:00Z'
   const stages = options.stages ?? ['done', 'shipping', 'shipping', 'backlog', 'backlog']
@@ -83,7 +84,7 @@ async function mount(
     ],
   })
   state.pool = pool
-  render(<FoldedFlightDeckBar onExpand={onExpand} />)
+  render(<FoldedFlightDeckBar onExpand={onExpand} {...drag} />)
   await waitFor(() => expect(screen.getByTestId('flight-deck-gauge')).not.toBeNull())
 }
 
@@ -133,5 +134,34 @@ describe('folded Flight Deck', () => {
     })
 
     expect(screen.getByTestId('flight-deck-gauge').textContent).toBe('30/60')
+  })
+
+  it('opens on a double click anywhere on the bar', async () => {
+    const onExpand = vi.fn()
+    await mount(onExpand)
+
+    fireEvent.doubleClick(screen.getByRole('complementary', { name: 'Folded Flight Deck' }))
+    expect(onExpand).toHaveBeenCalledTimes(1)
+  })
+
+  it('reports the right-edge drag width and where it was released', async () => {
+    const onDragWidth = vi.fn()
+    const onDragEnd = vi.fn()
+    await mount(vi.fn(), {}, { onDragWidth, onDragEnd })
+
+    const edge = screen.getByTestId('folded-flight-deck-edge')
+    edge.setPointerCapture = () => undefined
+    fireEvent.pointerDown(edge, { pointerId: 1, clientX: 44 })
+    fireEvent.pointerMove(edge, { pointerId: 1, clientX: 180 })
+    fireEvent.pointerMove(edge, { pointerId: 1, clientX: 320 })
+    fireEvent.pointerUp(edge, { pointerId: 1, clientX: 320 })
+
+    expect(onDragWidth.mock.calls.map(([width]) => width)).toEqual([180, 320])
+    expect(onDragEnd).toHaveBeenCalledExactlyOnceWith(320)
+  })
+
+  it('has no drag edge when the owner cannot open by width', async () => {
+    await mount()
+    expect(screen.queryByTestId('folded-flight-deck-edge')).toBeNull()
   })
 })

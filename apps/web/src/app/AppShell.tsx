@@ -689,6 +689,32 @@ function AppBodyView({ syncProgress }: { syncProgress: SyncProgressStore }): JSX
     })
     animateFlightDeckWidth(44, target, () => setFlightDeckWidth(null))
   }
+  // The folded bar's edge drag (POD-2169). While the pointer moves the shell
+  // follows it; a release past half the open minimum opens the deck at that
+  // width — saved first, so the open column mounts at it — and anything
+  // shorter springs back to the fold.
+  const dragFoldedFlightDeck = (width: number): void => {
+    flightDeckAnimation.current?.cancel()
+    flightDeckAnimation.current = null
+    setFlightDeckWidth(Math.min(flightDeckSize.max, Math.max(44, width)))
+  }
+  const releaseFoldedFlightDeck = (width: number): void => {
+    const dragged = Math.min(flightDeckSize.max, Math.max(44, width))
+    if (dragged < flightDeckSize.min / 2) {
+      setFlightDeckWidth(null)
+      if (!reduceMotion && dragged > 44) animateFlightDeckWidth(dragged, 44)
+      return
+    }
+    const target = Math.max(flightDeckSize.min, dragged)
+    uiState.set(flightDeckSize.storageKey, String(target))
+    flightDeckOpenWidth.current = target
+    flushSync(() => {
+      setFlightDeckCollapsed(false)
+      setFlightDeckWidth(target)
+    })
+    if (reduceMotion || dragged === target) setFlightDeckWidth(null)
+    else animateFlightDeckWidth(dragged, target, () => setFlightDeckWidth(null))
+  }
   const setFlightDeckDisplay = (next: FlightDeckDisplay): void => {
     if (next === flightDeckDisplay) return
     const measured = Math.round(
@@ -931,7 +957,11 @@ function AppBodyView({ syncProgress }: { syncProgress: SyncProgressStore }): JSX
                 >
                   {flightDeckCollapsed ? (
                     <Suspense fallback={null}>
-                      <FoldedFlightDeckBar onExpand={expandFlightDeck} />
+                      <FoldedFlightDeckBar
+                        onExpand={expandFlightDeck}
+                        onDragWidth={dragFoldedFlightDeck}
+                        onDragEnd={releaseFoldedFlightDeck}
+                      />
                     </Suspense>
                   ) : (
                     <ResizableColumn
