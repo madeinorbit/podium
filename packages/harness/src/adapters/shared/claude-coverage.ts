@@ -113,7 +113,7 @@ export const ATTACHMENT_TYPES: Record<string, string> = {
   invoked_skills: 'Injected skill context',
 }
 export const SYSTEM_TYPES: Record<string, string> = {
-  stop_hook_summary: 'Mapped hook completion notice',
+  stop_hook_summary: 'Mapped hook failure or halt notice; clean runs hidden',
   turn_duration: 'Mapped duration',
   local_command: 'Mapped local command output',
   away_summary: 'Mapped recap',

@@ -928,6 +928,25 @@ describe('claudeRecordToItems toolPaths', () => {
     ])
   })
 
+  it('hides a clean stop_hook_summary and keeps hook errors or a halt', () => {
+    const summary = { type: 'system', subtype: 'stop_hook_summary', uuid: 'h1', hookCount: 1 }
+    expect(
+      claudeRecordToItems({ ...summary, hookErrors: [], preventedContinuation: false }),
+    ).toEqual([])
+    expect(
+      claudeRecordToItems({ ...summary, hookErrors: ['connect ECONNREFUSED 127.0.0.1:45777'] }),
+    ).toEqual([
+      {
+        id: 'h1',
+        role: 'system',
+        text: 'Stop hook reported: connect ECONNREFUSED 127.0.0.1:45777',
+      },
+    ])
+    expect(
+      claudeRecordToItems({ ...summary, preventedContinuation: true, stopReason: 'Tests failed' }),
+    ).toMatchObject([{ text: 'A stop hook halted the agent: Tests failed' }])
+  })
+
   it('maps an away_summary system record to a recap item', () => {
     const items = claudeRecordToItems({
       type: 'system',

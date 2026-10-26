@@ -218,16 +218,18 @@ function mapClaudeRecord(record: unknown): TranscriptItem[] {
         },
       ]
     }
+    // A clean stop-hook run tells the user nothing. hookErrors holds both hook
+    // failures and a blocking hook's reason, with nothing to tell them apart.
     if (subtype === 'stop_hook_summary') {
-      const errors = Array.isArray(r.hookErrors) ? r.hookErrors.length : 0
-      return [
-        {
-          id: uuid ?? '',
-          role: 'system',
-          ts,
-          text: `Stop hooks: ${typeof r.hookCount === 'number' ? r.hookCount : 0} completed${errors ? `, ${errors} errors` : ''}${r.preventedContinuation === true ? '; continuation prevented' : ''}`,
-        },
-      ]
+      const errors = Array.isArray(r.hookErrors)
+        ? r.hookErrors.filter((e): e is string => typeof e === 'string' && e.trim() !== '')
+        : []
+      const lines = errors.map((e) => `Stop hook reported: ${e}`)
+      if (r.preventedContinuation === true) {
+        const reason = typeof r.stopReason === 'string' ? r.stopReason.trim() : ''
+        lines.push(`A stop hook halted the agent${reason ? `: ${reason}` : ''}`)
+      }
+      return lines.length ? [{ id: uuid ?? '', role: 'system', ts, text: lines.join('\n') }] : []
     }
     const text = typeof r.content === 'string' ? r.content : ''
     if (!text.trim()) return []
