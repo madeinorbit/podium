@@ -127,8 +127,7 @@ try {
       .waitForFunction(
         (target) =>
           window.__sidebarRenderer?.ready() &&
-          document.querySelector(`[data-issue-row="${target}"]`) !== null &&
-          document.querySelectorAll('[data-session^="synthetic-guest-"]').length === 2,
+          document.querySelector(`[data-issue-row="${target}"]`) !== null,
         target,
         { timeout: 30000 },
       )
@@ -222,10 +221,6 @@ try {
       await palette.getByRole('combobox').press('Escape')
       await palette.waitFor({ state: 'hidden' })
     }
-    await page.locator('[data-session="synthetic-guest-0"] button').first().click()
-    await page.waitForFunction(() => window.__sidebarRenderer.state().pane === 'synthetic-guest-0')
-    const guestNavigation = await page.evaluate(() => window.__sidebarRenderer.state())
-    await checkpoint('guest selection')
     await page.getByTestId('work-scroll').waitFor()
     await checkpoint('expanded sidebar')
     if (worklistProof) {
@@ -288,7 +283,6 @@ try {
     results[mode] = {
       initial,
       navigation,
-      guestNavigation,
       folded,
       filter,
       updated,
@@ -299,7 +293,6 @@ try {
   const legacy = results['legacy'] as {
     initial: unknown
     navigation: { selected: unknown; pane: unknown }
-    guestNavigation: { selected: unknown; pane: unknown }
     folded: unknown
     filter: unknown
     updated: unknown
@@ -313,11 +306,6 @@ try {
     legacy.navigation.pane !== pool.navigation.pane
   )
     throw new Error('Sidebar navigation differs')
-  if (
-    legacy.guestNavigation.selected !== pool.guestNavigation.selected ||
-    legacy.guestNavigation.pane !== pool.guestNavigation.pane
-  )
-    throw new Error('Guest navigation differs')
   await writeFile(`${out}/results.json`, JSON.stringify(results, null, 2))
   console.log(`Sidebar browser parity green; evidence ${out}`)
   if (worklistProof)

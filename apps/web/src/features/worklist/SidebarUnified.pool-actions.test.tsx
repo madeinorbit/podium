@@ -1348,7 +1348,7 @@ describe('real pool row mutations and receipts', () => {
     await waitFor(() => expect(sidebarView(pool!).row(TARGET)).toBeUndefined())
     expect(pool!.row('issue', TARGET, 'mark')).toEqual({ kind: 'gone', reason: 'not-visible' })
     expect(requests).toHaveLength(0)
-    // POD-2129: the evicted task's seats never fall through to a guest band.
+    // POD-2129: the evicted task leaves no row behind, and nothing draws its sessions.
     await settle()
     await act(async () => {
       for (const record of records) {

@@ -279,7 +279,7 @@ function fixtureSidebarRow(
  * until focus moves (R-GROUP 5). Children nest under their roots and proposed
  * rows stay out entirely, so the column shows mission roots plus the two
  * folds, as the real sidebar does. Repos with nothing in them keep their
- * band with the quiet start-first-task door.
+ * band, which the sidebar greys and offers a new task in.
  */
 function fixtureSidebarSections(
   models: readonly IssueViewModel[],
