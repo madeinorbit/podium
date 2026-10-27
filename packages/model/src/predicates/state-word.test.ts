@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { coordinatedSeat, type SeatSessionFacts } from './seat-attention'
 import {
   counterChildren,
   leafTasks,
@@ -196,7 +197,8 @@ const NODES: Record<string, Node> = {
 const TREE: WordTree<string> = {
   task: (id) => NODES[id],
   children: (id) => NODES[id]?.children ?? [],
-  sessions: (id) => (NODES[id]?.sessions ?? []).map((word) => ({ word, delegate: word })),
+  sessions: (id) =>
+    (NODES[id]?.sessions ?? []).map((word) => ({ word, coordinator: word, delegate: word })),
 }
 
 describe('trees', () => {
@@ -368,8 +370,14 @@ describe('coordinated tasks (POD-2171)', () => {
     const offeredWorking = { ...working, offer: { message: 'Ready' } }
     expect(seatWords(offeredWorking)).toEqual({
       word: 'needs-you',
+      coordinator: 'needs-you',
       delegate: 'working',
-      coordinator: false,
+      lead: false,
+    })
+    // The role words count open interactions even where the plain word is not given them.
+    expect(seatWords(idleDone, {}, true, 1)).toMatchObject({
+      word: 'idle',
+      coordinator: 'needs-you',
     })
     expect(seatWords(idleDone, { pendingInteractions: 1 }).delegate).toBe('needs-you')
     const pending = seats({ building: [seatWords(idleDone, { pendingInteractions: 1 })] })
@@ -385,5 +393,68 @@ describe('coordinated tasks (POD-2171)', () => {
     expect(rollUpTaskWords('epic', nested(offered)).get('building')).toBe('needs-you')
     expect(epicWord(nested(offered))).toBe('working')
     expect(epicWord(nested(permission))).toBe('needs-you')
+  })
+})
+
+describe('coordinatedSeat: one seat\u2019s whole verdict on a coordinated task (POD-2171)', () => {
+  const at = (iso: string) => Date.parse(iso)
+  const s = (over: Record<string, unknown>) =>
+    ({ status: 'live', archived: false, ...over }) as SeatSessionFacts
+  it('reads work apart from an offer, and asks only as the coordinator', () => {
+    const offered = s({
+      agentState: { phase: 'working', since: '2026-10-26T11:00:00Z' },
+      offer: { createdAt: '2026-10-26T10:00:00Z' },
+    })
+    expect(coordinatedSeat(offered, 'delegate')).toMatchObject({
+      asks: false,
+      working: true,
+      asksSince: null,
+    })
+    expect(coordinatedSeat(offered, 'coordinator')).toMatchObject({
+      asks: true,
+      working: true,
+      asksSince: at('2026-10-26T10:00:00Z'),
+    })
+  })
+  it('times a pending interaction from when it was asked, a prompt from its state, a crash from its stop', () => {
+    const idle = s({
+      agentState: { phase: 'idle', since: '2026-10-26T09:00:00Z', idle: { kind: 'done' } },
+    })
+    expect(
+      coordinatedSeat(idle, 'delegate', { count: 1, since: at('2026-10-26T12:00:00Z') }),
+    ).toMatchObject({ asks: true, asksSince: at('2026-10-26T12:00:00Z') })
+    const prompt = s({
+      agentState: { phase: 'needs_user', since: '2026-10-26T12:00:00Z' },
+      offer: { createdAt: '2026-10-26T09:00:00Z' },
+    })
+    expect(coordinatedSeat(prompt, 'delegate').asksSince).toBe(at('2026-10-26T12:00:00Z'))
+    const crash = s({
+      status: 'exited',
+      stopReason: 'oom',
+      exitCode: 137,
+      stoppedAt: '2026-10-26T11:30:00Z',
+      agentState: { phase: 'working', since: '2026-10-26T08:00:00Z' },
+    })
+    expect(coordinatedSeat(crash, 'delegate')).toMatchObject({
+      asks: true,
+      asksSince: at('2026-10-26T11:30:00Z'),
+      errorClass: 'oom',
+      working: false,
+    })
+  })
+  it('asks nothing on a closed task or from an archived seat', () => {
+    const crash = s({ status: 'exited', stopReason: 'oom', exitCode: 137 })
+    expect(coordinatedSeat(crash, 'delegate', undefined, false)).toMatchObject({
+      asks: false,
+      errorClass: null,
+    })
+    expect(coordinatedSeat({ ...crash, archived: true }, 'delegate')).toMatchObject({ asks: false })
+  })
+  it('a coordinator\u2019s question or pending interaction asks', () => {
+    const question = s({
+      agentState: { phase: 'idle', since: '2026-10-26T09:00:00Z', idle: { kind: 'question' } },
+    })
+    expect(coordinatedSeat(question, 'coordinator').asks).toBe(true)
+    expect(coordinatedSeat(question, 'delegate').asks).toBe(false)
   })
 })

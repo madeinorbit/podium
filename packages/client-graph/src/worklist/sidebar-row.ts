@@ -8,8 +8,8 @@ import type { RowOriginTick } from '../shared/row-view'
 import { awaitingMergeOf } from '../shared/schema'
 import type { SliceIssue, SlicePhase, SliceSession } from '../shared/slice-types'
 import { type CloseFacts, DEFER_NEXT_MESSAGE, FINISHED_GRACE_MS, isClosedTopLevel, issueAbandoned } from '../views'
-import type { SeatAttention } from '@podium/model/browser'
-import { attentionGroup, delegatePhase, isSessionComputing, isSessionWorking, motionPhase, seatAttentionOf, type UnitState } from './rollup'
+import { coordinatedSeat, type SeatSessionFacts } from '@podium/model/browser'
+import { attentionGroup, isSessionWorking, motionPhase, type RoleVerdict, roleVerdictOf, type UnitState } from './rollup'
 
 export interface SidebarProgress extends Readonly<Record<UnitState, number>> { readonly total: number }
 export interface SidebarTiming {
@@ -216,10 +216,11 @@ export interface SidebarSessionFacts {
   readonly working?: TimerAnchor
   readonly waitingOpen?: TimerAnchor
   readonly waitingFinished?: TimerAnchor
-  /** As a delegate under a live coordinator (POD-2171): its work read apart from an offer
-   * (`isSessionComputing`), and its exception, timed from the exception itself (`exceptionSinceMs`). */
+  /** As a delegate under a live coordinator (POD-2171), from its delegate role verdict: its
+   * work read apart from any ask, its exception timed from the exception, and the error's class. */
   readonly workingDelegated?: TimerAnchor
   readonly waitingDelegated?: TimerAnchor
+  readonly errorClassDelegated?: string | null
   readonly doneSince: number
   readonly totalMs?: number
   readonly errorClass: string | null
@@ -230,38 +231,66 @@ export const NO_SIDEBAR_SESSIONS: SidebarSessionFacts = {
   doneSince: 0, errorClass: null, allUnstarted: true,
 }
 
-/** When a seat's exception began: a crash at its stop, an error or a prompt at its state change. */
-export function exceptionSinceMs(session: Pick<SliceSession, 'status' | 'stoppedAt'>, stateSince: number): number {
-  return session.status === 'exited' ? Date.parse(session.stoppedAt ?? '') || stateSince : stateSince
+/** A role verdict's working anchor, carrying the seat's banked working time. */
+export function roleWorking(role: RoleVerdict, totalMs: number | undefined): TimerAnchor | undefined {
+  const since = role.workingSinceMs
+  if (since === null) return undefined
+  return { stateSince: since, sinceMs: since, ...(totalMs !== undefined ? { baseMs: totalMs } : {}) }
 }
 
-export function sidebarSessionFacts(session: SliceSession, attention: SeatAttention = seatAttentionOf(session)): SidebarSessionFacts {
+/** A role verdict's waiting anchor, from when its counted want began. */
+export function roleWaiting(role: RoleVerdict): TimerAnchor | undefined {
+  const since = role.waitingSinceMs
+  return role.phase !== 'waiting' || since === null ? undefined : { stateSince: since, sinceMs: since }
+}
+
+export function sidebarSessionFacts(session: SliceSession, delegate?: RoleVerdict): SidebarSessionFacts {
   const stateSince = Date.parse(session.agentState?.since ?? session.lastActiveAt)
   const working = isSessionWorking(session)
-  const computing = isSessionComputing(session)
   const waiting: TimerAnchor = { stateSince,
     sinceMs: Date.parse(session.offer?.createdAt ?? '') || stateSince }
-  const timer = (on: boolean): { working?: TimerAnchor } => on ? { working: { stateSince, sinceMs: stateSince,
-    ...(session.agentState?.workingMsTotal !== undefined ? { baseMs: session.agentState.workingMsTotal } : {}) } } : {}
+  const totalMs = session.agentState?.workingMsTotal
+  const role = delegate ?? roleVerdictOf(coordinatedSeat(session as SeatSessionFacts, 'delegate'), stateSince)
+  const workingDelegated = roleWorking(role, totalMs)
+  const waitingDelegated = roleWaiting(role)
   return {
     fleet: fleetOf([session]),
-    ...timer(working),
+    ...(working ? { working: { stateSince, sinceMs: stateSince,
+      ...(totalMs !== undefined ? { baseMs: totalMs } : {}) } } : {}),
     ...(motionPhase(session, false) === 'waiting' ? { waitingOpen: waiting } : {}),
     ...(motionPhase(session, true) === 'waiting' ? { waitingFinished: waiting } : {}),
-    ...(computing ? { workingDelegated: timer(true).working } : {}),
-    ...(delegatePhase(session, attention, () => computing) === 'waiting'
-      ? { waitingDelegated: { stateSince, sinceMs: exceptionSinceMs(session, stateSince) } } : {}),
+    ...(workingDelegated ? { workingDelegated } : {}),
+    ...(waitingDelegated ? { waitingDelegated } : {}),
+    ...(role.errorClass !== null ? { errorClassDelegated: role.errorClass } : {}),
     doneSince: stateSince || 0,
-    ...(session.agentState?.workingMsTotal !== undefined ? { totalMs: session.agentState.workingMsTotal } : {}),
+    ...(totalMs !== undefined ? { totalMs } : {}),
     errorClass: !session.archived && session.status !== 'exited' && session.agentState?.phase === 'errored'
       ? session.agentState.error?.class ?? 'unknown' : null,
     allUnstarted: unstarted(session),
   }
 }
 
-/** The facts as a delegate under a live coordinator shows them (POD-2171): its
- * work read apart from an offer, and only an exception's waiting anchor. A
- * view, so a live reader still observes only the field it asks for. */
+/** The facts as a seat in one role on a coordinated row shows them (POD-2171):
+ * its timers and error line are the role verdict's. A view, so a live reader
+ * still observes only the field it asks for. */
+export function roleSidebarFacts(facts: SidebarSessionFacts, role: RoleVerdict): SidebarSessionFacts {
+  return {
+    get fleet() { return facts.fleet },
+    get working() { return roleWorking(role, facts.totalMs) },
+    get waitingOpen() { return roleWaiting(role) },
+    get waitingFinished() { return roleWaiting(role) },
+    get workingDelegated() { return facts.workingDelegated },
+    get waitingDelegated() { return facts.waitingDelegated },
+    get errorClassDelegated() { return facts.errorClassDelegated },
+    get doneSince() { return facts.doneSince },
+    get totalMs() { return facts.totalMs },
+    get errorClass() { return role.errorClass },
+    get allUnstarted() { return facts.allUnstarted },
+  }
+}
+
+/** The facts as a delegate under a live coordinator shows them (POD-2171): the
+ * delegate projections stand in for its own. A view. */
 export function delegatedSidebarFacts(facts: SidebarSessionFacts): SidebarSessionFacts {
   if (facts === NO_SIDEBAR_SESSIONS) return facts
   return {
@@ -271,21 +300,23 @@ export function delegatedSidebarFacts(facts: SidebarSessionFacts): SidebarSessio
     get waitingFinished() { return facts.waitingDelegated },
     get workingDelegated() { return facts.workingDelegated },
     get waitingDelegated() { return facts.waitingDelegated },
+    get errorClassDelegated() { return facts.errorClassDelegated },
     get doneSince() { return facts.doneSince },
     get totalMs() { return facts.totalMs },
-    get errorClass() { return facts.errorClass },
+    get errorClass() { return facts.errorClassDelegated ?? null },
     get allUnstarted() { return facts.allUnstarted },
   }
 }
 
-/** An exited seat still retained on its row adds only its exception (POD-2171):
- * the delegate anchor, and on a coordinated row the row's own waiting anchors.
- * Nothing else of it (fleet, work, done time) is the row's any more. */
+/** An exited seat whose exception stands adds only that exception (POD-2171):
+ * its delegate anchor and error class, and on a coordinated row the row's own
+ * waiting anchors and error line. Nothing else of it is the row's. */
 export function exceptionSidebarFacts(facts: SidebarSessionFacts, coordinated: boolean): SidebarSessionFacts {
   const anchor = facts.waitingDelegated
   if (anchor === undefined) return NO_SIDEBAR_SESSIONS
-  return { ...NO_SIDEBAR_SESSIONS, waitingDelegated: anchor,
-    ...(coordinated ? { waitingOpen: anchor, waitingFinished: anchor } : {}) }
+  const errorClass = facts.errorClassDelegated ?? null
+  return { ...NO_SIDEBAR_SESSIONS, waitingDelegated: anchor, errorClassDelegated: errorClass,
+    ...(coordinated ? { waitingOpen: anchor, waitingFinished: anchor, errorClass } : {}) }
 }
 
 /** Ordered and associative: ties keep the first roster member, as the row's
@@ -303,6 +334,7 @@ export function combineSidebarSessions(a: SidebarSessionFacts, b: SidebarSession
     waitingFinished: earliest(a.waitingFinished, b.waitingFinished),
     workingDelegated: earliest(a.workingDelegated, b.workingDelegated),
     waitingDelegated: earliest(a.waitingDelegated, b.waitingDelegated),
+    errorClassDelegated: a.errorClassDelegated ?? b.errorClassDelegated,
     doneSince: Math.max(a.doneSince, b.doneSince),
     ...(a.totalMs !== undefined || b.totalMs !== undefined ? { totalMs: (a.totalMs ?? 0) + (b.totalMs ?? 0) } : {}),
     errorClass: a.errorClass ?? b.errorClass, allUnstarted: a.allUnstarted && b.allUnstarted,
@@ -325,7 +357,7 @@ export function combineSidebarSessionField<K extends keyof SidebarSessionFacts>(
     }
     case 'doneSince': value = Math.max(a as number, b as number); break
     case 'totalMs': value = a === undefined && b === undefined ? undefined : ((a ?? 0) as number) + ((b ?? 0) as number); break
-    case 'errorClass': value = a ?? b; break
+    case 'errorClass': case 'errorClassDelegated': value = a ?? b; break
     case 'allUnstarted': value = (a as boolean) && (b as boolean); break
     default: throw new Error(`Unknown sidebar fact: ${String(field)}`)
   }

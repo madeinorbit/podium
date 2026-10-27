@@ -21,7 +21,7 @@ import type { Worklist } from './view-model'
 import { childIdsPartOf,
   flatPartOf, type HeldIssue, type HiddenIssue, hiddenPresenceOf, keepsPartOf, keptBelowPartOf,
   laneMemberIdsPartOf,
-  laneRetainedSeatIdsPartOf, memberIdsPartOf, mergeIds, nestCandidatePartOf, nestParentPartOf,openOwnPartOf,retainedSeatIdsPartOf, rosterIdsPartOf, type Standing, spinOffIdsPartOf, standingOf, unreadPartOf } from './visible'
+  exceptionSeatIdsPartOf, laneRetainedSeatIdsPartOf, memberIdsPartOf, mergeIds, nestCandidatePartOf, nestParentPartOf,openOwnPartOf,retainedSeatIdsPartOf, rosterIdsPartOf, type Standing, spinOffIdsPartOf, standingOf, unreadPartOf } from './visible'
 
 // Identity-only ports and helpers are allocated on demand by companion().
 // Their owner is the view's row companion; their answers remain @lazy fields.
@@ -96,6 +96,10 @@ export class WorklistIssueBefore implements HeldIssue, RowView {
 
   private get laneRetainedSeatIds(): readonly string[] {
     return laneRetained(this).get()
+  }
+
+  get exceptionSeatIds(): readonly string[] {
+    return exceptionSeatIdsPartOf(this.host.visibleInputs, this.seatIds)
   }
 
   get retainedSeatIds(): readonly string[] {
@@ -215,6 +219,7 @@ export class WorklistIssueBefore implements HeldIssue, RowView {
       get state() { return row.issue.ownFacts.state },
       get finished() { return row.issue.ownFacts.finished },
       get decision() { return row.issue.ownFacts.decision },
+      get requests() { return row.issue.ownFacts.requests },
       get continuedByField() { return row.issue.ownFacts.continuedByField },
       get updatedAt() { return row.issue.ownFacts.updatedAt },
       get closedAt() { return row.issue.ownFacts.closedAt },
@@ -759,6 +764,7 @@ export class WorklistIssueBefore implements HeldIssue, RowView {
       get waitingFinished() { return model.ownAttentionSidebarFactsWaitingFinished },
       get workingDelegated() { return model.readOwnAttention().sidebarFacts!.workingDelegated },
       get waitingDelegated() { return model.readOwnAttention().sidebarFacts!.waitingDelegated },
+      get errorClassDelegated() { return model.readOwnAttention().sidebarFacts!.errorClassDelegated },
       get doneSince() { return model.ownAttentionSidebarFactsDoneSince },
       get totalMs() { return model.ownAttentionSidebarFactsTotalMs },
       get errorClass() { return model.ownAttentionSidebarFactsErrorClass },
@@ -1064,7 +1070,7 @@ export class WorklistIssueBefore implements HeldIssue, RowView {
       get ownFacts() { return row.ownFacts }, get formalParent() { return row.formalParent },
       get updatedMs() { return row.issue.updatedMs },
       get openOwn() { return row.openOwn }, get present() { return row.present },
-      get seatIds() { return row.seatIds }, get retainedSeatIds() { return row.retainedSeatIds },
+      get seatIds() { return row.seatIds }, get exceptionSeatIds() { return row.exceptionSeatIds },
       get rosterIds() { return row.rosterIds }, get finished() { return row.finished },
       get tip() { return row.tip }, get ownAttention() { return row.ownAttention },
       get aggregate() { return row.rowAggregate }, get unitOwn() { return row.unitOwn },

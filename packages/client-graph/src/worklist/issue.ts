@@ -18,7 +18,7 @@ import { sidebarBelowOf, sidebarNestedOf } from './sidebar'
 import { mobileWaitingCount, type MobileRowValues } from './mobile-row'
 import { childIdsPartOf, type HeldIssue, type HiddenIssue, hiddenPresenceOf, keptBelowPartOf,
   laneMemberIdsPartOf, memberIdsPartOf, nestCandidatePartOf, nestParentPartOf,
-  flatPartOf, keepsPartOf, retainedSeatIdsPartOf, rosterIdsPartOf, openOwnPartOf, nestBelowPartOf, nestedPartOf,
+  exceptionSeatIdsPartOf, flatPartOf, keepsPartOf, retainedSeatIdsPartOf, rosterIdsPartOf, openOwnPartOf, nestBelowPartOf, nestedPartOf,
   laneRetainedSeatIdsPartOf, mergeIds, standingOf, type Standing, spinOffIdsPartOf } from './visible'
 import type { IssueModel, ModelHost } from '../models'
 import type { Worklist } from './view-model'
@@ -105,6 +105,12 @@ export class WorklistIssue implements HeldIssue, RowView {
     if (this.standing === undefined) return []
     return summary === undefined ? rosterIdsPartOf(this.host.visibleInputs, this.retainedSeatIds)
       : mergeIds(summary.roster, rosterIdsPartOf(this.host.visibleInputs, this.laneRetainedSeatIds))
+  }
+
+  /** R2's seats whose crash still stands, by lifecycle rather than retention (POD-2171). */
+  @lazy({ equals: compareShallow }) get exceptionSeatIds(): readonly string[] {
+    const summary = this.explicitSeats
+    return summary === undefined ? exceptionSeatIdsPartOf(this.host.visibleInputs, this.seatIds) : summary.exceptions
   }
 
   @lazy
@@ -211,6 +217,7 @@ export class WorklistIssue implements HeldIssue, RowView {
       get state() { return row.issue.ownFacts.state },
       get finished() { return row.issue.ownFacts.finished },
       get decision() { return row.issue.ownFacts.decision },
+      get requests() { return row.issue.ownFacts.requests },
       get continuedByField() { return row.issue.ownFacts.continuedByField },
       get updatedAt() { return row.issue.ownFacts.updatedAt },
       get closedAt() { return row.issue.ownFacts.closedAt },
@@ -654,6 +661,7 @@ export class WorklistIssue implements HeldIssue, RowView {
       get waitingFinished() { return model.waitingFinishedTimer },
       get workingDelegated() { return model.workingDelegatedTimer },
       get waitingDelegated() { return model.waitingDelegatedTimer },
+      get errorClassDelegated() { return model.sessionErrorClassDelegated },
       get doneSince() { return model.sessionsDoneSince },
       get totalMs() { return model.sessionsWorkingMs },
       get errorClass() { return model.sessionErrorClass },
@@ -704,6 +712,11 @@ export class WorklistIssue implements HeldIssue, RowView {
   @lazy
   get sessionsWorkingMs(): SidebarSessionFacts['totalMs'] {
     return this.readOwnAttention().sidebarFacts!.totalMs
+  }
+
+  @lazy
+  get sessionErrorClassDelegated(): SidebarSessionFacts['errorClassDelegated'] {
+    return this.readOwnAttention().sidebarFacts!.errorClassDelegated
   }
 
   @lazy
@@ -993,7 +1006,7 @@ export class WorklistIssue implements HeldIssue, RowView {
       get ownFacts() { return row.ownFacts }, get formalParent() { return row.formalParent },
       get updatedMs() { return row.issue.updatedMs },
       get openOwn() { return row.openOwn }, get present() { return row.present },
-      get seatIds() { return row.seatIds }, get retainedSeatIds() { return row.retainedSeatIds },
+      get seatIds() { return row.seatIds }, get exceptionSeatIds() { return row.exceptionSeatIds },
       get rosterIds() { return row.rosterIds }, get finished() { return row.finished },
       get tip() { return row.tip }, get ownAttention() { return row.ownAttention },
       get aggregate() { return row.visibleAttention }, get unitOwn() { return row.unitOwn },

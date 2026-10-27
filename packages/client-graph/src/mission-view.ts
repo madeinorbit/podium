@@ -15,7 +15,6 @@ import {
   type IssueNote,
   issueAbandoned,
   issueNeedsHuman,
-  sessionNeedsHuman,
   issueOwnContentUnread,
   type MissionDeparture,
   type MissionProgress,
@@ -25,7 +24,7 @@ import {
 } from '@podium/client-core/values'
 import { companion, lazy } from '@podium/mobx-helpers'
 import { compareShallow, compareStructural } from 'mobx'
-import { coordinatorLive, machinePathsEqual, type TaskWord, type TaskWords } from '@podium/model'
+import { coordinatorLive, machinePathsEqual, type SeatRole, type TaskWord, type TaskWords } from '@podium/model'
 import type { GitRepositoryWire, MachineWire } from '@podium/model/browser'
 import { asIssueId, type asSessionId, DRAFT_ISSUE_TITLE, HANDOFF_HARNESS_KINDS } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
@@ -173,12 +172,12 @@ const topology = ((deck: MissionDeckModel): DeckTopology | typeof LOADING => set
   return { scope, children, parent, parents, overlap, depths }
 }))
 
-type Count = 'tasks' | 'done' | 'run' | 'live' | 'working' | 'needsYou' | 'waiting' | 'needsYouDelegated' | 'waitingDelegated'
-const COUNTS: readonly Count[] = ['tasks', 'done', 'run', 'live', 'working', 'needsYou', 'waiting', 'needsYouDelegated', 'waitingDelegated']
-/** POD-2171: what a row counts of a sub-row. Under a live coordinator a sub-row's
- * asks are the coordinator's, so only its delegated counts (exceptions) add up. */
+type Count = 'tasks' | 'done' | 'run' | 'live' | 'working' | 'needsYou' | 'waiting' | 'workingDelegated' | 'needsYouDelegated' | 'waitingDelegated'
+const COUNTS: readonly Count[] = ['tasks', 'done', 'run', 'live', 'working', 'needsYou', 'waiting', 'workingDelegated', 'needsYouDelegated', 'waitingDelegated']
+/** POD-2171: what a row counts of a sub-row. Under a live coordinator every
+ * session below is a delegate, so a sub-row adds its delegated counts. */
 const childCount = (row: MissionDeckIssueModel, name: Count): Count =>
-  row.coordinated && (name === 'needsYou' || name === 'waiting') ? `${name}Delegated` : name
+  row.coordinated && (name === 'working' || name === 'needsYou' || name === 'waiting') ? `${name}Delegated` : name
 const ownCount = (name: Count) => ((row: MissionDeckIssueModel) => {
   const facts = row.facts
   if (!facts.visible) return 0
@@ -190,13 +189,15 @@ const ownCount = (name: Count) => ((row: MissionDeckIssueModel) => {
   // Keep that additional computed lazy until a row actually draws its crew.
   const crew = requireLoaded(row.view.roster(row.id))
   if (name === 'live') return crew.filter(session => row.view.pool.sessionObject(session.sessionId).open).length
-  if (name === 'working') return crew.filter(session => { const model = row.view.pool.sessionObject(session.sessionId); return model.open && model.workingMotion }).length
+  if (name === 'working') return crew.filter(session => row.works(session.sessionId)).length
   if (name === 'waiting') return crew.filter(session => row.asks(session)).length
-  // As a delegate to a coordinated ancestor: only exceptions, none of the row's own requests.
-  if (name === 'waitingDelegated') return crew.filter(session => row.asks(session, true)).length
-  if (name === 'needsYouDelegated') return Number(crew.some(session => row.asks(session, true)))
-  return Number(issueNeedsHuman(row.rulesIssue!, crew, undefined,
-    session => row.delegates(session.sessionId) ? row.asks(session, true) : !session.archived && sessionNeedsHuman(session)))
+  // As a delegate to a coordinated ancestor: its work and exceptions, none of the row's own requests.
+  if (name === 'workingDelegated') return crew.filter(session => row.works(session.sessionId, 'delegate')).length
+  if (name === 'waitingDelegated') return crew.filter(session => row.asks(session, 'delegate')).length
+  if (name === 'needsYouDelegated') return Number(crew.some(session => row.asks(session, 'delegate')))
+  return Number(row.coordinated
+    ? issueNeedsHuman(row.rulesIssue!, crew, undefined, session => row.asks(session))
+    : issueNeedsHuman(row.rulesIssue!, crew))
 })
 const own = Object.fromEntries(COUNTS.map(name => [name, (row: MissionDeckIssueModel) => row.ownCount(name)])) as Record<Count, (row: MissionDeckIssueModel) => number>
 const deriveSum = Object.fromEntries(COUNTS.map(name => [name, ((row: MissionDeckIssueModel) => settled(() => {
@@ -253,7 +254,7 @@ const rowState = ((row: MissionDeckIssueModel): DeckIssueState => {
 const presentation = ((row: MissionDeckIssueModel): MissionRowPresentation => row.view.presentation(row.issue, row.sessions, row.state))
 const crewOf = ((row: MissionDeckIssueModel) => deckSessionOrder(row.facts,
   requireLoaded(row.view.roster(row.id))))
-const matchedWorking = ((row: MissionDeckIssueModel) => row.sessions.some(session => row.view.pool.sessionObject(session.sessionId).atWork))
+const matchedWorking = ((row: MissionDeckIssueModel) => row.sessions.some(session => row.works(session.sessionId, row.roleOf(session.sessionId), 'atWork')))
 const matchedNeedsYou = ((row: MissionDeckIssueModel) => own.needsYou(row) > 0)
 const collapsedCrew: (row: MissionDeckIssueModel) => SessionView[] = ((row: MissionDeckIssueModel): SessionView[] => {
   const seen = new Set<string>(), candidates: SessionView[] = []
@@ -343,6 +344,8 @@ export class MissionDeckIssueModel implements FlightDeckRow {
   @lazy private get ownNeedsYouDelegated() { return ownCount('needsYouDelegated')(this) }
   @lazy private get totalNeedsYouDelegated(): number | typeof LOADING { return deriveSum.needsYouDelegated(this) }
   @lazy private get ownWaitingDelegated() { return ownCount('waitingDelegated')(this) }
+  @lazy private get ownWorkingDelegated() { return ownCount('workingDelegated')(this) }
+  @lazy private get totalWorkingDelegated(): number | typeof LOADING { return deriveSum.workingDelegated(this) }
   @lazy private get totalWaitingDelegated(): number | typeof LOADING { return deriveSum.waitingDelegated(this) }
   ownCount(name: Count): number {
     switch (name) {
@@ -355,6 +358,7 @@ export class MissionDeckIssueModel implements FlightDeckRow {
       case 'waiting': return this.ownWaiting
       case 'needsYouDelegated': return this.ownNeedsYouDelegated
       case 'waitingDelegated': return this.ownWaitingDelegated
+      case 'workingDelegated': return this.ownWorkingDelegated
     }
   }
   totalCount(name: Count): number | typeof LOADING {
@@ -368,6 +372,7 @@ export class MissionDeckIssueModel implements FlightDeckRow {
       case 'waiting': return this.totalWaiting
       case 'needsYouDelegated': return this.totalNeedsYouDelegated
       case 'waitingDelegated': return this.totalWaitingDelegated
+      case 'workingDelegated': return this.totalWorkingDelegated
     }
   }
   @lazy({ equals: compareShallow }) get collapsedCrew(): SessionView[] { return collapsedCrew(this) }
@@ -429,14 +434,24 @@ export class MissionDeckIssueModel implements FlightDeckRow {
   get hasLead() { return this.entity.hasLead }
   /** POD-2171: the row's coordinator is live (it may sit on an ancestor). */
   @lazy get coordinated() { return this.view.coordinated(this.facts) }
-  /** The session is a delegate here: the row is coordinated and it is not the coordinator. */
-  delegates(sessionId: string) { return this.coordinated && sessionId !== this.facts.coordinatorSessionId }
-  /** The session wants the human on this row: its word, or as a delegate its delegate word (`seatAsks`). */
-  asks(session: Pick<SessionView, 'sessionId'>, asDelegate = this.delegates(session.sessionId)) {
-    const model = this.view.pool.sessionObject(session.sessionId)
-    return (asDelegate ? model.delegateAttention : model.attention) && !this.entity.finished
+  /** The session's role on this row, or null on an uncoordinated row. */
+  roleOf(sessionId: string): SeatRole | null {
+    return !this.coordinated ? null : sessionId === this.facts.coordinatorSessionId ? 'coordinator' : 'delegate'
   }
-  @lazy({ equals: compareShallow }) get workingSessionIds() { return this.crewIds.filter(id => this.view.pool.sessionObject(id).atWork) }
+  /** The session wants the human on this row: in its role, its `coordinatedSeat` verdict; else its word. */
+  asks(session: Pick<SessionView, 'sessionId'>, role = this.roleOf(session.sessionId)) {
+    const model = this.view.pool.sessionObject(session.sessionId)
+    if (role === null) return model.attention && !this.entity.finished
+    return (role === 'coordinator' ? model.coordinatorSeat : model.delegateSeat).asks
+  }
+  /** The session works on this row: in a role, its `coordinatedSeat` work (an offer never hides it);
+   * else the count's motion or the filter's `atWork`, as before. */
+  works(sessionId: string, role = this.roleOf(sessionId), legacy: 'motion' | 'atWork' = 'motion') {
+    const model = this.view.pool.sessionObject(sessionId)
+    if (role !== null) return model.open && (role === 'coordinator' ? model.coordinatorSeat : model.delegateSeat).working
+    return legacy === 'atWork' ? model.atWork : model.open && model.workingMotion
+  }
+  @lazy({ equals: compareShallow }) get workingSessionIds() { return this.crewIds.filter(id => this.works(id, this.roleOf(id), 'atWork')) }
   @lazy({ equals: compareShallow }) get askingSessionIds() { return this.matches('needs-you') ? this.crewIds.filter(id => this.asks(this.view.pool.sessionObject(id))) : [] }
   sessionIds(mode: FlightDeckMode): readonly string[] {
     const row = this.canonical
@@ -1038,7 +1053,7 @@ export class MissionViewReader {
   deckState(issue: IssueNavigationModel, sessions: readonly SessionView[], children: readonly TaskWords[] = []): DeckIssueState {
     return deckIssueState(issue, sessions, { children, unmetDependency: this.waiting(issue).length > 0,
       coordinated: this.coordinated(issue),
-      pendingInteractions: id => this.pool.sessionObject(id).openInteractions })
+      pendingInteractions: id => this.pool.sessionObject(id).openInteractions.count })
   }
   /** POD-2171: the issue's coordinator seat is held by a live session, which may sit on an ancestor. */
   coordinated(issue: Pick<IssueNavigationModel, 'coordinatorSessionId'>): boolean {

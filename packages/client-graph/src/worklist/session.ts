@@ -6,9 +6,9 @@ import type { SidebarOwner } from './sidebar-roster'
 import type { MobxPool } from '../pool'
 import { hostOf, type SessionModel } from '../models'
 import type { SliceSession } from '../shared/slice-types'
-import { coordinatorLive } from '@podium/model/browser'
-import { attentionGroup, delegatePhase, isOfferOnlyAttention, LOADING, type Loaded as LoadedRow, motionPhase, type SeatVerdict } from './rollup'
-import { type SidebarSessionFacts, type SidebarSessionOrder } from './sidebar-row'
+import { coordinatorLive, type SeatSessionFacts, sessionErrorFact } from '@podium/model/browser'
+import { attentionGroup, isOfferOnlyAttention, LOADING, type Loaded as LoadedRow, motionPhase, type RoleVerdict, roleVerdictOf, type SeatVerdict } from './rollup'
+import { roleWaiting, roleWorking, type SidebarSessionFacts, type SidebarSessionOrder } from './sidebar-row'
 import { parkedOnFinishedIssue, type Retention, retentionOf, retains, type SessionVisibility } from './visible'
 
 /** Retention and display contributions of a session in the worklist. */
@@ -78,6 +78,7 @@ export class WorklistSession implements SessionVisibility {
       get seat() { return model.retentionSeat },
       get shell() { return model.retentionShell },
       get exited() { return model.retentionExited },
+      get exception() { return model.retentionException },
       get finish() { return model.retentionFinish },
       get unread() { return model.retentionUnread },
       get readMs() { return model.retentionReadMs },
@@ -92,6 +93,11 @@ export class WorklistSession implements SessionVisibility {
   @lazy
   private get retentionArchived(): Retention['archived'] {
     return this.session.archived === true
+  }
+
+  @lazy
+  private get retentionException(): Retention['exception'] {
+    return this.retentionExited && sessionErrorFact(this.host.visibleInputs.sessionRow(this.id) as SeatSessionFacts)
   }
 
   @lazy
@@ -144,7 +150,7 @@ export class WorklistSession implements SessionVisibility {
     return {
       get open() { return model.verdictOpen },
       get finished() { return model.verdictFinished },
-      get delegate() { return model.verdictDelegate },
+      get roles() { return model.verdictRoles },
       get present() { return model.verdictPresent },
       get working() { return model.session.executing },
       get workingSinceMs() { return model.verdictWorkingSinceMs },
@@ -165,18 +171,23 @@ export class WorklistSession implements SessionVisibility {
     return motionPhase(this.verdictRow, true, () => this.session.executing)
   }
 
-  private get verdictDelegate(): SeatVerdict['delegate'] {
+  private get verdictRoles(): SeatVerdict['roles'] {
     const model = this
     return {
-      get phase() { return model.verdictDelegatePhase },
-      get working() { return model.session.computing },
-      get workingSinceMs() { return model.session.computingSinceMs },
+      get coordinator() { return model.verdictCoordinatorRole },
+      get delegate() { return model.verdictDelegateRole },
     }
   }
 
-  @lazy
-  private get verdictDelegatePhase(): SeatVerdict['delegate']['phase'] {
-    return delegatePhase(this.verdictRow, this.session.attentionFacts, () => this.session.computing)
+  /** The role verdicts (POD-2171): the shared `coordinatedSeat` derivation, in the sidebar's terms. */
+  @lazy({ equals: compareStructural })
+  private get verdictCoordinatorRole(): RoleVerdict {
+    return roleVerdictOf(this.session.coordinatorSeat, this.session.stateSinceMs)
+  }
+
+  @lazy({ equals: compareStructural })
+  private get verdictDelegateRole(): RoleVerdict {
+    return roleVerdictOf(this.session.delegateSeat, this.session.stateSinceMs)
   }
 
   @lazy
@@ -199,8 +210,9 @@ export class WorklistSession implements SessionVisibility {
       get working() { return model.verdictSidebarFactsWorking },
       get waitingOpen() { return model.verdictSidebarFactsWaitingOpen },
       get waitingFinished() { return model.verdictSidebarFactsWaitingFinished },
-      get workingDelegated() { return model.session.computingTimer },
+      get workingDelegated() { return model.verdictSidebarFactsWorkingDelegated },
       get waitingDelegated() { return model.verdictSidebarFactsWaitingDelegated },
+      get errorClassDelegated() { return model.verdictDelegateRole.errorClass ?? undefined },
       get doneSince() { return model.verdictSidebarFactsDoneSince },
       get totalMs() { return model.verdictSidebarFactsTotalMs },
       get errorClass() { return model.verdictSidebarFactsErrorClass },
@@ -220,8 +232,15 @@ export class WorklistSession implements SessionVisibility {
     return this.verdictFinished === 'waiting' ? this.session.waitingTimer : undefined
   }
 
+  /** The delegate role's timers, from its role verdict (`roleWorking` / `roleWaiting`). */
+  @lazy({ equals: compareStructural })
+  private get verdictSidebarFactsWorkingDelegated(): SidebarSessionFacts['workingDelegated'] {
+    return roleWorking(this.verdictDelegateRole, this.session.workingMsTotal)
+  }
+
+  @lazy({ equals: compareStructural })
   private get verdictSidebarFactsWaitingDelegated(): SidebarSessionFacts['waitingDelegated'] {
-    return this.verdictDelegatePhase === 'waiting' ? this.session.exceptionTimer : undefined
+    return roleWaiting(this.verdictDelegateRole)
   }
 
   private get verdictSidebarFactsDoneSince(): SidebarSessionFacts['doneSince'] { return this.session.doneSinceMs }

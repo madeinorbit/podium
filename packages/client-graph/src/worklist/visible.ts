@@ -89,6 +89,7 @@ import { isFinished, isExcluded } from '../shared/predicates'
  */
 
 import { compareStructural, createAtom, reaction, runInAction } from 'mobx'
+import { type SeatInteractions, type SeatSessionFacts, sessionErrorFact } from '@podium/model/browser'
 import { debugName } from '../debug-name'
 import { type RelationLinks, refs } from '../shared/links'
 import { compareRank, type RowRank } from '../shared/row-view'
@@ -155,8 +156,8 @@ export interface VisibleInputs {
   loadedIssue(id: string): Loaded<SliceIssue>
   /** A RESIDENT session row; `LOADING` when cold (queued). */
   loadedSession(id: string): Loaded<SliceSession>
-  /** Open pending interactions addressed to a session: one of its seat facts (`seatAttention`). */
-  openInteractions?(id: string): number
+  /** Open pending interactions addressed to a session: one of its seat facts (`coordinatedSeat`). */
+  openInteractions?(id: string): SeatInteractions
   /** The present rows whose `nestParent` is `id` (the live pool's derived `nested` group). */
   nested(id: string): Iterable<string>
   /** The known issues whose declared `issue.parent` is `id` (the relation engine's `children` bucket). */
@@ -363,6 +364,8 @@ export interface Retention {
   readonly seat: boolean
   readonly shell: boolean
   readonly exited: boolean
+  /** Exited on an error nobody asked for (`sessionErrorFact`: a crash, out-of-memory, a failed start). */
+  readonly exception: boolean
   /** `open`: never finished; `at`: finished at `ms`; `idleDone`: an idle finished turn. */
   readonly finish:
     | { readonly kind: 'open' }
@@ -391,6 +394,7 @@ export function retentionOf(session: SliceSession | undefined): Retention | null
     seat: session.archived !== true && session.agentKind !== 'shell',
     shell: session.agentKind === 'shell',
     exited: session.status === 'exited',
+    exception: session.status === 'exited' && sessionErrorFact(session as SeatSessionFacts),
     finish: finishedRaw
       ? { kind: 'at', ms: Date.parse(finishedRaw) || 0 }
       : idleDone
@@ -461,11 +465,13 @@ export interface SessionVisibility {
 
 /** A seat's verdict from the resident row (the roll-ups never read a cold session). */
 export function verdictPartOf(
-  input: Pick<VisibleInputs, 'loadedSession' | 'openInteractions'>,
+  input: Pick<VisibleInputs, 'loadedSession' | 'openInteractions' | 'issueRow'>,
   id: string,
 ): Loaded<SeatVerdict> {
   const row = input.loadedSession(id)
-  return row === undefined || typeof row === 'symbol' ? row : seatVerdictOf(row, input.openInteractions?.(id) ?? 0)
+  if (row === undefined || typeof row === 'symbol') return row
+  const task = row.issueId ? input.issueRow(row.issueId) : undefined
+  return seatVerdictOf(row, input.openInteractions?.(id), task === undefined || !isFinished(task))
 }
 
 /** A session's two links: `session.issue` and `session.worktree`. */
@@ -483,7 +489,7 @@ export function sessionLinksOf(input: Pick<VisibleInputs, 'links'>, id: string):
 
 /** A session's parts computed directly (the rebuild). */
 export function directSessionVisibility(
-  input: Pick<VisibleInputs, 'links' | 'sessionRow' | 'loadedSession' | 'openInteractions'>,
+  input: Pick<VisibleInputs, 'links' | 'sessionRow' | 'loadedSession' | 'openInteractions' | 'issueRow'>,
   id: string,
 ): SessionVisibility {
   const row = input.sessionRow(id)
@@ -510,6 +516,8 @@ export interface Members {
    * shell, not archived), retained at the clock and not exited.
    */
   readonly rosterIds: readonly string[]
+  /** R2's seats whose crash still stands (`exceptionSeatIdsPartOf`), in id order. */
+  readonly exceptionSeatIds: readonly string[]
   /** ≥1 retained member session (`rows.ts:70-76`). */
   readonly retained: boolean
   /** A retained member still on the live roster: a draft vessel's test. */
@@ -649,6 +657,20 @@ export function rosterIdsPartOf(
   return roster.length === retainedSeatIds.length ? retainedSeatIds : roster
 }
 
+/**
+ * R2's seats that crashed and are not archived (POD-2171): an exception that
+ * stands for the task's and the session's lifecycle, not the display window,
+ * so they are found among all explicit seats, not the retained ones.
+ */
+export function exceptionSeatIdsPartOf(input: VisibleInputs, seatIds: readonly string[]): readonly string[] {
+  const ids = seatIds.filter((sessionId) => {
+    const retention = input.session(sessionId).retention
+    return retention !== null && retention.seat && retention.exception
+  })
+  return ids.length === 0 ? NO_EXCEPTIONS : ids
+}
+const NO_EXCEPTIONS: readonly string[] = Object.freeze([])
+
 /** Who the members are: R2's seats and R3's lane, without judging any of them. */
 export type MemberSeats = Pick<Members, 'seatIds' | 'laneMemberIds' | 'memberIds'>
 
@@ -719,7 +741,9 @@ export function memberVerdictsOf(
   let retainedSeatIds: readonly string[]
   let rosterIds: readonly string[]
   let openOwn: boolean
+  let exceptionSeatIds: readonly string[]
   if (summary === undefined) {
+    exceptionSeatIds = exceptionSeatIdsPartOf(input, seats.seatIds)
     retainedSeatIds = retainedSeatIdsPartOf(input, id, standing, seats.memberIds)
     rosterIds = rosterIdsPartOf(input, retainedSeatIds)
     openOwn = openOwnPartOf(input, id, seats.seatIds, standing)
@@ -731,10 +755,12 @@ export function memberVerdictsOf(
     rosterIds =
       standing === undefined ? [] : mergeIds(summary.roster, rosterIdsPartOf(input, laneRetained))
     openOwn = summary.present > 0 || standing?.headlessStaffed === true
+    exceptionSeatIds = summary.exceptions
   }
   return {
     retainedSeatIds,
     rosterIds,
+    exceptionSeatIds,
     retained: standing !== undefined && !standing.excluded && retainedSeatIds.length > 0,
     liveRoster: rosterIds.length > 0,
     openOwn,
@@ -1226,6 +1252,9 @@ export function directVisibility(
     },
     get rosterIds() {
       return once('rosterIds', () => rosterIdsPartOf(input, parts.retainedSeatIds))
+    },
+    get exceptionSeatIds() {
+      return once('exceptionSeatIds', () => exceptionSeatIdsPartOf(input, parts.seatIds))
     },
     get retained() {
       const standing = parts.standing

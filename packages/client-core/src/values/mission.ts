@@ -1927,13 +1927,13 @@ export function deckIssueState(
   }
   const words = taskWords(facts, {
     seats: sessions.map((session) =>
+      // The plain word reads as it always did on the client; the role words
+      // count open interactions, as every coordinated surface does.
       seatWords(
         session,
-        {
-          issueClosed: closed,
-          pendingInteractions: context.pendingInteractions?.(session.sessionId) ?? 0,
-        },
+        { issueClosed: closed },
         session.sessionId === issue.coordinatorSessionId,
+        context.pendingInteractions?.(session.sessionId) ?? 0,
       ),
     ),
     children: context.children,

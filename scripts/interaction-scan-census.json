@@ -22751,48 +22751,48 @@
       "file": "packages/client-core/src/values/mission.ts",
       "holder": "deckIssueState/words/seats",
       "rule": "consume:map",
-      "tokens": "559838f994f19c07b9df6271da9aec4ce1fdcca0c01ff5c256bce5c2e435ec59",
-      "gate": [],
-      "origin": [
-        "74cd43ede098ec816655ec529f3abf66297eca955ba6d5959dc53555c8316419"
-      ],
-      "fingerprint": "0692338d0effed72dd6a1aa4643a46241956b494171770008876e2a7615a40c4",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of deckIssueState/words/seats",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-6170: a0edf2d53a (POD-6110) puts deckIssueState on the shared task word, so its several crew filters/finds become one sessionWord map over the same sessions input. Still REQUIRED REPAIR. POD-2171: the map now builds each session's seat words (own and delegate) for the coordinated task word over the same sessions input.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-core/src/values/mission.ts",
-      "holder": "deckIssueState/words/seats",
-      "rule": "consume:map",
-      "tokens": "559838f994f19c07b9df6271da9aec4ce1fdcca0c01ff5c256bce5c2e435ec59",
-      "gate": [],
-      "origin": [
-        "4875f8db62230cfd898fba7bd2a9e9058318c4e859aa7988853a2e5904e99ecd"
-      ],
-      "fingerprint": "22634a7a214faba060a69bb4db022cb2eb4e05291e9b779791f0873e51b29b22",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of deckIssueState/words/seats",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-6170: a0edf2d53a (POD-6110) puts deckIssueState on the shared task word, so its several crew filters/finds become one sessionWord map over the same sessions input. Still REQUIRED REPAIR. POD-2171: the map now builds each session's seat words (own and delegate) for the coordinated task word over the same sessions input.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-core/src/values/mission.ts",
-      "holder": "deckIssueState/words/seats",
-      "rule": "consume:map",
-      "tokens": "559838f994f19c07b9df6271da9aec4ce1fdcca0c01ff5c256bce5c2e435ec59",
+      "tokens": "0c0ab6e30dce21eb0f754c0e322183fde9adbbe78d137bf71dc25f6494d51041",
       "gate": [],
       "origin": [
         "db0f8f72a8af930008135b63c2df22b8ec6b6150ae0270a662a8d04dfedec0df"
       ],
-      "fingerprint": "2369bb752a94a3bfc59f2bf169995d602bfb294187c6487bc96e7e4c8ca6d144",
+      "fingerprint": "26a8bb080aa3cc6169cf81ba2d5cdf5b27ad4a6bc84c88a7f673342f8c523c7b",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of deckIssueState/words/seats",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-6170: a0edf2d53a (POD-6110) puts deckIssueState on the shared task word, so its several crew filters/finds become one sessionWord map over the same sessions input. Still REQUIRED REPAIR. POD-2171: the map now builds each session's seat words (own and delegate) for the coordinated task word over the same sessions input.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "packages/client-core/src/values/mission.ts",
+      "holder": "deckIssueState/words/seats",
+      "rule": "consume:map",
+      "tokens": "0c0ab6e30dce21eb0f754c0e322183fde9adbbe78d137bf71dc25f6494d51041",
+      "gate": [],
+      "origin": [
+        "4875f8db62230cfd898fba7bd2a9e9058318c4e859aa7988853a2e5904e99ecd"
+      ],
+      "fingerprint": "2953a20e30e77d047b98a39d89a8de64ef6d0850aba4562fff24fdffb2ab5156",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of deckIssueState/words/seats",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-6170: a0edf2d53a (POD-6110) puts deckIssueState on the shared task word, so its several crew filters/finds become one sessionWord map over the same sessions input. Still REQUIRED REPAIR. POD-2171: the map now builds each session's seat words (own and delegate) for the coordinated task word over the same sessions input.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "packages/client-core/src/values/mission.ts",
+      "holder": "deckIssueState/words/seats",
+      "rule": "consume:map",
+      "tokens": "0c0ab6e30dce21eb0f754c0e322183fde9adbbe78d137bf71dc25f6494d51041",
+      "gate": [],
+      "origin": [
+        "74cd43ede098ec816655ec529f3abf66297eca955ba6d5959dc53555c8316419"
+      ],
+      "fingerprint": "513c8fd8d7d05b35917b732aa47d23aee5514adad45cba643c8b1aa2db3b8541",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -22805,14 +22805,14 @@
       "file": "packages/client-core/src/values/mission.ts",
       "holder": "missionDepartures/state",
       "rule": "reader-summary",
-      "tokens": "5b0bdaa4f465b943d70ef5976a4b0c656b02546a000909754757e1d07ebfc6f2",
+      "tokens": "1654d71dfa3e04512118df5b2b310931f7c701c7535e11dd7a7ddacae2bdf4e9",
       "gate": [
         "exit:then:f0a635fb2fab4a48857c14d2bf67cacd54205a89ff726e77888e576b77f8a178"
       ],
       "origin": [
         "74cd43ede098ec816655ec529f3abf66297eca955ba6d5959dc53555c8316419"
       ],
-      "fingerprint": "fc39a26cd80d8b96ea958e69279a5e4088b4348b61039728b6c2b60b4f007b19",
+      "fingerprint": "62df56c1ed7f35a0e3f4ecae922608e2e996eda317b56a051b471499ba83a39d",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -23661,14 +23661,14 @@
       "file": "packages/client-core/src/values/mission.ts",
       "holder": "missionDepartures",
       "rule": "loop:for-of",
-      "tokens": "e217c22c33a5f7863365363f7881f3982460e9bbec2d46e5a4db6869debae651",
+      "tokens": "753f28f8d96cc45e28d6dc464ee98485e6866507b8f3608acd6de617d7bf9e45",
       "gate": [
         "exit:then:f0a635fb2fab4a48857c14d2bf67cacd54205a89ff726e77888e576b77f8a178"
       ],
       "origin": [
         "2ef3389b28e6b82e98f0b3689d29923041d825231eb906f5ba1c44f62560f372"
       ],
-      "fingerprint": "88daf9b6c84acf13d0f298234f6cbc4a8bc15ce3a81eb53f725ca48b3809dd3c",
+      "fingerprint": "a03c6bdf4a3cc100fe15ee6710f53755a672829c652b53922bcf070db6494dcc",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -23782,14 +23782,14 @@
       "file": "packages/client-core/src/values/mission.ts",
       "holder": "missionDepartures/state",
       "rule": "helper-consumer",
-      "tokens": "97c2ad241494eeefa44d1db6320cdbdab446f0e29988e3d4f3b83f54b3e66fd4",
+      "tokens": "561bd18d4b77e697c38e13b649bf7426b67d64559d4f25acb0713eaca260f7f9",
       "gate": [
         "exit:then:f0a635fb2fab4a48857c14d2bf67cacd54205a89ff726e77888e576b77f8a178"
       ],
       "origin": [
         "74cd43ede098ec816655ec529f3abf66297eca955ba6d5959dc53555c8316419"
       ],
-      "fingerprint": "4f4e66d661748326237b1573b7bd2f5fe9c6a296955db7c53291ec96c0ddf31d",
+      "fingerprint": "29004fdd7aeb53c7a06a5f427dfc75bbeadf5b50b9ef80e2d02c64ce86b0c609",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -32153,12 +32153,12 @@
       "file": "packages/client-graph/src/mission-view.ts",
       "holder": "MissionViewReader/deckState",
       "rule": "helper-consumer",
-      "tokens": "4c3da08671fae7b4b60184b3d73a4b30d8b5fde5ff51238398b124d1c57f31a6",
+      "tokens": "06e46099166cb1bbdb8e5eecd3a2e74f57d9678542275a4a1ed576d74f4833ce",
       "gate": [],
       "origin": [
         "4875f8db62230cfd898fba7bd2a9e9058318c4e859aa7988853a2e5904e99ecd"
       ],
-      "fingerprint": "8f3fb37d04722f94c20a72c5d46641fe5769b282c5639878e3156c41b9fe8ae0",
+      "fingerprint": "0aa36e306e5ee6c6df3aef71156965add72893e2901d6b8e2e5402b5d2600184",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5575",
@@ -32171,12 +32171,12 @@
       "file": "packages/client-graph/src/mission-view.ts",
       "holder": "MissionViewReader/deckState",
       "rule": "reader-summary",
-      "tokens": "ac80437ac2679a993cab8ce0f8f6d08050d99b493152ad616f4a099a60223144",
+      "tokens": "7b813642a17390f8a7e210c70a5117aeb7a5eaf105a5b9a76d3e3b808432f3dc",
       "gate": [],
       "origin": [
         "4875f8db62230cfd898fba7bd2a9e9058318c4e859aa7988853a2e5904e99ecd"
       ],
-      "fingerprint": "8c407bb308e8f4c9862ada8e0a151e1e1ba4b1067e8f570ae7a71c8b079b0f8d",
+      "fingerprint": "909fd89158be1855da62be3972017746b4829d7228eaed08876c4c2d044f263d",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5575",
@@ -32264,12 +32264,12 @@
       "file": "packages/client-graph/src/mission-view.ts",
       "holder": "matchedWorking/callback",
       "rule": "consume:some",
-      "tokens": "d8dce1d1dd8a3bd19e70f950ce913d58a81f179269a2164a23a1bfb34052b6a5",
+      "tokens": "76ac8b3d7050274ad361e015cad33addfcb20b0572fc4f3f77eefe753d377c91",
       "gate": [],
       "origin": [
         "37b90b4183cd5524ccf2dbe41eb01b7cc5b8981450620e64bab1e5131586f1bb"
       ],
-      "fingerprint": "c66280b2b3e0d8bb72562e5e20f2d3c55a634cd83aee7c30d6161687e983f598",
+      "fingerprint": "545b9b8a9feb55ba2402f91601e41853fb8596ec3b1059fc68e4211e06503878",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-5575",
@@ -34874,12 +34874,12 @@
       "file": "packages/client-graph/src/worklist/mobile-row.ts",
       "holder": "mobileWorktreeValues/phases",
       "rule": "consume:map",
-      "tokens": "3fc1d2fb26624b76caf1e9bd564f4b620a2615b856744efcff8424cc816b2370",
+      "tokens": "9894472ec83ed0edd3384ee3ec36362955173122b58e48ebf838b8a92b8f000d",
       "gate": [],
       "origin": [
         "d2560fd271b158ede7478b92976ec48c6a20b2e8ba1eed3af0f9b916b4ace983"
       ],
-      "fingerprint": "841c636fe62ffd53d92017fd571b1608518a1275ba469f1e73ec62571f52a1a8",
+      "fingerprint": "9c54d1dee2509a89b32a37752f5de8d42ee44ae7010566c8383b982e3260b311",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -34892,12 +34892,12 @@
       "file": "packages/client-graph/src/worklist/mobile-row.ts",
       "holder": "mobileWorktreeValues/timing",
       "rule": "helper-consumer",
-      "tokens": "043ea0ecd8878132eee8a0f781eadac46d568acb6fcc9840e6fb8cc469556728",
+      "tokens": "858bc8604b0a3c2a5acd19aaf1d59556e88bef6bca53371513ce41f2b5e88469",
       "gate": [],
       "origin": [
         "d2560fd271b158ede7478b92976ec48c6a20b2e8ba1eed3af0f9b916b4ace983"
       ],
-      "fingerprint": "8b38625f8d77f666eccb22ef9a3c4154a1cc39ea40d6674ea81462f6a4c40454",
+      "fingerprint": "2ecb72be0588a9daf41b010b9ed8a580809c60af47a55ded5dea0cdd3e7bc309",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -34948,12 +34948,12 @@
       "file": "packages/client-graph/src/worklist/mobile-row.ts",
       "holder": "mobileWorktreeValues/working",
       "rule": "consume:some",
-      "tokens": "42842a0ff63c0637ab6a77008e652dd0d7aef2ee5eeb6fa32d02b615b88d7456",
+      "tokens": "4ce0b02d699071c5ea72f02dfe4ee41936c8b9f68f935d1a8a254b9b724f59a0",
       "gate": [],
       "origin": [
         "d2560fd271b158ede7478b92976ec48c6a20b2e8ba1eed3af0f9b916b4ace983"
       ],
-      "fingerprint": "b23fc70174132b5f37d2fc80f658b12b23fd39cfbbf69bd3b9acfeb5d52cc410",
+      "fingerprint": "87881e35e750b651046da9f5ba6705c9b94bdd2b1c6d96ad77a84a25df239902",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -35224,14 +35224,14 @@
       "file": "packages/client-graph/src/worklist/sidebar-row.ts",
       "holder": "sidebarTiming/anchor",
       "rule": "consume:filter",
-      "tokens": "9f5d05074909905d0afb3852c633895603259ff10a41a6307857f75b2d88f3e3",
+      "tokens": "a6f890e3c6d1c8d456edd99b95659889d2782d3b4dc43aeb7a7635330a1a6b1f",
       "gate": [
-        "then:865859f3fedd2bd3b8f15b381f1e45848d2e34cd1eaf270fea554a9afcb24e85"
+        "then:8dd81954dd0f68f011973c9b476cbc0fcc9efc6e151616b43fac1700df0f5cb7"
       ],
       "origin": [
-        "0caf24496b54e4d9defea3d6f17cd3859c0e5d2cf69dd8325376860f29b0f854"
+        "d2560fd271b158ede7478b92976ec48c6a20b2e8ba1eed3af0f9b916b4ace983"
       ],
-      "fingerprint": "6a9c3735d5ee0b5427dc496f934a51bdbfc5e46e9bcb54889af5c60aefc33783",
+      "fingerprint": "1e03a38df855b198142972aca65ccb9c302dc8400e5ec3864791898f73a25a1e",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -35244,14 +35244,14 @@
       "file": "packages/client-graph/src/worklist/sidebar-row.ts",
       "holder": "sidebarTiming/anchor",
       "rule": "consume:filter",
-      "tokens": "efc2c756e9093c4c4a06e8f46082e6be66977bb5e8e6dd8aa7c8bd273ac6a7c7",
+      "tokens": "3b7ae6178519fbf0174b5600b3f2184352fbf5b4a7e31a7e1c4f5b5be98b8d23",
       "gate": [
-        "then:8dd81954dd0f68f011973c9b476cbc0fcc9efc6e151616b43fac1700df0f5cb7"
+        "then:865859f3fedd2bd3b8f15b381f1e45848d2e34cd1eaf270fea554a9afcb24e85"
       ],
       "origin": [
-        "d2560fd271b158ede7478b92976ec48c6a20b2e8ba1eed3af0f9b916b4ace983"
+        "0caf24496b54e4d9defea3d6f17cd3859c0e5d2cf69dd8325376860f29b0f854"
       ],
-      "fingerprint": "76a065b6318166ce946e2b7a9c762bfa1ee8af1f2eb2386d47e984824d590e3b",
+      "fingerprint": "979735eb33ff59100376d59ad089925129358c529085a563adf2188dadd66e17",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -35264,14 +35264,14 @@
       "file": "packages/client-graph/src/worklist/sidebar-row.ts",
       "holder": "sidebarTiming/anchor",
       "rule": "consume:filter",
-      "tokens": "9f5d05074909905d0afb3852c633895603259ff10a41a6307857f75b2d88f3e3",
+      "tokens": "a6f890e3c6d1c8d456edd99b95659889d2782d3b4dc43aeb7a7635330a1a6b1f",
       "gate": [
-        "then:865859f3fedd2bd3b8f15b381f1e45848d2e34cd1eaf270fea554a9afcb24e85"
+        "then:8dd81954dd0f68f011973c9b476cbc0fcc9efc6e151616b43fac1700df0f5cb7"
       ],
       "origin": [
-        "d2560fd271b158ede7478b92976ec48c6a20b2e8ba1eed3af0f9b916b4ace983"
+        "0caf24496b54e4d9defea3d6f17cd3859c0e5d2cf69dd8325376860f29b0f854"
       ],
-      "fingerprint": "797389a35f0c6a9719d6bec2b5cfe1feb86a8a4a7b2b9a2a61a215a376f52c96",
+      "fingerprint": "9b892f181ab6827030625c1e9aa381dc434957cc9a44ee55f84459199d4b4ecc",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -35284,14 +35284,14 @@
       "file": "packages/client-graph/src/worklist/sidebar-row.ts",
       "holder": "sidebarTiming/anchor",
       "rule": "consume:filter",
-      "tokens": "efc2c756e9093c4c4a06e8f46082e6be66977bb5e8e6dd8aa7c8bd273ac6a7c7",
+      "tokens": "3b7ae6178519fbf0174b5600b3f2184352fbf5b4a7e31a7e1c4f5b5be98b8d23",
       "gate": [
-        "then:8dd81954dd0f68f011973c9b476cbc0fcc9efc6e151616b43fac1700df0f5cb7"
+        "then:865859f3fedd2bd3b8f15b381f1e45848d2e34cd1eaf270fea554a9afcb24e85"
       ],
       "origin": [
-        "0caf24496b54e4d9defea3d6f17cd3859c0e5d2cf69dd8325376860f29b0f854"
+        "d2560fd271b158ede7478b92976ec48c6a20b2e8ba1eed3af0f9b916b4ace983"
       ],
-      "fingerprint": "ef19b40b6b845fbb78d5ab374f1b8411de6d70f0722058c9bf65e0e573449351",
+      "fingerprint": "f0dc8023d1fb3e38cb02555062013f2efe6440e8a3121253b9845e8f1c5235df",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -35304,54 +35304,54 @@
       "file": "packages/client-graph/src/worklist/sidebar-row.ts",
       "holder": "sidebarTiming/anchor",
       "rule": "helper-consumer",
-      "tokens": "6cedd16eb780cb4f613cfedcda1521fe625024cb74afe7d5b8fbe18bb032d489",
-      "gate": [
-        "then:865859f3fedd2bd3b8f15b381f1e45848d2e34cd1eaf270fea554a9afcb24e85"
-      ],
-      "origin": [
-        "0caf24496b54e4d9defea3d6f17cd3859c0e5d2cf69dd8325376860f29b0f854"
-      ],
-      "fingerprint": "2b337bb9fe05131a96dc0b9cad7a962522f097f474e7607337ce79ae9fe0333b",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. The ordered identity query retains the addressed worklist policy; its generic caller-bound classification is unchanged. Session execution, presence and timestamp predicates now borrow shared model facts; the same collection and demand bounds remain.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
-      "trigger": "Invocation of sidebarTiming/anchor"
-    },
-    {
-      "file": "packages/client-graph/src/worklist/sidebar-row.ts",
-      "holder": "sidebarTiming/anchor",
-      "rule": "helper-consumer",
-      "tokens": "afebec317ebac36e41a6a95500ce9d32b3dafb74d72043ba17467882d9e1c84c",
-      "gate": [
-        "then:8dd81954dd0f68f011973c9b476cbc0fcc9efc6e151616b43fac1700df0f5cb7"
-      ],
-      "origin": [
-        "0caf24496b54e4d9defea3d6f17cd3859c0e5d2cf69dd8325376860f29b0f854"
-      ],
-      "fingerprint": "42c6f69bba5a2f662a402fb43fd9f806dec2e330ac1969babe413b57cb8fa536",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. The ordered identity query retains the addressed worklist policy; its generic caller-bound classification is unchanged. Session execution, presence and timestamp predicates now borrow shared model facts; the same collection and demand bounds remain.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
-      "trigger": "Invocation of sidebarTiming/anchor"
-    },
-    {
-      "file": "packages/client-graph/src/worklist/sidebar-row.ts",
-      "holder": "sidebarTiming/anchor",
-      "rule": "helper-consumer",
-      "tokens": "6cedd16eb780cb4f613cfedcda1521fe625024cb74afe7d5b8fbe18bb032d489",
+      "tokens": "6dde2372ed6c6d64151e155e38bd5e66fc6e03aa668354a6434de415dad061e6",
       "gate": [
         "then:865859f3fedd2bd3b8f15b381f1e45848d2e34cd1eaf270fea554a9afcb24e85"
       ],
       "origin": [
         "d2560fd271b158ede7478b92976ec48c6a20b2e8ba1eed3af0f9b916b4ace983"
       ],
-      "fingerprint": "539f7382addf331bc4a455d5bc388d24f6dc85e0c5e855d52e9c00c9d4ab007c",
+      "fingerprint": "2e3fdd7db32ecf2cbdca54b6b536c29d57afcb168381e58952436ab5c68ca12b",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. The ordered identity query retains the addressed worklist policy; its generic caller-bound classification is unchanged. Session execution, presence and timestamp predicates now borrow shared model facts; the same collection and demand bounds remain.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
+      "trigger": "Invocation of sidebarTiming/anchor"
+    },
+    {
+      "file": "packages/client-graph/src/worklist/sidebar-row.ts",
+      "holder": "sidebarTiming/anchor",
+      "rule": "helper-consumer",
+      "tokens": "6dde2372ed6c6d64151e155e38bd5e66fc6e03aa668354a6434de415dad061e6",
+      "gate": [
+        "then:865859f3fedd2bd3b8f15b381f1e45848d2e34cd1eaf270fea554a9afcb24e85"
+      ],
+      "origin": [
+        "0caf24496b54e4d9defea3d6f17cd3859c0e5d2cf69dd8325376860f29b0f854"
+      ],
+      "fingerprint": "36940b019579db6c0c3e693609882520dfadb5755d99e6b65315ef3d884d3393",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. The ordered identity query retains the addressed worklist policy; its generic caller-bound classification is unchanged. Session execution, presence and timestamp predicates now borrow shared model facts; the same collection and demand bounds remain.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
+      "trigger": "Invocation of sidebarTiming/anchor"
+    },
+    {
+      "file": "packages/client-graph/src/worklist/sidebar-row.ts",
+      "holder": "sidebarTiming/anchor",
+      "rule": "helper-consumer",
+      "tokens": "084d3f57c789e828691271d42a221e471bba827b3dd786f6648340487ccb3961",
+      "gate": [
+        "then:8dd81954dd0f68f011973c9b476cbc0fcc9efc6e151616b43fac1700df0f5cb7"
+      ],
+      "origin": [
+        "0caf24496b54e4d9defea3d6f17cd3859c0e5d2cf69dd8325376860f29b0f854"
+      ],
+      "fingerprint": "e17b1fe0c212ea7920b1364281bc3b472a274d7da1240bd33af1da48609072b1",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -35364,14 +35364,14 @@
       "file": "packages/client-graph/src/worklist/sidebar-row.ts",
       "holder": "sidebarTiming/anchor",
       "rule": "helper-consumer",
-      "tokens": "afebec317ebac36e41a6a95500ce9d32b3dafb74d72043ba17467882d9e1c84c",
+      "tokens": "084d3f57c789e828691271d42a221e471bba827b3dd786f6648340487ccb3961",
       "gate": [
         "then:8dd81954dd0f68f011973c9b476cbc0fcc9efc6e151616b43fac1700df0f5cb7"
       ],
       "origin": [
         "d2560fd271b158ede7478b92976ec48c6a20b2e8ba1eed3af0f9b916b4ace983"
       ],
-      "fingerprint": "be30b023279c2da8d532a4e0457552b7afa96d93187b85fb11522edae3e2935f",
+      "fingerprint": "ee159ee12f7db80e406dbaef00e3cd665057126b51df4f11c7efd5f8d203929b",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -36094,12 +36094,12 @@
       "file": "packages/client-graph/src/worklist/visible.ts",
       "holder": "membersOf",
       "rule": "helper-consumer",
-      "tokens": "6ab19ce1a979188d5f6060f1bcacf2b87d1b16e17a26d8f6c76c74bf89e852b6",
+      "tokens": "96ca632c9d85e43ff4ad35b8f33f52180bb0547b80f64a94756c7e47af47100b",
       "gate": [],
       "origin": [
         "b1c1e766be82846a4577f895d43562efe11b24ab700b652244c4ef015a81bc5b"
       ],
-      "fingerprint": "d3d328d20d8742e3efff2b505a5ba09a3db73e8d78ac51ba76789d39ca6a3fed",
+      "fingerprint": "c1110d241f5f96335baee64ca1e835679f134a62649254c171384f932edde982",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -36382,12 +36382,12 @@
       "file": "packages/client-graph/src/worklist/worktree.ts",
       "holder": "WorklistWorktree/visibleFleet",
       "rule": "loop:for-of",
-      "tokens": "f4473e542294b69bca0b1c463f79c5a6ad4f90d1103a3e205b22f4e9d489951c",
+      "tokens": "6be5f5b54be0c2d9360b363382a98860b546ac5db412a3aae3a1f5ebeeda694d",
       "gate": [],
       "origin": [
         "5200ece19fb15a839604cc541151397febaf10beeb107dfa3ca1ab35a25b72f8"
       ],
-      "fingerprint": "4e1b540f2e1f209ce9f83762fe23c644942cb16bc8ea3da0872d131416b8d3f0",
+      "fingerprint": "e4ee0a4f1bac50653818fbc2515ba9ea8b4ff1e74c46831f1c5614fffee91cd8",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -36456,12 +36456,12 @@
       "file": "packages/client-graph/src/worklist/worktree.ts",
       "holder": "WorklistWorktree/waitingTimer",
       "rule": "loop:for-of",
-      "tokens": "111549cf530c7ec50554f912f8ecb20cbde55a2b90bc356dd2b0975d410eea8b",
+      "tokens": "4b1b420c3de126bf0aeddd8e8d8b791fdf23fde5674c7804fe8a1da87395c3aa",
       "gate": [],
       "origin": [
         "535b0273109fccfa823060ef57e91897e0a009a323158590ce7562be0071749d"
       ],
-      "fingerprint": "353dfc76e38a8cc439fcb7665044a58891d4974758c2401dcd9fc3f8457a59a6",
+      "fingerprint": "f36141c5b24cd30eaab4bba1e6192b9f7140adc8821276fffba83bdbdaa2c8be",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -36474,12 +36474,12 @@
       "file": "packages/client-graph/src/worklist/worktree.ts",
       "holder": "WorklistWorktree/workingMsTotal",
       "rule": "loop:for-of",
-      "tokens": "95304aa1de254fe4f59b62ab832822654d52af7eebc61a51159afa67cb941175",
+      "tokens": "0b0918fb23330fbc309a2fef84738b04b381fd418bcceb0d93f53eb939d41431",
       "gate": [],
       "origin": [
         "239b79787f92aa4d3e3db9dc491af5d90fe7847f2c210af2f52f06b55f744b69"
       ],
-      "fingerprint": "f4ed78617fa4b59070de9e08a70674aa38ef11fa9aae6cb18de45d1af28f5318",
+      "fingerprint": "953b0aae0c4a7c96c80091df117e0d823435fa516254f16c3970f726b9ae9203",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -36492,12 +36492,12 @@
       "file": "packages/client-graph/src/worklist/worktree.ts",
       "holder": "WorklistWorktree/workingTimer",
       "rule": "loop:for-of",
-      "tokens": "64d2403bfca50bc4b5da5bdc17ee43b91e122a1a9ee4fd12a2189a0dc1376366",
+      "tokens": "8e2574ed7fd06c601cd39eb7013543fd78a90f404649a530893a08686b64c3f2",
       "gate": [],
       "origin": [
         "ae00cc06e1cd2ddd2f951638788af3fc7994806166fba98433d3ffb23006ff78"
       ],
-      "fingerprint": "1a40e3692c0fb5192756d2456e6b823b2c59dc40038a3d639a237b29e277172f",
+      "fingerprint": "26f6af17170a13e6729977067d9bcecb20db594352f9aa43333e4b27eff1e297",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",

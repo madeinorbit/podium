@@ -2,8 +2,8 @@ import { autorun, runInAction } from 'mobx'
 import { describe, expect, it, vi } from 'vitest'
 import { MobxPool } from '../pool'
 import { requireHere } from '../lookup'
-import { delegatePhase, LOADING, motionPhase, seatVerdictOf } from './rollup'
-import { fleetOf, sidebarSessionFacts, sidebarTiming } from './sidebar-row'
+import { LOADING, motionPhase, roleVerdictOf, seatVerdictOf } from './rollup'
+import { fleetOf, roleWaiting, roleWorking, sidebarSessionFacts, sidebarTiming } from './sidebar-row'
 import { worklistView } from './view-model'
 import type { SliceSession } from '../shared/slice-types'
 
@@ -37,8 +37,10 @@ describe('shared session facts equal the old verdict on identical records', () =
       const actual = { fleet: model.fleet, working: model.workingTimer,
         waitingOpen: model.motion === 'waiting' ? model.waitingTimer : undefined,
         waitingFinished: motionPhase(row, true) === 'waiting' ? model.waitingTimer : undefined,
-        workingDelegated: model.computingTimer,
-        waitingDelegated: delegatePhase(row) === 'waiting' ? model.exceptionTimer : undefined,
+        // The delegate role's timers and error class (POD-2171), from the shared seat derivation.
+        workingDelegated: roleWorking(roleVerdictOf(model.delegateSeat, model.stateSinceMs), model.workingMsTotal),
+        waitingDelegated: roleWaiting(roleVerdictOf(model.delegateSeat, model.stateSinceMs)),
+        errorClassDelegated: model.delegateSeat.errorClass ?? undefined,
         doneSince: model.doneSinceMs, totalMs: model.workingMsTotal,
         errorClass: model.errorClass, allUnstarted: model.unstarted }
       // Undefined optional keys compare the same through toEqual.

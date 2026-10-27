@@ -133,6 +133,7 @@ import type { RepoRow, ViewInputs } from './views'
 import { worklistGroups } from './worklist/groups'
 import { LOADING, type Loaded, type RollupInputs } from './worklist/rollup'
 import type { NoticeRows } from './notice-schema'
+import { NO_INTERACTIONS, type SeatInteractions } from '@podium/model/browser'
 import { SeatVerdicts } from './worklist/seat-verdicts'
 import { worklistView } from './worklist/view-model'
 import { sidebarRosterView } from './worklist/sidebar-roster'
@@ -774,16 +775,20 @@ export class MobxPool {
     return this.queries.sessionStoredField(id, 'archived')
   }
 
-  /** Open (asked) pending interactions addressed to session `id`: one of its seat facts (`seatAttention`). */
-  sessionOpenInteractions(id: string): number {
+  /** Open (asked) pending interactions addressed to session `id`, and when the earliest was asked: a seat fact (`coordinatedSeat`). */
+  sessionOpenInteractions(id: string): SeatInteractions {
     const membership = omitGone(this.row('noticeSession', id) as Lookup<NoticeRows['noticeSession']>)
-    if (membership === undefined || membership === LOADING) return 0
-    let open = 0
+    if (membership === undefined || membership === LOADING) return NO_INTERACTIONS
+    let count = 0
+    let since: number | null = null
     for (const interaction of membership.interactions) {
       const row = omitGone(this.row('pendingInteraction', interaction))
-      if (row !== undefined && row !== LOADING && row.sessionId === id && row.status === 'asked') open++
+      if (row === undefined || row === LOADING || row.sessionId !== id || row.status !== 'asked') continue
+      count++
+      const at = Date.parse(row.askedAt)
+      if (Number.isFinite(at) && (since === null || at < since)) since = at
     }
-    return open
+    return count === 0 ? NO_INTERACTIONS : { count, since }
   }
 
   sessionSummaryField(property: string): boolean {

@@ -421,7 +421,8 @@ describe('the seat facts under a live coordinator (review round 1)', () => {
     }
     const pool = fixture(shape)
     Object.defineProperty(pool, 'sessionOpenInteractions', {
-      value: (id: string) => (id === 'busy' ? 1 : 0),
+      value: (id: string) =>
+        id === 'busy' ? { count: 1, since: null } : { count: 0, since: null },
     })
     try {
       expectRow(pool, 'epic', {
@@ -432,6 +433,169 @@ describe('the seat facts under a live coordinator (review round 1)', () => {
       })
     } finally {
       pool.dispose()
+    }
+  })
+})
+
+describe('one derivation per seat (review round 2)', () => {
+  const at = (iso: string) => Date.parse(iso)
+  // The child in review keeps a working agent, so it asks nothing of its own.
+  const quiet = {
+    coordinator: 'coord',
+    busy: idleDone,
+    reviewed: { agentState: { phase: 'working', since: stamp } },
+  }
+  const interactions = (pool: MobxPool, of: Record<string, { count: number; since: number }>) =>
+    Object.defineProperty(pool, 'sessionOpenInteractions', {
+      value: (id: string) => of[id] ?? { count: 0, since: null },
+    })
+  const timing = (pool: MobxPool, id: string) => {
+    let value: { phase: string; sinceMs: number } | undefined
+    const stop = autorun(() => {
+      value = worklistView(pool).row(pool.issueObject(id)).timing
+    })
+    stop()
+    return value
+  }
+
+  it('R2-1: the coordinator\u2019s open interaction asks, through the same facts', () => {
+    const pool = fixture(quiet)
+    interactions(pool, { coord: { count: 1, since: at('2026-10-26T11:00:00Z') } })
+    try {
+      expectRow(pool, 'epic', {
+        phase: 'waiting',
+        asking: true,
+        waitingCount: 1,
+        filingAsking: true,
+      })
+      expect(timing(pool, 'epic')).toMatchObject({
+        phase: 'waiting',
+        sinceMs: at('2026-10-26T11:00:00Z'),
+      })
+    } finally {
+      pool.dispose()
+    }
+  })
+
+  it('R2-3a: a crash outlives the display window while its task is open', () => {
+    const pool = fixture({
+      ...quiet,
+      busy: {
+        status: 'exited',
+        stopReason: 'oom',
+        exitCode: 137,
+        stoppedAt: '2026-10-19T00:00:00Z',
+        readAt: '2026-10-20T00:00:00Z',
+        unread: false,
+        ...idleDone,
+      },
+    })
+    try {
+      let retained: readonly string[] = []
+      const stop = autorun(() => {
+        retained = pool.worklistRow('building')!.retainedSeatIds
+      })
+      stop()
+      expect(retained).not.toContain('busy')
+      expectRow(pool, 'epic', {
+        phase: 'waiting',
+        asking: true,
+        waitingCount: 1,
+        errorClass: 'oom',
+      })
+    } finally {
+      pool.dispose()
+    }
+  })
+
+  it('R2-3b: a closed child\u2019s crash asks nothing of its coordinated parent', () => {
+    const pool = fixture({
+      ...quiet,
+      busy: { status: 'exited', stopReason: 'oom', exitCode: 137, stoppedAt: stamp, ...idleDone },
+      extra: [
+        {
+          kind: 'issue',
+          id: 'building',
+          value: issue('building', {
+            parentId: 'epic',
+            seq: 3,
+            stage: 'done',
+            closedAt: stamp,
+            closedReason: 'done',
+          }),
+        },
+      ],
+    })
+    try {
+      expectRow(pool, 'epic', { asking: false, waitingCount: 0 })
+    } finally {
+      pool.dispose()
+    }
+  })
+
+  it('R2-4: a pending interaction is timed from when it was asked', () => {
+    const pool = fixture({
+      ...quiet,
+      busy: {
+        agentState: { phase: 'idle', since: '2026-10-26T09:00:00Z', idle: { kind: 'done' } },
+      },
+    })
+    interactions(pool, { busy: { count: 1, since: at('2026-10-26T11:45:00Z') } })
+    try {
+      expect(timing(pool, 'epic')).toMatchObject({
+        phase: 'waiting',
+        sinceMs: at('2026-10-26T11:45:00Z'),
+      })
+    } finally {
+      pool.dispose()
+    }
+  })
+
+  it('R2-5: a crashed delegate carries its error phrase to the row', () => {
+    const pool = fixture({
+      ...quiet,
+      busy: { status: 'exited', stopReason: 'oom', exitCode: 137, stoppedAt: stamp, ...idleDone },
+    })
+    try {
+      expectRow(pool, 'epic', { asking: true, errorClass: 'oom' })
+    } finally {
+      pool.dispose()
+    }
+  })
+
+  it('R2-6: a coordinated issue\u2019s own needs-human flag or decision type asks', () => {
+    for (const own of [{ needsHuman: true }, { type: 'decision' }]) {
+      const pool = fixture({
+        ...quiet,
+        extra: [
+          {
+            kind: 'issue',
+            id: 'epic',
+            value: issue('epic', { coordinatorSessionId: 'coord', ...own }),
+          },
+        ],
+      })
+      try {
+        expectRow(pool, 'epic', {
+          phase: 'waiting',
+          asking: true,
+          waitingCount: 1,
+          filingAsking: true,
+        })
+      } finally {
+        pool.dispose()
+      }
+      // Uncoordinated rows keep their old sidebar reading of these flags.
+      const old = fixture({
+        ...quiet,
+        coordinator: undefined,
+        extra: [{ kind: 'issue', id: 'epic', value: issue('epic', own) }],
+      })
+      try {
+        expectRow(old, 'epic', { asking: false })
+      } finally {
+        old.dispose()
+      }
     }
   })
 })

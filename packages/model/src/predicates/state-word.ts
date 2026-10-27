@@ -18,7 +18,7 @@
 import type { IdleVerdict } from '../entities/session'
 import { issueAbandoned } from './active-work'
 import { isFinished } from './issue-lifecycle'
-import { seatAsks, seatAttention, sessionErrorFact } from './seat-attention'
+import { seatAsks, seatAttention, sessionErrorFact, sessionWorkingFact } from './seat-attention'
 
 // ---------------------------------------------------------------------------
 // Session
@@ -74,23 +74,6 @@ export function sessionAsksFact(
   context: SessionWordContext = {},
 ): boolean {
   return seatAsks(seatAttention(session, context.pendingInteractions), context.delegate)
-}
-
-/**
- * Working (D5): working, compacting, starting or reconnecting.
- *
- * A hibernated or exited process cannot be working, however stale its last
- * phase: a harness killed mid-turn freezes `working`. An agent with no phase
- * evidence (`unknown`, a shell) is working only while its PTY is busy.
- */
-export function sessionWorkingFact(session: SessionWordFacts): boolean {
-  const status = session.status
-  if (status === 'starting' || status === 'reconnecting') return true
-  if (status !== 'live') return false
-  const phase = session.agentState?.phase
-  if (phase === 'working' || phase === 'compacting') return true
-  if (phase == null || phase === 'unknown') return session.busy === true
-  return false
 }
 
 /**
@@ -234,24 +217,34 @@ export function taskWord(task: TaskWordFacts, parts: TaskWordParts = {}): TaskWo
 
 /** One session as a task's word reads it (POD-2171). */
 export interface SeatWords {
-  /** Its word as itself: what its own line shows. */
+  /** Its word on an uncoordinated task: what its own line shows. */
   readonly word: SessionWord
+  /** Its word as the coordinator of a coordinated task: every ask counts. */
+  readonly coordinator: SessionWord
   /** Its word as a delegate (`sessionWord` with `delegate`): only an exception asks. */
   readonly delegate: SessionWord
   /** It holds the task's coordinator seat. */
-  readonly coordinator?: boolean
+  readonly lead?: boolean
 }
 
-/** A session's {@link SeatWords}, from one context. */
+/**
+ * A session's {@link SeatWords}. The role words read `roleInteractions`, its
+ * open pending interactions (a seat fact on every coordinated surface); the
+ * plain word reads `context` as given, so a reader that never counted them on
+ * an uncoordinated task need not start.
+ */
 export function seatWords(
   session: SessionWordFacts,
   context: Omit<SessionWordContext, 'delegate'> = {},
-  coordinator = false,
+  lead = false,
+  roleInteractions = context.pendingInteractions,
 ): SeatWords {
+  const role = { ...context, pendingInteractions: roleInteractions }
   return {
     word: sessionWord(session, context),
-    delegate: sessionWord(session, { ...context, delegate: true }),
-    coordinator,
+    coordinator: sessionWord(session, role),
+    delegate: sessionWord(session, { ...role, delegate: true }),
+    lead,
   }
 }
 
@@ -288,7 +281,9 @@ export function taskWords(
   const coordinated = parts.coordinated === true
   return {
     word: taskWord(task, {
-      sessions: seats.map((seat) => (coordinated && !seat.coordinator ? seat.delegate : seat.word)),
+      sessions: seats.map((seat) =>
+        coordinated ? (seat.lead ? seat.coordinator : seat.delegate) : seat.word,
+      ),
       children: children.map((child) => (coordinated ? child.delegated : child.word)),
     }),
     delegated: taskWord(task, {

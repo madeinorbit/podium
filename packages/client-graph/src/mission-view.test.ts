@@ -381,3 +381,30 @@ it('a coordinated deck row counts a sub-task’s exception but not its own reque
     seats: [session('impl', 'child', { status: 'exited', archived: false, stopReason: 'oom', exitCode: 137 })] }
   expect(deckFacts(true, crashed)).toMatchObject({ word: 'error', waiting: 1, actionable: 1, collapsed: true })
 })
+
+it('R2-1/R2-2: a coordinated deck row counts the coordinator by the shared seat facts, and offered work as work', () => {
+  const facts = (seats: SessionView[], interactions: Record<string, number> = {}, coordinated = true) => {
+    const { reader, pool } = open([issue('root', coordinated ? { coordinatorSessionId: 'coord' } : {})], seats)
+    Object.defineProperty(pool, 'sessionOpenInteractions', {
+      value: (id: string) => (interactions[id] ? { count: interactions[id], since: now } : { count: 0, since: null }),
+    })
+    return tracked(() => {
+      const row = reader.deck('root').model('root')
+      return { word: row.word, actionable: row.actionableCount, waiting: row.waitingAgentCount,
+        matches: row.matchesNeedsYou, working: row.workingAgentCount, matchesWorking: row.matchesWorking,
+        workingIds: row.workingSessionIds }
+    })
+  }
+  // The coordinator idles with an open permission interaction: every surface asks.
+  expect(facts([session('coord', 'root', idleDone)], { coord: 1 })).toMatchObject({
+    word: 'needs-you', actionable: 1, waiting: 1, matches: true })
+  // The coordinator ended its turn with a question.
+  const question = { ...idleDone, agentState: { phase: 'idle', since: stamp, idle: { kind: 'question' } } }
+  expect(facts([session('coord', 'root', question)])).toMatchObject({ word: 'needs-you', actionable: 1, matches: true })
+  // A delegate works while holding an offer: Working everywhere, and no ask.
+  expect(facts([session('coord', 'root', idleDone), session('helper', 'root', { ...working, ...offered })])).toMatchObject({
+    word: 'working', actionable: 0, working: 1, matchesWorking: true, workingIds: ['helper'] })
+  // Uncoordinated rows read exactly as before: no interaction input, offers mask work.
+  expect(facts([session('coord', 'root', idleDone)], { coord: 1 }, false)).toMatchObject({ word: 'idle', actionable: 0, waiting: 0 })
+  expect(facts([session('helper', 'root', { ...working, ...offered })], {}, false)).toMatchObject({ working: 0, matchesWorking: false })
+})
