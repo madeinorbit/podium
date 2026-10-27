@@ -51,6 +51,25 @@ function replicatedUi(seed: Record<string, unknown> = {}): ReplicatedUiStatePort
 }
 
 describe('workspace ui-state routing', () => {
+  it('routes independent tip moments and the switch to account state only', () => {
+    const local = memoryUi()
+    const replicated = replicatedUi()
+    const ui = createRoutedUiState({ local, replicated })
+    for (const [key, value] of Object.entries({
+      'tips.seen.first-prompt': '2026-10-27T17:00:00.000Z',
+      'tips.seen.first-send': '2026-10-27T17:01:00.000Z',
+      [UI_STATE_KEYS.tipsEnabled]: 'false',
+    })) {
+      expect(uiStateRoute(key).home).toBe('per-user-replicated')
+      ui.set(key, value)
+      expect(ui.get(key)).toBe(value)
+      expect(replicated.data.get(key)).toBe(value)
+    }
+    expect(local.data.size).toBe(0)
+    expect(() => ui.get('tips.seen.')).toThrow(/Unclassified/)
+    expect(() => ui.get('tips.seen')).toThrow(/Unclassified/)
+  })
+
   it('is total over the closed key set and has both homes', () => {
     expect(Object.keys(UI_STATE_ROUTES).sort()).toEqual(Object.values(UI_STATE_KEYS).sort())
     expect(new Set(Object.values(UI_STATE_ROUTES).map((route) => route.home))).toEqual(

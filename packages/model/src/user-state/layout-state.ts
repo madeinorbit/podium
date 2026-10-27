@@ -59,6 +59,8 @@ import { perUserKeyOfString } from './session-state'
  * maps legacy ui-state keys onto these (see {@link LAYOUT_KEY_FROM_LEGACY}).
  */
 export const LAYOUT_EXACT_KEYS = [
+  /** First Flights preference, shared across this person's devices. */
+  'tips.enabled',
   /** Right-dock / panel tab selection (`chat` | `files` | …). */
   'dockTab',
   /** Superagent center column open/closed (legacy `podium.superOpen.v2`). */
@@ -103,6 +105,8 @@ export type LayoutExactKey = (typeof LAYOUT_EXACT_KEYS)[number]
  * device-local (see {@link DEVICE_LOCAL_UI_KEYS}).
  */
 export const LAYOUT_KEY_PREFIXES = [
+  /** One ISO timestamp per First Flights moment; concurrent moments never collide. */
+  'tips.seen',
   /** Collapsed / open state of named sidebar sections. */
   'sidebar.section',
 ] as const
@@ -131,6 +135,7 @@ export function isLayoutKey(key: string): boolean {
  * exception (POD-403) and stay mirrored raw.
  */
 export const LAYOUT_KEY_FROM_LEGACY: Readonly<Record<string, LayoutExactKey>> = {
+  'tips.enabled': 'tips.enabled',
   'podium.dockTab': 'dockTab',
   'podium.superOpen': 'superOpen',
   'podium.superOpen.v2': 'superOpen',
@@ -157,6 +162,8 @@ export const LAYOUT_KEY_FROM_LEGACY: Readonly<Record<string, LayoutExactKey>> = 
  * is not replicated layout state (device-local, theme, or unknown).
  */
 export function layoutKeyFromLegacy(legacyKey: string): string | null {
+  // New First Flights keys use their canonical spelling in the routed UI port.
+  if (legacyKey.startsWith('tips.seen.') && isLayoutKey(legacyKey)) return legacyKey
   const exact = LAYOUT_KEY_FROM_LEGACY[legacyKey]
   if (exact) return exact
   // panelMode storage keys: sole spelling lives in client-core ui-state

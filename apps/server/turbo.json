@@ -406,6 +406,7 @@
         "src/migrations/dead-sync-feed.test.ts",
         "src/migrations/drizzle-manifest.generated.ts",
         "src/migrations/drop-legacy-message-status.test.ts",
+        "src/migrations/first-flights.test.ts",
         "src/migrations/fixed-dependency-types.test.ts",
         "src/migrations/fold-design-notes-into-brief.test.ts",
         "src/migrations/index.ts",

@@ -316,7 +316,7 @@ const LEGACY_UI_STATE_VOCABULARY: readonly string[] = [
 ]
 
 /** The legacy PREFIXES under which dynamic section keys are spelled on disk. */
-const LEGACY_SECTION_PREFIXES: readonly string[] = ['podium:sidebar:']
+const LEGACY_SECTION_PREFIXES: readonly string[] = ['podium:sidebar:', 'tips.seen.']
 
 /**
  * The canonical layout keys that are actually REACHABLE: a legacy spelling the

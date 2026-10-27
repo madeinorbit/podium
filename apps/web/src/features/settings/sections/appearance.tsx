@@ -15,6 +15,7 @@ import { useTerminalAppearance } from '@/features/terminal/use-terminal-appearan
 import { useStickyPromptsPreference } from '@/lib/sticky-prompts'
 import { useFeature } from '@/lib/use-feature'
 import { Row, Section, Subsection } from './shared'
+import { AccountTipsRow } from './tips'
 
 /** Light/dark switcher. Theme state is UI-local (not part of the settings blob),
  *  so it applies instantly via useTheme and persists on its own. */
@@ -84,6 +85,7 @@ export function AppearanceSection(): JSX.Element {
           onCheckedChange={stickyPrompts.setEnabled}
         />
       </Row>
+      <AccountTipsRow />
       <TerminalAppearanceRows />
     </Section>
   )

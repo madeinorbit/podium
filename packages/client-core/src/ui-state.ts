@@ -52,6 +52,7 @@ export type UiStateHome =
   | 'known-unrouted'
 
 export const UI_STATE_KEYS = {
+  tipsEnabled: 'tips.enabled',
   view: 'podium.view',
   selectedWorktree: 'podium.selectedWorktree',
   selectedIssueId: 'podium.selectedIssueId',
@@ -85,6 +86,8 @@ export const UI_STATE_KEYS = {
   /** Last launched model/effort per machine and harness, across this user's devices. */
   launchLastPick: 'podium.launch.lastPick',
 } as const
+
+export const TIP_SEEN_KEY_PREFIX = 'tips.seen.'
 
 export const VIEW_KEY = UI_STATE_KEYS.view
 export const WT_KEY = UI_STATE_KEYS.selectedWorktree
@@ -129,6 +132,10 @@ export const UI_STATE_ROUTES = {
   [UI_STATE_KEYS.launchLastPick]: {
     home: 'per-user-replicated',
     reason: 'The last launched model and effort follow the user across devices.',
+  },
+  [UI_STATE_KEYS.tipsEnabled]: {
+    home: 'per-user-replicated',
+    reason: 'First Flights follows the person across devices.',
   },
   [UI_STATE_KEYS.view]: {
     home: 'device-local',
