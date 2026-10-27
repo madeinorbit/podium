@@ -371,6 +371,9 @@ export function issueNeedsHuman(
   issue: IssueNavigationModel,
   sessions: readonly SessionView[],
   byId?: ReadonlyMap<string, IssueNavigationModel>,
+  /** Whether a session on it asks; a coordinated deck row passes its delegates' policy (POD-2171). */
+  sessionAsks: (session: SessionView) => boolean = (session) =>
+    !session.archived && sessionNeedsHuman(session),
 ): boolean {
   // A CLOSED TASK NEVER NEEDS YOU (POD-1072). Closing is the operator's own
   // "this is finished" flip, and nothing downstream of it may keep demanding a
@@ -383,7 +386,7 @@ export function issueNeedsHuman(
   if (issue.needsHuman === true) return true
   // An open decision is the user's to answer (POD-6106, D2/D6).
   if (isDecisionIssue(issue)) return true
-  if (sessions.some((session) => !session.archived && sessionNeedsHuman(session))) return true
+  if (sessions.some(sessionAsks)) return true
   // An empty review whose session hopscotched is a signpost, not a review item.
   if (issue.stage === 'review' && isVacatedOrigin(issue, sessions, byId)) return false
   return issue.stage === 'review'
@@ -1907,6 +1910,8 @@ export function deckIssueState(
     children?: readonly TaskWords[]
     /** The issue's coordinator seat is held by a live session (`coordinatorLive`). */
     coordinated?: boolean
+    /** Open pending interactions addressed to a session (a seat fact, `seatAttention`). */
+    pendingInteractions?: (sessionId: string) => number
   } = {},
 ): DeckIssueState {
   const closed = issueClosed(issue)
@@ -1922,7 +1927,14 @@ export function deckIssueState(
   }
   const words = taskWords(facts, {
     seats: sessions.map((session) =>
-      seatWords(session, { issueClosed: closed }, session.sessionId === issue.coordinatorSessionId),
+      seatWords(
+        session,
+        {
+          issueClosed: closed,
+          pendingInteractions: context.pendingInteractions?.(session.sessionId) ?? 0,
+        },
+        session.sessionId === issue.coordinatorSessionId,
+      ),
     ),
     children: context.children,
     coordinated: context.coordinated,

@@ -305,6 +305,137 @@ describe('a row with a live coordinator', () => {
   })
 })
 
+describe('the seat facts under a live coordinator (review round 1)', () => {
+  const at = (iso: string) => Date.parse(iso)
+
+  it('a delegate\u2019s suppressed offer does not hide its work or its working timer', () => {
+    const pool = fixture({
+      coordinator: 'coord',
+      busy: { ...offer, agentState: { phase: 'working', since: '2026-10-26T11:00:00Z' } },
+    })
+    try {
+      expectRow(pool, 'epic', {
+        phase: 'working',
+        asking: false,
+        waitingCount: 0,
+        timing: 'working',
+      })
+      const row = worklistView(pool).row(pool.issueObject('epic'))
+      let since = 0,
+        working = false
+      const stop = autorun(() => {
+        since = row.timing.sinceMs
+        working = row.visibleWorking
+      })
+      stop()
+      expect({ since, working }).toEqual({ since: at('2026-10-26T11:00:00Z'), working: true })
+      // Its own row is uncoordinated: there the offer still asks, as before.
+      expectRow(pool, 'building', { phase: 'waiting', asking: true })
+    } finally {
+      pool.dispose()
+    }
+  })
+
+  it('times a delegate\u2019s exception from the exception, not from its suppressed offer', () => {
+    const pool = fixture({
+      coordinator: 'coord',
+      busy: {
+        offer: { message: 'Ready', createdAt: '2026-10-26T09:00:00Z', actions: [] },
+        agentState: {
+          phase: 'needs_user',
+          since: '2026-10-26T12:00:00Z',
+          need: { kind: 'permission' },
+        },
+      },
+    })
+    try {
+      const row = worklistView(pool).row(pool.issueObject('epic'))
+      let timing: { phase: string; sinceMs: number } | undefined
+      const stop = autorun(() => {
+        timing = row.timing
+      })
+      stop()
+      expect(timing).toMatchObject({ phase: 'waiting', sinceMs: at('2026-10-26T12:00:00Z') })
+    } finally {
+      pool.dispose()
+    }
+  })
+
+  it('escalates a crashed delegate, timed from its stop', () => {
+    const crash = {
+      status: 'exited',
+      stopReason: 'oom',
+      exitCode: 137,
+      stoppedAt: '2026-10-26T11:30:00Z',
+      ...idleDone,
+    }
+    const pool = fixture({ coordinator: 'coord', busy: crash })
+    try {
+      expectRow(pool, 'epic', {
+        phase: 'waiting',
+        asking: true,
+        waitingCount: 1,
+        filingAsking: true,
+      })
+      const row = worklistView(pool).row(pool.issueObject('epic'))
+      let sinceMs = 0
+      const stop = autorun(() => {
+        sinceMs = row.timing.sinceMs
+      })
+      stop()
+      expect(sinceMs).toBe(at('2026-10-26T11:30:00Z'))
+    } finally {
+      pool.dispose()
+    }
+    // Without a live coordinator the sidebar keeps its old reading of a crash.
+    const old = fixture({ busy: crash, reviewed: { status: 'exited' } })
+    old.apply({
+      type: 'update',
+      rows: [
+        {
+          kind: 'issue',
+          id: 'reviewed',
+          value: issue('reviewed', { parentId: 'epic', seq: 2 }) as never,
+        },
+      ],
+    })
+    try {
+      expectRow(old, 'epic', { asking: false })
+    } finally {
+      old.dispose()
+    }
+  })
+
+  it('escalates an open pending interaction on an idle delegate', () => {
+    // The child in review still has a working agent, so only the interaction can ask.
+    const shape = {
+      coordinator: 'coord',
+      busy: idleDone,
+      reviewed: { agentState: { phase: 'working', since: stamp } },
+    }
+    const quiet = fixture(shape)
+    try {
+      expectRow(quiet, 'epic', { asking: false, waitingCount: 0 })
+    } finally {
+      quiet.dispose()
+    }
+    const pool = fixture(shape)
+    Object.defineProperty(pool, 'sessionOpenInteractions', {
+      value: (id: string) => (id === 'busy' ? 1 : 0),
+    })
+    try {
+      expectRow(pool, 'epic', {
+        phase: 'waiting',
+        asking: true,
+        waitingCount: 1,
+        filingAsking: true,
+      })
+    } finally {
+      pool.dispose()
+    }
+  })
+})
+
 describe('without a live coordinator, the old roll-up', () => {
   for (const [name, shape] of [
     ['no coordinator claimed', {}],

@@ -37,7 +37,8 @@ describe('shared session facts equal the old verdict on identical records', () =
       const actual = { fleet: model.fleet, working: model.workingTimer,
         waitingOpen: model.motion === 'waiting' ? model.waitingTimer : undefined,
         waitingFinished: motionPhase(row, true) === 'waiting' ? model.waitingTimer : undefined,
-        waitingDelegated: delegatePhase(row) === 'waiting' ? model.waitingTimer : undefined,
+        workingDelegated: model.computingTimer,
+        waitingDelegated: delegatePhase(row) === 'waiting' ? model.exceptionTimer : undefined,
         doneSince: model.doneSinceMs, totalMs: model.workingMsTotal,
         errorClass: model.errorClass, allUnstarted: model.unstarted }
       // Undefined optional keys compare the same through toEqual.

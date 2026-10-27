@@ -155,6 +155,8 @@ export interface VisibleInputs {
   loadedIssue(id: string): Loaded<SliceIssue>
   /** A RESIDENT session row; `LOADING` when cold (queued). */
   loadedSession(id: string): Loaded<SliceSession>
+  /** Open pending interactions addressed to a session: one of its seat facts (`seatAttention`). */
+  openInteractions?(id: string): number
   /** The present rows whose `nestParent` is `id` (the live pool's derived `nested` group). */
   nested(id: string): Iterable<string>
   /** The known issues whose declared `issue.parent` is `id` (the relation engine's `children` bucket). */
@@ -459,11 +461,11 @@ export interface SessionVisibility {
 
 /** A seat's verdict from the resident row (the roll-ups never read a cold session). */
 export function verdictPartOf(
-  input: Pick<VisibleInputs, 'loadedSession'>,
+  input: Pick<VisibleInputs, 'loadedSession' | 'openInteractions'>,
   id: string,
 ): Loaded<SeatVerdict> {
   const row = input.loadedSession(id)
-  return row === undefined || typeof row === 'symbol' ? row : seatVerdictOf(row)
+  return row === undefined || typeof row === 'symbol' ? row : seatVerdictOf(row, input.openInteractions?.(id) ?? 0)
 }
 
 /** A session's two links: `session.issue` and `session.worktree`. */
@@ -481,7 +483,7 @@ export function sessionLinksOf(input: Pick<VisibleInputs, 'links'>, id: string):
 
 /** A session's parts computed directly (the rebuild). */
 export function directSessionVisibility(
-  input: Pick<VisibleInputs, 'links' | 'sessionRow' | 'loadedSession'>,
+  input: Pick<VisibleInputs, 'links' | 'sessionRow' | 'loadedSession' | 'openInteractions'>,
   id: string,
 ): SessionVisibility {
   const row = input.sessionRow(id)

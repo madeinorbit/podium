@@ -343,3 +343,41 @@ it('updates ready at the deferral deadline without a row change', () => {
     expect(seen).toHaveLength(2)
   } finally { stop() }
 })
+
+// POD-2171: the deck's counts, its Needs-you filter and its words follow the
+// coordinated rule from the same seat facts as the sidebar.
+const working = { status: 'live', archived: false, agentState: { phase: 'working', since: stamp } }
+const idleDone = { status: 'live', archived: false, agentState: { phase: 'idle', since: stamp, idle: { kind: 'done' } } }
+const offered = { offer: { message: 'Ready', actions: [], createdAt: stamp } }
+function deckFacts(coordinated: boolean, extra: { rows?: IssueNavigationModel[]; seats?: SessionView[] } = {}) {
+  const { reader } = open([issue('root', coordinated ? { coordinatorSessionId: 'coord' } : {}), ...(extra.rows ?? [])], [
+    session('coord', 'root', idleDone),
+    session('helper', 'root', { ...working, ...offered }),
+    ...(extra.seats ?? []),
+  ])
+  return tracked(() => {
+    const row = reader.deck('root').model('root')
+    return {
+      word: row.word, waiting: row.waitingAgentCount, actionable: row.actionableCount,
+      matches: row.matchesNeedsYou, asking: row.askingSessionIds, collapsed: row.collapsedSummary.needsYou,
+    }
+  })
+}
+
+it('a coordinated deck row counts no delegate offer, and reads its work', () => {
+  expect(deckFacts(true)).toEqual({ word: 'working', waiting: 0, actionable: 0, matches: false, asking: [], collapsed: false })
+  expect(deckFacts(false)).toMatchObject({ word: 'needs-you', waiting: 1, actionable: 1, matches: true, asking: ['helper'], collapsed: true })
+})
+
+it('a coordinated deck row counts a sub-task’s exception but not its own requests', () => {
+  const child = (patch: Record<string, unknown>) => ({
+    rows: [issue('child', { parentId: 'root', ...patch })],
+    seats: [session('impl', 'child', idleDone)],
+  })
+  expect(deckFacts(true, child({ stage: 'review' }))).toMatchObject({ word: 'working', actionable: 0, collapsed: false })
+  expect(deckFacts(true, child({ type: 'decision' }))).toMatchObject({ word: 'working', actionable: 0 })
+  expect(deckFacts(false, child({ stage: 'review' }))).toMatchObject({ actionable: 2 })
+  const crashed = { rows: [issue('child', { parentId: 'root' })],
+    seats: [session('impl', 'child', { status: 'exited', archived: false, stopReason: 'oom', exitCode: 137 })] }
+  expect(deckFacts(true, crashed)).toMatchObject({ word: 'error', waiting: 1, actionable: 1, collapsed: true })
+})

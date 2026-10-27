@@ -17,9 +17,8 @@
 
 import type { IdleVerdict } from '../entities/session'
 import { issueAbandoned } from './active-work'
-import { delegateNeedsHuman } from './coordinated-attention'
-import { idleVerdictNeedsHuman } from './idle-verdict'
 import { isFinished } from './issue-lifecycle'
+import { seatAsks, seatAttention, sessionErrorFact } from './seat-attention'
 
 // ---------------------------------------------------------------------------
 // Session
@@ -58,48 +57,23 @@ export interface SessionWordContext {
   /** Unanswered pending interactions (permission requests, questions) for
    *  this session, from the `pendingInteractions` rows. */
   readonly pendingInteractions?: number
-  /** The session is a delegate under its task's live coordinator (POD-2171):
-   *  it asks only when held at a prompt only a human can answer
-   *  ({@link delegateNeedsHuman}). Errors are unchanged. */
+  /** The session is a delegate under its task's live coordinator (POD-2171,
+   *  `seat-attention.ts`): only a prompt only a human can answer asks. */
   readonly delegate?: boolean
 }
 
 /**
- * Error (D5): any agent error, a crash, out-of-memory, or a failed start.
- *
- * The `errored` phase stays until the next turn replaces it, which is the "a new
- * turn clears Error" rule; nothing here needs to remember it. A crash is an exit
- * nobody asked for (`stopReason: 'exited'`) with a non-zero code: a requested
- * stop (`self`, `parent`, `forced`) is Done whatever code the process returned.
- */
-export function sessionErrorFact(session: SessionWordFacts): boolean {
-  if (session.agentState?.phase === 'errored') return true
-  if (session.status !== 'exited') return false
-  if (session.stopReason === 'oom') return true
-  if (session.exitCode === -1 || session.spawnFailure) return true
-  return session.stopReason === 'exited' && session.exitCode != null && session.exitCode !== 0
-}
-
-/**
- * Needs you (D5): a question, a permission request, or a pending offer.
- *
- * An offer and a pending interaction outlive the process (the user can still
- * answer them), so they count on an exited session too. A question read from
- * the phase only counts while the process can still take the answer: a
- * hibernated session keeps its last phase and resumes into it, an exited one
- * does not. A delegate's asks are its coordinator's, save the exceptions.
+ * Needs you (D5): a question, a permission request, or a pending offer; for a
+ * delegate under a live coordinator, only the permission request or question
+ * menu. The facts and the policy are `seatAttention` and `seatAsks`: an offer
+ * and a pending interaction outlive the process, a question read from the
+ * phase counts only while the process can still take the answer.
  */
 export function sessionAsksFact(
   session: SessionWordFacts,
   context: SessionWordContext = {},
 ): boolean {
-  if (context.delegate) return delegateNeedsHuman(session, context.pendingInteractions)
-  if (session.offer) return true
-  if ((context.pendingInteractions ?? 0) > 0) return true
-  if (session.status === 'exited') return false
-  const phase = session.agentState?.phase
-  if (phase === 'needs_user') return true
-  return phase === 'idle' && idleVerdictNeedsHuman(session.agentState?.idle?.kind ?? undefined)
+  return seatAsks(seatAttention(session, context.pendingInteractions), context.delegate)
 }
 
 /**
@@ -186,6 +160,20 @@ export interface TaskWordFacts {
 export interface TaskWordParts {
   readonly sessions?: Iterable<SessionWord>
   readonly children?: Iterable<TaskWord>
+  /** The word as the task shows a coordinated ancestor (POD-2171): its own
+   *  requests are for the coordinator, so they do not ask. */
+  readonly delegated?: boolean
+}
+
+/**
+ * The task's OWN request to a human, before its sessions: a decision-type issue
+ * or the explicit needs-human flag. An open review is not one here: the offer
+ * posted with it is (the deck's rule; the sidebar row differs, see
+ * `seat-attention.ts`). A closed task asks nothing of its own.
+ */
+export function taskOwnAsks(task: TaskWordFacts): boolean {
+  if (isFinished(task)) return false
+  return task.type === 'decision' || task.needsHuman === true
 }
 
 /** Stages that mean somebody already took the work up. */
@@ -201,9 +189,10 @@ const STARTED_STAGES: ReadonlySet<unknown> = new Set([
  *
  *  - Done only when the issue is closed; see {@link taskHidden} for the closes
  *    that also hide the row.
- *  - Error > Needs you > Working come from any session or sub-issue. An open
- *    decision and an explicit `needs-human` flag are Needs you. A task in
- *    `shipping` is Working: the system is landing it.
+ *  - Error > Needs you > Working come from any session or sub-issue. The
+ *    task's own requests ({@link taskOwnAsks}: an open decision, an explicit
+ *    `needs-human` flag) are Needs you, except in its `delegated` word. A task in `shipping` is Working: the system is
+ *    landing it.
  *  - A live Idle (an idle session, or a sub-issue that reads Idle) outranks
  *    Blocked. Blocked is an unmet dependency (own or a sub-issue's) with
  *    nothing running.
@@ -214,11 +203,12 @@ const STARTED_STAGES: ReadonlySet<unknown> = new Set([
 export function taskWord(task: TaskWordFacts, parts: TaskWordParts = {}): TaskWord {
   if (isFinished(task)) return 'done'
   let error = false
-  let asks = task.type === 'decision' || task.needsHuman === true
+  let asks = false
   let working = task.stage === 'shipping'
   let idle = false
   let blocked = task.blocked === true
   let started = STARTED_STAGES.has(task.stage)
+  if (!parts.delegated && taskOwnAsks(task)) asks = true
   for (const word of parts.sessions ?? []) {
     started = true
     if (word === 'error') error = true
@@ -265,11 +255,11 @@ export function seatWords(
   }
 }
 
-/** A task's two words (POD-2171, `coordinated-attention.ts`). */
+/** A task's two words (POD-2171, `seat-attention.ts`). */
 export interface TaskWords {
   /** The word on the task's own row. */
   readonly word: TaskWord
-  /** The word it shows an ancestor whose coordinator is live: only exceptions ask. */
+  /** The word it shows an ancestor whose coordinator is live: only work and exceptions. */
   readonly delegated: TaskWord
 }
 
@@ -277,14 +267,13 @@ export interface TaskWords {
  * A task's word and its delegated word. On a task whose coordinator is live
  * (`coordinated`), its sessions other than the coordinator speak as delegates
  * and its sub-tasks show their delegated words, so asks come only from the
- * coordinator and the task's own facts, while work and errors still roll up.
+ * coordinator and the task's own requests, while work and errors still roll
+ * up.
  *
- * The delegated word reads every session as a delegate and every sub-task's
- * delegated word, whatever the task's own coordination: an ancestor's
- * coordinator answers for the whole tree. The task's own `decision` type and
- * `needsHuman` flag still ask in it: they are explicit requests to a human
- * recorded on the issue, not a delegate's question. (A review or merge stage
- * is not part of the task word at all.)
+ * The delegated word is what the task is to a coordinated ancestor: every
+ * session a delegate, every sub-task's delegated word, and none of its own
+ * requests (a decision type, needs-human). Those stay on its own
+ * row; the ancestor's coordinator is the one they are for.
  */
 export function taskWords(
   task: TaskWordFacts,
@@ -305,6 +294,7 @@ export function taskWords(
     delegated: taskWord(task, {
       sessions: seats.map((seat) => seat.delegate),
       children: children.map((child) => child.delegated),
+      delegated: true,
     }),
   }
 }

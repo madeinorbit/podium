@@ -70,6 +70,7 @@ export class AttentionFields {
       get working() { return model.aggregateSidebarFactsWorking },
       get waitingOpen() { return model.aggregateSidebarFactsWaitingOpen },
       get waitingFinished() { return model.aggregateSidebarFactsWaitingFinished },
+      get workingDelegated() { return model.aggregateSidebarFactsWorkingDelegated },
       get waitingDelegated() { return model.aggregateSidebarFactsWaitingDelegated },
       get doneSince() { return model.aggregateSidebarFactsDoneSince },
       get totalMs() { return model.aggregateSidebarFactsTotalMs },
@@ -95,6 +96,11 @@ export class AttentionFields {
   @lazy({ equals: compareStructural })
   private get aggregateSidebarFactsWaitingFinished(): SidebarSessionFacts['waitingFinished'] {
     return this.readAggregate().sidebarFacts!.waitingFinished
+  }
+
+  @lazy({ equals: compareStructural })
+  private get aggregateSidebarFactsWorkingDelegated(): SidebarSessionFacts['workingDelegated'] {
+    return this.readAggregate().sidebarFacts!.workingDelegated
   }
 
   @lazy({ equals: compareStructural })

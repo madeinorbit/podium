@@ -165,9 +165,18 @@ export class WorklistSession implements SessionVisibility {
     return motionPhase(this.verdictRow, true, () => this.session.executing)
   }
 
-  @lazy
   private get verdictDelegate(): SeatVerdict['delegate'] {
-    return delegatePhase(this.verdictRow, () => this.session.executing)
+    const model = this
+    return {
+      get phase() { return model.verdictDelegatePhase },
+      get working() { return model.session.computing },
+      get workingSinceMs() { return model.session.computingSinceMs },
+    }
+  }
+
+  @lazy
+  private get verdictDelegatePhase(): SeatVerdict['delegate']['phase'] {
+    return delegatePhase(this.verdictRow, this.session.attentionFacts, () => this.session.computing)
   }
 
   @lazy
@@ -190,6 +199,7 @@ export class WorklistSession implements SessionVisibility {
       get working() { return model.verdictSidebarFactsWorking },
       get waitingOpen() { return model.verdictSidebarFactsWaitingOpen },
       get waitingFinished() { return model.verdictSidebarFactsWaitingFinished },
+      get workingDelegated() { return model.session.computingTimer },
       get waitingDelegated() { return model.verdictSidebarFactsWaitingDelegated },
       get doneSince() { return model.verdictSidebarFactsDoneSince },
       get totalMs() { return model.verdictSidebarFactsTotalMs },
@@ -211,7 +221,7 @@ export class WorklistSession implements SessionVisibility {
   }
 
   private get verdictSidebarFactsWaitingDelegated(): SidebarSessionFacts['waitingDelegated'] {
-    return this.verdictDelegate === 'waiting' ? this.session.waitingTimer : undefined
+    return this.verdictDelegatePhase === 'waiting' ? this.session.exceptionTimer : undefined
   }
 
   private get verdictSidebarFactsDoneSince(): SidebarSessionFacts['doneSince'] { return this.session.doneSinceMs }

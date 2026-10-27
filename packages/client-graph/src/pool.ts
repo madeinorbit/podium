@@ -132,6 +132,7 @@ import {
 import type { RepoRow, ViewInputs } from './views'
 import { worklistGroups } from './worklist/groups'
 import { LOADING, type Loaded, type RollupInputs } from './worklist/rollup'
+import type { NoticeRows } from './notice-schema'
 import { SeatVerdicts } from './worklist/seat-verdicts'
 import { worklistView } from './worklist/view-model'
 import { sidebarRosterView } from './worklist/sidebar-roster'
@@ -558,6 +559,7 @@ export class MobxPool {
       reached: (t) => this.clock.reached(t),
       loadedIssue: (id) => omitGone(this.row('issue', id)) as Loaded<SliceIssue>,
       loadedSession: (id) => omitGone(this.row('session', id)) as Loaded<SliceSession>,
+      openInteractions: (id) => this.sessionOpenInteractions(id),
       issueRead: (id) => this.readCursor(id),
       nested: (id) => worklistView(this).row(this.issueObject(id)).nested,
       formalChildren: (id) => links.issue.children.ids(id),
@@ -770,6 +772,18 @@ export class MobxPool {
 
   sessionArchiveField(id: string): boolean | undefined {
     return this.queries.sessionStoredField(id, 'archived')
+  }
+
+  /** Open (asked) pending interactions addressed to session `id`: one of its seat facts (`seatAttention`). */
+  sessionOpenInteractions(id: string): number {
+    const membership = omitGone(this.row('noticeSession', id) as Lookup<NoticeRows['noticeSession']>)
+    if (membership === undefined || membership === LOADING) return 0
+    let open = 0
+    for (const interaction of membership.interactions) {
+      const row = omitGone(this.row('pendingInteraction', interaction))
+      if (row !== undefined && row !== LOADING && row.sessionId === id && row.status === 'asked') open++
+    }
+    return open
   }
 
   sessionSummaryField(property: string): boolean {

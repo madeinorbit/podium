@@ -652,6 +652,7 @@ export class WorklistIssue implements HeldIssue, RowView {
       get working() { return model.workingTimer },
       get waitingOpen() { return model.waitingOpenTimer },
       get waitingFinished() { return model.waitingFinishedTimer },
+      get workingDelegated() { return model.workingDelegatedTimer },
       get waitingDelegated() { return model.waitingDelegatedTimer },
       get doneSince() { return model.sessionsDoneSince },
       get totalMs() { return model.sessionsWorkingMs },
@@ -683,6 +684,11 @@ export class WorklistIssue implements HeldIssue, RowView {
   @lazy({ equals: compareStructural })
   get waitingFinishedTimer(): SidebarSessionFacts['waitingFinished'] {
     return this.readOwnAttention().sidebarFacts!.waitingFinished
+  }
+
+  @lazy({ equals: compareStructural })
+  get workingDelegatedTimer(): SidebarSessionFacts['workingDelegated'] {
+    return this.readOwnAttention().sidebarFacts!.workingDelegated
   }
 
   @lazy({ equals: compareStructural })
@@ -987,7 +993,7 @@ export class WorklistIssue implements HeldIssue, RowView {
       get ownFacts() { return row.ownFacts }, get formalParent() { return row.formalParent },
       get updatedMs() { return row.issue.updatedMs },
       get openOwn() { return row.openOwn }, get present() { return row.present },
-      get seatIds() { return row.seatIds },
+      get seatIds() { return row.seatIds }, get retainedSeatIds() { return row.retainedSeatIds },
       get rosterIds() { return row.rosterIds }, get finished() { return row.finished },
       get tip() { return row.tip }, get ownAttention() { return row.ownAttention },
       get aggregate() { return row.visibleAttention }, get unitOwn() { return row.unitOwn },

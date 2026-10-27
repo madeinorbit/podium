@@ -10,7 +10,7 @@ export type { AutomationModel, AutomationRunModel, MachineModel } from './synced
 import { attentionGroup, effectiveRecency } from '@podium/client-core/focus'
 import type { SessionView } from '@podium/client-core/session-values'
 import { groupRelations, type IssueCloseMemberCounts, type IssueCloseScalarSubject, type ReferentExit, motionPhase as sessionMotion, type TaskProgress } from '@podium/client-core/values'
-import { asSessionId, isExcluded, isFinished, type SessionWord, type SessionWordFacts, sessionWord, wordWantsAttention } from '@podium/model/browser'
+import { asSessionId, isExcluded, isFinished, type SeatAttention, type SessionWord, type SessionWordFacts, sessionWord, wordWantsAttention } from '@podium/model/browser'
 import type { ReaderQueries } from './reader-queries'
 import type { IssueSessionFactReader } from './shared/issue-session-facts'
 
@@ -29,8 +29,8 @@ import { computingDeadlineOf } from './shared/session-facts'
 import type { SliceIssue, SliceSession, SliceWorktree } from './shared/slice-types'
 import type { StoredRow } from './tables'
 import { activityMsOf, DEFER_NEXT_MESSAGE, displayRefOf, originRefPartOf, parseMs, prefixPartOf, type RepoRow, repoTargetPartOf, type ViewInputs } from './views'
-import { isSessionWorking, LOADING, type Loaded as LoadedRow, type OwnFacts, ownFactsOf, type RollupInputs } from './worklist/rollup'
-import { fleetOf, type SidebarSessionFacts, unstarted } from './worklist/sidebar-row'
+import { isSessionComputing, isSessionWorking, LOADING, type Loaded as LoadedRow, type OwnFacts, ownFactsOf, type RollupInputs, seatAttentionOf } from './worklist/rollup'
+import { exceptionSinceMs, fleetOf, type SidebarSessionFacts, unstarted } from './worklist/sidebar-row'
 import type { VisibleInputs } from './worklist/visible'
 import { EDITABLE_FIELDS, type EditableStage, type EditPatch, type TxId, type WritableKind } from './write/commands'
 
@@ -60,6 +60,8 @@ export interface ModelHost {
   issueObject(id: string): IssueModel
   /** Addressed raw archived field, independent of payload/residency. */
   sessionArchiveField(id: string): boolean | undefined
+  /** Open pending interactions addressed to a session (`MobxPool.sessionOpenInteractions`). */
+  sessionOpenInteractions(id: string): number
   /** Whether the cutoff declares a stored session field, even when optional. */
   sessionSummaryField(property: string): boolean
   issueSummaryField(property: string): boolean
@@ -926,6 +928,35 @@ export class SessionModel extends EntityModel {
 
   @lazy get doneSinceMs(): number { return this.stateSinceMs || 0 }
 
+  // Attention: the seat facts every surface derives from (`seatAttention`, POD-2171).
+  /** Open pending interactions addressed to this session. */
+  @lazy get openInteractions(): number { return this.exists ? this.host.sessionOpenInteractions(this.id) : 0 }
+
+  @lazy({ equals: compareStructural })
+  get attentionFacts(): SeatAttention { return seatAttentionOf(this as unknown as SliceSession, this.openInteractions) }
+
+  /** Execution read apart from a standing offer: a delegate's work (`isSessionComputing`). */
+  @lazy get computing(): boolean { return this.exists && isSessionComputing(this as unknown as SliceSession) }
+
+  @lazy
+  get computingSinceMs(): number | null {
+    return this.computing && Number.isFinite(this.stateSinceMs) ? this.stateSinceMs : null
+  }
+
+  @lazy({ equals: compareStructural })
+  get computingTimer(): SidebarSessionFacts['workingDelegated'] {
+    if (!this.computing) return undefined
+    return { stateSince: this.stateSinceMs, sinceMs: this.stateSinceMs,
+      ...(this.workingMsTotal !== undefined ? { baseMs: this.workingMsTotal } : {}) }
+  }
+
+  /** Timed from the exception itself, never from an offer (`exceptionSinceMs`). */
+  @lazy({ equals: compareStructural })
+  get exceptionTimer(): NonNullable<SidebarSessionFacts['waitingDelegated']> {
+    return { stateSince: this.stateSinceMs,
+      sinceMs: exceptionSinceMs(this as unknown as SliceSession, this.stateSinceMs) }
+  }
+
   @lazy get errorClass(): string | null {
     return this.open && this.phase === 'errored' ? this.agentState?.error?.class ?? 'unknown' : null
   }
@@ -938,11 +969,23 @@ export class SessionModel extends EntityModel {
     if (!this.exists) return 'done'
     const issueId = this.issueId
     const issueClosed = issueId ? this.host.issueObject(issueId).finished === true : false
-    return sessionWord(this as unknown as SessionWordFacts, { issueClosed })
+    return sessionWord(this as unknown as SessionWordFacts, { issueClosed, pendingInteractions: this.openInteractions })
   }
 
   /** Error or Needs you: the two words that carry the colour and the dot. */
   @lazy get attention(): boolean { return wordWantsAttention(this.word) }
+
+  /** The word as a delegate under a live coordinator (POD-2171): only an exception asks. */
+  @lazy
+  get delegateWord(): SessionWord {
+    if (!this.exists) return 'done'
+    const issueId = this.issueId
+    const issueClosed = issueId ? this.host.issueObject(issueId).finished === true : false
+    return sessionWord(this as unknown as SessionWordFacts,
+      { issueClosed, pendingInteractions: this.openInteractions, delegate: true })
+  }
+
+  @lazy get delegateAttention(): boolean { return wordWantsAttention(this.delegateWord) }
 
   /** Fresh execution evidence is a session fact; views decide which agents to show. */
   @lazy

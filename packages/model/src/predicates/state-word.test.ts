@@ -326,7 +326,7 @@ describe('coordinated tasks (POD-2171)', () => {
     ).toBe('needs-you')
   })
 
-  it('asks for the coordinator itself and for the task\u2019s own explicit requests', () => {
+  it('asks for the coordinator itself, never for a delegate\u2019s question', () => {
     expect(
       epicWord(tree(seats({ epic: [seatWords(offered, {}, true)] }), (id) => id === 'epic')),
     ).toBe('needs-you')
@@ -346,10 +346,34 @@ describe('coordinated tasks (POD-2171)', () => {
         ),
       ),
     ).toBe('working')
-    const flagged = tree(seats(), (id) => id === 'epic', {
-      building: { type: 'task', stage: 'in_progress', needsHuman: true },
+  })
+
+  it('keeps a descendant\u2019s own requests on its own row', () => {
+    const quiet = seats({ building: [seatWords(idleDone)], reviewed: [] })
+    for (const building of [
+      { type: 'task', stage: 'in_progress', needsHuman: true },
+      { type: 'decision', stage: 'review' },
+    ] as const) {
+      const words = rollUpTaskWords(
+        'epic',
+        tree(quiet, (id) => id === 'epic', { building }),
+      )
+      expect(words.get('building')).toBe('needs-you')
+      expect(words.get('epic')).toBe('idle')
+      expect(epicWord(tree(quiet, () => false, { building }))).toBe('needs-you')
+    }
+  })
+
+  it('reads a delegate\u2019s work apart from its suppressed offer, and counts open interactions', () => {
+    const offeredWorking = { ...working, offer: { message: 'Ready' } }
+    expect(seatWords(offeredWorking)).toEqual({
+      word: 'needs-you',
+      delegate: 'working',
+      coordinator: false,
     })
-    expect(epicWord(flagged)).toBe('needs-you')
+    expect(seatWords(idleDone, { pendingInteractions: 1 }).delegate).toBe('needs-you')
+    const pending = seats({ building: [seatWords(idleDone, { pendingInteractions: 1 })] })
+    expect(epicWord(tree(pending, (id) => id === 'epic'))).toBe('needs-you')
   })
 
   it('a nested coordinator asks on its own row and only escalates exceptions further up', () => {
