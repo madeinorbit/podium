@@ -198,6 +198,9 @@ export const IssuePanelArtifact = z.object({
    *  field of its own, not a `sourceKind`, so a reader that predates it keeps
    *  the entry as an ordinary artifact instead of refusing the panel. */
   chatUploadId: z.string().optional(),
+  /** The person who uploaded that chat file (POD-2148): only they may send it
+   *  again, so a shared issue's readers cannot reuse an id they can see. */
+  chatUploadOwner: z.string().optional(),
   /** Permanent-store snapshot id ([spec:SP-0fc9] #441). Present ⇒ the bytes are
    *  served from `<state-dir>/artifacts/<issueId>/<artifactId>/` via the
    *  server-local /files/artifact route; absent (pre-existing entries) ⇒ legacy

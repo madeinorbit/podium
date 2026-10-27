@@ -134,6 +134,14 @@ export class PendingUploadStore {
     await this.write(async () => await this.writeMeta({ ...meta, claimed }))
   }
 
+  /** Forget a claim whose file was moved back (a task that failed to launch). */
+  async markUnclaimed(id: string): Promise<void> {
+    const meta = await this.meta(id)
+    if (!meta?.claimed) return
+    const { claimed: _claimed, ...rest } = meta
+    await this.write(async () => await this.writeMeta(rest))
+  }
+
   /** Drop an upload the composer no longer carries. A claimed one stays: its
    *  meta is what refuses a second issue. */
   async discard(id: string, ownerUserId: UserId): Promise<boolean> {

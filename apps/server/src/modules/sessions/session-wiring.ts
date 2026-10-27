@@ -38,6 +38,7 @@ import { SessionDaemonLifecycle } from './daemon-lifecycle'
 import { SessionDaemonProjection } from './daemon-projection'
 import {
   archivedSessionSendReason,
+  chatUploadStageAnswer,
   inboxActorColumns,
   inboxActorFromColumns,
   SessionInbox,
@@ -666,15 +667,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
           id: attachment.id,
         },
       })
-      if ('reason' in staged) return { retry: staged.detail ?? staged.reason }
-      // A daemon that predates caller-chosen ids staged it under its own: the
-      // path would change on every forward, so it cannot carry this upload.
-      if (staged.id !== attachment.id) {
-        return {
-          fail: "the agent's machine runs an older Podium that cannot take this attachment; update it and send the file again",
-        }
-      }
-      return { ref: staged }
+      return chatUploadStageAnswer(attachment, staged)
     },
     // Stop follows the same contract delivery route, including headed sessions.
     contractInterrupt: (sessionId) => bag.runtimeGateway.interrupt(sessionId),

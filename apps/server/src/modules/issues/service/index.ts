@@ -22,6 +22,7 @@ export type IssueCrudCapability = Pick<
   | 'panelArtifactRemove'
   | 'panelArtifactRead'
   | 'panelChatUploadClaim'
+  | 'panelChatUploadRelease'
   | 'chatUploadClaimed'
   | 'chatUploadBytes'
   | 'create'

@@ -5708,6 +5708,27 @@ describe('IssueService chat upload claims (POD-2148)', () => {
     }
   })
 
+  it('refuses another reader of the issue reusing a claimed id, claimed or in flight', async () => {
+    const { base, svc, issue, owner, upload } = await claimHarness()
+    const reader = asUserId('user:reader')
+    try {
+      const mine = svc.crud.panelChatUploadClaim(issue.id, { uploadId: upload.id, ownerUserId: owner })
+      await expect(
+        svc.crud.panelChatUploadClaim(issue.id, { uploadId: upload.id, ownerUserId: reader }),
+      ).rejects.toThrow('no longer available')
+      await mine
+      await expect(
+        svc.crud.panelChatUploadClaim(issue.id, { uploadId: upload.id, ownerUserId: reader }),
+      ).rejects.toThrow('no longer available')
+      const artifacts = (await svc.reports.get(issue.id))?.panel?.artifacts ?? []
+      expect(artifacts).toEqual([expect.objectContaining({ chatUploadOwner: owner })])
+      // The uploader's own replay is still the claim already made.
+      await svc.crud.panelChatUploadClaim(issue.id, { uploadId: upload.id, ownerUserId: owner })
+    } finally {
+      rmSync(base, { recursive: true, force: true })
+    }
+  })
+
   it('refuses someone else’s upload, an upload sent with another issue, and an unknown id', async () => {
     const { base, svc, issue, other, owner, upload } = await claimHarness()
     try {

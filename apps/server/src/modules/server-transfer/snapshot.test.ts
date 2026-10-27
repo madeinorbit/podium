@@ -61,6 +61,40 @@ describe('portable server snapshot', () => {
     expect(isSafeRelativePath(path)).toBe(false)
   })
 
+  it('carries held composer uploads, meta and bytes (POD-2148)', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'podium-pending-transfer-'))
+    roots.push(root)
+    const held = join(root, 'pending-uploads', '3f2b8c1e-9a4d-4e7f-8b21-0c5d6e7f8a9b')
+    await mkdir(join(held, 'file'), { recursive: true })
+    await writeFile(join(held, 'meta.json'), '{}')
+    await writeFile(join(held, 'file', 'shot.png'), 'PNG')
+    expect(isSafeRelativePath('pending-uploads/x/meta.json')).toBe(true)
+    const source = await openTestStore(join(root, 'podium.db'))
+    try {
+      const snapshot = await createPortableSnapshot({
+        stateRoot: root,
+        packageDir: join(root, '.server-transfer', 'snapshot'),
+        operationId: 'operation-pending',
+        transferId: 'transfer-pending',
+        sourceInstanceId: 'instance-source',
+        sourceMachineId: asMachineId('source'),
+        targetMachineId: asMachineId('target'),
+        sourceFeedId: 'feed',
+        sourceFeedEpoch: 'epoch',
+        sourceApplicationVersion: 'test',        sourceSchemaVersion: 'test',
+        checkpoint: () => source.checkpointForTransfer(),
+      })
+      expect(snapshot.files.map((file) => file.path)).toEqual(
+        expect.arrayContaining([
+          'pending-uploads/3f2b8c1e-9a4d-4e7f-8b21-0c5d6e7f8a9b/meta.json',
+          'pending-uploads/3f2b8c1e-9a4d-4e7f-8b21-0c5d6e7f8a9b/file/shot.png',
+        ]),
+      )
+    } finally {
+      await source.close()
+    }
+  })
+
   it('carries installation identities inside podium.db, never as separate files', () => {
     expect(isSafeRelativePath('installation.json')).toBe(false)
     expect(isSafeRelativePath('podium.db')).toBe(true)

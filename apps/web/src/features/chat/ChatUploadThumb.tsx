@@ -4,17 +4,8 @@ import type { JSX } from 'react'
 import { SentImageThumb } from './SendUserFileBlock'
 import { useChatItemAttachments, useChatUploadSrc } from './use-chat-context'
 
-const STAGED_NAME =
-  /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.[A-Za-z0-9]{1,8}$/i
-
-/** The attachment id a chat upload was staged under, read off its staged path
- *  (`…/uploads/<session>/<id>.<ext>`, the daemon's `uploadFilePath`). Undefined
- *  for any other path, so an agent's own files never resolve as uploads. */
-export function stagedAttachmentId(path: string): string | undefined {
-  const parts = path.split(/[\\/]/)
-  if (parts.length < 3 || parts[parts.length - 3] !== 'uploads') return undefined
-  return STAGED_NAME.exec(parts[parts.length - 1] ?? '')?.[1]?.toLowerCase()
-}
+// Shared with the phone app (POD-2148).
+export { stagedAttachmentId } from '@podium/client-core/values'
 
 /** A chat message's attached image. The issue's stored copy wins (POD-2148):
  *  the daemon's staged file is swept after 24h, the copy is not. Without a copy

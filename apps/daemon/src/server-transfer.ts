@@ -46,7 +46,8 @@ import type { ControlHandlers, DaemonContext } from './control/context'
 
 const TRANSFER_DIR = '.server-transfer'
 const MAX_TOTAL_BYTES = 512 * 1024 * 1024
-const PORTABLE_ROOTS = ['transcripts', 'artifacts', 'uploads'] as const
+// `pending-uploads`: composer files held until a send claims them (POD-2148).
+const PORTABLE_ROOTS = ['transcripts', 'artifacts', 'uploads', 'pending-uploads'] as const
 const PORTABLE_ROOT_FILES = ['podium.db'] as const
 
 type StageState = 'staging' | 'validated' | 'promoting' | 'promoted' | 'aborted' | 'uncertain'

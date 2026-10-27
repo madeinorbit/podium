@@ -195,6 +195,20 @@ export class IssueArtifactStore {
     return this.writeFence ? await this.writeFence.runWriter(write) : await write()
   }
 
+  /** Move an artifact dir out to `toDir` (the reverse of {@link adopt}): a
+   *  chat upload whose task failed to launch returns to pending (POD-2148).
+   *  Nothing to move, or a target already in place, is left as it is. */
+  async relinquish(o: { issueId: IssueId; artifactId: ArtifactId; toDir: string }): Promise<void> {
+    const write = async (): Promise<void> => {
+      const dir = this.artifactDir(o.issueId, o.artifactId)
+      if (!(await stat(dir).catch(() => undefined))) return
+      if (await stat(o.toDir).catch(() => undefined)) return
+      await mkdir(dirname(o.toDir), { recursive: true })
+      await rename(dir, o.toDir)
+    }
+    await (this.writeFence ? this.writeFence.runWriter(write) : write())
+  }
+
   private async uploadWritable(o: ArtifactUploadInput): Promise<ArtifactSnapshot> {
     if (
       !o.filename ||

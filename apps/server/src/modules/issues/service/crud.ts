@@ -419,6 +419,7 @@ export class IssueCrudModule {
           ...(op.sourcePaths ? { sourcePaths: op.sourcePaths } : {}),
           ...(op.sourceKind ? { sourceKind: op.sourceKind } : {}),
           ...(op.chatUploadId ? { chatUploadId: op.chatUploadId } : {}),
+          ...(op.chatUploadOwner ? { chatUploadOwner: op.chatUploadOwner } : {}),
         }
         const existing = panel.artifacts.findIndex((a) => a.path === op.path)
         if (existing >= 0) panel.artifacts[existing] = next
@@ -633,6 +634,9 @@ export class IssueCrudModule {
     issueId: IssueId,
     input: { uploadId: string; ownerUserId: UserId },
   ): Promise<void> {
+    // The uploader is checked before either shortcut (a claim already made, or
+    // one in flight), so a reader of a shared issue cannot reuse an id it sees.
+    await this.assertChatUploadOwner(issueId, input)
     const key = `${issueId}\0${input.uploadId}`
     const running = this.chatUploadClaims.get(key)
     if (running) return await running
@@ -647,17 +651,60 @@ export class IssueCrudModule {
    *  upload share a single move. */
   private readonly chatUploadClaims = new Map<string, Promise<void>>()
 
+  private async assertChatUploadOwner(
+    issueId: IssueId,
+    input: { uploadId: string; ownerUserId: UserId },
+  ): Promise<void> {
+    const row = await this.store.rowOrThrow(issueId)
+    const entry = this.store
+      .parsePanel(row)
+      .artifacts.find((a) => a.chatUploadId === input.uploadId)
+    const owner = entry
+      ? entry.chatUploadOwner
+      : (await this.store.deps.pendingUploads?.meta(input.uploadId))?.ownerUserId
+    if (owner !== input.ownerUserId) {
+      throw new IssueRefusal('this attachment is no longer available; attach the file again')
+    }
+  }
+
+  /**
+   * Undo this issue's claims when the task they were sent with failed to
+   * launch and its draft is about to be purged with its artifacts (POD-2148):
+   * each file moves back to pending and forgets the claim, so retrying the
+   * same refs claims it again. Best-effort per upload; a file already gone
+   * stays gone.
+   */
+  async panelChatUploadRelease(issueId: IssueId, uploadIds: readonly string[]): Promise<void> {
+    const pending = this.store.deps.pendingUploads
+    const store = this.store.deps.artifacts
+    if (!pending || !store?.relinquish) return
+    for (const uploadId of uploadIds) {
+      const meta = await pending.meta(uploadId)
+      if (meta?.claimed?.issueId !== issueId) continue
+      await store.relinquish({
+        issueId,
+        artifactId: meta.claimed.artifactId,
+        toDir: pending.fileDir(uploadId),
+      })
+      await pending.markUnclaimed(uploadId)
+    }
+  }
+
   private async claimChatUpload(
     issueId: IssueId,
     input: { uploadId: string; ownerUserId: UserId },
   ): Promise<void> {
     const row = await this.store.rowOrThrow(issueId)
-    if (this.store.parsePanel(row).artifacts.some((a) => a.chatUploadId === input.uploadId)) return
     const pending = this.store.deps.pendingUploads
     const store = this.store.deps.artifacts
+    const meta = await pending?.meta(input.uploadId)
+    // Claimed already — unless a failed launch handed the file back since.
+    const entry = this.store
+      .parsePanel(row)
+      .artifacts.some((a) => a.chatUploadId === input.uploadId)
+    if (entry && (!meta || meta.claimed?.issueId === issueId)) return
     if (!pending || !store?.adopt)
       throw new IssueRefusal('chat uploads are not stored on this server')
-    const meta = await pending.meta(input.uploadId)
     if (!meta || meta.ownerUserId !== input.ownerUserId) {
       throw new IssueRefusal('this attachment is no longer available; attach the file again')
     }
@@ -685,6 +732,7 @@ export class IssueCrudModule {
       entry: snap.entry,
       files: snap.files,
       chatUploadId: input.uploadId,
+      chatUploadOwner: input.ownerUserId,
     })
   }
 

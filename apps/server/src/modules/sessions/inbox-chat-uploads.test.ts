@@ -18,7 +18,12 @@ import type {
 } from '@podium/protocol/daemon'
 import { describe, expect, it, vi } from 'vitest'
 import { harnessDisplayName, harnessInterrupt } from '../../harness-manifest'
-import { type InboxPrincipalReference, type QueuedInboxMessage, SessionInbox } from './inbox'
+import {
+  chatUploadStageAnswer,
+  type InboxPrincipalReference,
+  type QueuedInboxMessage,
+  SessionInbox,
+} from './inbox'
 import type { Session } from './session'
 
 const SID = asSessionId('session-uploads')
@@ -231,5 +236,30 @@ describe('chat uploads are staged at delivery (POD-2148)', () => {
     expect(h.delivered).toEqual([
       expect.objectContaining({ turnId: 'msg-1', attachments: [stagedRef(held)] }),
     ])
+  })
+
+  it('a driver that refuses files for good fails the row; a refusal it may get over retries', async () => {
+    expect(chatUploadStageAnswer(held, { reason: 'unsupported', detail: 'no files for this agent' })).toEqual({
+      fail: 'no files for this agent',
+    })
+    for (const reason of ['not_running', 'staging_failed', 'busy'] as const) {
+      expect(chatUploadStageAnswer(held, { reason })).toEqual({ retry: reason })
+    }
+    expect(chatUploadStageAnswer(held, { ...stagedRef(held), id: 'minted-elsewhere' })).toMatchObject({
+      fail: expect.stringContaining('older Podium'),
+    })
+    expect(chatUploadStageAnswer(held, stagedRef(held))).toEqual({ ref: stagedRef(held) })
+
+    // And the row it fails leaves the queue moving.
+    const h = harness((attachment) =>
+      chatUploadStageAnswer(attachment, { reason: 'unsupported', detail: 'raw first turn' }),
+    )
+    await h.queue('msg-1', [held])
+    await h.queue('msg-2')
+    await flush()
+    await h.inbox.drain(SID)
+    await flush()
+    expect(h.rows.map((row) => row.id)).toEqual(['msg-2'])
+    expect(h.delivered.map((input) => input.turnId)).toEqual(['msg-2'])
   })
 })

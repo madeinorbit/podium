@@ -171,6 +171,8 @@ async function ctxFor(
     holdUpload: async (input) => await modules.pendingUploads.put(input),
     claimUpload: async (issueId, input) =>
       await modules.issues.crud.panelChatUploadClaim(issueId, input),
+    releaseUploads: async (issueId, uploadIds) =>
+      await modules.issues.crud.panelChatUploadRelease(issueId, uploadIds),
     isAgentDriven: async (sessionId) => modules.sessions.receiptSender.onContract(sessionId),
     // POD-729: the chat paths send through the `mail.send` CONTRACT, not through
     // the delivery service — the capability is closed over here, at the composition

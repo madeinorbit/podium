@@ -189,6 +189,9 @@ export interface SessionCommandDeps {
   }): Promise<{ id: string; filename: string; mediaType: string }>
   /** Claim a held upload into an issue; throws the refusal to show. */
   claimUpload(issueId: IssueId, input: { uploadId: string; ownerUserId: UserId }): Promise<void>
+  /** Return an unlaunched draft's claimed uploads to pending, so a retry of
+   *  the same create can claim them again. */
+  releaseUploads(issueId: IssueId, uploadIds: readonly string[]): Promise<void>
   /** True for agent sessions (agentKind !== 'shell'), which take the driver
    *  path; shells keep the raw transport. Taxonomy, not a flag — renamed
    *  POD-4440 from `runtimeContractActive`, which read as the deleted switch. */
@@ -713,7 +716,15 @@ export const SESSION_COMMAND_HANDLERS = {
         },
       })
     } catch (error) {
-      if (createdDraftId) await ctx.deps.discardUnlaunchedDraft(createdDraftId)
+      if (createdDraftId) {
+        // The purge deletes the draft's stored files, so its uploads go back
+        // to pending first; a retry with the same refs claims them again. If
+        // the draft is kept after all (its session registered), they rejoin it.
+        const held = attachments?.filter((a) => a.path === undefined).map((a) => a.id) ?? []
+        if (held.length) await ctx.deps.releaseUploads(createdDraftId, held)
+        const discarded = await ctx.deps.discardUnlaunchedDraft(createdDraftId)
+        if (!discarded && held.length) await claimHeldUploads(ctx, createdDraftId, attachments)
+      }
       throw error
     }
   },

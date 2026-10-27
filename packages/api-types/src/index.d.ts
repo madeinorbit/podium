@@ -2997,6 +2997,7 @@ type Output_issues_action = {
                 addedAt: string;
                 artifactId?: (string & z.BRAND<"ArtifactId">) | undefined;
                 chatUploadId?: string | undefined;
+                chatUploadOwner?: string | undefined;
                 entry?: string | undefined;
                 files?: undefined | {
                     path: string;
@@ -3136,6 +3137,7 @@ type Output_issues_action = {
                 addedAt: string;
                 artifactId?: (string & z.BRAND<"ArtifactId">) | undefined;
                 chatUploadId?: string | undefined;
+                chatUploadOwner?: string | undefined;
                 entry?: string | undefined;
                 files?: undefined | {
                     path: string;
@@ -3301,6 +3303,7 @@ type Output_issues_addComment = _podium_model.IssueUserOverlay & Omit<{
             addedAt: string;
             artifactId?: (string & z.BRAND<"ArtifactId">) | undefined;
             chatUploadId?: string | undefined;
+            chatUploadOwner?: string | undefined;
             entry?: string | undefined;
             files?: undefined | {
                 path: string;
@@ -3440,6 +3443,7 @@ type Output_issues_addComment = _podium_model.IssueUserOverlay & Omit<{
             addedAt: string;
             artifactId?: (string & z.BRAND<"ArtifactId">) | undefined;
             chatUploadId?: string | undefined;
+            chatUploadOwner?: string | undefined;
             entry?: string | undefined;
             files?: undefined | {
                 path: string;
@@ -3604,6 +3608,7 @@ type Output_issues_answerQuestion = {
                 addedAt: string;
                 artifactId?: (string & z.BRAND<"ArtifactId">) | undefined;
                 chatUploadId?: string | undefined;
+                chatUploadOwner?: string | undefined;
                 entry?: string | undefined;
                 files?: undefined | {
                     path: string;
@@ -3743,6 +3748,7 @@ type Output_issues_answerQuestion = {
                 addedAt: string;
                 artifactId?: (string & z.BRAND<"ArtifactId">) | undefined;
                 chatUploadId?: string | undefined;
+                chatUploadOwner?: string | undefined;
                 entry?: string | undefined;
                 files?: undefined | {
                     path: string;
@@ -3967,6 +3973,7 @@ type Output_issues_create = (_podium_model.IssueUserOverlay & Omit<{
             addedAt: string;
             artifactId?: (string & z.BRAND<"ArtifactId">) | undefined;
             chatUploadId?: string | undefined;
+            chatUploadOwner?: string | undefined;
             entry?: string | undefined;
             files?: undefined | {
                 path: string;
@@ -4107,6 +4114,7 @@ type Output_issues_create = (_podium_model.IssueUserOverlay & Omit<{
             addedAt: string;
             artifactId?: (string & z.BRAND<"ArtifactId">) | undefined;
             chatUploadId?: string | undefined;
+            chatUploadOwner?: string | undefined;
             entry?: string | undefined;
             files?: undefined | {
                 path: string;
@@ -4269,6 +4277,7 @@ type Output_issues_create = (_podium_model.IssueUserOverlay & Omit<{
             addedAt: string;
             artifactId?: (string & z.BRAND<"ArtifactId">) | undefined;
             chatUploadId?: string | undefined;
+            chatUploadOwner?: string | undefined;
             entry?: string | undefined;
             files?: undefined | {
                 path: string;
@@ -4408,6 +4417,7 @@ type Output_issues_create = (_podium_model.IssueUserOverlay & Omit<{
             addedAt: string;
             artifactId?: (string & z.BRAND<"ArtifactId">) | undefined;
             chatUploadId?: string | undefined;
+            chatUploadOwner?: string | undefined;
             entry?: string | undefined;
             files?: undefined | {
                 path: string;
@@ -4524,6 +4534,7 @@ type Output_issues_get = (null) | ({
             addedAt: string;
             artifactId?: (string & z.BRAND<"ArtifactId">) | undefined;
             chatUploadId?: string | undefined;
+            chatUploadOwner?: string | undefined;
             entry?: string | undefined;
             files?: undefined | {
                 path: string;
@@ -4986,6 +4997,7 @@ type Output_issues_searchNormalized = Array<{
             addedAt: string;
             artifactId?: (string & z.BRAND<"ArtifactId">) | undefined;
             chatUploadId?: string | undefined;
+            chatUploadOwner?: string | undefined;
             entry?: string | undefined;
             files?: undefined | {
                 path: string;
@@ -5244,6 +5256,7 @@ type Output_issues_start = _podium_model.IssueUserOverlay & Omit<Partial<{
             addedAt: string;
             artifactId?: (string & z.BRAND<"ArtifactId">) | undefined;
             chatUploadId?: string | undefined;
+            chatUploadOwner?: string | undefined;
             entry?: string | undefined;
             files?: undefined | {
                 path: string;
@@ -5383,6 +5396,7 @@ type Output_issues_start = _podium_model.IssueUserOverlay & Omit<Partial<{
             addedAt: string;
             artifactId?: (string & z.BRAND<"ArtifactId">) | undefined;
             chatUploadId?: string | undefined;
+            chatUploadOwner?: string | undefined;
             entry?: string | undefined;
             files?: undefined | {
                 path: string;

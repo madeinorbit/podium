@@ -134,6 +134,30 @@ const EXACT_HISTORY_IDS: ReadonlySet<string> = new Set([
   'claude-uuid', 'codex-client-message', 'grok-prompt', 'opencode-message', 'opencode-part',
 ])
 
+/**
+ * WHAT A STAGING ANSWER MEANS FOR THE ROW (POD-2148). A refusal the machine
+ * may get over (not running yet, no answer, a write error) leaves the row
+ * queued for the next pass. `unsupported` never changes for this session —
+ * the agent cannot take files at all, or a driver refuses them for good — and
+ * a daemon that staged under an id of its own predates caller-chosen ids:
+ * both fail the row, so the messages behind it still arrive.
+ */
+export function chatUploadStageAnswer(
+  attachment: RuntimeAttachmentRef,
+  staged: StagedAttachmentRef | Refusal,
+): { ref: StagedAttachmentRef } | { retry: string } | { fail: string } {
+  if ('reason' in staged) {
+    const detail = staged.detail ?? staged.reason
+    return staged.reason === 'unsupported' ? { fail: detail } : { retry: detail }
+  }
+  if (staged.id !== attachment.id) {
+    return {
+      fail: "the agent's machine runs an older Podium that cannot take this attachment; update it and send the file again",
+    }
+  }
+  return { ref: staged }
+}
+
 /** A ref already staged on the agent's machine; a chat upload held on the
  *  server has no path until a forward stages it (POD-2148). */
 function isStaged(attachment: RuntimeAttachmentRef): attachment is StagedAttachmentRef {

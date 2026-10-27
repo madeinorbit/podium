@@ -17,7 +17,8 @@ import { fsyncPathAsync } from '@podium/runtime/fsync'
  * unlike machine credentials and runtime files. Neither is a generic file RPC.
  */
 const ROOT_FILES = ['podium.db'] as const
-const ROOT_DIRECTORIES = ['transcripts', 'artifacts', 'uploads'] as const
+// `pending-uploads`: composer files held until a send claims them (POD-2148).
+const ROOT_DIRECTORIES = ['transcripts', 'artifacts', 'uploads', 'pending-uploads'] as const
 export const MAX_TRANSFER_BYTES = 512 * 1024 * 1024
 export const TRANSFER_SPACE_MARGIN_BYTES = 64 * 1024 * 1024
 

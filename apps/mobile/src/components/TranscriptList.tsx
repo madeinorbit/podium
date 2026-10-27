@@ -114,7 +114,7 @@ export interface PendingTurn {
   text: string
   /** Files uploaded with this turn, so the bubble shows the screenshot the
    *  operator just attached instead of a bare filename in the text. */
-  files?: readonly { path: string; previewUri: string; name: string; attachmentId?: string }[]
+  files?: readonly { path: string; previewUri?: string; name?: string; attachmentId?: string }[]
   /** Set when the send itself was REJECTED (POD-346). A rejected turn that
    *  keeps saying "sending…" is the worst possible outcome — the phone reads as
    *  broken and the words are lost. The row goes red, names the reason, and
@@ -633,7 +633,7 @@ const TranscriptFeedRow = memo(
               style={[styles.userCard, failed ? styles.userCardFailed : styles.userCardPending]}
             >
               <MessageText text={row.pendingText} style={styles.userText} onRefPress={onRefPress} />
-              <PendingFiles files={turn.files ?? []} />
+              <PendingFiles files={turn.files ?? []} context={assetContext} />
               {failed ? (
                 <>
                   <Text style={styles.pendingError}>{failed}</Text>

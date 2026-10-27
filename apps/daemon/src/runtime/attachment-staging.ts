@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { realpathSync, statSync } from 'node:fs'
-import { mkdir, writeFile } from 'node:fs/promises'
+import { mkdir, rename, rm, writeFile } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, join, relative, sep } from 'node:path'
 import {
   type AttachmentRef,
@@ -27,7 +27,16 @@ export async function writeRuntimeAttachment(
   const id = source.id ?? randomUUID()
   const path = uploadFilePath(root, sessionId, id, source.mediaType, source.filename)
   await mkdir(dirname(path), { recursive: true, mode: 0o700 })
-  await writeFile(path, source.bytes, { mode: 0o600 })
+  // Written beside it and renamed over it: staging the same upload again
+  // replaces the file whole, never truncating one an earlier turn is reading.
+  const temp = `${path}.${randomUUID()}.tmp`
+  try {
+    await writeFile(temp, source.bytes, { mode: 0o600 })
+    await rename(temp, path)
+  } catch (error) {
+    await rm(temp, { force: true }).catch(() => {})
+    throw error
+  }
 
   const filename = source.filename.split(/[/\\]/).filter(Boolean).pop() ?? 'attachment'
   const ref: AttachmentRef = {

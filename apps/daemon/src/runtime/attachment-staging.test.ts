@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises'
+import { mkdtemp, open, readdir, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { asSessionId } from '@podium/model'
@@ -48,7 +48,15 @@ describe('runtime attachment staging', () => {
         source: { bytes, filename: 'shot.png', mediaType: 'image/png', id },
       })
     const first = await stage(new Uint8Array([1]))
+    // A reader of the first staging keeps its bytes when the file is restaged.
+    const reader = await open(first.path, 'r')
     const again = await stage(new Uint8Array([2]))
+    const kept = Buffer.alloc(1)
+    await reader.read(kept, 0, 1, 0)
+    await reader.close()
+    expect([...kept]).toEqual([1])
+    expect(await readdir(join(root, 'uploads', 'session-id'))).toEqual([`${id}.png`])
+    expect((await stat(again.path)).mode & 0o777).toBe(0o600)
     expect(first).toMatchObject({ id, path: join(root, 'uploads', 'session-id', `${id}.png`) })
     expect(again.path).toBe(first.path)
     expect(new Uint8Array(await readFile(again.path))).toEqual(new Uint8Array([2]))
