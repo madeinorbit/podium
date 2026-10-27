@@ -14,7 +14,7 @@ import {
   type ReplicaRows,
   rowKey,
 } from '@podium/client-core/replica'
-import { reposToViews, reposVisibleOnMachines } from '@podium/client-core/values'
+import { reposToViews } from '@podium/client-core/values'
 import type { EntityRecord } from '@podium/sync/replica'
 import { act, cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
@@ -237,7 +237,7 @@ describe('mobile pool-only worklist regressions', () => {
     storeStats.reset()
     storeStats.enable()
     const corpus = buildCorpus(1)
-    const projects = reposToViews(reposVisibleOnMachines(corpus.repos, corpus.machines))
+    const projects = reposToViews(corpus.repos)
     corpus.pins = {
       panels: [],
       repos: [projects.at(-1)!.path, projects[0]!.path],

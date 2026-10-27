@@ -4,7 +4,6 @@ import type { IssueViewModel } from '../values/issue-type'
 import type { SessionView } from '../session-values'
 import {
   indexSessionOwnership,
-  issueIdOwningSession,
   type ReferentExit,
   referentSettled,
   resolveReferent,
@@ -162,12 +161,9 @@ describe('eviction leaves the ownership derivations clean', () => {
   })
 
   it('a session whose OWNING ISSUE was evicted resolves to not-visible, not orphaned', () => {
-    // The session is visible; its issue is not. Today this is indistinguishable
-    // from "no owner" — issueIdOwningSession returns null for both.
+    // The session is visible; its issue is not. resolveReferent tells that
+    // apart from a session with no owner.
     const orphan = session('s-9', { issueId: asIssueId('i-invisible') })
-    expect(issueIdOwningSession(asSessionId('s-9'), [orphan], issues, worktrees)).toBeNull()
-
-    // resolveReferent is what recovers the distinction for the consumer.
     const byId = new Map(issues.map((i) => [String(i.id), i]))
     const invisible = resolveReferent(
       orphan.issueId as unknown as string,

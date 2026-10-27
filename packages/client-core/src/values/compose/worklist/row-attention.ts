@@ -188,31 +188,6 @@ function pendingDecisionStats(row: UnifiedIssueRow): {
   return { count, decidingSessions, ...(sinceMs !== undefined ? { sinceMs } : {}) }
 }
 
-/** The deepest descendant row whose OWN sessions include one waiting on the
- *  human — the source the parent's sub-line whispers when depth would otherwise
- *  hide a request ('deep: POD-224 needs you', POD-100 L3). Depth is relative to
- *  `row` (1 = direct child). Null when no descendant is waiting. */
-export function deepAttentionSource(
-  row: UnifiedIssueRow,
-): { issue: IssueNavigationModel; depth: number; kind: 'session' | IssuePendingDecision } | null {
-  let best: { issue: IssueNavigationModel; depth: number; kind: 'session' | IssuePendingDecision } | null =
-    null
-  const stack: Array<{ row: UnifiedIssueRow; depth: number }> = [{ row, depth: 0 }]
-  while (stack.length > 0) {
-    const { row: r, depth } = stack.shift() as { row: UnifiedIssueRow; depth: number }
-    const kind =
-      rowPendingDecision(r) ??
-      (r.sessions.some((s) => motionPhase(s, r.issue) === 'waiting') ? 'session' : null)
-    if (depth > 0 && kind !== null) {
-      // Breadth-first + `>=` keeps the LAST deepest hit, so ties resolve to the
-      // later sibling deterministically; any deepest source serves the whisper.
-      if (best === null || depth >= best.depth) best = { issue: r.issue, depth, kind }
-    }
-    for (const child of r.startedByChildren ?? []) stack.push({ row: child, depth: depth + 1 })
-  }
-  return best
-}
-
 /**
  * AN AGENT ON THIS ROW STOPPED ON AN ERROR — the words, or null (POD-1601).
  *

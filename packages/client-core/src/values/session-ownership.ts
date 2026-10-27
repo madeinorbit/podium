@@ -23,10 +23,8 @@ import {
   type IssueId,
   isHeadlessSession,
   isMachinePathWithinRoot,
-  type SessionId,
   worktreeForCwdIndexed,
 } from '@podium/model'
-import { sessionById } from '../session-index'
 import type { SessionView } from '../session-values'
 import type { IssueViewModel } from '../values/issue-type'
 
@@ -366,52 +364,3 @@ export function archivedSessionsForWorktreePath(
   )
 }
 
-/**
- * Resolve which issue (among `issues`) owns `sessionId`: explicit `issueId`
- * first, else cwd containment via {@link sessionsForIssueNav}. Null when the
- * session or its issue is not in the given sets (sidebar fallback: top-level).
- *
- * Null here means "not resolvable from what you can see", which under scoping
- * includes "the owning issue is not visible to you". Callers that must tell that
- * apart from "no owner" use {@link resolveReferent} on the session's `issueId`.
- */
-export function issueIdOwningSession(
-  sessionId: SessionId,
-  sessions: readonly SessionView[],
-  issues: readonly Pick<IssueViewModel, 'id' | 'worktreePath' | 'archived' | 'deletedAt'>[],
-  allWorktreePaths: string[],
-  ownership?: SessionOwnershipIndex,
-): IssueId | null {
-  if (ownership) {
-    const indexed = ownership.sessionById.get(sessionId)
-    if (!indexed) return null
-    if (indexed.issueId !== undefined) {
-      return issues.some(
-        (issue) => issue.id === indexed.issueId && !issue.archived && !issue.deletedAt,
-      )
-        ? indexed.issueId
-        : null
-    }
-    for (const issue of issues) {
-      if (issue.archived || issue.deletedAt) continue
-      if (
-        ownership.sessionsByIssue.get(issue.id)?.some((member) => member.sessionId === sessionId)
-      ) {
-        return issue.id
-      }
-    }
-    return null
-  }
-  const session = sessionById(sessions).get(sessionId)
-  if (!session || session.archived || isHeadlessSession(session)) return null
-  if (session.issueId !== undefined) {
-    return issues.some((i) => i.id === session.issueId && !i.archived && !i.deletedAt)
-      ? session.issueId
-      : null
-  }
-  for (const issue of issues) {
-    if (issue.archived || issue.deletedAt) continue
-    if (sessionsForIssueNav(issue, [session], allWorktreePaths).length > 0) return issue.id
-  }
-  return null
-}
