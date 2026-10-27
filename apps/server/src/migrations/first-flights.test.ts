@@ -5,8 +5,10 @@ import { runDrizzleMigrations } from './index'
 
 const index = DRIZZLE_MIGRATIONS.findIndex((m) => m.name.endsWith('_first-flights-seen-state'))
 const through = DRIZZLE_MIGRATIONS.slice(0, index + 1)
+const migrationName = DRIZZLE_MIGRATIONS[index]?.name
+if (!migrationName) throw new Error('First Flights migration is missing')
 
-it('logs all seven moments for pre-rollout accounts, preserves rows, and leaves new accounts eligible', () => {
+it('logs all seven moments for every account present at upgrade, preserves rows, and leaves new accounts eligible', () => {
   expect(index).toBeGreaterThan(0)
   const db = openDatabase(':memory:')
   try {
@@ -15,7 +17,8 @@ it('logs all seven moments for pre-rollout accounts, preserves rows, and leaves 
       'INSERT INTO users (id, display_name, role, created_at) VALUES (?, ?, ?, ?)',
     )
     add.run('existing', 'Existing', 'member', '2026-10-26T00:00:00Z')
-    add.run('new', 'New', 'member', '2026-10-27T17:00:00Z')
+    // Even an account created months after development but before upgrade is seeded.
+    add.run('recent', 'Recent', 'member', '2027-02-01T00:00:00Z')
     db.prepare('INSERT INTO user_layout (user_id, key, value, updated_at) VALUES (?, ?, ?, ?)').run(
       'existing',
       'tips.seen.first-prompt',
@@ -42,9 +45,13 @@ it('logs all seven moments for pre-rollout accounts, preserves rows, and leaves 
       JSON.parse(rows('existing').find((r) => r.key === 'tips.enabled')?.value ?? 'null'),
     ).toBe('false')
     expect(rows('existing').filter((r) => r.key.startsWith('tips.seen.'))).toHaveLength(7)
-    expect(rows('new')).toEqual([])
+    expect(rows('recent')).toHaveLength(7)
+    for (const row of rows('recent')) {
+      const time = JSON.parse(row.value)
+      expect(new Date(time).toISOString()).toBe(time)
+    }
     // New member on this established server, even after subsequent boots.
-    add.run('later', 'Later', 'member', '2026-10-28T00:00:00Z')
+    add.run('later', 'Later', 'member', '2027-02-02T00:00:00Z')
     runDrizzleMigrations(db, through)
     expect(rows('later')).toEqual([])
   } finally {
@@ -56,7 +63,33 @@ it('a fresh install leaves its generated first admin eligible', () => {
   const db = openDatabase(':memory:')
   try {
     runDrizzleMigrations(db, through)
+    // The historical first-admin migration creates an account during the batch.
+    expect(db.prepare('SELECT id FROM users').all()).toHaveLength(1)
     expect(db.prepare("SELECT * FROM user_layout WHERE key LIKE 'tips.seen.%'").all()).toEqual([])
+    runDrizzleMigrations(db, through)
+    expect(db.prepare("SELECT * FROM user_layout WHERE key LIKE 'tips.seen.%'").all()).toEqual([])
+  } finally {
+    db.close()
+  }
+})
+
+it('commits the seen-state backfill and its receipt together', () => {
+  const db = openDatabase(':memory:')
+  try {
+    runDrizzleMigrations(db, DRIZZLE_MIGRATIONS.slice(0, index))
+    const broken = [
+      ...through,
+      { name: '20990101000000_failed-upgrade', sql: 'INSERT INTO missing_table VALUES (1)' },
+    ]
+    expect(() => runDrizzleMigrations(db, broken)).toThrow()
+    expect(db.prepare("SELECT * FROM user_layout WHERE key LIKE 'tips.seen.%'").all()).toEqual([])
+    expect(
+      db.prepare('SELECT * FROM __drizzle_migrations WHERE name = ?').all(migrationName),
+    ).toEqual([])
+    runDrizzleMigrations(db, through)
+    expect(db.prepare("SELECT * FROM user_layout WHERE key LIKE 'tips.seen.%'").all()).toHaveLength(
+      7,
+    )
   } finally {
     db.close()
   }
