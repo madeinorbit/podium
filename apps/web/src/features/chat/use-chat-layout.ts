@@ -116,7 +116,7 @@ export function useChatLayout(opts: UseChatLayoutOptions): ChatSurface {
   const submitDraft = useCallback((draft: string) => {
     const text = draft.trim()
     const { paths, legacyPaths, refs, tags } = attachments.ready()
-    if ((!text && paths.length === 0) || attachments.uploading) return
+    if ((!text && paths.length === 0 && refs.length === 0) || attachments.uploading) return
     conversation.rememberPrompt(text)
     view.captureContext()
     attachments.clearReady()

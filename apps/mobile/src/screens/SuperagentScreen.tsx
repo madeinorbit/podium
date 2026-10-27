@@ -165,11 +165,14 @@ export const SuperagentScreen = observer(function SuperagentScreen() {
         text: trimmed,
         backend: superagentTurnChoice(backend),
         wire: buildImagePrompt(
-          attached.map((file) => file.path),
+          attached.flatMap((file) => (file.path ? [file.path] : [])),
           trimmed,
         ),
         ...(attached.length
-          ? { files: attached, toolPaths: attached.map((file) => file.path) }
+          ? {
+              files: attached.map((file) => ({ ...file, path: file.path ?? file.name })),
+              toolPaths: attached.flatMap((file) => (file.path ? [file.path] : [])),
+            }
           : {}),
       })
     },

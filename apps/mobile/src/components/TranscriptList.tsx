@@ -114,7 +114,7 @@ export interface PendingTurn {
   text: string
   /** Files uploaded with this turn, so the bubble shows the screenshot the
    *  operator just attached instead of a bare filename in the text. */
-  files?: readonly { path: string; previewUri: string; name: string }[]
+  files?: readonly { path: string; previewUri: string; name: string; attachmentId?: string }[]
   /** Set when the send itself was REJECTED (POD-346). A rejected turn that
    *  keeps saying "sending…" is the worst possible outcome — the phone reads as
    *  broken and the words are lost. The row goes red, names the reason, and
@@ -1140,8 +1140,11 @@ export const TranscriptList = observer(function TranscriptList({
           id: turn.id,
           role: 'user',
           text: turn.text,
-          ...(turn.files && turn.files.length > 0
-            ? { toolPaths: turn.files.map((file) => file.path) }
+          // A held upload (POD-2148) names its file, not a path on the machine.
+          ...(turn.files?.some((file) => !file.attachmentId)
+            ? {
+                toolPaths: turn.files.flatMap((file) => (file.attachmentId ? [] : [file.path])),
+              }
             : {}),
         } as TranscriptItem,
         blockIndices: [],

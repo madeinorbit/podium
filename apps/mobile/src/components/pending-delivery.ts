@@ -10,7 +10,6 @@
 import type { ConversationBubble } from '@podium/client-core/conversation'
 import { MESSAGE_ACCEPTED_LINE } from '@podium/model'
 import type { PendingTurn } from './TranscriptList'
-import type { SentAttachment } from './useComposerAttachments'
 
 export type LocalPendingTurn = PendingTurn & { wire: string }
 
@@ -20,7 +19,7 @@ export function pendingTurnOf(bubble: ConversationBubble): LocalPendingTurn {
     id: bubble.id,
     text: bubble.text,
     wire: bubble.wire,
-    ...(bubble.files ? { files: bubble.files as readonly SentAttachment[] } : {}),
+    ...(bubble.files ? { files: bubble.files as NonNullable<PendingTurn['files']> } : {}),
     ...(bubble.state === 'failed'
       ? { failed: bubble.error ?? (bubble.notice ? 'not delivered' : 'not sent') }
       : {}),

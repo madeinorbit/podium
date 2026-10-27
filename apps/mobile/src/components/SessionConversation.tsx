@@ -301,7 +301,12 @@ export function SessionConversation(
               : chatSendTransport(composer)
             if (transport.kind === 'refused') throw new Error(transport.reason)
             return await owner.access.sendChat(
-              { sessionId, text: turn.wire, wake: transport.wake },
+              {
+                sessionId,
+                text: turn.wire,
+                wake: transport.wake,
+                ...(turn.attachments?.length ? { attachments: turn.attachments } : {}),
+              },
               asMutationId(turn.deliveryId),
             )
           } catch (error) {
@@ -461,16 +466,27 @@ const SessionConversationBody = observer(function SessionConversationBody({
       const trimmed = text.trim()
       const attached = files ?? []
       if (!trimmed && attached.length === 0) return
-      const wire =
-        attached.length > 0
-          ? `${attached.map((file) => file.path).join('\n')}\n${trimmed}`
-          : trimmed
+      // A file already on the agent's machine (a shell's) rides as its path; a
+      // held upload rides as its ref, which the server stages at delivery
+      // (POD-2148). Its bubble names the file by name and upload id, as the
+      // server's record of the message will.
+      const paths = attached.flatMap((file) => (file.path ? [file.path] : []))
+      const refs = attached.flatMap((file) => (!file.path && file.ref ? [file.ref] : []))
+      const wire = paths.length > 0 ? `${paths.join('\n')}\n${trimmed}` : trimmed
       void conversation.submit({
         text: trimmed,
         wire,
         ...(attached.length > 0
-          ? { files: attached, toolPaths: attached.map((file) => file.path) }
+          ? {
+              files: attached.map((file) => ({
+                ...file,
+                path: file.path ?? file.name,
+                ...(!file.path && file.ref ? { attachmentId: file.ref.id, kind: file.ref.kind } : {}),
+              })),
+            }
           : {}),
+        ...(paths.length > 0 ? { toolPaths: paths } : {}),
+        ...(refs.length > 0 ? { attachments: refs } : {}),
       })
     },
     [conversation],

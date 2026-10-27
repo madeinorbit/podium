@@ -1,6 +1,7 @@
 import type { DraftIssueArtifactInput } from '@podium/commands'
 import type { AgentKind, IssueId, MachineId, MutationId, RepoId, SessionId } from '@podium/model'
 import type { HarnessDescriptorWire } from '@podium/protocol'
+import type { RuntimeAttachmentRef } from '@podium/protocol/daemon'
 import type { PodiumClientApi } from './api'
 
 /** Where a new agent lands: a worktree path + its owning repo (+ machine). */
@@ -24,6 +25,8 @@ type DraftSpawnReservation =
  *  a mutation receipt with freshly-minted entity ids cannot reconcile. */
 export type SpawnDraftAgentArgs = DraftSpawnReservation & {
   draftArtifacts?: DraftIssueArtifactInput[]
+  /** Files uploaded for this task and held on the server (POD-2148). */
+  attachments?: RuntimeAttachmentRef[]
   target: SpawnTarget
   agentKind: AgentKind
   firstPrompt?: string
@@ -91,6 +94,7 @@ export async function createDraftAgent(args: {
   issueId: IssueId
   mutationId?: MutationId
   draftArtifacts?: DraftIssueArtifactInput[]
+  attachments?: RuntimeAttachmentRef[]
   target: SpawnTarget
   agentKind: AgentKind
   firstPrompt?: string
@@ -109,6 +113,7 @@ export async function createDraftAgent(args: {
     cwd: args.target.path,
     draftIssue: { repoPath: args.target.repoPath, issueId: args.issueId },
     ...(args.draftArtifacts?.length ? { draftArtifacts: args.draftArtifacts } : {}),
+    ...(args.attachments?.length ? { attachments: args.attachments } : {}),
     ...(args.target.machineId ? { machineId: args.target.machineId } : {}),
     ...(text ? { initialPrompt: text } : {}),
     ...(args.model ? { model: args.model } : {}),

@@ -171,6 +171,8 @@ export interface PodiumClientApi {
         issueId?: IssueId
         draftIssue?: { repoPath: string; issueId?: IssueId }
         draftArtifacts?: DraftIssueArtifactInput[]
+        /** Held uploads the create claims into the task's issue (POD-2148). */
+        attachments?: RuntimeAttachmentRef[]
         machineId?: MachineId
         /** First prompt; SessionStart launches argv prompts and queues other harnesses durably. */
         initialPrompt?: string
@@ -203,7 +205,9 @@ export interface PodiumClientApi {
     sendText: ApiMutation<
       WithMutationId<{ sessionId: SessionId; text: string; attachments?: RuntimeAttachmentRef[] }>
     >
-    resumeAndSend: ApiMutation<WithMutationId<{ sessionId: SessionId; text: string }>>
+    resumeAndSend: ApiMutation<
+      WithMutationId<{ sessionId: SessionId; text: string; attachments?: RuntimeAttachmentRef[] }>
+    >
     rename: ApiMutation<WithMutationId<{ sessionId: SessionId; name: string }>>
     setArchived: ApiMutation<WithMutationId<{ sessionId: SessionId; archived: boolean }>>
     setWorkState: ApiMutation<WithMutationId<{ sessionId: SessionId; workState: WorkState | null }>>

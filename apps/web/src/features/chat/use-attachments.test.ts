@@ -85,24 +85,42 @@ describe('useAttachments drag cursor (POD-1595 review)', () => {
 })
 
 describe('useAttachments', () => {
-  it('keeps new-issue bytes in memory instead of writing a daemon upload', async () => {
+  it('holds a new task’s file on the server and readies its pathless ref (POD-2148)', async () => {
+    const ref = { id: 'up-1', filename: 'shot.png', mediaType: 'image/png', kind: 'image' as const }
+    mutate.mockImplementationOnce(async () => ({ path: '', attachment: ref }))
     const { result } = renderHook(() => useAttachments({ sessionId, trpc, destination: 'issue' }))
 
     await act(async () => {
       await result.current.processFiles([new File(['PNG'], 'shot.png', { type: 'image/png' })])
     })
 
-    expect(mutate).not.toHaveBeenCalled()
-    expect(result.current.ready()).toMatchObject({
+    expect(mutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId,
+        filename: 'shot.png',
+        dataBase64: 'UE5H',
+        pending: true,
+      }),
+    )
+    expect(result.current.ready()).toEqual({
       paths: [],
-      draftArtifacts: [
-        expect.objectContaining({
-          filename: 'shot.png',
-          mimeType: 'image/png',
-          dataBase64: 'UE5H',
-        }),
-      ],
+      legacyPaths: [],
+      refs: [ref],
+      tags: [{ kind: 'image', label: 'shot.png' }],
     })
+  })
+
+  it('readies an agent session’s held ref with no path to prefix (POD-2148)', async () => {
+    const ref = { id: 'up-2', filename: 'shot.png', mediaType: 'image/png', kind: 'image' as const }
+    mutate.mockImplementationOnce(async () => ({ path: '', attachment: ref }))
+    const { result } = renderHook(() => useAttachments({ sessionId, trpc }))
+
+    await act(async () => {
+      await result.current.processFiles([new File(['PNG'], 'shot.png', { type: 'image/png' })])
+    })
+
+    expect(mutate).toHaveBeenCalledWith(expect.not.objectContaining({ pending: true }))
+    expect(result.current.ready()).toMatchObject({ paths: [], legacyPaths: [], refs: [ref] })
   })
 
   it('takes a document, not only an image', async () => {

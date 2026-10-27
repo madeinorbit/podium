@@ -69,7 +69,9 @@ export type OutboxKinds = {
    * sends are two sends.
    */
   sendText: { sessionId: SessionId; text: string; attachments?: RuntimeAttachmentRef[] }
-  resumeAndSend: { sessionId: SessionId; text: string }
+  /** Attachments ride a wake too: the server holds the files and stages them
+   *  when the woken agent is handed the message (POD-2148). */
+  resumeAndSend: { sessionId: SessionId; text: string; attachments?: RuntimeAttachmentRef[] }
   rename: { sessionId: SessionId; name: string }
   setArchived: { sessionId: SessionId; archived: boolean }
   setWorkState: { sessionId: SessionId; workState: WorkState | null }

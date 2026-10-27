@@ -104,10 +104,16 @@ function payloadOf(input: ChatSendInput): {
   payload: OutboxKinds['sendText'] | OutboxKinds['resumeAndSend']
 } {
   if (input.wake) {
-    if (input.attachments?.length) {
-      throw new Error('file attachments require a live agent session')
+    // A parked agent takes files too (POD-2148): the server holds them and
+    // stages them on its machine once the woken agent is handed the message.
+    return {
+      kind: 'resumeAndSend',
+      payload: {
+        sessionId: input.sessionId,
+        text: input.text,
+        ...(input.attachments?.length ? { attachments: [...input.attachments] } : {}),
+      },
     }
-    return { kind: 'resumeAndSend', payload: { sessionId: input.sessionId, text: input.text } }
   }
   return {
     kind: 'sendText',

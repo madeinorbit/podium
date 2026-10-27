@@ -538,9 +538,9 @@ export function ColdStartComposer({
     })
   }, [authorized, selectedMachine])
 
-  /** The home composer has no issue yet. Keep picked bytes in browser memory;
-   *  `sessions.create` snapshots them onto the new draft before its agent runs.
-   *  Existing-session chat keeps using daemon workspace uploads. */
+  /** The home composer has no issue yet. Picked files are held on the server
+   *  (POD-2148); `sessions.create` claims them into the new draft, and its
+   *  first prompt hands them to the agent like any chat message. */
   const [uploadScope] = useState(() => asSessionId(`coldstart-${randomUUID()}`))
   const attachments = useAttachments({
     sessionId: uploadScope,
@@ -774,7 +774,7 @@ export function ColdStartComposer({
       const readyAttachments = attachments.ready()
       const attachmentPaths =
         draft.attachmentPaths.length > 0 ? draft.attachmentPaths : readyAttachments.paths
-      const draftArtifacts = readyAttachments.draftArtifacts
+      const uploaded = readyAttachments.refs
       const brief = attachmentBrief(attachmentPaths)
       // Drafts left by the old two-mutation path may already have a durable issue.
       // Finish those in place; every new launch uses the single optimistic path.
@@ -898,7 +898,7 @@ export function ColdStartComposer({
       setDraft(launchDraft)
       const started = spawnDraftAgent({
         ...retryCreate,
-        ...(draftArtifacts.length ? { draftArtifacts } : {}),
+        ...(uploaded.length ? { attachments: uploaded } : {}),
         target: {
           path: selectedCheckout.path,
           repoPath: selectedCheckout.path,

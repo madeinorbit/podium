@@ -157,6 +157,18 @@ afterEach(() => {
     outcome: Promise.resolve<'started' | 'issue-only' | 'failed'>('started'),
   })
   uploadImage.mockReset()
+  // The server holds a new task's file and answers its ref (POD-2148).
+  uploadImage.mockImplementation(async (input: { filename: string; mimeType: string }) => ({
+    path: '',
+    attachment: heldRef(input.filename, input.mimeType),
+  }))
+})
+
+const heldRef = (filename: string, mediaType: string) => ({
+  id: `up-${filename}`,
+  filename,
+  mediaType,
+  kind: mediaType.startsWith('image/') ? ('image' as const) : ('file' as const),
 })
 
 /** The hidden `<input type=file>` the paperclip clicks — it has no accessible
@@ -799,16 +811,19 @@ describe('ColdStartComposer', () => {
    * whole point is that the agent receives it — a chip that only ever decorated
    * this screen would be worse than no affordance at all. */
   describe('attachments', () => {
-    it('keeps the bytes out of the selected machine filesystem', async () => {
+    it('holds the file on the server, not on the selected machine (POD-2148)', async () => {
       render(<ColdStartComposer first />)
 
       attach(new File(['bytes'], 'shot.png', { type: 'image/png' }))
 
       await waitForAttachment('shot.png')
-      expect(uploadImage).not.toHaveBeenCalled()
+      expect(uploadImage).toHaveBeenCalledWith(
+        expect.objectContaining({ filename: 'shot.png', dataBase64: 'Ynl0ZXM=', pending: true }),
+      )
+      expect(uploadImage.mock.calls[0]?.[0]).not.toHaveProperty('machineId')
     })
 
-    it('attaches browser bytes to the draft while leaving its metadata to the agent', async () => {
+    it('hands the held files to the task’s create while leaving its metadata to the agent', async () => {
       render(<ColdStartComposer first />)
 
       fireEvent.change(screen.getByLabelText('What do you want to work on?'), {
@@ -822,20 +837,14 @@ describe('ColdStartComposer', () => {
       const input = spawnDraftAgent.mock.calls[0]?.[0]
       if (!input) throw new Error('launch was not dispatched')
       expect(input.firstPrompt).toBe('Match this mock')
-      expect(input.draftArtifacts).toEqual([
-        expect.objectContaining({
-          filename: 'mock.png',
-          mimeType: 'image/png',
-          dataBase64: 'Ynl0ZXM=',
-        }),
-      ])
+      expect(input.attachments).toEqual([heldRef('mock.png', 'image/png')])
+      expect(input).not.toHaveProperty('draftArtifacts')
       expect(input).not.toHaveProperty('title')
       expect(input).not.toHaveProperty('description')
       expect(input).not.toHaveProperty('brief')
-      expect(uploadImage).not.toHaveBeenCalled()
     })
 
-    it('keeps direct attachments in memory for an ambiguous launch retry', async () => {
+    it('keeps the held files for an ambiguous launch retry', async () => {
       spawnDraftAgent.mockReturnValue({
         sessionId: asSessionId('attachment-session'),
         issueId: asIssueId('attachment-issue'),
@@ -851,9 +860,10 @@ describe('ColdStartComposer', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Start task' }))
       await waitFor(() => expect(screen.getByText(/Couldn't start the agent/)).toBeTruthy())
 
-      const firstArtifacts = spawnDraftAgent.mock.calls[0]?.[0]?.draftArtifacts
+      const firstAttachments = spawnDraftAgent.mock.calls[0]?.[0]?.attachments
+      expect(firstAttachments).toEqual([heldRef('retry.png', 'image/png')])
       fireEvent.click(screen.getByRole('button', { name: 'Start task' }))
-      expect(spawnDraftAgent.mock.calls[1]?.[0]?.draftArtifacts).toEqual(firstArtifacts)
+      expect(spawnDraftAgent.mock.calls[1]?.[0]?.attachments).toEqual(firstAttachments)
       expect(spawnDraftAgent.mock.calls[1]?.[0]?.firstPrompt).toBe('Review the attachment')
     })
 
@@ -883,8 +893,8 @@ describe('ColdStartComposer', () => {
       await waitForAttachment('brief.pdf')
       expect(screen.getByText('brief.pdf')).toBeTruthy()
       fireEvent.click(screen.getByRole('button', { name: 'Start task' }))
-      expect(spawnDraftAgent.mock.calls[0]?.[0]?.draftArtifacts).toEqual([
-        expect.objectContaining({ filename: 'brief.pdf', mimeType: 'application/pdf' }),
+      expect(spawnDraftAgent.mock.calls[0]?.[0]?.attachments).toEqual([
+        heldRef('brief.pdf', 'application/pdf'),
       ])
     })
 
@@ -918,7 +928,7 @@ describe('ColdStartComposer', () => {
         fireEvent.drop(deck(), { dataTransfer: transfer([file]) })
 
         await waitForAttachment('shot.png')
-        expect(uploadImage).not.toHaveBeenCalled()
+        expect(uploadImage).toHaveBeenCalledWith(expect.objectContaining({ pending: true }))
         expect(well().textContent).toContain('shot.png')
         expect(screen.queryByText('Drop files to attach')).toBeNull()
       })
