@@ -3,6 +3,12 @@
 The shell already mounts `TipHost` and the sidebar badge. Import `useTipMoment` and
 `TipCard` from `@/features/tips`. Do not add another host or write the log yourself.
 
+- Use one registration per ID. Keep it mounted with `active: false` when possible
+  so the guide can replay it. Use a unique anchor name on a visible real element.
+- `active` means the trigger has happened and this moment is eligible. Keep it true
+  while queued. Setting it false cancels a queued moment or dismisses a visible one.
+  The engine queues on a false-to-true change or first registration, not each render.
+
 ```tsx
 const cards: TipCard[] = [{
   anchor: 'my-moment-composer',
@@ -17,11 +23,6 @@ useTipMoment('first-prompt', { active: first, cards })
 return <div ref={composer} data-tip-anchor="my-moment-composer">…</div>
 ```
 
-- Use one registration per ID. Keep it mounted with `active: false` when possible
-  so the guide can replay it. Use a unique anchor name on a visible real element.
-- `active` means the trigger has happened and this moment is eligible. Keep it true
-  while queued. Setting it false cancels a queued moment or dismisses a visible one.
-  The engine queues on a false-to-true change or first registration, not each render.
 - Inline card arrays and callbacks work. There are at most two cards; extra cards are
   ignored. Keep titles to five words and bodies to twenty. An optional `extra` can
   render a legend or examples. A CTA replaces the Next/Got it label, advances the
