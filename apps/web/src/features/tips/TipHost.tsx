@@ -12,7 +12,7 @@ import {
 } from 'react'
 import { createPortal } from 'react-dom'
 import { useReducedMotion } from '@/lib/use-reduced-motion'
-import { findTipAnchor } from './anchors'
+import { findTipAnchor, isTipAnchorVisible } from './anchors'
 import { TipContext } from './tip-context'
 import { type ShowingTip, TipEngine } from './tip-engine'
 import { useTipLogSource } from './tip-log-source'
@@ -171,8 +171,11 @@ const AnchoredTip = observer(function AnchoredTip({
     }
     let frame = 0
     const measure = () => {
-      const present = findTipAnchor(current.card.anchor)
-      if (present !== anchor) {
+      // Another copy of the name coming into view is no reason to close; this one leaving is.
+      if (
+        anchor.getAttribute('data-tip-anchor') !== current.card.anchor ||
+        !isTipAnchorVisible(anchor)
+      ) {
         engine.close('dismissed')
         return
       }

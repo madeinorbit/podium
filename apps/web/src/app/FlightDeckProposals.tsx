@@ -6,9 +6,9 @@ import { companion, lazy } from '@podium/mobx-helpers'
 import { asIssueId, asMutationId } from '@podium/model'
 import { Check, X } from 'lucide-react'
 import { action, compareShallow, observable, runInAction } from 'mobx'
-import { type JSX, type MouseEvent, useEffect, useState } from 'react'
+import { type JSX, type MouseEvent, useState } from 'react'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { useTipMoment } from '@/features/tips'
+import { useTipAnchorVisible, useTipMoment, useTipUnseen } from '@/features/tips'
 import { openMiniview } from '@/lib/ref-activation'
 import { useRuntimeSelector } from './store'
 import type { Trpc } from './trpc'
@@ -95,23 +95,6 @@ const firstProposalCards = [
   },
 ]
 
-/** Proposals sink below the tree, so the row is often scrolled out of the deck.
- * The moment waits until the row is actually in view instead of skipping. */
-function useInView(element: HTMLElement | null): boolean {
-  const [inView, setInView] = useState(false)
-  useEffect(() => {
-    if (!element) return setInView(false)
-    if (typeof IntersectionObserver === 'undefined') return setInView(true)
-    const observer = new IntersectionObserver(
-      ([entry]) => setInView(entry ? entry.intersectionRatio >= 0.9 : false),
-      { threshold: [0, 0.9, 1] },
-    )
-    observer.observe(element)
-    return () => observer.disconnect()
-  }, [element])
-  return inView
-}
-
 type ProposalNavigation = {
   onMenu: (task: FullDeckTask, event: MouseEvent) => void
 }
@@ -124,12 +107,16 @@ export const FlightDeckProposals = observer(function FlightDeckProposals({
   const trpc = useRuntimeSelector((store) => store.trpc)
   const ids = submissions.ids
   // First Flights: the first proposal the operator has not acted on yet. A receipt
-  // (or a pending/failed command) is acted on, so the tip skips it.
-  const firstId = ids.find(
-    (id) => !submissions.byId.has(id) && settled(() => full.task(id).proposed) === true,
-  )
+  // (or a pending/failed command) is acted on, so the tip skips it. Once the
+  // moment is seen, the anchor (kept for guide replay) skips the task reads.
+  const unseen = useTipUnseen('first-proposal')
+  const firstId = unseen
+    ? ids.find((id) => !submissions.byId.has(id) && settled(() => full.task(id).proposed) === true)
+    : ids.find((id) => !submissions.byId.has(id))
   const [anchor, setAnchor] = useState<HTMLElement | null>(null)
-  const inView = useInView(firstId ? anchor : null)
+  // Proposals sink below the tree, so the row is often scrolled out of the
+  // deck. The moment waits until the row is fully in view instead of skipping.
+  const inView = useTipAnchorVisible(unseen && firstId ? anchor : null)
   useTipMoment('first-proposal', { active: !!firstId && inView, cards: firstProposalCards })
   if (!ids.length) return null
   return (

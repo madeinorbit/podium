@@ -34,6 +34,12 @@ return <div ref={composer} data-tip-anchor="my-moment-composer">…</div>
   stays unseen. To retry, activate again when the anchor is available. If an anchor
   disappears after showing, the moment is dismissed and seen. The engine never
   scrolls an anchor into view or opens its containing panel.
+- A name carried by several mounted elements resolves to the first fully visible one,
+  and replay picks the registration whose first anchor is on screen. For a trigger
+  that waits for its element to be on screen, gate `active` on
+  `useTipAnchorVisible(element)`: it uses the same criterion as the engine, so each
+  time the anchor comes fully into view is a new activation. Pass null once
+  `useTipUnseen(id)` is false; keep the registration and anchor for replay.
 - One moment shows at a time. Keyboard input postpones queued tips for three seconds;
   closing a tip starts a twenty-second gap. Replay uses the same queue, ignores
   seen-state and `active`, and still needs the registration and anchor to exist.
@@ -46,7 +52,7 @@ return <div ref={composer} data-tip-anchor="my-moment-composer">…</div>
   all seven seen and disables tips. Nothing shows before `log.ready && log.enabled`.
 
 `types.ts` is the shared log contract with POD-2195. `tip-log-source.ts` selects the
-account implementation; the initial engine ships with a host-scoped `MemoryTipLog`.
+account-scoped log; `MemoryTipLog` serves tests and harnesses only.
 No registration means no visible UI. The badge retires when all seven are seen.
 
 For isolated preview, open `/harness/tips.html` with `bunx vite --config vite.tips.config.ts` from `apps/web`. Its controls cover queueing, missing anchors, replay and reduced motion.

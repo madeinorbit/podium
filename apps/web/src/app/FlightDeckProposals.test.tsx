@@ -10,6 +10,11 @@ import userEvent from '@testing-library/user-event'
 import { autorun } from 'mobx'
 import { createRef } from 'react'
 import { afterAll, afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { findTipAnchor } from '@/features/tips/anchors'
+import { MemoryTipLog } from '@/features/tips/memory-tip-log'
+import { ON_SCREEN, PANE, stubTipVisibility } from '@/features/tips/test-visibility'
+import { TipContext } from '@/features/tips/tip-context'
+import { TipEngine } from '@/features/tips/tip-engine'
 import { closeMiniview, getMiniviewState } from '@/lib/ref-activation'
 import { FlightDeckFullGroups } from './FlightDeckFullGroups'
 import { FlightDeckProposals } from './FlightDeckProposals'
@@ -69,7 +74,7 @@ function deferred() {
   })
   return { promise, resolve, reject }
 }
-async function open(extra: Row[] = [], proposalPatch: Row = {}) {
+async function open(extra: Row[] = [], proposalPatch: Row = {}, tips: TipEngine | null = null) {
   const rows = [
     issue('root', 1, null, { agentProfileId: 'mission-profile' }),
     issue('parent', 2, 'root', { agentProfileId: 'parent-profile' }),
@@ -141,7 +146,7 @@ async function open(extra: Row[] = [], proposalPatch: Row = {}) {
   await waitFor(() => expect(settled(() => screen.full.ready)).toBe(true))
   const actions = { onMenu: vi.fn() }
   const ui = render(
-    <>
+    <TipContext.Provider value={tips}>
       <FlightDeckFullGroups
         full={screen.full}
         scrollRef={createRef()}
@@ -155,7 +160,7 @@ async function open(extra: Row[] = [], proposalPatch: Row = {}) {
         onRenameDone={vi.fn()}
       />
       <FlightDeckProposals full={screen.full} {...actions} />
-    </>,
+    </TipContext.Provider>,
   )
   const update = async (id: string, patch: Row) => {
     const row = rows.find((row) => row['id'] === id)!
@@ -533,4 +538,28 @@ it('anchors the first-proposal tip to the first proposal not yet acted on', asyn
   await waitFor(() => expect(f.ui.getByRole('status').textContent).toBe('In backlog'))
   // The receipt no longer carries the anchor; the next live proposal does.
   expect(anchors()).toEqual(['later'])
+})
+
+it('shows first-proposal once a row that stopped 95% in view is fully revealed', async () => {
+  const visibility = stubTipVisibility()
+  const log = new MemoryTipLog()
+  const engine = new TipEngine(log, (name) => !!findTipAnchor(name), Date.now, 0)
+  releases.push(engine.connect(), () => {
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
+  const f = await open([], {}, engine)
+  visibility.clip(f.ui.container, PANE)
+  const row = f.proposal()!
+  const drain = () => act(() => new Promise((resolve) => setTimeout(resolve, 0)))
+  // The deck stops scrolling with 2px of the row under the scroller's edge,
+  // and the queue drains while it rests there.
+  act(() => visibility.place(row, new DOMRect(20, 262, 120, 40)))
+  await drain()
+  expect(engine.current).toBeNull()
+  expect(log.isSeen('first-proposal')).toBe(false)
+  act(() => visibility.place(row, ON_SCREEN))
+  await drain()
+  expect(engine.current?.registration.id).toBe('first-proposal')
+  expect(engine.current?.card.anchor).toBe('first-proposal')
 })

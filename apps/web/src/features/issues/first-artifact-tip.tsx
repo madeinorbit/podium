@@ -1,8 +1,8 @@
 import { observer } from '@podium/client-graph/react'
 import { action, observableRef } from 'mobx'
-import { type JSX, useContext, useEffect } from 'react'
+import { type JSX, useContext, useEffect, useState } from 'react'
 import { usePageIssue } from '@/features/files/artifacts-tab'
-import { useTipMoment } from '@/features/tips'
+import { useTipAnchorVisible, useTipMoment, useTipUnseen } from '@/features/tips'
 import { TipContext } from '@/features/tips/tip-context'
 import { useDockIssue } from './dock-issue'
 
@@ -11,12 +11,13 @@ import { useDockIssue } from './dock-issue'
  * artifact is on screen, point at it, then at the "+" that opens the
  * Artifacts tab. The tip never opens the panel, a tab or a file.
  *
- * Card 1's anchor is whichever artifact surface is mounted: the offer's
+ * Card 1's anchor is an artifact surface that is fully on screen: the offer's
  * thumbnail strip when the artifact came inside an offer (after first-offer
- * has had its turn), otherwise the task panel's first thumbnail. Mounting is
- * what activates the moment, so the anchor is in the DOM before the engine
- * looks for it. With the task panel closed, a brass dot on the rail's Task
- * cell says there is something to see.
+ * has had its turn), otherwise the task panel's first thumbnail. A surface
+ * counts only while it is visible, so a background task's offer or a hidden
+ * chat pane never stands in for the one on screen, and a thumbnail scrolled
+ * into view later activates the moment then. With the task panel closed, a
+ * brass dot on the rail's Task cell says there is something to see.
  */
 
 export const FIRST_ARTIFACT_THUMB_ANCHOR = 'first-artifact-thumb'
@@ -24,50 +25,72 @@ export const FIRST_ARTIFACT_NEW_PANEL_ANCHOR = 'first-artifact-new-panel'
 const offerAnchor = (issueId: string): string => `first-artifact-offer:${issueId}`
 
 type Surface = 'panel' | 'offer'
+interface VisibleSurface {
+  surface: Surface
+  issueId: string
+}
 
-/** Which issues have a card-1 anchor mounted, per surface, with mount counts. */
+/** The card-1 surfaces currently fully on screen, in the order they appeared. */
 class ArtifactAnchors {
-  @observableRef accessor panel: ReadonlyMap<string, number> = new Map()
-  @observableRef accessor offer: ReadonlyMap<string, number> = new Map()
-  @action mount(surface: Surface, issueId: string): () => void {
-    this.bump(surface, issueId, 1)
-    return action(() => this.bump(surface, issueId, -1))
-  }
-  private bump(surface: Surface, issueId: string, by: number): void {
-    const next = new Map(this[surface])
-    const count = (next.get(issueId) ?? 0) + by
-    if (count > 0) next.set(issueId, count)
-    else next.delete(issueId)
-    this[surface] = next
+  @observableRef accessor visible: readonly VisibleSurface[] = []
+  @action show(surface: Surface, issueId: string): () => void {
+    const entry: VisibleSurface = { surface, issueId }
+    this.visible = [...this.visible, entry]
+    return action(() => {
+      this.visible = this.visible.filter((v) => v !== entry)
+    })
   }
 }
 export const firstArtifactAnchors = new ArtifactAnchors()
 
+/** Props for a card-1 surface's element: its anchor name and the ref that
+ *  watches whether it is fully on screen. */
+export interface FirstArtifactAnchorProps {
+  'data-tip-anchor': string
+  ref: (element: HTMLElement | null) => void
+}
+
 /**
- * Report a mounted card-1 surface for `issueId` (undefined: nothing to point
- * at) and return the `data-tip-anchor` value its element carries.
+ * Report a card-1 surface for `issueId` (undefined: nothing to point at).
+ * Spread the result on the element the tip should point at. The surface
+ * counts only while that element is fully visible, and is watched only while
+ * the moment is unseen; the anchor name stays for guide replay.
  */
-export function useFirstArtifactAnchor(surface: Surface, issueId: string | undefined): string {
+export function useFirstArtifactAnchor(
+  surface: Surface,
+  issueId: string | undefined,
+): FirstArtifactAnchorProps {
+  const [element, setElement] = useState<HTMLElement | null>(null)
+  const unseen = useTipUnseen('first-artifact')
+  const visible = useTipAnchorVisible(unseen && issueId ? element : null)
   useEffect(
-    () => (issueId ? firstArtifactAnchors.mount(surface, issueId) : undefined),
-    [surface, issueId],
+    () => (visible && issueId ? firstArtifactAnchors.show(surface, issueId) : undefined),
+    [visible, surface, issueId],
   )
-  return surface === 'panel' || !issueId ? FIRST_ARTIFACT_THUMB_ANCHOR : offerAnchor(issueId)
+  return {
+    'data-tip-anchor':
+      surface === 'panel' || !issueId ? FIRST_ARTIFACT_THUMB_ANCHOR : offerAnchor(issueId),
+    ref: setElement,
+  }
 }
 
 /** The moment's one registration. Mounted with the right rail. */
 export const FirstArtifactMoment = observer(function FirstArtifactMoment(): null {
   const log = useContext(TipContext)?.log
-  const offerIssue = firstArtifactAnchors.offer.keys().next().value
-  // An artifact that arrived inside an offer lets first-offer explain the
-  // offer card first; this tip then points at the offer's thumbnails.
-  const offerWaits = offerIssue !== undefined && !log?.isSeen('first-offer')
-  const active = offerIssue !== undefined ? !offerWaits : firstArtifactAnchors.panel.size > 0
+  const { issueId: dockIssueId } = useDockIssue()
+  const visible = firstArtifactAnchors.visible
+  const offers = visible.filter((v) => v.surface === 'offer')
+  // Prefer the visible offer of the task the dock is explaining.
+  const offer = offers.find((v) => v.issueId === dockIssueId) ?? offers[0]
+  // An artifact that arrived inside a visible offer lets first-offer explain
+  // the offer card first; this tip then points at the offer's thumbnails.
+  const offerWaits = offer !== undefined && !log?.isSeen('first-offer')
+  const active = offer !== undefined ? !offerWaits : visible.length > 0
   useTipMoment('first-artifact', {
     active,
     cards: [
       {
-        anchor: offerIssue !== undefined ? offerAnchor(offerIssue) : FIRST_ARTIFACT_THUMB_ANCHOR,
+        anchor: offer !== undefined ? offerAnchor(offer.issueId) : FIRST_ARTIFACT_THUMB_ANCHOR,
         title: 'Your agent made something.',
         body: 'Mockups, screenshots and docs land here. Click one to open it.',
       },
@@ -94,7 +117,13 @@ const DockArtifactsDot = observer(function DockArtifactsDot(): JSX.Element | nul
   return issueId ? <IssueArtifactsDot issueId={issueId} /> : null
 })
 
-function IssueArtifactsDot({ issueId }: { issueId: string }): JSX.Element | null {
+// An observer: the pooled issue keeps its identity when an artifact is
+// published, so only the observed read of its panel sees the new one.
+const IssueArtifactsDot = observer(function IssueArtifactsDot({
+  issueId,
+}: {
+  issueId: string
+}): JSX.Element | null {
   const artifacts = usePageIssue(issueId)?.panel?.artifacts ?? []
   if (!artifacts.some((a) => a.chatUploadId === undefined)) return null
   return (
@@ -104,4 +133,4 @@ function IssueArtifactsDot({ issueId }: { issueId: string }): JSX.Element | null
       aria-hidden="true"
     />
   )
-}
+})

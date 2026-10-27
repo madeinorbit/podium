@@ -3,7 +3,7 @@ import type { SessionView } from '@podium/client-core/session-values'
 import type { SessionOffer } from '@podium/model/browser'
 import { ChevronDown, Pencil, X } from 'lucide-react'
 import { type JSX, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
-import { useTipMoment } from '@/features/tips'
+import { useTipAnchorVisible, useTipMoment, useTipUnseen } from '@/features/tips'
 import { useClock } from '@/lib/clock-hooks'
 import { cn } from '@/lib/utils'
 import { OfferArtifactStrip } from './OfferArtifactStrip'
@@ -95,19 +95,8 @@ function useOfferFoldLift(
  */
 function useFirstOfferTip(card: HTMLElement | null, issueId: string | null | undefined): string {
   const anchor = `first-offer-${useId()}`
-  const [onScreen, setOnScreen] = useState(false)
-  useEffect(() => {
-    if (!card || typeof IntersectionObserver === 'undefined') return
-    const observer = new IntersectionObserver(
-      ([entry]) => setOnScreen(!!entry && entry.intersectionRatio >= 0.98),
-      { threshold: [0, 0.98, 1] },
-    )
-    observer.observe(card)
-    return () => {
-      observer.disconnect()
-      setOnScreen(false)
-    }
-  }, [card])
+  // Watch only while the moment can still show; the registration stays for replay.
+  const onScreen = useTipAnchorVisible(useTipUnseen('first-offer') ? card : null)
   useTipMoment('first-offer', {
     active: onScreen,
     cards: [

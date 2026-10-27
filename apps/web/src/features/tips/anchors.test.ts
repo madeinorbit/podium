@@ -44,4 +44,21 @@ describe('tip anchor clipping', () => {
     setTipTestRect(anchor, new DOMRect(30, 30, 100, 30))
     expect(findTipAnchor('row')).toBe(anchor)
   })
+  it('skips a hidden copy of a repeated name for the visible one', () => {
+    const scroller = document.createElement('div')
+    scroller.style.overflowY = 'auto'
+    const clipped = scroller.appendChild(document.createElement('button'))
+    const visible = scroller.appendChild(document.createElement('button'))
+    clipped.dataset.tipAnchor = 'row'
+    visible.dataset.tipAnchor = 'row'
+    document.body.append(scroller)
+    setTipTestRect(scroller, new DOMRect(20, 20, 200, 100))
+    setTipTestRect(clipped, new DOMRect(30, -20, 100, 30))
+    setTipTestRect(visible, new DOMRect(30, 40, 100, 30))
+    expect(findTipAnchor('row')).toBe(visible)
+    // A copy that lays out nothing (display: none pane) never shadows either.
+    clipped.style.display = 'none'
+    setTipTestRect(clipped, new DOMRect(0, 0, 0, 0))
+    expect(findTipAnchor('row')).toBe(visible)
+  })
 })

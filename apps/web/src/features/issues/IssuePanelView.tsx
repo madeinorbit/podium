@@ -30,7 +30,7 @@ import { cn } from '@/lib/utils'
 import { SessionNameEditor } from '@/lib/WorkerLabel'
 import { currentWorkspaceSlug } from '@/lib/workspace-request'
 import { inlineRenameEditor, useInlineRename } from '../worklist/use-inline-rename'
-import { useFirstArtifactAnchor } from './first-artifact-tip'
+import { type FirstArtifactAnchorProps, useFirstArtifactAnchor } from './first-artifact-tip'
 import { IssueCompactControls } from './IssueCompactControls'
 import { IssueStatusPicker } from './IssueStatusPicker'
 import { issueIdTitle } from './issue-card'
@@ -583,7 +583,11 @@ const ArtifactsPart = observer(function ArtifactsPart({
     }
   }
 
-  const artifactRow = (a: IssuePanelArtifact, testId: string, anchor?: string): JSX.Element => {
+  const artifactRow = (
+    a: IssuePanelArtifact,
+    testId: string,
+    anchor?: FirstArtifactAnchorProps,
+  ): JSX.Element => {
     const kind = kindOf(a)
     const Icon = kind === 'image' ? ImageIcon : kind === 'video' ? Film : FileText
     return (
@@ -592,7 +596,7 @@ const ArtifactsPart = observer(function ArtifactsPart({
         data-pressable
         type="button"
         data-testid={testId}
-        data-tip-anchor={anchor}
+        {...anchor}
         disabled={!root && !a.artifactId}
         onClick={() => open(a)}
         title={a.path}
@@ -640,7 +644,7 @@ const ArtifactsPart = observer(function ArtifactsPart({
                     <button
                       data-pressable
                       type="button"
-                      data-tip-anchor={i === 0 ? tipAnchor : undefined}
+                      {...(i === 0 ? tipAnchor : undefined)}
                       className="group relative block aspect-[4/3] w-full cursor-zoom-in overflow-hidden rounded-[7px] border border-border bg-muted"
                       title={video ? `Play ${label}` : `View ${label} full size`}
                       onClick={() => open(a)}

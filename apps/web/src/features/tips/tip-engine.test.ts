@@ -191,4 +191,13 @@ describe('First Flights queue', () => {
     unregister()
     expect(engine.badgeVisible).toBe(false)
   })
+  it('replays the registration whose anchor is on screen when one moment is mounted twice', () => {
+    const { engine, log } = fixture()
+    log.record('first-offer', 'finished')
+    engine.register('first-offer', () => ({ active: false, cards: [card('missing')] }))
+    engine.register('first-offer', () => ({ active: false, cards: [card('present')] }))
+    engine.replay('first-offer')
+    vi.advanceTimersByTime(TIP_GAP_MS)
+    expect(engine.current?.card.anchor).toBe('present')
+  })
 })

@@ -1,6 +1,7 @@
+export { findTipAnchor, isTipAnchorVisible, useTipAnchorVisible } from './anchors'
 export { FirstFlightsBadge } from './FirstFlightsBadge'
 export { TipHost } from './TipHost'
-export { useTipMoment } from './tip-context'
+export { useTipMoment, useTipUnseen } from './tip-context'
 export {
   TIP_IDS,
   type TipCard,

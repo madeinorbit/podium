@@ -96,7 +96,14 @@ export class TipEngine {
     this.schedule()
   }
   @action replay(id: TipId): void {
-    const registration = this.registrations.find((r) => r.id === id)
+    // Several mounted copies can register one moment (a hidden chat offer beside
+    // the visible native one). Replay the copy whose first anchor is on screen.
+    const candidates = this.registrations.filter((r) => r.id === id)
+    const registration =
+      candidates.find((r) => {
+        const card = r.read().cards[0]
+        return !!card && this.anchorExists(card.anchor)
+      }) ?? candidates[0]
     if (!registration || !this.log.ready || !this.log.enabled) return
     this.enqueue(registration, true)
     this.schedule()
