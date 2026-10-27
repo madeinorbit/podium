@@ -35,7 +35,7 @@ async function viewable(ctx: MailHandlerContext, id: string): Promise<MessageWir
   const { caller, deps, access } = ctx
   const m = await deps.messages.message(id)
   if (!m) throw new Error(`unknown message ${id}`)
-  if (!access.mayView(caller.capability, m) && !(await access.mayReadAsSessionOwner(caller, m))) {
+  if (!access.mayView(caller.capability, m) && !(await access.mayReadAsSessionReader(caller, m))) {
     throw new Error(MAIL_VIEW_REFUSED)
   }
   return await access.wire(m)

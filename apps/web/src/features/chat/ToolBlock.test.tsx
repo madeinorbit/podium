@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { presentToolBlock } from '@podium/client-core/values'
 import { asSessionId, type TranscriptItem } from '@podium/model/browser'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
@@ -39,7 +40,11 @@ function mount(input: Partial<TranscriptItem>): void {
   act(() => {
     root.render(
       <ToolBlock
-        block={{ item: { id: 'bash', role: 'tool', text: '', toolName: 'Bash', ...input } }}
+        // Blocks reach the row through the compute path, which precomputes
+        // what the row lists (POD-2146).
+        block={presentToolBlock({
+          item: { id: 'bash', role: 'tool', text: '', toolName: 'Bash', ...input },
+        })}
         sessionId={asSessionId('s1')}
         cwd="/repo"
         openFile={() => {}}
@@ -351,29 +356,51 @@ describe('Codex script rows', () => {
     )
   })
 
-  it('lists a mail send inside a script as the note it sent (POD-2146)', () => {
-    mount({
+  describe('a mail send inside a script (POD-2146)', () => {
+    const send = `podium issue mail send POD-2128 --body 'Ready for review'`
+    const script = (toolResult: string): Partial<TranscriptItem> => ({
       toolName: 'Script',
       toolTitle: '3 commands',
       toolInputJson: JSON.stringify({
         kind: 'script-calls',
         calls: [
           { tool: 'Bash', input: 'git status' },
-          { tool: 'Bash', input: `podium issue mail send POD-2128 --body 'Ready for review'` },
+          { tool: 'Bash', input: send },
           { tool: 'Bash', input: 'podium issue mail inbox' },
         ],
       }),
-      toolResult: 'Script completed',
+      toolResult,
     })
-    unfold()
-    const lines = [...host.querySelectorAll('.tool-script-calls li')].map((line) =>
-      [...line.children].map((part) => part.textContent),
-    )
-    expect(lines).toEqual([
-      ['Bash', 'git status'],
-      ['Mail', 'Note to POD-2128 · Ready for review'],
-      ['Mail', 'Read notes'],
-    ])
+    const lines = (): (string | null)[][] =>
+      [...host.querySelectorAll('.tool-script-calls li')].map((line) =>
+        [...line.children].map((part) => part.textContent),
+      )
+
+    it('names the note when the output carries its receipt', () => {
+      mount(
+        script(
+          `Script completed\nOutput:\n${JSON.stringify({ exit_code: 0, output: 'mail DELIVERED to POD-2128 (msg_9) — confirmed' })}`,
+        ),
+      )
+      unfold()
+      expect(lines()).toEqual([
+        ['Bash', 'git status'],
+        ['Mail', 'Note to POD-2128 · Ready for review'],
+        ['Bash', 'podium issue mail inbox'],
+      ])
+    })
+
+    it('keeps the shell line without a receipt, or when the script failed', () => {
+      for (const result of [
+        'Script completed\nOutput:\npodium: relay unavailable',
+        'Script failed\nOutput:\nmail DELIVERED to POD-2128 (msg_9) — confirmed',
+      ]) {
+        mount(script(result))
+        unfold()
+        expect(lines()[1], result).toEqual(['Bash', send])
+        act(() => root.render(null))
+      }
+    })
   })
 
   it('marks a failed script as failed', () => {

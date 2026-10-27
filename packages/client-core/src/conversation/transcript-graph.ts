@@ -4,7 +4,7 @@ import { companion, lazy } from '@podium/mobx-helpers'
 import { LatestTranscriptId } from '../transcript/merge'
 import { isCodexAsyncQuestion, isInterviewQuestion, isPendingAskQuestion } from '../values/ask-question'
 import {
-  isBatchableTool, isUserMediaMarker, pairToolResults,
+  isBatchableTool, isUserMediaMarker, pairToolResults, presentToolBlock,
   type ChatBlock, type ChatRow,
 } from '../values/chat'
 import { rowSurvivesSummary, type ChatVerbosity } from '../values/chat-verbosity'
@@ -55,6 +55,9 @@ export class TranscriptGraph {
   readonly rowIds = observable.array<string>([], { deep: false })
   readonly summaryRowIds = observable.array<string>([], { deep: false })
   private readonly items = observable.map<string, TranscriptItem>(undefined, { deep: false })
+  /** Whether each item folds into a run, decided once when it is set: telling
+   *  the agent's own mail apart (POD-2146) reads its command. */
+  private readonly batchable = observable.map<string, boolean>(undefined, { deep: false })
   private readonly children = observable.map<string, IObservableArray<string>>(undefined, { deep: false })
   private readonly effectChildren = observable.map<string, IObservableArray<string>>(undefined, { deep: false })
   private readonly rowMembers = observable.map<string, string[]>(undefined, { deep: false })
@@ -147,12 +150,12 @@ export class TranscriptGraph {
         const item = this.items.get(id)
         if (!item) return undefined
         const children = this.children.get(id)
-        if (!children?.length) return { item }
+        if (!children?.length) return presentToolBlock({ item })
         if (item.role === 'tool' && item.toolUseId) {
           const result = this.items.get(children.at(-1)!)?.toolResult
           const effectId = this.effectChildren.get(id)?.at(-1)
           const effects = effectId === undefined ? undefined : this.items.get(effectId)?.toolEffects
-          return { item: effects ? { ...item, toolEffects: effects } : item, result }
+          return presentToolBlock({ item: effects ? { ...item, toolEffects: effects } : item, result })
         }
         const related = [item]
         for (const child of children) {
@@ -167,7 +170,7 @@ export class TranscriptGraph {
         const first = this.block(members[0]!)
         if (!first) return undefined
         const graph = this
-        if (!isBatchableTool(first.item)) return {
+        if (!this.isBatchable(first.item.id)) return {
           kind: 'block', block: first,
           get blockIndex() { return graph.blockPosition(first.item.id) ?? -1 },
         }
@@ -244,6 +247,7 @@ export class TranscriptGraph {
 
   @action reset(items: readonly TranscriptItem[]): void {
     this.items.clear()
+    this.batchable.clear()
     this.records.clear()
     this.children.clear()
     this.effectChildren.clear()
@@ -571,7 +575,7 @@ export class TranscriptGraph {
     for (const id of dirty) {
       const owner = this.rowByBlock.get(id)
       if (owner && typeof owner !== 'string' &&
-        (!this.isEmitted(id) || !isBatchableTool(this.items.get(id)!))) broken.add(owner)
+        (!this.isEmitted(id) || !this.isBatchable(id))) broken.add(owner)
     }
     for (const id of dirty) {
       if (this.repairToolRow(id, broken)) continue
@@ -594,10 +598,10 @@ export class TranscriptGraph {
       let previousStart = -1, previousEnd = -1
       while (start !== previousStart || end !== previousEnd) {
         previousStart = start; previousEnd = end
-        while (start > 0 && isBatchableTool(this.items.get(this.blockIds[start]!)!) &&
-          isBatchableTool(this.items.get(this.blockIds[start - 1]!)!)) start--
-        while (end < this.blockIds.length && isBatchableTool(this.items.get(this.blockIds[end - 1]!)!) &&
-          isBatchableTool(this.items.get(this.blockIds[end]!)!)) end++
+        while (start > 0 && this.isBatchable(this.blockIds[start]!) &&
+          this.isBatchable(this.blockIds[start - 1]!)) start--
+        while (end < this.blockIds.length && this.isBatchable(this.blockIds[end - 1]!) &&
+          this.isBatchable(this.blockIds[end]!)) end++
         for (let at = start; at < end; at++) addOld(this.rowOwner(this.blockIds[at]!))
       }
       const members = this.blockIds.slice(start, end)
@@ -623,9 +627,9 @@ export class TranscriptGraph {
       let at = 0
       while (at < members.length) {
         const first = members[at]!
-        const tools = isBatchableTool(this.items.get(first)!)
+        const tools = this.isBatchable(first)
         let end = at + 1
-        if (tools) while (end < members.length && isBatchableTool(this.items.get(members[end]!)!)) end++
+        if (tools) while (end < members.length && this.isBatchable(members[end]!)) end++
         const ownedMembers = observable.array<string>(members.slice(at, end), { deep: false })
         this.rowMembers.set(first, ownedMembers)
         this.rowShapes.set(first, ownedMembers.map(member => this.shapes.get(member)!))
@@ -650,7 +654,7 @@ export class TranscriptGraph {
     const first = members?.[0] === undefined ? undefined : this.block(members[0])
     const at = this.insertionPoint(this.summaryRowIds, id)
     const held = this.summaryRowIds[at] === id
-    const kept = first !== undefined && (isBatchableTool(first.item)
+    const kept = first !== undefined && (this.isBatchable(first.item.id)
       ? (this.failuresByRow.get(id) ?? 0) > 0
       : rowSurvivesSummary({ kind: 'block', block: first, blockIndex: 0 }))
     if (held && !kept) this.summaryRowIds.splice(at, 1)
@@ -752,13 +756,13 @@ export class TranscriptGraph {
   /** Add/change one child of an existing quiet run without walking its members. */
   private repairToolRow(id: string, broken: ReadonlySet<TranscriptToolRun>): boolean {
     const item = this.items.get(id)
-    if (!item || !isBatchableTool(item) || !this.isEmitted(id)) return false
+    if (!item || !this.isBatchable(id) || !this.isEmitted(id)) return false
     const own = this.rowByBlock.get(id)
     if (typeof own === 'string') return false
     const point = this.insertionPoint(this.blockIds, id)
     const groups = new Set<TranscriptToolRun>()
     for (const neighbor of [this.blockIds[point - 1], id, this.blockIds[point + 1]]) {
-      if (!neighbor || !isBatchableTool(this.items.get(neighbor)!)) continue
+      if (!neighbor || !this.isBatchable(neighbor)) continue
       const group = this.rowByBlock.get(neighbor)
       if (group && typeof group !== 'string') groups.add(group)
     }
@@ -811,8 +815,13 @@ export class TranscriptGraph {
     return true
   }
 
+  private isBatchable(id: string): boolean {
+    return this.batchable.get(id) ?? false
+  }
+
   private setItem(id: string, item: TranscriptItem): void {
     this.items.set(id, item)
+    this.batchable.set(id, isBatchableTool(item))
     if (!this.records.has(id)) this.records.set(id, new TranscriptRecord(id))
   }
 

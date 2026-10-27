@@ -5,61 +5,50 @@
  * in its own chat. A send or reply now folds like the notes it receives — "Note
  * to POD-2128 · 14:02" — and opening it fetches the body by the id the CLI
  * printed, so nothing is fetched until a reader asks. An inbox read is a quiet
- * "Read 3 notes" line with the raw listing behind it. A send that failed is not
- * mail and stays an ordinary error row (see ChatBlockView).
+ * "Read 3 notes" line with the raw listing behind it. The compute path decides
+ * all of it (`presentToolBlock`); these rows only read the block's `mail`.
  */
-import type { ParsedEnvelope } from '@podium/client-core/values'
-import type { MailCommand } from '@podium/commands/mail-command'
-import { countInboxNotes, mailRecipientLabel, parseMailSent } from '@podium/commands/mail-command'
+import type { ParsedEnvelope, ToolMail } from '@podium/client-core/values'
 import { ChevronDown, Mail as MailIcon } from 'lucide-react'
 import type { JSX, MouseEvent as ReactMouseEvent } from 'react'
 import { useMemo, useState } from 'react'
 import { MessageEnvelopeGroup } from './MessageEnvelopeGroup'
 import { clockLabel, fullTimeLabel, parseTs } from './transcript-time'
 
-/** The note a send or reply created, or null when its output names none —
- *  which, once there is output, means it did not go out. */
-export function sentNoteEnvelope(
-  mail: Exclude<MailCommand, { op: 'inbox' }>,
-  result: string | undefined,
-  fallbackId: string,
-): ParsedEnvelope | null {
-  const sent = result ? parseMailSent(result) : null
-  if (result?.trim() && !sent) return null
-  const to =
-    mail.op === 'send'
-      ? mail.to
-      : sent?.to !== undefined
-        ? mailRecipientLabel(sent.to)
-        : 'the sender'
-  return {
-    // Still running: the note has no id yet, only what the command said.
-    id: sent?.id ?? fallbackId,
-    from: '',
-    to,
-    body: mail.preview ?? '',
-    question: false,
-    expectsReply: false,
-    ...(sent ? { pointer: 'by-id' as const } : {}),
-  }
-}
-
 export function SentNoteRow({
-  envelope,
+  note,
+  fallbackId,
   className,
   blockIndex,
   ts,
   onBodyClick,
   forceOpen,
 }: {
-  envelope: ParsedEnvelope
+  note: Extract<ToolMail, { op: 'note' }>
+  /** Keys the item while the send is still running and has no id. */
+  fallbackId: string
   className: string
   blockIndex: number
   ts: string | undefined
   onBodyClick: (e: ReactMouseEvent) => void
   forceOpen: boolean
 }): JSX.Element {
-  const envelopes = useMemo(() => [envelope], [envelope])
+  const envelopes = useMemo(
+    (): ParsedEnvelope[] => [
+      {
+        id: note.id ?? fallbackId,
+        from: '',
+        to: note.to,
+        body: note.preview ?? '',
+        question: false,
+        expectsReply: false,
+        // With an id the body is fetched when the card opens; before it, the
+        // preview is all there is.
+        ...(note.id ? { pointer: 'by-id' as const } : {}),
+      },
+    ],
+    [note, fallbackId],
+  )
   return (
     <MessageEnvelopeGroup
       envelopes={envelopes}
@@ -74,12 +63,15 @@ export function SentNoteRow({
 }
 
 export function InboxReadRow({
+  notes,
   result,
   className,
   blockIndex,
   rowKey,
   ts,
 }: {
+  /** How many notes the read listed, when its output said. */
+  notes: number | undefined
   result: string | undefined
   className: string
   blockIndex: number
@@ -87,9 +79,8 @@ export function InboxReadRow({
   ts: string | undefined
 }): JSX.Element {
   const [open, setOpen] = useState(false)
-  const count = useMemo(() => (result ? countInboxNotes(result) : undefined), [result])
   const label =
-    count === undefined ? 'Read notes' : `Read ${count === 1 ? '1 note' : `${count} notes`}`
+    notes === undefined ? 'Read notes' : `Read ${notes === 1 ? '1 note' : `${notes} notes`}`
   const stamp = parseTs(ts)
   return (
     <div

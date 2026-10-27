@@ -1,6 +1,14 @@
-import { classifyMailCommand, type MailCommand } from '@podium/commands/mail-command'
+import {
+  classifyMailCommand,
+  countInboxNotes,
+  type MailCommand,
+  type MailReceipt,
+  mailReceipts,
+  mailRecipientLabel,
+} from '@podium/commands/mail-command'
 import type { TranscriptItem } from '@podium/model'
 import { machinePathBasename } from '@podium/model'
+import { principalShortName } from './message-envelope'
 
 /**
  * Presentation-pure helpers for the chat surface, shared between the web
@@ -58,6 +66,31 @@ export interface ChatBlock {
   item: TranscriptItem
   /** Result text paired onto a tool-call block (toolUseId match). */
   result?: string
+  /** The agent's own mail this call sent or read (POD-2146), when it went
+   *  through. Set by {@link presentToolBlock}; renderers only read it. */
+  mail?: ToolMail
+  /** A Codex script's calls as its row lists them, a mail call that went
+   *  through named as its note. Set by {@link presentToolBlock}. */
+  scriptCalls?: ScriptCallLine[]
+}
+
+/** A mail call as the chat shows it: a sent note, or an inbox read. */
+export type ToolMail =
+  | {
+      op: 'note'
+      /** The principal label it went to; "the sender" for a reply an older
+       *  server did not name. */
+      to: string
+      /** The new message's id, once the CLI printed it. */
+      id?: string
+      preview?: string
+    }
+  | { op: 'inbox'; notes?: number }
+
+/** One line of an expanded Script row. */
+export interface ScriptCallLine {
+  tool: string
+  input: string
 }
 
 /** A text-less user item that only carries attached media paths — the parser's
@@ -123,7 +156,7 @@ export function pairToolResults(items: TranscriptItem[]): ChatBlock[] {
     if (item.role === 'tool' && item.toolUseId) callByToolUseId.set(item.toolUseId, block)
     blocks.push(block)
   }
-  return blocks
+  return blocks.map(presentToolBlock)
 }
 
 /**
@@ -170,26 +203,105 @@ export function isBatchableTool(item: TranscriptItem): boolean {
   return item.role === 'tool' && !isInteractiveTool(item) && toolMailCommand(item) === null
 }
 
-const mailCommands = new WeakMap<TranscriptItem, MailCommand | null>()
-
 /**
  * THE AGENT'S OWN MAIL (POD-2146): the `podium mail send|reply|inbox` a shell
  * call ran, which the chat shows as a "Note to X" card or a "Read N notes" row
- * instead of a command. Classified once per item; a call that never names
- * podium mail costs two substring checks.
+ * instead of a command. Pure; a call that never names podium mail costs two
+ * substring checks. Callers decide once per item (the graph when it sets an
+ * item, {@link presentToolBlock} when it builds a block).
  */
 export function toolMailCommand(item: TranscriptItem): MailCommand | null {
   if (item.role !== 'tool' || item.toolName !== 'Bash') return null
-  let mail = mailCommands.get(item)
-  if (mail !== undefined) return mail
-  mail = null
   const text = item.toolInputJson ?? item.toolInput ?? ''
-  if (text.includes('podium') && text.includes('mail')) {
-    const command = shellCommand(item)
-    if (command !== undefined) mail = classifyMailCommand(command)
+  if (!text.includes('podium') || !text.includes('mail')) return null
+  const command = shellCommand(item)
+  return command === undefined ? null : classifyMailCommand(command)
+}
+
+/** A sent note's line in a script listing. */
+function noteLine(mail: Exclude<MailCommand, { op: 'inbox' }>, to: string): string {
+  const name = `Note to ${principalShortName(to)}`
+  return mail.preview ? `${name} · ${mail.preview}` : name
+}
+
+/** The calls a Codex script listed (`kind: 'script-calls'`), each mail call
+ *  whose receipt the script's output carries named as its note. A failed
+ *  script, or a call with no receipt, keeps its shell line. */
+function scriptCallLines(
+  item: TranscriptItem,
+  result: string | undefined,
+): ScriptCallLine[] | undefined {
+  if (!item.toolInputJson) return undefined
+  let calls: unknown
+  try {
+    const payload: unknown = JSON.parse(item.toolInputJson)
+    if (
+      !payload ||
+      typeof payload !== 'object' ||
+      !('kind' in payload) ||
+      payload.kind !== 'script-calls'
+    )
+      return undefined
+    calls = 'calls' in payload ? payload.calls : undefined
+  } catch {
+    return undefined
   }
-  mailCommands.set(item, mail)
-  return mail
+  if (!Array.isArray(calls)) return []
+  const failed = toolVerdict(result, item.toolEffects) === 'err'
+  const receipts: MailReceipt[] = failed || !result ? [] : mailReceipts(result)
+  return calls.flatMap((call: unknown): ScriptCallLine[] => {
+    if (!call || typeof call !== 'object' || !('tool' in call) || typeof call.tool !== 'string')
+      return []
+    const input = 'input' in call && typeof call.input === 'string' ? call.input : ''
+    const mail = call.tool === 'Bash' && receipts.length > 0 ? classifyMailCommand(input) : null
+    if (!mail || mail.op === 'inbox') return [{ tool: call.tool, input }]
+    // That call's own receipt: the next unclaimed one of its kind, to its recipient.
+    const at = receipts.findIndex(
+      (r) =>
+        r.op === mail.op && (mail.op !== 'send' || !r.to || mailRecipientLabel(r.to) === mail.to),
+    )
+    if (at < 0) return [{ tool: call.tool, input }]
+    const [receipt] = receipts.splice(at, 1)
+    const to =
+      mail.op === 'send' ? mail.to : receipt?.to ? mailRecipientLabel(receipt.to) : 'the sender'
+    return [{ tool: 'Mail', input: noteLine(mail, to) }]
+  })
+}
+
+/** The mail a lone call sent or read, or undefined when it failed or is not
+ *  mail: once there is output, a send must carry its receipt. */
+function toolMail(item: TranscriptItem, result: string | undefined): ToolMail | undefined {
+  const mail = toolMailCommand(item)
+  if (!mail || toolVerdict(result, item.toolEffects) === 'err') return undefined
+  if (mail.op === 'inbox') {
+    const notes = result ? countInboxNotes(result) : undefined
+    return notes === undefined ? { op: 'inbox' } : { op: 'inbox', notes }
+  }
+  const receipt = result ? mailReceipts(result)[0] : undefined
+  if (result?.trim() && !receipt) return undefined
+  const to =
+    mail.op === 'send' ? mail.to : receipt?.to ? mailRecipientLabel(receipt.to) : 'the sender'
+  return {
+    op: 'note',
+    to,
+    ...(receipt ? { id: receipt.id } : {}),
+    ...(mail.preview ? { preview: mail.preview } : {}),
+  }
+}
+
+/** A tool block with what its row shows precomputed (POD-2146): the mail it
+ *  sent or read, and a script's call list. Computed once per block in the
+ *  compute path, so the result crosses a worker as plain data. */
+export function presentToolBlock(block: ChatBlock): ChatBlock {
+  const { item } = block
+  if (item.role !== 'tool') return block
+  const result = block.result ?? item.toolResult
+  if (item.toolName === 'Script') {
+    const scriptCalls = scriptCallLines(item, result)
+    return scriptCalls ? { ...block, scriptCalls } : block
+  }
+  const mail = toolMail(item, result)
+  return mail ? { ...block, mail } : block
 }
 
 /** The full command a shell call ran: the retained `shell-command` payload, or

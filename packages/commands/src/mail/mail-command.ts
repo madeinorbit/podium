@@ -54,7 +54,9 @@ function simpleCommands(command: string): { words: Word[]; sep?: Separator }[] |
     word ??= { text: '', dynamic: false }
     return word
   }
-  /** The end of a `$(…)` opened at `i`, quotes inside it included. */
+  /** The end of a `$(…)` opened at `i`. Quotes and heredoc bodies inside it
+   *  are text, so an apostrophe or a lone "(" in a `$(cat <<'EOF' … EOF)` body
+   *  neither opens nor closes anything. */
   const closeParen = (i: number): number => {
     let depth = 0
     for (let j = i; j < command.length; j++) {
@@ -62,6 +64,12 @@ function simpleCommands(command: string): { words: Word[]; sep?: Separator }[] |
       if (c === '\\') j++
       else if (c === "'") {
         j = command.indexOf("'", j + 1)
+        if (j < 0) return -1
+      } else if (c === '"') {
+        for (j++; j < command.length && command[j] !== '"'; j++) if (command[j] === '\\') j++
+        if (j >= command.length) return -1
+      } else if (c === '<' && command[j + 1] === '<') {
+        j = heredocEnd(command, j)
         if (j < 0) return -1
       } else if (c === '(') depth++
       else if (c === ')' && --depth === 0) return j
@@ -130,6 +138,26 @@ function simpleCommands(command: string): { words: Word[]; sep?: Separator }[] |
   push()
   out.push({ words })
   return out.filter((segment) => segment.words.length > 0)
+}
+
+/** The last index of the heredoc whose `<<` is at `at`: the end of its
+ *  delimiter line. -1 when the delimiter never closes it. */
+function heredocEnd(command: string, at: number): number {
+  const head = /^<<(-?)\s*(['"]?)([A-Za-z_][\w-]*)\2/.exec(command.slice(at))
+  if (!head?.[3]) return at + 1
+  const lineEnd = command.indexOf('\n', at)
+  if (lineEnd < 0) return -1
+  const strip = head[1] === '-'
+  let start = lineEnd + 1
+  while (start <= command.length) {
+    const end = command.indexOf('\n', start)
+    const line = command.slice(start, end < 0 ? command.length : end)
+    if ((strip ? line.replace(/^\t+/, '') : line) === head[3])
+      return (end < 0 ? command.length : end) - 1
+    if (end < 0) return -1
+    start = end + 1
+  }
+  return -1
 }
 
 /** Flags that never take a value, across `podium mail` and `podium issue mail`. */
@@ -214,18 +242,67 @@ export function classifyMailCommand(command: string): MailCommand | null {
   }
 }
 
-/** The message a send or reply created, from what the CLI printed: its id and,
- *  when the line names one, the recipient's label. */
-export function parseMailSent(output: string): { id: string; to?: string } | null {
+/** A send or reply's receipt: the message id and, when the line names one,
+ *  the recipient as the CLI printed it. */
+export interface MailReceipt {
+  id: string
+  to?: string
+  op: 'send' | 'reply'
+}
+
+/** A Codex script that prints a tool's result object (`text(await
+ *  tools.exec_command(…))`) shows `{"exit_code":0,"output":"…"}`, not the
+ *  output. Each such line becomes its output; a call that exited non-zero
+ *  printed no receipt worth reading, so its line is dropped. */
+function execOutputs(output: string): string {
+  if (!output.includes('"output"')) return output
+  return output
+    .split('\n')
+    .map((line) => {
+      const t = line.trim()
+      if (!t.startsWith('{') || !t.endsWith('}')) return line
+      try {
+        const r: unknown = JSON.parse(t)
+        if (!r || typeof r !== 'object' || !('output' in r) || typeof r.output !== 'string')
+          return line
+        const code = 'exit_code' in r ? r.exit_code : undefined
+        return typeof code === 'number' && code !== 0 ? '' : r.output
+      } catch {
+        return line
+      }
+    })
+    .join('\n')
+}
+
+/** Every receipt a send or reply printed, in order: one for a lone call, one
+ *  per mail call for a script's merged output. */
+export function mailReceipts(output: string): MailReceipt[] {
   const json = /^\s*\{/.test(output) ? jsonData(output) : undefined
   if (json && typeof json === 'object' && 'id' in json && typeof json.id === 'string') {
-    return { id: json.id, ...('to' in json && typeof json.to === 'string' ? { to: json.to } : {}) }
+    const to = 'to' in json && typeof json.to === 'string' ? { to: json.to } : {}
+    return [{ id: json.id, op: 'send', ...to }]
   }
-  const mail = /^(?:sent|replied) (msg_\S+)(?: to (\S+))?/im.exec(output)
-  if (mail?.[1]) return { id: mail[1], ...(mail[2] ? { to: mail[2] } : {}) }
-  const issue = /^mail (?:DELIVERED to|QUEUED for) (\S+) \((msg_[^)\s]+)\)/im.exec(output)
-  if (issue?.[1] && issue[2]) return { id: issue[2], to: mailRecipientLabel(issue[1]) }
-  return null
+  const receipts: MailReceipt[] = []
+  const re =
+    /^(?:(sent|replied) (msg_\S+)(?: to (\S+))?|mail (?:DELIVERED to|QUEUED for) (\S+) \((msg_[^)\s]+)\))/gim
+  for (const m of execOutputs(output).matchAll(re)) {
+    if (m[2])
+      receipts.push({
+        id: m[2],
+        op: m[1] === 'replied' ? 'reply' : 'send',
+        ...(m[3] ? { to: m[3] } : {}),
+      })
+    else if (m[4] && m[5]) receipts.push({ id: m[5], op: 'send', to: m[4] })
+  }
+  return receipts
+}
+
+/** The message a lone send or reply created, from what the CLI printed: its id
+ *  and, when the line names one, the recipient's label. */
+export function parseMailSent(output: string): { id: string; to?: string } | null {
+  const r = mailReceipts(output)[0]
+  if (!r) return null
+  return { id: r.id, ...(r.to ? { to: mailRecipientLabel(r.to) } : {}) }
 }
 
 /** How many notes an inbox read printed, or undefined when its output is not
@@ -236,8 +313,9 @@ export function countInboxNotes(output: string): number | undefined {
   const text = output.trim()
   if (text === '(no messages)' || text === '(no mail)') return 0
   // `podium mail inbox`: "<id> <from> -> <to>"; `podium issue mail inbox`:
-  // "* <id> <from> <at>" (a star for unread), the body indented below it.
-  const rows = text.match(/^(?:msg_\S+ \S+ -> \S+|[* ] msg_\S+ \S+ \d{4}-\d\d-\d\dT\S+)/gim)
+  // "* <id> <from> <at>" (a star for unread, a space for read), the body
+  // indented below it. Matched untrimmed: a read first row starts with a space.
+  const rows = output.match(/^(?:msg_\S+ \S+ -> \S+|[* ] msg_\S+ \S+ \d{4}-\d\d-\d\dT\S+)/gim)
   return rows ? rows.length : undefined
 }
 

@@ -1,5 +1,5 @@
 import type { ChatRow } from './chat'
-import { isInteractiveTool, toolMailCommand } from './chat'
+import { isInteractiveTool } from './chat'
 
 /**
  * TRANSCRIPT VERBOSITY (POD-376) — how much of a run the feed renders.
@@ -54,10 +54,7 @@ export function rowSurvivesSummary(row: ChatRow): boolean {
     // A tool block that reached SingleRow is interactive, the agent's own mail
     // (POD-2146), or an orphan result. Interactive rows and the notes the agent
     // sent are what summary keeps; an inbox read is quiet work.
-    if (item.role === 'tool') {
-      const op = toolMailCommand(item)?.op
-      return isInteractiveTool(item) || op === 'send' || op === 'reply'
-    }
+    if (item.role === 'tool') return isInteractiveTool(item) || row.block.mail?.op === 'note'
     return true
   }
   // A folded run survives only when something in it failed.

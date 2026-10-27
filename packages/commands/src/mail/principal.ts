@@ -20,7 +20,7 @@
  * which a client could name itself.
  */
 
-import type { UserId, IssueId, SessionId } from '@podium/model'
+import type { IssueId, SessionId, UserId } from '@podium/model'
 
 /**
  * A sender principal as the mail substrate stamps it, with the multi-user half

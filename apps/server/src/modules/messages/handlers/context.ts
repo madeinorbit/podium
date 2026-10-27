@@ -37,6 +37,7 @@ import {
   isSpawnedBy,
   type SessionId,
   type MachineId,
+  type UserId,
 } from '@podium/model'
 import { type CommandPrincipal, onBehalfOfUser } from '../../../command-principal'
 import { type Capability, checkIssueAccess, mayReadOwned } from '../../../issue-authz'
@@ -348,22 +349,27 @@ export class MailAccess {
     )
   }
 
-  /** A person reads a message sent by or delivered to a session they may read,
-   *  by the session queries' own rule (`mayReadOwned` over the session's owner
-   *  and grants) — an inbox pointer's body (POD-2143) or a "Note to X" the agent
-   *  sent (POD-2146) in their own agent's chat, which `mayView` misses because a
-   *  person's capability names no session. */
-  async mayReadAsSessionOwner(caller: MailCaller, m: MessageRow): Promise<boolean> {
+  /**
+   * ONE RULE FOR BOTH ENDS (POD-2143, POD-2146): whoever may read a session —
+   * its owner or a grantee, by the session queries' own `mayReadOwned` rule —
+   * may read mail sent from it or delivered to it. They can already read that
+   * session's transcript, where the note is shown; `mayView` misses them
+   * because a person's capability names no session. Nothing wider: no issue
+   * membership, no other session.
+   */
+  async mayReadAsSessionReader(caller: MailCaller, m: MessageRow): Promise<boolean> {
     if (caller.principal.kind !== 'user') return false
-    const user = caller.principal.user
     const receiver = m.deliveredTo ?? (m.toKind === 'session' ? m.toId : null)
-    for (const session of new Set([receiver, m.fromSession])) {
-      if (!session) continue
-      const target = await this.deps.sessionOwner?.(asSessionId(session))
-      if (target && mayReadOwned(user, { id: session, owner: target.owner, grants: target.grants }))
-        return true
+    for (const session of new Set([m.fromSession, receiver])) {
+      if (session && (await this.mayReadSession(caller.principal.user, session))) return true
     }
     return false
+  }
+
+  /** `user` may read session `id`, as the session queries decide it. */
+  private async mayReadSession(user: UserId, id: string): Promise<boolean> {
+    const target = await this.deps.sessionOwner?.(asSessionId(id))
+    return target !== undefined && mayReadOwned(user, { id, owner: target.owner, grants: target.grants })
   }
 
   async wire(m: MessageRow): Promise<MessageWire> {

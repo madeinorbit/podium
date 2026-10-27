@@ -830,26 +830,47 @@ describe('mail.show admits the owner of the session the mail was delivered to', 
   })
 })
 
-describe('mail.show admits the owner of the session that sent the mail (POD-2146)', () => {
-  it('a member opens a "Note to" their own agent sent; another member is refused', async () => {
-    const bob = asUserId('u_bob')
-    const h = await mailHarness({
-      sessionOwner: async (id) => (id === 'sBob' ? { owner: bob, grants: [] } : undefined),
-    })
-    const from = await h.createIssue({ title: 'bob’s task' })
-    const to = await h.createIssue({ title: 'coordinator' })
-    h.put({ sessionId: asSessionId('sBob'), issueId: from.id, phase: 'idle' })
+// Whoever may read a session may read mail sent from it or delivered to it
+// (POD-2146): one rule for both ends, nothing wider.
+describe('mail.show admits a reader of the sending or the receiving session', () => {
+  const bob = asUserId('u_bob')
+  const dana = asUserId('u_dana')
+  const erin = asUserId('u_erin')
+  // sFrom is bob's and granted to dana; sTo is carol's and granted to erin.
+  const owners: Record<string, { owner: typeof bob; grants: string[] }> = {
+    sFrom: { owner: bob, grants: [dana] },
+    sTo: { owner: asUserId('u_carol'), grants: [erin] },
+  }
+  const member = (user: string) => userCommandPrincipal(asUserId(user), 'member').capability
+
+  async function sentAndDelivered() {
+    const h = await mailHarness({ sessionOwner: async (id) => owners[id] })
+    const from = await h.createIssue({ title: 'sender' })
+    const to = await h.createIssue({ title: 'receiver' })
+    h.put({ sessionId: asSessionId('sFrom'), issueId: from.id, phase: 'idle' })
+    h.put({ sessionId: asSessionId('sTo'), issueId: to.id, phase: 'idle' })
     const sent = await h.svc.send(
-      { kind: 'agent', issueId: from.id, sessionId: asSessionId('sBob') },
+      { kind: 'agent', issueId: from.id, sessionId: asSessionId('sFrom') },
       { to: { kind: 'issue', id: to.id }, body: 'handoff' },
     )
-    const member = (user: string) => userCommandPrincipal(asUserId(user), 'member').capability
-    const shown = (await h.gate.dispatch(member('u_bob'), undefined, 'show', {
-      id: sent.message.id,
-    })) as { body: string }
-    expect(shown.body).toBe('handoff')
-    await expect(
-      h.gate.dispatch(member('u_carol'), undefined, 'show', { id: sent.message.id }),
-    ).rejects.toThrow(MAIL_VIEW_REFUSED)
+    await h.svc.onQueuedInputApplied(sent.message.id, asSessionId('sTo'))
+    expect((await h.svc.message(sent.message.id))?.deliveredTo).toBe('sTo')
+    const show = (user: string) =>
+      h.gate.dispatch(member(user), undefined, 'show', { id: sent.message.id }) as Promise<{
+        body: string
+      }>
+    return show
+  }
+
+  it('admits the sending session’s owner and grantee, and the receiving session’s grantee', async () => {
+    const show = await sentAndDelivered()
+    for (const user of ['u_bob', 'u_dana', 'u_erin']) {
+      expect((await show(user)).body, user).toBe('handoff')
+    }
+  })
+
+  it('refuses a member who may read neither session', async () => {
+    const show = await sentAndDelivered()
+    await expect(show('u_frank')).rejects.toThrow(MAIL_VIEW_REFUSED)
   })
 })

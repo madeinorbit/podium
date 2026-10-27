@@ -1,3 +1,4 @@
+import { presentToolBlock } from '@podium/client-core/values'
 import { renderMailPointer } from '@podium/commands/mail-pointer-nudge'
 import type { TranscriptItem } from '@podium/model'
 import { asSessionId } from '@podium/model'
@@ -51,7 +52,8 @@ function mount(
   act(() => {
     root.render(
       <ChatBlockView
-        block={result === undefined ? { item } : { item, result }}
+        // As the compute path hands blocks over (POD-2146).
+        block={presentToolBlock(result === undefined ? { item } : { item, result })}
         index={0}
         highlighted={highlighted}
         dimmed={false}

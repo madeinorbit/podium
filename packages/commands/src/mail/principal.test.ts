@@ -29,7 +29,11 @@ const bo = 'usr_bo' as UserId
 
 const human = (user: UserId | null): MailSenderPrincipal => ({ kind: 'operator', user })
 const superagent = (user: UserId | null): MailSenderPrincipal => ({ kind: 'superagent', user })
-const agent = (sessionId: string): MailSenderPrincipal => ({ kind: 'agent', user: ada, sessionId: asSessionId(sessionId) })
+const agent = (sessionId: string): MailSenderPrincipal => ({
+  kind: 'agent',
+  user: ada,
+  sessionId: asSessionId(sessionId),
+})
 const system = (name: string): MailSenderPrincipal => ({ kind: 'system', user: null, name })
 
 describe('who is a human', () => {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { classifyMailCommand, countInboxNotes, parseMailSent } from './mail-command'
+import { classifyMailCommand, countInboxNotes, mailReceipts, parseMailSent } from './mail-command'
 
 describe('classifyMailCommand', () => {
   it('reads both send forms', () => {
@@ -58,6 +58,21 @@ describe('classifyMailCommand', () => {
     ).toEqual({ op: 'send', to: 'issue:POD-1', preview: "it's ready; ship it && go" })
   })
 
+  it('reads past heredoc bodies inside a command substitution', () => {
+    for (const body of ["it's done", 'one unmatched ( paren', 'a ) and a " too']) {
+      const command = [
+        `podium mail send --to POD-2140 --body "$(cat <<'EOF'`,
+        body,
+        'EOF',
+        ')" --expect-response',
+      ].join('\n')
+      expect(classifyMailCommand(command), body).toEqual({ op: 'send', to: 'issue:POD-2140' })
+    }
+    expect(
+      classifyMailCommand(`podium mail send --to POD-1 --body "$(cat <<'EOF'\nnever closed (\n)"`),
+    ).toBeNull()
+  })
+
   it('does not match look-alikes', () => {
     for (const command of [
       `echo 'podium mail send --to POD-1 --body x'`,
@@ -82,7 +97,7 @@ describe('classifyMailCommand', () => {
 
 describe('parseMailSent', () => {
   it('reads the id and recipient each CLI prints', () => {
-    expect(parseMailSent('sent msg_9 to POD-7 (delivered)')).toEqual({ id: 'msg_9', to: 'POD-7' })
+    expect(parseMailSent('sent msg_9 to POD-7 (delivered)')).toEqual({ id: 'msg_9', to: 'issue:POD-7' })
     expect(parseMailSent('replied msg_4 to issue:POD-3 (acked msg_1)')).toEqual({
       id: 'msg_4',
       to: 'issue:POD-3',
@@ -95,6 +110,30 @@ describe('parseMailSent', () => {
       id: 'msg_2',
     })
     expect(parseMailSent('podium mail: send was not accepted')).toBeNull()
+  })
+
+  it('reads receipts out of Codex exec result objects', () => {
+    // text(await tools.exec_command(…)) prints the result object.
+    const object = `Script completed\nOutput:\n${JSON.stringify({
+      exit_code: 0,
+      output: 'sent msg_9 to POD-2140 (delivered)\n',
+      wall_time: 0.4,
+    })}`
+    expect(parseMailSent(object)).toEqual({ id: 'msg_9', to: 'issue:POD-2140' })
+    // text(result.output) prints the output itself.
+    expect(parseMailSent('Script completed\nOutput:\nsent msg_9 to POD-2140 (delivered)')).toEqual({
+      id: 'msg_9',
+      to: 'issue:POD-2140',
+    })
+    // A call that exited non-zero has no receipt, whatever its output says.
+    const failed = JSON.stringify({ exit_code: 1, output: 'sent msg_9 to POD-2140 (delivered)' })
+    expect(parseMailSent(failed)).toBeNull()
+    expect(
+      mailReceipts('replied msg_4 to issue:POD-3 (acked msg_1)\nmail QUEUED for POD-7 (msg_5) — …'),
+    ).toEqual([
+      { id: 'msg_4', op: 'reply', to: 'issue:POD-3' },
+      { id: 'msg_5', op: 'send', to: 'POD-7' },
+    ])
   })
 })
 
@@ -109,6 +148,12 @@ describe('countInboxNotes', () => {
     expect(
       countInboxNotes('* msg_1 agent:POD-2 2026-10-26T10:00:00Z\n  hello\n  msg_1 quoted'),
     ).toBe(1)
+    expect(countInboxNotes('  msg_1 agent:POD-2 2026-10-26T10:00:00Z\n  hello')).toBe(1)
+    expect(
+      countInboxNotes(
+        '  msg_1 agent:POD-2 2026-10-26T10:00:00Z\n  seen\n* msg_2 agent:POD-4 2026-10-26T10:01:00Z\n  new',
+      ),
+    ).toBe(2)
     expect(countInboxNotes('(no mail)')).toBe(0)
     expect(countInboxNotes('(no messages)')).toBe(0)
     expect(countInboxNotes('{"command":"inbox","ok":true,"data":[{},{}]}')).toBe(2)

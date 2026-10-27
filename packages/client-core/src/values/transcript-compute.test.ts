@@ -161,10 +161,13 @@ describe('computeTranscript: mail the agent sent', () => {
       })
       // The read and the ls are quiet work and drop out of summary; the note stays.
       expect(rows).toHaveLength(1)
-      const row = rows[0]
-      expect(row?.kind === 'block' && toolMailCommand(row.block.item)).toEqual({
-        op: 'send',
+      // The row's presentation rides on the block as plain data, so it
+      // survives the worker's structured clone.
+      const [row] = structuredClone(rows)
+      expect(row?.kind === 'block' && row.block.mail).toEqual({
+        op: 'note',
         to: 'issue:POD-2128',
+        id: 'msg_1',
         preview: 'Ready for review',
       })
     })
@@ -185,6 +188,13 @@ describe('computeTranscript: mail the agent sent', () => {
               { tool: 'Bash', input: send },
             ],
           }),
+          toolUseId: 'x',
+        }),
+        item({
+          id: 'x-out',
+          role: 'tool',
+          toolUseId: 'x',
+          toolResult: `Script completed\nOutput:\n${JSON.stringify({ exit_code: 0, output: 'mail DELIVERED to POD-2128 (msg_1) — confirmed' })}`,
         }),
       ],
       verbosity: 'normal',
@@ -192,6 +202,11 @@ describe('computeTranscript: mail the agent sent', () => {
       cursor: 0,
     })
     expect(rows).toEqual([expect.objectContaining({ kind: 'tools' })])
+    const [row] = structuredClone(rows)
+    expect(row?.kind === 'tools' && row.blocks[0]?.scriptCalls).toEqual([
+      { tool: 'Bash', input: 'git status' },
+      { tool: 'Mail', input: 'Note to POD-2128 · Ready for review' },
+    ])
   })
 
   it('an echo of a send is an ordinary command', () => {
