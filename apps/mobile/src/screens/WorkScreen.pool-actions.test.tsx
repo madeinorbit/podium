@@ -337,8 +337,8 @@ function pool() {
   return state.pool
 }
 function value(id = TARGET) {
-  const row = mobileWorkView(pool()).mobileRow({ kind: 'issue', id })
-  if (!row || typeof row === 'symbol' || !('issue' in row)) throw new Error(`Missing resident ${id}`)
+  const row = mobileWorkView(pool()).mobileRow(id)
+  if (!row || typeof row === 'symbol') throw new Error(`Missing resident ${id}`)
   return row
 }
 function button(id = TARGET) {
@@ -431,23 +431,18 @@ describe('mobile pool work-list actions', () => {
     expect(value().emphasizeUnread).toBe(true)
   })
 
-  for (const kind of ['draft', 'worktree'] as const)
-    it(`opens a ${kind} session through the current pool target`, async () => {
-      await mount((f) => {
-        if (kind === 'draft')
-          f.patchIssue(TARGET, { isDraftVessel: true, title: '', worktreePath: null })
-        else f.patch('session', 'synthetic-session-3', { issueId: null })
-      })
-      fireEvent.click(
-        kind === 'draft' ? button() : screen.getByRole('button', { name: /^Worktree / }),
-      )
-      expect(router.push).toHaveBeenCalledWith({
-        pathname: '/session/[sessionId]',
-        params: { sessionId: 'synthetic-session-3', backTo: '/work' },
-      })
-      expect(requests).toEqual([])
-      await settled()
+  it('opens a draft session through the current pool target', async () => {
+    await mount((f) => {
+      f.patchIssue(TARGET, { isDraftVessel: true, title: '', worktreePath: null })
     })
+    fireEvent.click(button())
+    expect(router.push).toHaveBeenCalledWith({
+      pathname: '/session/[sessionId]',
+      params: { sessionId: 'synthetic-session-3', backTo: '/work' },
+    })
+    expect(requests).toEqual([])
+    await settled()
+  })
 
   for (const unread of [true, false])
     it(`menu marks ${unread ? 'read' : 'unread'} through the shared outbox and rolls back`, async () => {

@@ -1,16 +1,13 @@
 import type { ClientRuntime } from '@podium/client-core/engine'
-import { beginSwitch } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
 import { sidebarView } from '@podium/client-graph/worklist/sidebar'
 import { refreshClocks } from '@podium/mobx-helpers'
-import { sessionUserStateRowId } from '@podium/model'
 import {
   asIssueId,
   asSessionId,
   asUserId,
   issueUserStateRowId,
-  type SessionId,
 } from '@podium/model/browser'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -25,31 +22,11 @@ const mode = vi.hoisted(() => ({
   reads: 0,
   commits: new Map<string, number>(),
   ageCommits: new Map<string, number>(),
-  worktrees: new Map<string, { onSelect: () => void; renderSession: unknown; commits: number }>(),
 }))
 vi.mock('@podium/client-core/perf', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@podium/client-core/perf')>()),
   beginSwitch: vi.fn(),
 }))
-vi.mock('./UnifiedWorktreeRow', async (importOriginal) => {
-  const original = await importOriginal<typeof import('./UnifiedWorktreeRow')>()
-  const { useLayoutEffect } = await import('react')
-  return {
-    ...original,
-    UnifiedWorktreeRow: (props: Parameters<typeof original.UnifiedWorktreeRow>[0]) => {
-      useLayoutEffect(() => {
-        const path = props.model.worktree.path
-        mode.worktrees.set(path, {
-          onSelect: props.onSelect,
-          renderSession: props.renderSession,
-          commits: (mode.worktrees.get(path)?.commits ?? 0) + 1,
-        })
-      })
-      return <original.UnifiedWorktreeRow {...props} />
-    },
-  }
-})
-
 // Count the actual rendered shell: a companion now updates inside its observer,
 // so a wrapper around the old copied-props boundary no longer sees those renders.
 vi.mock('./WorkRowShell', async (importOriginal) => {
@@ -65,19 +42,6 @@ vi.mock('./WorkRowShell', async (importOriginal) => {
       return <original.WorkRowShell {...props} />
     },
   }
-})
-vi.mock('./sidebar-common', async (importOriginal) => {
-  const original = await importOriginal<typeof import('./sidebar-common')>()
-  const { useLayoutEffect } = await import('react')
-  const CountedPanelRow = (props: Parameters<typeof original.PanelRow>[0]) => {
-    const session = (props as unknown as { session?: { sessionId: string } }).session
-    const id = session?.sessionId
-    useLayoutEffect(() => {
-      if (id) mode.commits.set(id, (mode.commits.get(id) ?? 0) + 1)
-    })
-    return original.PanelRow(props)
-  }
-  return { ...original, PanelRow: CountedPanelRow }
 })
 vi.mock('./work-folds', async (importOriginal) => {
   const original = await importOriginal<typeof import('./work-folds')>()
@@ -119,18 +83,12 @@ function Capture() {
   return null
 }
 const NOW = Date.parse('2026-10-01T08:00:00Z')
-const LAYERS = ['pool'] as const
-
-function guestUserStateId(layer: 'pool') {
-  return sessionUserStateRowId(asUserId(`sidebar-${layer}`), asSessionId('synthetic-guest-0'))
-}
 
 async function mount(layer: 'pool', count = 12) {
   localStorage.clear()
   window.history.replaceState(null, '', '/')
   mode.reads = 0
   mode.commits.clear()
-  mode.worktrees.clear()
   pool = null
   const fixture = createSidebarFixture(count, NOW, false, `sidebar-${layer}`)
   render(
@@ -164,17 +122,7 @@ async function mount(layer: 'pool', count = 12) {
   await waitFor(() => expect(screen.getByText('Only responsive target')).toBeTruthy(), {
     timeout: 10000,
   })
-  await waitFor(
-    () => expect(document.querySelectorAll('[data-session^="synthetic-guest-"]')).toHaveLength(2),
-    { timeout: 10000 },
-  )
   return fixture
-}
-
-function worktreeHandlers(path: string) {
-  const handlers = mode.worktrees.get(path)
-  if (!handlers) throw new Error(`Worktree row not mounted: ${path}`)
-  return handlers
 }
 
 /** Drive the same runtime publication as the wall clock without faking DOM polling timers. */
@@ -206,7 +154,6 @@ describe('real sidebar pool cutover', () => {
     const group = row.closest('[data-testid="project-group"]')!
     const button = group.querySelector('[data-testid="project-group-label"]')!
     const reads = vi.spyOn(sidebarView(pool!), 'row')
-    const trees = vi.spyOn(sidebarView(pool!), 'worktree')
     try {
       await act(async () => {
         fireEvent.click(button)
@@ -216,15 +163,12 @@ describe('real sidebar pool cutover', () => {
       )
       expect(row.isConnected).toBe(false)
       reads.mockClear()
-      trees.mockClear()
       mode.commits.clear()
       await act(async () => {
         fixture.patch('issueProjection', 'synthetic-11', { title: 'Changed while folded' })
-        fixture.patch('session', 'synthetic-guest-0', { title: 'Guest changed while folded' })
       })
       await advanceClock(60_000)
       expect(reads.mock.calls.filter(([id]) => id === 'synthetic-11')).toEqual([])
-      expect(trees.mock.calls.filter(([path]) => path === '/synthetic/project/guests')).toEqual([])
       await act(async () => {
         fireEvent.click(button)
       })
@@ -232,9 +176,6 @@ describe('real sidebar pool cutover', () => {
         expect(group.querySelector('[data-issue-row="synthetic-11"]')?.textContent).toContain(
           'Changed while folded',
         ),
-      )
-      expect(group.querySelector('[data-session="synthetic-guest-0"]')!.textContent).toContain(
-        'Guest changed while folded',
       )
       await act(async () => {
         fireEvent.click(button)
@@ -248,81 +189,7 @@ describe('real sidebar pool cutover', () => {
       )
     } finally {
       reads.mockRestore()
-      trees.mockRestore()
     }
-  })
-
-  it.each(
-    LAYERS,
-  )('%s guest rows preserve the clock behavior of their data layer', async (layer) => {
-    vi.useFakeTimers({ toFake: ['Date'] })
-    vi.setSystemTime(NOW)
-    const fixture = await mount(layer)
-    await act(async () => {
-      fixture.patch('sessionUserState', guestUserStateId(layer), {
-        snoozedUntil: new Date(NOW + 120_000).toISOString(),
-      })
-    })
-    mode.commits.clear()
-    await advanceClock(60_000)
-    expect(referenceState(runtime).coarseNow).toBe(NOW + 60_000)
-    const guests = Object.fromEntries(
-      [...mode.commits].filter(([id]) => id.startsWith('synthetic-guest-')),
-    )
-    expect(guests).toEqual({})
-    await advanceClock(60_000)
-    expect(document.querySelector('[data-session="synthetic-guest-0"]')!.textContent).toContain(
-      'Unsnoozed',
-    )
-    if (layer === 'pool') expect(mode.reads).toBe(0)
-  })
-
-  it('expires a pool guest snooze only at its deadline and handles a clock rewind', async () => {
-    vi.useFakeTimers({ toFake: ['Date'] })
-    vi.setSystemTime(NOW)
-    const fixture = await mount('pool')
-    await act(async () => {
-      fixture.patch('sessionUserState', guestUserStateId('pool'), {
-        snoozedUntil: new Date(NOW + 120_000).toISOString(),
-      })
-    })
-    const guest = () => document.querySelector('[data-session="synthetic-guest-0"]')!
-    expect(guest().textContent).not.toContain('Unsnoozed')
-    expect(guest().querySelector('button[aria-haspopup="menu"]')).not.toBeNull()
-    mode.commits.clear()
-    await advanceClock(60_000)
-    expect(Object.fromEntries(mode.commits)).toEqual({})
-    await advanceClock(60_000)
-    expect(Object.fromEntries(mode.commits)).toEqual({ 'synthetic-guest-0': 1 })
-    expect(guest().textContent).toContain('Unsnoozed')
-    expect(guest().querySelector('button[aria-haspopup="menu"]')).toBeNull()
-    mode.commits.clear()
-    await advanceClock(60_000)
-    expect(Object.fromEntries(mode.commits)).toEqual({})
-    await advanceClock(-120_000)
-    expect(Object.fromEntries(mode.commits)).toEqual({ 'synthetic-guest-0': 1 })
-    expect(guest().textContent).not.toContain('Unsnoozed')
-    expect(guest().querySelector('button[aria-haspopup="menu"]')).not.toBeNull()
-    expect(mode.reads).toBe(0)
-  })
-
-  it.each([
-    null,
-    'not-a-date',
-  ])('keeps a pool guest with snooze %s cold across ticks', async (snoozedUntil) => {
-    vi.useFakeTimers({ toFake: ['Date'] })
-    vi.setSystemTime(NOW)
-    const fixture = await mount('pool')
-    await act(async () => {
-      fixture.patch('sessionUserState', guestUserStateId('pool'), { snoozedUntil })
-    })
-    mode.commits.clear()
-    await advanceClock(120_000)
-    expect(Object.fromEntries(mode.commits)).toEqual({})
-    expect(document.querySelector('[data-session="synthetic-guest-0"]')!.textContent).not.toContain(
-      'Unsnoozed',
-    )
-    expect(mode.reads).toBe(0)
   })
 
   it('updates only the folded age leaf at its clock ticks and leaves row bodies cold', async () => {
@@ -361,78 +228,6 @@ describe('real sidebar pool cutover', () => {
     expect(mode.reads).toBe(0)
   })
 
-  it.each(LAYERS)('%s worktree header ignores a session archived after mount', async (layer) => {
-    vi.useFakeTimers({ toFake: ['Date'] })
-    vi.setSystemTime(NOW)
-    const fixture = await mount(layer)
-    const path = '/synthetic/project/guests'
-    const handlers = worktreeHandlers(path)
-    await act(async () => {
-      fixture.patch('session', 'synthetic-guest-0', {
-        archived: true,
-        lastActiveAt: new Date(NOW).toISOString(),
-      })
-      referenceState(runtime).setPane('A', null)
-    })
-    await waitFor(() =>
-      expect(document.querySelector('[data-session="synthetic-guest-0"]')).toBeNull(),
-    )
-    expect(worktreeHandlers(path).onSelect).toBe(handlers.onSelect)
-    expect(worktreeHandlers(path).renderSession).toBe(handlers.renderSession)
-    fireEvent.click(screen.getByTitle(path))
-    expect(referenceState(runtime).paneA).toBe('synthetic-guest-1')
-    expect(referenceState(runtime).selectedWorktree).toBe(path)
-  })
-
-  it.each(LAYERS)('%s worktree header preserves the current pane session', async (layer) => {
-    vi.useFakeTimers({ toFake: ['Date'] })
-    vi.setSystemTime(NOW)
-    const fixture = await mount(layer)
-    const path = '/synthetic/project/guests'
-    const handlers = worktreeHandlers(path)
-    await act(async () => {
-      fixture.patch('session', 'synthetic-guest-0', {
-        lastActiveAt: new Date(NOW).toISOString(),
-      })
-      referenceState(runtime).setPane('A', asSessionId('synthetic-guest-1'))
-    })
-    expect(worktreeHandlers(path).onSelect).toBe(handlers.onSelect)
-    expect(worktreeHandlers(path).renderSession).toBe(handlers.renderSession)
-    fireEvent.click(screen.getByTitle(path))
-    expect(referenceState(runtime).paneA).toBe('synthetic-guest-1')
-  })
-
-  it('pool worktree panel uses the current pane without restarting a switch', async () => {
-    vi.useFakeTimers({ toFake: ['Date'] })
-    vi.setSystemTime(NOW)
-    await mount('pool')
-    expect(referenceState(runtime).paneA).not.toBe('synthetic-guest-1')
-    const path = '/synthetic/project/guests'
-    const handlers = worktreeHandlers(path)
-    await act(async () => {
-      referenceState(runtime).setPane('A', asSessionId('synthetic-guest-1'))
-    })
-    expect(worktreeHandlers(path).renderSession).toBe(handlers.renderSession)
-    vi.mocked(beginSwitch).mockClear()
-    fireEvent.click(screen.getByText('Synthetic guest 1'))
-    expect(referenceState(runtime).selectedWorktree).toBe(path)
-    expect(referenceState(runtime).paneA).toBe('synthetic-guest-1')
-    expect(beginSwitch).not.toHaveBeenCalled()
-  })
-
-  it('keeps the pool worktree row cold when another issue changes', async () => {
-    vi.useFakeTimers({ toFake: ['Date'] })
-    vi.setSystemTime(NOW)
-    const fixture = await mount('pool')
-    const path = '/synthetic/project/guests'
-    const before = worktreeHandlers(path)
-    await act(async () => {
-      fixture.patch('issueProjection', 'synthetic-11', { title: 'Changed visible title' })
-    })
-    expect(screen.getByText('Changed visible title')).toBeTruthy()
-    expect(worktreeHandlers(path)).toBe(before)
-  })
-
   it('commits only changed displayed rows; reorder and an unused session name keep them cold', async () => {
     vi.useFakeTimers({ toFake: ['Date'] })
     vi.setSystemTime(NOW)
@@ -456,9 +251,9 @@ describe('real sidebar pool cutover', () => {
     })
     expect(Object.fromEntries(mode.commits)).toEqual({})
     await act(async () => {
-      fixture.patch('session', 'synthetic-guest-0', { name: 'Changed guest name' })
+      fixture.patch('session', 'synthetic-guest-0', { name: 'Changed task-less session name' })
     })
-    expect(Object.fromEntries(mode.commits)).toEqual({ 'synthetic-guest-0': 1 })
+    expect(Object.fromEntries(mode.commits)).toEqual({})
     expect(mode.reads).toBe(0)
   })
 
@@ -473,7 +268,7 @@ describe('real sidebar pool cutover', () => {
       target: { value: 'only responsive target' },
     })
     await waitFor(() => expect(screen.getAllByTestId('unified-issue-row')).toHaveLength(1))
-    expect(screen.getByTestId('work-search-count').textContent).toBe('1/9')
+    expect(screen.getByTestId('work-search-count').textContent).toBe('1/8')
     expect(mode.reads).toBe(0)
   })
 

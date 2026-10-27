@@ -86,8 +86,6 @@ export interface ModelHost {
   model<E extends EntityName>(entity: E, id: string): Lookup<ModelOf[E]>
   /** Where a row stands; a cold one answers `loading` and is queued (first access). */
   resident(entity: EntityName, id: string, absent?: 'load' | 'summary-fields'): Residence
-  /** Resident fallback seats; cold rows are requested from a declared lane summary. */
-  rosterCandidates(path: string): Iterable<string>
 }
 
 function documentText(value: unknown): string {

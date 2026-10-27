@@ -548,37 +548,6 @@ describe('pool navigation uses the existing gesture semantics', () => {
     expect(beginSwitch).not.toHaveBeenCalled()
   })
 
-  it('selects a worktree and its explicit panel with the same trace and mark-read actions', async () => {
-    await mount((fixture) =>
-      fixture.patch('session', 'synthetic-guest-1', {
-        lastActiveAt: new Date(NOW - 1).toISOString(),
-        cwd: `${ROOT}/guests/src`,
-      }),
-    )
-    await act(async () => {
-      actions.selectWorktree(`${ROOT}/guests`)
-    })
-    expect(referenceState(runtime)).toMatchObject({
-      selectedIssueId: null,
-      selectedWorktree: `${ROOT}/guests`,
-      paneA: 'synthetic-guest-1',
-      view: 'workspace',
-    })
-    expect(beginSwitch).toHaveBeenLastCalledWith({ sessionId: 'synthetic-guest-1', issueId: null })
-    const read = await request('sessions.markRead', 'synthetic-guest-1')
-    expect(read.input).toMatchObject({
-      sessionId: 'synthetic-guest-1',
-    })
-    await accept(read)
-    await act(async () => {
-      actions.selectPanel(`${ROOT}/guests`, asSessionId('synthetic-guest-0'))
-    })
-    expect(referenceState(runtime).paneA).toBe('synthetic-guest-0')
-    expect(beginSwitch).toHaveBeenLastCalledWith({ sessionId: 'synthetic-guest-0', issueId: null })
-    await refuse(await request('sessions.markRead', 'synthetic-guest-0'))
-    await settle()
-  })
-
   it('waits without a mutation for unloaded rows and loads repeated clicks in one batch', async () => {
     await mount()
     const owner = pool!
@@ -1367,8 +1336,6 @@ describe('real pool row mutations and receipts', () => {
       referenceState(runtime).setSelectedIssueId(asIssueId(TARGET))
     })
     expect(referenceState(runtime).selectedIssueId).toBe(TARGET)
-    const guestBands = () => sidebarView(pool!).sections().bands.flatMap((band) => band.worktreeIds)
-    const guestsBefore = guestBands()
     const records = ['issueProjection'].map((entity) => fixture.records.get(`${entity}:${TARGET}`)!)
     await act(async () => {
       for (const entity of ['issueProjection']) {
@@ -1382,7 +1349,6 @@ describe('real pool row mutations and receipts', () => {
     expect(pool!.row('issue', TARGET, 'mark')).toEqual({ kind: 'gone', reason: 'not-visible' })
     expect(requests).toHaveLength(0)
     // POD-2129: the evicted task's seats never fall through to a guest band.
-    expect(guestBands()).toEqual(guestsBefore)
     await settle()
     await act(async () => {
       for (const record of records) {

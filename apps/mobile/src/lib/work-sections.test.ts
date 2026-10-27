@@ -87,7 +87,7 @@ function nativeSections(pinned: Row[], groups: Group[]) {
       bandKeys: () => groups.map((group) => group.key),
       band: (_state: unknown, key: string) => {
         const found = groups.find((group) => group.key === key)
-        return found ? { key, label: key, worktreeIds: [] } : undefined
+        return found ? { key, label: key } : undefined
       },
     },
     issue: (id: string) =>
@@ -297,47 +297,19 @@ describe('workGroupFoldKey', () => {
 })
 
 describe('MobileSearchSections', () => {
-  const worktree = (id: string, label: string) => ({
-    id,
-    kind: 'worktree',
-    label,
-    branch: null,
-    sessions: [],
-    activityAt: 0,
-    timing: { phase: 'idle', sinceMs: 0 },
-    fleet: { total: 0, parkedCount: 0, nativeCount: 0, tiles: [] },
-  })
-  const rows = new Map([
-    ['a', worktree('a', 'alpha')],
-    ['b', worktree('b', 'beta')],
+  const titles = new Map([
+    ['a', 'alpha'],
+    ['b', 'beta'],
   ])
   const pool = () =>
     ({
-      clock: { current: 0, reached: () => true, passed: () => {} },
-      inputs: { reached: () => true, passed: () => {} },
-      selection: {
-        keys: (): IterableIterator<string> => [][Symbol.iterator](),
-        size: 0,
+      queries: {
+        localTextIds: (needle: string) =>
+          new Set([...titles].filter(([, title]) => title.includes(needle)).map(([id]) => id)),
       },
-      tables: { worktree: new Map([...rows.keys()].map(id => [id, {}])) },
-      queries: { localTextIds: () => new Set<string>() },
-      // Worktree labels resolve through the sidebar view now: lane rows by
-      // path plus a session roster per lane. The seat id only opens the
-      // roster gate; it resolves to no session and contributes nothing.
-      row: (entity: string, id: string) => {
-        if (entity !== 'worktree') return undefined
-        const row = rows.get(id)
-        return row === undefined
-          ? undefined
-          : { repoName: row.label, repoPath: `/${row.id}`, branch: row.branch }
-      },
-      model: (entity: string) =>
-        entity === 'worktree' ? { roster: { ids: ['search-seat'], pending: 0 } } : undefined,
       sources: {
         view: (() => {
-          const views = new Map<string, unknown>([['worklist.view', {
-            mobileRow: ({ id }: { id: string }) => { const row = rows.get(id); return row ? { ...row, title: row.label } : undefined },
-          }]])
+          const views = new Map<string, unknown>()
           return (key: string, create: () => unknown) => {
             if (!views.has(key)) views.set(key, create())
             return views.get(key)
@@ -351,9 +323,9 @@ describe('MobileSearchSections', () => {
     kind: 'project',
     total: 2,
     data: [
-      { id: 'a', kind: 'worktree', listKey: 'a' },
-      { id: 'b', kind: 'worktree', listKey: 'b' },
-    ] as unknown as MobileWorkSection['data'],
+      { id: 'a', listKey: 'a' },
+      { id: 'b', listKey: 'b' },
+    ],
     snoozedIds: [],
     closedIds: [],
     foldKey: 'fold:/r',
@@ -384,7 +356,6 @@ describe('MobileSearchSections', () => {
       issues: number
       textPasses: number
       issueRows: number
-      treeRows: number
     }[] = []
     for (const scale of [1, 4]) {
       const issueCount = 300 * scale
@@ -392,36 +363,21 @@ describe('MobileSearchSections', () => {
       for (let at = 0; at < issueCount; at++) {
         titles.set(`issue-${at}`, at === 71 ? 'unique phone target' : `routine task ${at}`)
       }
-      // Snoozed/closed lanes scale with the corpus; worktrees do not.
+      // Snoozed/closed lanes scale with the corpus.
       const snoozed = Array.from({ length: 25 * scale }, (_, at) => `issue-snoozed-${at}`)
       for (const id of snoozed) titles.set(id, `snoozed routine ${id}`)
       const closed = Array.from({ length: 25 * scale }, (_, at) => `issue-closed-${at}`)
       for (const id of closed) titles.set(id, `closed routine ${id}`)
-      const trees = [
-        { id: 'tree-a', label: 'phone · feature-a' },
-        { id: 'tree-b', label: 'phone · feature-b' },
-      ]
-      const calls = { textPasses: 0, issueRows: 0, treeRows: 0 }
+      const calls = { textPasses: 0, issueRows: 0 }
       const graph = {
         clock: { current: 0, reached: () => {} },
         selection: {
           keys: (): IterableIterator<string> => [][Symbol.iterator](),
           size: 0,
         },
-        // Worktree labels resolve through the sidebar view now, so the
-        // bounded reads are pool.row calls: one per worktree ref, never an
-        // issue row. This fixture has no shared worktree model to paint.
-        row: (entity: string, id: string) => {
-          if (entity === 'issue') {
-            calls.issueRows++
-            return undefined
-          }
-          if (entity !== 'worktree') return undefined
-          calls.treeRows++
-          const tree = trees.find((t) => t.id === id)
-          return tree === undefined
-            ? undefined
-            : { repoName: tree.label, repoPath: `/${tree.id}`, branch: null }
+        row: (entity: string) => {
+          if (entity === 'issue') calls.issueRows++
+          return undefined
         },
         model: () => undefined,
         sources: {
@@ -433,7 +389,6 @@ describe('MobileSearchSections', () => {
             }
           })(),
         },
-        tables: { worktree: new Map(trees.map(tree => [tree.id, {}])) },
         queries: {
           localTextIds: (needle: string) => {
             calls.textPasses++
@@ -448,13 +403,10 @@ describe('MobileSearchSections', () => {
         key: 'project:/r',
         label: 'r',
         kind: 'project',
-        total: issueCount + trees.length,
-        data: [
-          ...[...titles.keys()]
-            .filter((id) => !id.startsWith('issue-snoozed-') && !id.startsWith('issue-closed-'))
-            .map((id) => ({ id, kind: 'issue', listKey: id })),
-          ...trees.map((t) => ({ id: t.id, kind: 'worktree', listKey: t.id })),
-        ] as unknown as MobileWorkSection['data'],
+        total: issueCount,
+        data: [...titles.keys()]
+          .filter((id) => !id.startsWith('issue-snoozed-') && !id.startsWith('issue-closed-'))
+          .map((id) => ({ id, listKey: id })),
         snoozedIds: snoozed,
         closedIds: closed,
         foldKey: 'fold:/r',
@@ -468,21 +420,16 @@ describe('MobileSearchSections', () => {
       expect(calls.textPasses).toBe(1)
       // No issue row is read or painted while matching — matched or not.
       expect(calls.issueRows).toBe(0)
-      // One readiness read per missing worktree model, independent of the
-      // issue corpus. A missing model does not request a second row copy.
-      expect(calls.treeRows).toBe(trees.length)
       cells.push({
         scale,
         issues: issueCount + snoozed.length + closed.length,
         textPasses: calls.textPasses,
         issueRows: calls.issueRows,
-        treeRows: calls.treeRows,
       })
     }
     const [oneX, fourX] = cells
     expect(fourX?.issues).toBe((oneX?.issues ?? 0) * 4)
     expect(fourX?.textPasses).toBe(oneX?.textPasses)
     expect(fourX?.issueRows).toBe(0)
-    expect(fourX?.treeRows).toBe(oneX?.treeRows)
   })
 })

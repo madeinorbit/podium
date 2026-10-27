@@ -1,16 +1,8 @@
-import { autorun, runInAction } from 'mobx'
 import { describe, expect, it, vi } from 'vitest'
-import { requireHere } from '../lookup'
 import { MobxPool } from '../pool'
 import type { SliceSession } from '../shared/slice-types'
 import { LOADING, motionPhase, roleVerdictOf, seatVerdictOf } from './rollup'
-import {
-  fleetOf,
-  roleWaiting,
-  roleWorking,
-  sidebarSessionFacts,
-  sidebarTiming,
-} from './sidebar-row'
+import { roleWaiting, roleWorking, sidebarSessionFacts } from './sidebar-row'
 import { worklistView } from './view-model'
 
 const stamp = '2026-10-09T07:00:00Z'
@@ -83,55 +75,6 @@ describe('shared session facts equal the old verdict on identical records', () =
     })
 })
 
-describe('owner totals equal the previous roster helpers', () => {
-  for (const rows of [
-    [],
-    [fixtures[0]!],
-    [fixtures[1]!],
-    [fixtures[2]!],
-    fixtures,
-    [fixtures[3]!, fixtures[2]!],
-    [fixtures[0]!, fixtures[11]!],
-  ])
-    it(rows.map((row) => row.sessionId).join(',') || 'empty', () => {
-      const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) })
-      pool.apply({
-        type: 'replace',
-        rows: [
-          {
-            kind: 'worktree',
-            id: lane,
-            value: { path: lane, repoPath: '/synthetic', repoName: 'Synthetic' },
-          },
-          ...rows.map((row) => ({
-            kind: 'session' as const,
-            id: row.sessionId,
-            value: row as never,
-          })),
-        ],
-      })
-      const tree = worklistView(pool).tree(requireHere(pool.model('worktree', lane)))
-      const stop = autorun(() => {
-        void tree.timing
-        void tree.visibleFleet
-      })
-      try {
-        const shown = tree.sessions as unknown as SliceSession[]
-        expect(candidate(tree.timing)).toEqual(
-          sidebarTiming(shown, tree.visiblePhase, false, tree.activityAt),
-        )
-        expect(candidate(tree.visibleFleet)).toEqual(fleetOf(shown))
-        expect(tree.waitingCount).toEqual(
-          shown.filter((row) => motionPhase(row, false) === 'waiting').length,
-        )
-        expect(tree.visibleUnread).toEqual(!tree.visibleWorking && shown.some((row) => row.unread))
-      } finally {
-        stop()
-        pool.dispose()
-      }
-    })
-})
-
 it('cold and unknown verdicts load, then omit gone sessions without warming timer facts', () => {
   const load = vi.fn(() => undefined)
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) }, undefined, {
@@ -187,46 +130,6 @@ it('cold and unknown verdicts load, then omit gone sessions without warming time
     for (const field of fields) expect(field).not.toHaveBeenCalled()
   } finally {
     for (const field of fields) field.mockRestore()
-    pool.dispose()
-  }
-})
-
-it('live totals follow heartbeat, read state and archiving on the same records', () => {
-  const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) })
-  const row = session('seat', { unread: true })
-  pool.apply({
-    type: 'replace',
-    rows: [
-      { kind: 'worktree', id: lane, value: { path: lane, repoPath: '/synthetic' } },
-      { kind: 'session', id: 'seat', value: row as never },
-    ],
-  })
-  const tree = worklistView(pool).tree(requireHere(pool.model('worktree', lane)))
-  const stop = autorun(() => {
-    const shown = tree.sessions as unknown as SliceSession[]
-    expect(candidate(tree.timing)).toEqual(
-      sidebarTiming(shown, tree.visiblePhase, false, tree.activityAt),
-    )
-    expect(candidate(tree.visibleFleet)).toEqual(fleetOf(shown))
-    expect(tree.visibleUnread).toEqual(!tree.visibleWorking && shown.some((row) => row.unread))
-  })
-  try {
-    for (const patch of [
-      { unread: false },
-      {
-        lastActiveAt: '2026-10-09T07:01:00Z',
-        agentState: { phase: 'working', since: stamp, workingMsTotal: 99, nativeSubagentCount: 2 },
-      },
-      { archived: true },
-    ])
-      runInAction(() =>
-        pool.apply({
-          type: 'update',
-          rows: [{ kind: 'session', id: 'seat', value: { ...row, ...patch } as never }],
-        }),
-      )
-  } finally {
-    stop()
     pool.dispose()
   }
 })

@@ -233,43 +233,9 @@ export function createPoolWorkActions(
     })
     focus(id)
   }
-  const selectWorktree = (path: string): void => {
-    const store = runtime.access
-    batch(() => {
-      store.setSelectedIssueId(null)
-      store.setSelectedWorktree(path)
-      const members = [...pool.graph.many('worktree', path, 'sessions')].flatMap((id) => {
-        const session = omitGone(pool.row('session', id)) as SessionView | typeof LOADING | undefined
-        return session === undefined ||
-          session === LOADING ||
-          session.archived ||
-          session.headless === true
-          ? []
-          : [session as unknown as SessionView]
-      })
-      const files = store.fileTabs.filter((f) => machinePathsEqual(f.worktreePath, path)).map((f) => f.id)
-      const target = pickPaneSession(members, store.paneA, files)
-      trace(target, null)
-      store.setPane('A', target)
-      if (target && members.some((s) => s.sessionId === target)) void store.markSessionRead(target)
-      store.setView('workspace')
-    })
-  }
   return {
     selectIssue: (id: string, paneSession?: SessionId) => allowImperativeRead(() => selectIssue(id, paneSession)),
     selectPanelForIssue: (id: string, sessionId: SessionId) => allowImperativeRead(() => selectIssue(id, sessionId)),
-    selectWorktree: (path: string) => allowImperativeRead(() => selectWorktree(path)),
-    selectPanel: (path: string, sessionId: SessionId) => {
-      const store = runtime.access
-      batch(() => {
-        trace(sessionId, null)
-        store.setSelectedIssueId(null)
-        store.setSelectedWorktree(path)
-        store.setPane('A', sessionId)
-        void store.markSessionRead(sessionId)
-        store.setView('workspace')
-      })
-    },
     openIssuePage: (id: IssueId) => {
       const store = runtime.access
       store.setOpenIssueId(id)

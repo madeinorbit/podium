@@ -138,31 +138,6 @@ export function poolIssueHaystack(value: SidebarRowValues): string {
     .toLowerCase()
 }
 
-/** PanelRow's displayed extension: transport geometry and bookkeeping do not
- * redraw a guest. The pool retains the borrowed row for its existing menu. */
-export function poolSessionPaint(s: SessionView) {
-  return {
-    sessionId: s.sessionId,
-    agentKind: s.agentKind,
-    name: s.name,
-    title: s.title,
-    machineId: s.machineId,
-    handoffTarget: s.handoffTarget,
-    displayRef: s.displayRef,
-    issueId: s.issueId,
-    status: s.status,
-    agentState: s.agentState,
-    busy: s.busy,
-    snoozedUntil: s.snoozedUntil,
-    stoppedAt: s.stoppedAt,
-    stopReason: s.stopReason,
-    unread: s.unread,
-    draft: !!s.draftUpdatedAt,
-    createdBy: s.createdBy,
-    agentColor: s.agentColor,
-  }
-}
-
 /** Freeze the departing row's last paint. Live rows always read their companion. */
 export function sidebarExitSnapshot(value: WorklistIssue): SidebarRowValues {
   const issue = value.issue

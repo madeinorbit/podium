@@ -1,15 +1,11 @@
-import { here } from '../lookup'
 import { compareStructural } from 'mobx'
 import { lazy } from '@podium/mobx-helpers'
-import { worklistView } from './view-model'
-import type { SidebarOwner } from './sidebar-roster'
-import type { MobxPool } from '../pool'
 import { hostOf, type SessionModel } from '../models'
 import type { SliceSession } from '../shared/slice-types'
 import { coordinatorLive, type SeatSessionFacts, sessionErrorFact } from '@podium/model/browser'
 import { attentionGroup, isOfferOnlyAttention, LOADING, type Loaded as LoadedRow, motionPhase, type RoleVerdict, roleVerdictOf, type SeatVerdict } from './rollup'
 import { roleWaiting, roleWorking, type SidebarSessionFacts, type SidebarSessionOrder } from './sidebar-row'
-import { parkedOnFinishedIssue, type Retention, retentionOf, retains, type SessionVisibility } from './visible'
+import { type Retention, retentionOf, type SessionVisibility } from './visible'
 
 /** Retention and display contributions of a session in the worklist. */
 export class WorklistSession implements SessionVisibility {
@@ -28,47 +24,7 @@ export class WorklistSession implements SessionVisibility {
     return retentionOf(this.host.visibleInputs.sessionRow(this.id))
   }
 
-  /** The ordering question reads scalar facts; session payload replacement
-   * with identical motion cannot wake the ordered roster. */
-  @lazy private get sortWorking(): boolean {
-    return attentionGroup(this.session as unknown as SliceSession) === 'working'
-  }
-  @lazy get sortKey(): string {
-    const until = this.session.snoozedUntil
-    const timed = typeof until === 'string' && this.host.inputs.reached(Date.parse(until))
-    const rank = this.sortWorking ? 2 : until === null || (typeof until === 'string' && !timed) ? 1 : 0
-    const active = this.session.lastActivity
-    const draft = this.session.draftUpdatedAt
-    const latest = draft && draft > active ? draft : active
-    const recency = timed && until > latest ? until : latest
-    return JSON.stringify([rank, recency, this.session.createdAt ?? ''])
-  }
-  @lazy get stale(): boolean {
-    return !this.sortWorking && this.host.inputs.passed((Date.parse(this.session.lastActivity) || 0) + 16 * 60 * 60 * 1000)
-  }
-
   get phase() { return this.session.motion }
-  @lazy get rosterCandidate(): boolean {
-    const retention = this.retention
-    if (!retention?.seat) return false
-    const pool = this.host as MobxPool, view = worklistView(pool)
-    const owner = retention.issueId ? view.knownRow(retention.issueId)?.rosterOwner : undefined
-    // A seat whose issue the client no longer holds (archived or deleted and
-    // already evicted) belongs to that issue, never to its worktree's band.
-    if (retention.issueId && !owner) return false
-    if (owner?.represented || owner?.excluded) return false
-    if (parkedOnFinishedIssue(this.session.status, owner && owner.finishAt !== undefined)) return false
-    const retainedBy = (value: SidebarOwner | undefined) => retains(retention,
-      value?.finishAt === undefined ? undefined : { updatedAt: new Date(value.finishAt).toISOString() },
-      { finished: value?.finishAt !== undefined }, pool.clock)
-    if (!retainedBy(owner)) return false
-    if (retention.issueId === undefined) {
-      const path = pool.graph.one('session', this.id, 'worktree')
-      const tree = path === null ? undefined : here(pool.model('worktree', path))
-      if (tree && view.tree(tree).representedIssues.some(issue => retainedBy(view.row(issue).rosterOwner))) return false
-    }
-    return true
-  }
 
   // Close and retention: sidebar history also considers read/grace state
 

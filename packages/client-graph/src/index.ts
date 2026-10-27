@@ -5,5 +5,5 @@ export { isGone, here, omitGone, requireHere, type Lookup, type Gone } from './l
 export type { IssueModel, SessionModel, MachineModel, AutomationModel, AutomationRunModel, ModelOf } from './models'
 export type { RowSource, RowRecord, RowSourceEvent, LocalsSource } from './shared/source'
 export type { SliceLocals } from './shared/slice-types'
-export type { MobileRowValues } from './worklist/mobile-row'
+export type { MobileNavigation } from './worklist/mobile-row'
 export type { MobileWorkState, MobileWorkRef, MobileWorkSection, MobileWorkSections } from './worklist/mobile'

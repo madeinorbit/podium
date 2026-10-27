@@ -15,12 +15,11 @@
  * chrome instead of behind a modal.
  */
 
-import type { UnifiedWorkRow } from '@podium/client-core/values'
 import { Search, X } from 'lucide-react'
 import type { JSX, ReactNode, RefObject } from 'react'
-import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
+import { useDeferredValue, useEffect, useRef, useState } from 'react'
 import { modChord } from '@/lib/mod-chord'
-import { indexWorkRows, matchesIndexedWorkQuery, normalizeWorkQuery } from './work-filter'
+import { normalizeWorkQuery } from './work-filter'
 
 export type WorkFilter = {
   /** The raw field value — what the input shows, untrimmed. */
@@ -38,7 +37,7 @@ export type WorkFilter = {
 }
 
 /**
- * The filter's state, its counts, and the ⌘F chord.
+ * The filter's state and the ⌘F chord.
  *
  * ⌘F IS TAKEN FROM THE BROWSER, deliberately and unconditionally — unlike ⌘N
  * (`new-task.ts`), which is gated on the native shell because a browser tab never
@@ -52,29 +51,7 @@ export type WorkFilter = {
  * things and the bar — which focuses itself on mount — took the caret this field
  * had just been handed. Transcript find opens from the chat rail's button now.
  * Anything else that wants ⌘F takes it from here, it does not share it.
- *
- * The counts are taken from the PUBLISHED rows rather than from the animating
- * list, so a row on its way out cannot make the counter disagree with itself
- * mid-exit. For the ~0.7s of an exit the list can hold one row the count has
- * already dropped; the settled number is the honest one.
  */
-export function useWorkFilter(rows: readonly UnifiedWorkRow[], now: number): WorkFilter {
-  const state = useWorkFilterState()
-  const { deferredQuery } = state
-  const normalizedDeferredQuery = useMemo(() => normalizeWorkQuery(deferredQuery), [deferredQuery])
-  const searchIndex = useMemo(() => indexWorkRows(rows, now), [rows, now])
-  const hits = useMemo(
-    () =>
-      normalizedDeferredQuery
-        ? rows.filter((row) => matchesIndexedWorkQuery(searchIndex, row, normalizedDeferredQuery))
-            .length
-        : rows.length,
-    [normalizedDeferredQuery, rows, searchIndex],
-  )
-  return { ...state, total: rows.length, hits }
-}
-
-/** The input and chord are shared by both data layers; row reads stay with the caller. */
 export function useWorkFilterState(): Omit<WorkFilter, 'total' | 'hits'> {
   const [query, setQuery] = useState('')
   const deferredQuery = useDeferredValue(query)

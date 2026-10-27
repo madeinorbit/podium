@@ -385,7 +385,6 @@ function fixtureSidebarSections(
       aliases: [key],
       repoPath: band.repoPath,
       rowIds: band.open.map((entry) => entry.id),
-      worktreeIds: [],
       snoozedIds: band.snoozed.map((entry) => entry.id),
       closedIds: band.closed.map((entry) => entry.id),
       collapsed: false,
@@ -394,8 +393,6 @@ function fixtureSidebarSections(
       foldKey: `podium:sidebar:project-fold:${key}`,
       snoozedFoldKey: `podium:sidebar:snoozed-fold:${key}`,
       closedFoldKey: `podium:sidebar:closed-fold:${key}`,
-      startFirstTask:
-        band.open.length === 0 && band.snoozed.length === 0 && band.closed.length === 0,
     })),
   }
 }

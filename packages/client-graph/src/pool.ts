@@ -137,7 +137,6 @@ import type { NoticeRows } from './notice-schema'
 import { NO_INTERACTIONS, type SeatInteractions } from '@podium/model/browser'
 import { SeatVerdicts } from './worklist/seat-verdicts'
 import { worklistView } from './worklist/view-model'
-import { sidebarRosterView } from './worklist/sidebar-roster'
 import { projectIndex } from './worklist/projects'
 import {
   type HeldIssue,
@@ -459,7 +458,6 @@ export class MobxPool {
       // read, in the same action that moved the bucket: binary search by id
       // (default `.sort()` order, UTF-16 code units) + splice at its position.
       onBucket: (collection, target, member, added) => {
-        if (collection === 'worktree.sessions') sidebarRosters.queueSession(member)
         if (collection !== 'issue.sessions') return
         this.seatVerdicts.queueMember(target, member, added)
         const list = seats.get(target)
@@ -498,7 +496,6 @@ export class MobxPool {
       },
       ...(residency === null ? {} : { residency }),
     }
-    const sidebarRosters = sidebarRosterView(this)
     projectIndex(this)
     // Maintenance reads: untracked, so a summary never depends on a seat's row.
     this.seatVerdicts = new SeatVerdicts({
@@ -703,10 +700,6 @@ export class MobxPool {
       return this.emptyIndex
     }
     return this.sourceIndex?.() ?? (this.ownIndex as ColdIndex)
-  }
-
-  rosterCandidates(path: string): Iterable<string> {
-    return sidebarRosterView(this).candidates(path)
   }
 
   /**
@@ -1003,7 +996,6 @@ export class MobxPool {
     return runInAction(() => {
       for (const [ref, id] of identities) referenceViewIfPresent(this)?.resolved(ref, id)
       const rows = residency.install(this.target, batch, out)
-      sidebarRosterView(this).flush()
       this.seatVerdicts.flush()
       return rows
     })
@@ -1142,7 +1134,6 @@ export class MobxPool {
       // as the members group does (hot or cold).
       for (const record of event.type === 'replace' ? [] : event.rows) {
         if (record.kind === 'session') {
-          sidebarRosterView(this).queueSession(record.id)
           this.seatVerdicts.queueSession(record.id)
         }
         if (record.kind === 'issue') {
@@ -1151,7 +1142,6 @@ export class MobxPool {
             referenceViewIfPresent(this)?.arrived(record.value as SliceIssue)
         }
       }
-      sidebarRosterView(this).flush()
       this.seatVerdicts.flush()
       this.queries.publish(event)
       for (const record of machineRows) if (record.value === undefined) this.release('machine', record.id)

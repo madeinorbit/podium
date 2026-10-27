@@ -4,7 +4,7 @@ import {
   type GitStampModel,
   type MissionProgress,
 } from '@podium/client-core/values'
-import type { MobileRowValues } from '@podium/client-graph/worklist/mobile-row'
+import type { SidebarRowValues } from '@podium/client-graph/worklist/sidebar-row'
 import type { IssueGitState } from '@podium/model'
 import { StyleSheet, Text, View } from 'react-native'
 import { alpha } from '../theme/mix'
@@ -42,7 +42,7 @@ const FLEET_TILE = 19
  * phone used to filter hibernation out exactly as the sidebar did, so a fleet
  * the memory reaper had put to sleep read as an empty one.
  */
-export function FleetSummary({ display }: { display: MobileRowValues['fleet'] }) {
+export function FleetSummary({ display }: { display: SidebarRowValues['fleet'] }) {
   const present = { length: display.total },
     tiles = display.tiles,
     nativeCount = display.nativeCount

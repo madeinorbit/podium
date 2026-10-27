@@ -1,22 +1,20 @@
 import { here, omitGone } from '../lookup'
 import { observable, observableRef, action } from 'mobx'
 import { lazy, companion } from '@podium/mobx-helpers'
-import type { IssueModel, ModelHost, ModelOf, SessionModel } from '../models'
+import type { IssueModel, ModelHost, SessionModel } from '../models'
 import type { MobxPool } from '../pool'
 import type { LocalsKey, SliceLocals } from '../shared/slice-types'
 import { worklistGroups } from './groups'
 import { WorklistIssue } from './issue'
 import { WorklistSession } from './session'
-import { WorklistWorktree } from './worktree'
 import { SidebarIndex, type SidebarState } from './sidebar'
-import { MobileSectionsView, type MobileWorkState, type MobileWorkRef } from './mobile'
+import { MobileSectionsView } from './mobile'
 import { LOADING, type RollupInputs, type RollupParts } from './rollup'
 
 /** One view of the worklist, drawn by the desktop sidebar and phone Work tab. */
 export class Worklist {
   readonly row: (issue: IssueModel) => WorklistIssue = companion(issue => new WorklistIssue(issue, this))
   readonly session: (session: SessionModel) => WorklistSession = companion(session => new WorklistSession(session))
-  readonly tree: (tree: ModelOf['worktree']) => WorklistWorktree = companion(tree => new WorklistWorktree(tree, this))
   @observable accessor selectedId: string | null = null
   @observable accessor selectedWasFolded = false
 
@@ -74,17 +72,10 @@ export class Worklist {
   sections(state: SidebarState = this.layout) { return this.desktop.sections(state) }
   mobileSections() { return this.mobileSectionsView }
   desktopRow(id: string) { return this.desktop.row(id) }
-  mobileRow(ref: Pick<MobileWorkRef, 'id' | 'kind'>): WorklistIssue | WorklistWorktree | typeof LOADING | undefined {
-    if (ref.kind === 'issue') {
-      const issue = here(this.pool.issue(ref.id))
-      if (!issue) return omitGone(this.pool.row('issue', ref.id)) === LOADING ? LOADING : undefined
-      const row = this.row(issue), ready = row.ready
-      return ready === 'ready' ? row : ready
-    }
-    if (omitGone(this.pool.row('worktree', ref.id)) === LOADING) return LOADING
-    const tree = here(this.pool.model('worktree', ref.id))
-    if (!tree) return undefined
-    const row = this.tree(tree), ready = row.ready
+  mobileRow(id: string): WorklistIssue | typeof LOADING | undefined {
+    const issue = here(this.pool.issue(id))
+    if (!issue) return omitGone(this.pool.row('issue', id)) === LOADING ? LOADING : undefined
+    const row = this.row(issue), ready = row.ready
     return ready === 'ready' ? row : ready
   }
 

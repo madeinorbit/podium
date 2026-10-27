@@ -1,12 +1,10 @@
 /** Native work-row paint from one addressed pool projection. */
 import type { IssueNavigationModel } from '@podium/client-core/values'
-import { here } from '@podium/client-graph/lookup'
 import { useWorklistModel } from '@podium/client-graph/react'
 import type { WorklistIssue } from '@podium/client-graph/worklist/issue'
 import type { MobileWorkRef } from '@podium/client-graph/worklist/mobile'
 import { mobileWorkView } from '@podium/client-graph/worklist/mobile'
 import { worklistView } from '@podium/client-graph/worklist/view-model'
-import type { WorklistWorktree } from '@podium/client-graph/worklist/worktree'
 import type { IssueGitState, SessionId } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import { observer } from 'mobx-react-lite'
@@ -45,7 +43,7 @@ export function useDelayedFlag(active: boolean, delayMs: number): boolean {
 /** A row paints only the addressed pool projection. Gesture targets are read
  * from the same reader at the moment of the press. */
 export interface WorkListRowProps {
-  row: WorklistIssue | WorklistWorktree
+  row: WorklistIssue
   onTuck?: () => void
   navPending: boolean
   onOpen: () => void
@@ -62,22 +60,21 @@ export const WorkRow = observer(function WorkRow({
   const navLoader = useDelayedFlag(navPending, NAV_LOADER_DELAY_MS)
   if (typeof row.ready === 'symbol') return <View accessibilityLabel="Loading work" />
   if (!row.ready) return null
-  const isIssue = 'issue' in row
-  const issue = isIssue ? row.issue : undefined
-  const ref = issue ? issueDisplayRef(issue) : null
-  const internal = issue?.audience === 'agent'
-  const pinned = issue?.pinned === true
+  const issue = row.issue
+  const ref = issueDisplayRef(issue)
+  const internal = issue.audience === 'agent'
+  const pinned = issue.pinned === true
   const label = row.title
-  const progressValue = isIssue ? row.progress : null
-  const progress = progressValue && typeof progressValue !== 'symbol' && progressValue.total >= 2 ? progressValue : null
-  const originSeq = isIssue ? row.origin?.seq ?? null : null
-  const statusLine = worklistRowStatus(row, row.worklist.pool.clock.peekNow())
-  const snoozed = issue?.deferred === true
-  const unsnoozed = isIssue && row.returnedFromDefer
+  const progressValue = row.progress
+  const progress = typeof progressValue !== 'symbol' && progressValue.total >= 2 ? progressValue : null
+  const originSeq = row.origin?.seq ?? null
+  const statusLine = worklistRowStatus(row)
+  const snoozed = issue.deferred === true
+  const unsnoozed = row.returnedFromDefer
   const phase = row.timing.phase, working = row.visibleWorking, waiting = row.waitingCount
-  const decision = isIssue ? row.decision : null
-  const unread = isIssue ? row.emphasizeUnread : row.visibleUnread
-  const draftOnly = isIssue && row.sessionOnlyDraft
+  const decision = row.decision
+  const unread = row.emphasizeUnread
+  const draftOnly = row.sessionOnlyDraft
   const attention = waiting > 0
 
   return (
@@ -92,9 +89,9 @@ export const WorkRow = observer(function WorkRow({
     >
       <PressableScale
         accessibilityRole="button"
-        accessibilityLabel={isIssue ? `${ref} ${label}` : `Worktree ${label}`}
+        accessibilityLabel={`${ref} ${label}`}
         onPress={onOpen}
-        onLongPress={isIssue ? onLongPress : undefined}
+        onLongPress={onLongPress}
         delayLongPress={350}
         scaleTo={0.99}
         style={({ pressed }) => [
@@ -120,8 +117,8 @@ export const WorkRow = observer(function WorkRow({
             {unsnoozed ? <Text style={rowStyles.unsnoozed}>Unsnoozed</Text> : null}
           </View>
           <View style={rowStyles.rowStatusLine}>
-            {isIssue ? <NotSavedMark kind="issue" id={row.id} /> : null}
-            {isIssue ? <Text style={rowStyles.rowRef}>{ref}</Text> : null}
+            <NotSavedMark kind="issue" id={row.id} />
+            <Text style={rowStyles.rowRef}>{ref}</Text>
             {attention ? <Text style={rowStyles.rowWaitCount}>{waiting}</Text> : null}
             {pinned ? <Icon as={Pin} size={9} color={color.textMicro} /> : null}
             {draftOnly ? null : <FleetSummary display={row.visibleFleet} />}
@@ -137,7 +134,7 @@ export const WorkRow = observer(function WorkRow({
               {statusLine}
             </Text>
             {originSeq !== null ? <Text style={rowStyles.origin}>{`⤷ ${originSeq}`}</Text> : null}
-            {isIssue ? <GitStampLine branch={issue?.branch} git={issue?.gitState as IssueGitState | undefined} suppressAhead={decision === 'merge'} /> : null}
+            <GitStampLine branch={issue.branch} git={issue.gitState as IssueGitState | undefined} suppressAhead={decision === 'merge'} />
             <View style={rowStyles.spacer} />
             <View style={rowStyles.rowDatum}>
               {navLoader ? (
@@ -157,7 +154,7 @@ export const WorkRow = observer(function WorkRow({
           {progress ? <RowProgressMeter progress={progress} working={working} /> : null}
         </View>
       </PressableScale>
-      {attention && isIssue ? (
+      {attention ? (
         <PressableScale
           accessibilityRole="button"
           accessibilityLabel={`${decision ? 'Review' : 'Answer'} ${ref}`}
@@ -413,23 +410,22 @@ export const PoolWorkRowSlot = memo(
     const pool = useMobilePool()
     const context = useWorklistModel()
     const model = context ?? (pool ? worklistView(pool) : null)
-    const entity = pool && item.kind === 'worktree' ? here(pool.model('worktree', item.id)) : undefined
-    const row = item.kind === 'issue' ? model?.knownRow(item.id) : entity ? model?.tree(entity) : undefined
+    const row = model?.knownRow(item.id)
     const value = row?.ready
     const reader = pool ? mobileWorkView(pool) : undefined
     const tuck = useCallback(() => onTuck(item.id), [item.id, onTuck])
     const openRow = useCallback(() => {
-      const current = reader?.mobileRow({ id: item.id, kind: item.kind })
-      if (!current || typeof current === 'symbol' || !current.navigation) return
+      const current = reader?.mobileRow(item.id)
+      if (!current || typeof current === 'symbol') return
       if (current.navigation.kind === 'session')
         callbacks.onOpenSession(current.navigation.id as SessionId, item.id)
-      else if ('issue' in current) callbacks.onOpenIssue(current.issue as unknown as IssueNavigationModel)
-    }, [callbacks.onOpenIssue, callbacks.onOpenSession, item.id, item.kind, reader])
+      else callbacks.onOpenIssue(current.issue as unknown as IssueNavigationModel)
+    }, [callbacks.onOpenIssue, callbacks.onOpenSession, item.id, reader])
     const longPress = useCallback(() => {
-      const current = reader?.mobileRow({ id: item.id, kind: item.kind })
-      if (current && typeof current !== 'symbol' && 'issue' in current)
+      const current = reader?.mobileRow(item.id)
+      if (current && typeof current !== 'symbol')
         callbacks.onLongPress(current.issue as unknown as IssueNavigationModel)
-    }, [callbacks.onLongPress, item.id, item.kind, reader])
+    }, [callbacks.onLongPress, item.id, reader])
     if (!pool || typeof value === 'symbol') return <View accessibilityLabel="Loading work" />
     if (!row || !value) return null
     return (
@@ -438,13 +434,12 @@ export const PoolWorkRowSlot = memo(
         navPending={callbacks.navPending}
         onOpen={openRow}
         onLongPress={longPress}
-        onTuck={'issue' in row && row.canTuck ? tuck : undefined}
+        onTuck={row.canTuck ? tuck : undefined}
       />
     )
   }),
   (a, b) =>
     a.item.id === b.item.id &&
-    a.item.kind === b.item.kind &&
     a.item.listKey === b.item.listKey &&
     a.navPending === b.navPending &&
     a.onTuck === b.onTuck &&
@@ -453,7 +448,7 @@ export const PoolWorkRowSlot = memo(
     a.onLongPress === b.onLongPress,
 )
 
-const WorkStamp = observer(function WorkStamp({ row }: { row: WorklistIssue | WorklistWorktree }) {
+const WorkStamp = observer(function WorkStamp({ row }: { row: WorklistIssue }) {
   const timing = row.timing
   const now = useAgeNow(timing.sinceMs, timing.baseMs ?? 0, timing.phase === 'working' || timing.phase === 'waiting')
   const stamp = mobileRowStamp(timing, now)

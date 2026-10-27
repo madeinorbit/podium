@@ -13,9 +13,8 @@ import { type Aggregate, ownAttentionFields, unitOwnFields, unitsBelowFields,
   LOADING, type OwnAttention, type OwnFacts, type Rollup, rollupPartOf, phaseOf, askingOf,
   seatActivityPartOf, tipPartOf, type UnitOwn, type Units, waitingPartOf } from './rollup'
 import { NO_SIDEBAR_SESSIONS, sidebarLifecycle, sidebarTimingFromFacts, type SidebarRowValues, type SidebarProgress, type SidebarSessionFacts } from './sidebar-row'
-import type { SidebarOwner } from './sidebar-roster'
 import { sidebarBelowOf, sidebarNestedOf } from './sidebar'
-import { mobileWaitingCount, type MobileRowValues } from './mobile-row'
+import { mobileWaitingCount, type MobileNavigation } from './mobile-row'
 import { childIdsPartOf, type HeldIssue, type HiddenIssue, hiddenPresenceOf, keptBelowPartOf,
   laneMemberIdsPartOf, memberIdsPartOf, nestCandidatePartOf, nestParentPartOf,
   exceptionSeatIdsPartOf, flatPartOf, keepsPartOf, retainedSeatIdsPartOf, rosterIdsPartOf, openOwnPartOf, nestBelowPartOf, nestedPartOf,
@@ -46,11 +45,6 @@ export class WorklistIssue implements HeldIssue, RowView {
   @lazy
   private get hasStanding(): boolean {
     return this.residentIssue() !== undefined
-  }
-
-  @lazy({ equals: compareStructural }) get rosterOwner(): SidebarOwner {
-    return { represented: this.placed, excluded: this.issue.excluded,
-      finishAt: this.issue.finished ? this.issue.finishedMs : undefined }
   }
 
   private readStanding(): Standing | undefined {
@@ -530,7 +524,6 @@ export class WorklistIssue implements HeldIssue, RowView {
     return {
       get excluded() { return (model.issue.excluded) },
       get finished() { return (model.issue.finished ?? false) },
-      get agent() { return (model.issue.audience === 'agent') },
       get activeHuman() { return model.activeHuman },
       get awaitingMerge() { return (model.issue.awaitingMerge) },
       get sessionless() { return model.sessionless },
@@ -1112,7 +1105,7 @@ export class WorklistIssue implements HeldIssue, RowView {
   /** Phone emphasis also suppresses visibleUnread for a quiet session-only draft. */
   @lazy get emphasizeUnread() { return this.visibleUnread && !this.quietDraft }
   @lazy get attentionAction() { return this.waitingCount > 0 ? this.decision ? 'Review' as const : 'Answer' as const : null }
-  @lazy({ equals: compareStructural }) get navigation(): MobileRowValues['navigation'] {
+  @lazy({ equals: compareStructural }) get navigation(): MobileNavigation {
     const first = this.sessions[0]
     return this.sessionOnlyDraft && first ? { kind: 'session', id: first.sessionId } : { kind: 'issue', id: this.id }
   }

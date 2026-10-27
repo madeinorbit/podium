@@ -182,7 +182,6 @@ export interface Standing {
   readonly excluded: boolean
   /** `stage === 'done' || closedReason != null` (`rows.ts:82`). */
   readonly finished: boolean
-  readonly agent: boolean
   /** Human and planning / in_progress / review (`rows.ts:83-85`). */
   readonly activeHuman: boolean
   /**
@@ -271,7 +270,6 @@ export function standingOf(issue: SliceIssue, facts?: Pick<Standing,
   return {
     get excluded() { return facts ? facts.excluded : isExcluded(issue) },
     get finished() { return facts ? facts.finished : isFinished(issue) },
-    get agent() { return issue.audience === 'agent' },
     get activeHuman() {
       return issue.audience === 'human' &&
         (issue.stage === 'planning' || issue.stage === 'in_progress' || issue.stage === 'review')

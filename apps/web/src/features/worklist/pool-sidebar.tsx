@@ -1,10 +1,8 @@
 import type { Store } from '@podium/client-core/react'
-import type { SessionView } from '@podium/client-core/session-values'
 import { shallowEqual } from '@podium/client-core/shallow-equal'
 import { type IssueNavigationModel, planReorderKeys } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph'
 import { LOADING } from '@podium/client-graph/loading'
-import { here, omitGone } from '@podium/client-graph/lookup'
 import {
   compareStructural,
   computed,
@@ -12,12 +10,11 @@ import {
   useWorklistModel,
   WorklistProvider,
 } from '@podium/client-graph/react'
-import type { SliceWorktree } from '@podium/client-graph/shared/slice-types'
 import type { SidebarSections, SidebarState } from '@podium/client-graph/worklist/sidebar'
 import { sidebarView } from '@podium/client-graph/worklist/sidebar'
 import type { SidebarRowValues } from '@podium/client-graph/worklist/sidebar-row'
 import { worklistView } from '@podium/client-graph/worklist/view-model'
-import { machinePathKey, machinePathsEqual, type SessionId } from '@podium/model/browser'
+import { machinePathKey, type SessionId } from '@podium/model/browser'
 import * as m from 'motion/react-m'
 import {
   type AnimationEvent,
@@ -38,7 +35,7 @@ import {
 import { toast } from 'sonner'
 import { usePanelVisible } from '@/app/panel-visible'
 import { useRuntimeSelector } from '@/app/store'
-import { useWorklistPool, useWorklistPoolProjection } from '@/app/store-worklist-pool'
+import { useWorklistPool } from '@/app/store-worklist-pool'
 import { MobilePromoCard } from '@/features/mobile-handoff/MobilePromoCard'
 import { PHONE_APP_IN_STORES } from '@/features/mobile-handoff/mobile-handoff'
 import { FirstFlightsBadge } from '@/features/tips/FirstFlightsBadge'
@@ -55,14 +52,12 @@ import {
   navigationIssue,
   poolIssueDisplay,
   poolIssueRow,
-  poolSessionPaint,
   sidebarExitSnapshot,
   worklistIssueHaystack,
 } from './pool-row-data'
 import { MAX_ROW_SHORTCUTS, useRowShortcuts } from './row-shortcuts'
-import { PanelRow, useCollapsedKeys } from './sidebar-common'
+import { useCollapsedKeys } from './sidebar-common'
 import { UnifiedIssueRow, WorklistIssueRow } from './UnifiedIssueRow'
-import { UnifiedWorktreeRow } from './UnifiedWorktreeRow'
 import {
   type ArchiveIssueTree,
   type PoolWorkActions,
@@ -98,7 +93,6 @@ import {
 import { WorklistWindow } from './worklist-window'
 
 type Slot = {
-  kind: 'issue' | 'worktree'
   id: string
   lane: 'pinned' | 'open' | 'snoozed' | 'closed'
   groupKey: string
@@ -106,8 +100,7 @@ type Slot = {
 }
 type Item = RowTransitionItem<Slot>
 const itemKey = (item: Item) => item.key
-const itemDragId = (item: Item) =>
-  item.value.kind === 'issue' && item.phase !== 'exiting' ? item.value.id : undefined
+const itemDragId = (item: Item) => (item.phase !== 'exiting' ? item.value.id : undefined)
 const NO_DRAG_ROWS: readonly string[] = []
 const selectLayout = (s: Store) => ({
   projectOrder: s.sidebarSettings.repoOrder,
@@ -125,44 +118,26 @@ function slotsFor(
   orderByScope?: Map<string, readonly string[]>,
 ): RowTransitionTarget<Slot>[] {
   const slots: RowTransitionTarget<Slot>[] = []
-  const add = (
-    id: string,
-    kind: Slot['kind'],
-    lane: Slot['lane'],
-    groupKey: string,
-    groupLabel: string,
-  ) =>
+  const add = (id: string, lane: Slot['lane'], groupKey: string, groupLabel: string) =>
     slots.push({
-      key: `${kind === 'issue' ? 'issue' : 'wt'}:${id}`,
+      key: `issue:${id}`,
       placement: lane === 'closed' || lane === 'snoozed' ? `${lane}:${groupKey}` : 'active',
-      value: { kind, id, lane, groupKey, groupLabel },
+      value: { id, lane, groupKey, groupLabel },
     })
-  for (const id of sections.pinnedIds) add(id, 'issue', 'pinned', 'pinned', 'Pinned')
+  for (const id of sections.pinnedIds) add(id, 'pinned', 'pinned', 'Pinned')
   for (const band of sections.bands) {
     orderByScope?.set(`group:${band.key}`, band.rowIds)
-    for (const id of band.rowIds) add(id, 'issue', 'open', band.key, band.label)
-    for (const id of band.worktreeIds) add(id, 'worktree', 'open', band.key, band.label)
-    for (const id of band.snoozedIds) add(id, 'issue', 'snoozed', band.key, band.label)
-    for (const id of band.closedIds) add(id, 'issue', 'closed', band.key, band.label)
+    for (const id of band.rowIds) add(id, 'open', band.key, band.label)
+    for (const id of band.snoozedIds) add(id, 'snoozed', band.key, band.label)
+    for (const id of band.closedIds) add(id, 'closed', band.key, band.label)
   }
   return slots
 }
 
 function matches(pool: MobxPool, slot: Slot, needle: string): boolean {
   if (!needle) return true
-  if (slot.kind === 'issue') {
-    const value = sidebarView(pool).row(slot.id)
-    return value !== undefined && value !== LOADING && worklistIssueHaystack(value).includes(needle)
-  }
-  const value = omitGone(pool.row('worktree', slot.id)) as
-    | SliceWorktree
-    | typeof LOADING
-    | undefined
-  return (
-    value !== undefined &&
-    value !== LOADING &&
-    `${value['repoName']} ${value['branch'] ?? ''} ${slot.id}`.toLowerCase().includes(needle)
-  )
+  const value = sidebarView(pool).row(slot.id)
+  return value !== undefined && value !== LOADING && worklistIssueHaystack(value).includes(needle)
 }
 
 const PoolEviction = observer(function PoolEviction({ pool }: { pool: MobxPool }) {
@@ -213,7 +188,7 @@ export const PoolSidebarUnified = observer(function PoolSidebarUnified(): JSX.El
           const counts: Record<WorkLane, number> = { open: 0, snoozed: 0, closed: 0 }
           if (!pool) return { total: 0, hits: 0, counts }
           const slots = slotsFor(sidebarView(pool).sections(state))
-          for (const slot of slots) if (slot.value.kind === 'issue') counts[laneOf(slot.value)]++
+          for (const slot of slots) counts[laneOf(slot.value)]++
           const live = slots.filter((slot) => laneOf(slot.value) === lane)
           return {
             total: live.length,
@@ -280,16 +255,6 @@ export function PoolWorkSections({
 }
 
 const MemoFoldedWorkRow = memo(FoldedWorkRow)
-const MemoPanelRow = memo(
-  PanelRow,
-  (a, b) =>
-    a.active === b.active &&
-    a.onSelect === b.onSelect &&
-    a.issueDisplayRef === b.issueDisplayRef &&
-    compareStructural(a.snoozeState, b.snoozeState) &&
-    compareStructural(poolSessionPaint(a.session), poolSessionPaint(b.session)),
-)
-
 /** A folder drag in flight: which header, and the order it is showing. */
 type FolderDrag = { key: string; start: readonly string[]; order: readonly string[] }
 
@@ -484,13 +449,11 @@ const ObservedPoolWorkSections = observer(function ObservedPoolWorkSections({
   const shortcutIds =
     lane === 'open'
       ? targets
-          .filter(
-            (target) =>
-              target.value.kind === 'issue' &&
-              (target.value.lane === 'pinned'
-                ? !collapsed.has(PINNED_FOLD_KEY)
-                : target.value.lane === 'open' &&
-                  !collapsed.has(projectFoldKey(target.value.groupKey))),
+          .filter((target) =>
+            target.value.lane === 'pinned'
+              ? !collapsed.has(PINNED_FOLD_KEY)
+              : target.value.lane === 'open' &&
+                !collapsed.has(projectFoldKey(target.value.groupKey)),
           )
           .slice(0, MAX_ROW_SHORTCUTS)
           .map((target) => target.value.id)
@@ -901,9 +864,9 @@ const PoolMotionRow = observer(function PoolMotionRow({
   openMenu: (id: string, event: MouseEvent) => void
   onArchive: (id: string) => void
 }): JSX.Element | null {
-  const { id, kind, lane } = item.value
+  const { id, lane } = item.value
   const worklist = useWorklistModel() ?? worklistView(pool)
-  const companion = kind === 'issue' ? worklist.knownRow(id) : undefined
+  const companion = worklist.knownRow(id)
   const folded = lane === 'closed' || lane === 'snoozed'
   const visible = usePanelVisible()
   const fresh = companion?.ready === 'ready' ? companion : companion?.ready
@@ -926,12 +889,7 @@ const PoolMotionRow = observer(function PoolMotionRow({
   const arriving = animate && item.phase === 'entering'
   const exiting = item.phase === 'exiting'
   const draggable =
-    kind === 'issue' &&
-    !exiting &&
-    !filtering &&
-    fresh !== undefined &&
-    fresh !== LOADING &&
-    !fresh.issue.deferred
+    !exiting && !filtering && fresh !== undefined && fresh !== LOADING && !fresh.issue.deferred
   const select = useCallback(() => actions.selectIssue(id), [actions, id])
   const tuck = useCallback(() => {
     void actions.setIssueTucked(id, true)
@@ -953,11 +911,9 @@ const PoolMotionRow = observer(function PoolMotionRow({
   const archiveRow = useCallback(() => onArchive(id), [onArchive, id])
   const row = snapshot ? poolIssueRow(snapshot) : undefined
   const display = snapshot ? poolIssueDisplay(snapshot) : undefined
-  if (kind === 'issue' && fresh === undefined && snapshot === undefined) return null
+  if (fresh === undefined && snapshot === undefined) return null
   const inner =
-    kind === 'worktree' ? (
-      <PoolWorktreeRow pool={pool} path={id} actions={actions} />
-    ) : fresh === LOADING ? (
+    fresh === LOADING ? (
       <div data-testid="pool-row-loading" aria-busy="true" className="min-h-12" />
     ) : folded && fresh ? (
       <WorklistFoldedRow
@@ -1057,118 +1013,3 @@ const ROW_RESTORE = {
   opacity: { duration: MOTION_S.enter, ease: EASE_OUT },
   y: { duration: MOTION_S.enter, ease: EASE_OUT },
 }
-
-const PoolWorktreeRow = observer(function PoolWorktreeRow({
-  pool,
-  path,
-  actions,
-}: {
-  pool: MobxPool
-  path: string
-  actions: PoolWorkActions
-}) {
-  const visible = usePanelVisible()
-  const state = useRuntimeSelector((s) => {
-    const active =
-      visible &&
-      s.selectedIssueId === null &&
-      s.selectedWorktree != null &&
-      machinePathsEqual(s.selectedWorktree, path)
-    return { selectedWorktree: active ? path : null, paneA: active ? s.paneA : null }
-  }, shallowEqual)
-  const entity = here(pool.model('worktree', path))
-  const model = entity ? worklistView(pool).tree(entity) : undefined
-  const select = useCallback(() => actions.selectWorktree(path), [actions, path])
-  const renderSession = useCallback(
-    (session: SessionView, active: boolean) => (
-      <PoolPanelRow
-        key={session.sessionId}
-        pool={pool}
-        id={session.sessionId}
-        active={active}
-        actions={actions}
-        path={path}
-      />
-    ),
-    [pool, actions, path],
-  )
-  if (!model || (!model.rosterIds.length && model.pending === 0)) return null
-  return (
-    <UnifiedWorktreeRow
-      model={model}
-      active={model.active(state)}
-      paneA={state.paneA}
-      renderSession={renderSession}
-      onSelect={select}
-    />
-  )
-})
-
-const PoolPanelRow = observer(function PoolPanelRow({
-  pool,
-  id,
-  path,
-  actions,
-  active,
-}: {
-  pool: MobxPool
-  id: string
-  path: string
-  actions: PoolWorkActions
-  active: boolean
-}) {
-  const visible = usePanelVisible()
-  const projection = useMemo(
-    () =>
-      computed(
-        () => omitGone(pool.row('session', id)) as SessionView | typeof LOADING | undefined,
-        {
-          equals: (a, b) =>
-            compareStructural(
-              a !== undefined && a !== LOADING ? poolSessionPaint(a) : a,
-              b !== undefined && b !== LOADING ? poolSessionPaint(b) : b,
-            ),
-        },
-      ),
-    [pool, id],
-  )
-  const read = useCallback(() => projection.get(), [projection])
-  const value = useWorklistPoolProjection(read, undefined, visible, true)
-  const select = useCallback(() => actions.selectPanel(path, id as SessionId), [actions, path, id])
-  const snoozeProjection = useMemo(
-    () =>
-      computed(
-        () => {
-          if (value === undefined || value === LOADING) return undefined
-          const until =
-            typeof value.snoozedUntil === 'string' ? Date.parse(value.snoozedUntil) : NaN
-          const timed = Number.isFinite(until)
-          const returned = timed && pool.clock.reached(until)
-          return {
-            snoozed: value.snoozedUntil === null || (timed && !returned),
-            returned,
-          }
-        },
-        { equals: compareStructural },
-      ),
-    [pool, value],
-  )
-  const readSnooze = useCallback(() => snoozeProjection.get(), [snoozeProjection])
-  const snoozeState = useWorklistPoolProjection(readSnooze, undefined, visible, true)
-  // A guest whose issue is known but unplaced names that issue by its ref.
-  const owner =
-    value && value !== LOADING && value.issueId
-      ? here(pool.model('issue', value.issueId))
-      : undefined
-  return value === LOADING ? (
-    <div aria-busy="true" data-testid="pool-row-loading" className="min-h-6" />
-  ) : value === undefined ? null : (
-    <MemoPanelRow
-      session={value}
-      active={active}
-      onSelect={select}
-      snoozeState={snoozeState}
-      issueDisplayRef={owner?.displayRef}
-    />
-  )
-})

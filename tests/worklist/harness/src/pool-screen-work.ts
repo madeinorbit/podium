@@ -97,7 +97,6 @@ import { autorun, compareStructural, observable, runInAction } from 'mobx'
 import { resolvePoolWorkMenu as readPoolWorkMenu } from '../../../../apps/mobile/src/lib/pool-work-menu'
 import {
   MobileSearchSections,
-  mobileRowPaint,
   searchMobileSections,
 } from '../../../../apps/mobile/src/lib/work-sections'
 import {
@@ -456,7 +455,6 @@ async function measureScreenCells(
       if (!only || only.has(name)) readers.push({ name, consumers, read })
     }
     add('sidebar.sections', ['PoolSidebar'], () => sidebarView(pool).sections(layout))
-    const worktree = pool.tables.worktree.keys().next().value!
     // Retain the actual painted fields in the watched read at both versions.
     // Serializing a wire issue would also observe menu/history-only fields;
     // retaining only a live companion's port would observe readiness alone.
@@ -468,7 +466,6 @@ async function measureScreenCells(
         ? row
         : rowAnswers(poolIssuePaint(sidebarComparable(row) as never))
     })
-    add('sidebar.worktree', ['PoolWorktreeRow'], () => sidebarView(pool).worktree(worktree, layout))
     add('sidebar.selection', ['PoolSidebar'], () => sidebarView(pool).selectionGone())
     add('mobile-work.sections', ['PoolWorkScreen', 'GroupHeader'], () => {
       const view = mobileWorkView(pool).mobileSections()
@@ -486,7 +483,7 @@ async function measureScreenCells(
       searchMobileSections(pool, mobileWorkView(pool).mobileSections().sectionKeys, '', search),
     )
     add('mobile-work.row', ['PoolWorkRowSlot'], () => {
-      const row = mobileWorkView(pool).mobileRow({ kind: 'issue', id: selected() })
+      const row = mobileWorkView(pool).mobileRow(selected())
       return row === undefined || row === LOADING
         ? row
         : rowAnswers({
@@ -496,14 +493,10 @@ async function measureScreenCells(
             working: row.visibleWorking,
             waiting: row.waitingCount,
             fleet: row.visibleFleet,
-            ...('issue' in row
-              ? {
-                  progress: row.progress,
-                  unread: row.emphasizeUnread,
-                  status: worklistRowStatus(row, pool.clock.peekNow()),
-                  issue: sidebarComparable(row).issue,
-                }
-              : {}),
+            progress: row.progress,
+            unread: row.emphasizeUnread,
+            status: worklistRowStatus(row),
+            issue: sidebarComparable(row).issue,
           })
     })
     add('header.folded', ['FoldedFlightDeckBar'], () => headerView(pool).folded())
@@ -920,7 +913,6 @@ async function measureScreenCells(
       const keys = [ROOT, CHILD, NEXT]
         .filter((id) => ctx.cache.read('issueProjection', id) !== undefined)
         .map((id) => `issue:${id}`)
-      if (pool.tables.worktree.has(worktree)) keys.push(`worktree:${worktree}`)
       for (const id of [SESSION, OTHER_SESSION])
         if (ctx.cache.read('session', id)) keys.push(`session:${id}`)
       if (scene === 'background-terminal' && !keys.includes(`session:${heartbeatId}`))
