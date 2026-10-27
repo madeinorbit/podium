@@ -5,11 +5,8 @@
  *
  * Every rule fires on a planted file and stays quiet on its clean twin, at the
  * same path in the fixture arm (`fixtures/arms/planted/`, which lints clean as
- * a whole). The real configs over the real `arms/` lint clean, and plants into
- * a real folder fire through the real config — so the rules the package's
- * `lint` script runs are the ones proven here. That script runs two configs:
- * `eslint.config.mjs` over `arms/` and `arms/mobx/eslint.config.mjs` over
- * `arms/mobx`; the suite runs both, each over its real folder.
+ * a whole). `packages/client-graph/eslint.config.mjs` is the one real user of
+ * these rules.
  */
 import { join } from 'node:path'
 import { ESLint } from 'eslint'
@@ -26,18 +23,6 @@ const fixtureLint = new ESLint({
   cwd: PACKAGE_DIR,
   overrideConfigFile: true,
   overrideConfig: fenceConfig({ root: FIXTURES, frozen: [] }),
-})
-const realLint = new ESLint({
-  cwd: PACKAGE_DIR,
-  overrideConfigFile: join(PACKAGE_DIR, 'eslint.config.mjs'),
-})
-const productLint = new ESLint({
-  cwd: join(PACKAGE_DIR, '../client-graph'),
-  overrideConfigFile: join(PACKAGE_DIR, '../client-graph/eslint.config.mjs'),
-})
-const realMobxLint = new ESLint({
-  cwd: PACKAGE_DIR,
-  overrideConfigFile: join(PACKAGE_DIR, 'arms/mobx/eslint.config.mjs'),
 })
 
 async function problems(code: string, filePath: string, eslint = fixtureLint): Promise<string[]> {
@@ -77,29 +62,6 @@ describe('clean', () => {
   it('the fixture arm lints clean as a whole (the rules can say YES)', async () => {
     const results = await fixtureLint.lintFiles([`${PLANTED}/**/*.{ts,tsx}`])
     expect(results.length).toBeGreaterThanOrEqual(6)
-    expect(
-      results.flatMap((result) =>
-        result.messages.map((m) => `${result.filePath}: ${m.ruleId}: ${m.message}`),
-      ),
-    ).toEqual([])
-  })
-
-  it('the real arms lint clean through the package config', async () => {
-    const results = await realLint.lintFiles(['arms/**/*.{ts,tsx}'])
-    expect(results.length).toBeGreaterThan(20)
-    expect(
-      results.flatMap((result) =>
-        result.messages.map((m) => `${result.filePath}: ${m.ruleId}: ${m.message}`),
-      ),
-    ).toEqual([])
-  })
-
-  it('the MobX arm lints clean through the MobX config', async () => {
-    const results = [
-      ...(await realMobxLint.lintFiles(['arms/mobx/**/*.{ts,tsx}'])),
-      ...(await productLint.lintFiles(['src/**/*.{ts,tsx}'])),
-    ]
-    expect(results.length).toBeGreaterThan(20)
     expect(
       results.flatMap((result) =>
         result.messages.map((m) => `${result.filePath}: ${m.ruleId}: ${m.message}`),
@@ -210,15 +172,12 @@ describe('RowShell component at module scope (L1b addendum)', () => {
 })
 
 describe('wall clock', () => {
-  it('PLANTED: Date.now in an arm is red, in source and in tests, in frozen arms too', async () => {
+  it('PLANTED: Date.now in an arm is red, in source and in tests', async () => {
     const code = 'export const now = (): number => Date.now()\n'
     expect(await problems(code, `${PLANTED}/clock.ts`)).toEqual([
       expect.stringMatching(/^fence\/no-wall-clock/),
     ])
     expect(await problems(code, `${PLANTED}/clock.test.ts`)).toEqual([
-      expect.stringMatching(/^fence\/no-wall-clock/),
-    ])
-    expect(await problems(code, 'arms/mobx/pool/clock.ts', realLint)).toEqual([
       expect.stringMatching(/^fence\/no-wall-clock/),
     ])
     expect(await problems('export const t = new Date()\n', `${PLANTED}/clock.ts`)).toEqual([
@@ -265,9 +224,6 @@ describe('the manifest', () => {
   it('PLANTED: an arm folder without fence.json is red (a new arm cannot skip the fence)', async () => {
     expect(await problems('export const x = 1\n', `${FIXTURES}/bare/index.ts`)).toEqual([
       expect.stringMatching(/^fence\/arm-manifest: arm folder "bare" has no fence\.json/),
-    ])
-    expect(await problems('export const x = 1\n', 'arms/newarm/index.ts', realLint)).toEqual([
-      expect.stringMatching(/arm folder "newarm" has no fence\.json/),
     ])
   })
 

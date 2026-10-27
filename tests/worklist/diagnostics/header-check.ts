@@ -9,7 +9,7 @@ import type { HeaderRows } from '@podium/client-graph/header-schema'
 import { headerView } from '@podium/client-graph/header-views'
 import type { MobxPool } from '@podium/client-graph/pool'
 import { type HostMetricsWire, isAgentConfirmedComputing, isMachineOfflineForLiveTerminal, type MachineQuotaWire } from '@podium/model/browser'
-import { legacyDerivationFromStore } from './legacy'
+import { allIssueViewModels } from './reference/issue-view-models'
 /** Diagnostic-only side-by-side value check. Values stay in this process;
  * reports contain comparison positions and field names, never payloads. */
 import type { ReferenceState as Store } from './reference-state'
@@ -48,7 +48,7 @@ export function poolHeaderSnapshot(pool: MobxPool): SidebarSnapshot {
 }
 
 export function legacyHeaderSnapshot(store: Store<PodiumClientApi>, inputs: HeaderCheckInputs, now = store.coarseNow): SidebarSnapshot {
-  const legacy = legacyDerivationFromStore(store, now), issues = legacy.models, sessions = store.sessions
+  const issues = allIssueViewModels(store.replica, store.issueProjections ?? [], store.issueUserStates), sessions = store.sessions
   const root = selectedMissionRoot(issues, sessions, store.selectedIssueId)
   const first = root ? buildFlightDeckRows(issues, sessions, root.id)[0] : undefined
   const aggregates = createHostSessionAggregatesSelector()(sessions)

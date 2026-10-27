@@ -67,12 +67,7 @@ describe('test lanes', () => {
     ])
       expect(runnerFor(file)).toEqual({ kind: 'bun-test' })
     expect(runnerFor('packages/sync/src/span.ts')).toHaveProperty('error')
-    // POD-4825: the node lane excludes these; the package config runs them.
-    expect(runnerFor('tests/worklist/harness/native/mobx-pool-fence.native.test.tsx')).toEqual({
-      kind: 'vitest',
-      lane: 'worklist-native',
-    })
-    expect(runnerFor('tests/worklist/harness/src/fences.test.tsx')).toEqual({
+    expect(runnerFor('tests/worklist/harness/src/work-meter.test.ts')).toEqual({
       kind: 'vitest',
       lane: 'worklist',
     })

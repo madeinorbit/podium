@@ -139,8 +139,8 @@ try {
     if (mode === 'pool') {
       const check = await page.evaluate(() => window.__commandLaunch.check())
       results.check = check
-      if (!check || check.differences || check.pending || !check.positions)
-        throw new Error(`Command comparison failed: ${JSON.stringify(check)}`)
+      if (!check || check.pending || !check.positions)
+        throw new Error(`Command data did not settle: ${JSON.stringify(check)}`)
     }
     if (errors.length || stats.failures.length)
       throw new Error(`Synthetic browser errors: ${JSON.stringify(errors)}`)

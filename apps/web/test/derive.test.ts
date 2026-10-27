@@ -1,6 +1,5 @@
 import type { SessionView, SessionViewInput } from '@podium/client-core/session-values'
-import { agentBadge, chatActivity, defaultChatCapable, exitedRecovery, formatMemBytes, hostMemoryView, orderTabs, orphanSessionFor, panelLabel, partitionWorkItems, reposToViews, sessionDotTone, sessionsForWorktree, sortSessionsForSidebar } from '@podium/client-core/values'
-import { sidebarSections } from '../../../tests/worklist/legacy-values/index'
+import { agentBadge, chatActivity, defaultChatCapable, exitedRecovery, formatMemBytes, hostMemoryView, orderTabs, orphanSessionFor, panelLabel, reposToViews, sessionDotTone, sessionsForWorktree, sortSessionsForSidebar } from '@podium/client-core/values'
 import {
   asSessionId,
   type GitRepositoryWire,
@@ -269,45 +268,6 @@ describe('formatMemBytes', () => {
   })
 })
 
-describe('pin-aware navigation derivation', () => {
-  it('lifts pinned worktrees/repos out of lower groups; panel pins are inert (POD-169)', () => {
-    const sessions = [session('/src/app'), session('/src/app-feat')]
-    const sections = sidebarSections([repo], sessions, {
-      panels: ['s-/src/app-feat'],
-      worktrees: ['/src/app-feat'],
-      repos: ['/src/app'],
-    })
-
-    // Panel-pinning is retired (POD-169): persisted pins.panels entries are
-    // ignored — no PINNED PANELS section derives from them.
-    expect('pinnedPanels' in sections).toBe(false)
-    expect(sections.pinnedWorktrees.map((worktree) => worktree.path)).toEqual(['/src/app-feat'])
-    expect(sections.pinnedWorktrees[0]!.sessions.map((panel) => panel.sessionId)).toEqual([
-      's-/src/app-feat',
-    ])
-    expect(sections.pinnedRepos.map((pinnedRepo) => pinnedRepo.path)).toEqual(['/src/app'])
-    expect(sections.pinnedRepos[0]!.worktrees.map((worktree) => worktree.path)).toEqual([
-      '/src/app',
-    ])
-    expect(sections.pinnedRepos[0]!.worktrees[0]!.sessions.map((panel) => panel.sessionId)).toEqual(
-      ['s-/src/app'],
-    )
-    expect(sections.repos).toEqual([])
-  })
-
-  it('keeps an empty pinned repo visible so it can be unpinned', () => {
-    const sections = sidebarSections([repo], [], {
-      panels: [],
-      worktrees: ['/src/app', '/src/app-feat'],
-      repos: ['/src/app'],
-    })
-
-    expect(sections.pinnedRepos.map((pinnedRepo) => pinnedRepo.path)).toEqual(['/src/app'])
-    expect(sections.pinnedRepos[0]!.worktrees).toEqual([])
-    expect(sections.repos).toEqual([])
-  })
-})
-
 describe('orderTabs', () => {
   const named = (id: string): SessionView => ({ ...session('/src/app'), sessionId: sid(id) })
 
@@ -466,79 +426,6 @@ describe('agentBadge', () => {
       tone: 'muted',
       showContinue: false,
     })
-  })
-})
-
-describe('partitionWorkItems', () => {
-  // Real phase values: 'idle' | 'working' | 'compacting' | 'needs_user' | 'errored' | 'ended' | 'unknown'
-  // Real status values: 'live' | 'starting' | 'reconnecting' | 'hibernated' | 'exited'
-  const s = (
-    id: string,
-    phase: NonNullable<SessionView['agentState']>['phase'] | null,
-    status: SessionView['status'] = 'live',
-  ): SessionView =>
-    ({
-      sessionId: sid(id),
-      agentKind: 'claude-code',
-      title: id,
-      cwd: '/src',
-      status,
-      controllerId: null,
-      geometry: { cols: 80, rows: 24 },
-      epoch: 0,
-      clientCount: 1,
-      createdAt: '2026-06-01T00:00:00.000Z',
-      lastActiveAt: '2026-06-01T00:00:00.000Z',
-      origin: { kind: 'spawn' },
-      archived: false,
-      ...(phase != null ? { agentState: { phase, since: '', nativeSubagentCount: 0 } } : {}),
-    }) as unknown as SessionView
-
-  it('partitions sessions by state and also lists pinned ones in pinnedPanels', () => {
-    // 'idle' → attention, 'working' → working, 'needs_user' → attention
-    const sessions = [s('a', 'idle'), s('b', 'working'), s('c', 'needs_user'), s('p', 'working')]
-    const { attention, working, pinnedPanels } = partitionWorkItems(sessions, new Set(['p']))
-    expect(attention.map((x) => x.sessionId)).toEqual(['a', 'c'])
-    expect(working.map((x) => x.sessionId)).toEqual(['b', 'p'])
-    expect(pinnedPanels.map((x) => x.sessionId)).toEqual(['p'])
-  })
-
-  it('excludes archived sessions from all buckets', () => {
-    const archived: SessionView = { ...s('z', 'idle'), archived: true }
-    const { attention, working, pinnedPanels } = partitionWorkItems([archived], new Set())
-    expect(attention).toHaveLength(0)
-    expect(working).toHaveLength(0)
-    expect(pinnedPanels).toHaveLength(0)
-  })
-
-  it('pinned sessions still appear in attention or working based on state', () => {
-    const { attention, working, pinnedPanels } = partitionWorkItems(
-      [s('p', 'needs_user')],
-      new Set(['p']),
-    )
-    expect(attention.map((x) => x.sessionId)).toEqual(['p'])
-    expect(working).toHaveLength(0)
-    expect(pinnedPanels.map((x) => x.sessionId)).toEqual(['p'])
-  })
-
-  it('compacting phase goes to working', () => {
-    const { working } = partitionWorkItems([s('c', 'compacting')], new Set())
-    expect(working.map((x) => x.sessionId)).toEqual(['c'])
-  })
-
-  it('errored phase goes to attention', () => {
-    const { attention } = partitionWorkItems([s('e', 'errored')], new Set())
-    expect(attention.map((x) => x.sessionId)).toEqual(['e'])
-  })
-
-  it('exited status (uninstrumented) goes to attention (idle group)', () => {
-    const { attention } = partitionWorkItems([s('x', null, 'exited')], new Set())
-    expect(attention.map((x) => x.sessionId)).toEqual(['x'])
-  })
-
-  it('returns empty buckets for an empty input', () => {
-    const result = partitionWorkItems([], new Set())
-    expect(result).toEqual({ attention: [], working: [], pinnedPanels: [] })
   })
 })
 
@@ -861,36 +748,6 @@ describe('sessionDotClass', () => {
   })
 })
 
-describe('pinned panel ordering & co-location', () => {
-  const work = (cwd: string, id: string): SessionView => ({
-    ...session(cwd),
-    sessionId: sid(id),
-    agentState: { phase: 'working', since: '', nativeSubagentCount: 0 },
-  })
-  const needs = (cwd: string, id: string): SessionView => ({
-    ...session(cwd),
-    sessionId: sid(id),
-    agentState: {
-      phase: 'needs_user',
-      since: '',
-      nativeSubagentCount: 0,
-      need: { kind: 'question' },
-    },
-  })
-
-  it('derives no pinned-panels section — panel pins are inert (POD-169)', () => {
-    // Panel-pinning is retired: persisted pins.panels must not resurrect the
-    // PINNED PANELS section, whatever the sessions' agent states.
-    const sessions = [work('/src/app', 'w'), needs('/src/app', 'n')]
-    const sections = sidebarSections([repo], sessions, {
-      panels: ['w', 'n'],
-      worktrees: [],
-      repos: [],
-    })
-    expect('pinnedPanels' in sections).toBe(false)
-  })
-})
-
 const NOW = Date.parse('2026-06-19T12:00:00.000Z')
 const withState = (
   s: SessionView,
@@ -927,38 +784,6 @@ describe('snooze time helpers', () => {
     expect(out).toBeGreaterThan(NOW)
     // strictly the *next* 5am: no more than 24h away
     expect(out - NOW).toBeLessThanOrEqual(24 * 3_600_000)
-  })
-})
-
-describe('partitionWorkItems with snooze', () => {
-  it('excludes an effectively-snoozed needs_user session from attention', () => {
-    const needs = withState(session('/w'), 'needs_user')
-    const snoozed = { ...withState(session('/w2'), 'needs_user'), snoozedUntil: null }
-    const { attention } = partitionWorkItems([needs, snoozed], new Set(), NOW)
-    expect(attention.map((s) => s.sessionId)).toEqual([needs.sessionId])
-  })
-  it('a lapsed timed snooze re-enters attention', () => {
-    const lapsed = {
-      ...withState(session('/w'), 'needs_user'),
-      snoozedUntil: '2026-06-19T11:00:00.000Z',
-    }
-    const { attention } = partitionWorkItems([lapsed], new Set(), NOW)
-    expect(attention).toHaveLength(1)
-  })
-  it('orders the attention bucket most-recently-active first', () => {
-    const older = {
-      ...withState(session('/w'), 'needs_user'),
-      sessionId: sid('older'),
-      lastActiveAt: '2026-06-19T10:00:00.000Z',
-    }
-    const newer = {
-      ...withState(session('/w'), 'needs_user'),
-      sessionId: sid('newer'),
-      lastActiveAt: '2026-06-19T12:00:00.000Z',
-    }
-    // Fed oldest-first; the bucket must come back newest-first (matches the home board).
-    const { attention } = partitionWorkItems([older, newer], new Set(), NOW)
-    expect(attention.map((s) => s.sessionId)).toEqual(['newer', 'older'])
   })
 })
 

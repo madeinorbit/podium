@@ -1,7 +1,6 @@
 import { withoutShells } from '@podium/client-core/focus'
 import type { SessionView, SessionViewInput } from '@podium/client-core/session-values'
-import { partitionWorkItems, sessionsForWorktree } from '@podium/client-core/values'
-import { sidebarSections } from '../../../../tests/worklist/legacy-values/index'
+import { sessionsForWorktree } from '@podium/client-core/values'
 import {
   asSessionId,
   dedupeSessionsByResume,
@@ -51,36 +50,6 @@ describe('headless session exclusion (concierge unification)', () => {
   it('sessionsForWorktree never lists a headless session (exact and containment)', () => {
     expect(sessionsForWorktree([normal, headless], '/w')).toEqual([normal])
     expect(sessionsForWorktree([normal, headless], '/w', ['/w'])).toEqual([normal])
-  })
-
-  it('partitionWorkItems skips headless sessions in every bucket', () => {
-    const workingHeadless = meta({
-      sessionId: asSessionId('h2'),
-      headless: true,
-      agentState: { phase: 'working' } as SessionView['agentState'],
-    })
-    const part = partitionWorkItems([normal, headless, workingHeadless], new Set(['h1']))
-    const ids = [...part.attention, ...part.working, ...part.pinnedPanels].map((s) => s.sessionId)
-    expect(ids).not.toContain('h1')
-    expect(ids).not.toContain('h2')
-    expect(ids).toContain('n1')
-  })
-
-  it('sidebarSections keeps headless sessions out of worktree groups', () => {
-    const repos = [
-      {
-        path: '/w',
-        originUrl: '',
-        worktrees: [],
-      },
-    ] as never
-    const sections = sidebarSections(repos, [normal, headless], {
-      panels: [],
-      worktrees: [],
-      repos: [],
-    })
-    const grouped = sections.repos.flatMap((r) => r.worktrees.flatMap((w) => w.sessions))
-    expect(grouped.map((s) => s.sessionId)).toEqual(['n1'])
   })
 
   it('home board (withoutShells) drops headless sessions too', () => {

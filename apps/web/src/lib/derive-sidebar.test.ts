@@ -1,7 +1,5 @@
 import type { SessionView, SessionViewInput } from '@podium/client-core/session-values'
-import { EMPTY_PINS, partitionStaleSessions, sessionsForWorktree } from '@podium/client-core/values'
-import { sidebarSections } from '../../../../tests/worklist/legacy-values/index'
-import type { GitRepositoryWire } from '@podium/model'
+import { sessionsForWorktree } from '@podium/client-core/values'
 import { dedupeSessionsByResume, worktreeForCwd } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 
@@ -20,12 +18,6 @@ function sess(id: string, hoursAgo: number, over: Partial<SessionViewInput> = {}
     ...over,
   } as unknown as SessionView
 }
-
-const working = (id: string, hoursAgo: number): SessionView =>
-  sess(id, hoursAgo, {
-    status: 'live',
-    agentState: { phase: 'working', since: '', nativeSubagentCount: 0 },
-  } as Partial<SessionViewInput>)
 
 describe('worktreeForCwd', () => {
   const roots = ['/repo', '/repo/.worktrees/feat', '/other']
@@ -66,135 +58,6 @@ describe('sessionsForWorktree (containment grouping)', () => {
   it('falls back to exact-match when no root list is given (legacy callers)', () => {
     const list = [at('a', '/repo/packages/web'), at('b', '/repo')]
     expect(sessionsForWorktree(list, '/repo').map((s) => s.sessionId)).toEqual(['b'])
-  })
-})
-
-describe('sidebarSections (containment grouping)', () => {
-  it('a session stamped with a subdirectory cwd shows under its containing worktree', () => {
-    const repos: GitRepositoryWire[] = [
-      {
-        path: '/repo',
-        kind: 'repository',
-        branch: 'main',
-        worktrees: [{ path: '/repo/.worktrees/feat', branch: 'feat' }],
-      },
-    ]
-    const sessions = [
-      sess('inMain', 1, { cwd: '/repo/packages/web' } as Partial<SessionViewInput>),
-      sess('inFeat', 1, { cwd: '/repo/.worktrees/feat/apps' } as Partial<SessionViewInput>),
-    ]
-    const sections = sidebarSections(repos, sessions, EMPTY_PINS, NOW)
-    const worktrees = sections.repos.flatMap((r) => r.worktrees)
-    const byPath = (p: string) =>
-      worktrees.find((w) => w.path === p)?.sessions.map((s) => s.sessionId) ?? []
-    expect(byPath('/repo')).toEqual(['inMain'])
-    expect(byPath('/repo/.worktrees/feat')).toEqual(['inFeat'])
-  })
-
-  it('attaches non-archived issues to their worktree; shells never appear in sidebar sessions', () => {
-    const repos: GitRepositoryWire[] = [
-      {
-        path: '/repo',
-        kind: 'repository',
-        branch: 'main',
-        worktrees: [{ path: '/repo/.worktrees/feat', branch: 'feat' }],
-      },
-    ]
-    const issue = (id: string, over: Record<string, unknown>) =>
-      ({
-        id,
-        title: id,
-        stage: 'in_progress',
-        repoPath: '/repo',
-        archived: false,
-        worktreePath: '/repo/.worktrees/feat',
-        updatedAt: new Date(NOW).toISOString(),
-        ...over,
-      }) as unknown as import('@podium/client-core/replica').IssueViewModel
-    const issues = [
-      issue('live-1', {}),
-      issue('live-2', {}), // two issues may own the same worktree
-      issue('archived', { archived: true }),
-      issue('unstarted', { worktreePath: null }),
-    ]
-    const sessions = [
-      sess('agent', 1, { cwd: '/repo/.worktrees/feat' } as Partial<SessionViewInput>),
-      sess('sh', 1, {
-        cwd: '/repo/.worktrees/feat',
-        agentKind: 'shell',
-      } as Partial<SessionViewInput>),
-    ]
-    const sections = sidebarSections(repos, sessions, EMPTY_PINS, NOW, issues)
-    const worktrees = sections.repos.flatMap((r) => r.worktrees)
-    const feat = worktrees.find((w) => w.path === '/repo/.worktrees/feat')
-    expect(feat?.issues.map((i) => i.id)).toEqual(['live-1', 'live-2'])
-    expect(worktrees.find((w) => w.path === '/repo')?.issues).toEqual([])
-    // The shell is filtered out of every sidebar session list.
-    expect(feat?.sessions.map((s) => s.sessionId)).toEqual(['agent'])
-    // The same one-pass index feeds both issues sharing the worktree.
-    expect(
-      sections.sessionOwnership?.sessionsByIssue.get('live-1')?.map((s) => s.sessionId),
-    ).toEqual(['agent'])
-    expect(
-      sections.sessionOwnership?.sessionsByIssue.get('live-2')?.map((s) => s.sessionId),
-    ).toEqual(['agent'])
-  })
-})
-
-describe('partitionStaleSessions', () => {
-  it('keeps everything visible when 5 or fewer sessions', () => {
-    const list = [sess('a', 100), sess('b', 100), sess('c', 100), sess('d', 100), sess('e', 100)]
-    const { visible, stale } = partitionStaleSessions(list, NOW)
-    expect(stale).toEqual([])
-    expect(visible).toHaveLength(5)
-  })
-
-  it('keeps everything visible when 3 or fewer stale candidates', () => {
-    // 6 total but only 3 are old & non-working.
-    const list = [
-      sess('old1', 20),
-      sess('old2', 20),
-      sess('old3', 20),
-      sess('fresh1', 1),
-      sess('fresh2', 1),
-      sess('fresh3', 1),
-    ]
-    const { stale } = partitionStaleSessions(list, NOW)
-    expect(stale).toEqual([])
-  })
-
-  it('collapses stale candidates past the 3 most-recently-active', () => {
-    // 7 total, 5 stale candidates (>16h, non-working) + 2 fresh.
-    const list = [
-      sess('s1', 17),
-      sess('s2', 18),
-      sess('s3', 19),
-      sess('s4', 20),
-      sess('s5', 21),
-      sess('fresh1', 1),
-      sess('fresh2', 2),
-    ]
-    const { visible, stale } = partitionStaleSessions(list, NOW)
-    // The 3 most-recently-active candidates (s1,s2,s3) stay; s4,s5 collapse.
-    expect(stale.map((s) => s.sessionId).sort()).toEqual(['s4', 's5'])
-    expect(visible.map((s) => s.sessionId)).toContain('s1')
-    expect(visible.map((s) => s.sessionId)).toContain('fresh1')
-    expect(visible.map((s) => s.sessionId)).not.toContain('s4')
-  })
-
-  it('never collapses working sessions even if old', () => {
-    const list = [
-      working('w1', 50),
-      working('w2', 50),
-      sess('s1', 17),
-      sess('s2', 18),
-      sess('s3', 19),
-      sess('s4', 20),
-      sess('s5', 21),
-    ]
-    const { stale } = partitionStaleSessions(list, NOW)
-    expect(stale.every((s) => s.sessionId.startsWith('s'))).toBe(true)
-    expect(stale.map((s) => s.sessionId).sort()).toEqual(['s4', 's5'])
   })
 })
 

@@ -17,9 +17,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { CommandPalette } from '@/app/CommandPalette'
 import { attachWorklistPool, useWorklistPool } from '@/app/store-worklist-pool'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
-import { worklistSlice } from '../../../../../tests/worklist/diagnostics/reference/worklist'
 import { referenceState } from '../../../../../tests/worklist/diagnostics/reference-state'
-import { expectPoolOutput } from '../../../../../tests/worklist/harness/src/oracle/pool-output'
 import { createSidebarFixture } from '../../../test/sidebar-fixture'
 import { SidebarUnified } from './SidebarUnified'
 
@@ -177,19 +175,6 @@ function worktreeHandlers(path: string) {
   const handlers = mode.worktrees.get(path)
   if (!handlers) throw new Error(`Worktree row not mounted: ${path}`)
   return handlers
-}
-
-function rowPaint() {
-  return [...document.querySelectorAll('[data-testid="unified-issue-row"]')].map((row) => {
-    const body = row.querySelector('[data-issue-row]') ?? row
-    return {
-      id: body.getAttribute('data-issue-row'),
-      text: row.textContent,
-      selected: body.getAttribute('data-selected'),
-      unread: body.getAttribute('data-unread'),
-      class: body.className,
-    }
-  })
 }
 
 /** Drive the same runtime publication as the wall clock without faking DOM polling timers. */
@@ -446,44 +431,6 @@ describe('real sidebar pool cutover', () => {
     })
     expect(screen.getByText('Changed visible title')).toBeTruthy()
     expect(worktreeHandlers(path)).toBe(before)
-  })
-
-  it('draws the same rows, bands and folds as legacy, without a worklistSlice read', async () => {
-    vi.useFakeTimers({ toFake: ['Date'] })
-    vi.setSystemTime(NOW)
-    await mount('pool')
-    expect(mode.reads).toBe(0)
-    expectPoolOutput(
-      {
-        rows: rowPaint(),
-        bands: screen.getAllByTestId('project-group-label').map((node) => node.textContent),
-      },
-      'rows and bands',
-    )
-    // The two tails now live behind the lane switch (POD-2074).
-    await act(async () => {
-      fireEvent.click(screen.getByTestId('work-lane-snoozed'))
-    })
-    const snoozed = screen.queryAllByTestId('folded-work-row').length
-    await act(async () => {
-      fireEvent.click(screen.getByTestId('work-lane-closed'))
-    })
-    expect(snoozed + screen.queryAllByTestId('folded-work-row').length).toBe(2)
-    await act(async () => {
-      fireEvent.click(screen.getByTestId('work-lane-open'))
-    })
-    await act(async () => {
-      fireEvent.click(screen.getAllByTestId('folder-options')[0]!)
-    })
-    expect(screen.queryByRole('menuitem', { name: 'Reorder projects…' })).toBeNull()
-    expect(screen.getByRole('menuitem', { name: 'Move down' })).toBeTruthy()
-    await act(async () => {
-      fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' })
-    })
-    await act(async () => {
-      referenceState(runtime).setPaletteOpen(true)
-    })
-    expect(mode.reads).toBe(0)
   })
 
   it('commits only changed displayed rows; reorder and an unused session name keep them cold', async () => {

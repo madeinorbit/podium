@@ -32408,42 +32408,6 @@
       "guard": "companion-joins.test.ts measures one addressed companion and no session writes at 1x/4x; synced-record-models.test.ts covers live merge, replacement and removal."
     },
     {
-      "file": "packages/client-graph/src/query-identity-before.test-helper.ts",
-      "holder": "createIdentityQuery/refresh/track:callback",
-      "rule": "dynamic-question",
-      "tokens": "5070024569c458471ce1976c37a302ae7ad7ca38e9c79cf580183e5f43c5ff4d",
-      "gate": [],
-      "origin": [
-        "c8b6f0b21669600c3a65e6e9cdd1fce12b6baf0f0a8150719cd779c3e8bcb498"
-      ],
-      "fingerprint": "6d7ef76c2efd5c07b714c5e92491fe63fd0404c2827b12e4e7a689ccdc6df8eb",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Parity fixture invocation of createIdentityQuery/refresh/track:callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
-      "reason": "The deleted identity-query helper is preserved solely as a frozen test oracle. Production has no caller; the old scan stays recorded for parity evidence, not as a production repair. Predecessor: 68247f97036a0f55598b47b89880adb362fc28c147027d6dbe1ef6fb8a26ed35."
-    },
-    {
-      "file": "packages/client-graph/src/query-identity-before.test-helper.ts",
-      "holder": "createIdentityQuery/refresh/track:callback",
-      "rule": "loop:for-of",
-      "tokens": "f47bbaab5c669d25d99d4f376c636f91d8e90528bd74c195778f0e11e8e7a4d2",
-      "gate": [],
-      "origin": [
-        "c8b6f0b21669600c3a65e6e9cdd1fce12b6baf0f0a8150719cd779c3e8bcb498"
-      ],
-      "fingerprint": "b4eb41a760728164ec54f76baaf822adb1da567763ba74733018d00b7ab7a5ba",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Parity fixture invocation of createIdentityQuery/refresh/track:callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
-      "reason": "The deleted identity-query helper is preserved solely as a frozen test oracle. Production has no caller; the old scan stays recorded for parity evidence, not as a production repair. Predecessor: e49441cbd07995c1a5b69636cd88c094cdd0b9b7e06a7a1dd60dffb9df98c918."
-    },
-    {
       "file": "packages/client-graph/src/query-result.ts",
       "holder": "createQueryResult/start/untracked:callback",
       "rule": "dynamic-question",
@@ -34142,69 +34106,6 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "packages/client-graph/src/worklist/issue-before.test-helper.ts",
-      "holder": "WorklistIssueBefore/createMembershipQuery/ids/callback",
-      "rule": "reader-summary",
-      "tokens": "28992be0ccefb5df55e65e6b2870e0cb3133f3aebc7a2643bf3c91957b66ea2c",
-      "gate": [
-        "switch:cf0930e6c38e5c67fb63407eb424e4c1b9292726e28df5269e5bb34da4da2c7d",
-        "case:009d4ff3f0a2e706a28a0fc095599663e36ab3004a7ee76d634c467da606b2ab"
-      ],
-      "origin": [
-        "e01cd3a943241f1b31029ad32c8afa6316890671ab142d34cc22022f19952085"
-      ],
-      "fingerprint": "46972e6e9f51b646910168ce6da50c18530f44f03c50d5a5acd289f59b907ae8",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Parity fixture invocation of WorklistIssueBefore/createMembershipQuery/ids/callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
-      "reason": "The old membership-query implementation is frozen solely for old-port/new-field parity tests. Its pre-existing collection origin remains recorded; production has no caller. Predecessor: 8e5d0ec9c9c708bc447c51e8c0ecb2163e6bb88ac4ad2715722559a6268c24c5."
-    },
-    {
-      "file": "packages/client-graph/src/worklist/issue-before.test-helper.ts",
-      "holder": "WorklistIssueBefore/createMembershipQuery/ids/callback",
-      "rule": "reader-summary",
-      "tokens": "5c3d19b02b5b9be0178dad3b0de5babdbfa6a05fc64cd8774315a43d8303aa66",
-      "gate": [
-        "switch:cf0930e6c38e5c67fb63407eb424e4c1b9292726e28df5269e5bb34da4da2c7d",
-        "case:844ef379e594bc5521e0364c7c2662bf10a17dfce7d83c2c7440e5a314b60d83"
-      ],
-      "origin": [
-        "b1c1e766be82846a4577f895d43562efe11b24ab700b652244c4ef015a81bc5b"
-      ],
-      "fingerprint": "abde1ed2778b11cc5ac26e14005b51f269a177b2979ffad4dccfbd63ba64f46d",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Parity fixture invocation of WorklistIssueBefore/createMembershipQuery/ids/callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
-      "reason": "The old membership-query implementation is frozen solely for old-port/new-field parity tests. Its pre-existing collection origin remains recorded; production has no caller. Predecessor: c2a90328d332a1c804eaa50cce3a1dc5b89b2457385123de6de4187bcc870735."
-    },
-    {
-      "file": "packages/client-graph/src/worklist/issue-before.test-helper.ts",
-      "holder": "WorklistIssueBefore/createMembershipQuery/ids/callback",
-      "rule": "reader-summary",
-      "tokens": "54b474b8addfc1974b85c512f8652dc6c85713bb104b561930dc1043a6a905f5",
-      "gate": [
-        "switch:cf0930e6c38e5c67fb63407eb424e4c1b9292726e28df5269e5bb34da4da2c7d",
-        "case:a865cef38f90094a76112d23a650792615860bdf7dafbcb826d2a7fdcc0f7cd8"
-      ],
-      "origin": [
-        "ef08c1fc8c5321cb160370bbfd62cd1011a781c387adc3c7706246f15b684c7e"
-      ],
-      "fingerprint": "d3c60bdd9c501baa4b4cf8faf8e66e7a26536e3a72275fe03e5025d4dc0ef8b5",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Parity fixture invocation of WorklistIssueBefore/createMembershipQuery/ids/callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
-      "reason": "The old membership-query implementation is frozen solely for old-port/new-field parity tests. Its pre-existing collection origin remains recorded; production has no caller. Predecessor: f4671b593238949403afb088951006868035e953ca86b4b817c24bb8b9bc35c6."
-    },
-    {
       "file": "packages/client-graph/src/worklist/issue.ts",
       "holder": "WorklistIssue/childIds",
       "rule": "reader-summary",
@@ -34257,78 +34158,6 @@
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
       "reason": "The addressed spin-off membership list moved from the companion membership query to a shallow-equal lazy ID field. The same per-issue relation remains uncapped; this is a lifetime/style migration. Predecessor: f4671b593238949403afb088951006868035e953ca86b4b817c24bb8b9bc35c6."
-    },
-    {
-      "file": "packages/client-graph/src/worklist/mobile-before.test-helper.ts",
-      "holder": "MobileSectionsBefore",
-      "rule": "reader-summary",
-      "tokens": "19f5d3708c0773bd7f5e5cc382162d694da3172ba7b9b3f665f4fa6ad132985d",
-      "gate": [],
-      "origin": [
-        "9e16566aea9e61377f8ad63696f90143e88899ff1af5c69f6c76832f3747f31b"
-      ],
-      "fingerprint": "0b688aca5201acf67db46a281cde95baf67df3675edbd92dbb4f06f9769e4755",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Parity fixture invocation of MobileSectionsBefore",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
-      "reason": "The old keyed mobile section implementation is frozen solely for old/new parity tests. Its pre-existing collection origin remains recorded; production has no caller. Predecessor: c7271bf01b1eeec826b1510f6dd3749db175172d16157fa6bda120412a903b3e."
-    },
-    {
-      "file": "packages/client-graph/src/worklist/mobile-before.test-helper.ts",
-      "holder": "MobileSectionsBefore/keyedComputed:callback",
-      "rule": "enumerator:allRows",
-      "tokens": "c05287aa8c6539e91dfc155f743d4379d07a3f34d7757131fc7c713e61d30fd3",
-      "gate": [],
-      "origin": [
-        "9e16566aea9e61377f8ad63696f90143e88899ff1af5c69f6c76832f3747f31b"
-      ],
-      "fingerprint": "508b46a57809a54280ffe76c96f06f7a279423b5afd4a37c968fa271fbcc62d1",
-      "count": 2,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Parity fixture invocation of MobileSectionsBefore/keyedComputed:callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
-      "reason": "The old keyed mobile section implementation is frozen solely for old/new parity tests. Its pre-existing collection origin remains recorded; production has no caller. Predecessor: 10eb3847a8bb5ed5c76012f82c10f851fb18cf7c39105c06dc8901691db43e3f."
-    },
-    {
-      "file": "packages/client-graph/src/worklist/mobile-before.test-helper.ts",
-      "holder": "MobileSectionsBefore/keyedComputed:callback",
-      "rule": "loop:for-of",
-      "tokens": "c7534adc42dcf14d9356a11834f468a850123982e1be3626ae3a6330ac91c7be",
-      "gate": [],
-      "origin": [
-        "9e16566aea9e61377f8ad63696f90143e88899ff1af5c69f6c76832f3747f31b"
-      ],
-      "fingerprint": "ae544d13bbd990f3563ddaced80b218c2cd2bee839db92d38be25de8cbe02afc",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Parity fixture invocation of MobileSectionsBefore/keyedComputed:callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
-      "reason": "The old keyed mobile section implementation is frozen solely for old/new parity tests. Its pre-existing collection origin remains recorded; production has no caller. Predecessor: f3f6a7dde756ecfc35432c61075ebdef08e80990ccb51a352017624eb6836e8b."
-    },
-    {
-      "file": "packages/client-graph/src/worklist/mobile-before.test-helper.ts",
-      "holder": "MobileSectionsBefore/keyedComputed:callback",
-      "rule": "reader-summary",
-      "tokens": "6192093bd8d50a0eeb1289a064644cc01e3f0521975f8a6dcde86d6d416b328b",
-      "gate": [],
-      "origin": [
-        "9e16566aea9e61377f8ad63696f90143e88899ff1af5c69f6c76832f3747f31b"
-      ],
-      "fingerprint": "8c654e09224e141df861580124867c12771605fab419d4776ee112fe4731e75e",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Parity fixture invocation of MobileSectionsBefore/keyedComputed:callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
-      "reason": "The old keyed mobile section implementation is frozen solely for old/new parity tests. Its pre-existing collection origin remains recorded; production has no caller. Predecessor: 55f96659d076c5e6632b3f9c912be3273f92e73c5c28f98d6da31bbab7512310."
     },
     {
       "file": "packages/client-graph/src/worklist/mobile-row.ts",
@@ -36038,27 +35867,6 @@
         "then:9e99ff28b72d46b70094fd9167e6ea39eef61d3890965aa55c93cbf2c33aa71d"
       ],
       "origin": [
-        "9e16566aea9e61377f8ad63696f90143e88899ff1af5c69f6c76832f3747f31b"
-      ],
-      "fingerprint": "33384d4d41972c2c31e5f9dabce6586d049116d27f22d490a8dddb25b6276ca0",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation or observation of keyedComputed/read/callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
-      "reason": "POD-5822 changes only the upstream collection origin after removing forwarding ports. Operation tokens are unchanged; the existing REQUIRED REPAIR classification and bounds remain. Predecessor: 151617b131f29a5708b923e5c7e2d111b723379d85c7c80cff97ee8449707177."
-    },
-    {
-      "file": "packages/mobx-helpers/src/keyed-computed.ts",
-      "holder": "keyedComputed/read/callback",
-      "rule": "reader-summary",
-      "tokens": "4e7bb0bf51ae531f35535ea46df3601b747b025f07e196dee7d2ede9d7e8a20b",
-      "gate": [
-        "exit:then:20aba40a100d587b33abe8783fe94cd6fcd1c3240df4efc7b49dd4072378969e",
-        "then:9e99ff28b72d46b70094fd9167e6ea39eef61d3890965aa55c93cbf2c33aa71d"
-      ],
-      "origin": [
         "142ce232e07c2ee207ed502d501148109468c5c6165df98d46c4c487fd44a9a3",
         "3e7d83c093f342f9c72adf3375f191a3f606ba8bdd1f64449e50715b9e25bda5"
       ],
@@ -36142,26 +35950,6 @@
         "exit:then:20aba40a100d587b33abe8783fe94cd6fcd1c3240df4efc7b49dd4072378969e"
       ],
       "origin": [
-        "9e16566aea9e61377f8ad63696f90143e88899ff1af5c69f6c76832f3747f31b"
-      ],
-      "fingerprint": "353ebc9fcd3e60ebba703089df036b1d7ea566879a17655b718f0600c0cb1cb0",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation or observation of keyedComputed/read/callback/derive/callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
-      "reason": "POD-5822 changes only the upstream collection origin after removing forwarding ports. Operation tokens are unchanged; the existing REQUIRED REPAIR classification and bounds remain. Predecessor: 663256b5e29d0c9c75d3c48566e5eafb5ba5f240e12e72b7ea3cb541f7f7db88."
-    },
-    {
-      "file": "packages/mobx-helpers/src/keyed-computed.ts",
-      "holder": "keyedComputed/read/callback/derive/callback",
-      "rule": "reader-summary",
-      "tokens": "17a23fe41db751637eff783db7d8434821df7dd58be2f63141ae093ecfbb74e3",
-      "gate": [
-        "exit:then:20aba40a100d587b33abe8783fe94cd6fcd1c3240df4efc7b49dd4072378969e"
-      ],
-      "origin": [
         "142ce232e07c2ee207ed502d501148109468c5c6165df98d46c4c487fd44a9a3",
         "3e7d83c093f342f9c72adf3375f191a3f606ba8bdd1f64449e50715b9e25bda5"
       ],
@@ -36235,27 +36023,6 @@
       "bound": "Session history is addressed and flat; repository/worktree catalog cardinality is still unconstrained.",
       "reason": "The session roster scan was removed. Choice metadata still needs demand bounds when its picker is closed; this entry does not waive that remaining repair.",
       "guard": "packages/client-graph/src/settings-questions.test.ts proves flat session-history work and release after close; repository cardinality remains a required follow-up."
-    },
-    {
-      "file": "packages/mobx-helpers/src/keyed-computed.ts",
-      "holder": "keyedComputed/read/callback/value/computed:callback",
-      "rule": "reader-summary",
-      "tokens": "4e7bb0bf51ae531f35535ea46df3601b747b025f07e196dee7d2ede9d7e8a20b",
-      "gate": [
-        "exit:then:9e99ff28b72d46b70094fd9167e6ea39eef61d3890965aa55c93cbf2c33aa71d",
-        "exit:then:20aba40a100d587b33abe8783fe94cd6fcd1c3240df4efc7b49dd4072378969e"
-      ],
-      "origin": [
-        "9e16566aea9e61377f8ad63696f90143e88899ff1af5c69f6c76832f3747f31b"
-      ],
-      "fingerprint": "87dfe5fb9470de4f1f1166d1801f0ccbe8047a1d479ba37b92c1303ff53c8367",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation or observation of keyedComputed/read/callback/value/computed:callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
-      "reason": "POD-5822 changes only the upstream collection origin after removing forwarding ports. Operation tokens are unchanged; the existing REQUIRED REPAIR classification and bounds remain. Predecessor: eb587774443f351dd0c48f103e14d5b04fab841ebd088cd46267b2679dd4d320."
     },
     {
       "file": "packages/mobx-helpers/src/keyed-computed.ts",

@@ -2,139 +2,45 @@
 
 exports[`mobile pool work-list actions > brings a recent closed row back and returns it to Closed on refusal > accepted menu before Bring back from Closed 1`] = `"c194b672086f1045ae705acfb5c52f66a58e06a2341ed68218a70a2ff9b86011"`;
 
-exports[`mobile pool work-list actions > brings a recent closed row back and returns it to Closed on refusal > last green pilot-ON action output 1`] = `"57f142990d037cfb62dc0dbab26e78c273e1d6e2a76225718c5b2e9b516a9f0b"`;
-
-exports[`mobile pool work-list actions > brings a recent closed row back and returns it to Closed on refusal > last green pilot-ON action output 2`] = `"520b7c71ec931f8b84d23207c7edd442be454f005198f3876d0e1a8566216337"`;
-
-exports[`mobile pool work-list actions > brings a recent closed row back and returns it to Closed on refusal > last green pilot-ON action output 3`] = `"57f142990d037cfb62dc0dbab26e78c273e1d6e2a76225718c5b2e9b516a9f0b"`;
-
 exports[`mobile pool work-list actions > changes stage with the existing update action and restores it on refusal > accepted menu before Planning 1`] = `"b6f1e5b5b079d3f6b2e0dce308b66f2106424fc8f18948744466e2d151e1aca4"`;
 
 exports[`mobile pool work-list actions > changes stage with the existing update action and restores it on refusal > accepted menu before Set status 1`] = `"b573c7135ee5a9276d5ed2137a7aaaedede38b63745dd28990f29f5a0763f308"`;
-
-exports[`mobile pool work-list actions > changes stage with the existing update action and restores it on refusal > last green pilot-ON action output 1`] = `"40ebf66fb92c8e28e44b68bd654ea1711f158e386b93aec1919a79be53148bbb"`;
-
-exports[`mobile pool work-list actions > changes stage with the existing update action and restores it on refusal > last green pilot-ON action output 2`] = `"0345aeadd0310a56c5a48fdacd0560253402aa1cec8452084479caeac85650f4"`;
-
-exports[`mobile pool work-list actions > changes stage with the existing update action and restores it on refusal > last green pilot-ON action output 3`] = `"40ebf66fb92c8e28e44b68bd654ea1711f158e386b93aec1919a79be53148bbb"`;
 
 exports[`mobile pool work-list actions > closes as Cancelled and restores on refusal > accepted menu before Cancelled 1`] = `"b6f1e5b5b079d3f6b2e0dce308b66f2106424fc8f18948744466e2d151e1aca4"`;
 
 exports[`mobile pool work-list actions > closes as Cancelled and restores on refusal > accepted menu before Set status 1`] = `"b573c7135ee5a9276d5ed2137a7aaaedede38b63745dd28990f29f5a0763f308"`;
 
-exports[`mobile pool work-list actions > closes as Cancelled and restores on refusal > last green pilot-ON action output 1`] = `"40ebf66fb92c8e28e44b68bd654ea1711f158e386b93aec1919a79be53148bbb"`;
-
-exports[`mobile pool work-list actions > closes as Cancelled and restores on refusal > last green pilot-ON action output 2`] = `"fafc54c61a0d12453d89dd3e2188c8f85fe6c767530b25f8fbb0c2c65e64dcd3"`;
-
-exports[`mobile pool work-list actions > closes as Cancelled and restores on refusal > last green pilot-ON action output 3`] = `"40ebf66fb92c8e28e44b68bd654ea1711f158e386b93aec1919a79be53148bbb"`;
-
 exports[`mobile pool work-list actions > closes as Done and restores on refusal > accepted menu before Done 1`] = `"b6f1e5b5b079d3f6b2e0dce308b66f2106424fc8f18948744466e2d151e1aca4"`;
 
 exports[`mobile pool work-list actions > closes as Done and restores on refusal > accepted menu before Set status 1`] = `"b573c7135ee5a9276d5ed2137a7aaaedede38b63745dd28990f29f5a0763f308"`;
-
-exports[`mobile pool work-list actions > closes as Done and restores on refusal > last green pilot-ON action output 1`] = `"40ebf66fb92c8e28e44b68bd654ea1711f158e386b93aec1919a79be53148bbb"`;
-
-exports[`mobile pool work-list actions > closes as Done and restores on refusal > last green pilot-ON action output 2`] = `"d2e9fcff24bfcda55a8b56d684623b8bfa63cef37163ce6348923516867dec64"`;
-
-exports[`mobile pool work-list actions > closes as Done and restores on refusal > last green pilot-ON action output 3`] = `"40ebf66fb92c8e28e44b68bd654ea1711f158e386b93aec1919a79be53148bbb"`;
 
 exports[`mobile pool work-list actions > closes as Duplicate and restores on refusal > accepted menu before Duplicate 1`] = `"b6f1e5b5b079d3f6b2e0dce308b66f2106424fc8f18948744466e2d151e1aca4"`;
 
 exports[`mobile pool work-list actions > closes as Duplicate and restores on refusal > accepted menu before Set status 1`] = `"b573c7135ee5a9276d5ed2137a7aaaedede38b63745dd28990f29f5a0763f308"`;
 
-exports[`mobile pool work-list actions > closes as Duplicate and restores on refusal > last green pilot-ON action output 1`] = `"40ebf66fb92c8e28e44b68bd654ea1711f158e386b93aec1919a79be53148bbb"`;
-
-exports[`mobile pool work-list actions > closes as Duplicate and restores on refusal > last green pilot-ON action output 2`] = `"10ae7fe3015e12b8aa827f5d1d0e118fea1ec6c3f91ec40abecf625050f75684"`;
-
-exports[`mobile pool work-list actions > closes as Duplicate and restores on refusal > last green pilot-ON action output 3`] = `"40ebf66fb92c8e28e44b68bd654ea1711f158e386b93aec1919a79be53148bbb"`;
-
 exports[`mobile pool work-list actions > delete confirms the raw non-shell cascade count and restores the row on refusal > accepted menu before Delete 1`] = `"9b2e7cb9e566019c4044e5684f2d972b735e7f5053695ec9c7067d322ab69122"`;
 
 exports[`mobile pool work-list actions > delete confirms the raw non-shell cascade count and restores the row on refusal > accepted menu before Delete… 1`] = `"b573c7135ee5a9276d5ed2137a7aaaedede38b63745dd28990f29f5a0763f308"`;
 
-exports[`mobile pool work-list actions > delete confirms the raw non-shell cascade count and restores the row on refusal > last green pilot-ON action output 1`] = `"193880584e86adbe6defadde72b59574bc6e6bd01dc86d10de1670ac2b6e438b"`;
-
-exports[`mobile pool work-list actions > delete confirms the raw non-shell cascade count and restores the row on refusal > last green pilot-ON action output 2`] = `"ee983298a7e99417a7434b26bbf602eb65a7886bc2f03d0314bd351c7894d740"`;
-
-exports[`mobile pool work-list actions > delete confirms the raw non-shell cascade count and restores the row on refusal > last green pilot-ON action output 3`] = `"193880584e86adbe6defadde72b59574bc6e6bd01dc86d10de1670ac2b6e438b"`;
-
-exports[`mobile pool work-list actions > keeps Bring back disabled for closures older than a day > last green pilot-ON action output 1`] = `"dc6b34c6a794e158461123698456636fd4d3a915c7b233087e226c7ebc8e2856"`;
-
-exports[`mobile pool work-list actions > keeps Bring back disabled for closures older than a day > last green pilot-ON action output 2`] = `"dc6b34c6a794e158461123698456636fd4d3a915c7b233087e226c7ebc8e2856"`;
-
-exports[`mobile pool work-list actions > loading and absent menu targets never open a menu or mutate, and loads batch > last green pilot-ON action output 1`] = `"b8bb7e4e09c90a0929c4a5f6020ab7877da2a5f5266d9a34a73735a647af2e10"`;
-
-exports[`mobile pool work-list actions > loading and absent menu targets never open a menu or mutate, and loads batch > last green pilot-ON action output 2`] = `"b8bb7e4e09c90a0929c4a5f6020ab7877da2a5f5266d9a34a73735a647af2e10"`;
-
 exports[`mobile pool work-list actions > menu marks read through the shared outbox and rolls back > accepted menu before Mark as read 1`] = `"506b1dddc2ae2cfed8bc83f6b88cabe87ac1d1cdc43111402f9675c5b2af9cbe"`;
-
-exports[`mobile pool work-list actions > menu marks read through the shared outbox and rolls back > last green pilot-ON action output 1`] = `"820a174389b656be9e819f54640070b9275a51787c13c3dc9b8caf54fa4e69fe"`;
-
-exports[`mobile pool work-list actions > menu marks read through the shared outbox and rolls back > last green pilot-ON action output 2`] = `"f25568763b8b24495b802329687fa3050100df5e74f4f1eb298f3a6d60027e22"`;
-
-exports[`mobile pool work-list actions > menu marks read through the shared outbox and rolls back > last green pilot-ON action output 3`] = `"820a174389b656be9e819f54640070b9275a51787c13c3dc9b8caf54fa4e69fe"`;
 
 exports[`mobile pool work-list actions > menu marks unread through the shared outbox and rolls back > accepted menu before Mark as unread 1`] = `"b573c7135ee5a9276d5ed2137a7aaaedede38b63745dd28990f29f5a0763f308"`;
 
-exports[`mobile pool work-list actions > menu marks unread through the shared outbox and rolls back > last green pilot-ON action output 1`] = `"40ebf66fb92c8e28e44b68bd654ea1711f158e386b93aec1919a79be53148bbb"`;
-
-exports[`mobile pool work-list actions > menu marks unread through the shared outbox and rolls back > last green pilot-ON action output 2`] = `"ebb5ba410299f9eaac9045bb9d6dc6012a248d77d01e94bf3781d1b5befe15c3"`;
-
-exports[`mobile pool work-list actions > menu marks unread through the shared outbox and rolls back > last green pilot-ON action output 3`] = `"40ebf66fb92c8e28e44b68bd654ea1711f158e386b93aec1919a79be53148bbb"`;
-
 exports[`mobile pool work-list actions > moves placement to mission and rolls back the native bands > accepted menu before Move into SYN-1001 1`] = `"027cbfc3b9c95b85bbd2e7a98373cf3a4303c1ee54e154022f0070fce64b9881"`;
 
-exports[`mobile pool work-list actions > moves placement to mission and rolls back the native bands > last green pilot-ON action output 1`] = `"bca783bb23c1c4155e34caaaaffe20ed51873e698719cda22e2d4d13f7347918"`;
-
-exports[`mobile pool work-list actions > moves placement to mission and rolls back the native bands > last green pilot-ON action output 2`] = `"de88234db620a663354e401bd3743bbba16897a36bd8ca080ab591713fe55cfc"`;
-
-exports[`mobile pool work-list actions > moves placement to mission and rolls back the native bands > last green pilot-ON action output 3`] = `"bca783bb23c1c4155e34caaaaffe20ed51873e698719cda22e2d4d13f7347918"`;
-
 exports[`mobile pool work-list actions > moves placement to own and rolls back the native bands > accepted menu before Move to top level (out of SYN-1001) 1`] = `"6751fe770a8ab96d98533baadaacf42058a1383fea898ec7d796f1036efbf451"`;
-
-exports[`mobile pool work-list actions > moves placement to own and rolls back the native bands > last green pilot-ON action output 1`] = `"de88234db620a663354e401bd3743bbba16897a36bd8ca080ab591713fe55cfc"`;
-
-exports[`mobile pool work-list actions > moves placement to own and rolls back the native bands > last green pilot-ON action output 2`] = `"40ebf66fb92c8e28e44b68bd654ea1711f158e386b93aec1919a79be53148bbb"`;
-
-exports[`mobile pool work-list actions > moves placement to own and rolls back the native bands > last green pilot-ON action output 3`] = `"de88234db620a663354e401bd3743bbba16897a36bd8ca080ab591713fe55cfc"`;
-
-exports[`mobile pool work-list actions > opens a draft session through the current pool target > last green pilot-ON action output 1`] = `"3d81c19de1c7184f9ce5fed088ca08b84e14bdfc72302ccdb417f02813f0ed12"`;
-
-exports[`mobile pool work-list actions > opens a draft session through the current pool target > last green pilot-ON action output 2`] = `"3d81c19de1c7184f9ce5fed088ca08b84e14bdfc72302ccdb417f02813f0ed12"`;
-
-exports[`mobile pool work-list actions > opens a worktree session through the current pool target > last green pilot-ON action output 1`] = `"d3305da8b3966a06e97012d0749df98de4c9bcc69f8114d699a036be651dfb0f"`;
-
-exports[`mobile pool work-list actions > opens a worktree session through the current pool target > last green pilot-ON action output 2`] = `"d3305da8b3966a06e97012d0749df98de4c9bcc69f8114d699a036be651dfb0f"`;
-
-exports[`mobile pool work-list actions > opens the mission before the deferred mark-read, then restores unread on refusal > last green pilot-ON action output 1`] = `"ebb5ba410299f9eaac9045bb9d6dc6012a248d77d01e94bf3781d1b5befe15c3"`;
-
-exports[`mobile pool work-list actions > opens the mission before the deferred mark-read, then restores unread on refusal > last green pilot-ON action output 2`] = `"7c0be30f9c62034a14bc75419000db069f0117a18562a9d5ef0e4d9841dde36d"`;
-
-exports[`mobile pool work-list actions > opens the mission before the deferred mark-read, then restores unread on refusal > last green pilot-ON action output 3`] = `"ebb5ba410299f9eaac9045bb9d6dc6012a248d77d01e94bf3781d1b5befe15c3"`;
 
 exports[`mobile pool work-list actions > rename "   " queues no write > accepted menu before Rename 1`] = `"b573c7135ee5a9276d5ed2137a7aaaedede38b63745dd28990f29f5a0763f308"`;
 
 exports[`mobile pool work-list actions > rename "   " queues no write > accepted menu before Rename 2`] = `"281f3041cacb1a32edccfd2bdec6ff9a1430869c09111641e905078e67a0dfd6"`;
 
-exports[`mobile pool work-list actions > rename "   " queues no write > last green pilot-ON action output 1`] = `"40ebf66fb92c8e28e44b68bd654ea1711f158e386b93aec1919a79be53148bbb"`;
-
-exports[`mobile pool work-list actions > rename "   " queues no write > last green pilot-ON action output 2`] = `"40ebf66fb92c8e28e44b68bd654ea1711f158e386b93aec1919a79be53148bbb"`;
-
 exports[`mobile pool work-list actions > rename "Synthetic task 3" queues no write > accepted menu before Rename 1`] = `"b573c7135ee5a9276d5ed2137a7aaaedede38b63745dd28990f29f5a0763f308"`;
 
 exports[`mobile pool work-list actions > rename "Synthetic task 3" queues no write > accepted menu before Rename 2`] = `"e58c46cd7b275e329192448c6d3a40a7fdd8f38939ff86acaaade3adc3def562"`;
 
-exports[`mobile pool work-list actions > rename "Synthetic task 3" queues no write > last green pilot-ON action output 1`] = `"40ebf66fb92c8e28e44b68bd654ea1711f158e386b93aec1919a79be53148bbb"`;
-
-exports[`mobile pool work-list actions > rename "Synthetic task 3" queues no write > last green pilot-ON action output 2`] = `"40ebf66fb92c8e28e44b68bd654ea1711f158e386b93aec1919a79be53148bbb"`;
-
 exports[`mobile pool work-list actions > rename "cancel" queues no write > accepted menu before Cancel 1`] = `"e58c46cd7b275e329192448c6d3a40a7fdd8f38939ff86acaaade3adc3def562"`;
 
 exports[`mobile pool work-list actions > rename "cancel" queues no write > accepted menu before Rename 1`] = `"b573c7135ee5a9276d5ed2137a7aaaedede38b63745dd28990f29f5a0763f308"`;
-
-exports[`mobile pool work-list actions > rename "cancel" queues no write > last green pilot-ON action output 1`] = `"40ebf66fb92c8e28e44b68bd654ea1711f158e386b93aec1919a79be53148bbb"`;
-
-exports[`mobile pool work-list actions > rename "cancel" queues no write > last green pilot-ON action output 2`] = `"40ebf66fb92c8e28e44b68bd654ea1711f158e386b93aec1919a79be53148bbb"`;
 
 exports[`mobile pool work-list actions > renames from the real prompt and keeps the earlier accepted write when a later rename refuses > accepted menu before Rename 1`] = `"b573c7135ee5a9276d5ed2137a7aaaedede38b63745dd28990f29f5a0763f308"`;
 
@@ -144,86 +50,10 @@ exports[`mobile pool work-list actions > renames from the real prompt and keeps 
 
 exports[`mobile pool work-list actions > renames from the real prompt and keeps the earlier accepted write when a later rename refuses > accepted menu before Rename 4`] = `"27cbec626717de8604dce52bed3166ccf5acc7ab1125c089f1b1636663ddae0d"`;
 
-exports[`mobile pool work-list actions > renames from the real prompt and keeps the earlier accepted write when a later rename refuses > last green pilot-ON action output 1`] = `"40ebf66fb92c8e28e44b68bd654ea1711f158e386b93aec1919a79be53148bbb"`;
-
-exports[`mobile pool work-list actions > renames from the real prompt and keeps the earlier accepted write when a later rename refuses > last green pilot-ON action output 2`] = `"d620acacea4c1721ce7f5887d9e16fb399c859fe33dc732be6f868100b490405"`;
-
-exports[`mobile pool work-list actions > renames from the real prompt and keeps the earlier accepted write when a later rename refuses > last green pilot-ON action output 3`] = `"3b40e93741753b4f6c52df858f7110f49390ced97353f373ef3c0535e6707832"`;
-
-exports[`mobile pool work-list actions > renames from the real prompt and keeps the earlier accepted write when a later rename refuses > last green pilot-ON action output 4`] = `"d620acacea4c1721ce7f5887d9e16fb399c859fe33dc732be6f868100b490405"`;
-
-exports[`mobile pool work-list actions > renames from the real prompt and keeps the earlier accepted write when a later rename refuses > last green pilot-ON action output 5`] = `"d620acacea4c1721ce7f5887d9e16fb399c859fe33dc732be6f868100b490405"`;
-
-exports[`mobile pool work-list actions > reorders keyed pinned scope and rolls back every sort-key write > last green pilot-ON action output 1`] = `"d846e83be5d87965a5b1c7757ddcce9220d819d94288c12d290a17c552efa0e6"`;
-
-exports[`mobile pool work-list actions > reorders keyed pinned scope and rolls back every sort-key write > last green pilot-ON action output 2`] = `"bdf0a5e1caa1c75383cb82ce4ac573a4a9fc5392aab6478a0d217725fcb3d876"`;
-
-exports[`mobile pool work-list actions > reorders keyed pinned scope and rolls back every sort-key write > last green pilot-ON action output 3`] = `"d846e83be5d87965a5b1c7757ddcce9220d819d94288c12d290a17c552efa0e6"`;
-
-exports[`mobile pool work-list actions > reorders keyed project scope and rolls back every sort-key write > last green pilot-ON action output 1`] = `"51fc84533607886bd8d3cbbae4885d6cdccf559d07ff888d05b08dcaa2f33a17"`;
-
-exports[`mobile pool work-list actions > reorders keyed project scope and rolls back every sort-key write > last green pilot-ON action output 2`] = `"d628518f3ab36678f794f3ea4d8968ab56d35ca41e13f4b93f2c584312e0a6f4"`;
-
-exports[`mobile pool work-list actions > reorders keyed project scope and rolls back every sort-key write > last green pilot-ON action output 3`] = `"51fc84533607886bd8d3cbbae4885d6cdccf559d07ff888d05b08dcaa2f33a17"`;
-
-exports[`mobile pool work-list actions > reorders unkeyed pinned scope and rolls back every sort-key write > last green pilot-ON action output 1`] = `"3b929929e37815581cb0840a4c4bd4762680ae3e72043dcd185857241817e38c"`;
-
-exports[`mobile pool work-list actions > reorders unkeyed pinned scope and rolls back every sort-key write > last green pilot-ON action output 2`] = `"5b38562930023c2161f4141c73dcf7f4f357c016ccb772dc484b0d4e5c1016d8"`;
-
-exports[`mobile pool work-list actions > reorders unkeyed pinned scope and rolls back every sort-key write > last green pilot-ON action output 3`] = `"3b929929e37815581cb0840a4c4bd4762680ae3e72043dcd185857241817e38c"`;
-
-exports[`mobile pool work-list actions > reorders unkeyed pinned scope and rolls back every sort-key write > last green pilot-ON action output 4`] = `"bde51c939a86d23305598a757fefa805deadf45ff441ccfa5678abfaeea833d2"`;
-
-exports[`mobile pool work-list actions > reorders unkeyed pinned scope and rolls back every sort-key write > last green pilot-ON action output 5`] = `"c2562c2fbbe4da781f294847d8d070c127b97bf6ba902796806f9b2db9345228"`;
-
-exports[`mobile pool work-list actions > reorders unkeyed pinned scope and rolls back every sort-key write > last green pilot-ON action output 6`] = `"807829d9db4adfe47304ff82543444ceb5f93831c8319338a840492e28b7d642"`;
-
-exports[`mobile pool work-list actions > reorders unkeyed pinned scope and rolls back every sort-key write > last green pilot-ON action output 7`] = `"f748a36c0b9145be07ed9dbbaaba59995023f675c4d243e955ba14dcde22a6aa"`;
-
-exports[`mobile pool work-list actions > reorders unkeyed pinned scope and rolls back every sort-key write > last green pilot-ON action output 8`] = `"3b929929e37815581cb0840a4c4bd4762680ae3e72043dcd185857241817e38c"`;
-
-exports[`mobile pool work-list actions > reorders unkeyed project scope and rolls back every sort-key write > last green pilot-ON action output 1`] = `"66d555901c62df4f636fc225d349b0d8384cd6910e9b8f1fd65315415056495a"`;
-
-exports[`mobile pool work-list actions > reorders unkeyed project scope and rolls back every sort-key write > last green pilot-ON action output 2`] = `"d3fa6275e701b574c68ec9d2d1ee10a6161a142f184f9e01cd4168dd6c7a85ac"`;
-
-exports[`mobile pool work-list actions > reorders unkeyed project scope and rolls back every sort-key write > last green pilot-ON action output 3`] = `"66d555901c62df4f636fc225d349b0d8384cd6910e9b8f1fd65315415056495a"`;
-
-exports[`mobile pool work-list actions > reorders unkeyed project scope and rolls back every sort-key write > last green pilot-ON action output 4`] = `"8d306ea70f931316935be6023edfa010c3d4bb7aa8f35c5428665d4061f90868"`;
-
-exports[`mobile pool work-list actions > reorders unkeyed project scope and rolls back every sort-key write > last green pilot-ON action output 5`] = `"5906f0ff399dbbb897367bbe4753a452b92c7dc3e85637e5963975397c511303"`;
-
-exports[`mobile pool work-list actions > reorders unkeyed project scope and rolls back every sort-key write > last green pilot-ON action output 6`] = `"29a052dd710ee26fc68a50100d4287ba6cc4fb8a507ac8bb61cbae9338d166b0"`;
-
-exports[`mobile pool work-list actions > reorders unkeyed project scope and rolls back every sort-key write > last green pilot-ON action output 7`] = `"ab33c6a43cab9b716891af8e37e496ccd7ff9247cb2a3279576b885d5049a3db"`;
-
-exports[`mobile pool work-list actions > reorders unkeyed project scope and rolls back every sort-key write > last green pilot-ON action output 8`] = `"66d555901c62df4f636fc225d349b0d8384cd6910e9b8f1fd65315415056495a"`;
-
 exports[`mobile pool work-list actions > requires explicit close confirmation for active agents and open children > accepted menu before Close anyway 1`] = `"967f30affcbc66396c438e1a06b51c9125472101f3bd278967c9eba0d5192ed3"`;
 
 exports[`mobile pool work-list actions > requires explicit close confirmation for active agents and open children > accepted menu before Done 1`] = `"b6f1e5b5b079d3f6b2e0dce308b66f2106424fc8f18948744466e2d151e1aca4"`;
 
 exports[`mobile pool work-list actions > requires explicit close confirmation for active agents and open children > accepted menu before Set status 1`] = `"b573c7135ee5a9276d5ed2137a7aaaedede38b63745dd28990f29f5a0763f308"`;
 
-exports[`mobile pool work-list actions > requires explicit close confirmation for active agents and open children > last green pilot-ON action output 1`] = `"990f379ecdf3202b4cf15bbeb82ab02b486f2564e04e13b8ae70c175e7dc2210"`;
-
-exports[`mobile pool work-list actions > requires explicit close confirmation for active agents and open children > last green pilot-ON action output 2`] = `"12a6b1c434130c89c2970f9efc394e0e975d76f186370e1b1e2db797dcc8b5a5"`;
-
-exports[`mobile pool work-list actions > requires explicit close confirmation for active agents and open children > last green pilot-ON action output 3`] = `"990f379ecdf3202b4cf15bbeb82ab02b486f2564e04e13b8ae70c175e7dc2210"`;
-
-exports[`mobile pool work-list actions > tucks a completed row immediately, rolls back, and holds accepted tuck until echo > last green pilot-ON action output 1`] = `"520b7c71ec931f8b84d23207c7edd442be454f005198f3876d0e1a8566216337"`;
-
-exports[`mobile pool work-list actions > tucks a completed row immediately, rolls back, and holds accepted tuck until echo > last green pilot-ON action output 2`] = `"2de369a67f01570b33b352c6933570574e49408bc77a95b8977bad2cdb6079a6"`;
-
-exports[`mobile pool work-list actions > tucks a completed row immediately, rolls back, and holds accepted tuck until echo > last green pilot-ON action output 3`] = `"520b7c71ec931f8b84d23207c7edd442be454f005198f3876d0e1a8566216337"`;
-
-exports[`mobile pool work-list actions > tucks a completed row immediately, rolls back, and holds accepted tuck until echo > last green pilot-ON action output 4`] = `"2de369a67f01570b33b352c6933570574e49408bc77a95b8977bad2cdb6079a6"`;
-
-exports[`mobile pool work-list actions > tucks a completed row immediately, rolls back, and holds accepted tuck until echo > last green pilot-ON action output 5`] = `"2de369a67f01570b33b352c6933570574e49408bc77a95b8977bad2cdb6079a6"`;
-
 exports[`mobile pool work-list actions > unsnoozes through the fold menu and restores the snoozed lane on refusal > accepted menu before Unsnooze 1`] = `"21a12ae44adfd85bc70cfcaa147042203c4092caa9b306dc54b2579d36accf89"`;
-
-exports[`mobile pool work-list actions > unsnoozes through the fold menu and restores the snoozed lane on refusal > last green pilot-ON action output 1`] = `"510b31752a837c809ef4ebfcd45129318118e23168eb6365410f750306af5af6"`;
-
-exports[`mobile pool work-list actions > unsnoozes through the fold menu and restores the snoozed lane on refusal > last green pilot-ON action output 2`] = `"eda10275377971481fe2b904f8eeecb5afbda517ab13cf9d24594dc95c95355a"`;
-
-exports[`mobile pool work-list actions > unsnoozes through the fold menu and restores the snoozed lane on refusal > last green pilot-ON action output 3`] = `"510b31752a837c809ef4ebfcd45129318118e23168eb6365410f750306af5af6"`;

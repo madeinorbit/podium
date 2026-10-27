@@ -22,7 +22,6 @@ import {
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { type ReactNode, useState } from 'react'
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest'
-import { poolMobileSnapshot } from '../../../../tests/worklist/harness/src/oracle/mobile-snapshot'
 import { createSidebarActionsFixture } from '../../../web/test/sidebar-actions-fixture'
 import type { MobilePool } from '../client/mobile-pool'
 import { WorkIssueMenu } from '../components/WorkIssueMenu'
@@ -242,7 +241,6 @@ type Request = {
 let runtime: ClientRuntime
 let requests: Request[] = []
 let outcomes: OutboxOutcome[] = []
-let comparisons = 0
 function Capture() {
   runtime = useStoreHandle() as ClientRuntime
   return null
@@ -331,7 +329,7 @@ async function mount(prepare?: (fixture: Fixture) => void, probeId?: string) {
     { timeout: 30_000 },
   )
   runtime.subscribeOutboxOutcomes((outcome) => outcomes.push(outcome))
-  await parity()
+  await settled()
   return fixture
 }
 function pool() {
@@ -348,7 +346,7 @@ function button(id = TARGET) {
     name: `${value(id).issue.displayRef} ${value(id).title}`,
   })
 }
-async function parity() {
+async function settled() {
   await act(async () => {
     for (let turn = 0; turn < 100; turn++) {
       mobileWorkView(pool()).mobileSections().pending
@@ -356,12 +354,7 @@ async function parity() {
     }
     await Promise.resolve()
   })
-  const snapshot = poolMobileSnapshot(pool())
-  expect(snapshot.pending).toBe(0)
-  expect(createHash('sha256').update(JSON.stringify(snapshot)).digest('hex')).toMatchSnapshot(
-    'last green pilot-ON action output',
-  )
-  comparisons++
+  expect(mobileWorkView(pool()).mobileSections().pending).toBe(0)
   expect(state.errors).toEqual([])
 }
 async function request(procedure: string, id = TARGET) {
@@ -393,7 +386,7 @@ async function settle(write: Request, accepted = false) {
       outcomes.slice(count).some((outcome) => outcome.type === (accepted ? 'applied' : 'rejected')),
     ).toBe(true),
   )
-  await parity()
+  await settled()
 }
 async function openMenu(id = TARGET) {
   fireEvent.contextMenu(button(id))
@@ -412,7 +405,7 @@ async function patch(fixture: Fixture, id: string, fields: Record<string, unknow
   await act(async () => {
     fixture.patchIssue(id, fields)
   })
-  await parity()
+  await settled()
 }
 afterEach(() => {
   cleanup()
@@ -420,7 +413,6 @@ afterEach(() => {
 })
 afterAll(() => {
   vi.unstubAllEnvs()
-  console.info('[mobile action parity]', comparisons, 'clean comparisons')
 })
 
 describe('mobile pool work-list actions', () => {
@@ -434,7 +426,7 @@ describe('mobile pool work-list actions', () => {
     expect(write.input).toMatchObject({ id: TARGET, mutationId: expect.any(String) })
     expect(pool().readCursor(TARGET)).toBe(iso(0))
     expect(value().emphasizeUnread).toBe(false)
-    await parity()
+    await settled()
     await settle(write)
     expect(value().emphasizeUnread).toBe(true)
   })
@@ -454,7 +446,7 @@ describe('mobile pool work-list actions', () => {
         params: { sessionId: 'synthetic-session-3', backTo: '/work' },
       })
       expect(requests).toEqual([])
-      await parity()
+      await settled()
     })
 
   for (const unread of [true, false])
@@ -475,7 +467,7 @@ describe('mobile pool work-list actions', () => {
       await choose(unread ? 'Mark as read' : 'Mark as unread')
       const write = await request(unread ? 'issues.markRead' : 'issues.markUnread')
       expect(value().issue.unread).toBe(!unread)
-      await parity()
+      await settled()
       await settle(write)
       expect(value().issue.unread).toBe(unread)
     })
@@ -494,7 +486,7 @@ describe('mobile pool work-list actions', () => {
       mobileWorkView(pool()).mobileSections()
         .sectionKeys.some((key) => mobileWorkView(pool()).mobileSections().section(key).closedIds.includes(TARGET)),
     ).toBe(true)
-    await parity()
+    await settled()
     await settle(first)
     expect(button()).toBeDefined()
     await choose('Tuck Synthetic task 3 into Closed')
@@ -521,7 +513,7 @@ describe('mobile pool work-list actions', () => {
     expect(write.input).toMatchObject({ tucked: false })
     expect(value().issue.tuckedAt).toBeNull()
     expect(value().canTuck).toBe(true)
-    await parity()
+    await settled()
     await settle(write)
     expect(
       mobileWorkView(pool()).mobileSections()
@@ -546,7 +538,7 @@ describe('mobile pool work-list actions', () => {
     expect((bringBack as HTMLButtonElement).disabled).toBe(true)
     fireEvent.click(bringBack)
     expect(requests).toEqual([])
-    await parity()
+    await settled()
   })
 
   it('unsnoozes through the fold menu and restores the snoozed lane on refusal', async () => {
@@ -560,7 +552,7 @@ describe('mobile pool work-list actions', () => {
       mobileWorkView(pool()).mobileSections()
         .sectionKeys.some((key) => mobileWorkView(pool()).mobileSections().section(key).data.some((row) => row === TARGET)),
     ).toBe(true)
-    await parity()
+    await settled()
     await settle(write)
     expect(value().issue.deferred).toBe(true)
   })
@@ -583,7 +575,7 @@ describe('mobile pool work-list actions', () => {
     await rename('Second rename')
     const second = await request('issues.update')
     expect(value().title).toBe('Second rename')
-    await parity()
+    await settled()
     await settle(second)
     expect(value().title).toBe('First rename')
     await patch(fixture, TARGET, { title: 'First rename' })
@@ -605,7 +597,7 @@ describe('mobile pool work-list actions', () => {
       })
       expect(value().title).toBe('Synthetic task 3')
       expect(requests).toEqual([])
-      await parity()
+      await settled()
     })
 
   it('changes stage with the existing update action and restores it on refusal', async () => {
@@ -616,7 +608,7 @@ describe('mobile pool work-list actions', () => {
     const write = await request('issues.update')
     expect(write.input).toMatchObject({ patch: { stage: 'planning' } })
     expect(value().issue.stage).toBe('planning')
-    await parity()
+    await settled()
     await settle(write)
     expect(value().issue.stage).toBe('in_progress')
   })
@@ -632,7 +624,7 @@ describe('mobile pool work-list actions', () => {
       if (intent?.kind !== 'close') throw new Error('Expected a terminal status')
       expect(write.input).toMatchObject({ reason: intent.reason })
       expect(value().issue.stage).toBe('done')
-      await parity()
+      await settled()
       await settle(write)
       expect(value().issue.stage).toBe('in_progress')
     })
@@ -653,7 +645,7 @@ describe('mobile pool work-list actions', () => {
     expect(requests).toEqual([])
     await choose('Close anyway')
     const write = await request('issues.close')
-    await parity()
+    await settled()
     await settle(write)
     expect(value().issue.stage).toBe('in_progress')
   })
@@ -687,7 +679,7 @@ describe('mobile pool work-list actions', () => {
       expect(value().issue.parentId ?? null).toBe(
         placement === 'own' ? null : 'synthetic-1',
       )
-      await parity()
+      await settled()
       await settle(write)
       expect(value().issue.parentId ?? null).toBe(
         placement === 'own' ? 'synthetic-1' : null,
@@ -715,7 +707,7 @@ describe('mobile pool work-list actions', () => {
       mobileWorkView(pool()).mobileSections()
         .sectionKeys.every((key) => mobileWorkView(pool()).mobileSections().section(key).data.every((row) => row !== TARGET)),
     ).toBe(true)
-    await parity()
+    await settled()
     await settle(write)
     expect(button()).toBeDefined()
   })
@@ -756,7 +748,7 @@ describe('mobile pool work-list actions', () => {
           mobileWorkView(pool()).mobileSections()
             .section(ordering.key).allIds[0]!,
         ).toBe(moving)
-        await parity()
+        await settled()
         for (const changed of patches) await settle(await request('issues.update', changed.id))
         expect(
           mobileWorkView(pool()).mobileSections()
@@ -787,6 +779,6 @@ describe('mobile pool work-list actions', () => {
     ).toHaveLength(1)
     expect(resolvePoolWorkMenu(pool(), 'absent')).toBeNull()
     expect(requests).toEqual([])
-    await parity()
+    await settled()
   })
 })

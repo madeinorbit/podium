@@ -12,7 +12,6 @@ import {
 } from '@podium/client-core/replica'
 import type { MobxPool } from '@podium/client-graph'
 import { worklistGroups } from '@podium/client-graph/worklist/groups'
-import { sidebarView } from '@podium/client-graph/worklist/sidebar'
 import { asIssueId, asUserId } from '@podium/model/browser'
 import { IndexedDbSyncStore } from '@podium/sync/adapters/indexeddb'
 import type { EntityRecord } from '@podium/sync/replica'
@@ -454,30 +453,6 @@ const fixture = {
         `Acceptance draft ${iteration}`,
       )
     else throw new Error(`Unknown event ${kind}`)
-  },
-  async compare() {
-    if (!graph) throw new Error('No pool for side-by-side comparison')
-    const { checkSidebar } = await import('../../../tests/worklist/diagnostics/sidebar-check')
-    const s = referenceState(owner!)
-    const keys = [
-      'podium:sidebar:pinned-fold',
-      ...sidebarView(graph)
-        .sections()
-        .bands.flatMap((band) => [band.foldKey, band.snoozedFoldKey, band.closedFoldKey]),
-    ]
-    return checkSidebar(graph, s, {
-      pinnedRepos: s.pins.repos,
-      pinnedWorktrees: s.pins.worktrees,
-      projectOrder: s.sidebarSettings.repoOrder,
-      paneA: s.paneA,
-      selectedWorktree: s.selectedWorktree,
-      collapsed: Object.fromEntries(
-        keys.flatMap((key) => {
-          const value = owner!.ui.get(key)
-          return value === null ? [] : [[key, value === 'true']]
-        }),
-      ),
-    })
   },
   survivors: () => retired.filter(({ ref }) => ref.deref() !== undefined).map(({ name }) => name),
   rowCount: () =>

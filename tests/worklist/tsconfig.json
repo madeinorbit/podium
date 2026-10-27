@@ -1,24 +1,10 @@
 {
   "extends": "../../tooling/tsconfig/react.json",
   "include": [
-    "product",
-    "replays",
-    "src",
     "shared/src",
-    "arms/*/src",
-    "arms/mobx",
     "harness/src",
-    "harness/native",
     "harness/browser",
-    "harness/review",
-    "harness/web/entrylib.ts",
-    "harness/web/entries",
-    "harness/web/vite.config.ts",
-    "diagnostics",
-    "legacy-values"
-  ],
-  "exclude": [
-    "harness/web/dist"
+    "diagnostics"
   ],
   "compilerOptions": {
     "types": [

@@ -1,11 +1,9 @@
 # harness/lint — the lint fence (POD-4563, L6a)
 
-One ESLint plugin (`fence-plugin.mjs`), the same rules for every round-three
-arm. The package config (`../../eslint.config.mjs`) applies it to every folder
-under `arms/`; `bun run lint` in this package runs it (and the MobX arm's own
-rules). `fence-lint.test.ts` runs in the package test lane: every rule fires on
-a planted file and stays quiet on its clean twin, and the real `arms/` lint
-clean.
+One ESLint plugin (`fence-plugin.mjs`). `packages/client-graph/eslint.config.mjs`
+applies it to the client-graph sources. `fence-lint.test.ts` proves every rule
+fires on a planted file in `fixtures/arms/` and stays quiet on its clean twin;
+`packages/client-graph` runs it through `bun run lint`.
 
 ## The manifest: `arms/<folder>/fence.json`
 

@@ -24,7 +24,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import {
   FENCE_SCENARIOS,
   openFenceFeeds,
-} from '../../../../tests/worklist/harness/src/fence-scenarios'
+} from '../../../../tests/worklist/harness/src/fence-feeds'
 import { FIXED_NOW } from '../../../../tests/worklist/harness/src/fixture/corpus'
 import {
   startScenarioEngine,

@@ -1,8 +1,6 @@
-import { taskStateWord } from '@podium/client-core/values'
+
 import { autorun, runInAction } from 'mobx'
 import { afterEach, expect, it, vi } from 'vitest'
-import { createLegacyMobileTasks } from '../../../tests/worklist/diagnostics/legacy-mobile-tasks'
-import { readMobileTaskSnapshot } from '../../../tests/worklist/diagnostics/mobile-task-snapshot'
 import {
   insideArm,
   insideReader,
@@ -83,96 +81,6 @@ const layout = (board: MobileTasksBoard) => {
   if (sections === LOADING) throw new Error('Tasks still loading')
   return sections.map((section) => ({ ...section, rows: section.rows.map((row) => ({ ...row })) }))
 }
-
-it('matches the old shown rows, order, counts, proposals and task state across the existing phone rules', async () => {
-  const { pool } = await setup(
-    [
-      issue('root', { seq: 10 }),
-      issue('child', { seq: 11, parentId: 'root', stage: 'review' }),
-      issue('proposal', { seq: 12, parentId: 'root', stage: 'proposed' }),
-      issue('offered-child', { seq: 13, parentId: 'proposal', stage: 'backlog' }),
-      issue('other-proposal', { seq: 15, stage: 'proposed' }),
-      issue('agent', { seq: 16, parentId: 'root', audience: 'agent' }),
-      issue('hidden-agent', { seq: 17, audience: 'agent' }),
-      issue('draft', { seq: 18, isDraftVessel: true }),
-      issue('closed', { seq: 19, stage: 'done', closedReason: 'cancelled' }),
-      issue('cycle-a', { seq: 20, parentId: 'cycle-b' }),
-      issue('cycle-b', { seq: 21, parentId: 'cycle-a' }),
-    ],
-    [
-      seat('root-worker'),
-      seat('child-worker', { issueId: 'child' }),
-      seat('archived', { archived: true }),
-      seat('headless', { headless: true }),
-      seat('shell', { agentKind: 'shell' }),
-      seat('reconnecting', { status: 'reconnecting' }),
-      seat('stale', { lastActiveAt: '2026-01-01T00:00:00Z', agentState: { phase: 'working' } }),
-    ],
-  )
-  const legacy = createLegacyMobileTasks(pool)
-  disposals.push(() => legacy.dispose())
-  for (const ordering of ['priority', 'created', 'updated'] as const)
-    for (const filter of [
-      {},
-      { text: 'child' },
-      { stage: 'review' as const },
-      { status: 'closed' as const },
-    ])
-      for (const showDone of [false, true])
-        for (const showAgentTasks of [false, true]) {
-          const settings = { ...options, ordering, filter, showDone, showAgentTasks }
-          const board = new MobileTasksBoard(pool, settings)
-          const stop = autorun(() => {
-            board.sections
-            board.proposals
-            legacy.tasks(settings)
-            readMobileTaskSnapshot(pool, settings)
-          })
-          for (let round = 0; round < 5; round++) pool.hydrate()
-          const before = legacy.tasks(settings),
-            after = readMobileTaskSnapshot(pool, settings)
-          if (before === LOADING || after === LOADING) throw new Error('Parity did not settle')
-          const expected = before.board.map((section) => ({
-            stage: section.stage,
-            title: section.title,
-            total: section.rows.filter((row) => row.depth === 0).length,
-            rows: section.rows.map(({ issue, ...placement }) => ({ id: issue.id, ...placement })),
-          }))
-          expect(layout(board)).toEqual(expected)
-          // A deliberately wrong answer must fail this same parity comparison.
-          if (expected.length)
-            expect(() =>
-              expect(
-                layout(board).map((section) => ({ ...section, total: section.total + 1 })),
-              ).toEqual(expected),
-            ).toThrow()
-          expect(board.proposals).toBe(before.proposals)
-          for (const section of before.board)
-            for (const row of section.rows) {
-              const model = pool.issueObject(row.issue.id)
-              expect(model.confirmedWorkingAgents, row.issue.id).toBe(
-                before.workingByIssue.get(row.issue.id),
-              )
-              expect(model.taskProgress, row.issue.id).toEqual(
-                before.progressByIssue.get(row.issue.id),
-              )
-              expect(
-                taskStateWord(
-                  model as unknown as Parameters<typeof taskStateWord>[0],
-                  model.confirmedWorkingAgents,
-                  model.taskProgress,
-                ),
-              ).toEqual(
-                taskStateWord(
-                  row.issue,
-                  before.workingByIssue.get(row.issue.id)!,
-                  before.progressByIssue.get(row.issue.id),
-                ),
-              )
-            }
-          stop()
-        }
-})
 
 it('borrows cold board summaries for ID membership without loading rich rows or sessions', async () => {
   const { pool, load } = await setup([
@@ -263,7 +171,7 @@ it('updates addressed confirmed workers at the inclusive expiry deadline without
   expect(live).toBe(1)
 })
 
-async function workAt(scale: number, plant = false, legacy = false) {
+async function workAt(scale: number, plant = false) {
   const { pool } = await setup(
     [
       issue('root'),
@@ -276,19 +184,7 @@ async function workAt(scale: number, plant = false, legacy = false) {
   )
   const settings = { ...options, expanded: [], filter: { projectPaths: ['/fixture'] } }
   const board = new MobileTasksBoard(pool, settings)
-  if (legacy) {
-    const old = createLegacyMobileTasks(pool)
-    disposals.push(
-      () => old.dispose(),
-      autorun(() => insideReader('phone.tasks.legacy', () => old.tasks({
-        showDone: board.showDone,
-        expanded: board.expanded,
-        filter: board.filter,
-        ordering: board.ordering,
-        showAgentTasks: board.showAgentTasks,
-      }))),
-    )
-  } else disposals.push(
+  disposals.push(
     autorun(() => insideReader('phone.tasks.sections', () => board.sections)),
     autorun(() => insideReader('phone.tasks.proposals', () => board.proposals)),
     autorun(() =>
@@ -353,17 +249,6 @@ it('keeps phone board row calls, derivations and collection elements flat at a f
     })
     assertPhoneWork(one[i]!, four[i]!)
   }
-  const old1 = await workAt(1, false, true),
-    old4 = await workAt(4, false, true)
-  for (const [before, after] of [[old1[1]!, one[1]!], [old4[1]!, four[1]!]] as const) {
-    console.info('[phone Tasks total search before/after]', { before, after })
-    for (const kind of ['derivations', 'elements'] as const)
-      expect(after[kind]).toBeLessThanOrEqual(before[kind])
-  }
-  // Addressed placement reads add a constant overhead; no counter may grow
-  // faster than before, including the unchanged shared title/ref query.
-  for (const kind of ['rows', 'derivations', 'elements'] as const)
-    expect(four[1]![kind]! - one[1]![kind]!).toBeLessThanOrEqual(old4[1]![kind]! - old1[1]![kind]!)
   const planted1 = await workAt(1, true),
     planted4 = await workAt(4, true)
   expect(() => assertPhoneWork(planted1[3]!, planted4[3]!)).toThrow()

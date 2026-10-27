@@ -68,21 +68,17 @@ try {
           requestAnimationFrame(() => requestAnimationFrame(() => resolve(performance.now()))),
         ),
     )
-    const comparison = await page.evaluate(() => window.__sidebarActions.compare())
-    if (comparison.differences !== 0 || comparison.pending !== 0)
-      throw new Error(`${label}: ${JSON.stringify(comparison)}`)
     const state = await page.evaluate(() => window.__sidebarActions.state())
     if (pageErrors.length) throw new Error(pageErrors.join('\n'))
     if (state.failures.length) throw new Error(state.failures.join('\n'))
     const heap = correctnessOnly ? null : await cdp.send('Runtime.getHeapUsage')
     observations.push({
       label,
-      comparison,
       state,
       actionToObservedPaintMs: correctnessOnly || started === undefined ? null : painted - started,
       usedHeapBytes: heap?.usedSize ?? null,
     })
-    console.log(`S5 ${label}: differences=0, pending=0`)
+    console.log(`S5 ${label}: ok`)
   }
   async function rejectLatest() {
     await page.waitForFunction(() =>
