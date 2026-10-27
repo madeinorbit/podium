@@ -99,7 +99,7 @@ export class WorklistIssueBefore implements HeldIssue, RowView {
   }
 
   get exceptionSeatIds(): readonly string[] {
-    return exceptionSeatIdsPartOf(this.host.visibleInputs, this.id, this.seatIds)
+    return exceptionSeatIdsPartOf(this.host.visibleInputs, this.seatIds)
   }
 
   get retainedSeatIds(): readonly string[] {

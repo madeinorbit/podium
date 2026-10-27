@@ -682,6 +682,84 @@ describe('review round 3', () => {
   })
 })
 
+describe('review round 4', () => {
+  const quiet = {
+    coordinator: 'coord',
+    busy: idleDone,
+    reviewed: { agentState: { phase: 'working', since: stamp } },
+  }
+  const interactions = (pool: MobxPool, ids: string[]) => {
+    Object.defineProperty(pool, 'sessionOpenInteractions', {
+      value: (id: string) =>
+        ids.includes(id) ? { count: 1, since: Date.parse(stamp) } : { count: 0, since: null },
+    })
+    Object.defineProperty(pool, 'sessionsWithOpenInteractions', { value: () => ids })
+  }
+
+  it('R4-1: a headless helper is no seat, so its open interaction does not ask on the sidebar either', () => {
+    const helper = {
+      headless: true,
+      status: 'exited',
+      stopReason: 'self',
+      exitCode: 0,
+      stoppedAt: stamp,
+      ...idleDone,
+    }
+    const pool = fixture({
+      ...quiet,
+      extra: [{ kind: 'session', id: 'helper', value: session('helper', 'epic', helper) }],
+    })
+    interactions(pool, ['helper'])
+    try {
+      let exceptions: readonly string[] = []
+      const stop = autorun(() => {
+        exceptions = pool.worklistRow('epic')!.exceptionSeatIds
+      })
+      stop()
+      expect(exceptions).toEqual([])
+      expectRow(pool, 'epic', { asking: false, waitingCount: 0 })
+    } finally {
+      pool.dispose()
+    }
+  })
+
+  it('R4-2: every row shares one candidate scan', () => {
+    const pool = fixture(quiet)
+    const read = pool.row.bind(pool)
+    let scans = 0
+    Object.defineProperty(pool, 'row', {
+      value: (entity: string, ...rest: unknown[]) => {
+        if (entity === 'noticeCatalog') scans++
+        return (read as (...args: unknown[]) => unknown)(entity, ...rest)
+      },
+    })
+    const view = worklistView(pool)
+    const stop = autorun(() => {
+      for (const id of ['epic', 'reviewed', 'building'])
+        void view.row(pool.issueObject(id)).visibleAsking
+    })
+    try {
+      expect(scans).toBe(1)
+      pool.apply({
+        type: 'update',
+        rows: [
+          {
+            kind: 'session',
+            id: 'impl',
+            value: session('impl', 'reviewed', {
+              agentState: { phase: 'working', since: '2026-10-26T12:30:00Z' },
+            }) as never,
+          },
+        ],
+      })
+      expect(scans).toBe(1)
+    } finally {
+      stop()
+      pool.dispose()
+    }
+  })
+})
+
 describe('without a live coordinator, the old roll-up', () => {
   for (const [name, shape] of [
     ['no coordinator claimed', {}],

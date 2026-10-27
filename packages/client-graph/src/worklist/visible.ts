@@ -662,21 +662,22 @@ export function rosterIdsPartOf(
 /**
  * R2's exited seats, not archived, that may still want the human (POD-2171):
  * the ones that crashed (`crashed`, the live summary's list) and the ones
- * holding an open pending interaction. Found among all explicit seats, never
- * by the display window. Only candidates: the delegate role verdict
+ * holding an open pending interaction. Both are R2 seats (`seatIds`, the
+ * declared `session.issue` membership: headless out, twins collapsed), never a
+ * raw `issueId`, and never chosen by the display window. Only candidates: the delegate role verdict
  * (`coordinatedSeat`, through `exceptionSeatsOf`) decides whether one asks, by
  * the same rule as every other seat. The two sources keep the scan small: a
  * long seat history is read only where a crash or an interaction points.
  */
 export function exceptionSeatIdsPartOf(
   input: VisibleInputs,
-  id: string,
   seatIds: readonly string[],
   crashed: readonly string[] = crashedSeatIdsOf(input, seatIds),
 ): readonly string[] {
   const asking = (input.interactionSessions?.() ?? []).filter((sessionId) => {
+    if (!sortedHas(seatIds, sessionId)) return false
     const retention = input.session(sessionId).retention
-    return retention !== null && retention.seat && retention.exited && retention.issueId === id
+    return retention !== null && retention.seat && retention.exited
   })
   if (asking.length === 0) return crashed.length === 0 ? NO_EXCEPTIONS : crashed
   return [...new Set([...crashed, ...asking])].sort()
@@ -762,7 +763,7 @@ export function memberVerdictsOf(
   let openOwn: boolean
   let exceptionSeatIds: readonly string[]
   if (summary === undefined) {
-    exceptionSeatIds = exceptionSeatIdsPartOf(input, id, seats.seatIds)
+    exceptionSeatIds = exceptionSeatIdsPartOf(input, seats.seatIds)
     retainedSeatIds = retainedSeatIdsPartOf(input, id, standing, seats.memberIds)
     rosterIds = rosterIdsPartOf(input, retainedSeatIds)
     openOwn = openOwnPartOf(input, id, seats.seatIds, standing)
@@ -774,7 +775,7 @@ export function memberVerdictsOf(
     rosterIds =
       standing === undefined ? [] : mergeIds(summary.roster, rosterIdsPartOf(input, laneRetained))
     openOwn = summary.present > 0 || standing?.headlessStaffed === true
-    exceptionSeatIds = exceptionSeatIdsPartOf(input, id, seats.seatIds, summary.crashed)
+    exceptionSeatIds = exceptionSeatIdsPartOf(input, seats.seatIds, summary.crashed)
   }
   return {
     retainedSeatIds,
@@ -1273,7 +1274,7 @@ export function directVisibility(
       return once('rosterIds', () => rosterIdsPartOf(input, parts.retainedSeatIds))
     },
     get exceptionSeatIds() {
-      return once('exceptionSeatIds', () => exceptionSeatIdsPartOf(input, id, parts.seatIds))
+      return once('exceptionSeatIds', () => exceptionSeatIdsPartOf(input, parts.seatIds))
     },
     get retained() {
       const standing = parts.standing

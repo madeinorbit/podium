@@ -7,7 +7,7 @@ import type { PendingInteractionWire } from '@podium/protocol'
 import { IssueSessionFactsIndex, type IssueSessionFacts, type IssueSessionFactReader } from './shared/issue-session-facts'
 import type { SessionPhaseChange, NotificationSession } from '@podium/client-core/sound'
 import { asSessionId } from '@podium/model'
-import { createDemandAtoms } from '@podium/mobx-helpers'
+import { createDemandAtoms, lazy } from '@podium/mobx-helpers'
 import { joinedFields, SESSION_JOIN_FIELDS } from './shared/joined-fields'
 import {
   SETUP_SESSION_SUMMARY_FIELDS,
@@ -70,6 +70,7 @@ import {
 
 import type { OutboxKinds } from '@podium/client-core/engine'
 import {
+  compareShallow,
   compareStructural,
   type IObservableArray,
   type ObservableMap,
@@ -778,15 +779,9 @@ export class MobxPool {
 
   /** The sessions holding an open (asked) pending interaction, in id order: where an exited seat may still ask (POD-2171). */
   sessionsWithOpenInteractions(): readonly string[] {
-    const catalog = omitGone(this.row('noticeCatalog', 'catalog') as Lookup<NoticeRows['noticeCatalog']>)
-    if (catalog === undefined || catalog === LOADING) return []
-    const sessions = new Set<string>()
-    for (const interaction of catalog.interactions) {
-      const row = omitGone(this.row('pendingInteraction', interaction))
-      if (row !== undefined && row !== LOADING && row.status === 'asked') sessions.add(row.sessionId)
-    }
-    return [...sessions].sort()
+    return (this.openInteractionSessions ??= new OpenInteractionSessions(this)).ids
   }
+  private openInteractionSessions: OpenInteractionSessions | undefined
 
   /** Open (asked) pending interactions addressed to session `id`, and when the earliest was asked: a seat fact (`coordinatedSeat`). */
   sessionOpenInteractions(id: string): SeatInteractions {
@@ -1227,3 +1222,26 @@ export class MobxPool {
 
   private select(id: string | null): void { worklistView(this).select(id) }
 }
+
+/**
+ * The sessions holding an open pending interaction (POD-2171): one shared
+ * value for every row, scanned once per catalog or interaction change and
+ * compared shallowly, so an unrelated notice leaves the rows that read it
+ * alone.
+ */
+class OpenInteractionSessions {
+  constructor(private readonly pool: MobxPool) {}
+
+  @lazy({ equals: compareShallow })
+  get ids(): readonly string[] {
+    const catalog = omitGone(this.pool.row('noticeCatalog', 'catalog') as Lookup<NoticeRows['noticeCatalog']>)
+    if (catalog === undefined || catalog === LOADING) return NO_SESSIONS
+    const sessions = new Set<string>()
+    for (const interaction of catalog.interactions) {
+      const row = omitGone(this.pool.row('pendingInteraction', interaction))
+      if (row !== undefined && row !== LOADING && row.status === 'asked') sessions.add(row.sessionId)
+    }
+    return sessions.size === 0 ? NO_SESSIONS : [...sessions].sort()
+  }
+}
+const NO_SESSIONS: readonly string[] = Object.freeze([])

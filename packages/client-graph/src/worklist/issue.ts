@@ -110,7 +110,7 @@ export class WorklistIssue implements HeldIssue, RowView {
   /** R2's exited seats that may still want the human, by lifecycle rather than retention (POD-2171). */
   @lazy({ equals: compareShallow }) get exceptionSeatIds(): readonly string[] {
     const summary = this.explicitSeats
-    return exceptionSeatIdsPartOf(this.host.visibleInputs, this.id, this.seatIds, summary?.crashed)
+    return exceptionSeatIdsPartOf(this.host.visibleInputs, this.seatIds, summary?.crashed)
   }
 
   @lazy
