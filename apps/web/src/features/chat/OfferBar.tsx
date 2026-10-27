@@ -2,7 +2,8 @@ import { relativeTime } from '@podium/client-core/focus'
 import type { SessionView } from '@podium/client-core/session-values'
 import type { SessionOffer } from '@podium/model/browser'
 import { ChevronDown, Pencil, X } from 'lucide-react'
-import { type JSX, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { type JSX, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
+import { useTipMoment } from '@/features/tips'
 import { useClock } from '@/lib/clock-hooks'
 import { cn } from '@/lib/utils'
 import { OfferArtifactStrip } from './OfferArtifactStrip'
@@ -81,6 +82,52 @@ function useOfferFoldLift(
     }
   }, [body, expanded, lift])
   return { lifted: lift !== null, capped }
+}
+
+/**
+ * First Flights moment 6 (first-offer): the first offer card this person sees.
+ *
+ * A bar can be mounted where nobody sees it (the native dock stays mounted,
+ * clipped shut, in chat mode), so each bar has its own anchor name and only a
+ * bar that is fully on screen is eligible. "Fully" also waits out the dock's
+ * opening fold: the tip lands on the settled card, never mid-animation.
+ * Card 2 anchors the task's sidebar row (`task-row:<id>`, WorkRowShell).
+ */
+function useFirstOfferTip(card: HTMLElement | null, issueId: string | null | undefined): string {
+  const anchor = `first-offer-${useId()}`
+  const [onScreen, setOnScreen] = useState(false)
+  useEffect(() => {
+    if (!card || typeof IntersectionObserver === 'undefined') return
+    const observer = new IntersectionObserver(
+      ([entry]) => setOnScreen(!!entry && entry.intersectionRatio >= 0.98),
+      { threshold: [0, 0.98, 1] },
+    )
+    observer.observe(card)
+    return () => {
+      observer.disconnect()
+      setOnScreen(false)
+    }
+  }, [card])
+  useTipMoment('first-offer', {
+    active: onScreen,
+    cards: [
+      {
+        anchor,
+        title: 'Your next move.',
+        body: 'When an agent is done, it suggests what comes next. One tap sends it.',
+      },
+      ...(issueId
+        ? [
+            {
+              anchor: `task-row:${issueId}`,
+              title: 'It waits for you.',
+              body: 'Offers stay in your list and on your phone. Answer from anywhere.',
+            },
+          ]
+        : []),
+    ],
+  })
+  return anchor
 }
 
 /** The mark on an action that opens the feedback field instead of sending. */
@@ -162,6 +209,8 @@ export function OfferBar({
   // Callback ref, not useRef: the fold has to be measured the moment its body
   // lands in the DOM, and a plain ref never re-renders to say so.
   const [bodyEl, setBodyEl] = useState<HTMLDivElement | null>(null)
+  const [cardEl, setCardEl] = useState<HTMLDivElement | null>(null)
+  const tipAnchor = useFirstOfferTip(cardEl, session?.issueId)
   // The input-action awaiting feedback (index into offer.actions), if any.
   const [pending, setPending] = useState<number | null>(null)
   const [feedback, setFeedback] = useState('')
@@ -397,7 +446,9 @@ export function OfferBar({
 
   return (
     <div
+      ref={setCardEl}
       data-testid="offer-bar"
+      data-tip-anchor={tipAnchor}
       aria-busy={submitting !== null || undefined}
       data-collapsed={collapsed ? 'true' : undefined}
       className={cn(

@@ -149,7 +149,8 @@ export function WorkRowShell({
   testId: string
   /** Internal decomposition stays visible but subordinate to tracked work. */
   deemphasized?: boolean
-  /** Issue id stamped as data-issue-row so lineage flashes can find the row. */
+  /** Issue id stamped as data-issue-row so lineage flashes can find the row, and
+   *  as the First Flights anchor `task-row:<id>`. */
   domMark?: string
   /** Line 2's trailing facts after the sub-info (errors, the spin-off tick). */
   statusExtra?: ReactNode
@@ -185,7 +186,9 @@ export function WorkRowShell({
         )}
         data-phase={phase}
         data-selected={active ? 'true' : 'false'}
-        {...(domMark ? { 'data-issue-row': domMark } : {})}
+        {...(domMark
+          ? { 'data-issue-row': domMark, 'data-tip-anchor': `task-row:${domMark}` }
+          : {})}
       >
         {onGripDown && (
           // Manual-sort grip (POD-168): the row's left inset, visible on hover.
