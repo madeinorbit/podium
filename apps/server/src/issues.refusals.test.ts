@@ -281,6 +281,20 @@ describe('definitive issue refusals (POD-5429)', () => {
     ])
   })
 
+  it('refuses retyping an issue with a blocked-by edge to a phase', async () => {
+    const earlier = await seed()
+    const later = await seed()
+    await registry.issues.hierarchy.addDep(later.id, earlier.id)
+    for (const id of [later.id, earlier.id]) {
+      await refuse(
+        'update',
+        { id, patch: { type: 'phase' } },
+        `${id} has a blocked-by edge; phases only group tasks and take none. Remove it with dep-remove first, or keep it a task`,
+      )
+    }
+    expect((await registry.issues.crud.store.rowOrThrow(later.id)).type).toBe('task')
+  })
+
   it('refuses dependency and containment cycles', async () => {
     const a = await seed()
     const b = await seed()

@@ -175,8 +175,9 @@ const STARTED_STAGES: ReadonlySet<unknown> = new Set([
  *
  *  - Done only when the issue is closed; see {@link taskHidden} for the closes
  *    that also hide the row. A phase only groups (D1, POD-2178): it is also
- *    Done once it has sub-issues, all of them Done, and no session on it is
- *    working or asking, whether or not anyone closed the phase itself.
+ *    Done once it has sub-issues, all of them Done, and nothing on it (a
+ *    session, its own request, a `shipping` stage) errs, asks or works,
+ *    whether or not anyone closed the phase itself.
  *  - Error > Needs you > Working come from any session or sub-issue. The
  *    task's own requests ({@link taskOwnAsks}: an open decision, an explicit
  *    `needs-human` flag) are Needs you, except in its `delegated` word. A task in `shipping` is Working: the system is
@@ -190,15 +191,6 @@ const STARTED_STAGES: ReadonlySet<unknown> = new Set([
  */
 export function taskWord(task: TaskWordFacts, parts: TaskWordParts = {}): TaskWord {
   if (isFinished(task)) return 'done'
-  const sessions = [...(parts.sessions ?? [])]
-  const children = [...(parts.children ?? [])]
-  if (
-    task.type === 'phase' &&
-    children.length > 0 &&
-    children.every((word) => word === 'done') &&
-    sessions.every((word) => word === 'done' || word === 'idle')
-  )
-    return 'done'
   let error = false
   let asks = false
   let working = task.stage === 'shipping'
@@ -206,14 +198,18 @@ export function taskWord(task: TaskWordFacts, parts: TaskWordParts = {}): TaskWo
   let blocked = task.blocked === true
   let started = STARTED_STAGES.has(task.stage)
   if (!parts.delegated && taskOwnAsks(task)) asks = true
-  for (const word of sessions) {
+  let childCount = 0
+  let childrenDone = true
+  for (const word of parts.sessions ?? []) {
     started = true
     if (word === 'error') error = true
     else if (word === 'needs-you') asks = true
     else if (word === 'working') working = true
     else if (word === 'idle') idle = true
   }
-  for (const word of children) {
+  for (const word of parts.children ?? []) {
+    childCount += 1
+    if (word !== 'done') childrenDone = false
     if (word === 'error') error = true
     else if (word === 'needs-you') asks = true
     else if (word === 'working') working = true
@@ -224,6 +220,9 @@ export function taskWord(task: TaskWordFacts, parts: TaskWordParts = {}): TaskWo
   if (error) return 'error'
   if (asks) return 'needs-you'
   if (working) return 'working'
+  // A phase only groups (D1, POD-2178): Done once every sub-issue is, unless
+  // something on it still errs, asks or works (an idle lead does not count).
+  if (task.type === 'phase' && childCount > 0 && childrenDone) return 'done'
   if (idle) return 'idle'
   if (blocked) return 'blocked'
   return started ? 'idle' : 'not-started'

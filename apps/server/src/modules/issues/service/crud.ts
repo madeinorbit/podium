@@ -1304,6 +1304,18 @@ export class IssueCrudModule {
         `refusing worktree path ${rowPatch.worktreePath}: a repository root cannot be recorded as an issue worktree`,
       )
     }
+    // POD-2178: a phase takes no blocked-by edge (addDep refuses it), so a
+    // retype must not smuggle one in on a task that already has one.
+    if (rowPatch.type === 'phase' && row.type !== 'phase') {
+      const issues = this.store.deps.store.issues
+      const edged =
+        (await issues.listIssueDeps(row.id)).some((d) => d.type === 'blocked-by') ||
+        (await issues.listDependents(row.id)).some((d) => d.type === 'blocked-by')
+      if (edged)
+        throw new IssueRefusal(
+          `${id} has a blocked-by edge; phases only group tasks and take none. Remove it with dep-remove first, or keep it a task`,
+        )
+    }
 
     if (pinnedPatch !== undefined) {
       // Re-pinning keeps the ORIGINAL stamp, same rule as the tuck-away.

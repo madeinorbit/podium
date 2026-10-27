@@ -141,6 +141,8 @@ describe('taskWord (D6)', () => {
     // A lead still working or asking keeps the phase open.
     expect(taskWord(phase, { sessions: ['needs-you'], children: ['done'] })).toBe('needs-you')
     expect(taskWord(phase, { sessions: ['working'], children: ['done'] })).toBe('working')
+    // The phase's own request to a human still asks.
+    expect(taskWord({ ...phase, needsHuman: true }, { children: ['done'] })).toBe('needs-you')
   })
 
   it('cancelled, duplicate and superseded count as done and are hidden', () => {
