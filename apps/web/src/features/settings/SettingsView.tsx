@@ -1,15 +1,13 @@
-import { observer } from 'mobx-react-lite'
 import { ingestSettings } from '@podium/client-graph/requested-records'
-import { useWorklistPool } from '@/app/store-worklist-pool'
-import { accountKey, useSettingsRecord, useSettingsRecords } from './record-readers'
-import { SettingsOpening } from './SettingsOpening'
 import type { SettingsWriteRefusal } from '@podium/commands/settings-write-plan'
 import type { ServerSecretKey } from '@podium/model/browser'
 import { DEFAULT_SETTINGS, type PodiumSettings } from '@podium/runtime'
+import { observer } from 'mobx-react-lite'
 import type { JSX } from 'react'
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AppSheet } from '@/app/AppSheet'
 import { usePoolIdleCapUnmetCount } from '@/app/header-data'
+import { useWorklistPool } from '@/app/store-worklist-pool'
 import type { Trpc } from '@/app/trpc'
 import { Button } from '@/components/ui/button'
 import { WaitingForServer } from '@/components/WaitingForServer'
@@ -18,9 +16,9 @@ import { throughRestarts } from '@/lib/chunk-recovery'
 import { invalidateFeatures, useFeature } from '@/lib/use-feature'
 import { cn } from '@/lib/utils'
 import { useSettingsTab } from './readers'
+import { accountKey, useSettingsRecord, useSettingsRecords } from './record-readers'
+import { SettingsOpening } from './SettingsOpening'
 import { refusalMessage, saveSettingsAsCommands } from './save-settings'
-import { SettingsEditDraft } from './settings-edit-draft'
-import { AccountsSection } from './sections/accounts'
 import { AppearanceSection } from './sections/appearance'
 import { ExperimentalSection } from './sections/experimental'
 import { HibernationSection } from './sections/hibernation'
@@ -36,9 +34,16 @@ import type { AccountView } from './sections/shared'
 import { SuperagentSection } from './sections/superagent'
 import { WorkflowSection } from './sections/workflow'
 import { WorkLlmSection } from './sections/workllm'
+import { SettingsEditDraft } from './settings-edit-draft'
 import { useSettingsClient } from './stable-access'
 import { SETTINGS_SURFACES, type SettingsSurface, SURFACE_COPY, tabsOnSurface } from './surfaces'
 
+// Account connection and login controls are only needed on the Accounts tab.
+const AccountsSection = lazy(() =>
+  throughRestarts(() => import('./sections/accounts')).then((module) => ({
+    default: module.AccountsSection,
+  })),
+)
 const MachinesPanel = lazy(() =>
   throughRestarts(() => import('./MachinesPanel')).then((module) => ({
     default: module.MachinesPanel,
@@ -280,7 +285,10 @@ export function SettingsView(props: { onClose: () => void }): JSX.Element {
   )
 }
 
-const SettingsViewBody = observer(function SettingsViewBody({ onClose, settingsTab }: {
+const SettingsViewBody = observer(function SettingsViewBody({
+  onClose,
+  settingsTab,
+}: {
   onClose: () => void
   settingsTab: ReturnType<typeof useSettingsTab>
 }): JSX.Element {
@@ -295,11 +303,17 @@ const SettingsViewBody = observer(function SettingsViewBody({ onClose, settingsT
   const readSettings = useCallback(() => trpc.settings.get.query(), [trpc])
   const settingsRequest = useSettingsRecord(readSettings)
   const record = settingsRequest?.model
-  const edits = useMemo(() => record ? new SettingsEditDraft(record, async (previous, next) => {
-    const result = await saveSettingsAsCommands(trpc, previous, next)
-    if (pool) ingestSettings(pool, result.saved)
-    return result
-  }) : null, [record, trpc, pool])
+  const edits = useMemo(
+    () =>
+      record
+        ? new SettingsEditDraft(record, async (previous, next) => {
+            const result = await saveSettingsAsCommands(trpc, previous, next)
+            if (pool) ingestSettings(pool, result.saved)
+            return result
+          })
+        : null,
+    [record, trpc, pool],
+  )
   const settings = edits?.settings ?? null
   const readAccounts = useCallback(() => trpc.accounts.list.query(), [trpc])
   const { request: accountRequest } = useSettingsRecords('account', readAccounts, accountKey)
