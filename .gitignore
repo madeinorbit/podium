@@ -31,8 +31,9 @@ tests/e2e/playwright-report/
 .worktrees/
 test-results/
 
-# POD-4445: work-ratio run output (attached to issues, not committed).
+# POD-4445: work-ratio and count run output (attached to issues, not committed).
 tests/worklist/harness/results/
+tests/worklist/harness/browser/results/
 
 # bun build --compile artifacts
 dist-bun/
