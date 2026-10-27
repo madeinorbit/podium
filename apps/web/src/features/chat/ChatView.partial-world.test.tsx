@@ -93,7 +93,6 @@ vi.mock('@/app/store', () => {
     setPanelMode: vi.fn(),
     openFile: vi.fn(),
     httpOrigin: 'http://x',
-    tldrSession: vi.fn(),
     getUserFocus: () => ({ view: 'chat' }),
     issues: [],
     superThreads: [],

@@ -94,7 +94,6 @@ function harness(
     pending.push(entry)
     return entry
   })
-  const refreshSuperThreads = vi.fn(async () => {})
   const dismissOffer = vi.fn(async (_input: unknown) => ({}))
   const router = {
     current: () => ({
@@ -155,7 +154,6 @@ function harness(
     spawnDraftAgent: vi.fn(() => ({ sessionId, issueId: asIssueId('issue-1') })),
     waitForSpawnConfirmed: vi.fn(async () => {}),
     setSessionDraft: vi.fn(),
-    refreshSuperThreads,
   } as unknown as EngineActionRuntime<PodiumClientApi>
   const navigation = fixtureNavigation({
     issues: () => state.issueProjections as IssueProjection[],
@@ -170,7 +168,6 @@ function harness(
   Object.assign(state, { navigation })
   return {
     actions: createEngineActions(runtime),
-    refreshSuperThreads,
     dismissOffer,
     enqueue,
     pending,
@@ -620,14 +617,13 @@ describe('ask superagent (BTW) attaches a session to the next turn (POD-1069)', 
   })
 
   it('mints no thread: the attachment is local until the turn that carries it', async () => {
-    // There is nothing to refresh a thread list FOR any more. The session rides
-    // the next `sendTurn` as `attachSessionId` and the server digests it into
-    // that turn's preamble, so an offline client can still line one up.
+    // The session rides the next `sendTurn` as `attachSessionId` and the server
+    // digests it into that turn's preamble, so an offline client can still line
+    // one up.
     const h = harness()
 
     await h.actions.startBtw(asSessionId('sess-btw'))
 
-    expect(h.refreshSuperThreads).not.toHaveBeenCalled()
     expect(h.queued).toEqual([])
   })
 

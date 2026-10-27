@@ -143,7 +143,6 @@ export const COMMAND_ACTIONS = [
   'setDockTab',
   'setPanelMode',
   'preferPanelMode',
-  'tldrSession',
   'writeFileScoped',
   'spawnDraftAgent',
   'spawnIssueAgent',
@@ -326,11 +325,6 @@ export interface EngineActionRuntime<TApi extends PodiumClientApi> {
    */
   waitForSpawnConfirmed(sessionId: SessionId): Promise<void>
   setSessionDraft(sessionId: SessionId, text: string): void
-  /** Re-read the signed-in user's superagent threads. A NAMED refresh, replacing
-   *  the `superRefreshKey` counter the view used to watch: a counter says only
-   *  "something changed", so every bump refetched everything and a forgotten
-   *  bump was a silently stale list (POD-330, audit item zero). */
-  refreshSuperThreads(): Promise<void>
 }
 
 function reducePin(state: PinState, kind: PinKind, id: string, pinned: boolean): PinState {
@@ -618,20 +612,6 @@ export function createEngineActions<TApi extends PodiumClientApi>(
       rt.apply({ attachedSessionId: sessionId, superOpen: true, dockTab: 'superagent' })
     },
     clearAttachedSession: () => rt.apply({ attachedSessionId: null }),
-    tldrSession: async (sessionId, answerText) => {
-      rt.apply({ superOpen: true, dockTab: 'superagent' })
-      const prompt = answerText.trim()
-        ? `Give me a concise tl;dr (2–4 bullet points) of the agent's last answer below.\n\n---\n${answerText.trim().slice(0, 4000)}`
-        : "Give me a concise tl;dr (2–4 bullet points) of the agent's last answer."
-      // The session rides WITH the turn rather than as a thread of its own, so
-      // the answer lands in the chat the operator is already looking at. The
-      // attachment is spent here, not staged: nothing is left on the store for
-      // the operator's next message to pick up by accident.
-      await api.superagent.sendTurn
-        .mutate({ threadId: asThreadId('global'), text: prompt, attachSessionId: sessionId })
-        .catch(() => {})
-      await rt.refreshSuperThreads().catch(() => {})
-    },
     setPaletteOpen: (paletteOpen) => rt.apply({ paletteOpen }),
     setSelectedWorktree: (selectedWorktree) => rt.apply({ selectedWorktree }),
     setSelectedIssueId: (selectedIssueId) => rt.apply({ selectedIssueId }),

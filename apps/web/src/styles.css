@@ -3916,13 +3916,9 @@ html[data-density="compact"] .brief-shelf {
     color 120ms ease,
     background-color 120ms ease;
 }
-.chat-rail-btn:hover:not(:disabled) {
+.chat-rail-btn:hover {
   background: color-mix(in oklab, var(--foreground) 7%, transparent);
   color: var(--foreground);
-}
-.chat-rail-btn:disabled {
-  opacity: 0.35;
-  cursor: default;
 }
 .chat-rail-btn--on {
   background: color-mix(in oklab, var(--foreground) 9%, transparent);

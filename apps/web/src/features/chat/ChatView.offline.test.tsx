@@ -88,7 +88,6 @@ vi.mock('@/app/store', () => {
     setPanelMode: vi.fn(),
     openFile: vi.fn(),
     httpOrigin: 'http://x',
-    tldrSession: vi.fn(),
   })
   // The selector-store hook reads slices off the same store shape.
   return {

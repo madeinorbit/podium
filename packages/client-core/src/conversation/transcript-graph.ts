@@ -94,12 +94,10 @@ export class TranscriptGraph {
   private readonly aliasById = new Map<string, string>()
   private readonly answers = new LatestTranscriptId(id => this.rank(id))
   private readonly assistants = new LatestTranscriptId(id => this.rank(id))
-  private readonly prose = new LatestTranscriptId(id => this.rank(id))
   private readonly questions = new LatestTranscriptId(id => this.rank(id))
   private readonly interviews = new LatestTranscriptId(id => this.rank(id))
   @observable accessor latestAnswerId: string | undefined = undefined
   @observable accessor latestAssistantId: string | undefined = undefined
-  @observable accessor latestProseId: string | undefined = undefined
   @observable accessor pendingQuestionId: string | undefined = undefined
   readonly searchIndex = new TranscriptSearchIndex(id => this.rank(id))
 
@@ -116,11 +114,9 @@ export class TranscriptGraph {
   get version(): number { return this.orderVersion }
   structuralRow(id: string): ChatRow | undefined { return this.skeletons.get(id) }
   run(id: string): TranscriptToolRun | undefined { return this.runs.get(id) }
-  @lazy get lastAnswer(): LastAnswer {
+  @lazy({ equals: compareShallow }) get lastAnswer(): LastAnswer {
     const answer = this.latestAnswerId
-    const prose = this.latestProseId
-    return { blockIndex: answer === undefined ? -1 : this.blockPosition(answer) ?? -1,
-      text: prose === undefined ? '' : this.block(prose)?.item.text ?? '' }
+    return { blockIndex: answer === undefined ? -1 : this.blockPosition(answer) ?? -1 }
   }
 
   operatorBefore(rowIndex: number, collapseContext: boolean): string | undefined {
@@ -271,7 +267,6 @@ export class TranscriptGraph {
     this.ranks.clear()
     this.answers.clear()
     this.assistants.clear()
-    this.prose.clear()
     this.questions.clear()
     this.interviews.clear()
     this.searchIndex.clear()
@@ -467,7 +462,6 @@ export class TranscriptGraph {
       this.blockSkeletons.delete(id)
       this.answers.set(id, false)
       this.assistants.set(id, false)
-      this.prose.set(id, false)
       this.questions.set(id, false)
       this.setFailure(id, false)
       this.indexOperators(id, undefined)
@@ -675,7 +669,6 @@ export class TranscriptGraph {
       block.result ?? block.item.toolResult ?? ''].join('\n'))
     this.answers.set(id, block.item.role === 'assistant' && block.item.answer === true)
     this.assistants.set(id, block.item.role === 'assistant')
-    this.prose.set(id, block.item.role === 'assistant' && block.item.text.trim() !== '')
     this.questions.set(id, isPendingAskQuestion(block))
     this.interviews.set(id, isInterviewQuestion(block.item))
     this.indexOperators(id, block.item)
@@ -687,7 +680,6 @@ export class TranscriptGraph {
   private publishFacts(): void {
     this.latestAnswerId = this.answers.latest()
     this.latestAssistantId = this.assistants.latest()
-    this.latestProseId = this.prose.latest()
     const question = this.questions.latest()
     // Async interviews can be answered in ordinary chat or superseded without
     // a correlated result. Do not resurrect them after the next human prompt

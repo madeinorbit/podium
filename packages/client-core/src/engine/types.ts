@@ -185,9 +185,6 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
   attachedSessionId: SessionId | null
   /** Drop the attachment without sending — the chip's ×. */
   clearAttachedSession: () => void
-  /** Ask the superagent for a concise tl;dr of the agent's last answer (passed in
-   *  for context), with the session attached to that turn. */
-  tldrSession: (sessionId: SessionId, answerText: string) => Promise<void>
   /** The issue whose detail drawer is open (from the kanban card or the sidebar
    *  Issues tab), or null when closed. Ephemeral — not persisted. */
   openIssueId: IssueId | null

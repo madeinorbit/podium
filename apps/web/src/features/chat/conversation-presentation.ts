@@ -76,7 +76,7 @@ export class ConversationPresentation {
   @lazy get blockCount(): number { return this.computeReady ? this.graph!.blockIds.length : 0 }
   @lazy get rowCount(): number { return this.computeReady ? this.graph!.rowIds.length : 0 }
   @lazy get rowVersion(): number { return this.graph?.version ?? 0 }
-  @lazy get lastAnswer() { return this.computeReady ? this.graph!.lastAnswer : { blockIndex: -1, text: '' } }
+  @lazy get lastAnswer() { return this.computeReady ? this.graph!.lastAnswer : { blockIndex: -1 } }
   @lazy get headKey(): string {
     const id = this.log?.ids[0]
     return id === undefined ? '' : this.log?.byId.get(id)?.cursor ?? id

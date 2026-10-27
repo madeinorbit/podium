@@ -8,7 +8,6 @@ import {
   chatSessionReference,
   composerState,
   isOperatorPrompt,
-  lastAnswer,
   livePendingAskIndex,
   renderableRows,
   transcriptAttribution,
@@ -288,15 +287,6 @@ describe('answerable questions and the last answer', () => {
     ])
     expect(livePendingAskIndex(blocks, 'live')).toBe(1)
     expect(livePendingAskIndex(blocks, 'hibernated')).toBe(-1)
-  })
-
-  it('reports the end-of-turn answer index and the latest assistant prose apart', () => {
-    const blocks = blocksOf([
-      item({ role: 'assistant', text: 'final', answer: true }),
-      item({ role: 'assistant', text: 'narration after' }),
-    ])
-    expect(lastAnswer(blocks)).toEqual({ blockIndex: 0, text: 'narration after' })
-    expect(lastAnswer([])).toEqual({ blockIndex: -1, text: '' })
   })
 })
 

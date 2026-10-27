@@ -51,14 +51,13 @@ export interface ChatSurface {
   answerAsk: (answer: import('./AskUserQuestionCard').AskUserQuestionAnswer) => Promise<void>
   interrupt: (draft: string) => void
   openFile: (sessionId: SessionId, path: string) => void
-  tldr: () => void
 }
 
-const LAYOUT_ACTIONS = ['trpc', 'openFile', 'httpOrigin', 'tldrSession', 'clearAttachedSession', 'clearTranscriptReveal'] as const
+const LAYOUT_ACTIONS = ['trpc', 'openFile', 'httpOrigin', 'clearAttachedSession', 'clearTranscriptReveal'] as const
 
 export function useChatLayout(opts: UseChatLayoutOptions): ChatSurface {
   const { conversation, sessionId, active, compact } = opts
-  const { trpc, openFile, httpOrigin, tldrSession, clearAttachedSession, clearTranscriptReveal } = useRuntimeActions(LAYOUT_ACTIONS)
+  const { trpc, openFile, httpOrigin, clearAttachedSession, clearTranscriptReveal } = useRuntimeActions(LAYOUT_ACTIONS)
   // Thread routing belongs to the conversation's existing identity. An inline
   // parent prop with the same thread must not replace this mounted reader.
   const view = useMemo(() => new ChatViewModel(conversation, compact, conversation.mount.superThread, clearAttachedSession),
@@ -179,9 +178,8 @@ export function useChatLayout(opts: UseChatLayoutOptions): ChatSurface {
     } else scroll.scrollToBlock(activeRow)
   }, [activeRow, presentation, scroll.scrollToBlock])
   const isMobile = useIsMobile()
-  const tldr = useCallback(() => void tldrSession(sessionId, presentation.lastAnswer.text), [tldrSession, sessionId, presentation])
   return { conversation, view, httpOrigin, attachments, isMobile, taRef, scrollerRef, scroll, revealedRow,
-    lightbox, setLightbox, setDraft, submitDraft, sendOfferPrompt, ...sendActions, answerAsk, interrupt, openFile, tldr }
+    lightbox, setLightbox, setDraft, submitDraft, sendOfferPrompt, ...sendActions, answerAsk, interrupt, openFile }
 }
 
 /** Presence follows only the addressed machine while the panel is visible. */

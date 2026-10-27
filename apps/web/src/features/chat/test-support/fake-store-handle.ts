@@ -31,7 +31,7 @@ const keyedHandle = withKeyedInputs({
     // These suites also replace the web store. Keep the stable transports and UI
     // writer on that same owner while preserving this external-store snapshot's
     // identity and independently controlled message/outbox rows.
-    for (const key of ['uiState', 'trpc', 'hub', 'httpOrigin', 'replica', 'setSessionDraft', 'sendChat', 'discardChat', 'dismissOffer', 'setPanelMode', 'getUserFocus', 'clearAttachedSession', 'openFile', 'tldrSession', 'clearTranscriptReveal', 'attachedSessionId'] as const) {
+    for (const key of ['uiState', 'trpc', 'hub', 'httpOrigin', 'replica', 'setSessionDraft', 'sendChat', 'discardChat', 'dismissOffer', 'setPanelMode', 'getUserFocus', 'clearAttachedSession', 'openFile', 'clearTranscriptReveal', 'attachedSessionId'] as const) {
       if (!Object.getOwnPropertyDescriptor(snapshot, key)) {
         Object.defineProperty(snapshot, key, {
           enumerable: true,

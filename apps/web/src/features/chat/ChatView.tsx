@@ -253,8 +253,8 @@ const ConversationChatView = observer(function ConversationChatView({
   /** Present when this ChatView is embedded in the superagent panel over a
    *  HEADLESS session — routes sends through the superagent turn mutations. */
   superThread?: SuperThreadRef
-  /** Narrow-dock mode (the superagent side panel): hides the reading rail (map,
-   *  density, tl;dr) and find. */
+  /** Narrow-dock mode (the superagent side panel): hides the reading rail (map)
+   *  and find. */
   compact?: boolean
   /** Query-backed headless state for clients that mounted after turn-start. */
   initialTurnRunning?: boolean
@@ -623,8 +623,6 @@ const ReadingRail = observer(function ReadingRail({
       activeMatch={chat.view.presentation.search.activeMatch}
       findOpen={findOpen}
       onFind={onFind}
-      lastAnswerText={chat.view.presentation.lastAnswer.text}
-      onTldr={chat.tldr}
     />
   )
 })

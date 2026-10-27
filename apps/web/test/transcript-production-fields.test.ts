@@ -8,7 +8,7 @@ import { standardDecorators } from '../../../scripts/vite-standard-decorators'
 
 const root = fileURLToPath(new URL('../../../', import.meta.url))
 const graphFile = `${root}packages/client-core/src/conversation/transcript-graph.ts`
-const fields = ['latestAnswerId', 'latestAssistantId', 'latestProseId', 'pendingQuestionId'] as const
+const fields = ['latestAnswerId', 'latestAssistantId', 'pendingQuestionId'] as const
 
 type Compiler = 'desktop' | 'phone'
 

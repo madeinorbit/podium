@@ -3830,19 +3830,19 @@
       "file": "apps/web/src/features/chat/ChatView.tsx",
       "holder": "ConversationChatView/ConversationChatView/chat",
       "rule": "reader-summary",
-      "tokens": "1f28b4057fee876f56cc32d9290569d88ebd653f2d5c6312432a7980be773bd1",
+      "tokens": "6d3e42eb2de7f8c0c31eb95e78058924daa981fea9a30fed8fae679ce169eaae",
       "gate": [],
       "origin": [
         "0ada7271c7f9a312e00ddc7d7745c29aa340b32ed0cad32a202b66ad0a6fa4cc",
         "38fbaac9da16906de217d6806926a7bbec5c49548b92e3e9c328e6f573c27b23"
       ],
-      "fingerprint": "ef264dbe228e117f58409d18bfb00f32c34ae33856db693b93bffd048b10d0c1",
+      "fingerprint": "44e79377ac015c5b37a1767cfb154aaf4563a4f7d98d39f39b940abd40527af1",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Mount one chat reader and its DOM layout.",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "Display facts are read by leaf observers, but inherited conversation/context initialization taint remains; this entry claims no new collection bound. POD-5872: Record facts now come from shared models and the remaining machinery is a warm service read through a per-opening view model; existing collection demand is unchanged. Predecessor: 004229d48a542972d7a2e936455fb7c6a64b21c0c8731b8dc31ba8b0d9638680. POD-2047: Async interview submission reads its captured transcript block by ID; reader multiplicity and inherited collection demand are unchanged. Predecessor: aef63c7ad31df7b5a7f7d762b326cd7669dfa56308ed9ef69fc883990f001545. POD-2047 review fixes: replies now use the conversation outbox, removing the direct-send collection origin; current-question validation stays addressed and duplicate checks inspect this conversation pending replies. Classification and owner retain the inherited reader debt. Predecessor: 73fb89f4c9705c80f9d63ec115c88d898ea535eca1cf8daf6bca23e9fa33afbb. Predecessor: 8cbdd215fec11b8585f58062e26d540be96fce8532384306a175d395fe425bb1.",
+      "reason": "Display facts are read by leaf observers, but inherited conversation/context initialization taint remains; this entry claims no new collection bound. POD-5872: Record facts now come from shared models and the remaining machinery is a warm service read through a per-opening view model; existing collection demand is unchanged. Predecessor: 004229d48a542972d7a2e936455fb7c6a64b21c0c8731b8dc31ba8b0d9638680. POD-2047: Async interview submission reads its captured transcript block by ID; reader multiplicity and inherited collection demand are unchanged. Predecessor: aef63c7ad31df7b5a7f7d762b326cd7669dfa56308ed9ef69fc883990f001545. POD-2047 review fixes: replies now use the conversation outbox, removing the direct-send collection origin; current-question validation stays addressed and duplicate checks inspect this conversation pending replies. Classification and owner retain the inherited reader debt. Predecessor: 73fb89f4c9705c80f9d63ec115c88d898ea535eca1cf8daf6bca23e9fa33afbb. Predecessor: 8cbdd215fec11b8585f58062e26d540be96fce8532384306a175d395fe425bb1. POD-2219: the removed tl;dr rail button no longer reads the last answer text; reader multiplicity and inherited collection demand are unchanged. Predecessor: ef264dbe228e117f58409d18bfb00f32c34ae33856db693b93bffd048b10d0c1.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {

@@ -465,22 +465,9 @@ export function livePendingAskIndex(
 }
 
 /** The agent's most recent answer: the block index carrying the end-of-turn
- *  marker (for the compact column's context label) and the latest assistant prose
- *  (what tl;dr summarises). Both are one pass over the same list. */
+ *  marker (for the compact column's context label). */
 export interface LastAnswer {
   readonly blockIndex: number
-  readonly text: string
-}
-
-export function lastAnswer(blocks: readonly ChatBlock[]): LastAnswer {
-  let blockIndex = -1
-  let text = ''
-  blocks.forEach((b, i) => {
-    if (b.item.role !== 'assistant') return
-    if (b.item.answer) blockIndex = i
-    if (b.item.text.trim()) text = b.item.text
-  })
-  return { blockIndex, text }
 }
 
 // ---------------------------------------------------------------------------

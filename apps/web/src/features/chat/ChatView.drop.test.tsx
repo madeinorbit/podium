@@ -114,7 +114,6 @@ vi.mock('@/app/store', () => {
     setPanelMode: vi.fn(),
     openFile: vi.fn(),
     httpOrigin: 'http://x',
-    tldrSession: vi.fn(),
     uiState: fakeUiState,
   })
   return {

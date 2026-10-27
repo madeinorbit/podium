@@ -1636,7 +1636,6 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       // goes out, whether it went out, when it is written to disk) is a
       // consequence, and none of it can hold the typing up.
       setSessionDraft: (sessionId, text) => this.drafts.set(sessionId, text),
-      refreshSuperThreads: () => this.boot.refreshSuperThreads(),
     })
   }
 
