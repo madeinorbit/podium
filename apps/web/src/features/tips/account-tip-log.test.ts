@@ -4,6 +4,7 @@ import { MobxPool } from '@podium/client-graph'
 import { attachPreferenceSource } from '@podium/client-graph/preference-source'
 import { autorun } from 'mobx'
 import { afterEach, expect, it, vi } from 'vitest'
+import { createReplicatedLayoutController } from '../../../../../packages/client-core/src/engine/replicated-layout'
 import { ACCOUNT_TIP_IDS, AccountTipLog } from './account-tip-log'
 
 vi.mock('@/app/store-worklist-pool', () => ({ useWorklistPool: () => null }))
@@ -155,4 +156,38 @@ it('retires with the account pool even when hydration resolves after teardown', 
   d.log.record('first-prompt', 'finished')
   d.log.setEnabled(false)
   expect(f.data.size).toBe(0)
+})
+
+it('keeps upgraded-account tips seen when a remote layout snapshot replaces hydrated state', async () => {
+  const seeded = Object.fromEntries(ACCOUNT_TIP_IDS.map((id) => [`tips.seen.${id}`, AT]))
+  const snapshot = { ...seeded, 'tips.enabled': 'false' }
+  type Init = Parameters<typeof createReplicatedLayoutController>[0]
+  const replicated = createReplicatedLayoutController({
+    api: { layout: { get: { query: async () => snapshot } } } as Init['api'],
+    outbox: { awaiting: () => [], pending: () => [] } as unknown as Init['outbox'],
+    notices: { error: () => {}, info: () => {} } as Init['notices'],
+  })
+  const side = createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] })
+  disposers.push(() => side.dispose())
+  const ui = createRoutedUiState({ local: side.uiState(), replicated })
+  const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
+  attachPreferenceSource(pool, ui)
+  disposers.push(() => pool.dispose())
+  const log = new AccountTipLog(pool, ui, () => replicated.hydrate())
+  const rendered = { ready: false, seen: [] as boolean[] }
+  disposers.push(
+    autorun(() => {
+      rendered.ready = log.ready
+      rendered.seen = ACCOUNT_TIP_IDS.map((id) => log.isSeen(id))
+    }),
+  )
+  await log.load()
+  expect(rendered.ready).toBe(true)
+  expect(rendered.seen).toEqual(ACCOUNT_TIP_IDS.map(() => true))
+  // Server migration/feed regression checks this complete account slice. Feed
+  // delivery replaces the base, so omitting seeded rows would erase seen-state.
+  replicated.replace({ ...snapshot, dockTab: 'files' })
+  await vi.waitFor(() => expect(replicated.get('dockTab')).toBe('files'))
+  expect(rendered.seen).toEqual(ACCOUNT_TIP_IDS.map(() => true))
+  expect(log.enabled).toBe(false)
 })

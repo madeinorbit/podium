@@ -532,6 +532,8 @@ export class SessionRegistry {
     if (!this.recoveryOnly || rehearseBoot) await this.modules.sessions.loadFromStore()
     bootStage('sessions recovery', stageStarted)
     stageStarted = performance.now()
+    // Migration-seeded account state must be in the feed before the first bootstrap.
+    await this.modules.layout.reconcileAllToLedger()
     await this.ledger.reconcile('machine', await this.modules.machines.projectionRows())
     await this.issueEventFeed.resolve()
     await this.interactionFeed.resolve()

@@ -8,9 +8,10 @@
  * ui-state module (POD-403).
  *
  * ---------------------------------------------------------------------------
- * EVERY READ TAKES A USER. THERE IS NO METHOD THAT DOES NOT.
+ * CLIENT READS TAKE A USER; BOOT RECONCILIATION READS FULL TRUTH.
  * ---------------------------------------------------------------------------
- * Same posture as {@link UserPreferencesRepository}: no bulk cross-user read.
+ * Ordinary reads have the same posture as {@link UserPreferencesRepository}:
+ * no bulk cross-user read. The boot-only reconciliation scan is the exception.
  * A caller's snapshot is their own rows; a second user on the same device sees
  * nothing of the first.
  *
@@ -25,13 +26,14 @@
 import {
   isLayoutKey,
   type LayoutSnapshot,
+  type LayoutWire,
   normalizeDockWorktreeKey,
   type SessionId,
   type UserId,
 } from '@podium/model'
 import { and, asc, eq, sql } from 'drizzle-orm'
 import { userDockShell, userLayout } from '../migrations/schema'
-import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
+import type { StoreDrizzle, StoreQueries, TransactionRunner } from './executor/sync-drizzle'
 import { currentTransaction } from './executor/sync-drizzle'
 
 export class UserLayoutRepository {
@@ -72,6 +74,24 @@ export class UserLayoutRepository {
       }
     }
     return out
+  }
+
+  /** Full durable truth for boot reconciliation only, before clients are served.
+   * Ordinary reads remain user-scoped. Malformed JSON is absent, just as in getSnapshot. */
+  async allForBootReconcile(): Promise<LayoutWire[]> {
+    const rows = await this.db
+      .select({ userId: userLayout.userId, key: userLayout.key, value: userLayout.value })
+      .from(userLayout)
+      .all()
+    const values: LayoutWire[] = []
+    for (const row of rows) {
+      try {
+        values.push({ userId: row.userId, key: row.key, value: JSON.parse(row.value) })
+      } catch {
+        // Corrupt rows must not poison the feed or disagree with getSnapshot.
+      }
+    }
+    return values
   }
 
   /** One key's value, or `undefined` when never set. */
