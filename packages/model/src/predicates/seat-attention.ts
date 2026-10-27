@@ -157,6 +157,10 @@ export type SeatRole = 'coordinator' | 'delegate'
 
 /** One seat's verdict on a coordinated task ({@link coordinatedSeat}). */
 export interface CoordinatedSeat {
+  /** It counts at all: its task is open and it is not archived. A seat that does not asks nothing. */
+  readonly counted: boolean
+  /** It errored ({@link sessionErrorFact}), and counts. */
+  readonly error: boolean
   /** It wants the human: an error, a prompt only a human can answer, or, as the coordinator, any other ask. */
   readonly asks: boolean
   /** When the earliest want it counts began (ms): an error at its state change (a crash at its
@@ -166,8 +170,14 @@ export interface CoordinatedSeat {
   readonly errorClass: string | null
   /** It computes ({@link sessionWorkingFact}), read apart from any ask. */
   readonly working: boolean
-  /** Its turn reached a natural end, or the agent ended. */
+  /**
+   * Its turn reached a natural end, or the agent ended, and it is not working:
+   * a reconnecting or starting session keeps its last phase, and work wins.
+   * So `working` and `done` are never both true, and no reader has to choose.
+   */
   readonly done: boolean
+  /** Its process is gone: exited, or the agent ended. The session word's Done. */
+  readonly stopped: boolean
 }
 
 const ms = (iso: string | null | undefined): number | null => {
@@ -209,7 +219,10 @@ export function coordinatedSeat(
   const state = session.agentState
   const stateSince = ms(state?.since)
   const alive = session.status !== 'exited'
+  const working = sessionWorkingFact(session)
   return {
+    counted: counts,
+    error,
     asks,
     asksSince: asks
       ? earliest(
@@ -224,10 +237,12 @@ export function coordinatedSeat(
         )
       : null,
     errorClass: error ? seatErrorClass(session) : null,
-    working: sessionWorkingFact(session),
+    working,
     done:
-      state?.phase === 'ended' ||
-      (state?.phase === 'idle' && idleVerdictFinishedTurn(state.idle?.kind ?? undefined)),
+      !working &&
+      (state?.phase === 'ended' ||
+        (state?.phase === 'idle' && idleVerdictFinishedTurn(state.idle?.kind ?? undefined))),
+    stopped: !alive || state?.phase === 'ended',
   }
 }
 

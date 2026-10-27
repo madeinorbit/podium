@@ -600,6 +600,88 @@ describe('one derivation per seat (review round 2)', () => {
   })
 })
 
+describe('review round 3', () => {
+  const quiet = {
+    coordinator: 'coord',
+    busy: idleDone,
+    reviewed: { agentState: { phase: 'working', since: stamp } },
+  }
+  const stale = [
+    { status: 'reconnecting', agentState: { phase: 'idle', since: stamp, idle: { kind: 'done' } } },
+    {
+      status: 'starting',
+      agentState: { phase: 'idle', since: stamp, idle: { kind: 'open_todos' } },
+    },
+    { status: 'starting', agentState: { phase: 'ended', since: stamp } },
+  ]
+
+  it('R3-1: a starting or reconnecting child delegate with a stale finished phase reads Working', () => {
+    for (const helper of stale) {
+      // The child in review is idle too, so only the stale helper can make the epic work.
+      const pool = fixture({ ...quiet, reviewed: idleDone, busy: helper })
+      try {
+        expectRow(pool, 'epic', { phase: 'working', asking: false })
+      } finally {
+        pool.dispose()
+      }
+    }
+  })
+
+  it('R3-1: the same on a same-row helper: phase and working agree', () => {
+    for (const helper of stale) {
+      const pool = fixture({
+        ...quiet,
+        reviewed: idleDone,
+        busy: idleDone,
+        extra: [{ kind: 'session', id: 'helper', value: session('helper', 'epic', helper) }],
+      })
+      try {
+        expectRow(pool, 'epic', { phase: 'working' })
+        let working = false
+        const stop = autorun(() => {
+          working = worklistView(pool).row(pool.issueObject('epic')).visibleWorking
+        })
+        stop()
+        expect(working).toBe(true)
+      } finally {
+        pool.dispose()
+      }
+    }
+  })
+
+  it('R3-2: an exited, error-free delegate with an open interaction asks, by the same verdict', () => {
+    const exited = {
+      status: 'exited',
+      stopReason: 'self',
+      exitCode: 0,
+      stoppedAt: stamp,
+      ...idleDone,
+    }
+    const plain = fixture({ ...quiet, busy: exited })
+    try {
+      expectRow(plain, 'epic', { asking: false, waitingCount: 0 })
+    } finally {
+      plain.dispose()
+    }
+    const pool = fixture({ ...quiet, busy: exited })
+    Object.defineProperty(pool, 'sessionOpenInteractions', {
+      value: (id: string) =>
+        id === 'busy' ? { count: 1, since: Date.parse(stamp) } : { count: 0, since: null },
+    })
+    Object.defineProperty(pool, 'sessionsWithOpenInteractions', { value: () => ['busy'] })
+    try {
+      expectRow(pool, 'epic', {
+        phase: 'waiting',
+        asking: true,
+        waitingCount: 1,
+        filingAsking: true,
+      })
+    } finally {
+      pool.dispose()
+    }
+  })
+})
+
 describe('without a live coordinator, the old roll-up', () => {
   for (const [name, shape] of [
     ['no coordinator claimed', {}],

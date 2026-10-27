@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { coordinatedSeat, type SeatSessionFacts } from './seat-attention'
 import {
+  coordinatedWord,
   counterChildren,
   leafTasks,
   rollUpTaskWords,
@@ -269,7 +270,7 @@ describe('coordinated tasks (POD-2171)', () => {
 
   it('a delegate asks only when held at a prompt only a human can answer', () => {
     const asDelegate = (s: SessionWordFacts, pendingInteractions = 0) =>
-      sessionWord(s, { delegate: true, pendingInteractions })
+      seatWords(s, {}, false, pendingInteractions).delegate
     expect(asDelegate(permission)).toBe('needs-you')
     expect(asDelegate(idleDone, 1)).toBe('needs-you')
     expect(asDelegate(errored)).toBe('error')
@@ -456,5 +457,26 @@ describe('coordinatedSeat: one seat\u2019s whole verdict on a coordinated task (
     })
     expect(coordinatedSeat(question, 'coordinator').asks).toBe(true)
     expect(coordinatedSeat(question, 'delegate').asks).toBe(false)
+  })
+})
+
+describe('the verdict is unambiguous (review round 3)', () => {
+  const stale = [
+    { status: 'reconnecting', agentState: { phase: 'idle', idle: { kind: 'done' } } },
+    { status: 'starting', agentState: { phase: 'idle', idle: { kind: 'open_todos' } } },
+    { status: 'starting', agentState: { phase: 'ended' } },
+  ] as const
+  it('a starting or reconnecting seat with a stale finished phase is working, never also done', () => {
+    for (const session of stale) {
+      const seat = coordinatedSeat(session as SeatSessionFacts, 'delegate')
+      expect(seat).toMatchObject({ working: true, done: false })
+      expect(coordinatedWord(seat)).toBe('working')
+      expect(seatWords(session as SessionWordFacts).delegate).toBe('working')
+    }
+  })
+  it('role words translate the verdict with the session word\u2019s precedence', () => {
+    const exited = { status: 'exited', stopReason: 'self', exitCode: 0 } as SessionWordFacts
+    expect(seatWords(exited, {}, false, 1)).toMatchObject({ word: 'done', delegate: 'needs-you' })
+    expect(seatWords(exited, { issueClosed: true }, false, 1).delegate).toBe('done')
   })
 })

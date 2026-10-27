@@ -35,8 +35,8 @@ export interface SeatSummary {
   readonly retained: readonly string[]
   /** The retained seats not exited, in id order. */
   readonly roster: readonly string[]
-  /** Seats whose crash still stands, retained or not (`exceptionSeatIdsPartOf`), in id order. */
-  readonly exceptions: readonly string[]
+  /** Seats that crashed and are not archived, retained or not (`exceptionSeatIdsPartOf`), in id order. */
+  readonly crashed: readonly string[]
   /** Seats of its own (`issueId` is this issue) neither archived nor exited. */
   readonly present: number
   /**
@@ -63,19 +63,19 @@ interface Verdict {
   readonly retained: boolean
   readonly roster: boolean
   readonly present: boolean
-  readonly exception: boolean
+  readonly crashed: boolean
   /** Its `lastActiveAt` when it counts toward unread (a non-shell seat), else null. */
   readonly activity: number | null
   /** Its finish waits on the issue's finish stamps (`idleDone`). */
   readonly idle: boolean
 }
 
-const OUT: Verdict = { retained: false, roster: false, present: false, exception: false, activity: null, idle: false }
+const OUT: Verdict = { retained: false, roster: false, present: false, crashed: false, activity: null, idle: false }
 const NO_IDS: readonly string[] = Object.freeze([])
 export const NO_SEATS: SeatSummary = Object.freeze({
   retained: NO_IDS,
   roster: NO_IDS,
-  exceptions: NO_IDS,
+  crashed: NO_IDS,
   present: 0,
   activity: null,
 })
@@ -282,7 +282,7 @@ export class SeatVerdicts {
         retained,
         roster: retained && !retention.exited,
         present: retention.issueId === issueId && !retention.archived && !retention.exited,
-        exception: retention.seat && retention.exception,
+        crashed: retention.seat && retention.crashed,
         activity: retention.shell ? null : activityMsOf(this.host.session(seat)),
         idle,
       }
@@ -332,14 +332,14 @@ export class SeatVerdicts {
       before.retained === after.retained &&
       before.roster === after.roster &&
       before.present === after.present &&
-      before.exception === after.exception &&
+      before.crashed === after.crashed &&
       activity === summary.activity
     )
       return summary
     return {
       retained: withId(summary.retained, seat, after.retained),
       roster: withId(summary.roster, seat, after.roster),
-      exceptions: withId(summary.exceptions, seat, after.exception),
+      crashed: withId(summary.crashed, seat, after.crashed),
       present: summary.present + Number(after.present) - Number(before.present),
       activity,
     }

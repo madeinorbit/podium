@@ -18,7 +18,14 @@
 import type { IdleVerdict } from '../entities/session'
 import { issueAbandoned } from './active-work'
 import { isFinished } from './issue-lifecycle'
-import { seatAsks, seatAttention, sessionErrorFact, sessionWorkingFact } from './seat-attention'
+import {
+  type CoordinatedSeat,
+  coordinatedSeat,
+  seatAsks,
+  seatAttention,
+  sessionErrorFact,
+  sessionWorkingFact,
+} from './seat-attention'
 
 // ---------------------------------------------------------------------------
 // Session
@@ -57,23 +64,19 @@ export interface SessionWordContext {
   /** Unanswered pending interactions (permission requests, questions) for
    *  this session, from the `pendingInteractions` rows. */
   readonly pendingInteractions?: number
-  /** The session is a delegate under its task's live coordinator (POD-2171,
-   *  `seat-attention.ts`): only a prompt only a human can answer asks. */
-  readonly delegate?: boolean
 }
 
 /**
- * Needs you (D5): a question, a permission request, or a pending offer; for a
- * delegate under a live coordinator, only the permission request or question
- * menu. The facts and the policy are `seatAttention` and `seatAsks`: an offer
- * and a pending interaction outlive the process, a question read from the
- * phase counts only while the process can still take the answer.
+ * Needs you (D5): a question, a permission request, or a pending offer. The
+ * facts and the policy are `seatAttention` and `seatAsks`: an offer and a
+ * pending interaction outlive the process, a question read from the phase
+ * counts only while the process can still take the answer.
  */
 export function sessionAsksFact(
   session: SessionWordFacts,
   context: SessionWordContext = {},
 ): boolean {
-  return seatAsks(seatAttention(session, context.pendingInteractions), context.delegate)
+  return seatAsks(seatAttention(session, context.pendingInteractions))
 }
 
 /**
@@ -221,29 +224,45 @@ export interface SeatWords {
   readonly word: SessionWord
   /** Its word as the coordinator of a coordinated task: every ask counts. */
   readonly coordinator: SessionWord
-  /** Its word as a delegate (`sessionWord` with `delegate`): only an exception asks. */
+  /** Its word as a delegate: only an exception asks. */
   readonly delegate: SessionWord
   /** It holds the task's coordinator seat. */
   readonly lead?: boolean
 }
 
 /**
- * A session's {@link SeatWords}. The role words read `roleInteractions`, its
- * open pending interactions (a seat fact on every coordinated surface); the
- * plain word reads `context` as given, so a reader that never counted them on
- * an uncoordinated task need not start.
+ * The word of a seat on a coordinated task: its {@link coordinatedSeat} verdict
+ * in D5's words, with the same precedence as {@link sessionWord}. Only a
+ * translation; the verdict decides.
+ */
+export function coordinatedWord(seat: CoordinatedSeat): SessionWord {
+  if (!seat.counted) return 'done'
+  if (seat.error) return 'error'
+  if (seat.asks) return 'needs-you'
+  if (seat.working) return 'working'
+  return seat.stopped ? 'done' : 'idle'
+}
+
+/**
+ * A session's {@link SeatWords}. The role words are {@link coordinatedWord} of
+ * its {@link coordinatedSeat} verdicts and read `roleInteractions`, its open
+ * pending interactions (a seat fact on every coordinated surface); the plain
+ * word reads `context` as given, so a reader that never counted them on an
+ * uncoordinated task need not start.
  */
 export function seatWords(
   session: SessionWordFacts,
-  context: Omit<SessionWordContext, 'delegate'> = {},
+  context: SessionWordContext = {},
   lead = false,
   roleInteractions = context.pendingInteractions,
 ): SeatWords {
-  const role = { ...context, pendingInteractions: roleInteractions }
+  const interactions = { count: roleInteractions ?? 0 }
+  const role = (name: 'coordinator' | 'delegate') =>
+    coordinatedWord(coordinatedSeat(session, name, interactions, context.issueClosed !== true))
   return {
     word: sessionWord(session, context),
-    coordinator: sessionWord(session, role),
-    delegate: sessionWord(session, { ...role, delegate: true }),
+    coordinator: role('coordinator'),
+    delegate: role('delegate'),
     lead,
   }
 }

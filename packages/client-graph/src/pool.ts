@@ -561,6 +561,7 @@ export class MobxPool {
       loadedIssue: (id) => omitGone(this.row('issue', id)) as Loaded<SliceIssue>,
       loadedSession: (id) => omitGone(this.row('session', id)) as Loaded<SliceSession>,
       openInteractions: (id) => this.sessionOpenInteractions(id),
+      interactionSessions: () => this.sessionsWithOpenInteractions(),
       issueRead: (id) => this.readCursor(id),
       nested: (id) => worklistView(this).row(this.issueObject(id)).nested,
       formalChildren: (id) => links.issue.children.ids(id),
@@ -773,6 +774,18 @@ export class MobxPool {
 
   sessionArchiveField(id: string): boolean | undefined {
     return this.queries.sessionStoredField(id, 'archived')
+  }
+
+  /** The sessions holding an open (asked) pending interaction, in id order: where an exited seat may still ask (POD-2171). */
+  sessionsWithOpenInteractions(): readonly string[] {
+    const catalog = omitGone(this.row('noticeCatalog', 'catalog') as Lookup<NoticeRows['noticeCatalog']>)
+    if (catalog === undefined || catalog === LOADING) return []
+    const sessions = new Set<string>()
+    for (const interaction of catalog.interactions) {
+      const row = omitGone(this.row('pendingInteraction', interaction))
+      if (row !== undefined && row !== LOADING && row.status === 'asked') sessions.add(row.sessionId)
+    }
+    return [...sessions].sort()
   }
 
   /** Open (asked) pending interactions addressed to session `id`, and when the earliest was asked: a seat fact (`coordinatedSeat`). */

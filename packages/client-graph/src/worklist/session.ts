@@ -78,7 +78,7 @@ export class WorklistSession implements SessionVisibility {
       get seat() { return model.retentionSeat },
       get shell() { return model.retentionShell },
       get exited() { return model.retentionExited },
-      get exception() { return model.retentionException },
+      get crashed() { return model.retentionCrashed },
       get finish() { return model.retentionFinish },
       get unread() { return model.retentionUnread },
       get readMs() { return model.retentionReadMs },
@@ -96,7 +96,7 @@ export class WorklistSession implements SessionVisibility {
   }
 
   @lazy
-  private get retentionException(): Retention['exception'] {
+  private get retentionCrashed(): Retention['crashed'] {
     return this.retentionExited && sessionErrorFact(this.host.visibleInputs.sessionRow(this.id) as SeatSessionFacts)
   }
 
