@@ -114,11 +114,6 @@ export class WorklistIssue implements HeldIssue, RowView {
   }
 
   @lazy
-  get liveRoster(): boolean {
-    return this.rosterIds.length > 0
-  }
-
-  @lazy
   get openOwn(): boolean {
     const summary = this.explicitSeats
     return summary === undefined
@@ -156,7 +151,7 @@ export class WorklistIssue implements HeldIssue, RowView {
   @lazy get nestParent(): string | null {
     if (!this.present) return null
     const standing = this.standing
-    if (standing === undefined || (standing.parentId === null && standing.startedBy === null)) return null
+    if (standing === undefined || standing.parentId === null) return null
     return this.nestParentValue
   }
 
@@ -382,7 +377,7 @@ export class WorklistIssue implements HeldIssue, RowView {
     // going through `nesting`. Their constant null needs no memo either.
     if (!this.present) return null
     const standing = this.standing
-    if (standing === undefined || (standing.parentId === null && standing.startedBy === null)) {
+    if (standing === undefined || standing.parentId === null) {
       return null
     }
     return this.nestCandidateValue
@@ -529,8 +524,6 @@ export class WorklistIssue implements HeldIssue, RowView {
       get sessionless() { return model.sessionless },
       get rescuable() { return model.rescuable },
       get parentId() { return (model.issue.parentRef) },
-      get startedBy() { return model.startedBy },
-      get draftVessel() { return (model.issue.isDraftVessel === true && !model.issue.worktreePath) },
       get finishedMs() { return model.issue.finishedMs },
       get updatedMs() { return (model.issue.updatedMs) },
       get replicaActivityMs() { return model.lastSessionActivity },
@@ -554,11 +547,6 @@ export class WorklistIssue implements HeldIssue, RowView {
   @lazy
   get rescuable(): Standing['rescuable'] {
     return this.readStanding()!.rescuable
-  }
-
-  @lazy
-  get startedBy(): Standing['startedBy'] {
-    return this.readStanding()!.startedBy
   }
 
   @lazy
@@ -992,7 +980,7 @@ export class WorklistIssue implements HeldIssue, RowView {
   // Drawn rows use the same companions on desktop and phone. Their demand
   // follows the resident nesting query, independently of filing the list.
   @lazy({ equals: compareShallow }) get visibleChildIds(): readonly string[] { return sidebarBelowOf(this, this.worklist.pool) }
-  @lazy({ equals: compareShallow }) get visibleDescendantIds(): readonly string[] { return sidebarNestedOf(this, this.worklist.pool) }
+  @lazy({ equals: compareShallow }) get visibleDescendantIds(): readonly string[] { return sidebarNestedOf(this) }
   get visibleParts(): import('./rollup').RollupSelf {
     const row = this
     return {

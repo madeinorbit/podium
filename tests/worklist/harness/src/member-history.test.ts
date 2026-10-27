@@ -80,7 +80,6 @@ function answers(pool: MobxPool) {
       retainedSeatIds: issue.retainedSeatIds,
       rosterIds: issue.rosterIds,
       retained: issue.retained,
-      liveRoster: issue.liveRoster,
       openOwn: issue.openOwn,
       unread: issue.issue.unread,
     }
@@ -93,7 +92,6 @@ function answers(pool: MobxPool) {
       retainedSeatIds: plain.retainedSeatIds,
       rosterIds: plain.rosterIds,
       retained: plain.retained,
-      liveRoster: plain.liveRoster,
       openOwn: plain.openOwn,
       unread: plain.unread,
     }

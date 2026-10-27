@@ -46,10 +46,10 @@ import { isFinished, isExcluded } from '../shared/predicates'
  *   read DOWN the children relation (`rows.ts:121-158`: a parent is kept by
  *   a child that is flat or kept), and `present` (flat, or rescued).
  * - nest candidate (`nestCandidatePartOf`): the nearest present ancestor by
- *   the raw `parentId`, else the started-by owner, without reading nesting.
+ *   the raw `parentId`, without reading nesting. Only a real parent nests.
  * - nesting (`nestingOf`): the nest parent after rejecting the edge that
  *   closes a candidate cycle (`rows.ts:254-359`),
- *   `placed` (under a placed nest parent, or top-level and not agent) and
+ *   `placed` (under a placed nest parent, or top-level) and
  *   `visible` = present && placed.
  * `unread` (the decay branch of the flat pass) and the children list are
  * read only by the presence group, and only when it needs them, so they are
@@ -59,9 +59,7 @@ import { isFinished, isExcluded } from '../shared/predicates'
  * row's nest children are the present rows whose `nestParent` it is. They
  * are found down the raw parent edge (`issue.treeChildren`, through ANY
  * issue, as the nest walk goes up through any issue): a present child is
- * one, a hidden child passes on the present rows below it. The started-by
- * fallback adds the issues its own sessions started (`session.startedIssues`).
- * Each candidate is kept only when its own `nestParent` names this row, so
+ * one, a hidden child passes on the present rows below it. Each candidate is kept only when its own `nestParent` names this row, so
  * the one rule (`nestParentPartOf`) decides and the derivation only finds.
  * The formal children, which the progress roll-up composes over, are the
  * relation engine's own `issue.children` bucket.
@@ -204,10 +202,6 @@ export interface Standing {
   readonly rescuable: boolean
   /** The raw `parentId` (the nesting walk follows it through ANY issue, `rows.ts:276-283`). */
   readonly parentId: string | null
-  /** Parentless, not a spin-off, with a `startedBySession`: the started-by fallback applies (`rows.ts:288`). */
-  readonly startedBy: string | null
-  /** A draft with no worktree: a vessel when it has live sessions (`isDraftAgentVessel`). */
-  readonly draftVessel: boolean
   /** `issueFinishedAt` (`issues.ts:310`): `closedAt ?? updatedAt`, epoch ms. */
   readonly finishedMs: number
   readonly updatedMs: number | null
@@ -284,11 +278,6 @@ export function standingOf(issue: SliceIssue, facts?: Pick<Standing,
     },
     get rescuable() { return issue.audience === 'human' && !this.finished },
     get parentId() { return facts ? facts.parentId : issue.parentId || null },
-    get startedBy() {
-      return !issue.parentId && !issue.deps?.some(dep => dep.type === 'discovered-from') && issue.startedBySession
-        ? issue.startedBySession : null
-    },
-    get draftVessel() { return issue.isDraftVessel === true && !issue.worktreePath },
     get finishedMs() { return facts ? facts.finishedMs : parseMs(issue.closedAt ?? issue.updatedAt) ?? 0 },
     get updatedMs() { return facts ? facts.updatedMs : parseMs(issue.updatedAt) },
     get replicaActivityMs() { return facts ? facts.replicaActivityMs : parseMs(sessionFact?.(issue.id, 'replicaActivityAt')) },
@@ -520,8 +509,6 @@ export interface Members {
   readonly exceptionSeatIds: readonly string[]
   /** ≥1 retained member session (`rows.ts:70-76`). */
   readonly retained: boolean
-  /** A retained member still on the live roster: a draft vessel's test. */
-  readonly liveRoster: boolean
   /** An explicit session of its own is on the task (`openIssues`, `mission.ts:582-590`). */
   readonly openOwn: boolean
 }
@@ -780,7 +767,6 @@ export function memberVerdictsOf(
     rosterIds,
     exceptionSeatIds,
     retained: standing !== undefined && !standing.excluded && retainedSeatIds.length > 0,
-    liveRoster: rosterIds.length > 0,
     openOwn,
   }
 }
@@ -1053,9 +1039,8 @@ function flatOf(
 
 /**
  * The nearest present ancestor by the raw `parentId`, through any held issue
- * (`rows.ts:271-283`); else, for a parentless non-spin-off, the present
- * issue owning its `startedBySession` unless that one is a draft vessel
- * (`rows.ts:288-305`, `issueIdOwningSession`, `session-ownership.ts:371-410`).
+ * (`rows.ts:271-283`). A parentless task is a root row: the session that
+ * started it never nests it (PIPP-351 hid under another repo's task).
  */
 export function nestCandidatePartOf(
   input: VisibleInputs,
@@ -1075,12 +1060,7 @@ export function nestCandidatePartOf(
     if (parent.present) return parentId
     parentId = parent.parentRef
   }
-  if (standing.parentId !== null || standing.startedBy === null) return null
-  const owner = ownerOf(input, standing.startedBy)
-  if (owner === null || owner === id) return null
-  const candidate = input.issue(owner)
-  if (candidate?.standing?.draftVessel === true && candidate.liveRoster) return null
-  return owner
+  return null
 }
 
 /**
@@ -1106,38 +1086,6 @@ export function nestParentPartOf(
     walk = input.issue(walk)?.nestCandidate ?? null
   }
   return candidate
-}
-
-/**
- * The present issue a session belongs to (`issueIdOwningSession` with the
- * ownership index): its explicit issue when that one is present, else, for a
- * session with no `issueId`, a present issue checked out at its worktree
- * (lowest id: legacy takes the first in its list order, which no pool has).
- */
-function ownerOf(input: VisibleInputs, sessionId: string): string | null {
-  // The session's CACHED parts, never its row: a heartbeat of a starter
-  // session re-runs none of the issues it started.
-  const session = input.session(sessionId)
-  const retention = session.retention
-  if (retention === null || retention.archived) return null
-  if (retention.issueId !== undefined) {
-    const issueId = session.issueLink
-    return issueId !== null &&
-      issueId === retention.issueId &&
-      input.issue(issueId)?.present === true
-      ? issueId
-      : null
-  }
-  const worktree = session.worktreeLink
-  if (worktree === null) return null
-  let owner: string | null = null
-  for (const issueId of input.links.worktree.issues.ids(worktree)) {
-    if (owner !== null && issueId > owner) continue
-    const issue = input.issue(issueId)
-    // Presence first: a hidden issue answers it without its row.
-    if (issue?.present === true && issue.standing?.excluded === false) owner = issueId
-  }
-  return owner
 }
 
 /** The nesting group (see the header). */
@@ -1190,25 +1138,16 @@ export function nestBelowPartOf(input: VisibleInputs, id: string): readonly stri
 
 /**
  * The present rows nested under `id` (the inverse of `nestParentPartOf`): the
- * candidates below it, and the issues its member sessions started (the
- * started-by fallback), each kept when its own `nestParent` is `id`.
+ * candidates below it, each kept when its own `nestParent` is `id`.
  */
 export function nestedPartOf(
   input: VisibleInputs,
   id: string,
-  self: Pick<IssueVisibility, 'present' | 'memberIds' | 'nestBelow'>,
+  self: Pick<IssueVisibility, 'present' | 'nestBelow'>,
 ): readonly string[] {
   if (!self.present) return NONE
-  const nested = new Set<string>()
-  for (const childId of self.nestBelow) {
-    if (input.issue(childId)?.nestParent === id) nested.add(childId)
-  }
-  for (const sessionId of self.memberIds) {
-    for (const started of input.links.session.startedIssues.ids(sessionId)) {
-      if (input.issue(started)?.nestParent === id) nested.add(started)
-    }
-  }
-  return nested.size === 0 ? NONE : [...nested].sort()
+  const nested = self.nestBelow.filter(childId => input.issue(childId)?.nestParent === id)
+  return nested.length === 0 ? NONE : nested
 }
 
 /** L1b `rankOf` over the own row: the fields it reads, band from the clock (spec R-ORDER). */
@@ -1277,9 +1216,6 @@ export function directVisibility(
     get retained() {
       const standing = parts.standing
       return standing !== undefined && !standing.excluded && parts.retainedSeatIds.length > 0
-    },
-    get liveRoster() {
-      return parts.rosterIds.length > 0
     },
     get openOwn() {
       return once('openOwn', () => openOwnPartOf(input, id, parts.seatIds, parts.standing))

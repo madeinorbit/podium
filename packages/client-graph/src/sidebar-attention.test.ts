@@ -1,7 +1,7 @@
 import { autorun, runInAction } from 'mobx'
 import { expect, it, vi } from 'vitest'
 import { MobxPool } from './pool'
-import { sidebarAttention, sidebarNested, sidebarView } from './worklist/sidebar'
+import { sidebarNested, sidebarView } from './worklist/sidebar'
 
 const stamp = '2026-10-05T12:00:00Z'
 const old = '2026-01-01T00:00:00Z'
@@ -52,47 +52,4 @@ it('does not acquire a lane for the nested-child reader without a checkout', () 
   const stop = autorun(() => { expect(sidebarNested(root, pool)).toEqual([]) })
   try { expect(lane).not.toHaveBeenCalled() }
   finally { stop(); lane.mockRestore(); keepPresent(); pool.dispose() }
-})
-
-it('keeps unarchived exited starters, excludes archived/headless starters and follows archive changes', () => {
-  const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) })
-  pool.apply({ type: 'replace', rows: [
-    { kind: 'issue', id: 'root', value: issue('root') },
-    ...['exited', 'archived', 'headless'].map(id => ({ kind: 'issue' as const, id,
-      value: issue(id, { startedBySession: `${id}-sender` }) })),
-    ...['exited', 'archived', 'headless'].map(id => ({ kind: 'session' as const, id: `${id}-sender`,
-      value: sender(`${id}-sender`, { archived: id === 'archived', headless: id === 'headless' }) as never })),
-  ] })
-  const root = pool.worklistRow('root')!
-  let ids: readonly string[] = []
-  const stop = autorun(() => { ids = sidebarNested(root, pool) })
-  try {
-    expect(ids).toEqual(['exited'])
-    expect(sidebarAttention(root, pool)).toEqual(root.aggregate)
-    runInAction(() => pool.apply({ type: 'update', rows: [{ kind: 'session', id: 'archived-sender',
-      value: sender('archived-sender', { archived: false }) as never }] }))
-    expect(ids).toEqual(['archived', 'exited'])
-    runInAction(() => pool.apply({ type: 'update', rows: [{ kind: 'session', id: 'exited-sender',
-      value: sender('exited-sender') as never }] }))
-    expect(ids).toEqual(['archived'])
-  } finally { stop(); pool.dispose() }
-})
-
-it('keeps an unarchived exited issueless starter owned by the issue checkout', () => {
-  const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) })
-  pool.apply({ type: 'replace', rows: [
-    { kind: 'worktree', id: '/synthetic/lane', value: { path: '/synthetic/lane', repoPath: '/synthetic' } },
-    { kind: 'issue', id: 'root', value: issue('root', { worktreePath: '/synthetic/lane' }) },
-    { kind: 'issue', id: 'lane-child', value: issue('lane-child', { startedBySession: 'lane-sender' }) },
-    { kind: 'session', id: 'lane-sender', value: sender('lane-sender', {
-      issueId: undefined, cwd: '/synthetic/lane', archived: false,
-    }) as never },
-  ] })
-  const root = pool.worklistRow('root')!
-  const stop = autorun(() => {
-    expect(sidebarNested(root, pool)).toEqual(['lane-child'])
-    expect(sidebarAttention(root, pool)).toEqual(root.aggregate)
-  })
-  try { expect(sidebarNested(root, pool)).toEqual(['lane-child']) }
-  finally { stop(); pool.dispose() }
 })

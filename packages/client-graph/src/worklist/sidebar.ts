@@ -62,36 +62,17 @@ export function sidebarBelowOf(issue: WorklistIssue, pool: MobxPool): readonly s
   return ids.length === 0 ? EMPTY_IDS : ids.sort()
 }
 
-/** The candidate set excludes archived senders before any iteration. The
- * nesting rule's ownerOf rejects them, including archived non-exited seats.
- * Unarchived exited senders and issueless lane members still contribute. */
-export function sidebarNestedOf(issue: WorklistIssue, pool: MobxPool): readonly string[] {
+/** The visible children a row nests: those whose nest parent it is. Only a
+ * real `parentId` nests a task; the session that started one never does. */
+export function sidebarNestedOf(issue: WorklistIssue): readonly string[] {
   if (!issue.present) return EMPTY_IDS
   const host = issue.worklist.host
-  const ids = new Set<string>()
+  const ids: string[] = []
   for (const id of issue.visibleChildIds) {
     const child = host.visibleInputs.issue(id)
-    if (child && child.nestParent === issue.id) ids.add(id)
+    if (child && child.nestParent === issue.id) ids.push(id)
   }
-  const startedBy = (sessionId: string) => {
-    for (const id of pool.graph.many('session', sessionId, 'startedIssues')) {
-      const child = host.visibleInputs.issue(id)
-      if (child && child.nestParent === issue.id) ids.add(id)
-    }
-  }
-  for (const sessionId of pool.queries.ids({ kind: 'commandIssueSessions', issueId: issue.id,
-    archived: false, includeShells: true })) {
-    // Each child's canonical parent checks R2 ownership, headless exclusion
-    // and resume collapse. Empty started relations need no ownership probe.
-    startedBy(sessionId)
-  }
-  if (issue.issue.worktreePath) {
-    for (const sessionId of issue.laneMemberIds) {
-      const session = host.visibleInputs.session(sessionId)
-      if (session.retention !== null && !session.retention.archived) startedBy(sessionId)
-    }
-  }
-  return ids.size === 0 ? EMPTY_IDS : [...ids].sort()
+  return ids.length === 0 ? EMPTY_IDS : ids.sort()
 }
 
 export function sidebarNested(model: IssueModel | WorklistIssue, pool: MobxPool) { return companionOf(model, pool).visibleDescendantIds }

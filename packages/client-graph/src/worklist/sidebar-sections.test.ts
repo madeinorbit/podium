@@ -131,6 +131,23 @@ describe('task rows', () => {
     expect(sidebarNested(pool.worklistRow('human')!, pool)).toEqual(['child-agent'])
   })
 
+  /** PIPP-351: started by a coordinator working on a task in another repo, it
+   *  hid inside that task. Only a real parent nests a task. */
+  it('shows a task started from another repo’s task as a root row in its own section', () => {
+    const pool = poolWith([
+      root('alpha', 0),
+      root('beta', 1),
+      task('coordinator', 'alpha'),
+      session('s-coordinator', 'coordinator'),
+      task('started', 'beta', { startedBySession: 's-coordinator' }),
+    ])
+    expect(bands(pool)).toEqual([
+      { key: 'alpha', label: 'alpha', rowIds: ['coordinator'] },
+      { key: 'beta', label: 'beta', rowIds: ['started'] },
+    ])
+    expect(sidebarNested(pool.worklistRow('coordinator')!, pool)).toEqual([])
+  })
+
   /** POD-2129: archiving a task evicts its row before the server drops its
    *  sessions. In that gap no session may surface as a row, web or phone. */
   for (const leaves of ['archived', 'evicted'] as const) {

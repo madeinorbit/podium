@@ -18,8 +18,8 @@ import { isFinished } from '../shared/predicates'
  * - ATTENTION (`phase`, `working`, `asking`) composes over the VISIBLE
  *   subtree (L1d): a row's own seats plus the aggregates of the rows NESTED
  *   under it (`rows.ts:331-334`, `attach`). The nest children are derived
- *   per row from the nearest present ancestor by the raw `parentId` (or the
- *   started-by owner): each row's own `nested` value, read cached. A hidden
+ *   per row from the nearest present ancestor by the raw `parentId`: each
+ *   row's own `nested` value, read cached. A hidden
  *   issue has no row and so no own part; its visible descendants nest under
  *   the nearest visible ancestor, which is the legacy walk-past
  *   (`rows.ts:272-283`).

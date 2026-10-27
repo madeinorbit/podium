@@ -544,7 +544,7 @@ const DECLARED = defineSchema({
         },
       },
       coordinatorSessionId: { type: 'id', optional: true, nullable: true, source: projection() },
-      startedBySession: { type: 'id', optional: true, nullable: true, source: projection(), note: 'Foreign key of the `startedBy` relation: the worklist nests a parentless issue under the one its starter session belongs to.' },
+      startedBySession: { type: 'id', optional: true, nullable: true, source: projection(), note: 'Foreign key of the `startedBy` relation: missions and the issue header follow it to the task of the starter session; the sidebar never nests by it.' },
       deps: {
         type: 'depEdgeList',
         source: { schema: 'IssueDepProjection', property: 'toId', arrivesOn: 'replica:issueDeps' },

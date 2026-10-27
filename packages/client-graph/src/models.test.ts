@@ -175,7 +175,7 @@ it('resident, ordering and finished readers ignore a title change', () => {
 // answer equality alone would miss both unnecessary allocations and reads.
 it.each([
   ['activeHuman', true, 0], ['sessionless', 'keep', 0],
-  ['rescuable', true, 1], ['startedBy', null, 0], ['band', 1, 0],
+  ['rescuable', true, 1], ['band', 1, 0],
   ['repoKey', machinePathKey('/synthetic'), 0], ['foldAt', stamp, 0],
 ] as const)('allocates only the demanded %s field and releases it after the last observer', async (field, expected, sharedCount) => {
   const pool = fixture('demand'), root = pool.worklistRow('root')!
