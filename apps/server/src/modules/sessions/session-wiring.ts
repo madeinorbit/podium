@@ -342,7 +342,14 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     toMachine: (machineId, message) => bag.toMachine(machineId, message),
     toPtyInput: (machineId, input) => bag.toPtyInput(machineId, input),
     broadcastSessions: () => bag.broadcastSessions(),
-    soleOwnerForCwd: async (cwd) => (await bag.deps.issueAccess.soleOwnerForCwd(cwd)) ?? undefined,
+    soleOwnerForCwd: async (cwd, machineId) =>
+      (await bag.deps.issueAccess.soleOwnerForCwd(cwd, machineId)) ?? undefined,
+    mayJoinIssue: async (issueId, userId) => {
+      const target = await bag.deps.issueAccess.ownedTarget(issueId, 'write')
+      if (!target) return false
+      if (target.owner === userId || target.grants.includes(userId)) return true
+      return (await store.users.roleOf(userId)) === 'admin'
+    },
     instructionsForStart: (i) => bag.deps.instructionsForStart(i),
     ...(bag.deps.agentLaunch ? { agentLaunch: bag.deps.agentLaunch } : {}),
     ...(bag.deps.draftForStart ? { draftForStart: bag.deps.draftForStart } : {}),

@@ -40,6 +40,7 @@ import {
   type SessionCommandDeps,
   spawnedByFor,
 } from './command-plane'
+import { DurableIssueAccessIndex } from '../issues/access-index'
 import { disposeOracles, makeOracle, messageOf } from './oracle-support'
 import {
   ambiguousSessionPrefixMessage,
@@ -581,6 +582,46 @@ describe('draft launch compensation', () => {
       expect(drafts.map((issue) => issue.id)).toContain(
         o.reg.modules.sessions.getSessionIssueId(sessionId),
       )
+  })
+
+  it('joins the task that owns the cwd only for a starter who may write to it', async () => {
+    const o = await makeOracle()
+    await provisionHost(o)
+    const host = o.store.hostMachineId
+    const task = await o.reg.issues.crud.create({ repoPath: '/p', title: 'Admin work', startNow: false })
+    await o.reg.issues.crud.update(task.id, { worktreePath: '/p/.worktrees/a' })
+    const ownership = ownershipTable(
+      new Map([[host, { owner: firstAdminMemberId(), grants: [{ subject: COLLEAGUE, verb: 'use' }] }]]),
+    )
+
+    const colleague = await dispatchSessionCommand(
+      await ctxFor(o, human(COLLEAGUE), { ownership }),
+      'create',
+      { agentKind: 'codex', cwd: '/p/.worktrees/a' },
+    )
+    const owner = await dispatchSessionCommand(
+      await ctxFor(o, human(firstAdminMemberId(), 'admin'), { ownership }),
+      'create',
+      { agentKind: 'codex', cwd: '/p/.worktrees/a' },
+    )
+
+    const colleagueTask = o.reg.modules.sessions.getSessionIssueId(colleague.sessionId)
+    expect(colleagueTask).not.toBe(task.id)
+    expect((await o.reg.issues.reports.get(colleagueTask ?? ''))?.draft).toBe(true)
+    expect(o.reg.modules.sessions.getSessionIssueId(owner.sessionId)).toBe(task.id)
+  })
+
+  it('finds the task that owns a cwd only among tasks homed on the starting machine', async () => {
+    const o = await makeOracle()
+    await provisionHost(o)
+    const task = await o.reg.issues.crud.create({ repoPath: '/p', title: 'Elsewhere', startNow: false })
+    await o.reg.issues.crud.update(task.id, { worktreePath: '/p/.worktrees/a' })
+    const row = await o.store.issues.getIssue(task.id)
+    await o.store.issues.upsertIssue({ ...row!, machineId: asMachineId('machine-a') })
+    const access = new DurableIssueAccessIndex(o.store.issues, o.store.grants, o.store.repos)
+
+    expect(await access.soleOwnerForCwd('/p/.worktrees/a', asMachineId('machine-a'))).toBe(task.id)
+    expect(await access.soleOwnerForCwd('/p/.worktrees/a', asMachineId('machine-b'))).toBeNull()
   })
 
   it('purges only the placeholder created for a session spawn that throws', async () => {

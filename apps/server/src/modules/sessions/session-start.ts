@@ -154,8 +154,10 @@ export interface SessionStartPorts {
   toMachine(machineId: MachineId, message: ControlMessage): void
   toPtyInput(machineId: MachineId, input: DaemonPtyInputBatch): void
   broadcastSessions(): void
-  /** The issue that owns this cwd's worktree, if exactly one does. */
-  soleOwnerForCwd(cwd: string): Promise<IssueId | undefined>
+  /** The issue that owns this cwd's worktree on `machineId`, if exactly one does. */
+  soleOwnerForCwd(cwd: string, machineId: MachineId): Promise<IssueId | undefined>
+  /** Whether `userId` may put work into the issue: its owner, a write grantee or an admin. */
+  mayJoinIssue(issueId: IssueId, userId: UserId): Promise<boolean>
   /** A new draft task for an agent started outside every task, in the repo
    *  the cwd belongs to on the machine the session runs on; undefined when the
    *  cwd is in no known repo there. Absent = such starts stay task-less. */
@@ -286,10 +288,11 @@ export class SessionStart {
 
   /**
    * The task a new agent session joins when its start names none. Starting in
-   * an issue-owned worktree means continuing that issue (spec:
-   * issue-as-workspace); any other agent gets its own draft task in the repo
-   * its cwd belongs to on `machineId`, so every agent has a row in the task
-   * list. Shells, and a cwd outside every known repo, stay task-less.
+   * an issue-owned worktree on `machineId` means continuing that issue (spec:
+   * issue-as-workspace) when the starting human may write to it; any other
+   * agent gets its own draft task in the repo its cwd belongs to on that
+   * machine, so every agent has a row in the task list. Shells, and a cwd
+   * outside every known repo, stay task-less.
    */
   async startTask(input: {
     cwd: string
@@ -297,9 +300,11 @@ export class SessionStart {
     ownerUserId: UserId | undefined
     machineId: MachineId
   }): Promise<{ issueId: IssueId; draft: boolean } | undefined> {
-    const owner = await this.ports.soleOwnerForCwd(input.cwd)
-    if (owner) return { issueId: owner, draft: false }
-    if (input.agentKind === 'shell' || !input.ownerUserId) return undefined
+    if (!input.ownerUserId) return undefined
+    const owner = await this.ports.soleOwnerForCwd(input.cwd, input.machineId)
+    if (owner && (await this.ports.mayJoinIssue(owner, input.ownerUserId)))
+      return { issueId: owner, draft: false }
+    if (input.agentKind === 'shell') return undefined
     const draft = await this.ports.draftForStart?.({ ...input, ownerUserId: input.ownerUserId })
     return draft ? { issueId: draft, draft: true } : undefined
   }

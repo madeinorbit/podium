@@ -1,4 +1,4 @@
-import type { IssueAction, IssueId } from '@podium/model'
+import type { IssueAction, IssueId, MachineId } from '@podium/model'
 import { machinePathKey } from '@podium/model'
 import type { IssueAccessIndex } from '../../issue-authz'
 import { isMemberCwd } from '../../issue-util'
@@ -63,9 +63,12 @@ export class DurableIssueAccessIndex implements IssueAccessIndex {
       .map((row) => row.worktreePath as string)
   }
 
-  async soleOwnerForCwd(cwd: string): Promise<IssueId | null> {
-    const repoRoots = new Set((await this.repos.listRepoPaths()).map(machinePathKey))
-    const owners = (await readIssueCwdRows(this.issues))
+  /** The one live issue whose worktree holds `cwd`. With `machineId`, only an
+   *  issue homed on that machine (or on none) and that machine's repo roots
+   *  count, so a path on one machine never joins another machine's task. */
+  async soleOwnerForCwd(cwd: string, machineId?: MachineId): Promise<IssueId | null> {
+    const repoRoots = new Set((await this.repos.listRepoPaths(machineId)).map(machinePathKey))
+    const containing = (await readIssueCwdRows(this.issues))
       .filter(
         (row) =>
           !row.deletedAt &&
@@ -74,6 +77,11 @@ export class DurableIssueAccessIndex implements IssueAccessIndex {
           !repoRoots.has(machinePathKey(row.worktreePath)) &&
           isMemberCwd(row.worktreePath, cwd),
       )
+    const owners = []
+    for (const row of containing) {
+      const home = machineId === undefined ? null : (await readIssue(this.issues, row.id))?.machineId
+      if (home == null || home === machineId) owners.push(row)
+    }
     const deepest = owners.reduce(
       (length, row) => Math.max(length, row.worktreePath ? machinePathKey(row.worktreePath).length : 0),
       0,
