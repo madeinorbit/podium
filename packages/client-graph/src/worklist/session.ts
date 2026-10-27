@@ -12,8 +12,6 @@ export class WorklistSession implements SessionVisibility {
   constructor(readonly session: SessionModel) {}
   get id() { return this.session.id }
   get activityMs() { return this.session.activityMs }
-  get issueLink() { return this.session.issueLink }
-  get worktreeLink() { return this.session.worktreeLink }
   private get host() { return hostOf(this.session) }
   @lazy
   private get hasRetention(): boolean {

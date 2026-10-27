@@ -22,7 +22,8 @@ for (const history of [32, 128]) {
         id: `old-${index}`, value: sender(`old-${index}`) as never })),
     ] })
     const root = pool.worklistRow('root')!
-    // Entity nesting takes every member. This screen must never demand it.
+    // Nesting follows parentId alone, so nothing here needs the full member
+    // history. This screen must never demand it.
     const members = vi.spyOn(root, 'memberIds', 'get').mockImplementation(() => {
       throw new Error('Sidebar enumerated archived member history')
     })

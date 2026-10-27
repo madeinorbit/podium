@@ -615,7 +615,7 @@ const DECLARED = defineSchema({
         targetKey: 'sessionId',
         inverse: 'startedIssues',
         lazy: true,
-        why: "The session that started this issue: the nest fallback for a parentless issue that is not a spin-off (nestStartedByIssues, rows.ts:288-305).",
+        why: "The session that started this issue: provenance for missions and the Flight Deck (poolMissionContains). The sidebar nests by parentId only, never by this.",
       }),
       missionStartedBy: belongsTo({
         to: 'session',
@@ -836,7 +836,7 @@ const DECLARED = defineSchema({
         to: 'issue',
         inverse: 'startedBy',
         lazy: true,
-        why: "The issues this session started: a present issue finds the ones its sessions started, nested under it by the started-by fallback.",
+        why: "The issues this session started, the inverse of startedBy: provenance for missions and the Flight Deck. The sidebar never nests by it.",
       }),
       missionStartedIssues: hasMany({
         to: 'issue',

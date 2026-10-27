@@ -444,10 +444,6 @@ export function activityMsOf(session: SliceSession | undefined): number | null {
 export interface SessionVisibility {
   readonly retention: Retention | null
   readonly activityMs: number | null
-  /** `session.issue` through the engine (members only: headless out, twins collapsed). */
-  readonly issueLink: string | null
-  /** `session.worktree` through the engine (the prefix relation). */
-  readonly worktreeLink: string | null
   /** The seat's roll-up verdict, from the RESIDENT row; `LOADING` while it is cold. */
   readonly verdict: Loaded<SeatVerdict>
 }
@@ -463,29 +459,15 @@ export function verdictPartOf(
   return seatVerdictOf(row, input.openInteractions?.(id), task === undefined || !isFinished(task))
 }
 
-/** A session's two links: `session.issue` and `session.worktree`. */
-export interface SessionLinks {
-  readonly issueLink: string | null
-  readonly worktreeLink: string | null
-}
-
-export function sessionLinksOf(input: Pick<VisibleInputs, 'links'>, id: string): SessionLinks {
-  return {
-    issueLink: input.links.session.issue(id),
-    worktreeLink: input.links.session.worktree(id),
-  }
-}
-
 /** A session's parts computed directly (the rebuild). */
 export function directSessionVisibility(
-  input: Pick<VisibleInputs, 'links' | 'sessionRow' | 'loadedSession' | 'openInteractions' | 'issueRow'>,
+  input: Pick<VisibleInputs, 'sessionRow' | 'loadedSession' | 'openInteractions' | 'issueRow'>,
   id: string,
 ): SessionVisibility {
   const row = input.sessionRow(id)
   return {
     retention: retentionOf(row),
     activityMs: activityMsOf(row),
-    ...sessionLinksOf(input, id),
     verdict: verdictPartOf(input, id),
   }
 }
