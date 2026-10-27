@@ -224,9 +224,10 @@ function noteLine(mail: Exclude<MailCommand, { op: 'inbox' }>, to: string): stri
   return mail.preview ? `${name} · ${mail.preview}` : name
 }
 
-/** The calls a Codex script listed (`kind: 'script-calls'`), each mail call
- *  whose receipt the script's output carries named as its note. A failed
- *  script, or a call with no receipt, keeps its shell line. */
+/** The calls a Codex script listed (`kind: 'script-calls'`), a mail call
+ *  whose receipt the script's output unambiguously carries named as its note.
+ *  A failed script, or a call whose receipt it cannot place, keeps its shell
+ *  line. */
 function scriptCallLines(
   item: TranscriptItem,
   result: string | undefined,
@@ -247,24 +248,43 @@ function scriptCallLines(
     return undefined
   }
   if (!Array.isArray(calls)) return []
-  const failed = toolVerdict(result, item.toolEffects) === 'err'
-  const receipts: MailReceipt[] = failed || !result ? [] : mailReceipts(result)
-  return calls.flatMap((call: unknown): ScriptCallLine[] => {
+  const lines = calls.flatMap((call: unknown): ScriptCallLine[] => {
     if (!call || typeof call !== 'object' || !('tool' in call) || typeof call.tool !== 'string')
       return []
-    const input = 'input' in call && typeof call.input === 'string' ? call.input : ''
-    const mail = call.tool === 'Bash' && receipts.length > 0 ? classifyMailCommand(input) : null
-    if (!mail || mail.op === 'inbox') return [{ tool: call.tool, input }]
-    // That call's own receipt: the next unclaimed one of its kind, to its recipient.
-    const at = receipts.findIndex(
-      (r) =>
-        r.op === mail.op && (mail.op !== 'send' || !r.to || mailRecipientLabel(r.to) === mail.to),
-    )
-    if (at < 0) return [{ tool: call.tool, input }]
-    const [receipt] = receipts.splice(at, 1)
+    return [
+      {
+        tool: call.tool,
+        input: 'input' in call && typeof call.input === 'string' ? call.input : '',
+      },
+    ]
+  })
+  if (toolVerdict(result, item.toolEffects) === 'err' || !result) return lines
+  const receipts = mailReceipts(result)
+  if (receipts.length === 0) return lines
+  // Per-call output is merged, so a receipt is only that call's when nothing
+  // else could own it: exactly one call and exactly one receipt with its kind
+  // and recipient. Two sends to one recipient where one failed stay shell lines.
+  const mails = lines.map((line) => (line.tool === 'Bash' ? classifyMailCommand(line.input) : null))
+  const callKey = (mail: MailCommand | null): string | undefined =>
+    mail?.op === 'send' ? `send\0${mail.to}` : mail?.op === 'reply' ? 'reply' : undefined
+  const receiptKey = (r: MailReceipt): string | undefined =>
+    r.op === 'reply' ? 'reply' : r.to ? `send\0${mailRecipientLabel(r.to)}` : undefined
+  const tally = (keys: (string | undefined)[]): Map<string | undefined, number> => {
+    const counts = new Map<string | undefined, number>()
+    for (const key of keys) counts.set(key, (counts.get(key) ?? 0) + 1)
+    return counts
+  }
+  const callCounts = tally(mails.map(callKey))
+  const receiptCounts = tally(receipts.map(receiptKey))
+  return lines.map((line, at) => {
+    const mail = mails[at] ?? null
+    const key = callKey(mail)
+    if (!mail || mail.op === 'inbox' || key === undefined) return line
+    if (callCounts.get(key) !== 1 || receiptCounts.get(key) !== 1) return line
+    const receipt = receipts.find((r) => receiptKey(r) === key)
     const to =
       mail.op === 'send' ? mail.to : receipt?.to ? mailRecipientLabel(receipt.to) : 'the sender'
-    return [{ tool: 'Mail', input: noteLine(mail, to) }]
+    return { tool: 'Mail', input: noteLine(mail, to) }
   })
 }
 

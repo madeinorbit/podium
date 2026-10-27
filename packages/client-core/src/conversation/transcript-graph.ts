@@ -40,9 +40,12 @@ function relationship(item: TranscriptItem): string {
   return `${item.role}\0${item.toolUseId ?? ''}\0${item.toolResult !== undefined}\0${marker}\0${fileOnly}\0${item.event ?? ''}\0${item.ts ?? ''}`
 }
 
-function shape(block: ChatBlock): string {
+/** A block's structural signature. `batchable` is part of it: an in-place
+ *  edit that turns a command into the agent's own mail (POD-2146), or back,
+ *  moves it in or out of a run without changing anything else here. */
+function shape(block: ChatBlock, batchable: boolean): string {
   const item = block.item
-  return `${item.role}\0${item.answer ?? ''}\0${item.systemKind ?? ''}\0${item.ts ?? ''}\0${item.toolName ?? ''}\0${item.cursor ?? ''}\0${item.event ?? ''}`
+  return `${item.role}\0${item.answer ?? ''}\0${item.systemKind ?? ''}\0${item.ts ?? ''}\0${item.toolName ?? ''}\0${item.cursor ?? ''}\0${item.event ?? ''}\0${batchable}`
 }
 
 /**
@@ -403,7 +406,7 @@ export class TranscriptGraph {
     for (const id of dirty) {
       const block = this.block(id)
       if (!block || !this.isEmitted(id)) { this.searchIndex.remove(id); continue }
-      if (this.shapes.get(id) !== shape(block)) {
+      if (this.shapes.get(id) !== shape(block, this.isBatchable(id))) {
         const at = this.insertionPoint(this.blockIds, id)
         for (const neighbor of [this.blockIds[at - 1], id, this.blockIds[at + 1]])
           if (neighbor) rowsToRepair.add(neighbor)
@@ -664,8 +667,9 @@ export class TranscriptGraph {
   private indexBlock(id: string): void {
     const block = this.block(id)
     if (!block) return
-    if (this.shapes.get(id) !== shape(block)) this.blockSkeletons.set(id, block)
-    this.shapes.set(id, shape(block))
+    const signature = shape(block, this.isBatchable(id))
+    if (this.shapes.get(id) !== signature) this.blockSkeletons.set(id, block)
+    this.shapes.set(id, signature)
     this.setFailure(id, rowSurvivesSummary({ kind: 'tools', blocks: [block], blockIndices: [0], title: '' }))
     this.searchIndex.set(id, [block.item.text, block.item.toolName ?? '', block.item.toolInput ?? '',
       block.result ?? block.item.toolResult ?? ''].join('\n'))

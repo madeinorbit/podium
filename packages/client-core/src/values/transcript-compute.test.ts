@@ -1,6 +1,6 @@
 import type { TranscriptItem } from '@podium/model'
 import { describe, expect, it } from 'vitest'
-import { isBatchableTool, toolMailCommand } from './chat'
+import { isBatchableTool, presentToolBlock, toolMailCommand } from './chat'
 import { computeTranscript } from './transcript-compute'
 
 const item = (
@@ -207,6 +207,49 @@ describe('computeTranscript: mail the agent sent', () => {
       { tool: 'Bash', input: 'git status' },
       { tool: 'Mail', input: 'Note to POD-2128 · Ready for review' },
     ])
+  })
+
+  it('leaves Script sends as shell lines when their receipt could be either’s', () => {
+    // Two sends to one recipient, the first failed: one receipt, two owners.
+    const again = `podium issue mail send POD-2128 --body 'Second try'`
+    const block = presentToolBlock({
+      item: item({
+        id: 'x',
+        role: 'tool',
+        toolName: 'Script',
+        toolInputJson: JSON.stringify({
+          kind: 'script-calls',
+          calls: [
+            { tool: 'Bash', input: send },
+            { tool: 'Bash', input: again },
+          ],
+        }),
+      }),
+      result: 'Script completed\nOutput:\nmail DELIVERED to POD-2128 (msg_2) — confirmed',
+    })
+    expect(block.scriptCalls).toEqual([
+      { tool: 'Bash', input: send },
+      { tool: 'Bash', input: again },
+    ])
+  })
+
+  it('keeps a failed send in summary as its error row', () => {
+    const { rows } = computeTranscript({
+      items: [
+        item({ id: 's', role: 'tool', toolName: 'Bash', toolInput: send, toolUseId: 's' }),
+        item({
+          id: 's-out',
+          role: 'tool',
+          toolUseId: 's',
+          toolResult: 'Exit code 1\npodium issue: mail to POD-2128 could not be delivered',
+        }),
+      ],
+      verbosity: 'summary',
+      query: '',
+      cursor: 0,
+    })
+    expect(rows).toHaveLength(1)
+    expect(rows[0]?.kind === 'block' && rows[0].block.mail).toBeUndefined()
   })
 
   it('an echo of a send is an ordinary command', () => {

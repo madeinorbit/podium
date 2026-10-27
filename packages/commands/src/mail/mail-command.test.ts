@@ -97,7 +97,10 @@ describe('classifyMailCommand', () => {
 
 describe('parseMailSent', () => {
   it('reads the id and recipient each CLI prints', () => {
-    expect(parseMailSent('sent msg_9 to POD-7 (delivered)')).toEqual({ id: 'msg_9', to: 'issue:POD-7' })
+    expect(parseMailSent('sent msg_9 to POD-7 (delivered)')).toEqual({
+      id: 'msg_9',
+      to: 'issue:POD-7',
+    })
     expect(parseMailSent('replied msg_4 to issue:POD-3 (acked msg_1)')).toEqual({
       id: 'msg_4',
       to: 'issue:POD-3',
@@ -110,6 +113,20 @@ describe('parseMailSent', () => {
       id: 'msg_2',
     })
     expect(parseMailSent('podium mail: send was not accepted')).toBeNull()
+  })
+
+  it('reads --json receipts, raw or inside a Codex result object, keeping a reply a reply', () => {
+    const sent = JSON.stringify({ command: 'send', ok: true, data: { id: 'msg_2', ok: true } })
+    const replied = JSON.stringify({
+      command: 'reply',
+      ok: true,
+      data: { id: 'msg_3', ok: true, to: 'issue:POD-3' },
+    })
+    expect(mailReceipts(sent)).toEqual([{ id: 'msg_2', op: 'send' }])
+    expect(mailReceipts(replied)).toEqual([{ id: 'msg_3', op: 'reply', to: 'issue:POD-3' }])
+    const wrapped = `Script completed\nOutput:\n${JSON.stringify({ exit_code: 0, output: `${sent}\n` })}`
+    expect(mailReceipts(wrapped)).toEqual([{ id: 'msg_2', op: 'send' }])
+    expect(mailReceipts(JSON.stringify({ ok: false, error: 'not accepted' }))).toEqual([])
   })
 
   it('reads receipts out of Codex exec result objects', () => {

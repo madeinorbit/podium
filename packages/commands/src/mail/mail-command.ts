@@ -274,25 +274,53 @@ function execOutputs(output: string): string {
     .join('\n')
 }
 
-/** Every receipt a send or reply printed, in order: one for a lone call, one
- *  per mail call for a script's merged output. */
-export function mailReceipts(output: string): MailReceipt[] {
-  const json = /^\s*\{/.test(output) ? jsonData(output) : undefined
-  if (json && typeof json === 'object' && 'id' in json && typeof json.id === 'string') {
-    const to = 'to' in json && typeof json.to === 'string' ? { to: json.to } : {}
-    return [{ id: json.id, op: 'send', ...to }]
+/** The receipt in a `--json` envelope line (`{"command":"send"|"reply"|"mail",
+ *  "ok":true,"data":{"id":…}}`), keeping a reply a reply. */
+function jsonReceipt(line: string): MailReceipt | undefined {
+  const t = line.trim()
+  if (!t.startsWith('{') || !t.endsWith('}')) return undefined
+  try {
+    const r: unknown = JSON.parse(t)
+    if (!r || typeof r !== 'object' || !('ok' in r) || r.ok !== true || !('data' in r))
+      return undefined
+    const data = r.data
+    if (!data || typeof data !== 'object' || !('id' in data) || typeof data.id !== 'string')
+      return undefined
+    if (!/^msg_/i.test(data.id)) return undefined
+    const op = 'command' in r && r.command === 'reply' ? 'reply' : 'send'
+    return {
+      id: data.id,
+      op,
+      ...('to' in data && typeof data.to === 'string' ? { to: data.to } : {}),
+    }
+  } catch {
+    return undefined
   }
+}
+
+const RECEIPT_RE =
+  /^(?:(sent|replied) (msg_\S+)(?: to (\S+))?|mail (?:DELIVERED to|QUEUED for) (\S+) \((msg_[^)\s]+)\))/i
+
+/** Every receipt a send or reply printed, in order: one for a lone call, one
+ *  per mail call for a script's merged output. Executor result objects are
+ *  unwrapped first, then each line is read as a `--json` envelope or as the
+ *  CLI's text receipt. */
+export function mailReceipts(output: string): MailReceipt[] {
   const receipts: MailReceipt[] = []
-  const re =
-    /^(?:(sent|replied) (msg_\S+)(?: to (\S+))?|mail (?:DELIVERED to|QUEUED for) (\S+) \((msg_[^)\s]+)\))/gim
-  for (const m of execOutputs(output).matchAll(re)) {
-    if (m[2])
+  for (const line of execOutputs(output).split('\n')) {
+    const json = jsonReceipt(line)
+    if (json) {
+      receipts.push(json)
+      continue
+    }
+    const m = RECEIPT_RE.exec(line)
+    if (m?.[2])
       receipts.push({
         id: m[2],
-        op: m[1] === 'replied' ? 'reply' : 'send',
+        op: m[1]?.toLowerCase() === 'replied' ? 'reply' : 'send',
         ...(m[3] ? { to: m[3] } : {}),
       })
-    else if (m[4] && m[5]) receipts.push({ id: m[5], op: 'send', to: m[4] })
+    else if (m?.[4] && m[5]) receipts.push({ id: m[5], op: 'send', to: m[4] })
   }
   return receipts
 }

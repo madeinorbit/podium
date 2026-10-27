@@ -228,3 +228,17 @@ it('publishes addressed rows atomically across prefix rekeys and coalesced sourc
     expect(graph.rowPublication).toEqual({ reset: true, changed: [], removed: [] })
   } finally { graph.dispose() }
 })
+
+it('moves a command in and out of its run when an update makes it the agent’s own mail (POD-2146)', () => {
+  const bash = (id: string, command: string): TranscriptItem =>
+    ({ ...call(id, id, 'Bash'), toolInput: command })
+  const send = bash('b', `podium mail send --to POD-2140 --body 'handoff'`)
+  const f = fixture([bash('a', 'ls'), bash('b', 'pwd'), bash('c', 'git status')])
+  expect(f.graph.snapshot().rows.map(row => row.kind)).toEqual(['tools'])
+  // Updated in place to a send: tools[a], note[b], tools[c].
+  f.apply({ changed: [send] })
+  expect(f.graph.snapshot().rows.map(row => row.kind)).toEqual(['tools', 'block', 'tools'])
+  // And back.
+  f.apply({ changed: [bash('b', 'pwd')] })
+  expect(f.graph.snapshot().rows.map(row => row.kind)).toEqual(['tools'])
+})
