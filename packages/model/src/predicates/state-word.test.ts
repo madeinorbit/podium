@@ -131,6 +131,18 @@ describe('taskWord (D6)', () => {
     expect(taskWord(open, { children: ['done', 'done'] })).toBe('idle')
   })
 
+  it('a phase is Done once all its sub-issues are, closed or not (POD-2178)', () => {
+    const phase = { ...open, type: 'phase' }
+    expect(taskWord(phase, { children: ['done', 'done'] })).toBe('done')
+    expect(taskWord(phase, { sessions: ['idle'], children: ['done'] })).toBe('done')
+    // An empty phase is a placeholder, not finished work.
+    expect(taskWord(phase)).toBe('not-started')
+    expect(taskWord(phase, { children: ['done', 'not-started'] })).toBe('idle')
+    // A lead still working or asking keeps the phase open.
+    expect(taskWord(phase, { sessions: ['needs-you'], children: ['done'] })).toBe('needs-you')
+    expect(taskWord(phase, { sessions: ['working'], children: ['done'] })).toBe('working')
+  })
+
   it('cancelled, duplicate and superseded count as done and are hidden', () => {
     for (const closedReason of ['cancelled', 'duplicate', 'superseded']) {
       expect(taskHidden({ ...open, stage: 'done', closedReason })).toBe(true)

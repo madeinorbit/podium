@@ -696,7 +696,7 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
   },
   {
     name: 'create',
-    summary: `Create an issue: create --title "…". Agent top-level discoveries land in Proposed; sub-issues are internal decomposition. Description is human-facing; use --brief for technical detail. --type task (default): a unit of work. --type phase: one of two or more sequential stages of its parent, shown as a section on the deck; put its tasks under it with --parent-id <phase>, and whoever coordinates it is the phase lead. A new sibling lands at the top of the deck: order phases with move <id> --after <ref>. --type decision: a question only the user closes; it blocks what waits on it. Creating a sub-issue under your own issue claims its coordinator seat if the seat is empty. ${TITLE_RULE_TERSE}`,
+    summary: `Create an issue: create --title "…". Agent top-level discoveries land in Proposed; sub-issues are internal decomposition. Description is human-facing; use --brief for technical detail. --type task (default): a unit of work. --type phase: one of two or more sequential stages of its parent, shown as a section on the deck. It only groups: put its tasks under it with --parent-id <phase>, it reads done when they are, and it takes no blocked-by edge (link the tasks instead). Whoever coordinates it is the phase lead. A new sibling lands at the top of the deck: order phases with move <id> --after <ref>. Without --start a task is only filed (Not started); start it later with start <id>. --type decision: a question only the user closes; it blocks what waits on it. Creating a sub-issue under your own issue claims its coordinator seat if the seat is empty. ${TITLE_RULE_TERSE}`,
     args: z.strictObject({
       ...repoArg,
       title: z.string().min(1),
@@ -1218,7 +1218,7 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
   {
     name: 'dep-add',
     summary:
-      'Add a dependency, <from> depends on <to>: dep-add <fromId> <toId> [--type blocked-by|related|discovered-from|supersedes|duplicates] (default blocked-by: <from> waits for <to>).',
+      'Add a dependency, <from> depends on <to>: dep-add <fromId> <toId> [--type blocked-by|related|discovered-from|supersedes|duplicates] (default blocked-by: <from> waits for <to>). A blocked-by edge joins two tasks; a phase is refused at either end.',
     args: z.strictObject({ fromId: idArg, toId: idArg, type: z.string().optional() }),
     positionals: ['fromId', 'toId'],
     async run(c, a) {
@@ -2091,7 +2091,13 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
         `#${r.seq} (${r.closed ? 'closed' : 'open'}${r.type === 'blocked-by' ? '' : `, ${r.type}`})`
       const text = entries
         .map((e) => {
-          const status = e.closed ? statusWord(e).toUpperCase() : e.blocked ? 'BLOCKED' : e.ready ? 'READY' : e.stage
+          const status = e.closed
+            ? statusWord(e).toUpperCase()
+            : e.blocked
+              ? 'BLOCKED'
+              : e.ready
+                ? 'READY'
+                : e.stage
           const lines = [`${line(e)} — ${status}`]
           if (e.deps.length) lines.push(`  waits on: ${e.deps.map(edge).join(', ')}`)
           if (e.dependents.length) lines.push(`  blocks: ${e.dependents.map(edge).join(', ')}`)

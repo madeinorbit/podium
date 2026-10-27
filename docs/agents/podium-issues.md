@@ -13,11 +13,12 @@ it is relayed through your daemon with a capability scoped to the issue you're w
    `podium issue dep-add --fromId <new> --toId <current> --type discovered-from`.
 5. Decompose a big issue into children: `podium issue create --title "..."` then
    `podium issue reparent --id <new> --parentId <current>`. Work spread across several agents
-   gets a claimed coordinator and a task per delegate. Add `--type phase` children only when
-   that work runs in two or more stages one after another; a stage in that plan may contain
-   one task. See [delegating.md § Phases and coordinators](delegating.md#phases-and-coordinators).
+   gets a claimed coordinator and a task per delegate, all filed before the first launch.
+   Add `--type phase` children only to group work that runs in two or more stages one after
+   another; a stage in that plan may contain one task. Phases take no edges. See
+   [delegating.md § Phases and coordinators](delegating.md#phases-and-coordinators).
 6. Record real blockers: `podium issue dep-add --fromId <blocked> --toId <blocker> --type blocked-by`
-   (the default). The full list: `blocked-by`, `related`, `discovered-from`, `supersedes`, `duplicates`.
+   (the default), between tasks; a phase is refused at either end. The full list: `blocked-by`, `related`, `discovered-from`, `supersedes`, `duplicates`.
 7. Finished? Move it to `review` and post an offer with a Close action. Close your own issue
    only when the user tells you to — closing ends your session at once, even mid-work, so the
    close is refused while a session on the issue is working (yours is, while you run it):

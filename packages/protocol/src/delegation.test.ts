@@ -27,7 +27,7 @@ describe('COORDINATION_RULE (POD-2062)', () => {
   it('names the commands a coordinator needs without reading Podium source', () => {
     expect(COORDINATION_RULE).toContain('podium issue coordinator <id> --claim')
     expect(COORDINATION_RULE).toContain('--type phase --parent-id <id>')
-    expect(COORDINATION_RULE).toContain('dep-add <later> <earlier>')
+    expect(COORDINATION_RULE).toContain('dep-add <later-task> <earlier-task>')
     expect(COORDINATION_RULE).toContain('podium issue move <new> --after <previous>')
     expect(COORDINATION_RULE).toMatch(/exits 1 with the reason on stderr/)
   })
@@ -36,6 +36,14 @@ describe('COORDINATION_RULE (POD-2062)', () => {
     expect(COORDINATION_RULE).toContain('two or more stages that run one after another')
     expect(COORDINATION_RULE).toContain('A stage may hold a single task')
     expect(COORDINATION_RULE).toContain('Never a phase per routine task')
+  })
+
+  it('files the plan before launching, edges between tasks, solo work flat (POD-2178)', () => {
+    expect(COORDINATION_RULE).toContain('WITHOUT `--start`')
+    expect(COORDINATION_RULE).toContain('podium issue start <task>')
+    expect(COORDINATION_RULE).toContain('Edges go between tasks, never phases')
+    expect(COORDINATION_RULE).toContain('Phases only group')
+    expect(COORDINATION_RULE).toContain('podium issue todo <id> --add')
   })
 
   it('never presents the per-issue budget as a way around a refusal', () => {

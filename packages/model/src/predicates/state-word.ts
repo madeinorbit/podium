@@ -174,7 +174,9 @@ const STARTED_STAGES: ReadonlySet<unknown> = new Set([
  * One task's word (D6).
  *
  *  - Done only when the issue is closed; see {@link taskHidden} for the closes
- *    that also hide the row.
+ *    that also hide the row. A phase only groups (D1, POD-2178): it is also
+ *    Done once it has sub-issues, all of them Done, and no session on it is
+ *    working or asking, whether or not anyone closed the phase itself.
  *  - Error > Needs you > Working come from any session or sub-issue. The
  *    task's own requests ({@link taskOwnAsks}: an open decision, an explicit
  *    `needs-human` flag) are Needs you, except in its `delegated` word. A task in `shipping` is Working: the system is
@@ -188,6 +190,15 @@ const STARTED_STAGES: ReadonlySet<unknown> = new Set([
  */
 export function taskWord(task: TaskWordFacts, parts: TaskWordParts = {}): TaskWord {
   if (isFinished(task)) return 'done'
+  const sessions = [...(parts.sessions ?? [])]
+  const children = [...(parts.children ?? [])]
+  if (
+    task.type === 'phase' &&
+    children.length > 0 &&
+    children.every((word) => word === 'done') &&
+    sessions.every((word) => word === 'done' || word === 'idle')
+  )
+    return 'done'
   let error = false
   let asks = false
   let working = task.stage === 'shipping'
@@ -195,14 +206,14 @@ export function taskWord(task: TaskWordFacts, parts: TaskWordParts = {}): TaskWo
   let blocked = task.blocked === true
   let started = STARTED_STAGES.has(task.stage)
   if (!parts.delegated && taskOwnAsks(task)) asks = true
-  for (const word of parts.sessions ?? []) {
+  for (const word of sessions) {
     started = true
     if (word === 'error') error = true
     else if (word === 'needs-you') asks = true
     else if (word === 'working') working = true
     else if (word === 'idle') idle = true
   }
-  for (const word of parts.children ?? []) {
+  for (const word of children) {
     if (word === 'error') error = true
     else if (word === 'needs-you') asks = true
     else if (word === 'working') working = true

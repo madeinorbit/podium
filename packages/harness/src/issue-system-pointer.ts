@@ -16,7 +16,8 @@ export const ISSUE_SYSTEM_POINTER =
   ' ' +
   'With Podium task tracking, decomposition required for your deliverable becomes an internal sub-issue under the current issue; blocking adjacent work is also a blocking sub-issue. ' +
   // POD-2062: coordinators planned stages in scripts the deck could not show.
-  'With Podium task tracking, work you orchestrate across other agent sessions is planned on the tree: claim `podium issue coordinator <id> --claim` and give each delegate a task; add `--type phase` children only for two or more sequential stages. `podium issue prime` has the commands. ' +
+  // POD-2178: and filed each task only as they launched it.
+  'With Podium task tracking, work you orchestrate across other agent sessions is planned on the tree: claim `podium issue coordinator <id> --claim`, file every task you can already name before launching any, and give each delegate a task; add `--type phase` children only to group two or more sequential stages, and put waits on tasks, not phases. `podium issue prime` has the commands. ' +
   'Write `--description` as 1–3 plain, context-free sentences for the human and put technical detail/instructions in `--brief`. [spec:SP-6144] ' +
   '`podium issue ready` lists unblocked work; ' +
   '`podium issue claim` the issue you take. ' +

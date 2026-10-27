@@ -113,6 +113,23 @@ it('orders nested phases, rolls up shared words and counts leaves without phase 
   ])
 })
 
+it('reads a phase Done once its tasks are closed, though nobody closed the phase (POD-2178)', async () => {
+  const { svc, create } = await fixture()
+  const root = await create('Mission')
+  const build = await create('Build', root.id, 'phase')
+  const empty = await create('Release', root.id, 'phase')
+  const a = await create('Server part', build.id)
+  const b = await create('Web part', build.id)
+  await svc.crud.close(a.id, 'completed')
+  const word = async (id: IssueId) =>
+    flatten((await svc.reports.deck(root.id)).root).find((row) => row.id === id)?.word
+  expect(await word(build.id)).toBe('idle')
+  await svc.crud.close(b.id, 'completed')
+  expect(await word(build.id)).toBe('done')
+  expect(await word(empty.id)).toBe('not-started')
+  expect((await svc.crud.store.rowOrThrow(build.id)).stage).not.toBe('done')
+})
+
 it('shows marker-derived seats and shared session words, excluding non-roster sessions', async () => {
   const { svc, create, seat } = await fixture()
   const root = await create('Mission')

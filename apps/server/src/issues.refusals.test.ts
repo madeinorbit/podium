@@ -256,6 +256,31 @@ describe('definitive issue refusals (POD-5429)', () => {
     )
   })
 
+  it('refuses a blocked-by edge on a phase at either end, but not other edge types', async () => {
+    const task = await seed()
+    const phase = await registry.issues.crud.create({
+      repoPath: '/repo',
+      title: 'Build',
+      type: 'phase',
+      startNow: false,
+    })
+    const hint = 'phases only group tasks and take no blocked-by edge'
+    for (const [fromId, toId, ref] of [
+      [task.id, phase.id, phase.id],
+      [phase.id, task.id, phase.id],
+    ]) {
+      await refuse(
+        'depAdd',
+        { fromId, toId },
+        `${ref} is a phase; ${hint}. Link the tasks instead: dep-add <later-task> <earlier-task>, from each task to the task whose output it needs`,
+      )
+    }
+    await registry.issues.hierarchy.addDep(task.id, phase.id, 'related')
+    expect(await registry.issues.crud.store.deps.store.issues.listIssueDeps(task.id)).toEqual([
+      expect.objectContaining({ toId: phase.id, type: 'related' }),
+    ])
+  })
+
   it('refuses dependency and containment cycles', async () => {
     const a = await seed()
     const b = await seed()

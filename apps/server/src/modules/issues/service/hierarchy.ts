@@ -52,9 +52,16 @@ export class IssueHierarchyModule {
     const fromId = await this.store.resolveRef(fromRef)
     const toId = await this.store.resolveRef(toRef)
     const row = await this.store.draftOrThrow(fromId)
-    await this.store.rowOrThrow(toId)
+    const target = await this.store.rowOrThrow(toId)
     if (fromId === toId) throw new IssueRefusal('an issue cannot depend on itself (self-dep)')
     if (type === 'blocked-by') {
+      // POD-2178: a phase only groups tasks (D1). A wait on a phase hides which
+      // task needs which, and a phase never closes by itself to release it.
+      const phaseRef = row.type === 'phase' ? fromRef : target.type === 'phase' ? toRef : null
+      if (phaseRef)
+        throw new IssueRefusal(
+          `${phaseRef} is a phase; phases only group tasks and take no blocked-by edge. Link the tasks instead: dep-add <later-task> <earlier-task>, from each task to the task whose output it needs`,
+        )
       const returnPath = await this.dependencyPath(toId, fromId)
       if (returnPath) {
         throw new IssueRefusal(
