@@ -9466,20 +9466,27 @@ a.ref-link--session::before {
    ink ramp and a 2px halo appears outside it. The native caret already says "you
    are typing here", and a yellow outline would spend the action signal before
    there is anything to send. Only a sendable arrow turns yellow. */
-/* CALM LINE (POD-2076): the well is now a plain sheet-coloured field with one
-   hairline rim — no carve, no lit edge — so it reads as the quietest object in
-   the column. */
+/* CALM LINE (POD-2076): a plain field with one rim — no carve, no lit edge.
+   At rest it still has to be findable (POD-2182): sheet-coloured with a
+   hairline, it disappeared into the sheet, worst of all in dark mode. So the
+   rim sits on the strong ramp and the floor takes a 4% ink tint, enough to read
+   as a place to type without competing with the offer card. Focus lifts the
+   rim further and adds the 2px halo. */
 .chat-composer-well {
-  background: var(--card);
-  box-shadow: inset 0 0 0 1px var(--border);
+  background: color-mix(in srgb, var(--foreground) 4%, var(--card));
+  box-shadow: inset 0 0 0 1px var(--chat-rim);
   transition:
     box-shadow 200ms cubic-bezier(0.22, 1, 0.36, 1),
     background-color 200ms cubic-bezier(0.22, 1, 0.36, 1);
 }
+.chat-composer-well:hover:not(:focus-within) {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--foreground) 22%, var(--card));
+}
 .chat-composer-well:focus-within {
+  background: color-mix(in srgb, var(--foreground) 1.5%, var(--card));
   box-shadow:
-    inset 0 0 0 1px var(--chat-rim),
-    0 0 0 2px color-mix(in srgb, var(--foreground) 5%, transparent);
+    inset 0 0 0 1px color-mix(in srgb, var(--foreground) 30%, var(--card)),
+    0 0 0 3px color-mix(in srgb, var(--foreground) 6%, transparent);
 }
 @media (prefers-reduced-motion: reduce) {
   .chat-composer-well {
@@ -9489,8 +9496,22 @@ a.ref-link--session::before {
 /* The dock dissolves the feed into itself over 24px, and it fades to the SHEET
    the transcript is written on rather than to the app ground behind it — the
    stage is a card, and a fade to --background ends in a visible band. */
+/* THE MEASURE (POD-2182). The feed caps its words at --chat-reading-measure,
+   centred in the pane left of the reading rail; the dock runs the same
+   expression, ten pixels wider each side, so on a wide pane the box answers the
+   column instead of stretching across the whole window. The right side carries
+   the rail's width back because the dock spans under the rail and the feed
+   does not. Narrow panes keep the flat 22px gutter. */
 .chat-composer-dock {
   position: relative;
+  padding-left: max(
+    22px,
+    calc((100% - var(--chat-reading-measure) - var(--chat-rail-w, 0px)) / 2 - 10px)
+  );
+  padding-right: max(
+    22px,
+    calc((100% - var(--chat-reading-measure) + var(--chat-rail-w, 0px)) / 2 - 10px)
+  );
 }
 .chat-composer-dock::before {
   content: "";
@@ -9503,44 +9524,56 @@ a.ref-link--session::before {
   pointer-events: none;
 }
 
-/* THE FOCUS CHORD (POD-993). The one thing about this box a reader cannot
-   discover by looking: how to get back into it without the mouse. It shows only
-   while the field is unfocused AND empty - so it never lands on the operator's
-   own words - and it is the slowest fade in the window on the way in (520ms,
-   after a 260ms beat) and one of the fastest out (110ms). Arriving slowly is
-   what keeps a hint from reading as an alert; leaving fast is what keeps it from
-   reading as lag once the operator has done the thing it asked for. */
+/* THE FOCUS CHORD (POD-993, back as keycaps in POD-2182). The one thing about
+   this box a reader cannot discover by looking: how to get back into it
+   without the mouse. Drawn as two small keycaps beside the send cluster, faint
+   ink on the chip ground with a slightly heavier bottom edge so they read as
+   keys rather than text. Shown only while the field is unfocused AND empty, so
+   it never sits beside the operator's own words, and decided entirely here:
+   `:placeholder-shown` tracks the live value of the uncontrolled field, so the
+   component never re-renders to show or hide it. It arrives slowly after a
+   short beat, so it reads as a hint rather than an alert; it leaves at once,
+   taking its width back for the words. */
 .composer-chord {
-  position: absolute;
-  top: 9px;
-  right: 11px;
-  z-index: 1;
-  display: inline-flex;
+  display: none;
+  flex: none;
   align-items: center;
-  gap: 4px;
-  padding: 2px 6px;
-  border-radius: 5px;
-  background: var(--chat-chip);
-  color: var(--text-faint);
-  font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: var(--shell-type-micro);
-  line-height: 1.5;
-  letter-spacing: 0.02em;
-  white-space: nowrap;
+  align-self: center;
+  gap: 3px;
   pointer-events: none;
-  opacity: 0;
-  transition: opacity 120ms ease;
+  user-select: none;
 }
-.composer-chord[data-show="true"] {
+.chat-composer-well:not(:focus-within):has(textarea:placeholder-shown) .composer-chord {
+  display: inline-flex;
   opacity: 1;
-  transition: opacity 700ms cubic-bezier(0.22, 1, 0.36, 1) 200ms;
+  transition: opacity 520ms cubic-bezier(0.22, 1, 0.36, 1) 260ms;
+}
+@starting-style {
+  .chat-composer-well:not(:focus-within):has(textarea:placeholder-shown) .composer-chord {
+    opacity: 0;
+  }
+}
+.composer-chord kbd {
+  display: inline-flex;
+  min-width: 20px;
+  height: 20px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 5px;
+  border: 1px solid var(--chat-rim);
+  border-bottom-width: 2px;
+  border-radius: 5px;
+  background: var(--card);
+  color: var(--muted-foreground);
+  /* The sans face, not mono: ⌘ in most monospace faces is drawn at half the
+     size of the letter beside it. */
+  font-family: var(--font-sans, ui-sans-serif, system-ui, sans-serif);
+  font-size: 11.5px;
+  font-weight: 500;
+  line-height: 1;
 }
 @media (prefers-reduced-motion: reduce) {
-  /* Both selectors, because `[data-show="true"]` sets its own transition and a
-     media query adds no specificity — a bare `.composer-chord` here loses to it
-     and the hint fades for exactly the reader who asked it not to. */
-  .composer-chord,
-  .composer-chord[data-show="true"] {
+  .chat-composer-well:not(:focus-within):has(textarea:placeholder-shown) .composer-chord {
     transition: none;
   }
 }

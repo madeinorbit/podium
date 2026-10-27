@@ -21,7 +21,7 @@ import { OfferBar } from './OfferBar'
 import { QuoteStrip, type UseQuotesResult } from './QuoteStrip'
 import type { UseAttachmentsResult } from './use-attachments'
 import { useChatMentions } from './use-chat-context'
-import { useComposerChord } from './use-composer-chord'
+import { chordKeys, useComposerChord } from './use-composer-chord'
 import { VoiceButton } from './VoiceButton'
 
 /**
@@ -211,8 +211,9 @@ export const ChatComposer = observer(function ChatComposer({
   // The reset default is a mount seed, never a mirror of the live draft.
   const initialDraft = useRef(draft)
   // THE FOCUS CHORD (POD-993). ⌘L (macOS shell) puts the caret here from
-  // anywhere in the pane. The corner hint that named it is gone (POD-2076); the
-  // shortcut itself stays.
+  // anywhere in the pane. The keycaps beside the send cluster name it while the
+  // field is unfocused and empty; CSS alone decides when, so no render follows
+  // focus or the first keystroke.
   const [rootEl, setRootEl] = useState<HTMLDivElement | null>(null)
   const [transcriptAnnouncement, setTranscriptAnnouncement] = useState('')
   const previousTranscriptStatus = useRef<{
@@ -475,9 +476,10 @@ export const ChatComposer = observer(function ChatComposer({
             // safe-area maths, so nothing is restated here.
             'prompt-dock font-mono'
           : cn(
-              // The dock is the feed's own gutter, minus ten: 22px each side, so
-              // the well's edge sits just inside the column of words it answers
-              // and the whole bottom of the sheet reads as one object.
+              // The dock's inline padding lives in `.chat-composer-dock`: the
+              // feed's own gutter minus ten, capped to the reading measure, so
+              // the well sits just outside the column of words it answers
+              // however wide the pane gets.
               // No top rule and no surface of its own any more (POD-725): the
               // sheet runs to the bottom edge and the field's own well is the
               // only boundary the design draws. A border here would have cut the
@@ -491,7 +493,7 @@ export const ChatComposer = observer(function ChatComposer({
               // watching it arrive in a proportional one is the seam this removes.
               // The micro labels that ARE machine voice — the queue notice, the
               // focus chord — ask for mono themselves.
-              'chat-composer-dock px-[22px] pt-2 pb-[calc(18px+(1-var(--kb-open,0))*env(safe-area-inset-bottom,0px))]',
+              'chat-composer-dock pt-2 pb-[calc(18px+(1-var(--kb-open,0))*env(safe-area-inset-bottom,0px))]',
             ),
       )}
       ref={setRootEl}
@@ -740,6 +742,13 @@ export const ChatComposer = observer(function ChatComposer({
               }}
               onPaste={attachments.onPaste}
             />
+            {!compact && !isMobile && (
+              <span className="composer-chord" aria-hidden="true">
+                {chordKeys().map((key) => (
+                  <kbd key={key}>{key}</kbd>
+                ))}
+              </span>
+            )}
             {/* ONE CALM LINE (POD-2076): the field and its attach · mic · send
                 cluster share a row in both modes; the cluster rides the last
                 line as the field grows. */}
