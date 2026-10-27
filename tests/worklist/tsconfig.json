@@ -3,7 +3,6 @@
   "include": [
     "product",
     "shared/src",
-    "arms/mobx",
     "harness/src",
     "harness/browser",
     "harness/entry-pin.ts",
