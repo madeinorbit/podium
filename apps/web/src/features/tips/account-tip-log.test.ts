@@ -163,7 +163,7 @@ it('keeps upgraded-account tips seen when a remote layout snapshot replaces hydr
   const snapshot = { ...seeded, 'tips.enabled': 'false' }
   type Init = Parameters<typeof createReplicatedLayoutController>[0]
   const replicated = createReplicatedLayoutController({
-    api: { layout: { get: { query: async () => snapshot } } } as Init['api'],
+    api: { layout: { get: { query: async () => snapshot } } } as unknown as Init['api'],
     outbox: { awaiting: () => [], pending: () => [] } as unknown as Init['outbox'],
     notices: { error: () => {}, info: () => {} } as Init['notices'],
   })
