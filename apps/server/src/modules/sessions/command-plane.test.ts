@@ -291,6 +291,89 @@ describe('held chat uploads (POD-2148)', () => {
     )
   })
 
+  it.each([
+    ['moving the file back fails', 'relinquish'],
+    ['clearing the claim fails after the move', 'markUnclaimed'],
+  ] as const)('a failed claim commit whose rollback fails (%s) still works on retry', async (_label, broken) => {
+    const o = await makeOracle()
+    await provisionHost(o)
+    const ref = await hold(o, `coldstart-${broken}`, true)
+    vi.spyOn(o.reg.issues.crud, 'panelApply').mockRejectedValueOnce(new Error('revision conflict'))
+    if (broken === 'relinquish') {
+      vi.spyOn(o.reg.modules.issueArtifacts, 'relinquish').mockRejectedValueOnce(new Error('EBUSY'))
+    } else {
+      vi.spyOn(o.reg.modules.pendingUploads, 'markUnclaimed').mockRejectedValueOnce(new Error('EIO'))
+    }
+    const create = {
+      sessionId: asSessionId(
+        broken === 'relinquish'
+          ? '0e1f2a3b-4c5d-4e6f-8a7b-9c0d1e2f3a4b'
+          : '1f2a3b4c-5d6e-4f7a-8b9c-0d1e2f3a4b5c',
+      ),
+      agentKind: 'claude-code' as const,
+      cwd: '/p',
+      draftIssue: {
+        repoPath: '/p',
+        issueId: asIssueId(
+          broken === 'relinquish'
+            ? 'iss_3b4c5d6e-7f8a-4b9c-8d0e-1f2a3b4c5d6e'
+            : 'iss_4c5d6e7f-8a9b-4c0d-9e1f-2a3b4c5d6e7f',
+        ),
+      },
+      initialPrompt: 'what is in this picture?',
+      attachments: [ref],
+    }
+
+    await expect(
+      dispatchSessionCommand(await ctxFor(o, human(firstAdminMemberId())), 'create', create),
+    ).rejects.toThrow('revision conflict')
+    expect((await o.reg.issues.reports.list('/p')).filter((issue) => issue.draft)).toEqual([])
+    expect(await o.reg.modules.pendingUploads.meta(ref.id)).not.toHaveProperty('claimed')
+
+    // A fresh launch (new ids) with the same file.
+    await dispatchSessionCommand(await ctxFor(o, human(firstAdminMemberId())), 'create', {
+      ...create,
+      sessionId: asSessionId(crypto.randomUUID()),
+      draftIssue: { repoPath: '/p', issueId: asIssueId(`iss_${crypto.randomUUID()}`) },
+    })
+    const draft = (await o.reg.issues.reports.list('/p')).find((issue) => issue.draft)
+    expect(await o.reg.issues.crud.chatUploadBytes(asIssueId(draft?.id ?? ''), ref.id)).toEqual(
+      new Uint8Array(Buffer.from(png, 'base64')),
+    )
+  })
+
+  it('a discard that cannot hand a file back keeps the draft’s stored files', async () => {
+    const o = await makeOracle()
+    await provisionHost(o)
+    const ref = await hold(o, 'coldstart-keepdir', true)
+    vi.spyOn(o.reg.issues.crud, 'panelApply').mockRejectedValueOnce(new Error('revision conflict'))
+    // Both the claim's rollback and the discard's release fail to move it back.
+    vi.spyOn(o.reg.modules.issueArtifacts, 'relinquish')
+      .mockRejectedValueOnce(new Error('EBUSY'))
+      .mockRejectedValueOnce(new Error('EBUSY'))
+    const removeIssue = vi.spyOn(o.reg.modules.issueArtifacts, 'removeIssue')
+    const create = {
+      sessionId: asSessionId('2a3b4c5d-6e7f-4a8b-9c0d-1e2f3a4b5c6e'),
+      agentKind: 'claude-code' as const,
+      cwd: '/p',
+      draftIssue: { repoPath: '/p', issueId: asIssueId('iss_5d6e7f8a-9b0c-4d1e-8f2a-3b4c5d6e7f8a') },
+      initialPrompt: 'what is in this picture?',
+      attachments: [ref],
+    }
+
+    await expect(
+      dispatchSessionCommand(await ctxFor(o, human(firstAdminMemberId())), 'create', create),
+    ).rejects.toThrow('revision conflict')
+    expect(removeIssue).not.toHaveBeenCalled()
+
+    // The same create re-adopts the file where it was left.
+    await dispatchSessionCommand(await ctxFor(o, human(firstAdminMemberId())), 'create', create)
+    const draft = (await o.reg.issues.reports.list('/p')).find((issue) => issue.draft)
+    expect(await o.reg.issues.crud.chatUploadBytes(asIssueId(draft?.id ?? ''), ref.id)).toEqual(
+      new Uint8Array(Buffer.from(png, 'base64')),
+    )
+  })
+
   it('a create that fails after its session registered keeps the draft and its claimed files', async () => {
     const o = await makeOracle()
     await provisionHost(o)

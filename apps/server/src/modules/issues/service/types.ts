@@ -416,7 +416,10 @@ export interface IssueDeps {
   }
   /** Files picked in a composer, held until a send or create claims them
    *  (POD-2148). Absent ⇒ chat uploads cannot be claimed. */
-  pendingUploads?: Pick<PendingUploadStore, 'meta' | 'markClaimed' | 'markUnclaimed' | 'fileDir'>
+  pendingUploads?: Pick<
+    PendingUploadStore,
+    'meta' | 'markClaimed' | 'markUnclaimed' | 'fileDir' | 'claimedBy'
+  >
 }
 
 /**

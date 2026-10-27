@@ -134,6 +134,22 @@ export class PendingUploadStore {
     await this.write(async () => await this.writeMeta({ ...meta, claimed }))
   }
 
+  /** Every upload whose meta records a claim into this issue. */
+  async claimedBy(issueId: IssueId): Promise<PendingUploadMeta[]> {
+    let names: string[]
+    try {
+      names = await readdir(this.baseDir)
+    } catch {
+      return []
+    }
+    const out: PendingUploadMeta[] = []
+    for (const name of names) {
+      const meta = isPendingUploadId(name) ? await this.meta(name) : undefined
+      if (meta?.claimed?.issueId === issueId) out.push(meta)
+    }
+    return out
+  }
+
   /** Forget a claim whose file was moved back (a task that failed to launch). */
   async markUnclaimed(id: string): Promise<void> {
     const meta = await this.meta(id)

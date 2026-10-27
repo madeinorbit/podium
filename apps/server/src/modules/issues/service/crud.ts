@@ -691,29 +691,41 @@ export class IssueCrudModule {
   /**
    * Undo a discarded draft's claims before its purge deletes its artifacts
    * (POD-2148): each chat upload's file moves back to pending and forgets the
-   * claim, so retrying the same create claims it again. Only for a draft
-   * whose launch failed with no session on it, so no delivery reads it.
+   * claim, so retrying the same create claims it again. Claims are found from
+   * the panel AND from the pending metas naming this issue, so one whose panel
+   * commit never landed is returned too. Answers whether every one came back;
+   * when not, the caller keeps the artifact dir, which may hold its only copy.
+   * Only for a draft whose launch failed with no session on it.
    */
-  async panelChatUploadRelease(issueId: IssueId): Promise<void> {
+  async panelChatUploadRelease(issueId: IssueId): Promise<boolean> {
     const pending = this.store.deps.pendingUploads
     const store = this.store.deps.artifacts
+    if (!pending || !store?.relinquish) return true
     const row = await this.store.rowOrThrow(issueId).catch(() => undefined)
-    if (!row || !pending || !store?.relinquish) return
-    const uploadIds = this.store
-      .parsePanel(row)
-      .artifacts.flatMap((a) => (a.chatUploadId ? [a.chatUploadId] : []))
+    const uploadIds = new Set([
+      ...(row
+        ? this.store.parsePanel(row).artifacts.flatMap((a) => (a.chatUploadId ? [a.chatUploadId] : []))
+        : []),
+      ...(await pending.claimedBy(issueId)).map((meta) => meta.id),
+    ])
+    let returned = true
     for (const uploadId of uploadIds) {
-      await this.underChatUploadLock(`${issueId}\0${uploadId}`, async () => {
-        const meta = await pending.meta(uploadId)
-        if (meta?.claimed?.issueId !== issueId) return
-        await store.relinquish?.({
-          issueId,
-          artifactId: meta.claimed.artifactId,
-          toDir: pending.fileDir(uploadId),
+      try {
+        await this.underChatUploadLock(`${issueId}\0${uploadId}`, async () => {
+          const meta = await pending.meta(uploadId)
+          if (meta?.claimed?.issueId !== issueId) return
+          await store.relinquish?.({
+            issueId,
+            artifactId: meta.claimed.artifactId,
+            toDir: pending.fileDir(uploadId),
+          })
+          await pending.markUnclaimed(uploadId)
         })
-        await pending.markUnclaimed(uploadId)
-      })
+      } catch {
+        returned = false
+      }
     }
+    return returned
   }
 
   private async claimChatUpload(
@@ -762,15 +774,18 @@ export class IssueCrudModule {
         chatUploadOwner: input.ownerUserId,
       })
     } catch (error) {
-      // No entry names the moved file, so nothing could release it: put it
-      // back in pending and forget the claim (still under this upload's lock),
-      // so the same ref can be claimed again.
-      await store.relinquish?.({
-        issueId,
-        artifactId: snap.artifactId,
-        toDir: pending.fileDir(input.uploadId),
-      })
-      await pending.markUnclaimed(input.uploadId)
+      // No entry names the moved file: put it back in pending and forget the
+      // claim (still under this upload's lock), so the same ref can be claimed
+      // again. If that fails too, the meta still names this issue, and a draft
+      // discard finds it there and keeps the dir rather than purge it.
+      try {
+        await store.relinquish?.({
+          issueId,
+          artifactId: snap.artifactId,
+          toDir: pending.fileDir(input.uploadId),
+        })
+        await pending.markUnclaimed(input.uploadId)
+      } catch {}
       throw error
     }
   }
@@ -1859,7 +1874,7 @@ export class IssueCrudModule {
   /** Permanently purge the automatically-created draft abandoned by an explicit
    *  session rehome. User-facing deletion must go through IssueSessionLifecycle
    *  and never reaches this method. */
-  async purgeEmptyDraft(ref: string): Promise<void> {
+  async purgeEmptyDraft(ref: string, opts?: { keepArtifacts?: boolean }): Promise<void> {
     const id = await this.store.resolveRef(ref)
     await this.store.rowOrThrow(id)
     await this.store.deps.ledger.commit({
@@ -1931,7 +1946,9 @@ export class IssueCrudModule {
     // Hard delete: drop any artifact snapshots too ([spec:SP-0fc9], best-effort).
     // Awaited: a retry that reuses the client-minted id must not move files
     // into a directory this is still deleting (POD-2148).
-    await this.store.deps.artifacts?.removeIssue(id).catch(() => {})
+    // Kept when a chat upload could not be handed back: the dir may hold its
+    // only copy, and a retry under this id re-adopts it in place.
+    if (!opts?.keepArtifacts) await this.store.deps.artifacts?.removeIssue(id).catch(() => {})
   }
 
   /** Build the issue half of a cross-aggregate restore without exposing the row

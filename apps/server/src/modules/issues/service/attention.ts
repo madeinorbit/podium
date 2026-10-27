@@ -450,8 +450,8 @@ export class IssueAttentionModule {
     // Discarded, so no session can deliver its files: they go back to pending
     // before the purge deletes the draft's stored artifacts, and a retry of the
     // same create claims them again (POD-2148).
-    await this.crud().panelChatUploadRelease(id)
-    await this.crud().purgeEmptyDraft(id)
+    const returned = await this.crud().panelChatUploadRelease(id)
+    await this.crud().purgeEmptyDraft(id, { keepArtifacts: !returned })
     return true
   }
 
