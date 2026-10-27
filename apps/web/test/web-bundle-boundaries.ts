@@ -70,11 +70,11 @@ const STARTUP_GRAPH_SOURCES = new Set([
   // This facade adds no optional screen or store implementation (POD-5545).
   'src/shared/predicates.ts',
   'src/worklist/groups.ts', 'src/worklist/mobile-row.ts', 'src/worklist/mobile.ts',
-  'src/worklist/rollup.ts', 'src/worklist/seat-verdicts.ts', 'src/worklist/sidebar-roster.ts',
+  'src/worklist/rollup.ts', 'src/worklist/seat-verdicts.ts', 'src/worklist/projects.ts',
   'src/worklist/sidebar-row.ts', 'src/worklist/sidebar.ts', 'src/worklist/sorted-lanes.ts',
   'src/worklist/visible.ts',
   'src/worklist/view-model.ts', 'src/worklist/issue.ts', 'src/worklist/session.ts',
-  'src/worklist/worktree.ts', 'src/worklist/attention.ts', 'src/worklist/lists.ts',
+  'src/worklist/attention.ts', 'src/worklist/lists.ts',
   // Startup readers own these: reader-questions builds the mention index,
   // reader-queries the addressed worktree answers, and the sidebar close
   // guard and issue menus read issuePages.closeFacts (POD-5530/5569/5570/5577).

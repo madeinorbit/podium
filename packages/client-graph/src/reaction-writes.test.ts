@@ -66,7 +66,7 @@ describe('reaction observable-write fence', () => {
   it('keeps the changed production sites and the documented board exception clean', async () => {
     const results = await lint.lintFiles([
       'src/header-sessions.ts', 'src/header-views.ts', 'src/header-source.ts', 'src/worklist/visible.ts',
-      'src/worklist/sidebar-roster.ts', 'src/chat-context-source.ts',
+      'src/worklist/projects.ts', 'src/chat-context-source.ts',
       'src/command-launch-views.ts', 'src/issue-reference.ts', 'src/issue-board-source.ts',
     ])
     expect(results.flatMap((result) => result.messages.filter((message) => message.fatal || message.ruleId === rule))).toEqual([])
