@@ -53,6 +53,8 @@ export type UiStateHome =
 
 export const UI_STATE_KEYS = {
   tipsEnabled: 'tips.enabled',
+  /** The first launch's task, held until its First Flights tip is seen. */
+  tipsFirstSend: 'tips.firstSend',
   view: 'podium.view',
   selectedWorktree: 'podium.selectedWorktree',
   selectedIssueId: 'podium.selectedIssueId',
@@ -136,6 +138,10 @@ export const UI_STATE_ROUTES = {
   [UI_STATE_KEYS.tipsEnabled]: {
     home: 'per-user-replicated',
     reason: 'First Flights follows the person across devices.',
+  },
+  [UI_STATE_KEYS.tipsFirstSend]: {
+    home: 'per-user-replicated',
+    reason: 'A pending First Flights moment belongs to the account and survives a reload.',
   },
   [UI_STATE_KEYS.view]: {
     home: 'device-local',

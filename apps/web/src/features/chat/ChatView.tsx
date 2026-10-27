@@ -20,7 +20,7 @@ import {
 } from '@/lib/quote/quote-sinks'
 import { findTokens, placeToken, serializeDraft, tokenAround } from '@/lib/quote/quote-tokens'
 import { cn } from '@/lib/utils'
-import { askAnythingAnchor, useAskAnythingTip } from './ask-anything-tip'
+import { AskAnythingTip, appendExample, askAnythingAnchor } from './ask-anything-tip'
 import { ChatComposer } from './ChatComposer'
 import { ChatRail } from './ChatRail'
 import { isChatInteractable } from './chat-interactable'
@@ -168,56 +168,63 @@ const ScopedChatComposer = observer(function ScopedChatComposer({
     quotes.clear()
   }, [chat.submitDraft, chat.attachments.uploading, draft, quotes])
   const interrupt = useCallback(() => chat.interrupt(draft), [chat.interrupt, draft])
-  // First Flights (POD-2198): an example lands in the box as a draft, never sent.
-  useAskAnythingTip({
-    sessionId,
-    phase: chat.view.session?.agentState?.phase,
-    viewing: active,
-    taskChat: superThread === undefined,
-    onExample: (text) => {
-      setDraft(draft.trim() ? `${draft}\n${text}` : text)
+  // First Flights (POD-2198): an example lands in the box as a draft, never
+  // sent, after whatever the box holds when it is clicked.
+  const putExample = useCallback(
+    (text: string) => {
+      chat.setDraft(appendExample(chat.view.draft, text))
       taRef.current?.focus()
     },
-  })
+    [chat.setDraft, chat.view, taRef],
+  )
 
   return (
-    <ChatComposer
-      taRef={chat.taRef}
-      draft={draft}
-      onDraftChange={setDraft}
-      deliverable={chat.view.composer.deliverable}
-      placeholder={
-        issueClosed ? issueClosedPlaceholder(chat.view.composer) : chat.view.composer.placeholder
-      }
-      compact={compact}
-      isMobile={chat.isMobile}
-      onSend={submit}
-      voice={voice}
-      attachments={chat.attachments}
-      quotes={quotes}
-      turnRunning={chat.view.turnActive}
-      canInterrupt={chat.view.canInterrupt}
-      onInterrupt={interrupt}
-      interruptError={chat.view.interruptError}
-      offer={chat.view.offer}
-      onOfferAction={chat.sendOfferPrompt}
-      onOfferDismiss={chat.dismissOffer}
-      session={chat.view.session}
-      turnError={chat.view.turnError}
-      transcriptFreshness={chat.view.transcriptFreshness}
-      offlineAsOf={chat.view.offlineAsOf}
-      attached={chat.view.attached}
-      autoFocusKey={sessionId}
-      tipAnchor={askAnythingAnchor(sessionId)}
-      transcriptSettled={chat.view.phase !== 'loading'}
-      {...(superThread
-        ? {
-            backend: chat.view.backend,
-            onBackendModelChange: chat.view.setBackendModel,
-            onBackendEffortChange: chat.view.setBackendEffort,
-          }
-        : {})}
-    />
+    <>
+      <AskAnythingTip
+        sessionId={sessionId}
+        session={chat.view.session}
+        viewing={active}
+        taskChat={superThread === undefined}
+        onExample={putExample}
+      />
+      <ChatComposer
+        taRef={chat.taRef}
+        draft={draft}
+        onDraftChange={setDraft}
+        deliverable={chat.view.composer.deliverable}
+        placeholder={
+          issueClosed ? issueClosedPlaceholder(chat.view.composer) : chat.view.composer.placeholder
+        }
+        compact={compact}
+        isMobile={chat.isMobile}
+        onSend={submit}
+        voice={voice}
+        attachments={chat.attachments}
+        quotes={quotes}
+        turnRunning={chat.view.turnActive}
+        canInterrupt={chat.view.canInterrupt}
+        onInterrupt={interrupt}
+        interruptError={chat.view.interruptError}
+        offer={chat.view.offer}
+        onOfferAction={chat.sendOfferPrompt}
+        onOfferDismiss={chat.dismissOffer}
+        session={chat.view.session}
+        turnError={chat.view.turnError}
+        transcriptFreshness={chat.view.transcriptFreshness}
+        offlineAsOf={chat.view.offlineAsOf}
+        attached={chat.view.attached}
+        autoFocusKey={sessionId}
+        tipAnchor={askAnythingAnchor(sessionId)}
+        transcriptSettled={chat.view.phase !== 'loading'}
+        {...(superThread
+          ? {
+              backend: chat.view.backend,
+              onBackendModelChange: chat.view.setBackendModel,
+              onBackendEffortChange: chat.view.setBackendEffort,
+            }
+          : {})}
+      />
+    </>
   )
 })
 

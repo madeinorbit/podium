@@ -867,7 +867,7 @@ export function ColdStartComposer({
           }
           setBusy(false)
         })
-        if (first) noteFirstSend(started.issueId)
+        if (first) noteFirstSend(uiState, started.issueId)
         setSelectedIssueId(started.issueId)
         setSelectedWorktree(selectedCheckout.path)
         setPanelMode(started.sessionId, 'chat')
@@ -935,7 +935,7 @@ export function ColdStartComposer({
         setBusy(false)
       })
       // First Flights: the task this first launch opens gets the list tip.
-      if (first) noteFirstSend(started.issueId)
+      if (first) noteFirstSend(uiState, started.issueId)
       setSelectedIssueId(started.issueId)
       setSelectedWorktree(selectedCheckout.path)
       // A signed-out harness opens on its terminal: the sign-in screen is the

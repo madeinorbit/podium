@@ -1,7 +1,11 @@
+import { type RoutedUiState, UI_STATE_KEYS } from '@podium/client-core/ui-state'
+import { observer } from 'mobx-react-lite'
 import type { JSX } from 'react'
-import { useSyncExternalStore } from 'react'
+import { useContext, useEffect } from 'react'
 import { useRuntimeSelector } from '@/app/store'
 import { type TipCard, useTipMoment } from '@/features/tips'
+import { TipContext } from '@/features/tips/tip-context'
+import { usePersistedUiState } from '@/lib/use-persisted-ui-state'
 import type { RowTone } from './pool-row-data'
 import { RowStatusMark, rowToneInk } from './WorkRowShell'
 
@@ -14,24 +18,15 @@ export const FLIGHT_DECK_ANCHOR = 'flight-deck'
  * THE TASK THE FIRST COLD-START LAUNCH OPENED (First Flights, moment 2).
  *
  * The composer that launched it unmounts as the task opens, so the trigger
- * outlives it here. Kept for the page's lifetime: a reload before the tip had
- * its quiet beat loses it, which costs one tip and never shows a wrong one.
+ * outlives it in the account's UI state: a reload or a closed tab before the
+ * tip had its quiet beat still delivers it. Cleared once the moment is seen.
  */
-let firstSendIssueId: string | null = null
-const listeners = new Set<() => void>()
-
-export function noteFirstSend(issueId: string): void {
-  if (firstSendIssueId === issueId) return
-  firstSendIssueId = issueId
-  for (const listener of listeners) listener()
+export function noteFirstSend(ui: Pick<RoutedUiState, 'set'>, issueId: string): void {
+  ui.set(UI_STATE_KEYS.tipsFirstSend, issueId)
 }
 
-function subscribe(listener: () => void): () => void {
-  listeners.add(listener)
-  return () => listeners.delete(listener)
-}
-
-const readFirstSend = (): string | null => firstSendIssueId
+const parseIssueId = (raw: string | null): string | null => raw || null
+const serializeIssueId = (issueId: string | null): string | null => issueId
 
 /** Line 2's real voice for each state the legend names. */
 const LEGEND: readonly { tone: RowTone; word: string; weight: string }[] = [
@@ -70,9 +65,19 @@ export const firstSendCards = (issueId: string): readonly TipCard[] => [
 ]
 
 /** Registers the moment for the shell's lifetime so the guide can replay it. */
-export function FirstSendTip(): null {
-  const issueId = useSyncExternalStore(subscribe, readFirstSend, readFirstSend)
+export const FirstSendTip = observer(function FirstSendTip(): null {
+  const [issueId, setIssueId] = usePersistedUiState(
+    UI_STATE_KEYS.tipsFirstSend,
+    parseIssueId,
+    serializeIssueId,
+  )
   const selectedId = useRuntimeSelector((s) => s.selectedIssueId)
+  const log = useContext(TipContext)?.log
+  const seen = log?.ready === true && log.isSeen('first-send')
+  // Finished, dismissed or skipped: nothing is left to deliver.
+  useEffect(() => {
+    if (seen && issueId !== null) setIssueId(null)
+  }, [seen, issueId, setIssueId])
   // A replay from the guide points at whichever task is open now.
   const rowId = issueId ?? selectedId
   useTipMoment('first-send', {
@@ -80,4 +85,4 @@ export function FirstSendTip(): null {
     cards: rowId ? firstSendCards(rowId) : [],
   })
   return null
-}
+})

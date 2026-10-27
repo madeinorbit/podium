@@ -59,6 +59,7 @@ describe('workspace ui-state routing', () => {
       'tips.seen.first-prompt': '2026-10-27T17:00:00.000Z',
       'tips.seen.first-send': '2026-10-27T17:01:00.000Z',
       [UI_STATE_KEYS.tipsEnabled]: 'false',
+      [UI_STATE_KEYS.tipsFirstSend]: 'iss_first',
     })) {
       expect(uiStateRoute(key).home).toBe('per-user-replicated')
       ui.set(key, value)

@@ -1,7 +1,10 @@
+import type { SessionModel } from '@podium/client-graph/models'
 import type { AgentPhase } from '@podium/model/browser'
+import { observer } from 'mobx-react-lite'
 import type { JSX } from 'react'
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useContext, useEffect, useRef, useState } from 'react'
 import { useTipMoment } from '@/features/tips'
+import { TipContext } from '@/features/tips/tip-context'
 
 /**
  * FIRST FLIGHTS, MOMENT 3: ASK-ANYTHING (POD-2198).
@@ -23,28 +26,37 @@ export const askAnythingAnchor = (sessionId: string): string => `chat-composer:$
 /** A turn that was running counts; compaction sits inside a turn. */
 const RUNNING: ReadonlySet<AgentPhase | undefined> = new Set(['working', 'compacting'])
 
-export function useAskAnythingTip({
+/** Where an example lands: after whatever is in the box at the moment of the
+ *  click, never a copy of the draft taken when the card opened. */
+export function appendExample(draft: string, example: string): string {
+  return draft.trim() ? `${draft}\n${example}` : example
+}
+
+/**
+ * Registered for the composer's lifetime, so the guide can replay it. Only the
+ * small watcher below reads the agent's phase, and only until the moment is
+ * seen: an account that has had the tip pays nothing on each turn.
+ */
+export const AskAnythingTip = observer(function AskAnythingTip({
   sessionId,
-  phase,
+  session,
   viewing,
   taskChat,
   onExample,
 }: {
   sessionId: string
-  phase: AgentPhase | undefined
+  session: Pick<SessionModel, 'agentPhase'> | undefined
   /** The chat is the one on screen. A turn that ends out of sight fires nothing. */
   viewing: boolean
   /** A task's agent chat. The superagent's thread is not one: the moment
    *  belongs to a task the person has open. */
   taskChat: boolean
+  /** Called at click time; it reads the draft then. */
   onExample: (text: string) => void
-}): void {
+}): JSX.Element | null {
+  const log = useContext(TipContext)?.log
   const [finished, setFinished] = useState(false)
-  const previous = useRef(phase)
-  useEffect(() => {
-    if (viewing && phase === 'idle' && RUNNING.has(previous.current)) setFinished(true)
-    previous.current = phase
-  }, [phase, viewing])
+  const onFinished = useCallback(() => setFinished(true), [])
   useTipMoment('ask-anything', {
     active: finished && viewing && taskChat,
     cards: [
@@ -56,7 +68,28 @@ export function useAskAnythingTip({
       },
     ],
   })
-}
+  const watching =
+    !finished && viewing && taskChat && log?.enabled !== false && !log?.isSeen('ask-anything')
+  return watching && session ? <TurnEndWatch session={session} onFinished={onFinished} /> : null
+})
+
+/** Mounted while the chat is on screen, so a turn that ended out of sight is
+ *  already idle here and fires nothing. */
+const TurnEndWatch = observer(function TurnEndWatch({
+  session,
+  onFinished,
+}: {
+  session: Pick<SessionModel, 'agentPhase'>
+  onFinished: () => void
+}): null {
+  const phase = session.agentPhase
+  const previous = useRef(phase)
+  useEffect(() => {
+    if (phase === 'idle' && RUNNING.has(previous.current)) onFinished()
+    previous.current = phase
+  }, [phase, onFinished])
+  return null
+})
 
 function AskAnythingExamples({ onPick }: { onPick: (text: string) => void }): JSX.Element {
   return (

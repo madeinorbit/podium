@@ -61,6 +61,9 @@ import { perUserKeyOfString } from './session-state'
 export const LAYOUT_EXACT_KEYS = [
   /** First Flights preference, shared across this person's devices. */
   'tips.enabled',
+  /** The task the first cold-start launch opened, until its first-send tip is
+   *  seen; a reload in between still delivers the tip. */
+  'tips.firstSend',
   /** Right-dock / panel tab selection (`chat` | `files` | …). */
   'dockTab',
   /** Superagent center column open/closed (legacy `podium.superOpen.v2`). */
@@ -136,6 +139,7 @@ export function isLayoutKey(key: string): boolean {
  */
 export const LAYOUT_KEY_FROM_LEGACY: Readonly<Record<string, LayoutExactKey>> = {
   'tips.enabled': 'tips.enabled',
+  'tips.firstSend': 'tips.firstSend',
   'podium.dockTab': 'dockTab',
   'podium.superOpen': 'superOpen',
   'podium.superOpen.v2': 'superOpen',
