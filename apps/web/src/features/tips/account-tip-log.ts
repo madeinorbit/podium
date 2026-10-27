@@ -13,27 +13,12 @@ import { lazy } from '@podium/mobx-helpers'
 import { action, observable, runInAction } from 'mobx'
 import { useEffect } from 'react'
 import { useWorklistPool, useWorklistPoolProjection } from '@/app/store-worklist-pool'
+import { TIP_IDS, type TipId, type TipLog, type TipOutcome } from './types'
 
-// Structural copy until POD-2194's shared types land; only the engine owns types.ts.
-export const ACCOUNT_TIP_IDS = [
-  'first-prompt',
-  'first-send',
-  'ask-anything',
-  'team-forms',
-  'first-proposal',
-  'first-offer',
-  'first-artifact',
-] as const
-export type AccountTipId = (typeof ACCOUNT_TIP_IDS)[number]
-type TipOutcome = 'shown' | 'finished' | 'dismissed' | 'skipped-all'
-export interface AccountTipLogContract {
-  readonly ready: boolean
-  readonly enabled: boolean
-  isSeen(id: AccountTipId): boolean
-  record(id: AccountTipId, outcome: TipOutcome): void
-  setEnabled(on: boolean): void
-}
-const tipKey = (id: AccountTipId): string => `${TIP_SEEN_KEY_PREFIX}${id}`
+export const ACCOUNT_TIP_IDS = TIP_IDS
+export type AccountTipLogContract = TipLog
+
+const tipKey = (id: TipId): string => `${TIP_SEEN_KEY_PREFIX}${id}`
 const keys = [UI_STATE_KEYS.tipsEnabled, ...ACCOUNT_TIP_IDS.map(tipKey)]
 
 /** Reads the shared preference rows, never a second copy of account state. */
@@ -61,7 +46,7 @@ export class AccountTipLog implements AccountTipLogContract {
     return this.value(UI_STATE_KEYS.tipsEnabled) !== 'false'
   }
 
-  isSeen(id: AccountTipId): boolean {
+  isSeen(id: TipId): boolean {
     return this.value(tipKey(id)) !== null
   }
 
@@ -101,7 +86,7 @@ export class AccountTipLog implements AccountTipLogContract {
     preferenceSource(this.pool)?.refreshKey(key)
   }
 
-  @action record(id: AccountTipId, outcome: TipOutcome): void {
+  @action record(id: TipId, outcome: TipOutcome): void {
     if (!this.ready || outcome === 'shown') return
     const at = this.now()
     for (const moment of outcome === 'skipped-all' ? ACCOUNT_TIP_IDS : [id]) {

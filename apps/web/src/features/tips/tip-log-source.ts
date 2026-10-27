@@ -1,7 +1,6 @@
-import { useState } from 'react'
-import { MemoryTipLog } from './memory-tip-log'
+import { useAccountTipLog } from './account-tip-log'
 import type { TipLog } from './types'
 
 export function useTipLogSource(): TipLog {
-  return useState(() => new MemoryTipLog())[0]
+  return useAccountTipLog()
 }
