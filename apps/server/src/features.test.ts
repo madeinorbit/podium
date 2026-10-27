@@ -258,21 +258,13 @@ describe('draft-sync feature [spec:SP-f4b9] (POD-859)', () => {
   })
 })
 
-describe('merge-queue feature', () => {
-  it('is edge-listed, default-off, and enabled by its persisted toggle', () => {
-    const env = { PODIUM_APP_VERSION: '1.0.0' }
-    const config: PodiumConfig = { updateChannel: 'edge' }
-
-    expect(
-      getFeatureStates(settings(), config, env).flags.find((f) => f.id === 'merge-queue'),
-    ).toMatchObject({
-      listed: true,
-      enabled: false,
-      source: 'default',
-      locked: false,
-    })
-    expect(isFeatureEnabled('merge-queue', settings({ 'merge-queue': true }), config, env)).toBe(
-      true,
+describe('retired Queues feature', () => {
+  it('ignores saved user and config overrides for the removed flag', () => {
+    const state = getFeatureStates(
+      settings({ 'merge-queue': true }),
+      { updateChannel: 'edge', features: { 'merge-queue': true } },
+      { PODIUM_APP_VERSION: 'dev' },
     )
+    expect(state.flags.some((flag) => flag.id === 'merge-queue')).toBe(false)
   })
 })

@@ -6,7 +6,6 @@ import {
   useHarnessDescriptors,
   useModelCatalogState,
   usePresenceRoom,
-  useRepoLocks,
   useStoreHandle,
 } from '@podium/client-core/react'
 import { preferenceSource } from '@podium/client-graph/preference-source'
@@ -39,7 +38,6 @@ function CurrentReaders() {
   useTerminalAppearance()
   useModelCatalogState()
   useHarnessDescriptors(undefined)
-  useRepoLocks(null)
   usePresenceRoom(null)
   return (
     <dl>

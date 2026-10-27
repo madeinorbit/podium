@@ -5,7 +5,7 @@ import { gotoWorkspace, RELAY } from './_harness'
  * Runtime verification of Settings → Experimental [spec:SP-f4b9] against the
  * real Live UI on the harness relay. The harness runs from source, so the
  * server is in dev mode (PODIUM_APP_VERSION unset ⇒ 'dev'): the edge-visible
- * `merge-queue` flag must be listed, toggleable, and persist through Save +
+ * `shipping` flag must be listed, toggleable, and persist through Save +
  * reload via settings.experimental.
  */
 test.skip(({ isMobile }) => isMobile, 'desktop test (settings nav is desktop-oriented)')
@@ -48,8 +48,8 @@ async function saveSettings(page: Page): Promise<void> {
   await expect(save).toBeHidden({ timeout: 15_000 })
 }
 
-async function setQueuesEnabled(page: Page, enabled: boolean): Promise<void> {
-  const flagSwitch = flagRow(page, 'Queues').getByRole('switch').first()
+async function setShippingEnabled(page: Page, enabled: boolean): Promise<void> {
+  const flagSwitch = flagRow(page, 'Shipping').getByRole('switch').first()
   if ((await flagSwitch.getAttribute('aria-checked')) !== String(enabled)) {
     await flagSwitch.click()
     await saveSettings(page)
@@ -72,17 +72,15 @@ async function openWorkspace(page: Page): Promise<void> {
   }
 }
 
-test('experimental page persists and opens the separate queue groups', async ({ page }) => {
+test('experimental page persists and opens Shipping', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 900 })
   await openExperimental(page)
 
-  const row = flagRow(page, 'Queues')
-  await expect(row.locator('.settings-label')).toContainText('Queues', {
+  const row = flagRow(page, 'Shipping')
+  await expect(row.locator('.settings-label')).toContainText('Shipping', {
     timeout: 20_000,
   })
-  await expect(
-    row.getByText('Show merge and heavy-test queues in the right sidebar.'),
-  ).toBeVisible()
+  await expect(row.getByText('Show durable delivery progress in the right sidebar.')).toBeVisible()
   // The hint names the update channel.
   await expect(page.getByText(/update channel: (stable|edge)/)).toBeVisible()
 
@@ -96,51 +94,27 @@ test('experimental page persists and opens the separate queue groups', async ({ 
   await saveSettings(page)
 
   await openExperimental(page)
-  await expect(flagRow(page, 'Queues').getByRole('switch').first()).toHaveAttribute(
+  await expect(flagRow(page, 'Shipping').getByRole('switch').first()).toHaveAttribute(
     'aria-checked',
     expected,
   )
 
   // Exercise the real feature boundary and right-rail interaction, then leave
   // the persisted setting exactly as the harness found it.
-  await setQueuesEnabled(page, true)
+  await setShippingEnabled(page, true)
   await openWorkspace(page)
 
-  const railButton = page.getByRole('button', { name: 'Queues' })
+  const railButton = page.getByRole('button', { name: /^Shipping,/ })
   await expect(railButton).toBeVisible({ timeout: 30_000 })
   await railButton.click()
 
-  const queue = page.locator('[data-right-dock-panel="merge-queue"]')
-  await expect(queue).toBeVisible()
-  const mergeGroup = queue
-    .getByRole('heading', { name: 'Merge queue' })
-    .locator('xpath=ancestor::section[1]')
-  const heavyGroup = queue
-    .getByRole('heading', { name: 'Heavy test queue' })
-    .locator('xpath=ancestor::section[1]')
-  await expect(mergeGroup.getByRole('heading')).toHaveText([
-    'Merge queue',
-    'MERGING NOW',
-    'NEXT UP',
-    'READY',
-  ])
-  await expect(heavyGroup.getByRole('heading')).toHaveText([
-    'Heavy test queue',
-    'TESTING NOW',
-    'NEXT UP',
-    'READY',
-  ])
-  await queue.getByRole('button', { name: 'Refresh queues' }).click()
-  await expect(queue.getByRole('region', { name: 'Repository queues' })).toBeVisible()
-
-  const screenshotPath = process.env.PODIUM_MERGE_QUEUE_SCREENSHOT
-  if (screenshotPath) await queue.screenshot({ path: screenshotPath })
+  await expect(page.locator('[data-right-dock-panel="shipping"]')).toBeVisible()
 
   await openExperimental(page)
-  await setQueuesEnabled(page, before === 'true')
+  await setShippingEnabled(page, before === 'true')
   if (before !== 'true') {
     await openWorkspace(page)
-    await expect(page.getByRole('button', { name: 'Queues' })).toHaveCount(0)
-    await expect(page.locator('[data-right-dock-panel="merge-queue"]')).toHaveCount(0)
+    await expect(page.getByRole('button', { name: /^Shipping,/ })).toHaveCount(0)
+    await expect(page.locator('[data-right-dock-panel="shipping"]')).toHaveCount(0)
   }
 })

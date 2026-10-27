@@ -14,16 +14,6 @@ vi.mock('@/lib/use-feature', () => ({
       channel: 'stable',
       flags: [
         {
-          id: 'merge-queue',
-          name: 'Queues',
-          description: 'Show merge and heavy-test queues in the right sidebar.',
-          visibility: 'edge',
-          listed: true,
-          enabled: false,
-          source: 'default',
-          locked: false,
-        },
-        {
           id: 'runtime-drivers',
           name: 'Headless session drivers',
           description:
@@ -67,20 +57,12 @@ describe('ExperimentalSection', () => {
     expect(patch).not.toHaveBeenCalled()
   })
 
-  it('presents the queue control and patches its durable feature key', () => {
-    const patch = vi.fn()
-    render(<ExperimentalSection settings={DEFAULT_SETTINGS} patch={patch} onReset={vi.fn()} />)
-
-    const name = screen.getByText('Queues')
-    expect(screen.getByText('Show merge and heavy-test queues in the right sidebar.')).toBeTruthy()
-
-    const row = name.closest<HTMLDivElement>('.settings-row')
-    expect(row).not.toBeNull()
-    const toggle = within(row!).getByRole('switch')
-    expect(toggle.getAttribute('aria-checked')).toBe('false')
-    fireEvent.click(toggle)
-
-    expect(patch).toHaveBeenCalledWith({ experimental: { 'merge-queue': true } })
+  it('omits the retired Queues control even when its saved preference is enabled', () => {
+    const settings = { ...DEFAULT_SETTINGS, experimental: { 'merge-queue': true } }
+    state.features = getFeatureStates(settings, { updateChannel: 'edge' }, {})
+    render(<ExperimentalSection settings={settings} patch={vi.fn()} onReset={vi.fn()} />)
+    expect(state.features.flags.some((flag) => flag.id === 'merge-queue')).toBe(false)
+    expect(screen.queryByText('Queues')).toBeNull()
   })
 
   it('presents the stable runtime-driver control off and patches its durable feature key', () => {

@@ -1,105 +1,20 @@
-import type { IssueViewModel } from '@podium/client-core/replica'
 // @vitest-environment happy-dom
 
-import type { SessionMeta } from '@podium/model'
-import { asSessionId } from '@podium/model'
 import { cleanup, render, screen } from '@testing-library/react'
-import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { RightDock } from './RightDock'
 
-const selectedIssue = {
-  id: 'selected',
-  title: 'Selected closed issue',
-  stage: 'review',
-  repoPath: '/repo',
-  worktreePath: null,
-  machineId: 'machine-selected',
-} as IssueViewModel
-const otherIssue = {
-  id: 'other',
-  seq: 22,
-  displayRef: 'POD-22',
-  title: 'Other live issue',
-  repoId: 'repo-other',
-  repoPath: '/other',
-  worktreePath: '/other/wt',
-} as IssueViewModel
-const otherSession = {
-  sessionId: asSessionId('other-session'),
-  cwd: '/other/wt',
-  issueId: otherIssue.id,
-  archived: false,
-  lastActiveAt: '2026-07-23T12:00:00.000Z',
-} as SessionMeta
-
-const state = {
-  paneA: otherSession.sessionId,
-  fileTabs: [],
-  sessions: [otherSession],
-  repos: [
-    {
-      path: '/other',
-      kind: 'repository' as const,
-      repoId: 'repo-other',
-      worktrees: [{ path: '/other/wt', branch: 'issue/other' }],
-    },
-  ],
-  issues: [selectedIssue, otherIssue],
-  selectedIssueId: selectedIssue.id,
-  shipOrders: [],
-  shipLanes: [],
-  coarseNow: Date.parse('2026-08-13T12:00:00.000Z'),
-  setSelectedIssueId: vi.fn(),
-  trpc: {
-    issues: {
-      resolveShipHold: { mutate: vi.fn() },
-      cancelShip: { mutate: vi.fn() },
-      deliveryReceipt: { query: vi.fn() },
-    },
+const active = { cwd: '/other/wt', machineId: 'other-machine' }
+const trpc = {
+  issues: {
+    resolveShipHold: { mutate: vi.fn() },
+    cancelShip: { mutate: vi.fn() },
+    deliveryReceipt: { query: vi.fn() },
   },
 }
-
-const repoLocks = vi.hoisted(() => ({
-  query: vi.fn(),
-  refresh: vi.fn(),
-  state: {
-    locks: [],
-    loading: false,
-    refreshing: false,
-    error: null,
-    refreshedAt: Date.now(),
-  } as {
-    locks: {
-      repoId: string
-      name: string
-      holder: { sessionId: string | null; issueId: string | null; label: string }
-      note: string | null
-      acquiredAt: string
-      expiresAt: string
-      secondsLeft: number
-      queue: never[]
-    }[]
-    loading: boolean
-    refreshing: boolean
-    error: string | null
-    refreshedAt: number | null
-  },
-}))
-
-vi.mock('@podium/client-core/react', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@podium/client-core/react')>()
-  return {
-    ...actual,
-    useStoreHandle: () => ({ get access() { return state } }),
-    useRepoLocks: (repoPath: string | null) => {
-      repoLocks.query(repoPath)
-      return { ...repoLocks.state, refresh: repoLocks.refresh }
-    },
-  }
-})
-
-vi.mock('./store', () => ({
-  useRuntimeSelector: (selector: (store: typeof state) => unknown) => selector(state),
+vi.mock('./shell-data', () => ({
+  useShellActions: () => ({ trpc }),
+  useShellDock: () => ({ active }),
 }))
 
 // The task panel owns which task is showing and what its header says; the
@@ -113,38 +28,8 @@ vi.mock('./RightDockIssuePanel', () => ({
     ),
 }))
 
-/**
- * TRANSFORM THE LAZY PANEL BEFORE THE CLOCK STARTS (POD-2730).
- *
- * `findByRole` gives a query one second, and in vitest that second was paying
- * for Vite's first transform of the merge-queue graph — measured at 5,975 ms
- * here, against a built chunk that costs a file read. It passed before only by
- * accident: `DockShellPanel` was this file's one STATIC import, so its large
- * shared graph was already transformed by the time any test ran. Deferring it
- * (which is the whole point — it was one of the two doors xterm came through)
- * took that free warm-up away and two queries started timing out.
- *
- * So warm it here, deliberately, where it costs nothing anyone is measuring.
- * `lazy()` still suspends once on first render, which is the behaviour under
- * test; what has gone is a module transform inside the assertion's budget.
- * Raising the timeout instead would have hidden a real slow render behind it.
- */
-beforeAll(async () => {
-  await import('@/features/merge-queue/MergeQueuePanel')
-})
-
 afterEach(() => {
   cleanup()
-  state.setSelectedIssueId.mockClear()
-  repoLocks.query.mockClear()
-  repoLocks.refresh.mockClear()
-  repoLocks.state = {
-    locks: [],
-    loading: false,
-    refreshing: false,
-    error: null,
-    refreshedAt: Date.now(),
-  }
 })
 
 describe('RightDock task panel', () => {
@@ -155,7 +40,8 @@ describe('RightDock task panel', () => {
     render(<RightDock tab="issue" onClose={vi.fn()} />)
 
     const panel = await screen.findByTestId('dock-issue-panel')
-    expect(panel.getAttribute('data-cwd')).toBe(otherSession.cwd)
+    expect(panel.getAttribute('data-cwd')).toBe(active.cwd)
+    expect(panel.getAttribute('data-machine-id')).toBe(active.machineId)
     expect(screen.queryByTestId('dock-title')).toBeNull()
   })
 
@@ -174,57 +60,5 @@ describe('RightDock task panel', () => {
     const title = screen.getByText('Git')
     expect(title.dataset.dockTitle).toBe('panel')
     expect(screen.queryByTestId('dock-issue-header')).toBeNull()
-  })
-
-  it('renders the active repository merge queue from the live lock projection', async () => {
-    repoLocks.state = {
-      locks: [
-        {
-          repoId: 'repo-other',
-          name: 'merge:main',
-          holder: {
-            sessionId: otherSession.sessionId,
-            issueId: otherIssue.id,
-            label: 'Other merge driver',
-          },
-          note: null,
-          acquiredAt: '2026-08-06T12:00:00.000Z',
-          expiresAt: new Date(Date.now() + 60_000).toISOString(),
-          secondsLeft: 60,
-          queue: [],
-        },
-      ],
-      loading: false,
-      refreshing: false,
-      error: null,
-      refreshedAt: Date.now(),
-    }
-
-    render(<RightDock tab="merge-queue" onClose={vi.fn()} />)
-
-    // One whole-repo reading, not a request per name the UI happens to know.
-    expect(await screen.findByRole('heading', { name: 'MERGING NOW' })).toBeTruthy()
-    expect(repoLocks.query).toHaveBeenCalledWith('/other')
-    const holder = screen.getByRole('button', { name: /Other live issue/ })
-    expect(holder).toBeTruthy()
-
-    holder.click()
-    expect(state.setSelectedIssueId).toHaveBeenCalledWith(otherIssue.id)
-  })
-
-  it('maps a first-read failure to the retry interaction', async () => {
-    repoLocks.state = {
-      locks: [],
-      loading: false,
-      refreshing: false,
-      error: 'Lock authority unavailable.',
-      refreshedAt: null,
-    }
-
-    render(<RightDock tab="merge-queue" onClose={vi.fn()} />)
-
-    expect((await screen.findByRole('alert')).textContent).toContain('Lock authority unavailable.')
-    screen.getByRole('button', { name: 'Try again' }).click()
-    expect(repoLocks.refresh).toHaveBeenCalledOnce()
   })
 })

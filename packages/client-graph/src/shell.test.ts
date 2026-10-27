@@ -1,6 +1,4 @@
-import { omitGone } from './lookup'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
-
 import { asSessionId } from '@podium/model/browser'
 import { autorun } from 'mobx'
 import { describe, expect, it, vi } from 'vitest'
@@ -12,6 +10,7 @@ import {
   poolShellSnapshot,
 } from '../../../tests/worklist/diagnostics/shell-check'
 import { shellFixture } from '../../../tests/worklist/diagnostics/shell-fixture'
+import { omitGone } from './lookup'
 import { SHELL_ENTITIES, SHELL_SOURCE_KEY } from './shell-schema'
 import { ShellSource } from './shell-source'
 import { shellViews } from './shell-views'
@@ -54,7 +53,6 @@ describe('shell pool', () => {
         )
         expect(views.chrome()).toHaveProperty('sessionCount', count)
         const context = dockSnapshot(views)
-        expect(context && context !== LOADING ? context.issues : null).toEqual([])
         expect(context && context !== LOADING ? context.active?.sessionId : null).toBe(
           f.sessions[0]!.sessionId,
         )
@@ -74,8 +72,6 @@ describe('shell pool', () => {
         expect(
           row.mock.calls.filter(([kind]) => kind === 'issue' || kind === 'session'),
         ).toHaveLength(0)
-        const catalogue = dockSnapshot(views, true)
-        expect(catalogue && catalogue !== LOADING ? catalogue.issues : []).toHaveLength(count)
       } finally {
         stop()
         row.mockRestore()

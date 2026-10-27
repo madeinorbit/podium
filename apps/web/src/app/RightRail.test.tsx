@@ -1,22 +1,9 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { makeIssue } from '@/lib/test-issue'
 
-const portfolioIssues = vi.hoisted(() => ({ value: [] as unknown[] }))
-const portfolioSessions = vi.hoisted(() => ({ value: [] as unknown[] }))
-const shippingOrders = vi.hoisted(() => ({ value: [] as unknown[] }))
-const portfolioRepos = vi.hoisted(() => ({ value: [] as unknown[] }))
-const activePane = vi.hoisted(() => ({ value: null as string | null }))
-vi.mock('./store', () => ({
-  useRuntimeSelector: (selector: (store: Record<string, unknown>) => unknown) =>
-    selector({
-      paneA: activePane.value,
-      fileTabs: [],
-      sessions: portfolioSessions.value,
-      repos: portfolioRepos.value,
-      shipOrders: shippingOrders.value,
-      shipLanes: [],
-    }),
+const shipping = vi.hoisted(() => ({ unfinishedCount: 0, decisionCount: 0 }))
+vi.mock('./shell-data', () => ({
+  useShellShipping: () => shipping,
 }))
 
 import { RightRail } from './RightRail'
@@ -29,11 +16,8 @@ vi.mock('@/lib/use-feature', () => ({
 afterEach(() => {
   cleanup()
   featureEnabled.value = true
-  portfolioIssues.value = []
-  portfolioSessions.value = []
-  shippingOrders.value = []
-  portfolioRepos.value = []
-  activePane.value = null
+  shipping.unfinishedCount = 0
+  shipping.decisionCount = 0
 })
 
 describe('RightRail', () => {
@@ -49,29 +33,7 @@ describe('RightRail', () => {
     expect(onPanelChange).toHaveBeenLastCalledWith('superagent')
   })
 
-  // The Superagent cell carried the portfolio attention count for as long as
-  // the Superagent was in the rail. Pinned to that glyph the number claimed to
-  // be about the superagent, which it never was — it counted tasks anywhere
-  // waiting on a decision. It is gone from the rail; the Flight Deck's "Needs
-  // you" filter still reports the same figure where it is attached to the work
-  // it describes.
-  it('reports on nothing — no cell wears a count, waiting work or not', () => {
-    portfolioIssues.value = [
-      makeIssue({ id: 'a', needsHuman: true }),
-      makeIssue({ id: 'b', stage: 'review' }),
-    ]
-    portfolioSessions.value = [
-      {
-        sessionId: 's1',
-        issueId: 'a',
-        agentKind: 'claude-code',
-        status: 'live',
-        cwd: '/r/wt',
-        createdAt: 't',
-        lastActiveAt: 't',
-        agentState: { phase: 'needs_user', since: 't', nativeSubagentCount: 0 },
-      },
-    ]
+  it('does not attach task attention to the Superagent cell', () => {
     render(<RightRail rightPanel={null} onPanelChange={vi.fn()} />)
     expect(screen.queryByRole('img', { name: /waiting on you/ })).toBeNull()
   })
@@ -94,14 +56,12 @@ describe('RightRail', () => {
     expect(onPanelChange).toHaveBeenCalledWith(null)
   })
 
-  it('opens the opt-in queues panel when its feature is enabled', () => {
-    const onPanelChange = vi.fn()
-    render(<RightRail rightPanel={null} onPanelChange={onPanelChange} />)
-    fireEvent.click(screen.getByRole('button', { name: 'Queues' }))
-    expect(onPanelChange).toHaveBeenCalledWith('merge-queue')
+  it('omits the retired Queues panel with experimental features enabled', () => {
+    render(<RightRail rightPanel={null} onPanelChange={vi.fn()} />)
+    expect(screen.queryByRole('button', { name: 'Queues' })).toBeNull()
   })
 
-  it('opens Shipping beside Queues with a zero-state accessible label', () => {
+  it('opens Shipping with a zero-state accessible label', () => {
     const onPanelChange = vi.fn()
     render(<RightRail rightPanel={null} onPanelChange={onPanelChange} />)
 
@@ -110,54 +70,15 @@ describe('RightRail', () => {
   })
 
   it('caps the scoped inventory badge and names decision attention without announcing it', () => {
-    activePane.value = 'session-a'
-    portfolioSessions.value = [
-      {
-        sessionId: 'session-a',
-        cwd: '/repo/wt',
-        issueId: null,
-        archived: false,
-        lastActiveAt: '2026-08-13T12:00:00.000Z',
-      },
-    ]
-    portfolioRepos.value = [
-      {
-        path: '/repo',
-        kind: 'repository',
-        repoId: 'repo-a',
-        worktrees: [{ path: '/repo/wt', branch: 'main', repoId: 'repo-a' }],
-      },
-    ]
-    shippingOrders.value = Array.from({ length: 100 }, (_, index) => ({
-      id: `order-${index}`,
-      issueId: `issue-${index}`,
-      repoId: 'repo-a',
-      targetBranch: 'main',
-      destination: 'origin/main',
-      state: index === 0 ? 'held' : 'queued',
-      humanState: index === 0 ? 'needs_you' : 'waiting',
-      activity: index === 0 ? 'held' : 'waiting',
-      queuedAt: '2026-08-13T10:00:00.000Z',
-      stateChangedAt: '2026-08-13T10:00:00.000Z',
-      ...(index === 0
-        ? {
-            hold: {
-              id: 'hold-a',
-              generation: 1,
-              reasonCode: 'landing-conflict',
-              headline: 'A decision is needed',
-              actions: ['retry'],
-            },
-          }
-        : {}),
-    }))
+    shipping.unfinishedCount = 100
+    shipping.decisionCount = 1
 
     render(<RightRail rightPanel={null} onPanelChange={vi.fn()} />)
 
-    const shipping = screen.getByRole('button', {
+    const shippingButton = screen.getByRole('button', {
       name: 'Shipping, 100 unfinished deliveries, 1 needs your decision',
     })
-    expect(shipping.textContent).toBe('99+')
+    expect(shippingButton.textContent).toBe('99+')
     expect(screen.queryByRole('alert')).toBeNull()
   })
 

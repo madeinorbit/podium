@@ -1,3 +1,8 @@
+import {
+  type ShippingPanelRow,
+  shippingActivityLabel,
+  shippingElapsed,
+} from '@podium/client-core/values'
 import { observer } from '@podium/client-graph/react'
 import {
   poolShippingSource,
@@ -5,12 +10,6 @@ import {
   type ShippingSource,
   ShippingView,
 } from '@podium/client-graph/shipping-view'
-import { ReceiptView } from './receipt-view'
-import {
-  shippingActivityLabel,
-  shippingElapsed,
-  type ShippingPanelRow,
-} from '@podium/client-core/values'
 import type {
   DeliveryReceipt,
   ShipHoldAction,
@@ -23,8 +22,9 @@ import type { JSX, ReactNode, RefObject } from 'react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { formatAppError } from '@/app/AppErrorPage'
 import { useWorklistPool } from '@/app/store-worklist-pool'
-import { issueIdTitle, issueRefLabel } from '@/lib/issue-labels'
 import { useAgeNow } from '@/lib/clock-hooks'
+import { issueIdTitle, issueRefLabel } from '@/lib/issue-labels'
+import { ReceiptView } from './receipt-view'
 
 export interface ShippingPanelCommands {
   resolveHold(input: {
@@ -693,7 +693,9 @@ const SelectedShipment = observer(function SelectedShipment({
 }): JSX.Element | null {
   const row = view.row(id)
   if (!row) return null
-  return <ShipmentDetail row={row} now={now} commands={commands} backRef={backRef} onBack={onBack} />
+  return (
+    <ShipmentDetail row={row} now={now} commands={commands} backRef={backRef} onBack={onBack} />
+  )
 })
 
 function OrderList({
@@ -831,7 +833,7 @@ export const ShippingPanel = observer(function ShippingPanel({
         )}
       </Section>
       <p className="px-3.5 py-3 text-[10px] leading-[1.5] text-muted-foreground/60">
-        Waiting order is scoped by destination. Queues keeps merge, test, and resource lanes.
+        Waiting order is scoped by destination.
       </p>
     </div>
   )

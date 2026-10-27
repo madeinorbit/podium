@@ -13,6 +13,8 @@ import {
   selectedMissionRoot,
   shippingPanelModel,
 } from '@podium/client-core/values'
+import { headerIds } from '@podium/client-graph/enumerate'
+import { here } from '@podium/client-graph/lookup'
 import type { MobxPool } from '@podium/client-graph/pool'
 import { SHELL_SCHEMA, SHELL_SUMMARIES } from '@podium/client-graph/shell-schema'
 import { shellViews } from '@podium/client-graph/shell-views'
@@ -164,14 +166,22 @@ export function legacyShellSnapshot(
 /** Test-only composition of the dock's separate fields in the shape the old
  * dock bundle returned, so the legacy comparisons keep their assertions.
  * `LOADING` while any field loads, as the bundle was. */
-export function dockSnapshot(views: ReturnType<typeof shellViews>, includeCatalog = false) {
+export function dockSnapshot(views: ReturnType<typeof shellViews>) {
   const dock = views.dock
-  const active = dock.active, scope = dock.scope, gitIssue = dock.gitIssue,
-    mailIssueId = dock.mailIssueId, shipping = dock.shipping
-  const catalogs = includeCatalog ? views.catalogs() : { issues: [], shipOrders: [], shipLanes: [] }
-  if (active === LOADING || scope === LOADING || gitIssue === LOADING || mailIssueId === LOADING ||
-    shipping === LOADING || catalogs === LOADING) return LOADING
-  return { active, scope, gitIssue, mailIssueId, shipping, ...catalogs }
+  const active = dock.active,
+    scope = dock.scope,
+    gitIssue = dock.gitIssue,
+    mailIssueId = dock.mailIssueId,
+    shipping = dock.shipping
+  if (
+    active === LOADING ||
+    scope === LOADING ||
+    gitIssue === LOADING ||
+    mailIssueId === LOADING ||
+    shipping === LOADING
+  )
+    return LOADING
+  return { active, scope, gitIssue, mailIssueId, shipping }
 }
 export function poolShellSnapshot(pool: MobxPool): SidebarSnapshot {
   const views = shellViews(pool),
@@ -180,11 +190,15 @@ export function poolShellSnapshot(pool: MobxPool): SidebarSnapshot {
     files = views.files(),
     close = views.close(),
     chrome = views.chrome(),
-    dock = dockSnapshot(views, true),
+    dock = dockSnapshot(views),
     shipping = dock === LOADING ? LOADING : dock.shipping,
     sessions = views.sessions(),
     issues = views.issues(),
-    lanes = views.lanes()
+    lanes = views.lanes(),
+    shipOrders = headerIds(pool, 'shipOrder').flatMap((id) => {
+      const order = here(pool.row('shipOrder', id)) as Store['shipOrders'][number] | undefined
+      return order ? [order] : []
+    })
   if (
     !state ||
     state === LOADING ||
@@ -243,12 +257,7 @@ export function poolShellSnapshot(pool: MobxPool): SidebarSnapshot {
         key: 'shipping',
         fields: dock
           ? {
-              ...shippingFields(
-                dock.shipOrders,
-                dock.issues,
-                dock.scope?.repoId ?? null,
-                dock.shipLanes,
-              ),
+              ...shippingFields(shipOrders, issues ?? [], dock.scope?.repoId ?? null, lanes ?? []),
               ...shipping,
             }
           : {},
@@ -257,7 +266,7 @@ export function poolShellSnapshot(pool: MobxPool): SidebarSnapshot {
       {
         key: 'orders',
         fields: {},
-        rows: (dock?.shipOrders ?? []).map((value) => row(value.id, value)),
+        rows: shipOrders.map((value) => row(value.id, value)),
       },
       { key: 'lanes', fields: {}, rows: (lanes ?? []).map((value) => row(value.id, value)) },
       { key: 'machines', fields: {}, rows: views.machines().map((value) => row(value.id, value)) },

@@ -7,7 +7,7 @@ import { type RightPanelTab, rightPanelAllowed } from './shell-state'
 
 /**
  * The 44px right rail (handoff §2.5): one cell per dock panel — Task,
- * Superagent, Git, Files, Shell, Messages, Queues, Shipping.
+ * Superagent, Git, Files, Shell, Messages, Shipping.
  *
  * The Superagent cell used to carry a numbered badge: the PORTFOLIO attention
  * count, every task anywhere waiting on a decision. Sitting on the superagent
@@ -30,14 +30,12 @@ export const RightRail = observer(function RightRail({
 }): JSX.Element {
   const gitPanelEnabled = useFeature('git-panel')
   const messagesPanelEnabled = useFeature('messages-panel')
-  const mergeQueueEnabled = useFeature('merge-queue')
   const shippingEnabled = useFeature('shipping')
   const shipping = useShellShipping()
   const panelAllowed = (panel: RightPanelTab): boolean =>
     rightPanelAllowed(panel, {
       git: gitPanelEnabled,
       messages: messagesPanelEnabled,
-      mergeQueue: mergeQueueEnabled,
       shipping: shippingEnabled,
     })
   return (

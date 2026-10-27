@@ -54,10 +54,8 @@ export function createWorkflowsFixture(issueCount = 32, sessionCount = issueCoun
       runs: { query: query('runs', () => runs) }, get: { query: query('get', () => detail) }, skip: { mutate: skip },
     },
     agentProfiles: { list: { query: query('profiles', () => profiles) } },
-    lock: { status: { query: async (input: unknown) => { calls.locks = (calls.locks ?? 0) + 1; lockInputs.push(input); return [] } } },
   })
-  const lockInputs: unknown[] = []
-  return { ...fixture, get replica() { return fixture.replica }, api: fixture.api as unknown as Trpc, machines, profiles, runs, detail, calls, lockInputs,
+  return { ...fixture, get replica() { return fixture.replica }, api: fixture.api as unknown as Trpc, machines, profiles, runs, detail, calls,
     denyWrites(message: string | null) { denial = message },
     remove(entity: string, id: string) {
       fixture.records.delete(`${entity}:${id}`)

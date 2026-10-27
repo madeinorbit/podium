@@ -1,37 +1,32 @@
-import { here } from '@podium/client-graph/lookup'
-import { DiffView } from './features/git/diff-view'
-import { parseDiff as parseDesktopDiff } from './features/git/diff-model'
-import { MergeQueueView } from './features/merge-queue/merge-queue-view'
-import { queuePanelState } from './features/merge-queue/MergeQueuePanel'
-import { readyMergeCandidates } from './features/merge-queue/merge-queue-model'
-import { makeIssue } from './lib/test-issue'
 import { MobxPool } from '@podium/client-graph'
 import { GitView } from '@podium/client-graph/git-view'
 import { RequestAnswer } from '@podium/client-graph/request-answer'
-import { ConversationSearchView } from './lib/conversation-search-view'
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { useFileDocument } from './test-support/legacy-request-answers/useFileDocument'
+import { compareEntries } from './features/files/entry-order'
+import { FileBrowserView } from './features/files/file-browser-view'
 import { FileDocumentView } from './features/files/file-document-view'
 import { FileTreeView } from './features/files/file-tree-view'
-import { FileBrowserView } from './features/files/file-browser-view'
+import { parseDiff as parseDesktopDiff } from './features/git/diff-model'
+import { DiffView } from './features/git/diff-view'
 import { NetworkSettingsView } from './features/settings/network-view'
 import { ReceiptView } from './features/shipping/receipt-view'
+import { fileMentions } from './lib/at-mention/mention-sources'
+import { ConversationSearchView } from './lib/conversation-search-view'
+import { FileMentionView } from './lib/search-views'
 import {
-  parseStatus,
-  parseLog,
   parseCommitFiles,
+  parseLog,
+  parseStatus,
 } from './test-support/legacy-request-answers/git-panel'
 import {
-  parseStatus as parsePhoneStatus,
   parseDiff,
+  parseStatus as parsePhoneStatus,
   untrackedDiff,
 } from './test-support/legacy-request-answers/git-review'
-import { compareEntries } from './features/files/entry-order'
 import { useConversationSearch } from './test-support/legacy-request-answers/useConversationSearch'
+import { useFileDocument } from './test-support/legacy-request-answers/useFileDocument'
 import { useFileMentions } from './test-support/legacy-request-answers/useFileMentions'
-import { FileMentionView } from './lib/search-views'
-import { fileMentions } from './lib/at-mention/mention-sources'
 
 const f = vi.hoisted(() => ({ read: vi.fn(), write: vi.fn(), search: vi.fn(), files: vi.fn() }))
 const trpc = {
@@ -39,9 +34,6 @@ const trpc = {
   files: { search: { query: f.files } },
 }
 vi.mock('@podium/client-core/react', () => ({
-  LOCK_POLL_MS: 5000,
-  MERGE_LOCK_NAME: 'merge:main',
-  HEAVY_TEST_LOCK_NAME: 'test:heavy',
   useStoreHandle: () => ({ access: { readFileScoped: f.read, writeFileScoped: f.write } }),
 }))
 vi.mock('@/app/store', () => ({
@@ -181,60 +173,6 @@ describe('legacy and view-owned answers on identical fixtures', () => {
     receipt.close()
     expect(network.answer).toBeUndefined()
     expect(receipt.answer).toBeUndefined()
-  })
-  it('compares the old lock projection and issue filter with pooled lazy candidates', async () => {
-    const rows = [
-      makeIssue({
-        id: 'first',
-        seq: 1,
-        stage: 'done',
-        repoPath: '/repo',
-        sortKey: 'a',
-        gitState: {
-          branch: 'issue/one',
-          shared: false,
-          merged: false,
-          ahead: 1,
-          dirtyFiles: 0,
-          updatedAt: '2026-10-09T00:00:00Z',
-        },
-        branch: 'issue/one',
-      }),
-      makeIssue({ id: 'other', seq: 2, stage: 'in_progress', repoPath: '/repo' }),
-    ]
-    const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
-    const locks: never[] = []
-    const scope = { repoPath: '/repo' }
-    try {
-      pool.apply({
-        type: 'update',
-        rows: rows.map((value) => ({ kind: 'issue' as const, id: value.id, value })),
-      })
-      const query = vi.fn(async () => locks)
-      const view = new MergeQueueView(pool, scope, { lock: { status: { query } } } as never)
-      view.setIssues(rows.map((row) => row.id))
-      view.open()
-      await waitFor(() => expect(view.answer).toEqual(locks))
-      expect(view.state).toEqual(
-        queuePanelState({
-          loading: false,
-          locks,
-          refreshing: false,
-          error: null,
-          refreshedAt: 1,
-          refresh() {},
-        }),
-      )
-      expect(view.candidates.map((issue) => issue.id)).toEqual(
-        readyMergeCandidates(rows, scope, null).map((issue) => issue.id),
-      )
-      expect(view.candidates[0]).toBe(here(pool.model('issue', rows[0]!.id)))
-      view.close()
-      expect(view.answer).toBeUndefined()
-      expect(view.candidates).toEqual([])
-    } finally {
-      pool.dispose()
-    }
   })
   it('compares old debounced search/mention hooks with new answers', async () => {
     const rows = [

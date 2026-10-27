@@ -1765,28 +1765,6 @@
       "rule": "reader-summary",
       "tokens": "19730cb13ceabc42ea9f24e9855cd16904aaed5edb43688a6d2feaf22acb717a",
       "gate": [
-        "&&:a93f9c163bbc3f9f4ea0ac87de10530e6cf4fa02bc0d102c715e08e1171ed65f"
-      ],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
-        "1a74ec459850b1f319987a72ab57e72d8b1fe2530eb80d9e54f7390e033b37f1",
-        "5ac8c2052ffe18ceeedb0d32f307b6092b6a667bf768249b43c2dc76112824b6"
-      ],
-      "fingerprint": "33e2c6c84306c4c8c65afa16deeff01899a275a08a86edeb766e815da1f82df0",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of RightDock/RightDock",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/app/RightDock.tsx",
-      "holder": "RightDock/RightDock",
-      "rule": "reader-summary",
-      "tokens": "19730cb13ceabc42ea9f24e9855cd16904aaed5edb43688a6d2feaf22acb717a",
-      "gate": [
         "&&:5b3af34ee829f842e53bce7785a326288196f6fa3b6bc95425bf646010d276c1"
       ],
       "origin": [
@@ -1795,26 +1773,6 @@
         "5ac8c2052ffe18ceeedb0d32f307b6092b6a667bf768249b43c2dc76112824b6"
       ],
       "fingerprint": "3d42156f687f0c184f21547386987246a2d92fc714ca99a0759a3a2d5b2c9c72",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of RightDock/RightDock",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/app/RightDock.tsx",
-      "holder": "RightDock/RightDock",
-      "rule": "reader-summary",
-      "tokens": "44c5df8e38a497522f3a58bbc3b8cd1dec7349af2304b74213d069f34d9bd319",
-      "gate": [],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
-        "1a74ec459850b1f319987a72ab57e72d8b1fe2530eb80d9e54f7390e033b37f1",
-        "5ac8c2052ffe18ceeedb0d32f307b6092b6a667bf768249b43c2dc76112824b6"
-      ],
-      "fingerprint": "5a179c5a03924c39cfe48b1b090957591ee2c8be5807d607e52f70422d267db0",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -8457,78 +8415,6 @@
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "question:shellSessions carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/features/merge-queue/merge-queue-model.ts",
-      "holder": "readyMergeCandidates",
-      "rule": "consume:filter",
-      "tokens": "a5095c94db790ed9c71db62007ce73cfd0250a66a8e01d977accdb03485b6500",
-      "gate": [],
-      "origin": [
-        "640aaa962274f2f9ebb99911d4debf9bac6403b3309e0266228ef259083d3f89"
-      ],
-      "fingerprint": "a82ef2e760fe2b377b4d0c595c2b209363b1594c8e6a80bbc2bed79197aff530",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of readyMergeCandidates",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:filter carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/features/merge-queue/merge-queue-model.ts",
-      "holder": "readyMergeCandidates",
-      "rule": "consume:sort",
-      "tokens": "0f6cbba85827c1a02a775f2775490df1c3ece1d5ed5283122d1a74ca5a6b39fe",
-      "gate": [],
-      "origin": [
-        "640aaa962274f2f9ebb99911d4debf9bac6403b3309e0266228ef259083d3f89"
-      ],
-      "fingerprint": "136d1ace392a13a3cdc68cd047bbe1b530426d71b029dbe0bfd2bcfc04381340",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of readyMergeCandidates",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:sort carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/features/merge-queue/merge-queue-view.ts",
-      "holder": "MergeQueueView/candidates",
-      "rule": "consume:filter",
-      "tokens": "962218f8c8da82ab269308ceaa185523c423d8d852aed0be315262f857d2de8c",
-      "gate": [],
-      "origin": [
-        "569b307e23c6ed895aff6b3cd5b1f4076ed16a3572e37d4ba2f5f98d8a7c09f7"
-      ],
-      "fingerprint": "1a43d001311910d1a761d8eb530fbc9a71d9ea0a331fd840ac4b06f9d4192997",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "The open merge queue observes its lazy candidate list.",
-      "bound": "The existing shellIssues catalogue supplies the IDs; it has no proven named-demand or cardinality cap.",
-      "reason": "Candidate filtering and ordering moved into the view model without changing the upstream catalogue. Its existing acquisition debt remains owned by POD-5530.",
-      "guard": "Exact fingerprint and multiplicity. Paired legacy fixtures preserve membership and order; this entry does not claim the upstream catalogue has been bounded."
-    },
-    {
-      "file": "apps/web/src/features/merge-queue/merge-queue-view.ts",
-      "holder": "MergeQueueView/candidates",
-      "rule": "consume:sort",
-      "tokens": "b88b54c18c0f6c1c866589fae57fdad20d7c0a887e778c84b96ffffb895a1b11",
-      "gate": [],
-      "origin": [
-        "569b307e23c6ed895aff6b3cd5b1f4076ed16a3572e37d4ba2f5f98d8a7c09f7"
-      ],
-      "fingerprint": "578fe37f1b5a7b6296ff1958029d9bdf97cee5408f01cf2eb000636f98778a2a",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "The open merge queue observes its lazy candidate list.",
-      "bound": "The existing shellIssues catalogue supplies the IDs; it has no proven named-demand or cardinality cap.",
-      "reason": "Candidate filtering and ordering moved into the view model without changing the upstream catalogue. Its existing acquisition debt remains owned by POD-5530.",
-      "guard": "Exact fingerprint and multiplicity. Paired legacy fixtures preserve membership and order; this entry does not claim the upstream catalogue has been bounded."
     },
     {
       "file": "apps/web/src/features/mobile-handoff/MobileHandoffChip.tsx",
@@ -34252,44 +34138,6 @@
     },
     {
       "file": "packages/client-graph/src/shell-views.ts",
-      "holder": "createShellViews/catalogs",
-      "rule": "reader-summary",
-      "tokens": "f8be696e44396dbf5d6ea010194d55044a2328cdb6c355fb227002948e726958",
-      "gate": [],
-      "origin": [
-        "142ce232e07c2ee207ed502d501148109468c5c6165df98d46c4c487fd44a9a3",
-        "3e7d83c093f342f9c72adf3375f191a3f606ba8bdd1f64449e50715b9e25bda5"
-      ],
-      "fingerprint": "686429aaacbf5d365504cc25b7dbbc76a68da56e524254e327df13611eaa7240",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "The shell or pane reader is observed or called.",
-      "bound": "No collection bound is established by this model migration.",
-      "reason": "The shell/pane API split exposes existing collection provenance; moving scalar readers does not repair this collection debt.",
-      "guard": "Retain REQUIRED REPAIR until the collection is bounded or replaced by an addressed answer."
-    },
-    {
-      "file": "packages/client-graph/src/shell-views.ts",
-      "holder": "createShellViews/catalogs/memo:callback/shipOrders",
-      "rule": "reader-summary",
-      "tokens": "c6d08dc93af857e7919cabe5520327048356db62651fecfda38739aa6cc94460",
-      "gate": [],
-      "origin": [
-        "142ce232e07c2ee207ed502d501148109468c5c6165df98d46c4c487fd44a9a3",
-        "3e7d83c093f342f9c72adf3375f191a3f606ba8bdd1f64449e50715b9e25bda5"
-      ],
-      "fingerprint": "d3da5fbf54f9ebbc3d38063c9eb6de4903f081553dbdc4048296807ff04a05dc",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of createShellViews/dock/memo:callback/shipOrders",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-graph/src/shell-views.ts",
       "holder": "createShellViews/issues/memo:callback",
       "rule": "consume:sort",
       "tokens": "b9ca229689687b5d4a18e6c93a5c15d0fd8fc947b6acd672ccedd3c0be91e40a",
@@ -34434,63 +34282,6 @@
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of createShellViews/memo/callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-graph/src/shell-views.ts",
-      "holder": "createShellViews/orders",
-      "rule": "reader-summary",
-      "tokens": "c6ccdf85197fdb769519c56cdda96ece6ba221d255e9349cb9c737de1c548559",
-      "gate": [],
-      "origin": [
-        "142ce232e07c2ee207ed502d501148109468c5c6165df98d46c4c487fd44a9a3",
-        "3e7d83c093f342f9c72adf3375f191a3f606ba8bdd1f64449e50715b9e25bda5"
-      ],
-      "fingerprint": "f058d180e9482cc5dfbc5fc6e13a4a8b174c3e2fd97d399a377da1f7ebe5ca73",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of createShellViews/dock",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-graph/src/shell-views.ts",
-      "holder": "createShellViews/orders/memo:callback",
-      "rule": "consume:flatMap",
-      "tokens": "37e574fe2dcee2427f4b8d4bad82601a12fa5a72437bf49e8e2070d64f3d746c",
-      "gate": [],
-      "origin": [
-        "142ce232e07c2ee207ed502d501148109468c5c6165df98d46c4c487fd44a9a3",
-        "3e7d83c093f342f9c72adf3375f191a3f606ba8bdd1f64449e50715b9e25bda5"
-      ],
-      "fingerprint": "70da290c50e3402ce7ac064e0b12e7bb0de18eb3e719b6f76f527538b124cce9",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of createShellViews/dock/memo:callback/shipOrders",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:flatMap carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-graph/src/shell-views.ts",
-      "holder": "createShellViews/orders/memo:callback",
-      "rule": "reader-summary",
-      "tokens": "904b39de4ac1c4f304eadb7ec62f1ef5ce7f1372fc22e3d46d92192565b3faf9",
-      "gate": [],
-      "origin": [
-        "142ce232e07c2ee207ed502d501148109468c5c6165df98d46c4c487fd44a9a3",
-        "3e7d83c093f342f9c72adf3375f191a3f606ba8bdd1f64449e50715b9e25bda5"
-      ],
-      "fingerprint": "9b2679e877f826c3ca1dd75c4ca2167e89b422ff0f9a372d80fdc3b30f3ad79e",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of createShellViews/dock/memo:callback/shipOrders",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."

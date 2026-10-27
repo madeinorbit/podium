@@ -1,14 +1,9 @@
-import { omitGone } from '@podium/client-graph/lookup'
 // @vitest-environment happy-dom
 import { storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
 import { placementOptions } from '@podium/client-core/values'
-import { referenceState } from '../../../../../tests/worklist/diagnostics/reference-state'
-import {
-  checkWorkflows,
-  probeWorkflowCheckScope,
-} from '../../../../../tests/worklist/diagnostics/workflow-check'
+import { omitGone } from '@podium/client-graph/lookup'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
 import { workflowMachines, workflowSubject } from '@podium/client-graph/workflow-views'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
@@ -26,7 +21,11 @@ import type { ReactNode } from 'react'
 import { afterEach, beforeAll, expect, it, vi } from 'vitest'
 import { attachWorklistPool, useWorklistPool } from '@/app/store-worklist-pool'
 import type { Trpc } from '@/app/trpc'
-import { MergeQueuePanel } from '@/features/merge-queue/MergeQueuePanel'
+import { referenceState } from '../../../../../tests/worklist/diagnostics/reference-state'
+import {
+  checkWorkflows,
+  probeWorkflowCheckScope,
+} from '../../../../../tests/worklist/diagnostics/workflow-check'
 import { createWorkflowsFixture } from '../../../test/workflows-fixture'
 import { AgentProfiles } from './AgentProfiles'
 import { RunProgress } from './RunProgress'
@@ -84,11 +83,6 @@ it('renders the actual screens through no-pool then real attachment without chan
       <>
         <AgentProfiles source={source} />
         <RunProgress source={source} rights={OPERATOR_WORKFLOW_RIGHTS} />
-        <MergeQueuePanel
-          issues={[]}
-          scope={{ repoPath: '/synthetic/project' }}
-          onSelectIssue={() => {}}
-        />
       </>
     )
   }
@@ -113,9 +107,7 @@ it('renders the actual screens through no-pool then real attachment without chan
     profiles: 1,
     runs: 1,
     get: 1,
-    locks: 1,
   })
-  expect(fixture.lockInputs).toEqual([{ repoPath: '/synthetic/project' }])
   expect(storeStats.snapshot().runtimes.every((runtime) => runtime.selectorRuns === 0)).toBe(true)
   expect(fatal).not.toHaveBeenCalled()
 })
@@ -152,7 +144,9 @@ it('matches scoped placement and cold issue/session targets through the one read
     offerable: [{ id: 'synthetic-available' }],
   })
   expect(
-    fixture.profiles.map((profile) => omitGone(pool.row('settingsMachine', profile.machineId ?? ''))),
+    fixture.profiles.map((profile) =>
+      omitGone(pool.row('settingsMachine', profile.machineId ?? '')),
+    ),
   ).toHaveLength(8)
   expect(result.current.machines.views.map((view) => view.availability)).toEqual([
     'available',
@@ -298,11 +292,6 @@ it('executes zero legacy readers after feed activity and preserves one denied-wr
         <AgentProfiles source={source} />
         <RunProgress source={source} rights={OPERATOR_WORKFLOW_RIGHTS} />
         {source.error && <p role="alert">{source.error}</p>}
-        <MergeQueuePanel
-          issues={[]}
-          scope={{ repoPath: '/synthetic/project' }}
-          onSelectIssue={() => {}}
-        />
       </>
     )
   }
@@ -334,7 +323,6 @@ it('executes zero legacy readers after feed activity and preserves one denied-wr
   expect((await screen.findByRole('alert')).textContent).toContain('Synthetic denial')
   expect(fixture.calls.skip).toBe(1)
   expect(fixture.calls.list).toBe(2)
-  expect(fixture.calls.locks).toBe(1)
   expect(owner?.access.replica).toBe(fixture.replica)
   expect(fatal).not.toHaveBeenCalled()
 })

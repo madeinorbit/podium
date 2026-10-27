@@ -11,7 +11,6 @@ import { asClientPrincipal } from '../principal'
 import { createSubscriptionStore } from '../../test-support/local-store'
 import { StoreProvider } from './provider'
 import { useHarnessDescriptors } from './use-harness-descriptors'
-import { useRepoLocks } from './use-merge-lock'
 import { useModelCatalogState } from './use-model-catalog'
 import { usePresenceRoom } from './use-presence-room'
 
@@ -29,9 +28,8 @@ it('acquires every shared transport without legacy subscriptions or derivations'
   function Reader() {
     const catalog = useModelCatalogState()
     const descriptors = useHarnessDescriptors(undefined)
-    const locks = useRepoLocks(null)
     const presence = usePresenceRoom(null)
-    return <span>{catalog.status}:{descriptors.status}:{locks.locks.length}:{presence.status}</span>
+    return <span>{catalog.status}:{descriptors.status}:{presence.status}</span>
   }
   const view = render(<StoreProvider
     principal={asClientPrincipal(asUserId('access'))}
@@ -40,7 +38,7 @@ it('acquires every shared transport without legacy subscriptions or derivations'
     createReplicaFn={() => { throw new Error('fixture owns runtime') }}
   ><Reader /></StoreProvider>)
   await act(async () => {})
-  expect(view.container.textContent).toBe('unavailable:unavailable:0:unknown')
+  expect(view.container.textContent).toBe('unavailable:unavailable:unknown')
   expect(subscribe).not.toHaveBeenCalled()
   storeStats.enable()
   act(() => {

@@ -294,14 +294,6 @@ function createShellViews(pool: MobxPool) {
       }),
     )
   }
-  function orders(): HeaderRows['shipOrder'][] {
-    return memo('orders', () =>
-      headerIds(pool, 'shipOrder').flatMap((id) => {
-        const row = here(pool.row('shipOrder', id)) as HeaderRows['shipOrder'] | undefined
-        return row ? [row] : []
-      }),
-    )
-  }
   function approvals() {
     const keys = catalog()
     return !keys || keys === LOADING ? LOADING : records('shellApproval', keys.approvals)
@@ -348,18 +340,6 @@ function createShellViews(pool: MobxPool) {
   const shellChrome = new ShellChrome(pool, sessionCount)
   const shellDock = new ShellDock(pool, files)
   function chrome() { return shellChrome.value }
-  /** Only the queue/shipping panels display catalogues; dock routing never
-   * acquires them. Their copied issue lists stay with those panels' data. */
-  function catalogs() {
-    return memo('dockCatalog', () => {
-      const tasks = issues(),
-        shipOrders = orders(),
-        shipLanes = lanes()
-      return tasks === LOADING || shipLanes === LOADING
-        ? LOADING
-        : { issues: tasks ?? [], shipOrders, shipLanes: shipLanes ?? [] }
-    })
-  }
   function windowSnapshot() {
     return memo('window', () => {
       const state = window()
@@ -381,7 +361,6 @@ function createShellViews(pool: MobxPool) {
     repositories,
     chrome,
     dock: shellDock,
-    catalogs,
     close,
   }
 }

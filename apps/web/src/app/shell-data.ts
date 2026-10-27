@@ -54,18 +54,6 @@ export function useShellDock(): ShellDock | null {
   const pool = useWorklistPool()
   return pool ? shellView(pool).dock : null
 }
-const EMPTY_CATALOGS = { issues: [], shipOrders: [], shipLanes: [] } as {
-  issues: IssueViewModel[]
-  shipOrders: import('@podium/model').ShipOrderProjection[]
-  shipLanes: import('@podium/model').ShipLaneProjection[]
-}
-/** Queue/shipping panels opt into their catalogues; other panels never read them. */
-export function useShellDockCatalogs(enabled: boolean): typeof EMPTY_CATALOGS {
-  if (import.meta.env.DEV) assertReactiveRead('useShellDockCatalogs')
-  const pool = useWorklistPool(),
-    value = pool && enabled ? shellView(pool).catalogs() : LOADING
-  return value && value !== LOADING ? value : EMPTY_CATALOGS
-}
 const EMPTY_SHIPPING = { unfinishedCount: 0, decisionCount: 0 }
 export function useShellShipping() {
   if (import.meta.env.DEV) assertReactiveRead('useShellShipping')

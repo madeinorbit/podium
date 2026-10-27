@@ -314,7 +314,6 @@ const PaletteDialogBody = observer(function PaletteDialogBody({
   const handoffEnabled = useFeature('session-handoff')
   const gitPanelEnabled = useFeature('git-panel')
   const messagesPanelEnabled = useFeature('messages-panel')
-  const mergeQueueEnabled = useFeature('merge-queue')
   const shippingEnabled = useFeature('shipping')
   const [query, setQuery] = useState('')
   const [highlight, setHighlight] = useState(0)
@@ -680,7 +679,6 @@ const PaletteDialogBody = observer(function PaletteDialogBody({
       rightPanelAllowed(panel, {
         git: gitPanelEnabled,
         messages: messagesPanelEnabled,
-        mergeQueue: mergeQueueEnabled,
         shipping: shippingEnabled,
       })
     for (const panel of RIGHT_PANELS) {

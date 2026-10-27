@@ -5,20 +5,11 @@ export {
   SUPERAGENT_MODE_KEY,
 } from '@podium/client-core/ui-state'
 
-export type RightPanelTab =
-  | 'issue'
-  | 'superagent'
-  | 'git'
-  | 'files'
-  | 'shell'
-  | 'mail'
-  | 'merge-queue'
-  | 'shipping'
+export type RightPanelTab = 'issue' | 'superagent' | 'git' | 'files' | 'shell' | 'mail' | 'shipping'
 
 export interface RightPanelFeatures {
   git: boolean
   messages: boolean
-  mergeQueue: boolean
   shipping: boolean
 }
 
@@ -28,7 +19,6 @@ export function rightPanelAllowed(
 ): boolean {
   if (panel === 'git') return features.git
   if (panel === 'mail') return features.messages
-  if (panel === 'merge-queue') return features.mergeQueue
   if (panel === 'shipping') return features.shipping
   return true
 }
@@ -83,7 +73,6 @@ export function readRightPanel(value: string | null): RightPanelTab | null {
     value === 'files' ||
     value === 'shell' ||
     value === 'mail' ||
-    value === 'merge-queue' ||
     value === 'shipping'
     ? value
     : null

@@ -602,13 +602,11 @@ function AppBodyView({ syncProgress }: { syncProgress: SyncProgressStore }): JSX
   const commandPaletteEnabled = useFeature('command-palette')
   const gitPanelEnabled = useFeature('git-panel')
   const messagesPanelEnabled = useFeature('messages-panel')
-  const mergeQueueEnabled = useFeature('merge-queue')
   const shippingEnabled = useFeature('shipping')
   const panelAllowed = (panel: RightPanelTab | null): boolean =>
     rightPanelAllowed(panel, {
       git: gitPanelEnabled,
       messages: messagesPanelEnabled,
-      mergeQueue: mergeQueueEnabled,
       shipping: shippingEnabled,
     })
   const visibleRightPanel = panelAllowed(responsiveRightPanel) ? responsiveRightPanel : null
