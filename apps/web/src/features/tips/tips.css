@@ -81,7 +81,7 @@
   width: 5px;
   height: 5px;
   border-radius: 50%;
-  background: var(--border);
+  background: var(--border-strong);
 }
 .tip-pages i[data-active="true"] {
   background: var(--primary);
