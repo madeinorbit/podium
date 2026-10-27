@@ -337,7 +337,7 @@ describe('oracle: sessions.uploadImage', () => {
     )
   })
 
-  it(`${MUST_NOT_CHANGE}: routes a live runtime session through staged refs and preserves typed refusals`, async () => {
+  it(`${MUST_NOT_CHANGE}: an agent session's upload is HELD on the server — no machine is touched, a ref with no path comes back (POD-2148)`, async () => {
     const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'codex', cwd: '/p' })
     o.reg.gateway.routeDaemonFrame(o.store.hostMachineId, {
@@ -349,55 +349,36 @@ describe('oracle: sessions.uploadImage', () => {
       geometry: { cols: 80, rows: 24 },
       driverId: 'codex-app-server',
     })
-    const requests: Extract<ControlMessage, { type: 'runtimeStageAttachmentRequest' }>[] = []
-    let refuse = false
-    o.reg.gateway.attachDaemon(o.store.hostMachineId, (msg) => {
-      if (msg.type !== 'runtimeStageAttachmentRequest') return
-      requests.push(msg)
-      o.reg.gateway.routeDaemonFrame(o.store.hostMachineId, {
-        type: 'runtimeStageAttachmentResult',
-        requestId: msg.requestId,
-        sessionId,
-        result: refuse
-          ? { reason: 'unsupported' as const, detail: 'This agent cannot accept files.' }
-          : {
-              id: 'staged-1',
-              path: '/staged/shot.png',
-              filename: 'shot.png',
-              mediaType: 'image/png',
-              kind: 'image' as const,
-            },
-      })
-    })
+    o.daemon.length = 0
 
-    const staged = await o.call.sessions.uploadImage({
+    const held = await o.call.sessions.uploadImage({
       sessionId,
       filename: 'shot.png',
       mimeType: 'image/png',
       dataBase64: Buffer.from('bytes').toString('base64'),
     })
-    expect(staged).toEqual({
-      path: '/staged/shot.png',
-      attachment: expect.objectContaining({ id: 'staged-1', kind: 'image' }),
+    // `path: ''` keeps a client cached from before from sending a path.
+    expect(held).toEqual({
+      path: '',
+      attachment: {
+        id: expect.stringMatching(/^[0-9a-f-]{36}$/),
+        filename: 'shot.png',
+        mediaType: 'image/png',
+        kind: 'image',
+      },
     })
-    expect(requests[0]?.source).toEqual({
-      dataBase64: Buffer.from('bytes').toString('base64'),
+    const id = 'attachment' in held && held.attachment ? held.attachment.id : ''
+    expect(await o.reg.modules.pendingUploads.meta(id)).toMatchObject({
       filename: 'shot.png',
       mediaType: 'image/png',
+      size: 5,
     })
-
-    refuse = true
-    await expect(
-      o.call.sessions.uploadImage({
-        sessionId,
-        filename: 'spec.pdf',
-        mimeType: 'application/pdf',
-        dataBase64: 'AA==',
-      }),
-    ).resolves.toEqual({
-      refusal: { reason: 'unsupported', detail: 'This agent cannot accept files.' },
-    })
-    expect(o.daemon.some((msg) => msg.type === 'imageUploadRequest')).toBe(false)
+    // The bytes reach the agent's machine with the message, not now.
+    expect(
+      o.daemon.filter(
+        (msg) => msg.type === 'runtimeStageAttachmentRequest' || msg.type === 'imageUploadRequest',
+      ),
+    ).toEqual([])
   })
 
   it(`${MUST_NOT_CHANGE}: a daemon-reported failure surfaces as INTERNAL_SERVER_ERROR carrying the daemon's own message`, async () => {
@@ -487,30 +468,20 @@ describe('oracle: sessions.uploadImage', () => {
     ])
     expect(o.daemon.filter((m) => m.type === 'imageUploadRequest')).toEqual([])
 
-    // THE AGENT PATH ROUTES THE SAME WAY (577eb857a, 358ad0ffb): the staged
-    // file has to exist on the disk of the machine running the driver, so the
-    // stage request goes to the session's machine and nowhere else.
-    const staged = await o.call.sessions.uploadImage({
+    // AN AGENT'S UPLOAD IS HELD ON THE SERVER (POD-2148): no machine is
+    // written at upload. The routing invariant moves to delivery, where the
+    // inbox stages the file on the machine running the session at that moment.
+    const held = await o.call.sessions.uploadImage({
       sessionId: agent.sessionId,
       filename: 'shot.png',
       mimeType: 'image/png',
       dataBase64: Buffer.from('bytes').toString('base64'),
     })
-    expect(staged).toEqual({
-      path: '/staged/other/shot.png',
-      attachment: expect.objectContaining({ id: 'staged-on-other' }),
+    expect(held).toEqual({
+      path: '',
+      attachment: expect.objectContaining({ filename: 'shot.png' }),
     })
-    expect(otherSeen.filter((m) => m.type === 'runtimeStageAttachmentRequest')).toEqual([
-      expect.objectContaining({
-        type: 'runtimeStageAttachmentRequest',
-        sessionId: agent.sessionId,
-        source: {
-          dataBase64: Buffer.from('bytes').toString('base64'),
-          filename: 'shot.png',
-          mediaType: 'image/png',
-        },
-      }),
-    ])
+    expect(otherSeen.filter((m) => m.type === 'runtimeStageAttachmentRequest')).toEqual([])
     expect(otherSeen.filter((m) => m.type === 'imageUploadRequest')).toHaveLength(1)
     expect(
       o.daemon.filter(
@@ -711,24 +682,16 @@ describe('oracle: sessions.uploadImage', () => {
         expect.objectContaining({ type: 'imageUploadRequest', sessionId }),
       )
 
-      // THE AGENT PATH'S UNANSWERED SHAPE (577eb857a, 358ad0ffb). An agent's
-      // upload is a stage request under the runtime verb budget (10s), and an
-      // unanswered one RESOLVES as a typed `not_running` refusal — not a throw.
-      // Still never a silent success: there is no path, only the refusal.
-      const stagedSettled = o.call.sessions
-        .uploadImage({
-          sessionId: agent.sessionId,
-          filename: 'shot.png',
-          mimeType: 'image/png',
-          dataBase64: 'AA==',
-        })
-        .then(
-          (value) => value,
-          (e: unknown) => (e instanceof Error ? e.message : String(e)),
-        )
-      await vi.advanceTimersByTimeAsync(10_000)
-      expect(await stagedSettled).toEqual({ refusal: { reason: 'not_running' } })
-      expect(o.daemon).toContainEqual(
+      // AN AGENT'S UPLOAD NEEDS NO ANSWER AT ALL (POD-2148): it is held on the
+      // server, so an unresponsive machine cannot stall or refuse it.
+      const held = await o.call.sessions.uploadImage({
+        sessionId: agent.sessionId,
+        filename: 'shot.png',
+        mimeType: 'image/png',
+        dataBase64: 'AA==',
+      })
+      expect(held).toEqual({ path: '', attachment: expect.objectContaining({ kind: 'image' }) })
+      expect(o.daemon).not.toContainEqual(
         expect.objectContaining({
           type: 'runtimeStageAttachmentRequest',
           sessionId: agent.sessionId,

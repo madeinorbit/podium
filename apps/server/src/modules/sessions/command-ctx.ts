@@ -86,6 +86,8 @@ export async function sessionCommandCtx(
   const deps: SessionCommandDeps = {
     sessions: () => commandSessions,
     stageAttachment: async (input) => await sessions.runtimeGateway.stageAttachment(input),
+    holdUpload: async (input) => await modules.pendingUploads.put(input),
+    claimUpload: async (issueId, input) => await issues.crud.panelChatUploadClaim(issueId, input),
     isAgentDriven: async (sessionId) => await sessions.receiptSender.onContract(sessionId),
     // THE CHAT PATHS' SEND, as a dispatch of the `mail.send` contract (POD-729).
     //

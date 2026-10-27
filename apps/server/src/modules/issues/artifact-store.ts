@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto'
-import { mkdir, open, readFile, rm, stat } from 'node:fs/promises'
+import { mkdir, open, readFile, rename, rm, stat } from 'node:fs/promises'
 import { dirname, join, resolve, sep } from 'node:path'
 import {
   type ArtifactId,
@@ -161,6 +161,37 @@ export class IssueArtifactStore {
    *  source file into a checkout or daemon upload directory. */
   async upload(o: ArtifactUploadInput): Promise<ArtifactSnapshot> {
     const write = async () => await this.uploadWritable(o)
+    return this.writeFence ? await this.writeFence.runWriter(write) : await write()
+  }
+
+  /**
+   * Take a pending chat upload's file dir as this artifact's dir, by rename
+   * (POD-2148): no bytes are re-read. Idempotent per `artifactId` — a retried
+   * claim whose move already happened finds the artifact in place.
+   */
+  async adopt(o: {
+    issueId: IssueId
+    artifactId: ArtifactId
+    fromDir: string
+    entry: string
+  }): Promise<ArtifactSnapshot> {
+    const write = async (): Promise<ArtifactSnapshot> => {
+      const dir = this.artifactDir(o.issueId, o.artifactId)
+      const target = join(dir, o.entry)
+      this.assertInBase(target)
+      const placed = await stat(target).catch(() => undefined)
+      if (!placed) {
+        await mkdir(dirname(dir), { recursive: true })
+        await rename(o.fromDir, dir)
+      }
+      const size = placed?.size ?? (await stat(target)).size
+      return {
+        artifactId: o.artifactId,
+        entry: o.entry,
+        files: [{ path: o.entry, size }],
+        sourcePaths: [],
+      }
+    }
     return this.writeFence ? await this.writeFence.runWriter(write) : await write()
   }
 

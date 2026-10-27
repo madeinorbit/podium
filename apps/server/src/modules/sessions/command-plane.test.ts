@@ -35,6 +35,7 @@ import {
   bindingPrincipalFor,
   createdOwnership,
   dispatchSessionCommand,
+  SESSION_COMMAND_HANDLERS,
   SessionCommandCtx,
   type SessionCommandDeps,
   spawnedByFor,
@@ -119,6 +120,9 @@ async function ctxFor(
   const deps: SessionCommandDeps = {
     sessions: () => sessionCommandServices(modules),
     stageAttachment: (input) => modules.sessions.runtimeGateway.stageAttachment(input),
+    holdUpload: async (input) => await modules.pendingUploads.put(input),
+    claimUpload: async (issueId, input) =>
+      await modules.issues.crud.panelChatUploadClaim(issueId, input),
     isAgentDriven: async (sessionId) => modules.sessions.receiptSender.onContract(sessionId),
     // The chat path's send dispatches the `mail.send` CONTRACT (POD-729), so the
     // fixture binds the port the same way the composition root does — from the
@@ -156,6 +160,151 @@ async function ctxFor(
   }
   return new SessionCommandCtx(deps, principal)
 }
+
+describe('held chat uploads (POD-2148)', () => {
+  const png = Buffer.from([0x89, 0x50, 0x4e, 0x47]).toString('base64')
+
+  async function hold(o: Oracle, sessionId: string, pending?: true) {
+    const held = await dispatchSessionCommand(
+      await ctxFor(o, human(firstAdminMemberId())),
+      'uploadImage',
+      {
+        sessionId: asSessionId(sessionId),
+        filename: 'shot.png',
+        mimeType: 'image/png',
+        dataBase64: png,
+        ...(pending ? { pending } : {}),
+      },
+    )
+    if (!('attachment' in held) || !held.attachment) throw new Error('expected a held ref')
+    expect(held.path).toBe('')
+    expect(held.attachment).not.toHaveProperty('path')
+    return held.attachment
+  }
+
+  it('create claims the task’s uploads and queues the first prompt with them instead of argv', async () => {
+    const o = await makeOracle()
+    await provisionHost(o)
+    const ref = await hold(o, 'coldstart-5c1f', true)
+
+    const created = await dispatchSessionCommand(
+      await ctxFor(o, human(firstAdminMemberId())),
+      'create',
+      {
+        agentKind: 'claude-code',
+        cwd: '/p',
+        draftIssue: { repoPath: '/p' },
+        initialPrompt: 'what is in this picture?',
+        attachments: [ref],
+      },
+    )
+
+    const draft = (await o.reg.issues.reports.list('/p')).find((issue) => issue.draft)
+    expect(draft?.panel?.artifacts).toEqual([
+      expect.objectContaining({ chatUploadId: ref.id, title: 'shot.png', entry: 'shot.png' }),
+    ])
+    // Argv carries text alone: the prompt rides a queued row with its file.
+    const spawn = o.daemon.filter((m) => m.type === 'spawn').at(-1)
+    expect(spawn).toMatchObject({ sessionId: created.sessionId })
+    expect(spawn).not.toHaveProperty('initialPrompt')
+    const queued = await o.store.sync.listQueuedMessages(created.sessionId)
+    expect(queued.map((row) => [row.text, JSON.parse(row.attachmentsJson ?? '[]')])).toEqual([
+      ['what is in this picture?', [ref]],
+    ])
+    // The first bubble's record names the file.
+    const prompt = await o.store.messages.getMessage(queued[0]?.sourceMessageId ?? '')
+    expect(prompt?.attachments).toEqual([ref])
+  })
+
+  it('a send claims its uploads into the session’s issue, once, and queues the ref without a path', async () => {
+    const o = await makeOracle()
+    await provisionHost(o)
+    const issue = await o.reg.issues.crud.create({ repoPath: '/p', title: 'Work', startNow: false })
+    const { sessionId } = await dispatchSessionCommand(
+      await ctxFor(o, human(firstAdminMemberId())),
+      'create',
+      {
+        agentKind: 'claude-code',
+        cwd: '/p',
+        issueId: issue.id,
+      },
+    )
+    const ref = await hold(o, sessionId)
+    const send = {
+      sessionId,
+      text: 'look',
+      attachments: [ref],
+      mutationId: 'msg_0f6a3c2e-1b4d-4c8e-9a7f-2d5e6b8c9a01',
+    }
+
+    // Through the router, whose capability carries the sender's attribution.
+    const first = await o.call.sessions.sendText(send)
+    const again = await o.call.sessions.sendText(send)
+
+    expect(first).toMatchObject({ ok: true })
+    expect(again).toMatchObject({ ok: true })
+    const artifacts = (await o.reg.issues.reports.get(issue.id))?.panel?.artifacts ?? []
+    expect(artifacts.filter((artifact) => artifact.chatUploadId === ref.id)).toHaveLength(1)
+    const queued = await o.store.sync.listQueuedMessages(sessionId)
+    expect(queued.map((row) => JSON.parse(row.attachmentsJson ?? '[]'))).toEqual([[ref]])
+  })
+
+  it('a session with no issue has nowhere to keep a file, so the send is refused', async () => {
+    const o = await makeOracle()
+    await provisionHost(o)
+    const { sessionId } = await dispatchSessionCommand(
+      await ctxFor(o, human(firstAdminMemberId())),
+      'create',
+      {
+        agentKind: 'claude-code',
+        cwd: '/p',
+      },
+    )
+    const ref = await hold(o, sessionId)
+
+    expect(await o.call.sessions.sendText({ sessionId, text: 'look', attachments: [ref] })).toEqual(
+      {
+        ok: false,
+        reason: 'this agent cannot accept file attachments',
+        disposition: 'dead_letter',
+      },
+    )
+    expect(await o.store.sync.listQueuedMessages(sessionId)).toEqual([])
+  })
+
+  it('the superagent’s headless session still stages at upload, so its path can ride the text', async () => {
+    const staged = {
+      id: 'staged-1',
+      path: '/home/u/.podium/uploads/s-1/staged-1.png',
+      filename: 'shot.png',
+      mediaType: 'image/png',
+      kind: 'image' as const,
+    }
+    const holdUpload = vi.fn()
+    const ctx = new SessionCommandCtx(
+      {
+        sessions: () =>
+          ({ sessionById: async () => ({ sessionId: 's-1', headless: true }) }) as never,
+        stageAttachment: async () => staged,
+        holdUpload,
+        claimUpload: async () => {},
+        isAgentDriven: async () => true,
+        rpc: () => ({}) as never,
+      } as unknown as SessionCommandDeps,
+      human(firstAdminMemberId()),
+    )
+
+    expect(
+      await SESSION_COMMAND_HANDLERS.uploadImage(ctx, {
+        sessionId: asSessionId('s-1'),
+        filename: 'shot.png',
+        mimeType: 'image/png',
+        dataBase64: png,
+      }),
+    ).toEqual({ path: staged.path, attachment: staged })
+    expect(holdUpload).not.toHaveBeenCalled()
+  })
+})
 
 describe('draft launch compensation', () => {
   it('stores browser attachments on the draft before starting its session', async () => {
@@ -913,6 +1062,12 @@ describe('session id prefix (POD-4536)', () => {
       {
         sessions: () => ({ sessionById: rowFor }) as never,
         stageAttachment: async () => {
+          throw new Error('unused')
+        },
+        holdUpload: async () => {
+          throw new Error('unused')
+        },
+        claimUpload: async () => {
           throw new Error('unused')
         },
         isAgentDriven: async () => false,

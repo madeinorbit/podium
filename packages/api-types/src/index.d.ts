@@ -2042,6 +2042,13 @@ type Input_sessions_answerAskUserQuestion = {
 };
 type Input_sessions_create = {
     agentKind?: "claude-code" | "codex" | "cursor" | "grok" | "opencode" | "pi" | "shell" | undefined;
+    attachments?: undefined | {
+        filename: string;
+        id: string;
+        kind: "file" | "image";
+        mediaType: string;
+        path?: string | undefined;
+    }[];
     cwd: string;
     draftArtifacts?: undefined | {
         dataBase64: string;
@@ -2082,7 +2089,7 @@ type Input_sessions_resumeAndSend = {
         id: string;
         kind: "file" | "image";
         mediaType: string;
-        path: string;
+        path?: string | undefined;
     }[];
     effort?: string | undefined;
     forceUnknownModel?: boolean | undefined;
@@ -2095,6 +2102,14 @@ type Input_sessions_setWorkState = {
     mutationId?: string | undefined;
     sessionId: string;
     workState: "done" | "icebox" | "implementing" | "planning" | "testing" | null;
+};
+type Input_sessions_uploadImage = {
+    dataBase64: string;
+    filename: string;
+    machineId?: string | undefined;
+    mimeType: string;
+    pending?: true | undefined;
+    sessionId: string;
 };
 type Input_settings_clearSecret = {
     key: "apiKeys.anthropic" | "apiKeys.openai" | "apiKeys.openrouter" | "integrations.linearApiKey" | "notifications.telegramBotToken";
@@ -2981,6 +2996,7 @@ type Output_issues_action = {
             artifacts: {
                 addedAt: string;
                 artifactId?: (string & z.BRAND<"ArtifactId">) | undefined;
+                chatUploadId?: string | undefined;
                 entry?: string | undefined;
                 files?: undefined | {
                     path: string;
@@ -3119,6 +3135,7 @@ type Output_issues_action = {
             artifacts: {
                 addedAt: string;
                 artifactId?: (string & z.BRAND<"ArtifactId">) | undefined;
+                chatUploadId?: string | undefined;
                 entry?: string | undefined;
                 files?: undefined | {
                     path: string;
@@ -3283,6 +3300,7 @@ type Output_issues_addComment = _podium_model.IssueUserOverlay & Omit<{
         artifacts: {
             addedAt: string;
             artifactId?: (string & z.BRAND<"ArtifactId">) | undefined;
+            chatUploadId?: string | undefined;
             entry?: string | undefined;
             files?: undefined | {
                 path: string;
@@ -3421,6 +3439,7 @@ type Output_issues_addComment = _podium_model.IssueUserOverlay & Omit<{
         artifacts: {
             addedAt: string;
             artifactId?: (string & z.BRAND<"ArtifactId">) | undefined;
+            chatUploadId?: string | undefined;
             entry?: string | undefined;
             files?: undefined | {
                 path: string;
@@ -3584,6 +3603,7 @@ type Output_issues_answerQuestion = {
             artifacts: {
                 addedAt: string;
                 artifactId?: (string & z.BRAND<"ArtifactId">) | undefined;
+                chatUploadId?: string | undefined;
                 entry?: string | undefined;
                 files?: undefined | {
                     path: string;
@@ -3722,6 +3742,7 @@ type Output_issues_answerQuestion = {
             artifacts: {
                 addedAt: string;
                 artifactId?: (string & z.BRAND<"ArtifactId">) | undefined;
+                chatUploadId?: string | undefined;
                 entry?: string | undefined;
                 files?: undefined | {
                     path: string;
@@ -3945,6 +3966,7 @@ type Output_issues_create = (_podium_model.IssueUserOverlay & Omit<{
         artifacts: {
             addedAt: string;
             artifactId?: (string & z.BRAND<"ArtifactId">) | undefined;
+            chatUploadId?: string | undefined;
             entry?: string | undefined;
             files?: undefined | {
                 path: string;
@@ -4084,6 +4106,7 @@ type Output_issues_create = (_podium_model.IssueUserOverlay & Omit<{
         artifacts: {
             addedAt: string;
             artifactId?: (string & z.BRAND<"ArtifactId">) | undefined;
+            chatUploadId?: string | undefined;
             entry?: string | undefined;
             files?: undefined | {
                 path: string;
@@ -4245,6 +4268,7 @@ type Output_issues_create = (_podium_model.IssueUserOverlay & Omit<{
         artifacts: {
             addedAt: string;
             artifactId?: (string & z.BRAND<"ArtifactId">) | undefined;
+            chatUploadId?: string | undefined;
             entry?: string | undefined;
             files?: undefined | {
                 path: string;
@@ -4383,6 +4407,7 @@ type Output_issues_create = (_podium_model.IssueUserOverlay & Omit<{
         artifacts: {
             addedAt: string;
             artifactId?: (string & z.BRAND<"ArtifactId">) | undefined;
+            chatUploadId?: string | undefined;
             entry?: string | undefined;
             files?: undefined | {
                 path: string;
@@ -4498,6 +4523,7 @@ type Output_issues_get = (null) | ({
         artifacts: {
             addedAt: string;
             artifactId?: (string & z.BRAND<"ArtifactId">) | undefined;
+            chatUploadId?: string | undefined;
             entry?: string | undefined;
             files?: undefined | {
                 path: string;
@@ -4959,6 +4985,7 @@ type Output_issues_searchNormalized = Array<{
         artifacts: {
             addedAt: string;
             artifactId?: (string & z.BRAND<"ArtifactId">) | undefined;
+            chatUploadId?: string | undefined;
             entry?: string | undefined;
             files?: undefined | {
                 path: string;
@@ -5216,6 +5243,7 @@ type Output_issues_start = _podium_model.IssueUserOverlay & Omit<Partial<{
         artifacts: {
             addedAt: string;
             artifactId?: (string & z.BRAND<"ArtifactId">) | undefined;
+            chatUploadId?: string | undefined;
             entry?: string | undefined;
             files?: undefined | {
                 path: string;
@@ -5354,6 +5382,7 @@ type Output_issues_start = _podium_model.IssueUserOverlay & Omit<Partial<{
         artifacts: {
             addedAt: string;
             artifactId?: (string & z.BRAND<"ArtifactId">) | undefined;
+            chatUploadId?: string | undefined;
             entry?: string | undefined;
             files?: undefined | {
                 path: string;
@@ -5657,7 +5686,7 @@ type Output_sessions_uploadImage = ({
         id: string;
         kind: "file" | "image";
         mediaType: string;
-        path: string;
+        path?: string | undefined;
     };
     path: string;
     refusal?: undefined;
@@ -8171,13 +8200,7 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
             meta: unknown;
         }>;
         "uploadImage": TRPC.TRPCMutationProcedure<{
-            input: {
-                dataBase64: string;
-                filename: string;
-                machineId?: string | undefined;
-                mimeType: string;
-                sessionId: string;
-            };
+            input: Input_sessions_uploadImage;
             output: Output_sessions_uploadImage;
             meta: unknown;
         }>;

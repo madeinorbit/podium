@@ -1,7 +1,8 @@
-import { randomUUID } from 'node:crypto'
+import { randomBytes, randomUUID } from 'node:crypto'
 import {
   type ArtifactId,
   type Attribution,
+  asArtifactId,
   asIssueId,
   asRepoId,
   asSessionId,
@@ -83,6 +84,17 @@ const terminalEvidenceHelp = (seq: number): string =>
   `\`podium issue artifact ${seq} --add <relative-image> --terminal-evidence\`; ` +
   `only raster images are accepted. Redact terminal text/scrollback into the owning ` +
   `issue worktree and attach it normally.`
+
+/** The two artifact kinds the review ownership gate does not ask to live in
+ *  the owning worktree, listed explicitly: terminal evidence passed its own
+ *  checks at add time, and a chat upload (POD-2148) is a file a person
+ *  attached in the issue's chat, stored on the server. */
+function outsideWorktreeByDesign(artifact: {
+  sourceKind?: 'terminal-evidence'
+  chatUploadId?: string
+}): boolean {
+  return artifact.sourceKind === 'terminal-evidence' || artifact.chatUploadId !== undefined
+}
 
 function isTerminalEvidenceImage(path: string): boolean {
   const extension = path.split('.').pop()?.toLowerCase() ?? ''
@@ -406,6 +418,7 @@ export class IssueCrudModule {
           ...(op.files ? { files: op.files } : {}),
           ...(op.sourcePaths ? { sourcePaths: op.sourcePaths } : {}),
           ...(op.sourceKind ? { sourceKind: op.sourceKind } : {}),
+          ...(op.chatUploadId ? { chatUploadId: op.chatUploadId } : {}),
         }
         const existing = panel.artifacts.findIndex((a) => a.path === op.path)
         if (existing >= 0) panel.artifacts[existing] = next
@@ -603,6 +616,103 @@ export class IssueCrudModule {
       void store.remove(row.id, snap.artifactId).catch(() => {})
       throw error
     }
+  }
+
+  /**
+   * CLAIM A COMPOSER UPLOAD INTO THIS ISSUE (POD-2148): the message that
+   * carries it was sent, or the task it was picked for was created. Only the
+   * person who uploaded it may claim it, and only into one issue; claiming it
+   * again into the same issue is the claim already made (a replayed send).
+   *
+   * The bytes move by rename (no re-read) under the server-transfer write
+   * fence, so a fenced store refuses the claim rather than losing the file.
+   * The panel entry carries the upload id: it is what the chat finds the
+   * thumbnail by, and what delivery stages the file from.
+   */
+  async panelChatUploadClaim(
+    issueId: IssueId,
+    input: { uploadId: string; ownerUserId: UserId },
+  ): Promise<void> {
+    const key = `${issueId}\0${input.uploadId}`
+    const running = this.chatUploadClaims.get(key)
+    if (running) return await running
+    const claim = this.claimChatUpload(issueId, input).finally(() => {
+      this.chatUploadClaims.delete(key)
+    })
+    this.chatUploadClaims.set(key, claim)
+    return await claim
+  }
+
+  /** In-flight claims by issue + upload id: two overlapping sends of one
+   *  upload share a single move. */
+  private readonly chatUploadClaims = new Map<string, Promise<void>>()
+
+  private async claimChatUpload(
+    issueId: IssueId,
+    input: { uploadId: string; ownerUserId: UserId },
+  ): Promise<void> {
+    const row = await this.store.rowOrThrow(issueId)
+    if (this.store.parsePanel(row).artifacts.some((a) => a.chatUploadId === input.uploadId)) return
+    const pending = this.store.deps.pendingUploads
+    const store = this.store.deps.artifacts
+    if (!pending || !store?.adopt)
+      throw new IssueRefusal('chat uploads are not stored on this server')
+    const meta = await pending.meta(input.uploadId)
+    if (!meta || meta.ownerUserId !== input.ownerUserId) {
+      throw new IssueRefusal('this attachment is no longer available; attach the file again')
+    }
+    if (meta.claimed && meta.claimed.issueId !== issueId) {
+      throw new IssueRefusal(
+        'this attachment was already sent with another task; attach the file again',
+      )
+    }
+    const claimed = meta.claimed ?? {
+      issueId,
+      artifactId: asArtifactId(randomBytes(6).toString('hex')),
+    }
+    if (!meta.claimed) await pending.markClaimed(input.uploadId, claimed)
+    const snap = await store.adopt({
+      issueId,
+      artifactId: claimed.artifactId,
+      fromDir: pending.fileDir(input.uploadId),
+      entry: meta.entry,
+    })
+    await this.panelApply(issueId, {
+      op: 'artifact-add',
+      path: `chat-uploads/${input.uploadId}/${snap.entry}`,
+      title: meta.filename,
+      artifactId: snap.artifactId,
+      entry: snap.entry,
+      files: snap.files,
+      chatUploadId: input.uploadId,
+    })
+  }
+
+  /** Whether this issue holds a claimed chat upload under this id (POD-2148). */
+  async chatUploadClaimed(issueId: IssueId, uploadId: string): Promise<boolean> {
+    const row = await this.store.rowOrThrow(issueId).catch(() => undefined)
+    return (
+      !!row &&
+      this.store.parsePanel(row).artifacts.some((a) => a.chatUploadId === uploadId && a.artifactId)
+    )
+  }
+
+  /** A claimed chat upload's bytes, for staging on the agent's machine at
+   *  delivery (POD-2148). Undefined when the issue no longer holds them. */
+  async chatUploadBytes(issueId: IssueId, uploadId: string): Promise<Uint8Array | undefined> {
+    const row = await this.store.rowOrThrow(issueId).catch(() => undefined)
+    const store = this.store.deps.artifacts
+    if (!row || !store) return undefined
+    const entry = this.store
+      .parsePanel(row)
+      .artifacts.find((a) => a.chatUploadId === uploadId && a.artifactId)
+    if (!entry?.artifactId) return undefined
+    const found = await store.read(
+      issueId,
+      entry.artifactId,
+      entry.entry ?? machinePathBasename(entry.path) ?? '',
+    )
+    return found ? new Uint8Array(found.bytes) : undefined
   }
 
   /** artifact-remove that also deletes the snapshot's store dir ([spec:SP-0fc9]).
@@ -1494,7 +1604,7 @@ export class IssueCrudModule {
   private assertReviewArtifactOwnership(row: IssueRow): void {
     const artifacts = this.store.parsePanel(row).artifacts
     if (artifacts.length === 0) return
-    const ordinary = artifacts.filter((artifact) => artifact.sourceKind !== 'terminal-evidence')
+    const ordinary = artifacts.filter((artifact) => !outsideWorktreeByDesign(artifact))
     if (!row.worktreePath && ordinary.length > 0) {
       throw new IssueRefusal(
         `review blocked: issue ${row.seq} has artifacts but no owning worktree; restore the issue worktree and re-add the evidence`,
@@ -1503,7 +1613,7 @@ export class IssueCrudModule {
     if (!row.worktreePath) return
     const root = row.worktreePath
     for (const artifact of artifacts) {
-      if (artifact.sourceKind === 'terminal-evidence') continue
+      if (outsideWorktreeByDesign(artifact)) continue
       const rel = machinePathRelativeToRoot(root, artifact.path)
       if (!rel) {
         throw new IssueRefusal(

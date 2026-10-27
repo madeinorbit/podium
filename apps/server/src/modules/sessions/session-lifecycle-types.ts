@@ -23,6 +23,7 @@ import type {
 } from '@podium/protocol'
 import type {
   QueueDrainAbandonedReason,
+  RuntimeAttachmentRef,
 } from '@podium/protocol/daemon'
 import type {
   EntityChangeSpec,
@@ -117,6 +118,7 @@ export interface SessionLifecycleDeps {
     parentSessionId: SessionId
     sessionId: SessionId
     text: string
+    attachments?: readonly RuntimeAttachmentRef[]
   }): Promise<string>
   /** Store the task a person (or a job) started a session with as the owner's
    *  message, attributed to its creator (POD-4846); answers its id. */
@@ -124,7 +126,16 @@ export interface SessionLifecycleDeps {
     sessionId: SessionId
     text: string
     attribution: Attribution
+    attachments?: readonly RuntimeAttachmentRef[]
   }): Promise<string>
+  /** Chat uploads claimed into an issue (POD-2148): the inbox stages one on
+   *  the agent's machine when it forwards the row that carries it, and the
+   *  send seam checks a ref names one on the session's issue. Absent = a
+   *  server with no issue store; a pathless ref is then refused. */
+  chatUploads?: {
+    bytes(issueId: IssueId, uploadId: string): Promise<Uint8Array | undefined>
+    claimed(issueId: IssueId, uploadId: string): Promise<boolean>
+  }
   /** Send an agent's continue as a message from `system:auto-continue`, one
    *  per errored turn (POD-4846). */
   sendContinue?(input: {

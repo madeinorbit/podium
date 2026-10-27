@@ -69,7 +69,7 @@ import type {
   DaemonPtyInputBatch,
   SessionBindingSpawnInstruction,
 } from '@podium/protocol'
-import type { ControlMessage } from '@podium/protocol/daemon'
+import type { ControlMessage, RuntimeAttachmentRef } from '@podium/protocol/daemon'
 import { resolveRole } from '@podium/runtime'
 import { harnessSupportsEffort, harnessSupportsInitialPrompt } from '../../harness-manifest'
 import { resolveLaunchSelection, type ResolvedLaunchSelection } from '../../model-validation'
@@ -184,6 +184,7 @@ export interface SessionStartPorts {
     text: string
     sourceMessageId?: string
     inputOrigin?: 'mail'
+    attachments?: readonly RuntimeAttachmentRef[]
   }): Promise<{
     ok: boolean
     queued?: boolean
@@ -196,6 +197,7 @@ export interface SessionStartPorts {
     parentSessionId: SessionId
     sessionId: SessionId
     text: string
+    attachments?: readonly RuntimeAttachmentRef[]
   }): Promise<string>
   /** Store the task a person (or a job) started a session with as the owner's
    *  message, attributed to its creator, already handed to it (POD-4846).
@@ -204,6 +206,7 @@ export interface SessionStartPorts {
     sessionId: SessionId
     text: string
     attribution: Attribution
+    attachments?: readonly RuntimeAttachmentRef[]
   }): Promise<string>
   emitSessionCreated(payload: {
     sessionId: SessionId
@@ -224,6 +227,9 @@ export class SessionStart {
     name?: string
     machineId?: MachineId
     initialPrompt?: string
+    /** Files claimed into the session's issue for the first prompt (POD-2148).
+     *  They ride its queued row, so a prompt carrying them is never argv. */
+    initialAttachments?: readonly RuntimeAttachmentRef[]
     model?: string
     effort?: string
     accountId?: AccountId
@@ -344,7 +350,13 @@ export class SessionStart {
       ...(agentProfileId ? { agentProfileId } : {}),
     })
     const taskPrompt = input.initialPrompt?.trim() ? input.initialPrompt.trim() : undefined
-    const useArgv = taskPrompt !== undefined && harnessSupportsInitialPrompt(agentKind)
+    const initialAttachments = input.initialAttachments?.length
+      ? input.initialAttachments
+      : undefined
+    // Argv carries text alone: a prompt with files is queued, where its row
+    // stages them on the agent's machine at delivery (POD-2148).
+    const useArgv =
+      taskPrompt !== undefined && !initialAttachments && harnessSupportsInitialPrompt(agentKind)
     // Session ownership is declared per class: an issue-owned child inherits the
     // issue owner; otherwise a binding resolves to its on-behalf-of human. The
     // final fallback exists only for legacy in-process callers with no binding.
@@ -419,11 +431,13 @@ export class SessionStart {
             parentSessionId,
             sessionId: spawned.sessionId,
             text: taskPrompt,
+            ...(initialAttachments ? { attachments: initialAttachments } : {}),
           })
         : await this.ports.recordOwnerPrompt?.({
             sessionId: spawned.sessionId,
             text: taskPrompt,
             attribution: createdBy,
+            ...(initialAttachments ? { attachments: initialAttachments } : {}),
           })
       await this.ports.setSessionDraft?.({ sessionId: spawned.sessionId, text: taskPrompt })
       const queued = await this.ports.queueInitialPrompt({
@@ -433,6 +447,7 @@ export class SessionStart {
         // A parent's task is agent mail; a person's (or a job's) keeps the
         // start path's own origin, as before.
         ...(parentSessionId && promptMessageId ? { inputOrigin: 'mail' as const } : {}),
+        ...(initialAttachments ? { attachments: initialAttachments } : {}),
       })
       if (!queued.ok) {
         throw new Error(queued.reason ?? 'initial prompt could not be queued')

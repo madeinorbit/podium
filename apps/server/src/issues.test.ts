@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process'
-import { appendFileSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { appendFileSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -27,6 +27,7 @@ import { sessionsForIssue } from './issue-util'
 import { llmClient } from './llm'
 import { MODEL_CATALOG_VERSION } from './model-catalog'
 import { IssueArtifactStore } from './modules/issues/artifact-store'
+import { PendingUploadStore } from './modules/issues/pending-uploads'
 import { type IssueDeps, IssueService } from './modules/issues/service'
 import { ARTIFACT_READ_CAP_BYTES } from './modules/issues/service/crud'
 import { issueTestPlumbing } from './modules/issues/service/test-plumbing'
@@ -5650,6 +5651,86 @@ describe('IssueService panelArtifactAdd/Remove (permanent snapshots [spec:SP-0fc
     await svc.crud.panelApply(w.id, { op: 'artifact-add', path: 'old.png' }) // legacy, no artifactId
     await svc.crud.panelArtifactRemove(w.id, 1)
     expect(remove).not.toHaveBeenCalled()
+  })
+})
+
+describe('IssueService chat upload claims (POD-2148)', () => {
+  async function claimHarness() {
+    const base = mkdtempSync(join(tmpdir(), 'podium-chat-claim-'))
+    const h = await harness([sess('/wt')])
+    const artifacts = new IssueArtifactStore(join(base, 'artifacts'), {
+      readAsset: async () => ({ ok: false, error: 'no worktree reads here' }),
+      listDir: async () => ({ ok: false, path: '', entries: [], error: 'not a directory' }),
+    })
+    const pending = new PendingUploadStore(join(base, 'pending-uploads'))
+    h.deps.artifacts = artifacts
+    h.deps.pendingUploads = pending
+    const svc = await IssueService.create(h.deps)
+    const issue = await svc.crud.create({ repoPath: '/r', title: 'X', startNow: false })
+    const other = await svc.crud.create({ repoPath: '/r', title: 'Y', startNow: false })
+    const owner = firstAdminMemberId() as UserId
+    const upload = await pending.put({
+      ownerUserId: owner,
+      filename: 'shot.png',
+      mediaType: 'image/png',
+      bytes: new Uint8Array([0x89, 0x50, 0x4e, 0x47]),
+    })
+    return { base, svc, issue, other, owner, upload, pending }
+  }
+
+  it('moves the upload into the issue as a chat-upload artifact, once', async () => {
+    const { base, svc, issue, owner, upload, pending } = await claimHarness()
+    try {
+      await Promise.all([
+        svc.crud.panelChatUploadClaim(issue.id, { uploadId: upload.id, ownerUserId: owner }),
+        svc.crud.panelChatUploadClaim(issue.id, { uploadId: upload.id, ownerUserId: owner }),
+      ])
+      // A replayed send claims nothing twice.
+      await svc.crud.panelChatUploadClaim(issue.id, { uploadId: upload.id, ownerUserId: owner })
+
+      const artifacts = (await svc.reports.get(issue.id))?.panel?.artifacts ?? []
+      expect(artifacts).toEqual([
+        expect.objectContaining({
+          path: `chat-uploads/${upload.id}/shot.png`,
+          title: 'shot.png',
+          entry: 'shot.png',
+          chatUploadId: upload.id,
+        }),
+      ])
+      expect(await pending.meta(upload.id)).toMatchObject({ claimed: { issueId: issue.id } })
+      expect(readdirSync(join(base, 'artifacts', issue.id))).toHaveLength(1)
+      expect(await svc.crud.chatUploadClaimed(issue.id, upload.id)).toBe(true)
+      expect(await svc.crud.chatUploadBytes(issue.id, upload.id)).toEqual(
+        new Uint8Array([0x89, 0x50, 0x4e, 0x47]),
+      )
+    } finally {
+      rmSync(base, { recursive: true, force: true })
+    }
+  })
+
+  it('refuses someone else’s upload, an upload sent with another issue, and an unknown id', async () => {
+    const { base, svc, issue, other, owner, upload } = await claimHarness()
+    try {
+      await expect(
+        svc.crud.panelChatUploadClaim(issue.id, {
+          uploadId: upload.id,
+          ownerUserId: asUserId('user:mallory'),
+        }),
+      ).rejects.toThrow('no longer available')
+      await svc.crud.panelChatUploadClaim(issue.id, { uploadId: upload.id, ownerUserId: owner })
+      await expect(
+        svc.crud.panelChatUploadClaim(other.id, { uploadId: upload.id, ownerUserId: owner }),
+      ).rejects.toThrow('already sent with another task')
+      await expect(
+        svc.crud.panelChatUploadClaim(issue.id, {
+          uploadId: '00000000-0000-4000-8000-000000000000',
+          ownerUserId: owner,
+        }),
+      ).rejects.toThrow('no longer available')
+      expect(await svc.crud.chatUploadClaimed(other.id, upload.id)).toBe(false)
+    } finally {
+      rmSync(base, { recursive: true, force: true })
+    }
   })
 })
 

@@ -647,6 +647,35 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
         ...(input.attachments?.length ? { attachments: input.attachments } : {}),
         principal: input.principal,
       }),
+    // A chat upload held on the server is staged under its own id on the
+    // machine the session runs on NOW (POD-2148). Late-bound like the rest.
+    stageChatUpload: async ({ sessionId, attachment }) => {
+      const issueId = bag.sessions.get(sessionId)?.issueId
+      const bytes =
+        issueId && deps.chatUploads
+          ? await deps.chatUploads.bytes(issueId, attachment.id)
+          : undefined
+      if (!bytes)
+        return { fail: `${attachment.filename} is no longer stored with this session's issue` }
+      const staged = await bag.runtimeGateway.stageAttachment({
+        sessionId,
+        source: {
+          bytes,
+          filename: attachment.filename,
+          mediaType: attachment.mediaType,
+          id: attachment.id,
+        },
+      })
+      if ('reason' in staged) return { retry: staged.detail ?? staged.reason }
+      // A daemon that predates caller-chosen ids staged it under its own: the
+      // path would change on every forward, so it cannot carry this upload.
+      if (staged.id !== attachment.id) {
+        return {
+          fail: "the agent's machine runs an older Podium that cannot take this attachment; update it and send the file again",
+        }
+      }
+      return { ref: staged }
+    },
     // Stop follows the same contract delivery route, including headed sessions.
     contractInterrupt: (sessionId) => bag.runtimeGateway.interrupt(sessionId),
     // Late-bound for the same reason the two above it are.
@@ -1023,6 +1052,10 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     },
     systemPrincipal: () => SYSTEM_INBOX_PRINCIPAL,
     now: () => bag.now(),
+    chatUploadOnSession: async (sessionId: SessionId, uploadId: string) => {
+      const issueId = bag.sessions.get(sessionId)?.issueId
+      return !!issueId && (await deps.chatUploads?.claimed(issueId, uploadId)) === true
+    },
   })
   bag.daemonLifecycle = new SessionDaemonLifecycle({
     initializeRuntimeMetadata: async (sessionId, machineId) => {

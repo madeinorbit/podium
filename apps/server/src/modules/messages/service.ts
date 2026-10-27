@@ -68,6 +68,7 @@ import { asDelegationRef } from '@podium/protocol'
 import type {
   MessageFailedCause,
   QueueDrainAbandonedReason,
+  RuntimeAttachmentRef,
   TurnReceipt,
 } from '@podium/protocol/daemon'
 import type { CommandPrincipal } from '../../command-principal'
@@ -1564,6 +1565,7 @@ export class MessageDeliveryService {
     parentSessionId: SessionId
     sessionId: SessionId
     text: string
+    attachments?: readonly RuntimeAttachmentRef[]
   }): Promise<string> {
     const parent = await this.deps.sessions.sessionById(input.parentSessionId)
     const parentIssue = this.issueForSession(parent)
@@ -1575,6 +1577,7 @@ export class MessageDeliveryService {
       },
       input.sessionId,
       input.text,
+      input.attachments,
     )
   }
 
@@ -1590,11 +1593,13 @@ export class MessageDeliveryService {
     sessionId: SessionId
     text: string
     attribution: Attribution
+    attachments?: readonly RuntimeAttachmentRef[]
   }): Promise<string> {
     return await this.recordPrompt(
       { kind: 'operator', attribution: input.attribution, delegationRef: null },
       input.sessionId,
       input.text,
+      input.attachments,
     )
   }
 
@@ -1604,6 +1609,7 @@ export class MessageDeliveryService {
     from: MessageSender,
     sessionId: SessionId,
     text: string,
+    attachments?: readonly RuntimeAttachmentRef[],
   ): Promise<string> {
     const id = spawnPromptMessageId(sessionId)
     const authority = await this.authorityOf(from)
@@ -1624,6 +1630,7 @@ export class MessageDeliveryService {
       urgency: 'next-turn',
       lifecycle: 'wait',
       body: text,
+      ...(attachments?.length ? { attachments } : {}),
       expiresAt: null,
       createdAt: at,
       deliveryStatus: 'stored',

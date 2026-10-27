@@ -23,6 +23,7 @@ import type { llmClient } from '../../../llm'
 import type { IssueRow, SessionStore } from '../../../store'
 import type { SessionFacts } from '../../sessions/facts'
 import type { WorldIndexReader } from '../../world-index'
+import type { PendingUploadStore } from '../pending-uploads'
 
 /**
  * The write-funnel face IssueService mutations run through (issue #190): the
@@ -82,6 +83,8 @@ export type IssuePanelOp =
       sourcePaths?: string[]
       /** Set only by the explicit same-issue terminal-evidence path. */
       sourceKind?: 'terminal-evidence'
+      /** Set only by a chat upload's claim (POD-2148). */
+      chatUploadId?: string
     }
   | { op: 'artifact-remove'; index: number }
   | { op: 'deferred-add'; text: string }
@@ -395,7 +398,21 @@ export interface IssueDeps {
     ): Promise<{ bytes: Buffer; contentType: string } | null>
     remove(issueId: IssueId, artifactId: ArtifactId): Promise<void>
     removeIssue(issueId: IssueId): Promise<void>
+    /** Move a claimed chat upload's file dir in as an artifact (POD-2148). */
+    adopt?(o: {
+      issueId: IssueId
+      artifactId: ArtifactId
+      fromDir: string
+      entry: string
+    }): Promise<{
+      artifactId: ArtifactId
+      entry: string
+      files: { path: string; size: number }[]
+    }>
   }
+  /** Files picked in a composer, held until a send or create claims them
+   *  (POD-2148). Absent ⇒ chat uploads cannot be claimed. */
+  pendingUploads?: Pick<PendingUploadStore, 'meta' | 'markClaimed' | 'fileDir'>
 }
 
 /**

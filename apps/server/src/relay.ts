@@ -42,7 +42,11 @@ import {
   SubscriptionRegistry,
   wireSchemaDigest,
 } from '@podium/protocol'
-import type { MessageFailedCause, QueueDrainAbandonedReason } from '@podium/protocol/daemon'
+import type {
+  MessageFailedCause,
+  QueueDrainAbandonedReason,
+  RuntimeAttachmentRef,
+} from '@podium/protocol/daemon'
 import { resolveSpawnDefaults } from '@podium/runtime'
 import { resolveLaunchSelection } from './model-validation'
 import { durableSessionLabel } from '@podium/runtime/instance'
@@ -103,6 +107,7 @@ import { IssueAuthorityArbitration } from './modules/issues/authority-arbitratio
 import { IssueAutoArchive } from './modules/issues/auto-archive'
 import { IssueCommandDispatcher } from './modules/issues/dispatcher'
 import { IssueGitWatch } from './modules/issues/git-watch'
+import { PENDING_UPLOAD_SWEEP_MS, PendingUploadStore } from './modules/issues/pending-uploads'
 import { repoProjectionRows } from './modules/issues/projection'
 import { makeAgentRelayDispatch } from './modules/issues/relay-dispatch'
 import { AgentRelayGate } from './modules/issues/relay-gate'
@@ -372,6 +377,8 @@ export interface RegistryModules {
   readToolkit: SessionReadToolkit
   /** Permanent artifact snapshot store ([spec:SP-0fc9] #441). */
   issueArtifacts: IssueArtifactStore
+  /** Composer uploads awaiting the send that claims them (POD-2148). */
+  pendingUploads: PendingUploadStore
   /** Total operational contract for every semantically asynchronous reaction. */
   reactions: readonly ReactionDefinition[]
   /** Switch-latency perf registry [POD-701] — the process-level singleton,
@@ -485,6 +492,8 @@ export class SessionRegistry {
    *  above walks the message LEDGER; this one re-arms the drains that actually
    *  move bytes, which had no timer at all. */
   private readonly queuedInputSweep: ReturnType<typeof setInterval>
+  /** Unclaimed composer uploads past their day (POD-2148). */
+  private readonly pendingUploadSweep: ReturnType<typeof setInterval>
   /** Stalled-approval deadline (POD-2223) — modules/approvals. */
   private readonly approvalStallSweep: ReturnType<typeof setInterval>
   /** Read-gated auto-archive timers (issue #127) — modules/issues. */
@@ -1485,11 +1494,13 @@ export class SessionRegistry {
         parentSessionId: SessionId
         sessionId: SessionId
         text: string
+        attachments?: readonly RuntimeAttachmentRef[]
       }) => Promise<string>
       ownerPrompt?: (input: {
         sessionId: SessionId
         text: string
         attribution: Attribution
+        attachments?: readonly RuntimeAttachmentRef[]
       }) => Promise<string>
       continueSession?: (input: {
         sessionId: SessionId
@@ -1577,6 +1588,13 @@ export class SessionRegistry {
       recordOwnerPrompt: async (input) => {
         if (!queuedApplyHooks.ownerPrompt) throw new Error('the message ledger is not wired yet')
         return await queuedApplyHooks.ownerPrompt(input)
+      },
+      // Claimed chat uploads, staged at delivery (POD-2148). Lazy: `issues` is
+      // composed below and only read once a row is forwarded.
+      chatUploads: {
+        bytes: async (issueId, uploadId) => await issues.crud.chatUploadBytes(issueId, uploadId),
+        claimed: async (issueId, uploadId) =>
+          await issues.crud.chatUploadClaimed(issueId, uploadId),
       },
       // Auto-continue is a message (POD-4846).
       sendContinue: async (input) => {
@@ -1930,6 +1948,12 @@ export class SessionRegistry {
       },
       portableStateFence,
     )
+    // Files picked in a composer, held until a send or create claims them into
+    // an issue (POD-2148). A sibling of the artifact store, so a claim is a rename.
+    const pendingUploads = new PendingUploadStore(
+      join(stateDir(), 'pending-uploads'),
+      portableStateFence,
+    )
     // Late-bound because the lifecycle object below needs services this one
     // composes. `Promise<void>`, not `void` [POD-3820]: the assignment at the
     // bottom is `async`, and under a `void` declaration TypeScript accepted it
@@ -1961,6 +1985,7 @@ export class SessionRegistry {
       // the baseline fold does [POD-3366, spec §3.3 mechanism 1].
       applyCommit: { spanOpen, onCommit: applyAfterCommit },
       artifacts: issueArtifacts,
+      pendingUploads,
       // The cheap fleet read [POD-3857]: the issue service's own reasoning —
       // worktree occupancy, the close cascade, auto-archive — runs on facts.
       sessionFacts: () => sessionsSvc.sessionFacts(),
@@ -3631,6 +3656,7 @@ export class SessionRegistry {
       messageGate,
       readToolkit,
       issueArtifacts,
+      pendingUploads,
       automations,
       perf,
       logs,
@@ -3783,6 +3809,17 @@ export class SessionRegistry {
         })
     }, QUEUED_INPUT_SWEEP_MS)
     this.queuedInputSweep.unref?.()
+    // Composer uploads nobody sent within a day (POD-2148). Hourly, and once at
+    // boot; a server-transfer fence skips a pass rather than failing it.
+    const sweepPendingUploads = () => {
+      if (!backgroundDisabled)
+        void pendingUploads.sweep().catch((err: unknown) => {
+          log.warn('pending upload sweep failed', { err })
+        })
+    }
+    sweepPendingUploads()
+    this.pendingUploadSweep = setInterval(sweepPendingUploads, PENDING_UPLOAD_SWEEP_MS)
+    this.pendingUploadSweep.unref?.()
     // An approved op whose daemon takes the frame and never answers must not sit
     // `executing` forever (POD-2223) — on the day an op-catalog widening ships, every
     // daemon in the fleet is one that drops it.
@@ -3939,6 +3976,7 @@ export class SessionRegistry {
     this.ledger.dispose()
     clearInterval(this.messageSweep)
     clearInterval(this.queuedInputSweep)
+    clearInterval(this.pendingUploadSweep)
     clearInterval(this.approvalStallSweep)
     this.modules.messages.dispose()
     this.modules.machines.dispose()

@@ -94,7 +94,11 @@ describe('W4 guard: every agent send is one durable row (C5, POD-4795)', () => {
     mediaType: 'image/png',
     kind: 'image' as const,
   }
-  const sender = (onContract: boolean, reasons: { archive?: string } = {}) => {
+  const sender = (
+    onContract: boolean,
+    reasons: { archive?: string } = {},
+    claimed: ReadonlySet<string> = new Set(),
+  ) => {
     const rows: Record<string, unknown>[] = []
     const legacy: string[] = []
     const s = new ReceiptSender({
@@ -131,6 +135,7 @@ describe('W4 guard: every agent send is one durable row (C5, POD-4795)', () => {
         delegation: null,
       }),
       now: () => 0,
+      chatUploadOnSession: async (_sessionId, uploadId) => claimed.has(uploadId),
     })
     return { s, rows, legacy }
   }
@@ -216,6 +221,34 @@ describe('W4 guard: every agent send is one durable row (C5, POD-4795)', () => {
     expect(offContract.rows).toEqual([])
     expect(offContract.legacy).toEqual([])
     expect(receipts).toEqual(['unsupported'])
+  })
+
+  it('takes a held ref only when it names a chat upload claimed into the session’s issue (POD-2148)', async () => {
+    const held = {
+      id: 'up-1',
+      filename: 'shot.png',
+      mediaType: 'image/png',
+      kind: 'image' as const,
+    }
+    const live = sender(true, {}, new Set(['up-1']))
+    expect(
+      await live.s.send('queue', {
+        sessionId: asSessionId('s1'),
+        text: 'look',
+        attachments: [held],
+      }),
+    ).toEqual({ ok: true, queued: true, position: 1 })
+    expect(live.rows).toEqual([expect.objectContaining({ attachments: [held] })])
+
+    const elsewhere = sender(true)
+    expect(
+      await elsewhere.s.send('queue', {
+        sessionId: asSessionId('s1'),
+        text: 'look',
+        attachments: [{ ...held, id: 'up-2' }],
+      }),
+    ).toEqual({ ok: false, reason: 'file attachment reference was not staged for this session' })
+    expect(elsewhere.rows).toEqual([])
   })
 
   it('rejects a forged filesystem ref before it reaches either send implementation', async () => {

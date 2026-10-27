@@ -104,6 +104,10 @@ export interface ReceiptSenderPorts {
    *  root so "who is system" is answered in one visible place. */
   systemPrincipal(): InboxPrincipalReference
   now(): number
+  /** Whether this session's issue holds a claimed chat upload under this id
+   *  (POD-2148). Absent = no chat uploads here; a ref without a path is then
+   *  refused like any unstaged ref. */
+  chatUploadOnSession?(sessionId: SessionId, uploadId: string): Promise<boolean>
 }
 
 /** What a caller learns when the receipt lands. `via` and the input echo back so
@@ -115,7 +119,10 @@ const log = createLogger('server:receipt-send')
 /** A ref is usable only by the session whose daemon staging directory minted it.
  * The daemon repeats this check against the real filesystem; this structural
  * guard stops forged local paths before they cross the machine boundary. */
-function attachmentMatchesSession(sessionId: SessionId, attachment: RuntimeAttachmentRef): boolean {
+function attachmentMatchesSession(
+  sessionId: SessionId,
+  attachment: RuntimeAttachmentRef & { path: string },
+): boolean {
   if (!isAbsolute(attachment.path) || normalize(attachment.path) !== attachment.path) return false
   const sessionDir = dirname(attachment.path)
   return (
@@ -153,10 +160,7 @@ export class ReceiptSender {
     const archiveReason = this.ports.archiveReason?.(input.sessionId)
     if (archiveReason) return { ok: false, reason: archiveReason }
 
-    const invalidAttachment = input.attachments?.find(
-      (attachment) => !attachmentMatchesSession(input.sessionId, attachment),
-    )
-    if (invalidAttachment) {
+    if (!(await this.attachmentsBelong(input))) {
       return this.refuseAttachments(
         via,
         input,
@@ -178,6 +182,21 @@ export class ReceiptSender {
       return this.legacy(via, input)
     }
     return this.enqueue(via, input, onReceipt)
+  }
+
+  /** Every ref names this session's file: a staged path inside its upload
+   *  dir, or a chat upload claimed into its issue (POD-2148), which the inbox
+   *  stages at delivery and the daemon checks on its own filesystem again. */
+  private async attachmentsBelong(input: ReceiptSendInput): Promise<boolean> {
+    for (const attachment of input.attachments ?? []) {
+      const path = attachment.path
+      const belongs =
+        path !== undefined
+          ? attachmentMatchesSession(input.sessionId, { ...attachment, path })
+          : (await this.ports.chatUploadOnSession?.(input.sessionId, attachment.id)) === true
+      if (!belongs) return false
+    }
+    return true
   }
 
   /** Invoke immediately, but own completion separately from send admission.
