@@ -142,8 +142,8 @@ export function useAttachments(opts: {
               ? {
                   ...a,
                   // A held upload answers `path: ''`: it has none yet.
-                  ...(res.path ? { path: res.path } : {}),
-                  ...('attachment' in res && res.attachment ? { ref: res.attachment } : {}),
+                  path: res.path || undefined,
+                  ...('attachment' in res ? { ref: res.attachment } : {}),
                   state: 'ready' as const,
                 }
               : a,

@@ -158,14 +158,7 @@ export function useComposerAttachments(
         }
         setAttachments((prev) =>
           prev.map((a) =>
-            a.id === id
-              ? {
-                  ...a,
-                  ...(result.path ? { path: result.path } : {}),
-                  ...(ref ? { ref } : {}),
-                  state: 'ready',
-                }
-              : a,
+            a.id === id ? { ...a, path: result.path || undefined, ref, state: 'ready' } : a,
           ),
         )
       } catch (error) {

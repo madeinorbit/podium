@@ -90,28 +90,19 @@ describe('spawn machine-USE placement', () => {
     })
   })
 
-  it('puts direct attachments on the draft create rather than in the prompt', async () => {
+  it('hands held uploads to the draft create rather than to the prompt (POD-2148)', async () => {
     const { trpc, create } = api()
+    const ref = { id: 'up-1', filename: 'mock.png', mediaType: 'image/png', kind: 'image' as const }
     await createDraftAgent({
       ...base,
       trpc,
       target: { path: '/worktree', repoPath: '/repo', placement: 'allowed' },
       firstPrompt: 'Review the mock',
-      draftArtifacts: [
-        {
-          id: 'att-1',
-          filename: 'mock.png',
-          mimeType: 'image/png',
-          dataBase64: 'UE5H',
-        },
-      ],
+      attachments: [ref],
     })
 
     expect(create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        initialPrompt: 'Review the mock',
-        draftArtifacts: [expect.objectContaining({ filename: 'mock.png', dataBase64: 'UE5H' })],
-      }),
+      expect.objectContaining({ initialPrompt: 'Review the mock', attachments: [ref] }),
     )
   })
 })

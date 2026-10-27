@@ -199,7 +199,6 @@ export class PoolSpawns {
           sessionId,
           issueId,
           ...(args.mutationId ? { mutationId: args.mutationId } : {}),
-          ...(args.draftArtifacts?.length ? { draftArtifacts: args.draftArtifacts } : {}),
           ...(args.attachments?.length ? { attachments: args.attachments } : {}),
           target: args.target,
           agentKind: args.agentKind,

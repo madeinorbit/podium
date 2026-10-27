@@ -1,4 +1,3 @@
-import type { DraftIssueArtifactInput } from '@podium/commands'
 import type { AgentKind, IssueId, MachineId, MutationId, RepoId, SessionId } from '@podium/model'
 import type { HarnessDescriptorWire } from '@podium/protocol'
 import type { RuntimeAttachmentRef } from '@podium/protocol/daemon'
@@ -24,7 +23,6 @@ type DraftSpawnReservation =
 /** Retry identity is one reservation, not three independent switches. Reusing
  *  a mutation receipt with freshly-minted entity ids cannot reconcile. */
 export type SpawnDraftAgentArgs = DraftSpawnReservation & {
-  draftArtifacts?: DraftIssueArtifactInput[]
   /** Files uploaded for this task and held on the server (POD-2148). */
   attachments?: RuntimeAttachmentRef[]
   target: SpawnTarget
@@ -93,7 +91,6 @@ export async function createDraftAgent(args: {
   sessionId: SessionId
   issueId: IssueId
   mutationId?: MutationId
-  draftArtifacts?: DraftIssueArtifactInput[]
   attachments?: RuntimeAttachmentRef[]
   target: SpawnTarget
   agentKind: AgentKind
@@ -112,7 +109,6 @@ export async function createDraftAgent(args: {
     agentKind: args.agentKind,
     cwd: args.target.path,
     draftIssue: { repoPath: args.target.repoPath, issueId: args.issueId },
-    ...(args.draftArtifacts?.length ? { draftArtifacts: args.draftArtifacts } : {}),
     ...(args.attachments?.length ? { attachments: args.attachments } : {}),
     ...(args.target.machineId ? { machineId: args.target.machineId } : {}),
     ...(text ? { initialPrompt: text } : {}),
