@@ -1,21 +1,24 @@
 import { isSwitchTraced, markSwitch } from '@podium/client-core/perf'
-import { issueClosedPlaceholder, type SessionIssueOutcome, type SuperThreadRef } from '@podium/client-core/values'
+import {
+  issueClosedPlaceholder,
+  type SessionIssueOutcome,
+  type SuperThreadRef,
+} from '@podium/client-core/values'
 import type { SessionId } from '@podium/model/browser'
 import { SWITCH_TRACE_MARKS } from '@podium/protocol'
 import { useVoiceInput } from '@podium/terminal-client-react'
 import { ArrowDownToLine } from 'lucide-react'
+import { observer } from 'mobx-react-lite'
 import type { JSX, MutableRefObject, RefObject } from 'react'
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
-import { observer } from 'mobx-react-lite'
-import { useConversation, type WebConversation } from './use-conversation'
 import { TranscriptFeedBoundary } from '@/features/chat/TranscriptFeedBoundary'
 import {
   markQuoteSinkFocused,
   type QuoteInput,
   type QuoteSink,
   registerQuoteSink,
-  serializeQuotes,
 } from '@/lib/quote/quote-sinks'
+import { findTokens, placeToken, serializeDraft, tokenAround } from '@/lib/quote/quote-tokens'
 import { cn } from '@/lib/utils'
 import { ChatComposer } from './ChatComposer'
 import { ChatRail } from './ChatRail'
@@ -24,9 +27,10 @@ import { handleChatMdClick } from './chat-md-click'
 import { ImageLightbox } from './ImageLightbox'
 import { IssueChipLiveness } from './IssueChipLiveness'
 import { PinnedBrief } from './PinnedBrief'
-import { useQuotes } from './QuoteStrip'
+import { useQuotes } from './QuoteTokens'
 import { TranscriptSearchBar } from './TranscriptSearchBar'
 import { type ChatSurface, useChatLayout } from './use-chat-layout'
+import { useConversation, type WebConversation } from './use-conversation'
 
 /**
  * THE BLOCKED-SESSION BAR (POD-2414), LAZY — because it draws nothing almost
@@ -70,20 +74,53 @@ const ScopedChatComposer = observer(function ScopedChatComposer({
   const voice = useVoiceInput((text) => setDraft(draft ? `${draft} ${text}` : text))
   const quotes = useQuotes(sessionId)
   const { taRef } = chat
+  // Where the operator last left the caret, read off their own keys and clicks.
+  // The field's live selection is no witness: making the selection that is
+  // being quoted can reset it to 0. Until they put it somewhere, a quote goes
+  // at the end. A quote never replaces text: a selection left in the box
+  // collapses to its end, and a position inside a token (text that moved since)
+  // steps past it.
+  const chosenCaret = useRef<number | null>(null)
+  const caretOwner = useRef(sessionId)
+  if (caretOwner.current !== sessionId) {
+    caretOwner.current = sessionId
+    chosenCaret.current = null
+  }
   const addQuote = useCallback(
-    (quote: QuoteInput, focus = true) => {
-      quotes.add(quote)
+    (input: QuoteInput, focus = true) => {
       const ta = taRef.current
-      if (focus) ta?.focus()
+      if (!ta) return
+      const value = ta.value
+      const quote = quotes.add(input, value)
+      let at = Math.min(chosenCaret.current ?? value.length, value.length)
+      at = tokenAround(value, at)?.end ?? at
+      const start = at
+      const end = at
+      const { insert, caret } = placeToken(value, start, end, quote.label)
+      // Through the editing command where it can, so the insertion is one undo
+      // step and arrives as an ordinary input event; directly when focus has
+      // to stay where it is (a modal reader over the chat).
+      let inserted = false
+      if (focus) {
+        ta.focus()
+        ta.setSelectionRange(start, end)
+        inserted = document.execCommand('insertText', false, insert)
+      }
+      if (!inserted) {
+        ta.setRangeText(insert, start, end, 'end')
+        setDraft(ta.value)
+      }
+      ta.setSelectionRange(caret, caret)
+      chosenCaret.current = caret
       // Say where it went: the box the quote landed in pulses once.
-      const well = ta?.closest<HTMLElement>('.chat-composer-well, .prompt-well')
+      const well = ta.closest<HTMLElement>('.chat-composer-well, .prompt-well')
       if (well) {
         delete well.dataset.quoteArrived
         void well.offsetWidth
         well.dataset.quoteArrived = 'true'
       }
     },
-    [quotes.add, taRef],
+    [quotes.add, taRef, setDraft],
   )
   quoteDraftRef.current = addQuote
   // ADD TO CHAT (POD-2057): this composer is a place a selection can go. A
@@ -96,23 +133,34 @@ const ScopedChatComposer = observer(function ScopedChatComposer({
     if (!scope || !composer) return
     const sink: QuoteSink = { scope, composer, add: addQuote }
     const onFocus = (): void => markQuoteSinkFocused(sink)
+    const onChoose = (): void => {
+      chosenCaret.current = composer.selectionEnd
+    }
     composer.addEventListener('focus', onFocus)
+    composer.addEventListener('pointerup', onChoose)
+    composer.addEventListener('keyup', onChoose)
+    composer.addEventListener('input', onChoose)
     const unregister = registerQuoteSink(sink)
     if (document.activeElement === composer) onFocus()
     return () => {
       composer.removeEventListener('focus', onFocus)
+      composer.removeEventListener('pointerup', onChoose)
+      composer.removeEventListener('keyup', onChoose)
+      composer.removeEventListener('input', onChoose)
       unregister()
     }
   }, [surfaceRef, taRef, addQuote])
-  // Quotes reach the agent as Markdown ahead of the words (`serializeQuotes`),
-  // so the send path below never learns they exist.
+  // Each quote token reaches the agent as its passage, a Markdown blockquote in
+  // place (`serializeDraft`), so the send path below never learns quotes exist.
   const submit = useCallback(() => {
-    if (quotes.quotes.length === 0) {
+    if (findTokens(draft).length === 0) {
       chat.submitDraft(draft)
+      // Passages whose tokens were deleted before sending go with the send.
+      if (quotes.quotes.length) quotes.clear()
       return
     }
     if (chat.attachments.uploading) return
-    chat.submitDraft(serializeQuotes(quotes.quotes, draft))
+    chat.submitDraft(serializeDraft(draft, quotes.quotes))
     quotes.clear()
   }, [chat.submitDraft, chat.attachments.uploading, draft, quotes])
   const interrupt = useCallback(() => chat.interrupt(draft), [chat.interrupt, draft])
@@ -123,7 +171,9 @@ const ScopedChatComposer = observer(function ScopedChatComposer({
       draft={draft}
       onDraftChange={setDraft}
       deliverable={chat.view.composer.deliverable}
-      placeholder={issueClosed ? issueClosedPlaceholder(chat.view.composer) : chat.view.composer.placeholder}
+      placeholder={
+        issueClosed ? issueClosedPlaceholder(chat.view.composer) : chat.view.composer.placeholder
+      }
       compact={compact}
       isMobile={chat.isMobile}
       onSend={submit}
@@ -171,11 +221,14 @@ type ChatViewProps = {
 
 export function ChatView(props: ChatViewProps): JSX.Element {
   const conversation = useConversation(props.sessionId, props)
-  if (!conversation) return (
-    <div className="flex min-h-0 flex-1 flex-col" data-chat-loading>
-      {props.initialPendingText && <div className="transcript-pending">{props.initialPendingText}</div>}
-    </div>
-  )
+  if (!conversation)
+    return (
+      <div className="flex min-h-0 flex-1 flex-col" data-chat-loading>
+        {props.initialPendingText && (
+          <div className="transcript-pending">{props.initialPendingText}</div>
+        )}
+      </div>
+    )
   return <ConversationChatView {...props} conversation={conversation} />
 }
 
@@ -351,7 +404,12 @@ const ConversationChatView = observer(function ConversationChatView({
           />
         )}
         <Suspense fallback={null}>
-          <ConversationTranscript chat={chat} sessionId={sessionId} onQuote={quoteIntoDraft} outcome={outcome} />
+          <ConversationTranscript
+            chat={chat}
+            sessionId={sessionId}
+            onQuote={quoteIntoDraft}
+            outcome={outcome}
+          />
         </Suspense>
         {/* The reading rail. Its map covers the RENDERED window (visibleRows), so
             its bands line up with the scrollable content. For a very long
@@ -359,14 +417,15 @@ const ConversationChatView = observer(function ConversationChatView({
             entire on-disk history; scrolling up to page in older items extends
             what it covers. */}
         {!compact && (
-          <ReadingRail chat={chat} findOpen={find.open}
-            onFind={() => setFind((f) => ({ open: true, seq: f.seq + 1 }))} />
+          <ReadingRail
+            chat={chat}
+            findOpen={find.open}
+            onFind={() => setFind((f) => ({ open: true, seq: f.seq + 1 }))}
+          />
         )}
         {/* Find floats OVER the feed rather than displacing it, so entering and
             leaving the mode never reflows what you were reading. */}
-        {!compact && find.open && (
-          <FindBar key={find.seq} chat={chat} onClose={closeFind} />
-        )}
+        {!compact && find.open && <FindBar key={find.seq} chat={chat} onClose={closeFind} />}
         {!chat.scroll.atBottom && (
           <button
             data-pressable
@@ -402,58 +461,76 @@ const ConversationChatView = observer(function ConversationChatView({
   )
 })
 
-const ConversationTranscript = observer(function ConversationTranscript({ chat, sessionId, onQuote, outcome }: { chat: ChatSurface; sessionId: SessionId; onQuote: (quote: QuoteInput) => void; outcome: SessionIssueOutcome | null }) {
+const ConversationTranscript = observer(function ConversationTranscript({
+  chat,
+  sessionId,
+  onQuote,
+  outcome,
+}: {
+  chat: ChatSurface
+  sessionId: SessionId
+  onQuote: (quote: QuoteInput) => void
+  outcome: SessionIssueOutcome | null
+}) {
   return (
-          <TranscriptFeedBoundary
-            chat={chat}
-            setScrollerRef={chat.scroll.setScrollerRef}
-            setContentRef={chat.scroll.setContentRef}
-            onScroll={chat.scroll.onScroll}
-            onPointerUp={chat.scroll.onPointerUp}
-            compact={chat.view.compact}
-            superagent={chat.view.superagent}
-            phase={chat.view.phase}
-            rows={chat.view.rowsToRender}
-            blockCount={chat.view.presentation.blockCount}
-            markdownHtml={chat.view.presentation.markdownHtml}
-            search={chat.view.presentation.search}
-            revealedRow={chat.revealedRow}
-            moreAbove={chat.view.moreAbove}
-            loadingOlder={chat.view.loadingOlder}
-            loadOlder={chat.scroll.loadOlder}
-            sessionId={sessionId}
-            cwd={chat.view.cwd}
-            session={chat.view.session}
-            httpOrigin={chat.httpOrigin}
-            openFile={chat.openFile}
-            onOpenImage={chat.setLightbox}
-            onAnswerAsk={chat.answerAsk}
-            answerInteractionId={chat.view.question?.id}
-            livePendingAskIndex={chat.view.livePendingAskIndex}
-            pendingAskBlock={chat.view.pendingAskBlock}
-            lastAnswerBlockIndex={chat.view.presentation.lastAnswer.blockIndex}
-            collapseContext={chat.view.headless}
-            stickyEnabled={chat.view.stickyEnabled}
-            isOperatorPromptRow={chat.view.isOperatorPromptRow}
-            onRetryPending={chat.retryPending}
-            onDiscardPending={chat.discardPending}
-            onSendAgain={chat.sendAgain}
-            onRetractQueued={chat.retractQueuedMessage}
-            offlineMachineName={chat.view.offlineMachineName}
-            presenceOfflineMachineName={chat.view.presenceOfflineMachineName}
-            attribution={chat.view.attribution}
-            expandRuns={false}
-            // Per-message Quote (POD-376): the feed builds the blockquote, the
-            // shell owns the draft. Appended rather than replacing, so quoting
-            // twice — or quoting into a half-written reply — never eats text.
-            onQuote={onQuote}
-            outcome={outcome}
-          />
+    <TranscriptFeedBoundary
+      chat={chat}
+      setScrollerRef={chat.scroll.setScrollerRef}
+      setContentRef={chat.scroll.setContentRef}
+      onScroll={chat.scroll.onScroll}
+      onPointerUp={chat.scroll.onPointerUp}
+      compact={chat.view.compact}
+      superagent={chat.view.superagent}
+      phase={chat.view.phase}
+      rows={chat.view.rowsToRender}
+      blockCount={chat.view.presentation.blockCount}
+      markdownHtml={chat.view.presentation.markdownHtml}
+      search={chat.view.presentation.search}
+      revealedRow={chat.revealedRow}
+      moreAbove={chat.view.moreAbove}
+      loadingOlder={chat.view.loadingOlder}
+      loadOlder={chat.scroll.loadOlder}
+      sessionId={sessionId}
+      cwd={chat.view.cwd}
+      session={chat.view.session}
+      httpOrigin={chat.httpOrigin}
+      openFile={chat.openFile}
+      onOpenImage={chat.setLightbox}
+      onAnswerAsk={chat.answerAsk}
+      answerInteractionId={chat.view.question?.id}
+      livePendingAskIndex={chat.view.livePendingAskIndex}
+      pendingAskBlock={chat.view.pendingAskBlock}
+      lastAnswerBlockIndex={chat.view.presentation.lastAnswer.blockIndex}
+      collapseContext={chat.view.headless}
+      stickyEnabled={chat.view.stickyEnabled}
+      isOperatorPromptRow={chat.view.isOperatorPromptRow}
+      onRetryPending={chat.retryPending}
+      onDiscardPending={chat.discardPending}
+      onSendAgain={chat.sendAgain}
+      onRetractQueued={chat.retractQueuedMessage}
+      offlineMachineName={chat.view.offlineMachineName}
+      presenceOfflineMachineName={chat.view.presenceOfflineMachineName}
+      attribution={chat.view.attribution}
+      expandRuns={false}
+      // Per-message Quote (POD-376): the feed builds the blockquote, the
+      // shell owns the draft. Appended rather than replacing, so quoting
+      // twice — or quoting into a half-written reply — never eats text.
+      onQuote={onQuote}
+      outcome={outcome}
+    />
   )
 })
 
-const ChatLifecycle = observer(function ChatLifecycle({ chat, sessionId, active, onLeave }: {
-  chat: ChatSurface; sessionId: SessionId; active: boolean; onLeave?: (sessionId: SessionId) => void
+const ChatLifecycle = observer(function ChatLifecycle({
+  chat,
+  sessionId,
+  active,
+  onLeave,
+}: {
+  chat: ChatSurface
+  sessionId: SessionId
+  active: boolean
+  onLeave?: (sessionId: SessionId) => void
 }) {
   // Leave once, quietly. Not a toast and not an animation — see the header.
   useEffect(() => {
@@ -511,37 +588,61 @@ const ChatLifecycle = observer(function ChatLifecycle({ chat, sessionId, active,
 
   return null
 })
-const InteractionGate = observer(function InteractionGate({ chat, sessionId, compact }: {
-  chat: ChatSurface; sessionId: SessionId; compact: boolean
+const InteractionGate = observer(function InteractionGate({
+  chat,
+  sessionId,
+  compact,
+}: {
+  chat: ChatSurface
+  sessionId: SessionId
+  compact: boolean
 }) {
-  return chat.view.blocked ? <Suspense fallback={null}><PendingInteractionBar sessionId={sessionId} compact={compact} /></Suspense> : null
+  return chat.view.blocked ? (
+    <Suspense fallback={null}>
+      <PendingInteractionBar sessionId={sessionId} compact={compact} />
+    </Suspense>
+  ) : null
 })
-const ReadingRail = observer(function ReadingRail({ chat, findOpen, onFind }: {
-  chat: ChatSurface; findOpen: boolean; onFind: () => void
-}) { return (
-          <ChatRail
-            rows={chat.view.presentation.visibleRows}
-            baseIndex={chat.view.presentation.renderStart}
-            isOperatorPromptRow={chat.view.isOperatorPromptRow}
-            scrollerRef={chat.scrollerRef}
-            scrollToOffset={chat.scroll.scrollToOffset}
-            matches={chat.view.presentation.search.matches}
-            activeMatch={chat.view.presentation.search.activeMatch}
-            findOpen={findOpen}
-            onFind={onFind}
-            lastAnswerText={chat.view.presentation.lastAnswer.text}
-            onTldr={chat.tldr}
-          />
-) })
-const FindBar = observer(function FindBar({ chat, onClose }: { chat: ChatSurface; onClose: () => void }) {
+const ReadingRail = observer(function ReadingRail({
+  chat,
+  findOpen,
+  onFind,
+}: {
+  chat: ChatSurface
+  findOpen: boolean
+  onFind: () => void
+}) {
   return (
-          <TranscriptSearchBar
-            query={chat.view.presentation.query}
-            onQueryChange={chat.view.presentation.setQuery}
-            search={chat.view.presentation.search}
-            onCursorMove={chat.view.presentation.moveCursor}
-            deepeningSearch={chat.view.presentation.deepeningSearch}
-            onClose={onClose}
-          />
+    <ChatRail
+      rows={chat.view.presentation.visibleRows}
+      baseIndex={chat.view.presentation.renderStart}
+      isOperatorPromptRow={chat.view.isOperatorPromptRow}
+      scrollerRef={chat.scrollerRef}
+      scrollToOffset={chat.scroll.scrollToOffset}
+      matches={chat.view.presentation.search.matches}
+      activeMatch={chat.view.presentation.search.activeMatch}
+      findOpen={findOpen}
+      onFind={onFind}
+      lastAnswerText={chat.view.presentation.lastAnswer.text}
+      onTldr={chat.tldr}
+    />
+  )
+})
+const FindBar = observer(function FindBar({
+  chat,
+  onClose,
+}: {
+  chat: ChatSurface
+  onClose: () => void
+}) {
+  return (
+    <TranscriptSearchBar
+      query={chat.view.presentation.query}
+      onQueryChange={chat.view.presentation.setQuery}
+      search={chat.view.presentation.search}
+      onCursorMove={chat.view.presentation.moveCursor}
+      deepeningSearch={chat.view.presentation.deepeningSearch}
+      onClose={onClose}
+    />
   )
 })

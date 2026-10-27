@@ -8,11 +8,9 @@ import {
   type QuoteSink,
   registerQuoteSink,
   resolveQuoteSink,
-  serializeQuotes,
 } from './quote-sinks'
 
-// ADD TO CHAT (POD-2057). What this pins: the wire format the agent reads, which
-// text a selection quotes and how it names its source, which prompt box gets it,
+// ADD TO CHAT (POD-2057). What this pins: which text a selection quotes and how it names its source, which prompt box gets it,
 // and that the pill only exists while there is somewhere for the quote to go.
 
 let host: HTMLDivElement
@@ -57,25 +55,6 @@ function sink(scope: HTMLElement, onScreen = true): { sink: QuoteSink; added: Qu
   cleanups.push(registerQuoteSink(s))
   return { sink: s, added }
 }
-
-describe('serializeQuotes', () => {
-  it('puts one quote ahead of the words, ending in its source', () => {
-    expect(serializeQuotes([{ text: 'a\n\nb', source: '/r/doc.md:6-8' }], ' cut this ')).toBe(
-      '> a\n>\n> b\n> — /r/doc.md:6-8\n\ncut this',
-    )
-  })
-
-  it('numbers several so the prose can refer to them', () => {
-    const out = serializeQuotes(
-      [
-        { text: 'one', source: 'your reply, 10:04' },
-        { text: 'two', source: '/r/a.ts:3' },
-      ],
-      '',
-    )
-    expect(out).toBe('[1]\n> one\n> — your reply, 10:04\n\n[2]\n> two\n> — /r/a.ts:3')
-  })
-})
 
 describe('readQuote', () => {
   it('quotes a selection inside a source and names its line range', () => {

@@ -19,6 +19,8 @@ export interface QuoteInput {
 
 export interface Quote extends QuoteInput {
   id: string
+  /** The token that stands for it in the prompt text (`quote-tokens.ts`). */
+  label: string
 }
 
 export interface QuoteSink {
@@ -69,22 +71,4 @@ export function resolveQuoteSink(from: Node): QuoteSink | null {
     }
   }
   return best
-}
-
-/**
- * THE WIRE FORMAT, in one place. Quotes become Markdown blockquotes ahead of the
- * operator's words, each ending in its source, so nothing downstream (protocol,
- * daemon, transcript renderer) needs to know quotes exist. Several quotes are
- * numbered so the prose can say "1 is too long".
- */
-export function serializeQuotes(quotes: readonly QuoteInput[], text: string): string {
-  const numbered = quotes.length > 1
-  const blocks = quotes.map((quote, i) => {
-    const body = quote.text
-      .split('\n')
-      .map((line) => (line ? `> ${line}` : '>'))
-      .join('\n')
-    return `${numbered ? `[${i + 1}]\n` : ''}${body}\n> — ${quote.source}`
-  })
-  return [...blocks, text.trim()].filter(Boolean).join('\n\n')
 }

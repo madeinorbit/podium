@@ -9737,108 +9737,42 @@ a.ref-link--session::before {
   font-weight: 400;
 }
 
-/* The chips sit where the words start, so a quote reads as the head of the reply. */
-.quote-strip {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  padding: 2px 0 4px;
-}
-.quote-chip {
-  position: relative;
-  display: inline-flex;
-  min-width: 0;
-  max-width: 100%;
-  align-items: center;
-  gap: 6px;
-  height: 24px;
-  padding: 0 4px 0 7px;
-  border: 1px solid var(--hairline-soft, var(--border));
-  border-radius: 7px;
-  background: color-mix(in oklab, var(--foreground) 5%, transparent);
-  color: var(--text-strong, var(--foreground));
-  font-size: 12px;
-}
-.quote-chip-n {
-  padding: 0 4px;
-  border-radius: 4px;
-  background: var(--primary);
-  color: var(--primary-foreground);
-  font-family: var(--font-mono);
-  font-size: 10px;
-  line-height: 15px;
-}
-.quote-chip-text {
-  overflow: hidden;
-  font-weight: 500;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.quote-chip-source {
-  overflow: hidden;
-  color: var(--text-dim);
-  font-family: var(--font-mono);
-  font-size: 10.5px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.quote-chip-remove {
-  display: grid;
-  flex: none;
-  width: 18px;
-  height: 18px;
-  place-items: center;
-  border-radius: 4px;
-  color: color-mix(in oklab, var(--muted-foreground) 68%, transparent);
-  cursor: pointer;
-}
-.quote-chip-remove:hover {
-  background: var(--chat-chip, var(--muted));
-  color: var(--foreground);
-}
-.quote-chip-peek {
+/* INLINE QUOTE TOKENS (POD-2207). The pills are painted BEHIND the textarea by
+   a transparent copy of its text (QuoteOverlay); the field still draws every
+   glyph and the caret. Only paint goes here: anything that changes an inline
+   box's width (padding, border, letter-spacing) would move the pill off its
+   words. The no-break spaces at each end of a token are the pill's padding. */
+.quote-overlay {
   position: absolute;
-  z-index: 20;
-  bottom: calc(100% + 8px);
-  left: 0;
-  width: max-content;
-  max-width: min(360px, 80vw);
-  max-height: 200px;
+  inset: 0;
   overflow: hidden;
-  padding: 9px 11px;
-  border: 1px solid var(--border-strong, var(--border));
-  border-radius: 9px;
-  background: var(--popover);
-  box-shadow: 0 8px 24px var(--carve-popover-near);
-  color: var(--muted-foreground);
-  font-size: 12.5px;
-  line-height: 1.5;
-  white-space: pre-wrap;
-  opacity: 0;
-  translate: 0 3px;
   pointer-events: none;
-  transition:
-    opacity 120ms ease-out,
-    translate 120ms ease-out;
 }
-.quote-chip-peek cite {
-  display: block;
-  margin-top: 6px;
-  color: var(--text-dim);
-  font-family: var(--font-mono);
-  font-size: 10.5px;
-  font-style: normal;
-  overflow-wrap: anywhere;
+.quote-overlay-text {
+  position: absolute;
+  top: 0;
+  left: 0;
+  box-sizing: border-box;
+  margin: 0;
+  color: transparent;
 }
-.quote-chip:hover .quote-chip-peek {
-  opacity: 1;
-  translate: 0 0;
-  transition-delay: 250ms;
+.quote-token {
+  border-radius: 6px;
+  background: color-mix(in oklab, var(--primary) 16%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--primary) 22%, transparent);
+  color: transparent;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+/* The passage is not in this browser (another device, cleared storage): it
+   will be sent as the words it shows. */
+.quote-token[data-orphan] {
+  background: color-mix(in oklab, var(--foreground) 5%, transparent);
+  box-shadow: none;
+  outline: 1px dashed color-mix(in oklab, var(--foreground) 30%, transparent);
+  outline-offset: -1px;
 }
 @media (prefers-reduced-motion: no-preference) {
-  .quote-chip {
-    animation: composer-row-arrive 180ms cubic-bezier(0.22, 1, 0.36, 1);
-  }
   .chat-composer-well[data-quote-arrived],
   .prompt-well[data-quote-arrived] {
     animation: quote-arrive 600ms ease-out;
