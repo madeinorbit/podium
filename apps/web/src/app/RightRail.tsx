@@ -1,5 +1,6 @@
 import { observer } from '@podium/client-graph/react'
 import type { JSX } from 'react'
+import { FirstArtifactDot, FirstArtifactMoment } from '@/features/issues/first-artifact-tip'
 import { useFeature } from '@/lib/use-feature'
 import { RIGHT_PANELS } from './RightDock'
 import { useShellShipping } from './shell-data'
@@ -40,6 +41,7 @@ export const RightRail = observer(function RightRail({
     })
   return (
     <nav aria-label="Panels" className="right-rail" data-testid="right-rail">
+      <FirstArtifactMoment />
       {RIGHT_PANELS.filter((panel) => panelAllowed(panel.id)).map((panel) => {
         const isShipping = panel.id === 'shipping'
         const shippingLabel =
@@ -67,6 +69,7 @@ export const RightRail = observer(function RightRail({
             className="right-rail-cell relative"
           >
             <panel.icon size={17} strokeWidth={1.7} aria-hidden="true" />
+            {panel.id === 'issue' && rightPanel !== 'issue' && <FirstArtifactDot />}
             {isShipping && shipping.unfinishedCount > 0 && (
               <span
                 className="absolute -top-1 -right-1 flex min-w-4 items-center justify-center rounded-full border border-border bg-secondary px-1 font-mono text-[8px] leading-[14px] tabular-nums text-text-dim"

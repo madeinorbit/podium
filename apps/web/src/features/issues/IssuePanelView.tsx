@@ -30,6 +30,7 @@ import { cn } from '@/lib/utils'
 import { SessionNameEditor } from '@/lib/WorkerLabel'
 import { currentWorkspaceSlug } from '@/lib/workspace-request'
 import { inlineRenameEditor, useInlineRename } from '../worklist/use-inline-rename'
+import { useFirstArtifactAnchor } from './first-artifact-tip'
 import { IssueCompactControls } from './IssueCompactControls'
 import { IssueStatusPicker } from './IssueStatusPicker'
 import { issueIdTitle } from './issue-card'
@@ -529,6 +530,8 @@ const ArtifactsPart = observer(function ArtifactsPart({
     setUploadsOpen(false)
   }, [issue.id])
 
+  const tipAnchor = useFirstArtifactAnchor('panel', artifacts.length > 0 ? issue.id : undefined)
+
   if (all.length === 0 && deferred.length === 0) return null
 
   const srcOf = (a: IssuePanelArtifact): string | null =>
@@ -580,7 +583,7 @@ const ArtifactsPart = observer(function ArtifactsPart({
     }
   }
 
-  const artifactRow = (a: IssuePanelArtifact, testId: string): JSX.Element => {
+  const artifactRow = (a: IssuePanelArtifact, testId: string, anchor?: string): JSX.Element => {
     const kind = kindOf(a)
     const Icon = kind === 'image' ? ImageIcon : kind === 'video' ? Film : FileText
     return (
@@ -589,6 +592,7 @@ const ArtifactsPart = observer(function ArtifactsPart({
         data-pressable
         type="button"
         data-testid={testId}
+        data-tip-anchor={anchor}
         disabled={!root && !a.artifactId}
         onClick={() => open(a)}
         title={a.path}
@@ -627,7 +631,7 @@ const ArtifactsPart = observer(function ArtifactsPart({
         >
           {previews.length > 0 && (
             <div className="grid grid-cols-2 gap-2">
-              {previews.map((a) => {
+              {previews.map((a, i) => {
                 const label = a.title ?? basename(a.path)
                 const src = srcOf(a) ?? undefined
                 const video = kindOf(a) === 'video'
@@ -636,6 +640,7 @@ const ArtifactsPart = observer(function ArtifactsPart({
                     <button
                       data-pressable
                       type="button"
+                      data-tip-anchor={i === 0 ? tipAnchor : undefined}
                       className="group relative block aspect-[4/3] w-full cursor-zoom-in overflow-hidden rounded-[7px] border border-border bg-muted"
                       title={video ? `Play ${label}` : `View ${label} full size`}
                       onClick={() => open(a)}
@@ -674,7 +679,13 @@ const ArtifactsPart = observer(function ArtifactsPart({
           )}
           {listed.length > 0 && (
             <div className="flex flex-col">
-              {listed.map((a) => artifactRow(a, 'dock-artifact-row'))}
+              {listed.map((a, i) =>
+                artifactRow(
+                  a,
+                  'dock-artifact-row',
+                  i === 0 && previews.length === 0 ? tipAnchor : undefined,
+                ),
+              )}
             </div>
           )}
         </PanelSection>

@@ -8,6 +8,7 @@ import { type JSX, useLayoutEffect, useState } from 'react'
 import { useRuntimeSelector } from '@/app/store'
 import { ArtifactLightbox, artifactLightboxKey } from '@/components/ArtifactLightbox'
 import { openArtifactsTab } from '@/features/files/artifacts-tab'
+import { useFirstArtifactAnchor } from '@/features/issues/first-artifact-tip'
 import { currentWorkspaceSlug } from '@/lib/workspace-request'
 import { resolveOfferArtifacts } from './offer-artifacts'
 import { useChatArtifactIssue } from './use-chat-context'
@@ -102,6 +103,10 @@ export function OfferArtifactStrip({
     issue,
     ...(session.lastInputAt ? { lastInputAt: session.lastInputAt } : {}),
   })
+  const tipAnchor = useFirstArtifactAnchor(
+    'offer',
+    issue && resolved.length > 0 ? issue.id : undefined,
+  )
   if (!issue || resolved.length === 0) return null
 
   const root = issue.worktreePath ?? issue.repoPath
@@ -146,7 +151,12 @@ export function OfferArtifactStrip({
 
   return (
     <>
-      <div ref={setRow} data-testid="offer-artifacts" className="offer-evidence">
+      <div
+        ref={setRow}
+        data-testid="offer-artifacts"
+        data-tip-anchor={tipAnchor}
+        className="offer-evidence"
+      >
         {shown.map((a) => {
           const file = a.entry ?? a.path
           const kind = artifactKind(file)

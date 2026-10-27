@@ -40,6 +40,7 @@ import { createPortal } from 'react-dom'
 import { Button } from '@/components/ui/button'
 import { isArtifactsTab, useArtifactCount } from '@/features/files/artifacts-tab'
 import { FileTypeIcon } from '@/features/files/file-icon'
+import { FIRST_ARTIFACT_NEW_PANEL_ANCHOR } from '@/features/issues/first-artifact-tip'
 import { readFirstTaskDraft } from '@/features/setup/first-task-draft'
 import { AgentPanelBoundary } from '@/features/terminal/AgentPanelBoundary'
 import { useWarmSet } from '@/features/terminal/use-warm-set'
@@ -1324,6 +1325,7 @@ function PaneChrome({
                 className="flex size-[28px] cursor-pointer items-center justify-center rounded-[7px] text-text-dim hover:bg-secondary hover:text-foreground"
                 title="New panel"
                 aria-label="New panel"
+                data-tip-anchor={FIRST_ARTIFACT_NEW_PANEL_ANCHOR}
               >
                 <Plus size={13} aria-hidden="true" />
               </button>
