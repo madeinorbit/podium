@@ -3,6 +3,7 @@ import '@/test-support/mock-core-store-handle'
 // @vitest-environment happy-dom
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
+import { FIRST_TASK_ACTIVATION_DRAFT_KEY } from '@podium/client-core/ui-state'
 import {
   asIssueId,
   asMachineId,
@@ -11,9 +12,12 @@ import {
   type GitRepositoryWire,
   type SessionMeta,
 } from '@podium/model'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { TipContext } from '@/features/tips/tip-context'
+import type { TipEngine } from '@/features/tips/tip-engine'
+import type { TipMoment } from '@/features/tips/types'
 import { ColdStartComposer } from './ColdStartComposer'
 
 const styles = readFileSync(resolve(import.meta.dirname, '../../styles.css'), 'utf8')
@@ -805,6 +809,73 @@ describe('ColdStartComposer', () => {
       'Rebuild billing\n\nThis is a complex epic. You are the designated coordinator. Organize your work accordingly. Check with me on key decisions.',
     )
     expect(screen.queryByTestId('cold-start-coordinator')).toBeNull()
+  })
+
+  /* POD-2196. First Flights moment 1: the ghost demo is painted over the box
+   * and never typed into it, so the draft the operator had is the one they get. */
+  describe('first-prompt tip', () => {
+    function renderWithTips(first: boolean) {
+      const moments = new Map<string, () => TipMoment>()
+      const engine = {
+        register: (id: string, read: () => TipMoment) => {
+          moments.set(id, read)
+          return () => moments.delete(id)
+        },
+        refresh: () => {},
+      } as unknown as TipEngine
+      render(
+        <TipContext.Provider value={engine}>
+          <ColdStartComposer first={first} />
+        </TipContext.Provider>,
+      )
+      const moment = () => {
+        const read = moments.get('first-prompt')
+        if (!read) throw new Error('first-prompt is not registered')
+        return read()
+      }
+      return { moment }
+    }
+
+    it('is active only for the first task, anchored on the composer box', () => {
+      const { moment } = renderWithTips(true)
+      expect(moment().active).toBe(true)
+      expect(moment().cards.map(({ title }) => title)).toEqual(['Aim high.', 'Or start small.'])
+      const anchor = moment().cards[0]?.anchor
+      expect(screen.getByTestId('cold-start-field').getAttribute('data-tip-anchor')).toBe(anchor)
+      cleanup()
+      expect(renderWithTips(false).moment().active).toBe(false)
+    })
+
+    it('shows the demo without writing it into the draft, and restores the field', () => {
+      const { moment } = renderWithTips(true)
+      const field = screen.getByLabelText('What do you want to work on?') as HTMLTextAreaElement
+      fireEvent.change(field, { target: { value: 'Half a thought' } })
+      const stored = uiValues.get(FIRST_TASK_ACTIVATION_DRAFT_KEY)
+      act(() => moment().cards[0]?.onShow?.())
+      expect(screen.getByTestId('first-prompt-ghost')).toBeTruthy()
+      expect(field.dataset.ghosted).toBe('true')
+      expect(screen.getByTestId('cold-start-coordinator').closest('p')?.style.visibility).toBe(
+        'hidden',
+      )
+      act(() => {
+        moment().cards[0]?.onHide?.()
+        moment().cards[1]?.onShow?.()
+      })
+      expect(screen.queryByTestId('first-prompt-ghost')).toBeNull()
+      expect(field.dataset.ghosted).toBeUndefined()
+      expect(field.value).toBe('Half a thought')
+      expect(uiValues.get(FIRST_TASK_ACTIVATION_DRAFT_KEY)).toBe(stored)
+      act(() => moment().cards[1]?.onHide?.())
+      expect(screen.getByTestId('cold-start-coordinator').closest('p')?.style.visibility).toBe('')
+    })
+
+    it('focuses the composer from Write my task', () => {
+      const { moment } = renderWithTips(true)
+      const cta = moment().cards[1]?.cta
+      expect(cta?.label).toBe('Write my task')
+      act(() => cta?.onClick())
+      expect(document.activeElement).toBe(screen.getByLabelText('What do you want to work on?'))
+    })
   })
 
   /* POD-1203. The home box can be given a screenshot or a document, and the

@@ -48,6 +48,7 @@ import {
 } from '@/features/settings/readers'
 import { useSettingsClient } from '@/features/settings/stable-access'
 import { noteFirstSend } from '@/features/worklist/first-send-tip'
+import { useTipMoment } from '@/features/tips'
 import {
   agentFleetStatus,
   CapabilityAgentMenu,
@@ -73,6 +74,7 @@ import { useModelCatalog } from '@/lib/use-model-catalog'
 import { useNativeDraftText } from '@/lib/use-native-draft-text'
 import { cn } from '@/lib/utils'
 import { useColdStartPromptAutoGrow } from './cold-start-prompt-height'
+import { FIRST_PROMPT_ANCHOR, FirstPromptGhost, firstPromptCards } from './FirstPromptTip'
 import {
   clearFirstTaskDraft,
   type FirstTaskDraft,
@@ -573,6 +575,13 @@ export function ColdStartComposer({
     inputRef.current?.focus()
   }, [])
   useComposerChord(rootEl, focusField)
+  /** First Flights moment 1 (POD-2196). The ghost demo never touches the draft. */
+  const [ghost, setGhost] = useState(false)
+  const [tipShowing, setTipShowing] = useState(false)
+  useTipMoment('first-prompt', {
+    active: first,
+    cards: firstPromptCards({ setGhost, setShowing: setTipShowing, focusComposer: focusField }),
+  })
   useEffect(() => {
     const globals = globalThis as { __PODIUM_FOCUS_SESSION_PROMPT__?: () => void }
     globals.__PODIUM_FOCUS_SESSION_PROMPT__ = focusField
@@ -1081,6 +1090,7 @@ export function ColdStartComposer({
           <fieldset
             ref={setRootEl}
             data-testid="cold-start-field"
+            data-tip-anchor={FIRST_PROMPT_ANCHOR}
             className="cold-start-field relative min-w-0 overflow-hidden border-0 p-0"
             onKeyDown={(event) => {
               if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
@@ -1095,6 +1105,8 @@ export function ColdStartComposer({
               rows={2}
               defaultValue={initialPrompt}
               disabled={busy || Boolean(draft.pendingIssueId)}
+              data-ghosted={ghost ? 'true' : undefined}
+              aria-hidden={ghost || undefined}
               onChange={(event) =>
                 setDraft(withoutCreateReservation({ ...draft, title: event.currentTarget.value }))
               }
@@ -1102,6 +1114,7 @@ export function ColdStartComposer({
               placeholder="What should change, and why?"
               className="cold-start-input block w-full resize-none bg-transparent text-text-strong outline-none placeholder:text-text-faint disabled:opacity-60"
             />
+            {ghost && <FirstPromptGhost />}
             {attachments.attachments.length > 0 && (
               <div className="px-8 pb-3">
                 <AttachmentStrip
@@ -1344,7 +1357,9 @@ export function ColdStartComposer({
             </div>
           )}
           {!busy && !draft.pendingIssueId && !draft.title.includes(COORDINATOR_PROMPT) && (
-            <p className="cold-start-tip">
+            // Hidden, not removed, while the first-prompt tip shows: one tip at a time,
+            // and on a narrow pane the tip card lands on this line.
+            <p className="cold-start-tip" style={tipShowing ? { visibility: 'hidden' } : undefined}>
               Something big?{' '}
               <button
                 type="button"
