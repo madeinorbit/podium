@@ -25,6 +25,7 @@ const fixture = vi.hoisted(() => ({
   sessions: [] as SessionMeta[],
   issues: [] as ReturnType<typeof makeIssue>[],
   paneA: null as string | null,
+  enabledFeatures: new Set<string>(),
   store: {
     trpc: {
       settings: { get: { query: vi.fn(async () => ({})) } },
@@ -70,10 +71,17 @@ vi.mock('./store', async () => {
   return {
     ...actual,
     useRuntimeSelector: (selector: (store: unknown) => unknown) =>
-      selector({ ...fixture.store, issues: fixture.issues, sessions: fixture.sessions, paneA: fixture.paneA }),
+      selector({
+        ...fixture.store,
+        issues: fixture.issues,
+        sessions: fixture.sessions,
+        paneA: fixture.paneA,
+      }),
   }
 })
-vi.mock('@/lib/use-feature', () => ({ useFeature: () => false }))
+vi.mock('@/lib/use-feature', () => ({
+  useFeature: (id: string) => fixture.enabledFeatures.has(id),
+}))
 vi.mock('@/lib/hooks/use-session-guard', () => ({
   useSessionGuard: () => ({ guardedDelete: vi.fn(), guardedEnd: vi.fn(), guardedArchive: vi.fn() }),
 }))
@@ -111,6 +119,7 @@ afterEach(() => {
   fixture.sessions = []
   fixture.issues = []
   fixture.paneA = null
+  fixture.enabledFeatures.clear()
   fixture.store.openIssueId = null
 })
 
@@ -181,6 +190,51 @@ describe('CommandPalette', () => {
       .filter((o) => o.getAttribute('aria-selected') === 'true')
     expect(selected).toHaveLength(1)
     expect(selected[0]?.dataset.active).toBe('true')
+  })
+
+  it('resets selection for a new query even when the ordered results are unchanged', () => {
+    fixture.issues = [
+      makeIssue({ id: 'i1', title: 'login page polish' }),
+      makeIssue({ id: 'i2', title: 'login bug' }),
+    ]
+    render(<CommandPalette />)
+    const input = screen.getByRole('combobox')
+    fireEvent.change(input, { target: { value: 'l' } })
+    const rows = screen.getAllByRole('option')
+    const order = rows.map((row) => row.getAttribute('data-command-id'))
+    fireEvent.mouseMove(screen.getByRole('option', { name: /login bug/ }))
+    expect(rows[0]?.getAttribute('aria-selected')).toBe('false')
+
+    fireEvent.change(input, { target: { value: 'L' } })
+
+    const updated = screen.getAllByRole('option')
+    expect(updated.map((row) => row.getAttribute('data-command-id'))).toEqual(order)
+    expect(updated[0]?.getAttribute('aria-selected')).toBe('true')
+    expect(input.getAttribute('aria-activedescendant')).toBe(updated[0]?.id)
+  })
+
+  it('resets selection when result identities change with the same query and count', () => {
+    fixture.enabledFeatures.add('workflows')
+    const mounted = render(<CommandPalette />)
+    const input = screen.getByRole('combobox')
+    fireEvent.change(input, { target: { value: 'go to' } })
+    const order = screen.getAllByRole('option').map((row) => row.getAttribute('data-command-id'))
+    fireEvent.mouseMove(screen.getByRole('option', { name: 'Go to Tasks' }))
+    expect(screen.getByRole('option', { name: 'Go to Tasks' }).getAttribute('aria-selected')).toBe(
+      'true',
+    )
+
+    fixture.enabledFeatures.delete('workflows')
+    fixture.enabledFeatures.add('specs')
+    mounted.rerender(<CommandPalette />)
+
+    const updated = screen.getAllByRole('option')
+    expect(input.getAttribute('value')).toBe('go to')
+    expect(updated).toHaveLength(order.length)
+    expect(updated.map((row) => row.getAttribute('data-command-id'))).not.toEqual(order)
+    expect(screen.getByRole('option', { name: 'Go to Specs' })).toBeTruthy()
+    expect(updated[0]?.getAttribute('aria-selected')).toBe('true')
+    expect(input.getAttribute('aria-activedescendant')).toBe(updated[0]?.id)
   })
 
   it('teaches its own keys in the footer, and what Escape does right now', () => {

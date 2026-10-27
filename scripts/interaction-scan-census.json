@@ -1394,12 +1394,12 @@
       "file": "apps/web/src/app/CommandPalette.tsx",
       "holder": "PaletteDialogBody/PaletteDialogBody/commands/callback",
       "rule": "loop:for-of",
-      "tokens": "c93aef58f91af9312ffe64155934aac605e0651e0f13072236ed5b6f8088d1b4",
+      "tokens": "d02fab22c70baea65a07f4c448d8fad4a8793e6b6e9b7f582221687cdfa8b913",
       "gate": [],
       "origin": [
         "f3f658b8a8746cc641f32ac9ebbb6a48d68325d9905120e08e4c8d0d759786c8"
       ],
-      "fingerprint": "324c7525c055f6438c5e6de61f29c4807dd00270f4559df90c13caad03c9198d",
+      "fingerprint": "8d9637bc5c2994fe5fbbb48cc6ea3c3cb242919082fe3b3aef040b7d3555f992",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
