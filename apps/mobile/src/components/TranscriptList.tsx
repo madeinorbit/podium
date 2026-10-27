@@ -114,7 +114,13 @@ export interface PendingTurn {
   text: string
   /** Files uploaded with this turn, so the bubble shows the screenshot the
    *  operator just attached instead of a bare filename in the text. */
-  files?: readonly { path: string; previewUri?: string; name?: string; attachmentId?: string }[]
+  files?: readonly {
+    path: string
+    previewUri?: string
+    name?: string
+    attachmentId?: string
+    kind?: 'image' | 'file'
+  }[]
   /** Set when the send itself was REJECTED (POD-346). A rejected turn that
    *  keeps saying "sending…" is the worst possible outcome — the phone reads as
    *  broken and the words are lost. The row goes red, names the reason, and

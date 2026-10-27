@@ -44,6 +44,7 @@ export class IssueAttentionModule {
       | 'create'
       | 'update'
       | 'purgeEmptyDraft'
+      | 'panelChatUploadRelease'
       | 'defer'
       | 'undefer'
       | 'setNeedsHuman'
@@ -446,6 +447,10 @@ export class IssueAttentionModule {
     if (!row || row.deletedAt || !row.draft || row.worktreePath) return false
     if ([...this.store.rows.values()].some((candidate) => candidate.parentId === id)) return false
     if ((await this.store.sessionsFor(row)).some((session) => session.issueId === id)) return false
+    // Discarded, so no session can deliver its files: they go back to pending
+    // before the purge deletes the draft's stored artifacts, and a retry of the
+    // same create claims them again (POD-2148).
+    await this.crud().panelChatUploadRelease(id)
     await this.crud().purgeEmptyDraft(id)
     return true
   }

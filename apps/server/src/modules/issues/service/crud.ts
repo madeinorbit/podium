@@ -640,11 +640,32 @@ export class IssueCrudModule {
     const key = `${issueId}\0${input.uploadId}`
     const running = this.chatUploadClaims.get(key)
     if (running) return await running
-    const claim = this.claimChatUpload(issueId, input).finally(() => {
-      this.chatUploadClaims.delete(key)
-    })
+    const claim = this.underChatUploadLock(key, () => this.claimChatUpload(issueId, input)).finally(
+      () => {
+        this.chatUploadClaims.delete(key)
+      },
+    )
     this.chatUploadClaims.set(key, claim)
     return await claim
+  }
+
+  /** Claim, release and the delivery read of one upload on one issue run one
+   *  at a time, so none sees another's half-moved file. */
+  private readonly chatUploadLocks = new Map<string, Promise<void>>()
+
+  private async underChatUploadLock<T>(key: string, run: () => Promise<T>): Promise<T> {
+    const previous = this.chatUploadLocks.get(key) ?? Promise.resolve()
+    const current = previous.then(run)
+    const tail = current.then(
+      () => {},
+      () => {},
+    )
+    this.chatUploadLocks.set(key, tail)
+    try {
+      return await current
+    } finally {
+      if (this.chatUploadLocks.get(key) === tail) this.chatUploadLocks.delete(key)
+    }
   }
 
   /** In-flight claims by issue + upload id: two overlapping sends of one
@@ -668,25 +689,30 @@ export class IssueCrudModule {
   }
 
   /**
-   * Undo this issue's claims when the task they were sent with failed to
-   * launch and its draft is about to be purged with its artifacts (POD-2148):
-   * each file moves back to pending and forgets the claim, so retrying the
-   * same refs claims it again. Best-effort per upload; a file already gone
-   * stays gone.
+   * Undo a discarded draft's claims before its purge deletes its artifacts
+   * (POD-2148): each chat upload's file moves back to pending and forgets the
+   * claim, so retrying the same create claims it again. Only for a draft
+   * whose launch failed with no session on it, so no delivery reads it.
    */
-  async panelChatUploadRelease(issueId: IssueId, uploadIds: readonly string[]): Promise<void> {
+  async panelChatUploadRelease(issueId: IssueId): Promise<void> {
     const pending = this.store.deps.pendingUploads
     const store = this.store.deps.artifacts
-    if (!pending || !store?.relinquish) return
+    const row = await this.store.rowOrThrow(issueId).catch(() => undefined)
+    if (!row || !pending || !store?.relinquish) return
+    const uploadIds = this.store
+      .parsePanel(row)
+      .artifacts.flatMap((a) => (a.chatUploadId ? [a.chatUploadId] : []))
     for (const uploadId of uploadIds) {
-      const meta = await pending.meta(uploadId)
-      if (meta?.claimed?.issueId !== issueId) continue
-      await store.relinquish({
-        issueId,
-        artifactId: meta.claimed.artifactId,
-        toDir: pending.fileDir(uploadId),
+      await this.underChatUploadLock(`${issueId}\0${uploadId}`, async () => {
+        const meta = await pending.meta(uploadId)
+        if (meta?.claimed?.issueId !== issueId) return
+        await store.relinquish?.({
+          issueId,
+          artifactId: meta.claimed.artifactId,
+          toDir: pending.fileDir(uploadId),
+        })
+        await pending.markUnclaimed(uploadId)
       })
-      await pending.markUnclaimed(uploadId)
     }
   }
 
@@ -736,18 +762,30 @@ export class IssueCrudModule {
     })
   }
 
-  /** Whether this issue holds a claimed chat upload under this id (POD-2148). */
-  async chatUploadClaimed(issueId: IssueId, uploadId: string): Promise<boolean> {
+  /** Whether this issue holds a chat upload under this id that `ownerUserId`
+   *  uploaded (POD-2148): only its uploader may hand it to an agent. */
+  async chatUploadClaimed(
+    issueId: IssueId,
+    uploadId: string,
+    ownerUserId: UserId,
+  ): Promise<boolean> {
     const row = await this.store.rowOrThrow(issueId).catch(() => undefined)
     return (
       !!row &&
-      this.store.parsePanel(row).artifacts.some((a) => a.chatUploadId === uploadId && a.artifactId)
+      this.store
+        .parsePanel(row)
+        .artifacts.some(
+          (a) =>
+            a.chatUploadId === uploadId && a.artifactId && a.chatUploadOwner === ownerUserId,
+        )
     )
   }
 
   /** A claimed chat upload's bytes, for staging on the agent's machine at
    *  delivery (POD-2148). Undefined when the issue no longer holds them. */
   async chatUploadBytes(issueId: IssueId, uploadId: string): Promise<Uint8Array | undefined> {
+    // Never mid-move: wait out a claim or release of this upload.
+    await this.chatUploadLocks.get(`${issueId}\0${uploadId}`)
     const row = await this.store.rowOrThrow(issueId).catch(() => undefined)
     const store = this.store.deps.artifacts
     if (!row || !store) return undefined
@@ -1886,7 +1924,9 @@ export class IssueCrudModule {
     // diff would declare the purged issue still present.
     await this.store.reconcileAndPublish()
     // Hard delete: drop any artifact snapshots too ([spec:SP-0fc9], best-effort).
-    void this.store.deps.artifacts?.removeIssue(id).catch(() => {})
+    // Awaited: a retry that reuses the client-minted id must not move files
+    // into a directory this is still deleting (POD-2148).
+    await this.store.deps.artifacts?.removeIssue(id).catch(() => {})
   }
 
   /** Build the issue half of a cross-aggregate restore without exposing the row

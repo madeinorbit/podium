@@ -97,7 +97,7 @@ describe('W4 guard: every agent send is one durable row (C5, POD-4795)', () => {
   const sender = (
     onContract: boolean,
     reasons: { archive?: string } = {},
-    claimed: ReadonlySet<string> = new Set(),
+    claimed: ReadonlyMap<string, string> = new Map(),
   ) => {
     const rows: Record<string, unknown>[] = []
     const legacy: string[] = []
@@ -135,7 +135,8 @@ describe('W4 guard: every agent send is one durable row (C5, POD-4795)', () => {
         delegation: null,
       }),
       now: () => 0,
-      chatUploadOnSession: async (_sessionId, uploadId) => claimed.has(uploadId),
+      chatUploadOnSession: async (_sessionId, uploadId, ownerUserId) =>
+        claimed.get(uploadId) === ownerUserId,
     })
     return { s, rows, legacy }
   }
@@ -230,15 +231,38 @@ describe('W4 guard: every agent send is one durable row (C5, POD-4795)', () => {
       mediaType: 'image/png',
       kind: 'image' as const,
     }
-    const live = sender(true, {}, new Set(['up-1']))
+    const as = (user: string) => ({
+      kind: 'user' as const,
+      principalRef: user,
+      delegation: null,
+      attribution: { actor: { kind: 'user' as const, id: user }, onBehalfOf: user },
+    })
+    const live = sender(true, {}, new Map([['up-1', 'user:alice']]))
     expect(
       await live.s.send('queue', {
         sessionId: asSessionId('s1'),
         text: 'look',
         attachments: [held],
+        principal: as('user:alice') as never,
       }),
     ).toEqual({ ok: true, queued: true, position: 1 })
     expect(live.rows).toEqual([expect.objectContaining({ attachments: [held] })])
+
+    // Another reader of the same issue naming Alice's id — by chat or by mail
+    // straight to the session — and a sender with no person behind it.
+    const refused = { ok: false, reason: 'file attachment reference was not staged for this session' }
+    for (const principal of [as('user:bob'), undefined]) {
+      const other = sender(true, {}, new Map([['up-1', 'user:alice']]))
+      expect(
+        await other.s.send('queue', {
+          sessionId: asSessionId('s1'),
+          text: 'look',
+          attachments: [held],
+          ...(principal ? { principal: principal as never } : {}),
+        }),
+      ).toEqual(refused)
+      expect(other.rows).toEqual([])
+    }
 
     const elsewhere = sender(true)
     expect(
@@ -246,8 +270,9 @@ describe('W4 guard: every agent send is one durable row (C5, POD-4795)', () => {
         sessionId: asSessionId('s1'),
         text: 'look',
         attachments: [{ ...held, id: 'up-2' }],
+        principal: as('user:alice') as never,
       }),
-    ).toEqual({ ok: false, reason: 'file attachment reference was not staged for this session' })
+    ).toEqual(refused)
     expect(elsewhere.rows).toEqual([])
   })
 

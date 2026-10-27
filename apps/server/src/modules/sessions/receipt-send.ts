@@ -36,7 +36,7 @@
 import { randomUUID } from 'node:crypto'
 import { basename, dirname, isAbsolute, normalize } from 'node:path'
 import { createLogger } from '@podium/logger'
-import type { MutationId, SessionId } from '@podium/model'
+import type { MutationId, SessionId, UserId } from '@podium/model'
 import type { ObservationInputOrigin } from '@podium/protocol'
 import type { RuntimeAttachmentRef, TurnReceipt } from '@podium/protocol/daemon'
 import type { InboxPrincipalReference } from './inbox'
@@ -107,7 +107,7 @@ export interface ReceiptSenderPorts {
   /** Whether this session's issue holds a claimed chat upload under this id
    *  (POD-2148). Absent = no chat uploads here; a ref without a path is then
    *  refused like any unstaged ref. */
-  chatUploadOnSession?(sessionId: SessionId, uploadId: string): Promise<boolean>
+  chatUploadOnSession?(sessionId: SessionId, uploadId: string, ownerUserId: UserId): Promise<boolean>
 }
 
 /** What a caller learns when the receipt lands. `via` and the input echo back so
@@ -190,10 +190,15 @@ export class ReceiptSender {
   private async attachmentsBelong(input: ReceiptSendInput): Promise<boolean> {
     for (const attachment of input.attachments ?? []) {
       const path = attachment.path
+      // A chat upload is handed on only by the person who uploaded it, whoever
+      // sends it here (a chat send, or mail naming the id directly).
+      const sender = input.principal?.attribution.onBehalfOf
       const belongs =
         path !== undefined
           ? attachmentMatchesSession(input.sessionId, { ...attachment, path })
-          : (await this.ports.chatUploadOnSession?.(input.sessionId, attachment.id)) === true
+          : !!sender &&
+            (await this.ports.chatUploadOnSession?.(input.sessionId, attachment.id, sender)) ===
+              true
       if (!belongs) return false
     }
     return true

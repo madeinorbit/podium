@@ -123,8 +123,6 @@ async function ctxFor(
     holdUpload: async (input) => await modules.pendingUploads.put(input),
     claimUpload: async (issueId, input) =>
       await modules.issues.crud.panelChatUploadClaim(issueId, input),
-    releaseUploads: async (issueId, uploadIds) =>
-      await modules.issues.crud.panelChatUploadRelease(issueId, uploadIds),
     isAgentDriven: async (sessionId) => modules.sessions.receiptSender.onContract(sessionId),
     // The chat path's send dispatches the `mail.send` CONTRACT (POD-729), so the
     // fixture binds the port the same way the composition root does — from the
@@ -225,6 +223,17 @@ describe('held chat uploads (POD-2148)', () => {
     vi.spyOn(o.reg.modules.sessions, 'createSession').mockImplementationOnce(() => {
       throw new Error('unknown model')
     })
+    // The purge's artifact cleanup is held until the test lets it go: the
+    // create must not reject (and invite a retry) while it is still running.
+    const removeIssue = o.reg.modules.issueArtifacts.removeIssue.bind(o.reg.modules.issueArtifacts)
+    let letCleanupRun: () => void = () => {}
+    const cleanupHeld = new Promise<void>((resolve) => {
+      letCleanupRun = resolve
+    })
+    vi.spyOn(o.reg.modules.issueArtifacts, 'removeIssue').mockImplementationOnce(async (id) => {
+      await cleanupHeld
+      await removeIssue(id)
+    })
     const create = {
       sessionId: asSessionId('5d0c7c1e-3f2a-4b8e-9c61-7a2d4e8f1b03'),
       agentKind: 'claude-code' as const,
@@ -234,13 +243,18 @@ describe('held chat uploads (POD-2148)', () => {
       attachments: [ref],
     }
 
-    await expect(
-      dispatchSessionCommand(await ctxFor(o, human(firstAdminMemberId())), 'create', create),
-    ).rejects.toThrow('unknown model')
+    let settled = false
+    const failed = dispatchSessionCommand(await ctxFor(o, human(firstAdminMemberId())), 'create', create)
+      .finally(() => {
+        settled = true
+      })
+      .catch((error: unknown) => error)
+    await vi.waitFor(() => expect(o.reg.modules.issueArtifacts.removeIssue).toHaveBeenCalled())
+    expect(settled).toBe(false)
+    letCleanupRun()
+    expect(await failed).toMatchObject({ message: 'unknown model' })
     expect((await o.reg.issues.reports.list('/p')).filter((issue) => issue.draft)).toEqual([])
     expect(await o.reg.modules.pendingUploads.meta(ref.id)).not.toHaveProperty('claimed')
-    // Let the purge's best-effort artifact removal run before the retry.
-    await new Promise((resolve) => setTimeout(resolve, 20))
 
     await dispatchSessionCommand(await ctxFor(o, human(firstAdminMemberId())), 'create', create)
     const draft = (await o.reg.issues.reports.list('/p')).find((issue) => issue.draft)
@@ -248,6 +262,57 @@ describe('held chat uploads (POD-2148)', () => {
     expect(await o.reg.issues.crud.chatUploadBytes(asIssueId(draft?.id ?? ''), ref.id)).toEqual(
       new Uint8Array(Buffer.from(png, 'base64')),
     )
+  })
+
+  it('a create that fails after its session registered keeps the draft and its claimed files', async () => {
+    const o = await makeOracle()
+    await provisionHost(o)
+    const ref = await hold(o, 'coldstart-b71d', true)
+    const createSession = o.reg.modules.sessions.createSession.bind(o.reg.modules.sessions)
+    vi.spyOn(o.reg.modules.sessions, 'createSession').mockImplementationOnce(async (input) => {
+      await createSession(input)
+      throw new Error('late spawn failure')
+    })
+
+    await expect(
+      dispatchSessionCommand(await ctxFor(o, human(firstAdminMemberId())), 'create', {
+        agentKind: 'claude-code',
+        cwd: '/p',
+        draftIssue: { repoPath: '/p' },
+        initialPrompt: 'what is in this picture?',
+        attachments: [ref],
+      }),
+    ).rejects.toThrow('late spawn failure')
+
+    // The queued first prompt still has its file to stage.
+    const draft = (await o.reg.issues.reports.list('/p')).find((issue) => issue.draft)
+    expect(draft?.panel?.artifacts).toEqual([expect.objectContaining({ chatUploadId: ref.id })])
+    expect(await o.reg.modules.pendingUploads.meta(ref.id)).toMatchObject({
+      claimed: { issueId: draft?.id },
+    })
+    expect(await o.reg.issues.crud.chatUploadBytes(asIssueId(draft?.id ?? ''), ref.id)).toEqual(
+      new Uint8Array(Buffer.from(png, 'base64')),
+    )
+  })
+
+  it('a shell refuses files before anything is claimed or spawned', async () => {
+    const o = await makeOracle()
+    await provisionHost(o)
+    const ref = await hold(o, 'coldstart-4c2a', true)
+    const createSession = vi.spyOn(o.reg.modules.sessions, 'createSession')
+
+    await expect(
+      dispatchSessionCommand(await ctxFor(o, human(firstAdminMemberId())), 'create', {
+        agentKind: 'shell',
+        cwd: '/p',
+        draftIssue: { repoPath: '/p' },
+        initialPrompt: 'ls',
+        attachments: [ref],
+      }),
+    ).rejects.toThrow('this agent cannot accept file attachments')
+    expect(createSession).not.toHaveBeenCalled()
+    expect((await o.reg.issues.reports.list('/p')).filter((issue) => issue.draft)).toEqual([])
+    expect(await o.reg.modules.pendingUploads.meta(ref.id)).not.toHaveProperty('claimed')
   })
 
   it('a send claims its uploads into the session’s issue, once, and queues the ref without a path', async () => {
@@ -1102,9 +1167,6 @@ describe('session id prefix (POD-4536)', () => {
           throw new Error('unused')
         },
         claimUpload: async () => {
-          throw new Error('unused')
-        },
-        releaseUploads: async () => {
           throw new Error('unused')
         },
         isAgentDriven: async () => false,

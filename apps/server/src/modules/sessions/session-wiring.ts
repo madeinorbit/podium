@@ -16,7 +16,7 @@
 
 import { type AgentStateEvent, initialAgentState, reduceAgentState } from '@podium/harness/metadata'
 import { createLogger } from '@podium/logger'
-import { asUserId, computePriorities, type SessionId } from '@podium/model'
+import { asUserId, computePriorities, type SessionId, type UserId } from '@podium/model'
 import { asDelegationRef } from '@podium/protocol'
 import { RuntimeAttachmentRef, type RuntimeEvent } from '@podium/protocol/daemon'
 import { MutationLedger, type SyncRepository } from '@podium/sync'
@@ -1045,9 +1045,9 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     },
     systemPrincipal: () => SYSTEM_INBOX_PRINCIPAL,
     now: () => bag.now(),
-    chatUploadOnSession: async (sessionId: SessionId, uploadId: string) => {
+    chatUploadOnSession: async (sessionId: SessionId, uploadId: string, ownerUserId: UserId) => {
       const issueId = bag.sessions.get(sessionId)?.issueId
-      return !!issueId && (await deps.chatUploads?.claimed(issueId, uploadId)) === true
+      return !!issueId && (await deps.chatUploads?.claimed(issueId, uploadId, ownerUserId)) === true
     },
   })
   bag.daemonLifecycle = new SessionDaemonLifecycle({

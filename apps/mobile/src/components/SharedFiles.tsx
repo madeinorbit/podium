@@ -44,7 +44,7 @@ function SharedPath({
   uploadId?: string
 }) {
   const { bearer } = useServerProfile()
-  const [failed, setFailed] = useState(false)
+  const [failedUrl, setFailedUrl] = useState<string | null>(null)
   const [preview, setPreview] = useState(false)
   const name = machinePathBasename(path, context?.cwd ?? path)
   // A chat upload shows from the issue's stored copy (POD-2148); the daemon
@@ -56,6 +56,10 @@ function SharedPath({
   )
   const url =
     stored ?? (context && uploadId === undefined ? sessionAssetUrl(context, path) : undefined)
+  // Failure belongs to the URL that failed: the issue's copy landing after a
+  // swept daemon file failed gets its own attempt.
+  const failed = failedUrl !== null && failedUrl === url
+  const setFailed = () => setFailedUrl(url ?? null)
 
   if (!url) return <FileChip label={name} />
 
@@ -93,7 +97,7 @@ function SharedPath({
           accessibilityLabel={name}
           resizeMode="cover"
           style={styles.thumb}
-          onError={() => setFailed(true)}
+          onError={setFailed}
         />
       </PressableScale>
       <Modal
@@ -118,7 +122,7 @@ function SharedPath({
             resizeMode="contain"
             style={styles.lightboxImage}
             onError={() => {
-              setFailed(true)
+              setFailed()
               setPreview(false)
             }}
           />

@@ -189,9 +189,6 @@ export interface SessionCommandDeps {
   }): Promise<{ id: string; filename: string; mediaType: string }>
   /** Claim a held upload into an issue; throws the refusal to show. */
   claimUpload(issueId: IssueId, input: { uploadId: string; ownerUserId: UserId }): Promise<void>
-  /** Return an unlaunched draft's claimed uploads to pending, so a retry of
-   *  the same create can claim them again. */
-  releaseUploads(issueId: IssueId, uploadIds: readonly string[]): Promise<void>
   /** True for agent sessions (agentKind !== 'shell'), which take the driver
    *  path; shells keep the raw transport. Taxonomy, not a flag — renamed
    *  POD-4440 from `runtimeContractActive`, which read as the deleted switch. */
@@ -661,6 +658,11 @@ type Handler = (ctx: SessionCommandCtx, input: any) => unknown
 export const SESSION_COMMAND_HANDLERS = {
   create: async (ctx: SessionCommandCtx, input: CreateInput) => {
     const { draftIssue, draftArtifacts, attachments, mutationId: _mutationId, ...rest } = input
+    // A shell has no driver to hand files to, so it refuses them before any
+    // claim or spawn, as a send to one does (POD-2148).
+    if (attachments?.length && rest.agentKind === 'shell') {
+      throw new Error('this agent cannot accept file attachments')
+    }
     // Explicit placement is gated BEFORE the target is prepared, because
     // preparing may clone a repository onto the target machine — a side effect
     // a denied principal must never cause.
@@ -716,15 +718,9 @@ export const SESSION_COMMAND_HANDLERS = {
         },
       })
     } catch (error) {
-      if (createdDraftId) {
-        // The purge deletes the draft's stored files, so its uploads go back
-        // to pending first; a retry with the same refs claims them again. If
-        // the draft is kept after all (its session registered), they rejoin it.
-        const held = attachments?.filter((a) => a.path === undefined).map((a) => a.id) ?? []
-        if (held.length) await ctx.deps.releaseUploads(createdDraftId, held)
-        const discarded = await ctx.deps.discardUnlaunchedDraft(createdDraftId)
-        if (!discarded && held.length) await claimHeldUploads(ctx, createdDraftId, attachments)
-      }
+      // A discarded draft hands its claimed uploads back to pending (POD-2148);
+      // one kept because its session registered keeps them.
+      if (createdDraftId) await ctx.deps.discardUnlaunchedDraft(createdDraftId)
       throw error
     }
   },

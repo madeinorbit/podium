@@ -134,7 +134,7 @@ export interface SessionLifecycleDeps {
    *  server with no issue store; a pathless ref is then refused. */
   chatUploads?: {
     bytes(issueId: IssueId, uploadId: string): Promise<Uint8Array | undefined>
-    claimed(issueId: IssueId, uploadId: string): Promise<boolean>
+    claimed(issueId: IssueId, uploadId: string, ownerUserId: UserId): Promise<boolean>
   }
   /** Send an agent's continue as a message from `system:auto-continue`, one
    *  per errored turn (POD-4846). */

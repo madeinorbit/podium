@@ -1593,8 +1593,8 @@ export class SessionRegistry {
       // composed below and only read once a row is forwarded.
       chatUploads: {
         bytes: async (issueId, uploadId) => await issues.crud.chatUploadBytes(issueId, uploadId),
-        claimed: async (issueId, uploadId) =>
-          await issues.crud.chatUploadClaimed(issueId, uploadId),
+        claimed: async (issueId, uploadId, ownerUserId) =>
+          await issues.crud.chatUploadClaimed(issueId, uploadId, ownerUserId),
       },
       // Auto-continue is a message (POD-4846).
       sendContinue: async (input) => {

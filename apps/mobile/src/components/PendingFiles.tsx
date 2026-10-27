@@ -1,4 +1,5 @@
 import { FileText } from './icons'
+import { useState } from 'react'
 import { Image, StyleSheet, Text, View } from 'react-native'
 import { authenticatedImageSource } from '../client/authenticated-assets'
 import { useChatUploadUrl } from '../client/chat-uploads'
@@ -7,7 +8,13 @@ import type { TranscriptAssetContext } from '../lib/transcript-assets'
 import { color, font, radius, sans, space } from '../theme/theme'
 import { Icon } from './Icon'
 
-type PendingFile = { path: string; previewUri?: string; name?: string; attachmentId?: string }
+type PendingFile = {
+  path: string
+  previewUri?: string
+  name?: string
+  attachmentId?: string
+  kind?: 'image' | 'file'
+}
 
 function FileChip({ name }: { name: string }) {
   return (
@@ -26,14 +33,18 @@ function FileChip({ name }: { name: string }) {
 function HeldFile({ file, context }: { file: PendingFile; context?: TranscriptAssetContext }) {
   const { bearer } = useServerProfile()
   const url = useChatUploadUrl(context?.sessionId, file.attachmentId, context?.httpOrigin)
+  const [failedUrl, setFailedUrl] = useState<string | null>(null)
   const name = file.name ?? file.path
-  if (!url) return <FileChip name={name} />
+  // Only an image is drawn; a document, a copy not stored yet, or one that
+  // fails to decode is its name.
+  if (file.kind !== 'image' || !url || failedUrl === url) return <FileChip name={name} />
   return (
     <Image
       source={authenticatedImageSource(url, bearer)}
       accessibilityLabel={name}
       resizeMode="cover"
       style={styles.thumb}
+      onError={() => setFailedUrl(url)}
     />
   )
 }
