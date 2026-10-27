@@ -1,7 +1,7 @@
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 import { asSessionId } from '@podium/model/browser'
 import { autorun } from 'mobx'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeAll, describe, expect, it, vi } from 'vitest'
 import {
   checkShell,
   compareShellSnapshots,
@@ -11,6 +11,7 @@ import {
 } from '../../../tests/worklist/diagnostics/shell-check'
 import { shellFixture } from '../../../tests/worklist/diagnostics/shell-fixture'
 import { omitGone } from './lookup'
+import { loadSyncedModels } from './models'
 import { SHELL_ENTITIES, SHELL_SOURCE_KEY } from './shell-schema'
 import { ShellSource } from './shell-source'
 import { shellViews } from './shell-views'
@@ -25,6 +26,11 @@ function settled(f: ReturnType<typeof shellFixture>, issues = f.issues) {
   return report
 }
 describe('shell pool', () => {
+  // The synchronous comparisons run after production's deferred definitions arrive.
+  beforeAll(async () => {
+    await loadSyncedModels()
+  })
+
   it('bounds chrome and dock row demand by their displayed context at 1x and 4x history', () => {
     const demand: number[] = []
     for (const count of [128, 512]) {
@@ -106,6 +112,32 @@ describe('shell pool', () => {
     try {
       expect(settled(f)).toMatchObject({ differences: 0, pending: 0, first: null })
       expect(settled(f).positions).toBeGreaterThan(90)
+    } finally {
+      f.pool.dispose()
+    }
+  })
+  it('compares machine model fields and detects source divergence without leaking values', () => {
+    const f = shellFixture()
+    try {
+      const machine = f.state().machines[0]!
+      const models = shellViews(f.pool).machines()
+      expect(models).toHaveLength(1)
+      expect(models[0]).toBe(f.pool.model('machine', machine.id))
+      expect(settled(f).differences).toBe(0)
+      for (const patch of [
+        { name: 'private-machine-name' },
+        { online: false },
+        { availability: { daemon: false, server: true, supervisor: false, epoch: 'changed' } },
+      ]) {
+        f.pool.ingestLiveMachines([{ id: machine.id, value: { ...machine, ...patch } }])
+        const report = settled(f)
+        expect(report).toMatchObject({
+          differences: 1,
+          pending: 0,
+          first: { sectionIndex: 9, rowIndex: 0, field: `value.${Object.keys(patch)[0]}` },
+        })
+        expect(JSON.stringify(report)).not.toContain('private-machine-name')
+      }
     } finally {
       f.pool.dispose()
     }

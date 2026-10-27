@@ -19,6 +19,7 @@ import type { MobxPool } from '@podium/client-graph/pool'
 import { SHELL_SCHEMA, SHELL_SUMMARIES } from '@podium/client-graph/shell-schema'
 import { shellViews } from '@podium/client-graph/shell-views'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
+import { MachineWire } from '@podium/model/browser'
 import { allIssueViewModels } from './reference/issue-view-models'
 import type { ReferenceState as Store } from './reference-state'
 import { type CheckRow, compareSidebarSnapshots, type SidebarSnapshot } from './sidebar-check'
@@ -26,6 +27,9 @@ import { type CheckRow, compareSidebarSnapshots, type SidebarSnapshot } from './
 const fields = (value: object, keys: readonly string[]) =>
   Object.fromEntries(keys.map((key) => [key, Reflect.get(value, key) ?? null]))
 const row = (id: string, value: object): CheckRow => ({ id, fields: { value } })
+// Models expose wire fields through getters; their own keys hold pool internals.
+const machineFields = (value: Store['machines'][number]) =>
+  fields(value, Object.keys(MachineWire.shape))
 const missionExpanded = (value: Pick<IssueNavigationModel, 'type' | 'childCount'> | undefined) =>
   Boolean(value && value.childCount >= 6)
 function closeFields(
@@ -145,7 +149,11 @@ export function legacyShellSnapshot(
       },
       { key: 'orders', fields: {}, rows: state.shipOrders.map((value) => row(value.id, value)) },
       { key: 'lanes', fields: {}, rows: state.shipLanes.map((value) => row(value.id, value)) },
-      { key: 'machines', fields: {}, rows: state.machines.map((value) => row(value.id, value)) },
+      {
+        key: 'machines',
+        fields: {},
+        rows: state.machines.map((value) => row(value.id, machineFields(value))),
+      },
       {
         key: 'sessions',
         fields: {},
@@ -269,7 +277,11 @@ export function poolShellSnapshot(pool: MobxPool): SidebarSnapshot {
         rows: shipOrders.map((value) => row(value.id, value)),
       },
       { key: 'lanes', fields: {}, rows: (lanes ?? []).map((value) => row(value.id, value)) },
-      { key: 'machines', fields: {}, rows: views.machines().map((value) => row(value.id, value)) },
+      {
+        key: 'machines',
+        fields: {},
+        rows: views.machines().map((value) => row(value.id, machineFields(value))),
+      },
       {
         key: 'sessions',
         fields: {},

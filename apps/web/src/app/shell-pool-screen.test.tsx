@@ -3,7 +3,6 @@ import { observer } from '@podium/client-graph/react'
 import { asUserId } from '@podium/model/browser'
 import { act, cleanup, render, waitFor } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
-import { referenceState } from '../../../../tests/worklist/diagnostics/reference-state'
 import { createHeaderFixture } from '../../test/header-fixture'
 import type { Trpc } from './trpc'
 
@@ -75,14 +74,21 @@ it('attaches the existing pool after mounting every reader without a legacy fall
       onFatalError={(message) => failures.push(message)}
       attachRuntime={(runtime) => {
         fixture.bindHub(runtime.hub)
-        void referenceState(runtime).refreshRepos()
+        void runtime.access.refreshRepos()
         return attachWorklistPool(runtime, (error) => failures.push(error.message))
       }}
     >
       <Surface />
     </StoreProvider>,
   )
-  await waitFor(() => expect(document.querySelector('[data-loaded="true"]')).not.toBeNull())
+  // Lazy screen imports are transformed after render in this source-based fixture.
+  await waitFor(
+    () => {
+      expect(failures).toEqual([])
+      expect(document.querySelector('[data-loaded="true"]')).not.toBeNull()
+    },
+    { timeout: 10_000 },
+  )
   expect(states).toContain(false)
   expect(states).toContain(true)
   expect(failures).toEqual([])
