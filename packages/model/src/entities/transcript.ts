@@ -171,8 +171,10 @@ export const TranscriptItem = z.object({
    *  generic "System" line: 'recap' = Claude Code's away/while-you-were-gone
    *  summary (subtype away_summary); 'duration' = a turn's churn time (subtype
    *  turn_duration), carried in `durationMs`; 'compaction' = the summary saved
-   *  when the harness compacts its context. Absent on plain system messages. */
-  systemKind: z.enum(['recap', 'duration', 'compaction']).optional(),
+   *  when the harness compacts its context; 'file-changed' = a file the agent
+   *  had read changed on disk outside its own tool calls (`toolPaths` names it).
+   *  Absent on plain system messages. */
+  systemKind: z.enum(['recap', 'duration', 'compaction', 'file-changed']).optional(),
   /** Wall-clock duration of the turn in ms (set with systemKind 'duration'),
    *  surfaced as "Churned for Xm Ys". */
   durationMs: z.number().optional(),

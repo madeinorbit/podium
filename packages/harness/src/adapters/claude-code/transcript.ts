@@ -123,10 +123,10 @@ function metaImageSourceItems(
   ]
 }
 
-export function claudeRecordToItems(record: unknown): TranscriptItem[] {
+export function claudeRecordToItems(record: unknown, previousRecord?: unknown): TranscriptItem[] {
   const promptId = typeof record === 'object' && record !== null && 'promptId' in record &&
     typeof record.promptId === 'string' && record.promptId ? record.promptId : undefined
-  const items = mapClaudeRecord(record).map((item): TranscriptItem =>
+  const items = mapClaudeRecord(record, previousRecord).map((item): TranscriptItem =>
     promptId && item.role === 'user' && item.promptEntry !== false && !item.event
       ? { ...item, harnessRef: [{ kind: 'claude-prompt', id: promptId }] } : item)
   if (items.every((item) => item.id !== '')) return items
@@ -144,7 +144,7 @@ export function claudeRecordToItems(record: unknown): TranscriptItem[] {
   )
 }
 
-function mapClaudeRecord(record: unknown): TranscriptItem[] {
+function mapClaudeRecord(record: unknown, previousRecord?: unknown): TranscriptItem[] {
   if (typeof record !== 'object' || record === null) return []
   const r = record as Record<string, unknown>
   if (r.isSidechain === true) return []
@@ -249,7 +249,11 @@ function mapClaudeRecord(record: unknown): TranscriptItem[] {
     // A prompt the human sent MID-TURN is here and nowhere else (POD-1468).
     if (att?.type === 'queued_command') return queuedCommandItems(uuid, ts, att)
     if (att?.type === 'edited_text_file' && typeof att.filename === 'string') {
-      // This is a post-edit notice, not a user attachment or a before/after diff.
+      // Claude Code's notice that a file it had read changed on disk. Straight
+      // after a tool call it is nearly always the agent's own work echoing back
+      // (a formatter hook, a shell edit) and tells the reader nothing; anywhere
+      // else someone else touched the file, which is worth a quiet line.
+      if (followsToolCall(previousRecord)) return []
       return [
         {
           id: uuid ?? '',
@@ -257,6 +261,7 @@ function mapClaudeRecord(record: unknown): TranscriptItem[] {
           ts,
           text: `File changed: ${att.filename}`,
           toolPaths: [att.filename],
+          systemKind: 'file-changed',
         },
       ]
     }
@@ -276,6 +281,25 @@ function mapClaudeRecord(record: unknown): TranscriptItem[] {
     return []
   }
   return []
+}
+
+/** Whether a record closes a tool call: its result, or a PostToolUse hook
+ *  reporting on it. Measured on 2.1.x transcripts (POD-2179): about 60% of
+ *  `edited_text_file` notices sit directly behind one of these; the rest open
+ *  a turn or follow another notice, after something outside the turn. */
+function followsToolCall(record: unknown): boolean {
+  if (typeof record !== 'object' || record === null) return false
+  const r = record as Record<string, unknown>
+  if (r.type === 'attachment') {
+    const att = r.attachment as Record<string, unknown> | undefined
+    return att?.hookEvent === 'PostToolUse'
+  }
+  if (r.type !== 'user') return false
+  const content = (r.message as { content?: unknown } | undefined)?.content
+  return (
+    Array.isArray(content) &&
+    content.some((b) => (b as { type?: unknown } | null)?.type === 'tool_result')
+  )
 }
 
 /**

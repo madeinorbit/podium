@@ -14,6 +14,7 @@ import type { SessionId, TranscriptItem } from '@podium/model/browser'
 import {
   ChevronRight,
   Clock,
+  FilePen,
   FileText,
   Image as ImageIcon,
   Layers2,
@@ -553,6 +554,47 @@ export const ChatBlockView = memo(function ChatBlockView({
         <span className="h-px flex-1 bg-border/60" />
       </div>
     )
+  // A file the agent had read changed under it from outside its own tool calls
+  // (POD-2179): one quiet line, like a mail fold, that opens the file.
+  if (item.role === 'system' && item.systemKind === 'file-changed') {
+    const path = item.toolPaths?.[0]
+    const stamp = parseTs(item.ts)
+    return (
+      <div
+        className={cn(nonStickyRowClass, turnClass(turn))}
+        data-block={index}
+        data-row-key={item.id}
+        data-testid="file-changed"
+      >
+        <div className="transcript-rail transcript-rail--none" aria-hidden="true" />
+        <div className="transcript-body">
+          <div className="mail-group">
+            <button
+              data-pressable
+              type="button"
+              className="mail-fold"
+              title={path ? `Open ${path}` : undefined}
+              disabled={!path}
+              onClick={() => {
+                if (path) openFile(sessionId, resolveMachinePath(cwd, path))
+              }}
+            >
+              <FilePen className="mail-fold-icon" size={13} aria-hidden="true" />
+              <span className="mail-fold-count">
+                Changed on disk · {path ? machinePathBasename(path, cwd) : 'a file'}
+              </span>
+              {stamp && (
+                <time className="mail-fold-meta" dateTime={item.ts} title={fullTimeLabel(stamp)}>
+                  · {clockLabel(stamp)}
+                </time>
+              )}
+              <span className="mail-fold-gap" />
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
   // A call that ADDRESSED THE HUMAN but carries no structured input to build a
   // card from (POD-376). Claude and Grok fill `toolInputJson` when they can;
   // on a Codex / MCP session this is every interview the agent ever ran — and
