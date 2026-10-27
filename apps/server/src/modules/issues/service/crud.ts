@@ -750,35 +750,40 @@ export class IssueCrudModule {
       fromDir: pending.fileDir(input.uploadId),
       entry: meta.entry,
     })
-    await this.panelApply(issueId, {
-      op: 'artifact-add',
-      path: `chat-uploads/${input.uploadId}/${snap.entry}`,
-      title: meta.filename,
-      artifactId: snap.artifactId,
-      entry: snap.entry,
-      files: snap.files,
-      chatUploadId: input.uploadId,
-      chatUploadOwner: input.ownerUserId,
-    })
+    try {
+      await this.panelApply(issueId, {
+        op: 'artifact-add',
+        path: `chat-uploads/${input.uploadId}/${snap.entry}`,
+        title: meta.filename,
+        artifactId: snap.artifactId,
+        entry: snap.entry,
+        files: snap.files,
+        chatUploadId: input.uploadId,
+        chatUploadOwner: input.ownerUserId,
+      })
+    } catch (error) {
+      // No entry names the moved file, so nothing could release it: put it
+      // back in pending and forget the claim (still under this upload's lock),
+      // so the same ref can be claimed again.
+      await store.relinquish?.({
+        issueId,
+        artifactId: snap.artifactId,
+        toDir: pending.fileDir(input.uploadId),
+      })
+      await pending.markUnclaimed(input.uploadId)
+      throw error
+    }
   }
 
-  /** Whether this issue holds a chat upload under this id that `ownerUserId`
-   *  uploaded (POD-2148): only its uploader may hand it to an agent. */
-  async chatUploadClaimed(
-    issueId: IssueId,
-    uploadId: string,
-    ownerUserId: UserId,
-  ): Promise<boolean> {
+  /** Who uploaded the chat upload this issue holds under this id (POD-2148):
+   *  undefined when it holds none, null when the entry names nobody. Only the
+   *  uploader may hand it to an agent. */
+  async chatUploadOwner(issueId: IssueId, uploadId: string): Promise<UserId | null | undefined> {
     const row = await this.store.rowOrThrow(issueId).catch(() => undefined)
-    return (
-      !!row &&
-      this.store
-        .parsePanel(row)
-        .artifacts.some(
-          (a) =>
-            a.chatUploadId === uploadId && a.artifactId && a.chatUploadOwner === ownerUserId,
-        )
-    )
+    if (!row) return undefined
+    const entry = this.store.parsePanel(row).artifacts.find((a) => a.chatUploadId === uploadId)
+    if (!entry) return undefined
+    return entry.chatUploadOwner ? (entry.chatUploadOwner as UserId) : null
   }
 
   /** A claimed chat upload's bytes, for staging on the agent's machine at

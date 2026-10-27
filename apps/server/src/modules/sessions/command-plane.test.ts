@@ -264,6 +264,33 @@ describe('held chat uploads (POD-2148)', () => {
     )
   })
 
+  it('a claim whose panel commit fails hands the file back, so the same refs work on retry', async () => {
+    const o = await makeOracle()
+    await provisionHost(o)
+    const ref = await hold(o, 'coldstart-e05f', true)
+    vi.spyOn(o.reg.issues.crud, 'panelApply').mockRejectedValueOnce(new Error('revision conflict'))
+    const create = {
+      sessionId: asSessionId('8b2e4c1a-6d3f-4a7b-9e05-1c2d3e4f5a6b'),
+      agentKind: 'claude-code' as const,
+      cwd: '/p',
+      draftIssue: { repoPath: '/p', issueId: asIssueId('iss_2a3b4c5d-6e7f-4a8b-9c0d-1e2f3a4b5c6d') },
+      initialPrompt: 'what is in this picture?',
+      attachments: [ref],
+    }
+
+    await expect(
+      dispatchSessionCommand(await ctxFor(o, human(firstAdminMemberId())), 'create', create),
+    ).rejects.toThrow('revision conflict')
+    expect((await o.reg.issues.reports.list('/p')).filter((issue) => issue.draft)).toEqual([])
+    expect(await o.reg.modules.pendingUploads.meta(ref.id)).not.toHaveProperty('claimed')
+
+    await dispatchSessionCommand(await ctxFor(o, human(firstAdminMemberId())), 'create', create)
+    const draft = (await o.reg.issues.reports.list('/p')).find((issue) => issue.draft)
+    expect(await o.reg.issues.crud.chatUploadBytes(asIssueId(draft?.id ?? ''), ref.id)).toEqual(
+      new Uint8Array(Buffer.from(png, 'base64')),
+    )
+  })
+
   it('a create that fails after its session registered keeps the draft and its claimed files', async () => {
     const o = await makeOracle()
     await provisionHost(o)

@@ -135,8 +135,7 @@ describe('W4 guard: every agent send is one durable row (C5, POD-4795)', () => {
         delegation: null,
       }),
       now: () => 0,
-      chatUploadOnSession: async (_sessionId, uploadId, ownerUserId) =>
-        claimed.get(uploadId) === ownerUserId,
+      chatUploadOwner: async (_sessionId, uploadId) => claimed.get(uploadId) as never,
     })
     return { s, rows, legacy }
   }
@@ -263,6 +262,30 @@ describe('W4 guard: every agent send is one durable row (C5, POD-4795)', () => {
       ).toEqual(refused)
       expect(other.rows).toEqual([])
     }
+
+    // A staged path supplied with the id buys nothing: the uploader is checked
+    // all the same, and the path is dropped so delivery stages it again.
+    const staged = { ...held, path: '/state/uploads/s1/up-1.png' }
+    const bob = sender(true, {}, new Map([['up-1', 'user:alice']]))
+    expect(
+      await bob.s.send('queue', {
+        sessionId: asSessionId('s1'),
+        text: 'look',
+        attachments: [staged],
+        principal: as('user:bob') as never,
+      }),
+    ).toEqual(refused)
+    expect(bob.rows).toEqual([])
+    const alice = sender(true, {}, new Map([['up-1', 'user:alice']]))
+    expect(
+      await alice.s.send('queue', {
+        sessionId: asSessionId('s1'),
+        text: 'look',
+        attachments: [staged],
+        principal: as('user:alice') as never,
+      }),
+    ).toEqual({ ok: true, queued: true, position: 1 })
+    expect(alice.rows).toEqual([expect.objectContaining({ attachments: [held] })])
 
     const elsewhere = sender(true)
     expect(

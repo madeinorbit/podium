@@ -1045,9 +1045,9 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     },
     systemPrincipal: () => SYSTEM_INBOX_PRINCIPAL,
     now: () => bag.now(),
-    chatUploadOnSession: async (sessionId: SessionId, uploadId: string, ownerUserId: UserId) => {
+    chatUploadOwner: async (sessionId: SessionId, uploadId: string) => {
       const issueId = bag.sessions.get(sessionId)?.issueId
-      return !!issueId && (await deps.chatUploads?.claimed(issueId, uploadId, ownerUserId)) === true
+      return issueId ? await deps.chatUploads?.owner(issueId, uploadId) : undefined
     },
   })
   bag.daemonLifecycle = new SessionDaemonLifecycle({

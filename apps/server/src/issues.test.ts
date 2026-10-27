@@ -5699,10 +5699,7 @@ describe('IssueService chat upload claims (POD-2148)', () => {
       ])
       expect(await pending.meta(upload.id)).toMatchObject({ claimed: { issueId: issue.id } })
       expect(readdirSync(join(base, 'artifacts', issue.id))).toHaveLength(1)
-      expect(await svc.crud.chatUploadClaimed(issue.id, upload.id, owner)).toBe(true)
-      expect(await svc.crud.chatUploadClaimed(issue.id, upload.id, asUserId('user:reader'))).toBe(
-        false,
-      )
+      expect(await svc.crud.chatUploadOwner(issue.id, upload.id)).toBe(owner)
       expect(await svc.crud.chatUploadBytes(issue.id, upload.id)).toEqual(
         new Uint8Array([0x89, 0x50, 0x4e, 0x47]),
       )
@@ -5751,7 +5748,7 @@ describe('IssueService chat upload claims (POD-2148)', () => {
           ownerUserId: owner,
         }),
       ).rejects.toThrow('no longer available')
-      expect(await svc.crud.chatUploadClaimed(other.id, upload.id, owner)).toBe(false)
+      expect(await svc.crud.chatUploadOwner(other.id, upload.id)).toBeUndefined()
     } finally {
       rmSync(base, { recursive: true, force: true })
     }

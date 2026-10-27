@@ -104,10 +104,11 @@ export interface ReceiptSenderPorts {
    *  root so "who is system" is answered in one visible place. */
   systemPrincipal(): InboxPrincipalReference
   now(): number
-  /** Whether this session's issue holds a claimed chat upload under this id
-   *  (POD-2148). Absent = no chat uploads here; a ref without a path is then
+  /** Who uploaded the chat upload this session's issue holds under this id
+   *  (POD-2148): undefined when the issue holds none, null when the entry names
+   *  nobody. Absent = no chat uploads here; a ref without a path is then
    *  refused like any unstaged ref. */
-  chatUploadOnSession?(sessionId: SessionId, uploadId: string, ownerUserId: UserId): Promise<boolean>
+  chatUploadOwner?(sessionId: SessionId, uploadId: string): Promise<UserId | null | undefined>
 }
 
 /** What a caller learns when the receipt lands. `via` and the input echo back so
@@ -160,7 +161,8 @@ export class ReceiptSender {
     const archiveReason = this.ports.archiveReason?.(input.sessionId)
     if (archiveReason) return { ok: false, reason: archiveReason }
 
-    if (!(await this.attachmentsBelong(input))) {
+    const attachments = await this.attachmentsBelonging(input)
+    if (!attachments) {
       return this.refuseAttachments(
         via,
         input,
@@ -181,27 +183,41 @@ export class ReceiptSender {
       }
       return this.legacy(via, input)
     }
-    return this.enqueue(via, input, onReceipt)
+    return this.enqueue(
+      via,
+      { ...input, ...(input.attachments?.length ? { attachments } : {}) },
+      onReceipt,
+    )
   }
 
-  /** Every ref names this session's file: a staged path inside its upload
-   *  dir, or a chat upload claimed into its issue (POD-2148), which the inbox
-   *  stages at delivery and the daemon checks on its own filesystem again. */
-  private async attachmentsBelong(input: ReceiptSendInput): Promise<boolean> {
+  /**
+   * The refs as they may be queued, or undefined when one does not belong to
+   * this session. A ref whose id names a chat upload on the session's issue
+   * (POD-2148) is handed on only by the person who uploaded it — by chat or by
+   * mail naming the id — and loses any path the sender supplied: delivery
+   * stages it again from the server. Any other ref must be a staged path
+   * inside this session's upload dir, which the daemon checks again.
+   */
+  private async attachmentsBelonging(
+    input: ReceiptSendInput,
+  ): Promise<readonly RuntimeAttachmentRef[] | undefined> {
+    const sender = input.principal?.attribution.onBehalfOf
+    const out: RuntimeAttachmentRef[] = []
     for (const attachment of input.attachments ?? []) {
+      const owner = await this.ports.chatUploadOwner?.(input.sessionId, attachment.id)
+      if (owner !== undefined) {
+        if (!sender || owner !== sender) return undefined
+        const { path: _path, ...held } = attachment
+        out.push(held)
+        continue
+      }
       const path = attachment.path
-      // A chat upload is handed on only by the person who uploaded it, whoever
-      // sends it here (a chat send, or mail naming the id directly).
-      const sender = input.principal?.attribution.onBehalfOf
-      const belongs =
-        path !== undefined
-          ? attachmentMatchesSession(input.sessionId, { ...attachment, path })
-          : !!sender &&
-            (await this.ports.chatUploadOnSession?.(input.sessionId, attachment.id, sender)) ===
-              true
-      if (!belongs) return false
+      if (path === undefined || !attachmentMatchesSession(input.sessionId, { ...attachment, path })) {
+        return undefined
+      }
+      out.push(attachment)
     }
-    return true
+    return out
   }
 
   /** Invoke immediately, but own completion separately from send admission.
