@@ -30,6 +30,7 @@ import { checkServedAssets, recoverFromWireSkew } from '@/features/setup/version
 import { vpsIntroState } from '@/features/setup/vps-activation'
 import { loadAgentPanel } from '@/features/terminal/AgentPanelBoundary'
 import { DockShellLifecycle } from '@/features/terminal/dock-shell-lifecycle'
+import { TipHost } from '@/features/tips/TipHost'
 import { UpdatesProvider } from '@/features/updates/updates-context'
 import { useNewTaskOverlayOpen } from '@/features/worklist/new-task-overlay'
 import { SidebarUnified } from '@/features/worklist/SidebarUnified'
@@ -1084,4 +1085,11 @@ function AppBodyView({ syncProgress }: { syncProgress: SyncProgressStore }): JSX
 
 /** The shell body, exported for the `?demo=1` shell (POD-5277), which renders
  *  this same tree over demo rows instead of the kernel assembly. */
-export const AppBody = observer(AppBodyView)
+const ObservedAppBody = observer(AppBodyView)
+export function AppBody(props: { syncProgress: SyncProgressStore }): JSX.Element {
+  return (
+    <TipHost>
+      <ObservedAppBody {...props} />
+    </TipHost>
+  )
+}

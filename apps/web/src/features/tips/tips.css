@@ -1,0 +1,271 @@
+.tip-positioner {
+  z-index: 80;
+}
+.tip-card,
+.flights-guide {
+  box-sizing: border-box;
+  color: var(--popover-foreground);
+  background: var(--popover);
+  border: 1px solid color-mix(in srgb, var(--primary) 32%, var(--border));
+  border-radius: 12px;
+  box-shadow:
+    0 8px 28px #0002,
+    0 2px 5px #0001;
+  padding: 15px;
+  outline: none;
+}
+.tip-card {
+  width: 272px;
+  max-width: calc(100vw - 24px);
+  max-height: var(--available-height);
+}
+.tip-eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--primary);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 18px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+.tip-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  margin: -5px -5px -5px auto;
+  color: var(--muted-foreground);
+  border-radius: 5px;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+.tip-close:hover,
+.tip-skip:hover {
+  background: var(--accent);
+  color: var(--foreground);
+}
+.tip-title {
+  margin: 12px 0 6px;
+  font-size: 17px;
+  line-height: 1.25;
+  font-weight: 600;
+  letter-spacing: -0.025em;
+}
+.tip-body {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--muted-foreground);
+}
+.tip-extra {
+  margin-top: 12px;
+  font-size: 11px;
+}
+.tip-footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 18px;
+}
+.tip-pages {
+  display: inline-flex;
+  gap: 4px;
+  margin-right: auto;
+}
+.tip-pages i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--border);
+}
+.tip-pages i[data-active="true"] {
+  background: var(--primary);
+}
+.tip-skip,
+.tip-next {
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  line-height: 16px;
+  padding: 6px 9px;
+}
+.tip-skip {
+  background: transparent;
+  color: var(--muted-foreground);
+  margin-left: auto;
+}
+.tip-next {
+  background: var(--primary);
+  color: var(--primary-foreground);
+  font-weight: 600;
+}
+.tip-next:hover {
+  filter: brightness(1.08);
+}
+.tip-card button:focus-visible,
+.first-flights-badge:focus-visible,
+.flights-guide button:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 3px;
+}
+.tip-arrow {
+  display: flex;
+  position: absolute;
+}
+.tip-arrow svg {
+  fill: var(--popover);
+  stroke: color-mix(in srgb, var(--primary) 32%, var(--border));
+}
+.tip-arrow[data-side="right"] {
+  left: -12px;
+  transform: rotate(-90deg);
+}
+.tip-arrow[data-side="left"] {
+  right: -12px;
+  transform: rotate(90deg);
+}
+.tip-arrow[data-side="bottom"] {
+  top: -8px;
+}
+.tip-arrow[data-side="top"] {
+  bottom: -8px;
+  transform: rotate(180deg);
+}
+.tip-beacon {
+  position: fixed;
+  z-index: 79;
+  pointer-events: none;
+  border: 1px solid color-mix(in srgb, var(--primary) 65%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 12%, transparent);
+  animation: tip-beacon-pulse 2.4s ease-in-out infinite;
+}
+@keyframes tip-beacon-pulse {
+  50% {
+    box-shadow: 0 0 0 6px color-mix(in srgb, var(--primary) 5%, transparent);
+  }
+}
+.first-flights-footer {
+  flex-shrink: 0;
+  padding: 9px 12px;
+}
+.first-flights-badge {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: transparent;
+  color: var(--muted-foreground);
+  border: 0;
+  border-radius: 6px;
+  padding: 4px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+}
+.first-flights-badge:hover {
+  color: var(--foreground);
+}
+.first-flights-count {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  margin-left: 4px;
+  color: var(--primary);
+}
+.first-flights-ring {
+  fill: none;
+  stroke: var(--primary);
+  stroke-width: 1.5;
+}
+.first-flights-ring .first-flights-ring-track {
+  stroke: var(--border);
+}
+.flights-guide {
+  width: 300px;
+  max-width: calc(100vw - 24px);
+  max-height: var(--available-height);
+  overflow: auto;
+}
+.flights-guide-list {
+  list-style: none;
+  padding: 0;
+  margin: 16px 0 0;
+}
+.flights-guide-list li {
+  display: flex;
+  gap: 10px;
+  padding: 10px 0;
+  border-top: 1px solid var(--border);
+}
+.flights-guide-check {
+  display: flex;
+  width: 16px;
+  height: 18px;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: var(--primary);
+}
+.flights-guide-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  border: 1px solid var(--muted-foreground);
+}
+.flights-guide-name {
+  display: block;
+  font-size: 12px;
+  font-weight: 500;
+}
+.flights-guide-list p {
+  margin: 3px 0 0;
+  font-size: 10px;
+  line-height: 1.5;
+  color: var(--muted-foreground);
+}
+.flights-replay {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+  padding: 3px 0 0;
+  border: 0;
+  background: transparent;
+  color: var(--primary);
+  font-size: 10px;
+  cursor: pointer;
+}
+.flights-replay:disabled {
+  color: var(--muted-foreground);
+  cursor: default;
+}
+.tip-stamp {
+  position: fixed;
+  z-index: 81;
+  width: 18px;
+  height: 18px;
+  color: var(--primary);
+  pointer-events: none;
+  animation: tip-stamp-flight 650ms cubic-bezier(0.2, 0.6, 0.3, 1) forwards;
+}
+@keyframes tip-stamp-flight {
+  20% {
+    opacity: 1;
+  }
+  to {
+    transform: translate(var(--tip-flight-x), var(--tip-flight-y)) rotate(-20deg) scale(0.4);
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tip-beacon {
+    animation: none;
+  }
+  .tip-stamp {
+    display: none;
+    animation: none;
+  }
+}

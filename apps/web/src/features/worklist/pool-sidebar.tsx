@@ -47,6 +47,7 @@ import { useRuntimeSelector } from '@/app/store'
 import { useWorklistPool, useWorklistPoolProjection } from '@/app/store-worklist-pool'
 import { MobilePromoCard } from '@/features/mobile-handoff/MobilePromoCard'
 import { PHONE_APP_IN_STORES } from '@/features/mobile-handoff/mobile-handoff'
+import { FirstFlightsBadge } from '@/features/tips/FirstFlightsBadge'
 import { type RowTransitionItem, type RowTransitionTarget, useRowTransitions } from '@/lib/motion'
 import type { ContextMenuAnchor } from '@/lib/session-context-menu'
 import { useReducedMotion } from '@/lib/use-reduced-motion'
@@ -251,6 +252,7 @@ export const PoolSidebarUnified = observer(function PoolSidebarUnified(): JSX.El
       </div>
       <AddRepositoryFooter />
       {PHONE_APP_IN_STORES && <MobilePromoCard />}
+      <FirstFlightsBadge />
     </WorklistProvider>
   )
 })
