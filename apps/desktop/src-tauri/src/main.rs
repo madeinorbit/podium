@@ -2565,7 +2565,8 @@ fn main() {
                         )
                         .title_bar_style(tauri::TitleBarStyle::Overlay)
                         .hidden_title(true)
-                        .traffic_light_position(tauri::LogicalPosition::new(14.0, 22.0));
+                        // y centres the 14pt buttons on the 48px command bar (--topbar-h).
+                        .traffic_light_position(tauri::LogicalPosition::new(14.0, 26.0));
                     // Schedule the fallback independently of window construction: a page that
                     // never loads cannot claim ownership, and even a failed webview build must
                     // leave the shell with a native update path.

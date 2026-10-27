@@ -593,7 +593,7 @@ describe('served-local launchMode classification (POD-2510)', () => {
   it('uses native traffic lights on macOS and native window-manager chrome elsewhere', () => {
     expect(mainSource).toContain('.title_bar_style(tauri::TitleBarStyle::Overlay)')
     expect(mainSource).toContain('.hidden_title(true)')
-    expect(mainSource).toContain('.traffic_light_position(tauri::LogicalPosition::new(14.0, 22.0))')
+    expect(mainSource).toContain('.traffic_light_position(tauri::LogicalPosition::new(14.0, 26.0))')
     expect(mainSource).toContain('const NATIVE_DECORATIONS: bool = true;')
     expect(mainSource).not.toContain('window_builder.decorations(false)')
     expect(mainSource).toContain('.min_inner_size(900.0, 600.0)')

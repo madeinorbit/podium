@@ -29,6 +29,19 @@
             // page theme; null hands system mode back to the OS. Feature-detected —
             // older shells have no setTheme.
             if (desktop.setTheme) desktop.setTheme(mode === 'system' ? null : mode)
+            if (desktop.platform === 'macos') {
+              // A native fullscreen Space hides the traffic lights, so the bar
+              // drops their inset. Only fullscreen fills the whole display: a
+              // zoomed window still leaves the menu bar's strip uncovered.
+              var syncFullscreen = function () {
+                var full =
+                  window.innerWidth >= screen.width - 1 && window.innerHeight >= screen.height - 1
+                if (full) el.dataset.podiumFullscreen = 'true'
+                else delete el.dataset.podiumFullscreen
+              }
+              syncFullscreen()
+              window.addEventListener('resize', syncFullscreen)
+            }
           }
           el.setAttribute('data-theme', 'podium')
           el.classList.toggle('dark', isDark)
