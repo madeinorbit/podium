@@ -35,6 +35,7 @@ import {
 } from './flight-deck-window'
 import { useSessionHovered } from './session-hover'
 import { useRuntimeSelector } from './store'
+import { TEAM_FORMS_SESSION_ANCHOR } from './TeamFormsTip'
 
 const STRIP_HEIGHT = 32
 const SESSION_HEIGHT = 28
@@ -480,6 +481,7 @@ export const FlightDeckV6Session = observer(function FlightDeckV6Session({
       data-pointed={pointed}
       data-seat={seat}
       data-word={session.word}
+      data-tip-anchor={task.isRoot ? undefined : TEAM_FORMS_SESSION_ANCHOR}
     >
       <div className="flight-v6-session-line">
         {editing ? (

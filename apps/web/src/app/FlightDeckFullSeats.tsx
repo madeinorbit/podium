@@ -10,6 +10,7 @@ import {
   FlightDeckV6SessionSlot,
 } from './FlightDeckV6Rows'
 import type { DeckWindow } from './flight-deck-window'
+import { TEAM_FORMS_LEAD_ANCHOR, TeamFormsTip } from './TeamFormsTip'
 
 /** The mission's coordinator alone, always outside the task filters and folds.
  * The same arrangement holds as a simple issue gains helpers, children or
@@ -23,22 +24,25 @@ export const FlightDeckFullCoordinator = observer(function FlightDeckFullCoordin
     void full.coordinatorSessionId
     return true
   })
-  if (ready !== true)
-    return (
-      <div role="status" aria-label="Loading coordinator">
-        <GhostBar />
-      </div>
-    )
-  const id = full.coordinatorSessionId
-  if (id === null) return null
+  const id = ready === true ? full.coordinatorSessionId : null
   return (
-    <section
-      className="flight-full-coordinator"
-      data-testid="flight-full-coordinator"
-      aria-label="Mission coordinator"
-    >
-      <FlightDeckV6SessionSlot task={full.root} id={id} {...actions} />
-    </section>
+    <>
+      <TeamFormsTip full={full} />
+      {ready !== true ? (
+        <div role="status" aria-label="Loading coordinator">
+          <GhostBar />
+        </div>
+      ) : id === null ? null : (
+        <section
+          className="flight-full-coordinator"
+          data-testid="flight-full-coordinator"
+          data-tip-anchor={TEAM_FORMS_LEAD_ANCHOR}
+          aria-label="Mission coordinator"
+        >
+          <FlightDeckV6SessionSlot task={full.root} id={id} {...actions} />
+        </section>
+      )}
+    </>
   )
 })
 
