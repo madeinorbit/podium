@@ -1693,7 +1693,7 @@ export class SessionRegistry {
       agentLaunch: async (input) => await agentProfiles.launch(input),
       // The issue service is composed after sessions; these run only on a start.
       draftForStart: async ({ cwd, agentKind, ownerUserId, machineId }) =>
-        (await this.store.repos.issueRepoIdResolver())(cwd, machineId)
+        (await this.store.repos.machineHasRootContaining(cwd, machineId))
           ? (
               await this.issues.attention.createDraftFor(
                 cwd,

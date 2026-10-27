@@ -657,6 +657,14 @@ export class ReposRepository {
     }
   }
 
+  /** Whether a root `machineId` reported contains `path`. */
+  async machineHasRootContaining(path: string, machineId: MachineId): Promise<boolean> {
+    const normalized = machinePathKey(normalizeRepoPath(path))
+    return (await this.sortedRoots()).some(
+      (root) => root.machineId === machineId && rootContains(root.path, normalized),
+    )
+  }
+
   /** {@link issueRepoIdResolver} for one issue path; throws where it answers null. */
   async resolveIssueRepoId(repoPath: string, machineId?: MachineId | null): Promise<RepoId> {
     const id = (await this.issueRepoIdResolver())(repoPath, machineId)
