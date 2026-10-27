@@ -139,18 +139,11 @@
         "$TURBO_ROOT$/packages/*/src/**",
         "!$TURBO_ROOT$/packages/api-types/src/**"
       ],
-      "outputs": [
-        "src/index.d.ts"
-      ]
+      "outputs": ["src/index.d.ts"]
     },
     "@podium/api-types#typecheck": {
-      "dependsOn": [
-        "build",
-        "^typecheck"
-      ],
-      "outputs": [
-        "*.tsbuildinfo"
-      ]
+      "dependsOn": ["build", "^typecheck"],
+      "outputs": ["*.tsbuildinfo"]
     },
     "typecheck": {
       "dependsOn": ["^typecheck"],
@@ -202,6 +195,19 @@
         "$TURBO_ROOT$/apps/web/node_modules/vite/dist/node/index.js"
       ],
       "outputs": ["*.tsbuildinfo"]
+    },
+    "@podium/worklist-tests#test": {
+      "dependsOn": [],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/packages/*/package.json",
+        "$TURBO_ROOT$/packages/*/src/**",
+        "$TURBO_ROOT$/apps/web/src/**",
+        "$TURBO_ROOT$/apps/web/harness/**",
+        "$TURBO_ROOT$/apps/web/test/**",
+        "$TURBO_ROOT$/apps/mobile/src/**"
+      ],
+      "outputs": []
     },
     "@podium/worklist-tests#typecheck": {
       "dependsOn": ["^typecheck"],

@@ -1,6 +1,7 @@
 import { spawnSync } from 'node:child_process'
 import {
   existsSync,
+  globSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
@@ -27,6 +28,7 @@ import frontendPerfConfig from '../apps/web/vitest.frontend-perf.config'
 import syncPerfConfig from '../packages/sync/vitest.perf.config'
 import phase3BrowserConfig from '../tests/e2e/.phase3-playwright.config'
 import browserConfig from '../tests/e2e/playwright.config'
+import worklistConfig from '../tests/worklist/vitest.config'
 import acceptanceConfig from '../vitest.acceptance.config'
 import agentSmokeConfig from '../vitest.agent-smoke.config'
 import rootConfig, { resolveTestWorkerLimit, sharedVitestConfig } from '../vitest.config'
@@ -624,6 +626,58 @@ describe('test lane configuration', () => {
     expect(pkg.scripts['lint:span-effects']).toBe('bun scripts/lint-span-effects.ts')
   })
 
+  it('collects the worklist baseline files in the scheduled package lane [POD-2185]', () => {
+    const files = [
+      'shared/src/session-homes.test.ts',
+      'diagnostics/debug-name.test.ts',
+      'shared/src/instrument/reads.test.ts',
+      'shared/src/overlay-row.test.ts',
+      'harness/src/heartbeat-ancestors.test.ts',
+      'harness/src/perf/header-work.test.ts',
+      'harness/src/cold-structures.test.ts',
+      'harness/src/mission-screen-work.test.ts',
+      'product/mission-pane.work.test.ts',
+    ]
+    const test = config(worklistConfig).test
+    const collected = new Set(
+      globSync(test?.include ?? [], {
+        cwd: fileURLToPath(new URL('../tests/worklist/', import.meta.url)),
+        exclude: test?.exclude,
+      }),
+    )
+    for (const file of files) expect(collected.has(file), `worklist config lost ${file}`).toBe(true)
+    expect(test?.setupFiles).toEqual(sharedSetupFiles)
+    expect(test?.retry).toBe(0)
+
+    // A package script alone is not scheduled by Turbo. Check the actual
+    // task graph and its inputs without running the workspace sweep.
+    const dry = spawnSync(
+      fileURLToPath(new URL('../node_modules/.bin/turbo', import.meta.url)),
+      ['run', 'test', '--filter=@podium/worklist-tests', '--dry-run=json'],
+      { cwd: fileURLToPath(repoRoot), encoding: 'utf8' },
+    )
+    expect(dry.status, dry.stderr).toBe(0)
+    const graph = JSON.parse(dry.stdout) as {
+      tasks: { taskId: string; command: string; inputs: Record<string, string> }[]
+    }
+    const task = graph.tasks.find(({ taskId }) => taskId === '@podium/worklist-tests#test')
+    expect(task?.command).toContain('validation-admission.ts focused')
+    expect(task?.command).toContain('--config vitest.config.ts')
+    const inputs = Object.keys(task?.inputs ?? {})
+    for (const file of files) expect(inputs, `worklist cache lost ${file}`).toContain(file)
+    for (const file of [
+      'packages/client-graph/package.json',
+      'packages/client-graph/src/reader-queries.ts',
+      'packages/mobx-helpers/src/debug-name.ts',
+      'apps/web/src/app/workspace-mission-reads.ts',
+      'apps/mobile/src/lib/mission-session.ts',
+    ])
+      expect(
+        inputs.some((input) => input.endsWith(file)),
+        `worklist cache lost ${file}`,
+      ).toBe(true)
+  })
+
   /**
    * The lean gate must never be able to shrink quietly [POD-2728].
    *
@@ -1167,7 +1221,9 @@ describe('test lane configuration', () => {
 
       // A similarly named source directory is still checked.
       writeImport(join(api, 'src/.generated-contracts/index.d.ts'))
-      expect(escapingImports('packages/api-types', fixture)).toEqual(['apps/server/src/internal.ts'])
+      expect(escapingImports('packages/api-types', fixture)).toEqual([
+        'apps/server/src/internal.ts',
+      ])
 
       writeImport(join(fixture, 'packages/model/.generated-ABC123/index.d.ts'))
       expect(escapingImports('packages/model', fixture)).toEqual(['apps/server/src/internal.ts'])

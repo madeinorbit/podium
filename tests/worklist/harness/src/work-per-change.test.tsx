@@ -51,12 +51,12 @@ import { join } from 'node:path'
 import { IssueModel } from '@podium/client-graph/models'
 import type { MobxPool } from '@podium/client-graph/pool'
 import { fixedLocals } from '@podium/client-graph/shared/locals-source'
-import { createRowSource } from '../../shared/src/row-source'
 import type { SliceIssue, SliceSnapshot } from '@podium/client-graph/shared/slice-types'
 import { reaction } from 'mobx'
 import { act } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 import type { Arm } from '../../shared/src/arm'
+import { createRowSource } from '../../shared/src/row-source'
 import {
   type EngineOptions,
   type FixtureScale,
@@ -73,10 +73,10 @@ import {
   parityLocals,
   runFenceStep,
 } from './fence-scenarios'
-import { referenceArmFor } from './reference-arm/arm'
 import { installMobxWarnTrap } from './mobx-trap'
 import { snapshotFromStore } from './oracle/index'
 import { poolScreenCellsAt } from './pool-screen-work'
+import { referenceArmFor } from './reference-arm/arm'
 import { ROUND_THREE_ARMS, type RosterAllowances, type RosterArm } from './roster'
 import {
   assertScaleInvariant,
@@ -203,6 +203,19 @@ describe('pool screens work ratios', () => {
     positive[0]!.work.rowsBy!.newReader = 1
     expect(() => assertScreenWork(screenWorkVerdicts(zero, positive))).toThrow(/newReader/)
     expect(() => screenWorkVerdicts(zero.slice(1), positive)).toThrow(/every click/)
+    // A focused scenario declares its scope. It still rejects new scans,
+    // missing cells and duplicate actions; omitting the scope stays strict.
+    const action = SCREEN_ACTIONS[0],
+      first = [zero[0]!],
+      second = [positive[0]!]
+    expect(() => screenWorkVerdicts(first, first)).toThrow(/every click/)
+    expect(() => assertScreenWork(screenWorkVerdicts(first, first, [action]))).not.toThrow()
+    expect(() => assertScreenWork(screenWorkVerdicts(first, second, [action]))).toThrow(/newReader/)
+    expect(() => screenWorkVerdicts([], [], [])).toThrow(/every click/)
+    expect(() => screenWorkVerdicts(first, [], [action])).toThrow(/every click/)
+    expect(() =>
+      screenWorkVerdicts([...first, ...first], [...first, ...first], [action, action]),
+    ).toThrow(/every click/)
   })
 
   it('limits expected failures to exact issue-linked counts and reports fixed counts green', () => {

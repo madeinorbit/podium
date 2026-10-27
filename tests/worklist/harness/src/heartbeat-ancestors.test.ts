@@ -1,7 +1,6 @@
-import { sidebarView } from '@podium/client-graph/worklist/sidebar'
 /**
  * POD-5423 (review finding 9): one session heartbeat re-derives its own row's
- * attention and moves the activity number up the nest; it never re-runs an
+ * retained seats and moves the activity number up the nest; it never re-runs an
  * ancestor's attention roll-up or copies an ancestor's subtree seats. Counted
  * with the work meter on a nest chain root ← mid ← leaf, the root's subtree
  * also holding K sibling rows with a live seat each (K = 4 and 16): the work
@@ -9,6 +8,7 @@ import { sidebarView } from '@podium/client-graph/worklist/sidebar'
  */
 import { MobxPool } from '@podium/client-graph/pool'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
+import { sidebarView } from '@podium/client-graph/worklist/sidebar'
 import { autorun, runInAction } from 'mobx'
 import { describe, expect, it } from 'vitest'
 import { installMobxWarnTrap } from './mobx-trap'
@@ -77,7 +77,21 @@ async function run(siblings: number) {
   })
   const drawn = new Map<string, unknown>()
   const stop = autorun(() => {
-    for (const id of CHAIN) drawn.set(id, sidebarView(pool).row(id))
+    for (const id of CHAIN) {
+      const row = sidebarView(pool).row(id)
+      drawn.set(
+        id,
+        row === LOADING || row === undefined
+          ? row
+          : {
+              working: row.visibleWorking,
+              waiting: row.waitingCount,
+              fleet: row.visibleFleet,
+              timing: row.timing,
+              activityAt: row.visibleActivityAt,
+            },
+      )
+    }
   })
   try {
     const before = runInAction(() => CHAIN.map((id) => pool.worklistRow(id)?.nestParent))
@@ -96,23 +110,28 @@ async function run(siblings: number) {
         }),
       { pool },
     )
-    const ran = (id: string, group: string) => work.derivationsBy[`WorklistIssue@${id}.${group}`] ?? 0
+    const ran = (id: string, group: string) =>
+      work.derivationsBy[`WorklistIssue@${id}.${group}`] ?? 0
     const walked = (group: string) =>
       CHAIN.reduce((sum, id) => sum + (work.elementsBy[`WorklistIssue@${id}.${group}`] ?? 0), 0)
+    const attention = (id: string) =>
+      Object.entries(work.derivationsBy)
+        .filter(([name]) => name.startsWith(`AttentionFields@${id}.`))
+        .reduce((sum, [, count]) => sum + count, 0)
     const rows = CHAIN.map((id) => drawn.get(id))
-    return {
+    return runInAction(() => ({
       nest: before,
-      attention: CHAIN.map((id) => ran(id, 'attention')),
-      activity: CHAIN.map((id) => ran(id, 'activity')),
+      attention: CHAIN.map(attention),
+      retained: CHAIN.map((id) => ran(id, 'retainedSeatIds')),
+      activity: CHAIN.map((id) => ran(id, 'visibleSessionActivity')),
       walked: {
-        attention: walked('attention'),
-        sidebar: walked('sidebar'),
-        activity: walked('activity'),
+        retained: walked('retainedSeatIds'),
+        activity: walked('visibleSessionActivity'),
       },
       activityAt: rows.map((row) =>
-        row === LOADING || row === undefined ? null : (row as { timing: unknown }).timing,
+        row === LOADING || row === undefined ? null : (row as { activityAt: number }).activityAt,
       ),
-    }
+    }))
   } finally {
     stop()
     pool.dispose()
@@ -125,16 +144,19 @@ describe('a heartbeat under a nest', () => {
     const large = await run(16)
     console.info('[heartbeat ancestors] K=4', JSON.stringify(small), 'K=16', JSON.stringify(large))
     expect(small.nest).toEqual([null, 'nest-root', 'nest-mid'])
-    // Only the leaf's own attention re-runs (its seat's verdict moved).
-    expect(small.attention).toEqual([0, 0, 1])
+    // A heartbeat changes retention and activity, not attention scalars.
+    expect(small.retained).toEqual([0, 0, 1])
+    expect(small.attention).toEqual([0, 0, 0])
     // The activity number moves up the chain, one composition per level.
     expect(small.activity).toEqual([1, 1, 1])
+    expect(small.activityAt).toEqual(CHAIN.map(() => Date.parse('2026-10-03T11:59:00Z')))
     // Before POD-5423 every ancestor re-ran attention, copying its subtree's
     // seat rows, and the count grew with K.
     expect(large.attention).toEqual(small.attention)
+    expect(large.retained).toEqual(small.retained)
     expect(large.activity).toEqual(small.activity)
-    expect(large.walked.attention).toBe(small.walked.attention)
-    expect(large.walked.sidebar).toBe(small.walked.sidebar)
+    expect(large.activityAt).toEqual(small.activityAt)
+    expect(large.walked.retained).toBe(small.walked.retained)
     // The activity number is a max over each level's nest children: the root
     // reads its K drawn child rows' numbers, never a seat row or array.
     expect(large.walked.activity - small.walked.activity).toBeLessThanOrEqual(3 * (16 - 4))

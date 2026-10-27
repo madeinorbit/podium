@@ -303,7 +303,7 @@ export async function poolScreenCellsAt(
    * full diagnostic guard retains readers from every screen. */
   only?: ReadonlySet<string>,
   actions: readonly ScreenAction[] = SCREEN_ACTIONS,
-  scene?: 'background-terminal',
+  scene?: 'background-terminal' | 'workspace',
 ): Promise<ScreenWorkRun> {
   // POD-5466: installed before the engine starts, so every timer the app
   // schedules, the startup ones included, is tagged and can be settled.
@@ -334,7 +334,7 @@ async function measureScreenCells(
   onCell?: (cell: ScreenWorkCell) => void,
   only?: ReadonlySet<string>,
   selectedActions: readonly ScreenAction[] = SCREEN_ACTIONS,
-  scene?: 'background-terminal',
+  scene?: 'background-terminal' | 'workspace',
 ): Promise<ScreenWorkRun> {
   const progress = (message: string) => process.stdout.write(`[screen work] ${scale}x ${message}\n`)
   progress('kernel ready')
@@ -432,6 +432,7 @@ async function measureScreenCells(
     stops.push(() => mobileInbox.dispose())
     const navigation = createPoolNavigationProvider(pool)
     ctx.engine.setNavigationProvider(navigation)
+    if (scene === 'workspace') referenceState(ctx.engine).setView('workspace')
     const locals = () => {
       const state = referenceState(ctx.engine)
       return {
@@ -523,8 +524,11 @@ async function measureScreenCells(
       const value = shell.chrome()
       if (!value || value === LOADING) return value
       const { missionRoot, ...chrome } = value
-      return { ...chrome, missionRootId: missionRoot?.id,
-        missionExpanded: isComplexFlightDeckMission(missionRoot) }
+      return {
+        ...chrome,
+        missionRootId: missionRoot?.id,
+        missionExpanded: isComplexFlightDeckMission(missionRoot),
+      }
     })
     // RightDock reads each routing field where a panel shows it.
     add('shell.dock', ['AppShell'], () => ({
