@@ -47,6 +47,7 @@ import {
   useSettingsSetupSummary,
 } from '@/features/settings/readers'
 import { useSettingsClient } from '@/features/settings/stable-access'
+import { noteFirstSend } from '@/features/worklist/first-send-tip'
 import {
   agentFleetStatus,
   CapabilityAgentMenu,
@@ -857,6 +858,7 @@ export function ColdStartComposer({
           }
           setBusy(false)
         })
+        if (first) noteFirstSend(started.issueId)
         setSelectedIssueId(started.issueId)
         setSelectedWorktree(selectedCheckout.path)
         setPanelMode(started.sessionId, 'chat')
@@ -923,6 +925,8 @@ export function ColdStartComposer({
         setDraft({ ...launchDraft, launchError: "Couldn't start the agent." })
         setBusy(false)
       })
+      // First Flights: the task this first launch opens gets the list tip.
+      if (first) noteFirstSend(started.issueId)
       setSelectedIssueId(started.issueId)
       setSelectedWorktree(selectedCheckout.path)
       // A signed-out harness opens on its terminal: the sign-in screen is the

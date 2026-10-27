@@ -50,6 +50,7 @@ import { IssueStatusPicker } from '@/features/issues/IssueStatusPicker'
 import { STAGE_LABELS } from '@/features/issues/issue-card'
 import { IssueCloseDialog, useIssueCloseGuard } from '@/features/issues/issue-lifecycle'
 import { useIssueStatusApply } from '@/features/issues/use-issue-status-apply'
+import { FLIGHT_DECK_ANCHOR } from '@/features/worklist/first-send-tip'
 import {
   type AgentRowStatus,
   agentFleetStatus,
@@ -1488,6 +1489,7 @@ export const FlightDeckContent = observer(function FlightDeckContent({
       className="engraved-column flight-full-panel relative overflow-y-auto [contain:layout_paint] [overflow-anchor:none]"
       data-testid="flight-deck-scroller"
       aria-label="Flight Deck"
+      data-tip-anchor={FLIGHT_DECK_ANCHOR}
       ref={deckScrollerRef}
     >
       {/* The mission chrome belongs to the one definite-height scrollport

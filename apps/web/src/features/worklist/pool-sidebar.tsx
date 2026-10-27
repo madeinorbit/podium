@@ -53,6 +53,7 @@ import type { ContextMenuAnchor } from '@/lib/session-context-menu'
 import { useReducedMotion } from '@/lib/use-reduced-motion'
 import { cn } from '@/lib/utils'
 import { FoldedRowMenu } from './FoldedRowMenu'
+import { FirstSendTip } from './first-send-tip'
 import { PINNED_FOLD_KEY, projectFoldKey } from './fold-keys'
 import { useNewTask } from './new-task'
 import { NewTaskRow } from './new-task-row'
@@ -253,6 +254,7 @@ export const PoolSidebarUnified = observer(function PoolSidebarUnified(): JSX.El
       <AddRepositoryFooter />
       {PHONE_APP_IN_STORES && <MobilePromoCard />}
       <FirstFlightsBadge />
+      <FirstSendTip />
     </WorklistProvider>
   )
 })

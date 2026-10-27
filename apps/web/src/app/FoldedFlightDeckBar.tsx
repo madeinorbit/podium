@@ -12,6 +12,7 @@ import {
   useEffect,
   useMemo,
 } from 'react'
+import { FLIGHT_DECK_ANCHOR } from '@/features/worklist/first-send-tip'
 import { useRuntimeSelector } from './store'
 import { useWorklistPool, useWorklistPoolProjection } from './store-worklist-pool'
 
@@ -134,6 +135,7 @@ function FoldedBar({
       className="folded-superagent"
       data-flight-deck-mode="folded"
       aria-label="Folded Flight Deck"
+      data-tip-anchor={FLIGHT_DECK_ANCHOR}
       onDoubleClick={onExpand}
     >
       <button
