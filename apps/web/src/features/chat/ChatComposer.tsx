@@ -164,6 +164,7 @@ export const ChatComposer = observer(function ChatComposer({
   offlineAsOf,
   attached,
   autoFocusKey,
+  tipAnchor,
   transcriptSettled,
   backend,
   onBackendModelChange,
@@ -213,6 +214,8 @@ export const ChatComposer = observer(function ChatComposer({
   attached?: { label: string; clear: () => void } | null
   /** Re-focus on a session switch — the mobile AgentPanel reuses one instance. */
   autoFocusKey: string
+  /** First Flights anchor name for the field (POD-2198). */
+  tipAnchor?: string
   /** False while the initial transcript read is outstanding, so focus is not
    *  grabbed mid-load. */
   transcriptSettled: boolean
@@ -668,6 +671,7 @@ export const ChatComposer = observer(function ChatComposer({
             ? 'prompt-well'
             : 'chat-composer-well flex flex-col gap-1.5 rounded-[9px] py-3 pr-[10px] pl-4',
         )}
+        data-tip-anchor={tipAnchor}
       >
         {/* THE DESTINATION, LIT (POD-1595 second pass). Not a hit area — the
             drop is accepted across the whole conversation — but the place the

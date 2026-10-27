@@ -20,6 +20,7 @@ import {
 } from '@/lib/quote/quote-sinks'
 import { findTokens, placeToken, serializeDraft, tokenAround } from '@/lib/quote/quote-tokens'
 import { cn } from '@/lib/utils'
+import { askAnythingAnchor, useAskAnythingTip } from './ask-anything-tip'
 import { ChatComposer } from './ChatComposer'
 import { ChatRail } from './ChatRail'
 import { isChatInteractable } from './chat-interactable'
@@ -58,6 +59,7 @@ const ScopedChatComposer = observer(function ScopedChatComposer({
   quoteDraftRef,
   surfaceRef,
   issueClosed,
+  active,
 }: {
   sessionId: SessionId
   superThread: SuperThreadRef | undefined
@@ -68,6 +70,8 @@ const ScopedChatComposer = observer(function ScopedChatComposer({
   surfaceRef: RefObject<HTMLDivElement | null>
   /** Its issue's closing stopped this session (POD-2151). */
   issueClosed: boolean
+  /** This chat is the one on screen. */
+  active: boolean
 }): JSX.Element {
   const draft = chat.view.draft
   const setDraft = chat.setDraft
@@ -164,6 +168,16 @@ const ScopedChatComposer = observer(function ScopedChatComposer({
     quotes.clear()
   }, [chat.submitDraft, chat.attachments.uploading, draft, quotes])
   const interrupt = useCallback(() => chat.interrupt(draft), [chat.interrupt, draft])
+  // First Flights (POD-2198): an example lands in the box as a draft, never sent.
+  useAskAnythingTip({
+    sessionId,
+    phase: chat.view.session?.agentState?.phase,
+    viewing: active,
+    onExample: (text) => {
+      setDraft(draft.trim() ? `${draft}\n${text}` : text)
+      taRef.current?.focus()
+    },
+  })
 
   return (
     <ChatComposer
@@ -193,6 +207,7 @@ const ScopedChatComposer = observer(function ScopedChatComposer({
       offlineAsOf={chat.view.offlineAsOf}
       attached={chat.view.attached}
       autoFocusKey={sessionId}
+      tipAnchor={askAnythingAnchor(sessionId)}
       transcriptSettled={chat.view.phase !== 'loading'}
       {...(superThread
         ? {
@@ -455,6 +470,7 @@ const ConversationChatView = observer(function ConversationChatView({
         quoteDraftRef={quoteDraftRef}
         surfaceRef={surfaceRef}
         issueClosed={outcome !== null}
+        active={active}
       />
       <ImageLightbox src={chat.lightbox} onClose={() => chat.setLightbox(null)} />
     </div>
