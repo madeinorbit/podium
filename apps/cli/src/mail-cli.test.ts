@@ -196,7 +196,7 @@ describe('podium mail CLI (argv shape)', () => {
       c,
     )
     expect(out).toBe(
-      'sent msg_7 (queued for the target’s next turn; if it cannot be delivered you will be ' +
+      'sent msg_7 to s-abc (queued for the target’s next turn; if it cannot be delivered you will be ' +
         "told at your next turn — 'podium mail status msg_7' shows where it is)",
     )
   })
@@ -214,7 +214,7 @@ describe('podium mail CLI (argv shape)', () => {
       ['send', '--to', 's-abc', '--body', 'x', '--urgency', 'interrupt'],
       c,
     )
-    expect(out).toBe('sent msg_9 (delivered)')
+    expect(out).toBe('sent msg_9 to s-abc (delivered)')
   })
 
   it('[POD-4778] mail status names the notice that told the sender', async () => {
@@ -460,6 +460,20 @@ describe('podium mail CLI (argv shape)', () => {
     const out = await runMailCli(['reply', 'msg_1', '--body', 'did it'], c)
     expect(out).toContain('acked msg_1')
     expect(c.messages.reply.mutate).toHaveBeenCalledWith({ id: 'msg_1', body: 'did it' })
+  })
+
+  it('[POD-2146] send and reply name their message and recipient for the chat card', async () => {
+    const c = client({
+      send: { id: 'msg_9', ok: true, disposition: 'delivered' },
+      reply: { id: 'msg_r', ok: true, acked: true, to: 'issue:POD-3' },
+    })
+    // The shapes `parseMailSent` (@podium/commands/mail-command) reads.
+    await expect(runMailCli(['send', '--to', 'POD-7', '--body', 'x'], c)).resolves.toBe(
+      'sent msg_9 to POD-7 (delivered)',
+    )
+    await expect(runMailCli(['reply', 'msg_1', '--body', 'x'], c)).resolves.toBe(
+      'replied msg_r to issue:POD-3 (acked msg_1)',
+    )
   })
 
   it('rejects unknown flags and commands; --json wraps results', async () => {

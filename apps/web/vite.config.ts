@@ -275,6 +275,9 @@ export default defineConfig(({ command, mode }) => {
         // Subpath alias must precede the bare-package one — the bare alias also
         // prefix-matches subpath imports and would resolve them to a path INSIDE
         // index.ts, which fails at build time.
+        '@podium/commands/mail-command': fileURLToPath(
+          new URL('../../packages/commands/src/mail/mail-command.ts', import.meta.url),
+        ),
         '@podium/commands/mail-pointer-nudge': fileURLToPath(
           new URL('../../packages/commands/src/mail/pointer-nudge.ts', import.meta.url),
         ),

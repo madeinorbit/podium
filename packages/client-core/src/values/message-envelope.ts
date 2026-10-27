@@ -194,6 +194,16 @@ export function envelopePrincipal(label: string): EnvelopePrincipal {
   return { pre: label, ref: null, post: '' }
 }
 
+/** The short name a fold line uses (POD-2076): "steward", not "system:steward";
+ *  a task's ref, not "task POD-12 · agent"; "an agent" for a bare session. */
+export function principalShortName(label: string): string {
+  const system = /^system:(\S+)$/.exec(label)
+  if (system?.[1]) return system[1]
+  const p = envelopePrincipal(label)
+  if (p.ref !== null) return p.ref
+  return /^session:/.test(label) ? 'an agent' : label
+}
+
 /** Human label for a server-rendered principal label (flat-text form of
  *  {@link envelopePrincipal}). */
 export function envelopePrincipalLabel(label: string): string {

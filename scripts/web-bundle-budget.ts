@@ -774,12 +774,14 @@ if (checkBudget) {
     errors.push('ownership matrix is present in the eager graph')
   if (report.allBrowserChunks.ownershipMatrixSources.length > 0)
     errors.push('ownership matrix is present in a browser chunk')
-  // The envelope parser shares dependency-free mail text with the server.
+  // The envelope parser and the mail-command classifier (POD-2146) share
+  // dependency-free mail text with the server and the CLI.
   // Every other command source still belongs behind its owning feature.
   const eagerCommandSources = report.eager.commandSources.filter(
     (source) =>
       !source.endsWith('packages/commands/src/mail/turn-close-rule.ts') &&
-      !source.endsWith('packages/commands/src/mail/pointer-nudge.ts'),
+      !source.endsWith('packages/commands/src/mail/pointer-nudge.ts') &&
+      !source.endsWith('packages/commands/src/mail/mail-command.ts'),
   )
   if (eagerCommandSources.length > 0)
     errors.push(`command sources are eager: ${eagerCommandSources.join(', ')}`)

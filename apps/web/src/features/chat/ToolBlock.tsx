@@ -1,5 +1,6 @@
 import { highlightCode } from '@podium/client-core/code-highlight'
-import { resolveToolEdit } from '@podium/client-core/values'
+import { principalShortName, resolveToolEdit } from '@podium/client-core/values'
+import { classifyMailCommand, type MailCommand } from '@podium/commands/mail-command'
 import type { SessionId, TranscriptItem } from '@podium/model/browser'
 import type { JSX } from 'react'
 import { useMemo, useState } from 'react'
@@ -66,6 +67,14 @@ function expandedCommand(item: TranscriptItem): {
   return { command: item.toolInput, truncated: false }
 }
 
+/** A script's mail call names its note (POD-2146): the per-call output is not
+ *  kept, so it cannot open the body the way a lone send's card does. */
+function scriptMailLine(mail: MailCommand): { tool: string; input: string } {
+  if (mail.op === 'inbox') return { tool: 'Mail', input: 'Read notes' }
+  const to = mail.op === 'send' ? `Note to ${principalShortName(mail.to)}` : 'Reply'
+  return { tool: 'Mail', input: mail.preview ? `${to} · ${mail.preview}` : to }
+}
+
 /** The calls a Codex `exec` script made, as its adapter listed them
  *  (`kind: 'script-calls'`): one compact line each, above the script's output. */
 function scriptCalls(item: TranscriptItem): Array<{ tool: string; input: string }> | undefined {
@@ -80,16 +89,13 @@ function scriptCalls(item: TranscriptItem): Array<{ tool: string; input: string 
     )
       return undefined
     const calls = 'calls' in payload && Array.isArray(payload.calls) ? payload.calls : []
-    return calls.flatMap((call: unknown) =>
-      call && typeof call === 'object' && 'tool' in call && typeof call.tool === 'string'
-        ? [
-            {
-              tool: call.tool,
-              input: 'input' in call && typeof call.input === 'string' ? call.input : '',
-            },
-          ]
-        : [],
-    )
+    return calls.flatMap((call: unknown) => {
+      if (!call || typeof call !== 'object' || !('tool' in call) || typeof call.tool !== 'string')
+        return []
+      const input = 'input' in call && typeof call.input === 'string' ? call.input : ''
+      const mail = call.tool === 'Bash' ? classifyMailCommand(input) : null
+      return [mail ? scriptMailLine(mail) : { tool: call.tool, input }]
+    })
   } catch {
     return undefined
   }

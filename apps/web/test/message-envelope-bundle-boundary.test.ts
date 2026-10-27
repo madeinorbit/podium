@@ -34,6 +34,7 @@ it('resolves shared envelope text without loading command contracts or daemon sc
     ),
   )
   expect(modules.filter((id) => id.includes('/packages/commands/')).sort()).toEqual([
+    fileURLToPath(new URL('../../../packages/commands/src/mail/mail-command.ts', import.meta.url)),
     fileURLToPath(new URL('../../../packages/commands/src/mail/pointer-nudge.ts', import.meta.url)),
     fileURLToPath(
       new URL('../../../packages/commands/src/mail/turn-close-rule.ts', import.meta.url),

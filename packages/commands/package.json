@@ -27,6 +27,11 @@
       "types": "./src/mail/pointer-nudge.ts",
       "import": "./src/mail/pointer-nudge.ts"
     },
+    "./mail-command": {
+      "@podium/source": "./src/mail/mail-command.ts",
+      "types": "./src/mail/mail-command.ts",
+      "import": "./src/mail/mail-command.ts"
+    },
     "./settings-write-plan": {
       "@podium/source": "./src/settings/write-plan.ts",
       "types": "./src/settings/write-plan.ts",

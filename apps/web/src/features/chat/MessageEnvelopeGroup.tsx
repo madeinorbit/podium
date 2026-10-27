@@ -21,6 +21,7 @@ import {
   envelopePrincipal,
   type ParsedEnvelope,
   pointerFallbackBody,
+  principalShortName,
 } from '@podium/client-core/values'
 import { ChevronDown, Mail as MailIcon, X } from 'lucide-react'
 import type { JSX, MouseEvent as ReactMouseEvent, ReactNode } from 'react'
@@ -52,16 +53,6 @@ function PrincipalLabel({ label }: { label: string }): JSX.Element {
       {p.post}
     </>
   )
-}
-
-/** The fold line's short sender (POD-2076): "steward", not "system:steward";
- *  a task's ref, not "task POD-12 · agent". The open card keeps the full route. */
-function senderName(label: string): string {
-  const system = /^system:(\S+)$/.exec(label)
-  if (system?.[1]) return system[1]
-  const p = envelopePrincipal(label)
-  if (p.ref !== null) return p.ref
-  return /^session:/.test(label) ? 'an agent' : label
 }
 
 /** First line of a frame as a subject, and the rest as a preview.
@@ -102,17 +93,19 @@ const StableEnvelopeMarkdown = memo(function StableEnvelopeMarkdown({ html }: { 
   )
 })
 
-/** A pointer's item: the body the agent was not typed, fetched by id. */
+/** A pointer's item: the body the agent was not typed, fetched by id. A sent
+ *  note's preview, when it has one, stands in while the body loads. */
 function PointerEnvelopeItem(props: {
   envelope: ParsedEnvelope
   forceFull?: boolean
+  direction: 'from' | 'to'
 }): JSX.Element {
   const mail = useMailBody(props.envelope.id)
   const body =
     mail.status === 'ready'
       ? mail.body
       : mail.status === 'loading'
-        ? 'Loading…'
+        ? props.envelope.body || 'Loading…'
         : mail.status === 'denied'
           ? "You can't view this message\nOnly its sender, its recipients and an admin can open it."
           : 'Could not load this message'
@@ -137,8 +130,12 @@ function EnvelopeItem({
   markdownHtml,
   forceFull = false,
   footer,
+  direction,
 }: {
   envelope: ParsedEnvelope
+  /** Which party the left column names: the sender, or the recipient of a
+   *  note this session sent. */
+  direction: 'from' | 'to'
   /** The body when the frame did not carry it (an inbox pointer). */
   body?: string
   /** An action under the body, such as retrying a failed load. */
@@ -164,7 +161,7 @@ function EnvelopeItem({
   return (
     <div className="mail-item" data-testid="mail-item" data-full={full ? 'true' : undefined}>
       <span className="mail-item-from">
-        <PrincipalLabel label={envelope.from} />
+        <PrincipalLabel label={direction === 'from' ? envelope.from : envelope.to} />
       </span>
       <span className="mail-item-main">
         <button
@@ -239,13 +236,15 @@ export function MessageEnvelopeGroup({
   // The route only names a sender when the whole burst shares one; otherwise the
   // senders are the card's left column and repeating one of them in the header
   // would be a lie about the other two.
-  const sharedFrom = envelopes.every((e) => e.from === first?.from) ? first?.from : undefined
+  // A sent note has no sender to name: it is this session's.
+  const sharedFrom =
+    direction === 'from' && envelopes.every((e) => e.from === first?.from) ? first?.from : undefined
   const count = envelopes.length
   const noun = single ? 'Note' : `${count} notes`
   // Distinct short senders, in arrival order: "Note from steward",
   // "2 notes from POD-84 · POD-90".
   const names = [
-    ...new Set(envelopes.map((e) => senderName(direction === 'from' ? e.from : e.to))),
+    ...new Set(envelopes.map((e) => principalShortName(direction === 'from' ? e.from : e.to))),
   ].join(' · ')
   const foldLabel = `${noun} ${direction} ${names}`
 
@@ -284,7 +283,9 @@ export function MessageEnvelopeGroup({
             // biome-ignore lint/a11y/useKeyWithClickEvents: keyboard users activate those anchors natively
             <div className="mail-card" onClick={onBodyClick}>
               <div className="mail-card-head">
-                <span className="mail-card-kind">From Podium</span>
+                <span className="mail-card-kind">
+                  {direction === 'from' ? 'From Podium' : 'Sent'}
+                </span>
                 <span className="mail-card-route">
                   {sharedFrom !== undefined && (
                     <>
@@ -311,6 +312,7 @@ export function MessageEnvelopeGroup({
                       key={envelope.id}
                       envelope={envelope}
                       forceFull={forceOpen}
+                      direction={direction}
                     />
                   ) : (
                     <EnvelopeItem
@@ -319,6 +321,7 @@ export function MessageEnvelopeGroup({
                       body={envelope.pointer ? pointerFallbackBody(envelope) : envelope.body}
                       markdownHtml={markdownHtml}
                       forceFull={forceOpen}
+                      direction={direction}
                     />
                   ),
                 )}

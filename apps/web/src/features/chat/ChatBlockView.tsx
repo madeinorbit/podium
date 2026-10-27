@@ -7,6 +7,8 @@ import {
   mcpLabel,
   parseEnvelopeBatch,
   type TranscriptAttribution,
+  toolMailCommand,
+  toolVerdict,
 } from '@podium/client-core/values'
 import { codexQuestionReplyText } from '@podium/harness/browser'
 import { machinePathBasename, resolveMachinePath } from '@podium/model'
@@ -31,6 +33,7 @@ import { AttributionMark } from './AttributionMark'
 import type { ChatBlock } from './chat'
 import { handleChatMdClick } from './chat-md-click'
 import { MachineContextRow } from './MachineContextRow'
+import { InboxReadRow, SentNoteRow, sentNoteEnvelope } from './MailCommandRow'
 import { MessageEnvelopeGroup } from './MessageEnvelopeGroup'
 import { MetaGlyph } from './MetaGlyph'
 import { SendUserFileBlock, SentImageThumb } from './SendUserFileBlock'
@@ -409,6 +412,16 @@ export const ChatBlockView = memo(function ChatBlockView({
     () => (item.role === 'user' ? parseEnvelopeBatch(item.text) : null),
     [item.role, item.text],
   )
+  // The agent's own mail (POD-2146): a send or reply that went out is a note, an
+  // inbox read a quiet line. Anything that failed stays its tool row.
+  const toolResult = block.result ?? item.toolResult
+  const mailRow = useMemo(() => {
+    const mail = toolMailCommand(item)
+    if (!mail || toolVerdict(toolResult, item.toolEffects) === 'err') return null
+    if (mail.op === 'inbox') return { op: 'inbox' as const }
+    const envelope = sentNoteEnvelope(mail, toolResult, item.id)
+    return envelope ? { op: 'sent' as const, envelope } : null
+  }, [item, toolResult])
   // Compact answers ending in a "→ next: …" line render it as a mono amber row
   // of its own (mock S1), not markdown prose.
   const nextSplit = useMemo(() => {
@@ -579,6 +592,29 @@ export const ChatBlockView = memo(function ChatBlockView({
       </div>
     )
   }
+  if (mailRow?.op === 'sent')
+    return (
+      <SentNoteRow
+        envelope={mailRow.envelope}
+        className={cn(nonStickyRowClass, turnClass(turn))}
+        blockIndex={index}
+        ts={item.ts}
+        onBodyClick={(e: ReactMouseEvent) => {
+          handleChatMdClick(e, sessionId, cwd, openFile)
+        }}
+        forceOpen={highlighted}
+      />
+    )
+  if (mailRow?.op === 'inbox')
+    return (
+      <InboxReadRow
+        result={toolResult}
+        className={cn(nonStickyRowClass, turnClass(turn))}
+        blockIndex={index}
+        rowKey={item.id}
+        ts={item.ts}
+      />
+    )
   // Ordinary tool calls render inside a collapsed ToolBatchView, so they don't
   // reach here. Anything else stray shows as a lone quiet tool row.
   if (item.role === 'tool')

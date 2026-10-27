@@ -46,11 +46,12 @@ function mount(
   stickyOperator = false,
   highlighted = false,
   markdownHtml?: ReadonlyMap<string, string>,
+  result?: string,
 ): void {
   act(() => {
     root.render(
       <ChatBlockView
-        block={{ item }}
+        block={result === undefined ? { item } : { item, result }}
         index={0}
         highlighted={highlighted}
         dimmed={false}
@@ -429,6 +430,68 @@ describe('inbox pointer notes (POD-2143)', () => {
     click(toggle())
     expect(bodyRequests).toEqual([])
     expect(host.textContent).toContain('Delivered via the inbox')
+  })
+})
+
+// The agent's own mail (POD-2146): a send reads as the note it sent.
+describe('mail the agent sent', () => {
+  const bash = (command: string): TranscriptItem =>
+    ({
+      id: 't1',
+      role: 'tool',
+      text: '',
+      ts: '2026-10-26T14:02:00Z',
+      toolName: 'Bash',
+      toolInput: command,
+      toolUseId: 't1',
+    }) as TranscriptItem
+  const send = bash(`podium mail send --to POD-2128 --body 'Ready for review'`)
+
+  it('folds a send to "Note to" and fetches its body only when opened', () => {
+    mount(send, false, false, undefined, 'sent msg_9 to POD-2128 (delivered)')
+    expect(toggle()?.textContent).toContain('Note to POD-2128')
+    expect(host.textContent).not.toContain('podium mail send')
+    expect(bodyRequests).toEqual([])
+    click(toggle())
+    expect(host.querySelector('.mail-card-kind')?.textContent).toBe('Sent')
+    expect(bodyRequests).toEqual(['msg_9'])
+    expect(host.textContent).toContain('full body of msg_9')
+  })
+
+  it('shows the preview while the body loads', () => {
+    bodyAnswer = () => ({ status: 'loading' })
+    mount(send, false, false, undefined, 'sent msg_9 to POD-2128 (delivered)')
+    click(toggle())
+    expect(host.querySelector('.mail-item-subject')?.textContent).toBe('Ready for review')
+    bodyAnswer = (id) => ({ status: 'ready', body: `Long review notes\nfull body of ${id}` })
+  })
+
+  it('names a reply by the recipient the CLI printed', () => {
+    mount(
+      bash(`podium mail reply msg_1 --body 'done'`),
+      false,
+      false,
+      undefined,
+      'replied msg_4 to issue:POD-3 (acked msg_1)',
+    )
+    expect(toggle()?.textContent).toContain('Note to POD-3')
+  })
+
+  it('keeps a failed send as an error tool row', () => {
+    mount(send, false, false, undefined, 'Exit code 1\npodium mail: send was not accepted')
+    expect(host.querySelector('[data-testid="message-envelope"]')).toBeNull()
+    expect(host.querySelector('.tool-block')?.getAttribute('data-verdict')).toBe('err')
+  })
+
+  it('folds an inbox read to "Read N notes" with the listing behind it', () => {
+    const listing =
+      '* msg_1 issue:POD-2 2026-10-26T10:00:00Z\n  hi\n* msg_2 issue:POD-4 2026-10-26T10:01:00Z\n  yo'
+    mount(bash('podium issue mail inbox'), false, false, undefined, listing)
+    const row = host.querySelector('[data-testid="inbox-read"]')
+    expect(row?.textContent).toContain('Read 2 notes')
+    expect(row?.querySelector('pre')).toBeNull()
+    click(row?.querySelector('.mail-fold'))
+    expect(row?.querySelector('pre')?.textContent).toContain('msg_2')
   })
 })
 

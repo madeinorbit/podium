@@ -32,6 +32,9 @@ export async function replyHandler(
     id: r.message.id,
     ok: r.ok,
     acked: (input.kind ?? 'ack') === 'ack',
+    // Who the reply went to, as the wire labels the original's sender, so the
+    // replier's chat can say "Note to X" (POD-2146).
+    to: (await access.wire(original)).from,
     ...(r.position !== undefined ? { position: r.position } : {}),
     ...(r.queued !== undefined ? { queued: r.queued } : {}),
     ...(r.reason !== undefined ? { reason: r.reason } : {}),

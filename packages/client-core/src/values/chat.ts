@@ -1,3 +1,4 @@
+import { classifyMailCommand, type MailCommand } from '@podium/commands/mail-command'
 import type { TranscriptItem } from '@podium/model'
 import { machinePathBasename } from '@podium/model'
 
@@ -163,10 +164,55 @@ export function isInteractiveTool(item: TranscriptItem): boolean {
 
 /**
  * A tool call quiet enough to fold into a batch — i.e. anything that isn't
- * addressing the human.
+ * addressing the human, and isn't the agent's own mail (POD-2146).
  */
 export function isBatchableTool(item: TranscriptItem): boolean {
-  return item.role === 'tool' && !isInteractiveTool(item)
+  return item.role === 'tool' && !isInteractiveTool(item) && toolMailCommand(item) === null
+}
+
+const mailCommands = new WeakMap<TranscriptItem, MailCommand | null>()
+
+/**
+ * THE AGENT'S OWN MAIL (POD-2146): the `podium mail send|reply|inbox` a shell
+ * call ran, which the chat shows as a "Note to X" card or a "Read N notes" row
+ * instead of a command. Classified once per item; a call that never names
+ * podium mail costs two substring checks.
+ */
+export function toolMailCommand(item: TranscriptItem): MailCommand | null {
+  if (item.role !== 'tool' || item.toolName !== 'Bash') return null
+  let mail = mailCommands.get(item)
+  if (mail !== undefined) return mail
+  mail = null
+  const text = item.toolInputJson ?? item.toolInput ?? ''
+  if (text.includes('podium') && text.includes('mail')) {
+    const command = shellCommand(item)
+    if (command !== undefined) mail = classifyMailCommand(command)
+  }
+  mailCommands.set(item, mail)
+  return mail
+}
+
+/** The full command a shell call ran: the retained `shell-command` payload, or
+ *  the input preview older records and other harnesses keep it in. */
+function shellCommand(item: TranscriptItem): string | undefined {
+  if (item.toolInputJson) {
+    try {
+      const payload: unknown = JSON.parse(item.toolInputJson)
+      if (
+        payload &&
+        typeof payload === 'object' &&
+        'kind' in payload &&
+        payload.kind === 'shell-command' &&
+        'command' in payload &&
+        typeof payload.command === 'string'
+      )
+        // A truncated command may have lost what follows the send.
+        return 'truncated' in payload && payload.truncated ? undefined : payload.command
+    } catch {
+      // Fall back to the preview below.
+    }
+  }
+  return item.toolInput
 }
 
 /**

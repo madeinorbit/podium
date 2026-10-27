@@ -341,7 +341,12 @@ export async function runMailCli(argv: string[], client: MailClient): Promise<st
         .join(', ')
       // Still on its way: a failure is pushed to the sender, so it need not poll.
       const pending = r.disposition !== 'delivered' && r.disposition !== 'dead_letter'
-      return done(`sent ${r.id} (${note}${pending ? `; ${pendingSendNote(r.id)}` : ''})`, r)
+      // "sent <id> to <recipient>" is the line the chat reads a Note-to card
+      // from (POD-2146, `parseMailSent`).
+      return done(
+        `sent ${r.id} to ${to} (${note}${pending ? `; ${pendingSendNote(r.id)}` : ''})`,
+        r,
+      )
     }
     case 'inbox': {
       const rows = (await client.messages.inbox.mutate(
@@ -392,9 +397,20 @@ export async function runMailCli(argv: string[], client: MailClient): Promise<st
         id,
         body,
         ...(args.kind ? { kind: args.kind } : {}),
-      })) as { id: string; ok: boolean; acked: boolean; queued?: boolean; reason?: string }
+      })) as {
+        id: string
+        ok: boolean
+        acked: boolean
+        queued?: boolean
+        reason?: string
+        /** The original's sender; absent from an older server. */
+        to?: string
+      }
       if (!r.ok) throw new MailCliError(r.reason ?? 'reply was not accepted')
-      return done(`replied ${r.id}${r.acked ? ` (acked ${id})` : ''}`, r)
+      return done(
+        `replied ${r.id}${r.to ? ` to ${r.to}` : ''}${r.acked ? ` (acked ${id})` : ''}`,
+        r,
+      )
     }
     default:
       throw new MailCliError(`unknown command: ${command}\n\n${helpText()}`)

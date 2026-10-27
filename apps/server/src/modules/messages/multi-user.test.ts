@@ -206,7 +206,9 @@ describe('a queued send is re-authorized at the drain, not at accept', () => {
     expect(after?.deliveryStatus).toBe('failed')
     expect(h.pushes.filter((p) => p.sessionId === 'sTarget')).toEqual([])
     // …and never silently dropped — the sender is told (ADR 3 D9).
-    const notices = (await h.svc.inbox([{ kind: 'session', id: 'sSender' }], { limit: 50 })).filter((m) => m.body.includes(r.message.id))
+    const notices = (await h.svc.inbox([{ kind: 'session', id: 'sSender' }], { limit: 50 })).filter(
+      (m) => m.body.includes(r.message.id),
+    )
     expect(notices.length).toBeGreaterThan(0)
     expect(notices.at(-1)?.body).toContain('sender no longer has access to the target')
   })
@@ -358,7 +360,9 @@ describe('spawnAgent places work on OWNED COMPUTE and fails closed', () => {
     isReachable: () => opts.reachable,
   })
 
-  const withMachine = async (h: Awaited<ReturnType<typeof mailHarness>>): Promise<{ id: string; seq: number }> => {
+  const withMachine = async (
+    h: Awaited<ReturnType<typeof mailHarness>>,
+  ): Promise<{ id: string; seq: number }> => {
     const issue = await h.createIssue({ title: 'work' })
     await h.issues.crud.update(issue.id, { machineId: asMachineId('mac_alices_laptop') })
     return issue
@@ -387,7 +391,10 @@ describe('spawnAgent places work on OWNED COMPUTE and fails closed', () => {
     const offline = await mailHarness({ machines: machines({ use: true, reachable: false }) })
     const a = await withMachine(denied)
     const b = await withMachine(offline)
-    const message = async (h: Awaited<ReturnType<typeof mailHarness>>, id: string): Promise<string> => {
+    const message = async (
+      h: Awaited<ReturnType<typeof mailHarness>>,
+      id: string,
+    ): Promise<string> => {
       try {
         await h.gate.dispatch(
           h.agentCap(asIssueId(id), asSessionId('sMe')),
@@ -817,6 +824,30 @@ describe('mail.show admits the owner of the session the mail was delivered to', 
       id: sent.message.id,
     })) as { body: string }
     expect(shown.body).toBe(body)
+    await expect(
+      h.gate.dispatch(member('u_carol'), undefined, 'show', { id: sent.message.id }),
+    ).rejects.toThrow(MAIL_VIEW_REFUSED)
+  })
+})
+
+describe('mail.show admits the owner of the session that sent the mail (POD-2146)', () => {
+  it('a member opens a "Note to" their own agent sent; another member is refused', async () => {
+    const bob = asUserId('u_bob')
+    const h = await mailHarness({
+      sessionOwner: async (id) => (id === 'sBob' ? { owner: bob, grants: [] } : undefined),
+    })
+    const from = await h.createIssue({ title: 'bob’s task' })
+    const to = await h.createIssue({ title: 'coordinator' })
+    h.put({ sessionId: asSessionId('sBob'), issueId: from.id, phase: 'idle' })
+    const sent = await h.svc.send(
+      { kind: 'agent', issueId: from.id, sessionId: asSessionId('sBob') },
+      { to: { kind: 'issue', id: to.id }, body: 'handoff' },
+    )
+    const member = (user: string) => userCommandPrincipal(asUserId(user), 'member').capability
+    const shown = (await h.gate.dispatch(member('u_bob'), undefined, 'show', {
+      id: sent.message.id,
+    })) as { body: string }
+    expect(shown.body).toBe('handoff')
     await expect(
       h.gate.dispatch(member('u_carol'), undefined, 'show', { id: sent.message.id }),
     ).rejects.toThrow(MAIL_VIEW_REFUSED)

@@ -1,6 +1,6 @@
-import { asSessionId, type TranscriptItem } from '@podium/model/browser'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { asSessionId, type TranscriptItem } from '@podium/model/browser'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -349,6 +349,31 @@ describe('Codex script rows', () => {
     expect(host.querySelector('pre.tool-result-full')?.textContent).toBe(
       'Script completed\nOutput:\n 1 file changed',
     )
+  })
+
+  it('lists a mail send inside a script as the note it sent (POD-2146)', () => {
+    mount({
+      toolName: 'Script',
+      toolTitle: '3 commands',
+      toolInputJson: JSON.stringify({
+        kind: 'script-calls',
+        calls: [
+          { tool: 'Bash', input: 'git status' },
+          { tool: 'Bash', input: `podium issue mail send POD-2128 --body 'Ready for review'` },
+          { tool: 'Bash', input: 'podium issue mail inbox' },
+        ],
+      }),
+      toolResult: 'Script completed',
+    })
+    unfold()
+    const lines = [...host.querySelectorAll('.tool-script-calls li')].map((line) =>
+      [...line.children].map((part) => part.textContent),
+    )
+    expect(lines).toEqual([
+      ['Bash', 'git status'],
+      ['Mail', 'Note to POD-2128 · Ready for review'],
+      ['Mail', 'Read notes'],
+    ])
   })
 
   it('marks a failed script as failed', () => {

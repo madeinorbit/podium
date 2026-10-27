@@ -1,5 +1,6 @@
 import type { TranscriptItem } from '@podium/model'
 import { describe, expect, it } from 'vitest'
+import { isBatchableTool, toolMailCommand } from './chat'
 import { computeTranscript } from './transcript-compute'
 
 const item = (
@@ -121,5 +122,81 @@ describe('computeTranscript', () => {
         ]),
       ).toEqual(['u0', 'u1'])
     })
+  })
+})
+
+// The agent's own mail (POD-2146), in the shape each harness adapter emits.
+describe('computeTranscript: mail the agent sent', () => {
+  const send = `podium issue mail send POD-2128 --body 'Ready for review'`
+  const shapes: Array<[string, Partial<TranscriptItem>]> = [
+    // Claude Bash keeps the full command as a shell-command payload.
+    [
+      'Claude Bash',
+      {
+        toolName: 'Bash',
+        toolInput: send,
+        toolInputJson: JSON.stringify({ kind: 'shell-command', command: send }),
+      },
+    ],
+    // A Codex exec wrapping one exec_command renders as that call.
+    ['Codex single call', { toolName: 'Bash', toolInput: send }],
+  ]
+  for (const [name, call] of shapes) {
+    it(`a ${name} send leaves the work run as its own row`, () => {
+      const { rows } = computeTranscript({
+        items: [
+          item({ id: 'r', role: 'tool', toolName: 'Read', toolInput: 'a.ts', toolUseId: 'r' }),
+          item({ id: 's', role: 'tool', toolUseId: 's', ...call }),
+          item({
+            id: 's-out',
+            role: 'tool',
+            toolUseId: 's',
+            toolResult: 'mail DELIVERED to POD-2128 (msg_1) — confirmed in the recipient’s context',
+          }),
+          item({ id: 'b', role: 'tool', toolName: 'Bash', toolInput: 'ls', toolUseId: 'b' }),
+        ],
+        verbosity: 'summary',
+        query: '',
+        cursor: 0,
+      })
+      // The read and the ls are quiet work and drop out of summary; the note stays.
+      expect(rows).toHaveLength(1)
+      const row = rows[0]
+      expect(row?.kind === 'block' && toolMailCommand(row.block.item)).toEqual({
+        op: 'send',
+        to: 'issue:POD-2128',
+        preview: 'Ready for review',
+      })
+    })
+  }
+
+  it('a Codex Script with a send inside stays one Script row', () => {
+    const { rows } = computeTranscript({
+      items: [
+        item({
+          id: 'x',
+          role: 'tool',
+          toolName: 'Script',
+          toolTitle: '2 commands',
+          toolInputJson: JSON.stringify({
+            kind: 'script-calls',
+            calls: [
+              { tool: 'Bash', input: 'git status' },
+              { tool: 'Bash', input: send },
+            ],
+          }),
+        }),
+      ],
+      verbosity: 'normal',
+      query: '',
+      cursor: 0,
+    })
+    expect(rows).toEqual([expect.objectContaining({ kind: 'tools' })])
+  })
+
+  it('an echo of a send is an ordinary command', () => {
+    const echo = item({ id: 'e', role: 'tool', toolName: 'Bash', toolInput: `echo "${send}"` })
+    expect(isBatchableTool(echo)).toBe(true)
+    expect(toolMailCommand(echo)).toBeNull()
   })
 })

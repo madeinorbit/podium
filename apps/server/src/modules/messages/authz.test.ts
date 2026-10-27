@@ -576,15 +576,18 @@ describe('read-surface and reply authz (A5)', () => {
     expect(shown.deliveryStatus).toBe('dispatched')
     expect((await h.svc.message(oid))!.deliveryStatus).toBe('dispatched')
 
-    // The recipient may reply; so may the operator.
+    // The recipient may reply; so may the operator. The reply names who it
+    // went to, as the wire labels the original's sender (POD-2146).
+    const sender = (await h.gate.dispatch(OPERATOR, undefined, 'show', { id: oid })) as {
+      from: string
+    }
+    expect(sender.from).toMatch(/^issue:/)
     expect(
-      (
-        (await h.gate.dispatch(h.agentCap(to.id, asSessionId('sTo')), undefined, 'reply', {
-          id: oid,
-          body: 'yes',
-        })) as { ok: boolean }
-      ).ok,
-    ).toBe(true)
+      await h.gate.dispatch(h.agentCap(to.id, asSessionId('sTo')), undefined, 'reply', {
+        id: oid,
+        body: 'yes',
+      }),
+    ).toMatchObject({ ok: true, to: sender.from })
   })
 
   it('dismisses a recipient-owned message straight to `read` without opening the inbox', async () => {

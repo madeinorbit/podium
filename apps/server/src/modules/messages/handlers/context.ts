@@ -348,23 +348,22 @@ export class MailAccess {
     )
   }
 
-  /** A person reads a message delivered to a session they may read, by the
-   *  session queries' own rule (`mayReadOwned` over the session's owner and
-   *  grants) — the body of an inbox pointer in their own agent's chat, which
-   *  `mayView` misses because a person's capability names no session (POD-2143). */
-  async mayReadAsReceiverOwner(caller: MailCaller, m: MessageRow): Promise<boolean> {
+  /** A person reads a message sent by or delivered to a session they may read,
+   *  by the session queries' own rule (`mayReadOwned` over the session's owner
+   *  and grants) — an inbox pointer's body (POD-2143) or a "Note to X" the agent
+   *  sent (POD-2146) in their own agent's chat, which `mayView` misses because a
+   *  person's capability names no session. */
+  async mayReadAsSessionOwner(caller: MailCaller, m: MessageRow): Promise<boolean> {
     if (caller.principal.kind !== 'user') return false
+    const user = caller.principal.user
     const receiver = m.deliveredTo ?? (m.toKind === 'session' ? m.toId : null)
-    if (!receiver) return false
-    const target = await this.deps.sessionOwner?.(asSessionId(receiver))
-    return (
-      target !== undefined &&
-      mayReadOwned(caller.principal.user, {
-        id: receiver,
-        owner: target.owner,
-        grants: target.grants,
-      })
-    )
+    for (const session of new Set([receiver, m.fromSession])) {
+      if (!session) continue
+      const target = await this.deps.sessionOwner?.(asSessionId(session))
+      if (target && mayReadOwned(user, { id: session, owner: target.owner, grants: target.grants }))
+        return true
+    }
+    return false
   }
 
   async wire(m: MessageRow): Promise<MessageWire> {
