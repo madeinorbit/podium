@@ -337,7 +337,9 @@ function UnifiedIssueRowInner({
         timeMeta={meta}
         active={active}
         gitStamp={
-          issue.gitState && (
+          // A landed row already says where it went (POD-2151); a git stamp
+          // cached before the landing would contradict it.
+          issue.gitState && voice.word !== 'Landed' && (
             <GitStamp
               issueBranch={issue.branch}
               git={issue.gitState}

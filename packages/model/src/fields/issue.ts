@@ -91,6 +91,11 @@ export const IssueLifecycle = z.object({
   closedReason: z.string().optional(),
   /** When the closed-predicate last flipped true — the stable decay anchor. */
   closedAt: z.string().optional(),
+  /** When `podium issue action --kind merge` landed it: the fact. A landed
+   *  issue is never awaiting merge, whatever its cached git state says. */
+  landedAt: z.string().optional(),
+  /** The tip that landing merged — evidence, absent when the read failed. */
+  landedSha: z.string().optional(),
   deferUntil: z.string().optional(),
   archived: z.boolean(),
   /** Soft-delete tombstone. */

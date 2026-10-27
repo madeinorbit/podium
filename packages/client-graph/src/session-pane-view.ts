@@ -1,5 +1,7 @@
 import type { SessionView } from '@podium/client-core/session-values'
+import { type OutcomeIssueFacts, type SessionIssueOutcome, sessionIssueOutcome } from '@podium/client-core/values'
 import { companion, lazy } from '@podium/mobx-helpers'
+import { compareStructural } from 'mobx'
 import { asIssueId, type IssueId, type MachineWire, machinePathAncestors, machinePathSeparator } from '@podium/model/browser'
 import { omitGone } from './lookup'
 import type { IssueModel, SessionModel } from './models'
@@ -47,6 +49,18 @@ export class PaneSession {
       }
     }
     return undefined
+  }
+
+  /** The issue's ending, when closing it is what stopped this session
+   * (POD-2151): the pane trades its Hibernated bar for it and closes the
+   * transcript with it. Only the attached issue counts; a checkout match is
+   * not the issue that stopped the session. */
+  @lazy({ equals: compareStructural }) get issueOutcome(): SessionIssueOutcome | null {
+    const { issueId } = this.session
+    if (!issueId) return null
+    const issue = omitGone(this.pool.model('issue', issueId))
+    if (!issue || issue === LOADING) return null
+    return sessionIssueOutcome(this.session as unknown as SessionView, issue as unknown as OutcomeIssueFacts)
   }
 
   private loadedIssue(id: string): Loaded<IssueModel> {

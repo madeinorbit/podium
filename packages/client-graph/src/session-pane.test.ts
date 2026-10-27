@@ -150,6 +150,24 @@ it('chooses the nearest eligible cwd ancestor at exact slash boundaries, includi
   } finally { pool.dispose() }
 })
 
+it('reads the issue outcome through real pool models, whose fields are prototype getters (POD-2151)', () => {
+  const pool = new MobxPool({ selectedIssueId: null, coarseNow: SESSION_PANE_NOW })
+  try {
+    const closed = { stage: 'done', closedAt: '2026-10-01T00:00:10Z', parentBranch: 'tf.dev' }
+    pool.apply({ type: 'replace', rows: [
+      issue('landed', null, { ...closed, closedReason: 'done', landedAt: '2026-10-01T00:00:09Z', landedSha: 'fcd1385aa9e0' }),
+      issue('cancelled', null, { ...closed, closedReason: 'cancelled' }),
+    ].map(row => ({ kind: 'issue', id: row.id, value: row as never })) })
+    const stopped = { ...sessionPaneFixture()[0]!, status: 'hibernated', stopReason: 'parent', stoppedAt: '2026-10-01T00:00:11Z' } as SessionView
+    const outcome = (issueId: string) => {
+      pool.apply({ type: 'update', rows: [{ kind: 'session', id: stopped.sessionId, value: { ...stopped, issueId } as never }] })
+      return sessionPaneView(pool).loaded(stopped.sessionId)?.issueOutcome
+    }
+    expect(outcome('landed')).toEqual({ kind: 'landed', at: '2026-10-01T00:00:09Z', branch: 'tf.dev', sha: 'fcd1385' })
+    expect(outcome('cancelled')).toEqual({ kind: 'closed', at: '2026-10-01T00:00:10Z', reason: 'cancelled' })
+  } finally { pool.dispose() }
+})
+
 it('reads spawn confirmation only from an attached pool log (POD-5432)', () => {
   for (const ownsSessions of [true, false]) {
     const f = fixture(false)

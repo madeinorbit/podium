@@ -832,18 +832,18 @@
       "file": "apps/mobile/src/lib/work-sections.ts",
       "holder": "mobileRowPaint/statusLine",
       "rule": "reader-summary",
-      "tokens": "7ef88d5e1e7e62bd18e17020fc025745f8126c8e4e799c591f852478bafbc1a3",
+      "tokens": "0d81df05b07544e8466b9a943ab770b71ae85dcb9ba9663d30d2cf0e215912ef",
       "gate": [],
       "origin": [
         "0cb7e64b0c6d0ead96950df402ab192a42d215ce2b56e930f944abec3adbf71f"
       ],
-      "fingerprint": "29c2b7c530d371b8c1f4a837414ce77b778d99aa9efb077a5f8d78a092506279",
+      "fingerprint": "f5859bc26571da956d6f6a1ac96024b20cfb03b6006cd9a3a7bcf44870f665d1",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of mobileRowPaint/statusLine",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-2151 changed only scalar helpers on this path (landing copy, composer placeholder); no collection read was added. Predecessor: 29c2b7c530d371b8c1f4a837414ce77b778d99aa9efb077a5f8d78a092506279.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -1165,7 +1165,7 @@
       "file": "apps/mobile/src/screens/WorkListRow.tsx",
       "holder": "WorkRow/WorkRow/statusLine",
       "rule": "reader-summary",
-      "tokens": "2e7e7bacede8538815659fc9dd233fe07d9179f8a66267f16820f66b79e49fe9",
+      "tokens": "3cffa77eaeebfe44103ef3c656a4c1cfed172bc7789eb9dde4a3d657366d58c3",
       "gate": [
         "exit:then:e440137eee3959b04676b14520db6bdb13e915aea7dd3319dcdfd60d93eb09fc",
         "exit:then:1f85cabf6558c970d1039c2b2342fa8e6befa1cdeaa5ae7af663b753b2481539"
@@ -1173,14 +1173,14 @@
       "origin": [
         "7383cc71713d9fa7249b09f4309e0f7dae7c40195e66bf38f9a44937d8257e9f"
       ],
-      "fingerprint": "96420967d44807e14400df4df368fb3506d2b2f68aca5e7ead259dce6674490b",
+      "fingerprint": "88e33ff934cce23f9ead1e4e93a6994b932a687c74894c9742f2b822cfe75a7b",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation or observation of WorkRow/WorkRow/statusLine",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
-      "reason": "The phone row reads its canonical status field instead of the forwarding paint bundle. Its waiting worktree formatter still receives the same roster. Predecessor: 77d2b38eb6c3536485bf177d999ce5570015a37b6168e75daad4bd64debd713f."
+      "reason": "The phone row reads its canonical status field instead of the forwarding paint bundle. Its waiting worktree formatter still receives the same roster. Predecessor: 77d2b38eb6c3536485bf177d999ce5570015a37b6168e75daad4bd64debd713f. POD-2151 changed only scalar helpers on this path (landing copy, composer placeholder); no collection read was added. Predecessor: 96420967d44807e14400df4df368fb3506d2b2f68aca5e7ead259dce6674490b."
     },
     {
       "file": "apps/mobile/src/screens/WorkScreen.tsx",
@@ -4118,20 +4118,20 @@
       "file": "apps/web/src/features/chat/use-conversation.ts",
       "holder": "createWebConversation/sends/deliver/callback/composer",
       "rule": "helper-consumer",
-      "tokens": "4db9c354c9354677c1f15c54a36c81c7d44ea40f39cd03132b8d93ef633e320e",
+      "tokens": "205ca83d36685936166ab802e1cd531e3f1c8d491acfcf659b502aafb6f04094",
       "gate": [
         "exit:then:e7faca80913fcec9acba0724fbf6fa5f9a649a71055137d715dde8fc1f5fb0ae"
       ],
       "origin": [
         "adfc80928fa7e8f33d73591c8c752a6ec1006cdeb81b7b8014d0d4921ac12d7c"
       ],
-      "fingerprint": "02ce3305fd8bde13cb4c4a3a75877ee50f8f6b7f0621b57569bc365d18937b78",
+      "fingerprint": "9029b1b73222a91ab742ab78da2fd3a41c16dbaea65445ef356be10c49419c47",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Compute composer state immediately before one addressed delivery.",
       "bound": "Composer state is scalar, but the helper inherits the session/context taint previously held in the React send hook.",
-      "reason": "The web Conversation migration moves ownership and preserves existing collection-taint debt; this record makes no claim that generic context construction or delivery is bounded. POD-5872: Record facts now come from shared models and the remaining machinery is a warm service read through a per-opening view model; existing collection demand is unchanged. Predecessor: 8cb8c08cce444f4545e166ce4bbb082edbe8026c494a5d7d9a8f6e083b0e15e2. POD-6093: superagent sends carry staged attachment paths in their text instead of refusing them; collection demand is unchanged. Predecessor: 54ee6cc52ad003b794c32c0a781ced6c08f06ea5f2be7bfa30da9a392ef2c585. POD-2109: composer placeholders are rewritten as sentences without em dashes; collection demand is unchanged. Predecessor: 4081e5af4b05943809b6caf1efc125e48f41d1046d331a9e21df08c0dc472c0e.",
+      "reason": "The web Conversation migration moves ownership and preserves existing collection-taint debt; this record makes no claim that generic context construction or delivery is bounded. POD-5872: Record facts now come from shared models and the remaining machinery is a warm service read through a per-opening view model; existing collection demand is unchanged. Predecessor: 8cb8c08cce444f4545e166ce4bbb082edbe8026c494a5d7d9a8f6e083b0e15e2. POD-6093: superagent sends carry staged attachment paths in their text instead of refusing them; collection demand is unchanged. Predecessor: 54ee6cc52ad003b794c32c0a781ced6c08f06ea5f2be7bfa30da9a392ef2c585. POD-2109: composer placeholders are rewritten as sentences without em dashes; collection demand is unchanged. Predecessor: 4081e5af4b05943809b6caf1efc125e48f41d1046d331a9e21df08c0dc472c0e. POD-2151 changed only scalar helpers on this path (landing copy, composer placeholder); no collection read was added. Predecessor: 02ce3305fd8bde13cb4c4a3a75877ee50f8f6b7f0621b57569bc365d18937b78.",
       "guard": "Exact fingerprint and multiplicity remain enforced. conversation-renders.test.tsx and conversation-sends.optimistic.test.ts cover migrated observation and delivery behavior, not a new collection bound."
     },
     {
@@ -9967,21 +9967,21 @@
       "file": "apps/web/src/features/worklist/pool-sidebar.tsx",
       "holder": "PoolMotionRow/PoolMotionRow/useLayoutEffect:callback",
       "rule": "reader-summary",
-      "tokens": "ab315f6caadc6a6f4081d3fcb943aa0f700e4a40a6e802a648eb039ccc30d225",
+      "tokens": "72030b3aa16dacaeb6fbcb059870c0936674dc05e36a5fc82e644008550c2a1b",
       "gate": [
         "then:d78c51a60f0bcfc5e87ead3cdf92db8c322b4bde327b7f2f536d35afb6b6d57c"
       ],
       "origin": [
         "5fb011b6d63de924d14891107da00c6a551ffac1d10bda80c70dedbf6de2783c"
       ],
-      "fingerprint": "b855cad0d3dd97c968401976f361e5a53a408d027c47637e331e488ec3ef0e0b",
+      "fingerprint": "a763e347037cd93cab293980b09eca6e8305d26b5448850c61c003b0464b3b53",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Layout effect after a committed worklist issue row render.",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
-      "reason": "The motion row now selects the direct canonical IssueModel/WorklistIssue fields. It carries the former row reader origin; no broader collection repair is claimed. Predecessor: 77ee4d9cb3b1fce931a729ae412b8594f4c2f5c51abe59a555e04f1047008877. The same frozen departure capture now runs after commit; its collection cardinality is unchanged and remains repair debt. Previous capture fingerprint: b06929b8edf370ac4188132847ad3e4b6cc4349924b49e61da868bc6d5a00937. POD-2102 removes task color controls and tint props; the retained operation keeps its trigger and classification, with collection demand unchanged or reduced."
+      "reason": "The motion row now selects the direct canonical IssueModel/WorklistIssue fields. It carries the former row reader origin; no broader collection repair is claimed. Predecessor: 77ee4d9cb3b1fce931a729ae412b8594f4c2f5c51abe59a555e04f1047008877. The same frozen departure capture now runs after commit; its collection cardinality is unchanged and remains repair debt. Previous capture fingerprint: b06929b8edf370ac4188132847ad3e4b6cc4349924b49e61da868bc6d5a00937. POD-2102 removes task color controls and tint props; the retained operation keeps its trigger and classification, with collection demand unchanged or reduced. POD-2151 changed only scalar helpers on this path (landing copy, composer placeholder); no collection read was added. Predecessor: b855cad0d3dd97c968401976f361e5a53a408d027c47637e331e488ec3ef0e0b."
     },
     {
       "file": "apps/web/src/features/worklist/pool-sidebar.tsx",

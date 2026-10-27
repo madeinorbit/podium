@@ -41,6 +41,7 @@ const EMPTY_DEPENDENTS: readonly { id: string; type: string }[] = Object.freeze(
 const ISSUE_PAINT_FIELDS: ReadonlySet<string> = new Set([
   'title', 'audience', 'pinned', 'linearIdentifier', 'seq', 'acceptance',
   'stage', 'closedReason', 'blocked', 'branch', 'gitState', 'parentBranch',
+  'landedAt', 'landedSha',
 ])
 
 /** What a model reads from its pool. */

@@ -65,4 +65,25 @@ describe('rowVoice (POD-2074 status map)', () => {
       sub: null,
     })
   })
+
+  it('names a merge-action landing instead of Done or Ready to merge (POD-2151)', () => {
+    const landed = {
+      stage: 'done',
+      closedReason: 'done',
+      parentBranch: 'tf.dev',
+      landedAt: '2026-10-26T19:59:00Z',
+      landedSha: 'fcd1385aa9e0',
+    } as unknown as RowVoiceInput['issue']
+    expect(rowVoice({ ...base, issue: landed })).toEqual({
+      tone: 'done',
+      word: 'Landed',
+      sub: '· tf.dev · fcd1385',
+    })
+    // A cancelled close keeps its own word even with a stale stamp.
+    const cancelled = { ...landed, closedReason: 'cancelled' } as unknown as RowVoiceInput['issue']
+    expect(rowVoice({ ...base, issue: cancelled })).toMatchObject({
+      tone: 'closed',
+      word: 'Cancelled',
+    })
+  })
 })

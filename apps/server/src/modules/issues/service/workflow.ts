@@ -841,6 +841,19 @@ export class IssueGitWorkflowModule {
       row.landedAt = new Date().toISOString()
       if (tip.ok && tip.output.trim() !== '') row.landedSha = tip.output.trim()
       await this.store.persistRow(row)
+      // The merge axis is a fact we just produced [POD-2151], not one to infer:
+      // write it before close() frees the worktree, so the close broadcast
+      // carries it and no later probe is needed to clear "ready to merge".
+      const cached = this.store.gitStates.get(id)
+      this.store.gitStates.set(id, {
+        branch: row.branch,
+        dirtyFiles: 0,
+        ...cached,
+        updatedAt: this.store.now(),
+        shared: false,
+        merged: true,
+        ahead: 0,
+      })
       const issue = await this.crud().close(id, 'done')
       // This branch just landed [POD-384]: settle its merge axis now, so the
       // operator who pressed merge sees the "ready to merge" chip go rather than
@@ -2090,6 +2103,13 @@ export class IssueGitWorkflowModule {
   private async probeGitStateOnce(id: string, fallbackCwd?: string): Promise<boolean> {
     const row = this.store.rows.get(id)
     if (!row || row.deletedAt) return false
+    // Landed and freed [POD-2151]: the merge action wrote the settled state
+    // before it freed the worktree. A session's fallback cwd is that deleted
+    // worktree, and probing it as a shared checkout would overwrite the
+    // verdict, so keep whatever is cached and probe nothing.
+    if (row.worktreePath === null && row.landedAt) return false
+    // A landing during this probe makes its answer pre-merge [POD-2151].
+    const landedAt = row.landedAt ?? null
     const shared = row.worktreePath === null
     const cwd = row.worktreePath ?? fallbackCwd
     if (!cwd) return false
@@ -2123,6 +2143,8 @@ export class IssueGitWorkflowModule {
         },
         this.store.now(),
       )
+      // Discard it rather than overwrite the state the merge action settled.
+      if ((this.store.rows.get(id)?.landedAt ?? null) !== landedAt) return false
       this.store.gitStates.set(id, state)
       return true
     } catch {

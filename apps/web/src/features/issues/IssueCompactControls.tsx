@@ -198,7 +198,12 @@ export const IssueGitScope = observer(function IssueGitScope({
   const git = issue.gitState
   if (!git) return null
   const attributedDirty = git.dirtyOwn ?? (!git.shared && !git.fallback ? git.dirtyFiles : 0)
-  const delivery = git.shared ? (git.commits?.length ?? 0) : (git.ahead ?? 0)
+  // A merged branch delivered everything, whatever `ahead` last counted (POD-2151).
+  const delivery = git.shared
+    ? (git.commits?.length ?? 0)
+    : git.merged === true
+      ? 0
+      : (git.ahead ?? 0)
   return (
     // Mono facts, whole row: a branch name and a file count are both machine
     // voice, and setting only half the row in mono made the two disagree.

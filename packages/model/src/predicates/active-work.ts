@@ -23,7 +23,7 @@
  * (`packages/client-graph/src/shared/schema.ts`).
  */
 
-import { canonicalIssueCloseReason } from '../entities/issue-status'
+import { canonicalIssueCloseReason, type IssueStatusFields, issueStatusOf } from '../entities/issue-status'
 import { isClosed, isExcluded, isFinished } from './issue-lifecycle'
 
 /** A row as the rule reads it: its declared fields, by name. */
@@ -372,6 +372,35 @@ export function unmergedDeliveryOf(row: MergeVerdictRow): boolean {
     typeof git.ahead === 'number' &&
     git.ahead > 0
   )
+}
+
+/** Where and what the merge action landed, for a done row it stamped. */
+export interface IssueLanding {
+  at: string
+  branch: string | null
+  /** The landed tip, abbreviated to seven characters; null when unread. */
+  sha: string | null
+}
+
+/**
+ * The landing a done row records, or null (POD-2151). Only `done`, and only
+ * while nothing awaits merge: the stamp outlives a reopen, so unlanded work
+ * outranks it.
+ */
+export function issueLanding(
+  row: IssueStatusFields &
+    MergeVerdictRow & {
+      readonly landedAt?: string | null
+      readonly landedSha?: string | null
+      readonly parentBranch?: string | null
+    },
+): IssueLanding | null {
+  if (!row.landedAt || issueStatusOf(row) !== 'done' || unmergedDeliveryOf(row)) return null
+  return {
+    at: row.landedAt,
+    branch: row.parentBranch || null,
+    sha: row.landedSha ? row.landedSha.slice(0, 7) : null,
+  }
 }
 
 /**

@@ -73,12 +73,14 @@ import {
   ExitedPane,
   HibernatedBanner,
   HibernatedPane,
+  IssueOutcomeBanner,
   MachineOfflineBanner,
 } from './SessionLifecyclePanes'
 import { SessionWatchers } from './SessionWatchers'
 import { sessionAgeMs, startupOverlay } from './startup-overlay'
 import { usePanelSurface } from './use-panel-surface'
 import {
+  usePaneIssueOutcome,
   usePaneMachines,
   usePaneReferenceStages,
   usePaneSelectedIssueId,
@@ -222,6 +224,8 @@ export function AgentPanel({
     navigateToSession,
   } = useRuntimeActions(PANEL_ACTIONS)
   const session = usePaneSession(sessionId)
+  // A session its issue's closing stopped ends with that outcome (POD-2151).
+  const outcome = usePaneIssueOutcome(sessionId)
   const machines = usePaneMachines()
   const selectedIssueId = usePaneSelectedIssueId()
   const [loginTerminalBusy, setLoginTerminalBusy] = useState(false)
@@ -1177,17 +1181,28 @@ export function AgentPanel({
           // still worth reading. Show it (read-only; the composer disables itself
           // when the session isn't live) with a banner to wake it back up.
           <>
-            <HibernatedBanner
-              sessionId={sessionId}
-              waking={sessionWaking(session)}
-              queuedCount={session?.queuedMessageCount ?? 0}
-            />
+            {outcome ? (
+              <IssueOutcomeBanner
+                sessionId={sessionId}
+                outcome={outcome}
+                resume="parked"
+                waking={sessionWaking(session)}
+                queuedCount={session?.queuedMessageCount ?? 0}
+              />
+            ) : (
+              <HibernatedBanner
+                sessionId={sessionId}
+                waking={sessionWaking(session)}
+                queuedCount={session?.queuedMessageCount ?? 0}
+              />
+            )}
             <ChatView
               sessionId={sessionId}
               active={active}
               initialPendingText={optimisticFirstPrompt}
               onInitialPendingSettled={settleOptimisticFirstPrompt}
               deferInitialTranscript={!spawnConfirmed}
+              outcome={outcome}
             />
           </>
         ) : (
@@ -1199,21 +1214,31 @@ export function AgentPanel({
           // readable (and resumable via the composer) with a banner, instead of
           // replacing it with a dead-end pane. Shells (no transcript) still get it.
           <>
-            <ExitedBanner
-              sessionId={sessionId}
-              exitCode={session.exitCode}
-              spawnFailure={session.spawnFailure}
-              isShell={session.agentKind === 'shell'}
-              resumable={session.resumable === true}
-              {...(session.neverBound ? { neverBound: true as const } : {})}
-              waking={sessionWaking(session)}
-            />
+            {outcome ? (
+              <IssueOutcomeBanner
+                sessionId={sessionId}
+                outcome={outcome}
+                resume={session.resumable === true ? 'ended' : null}
+                waking={sessionWaking(session)}
+              />
+            ) : (
+              <ExitedBanner
+                sessionId={sessionId}
+                exitCode={session.exitCode}
+                spawnFailure={session.spawnFailure}
+                isShell={session.agentKind === 'shell'}
+                resumable={session.resumable === true}
+                {...(session.neverBound ? { neverBound: true as const } : {})}
+                waking={sessionWaking(session)}
+              />
+            )}
             <ChatView
               sessionId={sessionId}
               active={active}
               initialPendingText={optimisticFirstPrompt}
               onInitialPendingSettled={settleOptimisticFirstPrompt}
               deferInitialTranscript={!spawnConfirmed}
+              outcome={outcome}
             />
           </>
         ) : (

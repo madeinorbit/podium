@@ -41,6 +41,9 @@ export interface SliceIssue {
   /** Stored IssueProjection.type, used by shell mission complexity. */
   type?: IssueType
   closedReason?: string | null
+  /** Set by the merge action: the issue landed on `parentBranch`. */
+  landedAt?: string | null
+  landedSha?: string | null
   audience?: 'human' | 'agent'
   isDraftVessel?: boolean
   /** Pinned issues move out of their group into the PINNED section (spec §3 R-GROUP). */

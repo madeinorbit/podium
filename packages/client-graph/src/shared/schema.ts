@@ -520,6 +520,8 @@ const DECLARED = defineSchema({
       archived: { type: 'boolean', optional: true, source: projection() },
       stage: { type: 'string', source: projection(), note: 'Vocabulary in model/src/predicates/issue-stage.ts; the value set is a view rule (L1b), not a schema rule.' },
       closedReason: { type: 'string', optional: true, nullable: true, source: projection() },
+      landedAt: { type: 'isoDate', optional: true, nullable: true, source: projection(), note: 'Set by the merge action; the row reads Landed while nothing awaits merge (`issueLanding`).' },
+      landedSha: { type: 'string', optional: true, nullable: true, source: projection() },
       audience: { type: 'enum', values: ['human', 'agent'], optional: true, source: projection(), note: 'Who the issue is FOR (entities/issue.ts:289).' },
       isDraftVessel: { type: 'boolean', optional: true, source: projection('isDraftVessel') },
       pinned: { type: 'boolean', optional: true, source: { schema: 'IssueUserStateWire', arrivesOn: 'replica:issueUserStates' } },

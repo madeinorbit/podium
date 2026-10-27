@@ -38,4 +38,15 @@ describe('rankedTaskStateSlots', () => {
       }),
     ).toEqual([])
   })
+
+  it('has nothing to land on a merged branch, whatever ahead last counted (POD-2151)', () => {
+    const counted = { shared: false, ahead: 1 }
+    const merged = issue({ gitState: { ...counted, merged: true } })
+    expect(rankedTaskStateSlots(merged, { workingAgents: 0 })).toEqual([])
+    expect(taskStateWord(merged, 0)).toBeNull()
+    expect(taskStateWord(issue({ gitState: counted }), 0)).toEqual({
+      text: '↑1 to land',
+      tone: 'attention',
+    })
+  })
 })

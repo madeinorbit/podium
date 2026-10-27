@@ -1,5 +1,5 @@
-import { isFinished } from '@podium/model/browser'
 import { isAgentConfirmedComputing } from '@podium/model'
+import { isFinished } from '@podium/model/browser'
 import { withoutShells } from '../focus'
 import type { SessionView } from '../session-values'
 
@@ -8,7 +8,7 @@ export interface RankedTaskIssue {
   needsHuman: boolean
   blocked: boolean
   dependents: readonly { type: string }[]
-  gitState?: { shared?: boolean; ahead?: number }
+  gitState?: { shared?: boolean; ahead?: number; merged?: boolean }
   childCount: number
   childDoneCount: number
 }
@@ -83,6 +83,8 @@ export type TaskStateWord = {
 
 /** Commits waiting to land. Shared checkouts have no meaningful merge axis. */
 export function taskAheadCount(issue: RankedTaskIssue): number {
+  // A merged branch has nothing to land, whatever `ahead` last counted (POD-2151).
+  if (issue.gitState?.merged === true) return 0
   return issue.gitState?.shared ? 0 : (issue.gitState?.ahead ?? 0)
 }
 

@@ -34,7 +34,7 @@ import {
   issueStatusOutcome,
   machinePathBasename,
 } from '@podium/model'
-import { isClosed, isFinished } from '@podium/model/browser'
+import { isClosed, isFinished, unmergedDeliveryOf } from '@podium/model/browser'
 import type { SessionView } from '../../session-values'
 import type { IssueViewModel } from '../issue-type'
 import {
@@ -354,10 +354,8 @@ export function issueAbandoned(
  *  `merged !== true` reuses the cleanup guard's ancestry verdict.
  *  Unknown/computing git state stays conservative (not actionable). */
 function issueHasUnmergedDelivery(issue: IssueNavigationModel): boolean {
-  const git = issue.gitState
-  return (
-    Boolean(issue.branch) && git?.shared === false && git.merged !== true && (git.ahead ?? 0) > 0
-  )
+  // The model's rule, which also discounts a state observed before a landing.
+  return unmergedDeliveryOf(issue)
 }
 
 /**

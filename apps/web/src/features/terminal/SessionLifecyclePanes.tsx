@@ -15,9 +15,9 @@ import type { SessionView } from '@podium/client-core/session-values'
  */
 
 import { shallowEqual } from '@podium/client-core/shallow-equal'
-import { exitedRecovery } from '@podium/client-core/values'
+import { exitedRecovery, type SessionIssueOutcome } from '@podium/client-core/values'
 import type { SessionId} from '@podium/model/browser'
-import { Moon, RotateCcw, WifiOff } from 'lucide-react'
+import { Check, Minus, Moon, RotateCcw, WifiOff } from 'lucide-react'
 import { type JSX, useState } from 'react'
 import { useRuntimeSelector } from '@/app/store'
 import { Button } from '@/components/ui/button'
@@ -254,6 +254,68 @@ export function HibernatedBanner({
         variant="outline"
         className="shrink-0"
       />
+    </div>
+  )
+}
+
+/**
+ * The bar over a session its issue's closing stopped (POD-2151), in place of
+ * Hibernated or Exited: those read as "something stopped this", while here the
+ * work finished and the session ended with it. It still offers the resume the
+ * bar it replaces offered, because resuming is still what a message does.
+ */
+export function IssueOutcomeBanner({
+  sessionId,
+  outcome,
+  resume,
+  waking = false,
+  queuedCount = 0,
+}: {
+  sessionId: SessionId
+  outcome: SessionIssueOutcome
+  /** The bar it replaces: parked offers Resume, an exit only when resumable. */
+  resume: 'parked' | 'ended' | null
+  waking?: boolean
+  queuedCount?: number
+}): JSX.Element {
+  const Mark = outcome.kind === 'landed' ? Check : Minus
+  if (waking)
+    return <WakingBar mark={<Mark size={13} strokeWidth={1.7} />} queuedCount={queuedCount} />
+  return (
+    <div
+      className="pane-state-bar"
+      data-tone="settled"
+      data-outcome={outcome.kind}
+      data-testid="issue-outcome-bar"
+    >
+      <span className="pane-state-bar-mark" aria-hidden="true">
+        <Mark size={13} strokeWidth={1.7} />
+      </span>
+      <span className="pane-state-bar-copy">
+        {outcome.kind === 'landed' ? (
+          <>
+            <span className="pane-state-bar-word">
+              Landed{outcome.branch ? ` on ${outcome.branch}` : ''}
+            </span>{' '}
+            — the issue is closed and this session ended with it.
+          </>
+        ) : (
+          <>
+            <span className="pane-state-bar-word">Issue closed as {outcome.reason}</span> — this
+            session ended with it.
+          </>
+        )}
+      </span>
+      {resume && (
+        <LifecycleButton
+          action={recoveryAction(resume, 'resume')}
+          sessionId={sessionId}
+          compact
+          size="xs"
+          variant="outline"
+          className="shrink-0"
+        />
+      )}
     </div>
   )
 }

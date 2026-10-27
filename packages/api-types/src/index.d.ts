@@ -2952,6 +2952,8 @@ type Output_issues_action = {
         intentOrigin: "agent" | "human";
         isDraftVessel: boolean;
         labels: string[];
+        landedAt?: string | undefined;
+        landedSha?: string | undefined;
         lastLifecycleActor?: undefined | {
             actor: {
                 id: string & z.BRAND<"AgentIdentityId">;
@@ -3088,6 +3090,8 @@ type Output_issues_action = {
         intentOrigin: "agent" | "human";
         isDraftVessel: boolean;
         labels: string[];
+        landedAt?: string | undefined;
+        landedSha?: string | undefined;
         lastLifecycleActor?: undefined | {
             actor: {
                 id: string & z.BRAND<"AgentIdentityId">;
@@ -3154,7 +3158,7 @@ type Output_issues_action = {
         updatedAt: string;
         visibility: "deployment-substrate" | "owned-compute" | "per-user-state" | "personal" | "secret";
         worktreePath?: string | undefined;
-    }, ("acceptance" | "activityNotes" | "agentProfileId" | "asked" | "assignee" | "branch" | "brief" | "closedAt" | "closedReason" | "coordinatorSessionId" | "deferUntil" | "deletedAt" | "dependencyNote" | "dueAt" | "duplicateOf" | "estimateMin" | "lastLifecycleActor" | "linearId" | "linearIdentifier" | "linearUrl" | "machineId" | "notesUpdatedAt" | "panel" | "parentId" | "prUrl" | "repoId" | "revision" | "sortKey" | "startedBySession" | "suggestedReason" | "suggestedStage" | "supersededBy" | "worktreePath") | ("archived" | "audience" | "blockedByNotes" | "createdAt" | "createdBy" | "defaultAgent" | "defaultEffort" | "defaultModel" | "description" | "id" | "intentOrigin" | "isDraftVessel" | "labels" | "needsHuman" | "owner" | "parentBranch" | "priority" | "seq" | "stage" | "title" | "type" | "updatedAt" | "visibility")> & {
+    }, ("acceptance" | "activityNotes" | "agentProfileId" | "asked" | "assignee" | "branch" | "brief" | "closedAt" | "closedReason" | "coordinatorSessionId" | "deferUntil" | "deletedAt" | "dependencyNote" | "dueAt" | "duplicateOf" | "estimateMin" | "landedAt" | "landedSha" | "lastLifecycleActor" | "linearId" | "linearIdentifier" | "linearUrl" | "machineId" | "notesUpdatedAt" | "panel" | "parentId" | "prUrl" | "repoId" | "revision" | "sortKey" | "startedBySession" | "suggestedReason" | "suggestedStage" | "supersededBy" | "worktreePath") | ("archived" | "audience" | "blockedByNotes" | "createdAt" | "createdBy" | "defaultAgent" | "defaultEffort" | "defaultModel" | "description" | "id" | "intentOrigin" | "isDraftVessel" | "labels" | "needsHuman" | "owner" | "parentBranch" | "priority" | "seq" | "stage" | "title" | "type" | "updatedAt" | "visibility")> & {
         blocked: boolean;
         branch: null | string;
         childCount: number;
@@ -3250,6 +3254,8 @@ type Output_issues_addComment = _podium_model.IssueUserOverlay & Omit<{
     intentOrigin: "agent" | "human";
     isDraftVessel: boolean;
     labels: string[];
+    landedAt?: string | undefined;
+    landedSha?: string | undefined;
     lastLifecycleActor?: undefined | {
         actor: {
             id: string & z.BRAND<"AgentIdentityId">;
@@ -3386,6 +3392,8 @@ type Output_issues_addComment = _podium_model.IssueUserOverlay & Omit<{
     intentOrigin: "agent" | "human";
     isDraftVessel: boolean;
     labels: string[];
+    landedAt?: string | undefined;
+    landedSha?: string | undefined;
     lastLifecycleActor?: undefined | {
         actor: {
             id: string & z.BRAND<"AgentIdentityId">;
@@ -3452,7 +3460,7 @@ type Output_issues_addComment = _podium_model.IssueUserOverlay & Omit<{
     updatedAt: string;
     visibility: "deployment-substrate" | "owned-compute" | "per-user-state" | "personal" | "secret";
     worktreePath?: string | undefined;
-}, ("acceptance" | "activityNotes" | "agentProfileId" | "asked" | "assignee" | "branch" | "brief" | "closedAt" | "closedReason" | "coordinatorSessionId" | "deferUntil" | "deletedAt" | "dependencyNote" | "dueAt" | "duplicateOf" | "estimateMin" | "lastLifecycleActor" | "linearId" | "linearIdentifier" | "linearUrl" | "machineId" | "notesUpdatedAt" | "panel" | "parentId" | "prUrl" | "repoId" | "revision" | "sortKey" | "startedBySession" | "suggestedReason" | "suggestedStage" | "supersededBy" | "worktreePath") | ("archived" | "audience" | "blockedByNotes" | "createdAt" | "createdBy" | "defaultAgent" | "defaultEffort" | "defaultModel" | "description" | "id" | "intentOrigin" | "isDraftVessel" | "labels" | "needsHuman" | "owner" | "parentBranch" | "priority" | "seq" | "stage" | "title" | "type" | "updatedAt" | "visibility")> & {
+}, ("acceptance" | "activityNotes" | "agentProfileId" | "asked" | "assignee" | "branch" | "brief" | "closedAt" | "closedReason" | "coordinatorSessionId" | "deferUntil" | "deletedAt" | "dependencyNote" | "dueAt" | "duplicateOf" | "estimateMin" | "landedAt" | "landedSha" | "lastLifecycleActor" | "linearId" | "linearIdentifier" | "linearUrl" | "machineId" | "notesUpdatedAt" | "panel" | "parentId" | "prUrl" | "repoId" | "revision" | "sortKey" | "startedBySession" | "suggestedReason" | "suggestedStage" | "supersededBy" | "worktreePath") | ("archived" | "audience" | "blockedByNotes" | "createdAt" | "createdBy" | "defaultAgent" | "defaultEffort" | "defaultModel" | "description" | "id" | "intentOrigin" | "isDraftVessel" | "labels" | "needsHuman" | "owner" | "parentBranch" | "priority" | "seq" | "stage" | "title" | "type" | "updatedAt" | "visibility")> & {
     blocked: boolean;
     branch: null | string;
     childCount: number;
@@ -3547,6 +3555,8 @@ type Output_issues_answerQuestion = {
         intentOrigin: "agent" | "human";
         isDraftVessel: boolean;
         labels: string[];
+        landedAt?: string | undefined;
+        landedSha?: string | undefined;
         lastLifecycleActor?: undefined | {
             actor: {
                 id: string & z.BRAND<"AgentIdentityId">;
@@ -3683,6 +3693,8 @@ type Output_issues_answerQuestion = {
         intentOrigin: "agent" | "human";
         isDraftVessel: boolean;
         labels: string[];
+        landedAt?: string | undefined;
+        landedSha?: string | undefined;
         lastLifecycleActor?: undefined | {
             actor: {
                 id: string & z.BRAND<"AgentIdentityId">;
@@ -3749,7 +3761,7 @@ type Output_issues_answerQuestion = {
         updatedAt: string;
         visibility: "deployment-substrate" | "owned-compute" | "per-user-state" | "personal" | "secret";
         worktreePath?: string | undefined;
-    }, ("acceptance" | "activityNotes" | "agentProfileId" | "asked" | "assignee" | "branch" | "brief" | "closedAt" | "closedReason" | "coordinatorSessionId" | "deferUntil" | "deletedAt" | "dependencyNote" | "dueAt" | "duplicateOf" | "estimateMin" | "lastLifecycleActor" | "linearId" | "linearIdentifier" | "linearUrl" | "machineId" | "notesUpdatedAt" | "panel" | "parentId" | "prUrl" | "repoId" | "revision" | "sortKey" | "startedBySession" | "suggestedReason" | "suggestedStage" | "supersededBy" | "worktreePath") | ("archived" | "audience" | "blockedByNotes" | "createdAt" | "createdBy" | "defaultAgent" | "defaultEffort" | "defaultModel" | "description" | "id" | "intentOrigin" | "isDraftVessel" | "labels" | "needsHuman" | "owner" | "parentBranch" | "priority" | "seq" | "stage" | "title" | "type" | "updatedAt" | "visibility")> & {
+    }, ("acceptance" | "activityNotes" | "agentProfileId" | "asked" | "assignee" | "branch" | "brief" | "closedAt" | "closedReason" | "coordinatorSessionId" | "deferUntil" | "deletedAt" | "dependencyNote" | "dueAt" | "duplicateOf" | "estimateMin" | "landedAt" | "landedSha" | "lastLifecycleActor" | "linearId" | "linearIdentifier" | "linearUrl" | "machineId" | "notesUpdatedAt" | "panel" | "parentId" | "prUrl" | "repoId" | "revision" | "sortKey" | "startedBySession" | "suggestedReason" | "suggestedStage" | "supersededBy" | "worktreePath") | ("archived" | "audience" | "blockedByNotes" | "createdAt" | "createdBy" | "defaultAgent" | "defaultEffort" | "defaultModel" | "description" | "id" | "intentOrigin" | "isDraftVessel" | "labels" | "needsHuman" | "owner" | "parentBranch" | "priority" | "seq" | "stage" | "title" | "type" | "updatedAt" | "visibility")> & {
         blocked: boolean;
         branch: null | string;
         childCount: number;
@@ -3904,6 +3916,8 @@ type Output_issues_create = (_podium_model.IssueUserOverlay & Omit<{
     intentOrigin: "agent" | "human";
     isDraftVessel: boolean;
     labels: string[];
+    landedAt?: string | undefined;
+    landedSha?: string | undefined;
     lastLifecycleActor?: undefined | {
         actor: {
             id: string & z.BRAND<"AgentIdentityId">;
@@ -3971,7 +3985,7 @@ type Output_issues_create = (_podium_model.IssueUserOverlay & Omit<{
     visibility: "deployment-substrate" | "owned-compute" | "per-user-state" | "personal" | "secret";
     warning: string;
     worktreePath?: string | undefined;
-}, ("acceptance" | "activityNotes" | "agentProfileId" | "asked" | "assignee" | "branch" | "brief" | "closedAt" | "closedReason" | "coordinatorSessionId" | "deferUntil" | "deletedAt" | "dependencyNote" | "dueAt" | "duplicateOf" | "estimateMin" | "lastLifecycleActor" | "linearId" | "linearIdentifier" | "linearUrl" | "machineId" | "notesUpdatedAt" | "panel" | "parentId" | "prUrl" | "repoId" | "revision" | "sortKey" | "startedBySession" | "suggestedReason" | "suggestedStage" | "supersededBy" | "worktreePath") | ("archived" | "audience" | "blockedByNotes" | "createdAt" | "createdBy" | "defaultAgent" | "defaultEffort" | "defaultModel" | "description" | "id" | "intentOrigin" | "isDraftVessel" | "labels" | "needsHuman" | "owner" | "parentBranch" | "priority" | "seq" | "stage" | "title" | "type" | "updatedAt" | "visibility")> & Omit<{
+}, ("acceptance" | "activityNotes" | "agentProfileId" | "asked" | "assignee" | "branch" | "brief" | "closedAt" | "closedReason" | "coordinatorSessionId" | "deferUntil" | "deletedAt" | "dependencyNote" | "dueAt" | "duplicateOf" | "estimateMin" | "landedAt" | "landedSha" | "lastLifecycleActor" | "linearId" | "linearIdentifier" | "linearUrl" | "machineId" | "notesUpdatedAt" | "panel" | "parentId" | "prUrl" | "repoId" | "revision" | "sortKey" | "startedBySession" | "suggestedReason" | "suggestedStage" | "supersededBy" | "worktreePath") | ("archived" | "audience" | "blockedByNotes" | "createdAt" | "createdBy" | "defaultAgent" | "defaultEffort" | "defaultModel" | "description" | "id" | "intentOrigin" | "isDraftVessel" | "labels" | "needsHuman" | "owner" | "parentBranch" | "priority" | "seq" | "stage" | "title" | "type" | "updatedAt" | "visibility")> & Omit<{
     acceptance?: string | undefined;
     activityNotes?: string | undefined;
     agentProfileId?: string | undefined;
@@ -4041,6 +4055,8 @@ type Output_issues_create = (_podium_model.IssueUserOverlay & Omit<{
     intentOrigin: "agent" | "human";
     isDraftVessel: boolean;
     labels: string[];
+    landedAt?: string | undefined;
+    landedSha?: string | undefined;
     lastLifecycleActor?: undefined | {
         actor: {
             id: string & z.BRAND<"AgentIdentityId">;
@@ -4200,6 +4216,8 @@ type Output_issues_create = (_podium_model.IssueUserOverlay & Omit<{
     intentOrigin: "agent" | "human";
     isDraftVessel: boolean;
     labels: string[];
+    landedAt?: string | undefined;
+    landedSha?: string | undefined;
     lastLifecycleActor?: undefined | {
         actor: {
             id: string & z.BRAND<"AgentIdentityId">;
@@ -4266,7 +4284,7 @@ type Output_issues_create = (_podium_model.IssueUserOverlay & Omit<{
     updatedAt: string;
     visibility: "deployment-substrate" | "owned-compute" | "per-user-state" | "personal" | "secret";
     worktreePath?: string | undefined;
-}, ("acceptance" | "activityNotes" | "agentProfileId" | "asked" | "assignee" | "branch" | "brief" | "closedAt" | "closedReason" | "coordinatorSessionId" | "deferUntil" | "deletedAt" | "dependencyNote" | "dueAt" | "duplicateOf" | "estimateMin" | "lastLifecycleActor" | "linearId" | "linearIdentifier" | "linearUrl" | "machineId" | "notesUpdatedAt" | "panel" | "parentId" | "prUrl" | "repoId" | "revision" | "sortKey" | "startedBySession" | "suggestedReason" | "suggestedStage" | "supersededBy" | "worktreePath") | ("archived" | "audience" | "blockedByNotes" | "createdAt" | "createdBy" | "defaultAgent" | "defaultEffort" | "defaultModel" | "description" | "id" | "intentOrigin" | "isDraftVessel" | "labels" | "needsHuman" | "owner" | "parentBranch" | "priority" | "seq" | "stage" | "title" | "type" | "updatedAt" | "visibility")> & Omit<{
+}, ("acceptance" | "activityNotes" | "agentProfileId" | "asked" | "assignee" | "branch" | "brief" | "closedAt" | "closedReason" | "coordinatorSessionId" | "deferUntil" | "deletedAt" | "dependencyNote" | "dueAt" | "duplicateOf" | "estimateMin" | "landedAt" | "landedSha" | "lastLifecycleActor" | "linearId" | "linearIdentifier" | "linearUrl" | "machineId" | "notesUpdatedAt" | "panel" | "parentId" | "prUrl" | "repoId" | "revision" | "sortKey" | "startedBySession" | "suggestedReason" | "suggestedStage" | "supersededBy" | "worktreePath") | ("archived" | "audience" | "blockedByNotes" | "createdAt" | "createdBy" | "defaultAgent" | "defaultEffort" | "defaultModel" | "description" | "id" | "intentOrigin" | "isDraftVessel" | "labels" | "needsHuman" | "owner" | "parentBranch" | "priority" | "seq" | "stage" | "title" | "type" | "updatedAt" | "visibility")> & Omit<{
     acceptance?: string | undefined;
     activityNotes?: string | undefined;
     agentProfileId?: string | undefined;
@@ -4336,6 +4354,8 @@ type Output_issues_create = (_podium_model.IssueUserOverlay & Omit<{
     intentOrigin: "agent" | "human";
     isDraftVessel: boolean;
     labels: string[];
+    landedAt?: string | undefined;
+    landedSha?: string | undefined;
     lastLifecycleActor?: undefined | {
         actor: {
             id: string & z.BRAND<"AgentIdentityId">;
@@ -4465,6 +4485,8 @@ type Output_issues_get = (null) | ({
     humanQuestionOptions?: string[];
     id: string & z.BRAND<"IssueId">;
     labels: string[];
+    landedAt?: string | undefined;
+    landedSha?: string | undefined;
     linearId?: string | undefined;
     linearIdentifier?: string | undefined;
     linearUrl?: string | undefined;
@@ -4908,6 +4930,8 @@ type Output_issues_searchNormalized = Array<{
     intentOrigin: "agent" | "human";
     isDraftVessel: boolean;
     labels: string[];
+    landedAt?: string | undefined;
+    landedSha?: string | undefined;
     lastLifecycleActor?: undefined | {
         actor: {
             id: string & z.BRAND<"AgentIdentityId">;
@@ -5163,6 +5187,8 @@ type Output_issues_start = _podium_model.IssueUserOverlay & Omit<Partial<{
     intentOrigin: "agent" | "human";
     isDraftVessel: boolean;
     labels: string[];
+    landedAt?: string | undefined;
+    landedSha?: string | undefined;
     lastLifecycleActor?: undefined | {
         actor: {
             id: string & z.BRAND<"AgentIdentityId">;
@@ -5229,7 +5255,7 @@ type Output_issues_start = _podium_model.IssueUserOverlay & Omit<Partial<{
     updatedAt: string;
     visibility: "deployment-substrate" | "owned-compute" | "per-user-state" | "personal" | "secret";
     worktreePath?: string | undefined;
-}, ("acceptance" | "activityNotes" | "agentProfileId" | "asked" | "assignee" | "branch" | "brief" | "closedAt" | "closedReason" | "coordinatorSessionId" | "deferUntil" | "deletedAt" | "dependencyNote" | "dueAt" | "duplicateOf" | "estimateMin" | "lastLifecycleActor" | "linearId" | "linearIdentifier" | "linearUrl" | "machineId" | "notesUpdatedAt" | "panel" | "parentId" | "prUrl" | "repoId" | "revision" | "sortKey" | "startedBySession" | "suggestedReason" | "suggestedStage" | "supersededBy" | "worktreePath") | ("archived" | "audience" | "blockedByNotes" | "createdAt" | "createdBy" | "defaultAgent" | "defaultEffort" | "defaultModel" | "description" | "id" | "intentOrigin" | "isDraftVessel" | "labels" | "needsHuman" | "owner" | "parentBranch" | "priority" | "seq" | "stage" | "title" | "type" | "updatedAt" | "visibility")> & Omit<{
+}, ("acceptance" | "activityNotes" | "agentProfileId" | "asked" | "assignee" | "branch" | "brief" | "closedAt" | "closedReason" | "coordinatorSessionId" | "deferUntil" | "deletedAt" | "dependencyNote" | "dueAt" | "duplicateOf" | "estimateMin" | "landedAt" | "landedSha" | "lastLifecycleActor" | "linearId" | "linearIdentifier" | "linearUrl" | "machineId" | "notesUpdatedAt" | "panel" | "parentId" | "prUrl" | "repoId" | "revision" | "sortKey" | "startedBySession" | "suggestedReason" | "suggestedStage" | "supersededBy" | "worktreePath") | ("archived" | "audience" | "blockedByNotes" | "createdAt" | "createdBy" | "defaultAgent" | "defaultEffort" | "defaultModel" | "description" | "id" | "intentOrigin" | "isDraftVessel" | "labels" | "needsHuman" | "owner" | "parentBranch" | "priority" | "seq" | "stage" | "title" | "type" | "updatedAt" | "visibility")> & Omit<{
     acceptance?: string | undefined;
     activityNotes?: string | undefined;
     agentProfileId?: string | undefined;
@@ -5299,6 +5325,8 @@ type Output_issues_start = _podium_model.IssueUserOverlay & Omit<Partial<{
     intentOrigin: "agent" | "human";
     isDraftVessel: boolean;
     labels: string[];
+    landedAt?: string | undefined;
+    landedSha?: string | undefined;
     lastLifecycleActor?: undefined | {
         actor: {
             id: string & z.BRAND<"AgentIdentityId">;

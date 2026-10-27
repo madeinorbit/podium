@@ -16,7 +16,7 @@ import type { WorklistWorktree } from '@podium/client-graph/worklist/worktree'
 export type MobileWorkSection = Omit<WorkSection, 'data'> & { readonly data: readonly MobileWorkRef[] }
 
 import type { MobileRowValues } from '@podium/client-graph/worklist/mobile-row'
-import { type IssueGitState, issueStatusLabel } from '@podium/model'
+import { type IssueGitState, issueLanding, issueStatusLabel } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 
 /** Fold keys keep the existing replicated sidebar namespace. */
@@ -30,7 +30,10 @@ export function mobileRowPaint(value: MobileRowValues, now: number) {
   const issue = sidebar?.issue
   const git = deriveGitStamp(value.branch, value.gitState as IssueGitState | undefined)
   const ahead = value.suppressAhead ? undefined : git.ahead
+  // A landed row already says where it went (POD-2151); a git stamp cached
+  // before the landing would contradict it.
   const gitShown =
+    !(issue && landedStatus(issue)) &&
     git.kind === 'ready' &&
     (git.mismatch || git.merged || git.dirty !== undefined || ahead !== undefined)
   return {
@@ -109,9 +112,17 @@ function mobileRowStatus(value: MobileRowValues, now: number): string {
   if (value.decision === 'review') return 'needs review'
   if (sidebar.continuation) return `${sidebar.continuation.kind} · ${sidebar.continuation.ref}`
   if (sidebar.issue.blocked) return 'blocked'
+  const landed = landedStatus(sidebar.issue)
+  if (landed) return landed
   return issueStatusLabel(
     sidebar.issue as unknown as Parameters<typeof issueStatusLabel>[0],
   ).toLowerCase()
+}
+
+/** The web row's `Landed · <branch> · <sha>` in the phone's lower-case grammar (POD-2151). */
+function landedStatus(issue: object): string | null {
+  const landing = issueLanding(issue as unknown as Parameters<typeof issueLanding>[0])
+  return landing ? ['landed', landing.branch, landing.sha].filter(Boolean).join(' · ') : null
 }
 
 export function mobileRowStamp(timing: MobileRowValues['timing'], now: number): string | null {
@@ -362,6 +373,8 @@ export function worklistRowStatus(value: WorklistIssue | WorklistWorktree, now: 
   if (sidebar.decision === 'review') return 'needs review'
   if (sidebar.continuation) return `${sidebar.continuation.kind} · ${sidebar.continuation.ref}`
   if (sidebar.issue.blocked) return 'blocked'
+  const landed = landedStatus(sidebar.issue)
+  if (landed) return landed
   return issueStatusLabel(
     sidebar.issue as unknown as Parameters<typeof issueStatusLabel>[0],
   ).toLowerCase()

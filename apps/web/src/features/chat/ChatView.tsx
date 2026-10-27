@@ -1,5 +1,5 @@
 import { isSwitchTraced, markSwitch } from '@podium/client-core/perf'
-import type { SuperThreadRef } from '@podium/client-core/values'
+import { issueClosedPlaceholder, type SessionIssueOutcome, type SuperThreadRef } from '@podium/client-core/values'
 import type { SessionId } from '@podium/model/browser'
 import { SWITCH_TRACE_MARKS } from '@podium/protocol'
 import { useVoiceInput } from '@podium/terminal-client-react'
@@ -53,6 +53,7 @@ const ScopedChatComposer = observer(function ScopedChatComposer({
   chat,
   quoteDraftRef,
   surfaceRef,
+  issueClosed,
 }: {
   sessionId: SessionId
   superThread: SuperThreadRef | undefined
@@ -61,6 +62,8 @@ const ScopedChatComposer = observer(function ScopedChatComposer({
   quoteDraftRef: QuoteDraftRef
   /** The whole chat surface: a selection inside it quotes into this composer. */
   surfaceRef: RefObject<HTMLDivElement | null>
+  /** Its issue's closing stopped this session (POD-2151). */
+  issueClosed: boolean
 }): JSX.Element {
   const draft = chat.view.draft
   const setDraft = chat.setDraft
@@ -120,7 +123,7 @@ const ScopedChatComposer = observer(function ScopedChatComposer({
       draft={draft}
       onDraftChange={setDraft}
       deliverable={chat.view.composer.deliverable}
-      placeholder={chat.view.composer.placeholder}
+      placeholder={issueClosed ? issueClosedPlaceholder(chat.view.composer) : chat.view.composer.placeholder}
       compact={compact}
       isMobile={chat.isMobile}
       onSend={submit}
@@ -162,6 +165,8 @@ type ChatViewProps = {
   onInitialPendingSettled?: () => void
   deferInitialTranscript?: boolean
   onLeave?: (sessionId: SessionId) => void
+  /** How the session's issue ended, closing the transcript (POD-2151). */
+  outcome?: SessionIssueOutcome | null
 }
 
 export function ChatView(props: ChatViewProps): JSX.Element {
@@ -185,6 +190,7 @@ const ConversationChatView = observer(function ConversationChatView({
   onInitialPendingSettled,
   deferInitialTranscript = false,
   onLeave,
+  outcome = null,
 }: {
   conversation: WebConversation
   sessionId: SessionId
@@ -212,6 +218,7 @@ const ConversationChatView = observer(function ConversationChatView({
    *  provide it simply renders the blank surface, which is still not a
    *  deletion affordance. */
   onLeave?: (sessionId: SessionId) => void
+  outcome?: SessionIssueOutcome | null
 }): JSX.Element {
   const chat = useChatLayout({
     conversation,
@@ -344,7 +351,7 @@ const ConversationChatView = observer(function ConversationChatView({
           />
         )}
         <Suspense fallback={null}>
-          <ConversationTranscript chat={chat} sessionId={sessionId} onQuote={quoteIntoDraft} />
+          <ConversationTranscript chat={chat} sessionId={sessionId} onQuote={quoteIntoDraft} outcome={outcome} />
         </Suspense>
         {/* The reading rail. Its map covers the RENDERED window (visibleRows), so
             its bands line up with the scrollable content. For a very long
@@ -388,13 +395,14 @@ const ConversationChatView = observer(function ConversationChatView({
         chat={chat}
         quoteDraftRef={quoteDraftRef}
         surfaceRef={surfaceRef}
+        issueClosed={outcome !== null}
       />
       <ImageLightbox src={chat.lightbox} onClose={() => chat.setLightbox(null)} />
     </div>
   )
 })
 
-const ConversationTranscript = observer(function ConversationTranscript({ chat, sessionId, onQuote }: { chat: ChatSurface; sessionId: SessionId; onQuote: (quote: QuoteInput) => void }) {
+const ConversationTranscript = observer(function ConversationTranscript({ chat, sessionId, onQuote, outcome }: { chat: ChatSurface; sessionId: SessionId; onQuote: (quote: QuoteInput) => void; outcome: SessionIssueOutcome | null }) {
   return (
           <TranscriptFeedBoundary
             chat={chat}
@@ -439,6 +447,7 @@ const ConversationTranscript = observer(function ConversationTranscript({ chat, 
             // shell owns the draft. Appended rather than replacing, so quoting
             // twice — or quoting into a half-written reply — never eats text.
             onQuote={onQuote}
+            outcome={outcome}
           />
   )
 })

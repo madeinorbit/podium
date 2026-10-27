@@ -1,4 +1,5 @@
 import type { SessionView } from '@podium/client-core/session-values'
+import type { SessionIssueOutcome } from '@podium/client-core/values'
 import type { IssueModel, MobxPool, SessionModel } from '@podium/client-graph'
 import type { SessionPaneRows } from '@podium/client-graph/session-pane-schema'
 import type { SessionPanes } from '@podium/client-graph/session-pane-view'
@@ -26,6 +27,11 @@ export function usePaneSession(id: SessionId | undefined): SessionView | undefin
   return useWorklistPoolProjection(read, undefined)
 }
 const machinesRead = (pool: MobxPool) => sessionPanes(pool).machines()
+/** How the session's issue ended, when that is what stopped it (POD-2151). */
+export function usePaneIssueOutcome(id: SessionId): SessionIssueOutcome | null {
+  const read = useCallback((pool: MobxPool) => sessionPanes(pool).loaded(id)?.issueOutcome ?? null, [id])
+  return useWorklistPoolProjection(read, null)
+}
 export function usePaneMachines(): MachineWire[] {
   return useWorklistPoolProjection(machinesRead, EMPTY_MACHINES)
 }

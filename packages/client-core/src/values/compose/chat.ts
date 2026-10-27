@@ -506,6 +506,19 @@ function asSentences(first: string, second: string): string {
   return (/[.!?]$/.test(first) ? first : first + '.') + ' ' + second
 }
 
+const RESUME_PLACEHOLDER = 'Message the agent to resume it…'
+
+/**
+ * A session its issue's closing stopped (POD-2151) still resumes on a message,
+ * in a worktree rebuilt from the branch, but nothing reopens the issue. The
+ * resume offer says so; every other placeholder is unchanged.
+ */
+export function issueClosedPlaceholder(state: ComposerState): string {
+  return state.placeholder === RESUME_PLACEHOLDER
+    ? 'Message the agent to resume it — the issue stays closed…'
+    : state.placeholder
+}
+
 export function composerState(input: {
   session: (Pick<SessionView, 'status' | 'resumable' | 'agentState' | 'queuedMessageCount'> & { readonly archived?: boolean }) | undefined
   headless: boolean
@@ -564,7 +577,7 @@ export function composerState(input: {
         : sendable
           ? 'Message the agent…'
           : canResume
-            ? 'Message the agent to resume it…'
+            ? RESUME_PLACEHOLDER
             : 'Session is not running.'
   return {
     deliverable,

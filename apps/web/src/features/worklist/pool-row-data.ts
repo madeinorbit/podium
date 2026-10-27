@@ -9,7 +9,7 @@ import { LOADING } from '@podium/client-graph'
 import type { WorklistIssue } from '@podium/client-graph/worklist/issue'
 import type { SidebarWorktree } from '@podium/client-graph/worklist/sidebar'
 import type { SidebarRowValues, SidebarTiming } from '@podium/client-graph/worklist/sidebar-row'
-import { ISSUE_STATUS_LABELS, issueStatusLabel, issueStatusOf } from '@podium/model/browser'
+import { ISSUE_STATUS_LABELS, issueLanding, issueStatusLabel, issueStatusOf } from '@podium/model/browser'
 
 /** The real row's displayed extension of ROW_DISPLAYED_FIELDS. Placement
  * keys, the raw roster and menu-only records do not repaint a flat mission. */
@@ -198,6 +198,7 @@ export function sidebarExitSnapshot(value: WorklistIssue): SidebarRowValues {
       id: issue.id, seq: issue.seq, displayRef: issue.displayRef, linearIdentifier: issue.linearIdentifier,
       title: issue.title, audience: issue.audience, branch: issue.branch,
       gitState: issue.gitState, stage: issue.stage, closedReason: issue.closedReason, closedAt: issue.closedAt,
+      landedAt: issue.landedAt, landedSha: issue.landedSha, parentBranch: issue.parentBranch,
       needsHuman: issue.needsHuman, asked: issue.asked, updatedAt: issue.updatedAt,
       tuckedAt: issue.tuckedAt, deferUntil: issue.deferUntil, worktreePath: issue.worktreePath,
       isDraftVessel: issue.isDraftVessel, pinned: issue.pinned, parentId: issue.parentId,
@@ -285,7 +286,13 @@ export function rowVoice(input: RowVoiceInput): RowVoice {
       sub,
     }
   if (input.decision === 'review') return { tone: 'needs', word: 'Needs review', sub }
-  if (status === 'done') return { tone: 'done', word: 'Done', sub: null }
+  if (status === 'done') {
+    // A merge-action landing names where it went and what (POD-2151).
+    const landing = issueLanding(issue)
+    if (!landing) return { tone: 'done', word: 'Done', sub: null }
+    const facts = [landing.branch, landing.sha].filter(Boolean)
+    return { tone: 'done', word: 'Landed', sub: facts.length > 0 ? `· ${facts.join(' · ')}` : null }
+  }
   if (status === 'cancelled' || status === 'duplicate' || status === 'superseded')
     return { tone: 'closed', word: ISSUE_STATUS_LABELS[status], sub: null }
   if (input.phase === 'waiting') return { tone: 'needs', word: 'Waiting on you', sub }

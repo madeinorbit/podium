@@ -32,11 +32,13 @@ import { ToolBatchView } from './ToolBatchView'
 import { TranscriptCold } from './TranscriptCold'
 import { TranscriptWindowRow, useTranscriptWindow } from './TranscriptWindow'
 import { TranscriptStandby } from './TranscriptStandby'
+import { IssueOutcomeCard } from './IssueOutcomeCard'
 import { TranscriptTail, trailingRunIsLive } from './TranscriptTail'
 import { transcriptComputeClient } from './transcript-compute-client'
 import { dayKey, dayLabel, rowTimestamp } from './transcript-time'
 import { rowIdentity, useFeedArrivals } from './use-feed-arrivals'
 import type { HeadlessOverlay, TurnPreview } from '@podium/client-core/conversation'
+import type { SessionIssueOutcome } from '@podium/client-core/values'
 import type { QuoteInput } from '@/lib/quote/quote-sinks'
 
 /** Render a live partial through the same worker boundary as settled messages. */
@@ -328,6 +330,8 @@ export interface TranscriptFeedProps {
    *  the Quote action is not offered, which is what a host without a composer
    *  should get rather than a button that does nothing. */
   onQuote?: (quote: QuoteInput) => void
+  /** How the session's issue ended, drawn as the feed's last row (POD-2151). */
+  outcome?: SessionIssueOutcome | null
 }
 
 export const TranscriptFeed = observer(function TranscriptFeed(props: TranscriptFeedProps): JSX.Element {
@@ -786,6 +790,7 @@ export const TranscriptFeed = observer(function TranscriptFeed(props: Transcript
             attribution={attributionForRole(attribution, 'tool')}
           />
         )}
+        {props.outcome && <IssueOutcomeCard outcome={props.outcome} />}
         {/* Where the transcript ENDS: the single live-status owner. Tool rows and
           headless status frames can refine its wording but never replace it.
 
@@ -806,9 +811,13 @@ export const TranscriptFeed = observer(function TranscriptFeed(props: Transcript
           const session = props.chat?.view.session ?? props.session
           const lastRow = props.chat?.view?.presentation.tailRow(rows[rows.length - 1]?.row) ?? rows[rows.length - 1]?.row
           const questionOwnsAttention = (livePendingAskIndex >= 0 || pendingAskBlock !== null) && activity?.tone === 'attention'
+          // The issue outcome is the ending (POD-2151): a stop keeps the agent's
+          // last state (a retryable error, an interrupt), which must not trail it.
+          // Only a wake the operator just asked for speaks after it.
+          const outcomeOwnsEnd = props.outcome != null && tailActivity?.tone !== 'working' && tailActivity?.transient !== 'just-sent'
           return (
         <div className="feed-tail-slot" data-testid="feed-tail-slot">
-          {(phase === 'ready' || tailActivity?.tone === 'working') && !questionOwnsAttention && (
+          {(phase === 'ready' || tailActivity?.tone === 'working') && !questionOwnsAttention && !outcomeOwnsEnd && (
             <TranscriptTail
               activity={tailActivity}
               since={props.chat ? props.chat.view.session?.agentSince : session?.agentState?.since}

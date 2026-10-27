@@ -4545,6 +4545,63 @@ button.pane-branch:hover {
   }
 }
 
+/* THE ISSUE OUTCOME (POD-2151): the last row of a transcript whose session its
+   issue's closing stopped. A landing is the one ending with a colour, as a
+   low-dose success wash; any other close keeps the neutral ramp. */
+.issue-outcome-card {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 1px 10px;
+  margin-block: 4px 8px;
+  padding: 9px 12px;
+  border: 1px solid var(--hairline-soft, var(--border));
+  border-radius: 8px;
+  color: var(--muted-foreground);
+}
+.issue-outcome-card[data-outcome="landed"] {
+  border-color: color-mix(in srgb, var(--success) 30%, transparent);
+  background: color-mix(in srgb, var(--success) 8%, transparent);
+}
+.issue-outcome-mark {
+  display: grid;
+  grid-row: span 2;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  background: var(--muted);
+  color: var(--muted-foreground);
+}
+.issue-outcome-card[data-outcome="landed"] .issue-outcome-mark {
+  background: var(--success);
+  color: var(--background);
+}
+.issue-outcome-title {
+  color: var(--foreground);
+  font-size: 13px;
+  font-weight: 600;
+}
+.issue-outcome-time {
+  color: var(--text-dim, var(--muted-foreground));
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.issue-outcome-sub {
+  grid-column: 2 / -1;
+  font-size: 12px;
+}
+.issue-outcome-sub code {
+  color: var(--foreground);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11.5px;
+}
+/* A close without a sub-line stays one line tall. */
+.issue-outcome-card:not(:has(.issue-outcome-sub)) .issue-outcome-mark {
+  grid-row: auto;
+}
+
 .compaction-note-head {
   display: flex;
   width: 100%;
@@ -5999,6 +6056,11 @@ button.pane-branch:hover {
 }
 .pane-state-bar[data-tone="fault"] .pane-state-bar-mark {
   margin-top: 2px;
+}
+/* A landing is the one ending worth a colour (POD-2151): its check takes the
+   success ink, on the glyph only, like a fault's warning ink. */
+.pane-state-bar[data-outcome="landed"] .pane-state-bar-mark {
+  color: var(--success);
 }
 
 /* THE TAIL — where the transcript ENDS, in three weights. One shape (mark,

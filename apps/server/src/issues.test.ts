@@ -1,4 +1,5 @@
-import { mkdtempSync, rmSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'
+import { appendFileSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -9,6 +10,7 @@ import {
   asSessionId,
   asThreadId,
   asUserId,
+  awaitingMergeOf,
   type DescendantTip,
   firstAdminMemberId,
   type IssueId,
@@ -2616,6 +2618,117 @@ describe('IssueService.action', () => {
     await svc.gitWorkflow.refreshGitState(id)
     // The stamp must record a landing that HAPPENED, never one that was refused.
     expect((await svc.reports.get(id))?.gitState?.merged).toBeUndefined()
+  })
+
+  it('POD-2151: the landing stamp reaches the wire and settles a state the freed worktree cannot re-probe', async () => {
+    const { svc, deps, id } = await started()
+    ;(deps.repoOp as ReturnType<typeof vi.fn>).mockImplementation(async (op: string) => ({
+      ok: true,
+      output: mergeProbeOutput(op),
+    }))
+    // The state cached before landing: one commit ahead, not merged.
+    svc.reports.store.gitStates.set(id, {
+      updatedAt: '2026-08-16T00:00:00Z',
+      branch: 'issue/1-x',
+      shared: false,
+      ahead: 1,
+      dirtyFiles: 0,
+    })
+    await svc.gitWorkflow.action(id, 'merge')
+    // Closing frees the worktree before the post-merge probe runs.
+    const row = svc.reports.store.rows.get(id)
+    if (!row) throw new Error('row missing')
+    row.worktreePath = null
+    await svc.gitWorkflow.refreshGitState(id)
+    const wire = await svc.reports.get(id)
+    expect(wire?.landedAt).toEqual(expect.any(String))
+    expect(wire?.landedSha).toBe('abc123def')
+    expect(wire?.gitState).toMatchObject({ merged: true, ahead: 0 })
+  })
+
+  it('POD-2151: the merge action settles the merge axis before close publishes', async () => {
+    const { svc, deps, id } = await started()
+    ;(deps.repoOp as ReturnType<typeof vi.fn>).mockImplementation(async (op: string) => ({
+      ok: true,
+      output: mergeProbeOutput(op),
+    }))
+    // The state cached before landing: one commit ahead, not merged.
+    svc.reports.store.gitStates.set(id, {
+      updatedAt: '2026-08-16T00:00:00Z',
+      branch: 'issue/1-x',
+      shared: false,
+      ahead: 1,
+      dirtyFiles: 0,
+    })
+    // What close() — and the publication it makes — sees on entry.
+    const seen: unknown[] = []
+    const close = svc.crud.close.bind(svc.crud)
+    vi.spyOn(svc.crud, 'close').mockImplementation(async (...args) => {
+      seen.push(svc.reports.store.gitStates.get(id))
+      return await close(...args)
+    })
+    await svc.gitWorkflow.action(id, 'merge')
+    expect(seen).toHaveLength(1)
+    expect(seen[0]).toMatchObject({ branch: 'issue/1-x', shared: false, merged: true, ahead: 0 })
+  })
+
+  it('POD-2151: a probe that started before the merge cannot overwrite its settled state', async () => {
+    const { svc, deps, id } = await started()
+    let release: () => void = () => {}
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    let probing: () => void = () => {}
+    const probeStarted = new Promise<void>((resolve) => {
+      probing = resolve
+    })
+    let gated = true
+    ;(deps.repoOp as ReturnType<typeof vi.fn>).mockImplementation(async (op: string) => {
+      if (op === 'statusProbe' && gated) {
+        gated = false
+        probing()
+        await gate
+      }
+      // A pre-merge snapshot: one commit ahead, not contained in main.
+      return {
+        ok: op !== 'isMergedInto',
+        output: op === 'revListCount' ? '1' : mergeProbeOutput(op),
+      }
+    })
+    const refresh = svc.gitWorkflow.refreshGitState(id)
+    await probeStarted
+    await svc.gitWorkflow.action(id, 'merge')
+    // Closing freed the worktree; the merge's own refresh coalesces into this one.
+    const row = svc.reports.store.rows.get(id)
+    if (!row) throw new Error('row missing')
+    row.worktreePath = null
+    release()
+    await refresh
+    const wire = (await svc.reports.get(id))!
+    expect(wire.gitState).toMatchObject({ merged: true, ahead: 0 })
+    expect(awaitingMergeOf(wire)).toBe(false)
+  })
+
+  it('POD-2151: a landed, freed issue never probes a session fallback cwd', async () => {
+    const { svc, deps, id } = await started()
+    const calls: { op: string; cwd: string }[] = []
+    ;(deps.repoOp as ReturnType<typeof vi.fn>).mockImplementation(async (op: string, cwd: string) => {
+      calls.push({ op, cwd })
+      return { ok: true, output: mergeProbeOutput(op) }
+    })
+    await svc.gitWorkflow.action(id, 'merge')
+    const row = svc.reports.store.rows.get(id)
+    if (!row) throw new Error('row missing')
+    const freed = row.worktreePath as string
+    row.worktreePath = null
+    calls.length = 0
+    // Turn-end and git-activity refreshes pass the session's (deleted) cwd; two coalesce.
+    await Promise.all([
+      svc.gitWorkflow.refreshGitState(id, freed),
+      svc.gitWorkflow.refreshGitState(id, freed),
+    ])
+    expect((await svc.reports.get(id))?.gitState).toMatchObject({ shared: false, merged: true, ahead: 0 })
+    expect(calls.filter((c) => c.cwd === freed)).toEqual([])
   })
 
   it('merge auto-closes the issue on success', async () => {
@@ -6749,4 +6862,112 @@ it.each([
 ])('machine paths: worktree safety compares keys without rewriting %s', (left, same, other) => {
   expect(sameWorktreePath(left, same)).toBe(true)
   expect(sameWorktreePath(left, other)).toBe(false)
+})
+
+/**
+ * THE LANDING VERDICT OVER REAL GIT (POD-2151). The service runs against a real
+ * repository: every repo op is the daemon's own argv (`repoOpCommand`) executed
+ * by git, so ancestry, rev-list counts and the marker fallback answer for real.
+ * The landing stamp keeps a landed branch merged when ancestry no longer can.
+ */
+describe('landing verdict over real git (POD-2151)', () => {
+  const run = (cwd: string, ...args: string[]): string => {
+    const r = spawnSync('git', args, { cwd, encoding: 'utf8' })
+    if (r.status !== 0) throw new Error(`git ${args.join(' ')}: ${r.stderr}`)
+    return r.stdout.trim()
+  }
+  const commit = (cwd: string, file: string, message: string): string => {
+    writeFileSync(join(cwd, file), `${file} ${Date.now()}\n`)
+    run(cwd, 'add', '--', file)
+    run(cwd, 'commit', '-q', '-m', message)
+    return run(cwd, 'rev-parse', 'HEAD')
+  }
+
+  async function rig() {
+    const root = mkdtempSync(join(tmpdir(), 'pod2151-'))
+    run(root, 'init', '-q', '-b', 'main')
+    run(root, 'config', 'user.email', 'test@podium.invalid')
+    run(root, 'config', 'user.name', 'Podium test')
+    appendFileSync(join(root, '.git', 'info', 'exclude'), '.worktrees/\n')
+    commit(root, 'base.txt', 'base')
+    const h = await harness()
+    await h.store.repos.addRepo(root, h.store.hostMachineId)
+    // The merge stamp reads the wall clock, so the service's must too.
+    h.deps.now = () => new Date().toISOString()
+    const calls: { op: string; cwd: string }[] = []
+    h.deps.repoOp = vi.fn(async (op: string, cwd: string, args?: Record<string, string>) => {
+      calls.push({ op, cwd })
+      const cmd = repoOpCommand(op as never, args as never)
+      if ('error' in cmd) return { ok: false, output: cmd.error }
+      const r = spawnSync(cmd.bin, cmd.argv, { cwd, encoding: 'utf8' })
+      return { ok: r.status === 0, output: r.status === 0 ? r.stdout : `${r.stdout}${r.stderr}` }
+    }) as never
+    const svc = await IssueService.create(h.deps)
+    const created = await svc.crud.create({ repoPath: root, title: 'Landing', startNow: false })
+    await svc.gitWorkflow.start(created.id)
+    const id = created.id
+    const worktree = (): string => {
+      const path = svc.reports.store.rows.get(id)?.worktreePath
+      if (!path) throw new Error('no worktree')
+      return path
+    }
+    const land = async (message: string) => {
+      const sha = commit(worktree(), 'a.txt', message)
+      const merged = await svc.gitWorkflow.action(id, 'merge')
+      expect(merged.ok).toBe(true)
+      expect(svc.reports.store.rows.get(id)?.landedSha).toBe(sha)
+      return sha
+    }
+    const reopen = async (path: 'update' | 'start') => {
+      if (path === 'update') {
+        await svc.crud.update(id, { stage: 'in_progress' })
+        await svc.gitWorkflow.ensureWorktree(id)
+      } else await svc.gitWorkflow.start(id)
+      expect(svc.reports.store.rows.get(id)?.landedAt).toBeTruthy()
+    }
+    const settle = async () => {
+      await svc.gitWorkflow.refreshGitState(id)
+      return (await svc.reports.get(id))!
+    }
+    return { root, svc, id, calls, worktree, land, reopen, settle,
+      dispose: () => rmSync(root, { recursive: true, force: true }) }
+  }
+
+  for (const path of ['update', 'start'] as const) {
+    it(`(${path}) stamped landing, parent rewritten, reopen with no new commits: still merged`, async () => {
+      const r = await rig()
+      try {
+        await r.land('A without a marker')
+        // Rewrite the parent so A is no longer reachable from it.
+        run(r.root, 'reset', '-q', '--hard', 'HEAD~1')
+        commit(r.root, 'a.txt', 'A rewritten')
+        await r.reopen(path)
+        await r.svc.crud.close(r.id, 'done')
+        const wire = await r.settle()
+        expect(wire.gitState?.merged).toBe(true)
+        expect(awaitingMergeOf(wire)).toBe(false)
+      } finally { r.dispose() }
+    })
+  }
+
+  it('merge, free, then cleanup: a refresh with the old cwd stays merged and never probes it', async () => {
+    const r = await rig()
+    try {
+      await r.land('A')
+      const old = r.worktree()
+      await r.svc.gitWorkflow.freeWorktreeKeepBranch(r.id, systemPrincipal('test'))
+      r.calls.length = 0
+      await r.svc.gitWorkflow.refreshGitState(r.id, old)
+      expect((await r.svc.reports.get(r.id))!.gitState).toMatchObject({ merged: true, ahead: 0 })
+      expect(r.calls.filter((c) => c.cwd === old)).toEqual([])
+      const cleaned = await r.svc.gitWorkflow.cleanup(r.id, systemPrincipal('test'))
+      expect(cleaned.ok).toBe(true)
+      expect(r.svc.reports.store.rows.get(r.id)?.branch).toBeNull()
+      r.calls.length = 0
+      await r.svc.gitWorkflow.refreshGitState(r.id, old)
+      const wire = (await r.svc.reports.get(r.id))!
+      expect(wire.gitState).toMatchObject({ shared: false, merged: true, ahead: 0 })
+      expect(r.calls.filter((c) => c.cwd === old)).toEqual([])
+    } finally { r.dispose() }
+  })
 })
