@@ -686,6 +686,9 @@ export class WorklistIssueBefore implements HeldIssue, RowView {
       get deciding() { return model.ownAttentionDeciding },
       get open() { return model.ownAttentionOpen },
       get finished() { return model.ownAttentionFinished },
+      // POD-2171 fields, read through: the parity inventory predates them.
+      get coordinated() { return model.readOwnAttention().coordinated },
+      get delegated() { return model.readOwnAttention().delegated },
       get pending() { return model.ownAttentionPending },
     }
   }
@@ -712,6 +715,7 @@ export class WorklistIssueBefore implements HeldIssue, RowView {
       get open() { return model.ownAttentionRailWaitingOpen },
       get finished() { return model.ownAttentionRailWaitingFinished },
       get decisions() { return model.ownAttentionRailWaitingDecisions },
+      get delegated() { return model.readOwnAttention().railWaiting!.delegated },
     }
   }
 
@@ -753,6 +757,7 @@ export class WorklistIssueBefore implements HeldIssue, RowView {
       get working() { return model.ownAttentionSidebarFactsWorking },
       get waitingOpen() { return model.ownAttentionSidebarFactsWaitingOpen },
       get waitingFinished() { return model.ownAttentionSidebarFactsWaitingFinished },
+      get waitingDelegated() { return model.readOwnAttention().sidebarFacts!.waitingDelegated },
       get doneSince() { return model.ownAttentionSidebarFactsDoneSince },
       get totalMs() { return model.ownAttentionSidebarFactsTotalMs },
       get errorClass() { return model.ownAttentionSidebarFactsErrorClass },

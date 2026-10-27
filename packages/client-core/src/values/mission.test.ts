@@ -3036,10 +3036,40 @@ describe('deckIssueState', () => {
 
   it('rolls a sub-issue up: a parent shows its most urgent descendant (D6)', () => {
     const live = sess('s', { issueId: 'a', agentState: workingState })
-    expect(deckIssueState(issue('a'), [live], { children: ['error'] }).state).toBe('error')
     expect(
-      deckIssueState(issue('a', { stage: 'backlog' }), [], { children: ['blocked'] }).state,
+      deckIssueState(issue('a'), [live], { children: [{ word: 'error', delegated: 'error' }] })
+        .state,
+    ).toBe('error')
+    expect(
+      deckIssueState(issue('a', { stage: 'backlog' }), [], {
+        children: [{ word: 'blocked', delegated: 'blocked' }],
+      }).state,
     ).toBe('blocked')
+  })
+
+  it('under a live coordinator, asks only through the coordinator and exceptions (POD-2171)', () => {
+    const asking = sess('helper', {
+      issueId: 'a',
+      agentState: {
+        phase: 'idle',
+        since: '2026-10-26T00:00:00Z',
+        nativeSubagentCount: 0,
+        idle: { kind: 'question' },
+      },
+    })
+    const lead = sess('lead', { issueId: 'a', agentState: workingState })
+    const child = { word: 'needs-you', delegated: 'working' } as const
+    const parent = issue('a', { coordinatorSessionId: 'lead' } as never)
+    const coordinated = deckIssueState(parent, [lead, asking], {
+      children: [child],
+      coordinated: true,
+    })
+    expect(coordinated).toMatchObject({ state: 'working', delegated: 'working' })
+    expect(deckIssueState(parent, [lead, asking], { children: [child] }).state).toBe('needs-you')
+    const escalated = { word: 'needs-you', delegated: 'needs-you' } as const
+    expect(deckIssueState(parent, [lead], { children: [escalated], coordinated: true }).state).toBe(
+      'needs-you',
+    )
   })
 
   it('counts a blocked-by target the deck already sees open', () => {
@@ -3054,7 +3084,7 @@ describe('deckIssueState', () => {
 
     it('says Error instead of the stage word, with the attention dot', () => {
       const state = deckIssueState(issue('a', { stage: 'review' }), [dead()])
-      expect(state).toEqual({ state: 'error', label: 'Error', attention: true })
+      expect(state).toEqual({ state: 'error', delegated: 'error', label: 'Error', attention: true })
     })
 
     // D6 overturns POD-1601: Error ranks above a second agent still running,

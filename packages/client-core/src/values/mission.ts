@@ -4,11 +4,12 @@ import {
   isDecisionIssue,
   isPhaseIssue,
   isFinished as issueClosed,
-  sessionWord,
+  seatWords,
   TASK_WORD_LABEL,
   type TaskWord,
+  type TaskWords,
   taskHidden,
-  taskWord,
+  taskWords,
   wordWantsAttention,
 } from '@podium/model/browser'
 import { type HarnessDescriptorWire, issueDisplayRef } from '@podium/protocol'
@@ -1866,6 +1867,8 @@ export type DeckState = TaskWord
 
 export interface DeckIssueState {
   state: DeckState
+  /** The word this issue shows an ancestor whose coordinator is live: only exceptions ask (POD-2171, `taskWords`). */
+  delegated: DeckState
   /** The right-aligned word beside the mark. */
   label: string
   /**
@@ -1887,6 +1890,10 @@ export interface DeckIssueState {
  * draws the cancel mark beside it, so its label says `Cancelled` rather than
  * contradicting the glyph. D6 hides those rows; until the v6 deck does, they
  * say what they are.
+ *
+ * On an issue whose coordinator is live (`coordinated`), asks come only from
+ * the coordinator and the issue's own facts; its other sessions and its
+ * sub-issues pass up only work and exceptions (POD-2171, `taskWords`).
  */
 export function deckIssueState(
   issue: IssueNavigationModel,
@@ -1897,7 +1904,9 @@ export function deckIssueState(
     /** The deck's own answer to the same question, from its catalog. */
     unmetDependency?: boolean
     /** The sub-issues' words, for a parent. */
-    children?: readonly TaskWord[]
+    children?: readonly TaskWords[]
+    /** The issue's coordinator seat is held by a live session (`coordinatorLive`). */
+    coordinated?: boolean
   } = {},
 ): DeckIssueState {
   const closed = issueClosed(issue)
@@ -1911,12 +1920,17 @@ export function deckIssueState(
       context.unmetDependency === true ||
       waitingRefs(issue, context.byId).length > 0,
   }
-  const state = taskWord(facts, {
-    sessions: sessions.map((session) => sessionWord(session, { issueClosed: closed })),
+  const words = taskWords(facts, {
+    seats: sessions.map((session) =>
+      seatWords(session, { issueClosed: closed }, session.sessionId === issue.coordinatorSessionId),
+    ),
     children: context.children,
+    coordinated: context.coordinated,
   })
+  const state = words.word
   return {
     state,
+    delegated: words.delegated,
     label: taskHidden(facts) ? 'Cancelled' : TASK_WORD_LABEL[state],
     attention: wordWantsAttention(state),
   }

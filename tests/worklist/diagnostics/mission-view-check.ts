@@ -4,7 +4,7 @@ import { isFinished } from '@podium/client-graph/shared/predicates'
 import type { ReferenceState as Store } from './reference-state'
 import type { PodiumClientApi } from '@podium/client-core/api'
 import type { SessionView } from '@podium/client-core/session-values'
-import { asIssueId } from '@podium/model/browser'
+import { asIssueId, coordinatorLive } from '@podium/model/browser'
 
 import { allIssueViewModels } from './reference/issue-view-models'
 import {
@@ -110,7 +110,7 @@ export function legacyMissionViewSnapshot(issues: readonly IssueNavigationModel[
   const root = selectedMissionRoot(issues, sessions, selectedId ? asIssueId(selectedId) : null)
   const rows = root ? buildFlightDeckRows(issues, sessions, root.id, mode, worktreePaths) : []
   const byId = legacyMap(issues)
-  const deckStates = legacyDeckStates(root && mode !== 'full' ? buildFlightDeckRows(issues, sessions, root.id, 'full', worktreePaths) : rows, byId)
+  const deckStates = legacyDeckStates(root && mode !== 'full' ? buildFlightDeckRows(issues, sessions, root.id, 'full', worktreePaths) : rows, byId, sessions)
   const seen = new Set<string>(), archived: SessionView[] = []
   for (const row of rows) for (const session of archivedSessionsForIssue(row.issue, sessions as SessionView[], worktreePaths)) {
     if (!seen.has(session.sessionId)) { seen.add(session.sessionId); archived.push(session) }
@@ -131,7 +131,12 @@ export function legacyMissionViewSnapshot(issues: readonly IssueNavigationModel[
 /** Every row's word with the D6 roll-up: a parent reads its sub-issues' words.
  * The full deck is depth-first pre-order, so a row's parent is the nearest
  * earlier row one level up, and walking it backwards visits children first. */
-function legacyDeckStates(rows: readonly FlightDeckRow[], byId: ReadonlyMap<string, IssueNavigationModel>): Map<string, DeckIssueState> {
+function legacyDeckStates(rows: readonly FlightDeckRow[], byId: ReadonlyMap<string, IssueNavigationModel>,
+  sessions: readonly SessionView[]): Map<string, DeckIssueState> {
+  // POD-2171: a coordinator may sit on an ancestor, so liveness reads every session.
+  const sessionById = new Map(sessions.map(session => [session.sessionId as string, session]))
+  const coordinated = (issue: IssueNavigationModel) =>
+    issue.coordinatorSessionId != null && coordinatorLive(sessionById.get(issue.coordinatorSessionId))
   const children = new Map<string, string[]>(), path: string[] = []
   for (const row of rows) {
     path.length = row.depth
@@ -141,8 +146,8 @@ function legacyDeckStates(rows: readonly FlightDeckRow[], byId: ReadonlyMap<stri
   }
   const states = new Map<string, DeckIssueState>()
   for (const row of [...rows].reverse()) {
-    const words = (children.get(row.issue.id) ?? []).map(id => states.get(id)!.state)
-    states.set(row.issue.id, deckIssueState(row.issue, row.sessions, { byId, children: words }))
+    const words = (children.get(row.issue.id) ?? []).map(id => ({ word: states.get(id)!.state, delegated: states.get(id)!.delegated }))
+    states.set(row.issue.id, deckIssueState(row.issue, row.sessions, { byId, children: words, coordinated: coordinated(row.issue) }))
   }
   return states
 }

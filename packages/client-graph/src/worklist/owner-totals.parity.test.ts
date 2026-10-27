@@ -2,7 +2,7 @@ import { autorun, runInAction } from 'mobx'
 import { describe, expect, it, vi } from 'vitest'
 import { MobxPool } from '../pool'
 import { requireHere } from '../lookup'
-import { LOADING, motionPhase, seatVerdictOf } from './rollup'
+import { delegatePhase, LOADING, motionPhase, seatVerdictOf } from './rollup'
 import { fleetOf, sidebarSessionFacts, sidebarTiming } from './sidebar-row'
 import { worklistView } from './view-model'
 import type { SliceSession } from '../shared/slice-types'
@@ -37,6 +37,7 @@ describe('shared session facts equal the old verdict on identical records', () =
       const actual = { fleet: model.fleet, working: model.workingTimer,
         waitingOpen: model.motion === 'waiting' ? model.waitingTimer : undefined,
         waitingFinished: motionPhase(row, true) === 'waiting' ? model.waitingTimer : undefined,
+        waitingDelegated: delegatePhase(row) === 'waiting' ? model.waitingTimer : undefined,
         doneSince: model.doneSinceMs, totalMs: model.workingMsTotal,
         errorClass: model.errorClass, allUnstarted: model.unstarted }
       // Undefined optional keys compare the same through toEqual.

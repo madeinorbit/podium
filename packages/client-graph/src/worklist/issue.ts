@@ -572,6 +572,7 @@ export class WorklistIssue implements HeldIssue, RowView {
     const model = this
     return {
       get cold() { return model.sessionsLoading },
+      get coordinated() { return model.coordinated },
       get workingSince() { return model.sessionsWorkingSince },
       get firstSessionId() { return model.firstSessionId },
       get railWaiting() { return model.waitingCounts },
@@ -585,8 +586,15 @@ export class WorklistIssue implements HeldIssue, RowView {
       get deciding() { return model.needsDecision },
       get open() { return model.openSessionFlags },
       get finished() { return model.finishedSessionFlags },
+      get delegated() { return model.delegatedSessionFlags },
       get pending() { return model.pendingSessions },
     }
+  }
+
+  /** The row's coordinator is live (POD-2171): its other seats and its nest children ask only exceptions. */
+  @lazy
+  get coordinated(): OwnAttention['coordinated'] {
+    return this.readOwnAttention().coordinated
   }
 
   @lazy
@@ -604,7 +612,7 @@ export class WorklistIssue implements HeldIssue, RowView {
     if (!this.hasWaitingCounts) return undefined
     const row = this
     return { get open() { return row.waitingOpenSessions }, get finished() { return row.waitingFinishedSessions },
-      get decisions() { return row.waitingDecisions } }
+      get decisions() { return row.waitingDecisions }, get delegated() { return row.waitingDelegatedSessions } }
   }
 
   @lazy
@@ -627,6 +635,11 @@ export class WorklistIssue implements HeldIssue, RowView {
     return this.readOwnAttention().railWaiting!.decisions
   }
 
+  @lazy
+  get waitingDelegatedSessions(): NonNullable<Aggregate['railWaiting']>['delegated'] {
+    return this.readOwnAttention().railWaiting!.delegated
+  }
+
   @lazy({ equals: compareShallow }) get attentionSessionIds(): readonly string[] {
     return this.readOwnAttention().sessionIds ?? []
   }
@@ -639,6 +652,7 @@ export class WorklistIssue implements HeldIssue, RowView {
       get working() { return model.workingTimer },
       get waitingOpen() { return model.waitingOpenTimer },
       get waitingFinished() { return model.waitingFinishedTimer },
+      get waitingDelegated() { return model.waitingDelegatedTimer },
       get doneSince() { return model.sessionsDoneSince },
       get totalMs() { return model.sessionsWorkingMs },
       get errorClass() { return model.sessionErrorClass },
@@ -669,6 +683,11 @@ export class WorklistIssue implements HeldIssue, RowView {
   @lazy({ equals: compareStructural })
   get waitingFinishedTimer(): SidebarSessionFacts['waitingFinished'] {
     return this.readOwnAttention().sidebarFacts!.waitingFinished
+  }
+
+  @lazy({ equals: compareStructural })
+  get waitingDelegatedTimer(): SidebarSessionFacts['waitingDelegated'] {
+    return this.readOwnAttention().sidebarFacts!.waitingDelegated
   }
 
   @lazy
@@ -767,6 +786,30 @@ export class WorklistIssue implements HeldIssue, RowView {
   @lazy
   get finishedSessionsDone(): import('./rollup').PhaseFlags['allDone'] {
     return this.readOwnAttention().finished.allDone
+  }
+
+  get delegatedSessionFlags(): import('./rollup').PhaseFlags {
+    const model = this
+    return {
+      get waiting() { return model.delegatedSessionsWaiting },
+      get working() { return model.delegatedSessionsWorking },
+      get allDone() { return model.delegatedSessionsDone },
+    }
+  }
+
+  @lazy
+  get delegatedSessionsWaiting(): import('./rollup').PhaseFlags['waiting'] {
+    return this.readOwnAttention().delegated.waiting
+  }
+
+  @lazy
+  get delegatedSessionsWorking(): import('./rollup').PhaseFlags['working'] {
+    return this.readOwnAttention().delegated.working
+  }
+
+  @lazy
+  get delegatedSessionsDone(): import('./rollup').PhaseFlags['allDone'] {
+    return this.readOwnAttention().delegated.allDone
   }
 
   @lazy

@@ -8,7 +8,7 @@ import type { RowOriginTick } from '../shared/row-view'
 import { awaitingMergeOf } from '../shared/schema'
 import type { SliceIssue, SlicePhase, SliceSession } from '../shared/slice-types'
 import { type CloseFacts, DEFER_NEXT_MESSAGE, FINISHED_GRACE_MS, isClosedTopLevel, issueAbandoned } from '../views'
-import { attentionGroup, isSessionWorking, motionPhase, type UnitState } from './rollup'
+import { attentionGroup, delegatePhase, isSessionWorking, motionPhase, type UnitState } from './rollup'
 
 export interface SidebarProgress extends Readonly<Record<UnitState, number>> { readonly total: number }
 export interface SidebarTiming {
@@ -215,6 +215,8 @@ export interface SidebarSessionFacts {
   readonly working?: TimerAnchor
   readonly waitingOpen?: TimerAnchor
   readonly waitingFinished?: TimerAnchor
+  /** The waiting anchor as a delegate under a live coordinator: exceptions only (`delegatePhase`). */
+  readonly waitingDelegated?: TimerAnchor
   readonly doneSince: number
   readonly totalMs?: number
   readonly errorClass: string | null
@@ -236,11 +238,30 @@ export function sidebarSessionFacts(session: SliceSession): SidebarSessionFacts 
       ...(session.agentState?.workingMsTotal !== undefined ? { baseMs: session.agentState.workingMsTotal } : {}) } } : {}),
     ...(motionPhase(session, false) === 'waiting' ? { waitingOpen: waiting } : {}),
     ...(motionPhase(session, true) === 'waiting' ? { waitingFinished: waiting } : {}),
+    ...(delegatePhase(session) === 'waiting' ? { waitingDelegated: waiting } : {}),
     doneSince: stateSince || 0,
     ...(session.agentState?.workingMsTotal !== undefined ? { totalMs: session.agentState.workingMsTotal } : {}),
     errorClass: !session.archived && session.status !== 'exited' && session.agentState?.phase === 'errored'
       ? session.agentState.error?.class ?? 'unknown' : null,
     allUnstarted: unstarted(session),
+  }
+}
+
+/** The facts as a delegate under a live coordinator shows them (POD-2171):
+ * only an exception's waiting anchor remains. A view, so a live reader still
+ * observes only the field it asks for. */
+export function delegatedSidebarFacts(facts: SidebarSessionFacts): SidebarSessionFacts {
+  if (facts === NO_SIDEBAR_SESSIONS) return facts
+  return {
+    get fleet() { return facts.fleet },
+    get working() { return facts.working },
+    get waitingOpen() { return facts.waitingDelegated },
+    get waitingFinished() { return facts.waitingDelegated },
+    get waitingDelegated() { return facts.waitingDelegated },
+    get doneSince() { return facts.doneSince },
+    get totalMs() { return facts.totalMs },
+    get errorClass() { return facts.errorClass },
+    get allUnstarted() { return facts.allUnstarted },
   }
 }
 
@@ -257,6 +278,7 @@ export function combineSidebarSessions(a: SidebarSessionFacts, b: SidebarSession
     fleet: combineFleet(a.fleet, b.fleet),
     working: earliest(a.working, b.working), waitingOpen: earliest(a.waitingOpen, b.waitingOpen),
     waitingFinished: earliest(a.waitingFinished, b.waitingFinished),
+    waitingDelegated: earliest(a.waitingDelegated, b.waitingDelegated),
     doneSince: Math.max(a.doneSince, b.doneSince),
     ...(a.totalMs !== undefined || b.totalMs !== undefined ? { totalMs: (a.totalMs ?? 0) + (b.totalMs ?? 0) } : {}),
     errorClass: a.errorClass ?? b.errorClass, allUnstarted: a.allUnstarted && b.allUnstarted,
@@ -272,7 +294,7 @@ export function combineSidebarSessionField<K extends keyof SidebarSessionFacts>(
     case 'fleet':
       value = combineFleet(a as SidebarSessionFacts['fleet'], b as SidebarSessionFacts['fleet'])
       break
-    case 'working': case 'waitingOpen': case 'waitingFinished': {
+    case 'working': case 'waitingOpen': case 'waitingFinished': case 'waitingDelegated': {
       const left = a as TimerAnchor | undefined, right = b as TimerAnchor | undefined
       value = left === undefined ? right : right !== undefined && right.stateSince < left.stateSince ? right : left
       break

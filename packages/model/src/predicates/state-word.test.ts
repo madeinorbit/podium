@@ -3,8 +3,10 @@ import {
   counterChildren,
   leafTasks,
   rollUpTaskWords,
+  type SeatWords,
   type SessionWord,
   type SessionWordFacts,
+  seatWords,
   sessionWord,
   TASK_WORD_FILTERS,
   type TaskWord,
@@ -194,7 +196,7 @@ const NODES: Record<string, Node> = {
 const TREE: WordTree<string> = {
   task: (id) => NODES[id],
   children: (id) => NODES[id]?.children ?? [],
-  sessions: (id) => NODES[id]?.sessions ?? [],
+  sessions: (id) => (NODES[id]?.sessions ?? []).map((word) => ({ word, delegate: word })),
 }
 
 describe('trees', () => {
@@ -252,5 +254,112 @@ describe('trees', () => {
       'blocked',
       'not-started',
     ])
+  })
+})
+
+describe('coordinated tasks (POD-2171)', () => {
+  const idleDone = live('idle', { agentState: { phase: 'idle', idle: { kind: 'done' } } })
+  const question = live('idle', { agentState: { phase: 'idle', idle: { kind: 'question' } } })
+  const offered = { ...idleDone, offer: { message: 'Ready' } }
+  const permission = live('needs_user')
+  const errored = live('errored')
+  const working = live('working')
+
+  it('a delegate asks only when held at a prompt only a human can answer', () => {
+    const asDelegate = (s: SessionWordFacts, pendingInteractions = 0) =>
+      sessionWord(s, { delegate: true, pendingInteractions })
+    expect(asDelegate(permission)).toBe('needs-you')
+    expect(asDelegate(idleDone, 1)).toBe('needs-you')
+    expect(asDelegate(errored)).toBe('error')
+    expect(asDelegate(question)).toBe('idle')
+    expect(asDelegate(offered)).toBe('idle')
+    expect(asDelegate({ ...working, offer: { message: 'x' } })).toBe('working')
+    expect(sessionWord(question)).toBe('needs-you')
+  })
+
+  // An epic run by `coord`; `reviewed` is a decision-free child whose agent
+  // asked a question, `building` is a child whose delegate works.
+  const tree = (
+    seats: Record<string, SeatWords[]>,
+    coordinated: (id: string) => boolean,
+    extra: Record<string, TaskWordFacts & { children?: string[] }> = {},
+  ): WordTree<string> => {
+    const nodes: Record<string, TaskWordFacts & { children?: string[] }> = {
+      epic: { type: 'task', stage: 'in_progress', children: ['reviewed', 'building'] },
+      reviewed: { type: 'task', stage: 'review' },
+      building: { type: 'task', stage: 'in_progress' },
+      ...extra,
+    }
+    return {
+      task: (id) => nodes[id],
+      children: (id) => nodes[id]?.children ?? [],
+      sessions: (id) => seats[id] ?? [],
+      coordinated,
+    }
+  }
+  const seats = (over: Partial<Record<string, SeatWords[]>> = {}): Record<string, SeatWords[]> =>
+    ({
+      epic: [seatWords(idleDone, {}, true)],
+      reviewed: [seatWords(question)],
+      building: [seatWords(working)],
+      ...over,
+    }) as Record<string, SeatWords[]>
+  const epicWord = (t: WordTree<string>) => rollUpTaskWords('epic', t).get('epic')
+
+  it('reads Working while a delegate works and a child agent asks the coordinator', () => {
+    const t = tree(seats(), (id) => id === 'epic')
+    expect(epicWord(t)).toBe('working')
+    // The child's own row still shows its own session's question.
+    expect(rollUpTaskWords('epic', t).get('reviewed')).toBe('needs-you')
+  })
+
+  it('without a live coordinator the child question rolls up as before', () => {
+    expect(epicWord(tree(seats(), () => false))).toBe('needs-you')
+  })
+
+  it('escalates a delegate error and a permission prompt from anywhere below', () => {
+    expect(epicWord(tree(seats({ building: [seatWords(errored)] }), (id) => id === 'epic'))).toBe(
+      'error',
+    )
+    expect(
+      epicWord(tree(seats({ building: [seatWords(permission)] }), (id) => id === 'epic')),
+    ).toBe('needs-you')
+  })
+
+  it('asks for the coordinator itself and for the task\u2019s own explicit requests', () => {
+    expect(
+      epicWord(tree(seats({ epic: [seatWords(offered, {}, true)] }), (id) => id === 'epic')),
+    ).toBe('needs-you')
+    expect(
+      epicWord(
+        tree(
+          seats({ epic: [seatWords(offered, {}, true), seatWords(question)] }),
+          (id) => id === 'epic',
+        ),
+      ),
+    ).toBe('needs-you')
+    expect(
+      epicWord(
+        tree(
+          seats({ epic: [seatWords(idleDone, {}, true), seatWords(question)] }),
+          (id) => id === 'epic',
+        ),
+      ),
+    ).toBe('working')
+    const flagged = tree(seats(), (id) => id === 'epic', {
+      building: { type: 'task', stage: 'in_progress', needsHuman: true },
+    })
+    expect(epicWord(flagged)).toBe('needs-you')
+  })
+
+  it('a nested coordinator asks on its own row and only escalates exceptions further up', () => {
+    const nested = (sub: SessionWordFacts) =>
+      tree(
+        seats({ building: [seatWords(sub, {}, true), seatWords(working)] }),
+        (id) => id === 'epic' || id === 'building',
+      )
+    expect(rollUpTaskWords('epic', nested(offered)).get('building')).toBe('needs-you')
+    expect(epicWord(nested(offered))).toBe('working')
+    expect(epicWord(nested(permission))).toBe('needs-you')
   })
 })

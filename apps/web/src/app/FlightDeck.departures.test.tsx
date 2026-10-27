@@ -22,7 +22,7 @@ const departure = (over: Partial<MissionDeparture> = {}): MissionDeparture =>
   ({
     issue: makeIssue({ id: 'spin', seq: 44, title: 'Session hover cards leak on unmount' }),
     originId: 'c1',
-    state: { state: 'working', label: 'Running', attention: false },
+    state: { state: 'working', delegated: 'working', label: 'Running', attention: false },
     ...over,
   }) as MissionDeparture
 
@@ -65,7 +65,11 @@ describe('WhereTheWorkWent', () => {
 
   it('carries the attention colour when the departed work is asking', () => {
     region({
-      departures: [departure({ state: { state: 'idle', label: 'Standing by', attention: true } })],
+      departures: [
+        departure({
+          state: { state: 'idle', delegated: 'idle', label: 'Standing by', attention: true },
+        }),
+      ],
     })
     expect(screen.getByTestId('flight-departure').querySelector('.bg-attention')).not.toBeNull()
   })

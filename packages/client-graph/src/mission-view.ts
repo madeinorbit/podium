@@ -24,7 +24,7 @@ import {
 } from '@podium/client-core/values'
 import { companion, lazy } from '@podium/mobx-helpers'
 import { compareShallow, compareStructural } from 'mobx'
-import { machinePathsEqual, type TaskWord } from '@podium/model'
+import { coordinatorLive, machinePathsEqual, type TaskWord, type TaskWords } from '@podium/model'
 import type { GitRepositoryWire, MachineWire } from '@podium/model/browser'
 import { asIssueId, type asSessionId, DRAFT_ISSUE_TITLE, HANDOFF_HARNESS_KINDS } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
@@ -232,7 +232,10 @@ const hasPayload = ((row: MissionDeckIssueModel) => requireLoaded(row.deckChildr
 // child row's own lazy state, so a change re-derives one path upward and never
 // reads a child's note or presence.
 const rowState = ((row: MissionDeckIssueModel): DeckIssueState => {
-  const words = settledAll(requireLoaded(row.deckChildren), id => row.deck.model(id).word)
+  const words = settledAll(requireLoaded(row.deckChildren), (id): TaskWords => {
+    const state = row.deck.model(id).state
+    return { word: state.state, delegated: state.delegated }
+  })
   const issue = settled(() => row.issue), crew = settled(() => row.sessions)
   if (words === LOADING || issue === LOADING || crew === LOADING) throw LOADING
   return row.view.deckState(issue, crew, words)
@@ -1006,8 +1009,16 @@ export class MissionViewReader {
   }
   hasSpinOffDependent(id: string) { return this.rulesIssue(id)?.dependents.some(dep => dep.type === 'discovered-from') ?? false }
   tipIds(id: string, local = false) { return this.tips(id, local).map(issue => issue.id as string) }
-  deckState(issue: IssueNavigationModel, sessions: readonly SessionView[], children: readonly TaskWord[] = []): DeckIssueState {
-    return deckIssueState(issue, sessions, { children, unmetDependency: this.waiting(issue).length > 0 })
+  deckState(issue: IssueNavigationModel, sessions: readonly SessionView[], children: readonly TaskWords[] = []): DeckIssueState {
+    return deckIssueState(issue, sessions, { children, unmetDependency: this.waiting(issue).length > 0,
+      coordinated: this.coordinated(issue) })
+  }
+  /** POD-2171: the issue's coordinator seat is held by a live session, which may sit on an ancestor. */
+  coordinated(issue: Pick<IssueNavigationModel, 'coordinatorSessionId'>): boolean {
+    const id = issue.coordinatorSessionId
+    if (!id) return false
+    const session = this.session(id)
+    return session !== LOADING && coordinatorLive(session)
   }
   presentation(issue: IssueNavigationModel, sessions: readonly SessionView[], state = this.deckState(issue, sessions)): MissionRowPresentation {
     return { state, note: this.note(issue, true), presence: this.presence(issue, sessions, true) }

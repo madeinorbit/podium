@@ -6,7 +6,8 @@ import type { SidebarOwner } from './sidebar-roster'
 import type { MobxPool } from '../pool'
 import { hostOf, type SessionModel } from '../models'
 import type { SliceSession } from '../shared/slice-types'
-import { attentionGroup, isOfferOnlyAttention, LOADING, type Loaded as LoadedRow, motionPhase, type SeatVerdict } from './rollup'
+import { coordinatorLive } from '@podium/model/browser'
+import { attentionGroup, delegatePhase, isOfferOnlyAttention, LOADING, type Loaded as LoadedRow, motionPhase, type SeatVerdict } from './rollup'
 import { type SidebarSessionFacts, type SidebarSessionOrder } from './sidebar-row'
 import { parkedOnFinishedIssue, type Retention, retentionOf, retains, type SessionVisibility } from './visible'
 
@@ -143,6 +144,8 @@ export class WorklistSession implements SessionVisibility {
     return {
       get open() { return model.verdictOpen },
       get finished() { return model.verdictFinished },
+      get delegate() { return model.verdictDelegate },
+      get present() { return model.verdictPresent },
       get working() { return model.session.executing },
       get workingSinceMs() { return model.verdictWorkingSinceMs },
       get id() { return model.verdictId },
@@ -162,6 +165,16 @@ export class WorklistSession implements SessionVisibility {
     return motionPhase(this.verdictRow, true, () => this.session.executing)
   }
 
+  @lazy
+  private get verdictDelegate(): SeatVerdict['delegate'] {
+    return delegatePhase(this.verdictRow, () => this.session.executing)
+  }
+
+  @lazy
+  private get verdictPresent(): SeatVerdict['present'] {
+    return coordinatorLive(this.verdictRow)
+  }
+
   private get verdictWorkingSinceMs(): SeatVerdict['workingSinceMs'] {
     return this.session.executionSinceMs
   }
@@ -177,6 +190,7 @@ export class WorklistSession implements SessionVisibility {
       get working() { return model.verdictSidebarFactsWorking },
       get waitingOpen() { return model.verdictSidebarFactsWaitingOpen },
       get waitingFinished() { return model.verdictSidebarFactsWaitingFinished },
+      get waitingDelegated() { return model.verdictSidebarFactsWaitingDelegated },
       get doneSince() { return model.verdictSidebarFactsDoneSince },
       get totalMs() { return model.verdictSidebarFactsTotalMs },
       get errorClass() { return model.verdictSidebarFactsErrorClass },
@@ -194,6 +208,10 @@ export class WorklistSession implements SessionVisibility {
 
   private get verdictSidebarFactsWaitingFinished(): SidebarSessionFacts['waitingFinished'] {
     return this.verdictFinished === 'waiting' ? this.session.waitingTimer : undefined
+  }
+
+  private get verdictSidebarFactsWaitingDelegated(): SidebarSessionFacts['waitingDelegated'] {
+    return this.verdictDelegate === 'waiting' ? this.session.waitingTimer : undefined
   }
 
   private get verdictSidebarFactsDoneSince(): SidebarSessionFacts['doneSince'] { return this.session.doneSinceMs }
