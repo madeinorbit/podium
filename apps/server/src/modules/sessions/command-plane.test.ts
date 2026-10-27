@@ -563,6 +563,26 @@ describe('draft launch compensation', () => {
     expect(o.reg.modules.sessions.getSessionIssueId(created.sessionId)).toBe(issue.id)
   })
 
+  it('gives an agent started with no task its own draft, on create and on a fresh resume', async () => {
+    const o = await makeOracle()
+    await provisionHost(o)
+    const ctx = await ctxFor(o, human(firstAdminMemberId()))
+    const created = await dispatchSessionCommand(ctx, 'create', { agentKind: 'codex', cwd: '/p' })
+    const resumed = await dispatchSessionCommand(ctx, 'resume', {
+      agentKind: 'codex',
+      cwd: '/p',
+      resume: { kind: 'codex-thread', value: 'thread-1' },
+      conversationId: 'thread-1',
+    })
+
+    const drafts = (await o.reg.issues.reports.list('/p')).filter((issue) => issue.draft)
+    expect(drafts).toHaveLength(2)
+    for (const { sessionId } of [created, resumed])
+      expect(drafts.map((issue) => issue.id)).toContain(
+        o.reg.modules.sessions.getSessionIssueId(sessionId),
+      )
+  })
+
   it('purges only the placeholder created for a session spawn that throws', async () => {
     const o = await makeOracle()
     await provisionHost(o)

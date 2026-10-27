@@ -463,9 +463,11 @@ export class IssueAttentionModule {
     agentKind?: string,
     id?: IssueId,
     ownership?: { ownerUserId: UserId; createdByActor: string; createdByOnBehalfOf: UserId },
+    machineId?: MachineId,
   ): Promise<IssueProjection> {
     return await this.crud().create({
       repoPath,
+      ...(machineId ? { machineId } : {}),
       title: DRAFT_ISSUE_TITLE,
       startNow: false,
       draft: true,

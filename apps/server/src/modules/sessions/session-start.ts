@@ -156,12 +156,14 @@ export interface SessionStartPorts {
   broadcastSessions(): void
   /** The issue that owns this cwd's worktree, if exactly one does. */
   soleOwnerForCwd(cwd: string): Promise<IssueId | undefined>
-  /** A new draft task for an agent started outside every task; undefined
-   *  when the cwd is in no known repo. Absent = such starts stay task-less. */
+  /** A new draft task for an agent started outside every task, in the repo
+   *  the cwd belongs to on the machine the session runs on; undefined when the
+   *  cwd is in no known repo there. Absent = such starts stay task-less. */
   draftForStart?(input: {
     cwd: string
-    agentKind?: AgentKind
+    agentKind: AgentKind
     ownerUserId: UserId
+    machineId: MachineId
   }): Promise<IssueId | undefined>
   /** Drop a draft made for a start that failed before its session existed. */
   discardUnlaunchedDraft?(issueId: IssueId): Promise<void>
@@ -270,33 +272,47 @@ export interface SessionStartInput {
 export class SessionStart {
   constructor(private readonly ports: SessionStartPorts) {}
 
-  /**
-   * Explicit attachment wins; otherwise starting in an issue-owned worktree
-   * means continuing that issue (spec: issue-as-workspace). Any other agent
-   * gets its own draft task, so every agent has a row in the task list.
-   * Shells stay task-less.
-   */
   async create(input: SessionStartInput): Promise<SessionSpawnResult> {
-    const issueId = input.issueId ?? (await this.ports.soleOwnerForCwd(input.cwd))
-    if (issueId) return await this.start({ ...input, issueId })
-    const draftId =
-      input.agentKind === 'shell' || !input.ownerUserId
-        ? undefined
-        : await this.ports.draftForStart?.({
-            cwd: input.cwd,
-            ownerUserId: input.ownerUserId,
-            ...(input.agentKind ? { agentKind: input.agentKind } : {}),
-          })
-    if (!draftId) return await this.start(input)
+    let draftId: IssueId | undefined
     try {
-      return await this.start({ ...input, issueId: draftId })
+      return await this.start(input, (id) => {
+        draftId = id
+      })
     } catch (error) {
-      await this.ports.discardUnlaunchedDraft?.(draftId)
+      if (draftId) await this.discardDraft(draftId)
       throw error
     }
   }
 
-  private async start(input: SessionStartInput): Promise<SessionSpawnResult> {
+  /**
+   * The task a new agent session joins when its start names none. Starting in
+   * an issue-owned worktree means continuing that issue (spec:
+   * issue-as-workspace); any other agent gets its own draft task in the repo
+   * its cwd belongs to on `machineId`, so every agent has a row in the task
+   * list. Shells, and a cwd outside every known repo, stay task-less.
+   */
+  async startTask(input: {
+    cwd: string
+    agentKind: AgentKind
+    ownerUserId: UserId | undefined
+    machineId: MachineId
+  }): Promise<{ issueId: IssueId; draft: boolean } | undefined> {
+    const owner = await this.ports.soleOwnerForCwd(input.cwd)
+    if (owner) return { issueId: owner, draft: false }
+    if (input.agentKind === 'shell' || !input.ownerUserId) return undefined
+    const draft = await this.ports.draftForStart?.({ ...input, ownerUserId: input.ownerUserId })
+    return draft ? { issueId: draft, draft: true } : undefined
+  }
+
+  /** Drop a draft minted for a start that failed before its session existed. */
+  async discardDraft(issueId: IssueId): Promise<void> {
+    await this.ports.discardUnlaunchedDraft?.(issueId)
+  }
+
+  private async start(
+    input: SessionStartInput,
+    onDraft: (issueId: IssueId) => void,
+  ): Promise<SessionSpawnResult> {
     if (process.env.PODIUM_REHEARSAL === '1') throw new Error('Session spawn disabled during upgrade rehearsal')
     // THE PROFILE, RESOLVED ONCE (POD-6107): profile candidates with the
     // caller's fields on top, first usable one wins. A caller that already
@@ -374,7 +390,11 @@ export class SessionStart {
       if (!norm.ok) throw new Error(norm.reason)
       curatedName = norm.name
     }
-    const issueId = input.issueId
+    const task = input.issueId
+      ? undefined
+      : await this.startTask({ cwd: input.cwd, agentKind, ownerUserId: input.ownerUserId, machineId })
+    if (task?.draft) onDraft(task.issueId)
+    const issueId = input.issueId ?? task?.issueId
     const sessionId = input.sessionId ?? asSessionId(randomUUID())
     const preparedInstructions = await this.ports.instructionsForStart({
       sessionId,

@@ -1246,6 +1246,8 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     broadcastSessions: () => bag.broadcastSessions(),
     toMachine: (machineId, message) => bag.toMachine(machineId, message),
     spawn: (input) => bag.sessionStart.spawn(input),
+    startTask: (input) => bag.sessionStart.startTask(input),
+    discardDraft: (issueId) => bag.sessionStart.discardDraft(issueId),
     machineUseGate: (caller) => bag.machineUseGate(caller),
     issueAccess: bag.deps.issueAccess,
     instructionsForStart: (i) => bag.deps.instructionsForStart(i),
