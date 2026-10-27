@@ -20,6 +20,8 @@ import { FlightDeck } from '@/app/FlightDeck'
 import { OperatorFocusProvider } from '@/app/operator-focus'
 import { setHoveredSession } from '@/app/session-hover'
 import { DockIssueProvider } from '@/features/issues/dock-issue'
+import { TipHost } from '@/features/tips'
+import { MemoryTipLog } from '@/features/tips/memory-tip-log'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
 import '@/index.css'
 import '@/styles.css'
@@ -989,4 +991,13 @@ function Harness(): JSX.Element {
   )
 }
 
-createRoot(document.getElementById('root') as HTMLElement).render(<Harness />)
+// `?tips` mounts the First Flights engine so a deck moment can be screenshotted.
+createRoot(document.getElementById('root') as HTMLElement).render(
+  new URLSearchParams(location.search).has('tips') ? (
+    <TipHost log={new MemoryTipLog()}>
+      <Harness />
+    </TipHost>
+  ) : (
+    <Harness />
+  ),
+)

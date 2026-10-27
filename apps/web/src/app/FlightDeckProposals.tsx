@@ -6,8 +6,9 @@ import { companion, lazy } from '@podium/mobx-helpers'
 import { asIssueId, asMutationId } from '@podium/model'
 import { Check, X } from 'lucide-react'
 import { action, compareShallow, observable, runInAction } from 'mobx'
-import type { JSX, MouseEvent } from 'react'
+import { type JSX, type MouseEvent, useEffect, useState } from 'react'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { useTipMoment } from '@/features/tips'
 import { openMiniview } from '@/lib/ref-activation'
 import { useRuntimeSelector } from './store'
 import type { Trpc } from './trpc'
@@ -85,6 +86,32 @@ class ProposalSubmissions {
 // loading screen or mode switch must not discard an in-flight command/receipt.
 const submissionsFor = companion((full: FullDeck) => new ProposalSubmissions(full))
 
+const FIRST_PROPOSAL_ANCHOR = 'first-proposal'
+const firstProposalCards = [
+  {
+    anchor: FIRST_PROPOSAL_ANCHOR,
+    title: 'Your agent found more work.',
+    body: 'Start it now, backlog it so agents can start it later, or dismiss it.',
+  },
+]
+
+/** Proposals sink below the tree, so the row is often scrolled out of the deck.
+ * The moment waits until the row is actually in view instead of skipping. */
+function useInView(element: HTMLElement | null): boolean {
+  const [inView, setInView] = useState(false)
+  useEffect(() => {
+    if (!element) return setInView(false)
+    if (typeof IntersectionObserver === 'undefined') return setInView(true)
+    const observer = new IntersectionObserver(
+      ([entry]) => setInView(entry ? entry.intersectionRatio >= 0.9 : false),
+      { threshold: [0, 0.9, 1] },
+    )
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [element])
+  return inView
+}
+
 type ProposalNavigation = {
   onMenu: (task: FullDeckTask, event: MouseEvent) => void
 }
@@ -96,6 +123,14 @@ export const FlightDeckProposals = observer(function FlightDeckProposals({
   const submissions = submissionsFor(full)
   const trpc = useRuntimeSelector((store) => store.trpc)
   const ids = submissions.ids
+  // First Flights: the first proposal the operator has not acted on yet. A receipt
+  // (or a pending/failed command) is acted on, so the tip skips it.
+  const firstId = ids.find(
+    (id) => !submissions.byId.has(id) && settled(() => full.task(id).proposed) === true,
+  )
+  const [anchor, setAnchor] = useState<HTMLElement | null>(null)
+  const inView = useInView(firstId ? anchor : null)
+  useTipMoment('first-proposal', { active: !!firstId && inView, cards: firstProposalCards })
   if (!ids.length) return null
   return (
     <section className="flight-proposals" data-testid="flight-proposed" aria-label="Proposed">
@@ -111,6 +146,7 @@ export const FlightDeckProposals = observer(function FlightDeckProposals({
           task={full.task(id)}
           status={submissions.byId.get(id)}
           onSubmit={(verb) => void submissions.submit(id, verb, trpc)}
+          tipAnchor={id === firstId ? setAnchor : undefined}
           {...navigation}
         />
       ))}
@@ -124,11 +160,13 @@ const FullProposal = observer(function FullProposal({
   status,
   onSubmit,
   onMenu,
+  tipAnchor,
 }: {
   task: FullDeckTask
   provenance: ProposalProvenance
   status: Submission | undefined
   onSubmit: (verb: ProposalAction) => void
+  tipAnchor?: (element: HTMLDivElement | null) => void
 } & ProposalNavigation): JSX.Element | null {
   const drawable = settled(() => task.row.drawable) === true
   // A publication can beat the command response. Until that response arrives,
@@ -147,6 +185,8 @@ const FullProposal = observer(function FullProposal({
       data-flight-issue={receipt ? undefined : task.id}
       data-proposal-receipt={receipt ? task.id : undefined}
       aria-busy={pending || undefined}
+      ref={tipAnchor}
+      data-tip-anchor={tipAnchor ? FIRST_PROPOSAL_ANCHOR : undefined}
     >
       {/* biome-ignore lint/a11y/noStaticElementInteractions: context menu covers the line; its buttons provide keyboard actions. */}
       <div className="flight-proposal-line" onContextMenu={(event) => onMenu(task, event)}>

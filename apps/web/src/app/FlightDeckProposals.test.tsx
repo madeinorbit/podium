@@ -519,3 +519,18 @@ afterAll(() => {
   /* Full proposal triage.${css}</style><main><h1>Full proposal triage</h1><p>Actual rendered acceptance fixtures with production proposal CSS. Backlog promotes, Start delegates profiles and placement to the server, and Dismiss declines. Command receipts persist for this Full opening. Publication replaces the proposal row with a compact receipt so the accepted task appears once. These are static captures of tested states.</p>${captures.map((c) => `<article><h3>${c.title}</h3><div style="width:${c.width}px;max-width:100%">${c.html}</div></article>`).join('')}</main></html>`,
   )
 })
+
+it('anchors the first-proposal tip to the first proposal not yet acted on', async () => {
+  const f = await open([
+    issue('later', 4, 'parent', { stage: 'proposed', startedBySession: 'author' }),
+  ])
+  const anchors = () =>
+    [...f.ui.container.querySelectorAll('[data-tip-anchor="first-proposal"]')].map((row) =>
+      row.getAttribute('data-flight-issue'),
+    )
+  expect(anchors()).toEqual(['proposal'])
+  fireEvent.click(within(f.proposal()!).getByRole('button', { name: 'Backlog' }))
+  await waitFor(() => expect(f.ui.getByRole('status').textContent).toBe('In backlog'))
+  // The receipt no longer carries the anchor; the next live proposal does.
+  expect(anchors()).toEqual(['later'])
+})
