@@ -30,7 +30,7 @@ return <div ref={composer} data-tip-anchor="my-moment-composer">…</div>
 - `onShow` runs when each card opens; `onHide` runs before advancing, dismissing,
   disabling, or unmounting. Undo demos there. Demo text must never enter the real
   draft. Use `useReducedMotion` from `@/lib/use-reduced-motion` for custom animation.
-- Missing, hidden or offscreen anchors skip quietly. If no card showed, the log
+- Missing, hidden, offscreen or scroll-clipped anchors skip quietly. If no card showed, the log
   stays unseen. To retry, activate again when the anchor is available. If an anchor
   disappears after showing, the moment is dismissed and seen. The engine never
   scrolls an anchor into view or opens its containing panel.
@@ -38,6 +38,9 @@ return <div ref={composer} data-tip-anchor="my-moment-composer">…</div>
   closing a tip starts a twenty-second gap. Replay uses the same queue, ignores
   seen-state and `active`, and still needs the registration and anchor to exist.
   An unmounted logged moment stays in the guide with a return-to-moment hint.
+- Tips announce their title and body politely without moving focus. F6 moves focus
+  to the tip controls; F6 again returns to the prior control. Keyboard dismissal
+  also restores that control. Card changes preserve focus, and tall cards scroll.
 - The engine records `shown` once per opened moment, then `finished` or `dismissed`.
   Esc, × and outside clicks dismiss. Skip tips records `skipped-all`; the log marks
   all seven seen and disables tips. Nothing shows before `log.ready && log.enabled`.

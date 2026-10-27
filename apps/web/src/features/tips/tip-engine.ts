@@ -79,6 +79,11 @@ export class TipEngine {
   /** Called after a registration's render. Inline card arrays need no memoization. */
   @action refresh(): void {
     for (const registration of this.registrations) {
+      // Before hydration isSeen may conservatively return true. Preserve the edge.
+      if (!this.log.ready) {
+        registration.wasActive = false
+        continue
+      }
       const active = registration.read().active
       if (active && !registration.wasActive && !this.log.isSeen(registration.id)) {
         this.enqueue(registration, false)
@@ -113,8 +118,10 @@ export class TipEngine {
   }
   @action private reconcile(): void {
     if (!this.log.ready || !this.log.enabled) this.hideWithoutOutcome()
-    this.pending = this.pending.filter((p) => p.replay || !this.log.isSeen(p.registration.id))
-    this.schedule()
+    if (this.log.ready) {
+      this.pending = this.pending.filter((p) => p.replay || !this.log.isSeen(p.registration.id))
+      this.refresh()
+    } else this.schedule()
   }
   private schedule(): void {
     clearTimeout(this.timer)

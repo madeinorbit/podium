@@ -1,7 +1,15 @@
 import { Popover } from '@base-ui/react/popover'
 import { observer } from '@podium/client-graph/react'
 import { Send, X } from 'lucide-react'
-import { type CSSProperties, type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  type CSSProperties,
+  type ReactNode,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import { createPortal } from 'react-dom'
 import { useReducedMotion } from '@/lib/use-reduced-motion'
 import { findTipAnchor } from './anchors'
@@ -57,16 +65,8 @@ function HostWithLog({
 
 const TipLayer = observer(function TipLayer({ engine }: { engine: TipEngine }) {
   const current = engine.current
-  const registered = engine.registrations.length > 0
   useEffect(() => {
-    if (!registered) return
-    const input = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && engine.current) {
-        engine.close('dismissed')
-        event.preventDefault()
-        event.stopPropagation()
-      } else engine.input()
-    }
+    const input = () => engine.input()
     const wake = () => engine.wake()
     window.addEventListener('keydown', input, true)
     window.addEventListener('focus', wake)
@@ -76,7 +76,7 @@ const TipLayer = observer(function TipLayer({ engine }: { engine: TipEngine }) {
       window.removeEventListener('focus', wake)
       document.removeEventListener('visibilitychange', wake)
     }
-  }, [engine, registered])
+  }, [engine])
   const reducedMotion = useReducedMotion()
   const [stamp, setStamp] = useState<CSSProperties | null>(null)
   const finish = (element: HTMLElement | null) => {
@@ -93,9 +93,13 @@ const TipLayer = observer(function TipLayer({ engine }: { engine: TipEngine }) {
   }
   return (
     <>
+      <div className="tip-announcement" role="status" aria-live="polite" aria-atomic="true">
+        {current &&
+          `First flights. Card ${current.index + 1} of ${Math.min(2, current.registration.read().cards.length)}. ${current.card.title} ${current.card.body} Press F6 to reach the tip controls, and F6 again to return.`}
+      </div>
       {current && (
         <AnchoredTip
-          key={`${current.registration.id}:${current.index}`}
+          key={current.registration.id}
           engine={engine}
           current={current}
           onFinish={finish}
@@ -127,6 +131,38 @@ const AnchoredTip = observer(function AnchoredTip({
 }) {
   const anchor = findTipAnchor(current.card.anchor)
   const popup = useRef<HTMLDivElement>(null)
+  const returnFocus = useRef<HTMLElement | null>(null)
+  useLayoutEffect(() => {
+    returnFocus.current =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null
+  }, [])
+  const restoreFocus = () => {
+    if (returnFocus.current?.isConnected) returnFocus.current.focus({ preventScroll: true })
+  }
+  const dismiss = (keyboard: boolean) => {
+    engine.close('dismissed')
+    if (keyboard) restoreFocus()
+  }
+  useEffect(() => {
+    const key = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        engine.close('dismissed')
+        if (returnFocus.current?.isConnected) returnFocus.current.focus({ preventScroll: true })
+      } else if (event.key === 'F6' && !event.altKey && !event.ctrlKey && !event.metaKey) {
+        if (popup.current?.contains(document.activeElement)) {
+          if (returnFocus.current?.isConnected) returnFocus.current.focus({ preventScroll: true })
+        } else {
+          if (document.activeElement instanceof HTMLElement)
+            returnFocus.current = document.activeElement
+          popup.current?.querySelector('button')?.focus({ preventScroll: true })
+        }
+      } else return
+      event.preventDefault()
+      event.stopPropagation()
+    }
+    window.addEventListener('keydown', key, true)
+    return () => window.removeEventListener('keydown', key, true)
+  }, [engine])
   const [beacon, setBeacon] = useState<CSSProperties>()
   useEffect(() => {
     if (!anchor) {
@@ -155,7 +191,8 @@ const AnchoredTip = observer(function AnchoredTip({
     }
     measure()
     const resize = new ResizeObserver(schedule)
-    resize.observe(anchor)
+    for (let element: HTMLElement | null = anchor; element; element = element.parentElement)
+      resize.observe(element)
     const mutations = new MutationObserver(schedule)
     mutations.observe(document.body, {
       childList: true,
@@ -201,56 +238,68 @@ const AnchoredTip = observer(function AnchoredTip({
             collisionAvoidance={{ side: 'flip', align: 'shift', fallbackAxisSide: 'end' }}
             className="tip-positioner"
           >
-            <Popover.Popup ref={popup} className="tip-card" initialFocus={false} finalFocus={false}>
+            <Popover.Popup
+              ref={popup}
+              className="tip-card"
+              aria-keyshortcuts="F6"
+              initialFocus={false}
+              finalFocus={false}
+            >
               <Popover.Arrow className="tip-arrow">
                 <svg width="16" height="8" viewBox="0 0 16 8" aria-hidden="true">
                   <path d="M0 8L8 0L16 8" />
                 </svg>
               </Popover.Arrow>
-              <div className="tip-eyebrow">
-                <Send size={13} aria-hidden="true" />
-                <span>First flights</span>
-                <button
-                  type="button"
-                  className="tip-close"
-                  aria-label="Dismiss tip"
-                  onClick={() => engine.close('dismissed')}
-                >
-                  <X size={14} />
-                </button>
-              </div>
-              <Popover.Title className="tip-title">{current.card.title}</Popover.Title>
-              <Popover.Description className="tip-body">{current.card.body}</Popover.Description>
-              {current.card.extra && <div className="tip-extra">{current.card.extra}</div>}
-              <div className="tip-footer">
-                {count === 2 && (
-                  <span
-                    className="tip-pages"
-                    role="img"
-                    aria-label={`Card ${current.index + 1} of 2`}
+              <div className="tip-card-scroll">
+                <div className="tip-eyebrow">
+                  <Send size={13} aria-hidden="true" />
+                  <span>First flights</span>
+                  <button
+                    type="button"
+                    className="tip-close"
+                    aria-label="Dismiss tip"
+                    onClick={(event) => dismiss(event.detail === 0)}
                   >
-                    <i data-active={current.index === 0} />
-                    <i data-active={current.index === 1} />
-                  </span>
-                )}
-                <button
-                  type="button"
-                  className="tip-skip"
-                  onClick={() => engine.close('skipped-all')}
-                >
-                  Skip tips
-                </button>
-                <button
-                  type="button"
-                  className="tip-next"
-                  onClick={() => {
-                    if (last) onFinish(popup.current)
-                    engine.next()
-                    current.card.cta?.onClick()
-                  }}
-                >
-                  {current.card.cta?.label ?? (last ? 'Got it' : 'Next')}
-                </button>
+                    <X size={14} />
+                  </button>
+                </div>
+                <Popover.Title className="tip-title">{current.card.title}</Popover.Title>
+                <Popover.Description className="tip-body">{current.card.body}</Popover.Description>
+                {current.card.extra && <div className="tip-extra">{current.card.extra}</div>}
+                <div className="tip-footer">
+                  {count === 2 && (
+                    <span
+                      className="tip-pages"
+                      role="img"
+                      aria-label={`Card ${current.index + 1} of 2`}
+                    >
+                      <i data-active={current.index === 0} />
+                      <i data-active={current.index === 1} />
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    className="tip-skip"
+                    onClick={(event) => {
+                      engine.close('skipped-all')
+                      if (event.detail === 0) restoreFocus()
+                    }}
+                  >
+                    Skip tips
+                  </button>
+                  <button
+                    type="button"
+                    className="tip-next"
+                    onClick={(event) => {
+                      if (last) onFinish(popup.current)
+                      engine.next()
+                      if (last && event.detail === 0) restoreFocus()
+                      current.card.cta?.onClick()
+                    }}
+                  >
+                    {current.card.cta?.label ?? (last ? 'Got it' : 'Next')}
+                  </button>
+                </div>
               </div>
             </Popover.Popup>
           </Popover.Positioner>

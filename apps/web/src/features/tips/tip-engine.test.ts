@@ -2,7 +2,7 @@ import { runInAction } from 'mobx'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryTipLog } from './memory-tip-log'
 import { TIP_GAP_MS, TIP_QUIET_MS, TipEngine } from './tip-engine'
-import { TIP_IDS, type TipCard, type TipMoment } from './types'
+import { TIP_IDS, type TipCard, type TipId, type TipMoment } from './types'
 
 const card = (anchor = 'present'): TipCard => ({
   anchor,
@@ -78,6 +78,29 @@ describe('First Flights queue', () => {
     log.setEnabled(true)
     vi.advanceTimersByTime(0)
     expect(record).toHaveBeenCalledWith('first-prompt', 'shown')
+  })
+  it('preserves activation while an unhydrated account reports every moment seen', () => {
+    class HydratingLog extends MemoryTipLog {
+      override isSeen(id: TipId): boolean {
+        return !this.ready || super.isSeen(id)
+      }
+    }
+    const log = new HydratingLog()
+    runInAction(() => {
+      log.ready = false
+    })
+    const record = vi.spyOn(log, 'record')
+    const engine = new TipEngine(log, () => true)
+    stop = engine.connect()
+    engine.register('first-prompt', () => ({ active: true, cards: [card()] }))
+    engine.refresh()
+    vi.advanceTimersByTime(10_000)
+    expect(record).not.toHaveBeenCalled()
+    runInAction(() => {
+      log.ready = true
+    })
+    vi.advanceTimersByTime(0)
+    expect(record.mock.calls).toEqual([['first-prompt', 'shown']])
   })
   it('skips a missing anchor without recording or blocking the next moment', () => {
     const { engine, record, log } = fixture()
