@@ -200,7 +200,7 @@ function Surface() {
           <MessageLedgerView issueId={issue.id} sessionId={session.sessionId} />
         </section>
         <section data-utility-surface="cost">
-          <MissionCostChip issueId={issue.id} onOpenTask={() => {}} />
+          <MissionCostChip issueId={issue.id} />
         </section>
         <History />
       </main>

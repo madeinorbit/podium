@@ -879,11 +879,9 @@ const FullDeckBrief = observer(function FullDeckBrief({
 /** The gauge, the price and the mission's one action, on one baseline. */
 const DeckGaugeRow = observer(function DeckGaugeRow({
   screen,
-  onOpenTask,
   onAdd,
 }: {
   screen: MissionScreen
-  onOpenTask: () => void
   onAdd: (agentKind?: IssueAgentKind) => Promise<void>
 }): JSX.Element {
   const target = screen.rootAgentTarget
@@ -899,15 +897,9 @@ const DeckGaugeRow = observer(function DeckGaugeRow({
       {/* THE DECK'S ONE PRICE (POD-1862). One more object in this
         row, so it inherits the wrap above rather than adding a drop
         rung of its own, and it renders NOTHING at all until there
-        is a figure — see {@link MissionCostChip}. Its last line
-        takes the header's own promotion, because "open task"
-        and a double click on the header are the same request. */}
+        is a figure — see {@link MissionCostChip}. */}
       {screen.rootRow && (
-        <MissionCostChip
-          key={`cost:${screen.rootId}`}
-          issueId={screen.rootId as IssueId}
-          onOpenTask={onOpenTask}
-        />
+        <MissionCostChip key={`cost:${screen.rootId}`} issueId={screen.rootId as IssueId} />
       )}
       {screen.rootClosable && (
         <DeckAgentMenu
@@ -1546,11 +1538,7 @@ export const FlightDeckContent = observer(function FlightDeckContent({
               />
             </div>
             {/* ONE 26px FAMILY, ON ONE BASELINE (POD-1146). */}
-            <DeckGaugeRow
-              screen={screen}
-              onOpenTask={() => rootRow && selectIssue(rootRow, true)}
-              onAdd={addMissionAgent}
-            />
+            <DeckGaugeRow screen={screen} onAdd={addMissionAgent} />
           </div>
         </div>
         <FlightDeckFullCoordinator full={screen.full} {...fullActions} />

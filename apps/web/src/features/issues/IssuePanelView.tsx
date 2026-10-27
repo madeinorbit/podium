@@ -29,8 +29,6 @@ import { modChord } from '@/lib/mod-chord'
 import { cn } from '@/lib/utils'
 import { SessionNameEditor } from '@/lib/WorkerLabel'
 import { currentWorkspaceSlug } from '@/lib/workspace-request'
-import { TaskCostLine } from '../cost/TaskCostSection'
-import { useTaskCost } from '../cost/useTaskCost'
 import { inlineRenameEditor, useInlineRename } from '../worklist/use-inline-rename'
 import { IssueCompactControls } from './IssueCompactControls'
 import { IssueStatusPicker } from './IssueStatusPicker'
@@ -43,8 +41,8 @@ import { useIssuePageContext } from './issue-page/issue-page-data'
 import { useIssueStatusApply } from './use-issue-status-apply'
 
 // THE CALM COLUMN (POD-2077). One scroll, read top to bottom: the name and its
-// status, what the task is, then what it produced, what it is linked to, what
-// people said about it, and what it cost. Every section heading is the same
+// status, what the task is, then what it produced, what it is linked to, and what
+// people said about it. Every section heading is the same
 // quiet label + count; nothing in the column is boxed, and nothing is amber —
 // the offer card in chat is where a task asks for the operator now, so the
 // panel's old "Needs you" band, its roster, its activity log and its branch
@@ -762,7 +760,7 @@ export function IssuePanelEmpty(): JSX.Element {
 
 /**
  * Issue tab of the right dock: the task panel. One scroll — head, description,
- * the latest update (clamped), artifacts, relations, comments, cost.
+ * the latest update (clamped), artifacts, relations, comments.
  */
 import { PoolIssuePanelView } from './pool-issue-page'
 
@@ -798,26 +796,18 @@ export const IssuePanelBody = observer(function IssuePanelBody({
 }): JSX.Element {
   const page = useIssuePageContext()!
   const detail = page.views.row(page.issue.id)
-  const {
-    trpc,
-    updateIssue,
-    setPane,
-    setView,
-    setSelectedIssueId,
-    markIssueRead,
-    markSessionRead,
-  } = useRuntimeSelector(
-    (s) => ({
-      trpc: s.trpc,
-      updateIssue: s.updateIssue,
-      setPane: s.setPane,
-      setView: s.setView,
-      setSelectedIssueId: s.setSelectedIssueId,
-      markIssueRead: s.markIssueRead,
-      markSessionRead: s.markSessionRead,
-    }),
-    shallowEqual,
-  )
+  const { updateIssue, setPane, setView, setSelectedIssueId, markIssueRead, markSessionRead } =
+    useRuntimeSelector(
+      (s) => ({
+        updateIssue: s.updateIssue,
+        setPane: s.setPane,
+        setView: s.setView,
+        setSelectedIssueId: s.setSelectedIssueId,
+        markIssueRead: s.markIssueRead,
+        markSessionRead: s.markSessionRead,
+      }),
+      shallowEqual,
+    )
   const resolve = useIssueEdgeResolver()
   const openArtifactsTab = useOpenArtifactsTab()
   // Every task row in this column carries its own status door (POD-1271); the
@@ -825,8 +815,6 @@ export const IssuePanelBody = observer(function IssuePanelBody({
   const rowStatus = useIssueStatusApply()
   const { setFocusedIssueId } = useOperatorFocus()
   const issue = page.issue
-  // Read above the early return for an unresolvable id.
-  const { view: costView } = useTaskCost(trpc, issue?.id ?? null)
   const [showSubtasks, setShowSubtasks] = useState(false)
   // biome-ignore lint/correctness/useExhaustiveDependencies: reset only on issue switch
   useEffect(() => setShowSubtasks(false), [issue?.id])
@@ -1062,10 +1050,6 @@ export const IssuePanelBody = observer(function IssuePanelBody({
         )}
 
         <CommentsPart issue={issue} />
-
-        <section data-part="Cost" data-testid="dock-cost">
-          <TaskCostLine view={costView} />
-        </section>
       </div>
       {/* The close guard for a row picked from above — mounted at the column,
           not in the row, because a row can repaint or leave the list under it. */}
