@@ -57,6 +57,7 @@ const Chat = observer(function Chat(): JSX.Element {
     sessionId: SESSION,
     phase,
     viewing: true,
+    taskChat: true,
     onExample: (text) => {
       setDraft(draft.trim() ? `${draft}\n${text}` : text)
       taRef.current?.focus()

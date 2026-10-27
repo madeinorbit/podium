@@ -17,26 +17,27 @@ afterEach(() => {
 function Probe(props: {
   phase: AgentPhase | undefined
   viewing: boolean
+  taskChat?: boolean
   onExample?: (t: string) => void
 }) {
-  useAskAnythingTip({ sessionId: 's1', onExample: () => {}, ...props })
+  useAskAnythingTip({ sessionId: 's1', taskChat: true, onExample: () => {}, ...props })
   return null
 }
 
-function fixture() {
+function fixture(taskChat = true) {
   const log = new MemoryTipLog()
   const engine = new TipEngine(log, () => true)
   stop = engine.connect()
   const view = render(
     <TipContext.Provider value={engine}>
-      <Probe phase="working" viewing />
+      <Probe phase="working" viewing taskChat={taskChat} />
     </TipContext.Provider>,
   )
   const set = (phase: AgentPhase | undefined, viewing = true) =>
     act(() =>
       view.rerender(
         <TipContext.Provider value={engine}>
-          <Probe phase={phase} viewing={viewing} />
+          <Probe phase={phase} viewing={viewing} taskChat={taskChat} />
         </TipContext.Provider>,
       ),
     )
@@ -62,6 +63,13 @@ describe('ask-anything moment', () => {
     settle()
     expect(engine.current).toBeNull()
     set('idle', true)
+    settle()
+    expect(engine.current).toBeNull()
+  })
+
+  it('stays quiet in the superagent chat, which is not a task', () => {
+    const { engine, set, settle } = fixture(false)
+    set('idle')
     settle()
     expect(engine.current).toBeNull()
   })

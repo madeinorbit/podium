@@ -27,12 +27,16 @@ export function useAskAnythingTip({
   sessionId,
   phase,
   viewing,
+  taskChat,
   onExample,
 }: {
   sessionId: string
   phase: AgentPhase | undefined
   /** The chat is the one on screen. A turn that ends out of sight fires nothing. */
   viewing: boolean
+  /** A task's agent chat. The superagent's thread is not one: the moment
+   *  belongs to a task the person has open. */
+  taskChat: boolean
   onExample: (text: string) => void
 }): void {
   const [finished, setFinished] = useState(false)
@@ -42,7 +46,7 @@ export function useAskAnythingTip({
     previous.current = phase
   }, [phase, viewing])
   useTipMoment('ask-anything', {
-    active: finished && viewing,
+    active: finished && viewing && taskChat,
     cards: [
       {
         anchor: askAnythingAnchor(sessionId),

@@ -173,6 +173,7 @@ const ScopedChatComposer = observer(function ScopedChatComposer({
     sessionId,
     phase: chat.view.session?.agentState?.phase,
     viewing: active,
+    taskChat: superThread === undefined,
     onExample: (text) => {
       setDraft(draft.trim() ? `${draft}\n${text}` : text)
       taRef.current?.focus()
