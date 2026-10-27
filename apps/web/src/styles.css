@@ -9526,9 +9526,8 @@ a.ref-link--session::before {
 
 /* THE FOCUS CHORD (POD-993, back as keycaps in POD-2182). The one thing about
    this box a reader cannot discover by looking: how to get back into it
-   without the mouse. Drawn as two small keycaps beside the send cluster, faint
-   ink on the chip ground with a slightly heavier bottom edge so they read as
-   keys rather than text. Shown only while the field is unfocused AND empty, so
+   without the mouse. Drawn as two small tinted keycaps beside the send
+   cluster. Shown only while the field is unfocused AND empty, so
    it never sits beside the operator's own words, and decided entirely here:
    `:placeholder-shown` tracks the live value of the uncontrolled field, so the
    component never re-renders to show or hide it. It arrives slowly after a
@@ -9539,7 +9538,8 @@ a.ref-link--session::before {
   flex: none;
   align-items: center;
   align-self: center;
-  gap: 3px;
+  gap: 2px;
+  margin-right: 2px;
   pointer-events: none;
   user-select: none;
 }
@@ -9554,21 +9554,21 @@ a.ref-link--session::before {
   }
 }
 .composer-chord kbd {
-  display: inline-flex;
-  min-width: 20px;
-  height: 20px;
-  align-items: center;
-  justify-content: center;
-  padding: 0 5px;
-  border: 1px solid var(--chat-rim);
-  border-bottom-width: 2px;
+  display: inline-grid;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  place-items: center;
   border-radius: 5px;
-  background: var(--card);
-  color: var(--muted-foreground);
-  /* The sans face, not mono: ⌘ in most monospace faces is drawn at half the
-     size of the letter beside it. */
-  font-family: var(--font-sans, ui-sans-serif, system-ui, sans-serif);
-  font-size: 11.5px;
+  /* The command palette's keycap, a step larger: a tint rather than a box, so
+     it reads as a key without becoming the loudest thing in the field. The
+     1px shade along the bottom is the only bevel; a real border on both
+     caps outweighs the attach and mic icons beside them. */
+  background: color-mix(in srgb, var(--foreground) 7%, transparent);
+  box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--foreground) 9%, transparent);
+  color: var(--text-dim);
+  font-family: var(--font-sans);
+  font-size: 11px;
   font-weight: 500;
   line-height: 1;
 }

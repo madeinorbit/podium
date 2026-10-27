@@ -2,7 +2,16 @@ import { issueAgentKind, issueDefaultAgentKind } from '@podium/client-core/agent
 import type { SessionView } from '@podium/client-core/session-values'
 import type { TranscriptFreshness } from '@podium/client-core/transcript'
 import type { useVoiceInput } from '@podium/terminal-client-react'
-import { ArrowUp, CloudOff, MessageSquareText, Paperclip, RefreshCw, Square, X } from 'lucide-react'
+import {
+  ArrowUp,
+  CloudOff,
+  Command,
+  MessageSquareText,
+  Paperclip,
+  RefreshCw,
+  Square,
+  X,
+} from 'lucide-react'
 import { observer } from 'mobx-react-lite'
 import type { JSX, RefObject } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -744,8 +753,16 @@ export const ChatComposer = observer(function ChatComposer({
             />
             {!compact && !isMobile && (
               <span className="composer-chord" aria-hidden="true">
+                {/* ⌘ is drawn, not typed: Geist has no glyph for it, and the
+                    fallback face sets it heavier and lower than the letter. */}
                 {chordKeys().map((key) => (
-                  <kbd key={key}>{key}</kbd>
+                  <kbd key={key}>
+                    {key === '⌘' ? (
+                      <Command size={10} strokeWidth={2.25} aria-hidden="true" />
+                    ) : (
+                      key
+                    )}
+                  </kbd>
                 ))}
               </span>
             )}
