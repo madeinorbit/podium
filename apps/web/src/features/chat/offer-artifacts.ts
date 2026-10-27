@@ -39,8 +39,10 @@ export function resolveOfferArtifacts(args: {
   // no baseline to call an artifact "new" against.
   if (!args.lastInputAt) return []
   const since = args.lastInputAt
+  // A chat upload (POD-2148) lands right after the person's own send; it is
+  // their file, not evidence the agent produced.
   return published
-    .filter((a) => a.addedAt > since)
+    .filter((a) => a.addedAt > since && a.chatUploadId === undefined)
     .sort((a, b) => b.addedAt.localeCompare(a.addedAt))
     .slice(0, 3)
 }

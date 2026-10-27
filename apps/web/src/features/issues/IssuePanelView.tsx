@@ -512,17 +512,26 @@ const ArtifactsPart = observer(function ArtifactsPart({
     shallowEqual,
   )
   const panel = issue.panel
-  const artifacts = panel?.artifacts ?? []
+  const all = panel?.artifacts ?? []
+  // Files people attached in the issue's chats (POD-2148) are kept for the
+  // chat's thumbnails, not published: they sit under their own folded heading
+  // so they never crowd out what the agent put up for review.
+  const artifacts = all.filter((a) => a.chatUploadId === undefined)
+  const chatUploads = all.filter((a) => a.chatUploadId !== undefined)
   const deferred = panel?.deferred ?? []
   // An issue with no dedicated worktree is worked in the repo's primary
   // checkout — serve its artifacts from there.
   const root = issue.worktreePath ?? issue.repoPath
   const [lightbox, setLightbox] = useState<string | null>(null)
   const [expanded, setExpanded] = useState(false)
+  const [uploadsOpen, setUploadsOpen] = useState(false)
   // biome-ignore lint/correctness/useExhaustiveDependencies: reset only on issue switch
-  useEffect(() => setExpanded(false), [issue.id])
+  useEffect(() => {
+    setExpanded(false)
+    setUploadsOpen(false)
+  }, [issue.id])
 
-  if (artifacts.length === 0 && deferred.length === 0) return null
+  if (all.length === 0 && deferred.length === 0) return null
 
   const srcOf = (a: IssuePanelArtifact): string | null =>
     // Snapshotted artifacts ([spec:SP-0fc9]) serve from the permanent store;
@@ -571,6 +580,29 @@ const ArtifactsPart = observer(function ArtifactsPart({
         issueId: issue.id,
       })
     }
+  }
+
+  const artifactRow = (a: IssuePanelArtifact, testId: string): JSX.Element => {
+    const kind = kindOf(a)
+    const Icon = kind === 'image' ? ImageIcon : kind === 'video' ? Film : FileText
+    return (
+      <button
+        key={a.path}
+        data-pressable
+        type="button"
+        data-testid={testId}
+        disabled={!root && !a.artifactId}
+        onClick={() => open(a)}
+        title={a.path}
+        className="flex h-[30px] w-full min-w-0 items-center gap-2 rounded-[5px] text-left text-[12.5px] text-foreground hover:bg-accent/40 disabled:opacity-50"
+      >
+        <Icon size={13} className="flex-none text-text-faint" aria-hidden="true" />
+        <span className="min-w-0 flex-1 truncate">{a.title ?? basename(a.path)}</span>
+        <span className="flex-none font-mono text-[10.5px] text-text-faint">
+          {shortDate(a.addedAt)}
+        </span>
+      </button>
+    )
   }
 
   return (
@@ -644,28 +676,29 @@ const ArtifactsPart = observer(function ArtifactsPart({
           )}
           {listed.length > 0 && (
             <div className="flex flex-col">
-              {listed.map((a) => {
-                const kind = kindOf(a)
-                const Icon = kind === 'image' ? ImageIcon : kind === 'video' ? Film : FileText
-                return (
-                  <button
-                    key={a.path}
-                    data-pressable
-                    type="button"
-                    data-testid="dock-artifact-row"
-                    disabled={!root && !a.artifactId}
-                    onClick={() => open(a)}
-                    title={a.path}
-                    className="flex h-[30px] w-full min-w-0 items-center gap-2 rounded-[5px] text-left text-[12.5px] text-foreground hover:bg-accent/40 disabled:opacity-50"
-                  >
-                    <Icon size={13} className="flex-none text-text-faint" aria-hidden="true" />
-                    <span className="min-w-0 flex-1 truncate">{a.title ?? basename(a.path)}</span>
-                    <span className="flex-none font-mono text-[10.5px] text-text-faint">
-                      {shortDate(a.addedAt)}
-                    </span>
-                  </button>
-                )
-              })}
+              {listed.map((a) => artifactRow(a, 'dock-artifact-row'))}
+            </div>
+          )}
+        </PanelSection>
+      )}
+
+      {chatUploads.length > 0 && (
+        <PanelSection
+          title="Chat uploads"
+          count={chatUploads.length}
+          testId="dock-chat-uploads"
+          action={
+            <SectionAction
+              onClick={() => setUploadsOpen((v) => !v)}
+              testId="dock-chat-uploads-toggle"
+            >
+              {uploadsOpen ? 'Hide' : 'Show'}
+            </SectionAction>
+          }
+        >
+          {uploadsOpen && (
+            <div className="flex flex-col">
+              {[...chatUploads].reverse().map((a) => artifactRow(a, 'dock-chat-upload-row'))}
             </div>
           )}
         </PanelSection>
@@ -694,7 +727,10 @@ const ArtifactsPart = observer(function ArtifactsPart({
 
       {lightbox && (
         <ArtifactLightbox
-          artifacts={artifacts}
+          // Browse within the group the opened file belongs to.
+          artifacts={
+            chatUploads.some((a) => artifactLightboxKey(a) === lightbox) ? chatUploads : artifacts
+          }
           selected={lightbox}
           onSelect={setLightbox}
           onClose={() => setLightbox(null)}

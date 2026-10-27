@@ -26,6 +26,7 @@ import { renderMarkdown, sanitizeRenderedMarkdown } from '@/lib/markdown'
 import { renderMarkdownUnsafe } from '@/lib/markdown-renderer'
 import { cn } from '@/lib/utils'
 import { ChatBlockView, type ProcessPosition, type TurnPosition } from './ChatBlockView'
+import { ChatUploadThumb } from './ChatUploadThumb'
 import type { PendingItem } from './chat'
 import { MetaGlyph } from './MetaGlyph'
 import { ToolBatchView } from './ToolBatchView'
@@ -555,7 +556,37 @@ export const TranscriptFeed = observer(function TranscriptFeed(props: Transcript
                 >
                   <div className="transcript-you-body">
                     <div className="chat-md whitespace-pre-wrap">{p.text}</div>
-                    {p.tags && p.tags.length > 0 && (
+                    {p.files && p.files.length > 0 ? (
+                      <div className="mt-1.5 flex flex-wrap items-start gap-1.5">
+                        {p.files.map((file, i) => {
+                          // Until the issue holds its copy (POD-2148) a file
+                          // shows as the labelled chip it always did.
+                          const chip = (
+                            <span
+                              key={`${file.attachmentId ?? file.path}-${i}`}
+                              className="inline-flex items-center gap-1 rounded border border-input px-[7px] py-0.5 text-[11px] text-muted-foreground"
+                            >
+                              <ImageIcon size={12} aria-hidden="true" />
+                              {file.path}
+                            </span>
+                          )
+                          return file.kind === 'image' ? (
+                            <ChatUploadThumb
+                              key={`${file.attachmentId ?? file.path}-${i}`}
+                              sessionId={sessionId}
+                              attachmentId={file.attachmentId}
+                              fallbackUrl={null}
+                              name={file.path}
+                              httpOrigin={httpOrigin}
+                              onOpenImage={onOpenImage}
+                              fallback={chip}
+                            />
+                          ) : (
+                            chip
+                          )
+                        })}
+                      </div>
+                    ) : p.tags && p.tags.length > 0 && (
                       <div className="mt-1.5 flex flex-wrap gap-1.5">
                         {p.tags.map((tag, i) => (
                           <span

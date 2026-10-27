@@ -60,8 +60,17 @@ export interface ConversationSendInput {
   tags?: TranscriptTag[]
   toolPaths?: string[]
   attachments?: readonly RuntimeAttachmentRef[]
-  files?: readonly { path: string }[]
+  files?: readonly ConversationFile[]
   acceptsAppendedBrief?: boolean
+}
+
+/** A file a bubble names. `attachmentId` is the id a chat attachment was
+ *  staged under, which finds the issue's stored copy of it (POD-2148). */
+export interface ConversationFile {
+  /** For a chat attachment, the name the person's file had. */
+  path: string
+  kind?: 'image' | 'file'
+  attachmentId?: string
 }
 
 export interface ConversationContext {

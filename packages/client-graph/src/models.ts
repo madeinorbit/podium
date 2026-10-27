@@ -1,5 +1,5 @@
 import { type IssueNavigationModel, issuePendingDecision } from '@podium/client-core/values'
-import type { IssueGitState, IssueProjection } from '@podium/model'
+import type { IssueGitState, IssuePanel, IssuePanelArtifact, IssueProjection } from '@podium/model'
 import { isGone, type Lookup, omitGone } from './lookup'
 import type { MessageModel, PendingInteractionModel } from './message-models'
 import type { AccountModel, DeviceModel, MemberModel, PodiumSettingsModel, RepositoryModel } from './requested-models'
@@ -347,6 +347,17 @@ export class IssueModel extends EntityModel {
 
   @lazy get authoredTitle(): string {
     return String(this.storedField('title') ?? '')
+  }
+
+  // Chat uploads (POD-2148): the stored copy of each file attached in one of
+  // this issue's chats, by the attachment id it was staged under. The chat
+  // shows a thumbnail from it once the daemon's upload sweep deleted the file.
+  @lazy get chatUploads(): ReadonlyMap<string, IssuePanelArtifact> {
+    const panel = this.storedField('panel') as IssuePanel | undefined
+    const out = new Map<string, IssuePanelArtifact>()
+    for (const artifact of panel?.artifacts ?? [])
+      if (artifact.chatUploadId && artifact.artifactId) out.set(artifact.chatUploadId, artifact)
+    return out
   }
   @lazy get description(): string {
     return documentText(this.storedField('description'))

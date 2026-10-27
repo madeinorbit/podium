@@ -1,6 +1,7 @@
 import { loadedPaneSession, paneMachines } from '@podium/client-graph/session-pane'
 import { omitGone } from '@podium/client-graph/lookup'
 import type { SessionView } from '@podium/client-core/session-values'
+import { artifactUrl } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph'
 import type { ChatContextRows } from '@podium/client-graph/chat-context-schema'
 import type { SessionExitRows } from '@podium/client-graph/session-exit-schema'
@@ -9,6 +10,7 @@ import { useCallback, useEffect, useMemo } from 'react'
 import { useWorklistPool, useWorklistPoolProjection } from '@/app/store-worklist-pool'
 import type { AtOption } from '@/lib/at-mention/at-mention'
 import { issueMentions } from '@/lib/at-mention/mention-sources'
+import { currentWorkspaceSlug } from '@/lib/workspace-request'
 
 const pending = (row: unknown): row is symbol => typeof row === 'symbol'
 const EMPTY_OPTIONS: AtOption[] = []
@@ -100,6 +102,51 @@ export function useChatArtifactIssue(session: Pick<SessionView, 'sessionId' | 'i
     [issueId, sessionId],
   )
   return useWorklistPoolProjection(read, undefined)
+}
+/** The stored-copy URL for a file attached in this session's chat (POD-2148),
+ * by attachment id, or null when the issue holds no copy of it and the caller
+ * keeps its fallback. A string, so a panel change elsewhere does not redraw
+ * the thumbnail. */
+export function useChatUploadSrc(
+  sessionId: SessionId,
+  attachmentId: string | undefined,
+  httpOrigin: string,
+) {
+  const read = useCallback(
+    (pool: MobxPool) => {
+      const reader = omitGone(pool.row('chatContextReader', 'reader'))
+      const found =
+        attachmentId && reader && !pending(reader)
+          ? reader.chatUpload(sessionId, attachmentId)
+          : undefined
+      return found
+        ? artifactUrl({
+            httpOrigin,
+            workspace: currentWorkspaceSlug(),
+            issueId: found.issueId,
+            artifact: found.artifact,
+          })
+        : null
+    },
+    [sessionId, attachmentId, httpOrigin],
+  )
+  return useWorklistPoolProjection(read, null)
+}
+const NO_ATTACHMENTS: readonly { id?: string; filename: string; kind: 'image' | 'file' }[] = []
+/** The attachments of the chat message matched to this history entry
+ * (POD-2148), for an entry that names none of its own. */
+export function useChatItemAttachments(sessionId: SessionId, itemId: string) {
+  const read = useCallback(
+    (pool: MobxPool) => {
+      const reader = omitGone(pool.row('chatContextReader', 'reader'))
+      return (
+        (reader && !pending(reader) ? reader.itemAttachments(sessionId, itemId) : undefined) ??
+        NO_ATTACHMENTS
+      )
+    },
+    [sessionId, itemId],
+  )
+  return useWorklistPoolProjection(read, NO_ATTACHMENTS)
 }
 export function useChatIssueSeq() {
   const pool = useWorklistPool()

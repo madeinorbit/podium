@@ -16,7 +16,6 @@ import {
   Clock,
   FilePen,
   FileText,
-  Image as ImageIcon,
   Layers2,
   MessageCircleQuestion,
 } from 'lucide-react'
@@ -29,13 +28,14 @@ import { useKnownRefPrefixesVersion } from '@/lib/use-known-ref-prefixes'
 import { cn } from '@/lib/utils'
 import { AskUserQuestionCard } from './AskUserQuestionCard'
 import { AttributionMark } from './AttributionMark'
+import { ChatUploadThumb, ItemAttachmentTags, stagedAttachmentId } from './ChatUploadThumb'
 import type { ChatBlock } from './chat'
 import { handleChatMdClick } from './chat-md-click'
 import { MachineContextRow } from './MachineContextRow'
 import { InboxReadRow, SentNoteRow } from './MailCommandRow'
 import { MessageEnvelopeGroup } from './MessageEnvelopeGroup'
 import { MetaGlyph } from './MetaGlyph'
-import { SendUserFileBlock, SentImageThumb } from './SendUserFileBlock'
+import { SendUserFileBlock } from './SendUserFileBlock'
 import { ToolBlock } from './ToolBlock'
 import { clockLabel, fullTimeLabel, parseTs } from './transcript-time'
 
@@ -744,35 +744,30 @@ export const ChatBlockView = memo(function ChatBlockView({
                 {name}
               </button>
             )
-            if (isImagePath(p)) {
-              const url = assetUrl({ httpOrigin, sessionId, fileDir: cwd, src: abs })
-              if (url)
-                return (
-                  <SentImageThumb
-                    key={p}
-                    url={url}
-                    name={name}
-                    onOpen={() => onOpenImage(url)}
-                    fallback={chip}
-                  />
-                )
-            }
+            if (isImagePath(p))
+              return (
+                <ChatUploadThumb
+                  key={p}
+                  sessionId={sessionId}
+                  attachmentId={stagedAttachmentId(abs)}
+                  fallbackUrl={assetUrl({ httpOrigin, sessionId, fileDir: cwd, src: abs })}
+                  name={name}
+                  httpOrigin={httpOrigin}
+                  onOpenImage={onOpenImage}
+                  fallback={chip}
+                />
+              )
             return chip
           })}
-          {(item.toolPaths?.length ?? 0) === 0 &&
-            item.tags?.map((tag, i) => (
-              <span
-                key={`${tag.kind}-${i}`}
-                className="inline-flex items-center gap-1 rounded border border-input px-[7px] py-0.5 text-[11px] text-muted-foreground"
-              >
-                {tag.kind === 'image' ? (
-                  <ImageIcon size={12} aria-hidden="true" />
-                ) : (
-                  <FileText size={12} aria-hidden="true" />
-                )}
-                {tag.label ?? tag.kind}
-              </span>
-            ))}
+          {(item.toolPaths?.length ?? 0) === 0 && item.tags && (
+            <ItemAttachmentTags
+              sessionId={sessionId}
+              itemId={item.id}
+              tags={item.tags}
+              httpOrigin={httpOrigin}
+              onOpenImage={onOpenImage}
+            />
+          )}
         </div>
       )}
     </>

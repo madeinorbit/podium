@@ -1,4 +1,4 @@
-import type { ConversationMessage } from './contracts'
+import type { ConversationFile, ConversationMessage } from './contracts'
 import type { TranscriptTag } from '@podium/model'
 import { deadLetterDeliveryLine, MessageDelivery, readDeliveryStatus } from '@podium/model'
 import type { RuntimeAttachmentRef } from '@podium/protocol/daemon'
@@ -32,7 +32,7 @@ export interface ConversationPendingTurn {
   queuePosition?: number
   tags?: TranscriptTag[]
   toolPaths?: string[]
-  files?: readonly { path: string }[]
+  files?: readonly ConversationFile[]
   /**
    * How the bubble learns the agent has the message. By default (`record`) from
    * the server's synced record: the bubble leaves when the history entry the
@@ -194,7 +194,13 @@ function fromRecord(received: ConversationMessage): ConversationBubble {
     at: Date.parse(record.createdAt) || 0,
     kind: 'message',
     ...(record.attachments?.length
-      ? { files: record.attachments.map((attachment) => ({ path: attachment.filename })) }
+      ? {
+          files: record.attachments.map((attachment) => ({
+            path: attachment.filename,
+            kind: attachment.kind,
+            ...(attachment.id ? { attachmentId: attachment.id } : {}),
+          })),
+        }
       : {}),
     state,
     record,

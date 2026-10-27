@@ -192,6 +192,12 @@ export const IssuePanelArtifact = z.object({
    * issue's pinned worktree. Present only for the explicit terminal-evidence
    * path; ordinary artifacts omit it and retain the owning-worktree rule. */
   sourceKind: z.literal('terminal-evidence').optional(),
+  /** Set on the copy of a file a person attached in a session's chat (POD-2148):
+   *  the attachment id it was staged under. The chat shows its thumbnail from
+   *  this copy once the daemon's 24h upload sweep removed the staged file. A
+   *  field of its own, not a `sourceKind`, so a reader that predates it keeps
+   *  the entry as an ordinary artifact instead of refusing the panel. */
+  chatUploadId: z.string().optional(),
   /** Permanent-store snapshot id ([spec:SP-0fc9] #441). Present ⇒ the bytes are
    *  served from `<state-dir>/artifacts/<issueId>/<artifactId>/` via the
    *  server-local /files/artifact route; absent (pre-existing entries) ⇒ legacy

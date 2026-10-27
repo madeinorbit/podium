@@ -128,7 +128,8 @@ export function messageRecordOf(row: MessageRow): MessageRecordWire | null {
     body: row.body,
     ...(row.attachments?.length
       ? {
-          attachments: row.attachments.map(({ filename, mediaType, kind }) => ({
+          attachments: row.attachments.map(({ id, filename, mediaType, kind }) => ({
+            id,
             filename,
             mediaType,
             kind,

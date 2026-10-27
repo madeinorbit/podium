@@ -525,7 +525,17 @@ export class Sends {
       ...(input.backend ? { backend: input.backend } : {}),
       ...(input.tags && input.tags.length > 0 ? { tags: input.tags } : {}),
       ...(input.toolPaths && input.toolPaths.length > 0 ? { toolPaths: input.toolPaths } : {}),
-      ...(input.files && input.files.length > 0 ? { files: input.files } : {}),
+      ...(input.files && input.files.length > 0
+        ? { files: input.files }
+        : input.attachments && input.attachments.length > 0
+          ? {
+              files: input.attachments.map((attachment) => ({
+                path: attachment.filename,
+                kind: attachment.kind,
+                attachmentId: attachment.id,
+              })),
+            }
+          : {}),
       ...(input.attachments && input.attachments.length > 0
         ? { attachments: input.attachments }
         : {}),

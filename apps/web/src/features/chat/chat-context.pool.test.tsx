@@ -12,6 +12,8 @@ import {
   chatInteractions,
   chatMentionIssues,
   chatReferenceSessions,
+  chatItemAttachments,
+  chatUploadArtifact,
 } from '@podium/client-graph/chat-context'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
 import { SESSION_EXIT_ENTITIES } from '@podium/client-graph/session-exit-schema'
@@ -113,6 +115,7 @@ vi.mock('@/lib/ModelEffortPicker', () => ({
 
 import { observer } from 'mobx-react-lite'
 import { ChatComposer } from './ChatComposer'
+import { ItemAttachmentTags } from './ChatUploadThumb'
 import { OfferArtifactStrip } from './OfferArtifactStrip'
 import {
   useChatArtifactIssue,
@@ -128,6 +131,7 @@ import {
   useChatSessionExitKind,
   useChatThreads,
   useChatThread,
+  useChatUploadSrc,
 } from './use-chat-context'
 import { useChatConversationPorts } from './test-support/conversation-ports'
 import { useModelSend } from './test-support/model-send'
@@ -250,6 +254,133 @@ it('drops deleted issue artifacts while preserving addressed issue-sequence look
   corpus.deleteIssue()
   expect(chatArtifactIssue(corpus.pool, corpus.sessions[0]!)).toBeUndefined()
   expect(corpus.check()).toMatchObject({ differences: 0, pending: 0 })
+})
+
+it('resolves a chat attachment id to its stored copy on the session issue (POD-2148)', async () => {
+  const corpus = f.fixture!
+  await corpus.load()
+  const session = corpus.sessions[0]!
+  const issue = corpus.issues[0]!
+  const upload = {
+    path: 'chat-uploads/att-1/shot.png',
+    title: 'shot.png',
+    artifactId: 'upload-copy',
+    entry: 'shot.png',
+    chatUploadId: 'att-1',
+    addedAt: '2026-10-01T12:05:00Z',
+  }
+  const { result } = renderHook(() =>
+    useChatUploadSrc(session.sessionId, 'att-1', 'http://synthetic.invalid'),
+  )
+  expect(result.current).toBeNull()
+
+  act(() => {
+    corpus.issues[0] = {
+      ...issue,
+      panel: { ...issue.panel!, artifacts: [...issue.panel!.artifacts, upload] },
+    } as never
+    corpus.pool.apply({
+      type: 'update',
+      rows: [{ kind: 'issue', id: issue.id, value: corpus.issues[0] as never }],
+    })
+  })
+  expect(chatUploadArtifact(corpus.pool, session.sessionId, 'att-1')).toEqual({
+    issueId: issue.id,
+    artifact: expect.objectContaining({ artifactId: 'upload-copy' }),
+  })
+  expect(result.current).toBe(
+    `http://synthetic.invalid/files/artifact/${issue.id}/upload-copy/shot.png`,
+  )
+  // Only chat uploads resolve, by their id: a published artifact's path and an
+  // unknown id keep the caller's fallback.
+  expect(chatUploadArtifact(corpus.pool, session.sessionId, 'concept.html')).toBeUndefined()
+  expect(chatUploadArtifact(corpus.pool, session.sessionId, 'att-2')).toBeUndefined()
+})
+
+it('shows a path-less image turn from its matched message record’s stored copy (POD-2148)', async () => {
+  // Claude Code's record for an image prompt sent while it was busy: the image
+  // block and a bare `[Image #1]` placeholder, with no `[Image: source: …]`
+  // marker, so the entry has an image tag and nothing to find the copy by.
+  const { transcriptRecordMapperFor } = await import('@podium/harness/metadata')
+  const toItems = transcriptRecordMapperFor('claude-code')!
+  const [item] = toItems({
+    type: 'user',
+    uuid: 'u-queued',
+    timestamp: '2026-10-01T12:00:10.000Z',
+    message: {
+      role: 'user',
+      content: [
+        { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'AAAA' } },
+        { type: 'text', text: '[Image #1]Strict second: cat picture' },
+      ],
+    },
+  })
+  expect(item).toMatchObject({ id: 'u-queued', tags: [{ kind: 'image' }] })
+  expect(item).not.toHaveProperty('toolPaths')
+
+  const corpus = f.fixture!
+  await corpus.load()
+  const session = corpus.sessions[0]!
+  const issue = corpus.issues[0]!
+  const view = render(
+    <ItemAttachmentTags
+      sessionId={session.sessionId}
+      itemId={item!.id}
+      tags={item!.tags!}
+      httpOrigin="http://synthetic.invalid"
+      onOpenImage={() => {}}
+    />,
+  )
+  // No matched record yet: the chip it always was.
+  expect(view.container.querySelector('img')).toBeNull()
+  expect(view.container.textContent).toBe('image')
+
+  act(() => {
+    corpus.updateMessages(
+      corpus.data.messages.map((row) =>
+        row.id === 'notice-message-4'
+          ? {
+              ...row,
+              transcriptItem: { id: 'u-queued', cursor: 'c-queued' },
+              attachments: [
+                { id: 'att-9', filename: 'cat.png', mediaType: 'image/png', kind: 'image' as const },
+              ],
+            }
+          : row,
+      ),
+      ['notice-message-4'],
+    )
+    corpus.issues[0] = {
+      ...issue,
+      panel: {
+        ...issue.panel!,
+        artifacts: [
+          ...issue.panel!.artifacts,
+          {
+            path: 'chat-uploads/att-9/cat.png',
+            title: 'cat.png',
+            artifactId: 'cat-copy',
+            entry: 'cat.png',
+            chatUploadId: 'att-9',
+            addedAt: '2026-10-01T12:00:11Z',
+          },
+        ],
+      },
+    } as never
+    corpus.pool.apply({
+      type: 'update',
+      rows: [{ kind: 'issue', id: issue.id, value: corpus.issues[0] as never }],
+    })
+  })
+  expect(chatItemAttachments(corpus.pool, session.sessionId, 'u-queued')).toEqual([
+    expect.objectContaining({ id: 'att-9' }),
+  ])
+  await waitFor(() =>
+    expect(view.container.querySelector('img')?.getAttribute('src')).toBe(
+      `http://synthetic.invalid/files/artifact/${issue.id}/cat-copy/cat.png`,
+    ),
+  )
+  expect(view.container.textContent).toBe('')
 })
 
 it('updates addressed records, question membership and outbox without re-reading collections', async () => {

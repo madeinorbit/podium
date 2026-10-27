@@ -4,7 +4,7 @@ import { action, compareStructural, observable, observableRef, when } from 'mobx
 import { headerEntities } from './header-entities'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
-import type { MachineWire } from '@podium/model'
+import type { IssueId, IssuePanelArtifact, MachineWire } from '@podium/model'
 import { dedupeSessionsByResume } from '@podium/model'
 import { companion, lazy } from '@podium/mobx-helpers'
 import type { PendingInteractionWire } from '@podium/protocol'
@@ -119,6 +119,20 @@ export function chatRecords(pool: MobxPool, sessionId: string) {
     }
   return { records, pending }
 }
+/** The attachments of the chat message the server matched to this history
+ * entry (POD-2148). Claude Code can record an image turn with no source path
+ * (a prompt queued while it was busy, or a bare `[Image #N]`), so the entry
+ * carries image tags and nothing to find the stored copy by; the message's
+ * record does. Only the records the feed holds for the session are searched. */
+export function chatItemAttachments(
+  pool: MobxPool,
+  sessionId: string,
+  itemId: string,
+): MessageModel['attachments'] {
+  for (const record of chatRecords(pool, sessionId).records)
+    if (record.transcriptItem?.id === itemId) return record.attachments
+  return undefined
+}
 export function chatArtifactIssue(
   pool: MobxPool,
   session: Pick<SessionView, 'issueId' | 'sessionId'>,
@@ -132,6 +146,24 @@ export function chatArtifactIssue(
   const owner = pool.relations.one('session', session.sessionId, 'pageIssue')
   const issue = owner ? (omitGone(pool.row('issue', owner)) as Loaded<IssueViewModel>) : undefined
   return issue && !loading(issue) && issue.deletedAt ? undefined : issue
+}
+/** The stored copy of a file attached in this session's chat (POD-2148), by
+ * the attachment id it was staged under, from the session's issue. Undefined
+ * while either record is on its way, for a session with no issue, and for an
+ * attachment no copy was taken of. */
+export function chatUploadArtifact(
+  pool: MobxPool,
+  sessionId: string,
+  attachmentId: string,
+): { issueId: IssueId; artifact: IssuePanelArtifact } | undefined {
+  const session = omitGone(pool.row('session', sessionId)) as Loaded<SessionView>
+  if (!session || loading(session)) return undefined
+  const issue = chatArtifactIssue(pool, { sessionId: session.sessionId, issueId: session.issueId })
+  if (!issue || loading(issue)) return undefined
+  const model = omitGone(pool.model('issue', issue.id))
+  if (!model || loading(model)) return undefined
+  const artifact = model.chatUploads.get(attachmentId)
+  return artifact ? { issueId: issue.id, artifact } : undefined
 }
 export function chatReferenceSessions(pool: MobxPool, counts = readerCounts(pool)) {
   return pool.sources
@@ -233,6 +265,10 @@ export function createChatContextReader(pool: MobxPool) {
     records: (id: string) => chatRecords(pool, id),
     artifactIssue: (session: Pick<SessionView, 'sessionId' | 'issueId'>) =>
       chatArtifactIssue(pool, session),
+    chatUpload: (sessionId: string, attachmentId: string) =>
+      chatUploadArtifact(pool, sessionId, attachmentId),
+    itemAttachments: (sessionId: string, itemId: string) =>
+      chatItemAttachments(pool, sessionId, itemId),
     referencePicker: () => createReferencePicker(pool),
     sessions: () => chatReferenceSessions(pool, counts),
     machines: () => chatReferenceMachines(pool),
