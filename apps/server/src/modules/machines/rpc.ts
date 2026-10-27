@@ -60,7 +60,6 @@ import { SERVER_TRANSFER_MAX_CHUNK_BYTES } from '@podium/protocol'
 import type {
   ControlMessage,
   DaemonMessage,
-  RuntimeAttachmentRef,
   RuntimeConfigureResultMessage,
   RuntimeDraftResultMessage,
   RuntimeHistoryResultMessage,
@@ -71,6 +70,7 @@ import type {
   ShippingJobRequestMessage,
   ShippingJobResult,
   ShippingRepairApplyResultMessage,
+  StagedAttachmentRef,
   TurnDelivery,
   TurnReceipt,
 } from '@podium/protocol/daemon'
@@ -904,7 +904,7 @@ export class DaemonRpcService {
       text: string
       origin: ObservationInputOrigin
       delivery: TurnDelivery
-      attachments?: readonly RuntimeAttachmentRef[]
+      attachments?: readonly StagedAttachmentRef[]
       allowedTools?: string[]
       permissionMode?: string
       toolPolicy?: 'none'
@@ -970,7 +970,7 @@ export class DaemonRpcService {
   async runtimeStageAttachment(
     input: {
       sessionId: SessionId
-      source: { bytes: Uint8Array; filename: string; mediaType: string }
+      source: { bytes: Uint8Array; filename: string; mediaType: string; id?: string }
     },
     machineId: MachineId,
   ): Promise<Payload<RuntimeStageAttachmentResultMessage>> {
@@ -986,6 +986,7 @@ export class DaemonRpcService {
           dataBase64: Buffer.from(input.source.bytes).toString('base64'),
           filename: input.source.filename,
           mediaType: input.source.mediaType,
+          ...(input.source.id ? { id: input.source.id } : {}),
         },
       }),
       machineId,

@@ -38,6 +38,33 @@ describe('runtime attachment staging', () => {
     expect((await stat(staged.path)).mode & 0o777).toBe(0o600)
   })
 
+  it('stages under a caller-chosen UUID, landing on the same path every time (POD-2148)', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'podium-attachment-id-'))
+    roots.push(root)
+    const id = '3f2b8c1e-9a4d-4e7f-8b21-0c5d6e7f8a9b'
+    const stage = async (bytes: Uint8Array) =>
+      await writeRuntimeAttachment(root, {
+        sessionId: asSessionId('session-id'),
+        source: { bytes, filename: 'shot.png', mediaType: 'image/png', id },
+      })
+    const first = await stage(new Uint8Array([1]))
+    const again = await stage(new Uint8Array([2]))
+    expect(first).toMatchObject({ id, path: join(root, 'uploads', 'session-id', `${id}.png`) })
+    expect(again.path).toBe(first.path)
+    expect(new Uint8Array(await readFile(again.path))).toEqual(new Uint8Array([2]))
+    await expect(
+      writeRuntimeAttachment(root, {
+        sessionId: asSessionId('session-id'),
+        source: {
+          bytes: new Uint8Array([1]),
+          filename: 'x.png',
+          mediaType: 'image/png',
+          id: '../x',
+        },
+      }),
+    ).rejects.toThrow('UUID')
+  })
+
   it('stages only a pixel format as an image; an SVG or a zip is a file (POD-6093)', async () => {
     const root = await mkdtemp(join(tmpdir(), 'podium-attachment-kind-'))
     roots.push(root)

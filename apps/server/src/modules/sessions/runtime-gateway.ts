@@ -38,6 +38,7 @@ import type {
   Refusal,
   RuntimeAttachmentRef,
   RuntimeEvent,
+  StagedAttachmentRef,
   TurnDelivery,
   TurnReceipt,
 } from '@podium/protocol/daemon'
@@ -128,7 +129,7 @@ export interface RuntimeDaemonRpcPort {
       text: string
       origin: ObservationInputOrigin
       delivery: TurnDelivery
-      attachments?: readonly RuntimeAttachmentRef[]
+      attachments?: readonly StagedAttachmentRef[]
       allowedTools?: string[]
       permissionMode?: string
       toolPolicy?: 'none'
@@ -149,10 +150,10 @@ export interface RuntimeDaemonRpcPort {
   runtimeStageAttachment(
     input: {
       sessionId: SessionId
-      source: { bytes: Uint8Array; filename: string; mediaType: string }
+      source: { bytes: Uint8Array; filename: string; mediaType: string; id?: string }
     },
     machineId: MachineId,
-  ): Promise<{ result: RuntimeAttachmentRef | Refusal }>
+  ): Promise<{ result: StagedAttachmentRef | Refusal }>
   runtimeInterrupt(
     sessionId: SessionId,
     machineId: MachineId,
@@ -235,7 +236,7 @@ export class SessionRuntimeGateway {
     text: string
     origin: ObservationInputOrigin
     delivery: TurnDelivery
-    attachments?: readonly RuntimeAttachmentRef[]
+    attachments?: readonly StagedAttachmentRef[]
     allowedTools?: string[]
     permissionMode?: string
     toolPolicy?: 'none'
@@ -312,8 +313,8 @@ export class SessionRuntimeGateway {
 
   async stageAttachment(input: {
     sessionId: SessionId
-    source: { bytes: Uint8Array; filename: string; mediaType: string }
-  }): Promise<RuntimeAttachmentRef | Refusal> {
+    source: { bytes: Uint8Array; filename: string; mediaType: string; id?: string }
+  }): Promise<StagedAttachmentRef | Refusal> {
     const machineId = this.ports.machineOf(input.sessionId)
     if (!machineId) return { reason: 'not_running', detail: 'no machine' }
     return (await this.ports.rpc.runtimeStageAttachment(input, machineId)).result

@@ -170,6 +170,9 @@ export interface AttachmentSource {
   bytes: Uint8Array
   filename: string
   mediaType: string
+  /** Stage under this id (a UUID) rather than a fresh one, so staging the same
+   *  upload again lands on the same path (POD-2148). */
+  id?: string
 }
 
 export interface AttachmentRef {
