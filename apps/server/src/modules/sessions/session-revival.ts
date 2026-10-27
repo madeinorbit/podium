@@ -162,13 +162,15 @@ export class SessionRevival {
       input.agentKind,
       input.use,
     )
-    const ownerUserId = input.ownerUserId ?? (await firstAdminMemberId(this.ports.store))
+    // Only the authenticated owner may join or own a task; a caller without
+    // one starts task-less, whatever owner the session itself falls back to.
     const task = await this.ports.startTask({
       cwd: input.cwd,
       agentKind: input.agentKind,
-      ownerUserId,
+      ownerUserId: input.ownerUserId,
       machineId,
     })
+    const ownerUserId = input.ownerUserId ?? (await firstAdminMemberId(this.ports.store))
     try {
       return await this.mintResumed(input, ownerUserId, machineId, task?.issueId)
     } catch (error) {

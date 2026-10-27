@@ -1384,6 +1384,7 @@ export class SuperagentService {
     // Re-opening while an earlier terminal attachment is still live just
     // focuses it (resumeSession reuses the row for the same resume ref).
     const { sessionId } = await this.modules.issueSessionLifecycle.resumeSession({
+      ownerUserId,
       agentKind: agent.data,
       cwd: await this.threadCwd(thread),
       resume: { kind: harnessResumeKind(agent.data), value: thread.harnessSessionId },

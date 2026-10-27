@@ -64,23 +64,25 @@ export class DurableIssueAccessIndex implements IssueAccessIndex {
   }
 
   /** The one live issue whose worktree holds `cwd`. With `machineId`, only an
-   *  issue homed on that machine (or on none) and that machine's repo roots
-   *  count, so a path on one machine never joins another machine's task. */
+   *  issue homed on that machine (or on none) counts, so a path on one machine
+   *  never joins another machine's task. A worktree that is a main checkout
+   *  is no task's: on the home machine's roots, or on any machine's roots
+   *  when the issue has no home. */
   async soleOwnerForCwd(cwd: string, machineId?: MachineId): Promise<IssueId | null> {
-    const repoRoots = new Set((await this.repos.listRepoPaths(machineId)).map(machinePathKey))
-    const containing = (await readIssueCwdRows(this.issues))
-      .filter(
-        (row) =>
-          !row.deletedAt &&
-          !row.archived &&
-          row.worktreePath !== null &&
-          !repoRoots.has(machinePathKey(row.worktreePath)) &&
-          isMemberCwd(row.worktreePath, cwd),
-      )
+    const roots = async (machine?: MachineId) =>
+      new Set((await this.repos.listRepoPaths(machine)).map(machinePathKey))
+    const anyRoots = await roots()
+    const homeRoots = machineId === undefined ? anyRoots : await roots(machineId)
+    const containing = (await readIssueCwdRows(this.issues)).filter(
+      (row) =>
+        !row.deletedAt && !row.archived && row.worktreePath !== null && isMemberCwd(row.worktreePath, cwd),
+    )
     const owners = []
     for (const row of containing) {
       const home = machineId === undefined ? null : (await readIssue(this.issues, row.id))?.machineId
-      if (home == null || home === machineId) owners.push(row)
+      if (home != null && home !== machineId) continue
+      if ((home == null ? anyRoots : homeRoots).has(machinePathKey(row.worktreePath as string))) continue
+      owners.push(row)
     }
     const deepest = owners.reduce(
       (length, row) => Math.max(length, row.worktreePath ? machinePathKey(row.worktreePath).length : 0),

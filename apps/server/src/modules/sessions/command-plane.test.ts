@@ -624,6 +624,65 @@ describe('draft launch compensation', () => {
     expect(await access.soleOwnerForCwd('/p/.worktrees/a', asMachineId('machine-b'))).toBeNull()
   })
 
+  it('gives a non-admin fresh resume in someone else\'s task worktree a draft of its own', async () => {
+    const o = await makeOracle()
+    await provisionHost(o)
+    const host = o.store.hostMachineId
+    const task = await o.reg.issues.crud.create({ repoPath: '/p', title: 'Admin work', startNow: false })
+    await o.reg.issues.crud.update(task.id, { worktreePath: '/p/.worktrees/a' })
+    const ownership = ownershipTable(
+      new Map([[host, { owner: firstAdminMemberId(), grants: [{ subject: COLLEAGUE, verb: 'use' }] }]]),
+    )
+
+    const resumed = await dispatchSessionCommand(
+      await ctxFor(o, human(COLLEAGUE), { ownership }),
+      'resume',
+      {
+        agentKind: 'codex',
+        cwd: '/p/.worktrees/a',
+        resume: { kind: 'codex-thread', value: 'thread-colleague' },
+        conversationId: 'thread-colleague',
+      },
+    )
+
+    const joined = o.reg.modules.sessions.getSessionIssueId(resumed.sessionId)
+    expect(joined).not.toBe(task.id)
+    expect((await o.reg.issues.reports.get(joined ?? ''))?.draft).toBe(true)
+    expect((await o.store.issues.getIssue(joined ?? ''))?.ownerUserId).toBe(COLLEAGUE)
+  })
+
+  it('starts a fresh resume with no authenticated owner task-less', async () => {
+    const o = await makeOracle()
+    await provisionHost(o)
+    const task = await o.reg.issues.crud.create({ repoPath: '/p', title: 'Admin work', startNow: false })
+    await o.reg.issues.crud.update(task.id, { worktreePath: '/p/.worktrees/a' })
+
+    const { sessionId } = await o.reg.modules.sessions.resumeSession(
+      {
+        agentKind: 'codex',
+        cwd: '/p/.worktrees/a',
+        resume: { kind: 'codex-thread', value: 'thread-ownerless' },
+        conversationId: 'thread-ownerless',
+      },
+      o.reg.issues.gitWorkflow,
+    )
+
+    expect(o.reg.modules.sessions.getSessionIssueId(sessionId)).toBeNull()
+    expect((await o.reg.issues.reports.list('/p')).filter((issue) => issue.draft)).toEqual([])
+  })
+
+  it('never gives a homeless task whose worktree is some machine\'s main checkout a start elsewhere', async () => {
+    const o = await makeOracle()
+    await provisionHost(o)
+    const task = await o.reg.issues.crud.create({ repoPath: '/p', title: 'Legacy', startNow: false })
+    // Written below the service, as a pre-guard row: a main checkout as its worktree, no home.
+    const row = await o.store.issues.getIssue(task.id)
+    await o.store.issues.upsertIssue({ ...row!, worktreePath: '/p', machineId: null })
+    const access = new DurableIssueAccessIndex(o.store.issues, o.store.grants, o.store.repos)
+
+    expect(await access.soleOwnerForCwd('/p/nested/src', asMachineId('machine-b'))).toBeNull()
+  })
+
   it('purges only the placeholder created for a session spawn that throws', async () => {
     const o = await makeOracle()
     await provisionHost(o)
