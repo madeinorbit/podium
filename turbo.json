@@ -212,6 +212,7 @@
       "inputs": [
         "$TURBO_DEFAULT$",
         "$TURBO_ROOT$/apps/mobile/src/lib/mission-session.ts",
+        "$TURBO_ROOT$/apps/web/harness/header-scan-control.ts",
         "$TURBO_ROOT$/apps/mobile/src/lib/work-sections.ts",
         "$TURBO_ROOT$/apps/mobile/src/lib/pool-work-menu.ts",
         "$TURBO_ROOT$/apps/web/src/app/command-launch-readers.ts",
