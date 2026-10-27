@@ -37473,6 +37473,50 @@
       "bound": "One addressed message id per opened pointer item; at most 50 bodies are kept per store handle, so a reopen does not query again.",
       "reason": "The messages value is the TRPC mail API, not message rows. useMailBody calls messages.show for one id and enumerates no records.",
       "guard": "ChatBlockView.envelope.test.tsx proves the body is requested only after the note opens, by the pointer id; legacy pointers request nothing."
+    },
+    {
+      "file": "apps/web/src/features/tips/tip-log-source.ts",
+      "holder": "useTipLogSource",
+      "rule": "reader-summary",
+      "tokens": "b823b4bbbe30d9bb0533718b8ae9279f7c56c56f55a49b22c89e211472e30b01",
+      "gate": [],
+      "origin": [
+        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
+        "25dbf408a8d1f423c5d36d156eee8147255f8061fa080c5d02772c3886ceb24b",
+        "38ee8e4568daab4926b21807b42ed2fa803a25ca97778f587de71b0d1d05834e",
+        "b62af815f9048d102aca17f2695d460f40e618bcc845d7a0d3bc1c8b90140c10",
+        "edccbaf426dca942750619e6960d69f0c560ebdaf7c2beb6a07ceb8fdc008aaf"
+      ],
+      "fingerprint": "eca37d0bdbf1524a92afa6b24d380ca52ce78435bf66589d0b6c823ab9ffb010",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-2187",
+      "trigger": "The app shell mounts the First Flights tip host once per signed-in session.",
+      "bound": "Exactly eight fixed per-user preference keys: tips.enabled and seven tips.seen.<id> rows. No catalogue or collection is read.",
+      "reason": "The tip log reads only its own named preference rows from the pool; the reader summary is the TipLog object built over those eight keys.",
+      "guard": "account-tip-log.test.ts covers hydration, record() and skip-all over the fixed key set."
+    },
+    {
+      "file": "apps/web/src/features/tips/TipHost.tsx",
+      "holder": "SourceHost/log",
+      "rule": "reader-summary",
+      "tokens": "6844d116e05d3374330c6256622309683c1b6407dd7703032c3a16ebae121aa1",
+      "gate": [],
+      "origin": [
+        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
+        "25dbf408a8d1f423c5d36d156eee8147255f8061fa080c5d02772c3886ceb24b",
+        "38ee8e4568daab4926b21807b42ed2fa803a25ca97778f587de71b0d1d05834e",
+        "b62af815f9048d102aca17f2695d460f40e618bcc845d7a0d3bc1c8b90140c10",
+        "edccbaf426dca942750619e6960d69f0c560ebdaf7c2beb6a07ceb8fdc008aaf"
+      ],
+      "fingerprint": "19d2210aaf658105cf5b9828b27ae70f750ff0c056f91a2d51fb56f1542bfc69",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-2187",
+      "trigger": "The app shell mounts the First Flights tip host once per signed-in session.",
+      "bound": "Exactly eight fixed per-user preference keys: tips.enabled and seven tips.seen.<id> rows. No catalogue or collection is read.",
+      "reason": "The tip log reads only its own named preference rows from the pool; the reader summary is the TipLog object built over those eight keys.",
+      "guard": "account-tip-log.test.ts covers hydration, record() and skip-all over the fixed key set."
     }
   ]
 }
