@@ -39,7 +39,10 @@ const ui = vi.hoisted(() => {
   }
 })
 
-const setIssueTucked = vi.hoisted(() => vi.fn(async () => {}))
+const { setIssueTucked, undeferIssue } = vi.hoisted(() => ({
+  setIssueTucked: vi.fn(async () => {}),
+  undeferIssue: vi.fn(async () => {}),
+}))
 
 vi.mock('@/app/store', () => {
   const base = {
@@ -98,8 +101,7 @@ vi.mock('@/app/store', () => {
     updatedAt: '2026-07-23T10:00:00.000Z',
     tuckedAt: null,
   }
-  // Suspended, not closed: it lives in the OTHER tail fold, and its inverse is
-  // Unsnooze rather than a bring-back — so it must get no menu from this gate.
+  // A snoozed row's return action clears its deferral rather than its tuck.
   const snoozed = {
     ...base,
     id: 'snoozed',
@@ -146,6 +148,7 @@ vi.mock('@/app/store', () => {
     archiveIssue: vi.fn(async () => {}),
     deleteIssue: vi.fn(async () => {}),
     setIssueTucked,
+    undeferIssue,
     sidebarSettings: { groupByRepo: false },
     setSidebarSettings: vi.fn(),
   })
@@ -162,7 +165,9 @@ vi.mock('@/lib/hooks/use-session-guard', () => ({
 
 /** Open the Closed fold and hand back the folded row carrying `title`. */
 async function foldedRow(title: string): Promise<HTMLElement> {
-  await act(async () => { fireEvent.click(screen.getByTestId('work-lane-closed')) })
+  await act(async () => {
+    fireEvent.click(screen.getByTestId('work-lane-closed'))
+  })
   const row = screen.getByText(title).closest('[data-testid=folded-work-row]')
   if (!(row instanceof HTMLElement)) throw new Error(`no folded row for "${title}"`)
   return row
@@ -172,6 +177,7 @@ afterEach(() => {
   cleanup()
   ui.reset()
   setIssueTucked.mockClear()
+  undeferIssue.mockClear()
 })
 
 describe('bring a tucked row back out of the fold (POD-1188)', () => {
@@ -185,7 +191,9 @@ describe('bring a tucked row back out of the fold (POD-1188)', () => {
     // The panel names the row it acts on, like every other menu in this column.
     expect(within(menu).getByText('POD-42')).toBeTruthy()
 
-    await act(async () => { fireEvent.click(screen.getByTestId('bring-back')) })
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('bring-back'))
+    })
 
     // The same outboxed store action the Tuck chip uses, with the flag flipped —
     // NOT a second mechanism, and not a local set of ids (POD-333).
@@ -204,22 +212,34 @@ describe('bring a tucked row back out of the fold (POD-1188)', () => {
     expect(screen.queryByTestId('bring-back')).toBeNull()
     const blocked = screen.getByTestId('bring-back-blocked')
     expect(blocked.textContent).toContain('The fold keeps closures older than a day')
-    await act(async () => { fireEvent.click(blocked) })
+    await act(async () => {
+      fireEvent.click(blocked)
+    })
     expect(setIssueTucked).not.toHaveBeenCalled()
   })
 
-  it('does not open on a SUSPENDED row, whose inverse is Unsnooze', async () => {
+  it('offers Unsnooze on a snoozed row and clears its deferral', async () => {
     render(<SidebarUnified />)
-    await act(async () => { fireEvent.click(screen.getByTestId('work-lane-snoozed')) })
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('work-lane-snoozed'))
+    })
     const row = screen.getByText('Suspended work').closest('[data-testid=folded-work-row]')
     expect(row).toBeTruthy()
     expect((row as HTMLElement).getAttribute('data-lane')).toBe('snoozed')
 
     fireEvent.contextMenu(row as HTMLElement)
 
-    // A snoozed row was never tucked, so the one item this panel carries would
-    // have nothing to undo. It keeps the browser's own menu rather than an
-    // app menu whose only entry is inert.
+    const menu = screen.getByRole('menu', { name: 'Folded task actions' })
+    expect(within(menu).getByText('POD-44')).toBeTruthy()
+    expect(within(menu).queryByRole('menuitem', { name: 'Bring back' })).toBeNull()
+    expect(screen.queryByTestId('bring-back-blocked')).toBeNull()
+
+    await act(async () => {
+      fireEvent.click(within(menu).getByRole('menuitem', { name: 'Unsnooze' }))
+    })
+
+    expect(undeferIssue).toHaveBeenCalledWith('snoozed')
+    expect(setIssueTucked).not.toHaveBeenCalled()
     expect(screen.queryByRole('menu', { name: 'Folded task actions' })).toBeNull()
   })
 })
