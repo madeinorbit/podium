@@ -957,17 +957,20 @@ describe('ClaudeCausalObserver [spec:SP-cdb2]', () => {
       state: { idle: { kind: 'done' } },
     })
     expect(ended?.state.compactingFrom).toBeUndefined()
-    // The revived epoch is closed again: its stragglers stay absorbed, and the
-    // next real prompt opens the next turn.
+    // The revived epoch is closed again. The finished turn's stragglers stay
+    // absorbed, while a hook naming the summary's id is real work and revives.
     expect(
-      await causal.observeHook(
-        hook('PostToolUse', { prompt_id: 'summary', tool_use_id: 't' }),
-        150,
-      ),
+      await causal.observeHook(hook('PostToolUse', { prompt_id: 'p1', tool_use_id: 't' }), 150),
     ).toBeNull()
     expect(
-      await causal.observeHook(hook('UserPromptSubmit', { prompt_id: 'p2' }), 160),
+      await causal.observeHook(
+        hook('PostToolUse', { prompt_id: 'summary', tool_use_id: 't2' }),
+        155,
+      ),
     ).toMatchObject({ transitionKind: 'turn_opened', turnEpoch: 3, nextPhase: 'working' })
+    expect(
+      await causal.observeHook(hook('UserPromptSubmit', { prompt_id: 'p2' }), 160),
+    ).toMatchObject({ transitionKind: 'turn_opened', turnEpoch: 4 })
   })
 
   it('keeps a mid-turn compaction working inside its turn [POD-2231]', async () => {
@@ -1139,6 +1142,93 @@ describe('ClaudeCausalObserver [spec:SP-cdb2]', () => {
     expect(recovered.checkpoint.turnState.phase).toBe('working')
     // The whole symptom was this staying frozen at the restart's guess.
     expect(recovered.checkpoint.lastLiveReceiptAt).not.toBeNull()
+  })
+
+  // A restart mid-turn rebuilds the unfenced turn as bare idle with its epoch
+  // still open. A compaction there is mid-turn work, not idle housekeeping: it
+  // must resume working, and keep the epoch open for the turn's Stop. [POD-2231]
+  const restartedMidTurn = async (compactBeforeRestart: boolean) => {
+    const lease = {
+      provider: 'claude-code' as const,
+      providerSessionId: 'claude-1',
+      bindingVersion: 3,
+      observationGeneration: 7,
+    }
+    const causal = observer()
+    const boot = causal.bootstrap()
+    if (!boot) throw new Error('expected bootstrap snapshot')
+    const booted = acceptAgentObservation(null, lease, boot, at)
+    if (booted.kind === 'rejected') throw new Error(booted.rejectionReason)
+    const opened = await causal.observeHook(
+      hook('UserPromptSubmit', { prompt_id: 'live-turn' }),
+      110,
+    )
+    if (!opened) throw new Error('expected an opening observation')
+    let accepted = acceptAgentObservation(booted.checkpoint, lease, opened, at)
+    if (accepted.kind === 'rejected') throw new Error(accepted.rejectionReason)
+    if (compactBeforeRestart) {
+      const compacting = await causal.observeHook(
+        hook('PreCompact', { prompt_id: 'live-turn', trigger: 'auto' }),
+        120,
+      )
+      if (!compacting) throw new Error('expected a compacting observation')
+      accepted = acceptAgentObservation(accepted.checkpoint, lease, compacting, at)
+      if (accepted.kind === 'rejected') throw new Error(accepted.rejectionReason)
+      expect(accepted.checkpoint.turnState.phase).toBe('compacting')
+    }
+    const restarted = restartMidTurn(accepted.checkpoint)
+    const snapshot = restarted.bootstrap()
+    if (!snapshot) throw new Error('expected a restart snapshot')
+    expect(snapshot.state.phase).toBe('idle')
+    return restarted
+  }
+
+  it('compacts a turn the restart rebuilt as idle back to working [POD-2231]', async () => {
+    const restarted = await restartedMidTurn(false)
+    const compacting = await restarted.observeHook(
+      hook('PreCompact', { prompt_id: 'live-turn', trigger: 'auto' }),
+      950,
+    )
+    expect(compacting).toMatchObject({ turnEpoch: 1, nextPhase: 'compacting' })
+    expect(compacting?.state.compactingFrom).toBeUndefined()
+    expect(
+      await restarted.observeHook(
+        hook('PostCompact', { prompt_id: 'live-turn', trigger: 'auto' }),
+        960,
+      ),
+    ).toMatchObject({ transitionKind: 'activity', turnEpoch: 1, nextPhase: 'working' })
+    // The epoch stayed open: the turn's own Stop still ends it.
+    expect(
+      await restarted.observeHook(hook('Stop', { prompt_id: 'live-turn' }), 980),
+    ).toMatchObject({
+      transitionKind: 'turn_terminal',
+      turnEpoch: 1,
+      priorPhase: 'working',
+      nextPhase: 'idle',
+    })
+  })
+
+  it('resumes working when a restart lands mid-compaction [POD-2231]', async () => {
+    const restarted = await restartedMidTurn(true)
+    expect(
+      await restarted.observeHook(
+        hook('PostCompact', { prompt_id: 'live-turn', trigger: 'auto' }),
+        950,
+      ),
+    ).toMatchObject({
+      transitionKind: 'activity',
+      turnEpoch: 1,
+      priorPhase: 'idle',
+      nextPhase: 'working',
+    })
+    expect(
+      await restarted.observeHook(hook('Stop', { prompt_id: 'live-turn' }), 960),
+    ).toMatchObject({
+      transitionKind: 'turn_terminal',
+      turnEpoch: 1,
+      priorPhase: 'working',
+      nextPhase: 'idle',
+    })
   })
 
   // The other half: a turn that genuinely ended leaves BOTH a fence and an idle

@@ -204,6 +204,8 @@ export class ClaudeCausalObserver {
    *  record belongs to it when its prompt hook carried no native prompt id. */
   private epochOpenedOffset: number
   private closing = false
+  /** The epoch a between-turns PreCompact revived, until its PostCompact closes it. */
+  private idleCompaction: { epoch: number; priorPromptId: string | null } | null = null
   private currentOrigin: ObservationInputOrigin = 'unknown'
   private readonly pendingOrigins: ObservationInputOrigin[] = []
   private readonly seen = new Set<string>()
@@ -616,9 +618,26 @@ export class ClaudeCausalObserver {
     const event = events[0]!
 
     const prior = this.state
-    const next = reduceAgentState(prior, withStateChannelEvent(event, 'hook'), this.now())
+    let next = reduceAgentState(
+      prior,
+      withStateChannelEvent(this.compactionInOpenTurn(hook, prior) ?? event, 'hook'),
+      this.now(),
+    )
+    if (hook === 'PreCompact' && this.epochOpen && next.compactingFrom) {
+      // An open epoch is a running turn whatever the phase says: a restart
+      // rebuilds an unfenced turn as bare idle (POD-765). Its compaction must
+      // resume working, so only a wait the turn itself opened survives.
+      const { compactingFrom, ...rest } = next
+      if (compactingFrom.phase === 'idle' || compactingFrom.phase === 'errored') next = rest
+    }
     if (next === prior) return null
     this.state = next
+    if (reviving && hook === 'PreCompact') {
+      // Claude compacting between turns: PreCompact names the summary's fresh
+      // prompt id. Remember the epoch it opens and the turn it superseded, so its
+      // PostCompact can close exactly that epoch and nothing else.
+      this.idleCompaction = { epoch: this.turnEpoch + 1, priorPromptId: this.providerPromptId }
+    }
     if (reviving) {
       // Commit the implicit turn. The server fences a new epoch on exactly
       // +1 AND transitionKind 'turn_opened', so this must mirror the
@@ -643,13 +662,20 @@ export class ClaudeCausalObserver {
       transitionKind = 'turn_terminal'
       this.epochOpen = false
       this.closing = next.awaitingSubagents === true && this.liveChildCount > 0
-    } else if (hook === 'PostCompact' && (next.phase === 'idle' || next.phase === 'errored')) {
+    } else if (
+      hook === 'PostCompact' &&
+      this.idleCompaction?.epoch === this.turnEpoch &&
+      (next.phase === 'idle' || next.phase === 'errored')
+    ) {
       // A compaction Claude ran between turns (idle auto-compaction, manual
-      // /compact) fires PreCompact under the summary's fresh prompt id, which
-      // revives an epoch, and no Stop ever follows. Its end restored the settled
-      // state, so close the epoch here or nothing ever will. Not a turn_terminal:
-      // no turn finished, and the steward must not announce one.
+      // /compact) revived an epoch under the summary's prompt id, and no Stop
+      // ever follows. Its end restored the settled state, so close the epoch
+      // here or nothing ever will. Not a turn_terminal: no turn finished, and the
+      // steward must not announce one. The superseded prompt id comes back so a
+      // hook naming the summary's id still revives, should a turn really run.
       this.epochOpen = false
+      this.providerPromptId = this.idleCompaction.priorPromptId
+      this.idleCompaction = null
     } else if (this.closing && this.liveChildCount === 0) {
       this.closing = false
     }
@@ -843,6 +869,20 @@ export class ClaudeCausalObserver {
     // The prompt hook carried no native id to match, so position is the proof:
     // only a record written after this epoch began can be its stop.
     return record.recordBoundary > this.epochOpenedOffset
+  }
+
+  /**
+   * PostCompact inside a running turn this observer did not revive for the
+   * compaction resumes the turn, even when the state no longer reads
+   * compacting: a restart mid-compaction rebuilds the turn as bare idle while
+   * its epoch stays open (POD-765), and the reducer's end alone would leave it
+   * idle — the resumed answer's Stop would then change no phase. Null when the
+   * reducer's own compaction end applies.
+   */
+  private compactionInOpenTurn(hook: string, prior: AgentRuntimeState): AgentStateEvent | null {
+    if (hook !== 'PostCompact' || !this.epochOpen || prior.phase === 'compacting') return null
+    if (this.idleCompaction?.epoch === this.turnEpoch) return null
+    return { kind: 'activity' }
   }
 
   private hookIdentity(hook: string, p: Record<string, unknown>): string {
