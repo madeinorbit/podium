@@ -47,8 +47,8 @@ import {
   useSettingsSetupSummary,
 } from '@/features/settings/readers'
 import { useSettingsClient } from '@/features/settings/stable-access'
-import { noteFirstSend } from '@/features/worklist/first-send-tip'
 import { useTipMoment } from '@/features/tips'
+import { noteFirstSend } from '@/features/worklist/first-send-tip'
 import {
   agentFleetStatus,
   CapabilityAgentMenu,
