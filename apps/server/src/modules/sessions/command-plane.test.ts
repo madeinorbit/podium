@@ -467,7 +467,8 @@ describe('held chat uploads (POD-2148)', () => {
       'create',
       {
         agentKind: 'claude-code',
-        cwd: '/p',
+        // Outside every known repo: an agent started in one gets a draft task.
+        cwd: '/elsewhere',
       },
     )
     const ref = await hold(o, sessionId)
