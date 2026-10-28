@@ -33,7 +33,9 @@ const CREW_CARD: TipCard = {
  * registration stays for the guide's replay with both cards it could show. */
 export const TeamFormsTip = observer(function TeamFormsTip({ full }: { full: FullDeck }) {
   const log = useContext(TipContext)?.log
-  const watching = log?.enabled !== false && !log?.isSeen('team-forms')
+  // Not before the account log is ready: an upgraded account's seen row has not
+  // arrived yet, and reading the roster in that window is wasted work.
+  const watching = !!log?.ready && log.enabled && !log.isSeen('team-forms')
   const state = settled(() => {
     const lead = full.coordinatorSessionId !== null
     if (!watching) return { lead, crew: true }

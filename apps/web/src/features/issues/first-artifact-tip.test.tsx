@@ -118,6 +118,21 @@ describe('first-artifact moment', () => {
     expect(engine.current?.card.anchor).toBe(FIRST_ARTIFACT_THUMB_ANCHOR)
   })
 
+  it('replays at the offer thumbnails once seen, with the task panel closed', () => {
+    const log = new MemoryTipLog()
+    log.record('first-offer', 'finished')
+    const { engine, place } = mount([{ surface: 'offer', issueId: 'iss_a' }], log)
+    place('offer:iss_a', ON_SCREEN)
+    expect(engine.current?.card.anchor).toBe('first-artifact-offer:iss_a')
+    act(() => engine.next())
+    act(() => engine.next())
+    expect(log.isSeen('first-artifact')).toBe(true)
+    act(() => vi.advanceTimersByTime(30_000))
+    act(() => engine.replay('first-artifact'))
+    act(() => vi.advanceTimersByTime(0))
+    expect(engine.current?.card.anchor).toBe('first-artifact-offer:iss_a')
+  })
+
   it('stays quiet once seen and stops watching its surfaces', () => {
     const log = new MemoryTipLog()
     log.record('first-artifact', 'finished')

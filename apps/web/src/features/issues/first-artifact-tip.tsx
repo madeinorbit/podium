@@ -30,14 +30,25 @@ interface VisibleSurface {
   issueId: string
 }
 
-/** The card-1 surfaces currently fully on screen, in the order they appeared. */
+/** The card-1 surfaces currently fully on screen, in the order they appeared,
+ *  plus the offer strips that are merely mounted. Mounted offers cost nothing
+ *  to track and let a guide replay name the offer anchor after the moment is
+ *  seen, when visibility is no longer watched. */
 class ArtifactAnchors {
   @observableRef accessor visible: readonly VisibleSurface[] = []
+  @observableRef accessor mountedOffers: readonly string[] = []
   @action show(surface: Surface, issueId: string): () => void {
     const entry: VisibleSurface = { surface, issueId }
     this.visible = [...this.visible, entry]
     return action(() => {
       this.visible = this.visible.filter((v) => v !== entry)
+    })
+  }
+  @action mountOffer(issueId: string): () => void {
+    this.mountedOffers = [...this.mountedOffers, issueId]
+    return action(() => {
+      const at = this.mountedOffers.indexOf(issueId)
+      if (at >= 0) this.mountedOffers = this.mountedOffers.filter((_, i) => i !== at)
     })
   }
 }
@@ -67,6 +78,10 @@ export function useFirstArtifactAnchor(
     () => (visible && issueId ? firstArtifactAnchors.show(surface, issueId) : undefined),
     [visible, surface, issueId],
   )
+  useEffect(
+    () => (surface === 'offer' && issueId ? firstArtifactAnchors.mountOffer(issueId) : undefined),
+    [surface, issueId],
+  )
   return {
     'data-tip-anchor':
       surface === 'panel' || !issueId ? FIRST_ARTIFACT_THUMB_ANCHOR : offerAnchor(issueId),
@@ -86,11 +101,18 @@ export const FirstArtifactMoment = observer(function FirstArtifactMoment(): null
   // the offer card first; this tip then points at the offer's thumbnails.
   const offerWaits = offer !== undefined && !log?.isSeen('first-offer')
   const active = offer !== undefined ? !offerWaits : visible.length > 0
+  // Once seen, nothing is watched for visibility; a replay points at the dock
+  // task's mounted offer strip when there is one, else the panel thumbnail.
+  const mounted = firstArtifactAnchors.mountedOffers
+  const replayOffer = log?.isSeen('first-artifact')
+    ? (mounted.find((id) => id === dockIssueId) ?? mounted[0])
+    : undefined
+  const offerId = offer?.issueId ?? replayOffer
   useTipMoment('first-artifact', {
     active,
     cards: [
       {
-        anchor: offer !== undefined ? offerAnchor(offer.issueId) : FIRST_ARTIFACT_THUMB_ANCHOR,
+        anchor: offerId !== undefined ? offerAnchor(offerId) : FIRST_ARTIFACT_THUMB_ANCHOR,
         title: 'Your agent made something.',
         body: 'Mockups, screenshots and docs land here. Click one to open it.',
       },
