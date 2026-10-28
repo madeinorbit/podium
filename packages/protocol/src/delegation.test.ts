@@ -50,7 +50,13 @@ describe('COORDINATION_RULE (POD-2062)', () => {
     expect(COORDINATION_RULE).toContain('never to get around a refusal')
   })
 
+  it("closes accepted tasks but never the coordinator's own issue (POD-2232)", () => {
+    expect(COORDINATION_RULE).toContain('podium issue close <task> --reason done --note')
+    expect(COORDINATION_RULE).toContain('send it back')
+    expect(COORDINATION_RULE).toContain('Your own issue stays open for the user to close')
+  })
+
   it('stays a short paragraph: it rides every prime', () => {
-    expect(COORDINATION_RULE.length).toBeLessThan(2200)
+    expect(COORDINATION_RULE.length).toBeLessThan(2600)
   })
 })

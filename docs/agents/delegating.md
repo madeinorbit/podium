@@ -215,6 +215,27 @@ unit of work: it reads done once all its tasks are, and it takes no `blocked-by`
    - Read-only work such as research: `podium agent spawn --issue <task>` once. With no
      task worktree it runs in the repository checkout, so name the checkout it should read
      and forbid writes.
+5. **Accept or send back each task.** A delegate that finishes moves its task to `review`
+   and mails you; nothing advances it further, so a task you leave there keeps its phase
+   and the deck short of done. Check the deliverable against the brief, then either:
+   - accept it: `podium issue close <task> --reason done --note "<what you accepted>"`.
+     Closing stops every session on the task, so close only once its delegate has finished
+     (the close is refused while one is still working). A phase reads done once all its
+     tasks are closed.
+   - send it back: mail the delegate's session (`podium issue mail send <task> --body "…"`)
+     with concrete reasons: what is missing or wrong and what would make it acceptable.
+     Mail does not wake a hibernated session; send to one with
+     `podium session resume-and-send <session-id> --text "…"`.
+
+   Accept a research or design task once its output has been used, for example after the
+   build task it informed has started from it. Close only your children; your own issue
+   stays open for the user to close.
+
+   To be told when a task reaches review instead of polling the deck, subscribe once
+   after claiming the role:
+   `podium issue subscription add issue.stage_changed:review --source-kind relationship --source-ref my-children`.
+   `my-children` matches only direct children; when your tasks sit under phases, use
+   `--source-ref my-subtree` instead.
 
 The other issue types: `task` is the default, and `decision` is a question only the user
 closes; it blocks whatever waits on it. A decision is a task, so it takes edges: file
