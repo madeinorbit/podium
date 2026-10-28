@@ -72,6 +72,7 @@ import type { FlightDeckV6Actions } from './FlightDeckV6Rows'
 import type { FlightDeckDisplay } from './flight-deck-display'
 import { MissionCostChip } from './MissionCostChip'
 import { MissionGauge } from './MissionGauge'
+import { useMissionEndings } from './mission-endings'
 import { useOperatorFocus } from './operator-focus'
 import {
   CLOSE_RIGHT_PANEL,
@@ -225,22 +226,19 @@ export {
  *
  * The heading is DESIGN.md §3's Label: 8.5px Geist Mono, 0.12em, uppercase,
  * Label Grey — the same voice as WORK and TRAY, because it is the system naming
- * a region of itself. It carries its own COUNT and its own rule rather than
+ * a region of itself. It carries its own rule rather than
  * sitting under a full-width border: a rule that starts after the word reads as
  * that word underlining a region, where a border across the column reads as the
  * spine ending. The spine has not ended — these sections are its tail.
  */
 function DeckSection({
   label,
-  count,
   tone,
   className,
   testId,
   children,
 }: {
   label: string
-  /** Printed beside the label when the region's size is the useful fact. */
-  count?: number
   /** Class for the label, when the region has a hue of its own (proposals). */
   tone?: string
   /** Optional spacing override for a section that needs a stronger break. */
@@ -268,9 +266,6 @@ function DeckSection({
         >
           {label}
         </h3>
-        {count !== undefined && (
-          <span className="shell-type-micro font-mono text-text-faint">{count}</span>
-        )}
         <span aria-hidden className="h-px flex-1 bg-hairline-soft" />
       </div>
       <div className="mt-1.5">{children}</div>
@@ -334,6 +329,7 @@ export function WhereTheWorkWent({
   continuationState = null,
   continuationFinished = true,
   continuationSessions = [],
+  moved = false,
   departures,
   onOpen,
   onTuck,
@@ -348,6 +344,9 @@ export function WhereTheWorkWent({
   /** Whether the vacated task itself is already recorded as finished — the card
    *  names a different filing action when it is not (see {@link ContinuationCard}). */
   continuationFinished?: boolean
+  /** The conversation itself moved: the pane explains it and holds the actions,
+   *  so the deck only marks it, as the selected seat (POD-2043). */
+  moved?: boolean
   /** Everything else that left — already filtered of the continuation target. */
   departures: readonly MissionDeparture[]
   onOpen: (issue: IssueNavigationModel) => void
@@ -355,13 +354,10 @@ export function WhereTheWorkWent({
 }): JSX.Element | null {
   if (!continuation && departures.length === 0) return null
   return (
-    <DeckSection
-      label="Where the work went"
-      count={departures.length + (continuation ? 1 : 0)}
-      className="mt-4"
-      testId="flight-departures"
-    >
-      {continuation && (
+    <DeckSection label="Where the work went" className="mt-4" testId="flight-departures">
+      {continuation && moved ? (
+        <MovedSeat continuation={continuation} />
+      ) : continuation ? (
         <ContinuationCard
           continuation={continuation}
           state={continuationState}
@@ -370,7 +366,7 @@ export function WhereTheWorkWent({
           onOpen={onOpen}
           onTuck={onTuck}
         />
-      )}
+      ) : null}
       <div className={cn('flex flex-col', continuation && departures.length > 0 && 'mt-2')}>
         {departures.map((departure, index) => (
           <div key={departure.issue.id}>
@@ -399,6 +395,40 @@ export function WhereTheWorkWent({
         ))}
       </div>
     </DeckSection>
+  )
+}
+
+/**
+ * THE MOVED CONVERSATION, AS A SEAT (POD-2043).
+ *
+ * When a spin-off took this task's session with it, the pane says what happened
+ * and holds the actions, whether or not this column is open. The deck only marks
+ * the move, in the shape of the seat that left: a coordinator-sized row, drawn
+ * selected because it is what the pane is showing. No buttons here, so there is
+ * one place to decide.
+ */
+function MovedSeat({ continuation }: { continuation: IssueContinuation }): JSX.Element {
+  const target = continuation.target
+  return (
+    <div
+      className="flex min-h-[56px] items-center gap-2.5 rounded-[8px] border border-[color-mix(in_srgb,var(--live)_70%,transparent)] bg-[color-mix(in_srgb,var(--live)_12%,var(--bar))] py-2.5 pr-3 pl-2.5"
+      data-testid="flight-moved-seat"
+      data-selected="true"
+      aria-current="true"
+    >
+      <span className="flex size-[28px] flex-none items-center justify-center rounded-[7px] bg-muted text-text-dim">
+        <ArrowUpRight size={16} aria-hidden="true" />
+      </span>
+      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <span className="shell-type-secondary font-semibold text-text-strong">
+          Conversation moved
+        </span>
+        <span className="shell-type-micro truncate text-text-dim">
+          to {continuation.short}
+          {target ? ` · ${target.title}` : ''}
+        </span>
+      </span>
+    </div>
   )
 }
 
@@ -888,7 +918,9 @@ const DeckGaugeRow = observer(function DeckGaugeRow({
   const target = screen.rootAgentTarget
   return (
     <div className="flight-full-gauge-row mt-3 flex flex-wrap items-center gap-2">
-      {settled(() => screen.full.ready) === true ? (
+      {/* A MOVED CONVERSATION HAS NOTHING TO COUNT (POD-2043). The gauge would
+          count this task itself, in review with nobody on it, as "1 underway". */}
+      {screen.conversationMoved ? null : settled(() => screen.full.ready) === true ? (
         <MissionGauge full={screen.full} live={screen.liveCount} working={screen.workingCount} />
       ) : (
         <span className="flex-1" role="status" aria-label="Loading mission progress">
@@ -997,27 +1029,6 @@ const DeckArchive = observer(function DeckArchive({
 })
 
 /** The root's close guard, read only while the signpost asks for it. */
-const RootCloseDialog = observer(function RootCloseDialog({
-  screen,
-  onOpenChange,
-  onConfirm,
-}: {
-  screen: MissionScreen
-  onOpenChange: (open: boolean) => void
-  onConfirm: () => void
-}): JSX.Element | null {
-  const issue = screen.reader.issue(screen.rootId)
-  if (!issue || issue === LOADING) return null
-  return (
-    <IssueCloseDialog
-      issue={issue}
-      sessions={[]}
-      reason="done"
-      onOpenChange={onOpenChange}
-      onConfirm={onConfirm}
-    />
-  )
-})
 
 /**
  * One opened mission. The view model holds the mission's UI state and derived
@@ -1272,31 +1283,7 @@ export const FlightDeckContent = observer(function FlightDeckContent({
     }
     setView('workspace')
   }
-  /**
-   * A departure tick is a way BACK to the work, so it re-roots the deck onto it
-   * rather than focusing something this mission no longer contains. Selecting
-   * an issue outside `missionMembers` would leave the focus resolver with
-   * nothing to resolve and the column showing the same spine.
-   *
-   * Its tab opens PERMANENT, not as a preview (POD-710): re-rooting the whole
-   * deck onto another mission is a deliberate departure from this one, not the
-   * glance a preview tab exists to serve.
-   */
-  const openDeparture = (issue: IssueNavigationModel): void => {
-    setSelectedIssueId(issue.id)
-    setFocusedIssueId(issue.id)
-    void markIssueRead(issue.id)
-    if (issue.worktreePath) setSelectedWorktree(issue.worktreePath)
-    const live = source
-      .attached(issue.id)
-      .filter((session) => (session as SessionModel).open)
-      .sort((a, b) => b.lastActiveAt.localeCompare(a.lastActiveAt))[0]
-    if (live) {
-      openSessionTab(live.sessionId, { permanent: true })
-      void markSessionRead(live.sessionId)
-    }
-    setView('workspace')
-  }
+  const { openDeparture, tuckResolvedRoot, dialog: rootCloseDialog } = useMissionEndings(screen)
   /**
    * THE TASK MENU, HOSTED ONCE (POD-771).
    *
@@ -1346,55 +1333,7 @@ export const FlightDeckContent = observer(function FlightDeckContent({
     [source, updateIssue],
   )
 
-  /**
-   * FILING THE SIGNPOST AWAY — recording the ending first when there is one
-   * still to record (POD-1212).
-   *
-   * `issues.setTucked` REFUSES an unfinished issue ("issue … is not finished"),
-   * and the sidebar's fold predicate reads the same `closedReason`. So on the
-   * mission this card exists for — a hopscotch origin standing at `review`, its
-   * work carried on in a spin-off, no session left here — the lone "Tuck away"
-   * painted a fold the server threw out and the row came straight back. The
-   * unfinished task is therefore closed as `done` and THEN tucked.
-   *
-   * TWO WRITES, ONE PARTITION. Both are queued outbox kinds routed on
-   * `issue:<id>` (wiring.ts), which is what makes the pair safe rather than
-   * racy: the close is applied before the tuck reaches the guard that reads it.
-   * The `.then` chain is the enqueue order, not a round-trip wait.
-   *
-   * The guard interrupts only when a close would actually raise something —
-   * stranded commits, an open sub-task, a standing decision. POD-1129's rule is
-   * that every surface must name the SAME concerns, not that every surface must
-   * stop to report none: this button already says what it will do, and a dialog
-   * that rises to answer "nothing found" is a tax on the ordinary case.
-   */
   const rootFinished = screen.rootFinished
-  const [signpostClosing, setSignpostClosing] = useState(false)
-  const needsCloseGuard = useIssueCloseGuard()
-  const closeAndTuckRoot = (): void => {
-    setSignpostClosing(false)
-    void closeIssue(rootId, 'done')
-      .then(() => setIssueTucked(rootId, true))
-      .catch((error: unknown) =>
-        toast.error(error instanceof Error ? error.message : String(error)),
-      )
-  }
-  const tuckResolvedRoot = (): void => {
-    if (!screen.continuation && !screen.rootFinished) return
-    if (screen.rootFinished) {
-      void setIssueTucked(rootId, true)
-      return
-    }
-    // The same question every close path now asks before raising the guard
-    // (POD-1278) — this column has asked it since POD-1212, and the hook is where
-    // it lives now.
-    const rootIssue = source.issue(rootId)
-    if (rootIssue && needsCloseGuard(rootIssue)) {
-      setSignpostClosing(true)
-      return
-    }
-    closeAndTuckRoot()
-  }
   const addMissionAgent = async (agentKind?: IssueAgentKind): Promise<void> => {
     const input = agentKind ? { id: rootId, agentKind } : { id: rootId }
     const existingSessionIds = source
@@ -1544,7 +1483,7 @@ export const FlightDeckContent = observer(function FlightDeckContent({
           </div>
         </div>
         <FlightDeckFullCoordinator full={screen.full} {...fullActions} />
-        <FlightDeckFullControls full={screen.full} />
+        {!screen.conversationMoved && <FlightDeckFullControls full={screen.full} />}
       </div>
       <div className="deck-rows flex-none pb-1.5 pr-2" data-testid="flight-deck-rows">
         <FlightDeckFullGroups
@@ -1604,6 +1543,7 @@ export const FlightDeckContent = observer(function FlightDeckContent({
             // `rootRow.sessions`, NOT `rootSessions`: the latter is
             // `deckSessions(row, mode)`, which a mode can narrow.
             continuationSessions={rootRow?.sessions ?? []}
+            moved={screen.conversationMoved}
             departures={screen.otherDepartures}
             onOpen={openDeparture}
             onTuck={tuckResolvedRoot}
@@ -1640,13 +1580,7 @@ export const FlightDeckContent = observer(function FlightDeckContent({
       )}
       {/* The SAME guard every other close path raises (POD-1129), mounted for the
           one close this column can start: the signpost card's "Done & tuck". */}
-      {signpostClosing && (
-        <RootCloseDialog
-          screen={screen}
-          onOpenChange={(open) => setSignpostClosing(open)}
-          onConfirm={closeAndTuckRoot}
-        />
-      )}
+      {rootCloseDialog}
       {/* The guard for an ending picked from a strip's glyph — the same dialog,
           raised for whichever task was picked from rather than for the root. */}
       {rowStatus.dialog}

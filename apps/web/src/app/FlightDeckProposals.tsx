@@ -42,7 +42,16 @@ class ProposalSubmissions {
   readonly byId = observable.map<string, Submission>([], { deep: false })
 
   @lazy({ equals: compareShallow }) get ids(): readonly string[] {
-    const proposed = settled(() => this.full.proposalIds)
+    return this.listed(settled(() => this.full.proposalIds))
+  }
+  /** Proposals the mission's root filed as their own issues (POD-2043): the
+   * moved-conversation pane offers them in the same rows. */
+  @lazy({ equals: compareShallow }) get spinOffIds(): readonly string[] {
+    return this.listed(settled(() => this.full.screen.spinOffProposalIds))
+  }
+  /** Still proposed, or acted on in this opening and not dismissed: a receipt
+   * outlives the stage change it caused. */
+  private listed(proposed: readonly string[] | symbol): string[] {
     return [
       ...new Set([...(typeof proposed === 'symbol' ? [] : proposed), ...this.byId.keys()]),
     ].filter((id) => {
@@ -134,6 +143,47 @@ export const FlightDeckProposals = observer(function FlightDeckProposals({
           status={submissions.byId.get(id)}
           onSubmit={(verb) => void submissions.submit(id, verb, trpc)}
           tipAnchor={id === firstId ? setAnchor : undefined}
+          {...navigation}
+        />
+      ))}
+    </section>
+  )
+})
+
+/**
+ * THE SAME ROWS FOR WORK THIS TASK FILED ON ITS OWN (POD-2043).
+ *
+ * A proposal filed as its own issue is not in the mission's tree, so the deck
+ * never lists it. When the conversation moved, the pane names it beside where
+ * the chat went, and it is still a proposal: same ring, same Backlog / Start /
+ * dismiss, same receipts, so it reads as it does everywhere else.
+ */
+export const SpinOffProposals = observer(function SpinOffProposals({
+  full,
+  ...navigation
+}: { full: FullDeck } & ProposalNavigation): JSX.Element | null {
+  const submissions = submissionsFor(full)
+  const trpc = useRuntimeSelector((store) => store.trpc)
+  const ids = submissions.spinOffIds
+  if (!ids.length) return null
+  return (
+    <section
+      className="flight-proposals flight-proposals-inline"
+      data-testid="spin-off-proposed"
+      aria-label="Proposed"
+    >
+      <div className="flight-proposals-heading">
+        <h2>Proposed</h2>
+        <span>{ids.length}</span>
+        <i aria-hidden="true" />
+      </div>
+      {ids.map((id) => (
+        <FullProposal
+          key={id}
+          provenance={submissions.provenance(full.task(id))}
+          task={full.task(id)}
+          status={submissions.byId.get(id)}
+          onSubmit={(verb) => void submissions.submit(id, verb, trpc)}
           {...navigation}
         />
       ))}

@@ -93,6 +93,13 @@ const ColdStartComposer = lazy(() =>
     default: module.ColdStartComposer,
   })),
 )
+// Loads only when a pane is empty: the mission view model and proposal rows it
+// reads stay out of the eager bundle.
+const MovedConversationPane = lazy(() =>
+  throughRestarts(() => import('./MovedConversationPane')).then((module) => ({
+    default: module.MovedConversationPane,
+  })),
+)
 
 // dnd-kit is interaction infrastructure, not first-paint UI. A post-paint load
 // makes the provider ready for the first drag, while pointer or keyboard intent
@@ -1367,7 +1374,20 @@ function PaneChrome({
               half of a split whose sibling had nothing in it drew an empty
               picker, a heading over no choices. */}
           {otherTabs.length === 0 ? (
-            <Empty worktree={panelTarget} issueId={issueId} onOpened={onOpened} />
+            // A task whose conversation moved explains the move here, where a
+            // small screen without the flight deck still sees it (POD-2043).
+            issueId ? (
+              <Suspense
+                fallback={<Empty worktree={panelTarget} issueId={issueId} onOpened={onOpened} />}
+              >
+                <MovedConversationPane
+                  issueId={issueId}
+                  fallback={<Empty worktree={panelTarget} issueId={issueId} onOpened={onOpened} />}
+                />
+              </Suspense>
+            ) : (
+              <Empty worktree={panelTarget} onOpened={onOpened} />
+            )
           ) : (
             <PanePicker tabs={otherTabs} onPick={onAdopt} />
           )}

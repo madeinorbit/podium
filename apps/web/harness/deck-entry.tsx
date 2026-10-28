@@ -17,6 +17,7 @@ import type { JSX } from 'react'
 import { useCallback, useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { FlightDeck } from '@/app/FlightDeck'
+import { MovedConversationPane } from '@/app/MovedConversationPane'
 import { OperatorFocusProvider } from '@/app/operator-focus'
 import { setHoveredSession } from '@/app/session-hover'
 import { DockIssueProvider } from '@/features/issues/dock-issue'
@@ -820,6 +821,54 @@ const MISSIONS = {
     state.paneA = null
   },
   /**
+   * THE CONVERSATION THAT MOVED (POD-2043) — POD-2119 as filed: a question
+   * answered, then a follow-up that `attach --spinoff` re-homed to POD-2122
+   * with its session, leaving the origin in review with nobody on it. The fix
+   * it found was filed as the proposal POD-2121.
+   */
+  moved: () => {
+    state.issues = [
+      issue('root', {
+        id: 'root',
+        seq: 2119,
+        displayRef: 'POD-2119',
+        title: 'Closed issue tuck visibility',
+        description:
+          'Explain why the Tuck control is absent for the finished calm design follow-ups issue.',
+        activityNotes:
+          'Diagnosis confirmed in the running web client. POD-2097 has canTuck=false because closed children POD-2099, POD-2100 and POD-2111 still contribute three merge decisions from stale Git snapshots. Each retained branch tip is already an ancestor of tf.dev, verified with git merge-base --is-ancestor. All three worktrees are freed; the Git watch excludes them and a refresh without a fallback cwd returns early. Repair proposed as POD-2121. No code changed; the test gate was skipped for this read-only diagnosis.',
+        stage: 'review',
+      }),
+      issue('chat', {
+        id: 'chat',
+        seq: 2122,
+        displayRef: 'POD-2122',
+        title: 'Tuck and Closed behavior',
+        stage: 'review',
+        deps: [{ id: 'root', type: 'discovered-from' }],
+        memberSessionIds: ['moved'],
+      }),
+      issue('fix', {
+        id: 'fix',
+        seq: 2121,
+        displayRef: 'POD-2121',
+        title: 'Bug: stale merge decisions',
+        stage: 'proposed',
+        deps: [{ id: 'root', type: 'discovered-from' }],
+      }),
+    ]
+    state.sessions = [
+      session('moved', {
+        issueId: 'chat',
+        displayRef: 'POD-2119-A',
+        name: 'Finished work filing rules',
+        status: 'hibernated',
+      }),
+    ]
+    state.selectedIssueId = 'root'
+    state.paneA = null
+  },
+  /**
    * THE MISSION THAT IS SIMPLY OVER (POD-1268) — the filed screenshot: a task
    * withdrawn, its session retired, no sub-task and no destination. The spine
    * has nothing to draw, which is exactly why the ending has to be a card in it
@@ -916,6 +965,9 @@ const MISSIONS = {
 document.documentElement.setAttribute('data-theme', 'podium')
 document.documentElement.classList.add('dark')
 
+const paneParam = new URLSearchParams(location.search).get('pane')
+const paneWidth = paneParam ? Number(paneParam) : 0
+
 function Harness(): JSX.Element {
   const [width, setWidth] = useState(366)
   const [display, setDisplay] = useState<'compact' | 'expanded'>('compact')
@@ -961,7 +1013,7 @@ function Harness(): JSX.Element {
         <div
           className="flex min-h-0 min-w-0 flex-[0_1_auto] overflow-hidden"
           data-flight-deck-shell="open"
-          style={{ width }}
+          style={{ width, display: paneWidth ? 'none' : undefined }}
         >
           <div
             className={`relative flex min-w-0 flex-[0_1_auto] ${
@@ -984,7 +1036,32 @@ function Harness(): JSX.Element {
             </OperatorFocusProvider>
           </div>
         </div>
-        <div className="min-w-0 flex-1" />
+        {/* The task's pane beside the deck (POD-2043): `?pane` mounts it,
+            `?pane=390` alone at phone width with the deck closed. */}
+        {paneParam === null ? (
+          <div className="min-w-0 flex-1" />
+        ) : (
+          <div
+            className="flex min-w-0 p-3"
+            style={paneWidth ? { width: paneWidth, flex: 'none' } : { flex: 1 }}
+          >
+            <section
+              className="native-agents-pane relative flex min-w-0 flex-1"
+              data-testid="harness-pane"
+            >
+              <div className="workspace-sheet relative flex min-h-0 flex-1">
+                <OperatorFocusProvider missionId="root">
+                  <ConfirmProvider>
+                    <MovedConversationPane
+                      issueId="root"
+                      fallback={<p className="m-auto text-text-dim">fallback: Empty</p>}
+                    />
+                  </ConfirmProvider>
+                </OperatorFocusProvider>
+              </div>
+            </section>
+          </div>
+        )}
       </div>
       <div style={{ height: 'var(--status-strip-h)', flex: 'none' }} />
     </div>

@@ -293,6 +293,21 @@ export class MissionScreen {
     const target = this.continuation?.target?.id
     return this.departures.find((departure) => departure.issue.id === target)?.state ?? null
   }
+  /** The conversation itself moved (POD-2043): a spin-off took this task's
+   * session with it, and no sub-task stayed behind. The deck then has nothing
+   * of its own to count, and the pane explains the move in place of the tabs. */
+  @lazy get conversationMoved(): boolean {
+    return this.continuation?.kind === 'spinoff' && this.pool.graph.size('issue', this.rootId, 'children') === 0
+  }
+  /** What this task wrote down before its conversation moved. */
+  @lazy get rootFindings(): string { return this.rootIssue.activityNotes?.trim() ?? '' }
+  /** Proposals this task filed as their own issues, in the deck's proposal rows. */
+  @lazy({ equals: compareShallow }) get spinOffProposalIds(): readonly string[] {
+    return [...this.pool.graph.many('issue', this.rootId, 'spinOffs')]
+      .filter((id) => this.pool.graph.one('issue', id, 'discoveredFrom') === this.rootId)
+      .filter((id) => settled(() => this.full.task(id).proposed) === true)
+      .sort()
+  }
 
   // Hosts a mission root can run on
   @lazy private get repoViews() {

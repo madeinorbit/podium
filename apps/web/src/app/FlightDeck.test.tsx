@@ -34,6 +34,7 @@ import {
   writeFolds,
 } from './FlightDeck'
 import { defaultWaterfallRowZoom, defaultWaterfallTaskWidth } from './FlightDeckWaterfall'
+import { MovedConversationPane } from './MovedConversationPane'
 import { OperatorFocusProvider } from './operator-focus'
 import { clearHoveredSession, setHoveredSession } from './session-hover'
 import { OPEN_RIGHT_PANEL_EVENT, REVEAL_IN_DECK_EVENT, RIGHT_PANEL_KEY } from './shell-state'
@@ -269,7 +270,7 @@ const session = (id: string, over: Record<string, unknown> = {}): SessionView =>
 /** An agent mid-turn — what `Working` asks about, once per agent (POD-1452). */
 const WORKING = { phase: 'working', since: '2026-01-01T00:00:00.000Z' } as const
 
-function DeckHarness() {
+function DeckHarness({ pane = false }: { pane?: boolean }) {
   return (
     // ConfirmProvider because the task menu's Archive/Delete now use the
     // app-wide dialog (POD-1077), exactly as AppShell supplies it in the app.
@@ -284,17 +285,20 @@ function DeckHarness() {
             display={harness.display}
             onDisplayChange={harness.onDisplayChange}
           />
+          {/* The task's empty pane, which holds a moved conversation's actions
+              (POD-2043). */}
+          {pane && <MovedConversationPane issueId="root" fallback={null} />}
         </DockIssueProvider>
       </OperatorFocusProvider>
     </ConfirmProvider>
   )
 }
 
-const deck = async (): Promise<ReturnType<typeof render>> => {
+const deck = async (opts: { pane?: boolean } = {}): Promise<ReturnType<typeof render>> => {
   let view!: ReturnType<typeof render>
   // The real pool imports preferences in a batch after the initial render.
   await act(async () => {
-    view = render(<DeckHarness />)
+    view = render(<DeckHarness pane={opts.pane} />)
   })
   return view
 }
@@ -1071,11 +1075,12 @@ describe('flight deck sections (POD-710 §4.3, §4.4)', () => {
     ]
     harness.sessions = [session('s-spin', { issueId: 'spin', name: 'Scroll fix' })]
 
-    await deck()
+    await deck({ pane: true })
 
+    // The conversation moved, so the filing action is the pane's (POD-2043).
     // The word "tuck" alone is never offered on an open task — it cannot work.
     expect(screen.queryByRole('button', { name: /^Tuck away/ })).toBeNull()
-    fireEvent.click(screen.getByRole('button', { name: /Done & tuck/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /Done & tuck/ }))
 
     // Nothing was at stake, so the guard did not interrupt: the close went
     // straight out, and the fold follows it.
@@ -1105,8 +1110,8 @@ describe('flight deck sections (POD-710 §4.3, §4.4)', () => {
     ]
     harness.sessions = [session('s-spin', { issueId: 'spin', name: 'Scroll fix' })]
 
-    await deck()
-    fireEvent.click(screen.getByRole('button', { name: /Done & tuck/ }))
+    await deck({ pane: true })
+    fireEvent.click(await screen.findByRole('button', { name: /Done & tuck/ }))
 
     expect(harness.closeIssue).not.toHaveBeenCalled()
     const concerns = await screen.findByTestId('issue-close-concerns')
@@ -1144,22 +1149,29 @@ describe('flight deck sections (POD-710 §4.3, §4.4)', () => {
     ]
     harness.sessions = [session('s-tip', { issueId: 'tip', name: 'Dest web rebuild' })]
 
-    await deck()
+    await deck({ pane: true })
 
-    const card = screen.getByTestId('flight-continuation')
-    expect(card.textContent).toContain('Work continued in POD-963')
-    expect(card.textContent).toContain('No session remains here.')
-    expect(card.textContent).not.toContain('session ended')
+    // The conversation moved (POD-2043): the deck marks it as the selected seat,
+    // and nothing in the deck counts the empty task as underway.
+    const seat = screen.getByTestId('flight-moved-seat')
+    expect(seat.textContent).toContain('Conversation moved')
+    expect(seat.textContent).toContain('to POD-963 · Dest web rebuild exit')
+    expect(screen.queryByTestId('flight-continuation')).toBeNull()
+    expect(screen.queryByText(/underway/i)).toBeNull()
     // ONE REGION, ONE STATEMENT (POD-1146). The tip is the continuation AND a
     // departure — it used to render as a card and again as a faint mono tick
-    // twelve pixels below it, in a different voice. The card is now the first
-    // row of the departures region, so POD-963 is said exactly once.
+    // twelve pixels below it, in a different voice. The seat is the first row of
+    // the departures region, so POD-963 is said exactly once there.
     expect(screen.getByText('Where the work went')).toBeTruthy()
     expect(screen.queryByText('Left this mission')).toBeNull()
     expect(screen.queryByTestId('flight-departure')).toBeNull()
-    expect(screen.getByTestId('flight-departures').contains(card)).toBe(true)
+    expect(screen.getByTestId('flight-departures').contains(seat)).toBe(true)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Open POD-963' }))
+    // The pane explains the move and holds the way there.
+    const pane = await screen.findByTestId('moved-conversation')
+    expect(pane.textContent).toContain('Your conversation moved to POD-963')
+    expect(pane.textContent).toContain('Dest web rebuild exit')
+    fireEvent.click(screen.getByRole('button', { name: /Open POD-963/ }))
     expect(harness.setSelectedIssueId).toHaveBeenCalledWith('tip')
   })
 

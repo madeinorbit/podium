@@ -98,13 +98,33 @@ describe('WhereTheWorkWent', () => {
     expect(card.textContent).toContain('running')
     // …and the tick itself is gone.
     expect(screen.queryByTestId('flight-departure')).toBeNull()
-    // One region, one count.
-    expect(screen.getByTestId('flight-departures').textContent).toContain('1')
 
     fireEvent.click(screen.getByRole('button', { name: 'Open #1016' }))
     expect(onOpen).toHaveBeenCalledWith(expect.objectContaining({ id: 'spin' }))
     fireEvent.click(screen.getByRole('button', { name: /Tuck away/ }))
     expect(onTuck).toHaveBeenCalled()
+  })
+
+  /**
+   * POD-2043 — when the conversation itself moved, the pane explains it and
+   * holds the actions. The deck only marks the move, as the selected seat.
+   */
+  it('marks a moved conversation as a selected seat with no actions', () => {
+    const continuation: IssueContinuation = {
+      kind: 'spinoff',
+      target: makeIssue({ id: 'chat', seq: 2122, title: 'Tuck and Closed behavior' }),
+      short: '#2122',
+      full: 'Work continued in #2122',
+      line: 'continued · #2122',
+    }
+    region({ continuation, continuationFinished: false, moved: true })
+
+    const seat = screen.getByTestId('flight-moved-seat')
+    expect(seat.getAttribute('aria-current')).toBe('true')
+    expect(seat.textContent).toContain('Conversation moved')
+    expect(seat.textContent).toContain('to #2122 · Tuck and Closed behavior')
+    expect(screen.queryByTestId('flight-continuation')).toBeNull()
+    expect(screen.queryAllByRole('button')).toHaveLength(0)
   })
 
   /**

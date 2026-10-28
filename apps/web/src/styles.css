@@ -13615,6 +13615,10 @@ button.waterfall-fold:hover {
   flex-direction: column;
   gap: 6px;
 }
+/* The same rows inside the moved-conversation pane, which sets its own gutters. */
+.flight-proposals-inline {
+  padding: 0;
+}
 .flight-proposals-heading {
   display: flex;
   align-items: center;
