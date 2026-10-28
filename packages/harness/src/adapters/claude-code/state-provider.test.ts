@@ -931,34 +931,21 @@ describe('ClaudeCausalObserver [spec:SP-cdb2]', () => {
   })
 
   // Claude compacts between turns (idle auto-compaction, manual /compact): the
-  // hooks name the summary's fresh prompt id, so PreCompact revives an epoch,
-  // and no Stop follows. Before POD-2231 PostCompact read working forever.
-  it('returns an idle compaction to idle and closes the epoch it revived [POD-2231]', async () => {
+  // hooks name the summary's fresh prompt id and no Stop follows. Reviving a
+  // turn on them read working forever; they now leave the settled state alone.
+  it('leaves an idle compaction idle and opens no turn for it [POD-2231]', async () => {
     const causal = observer()
     causal.bootstrap()
     await causal.observeHook(hook('UserPromptSubmit', { prompt_id: 'p1' }), 110)
     await causal.observeHook(hook('Stop', { prompt_id: 'p1' }), 120)
     expect(
       await causal.observeHook(hook('PreCompact', { prompt_id: 'summary', trigger: 'auto' }), 130),
-    ).toMatchObject({
-      transitionKind: 'turn_opened',
-      turnEpoch: 2,
-      nextPhase: 'compacting',
-      state: { compactingFrom: { phase: 'idle', idle: { kind: 'done' } } },
-    })
-    const ended = await causal.observeHook(
-      hook('PostCompact', { prompt_id: 'summary', trigger: 'auto' }),
-      140,
-    )
-    expect(ended).toMatchObject({
-      transitionKind: 'activity',
-      priorPhase: 'compacting',
-      nextPhase: 'idle',
-      state: { idle: { kind: 'done' } },
-    })
-    expect(ended?.state.compactingFrom).toBeUndefined()
-    // The revived epoch is closed again. The finished turn's stragglers stay
-    // absorbed, while a hook naming the summary's id is real work and revives.
+    ).toBeNull()
+    expect(
+      await causal.observeHook(hook('PostCompact', { prompt_id: 'summary', trigger: 'auto' }), 140),
+    ).toBeNull()
+    // The finished turn's stragglers stay absorbed; real work under the
+    // summary's id is a new turn.
     expect(
       await causal.observeHook(hook('PostToolUse', { prompt_id: 'p1', tool_use_id: 't' }), 150),
     ).toBeNull()
@@ -967,10 +954,32 @@ describe('ClaudeCausalObserver [spec:SP-cdb2]', () => {
         hook('PostToolUse', { prompt_id: 'summary', tool_use_id: 't2' }),
         155,
       ),
-    ).toMatchObject({ transitionKind: 'turn_opened', turnEpoch: 3, nextPhase: 'working' })
+    ).toMatchObject({ transitionKind: 'turn_opened', turnEpoch: 2, nextPhase: 'working' })
+  })
+
+  // The reviewer's sequence: the person answers while Claude compacts, and the
+  // submit carries the summary's prompt id. It must open a turn whose Stop lands.
+  it('opens the turn a prompt submitted during an idle compaction starts [POD-2231]', async () => {
+    const causal = observer()
+    causal.bootstrap()
+    await causal.observeHook(hook('UserPromptSubmit', { prompt_id: 'p1' }), 110)
+    await causal.observeHook(hook('Stop', { prompt_id: 'p1' }), 120)
+    await causal.observeHook(hook('PreCompact', { prompt_id: 'summary', trigger: 'auto' }), 130)
     expect(
-      await causal.observeHook(hook('UserPromptSubmit', { prompt_id: 'p2' }), 160),
-    ).toMatchObject({ transitionKind: 'turn_opened', turnEpoch: 4 })
+      await causal.observeHook(
+        hook('UserPromptSubmit', { prompt_id: 'summary', prompt: 'next question' }),
+        135,
+      ),
+    ).toMatchObject({ transitionKind: 'turn_opened', turnEpoch: 2, nextPhase: 'working' })
+    expect(
+      await causal.observeHook(hook('PostCompact', { prompt_id: 'summary', trigger: 'auto' }), 140),
+    ).toBeNull()
+    expect(await causal.observeHook(hook('Stop', { prompt_id: 'summary' }), 150)).toMatchObject({
+      transitionKind: 'turn_terminal',
+      turnEpoch: 2,
+      priorPhase: 'working',
+      nextPhase: 'idle',
+    })
   })
 
   it('keeps a mid-turn compaction working inside its turn [POD-2231]', async () => {
@@ -1229,6 +1238,61 @@ describe('ClaudeCausalObserver [spec:SP-cdb2]', () => {
       priorPhase: 'working',
       nextPhase: 'idle',
     })
+  })
+
+  // An idle compaction leaves the fenced, finished turn as the checkpoint, so a
+  // restart in the middle of it rebuilds nothing live: PostCompact after the
+  // restart is absorbed and the session stays idle. [POD-2231]
+  it('keeps an idle compaction idle across a restart [POD-2231]', async () => {
+    const lease = {
+      provider: 'claude-code' as const,
+      providerSessionId: 'claude-1',
+      bindingVersion: 3,
+      observationGeneration: 7,
+    }
+    const causal = observer()
+    const boot = causal.bootstrap()
+    if (!boot) throw new Error('expected bootstrap snapshot')
+    let accepted = acceptAgentObservation(null, lease, boot, at)
+    for (const [name, offset] of [
+      ['UserPromptSubmit', 110],
+      ['Stop', 120],
+    ] as const) {
+      const observed = await causal.observeHook(hook(name, { prompt_id: 'p1' }), offset)
+      if (!observed || accepted.kind === 'rejected') throw new Error('expected a live turn')
+      accepted = acceptAgentObservation(accepted.checkpoint, lease, observed, at)
+    }
+    if (accepted.kind === 'rejected') throw new Error(accepted.rejectionReason)
+    // Whatever PreCompact emits is what the restart inherits (it used to be a
+    // revived compacting turn).
+    const compacting = await causal.observeHook(
+      hook('PreCompact', { prompt_id: 'summary', trigger: 'auto' }),
+      130,
+    )
+    if (compacting) accepted = acceptAgentObservation(accepted.checkpoint, lease, compacting, at)
+    if (accepted.kind === 'rejected') throw new Error(accepted.rejectionReason)
+
+    for (const bootstrapAdvanced of [true, false]) {
+      const restarted = new ClaudeCausalObserver({
+        podiumSessionId: asSessionId('podium-1'),
+        observerGeneration: 8,
+        bindingVersion: 3,
+        providerSessionId: 'claude-1',
+        transcriptPath: '/exact/claude-1.jsonl',
+        bootstrapState: idle,
+        bootstrapOffset: 900,
+        acceptedCheckpoint: accepted.checkpoint,
+        bootstrapAdvanced,
+        now: () => at,
+      })
+      restarted.bootstrap()
+      const ended = await restarted.observeHook(
+        hook('PostCompact', { prompt_id: 'summary', trigger: 'auto' }),
+        950,
+      )
+      expect(ended?.nextPhase ?? 'idle').toBe('idle')
+      expect(restarted.openTurnEpoch).toBeNull()
+    }
   })
 
   // The other half: a turn that genuinely ended leaves BOTH a fence and an idle
