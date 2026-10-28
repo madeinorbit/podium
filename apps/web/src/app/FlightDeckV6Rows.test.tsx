@@ -169,6 +169,23 @@ it('strip pointer and keyboard fold only; session pointer and keyboard open the 
   expect(f.actions.onSelectSession).toHaveBeenCalledTimes(3)
 })
 
+it('anchors the team-forms step-in card on a collapsed sub-task strip, then on its session rows', async () => {
+  const f = await open()
+  const strip = () => f.task().querySelector('[data-flight-task-row]') as HTMLElement
+  const anchored = () =>
+    [...f.ui.container.querySelectorAll('[data-tip-anchor="team-forms-session"]')].map((el) =>
+      el.hasAttribute('data-flight-task-row') ? 'strip' : el.getAttribute('data-flight-session'),
+    )
+  // Collapsed by default: the strip stands in for the hidden session rows.
+  expect(f.agent()).toBeNull()
+  expect(anchored()).toEqual(['strip'])
+  await act(async () => {
+    fireEvent.click(f.fold())
+  })
+  expect(strip().hasAttribute('data-tip-anchor')).toBe(false)
+  expect(anchored()).toEqual(['worker', 'helper'])
+})
+
 it('opens an empty leaf by pointer, Enter and Space without writing a fold or selecting a session', async () => {
   const f = await open(undefined, [])
   const body = f.ui.getByRole('button', { name: 'Open POD-2 Task task' })

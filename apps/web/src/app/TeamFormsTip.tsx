@@ -8,8 +8,9 @@ import { TipContext } from '@/features/tips/tip-context'
 
 /** The coordinator card's `data-tip-anchor`. */
 export const TEAM_FORMS_LEAD_ANCHOR = 'team-forms-lead'
-/** Every sub-task session row carries this anchor; the engine resolves the
- * first one in document order, which is the first visible sub-task session. */
+/** Every sub-task session row carries this anchor, and so does the strip of a
+ * collapsed sub-task that has sessions; the engine resolves the first fully
+ * visible one in document order. */
 export const TEAM_FORMS_SESSION_ANCHOR = 'team-forms-session'
 
 const LEAD_CARD: TipCard = {
@@ -25,9 +26,10 @@ const CREW_CARD: TipCard = {
 
 /** First Flights moment 4: the open task's deck gains a claimed coordinator
  * seat, or its first sub-task with a session row. Each card needs its own
- * anchor: the lead card the coordinator's, the step-in card a drawn sub-task
- * session. A deck with no coordinator tells the step-in card alone; nothing is
- * claimed or opened to make the other one.
+ * anchor: the lead card the coordinator's, the step-in card a sub-task's
+ * session row, or its strip while the sub-task is collapsed. A deck with no
+ * coordinator tells the step-in card alone; nothing is claimed or opened to
+ * make the other one.
  *
  * Once the moment is seen the sub-task roster is not read again: the
  * registration stays for the guide's replay with both cards it could show. */
@@ -39,10 +41,8 @@ export const TeamFormsTip = observer(function TeamFormsTip({ full }: { full: Ful
   const state = settled(() => {
     const lead = full.coordinatorSessionId !== null
     if (!watching) return { lead, crew: true }
-    const crew = full.rowIds.some((id) => {
-      const task = full.task(id)
-      return task.open && task.sessionIds.length > 0
-    })
+    // Rows are drawn sub-tasks; a collapsed one anchors the card on its strip.
+    const crew = full.rowIds.some((id) => full.task(id).sessionIds.length > 0)
     return { lead, crew }
   })
   const { lead, crew } = state === LOADING ? { lead: false, crew: false } : state

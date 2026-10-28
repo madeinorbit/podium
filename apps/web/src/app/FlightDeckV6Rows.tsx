@@ -226,6 +226,13 @@ export const FlightDeckV6Task = observer(function FlightDeckV6Task({
             className="flight-v6-strip deck-strip"
             data-flight-task-row={task.id}
             data-visual-depth={visualDepth}
+            // A collapsed sub-task hides its session rows; the step-in card
+            // points at its strip instead, never unfolding it for the user.
+            data-tip-anchor={
+              !task.isRoot && !open && task.sessionIds.length > 0
+                ? TEAM_FORMS_SESSION_ANCHOR
+                : undefined
+            }
             data-edge-gutter="6"
             onClick={(event) => {
               if (event.target !== event.currentTarget) return

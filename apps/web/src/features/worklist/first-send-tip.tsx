@@ -3,7 +3,12 @@ import { observer } from 'mobx-react-lite'
 import type { JSX } from 'react'
 import { useContext, useEffect } from 'react'
 import { useRuntimeSelector } from '@/app/store'
-import { type TipCard, useTipMoment } from '@/features/tips'
+import {
+  type TipCard,
+  useTipAnchorElement,
+  useTipAnchorVisible,
+  useTipMoment,
+} from '@/features/tips'
 import { TipContext } from '@/features/tips/tip-context'
 import { usePersistedUiState } from '@/lib/use-persisted-ui-state'
 import type { RowTone } from './pool-row-data'
@@ -78,10 +83,16 @@ export const FirstSendTip = observer(function FirstSendTip(): null {
   useEffect(() => {
     if (seen && issueId !== null) setIssueId(null)
   }, [seen, issueId, setIssueId])
+  // The launch can open the task before its sidebar row is drawn or on screen,
+  // and the engine skips a missing anchor. Waiting for the row makes its
+  // arrival the activation, however late it comes.
+  const launched = issueId !== null && selectedId === issueId && !seen
+  const row = useTipAnchorElement(launched ? taskRowAnchor(issueId) : null)
+  const rowVisible = useTipAnchorVisible(row)
   // A replay from the guide points at whichever task is open now.
   const rowId = issueId ?? selectedId
   useTipMoment('first-send', {
-    active: issueId !== null && selectedId === issueId,
+    active: launched && rowVisible,
     cards: rowId ? firstSendCards(rowId) : [],
   })
   return null

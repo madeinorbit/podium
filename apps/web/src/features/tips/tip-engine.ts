@@ -95,15 +95,21 @@ export class TipEngine {
       this.close('dismissed')
     this.schedule()
   }
+  // Several mounted copies can register one moment (a hidden chat offer beside
+  // the visible native one). Replay uses the copy whose first anchor is on screen.
+  private replayable(id: TipId): Registration | undefined {
+    return this.registrations.find((r) => {
+      if (r.id !== id) return false
+      const card = r.read().cards[0]
+      return !!card && this.anchorExists(card.anchor)
+    })
+  }
+  /** Whether a replay would show now. The guide offers Replay only then. */
+  canReplay(id: TipId): boolean {
+    return this.replayable(id) !== undefined
+  }
   @action replay(id: TipId): void {
-    // Several mounted copies can register one moment (a hidden chat offer beside
-    // the visible native one). Replay the copy whose first anchor is on screen.
-    const candidates = this.registrations.filter((r) => r.id === id)
-    const registration =
-      candidates.find((r) => {
-        const card = r.read().cards[0]
-        return !!card && this.anchorExists(card.anchor)
-      }) ?? candidates[0]
+    const registration = this.replayable(id)
     if (!registration || !this.log.ready || !this.log.enabled) return
     this.enqueue(registration, true)
     this.schedule()

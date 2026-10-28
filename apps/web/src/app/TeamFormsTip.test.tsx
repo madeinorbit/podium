@@ -81,6 +81,11 @@ describe('team-forms moment', () => {
       body: "Open any agent's session and talk to it directly.",
     })
   })
+  it('adds the step-in card for a collapsed sub-task with a session, whose strip is the anchor', () => {
+    const moment = mount(deck('coord', { t1: { open: false, sessionIds: ['s1'] } }).full)
+    expect(moment().active).toBe(true)
+    expect(anchors(moment())).toEqual([TEAM_FORMS_LEAD_ANCHOR, TEAM_FORMS_SESSION_ANCHOR])
+  })
   it('triggers on an unclaimed parent gaining its first sub-task session, with the step-in card alone', () => {
     const d = deck(null, { t1: { open: true, sessionIds: [] } })
     const moment = mount(d.full)

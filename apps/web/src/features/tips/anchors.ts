@@ -12,6 +12,35 @@ export function findTipAnchor(name: string): HTMLElement | null {
   return null
 }
 
+/**
+ * The first mounted element carrying anchor `name`, visible or not, tracked as
+ * elements mount and unmount. For a trigger whose anchor lives in another
+ * component: pair it with `useTipAnchorVisible`. Pass null to stop watching.
+ */
+export function useTipAnchorElement(name: string | null): HTMLElement | null {
+  const [element, setElement] = useState<HTMLElement | null>(null)
+  useEffect(() => {
+    if (name === null) return
+    const find = () => {
+      for (const candidate of document.querySelectorAll<HTMLElement>('[data-tip-anchor]'))
+        if (candidate.getAttribute('data-tip-anchor') === name) return candidate
+      return null
+    }
+    setElement(find())
+    const observer = new MutationObserver(() => setElement(find()))
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true,
+      attributeFilter: ['data-tip-anchor'],
+    })
+    return () => {
+      observer.disconnect()
+      setElement(null)
+    }
+  }, [name])
+  return element
+}
+
 /** The one visibility criterion for anchors: the whole element on screen. */
 export function isTipAnchorVisible(anchor: HTMLElement): boolean {
   if (!anchor.isConnected || !anchor.getClientRects().length) return false

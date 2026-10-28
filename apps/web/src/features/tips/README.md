@@ -39,11 +39,13 @@ return <div ref={composer} data-tip-anchor="my-moment-composer">…</div>
   that waits for its element to be on screen, gate `active` on
   `useTipAnchorVisible(element)`: it uses the same criterion as the engine, so each
   time the anchor comes fully into view is a new activation. Pass null once
-  `useTipUnseen(id)` is false; keep the registration and anchor for replay.
+  `useTipUnseen(id)` is false; keep the registration and anchor for replay. When the
+  anchor lives in another component, find it with `useTipAnchorElement(name)`.
 - One moment shows at a time. Keyboard input postpones queued tips for three seconds;
   closing a tip starts a twenty-second gap. Replay uses the same queue, ignores
   seen-state and `active`, and still needs the registration and anchor to exist.
-  An unmounted logged moment stays in the guide with a return-to-moment hint.
+  A logged moment whose first anchor is not on screen shows a return-to-moment
+  hint in the guide instead of Replay.
 - Tips announce their title and body politely without moving focus. F6 moves focus
   to the tip controls; F6 again returns to the prior control. Keyboard dismissal
   also restores that control. Card changes preserve focus, and tall cards scroll.

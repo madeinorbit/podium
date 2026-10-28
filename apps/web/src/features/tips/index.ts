@@ -1,4 +1,9 @@
-export { findTipAnchor, isTipAnchorVisible, useTipAnchorVisible } from './anchors'
+export {
+  findTipAnchor,
+  isTipAnchorVisible,
+  useTipAnchorElement,
+  useTipAnchorVisible,
+} from './anchors'
 export { FirstFlightsBadge } from './FirstFlightsBadge'
 export { TipHost } from './TipHost'
 export { useTipMoment, useTipUnseen } from './tip-context'

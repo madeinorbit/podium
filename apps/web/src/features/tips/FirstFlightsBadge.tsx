@@ -73,7 +73,9 @@ export const FirstFlightsBadge = observer(function FirstFlightsBadge() {
               <ol className="flights-guide-list">
                 {TIP_IDS.map((id) => {
                   const seen = engine.log.isSeen(id)
-                  const available = engine.registrations.some((r) => r.id === id)
+                  // Read when the guide opens: Replay needs the moment's first
+                  // anchor on screen now, else it would do nothing.
+                  const available = engine.canReplay(id)
                   return (
                     <li key={id}>
                       <span className="flights-guide-check">
