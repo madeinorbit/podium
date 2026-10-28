@@ -643,6 +643,13 @@ export class ClaudeCausalObserver {
       transitionKind = 'turn_terminal'
       this.epochOpen = false
       this.closing = next.awaitingSubagents === true && this.liveChildCount > 0
+    } else if (hook === 'PostCompact' && (next.phase === 'idle' || next.phase === 'errored')) {
+      // A compaction Claude ran between turns (idle auto-compaction, manual
+      // /compact) fires PreCompact under the summary's fresh prompt id, which
+      // revives an epoch, and no Stop ever follows. Its end restored the settled
+      // state, so close the epoch here or nothing ever will. Not a turn_terminal:
+      // no turn finished, and the steward must not announce one.
+      this.epochOpen = false
     } else if (this.closing && this.liveChildCount === 0) {
       this.closing = false
     }

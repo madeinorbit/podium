@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { carryAcrossRebuild, initialAgentState, reduceAgentState, withEventTime } from '../observer.js'
+import {
+  carryAcrossRebuild,
+  initialAgentState,
+  reduceAgentState,
+  withEventTime,
+} from '../observer.js'
 
 const T0 = '2026-06-12T10:00:00.000Z'
 const T1 = '2026-06-12T10:00:01.000Z'
@@ -210,6 +215,72 @@ describe('reduceAgentState', () => {
     expect(s.phase).toBe('compacting')
     s = reduceAgentState(s, { kind: 'compaction', phase: 'end' }, T1)
     expect(s.phase).toBe('working')
+  })
+
+  describe('compaction returns to the state it interrupted [POD-2231]', () => {
+    const T3 = '2026-06-12T10:00:03.000Z'
+    const start = { kind: 'compaction', phase: 'start' } as const
+    const end = { kind: 'compaction', phase: 'end' } as const
+
+    it('mid-turn: working → compacting → working, counting the compaction as work', () => {
+      let s = reduceAgentState(initialAgentState(T0), { kind: 'prompt_submitted' }, T0)
+      s = reduceAgentState(s, start, T1)
+      expect(s).toMatchObject({ phase: 'compacting', workingMsTotal: 1_000 })
+      expect(s.compactingFrom).toBeUndefined()
+      s = reduceAgentState(s, end, T3)
+      expect(s).toMatchObject({ phase: 'working', since: T3, workingMsTotal: 3_000 })
+      expect(s.compactingFrom).toBeUndefined()
+    })
+
+    it('idle: idle → compacting → idle with its verdict, adding no working time', () => {
+      let s = reduceAgentState(initialAgentState(T0), { kind: 'prompt_submitted' }, T0)
+      s = reduceAgentState(s, { kind: 'turn_completed', verdict: { kind: 'question' } }, T1)
+      s = reduceAgentState(s, start, T2)
+      expect(s).toMatchObject({
+        phase: 'compacting',
+        compactingFrom: { phase: 'idle', idle: { kind: 'question' } },
+        workingMsTotal: 1_000,
+      })
+      s = reduceAgentState(s, end, T3)
+      expect(s).toMatchObject({ phase: 'idle', idle: { kind: 'question' }, workingMsTotal: 1_000 })
+      expect(s.compactingFrom).toBeUndefined()
+    })
+
+    it('needs_user: needs_user → compacting → needs_user with its need', () => {
+      let s = reduceAgentState(initialAgentState(T0), { kind: 'prompt_submitted' }, T0)
+      s = reduceAgentState(s, { kind: 'needs_user', need: 'permission', summary: 'Bash' }, T1)
+      s = reduceAgentState(s, start, T2)
+      s = reduceAgentState(s, end, T3)
+      expect(s).toMatchObject({
+        phase: 'needs_user',
+        need: { kind: 'permission', summary: 'Bash' },
+        workingMsTotal: 1_000,
+      })
+    })
+
+    it('keeps a subagent hold across the compaction so the last child still settles it', () => {
+      let s = reduceAgentState(initialAgentState(T0), { kind: 'prompt_submitted' }, T0)
+      s = reduceAgentState(s, { kind: 'task_delta', delta: 1, agentId: 'a1' }, T0)
+      s = reduceAgentState(s, { kind: 'turn_completed' }, T1)
+      s = reduceAgentState(s, start, T2)
+      s = reduceAgentState(s, end, T3)
+      expect(s).toMatchObject({ phase: 'working', awaitingSubagents: true })
+      s = reduceAgentState(s, { kind: 'task_delta', delta: -1, agentId: 'a1' }, T3)
+      expect(s).toMatchObject({ phase: 'idle', idle: { kind: 'done' } })
+    })
+
+    it('a repeated start keeps the original resume point', () => {
+      let s = reduceAgentState(initialAgentState(T0), { kind: 'turn_completed' }, T0)
+      s = reduceAgentState(s, start, T1)
+      s = reduceAgentState(s, start, T2)
+      s = reduceAgentState(s, end, T3)
+      expect(s).toMatchObject({ phase: 'idle', idle: { kind: 'done' } })
+    })
+
+    it('an end with no compaction open changes nothing', () => {
+      const idle = reduceAgentState(initialAgentState(T0), { kind: 'turn_completed' }, T0)
+      expect(reduceAgentState(idle, end, T1)).toBe(idle)
+    })
   })
 
   it('session_ended → ended', () => {

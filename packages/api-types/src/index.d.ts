@@ -2260,6 +2260,40 @@ type Output_accounts_login = Pick<{
     agentProfileId?: string | undefined;
     agentState?: undefined | {
         awaitingSubagents?: boolean | undefined;
+        compactingFrom?: undefined | {
+            awaitingSubagents?: boolean | undefined;
+            error?: undefined | {
+                class: string;
+                detail?: string | undefined;
+                retryable: boolean;
+            };
+            idle?: undefined | {
+                kind: "approval" | "done" | "interrupted" | "open_todos" | "question";
+                summary?: string | undefined;
+            };
+            need?: undefined | {
+                ask?: undefined | {
+                    canAlwaysAllow?: boolean | undefined;
+                    detail?: string | undefined;
+                    toolName: string;
+                };
+                interview?: undefined | {
+                    questions: {
+                        header?: string | undefined;
+                        multiSelect?: boolean | undefined;
+                        options: {
+                            description?: string | undefined;
+                            label: string;
+                            preview?: string | undefined;
+                        }[];
+                        question: string;
+                    }[];
+                };
+                kind: "permission" | "question";
+                summary?: string | undefined;
+            };
+            phase: "errored" | "idle" | "needs_user" | "working";
+        };
         error?: undefined | {
             class: string;
             detail?: string | undefined;
@@ -2431,6 +2465,40 @@ type Output_accounts_login = Pick<{
     agentProfileId?: string | undefined;
     agentState?: undefined | {
         awaitingSubagents?: boolean | undefined;
+        compactingFrom?: undefined | {
+            awaitingSubagents?: boolean | undefined;
+            error?: undefined | {
+                class: string;
+                detail?: string | undefined;
+                retryable: boolean;
+            };
+            idle?: undefined | {
+                kind: "approval" | "done" | "interrupted" | "open_todos" | "question";
+                summary?: string | undefined;
+            };
+            need?: undefined | {
+                ask?: undefined | {
+                    canAlwaysAllow?: boolean | undefined;
+                    detail?: string | undefined;
+                    toolName: string;
+                };
+                interview?: undefined | {
+                    questions: {
+                        header?: string | undefined;
+                        multiSelect?: boolean | undefined;
+                        options: {
+                            description?: string | undefined;
+                            label: string;
+                            preview?: string | undefined;
+                        }[];
+                        question: string;
+                    }[];
+                };
+                kind: "permission" | "question";
+                summary?: string | undefined;
+            };
+            phase: "errored" | "idle" | "needs_user" | "working";
+        };
         error?: undefined | {
             class: string;
             detail?: string | undefined;
@@ -4598,6 +4666,40 @@ type Output_issues_get = (null) | ({
         agentProfileId?: string | undefined;
         agentState?: undefined | {
             awaitingSubagents?: boolean | undefined;
+            compactingFrom?: undefined | {
+                awaitingSubagents?: boolean | undefined;
+                error?: undefined | {
+                    class: string;
+                    detail?: string | undefined;
+                    retryable: boolean;
+                };
+                idle?: undefined | {
+                    kind: "approval" | "done" | "interrupted" | "open_todos" | "question";
+                    summary?: string | undefined;
+                };
+                need?: undefined | {
+                    ask?: undefined | {
+                        canAlwaysAllow?: boolean | undefined;
+                        detail?: string | undefined;
+                        toolName: string;
+                    };
+                    interview?: undefined | {
+                        questions: {
+                            header?: string | undefined;
+                            multiSelect?: boolean | undefined;
+                            options: {
+                                description?: string | undefined;
+                                label: string;
+                                preview?: string | undefined;
+                            }[];
+                            question: string;
+                        }[];
+                    };
+                    kind: "permission" | "question";
+                    summary?: string | undefined;
+                };
+                phase: "errored" | "idle" | "needs_user" | "working";
+            };
             error?: undefined | {
                 class: string;
                 detail?: string | undefined;

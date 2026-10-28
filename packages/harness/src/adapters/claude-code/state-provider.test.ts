@@ -930,6 +930,63 @@ describe('ClaudeCausalObserver [spec:SP-cdb2]', () => {
     })
   })
 
+  // Claude compacts between turns (idle auto-compaction, manual /compact): the
+  // hooks name the summary's fresh prompt id, so PreCompact revives an epoch,
+  // and no Stop follows. Before POD-2231 PostCompact read working forever.
+  it('returns an idle compaction to idle and closes the epoch it revived [POD-2231]', async () => {
+    const causal = observer()
+    causal.bootstrap()
+    await causal.observeHook(hook('UserPromptSubmit', { prompt_id: 'p1' }), 110)
+    await causal.observeHook(hook('Stop', { prompt_id: 'p1' }), 120)
+    expect(
+      await causal.observeHook(hook('PreCompact', { prompt_id: 'summary', trigger: 'auto' }), 130),
+    ).toMatchObject({
+      transitionKind: 'turn_opened',
+      turnEpoch: 2,
+      nextPhase: 'compacting',
+      state: { compactingFrom: { phase: 'idle', idle: { kind: 'done' } } },
+    })
+    const ended = await causal.observeHook(
+      hook('PostCompact', { prompt_id: 'summary', trigger: 'auto' }),
+      140,
+    )
+    expect(ended).toMatchObject({
+      transitionKind: 'activity',
+      priorPhase: 'compacting',
+      nextPhase: 'idle',
+      state: { idle: { kind: 'done' } },
+    })
+    expect(ended?.state.compactingFrom).toBeUndefined()
+    // The revived epoch is closed again: its stragglers stay absorbed, and the
+    // next real prompt opens the next turn.
+    expect(
+      await causal.observeHook(
+        hook('PostToolUse', { prompt_id: 'summary', tool_use_id: 't' }),
+        150,
+      ),
+    ).toBeNull()
+    expect(
+      await causal.observeHook(hook('UserPromptSubmit', { prompt_id: 'p2' }), 160),
+    ).toMatchObject({ transitionKind: 'turn_opened', turnEpoch: 3, nextPhase: 'working' })
+  })
+
+  it('keeps a mid-turn compaction working inside its turn [POD-2231]', async () => {
+    const causal = observer()
+    causal.bootstrap()
+    await causal.observeHook(hook('UserPromptSubmit', { prompt_id: 'p1' }), 110)
+    expect(
+      await causal.observeHook(hook('PreCompact', { prompt_id: 'p1', trigger: 'auto' }), 120),
+    ).toMatchObject({ transitionKind: 'activity', turnEpoch: 1, nextPhase: 'compacting' })
+    expect(
+      await causal.observeHook(hook('PostCompact', { prompt_id: 'p1', trigger: 'auto' }), 130),
+    ).toMatchObject({ transitionKind: 'activity', turnEpoch: 1, nextPhase: 'working' })
+    expect(await causal.observeHook(hook('Stop', { prompt_id: 'p1' }), 140)).toMatchObject({
+      transitionKind: 'turn_terminal',
+      turnEpoch: 1,
+      nextPhase: 'idle',
+    })
+  })
+
   // Emitting the revival is only half the fix — the server's durable gate fences a
   // new epoch on exactly +1 AND transitionKind 'turn_opened', so a revival shaped
   // as a bare activity edge would be rejected 'noncausal_epoch_open' and the
