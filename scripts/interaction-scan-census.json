@@ -8787,19 +8787,19 @@
       "file": "apps/web/src/features/setup/ColdStartComposer.tsx",
       "holder": "ColdStartComposer",
       "rule": "reader-summary",
-      "tokens": "3e583e8f2923833fd5bf08c8f30e61ff54fdcedaaab5d83ac44e06257c555c6a",
+      "tokens": "f5d82c75d2def14132e4d8a697efce1713b44ab17d471ee31e7151aae8473d67",
       "gate": [],
       "origin": [
         "38ee8e4568daab4926b21807b42ed2fa803a25ca97778f587de71b0d1d05834e",
         "edccbaf426dca942750619e6960d69f0c560ebdaf7c2beb6a07ceb8fdc008aaf"
       ],
-      "fingerprint": "aef44f621d70126fbcaf66bf1a86d61ca0293e46a2f7175896c6b1ae2c19219f",
+      "fingerprint": "11565b3b5a9f64d1852f7b2851b5c0da57f8df0415ff9fbefe3c387c326d9b72",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5833",
       "trigger": "ColdStartComposer",
       "bound": "Opening catalog or repository choices; no cardinality cap is claimed.",
-      "reason": "This path retains declared catalog traversal. Moving it into the opening action does not establish an addressed or capped acquisition. Predecessor: 11565b3b5a9f64d1852f7b2851b5c0da57f8df0415ff9fbefe3c387c326d9b72.",
+      "reason": "This path retains declared catalog traversal. Moving it into the opening action does not establish an addressed or capped acquisition.",
       "guard": "ColdStartComposer.order.test.tsx and CommandPalette.runtime.test.tsx prove frozen opening order, live visible labels and closed-view isolation; this entry makes no scan repair claim."
     },
     {
