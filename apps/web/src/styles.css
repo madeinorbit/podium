@@ -4277,6 +4277,28 @@ button.pane-branch:hover {
   margin-left: 5px;
   color: var(--text-faint);
 }
+/* OPENED, THE BOX HOLDS THE NOTE. A run of calls hangs its list below its
+   row; a note is one object, so opening it grows the row's box around the
+   text instead. The border moves from the row to the group, and the list sits
+   inside it, its seam under the glyph and its text under the phrase. */
+.work-line.mail-group[data-open="true"] {
+  border: 1px solid var(--chat-tool-border);
+  border-radius: 7px;
+  transition: border-color 160ms ease;
+}
+.work-line.mail-group[data-open="true"]:has(> .work-line-row:hover) {
+  border-color: var(--chat-tool-border-hover);
+}
+.work-line.mail-group[data-open="true"] > .work-line-row {
+  /* The group's border replaces the row's, so the row keeps its folded
+     geometry: same glyph inset, same height. */
+  min-height: 30px;
+  border-width: 0;
+}
+.work-line.mail-group[data-open="true"] > .work-line-list {
+  margin: 0 12px 10px 17px;
+  padding: 0 0 0 16px;
+}
 /* BOUNDED, NOT TRUNCATED. Six or seven notes is a plausible burst and the list
    holds four of them at rest; past that it scrolls INSIDE the list, so the
    transcript underneath never has to move to accommodate somebody else's inbox. */
@@ -4710,11 +4732,13 @@ button.pane-branch:hover {
 }
 .work-line-phrase {
   flex: 1 1 auto;
+  align-self: baseline;
   min-width: 0;
   overflow: hidden;
-  /* Machine voice, a step below prose (POD-376 type scale). */
+  /* Machine voice, a step below prose (POD-376 type scale). The full-height
+     line box is the time's baseline partner — see `.work-line-time`. */
   font-size: 12px;
-  line-height: 1.5;
+  line-height: 30px;
   white-space: nowrap;
   text-overflow: ellipsis;
   color: var(--muted-foreground);
@@ -4733,6 +4757,14 @@ button.pane-branch:hover {
    row — and everything under it — jitters once a second. */
 .work-line-time {
   flex: none;
+  /* ONE BASELINE WITH THE PHRASE. Centred as boxes, 10.5px mono digits ride
+     visibly above the 12px words beside them. Both join one baseline group,
+     each with a line box the row's full height, so the pair stays centred in
+     the row while sharing the text's baseline on any font. The smaller face
+     takes a shorter box so the shift baseline alignment gives it stays
+     inside the row rather than growing it. */
+  align-self: baseline;
+  line-height: 26px;
   font-family: var(--font-mono, ui-monospace, monospace);
   font-size: 10.5px;
   font-variant-numeric: tabular-nums;
