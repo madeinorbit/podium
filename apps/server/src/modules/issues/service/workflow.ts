@@ -844,8 +844,10 @@ export class IssueGitWorkflowModule {
       // The merge axis is a fact we just produced [POD-2151], not one to infer:
       // write it before close() frees the worktree, so the close broadcast
       // carries it and no later probe is needed to clear "ready to merge".
-      const cached = this.store.gitStates.get(id)
-      this.store.gitStates.set(id, {
+      // Keyed by the resolved id: `id` may be a ref like `2254`, and a write
+      // under that key leaves the row's own pre-merge state in place.
+      const cached = this.store.gitStates.get(row.id)
+      this.store.gitStates.set(row.id, {
         branch: row.branch,
         dirtyFiles: 0,
         ...cached,
@@ -863,7 +865,7 @@ export class IssueGitWorkflowModule {
       // timer whose callback inherits this scope, and a span that has closed by
       // then refuses every read the probe makes [POD-3806].
       afterCommit(() => {
-        void this.refreshGitState(id).catch(() => {})
+        void this.refreshGitState(row.id).catch(() => {})
       }, 'issue-git-state-landed')
       return { ...r, issue }
     }
