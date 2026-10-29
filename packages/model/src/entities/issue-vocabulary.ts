@@ -189,11 +189,10 @@ export const IssuePanelArtifact = z.object({
   path: z.string(),
   title: z.string().optional(),
   addedAt: z.string(),
-  /** The bytes came from the calling issue session's checkout rather than the
-   * issue's pinned worktree. Present only for the explicit terminal-evidence
-   * path; ordinary artifacts omit it. The worktree rule applies only when
-   * capturing a daemon source, never to an already stored snapshot. */
-  sourceKind: z.literal('terminal-evidence').optional(),
+  /** Terminal evidence comes from the calling issue session's checkout.
+   * Creation attachments are user-supplied inputs stored directly on the server.
+   * Stored snapshots do not require an owning worktree at review. */
+  sourceKind: z.enum(['terminal-evidence', 'creation-attachment']).optional(),
   /** Set on the copy of a file a person attached in a session's chat (POD-2148):
    *  the attachment id it was staged under. The chat shows its thumbnail from
    *  this copy once the daemon's 24h upload sweep removed the staged file. A

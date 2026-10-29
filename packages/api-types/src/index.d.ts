@@ -3095,7 +3095,7 @@ type Output_issues_action = {
                     size: number;
                 }[];
                 path: string;
-                sourceKind?: "terminal-evidence" | undefined;
+                sourceKind?: "creation-attachment" | "terminal-evidence" | undefined;
                 sourcePaths?: string[] | undefined;
                 title?: string | undefined;
                 tracking?: "tracked" | "unknown" | "untracked" | undefined;
@@ -3235,7 +3235,7 @@ type Output_issues_action = {
                     size: number;
                 }[];
                 path: string;
-                sourceKind?: "terminal-evidence" | undefined;
+                sourceKind?: "creation-attachment" | "terminal-evidence" | undefined;
                 sourcePaths?: string[] | undefined;
                 title?: string | undefined;
                 tracking?: "tracked" | "unknown" | "untracked" | undefined;
@@ -3401,7 +3401,7 @@ type Output_issues_addComment = _podium_model.IssueUserOverlay & Omit<{
                 size: number;
             }[];
             path: string;
-            sourceKind?: "terminal-evidence" | undefined;
+            sourceKind?: "creation-attachment" | "terminal-evidence" | undefined;
             sourcePaths?: string[] | undefined;
             title?: string | undefined;
             tracking?: "tracked" | "unknown" | "untracked" | undefined;
@@ -3541,7 +3541,7 @@ type Output_issues_addComment = _podium_model.IssueUserOverlay & Omit<{
                 size: number;
             }[];
             path: string;
-            sourceKind?: "terminal-evidence" | undefined;
+            sourceKind?: "creation-attachment" | "terminal-evidence" | undefined;
             sourcePaths?: string[] | undefined;
             title?: string | undefined;
             tracking?: "tracked" | "unknown" | "untracked" | undefined;
@@ -3706,7 +3706,7 @@ type Output_issues_answerQuestion = {
                     size: number;
                 }[];
                 path: string;
-                sourceKind?: "terminal-evidence" | undefined;
+                sourceKind?: "creation-attachment" | "terminal-evidence" | undefined;
                 sourcePaths?: string[] | undefined;
                 title?: string | undefined;
                 tracking?: "tracked" | "unknown" | "untracked" | undefined;
@@ -3846,7 +3846,7 @@ type Output_issues_answerQuestion = {
                     size: number;
                 }[];
                 path: string;
-                sourceKind?: "terminal-evidence" | undefined;
+                sourceKind?: "creation-attachment" | "terminal-evidence" | undefined;
                 sourcePaths?: string[] | undefined;
                 title?: string | undefined;
                 tracking?: "tracked" | "unknown" | "untracked" | undefined;
@@ -4071,7 +4071,7 @@ type Output_issues_create = (_podium_model.IssueUserOverlay & Omit<{
                 size: number;
             }[];
             path: string;
-            sourceKind?: "terminal-evidence" | undefined;
+            sourceKind?: "creation-attachment" | "terminal-evidence" | undefined;
             sourcePaths?: string[] | undefined;
             title?: string | undefined;
             tracking?: "tracked" | "unknown" | "untracked" | undefined;
@@ -4212,7 +4212,7 @@ type Output_issues_create = (_podium_model.IssueUserOverlay & Omit<{
                 size: number;
             }[];
             path: string;
-            sourceKind?: "terminal-evidence" | undefined;
+            sourceKind?: "creation-attachment" | "terminal-evidence" | undefined;
             sourcePaths?: string[] | undefined;
             title?: string | undefined;
             tracking?: "tracked" | "unknown" | "untracked" | undefined;
@@ -4375,7 +4375,7 @@ type Output_issues_create = (_podium_model.IssueUserOverlay & Omit<{
                 size: number;
             }[];
             path: string;
-            sourceKind?: "terminal-evidence" | undefined;
+            sourceKind?: "creation-attachment" | "terminal-evidence" | undefined;
             sourcePaths?: string[] | undefined;
             title?: string | undefined;
             tracking?: "tracked" | "unknown" | "untracked" | undefined;
@@ -4515,7 +4515,7 @@ type Output_issues_create = (_podium_model.IssueUserOverlay & Omit<{
                 size: number;
             }[];
             path: string;
-            sourceKind?: "terminal-evidence" | undefined;
+            sourceKind?: "creation-attachment" | "terminal-evidence" | undefined;
             sourcePaths?: string[] | undefined;
             title?: string | undefined;
             tracking?: "tracked" | "unknown" | "untracked" | undefined;
@@ -4632,7 +4632,7 @@ type Output_issues_get = (null) | ({
                 size: number;
             }[];
             path: string;
-            sourceKind?: "terminal-evidence" | undefined;
+            sourceKind?: "creation-attachment" | "terminal-evidence" | undefined;
             sourcePaths?: string[] | undefined;
             title?: string | undefined;
             tracking?: "tracked" | "unknown" | "untracked" | undefined;
@@ -5129,7 +5129,7 @@ type Output_issues_searchNormalized = Array<{
                 size: number;
             }[];
             path: string;
-            sourceKind?: "terminal-evidence" | undefined;
+            sourceKind?: "creation-attachment" | "terminal-evidence" | undefined;
             sourcePaths?: string[] | undefined;
             title?: string | undefined;
             tracking?: "tracked" | "unknown" | "untracked" | undefined;
@@ -5388,7 +5388,7 @@ type Output_issues_start = _podium_model.IssueUserOverlay & Omit<Partial<{
                 size: number;
             }[];
             path: string;
-            sourceKind?: "terminal-evidence" | undefined;
+            sourceKind?: "creation-attachment" | "terminal-evidence" | undefined;
             sourcePaths?: string[] | undefined;
             title?: string | undefined;
             tracking?: "tracked" | "unknown" | "untracked" | undefined;
@@ -5528,7 +5528,7 @@ type Output_issues_start = _podium_model.IssueUserOverlay & Omit<Partial<{
                 size: number;
             }[];
             path: string;
-            sourceKind?: "terminal-evidence" | undefined;
+            sourceKind?: "creation-attachment" | "terminal-evidence" | undefined;
             sourcePaths?: string[] | undefined;
             title?: string | undefined;
             tracking?: "tracked" | "unknown" | "untracked" | undefined;

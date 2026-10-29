@@ -634,6 +634,7 @@ export class IssueCrudModule {
         artifactId: snap.artifactId,
         entry: snap.entry,
         files: snap.files,
+        sourceKind: 'creation-attachment',
       })
       if (existing?.artifactId) void store.remove(row.id, existing.artifactId).catch(() => {})
       return wire

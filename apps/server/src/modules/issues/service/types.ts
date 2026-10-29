@@ -81,8 +81,8 @@ export type IssuePanelOp =
       entry?: string
       files?: { path: string; size: number }[]
       sourcePaths?: string[]
-      /** Set only by the explicit same-issue terminal-evidence path. */
-      sourceKind?: 'terminal-evidence'
+      /** Set by terminal capture or user attachment creation. */
+      sourceKind?: 'terminal-evidence' | 'creation-attachment'
       /** Set only by a chat upload's claim (POD-2148). */
       chatUploadId?: string
       chatUploadOwner?: UserId
