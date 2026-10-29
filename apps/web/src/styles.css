@@ -4460,6 +4460,7 @@ button.pane-branch:hover {
   font-weight: 600;
 }
 .issue-outcome-time {
+  justify-self: end;
   color: var(--text-dim, var(--muted-foreground));
   font-family: var(--font-mono, ui-monospace, monospace);
   font-size: 11px;
@@ -4473,6 +4474,30 @@ button.pane-branch:hover {
   color: var(--foreground);
   font-family: var(--font-mono, ui-monospace, monospace);
   font-size: 11.5px;
+}
+/* Tuck and archive (POD-2251) sit under the time, beside the sub-line. */
+.issue-outcome-actions {
+  display: flex;
+  grid-column: 3;
+  grid-row: 2;
+  justify-self: end;
+  gap: 2px;
+  margin-inline-end: -6px;
+}
+.issue-outcome-card:has(.issue-outcome-actions) .issue-outcome-sub {
+  grid-column: 2;
+}
+/* A close has no sub-line: the actions share the title's row. */
+.issue-outcome-card:not(:has(.issue-outcome-sub)) .issue-outcome-actions {
+  grid-column: 2;
+  grid-row: 1;
+  margin-inline-end: 4px;
+}
+.issue-outcome-card:has(.issue-outcome-actions) .issue-outcome-title {
+  grid-area: 1 / 2;
+}
+.issue-outcome-card:has(.issue-outcome-actions) .issue-outcome-time {
+  grid-area: 1 / 3;
 }
 /* A close without a sub-line stays one line tall. */
 .issue-outcome-card:not(:has(.issue-outcome-sub)) .issue-outcome-mark {

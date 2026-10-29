@@ -60,7 +60,8 @@ export class PaneSession {
     if (!issueId) return null
     const issue = omitGone(this.pool.model('issue', issueId))
     if (!issue || issue === LOADING) return null
-    return sessionIssueOutcome(this.session as unknown as SessionView, issue as unknown as OutcomeIssueFacts)
+    const outcome = sessionIssueOutcome(this.session as unknown as SessionView, issue as unknown as OutcomeIssueFacts)
+    return outcome && { ...outcome, issueId }
   }
 
   private loadedIssue(id: string): Loaded<IssueModel> {

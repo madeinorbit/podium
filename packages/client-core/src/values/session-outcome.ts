@@ -7,9 +7,13 @@ import type { SessionView } from '../session-values'
  * stamp, never from agent text: a landing usually stops the agent mid-turn,
  * so its transcript cannot be trusted to say what happened.
  */
-export type SessionIssueOutcome =
+export type SessionIssueOutcome = (
   | { kind: 'landed'; at: string; branch: string | null; sha: string | null }
   | { kind: 'closed'; at: string | null; reason: string }
+) & {
+  /** The issue that ended, when the reader knows it: the card files it away. */
+  issueId?: string
+}
 
 export interface OutcomeIssueFacts {
   readonly stage: string

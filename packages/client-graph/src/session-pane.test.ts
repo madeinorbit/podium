@@ -163,8 +163,8 @@ it('reads the issue outcome through real pool models, whose fields are prototype
       pool.apply({ type: 'update', rows: [{ kind: 'session', id: stopped.sessionId, value: { ...stopped, issueId } as never }] })
       return sessionPaneView(pool).loaded(stopped.sessionId)?.issueOutcome
     }
-    expect(outcome('landed')).toEqual({ kind: 'landed', at: '2026-10-01T00:00:09Z', branch: 'tf.dev', sha: 'fcd1385' })
-    expect(outcome('cancelled')).toEqual({ kind: 'closed', at: '2026-10-01T00:00:10Z', reason: 'cancelled' })
+    expect(outcome('landed')).toEqual({ kind: 'landed', at: '2026-10-01T00:00:09Z', branch: 'tf.dev', sha: 'fcd1385', issueId: 'landed' })
+    expect(outcome('cancelled')).toEqual({ kind: 'closed', at: '2026-10-01T00:00:10Z', reason: 'cancelled', issueId: 'cancelled' })
   } finally { pool.dispose() }
 })
 
