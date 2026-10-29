@@ -34,7 +34,7 @@
 
 import { ISSUE_COMMAND_NAMES, ISSUE_CONTRACTS } from '@podium/commands'
 import { ISSUE_COMMANDS } from '@podium/issue-client'
-import type { IssueId } from '@podium/model'
+import { ARTIFACT_UPLOAD_CHUNK_BYTES, type IssueId } from '@podium/model'
 import { afterAll, describe, expect, it } from 'vitest'
 
 import { IssueToolProvider } from '../../issue-mcp'
@@ -104,6 +104,48 @@ describe('the real in-process client serves every cli/mcp-exposed contract', () 
 })
 
 describe('the podium issue CLI table renders over the real surface', () => {
+  it('publishes, replaces and reads direct content on a first task without a worktree, with scope checks', async () => {
+    const reg = await fresh()
+    const operator = reg.issueCommands.asIssueTrpc(OPERATOR)
+    const issue = await reg.issues.crud.create({
+      repoPath: '/r',
+      title: 'First task',
+      startNow: false,
+    })
+    const other = await reg.issues.crud.create({
+      repoPath: '/r',
+      title: 'Other task',
+      startNow: false,
+    })
+    const worker = reg.issueCommands.asIssueTrpc({
+      ...OPERATOR,
+      role: 'worker',
+      scope: { kind: 'subtree', rootId: issue.id },
+    })
+    const artifact = ISSUE_COMMANDS.find((command) => command.name === 'artifact')!
+    const content = 'x'.repeat(ARTIFACT_UPLOAD_CHUNK_BYTES * 3 + 11)
+    await artifact.run(worker, { id: issue.id, content, name: 'mockup.html', title: 'Mockup' })
+    const first = (await reg.issues.reports.get(issue.id))!.panel!.artifacts[0]!
+    expect((await reg.issues.reports.get(issue.id))!.worktreePath).toBeNull()
+    expect((await reg.issues.crud.panelArtifactRead(issue.id, { index: 1 })).dataBase64).toBe(
+      Buffer.from(content).toString('base64'),
+    )
+    await artifact.run(worker, { id: issue.id, content: 'replacement', name: 'mockup.html' })
+    const current = (await reg.issues.reports.get(issue.id))!.panel!.artifacts
+    expect(current).toHaveLength(1)
+    expect(current[0]!.artifactId).not.toBe(first.artifactId)
+    expect(current[0]!.title).toBe('Mockup')
+    expect(
+      (await reg.issues.crud.panelArtifactRead(issue.id, { path: 'mockup.html' })).dataBase64,
+    ).toBe(Buffer.from('replacement').toString('base64'))
+    await expect(
+      operator.issues.update.mutate({ id: issue.id, patch: { stage: 'review' } }),
+    ).resolves.toMatchObject({ stage: 'review' })
+    await expect(
+      artifact.run(worker, { id: other.id, content: 'blocked', name: 'bad.md' }),
+    ).rejects.toThrow()
+    expect((await reg.issues.reports.get(other.id))!.panel?.artifacts ?? []).toEqual([])
+  })
   /** The verbs whose bodies spawn processes, run git, or touch worktrees. Named,
    *  not silently skipped — see the header. */
   const SIDE_EFFECTING = new Set([

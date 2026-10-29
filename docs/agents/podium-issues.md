@@ -92,33 +92,35 @@ proposals — belongs on the issue, not only in the chat where it scrolls away:
 podium issue artifact <id> --add <path> --title "Commit chip — iteration 2"
 ```
 
-The artifact renders in the issue's sidebar and survives across sessions. Three rules:
+The CLI uploads files from the machine where the command runs. No issue worktree or commit is
+required. Relative paths resolve from the current directory; absolute sources use their basename
+as the attachment name. Use `--name` to choose a stable name, then re-add that name to replace
+its snapshot in place while preserving offer references and the previous title.
 
-- **Inside the owning worktree — committing is not required.** Save the file under the owning
-  issue's worktree (e.g. an `e2e/` or `.design/` directory); paths outside it, including
-  scratchpads and `/tmp`, are refused. Adding copies the bytes into the server's permanent
-  store, so an artifact keeps rendering and reading back even though the file was never
-  `git add`ed and even after the worktree is deleted. Do **not** commit screenshots, scratch docs,
-  or one-off explainers just to attach them — that pollutes the repo for no gain. Track a file only
-  when it belongs in the codebase on its own merits.
-- **Terminal screenshots have a deliberate escape hatch.** If the proof was captured in the
-  current checkout of the session working on the issue, run the command from that checkout with
-  `--terminal-evidence`, for example:
+```
+podium issue artifact <id> --add /tmp/mockup.html --name mockup.html --title "Mockup"
+podium issue artifact <id> --add /tmp/proposal-bundle --name proposal
+podium issue artifact <id> --content "# Findings" --name findings.md
+printf '%s' '# Findings' | podium issue artifact <id> --add - --name findings.md
+```
 
-  ```
-  podium issue artifact 2602 --add artifacts/POD-2602/resume-before.png --terminal-evidence
-  ```
+Directory uploads preserve relative paths so HTML can load sibling styles and images. Symlinks
+and special files are refused. Uploads use bounded packets and retain the 100 MB per-file,
+500 MB per-bundle and 200-file limits. A failed upload never publishes a partial attachment.
 
-  This is an explicit acknowledgement that the image may contain terminal output. It only accepts
-  raster image files and only the calling session's own issue can use it; raw scrollback/text is
-  refused. Redact text into the owning issue worktree and attach it through the ordinary path.
-- **Delete the file once it is attached** (unless it belongs in the repo). The sidebar keeps
-  rendering it from the server's copy — the source file is never read again. Leaving it behind is
-  not harmless: an untracked file is a dirty worktree, and `podium issue cleanup` refuses one
-  outright while `free` needs `--force`.
-- **Post each significant iteration** with a title that names it. The artifact list doubles as
-  the review trail for visual work; publishing somewhere else (chat upload, external artifact
-  link) does not replace attaching it here.
+- **The server owns the saved copy.** Source cleanup, worktree deletion and the originating
+  machine going offline do not affect it. Saved attachments can enter review without a worktree,
+  including user-uploaded references from older clients.
+- **Delete scratch files after uploading.** Keep a file in the repository only when it belongs
+  there independently. Do not commit a screenshot or explainer solely to attach it.
+- **Attach each significant iteration** with a descriptive title. The sidebar is the review trail;
+  name its attachment in `podium offer --artifact <name>` so the offer can show it.
+
+In-process MCP uses `--content` for generated documents. Its older `--add` operation still asks
+the owning daemon for a path inside the issue worktree; it cannot read arbitrary files on the
+server. The CLI always reads ordinary `--add` sources locally. `--terminal-evidence` preserves
+the older acknowledged raster screenshot path for compatibility; ordinary screenshots can use
+the normal upload command.
 
 ### Reading one back
 

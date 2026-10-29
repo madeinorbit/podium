@@ -3833,6 +3833,10 @@ export class SessionRegistry {
         void pendingUploads.sweep().catch((err: unknown) => {
           log.warn('pending upload sweep failed', { err })
         })
+      if (!backgroundDisabled)
+        void issueArtifacts.sweepUploads().catch((err: unknown) => {
+          log.warn('artifact upload sweep failed', { err })
+        })
     }
     sweepPendingUploads()
     this.pendingUploadSweep = setInterval(sweepPendingUploads, PENDING_UPLOAD_SWEEP_MS)

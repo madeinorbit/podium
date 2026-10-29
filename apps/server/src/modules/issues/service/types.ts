@@ -372,6 +372,7 @@ export interface IssueDeps {
    *  snapshotter panelArtifactAdd/Remove ride. Optional so existing test deps
    *  literals stay valid; absent ⇒ legacy path-only artifact entries. */
   artifacts?: {
+    transfer?: import('../artifact-store').IssueArtifactStore['transfer']
     snapshot(o: {
       issueId: IssueId
       root: string

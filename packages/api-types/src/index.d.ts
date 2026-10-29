@@ -1816,12 +1816,35 @@ type Input_issues_panelApply = {
     extraPaths?: string[] | undefined;
     id: string;
     index?: number | undefined;
-    op: "artifact-add" | "artifact-remove" | "deferred-add" | "deferred-remove" | "todo-add" | "todo-clear" | "todo-done" | "todo-remove" | "todo-undone";
+    op: "artifact-add" | "artifact-remove" | "artifact-upload" | "deferred-add" | "deferred-remove" | "todo-add" | "todo-clear" | "todo-done" | "todo-remove" | "todo-undone";
     path?: string | undefined;
     sourceRoot?: string | undefined;
     terminalEvidence?: boolean | undefined;
     text?: string | undefined;
     title?: string | undefined;
+    upload?: undefined | {
+        action: "abort";
+        uploadId: string;
+    } | {
+        action: "begin";
+        entry: string;
+        files: {
+            path: string;
+            size: number;
+        }[];
+        path: string;
+        title?: string | undefined;
+        uploadId: string;
+    } | {
+        action: "chunk";
+        dataBase64: string;
+        file: string;
+        offset: number;
+        uploadId: string;
+    } | {
+        action: "commit";
+        uploadId: string;
+    };
 };
 type Input_issues_search = {
     assignee?: string | undefined;

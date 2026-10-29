@@ -229,3 +229,5 @@ export * from './predicates/unaddressable-send'
 export { MessageLedgerWire } from './entities/message-ledger'
 
 export * from './entities/settings-records'
+
+export * from './artifact-upload'

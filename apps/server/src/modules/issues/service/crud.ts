@@ -1,6 +1,7 @@
 import { randomBytes, randomUUID } from 'node:crypto'
 import {
   type ArtifactId,
+  type ArtifactUploadPacket,
   type Attribution,
   asArtifactId,
   asIssueId,
@@ -16,10 +17,10 @@ import {
   isIssueStage,
   isSortKey,
   isSystemOwnedIssueStage,
+  type MachineId,
   machinePathBasename,
   machinePathRelativeToRoot,
   machinePathSegments,
-  type MachineId,
   normalizeClosedPatch,
   type RepoId,
   type SessionId,
@@ -82,19 +83,8 @@ const TERMINAL_EVIDENCE_IMAGE_EXTENSIONS = new Set([
 const terminalEvidenceHelp = (seq: number): string =>
   `For a terminal screenshot, run from the issue session checkout with ` +
   `\`podium issue artifact ${seq} --add <relative-image> --terminal-evidence\`; ` +
-  `only raster images are accepted. Redact terminal text/scrollback into the owning ` +
-  `issue worktree and attach it normally.`
-
-/** The two artifact kinds the review ownership gate does not ask to live in
- *  the owning worktree, listed explicitly: terminal evidence passed its own
- *  checks at add time, and a chat upload (POD-2148) is a file a person
- *  attached in the issue's chat, stored on the server. */
-function outsideWorktreeByDesign(artifact: {
-  sourceKind?: 'terminal-evidence'
-  chatUploadId?: string
-}): boolean {
-  return artifact.sourceKind === 'terminal-evidence' || artifact.chatUploadId !== undefined
-}
+  `only raster images are accepted. Attach redacted terminal text with an ordinary CLI upload ` +
+  `or --content "…" --name report.md; neither requires an issue worktree.`
 
 function isTerminalEvidenceImage(path: string): boolean {
   const extension = path.split('.').pop()?.toLowerCase() ?? ''
@@ -508,7 +498,8 @@ export class IssueCrudModule {
     const root = terminalEvidence ? input.sourceRoot : row.worktreePath
     if (!root) {
       throw new IssueRefusal(
-        `issue ${row.seq} has no owning worktree; start or restore it before adding review artifacts. ` +
+        `issue ${row.seq} has no owning worktree for a daemon file read; use the CLI's local upload ` +
+          `or --content "…" --name report.md to attach without a worktree. ` +
           terminalEvidenceHelp(row.seq),
       )
     }
@@ -582,6 +573,39 @@ export class IssueCrudModule {
     })
     if (oldId) void store.remove(row.id, oldId).catch(() => {})
     return wire
+  }
+
+  /** Upload packets are issue-scoped by the command registry. Only a complete
+   * snapshot is published; replacement keeps the logical path and list position. */
+  async panelArtifactTransfer(id: string, packet: ArtifactUploadPacket): Promise<IssueProjection> {
+    const row = await this.store.rowOrThrow(await this.store.resolveRef(id))
+    const artifacts = this.store.deps.artifacts
+    if (!artifacts?.transfer)
+      throw new IssueRefusal('direct artifact uploads are unavailable on this server')
+    const result = await artifacts.transfer(row.id, packet)
+    if (!result) return await this.store.projection(await this.store.rowOrThrow(row.id))
+    const { snapshot, path } = result
+    try {
+      // The issue may have changed or been deleted while bytes were arriving.
+      const current = await this.store.rowOrThrow(row.id)
+      const existing = this.store
+        .parsePanel(current)
+        .artifacts.find((artifact) => artifact.path === path)
+      const title = result.title ?? existing?.title
+      const wire = await this.panelApply(row.id, {
+        op: 'artifact-add',
+        path,
+        ...(title !== undefined ? { title } : {}),
+        artifactId: snapshot.artifactId,
+        entry: snapshot.entry,
+        files: snapshot.files,
+      })
+      if (existing?.artifactId) void artifacts.remove(row.id, existing.artifactId).catch(() => {})
+      return wire
+    } catch (error) {
+      await artifacts.remove(row.id, snapshot.artifactId).catch(() => {})
+      throw error
+    }
   }
 
   /** Attach browser-provided bytes straight to the issue's permanent artifact
@@ -704,7 +728,9 @@ export class IssueCrudModule {
     const row = await this.store.rowOrThrow(issueId).catch(() => undefined)
     const uploadIds = new Set([
       ...(row
-        ? this.store.parsePanel(row).artifacts.flatMap((a) => (a.chatUploadId ? [a.chatUploadId] : []))
+        ? this.store
+            .parsePanel(row)
+            .artifacts.flatMap((a) => (a.chatUploadId ? [a.chatUploadId] : []))
         : []),
       ...(await pending.claimedBy(issueId)).map((meta) => meta.id),
     ])
@@ -1311,7 +1337,9 @@ export class IssueCrudModule {
       stage: (input.stage ?? 'backlog') as StoredIssue['stage'],
       worktreePath: null,
       branch: null,
-      parentBranch: input.parentBranch || (await this.defaultParentBranch(repoId, input.repoPath, input.machineId)),
+      parentBranch:
+        input.parentBranch ||
+        (await this.defaultParentBranch(repoId, input.repoPath, input.machineId)),
       // The issue stores picks only (POD-6133): an unnamed harness, model or effort
       // stays `auto`, so the profile and then the Settings current at each
       // session start decide it, and a stored harness is always a real pick.
@@ -1699,18 +1727,12 @@ export class IssueCrudModule {
     return wire
   }
 
-  /** Review is the first point at which evidence is presented as durable truth.
-   *  The bytes themselves are already safe — `panelArtifactAdd` snapshots them
-   *  into the permanent store ([spec:SP-0fc9]), so evidence never has to be
-   *  committed to the repo to survive. Ordinary artifacts must still resolve
-   *  inside the owning worktree. Explicit terminal-evidence snapshots have
-   *  already passed the same-issue session + raster-image checks at add time, so
-   *  their source checkout may disappear before review. Git tracking is
-   *  deliberately NOT a gate (POD-1284). */
+  /** Stored artifacts were authorized and snapshotted into this issue's store
+   * at publication. Only old live-path entries still depend on a checkout. */
   private assertReviewArtifactOwnership(row: IssueRow): void {
     const artifacts = this.store.parsePanel(row).artifacts
     if (artifacts.length === 0) return
-    const ordinary = artifacts.filter((artifact) => !outsideWorktreeByDesign(artifact))
+    const ordinary = artifacts.filter((artifact) => !artifact.artifactId)
     if (!row.worktreePath && ordinary.length > 0) {
       throw new IssueRefusal(
         `review blocked: issue ${row.seq} has artifacts but no owning worktree; restore the issue worktree and re-add the evidence`,
@@ -1719,7 +1741,7 @@ export class IssueCrudModule {
     if (!row.worktreePath) return
     const root = row.worktreePath
     for (const artifact of artifacts) {
-      if (outsideWorktreeByDesign(artifact)) continue
+      if (artifact.artifactId) continue
       const rel = machinePathRelativeToRoot(root, artifact.path)
       if (!rel) {
         throw new IssueRefusal(

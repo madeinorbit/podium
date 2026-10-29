@@ -10,6 +10,7 @@ import {
   parseFlags,
   withUnknownFlagAs,
 } from './argv'
+import { readArtifactSource } from './artifact-source'
 import { makeOperatorIssueClient } from './operator-client'
 
 /**
@@ -257,7 +258,7 @@ export async function runIssueCli(
       `invalid args for ${command}: ${renderArgIssues(command, parsed.error)}`,
     )
   }
-  const res = await cmd.run(client, parsed.data as Record<string, unknown>)
+  const res = await cmd.run(client, parsed.data as Record<string, unknown>, { readArtifactSource })
   return args.json === true
     ? JSON.stringify({ command, ok: true, data: res.data ?? null, text: res.text })
     : res.text
@@ -284,9 +285,11 @@ export async function issueCliMain(argv: string[]): Promise<void> {
     ? makeRelayIssueClient(relay, { outsideScope })
     : makeOperatorIssueClient(localServerUrl(resolvePort()))
   try {
-    console.log(await runIssueCli(argv, client, {
-      discoveryWaitMs: relay ? 0 : 5_000,
-    }))
+    console.log(
+      await runIssueCli(argv, client, {
+        discoveryWaitMs: relay ? 0 : 5_000,
+      }),
+    )
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
     if (argv.includes('--json')) {

@@ -184,13 +184,15 @@ export type IssueComment = z.infer<typeof IssueComment>
 export const IssuePanelTodo = z.object({ text: z.string(), done: z.boolean() })
 export type IssuePanelTodo = z.infer<typeof IssuePanelTodo>
 export const IssuePanelArtifact = z.object({
-  /** Path to the artifact file, normalized relative to its captured source root. */
+  /** Stable attachment name. Daemon snapshots retain their source-relative
+   * path; direct uploads choose a name independent of the source filesystem. */
   path: z.string(),
   title: z.string().optional(),
   addedAt: z.string(),
   /** The bytes came from the calling issue session's checkout rather than the
    * issue's pinned worktree. Present only for the explicit terminal-evidence
-   * path; ordinary artifacts omit it and retain the owning-worktree rule. */
+   * path; ordinary artifacts omit it. The worktree rule applies only when
+   * capturing a daemon source, never to an already stored snapshot. */
   sourceKind: z.literal('terminal-evidence').optional(),
   /** Set on the copy of a file a person attached in a session's chat (POD-2148):
    *  the attachment id it was staged under. The chat shows its thumbnail from

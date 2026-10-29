@@ -46,15 +46,13 @@ export const ISSUE_SYSTEM_POINTER =
   'send it mail: `podium issue mail send <id> --body "…"` — it is delivered to whoever works that issue. ' +
   // Issue artifacts: reviewable deliverables live ON the issue, not only in chat.
   'Any reviewable deliverable you produce for your issue (UX shots, mockups, concept docs, HTML/MD proposals) ' +
-  'must ALSO be attached to the issue so it shows in its sidebar: save it under your issue worktree ' +
-  '(a scratchpad or /tmp path is outside it and is refused), then ' +
+  'must ALSO be attached to the issue so it shows in its sidebar. Upload a local file or directory, including a scratchpad or /tmp path, with ' +
   '`podium issue artifact <id> --add <path> --title "…"`. Adding COPIES the bytes to the server, so the ' +
   'artifact keeps working uncommitted and outlives the worktree — never commit a screenshot or a scratch ' +
   'doc just to attach it, and delete the file after adding it if it does not belong in the repo. ' +
-  'For a terminal screenshot captured in the current issue session checkout, use ' +
-  '`--terminal-evidence` from that checkout; it is an explicit acknowledgement and accepts raster ' +
-  'images only, never raw scrollback or terminal text. Redact text into the owning worktree and attach ' +
-  'it normally. ' +
+  'No issue worktree is required. For generated text use `--content "…" --name report.md`, or pipe it ' +
+  'to `--add - --name report.md`. Re-add the same attachment name to replace it; absolute source paths ' +
+  'use their basename by default. `--terminal-evidence` remains available for the older acknowledged raster screenshot path. ' +
   'Re-add each significant iteration; the issue ' +
   'artifact list is how the human finds and reviews visual work later, even after the chat scrolls away. ' +
   // Agent action offer [spec:SP-c7f1]: suggested next actions the user can click.

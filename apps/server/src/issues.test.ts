@@ -5622,7 +5622,22 @@ describe('IssueService panelArtifactAdd/Remove (permanent snapshots [spec:SP-0fc
     expect(added.panel?.artifacts[0]?.tracking).toBeUndefined()
     // No lsFiles probe: whether the source file is committed is not our business.
     expect(repoOp.mock.calls.every((c) => c[0] !== 'lsFiles')).toBe(true)
-    expect((await svc.crud.update(w.id, { stage: 'review' })).stage).toBe('review')
+    expect((await svc.crud.update(w.id, { worktreePath: null, stage: 'review' })).stage).toBe('review')
+  })
+
+  it('lets old browser-uploaded references reach review without manufacturing a worktree', async () => {
+    const { svc } = await artifactHarness()
+    const issue = await svc.crud.create({
+      repoPath: '/r',
+      title: 'Explain screenshot',
+      startNow: false,
+    })
+    await svc.crud.panelArtifactUpload(issue.id, {
+      id: 'old-draft-upload',
+      filename: 'image.png',
+      dataBase64: 'eA==',
+    })
+    expect((await svc.crud.update(issue.id, { stage: 'review' })).stage).toBe('review')
   })
 
   it('blocks legacy outside-worktree artifacts before review', async () => {

@@ -1,8 +1,13 @@
 import { randomBytes } from 'node:crypto'
-import { mkdir, open, readFile, rename, rm, stat } from 'node:fs/promises'
+import { mkdir, open, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { dirname, join, resolve, sep } from 'node:path'
 import {
+  ARTIFACT_BUNDLE_CAP_BYTES,
+  ARTIFACT_FILE_CAP_BYTES,
+  ARTIFACT_FILE_COUNT_CAP,
+  ARTIFACT_UPLOAD_CHUNK_BYTES,
   type ArtifactId,
+  ArtifactUploadPacket,
   asArtifactId,
   type IssueId,
   joinMachinePath,
@@ -25,9 +30,6 @@ import type { PortableStateWriteFence } from '../server-transfer/portable-fence'
  * artifactId (new-id-then-swap keeps served URLs consistent with content).
  */
 
-export const ARTIFACT_FILE_CAP_BYTES = 100 * 1024 * 1024
-export const ARTIFACT_BUNDLE_CAP_BYTES = 500 * 1024 * 1024
-export const ARTIFACT_FILE_COUNT_CAP = 200
 /** Per-round-trip pull size — must stay under the daemon's MAX_ASSET_BYTES slice clamp. */
 const PULL_CHUNK_BYTES = 4 * 1024 * 1024
 
@@ -126,7 +128,8 @@ export interface ArtifactRpc {
   }>
 }
 
-const ID_RE = /^(?!\.+$)[A-Za-z0-9._-]+$/
+// Dot-prefixed directories are private staging, never public artifact refs.
+const ID_RE = /^(?!\.)[A-Za-z0-9._-]+$/
 
 /** The added HTML/MD file (or the first file) is the bundle's primary entry. */
 function pickEntry(relPaths: string[]): string {
@@ -135,6 +138,7 @@ function pickEntry(relPaths: string[]): string {
 }
 
 export class IssueArtifactStore {
+  private readonly uploadLocks = new Map<string, Promise<void>>()
   constructor(
     private readonly baseDir: string,
     private readonly rpc: ArtifactRpc,
@@ -144,6 +148,168 @@ export class IssueArtifactStore {
   private artifactDir(issueId: IssueId, artifactId: ArtifactId): string {
     if (!ID_RE.test(issueId) || !ID_RE.test(artifactId)) throw new Error('bad artifact ref')
     return join(this.baseDir, issueId, artifactId)
+  }
+
+  /** Bounded packets let CLI files cross the agent relay without lifting its
+   * request cap. Incomplete uploads never appear in the issue panel. */
+  async transfer(
+    issueId: IssueId,
+    raw: ArtifactUploadPacket,
+  ): Promise<{ snapshot: ArtifactSnapshot; path: string; title?: string } | undefined> {
+    const packet = ArtifactUploadPacket.parse(raw)
+    if (!ID_RE.test(issueId)) throw new Error('bad issue ref')
+    const key = `${issueId}/${packet.uploadId}`
+    const previous = this.uploadLocks.get(key)
+    let release!: () => void
+    const held = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    this.uploadLocks.set(key, held)
+    await previous
+    const dir = join(this.baseDir, '.uploads', issueId, packet.uploadId)
+    try {
+      const write = async () => await this.transferWritable(issueId, dir, packet)
+      return this.writeFence ? await this.writeFence.runWriter(write) : await write()
+    } finally {
+      release()
+      if (this.uploadLocks.get(key) === held) this.uploadLocks.delete(key)
+    }
+  }
+
+  private async transferWritable(issueId: IssueId, dir: string, packet: ArtifactUploadPacket) {
+    if (packet.action === 'abort') {
+      await rm(dir, { recursive: true, force: true })
+      return
+    }
+    if (packet.action === 'begin') {
+      const paths = new Set<string>()
+      for (const file of packet.files) {
+        if (
+          file.path.includes('\\') ||
+          file.path.includes('\0') ||
+          /^[A-Za-z]:/.test(file.path) ||
+          file.path
+            .split('/')
+            .some(
+              (part) =>
+                !part ||
+                part === '.' ||
+                part === '..' ||
+                /[<>:"|?*]/.test(part) ||
+                [...part].some((char) => char.charCodeAt(0) < 32) ||
+                /[. ]$/.test(part) ||
+                /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\.|$)/i.test(part),
+            )
+        ) {
+          throw new Error('artifact members must have relative paths without traversal')
+        }
+        if (paths.has(file.path)) throw new Error('duplicate artifact member')
+        paths.add(file.path)
+      }
+      if (!paths.has(packet.entry)) throw new Error('artifact entry must name a bundle member')
+      if (packet.files.reduce((sum, file) => sum + file.size, 0) > ARTIFACT_BUNDLE_CAP_BYTES) {
+        throw new Error('artifact bundle exceeds 500MB')
+      }
+      await mkdir(join(dir, 'files'), { recursive: true })
+      // Exclusive creation prevents a retry or competing sender from resetting
+      // an upload whose chunks have already arrived.
+      await writeFile(join(dir, 'meta.json'), JSON.stringify(packet), { flag: 'wx' })
+      try {
+        for (const file of packet.files) {
+          const target = join(dir, 'files', file.path)
+          await mkdir(dirname(target), { recursive: true })
+          const fh = await open(target, 'wx')
+          await fh.close()
+        }
+      } catch (error) {
+        await rm(dir, { recursive: true, force: true })
+        throw error
+      }
+      return
+    }
+    const meta = ArtifactUploadPacket.parse(
+      JSON.parse(await readFile(join(dir, 'meta.json'), 'utf8')),
+    )
+    if (meta.action !== 'begin') throw new Error('invalid artifact upload metadata')
+    if (packet.action === 'chunk') {
+      const file = meta.files.find((file) => file.path === packet.file)
+      if (!file) throw new Error('unknown artifact member')
+      const bytes = Buffer.from(packet.dataBase64, 'base64')
+      if (
+        bytes.toString('base64') !== packet.dataBase64 ||
+        bytes.length > ARTIFACT_UPLOAD_CHUNK_BYTES
+      ) {
+        throw new Error('invalid artifact chunk')
+      }
+      const target = join(dir, 'files', file.path)
+      const size = (await stat(target)).size
+      if (packet.offset + bytes.length > file.size || packet.offset > size) {
+        throw new Error('artifact chunk exceeds the declared size or skips bytes')
+      }
+      const fh = await open(target, 'r+')
+      try {
+        if (packet.offset < size) {
+          const existing = Buffer.alloc(bytes.length)
+          const read = await fh.read(existing, 0, bytes.length, packet.offset)
+          if (read.bytesRead !== bytes.length || !existing.equals(bytes)) {
+            throw new Error('artifact chunk conflicts with previously uploaded bytes')
+          }
+        } else {
+          let written = 0
+          while (written < bytes.length) {
+            const result = await fh.write(
+              bytes,
+              written,
+              bytes.length - written,
+              packet.offset + written,
+            )
+            if (result.bytesWritten === 0) throw new Error('short write uploading artifact')
+            written += result.bytesWritten
+          }
+          await fh.sync()
+        }
+      } finally {
+        await fh.close()
+      }
+      return
+    }
+    for (const file of meta.files) {
+      if ((await stat(join(dir, 'files', file.path))).size !== file.size) {
+        throw new Error(`artifact member ${file.path} is incomplete`)
+      }
+    }
+    const artifactId = asArtifactId(randomBytes(6).toString('hex'))
+    const target = this.artifactDir(issueId, artifactId)
+    await mkdir(dirname(target), { recursive: true })
+    await rename(join(dir, 'files'), target)
+    await rm(dir, { recursive: true, force: true }).catch(() => {})
+    return {
+      path: meta.path,
+      ...(meta.title !== undefined ? { title: meta.title } : {}),
+      snapshot: { artifactId, entry: meta.entry, files: meta.files, sourcePaths: [] },
+    }
+  }
+
+  /** The existing pending-upload timer also expires interrupted CLI transfers. */
+  async sweepUploads(now = Date.now()): Promise<void> {
+    const sweep = async () => {
+      const base = join(this.baseDir, '.uploads')
+      for (const issue of await readdir(base).catch(() => [] as string[])) {
+        for (const upload of await readdir(join(base, issue)).catch(() => [] as string[])) {
+          const dir = join(base, issue, upload)
+          const modified = (await stat(dir).catch(() => undefined))?.mtimeMs
+          if (
+            modified !== undefined &&
+            now - modified > 24 * 60 * 60 * 1000 &&
+            !this.uploadLocks.has(`${issue}/${upload}`)
+          ) {
+            await rm(dir, { recursive: true, force: true })
+          }
+        }
+      }
+    }
+    if (this.writeFence) await this.writeFence.runWriter(sweep)
+    else await sweep()
   }
 
   /**
@@ -264,7 +430,10 @@ export class IssueArtifactStore {
       if (listed.ok) {
         plan = (await this.walkDir(o.root, o.machineId, listed.path)).map((file) => ({
           ...file,
-          sourcePath: normalizeMachinePath(o.sourcePath + machinePathSeparator(o.root) + file.rel, o.root),
+          sourcePath: normalizeMachinePath(
+            o.sourcePath + machinePathSeparator(o.root) + file.rel,
+            o.root,
+          ),
         }))
         if (plan.length === 0) throw new Error(`directory ${o.sourcePath} has no files`)
       } else {
@@ -417,14 +586,18 @@ export class IssueArtifactStore {
 
   /** Delete one snapshot dir (artifact-remove / post-replace cleanup). */
   async remove(issueId: IssueId, artifactId: ArtifactId): Promise<void> {
-    const write = async () => await rm(this.artifactDir(issueId, artifactId), { recursive: true, force: true })
+    const write = async () =>
+      await rm(this.artifactDir(issueId, artifactId), { recursive: true, force: true })
     await (this.writeFence ? await this.writeFence.runWriter(write) : await write())
   }
 
   /** Delete every snapshot of an issue (hard issue deletion). */
   async removeIssue(issueId: IssueId): Promise<void> {
     if (!ID_RE.test(issueId)) return
-    const write = async () => await rm(join(this.baseDir, issueId), { recursive: true, force: true })
+    const write = async () => {
+      await rm(join(this.baseDir, issueId), { recursive: true, force: true })
+      await rm(join(this.baseDir, '.uploads', issueId), { recursive: true, force: true })
+    }
     await (this.writeFence ? await this.writeFence.runWriter(write) : await write())
   }
 

@@ -1153,7 +1153,7 @@ export class IssueReportsModule {
           'The user sees a live panel for this issue. Keep it current as you work:',
           `  - \`podium issue state ${me.seq} --set "…"\` — one-paragraph "where things stand"; update whenever the situation changes so the user can see at a glance what's up.`,
           `  - \`podium issue todo ${me.seq} --add "…"\` / \`--done n\` — HUMAN-facing todo list (what is left, in user terms; distinct from your internal todos).`,
-          `  - \`podium issue artifact ${me.seq} --add <path> [--title "…"]\` — files inside this issue's owning worktree the user should look at (screenshots, videos, html/md docs). Adding COPIES the bytes to the server, so NEVER commit a file just to attach it — delete it after adding unless it belongs in the repo (a left-behind file makes \`free\`/\`cleanup\` refuse the worktree). \`--get <n|path> [--out <file>]\` reads one back, from any machine.`,
+          `  - \`podium issue artifact ${me.seq} --add <local-file-or-directory> [--name <stable-name>] [--title "…"]\` — uploads review files, including scratchpad and /tmp files, without an issue worktree. \`--content "…" --name report.md\` or \`--add - --name report.md\` attaches generated text. Re-add the same name to replace it; absolute paths use their basename. The server keeps the bytes, so NEVER commit a file just to attach it; delete scratch files after upload. \`--get <n|name> [--out <file>]\` reads one back from any machine.`,
           `  - \`podium issue deferred ${me.seq} --add "…"\` — work you chose to defer; the user decides on it later.`,
           '',
           labelLine,

@@ -1,14 +1,17 @@
+import { randomUUID } from 'node:crypto'
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { asArtifactId, asIssueId, joinMachinePath } from '@podium/model'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   ARTIFACT_FILE_CAP_BYTES,
   ARTIFACT_FILE_COUNT_CAP,
-  type ArtifactRpc,
-  IssueArtifactStore,
-} from './artifact-store'
+  ARTIFACT_UPLOAD_CHUNK_BYTES,
+  asArtifactId,
+  asIssueId,
+  joinMachinePath,
+} from '@podium/model'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { type ArtifactRpc, IssueArtifactStore } from './artifact-store'
 
 /** Fake daemon: a flat map of absolute path → bytes, plus dir listings. */
 function fakeRpc(
@@ -64,17 +67,25 @@ describe('IssueArtifactStore [spec:SP-0fc9]', () => {
     expect(slice?.size).toBe(3)
   })
 
-
-  it.each(['/wt', 'C:\\wt', '\\\\nas\\share\\wt'])('machine paths: snapshots remote files and directories under %s', async root => {
+  it.each([
+    '/wt',
+    'C:\\wt',
+    '\\\\nas\\share\\wt',
+  ])('machine paths: snapshots remote files and directories under %s', async (root) => {
     const path = joinMachinePath(root, 'shots', 'a.png')
     const dir = joinMachinePath(root, 'shots')
-    const store = new IssueArtifactStore(base, fakeRpc({ [path]: Buffer.from('PNG') }, { [dir]: [{ name: 'a.png', isDir: false }] }))
+    const store = new IssueArtifactStore(
+      base,
+      fakeRpc({ [path]: Buffer.from('PNG') }, { [dir]: [{ name: 'a.png', isDir: false }] }),
+    )
     const single = await store.snapshot({ issueId: asIssueId('iss_1'), root, sourcePath: path })
     expect(single.entry).toBe('a.png')
     expect(single.files).toEqual([{ path: 'a.png', size: 3 }])
     const folder = await store.snapshot({ issueId: asIssueId('iss_1'), root, sourcePath: 'shots' })
     expect(folder.files).toEqual([{ path: 'a.png', size: 3 }])
-    expect((await store.read(asIssueId('iss_1'), folder.artifactId, 'a.png'))?.bytes.toString()).toBe('PNG')
+    expect(
+      (await store.read(asIssueId('iss_1'), folder.artifactId, 'a.png'))?.bytes.toString(),
+    ).toBe('PNG')
   })
 
   it('stores browser bytes directly without a daemon source file', async () => {
@@ -89,6 +100,130 @@ describe('IssueArtifactStore [spec:SP-0fc9]', () => {
     expect(
       (await store.read(asIssueId('iss_1'), snap.artifactId, 'mock.png'))?.bytes.toString(),
     ).toBe('PNG')
+  })
+
+  it('uploads a bundle in bounded chunks, checks replay and offsets, and publishes only complete bytes', async () => {
+    const store = new IssueArtifactStore(base, fakeRpc({}))
+    const issueId = asIssueId('iss_upload')
+    const uploadId = randomUUID()
+    const bytes = Buffer.alloc(ARTIFACT_UPLOAD_CHUNK_BYTES * 3 + 7, 9)
+    await store.transfer(issueId, {
+      action: 'begin',
+      uploadId,
+      path: 'proposal',
+      entry: 'index.html',
+      files: [
+        { path: 'index.html', size: 1 },
+        { path: 'assets/shot.png', size: bytes.length },
+      ],
+    })
+    const first = {
+      action: 'chunk' as const,
+      uploadId,
+      file: 'index.html',
+      offset: 0,
+      dataBase64: 'eA==',
+    }
+    await store.transfer(issueId, first)
+    await store.transfer(issueId, first)
+    await expect(store.transfer(issueId, { ...first, dataBase64: 'eQ==' })).rejects.toThrow(
+      'conflicts',
+    )
+    await expect(store.transfer(issueId, { action: 'commit', uploadId })).rejects.toThrow(
+      'incomplete',
+    )
+    await expect(
+      store.transfer(asIssueId('iss_other'), { action: 'commit', uploadId }),
+    ).rejects.toThrow()
+    expect(await store.read(issueId, asArtifactId(uploadId), 'index.html')).toBeNull()
+    for (let offset = 0; offset < bytes.length; offset += ARTIFACT_UPLOAD_CHUNK_BYTES) {
+      const packet = {
+        action: 'chunk' as const,
+        uploadId,
+        file: 'assets/shot.png',
+        offset,
+        dataBase64: bytes.subarray(offset, offset + ARTIFACT_UPLOAD_CHUNK_BYTES).toString('base64'),
+      }
+      expect(
+        Buffer.byteLength(
+          JSON.stringify({
+            router: 'issues',
+            proc: 'panelApply',
+            input: { id: issueId, op: 'artifact-upload', upload: packet },
+          }),
+        ),
+      ).toBeLessThan(1024 * 1024)
+      await store.transfer(issueId, packet)
+    }
+    const result = await store.transfer(issueId, { action: 'commit', uploadId })
+    expect(result?.path).toBe('proposal')
+    expect(
+      (await store.read(issueId, result!.snapshot.artifactId, 'assets/shot.png'))?.bytes,
+    ).toEqual(bytes)
+    expect(existsSync(join(base, '.uploads', issueId, uploadId))).toBe(false)
+  })
+
+  it.each([
+    '../secret',
+    '/absolute',
+    'nested/../../secret',
+    'nested\\secret',
+    'C:/secret',
+    '.. /secret',
+    'NUL.txt',
+    'file:stream',
+    'file\tname',
+  ])('refuses unsafe upload member %s', async (path) => {
+    const store = new IssueArtifactStore(base, fakeRpc({}))
+    await expect(
+      store.transfer(asIssueId('iss_1'), {
+        action: 'begin',
+        uploadId: randomUUID(),
+        path: 'report',
+        entry: path,
+        files: [{ path, size: 0 }],
+      }),
+    ).rejects.toThrow('relative paths')
+  })
+
+  it('refuses gaps and excess bytes and expires or aborts unpublished uploads', async () => {
+    const store = new IssueArtifactStore(base, fakeRpc({}))
+    const issueId = asIssueId('iss_1')
+    const uploadId = randomUUID()
+    const begin = {
+      action: 'begin' as const,
+      uploadId,
+      path: 'report',
+      entry: 'report.md',
+      files: [{ path: 'report.md', size: 1 }],
+    }
+    await store.transfer(issueId, begin)
+    expect(
+      await store.read(asIssueId('.uploads'), asArtifactId(issueId), `${uploadId}/files/report.md`),
+    ).toBeNull()
+    await expect(
+      store.transfer(issueId, {
+        action: 'chunk',
+        uploadId,
+        file: 'report.md',
+        offset: 1,
+        dataBase64: 'eA==',
+      }),
+    ).rejects.toThrow('skips bytes')
+    await expect(
+      store.transfer(issueId, {
+        action: 'chunk',
+        uploadId,
+        file: 'report.md',
+        offset: 0,
+        dataBase64: 'eHg=',
+      }),
+    ).rejects.toThrow('declared size')
+    await store.transfer(issueId, { action: 'abort', uploadId })
+    expect(existsSync(join(base, '.uploads', issueId, uploadId))).toBe(false)
+    await store.transfer(issueId, begin)
+    await store.sweepUploads(Date.now() + 25 * 60 * 60 * 1000)
+    expect(existsSync(join(base, '.uploads', issueId, uploadId))).toBe(false)
   })
 
   it('rejects a direct-upload filename that could escape its artifact directory', async () => {
@@ -171,18 +306,33 @@ describe('IssueArtifactStore [spec:SP-0fc9]', () => {
     ).rejects.toThrow(/per-file cap/)
   })
 
-  it.each(['C:/shot.png', String.raw`\a\b.png`, String.raw`\\a\b.png`])('machine paths: snapshots literal POSIX relative filename %s', async sourcePath => {
-    const store = new IssueArtifactStore(base, fakeRpc({ ['/wt/' + sourcePath]: Buffer.from('PNG') }))
+  it.each([
+    'C:/shot.png',
+    String.raw`\a\b.png`,
+    String.raw`\\a\b.png`,
+  ])('machine paths: snapshots literal POSIX relative filename %s', async (sourcePath) => {
+    const store = new IssueArtifactStore(
+      base,
+      fakeRpc({ ['/wt/' + sourcePath]: Buffer.from('PNG') }),
+    )
     const snap = await store.snapshot({ issueId: asIssueId('iss_1'), root: '/wt', sourcePath })
     expect(snap.entry).toBe(sourcePath === 'C:/shot.png' ? 'shot.png' : sourcePath)
-    expect((await store.read(asIssueId('iss_1'), snap.artifactId, snap.entry))?.bytes.toString()).toBe('PNG')
+    expect(
+      (await store.read(asIssueId('iss_1'), snap.artifactId, snap.entry))?.bytes.toString(),
+    ).toBe('PNG')
   })
 
   it('machine paths: walks a POSIX directory whose name begins with a drive-like token', async () => {
     const root = '/wt'
     const sourcePath = 'C:/shots'
     const path = '/wt/C:/shots/a.png'
-    const store = new IssueArtifactStore(base, fakeRpc({ [path]: Buffer.from('PNG') }, { '/wt/C:/shots': [{ name: 'a.png', isDir: false }] }))
+    const store = new IssueArtifactStore(
+      base,
+      fakeRpc(
+        { [path]: Buffer.from('PNG') },
+        { '/wt/C:/shots': [{ name: 'a.png', isDir: false }] },
+      ),
+    )
     const snap = await store.snapshot({ issueId: asIssueId('iss_1'), root, sourcePath })
     expect(snap.sourcePaths).toEqual(['C:/shots/a.png'])
     expect(snap.files).toEqual([{ path: 'a.png', size: 3 }])
@@ -233,8 +383,17 @@ describe('IssueArtifactStore [spec:SP-0fc9]', () => {
     expect((await store.read(asIssueId('iss_1'), s2.artifactId, 'a.txt'))?.bytes.toString()).toBe(
       'A',
     )
+    const uploadId = randomUUID()
+    await store.transfer(asIssueId('iss_1'), {
+      action: 'begin',
+      uploadId,
+      path: 'unfinished',
+      entry: 'a.txt',
+      files: [{ path: 'a.txt', size: 1 }],
+    })
     await store.removeIssue(asIssueId('iss_1'))
     expect(existsSync(join(base, 'iss_1'))).toBe(false)
+    expect(existsSync(join(base, '.uploads', 'iss_1'))).toBe(false)
   })
 
   it('the stored copy survives source deletion (snapshot, not live-read)', async () => {

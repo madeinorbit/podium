@@ -130,7 +130,8 @@ describe('runIssueCli', () => {
   it('artifact help names the sanctioned terminal screenshot path', async () => {
     const out = await runIssueCli(['artifact', '--help'], client)
     expect(out).toContain('--terminal-evidence')
-    expect(out).toContain('raster images only')
+    expect(out).toContain('no worktree or commit is required')
+    expect(out).toContain('--content')
   })
 
   it('todo help shows index values and keeps clear value-less', async () => {

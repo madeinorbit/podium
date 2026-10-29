@@ -33,6 +33,11 @@ import {
   TITLE_RULE_TERSE,
 } from '@podium/protocol'
 import { z } from 'zod'
+import {
+  artifactFromText,
+  type IssueCommandEnvironment,
+  uploadArtifact,
+} from './artifact-upload.js'
 import type { IssueTrpc } from './client.js'
 import { renderIssueDeck } from './deck.js'
 import { newMessageId, repeatUntilAnswered } from './send-once.js'
@@ -83,7 +88,11 @@ export interface IssueCommand {
   /** Variadic tail: positionals beyond `positionals` join (comma-separated) into this
    *  arg key, so `show 1 2 3` ≡ `show 1 --ids 2,3`. An explicit flag wins. */
   restKey?: string
-  run(client: IssueTrpc, args: Record<string, unknown>): Promise<IssueCommandResult>
+  run(
+    client: IssueTrpc,
+    args: Record<string, unknown>,
+    environment?: IssueCommandEnvironment,
+  ): Promise<IssueCommandResult>
 }
 
 const repoArg = { repoPath: z.string() }
@@ -1946,10 +1955,12 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
   {
     name: 'artifact',
     summary:
-      'Artifacts the USER should look at (images/videos/html/md — UX shots, concept docs), shown in the issue sidebar: artifact <id> [--add <path>] [--title "…"] [--terminal-evidence] [--remove n] [--get <n|path> [--file <rel>] [--out <path>]]. Adding COPIES the bytes to the server, so the artifact survives even if the file is never committed and the worktree is later deleted — do NOT commit screenshots or scratch docs just to attach them. Normal paths must live inside the owning issue worktree. For a screenshot captured in the current issue session checkout, use --terminal-evidence; it requires an explicit acknowledgement and accepts raster images only, never raw scrollback text. --get reads a stored artifact BACK (any agent, any machine, even after the worktree is gone): text prints, anything else needs --out. No flags = print the list.',
+      'Attach review files to the issue: artifact <id> --add <local-file-or-directory> [--name <stable-name>] [--title "…"], or --add - --name report.md for stdin, or --content "…" --name report.md for generated text. Files are uploaded to permanent server storage; no worktree or commit is required. Relative files resolve from the CLI current directory; absolute sources use their basename as the attachment name. Re-add the same name to replace a snapshot. Directories preserve HTML and sibling assets. In-process MCP accepts --content; its --add reads only the owning worktree through the daemon. --terminal-evidence preserves the older acknowledged raster screenshot path. --get <n|name> [--file <member>] [--out <path>] reads a stored artifact. --remove n deletes it. No flags lists attachments.',
     args: z.strictObject({
       id: idArg,
       add: z.string().optional(),
+      content: z.string().optional(),
+      name: z.string().min(1).optional(),
       title: z.string().optional(),
       remove: z.coerce.number().int().min(1).optional(),
       terminalEvidence: z.boolean().optional(),
@@ -1962,7 +1973,19 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
       out: z.string().optional(),
     }),
     positionals: ['id'],
-    async run(c, a) {
+    async run(c, a, environment) {
+      if ([a.add, a.content, a.get, a.remove].filter((value) => value != null).length > 1) {
+        throw new Error('choose one of --add, --content, --get or --remove')
+      }
+      if (a.name != null && a.add == null && a.content == null)
+        throw new Error('--name requires --add or --content')
+      if (a.title != null && a.add == null && a.content == null)
+        throw new Error('--title requires --add or --content')
+      if (a.content != null && !a.name) throw new Error('--content requires --name <filename>')
+      if (a.terminalEvidence === true && a.content != null)
+        throw new Error('--terminal-evidence only applies to --add')
+      if (a.terminalEvidence === true && a.add == null)
+        throw new Error('--terminal-evidence only applies to --add')
       if (a.get != null) return readArtifact(c, a)
       if (a.file != null || a.out != null) {
         throw new Error('--file and --out only apply to --get')
@@ -1981,10 +2004,22 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
           : a.remove != null
             ? { op: 'artifact-remove', index: a.remove }
             : null
+      const source =
+        a.content != null
+          ? artifactFromText(a.name as string, a.content as string)
+          : a.add != null && a.terminalEvidence !== true && environment?.readArtifactSource
+            ? await environment.readArtifactSource(a.add as string, a.name as string | undefined)
+            : undefined
+      if (a.add === '-' && !source)
+        throw new Error('stdin is available in the CLI; use --content --name for MCP')
+      if (a.name != null && !source)
+        throw new Error('--name is available with CLI uploads or --content')
       const i = (
-        op
-          ? await c.issues.panelApply.mutate({ id: a.id as string, ...op } as never)
-          : await c.issues.get.query({ id: a.id as string })
+        source
+          ? await uploadArtifact(c, a.id as string, source, a.title as string | undefined)
+          : op
+            ? await c.issues.panelApply.mutate({ id: a.id as string, ...op } as never)
+            : await c.issues.get.query({ id: a.id as string })
       ) as {
         seq: number
         panel?: {

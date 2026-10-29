@@ -57,6 +57,7 @@
  */
 
 import {
+  ArtifactUploadPacket,
   IssueIdField,
   IssueStage,
   IssueType,
@@ -256,6 +257,7 @@ export const panelApplyInput = z.object({
     'todo-remove',
     'todo-clear',
     'artifact-add',
+    'artifact-upload',
     'artifact-remove',
     'deferred-add',
     'deferred-remove',
@@ -270,6 +272,7 @@ export const panelApplyInput = z.object({
   terminalEvidence: z.boolean().optional(),
   /** Filled by the CLI from its current checkout; never accepted without terminalEvidence. */
   sourceRoot: z.string().optional(),
+  upload: ArtifactUploadPacket.optional(),
 })
 
 export const createInput = z.object({
@@ -1189,7 +1192,12 @@ export const issuePanelApplyContract = {
   policy: WRITE_POLICY,
   exposure: SERVED_EVERYWHERE,
   delivery: WRITE_DELIVERY,
-  redaction: ISSUE_REDACTION,
+  redaction: {
+    reviewed: true,
+    inputPaths: ['upload'],
+    outputPaths: [],
+    note: 'Upload packets contain file bytes; keep them out of command diagnostics. Published artifact metadata is readable by the issue audience.',
+  },
   ownership: owns(
     ['artifact'],
     'parent',
@@ -1619,10 +1627,12 @@ export const issueMoveContract = {
   name: 'issues.move',
   version: 1,
   visibility: ISSUE_VISIBILITY,
-  input: moveInput.merge(EXPECTED_REVISION).refine(
-    (input) => (input.before !== undefined) !== (input.after !== undefined),
-    'pass exactly one of --before or --after',
-  ),
+  input: moveInput
+    .merge(EXPECTED_REVISION)
+    .refine(
+      (input) => (input.before !== undefined) !== (input.after !== undefined),
+      'pass exactly one of --before or --after',
+    ),
   policy: WRITE_POLICY,
   exposure: SERVED_EVERYWHERE,
   delivery: WRITE_DELIVERY,
