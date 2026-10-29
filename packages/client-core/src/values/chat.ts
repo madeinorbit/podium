@@ -487,10 +487,9 @@ const shorten = (s: string, max: number): string =>
  */
 export function toolSubject(item: TranscriptItem, max: number = SUBJECT_MAX): string | undefined {
   // `max` exists because the same sentence serves two places with different
-  // room. The COLLAPSED line packs several subjects onto one line and has to
-  // cap each; an UNFOLDED row owns its line, and clipping "…" into the middle
-  // of a filename there hides the end of a name for space the row already has.
-  // That caller passes Infinity and lets CSS ellipsis handle the column edge.
+  // room. Batch titles pack several subjects onto one line and cap each;
+  // live work lines and unfolded rows pass Infinity so CSS clips only at the
+  // actual column edge.
   const name = item.toolName
   // A path-bearing call is named by its file, always — the basename, since the
   // full path is one disclosure away in the expanded row.
@@ -635,8 +634,10 @@ export function toolBatchTitleFromClauses(clauses: Iterable<ToolTitleClause>): s
     // it, so "+2" never under-reports a run that mixed named and unnamed calls
     // — and repeated work on one file still shows up in the total.
     const rest = count - shown.length
-    const clause = shown.length === 0 ? clauseFor(verb, noun, count)
-      : `${verb} ${shown.join(', ')}${rest > 0 ? ` +${rest}` : ''}`
+    const clause =
+      shown.length === 0
+        ? clauseFor(verb, noun, count)
+        : `${verb} ${shown.join(', ')}${rest > 0 ? ` +${rest}` : ''}`
     phrase += phrase ? `, ${lowerFirst(clause)}` : clause
     if (phrase.length > PHRASE_MAX) return shorten(phrase, PHRASE_MAX)
   }
@@ -686,7 +687,7 @@ function toolGerund(toolName: string | undefined): string {
  * falls back to the tool's own name so the line is never empty.
  */
 export function toolCallPhrase(item: TranscriptItem): string {
-  const target = toolSubject(item)
+  const target = toolSubject(item, Number.POSITIVE_INFINITY)
   // An MCP call names its server as the subject already ("Gmail · send"), so a
   // gerund in front of it would read as "Running Gmail · send".
   if (target && item.toolName && mcpParts(item.toolName)) return `Using ${target}`
