@@ -390,7 +390,7 @@ export class FullDeck {
       'needs-you': t.error + t['needs-you'],
       active: t.error + t['needs-you'] + t.working + t.idle,
       'up-next': t.blocked + t['not-started'],
-      done: t.done,
+      done: this.buckets.done,
     }
   }
   /** Needs you reads red when anything it lists has errored, else amber. The
@@ -434,7 +434,7 @@ export class FullDeck {
   } | null {
     if (this.showDone) return null
     const phases = this.phaseIds.filter((id) => this.task(id).workComplete).length,
-      tasks = this.tally.done
+      tasks = this.buckets.done
     return phases || tasks ? { phases, tasks } : null
   }
 

@@ -716,9 +716,9 @@ describe('Full mission header', () => {
     await waitFor(() => expect(screen.getByTestId('mission-gauge-track').parentElement?.getAttribute('aria-label')).toBe(
       '1 of 2 tasks done, 0 working, 0 waiting, 1 to do',
     ))
-    expect(screen.getByRole('button', { name: /2 tasks done Show/ })).toBeTruthy()
+    expect(screen.getByRole('button', { name: /1 task done Show/ })).toBeTruthy()
     const before = screen.getByTestId('mission-gauge-track').parentElement?.getAttribute('aria-label')
-    fireEvent.click(screen.getByRole('button', { name: /2 tasks done Show/ }))
+    fireEvent.click(screen.getByRole('button', { name: /1 task done Show/ }))
     expect(screen.getByTestId('mission-gauge-track').parentElement?.getAttribute('aria-label')).toBe(before)
     captureHeader('Leaf totals · parents and phases excluded')
   })

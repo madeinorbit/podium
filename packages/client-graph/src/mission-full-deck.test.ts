@@ -8,7 +8,7 @@ import { settled } from './mission-view'
 import { MISSION_VIEW_SUMMARIES } from './mission-view-schema'
 import { MobxPool } from './pool'
 import { attachPreferenceSource } from './preference-source'
-import { LOADING } from './worklist/rollup'
+import { LOADING, unitsBelowPartOf } from './worklist/rollup'
 import { rollupInputsOf } from './worklist/visible'
 
 const stamp = '2026-10-15T12:00:00Z',
@@ -270,7 +270,7 @@ describe('counting', () => {
       'needs-you': 2,
       active: 3,
       'up-next': 5,
-      done: 4,
+      done: 2,
     })
     expect(tracked(() => full.task('admin').counter)).toEqual({ done: 1, total: 3 })
     expect(tracked(() => full.task('usage').counter)).toEqual({ done: 0, total: 2 })
@@ -297,7 +297,7 @@ describe('counting', () => {
       'needs-you': 1,
       active: 3,
       'up-next': 5,
-      done: 4,
+      done: 2,
     })
   })
 
@@ -355,7 +355,7 @@ describe('counting', () => {
       closed: false,
     })
     expect(tracked(() => full.task('build').workComplete)).toBe(false)
-    expect(tracked(() => full.doneLine)).toEqual({ phases: 1, tasks: 4 })
+    expect(tracked(() => full.doneLine)).toEqual({ phases: 1, tasks: 2 })
     void tracked(() => full.rowIds)
     expect(pool.issueObject('release').stage).toBe('in_progress')
   })
@@ -376,7 +376,7 @@ describe('counting', () => {
     expect(tracked(() => full.task('empty-open').workComplete)).toBe(false)
     expect(tracked(() => full.task('empty-closed').matches)).toBe(false)
     expect(tracked(() => full.task('empty-open').matches)).toBe(true)
-    expect(tracked(() => full.doneLine)).toEqual({ phases: 2, tasks: 4 })
+    expect(tracked(() => full.doneLine)).toEqual({ phases: 2, tasks: 2 })
   })
 
   it('does not move totals with folds, search or Show done', async () => {
@@ -666,7 +666,7 @@ describe('loading', () => {
       'needs-you': 2,
       active: 3,
       'up-next': 5,
-      done: 4,
+      done: 2,
     })
   })
 })
@@ -718,6 +718,55 @@ describe('legacy modes', () => {
 })
 
 describe('execution buckets', () => {
+  it('shares leaf totals across the full deck, legacy deck and worklist', async () => {
+    const { full, screen, pool } = await open({
+      issues: [issue('root', 1, null), issue('phase', 2, 'root', { type: 'phase' }),
+        issue('parent', 3, 'phase'), issue('leaf', 4, 'parent'),
+        issue('empty-phase', 5, 'root', { type: 'phase' }),
+        issue('proposal', 6, 'root', { stage: 'proposed' }), issue('unaccepted', 7, 'proposal')],
+      sessions: [session('worker', 'leaf', 'working')],
+    })
+    expect(tracked(() => full.leafIds)).toEqual(['leaf'])
+    expect(tracked(() => full.buckets)).toEqual({ total: 1, done: 0, working: 1, waiting: 0, todo: 0 })
+    const expected = { total: 1, done: 0, run: 1, stall: 0, review: 0, block: 0, wait: 0 }
+    expect(tracked(() => screen.progress)).toEqual(expected)
+    expect(tracked(() => pool.worklistRow('root')!.progress)).toEqual(expected)
+    expect(tracked(() => pool.worklistRow('phase')!.progress)).toEqual(expected)
+    expect(tracked(() => unitsBelowPartOf(pool.rollupInputs, 'root'))).toMatchObject({ units: 1, done: 0, progress: { run: 1, stall: 0 } })
+    expect(tracked(() => pool.worklistRow('empty-phase')!.progress)).toMatchObject({ total: 0 })
+  })
+
+  it('excludes abandoned leaves from every done count without counting their parent instead', async () => {
+    const { full, screen, pool } = await open({
+      issues: [issue('root', 1, null), issue('parent', 2, 'root'),
+        issue('cancelled', 3, 'parent', { stage: 'done', closedReason: 'cancelled' }),
+        issue('duplicate', 4, 'parent', { stage: 'done', closedReason: 'duplicate' }),
+        issue('superseded', 5, 'parent', { stage: 'done', closedReason: 'superseded' })],
+      sessions: [],
+    })
+    expect(tracked(() => full.buckets)).toMatchObject({ total: 0, done: 0 })
+    expect(tracked(() => full.counts.done)).toBe(0)
+    expect(tracked(() => full.doneLine)).toBeNull()
+    expect(tracked(() => screen.progress)).toMatchObject({ total: 0, done: 0 })
+    expect(tracked(() => pool.worklistRow('root')!.progress)).toMatchObject({ total: 0, done: 0 })
+    expect(tracked(() => unitsBelowPartOf(pool.rollupInputs, 'root'))).toMatchObject({ units: 0, done: 0 })
+  })
+
+  it('retains started history after the computing session moves to another issue', async () => {
+    const issues = [issue('root', 1, null), issue('history', 2, 'root', { stage: 'backlog' }),
+      issue('elsewhere', 3, null)]
+    const original = session('worker', 'history', 'working', { refIssueId: 'history' })
+    const { full, screen, pool } = await open({ issues, sessions: [original] })
+    expect(tracked(() => full.buckets.working)).toBe(1)
+    pool.apply({ type: 'update', rows: [{ kind: 'session', id: 'worker',
+      value: { ...original, issueId: 'elsewhere' } as never }] })
+    expect(tracked(() => full.buckets)).toEqual({ total: 1, done: 0, working: 0, waiting: 1, todo: 0 })
+    expect(tracked(() => screen.progress)).toMatchObject({ total: 1, run: 0, stall: 1, wait: 0 })
+    expect(tracked(() => pool.worklistRow('root')!.progress)).toMatchObject({ total: 1, run: 0, stall: 1, wait: 0 })
+    const rebuilt = rollupInputsOf({ ...pool.visibleInputs, missionBucket: undefined })
+    expect(rebuilt.missionBucket?.('history')).toBe('waiting')
+  })
+
   it('includes shell and headless sessions in the raw execution fact', async () => {
     const { full } = await open({
       issues: [issue('root', 1, null), issue('shell-task', 2, 'root', { stage: 'backlog' }),

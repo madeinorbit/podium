@@ -1,3 +1,4 @@
+import { leafTasks } from '@podium/model/browser'
 import { omitGone } from './lookup'
 import type { SessionView } from '@podium/client-core/session-values'
 
@@ -505,37 +506,22 @@ export class MissionDeckIssueModel implements FlightDeckRow {
 
 const progress = ((deck: MissionDeckModel): MissionProgress | typeof LOADING => settled(() => {
   const { view } = deck, members = requireLoaded(deck.members)
-  const scope: string[] = []
   let pending = false
   // Progress is also read without the pane's topology. Request every member's
   // visibility together so cold siblings do not load one per scalar read.
   for (const id of members) {
     const visible = settled(() => view.facts(id).visible)
     if (visible === LOADING) pending = true
-    else if (visible) scope.push(id)
   }
   if (pending) return LOADING
-  const formal = new Set<string>(), stack = [...view.pool.graph.many('issue', deck.id, 'children')]
-  while (stack.length) {
-    const id = stack.pop()!
-    if (id === deck.id || formal.has(id) || !view.facts(id).visible) continue
-    formal.add(id); stack.push(...view.pool.graph.many('issue', id, 'children'))
-  }
-  // Progress needs staffing throughout this formal scope. Observe every
-  // required crew before propagating LOADING instead of loading one per frame.
-  for (const id of scope) if (settled(() => view.facts(id).live) === LOADING) pending = true
-  if (pending) return LOADING
-  const accepted = scope.filter(id => formal.has(id) && view.facts(id).stage !== 'proposed' && !issueAbandoned(view.facts(id)))
-  const units: string[] = []
-  for (const id of accepted.length ? accepted : [deck.id]) {
-    const eligible = settled(() => {
-      const facts = view.facts(id)
-      return !issueAbandoned(facts) && (facts.live || (view.tipIds(id, true).length === 0 && !view.hasSpinOffDependent(id)))
-    })
-    if (eligible === LOADING) pending = true
-    else if (eligible) units.push(id)
-  }
-  if (pending) return LOADING
+  const units = leafTasks(deck.id, {
+    task: (id) => view.facts(id),
+    children: (id) => [...view.pool.graph.many('issue', id, 'children')].filter((child) =>
+      view.facts(child).visible && view.facts(child).stage !== 'proposed'),
+  }).filter((id) => {
+    const facts = view.facts(id)
+    return facts.visible && (facts.live || (view.tipIds(id, true).length === 0 && !view.hasSpinOffDependent(id)))
+  })
   return missionProgressFromBuckets(tallyMissionBuckets(units, (id) => view.facts(id).missionBucket))
 }))
 

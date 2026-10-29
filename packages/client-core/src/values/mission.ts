@@ -2,8 +2,8 @@ import type { IssueProjection } from '@podium/model'
 import { type AgentKind, asIssueId, asSessionId, type IssueId, type SessionId } from '@podium/model'
 import {
   isDecisionIssue,
-  isPhaseIssue,
   isFinished as issueClosed,
+  leafTasks,
   seatWords,
   sessionWorkingFact,
   TASK_WORD_LABEL,
@@ -605,6 +605,8 @@ export interface MissionSessionIndex {
    * to helpers that draw their own archived/open lines.
    */
   byIssue: Map<string, SessionView[]>
+  /** Permanent birth references survive a session moving to another issue. */
+  bornIssues: Set<string>
   /** Issue ids carrying at least one {@link openSession} — the `some(...)`
    *  presence test the staffing rules ask, precomputed. */
   openIssues: Set<string>
@@ -653,9 +655,11 @@ export function indexMissionSessions(sessions: readonly SessionView[]): MissionS
   if (legacyMissionCounting) legacyMissionCounts.indexMissionSessions++
   sessionIndexBuilds += 1
   const byIssue = new Map<string, SessionView[]>()
+  const bornIssues = new Set<string>()
   const openIssues = new Set<string>()
   const lastActive = new Map<string, string>()
   for (const session of sessions) {
+    if (session.refIssueId) bornIssues.add(session.refIssueId)
     const issueId = session.issueId
     if (issueId === undefined) continue
     const existing = byIssue.get(issueId)
@@ -668,7 +672,7 @@ export function indexMissionSessions(sessions: readonly SessionView[]): MissionS
       lastActive.set(issueId, session.lastActiveAt)
     }
   }
-  const index: MissionSessionIndex = { byIssue, openIssues, lastActive }
+  const index: MissionSessionIndex = { byIssue, bornIssues, openIssues, lastActive }
   return index
 }
 
@@ -1321,7 +1325,7 @@ const missionProgressCache = new WeakMap<
 >()
 let missionProgressComputes = 0
 
-/** Progress over accepted formal tasks, independent of filters and folds.
+/** Progress over accepted formal leaves, independent of filters and folds.
  * The root is counted only when there are no accepted tasks below it. */
 export function missionProgress(
   issues: readonly IssueNavigationModel[],
@@ -1354,58 +1358,29 @@ function computeMissionRollup(
   sessionIndex?: MissionSessionIndex,
 ): MissionRollup {
   missionProgressComputes += 1
-  const ids = missionIssueIds(issues, rootId, sessions)
-  // `missionIssueIndex` already paid the one full-slice walk for this publish.
-  // Looking members up by id keeps a work list of N independent missions at
-  // O(N): the old `issues.filter(...)` repeated the same N-row scan once per
-  // visible mission and made the list O(N²), even when every mission stood alone.
-  const { byId } = missionIssueIndex(issues)
-  const scope: IssueNavigationModel[] = []
-  for (const id of ids) {
-    const issue = byId.get(id)
-    if (issue && !issue.archived && !issue.deletedAt) scope.push(issue)
+  const { byId, children } = missionIssueIndex(issues)
+  const root = byId.get(rootId)
+  if (!root || root.archived || root.deletedAt) {
+    return EMPTY_ROLLUP
   }
-  // The units are the accepted members; the root only becomes one when it has
-  // no accepted members to be the container of. Proposed work is offered, not
-  // remaining — leaving it in `members` is how a working parent with three
-  // discoveries read as "3 to go". A root that is itself archived is already
-  // out of `scope`, so the fallback never resurrects it.
-  // A phase is a section of its parent, never itself a unit of work (POD-6106,
-  // flight deck v6 D1): its children are counted, the phase is not.
-  const formal = formalMemberIds(issues, rootId)
-  const members = scope.filter(
-    (issue) =>
-      formal.has(issue.id) &&
-      issue.stage !== 'proposed' &&
-      !isPhaseIssue(issue) &&
-      !issueAbandoned(issue),
-  )
-  // The root can be abandoned too, and then there is nothing to measure at all
-  // rather than one cancelled unit sitting in a band of its own.
-  const fromChildren = members.length > 0
-  const units = (fromChildren ? members : scope.filter((issue) => issue.id === rootId)).filter(
-    (issue) => {
-      if (issueAbandoned(issue)) return false
-      // `isVacatedOrigin` is deliberately still asked about the issue's OWN
-      // sessions and nothing else — that is what decides which spin-off tips it
-      // can see, and widening it here would change the answer. The subset is now
-      // a lookup rather than a scan of the whole slice per unit, which is the line
-      // the profile named.
-      const own = sessionIndex
-        ? (sessionIndex.byIssue.get(issue.id) ?? NO_SESSIONS)
-        : sessionsOnIssue(sessions, issue.id)
-      return !isVacatedOrigin(issue, own, byId)
-    },
+  const leafIds = leafTasks(rootId, {
+    task: (id) => byId.get(id),
+    children: (id) => (children.get(id) ?? []).filter((issue) => issue.stage !== 'proposed').map((issue) => issue.id),
+  })
+  const fromChildren = leafIds.some((id) => id !== rootId)
+  const index = sessionIndex ?? missionSessionIndex(sessions)
+  const units = leafIds.map((id) => byId.get(id)!).filter((issue) =>
+    !isVacatedOrigin(issue, index.byIssue.get(issue.id) ?? NO_SESSIONS, byId),
   )
   const counts = tallyMissionBuckets(units, (issue) => {
-    const own = (sessionIndex ?? missionSessionIndex(sessions)).byIssue.get(issue.id) ?? NO_SESSIONS
+    const own = index.byIssue.get(issue.id) ?? NO_SESSIONS
     const members = issue.memberSessionIds?.length
       ? sessionsForIssueNav(issue, sessions, [], { includeShells: true })
       : NO_SESSIONS
     const works = (session: SessionView) => !session.archived && sessionWorkingFact(session)
     return missionTaskBucket(
       issue,
-      own.length > 0 || Boolean(issue.memberSessionIds?.length),
+      index.bornIssues.has(issue.id) || own.length > 0 || Boolean(issue.memberSessionIds?.length),
       own.some(works) || members.some(works),
     )
   })

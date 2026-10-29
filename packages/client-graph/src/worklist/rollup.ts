@@ -630,13 +630,13 @@ export type UnitState = 'done' | 'run' | 'review' | 'stall' | 'block' | 'wait'
 export interface UnitOwn {
   readonly state?: UnitState
   readonly staffed?: boolean
-  /** Accepted formal member: not proposed, not abandoned (`mission.ts:1368-1370`). */
+  /** Non-phase task in the accepted tree, including abandoned leaves that suppress parent fallback. */
   readonly member: boolean
-  /** A member that is not a vacated origin (`mission.ts:1375-1388`). */
+  /** A non-abandoned member that is not a vacated origin; counted only without tasks below. */
   readonly unit: boolean
   /** A unit that is closed (`issueClosed`, `mission.ts:349-351`). */
   readonly done: boolean
-  /** As a LONE root (no accepted members): not abandoned, not vacated. */
+  /** As a lone root: an accepted, non-phase, non-abandoned, non-vacated task. */
   readonly solo: boolean
   /** Its row is cold: the unit is only a pending marker (its load is queued), and nothing below it is composed yet. */
   readonly cold: boolean
@@ -658,7 +658,7 @@ export const PENDING_UNIT: UnitOwn = { ...NO_UNIT, cold: true }
  * `stage` for proposed and closed, `closedReason` for abandoned and closed),
  * and no more.
  */
-export type ProgressFacts = Pick<SliceIssue, 'stage' | 'closedReason'>
+export type ProgressFacts = Pick<SliceIssue, 'stage' | 'closedReason' | 'type'>
 
 /** The progress counts of a formal closure (the root excluded). Plain data. */
 export interface Units {
@@ -698,12 +698,12 @@ export function unitsOf(input: {
       continue
     }
     staffed ||= own.staffed === true || below.staffed === true
-    if (own.unit) progress[own.state ?? (own.done ? 'done' : 'wait')] += 1
+    if (own.unit && below.members === 0) progress[own.state ?? (own.done ? 'done' : 'wait')] += 1
     for (const state of Object.keys(progress) as UnitState[])
       progress[state] += below.progress?.[state] ?? 0
     members += (own.member ? 1 : 0) + below.members
-    units += (own.unit ? 1 : 0) + below.units
-    done += (own.done ? 1 : 0) + below.done
+    units += (own.unit && below.members === 0 ? 1 : 0) + below.units
+    done += (own.done && below.members === 0 ? 1 : 0) + below.done
     pending += below.pending
   }
   return { members, units, done, pending, progress, staffed }
@@ -711,10 +711,10 @@ export function unitsOf(input: {
 
 export function unitOwnOf(facts: ProgressFacts, vacated: boolean): UnitOwn {
   const gone = issueAbandoned(facts)
-  const member = facts.stage !== 'proposed' && !gone
-  const unit = member && !vacated
+  const member = facts.stage !== 'proposed' && facts.type !== 'phase'
+  const unit = member && !gone && !vacated
   const closed = isFinished(facts)
-  return { member, unit, done: unit && closed, solo: !gone && !vacated, cold: false }
+  return { member, unit, done: unit && closed, solo: unit, cold: false }
 }
 
 // ------------------------------------------------------------ the row
@@ -1549,8 +1549,8 @@ export function unitOwnFields(
   if (issue === LOADING) return PENDING_UNIT
   if (issue === undefined) return NO_UNIT
   const vacated = () => input.spinOffCount(id) > 0 && !self.openOwn
-  const member = () => issue.stage !== 'proposed' && !issueAbandoned(issue)
-  const unit = () => member() && !vacated()
+  const member = () => issue.stage !== 'proposed' && issue.type !== 'phase'
+  const unit = () => member() && !issueAbandoned(issue) && !vacated()
   const staffed = () => self.openOwn || self.unitsBelow.staffed === true
   const finished = () => self.ownFacts?.finished ?? isFinished(issue)
   return {
@@ -1558,7 +1558,7 @@ export function unitOwnFields(
     get member() { return member() },
     get unit() { return unit() },
     get done() { return unit() && finished() },
-    get solo() { return !issueAbandoned(issue) && !vacated() },
+    get solo() { return unit() },
     get staffed() { return staffed() },
     get state() {
       return missionUnitState(input, id, issue, self.openOwn)
@@ -1573,7 +1573,7 @@ function unitsFields(children: () => Iterable<UnitChild>): Units {
     const ownKey = key === 'members' ? 'member' : key === 'units' ? 'unit' : 'done'
     let total = 0
     for (const { own, below } of children())
-      if (!own.cold) total += (own[ownKey] ? 1 : 0) + below[key]
+      if (!own.cold) total += (own[ownKey] && (key === 'members' || below.members === 0) ? 1 : 0) + below[key]
     return total
   }
   return {
@@ -1594,7 +1594,7 @@ function unitsFields(children: () => Iterable<UnitChild>): Units {
       const progress = { done: 0, run: 0, review: 0, stall: 0, block: 0, wait: 0 }
       for (const { own, below } of children()) {
         if (own.cold) continue
-        if (own.unit) progress[own.state ?? (own.done ? 'done' : 'wait')]++
+        if (own.unit && below.members === 0) progress[own.state ?? (own.done ? 'done' : 'wait')]++
         const nested = below.progress
         for (const state of Object.keys(progress) as (keyof typeof progress)[])
           progress[state] += nested?.[state] ?? 0

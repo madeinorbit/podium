@@ -681,11 +681,11 @@ export class IssueModel extends EntityModel {
     return false
   }
 
-  /** History includes archived and ended sessions, so backlog cannot become unstarted again. */
+  /** Birth references preserve started history when a session is rehomed; current attachments also count. */
   @lazy get missionBucket(): MissionTaskBucket | null {
     const bucket = missionTaskBucket(this, false, false)
     if (bucket === null || bucket === 'done' || bucket === 'working') return bucket
-    return missionTaskBucket(this, this.host.relations.size('issue', this.id, 'missionSessions') > 0, this.missionWorking)
+    return missionTaskBucket(this, this.host.relations.size('issue', this.id, 'bornSessions') > 0 || this.host.relations.size('issue', this.id, 'missionSessions') > 0, this.missionWorking)
   }
 
   // Task progress: formal descendants, independent of sidebar/mission placement.

@@ -541,14 +541,19 @@ export function rollupInputsOf(input: VisibleInputs): RollupInputs {
         if (session === LOADING) throw LOADING
         working ||= Boolean(session && !session.archived && sessionWorkingFact(session as SeatSessionFacts))
       }
-      return missionTaskBucket(issue, ids.length > 0, working)
+      return missionTaskBucket(issue, input.links.issue.bornSessions.size(id) > 0 || ids.length > 0, working)
     }),
     reached: input.reached,
     loadedIssue: (id) => input.loadedIssue(id),
     tipActivityAt: input.issueSessionFact ? (id) => input.issueSessionFact!(id, 'tipActivityAt') : undefined,
     spinOffCount: (id) => input.links.issue.spinOffs.size(id),
     nested: (id) => input.nested(id),
-    formalChildren: (id) => input.formalChildren(id),
+    formalChildren: function* (id) {
+      for (const child of input.formalChildren(id)) {
+        const issue = input.loadedIssue(child)
+        if (issue === LOADING || (issue && issue.stage !== 'proposed')) yield child
+      }
+    },
     rollupNode: (id) => input.issue(id),
     seat: (id) => input.session(id).verdict,
     seatActivity: (id) => input.session(id).activityMs,

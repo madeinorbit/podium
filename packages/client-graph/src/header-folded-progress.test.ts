@@ -20,9 +20,9 @@ it('reads folded progress without the sidebar presentation and updates its forma
   let folded: ReturnType<ReturnType<typeof headerView>['folded']> | undefined
   const stop = autorun(() => { folded = headerView(pool).folded() })
   try {
-    expect(folded).toMatchObject({ root: { id: 'root' }, progress: { total: 1, review: 1, done: 0 }, live: 1, loading: false })
+    expect(folded).toMatchObject({ root: { id: 'root' }, progress: { total: 1, review: 0, stall: 1, done: 0 }, live: 1, loading: false })
     pool.apply({ type: 'update', rows: [{ kind: 'session', id: 'seat', value: { ...seat, readAt: stamp } }] })
-    expect(folded?.progress).toMatchObject({ total: 1, review: 1 })
+    expect(folded?.progress).toMatchObject({ total: 1, review: 0, stall: 1 })
     pool.apply({ type: 'update', rows: [{ kind: 'issue', id: 'child', value: { ...child, stage: 'done' } }] })
     expect(folded?.progress).toMatchObject({ total: 1, review: 0, done: 1 })
     expect(aggregate).not.toHaveBeenCalled()

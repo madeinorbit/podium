@@ -1349,7 +1349,7 @@ describe('missionProgress', () => {
         issue('a1', { parentId: 'a', stage: 'done' }),
         issue('a2', { parentId: 'a', stage: 'backlog' }),
       ],
-      { total: 3, done: 2, run: 0, review: 0, stall: 0, block: 0, wait: 1 },
+      { total: 2, done: 1, run: 0, review: 0, stall: 0, block: 0, wait: 1 },
     ],
     [
       'all four buckets at once',
@@ -1390,15 +1390,13 @@ describe('missionProgress', () => {
       { total: 1, done: 1, run: 0, review: 0, stall: 0, block: 0, wait: 0 },
     ],
     [
-      // POD-1074's split, arriving in the meter: `duplicate` is a state in the
-      // CANCELLED category, so this mission has nothing left to measure but its
-      // own root — not one unit it can claim it finished.
+      // An abandoned leaf leaves the total; its parent remains a container.
       'a lone cancelled child, which leaves the count rather than filling it',
       [
         issue('root', { stage: 'backlog' }),
         issue('a', { parentId: 'root', closedReason: 'duplicate' }),
       ],
-      { total: 1, done: 0, run: 0, review: 0, stall: 0, block: 0, wait: 1 },
+      { total: 0, done: 0, run: 0, review: 0, stall: 0, block: 0, wait: 0 },
     ],
     [
       'cancelled work among live work, out of both halves of the fraction',
@@ -1505,7 +1503,7 @@ describe('missionProgress', () => {
       expect(missionProgress([root], parked, 'root')).toMatchObject({ run: 0, stall: 1 })
     })
 
-    it('counts computation on each task independently', () => {
+    it('counts only the leaf in a nested task chain', () => {
       // Only the child with a computing session is working.
       const issues = [
         issue('root', { stage: 'in_progress' }),
@@ -1513,9 +1511,27 @@ describe('missionProgress', () => {
         issue('a1', { parentId: 'a', stage: 'in_progress' }),
       ]
       const crew = [sess('s-a1', { issueId: 'a1', agentState: workingState })]
-      expect(missionProgress(issues, crew, 'root')).toMatchObject({ total: 2, run: 1, stall: 1 })
+      expect(missionProgress(issues, crew, 'root')).toMatchObject({ total: 1, run: 1, stall: 0 })
       // Take the one agent out and the whole chain stalls together.
-      expect(missionProgress(issues, [], 'root')).toMatchObject({ total: 2, run: 0, stall: 2 })
+      expect(missionProgress(issues, [], 'root')).toMatchObject({ total: 1, run: 0, stall: 1 })
+    })
+
+    it('keeps backlog started after its session is rehomed', () => {
+      const issues = [issue('root'), issue('history', { parentId: 'root', stage: 'backlog' }), issue('elsewhere')]
+      const original = sess('worker', { issueId: 'history', refIssueId: 'history', agentState: workingState })
+      expect(missionProgress(issues, [original], 'root')).toMatchObject({ total: 1, run: 1, wait: 0 })
+      expect(missionProgress(issues, [{ ...original, issueId: asIssueId('elsewhere') }], 'root'))
+        .toMatchObject({ total: 1, run: 0, stall: 1, wait: 0 })
+    })
+
+    it('looks through phases and never replaces abandoned leaves with their parent', () => {
+      const issues = [issue('root'), issue('phase', { parentId: 'root', type: 'phase' }),
+        issue('parent', { parentId: 'phase' }),
+        issue('cancelled', { parentId: 'parent', stage: 'done', closedReason: 'cancelled' }),
+        issue('proposal', { parentId: 'root', stage: 'proposed' }),
+        issue('unaccepted', { parentId: 'proposal' })]
+      expect(missionProgress(issues, [], 'root')).toMatchObject({ total: 0, done: 0, stall: 0 })
+      expect(missionProgress([issue('root', { type: 'phase' })], [], 'root')).toMatchObject({ total: 0 })
     })
 
     it("never stalls shipping, whose work is the service's and not a session's", () => {

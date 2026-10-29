@@ -235,7 +235,7 @@ it('colors Needs you red for Error, amber for attention alone, and neutral for z
       .querySelector('[data-tone]')
       ?.getAttribute('data-tone')
   expect(tone()).toBe('error')
-  const css = readFileSync('src/styles.css', 'utf8')
+  const css = readFileSync('src/styles.css', 'utf8').replace(/"/g, "'").replace(/\s+/g, ' ')
   expect(css).toContain(
     ".flight-full-filter-count[data-tone='error'] { color: var(--destructive); }",
   )
@@ -435,7 +435,7 @@ function capture(title: string, node: HTMLElement) {
 afterAll(() => {
   const path = process.env['PODIUM_FULL_CONTROLS_REVIEW_HTML']
   if (!path) return
-  const css = readFileSync('src/styles.css', 'utf8').split('/* Full flight deck v6.')[1]
+  const css = readFileSync('src/styles.css', 'utf8').replace(/"/g, "'").replace(/\s+/g, ' ').split('/* Full flight deck v6.')[1]
   const tokens = readFileSync('src/index.css', 'utf8')
     .split('[data-theme="podium"].dark {')[1]
     ?.split('}')[0]
