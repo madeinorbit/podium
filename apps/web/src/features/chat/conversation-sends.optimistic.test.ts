@@ -172,7 +172,25 @@ describe('useModelSend optimistic window', () => {
     expect(result.current.justSent).toBe(true)
   })
 
-  it('releases a host-held first prompt only after its transcript echo arrives', async () => {
+  it.each([false, true])('releases the host-held seed when its first record takes over, alreadyPresent=%s', async alreadyPresent => {
+    const onInitialPendingSettled = vi.fn()
+    const record = { ...queuedRecord('msg_first', 'Plan the release'), initialPrompt: true as const }
+    if (alreadyPresent) messageRecords = [record]
+    const { result } = renderHook(() => useModelSend({
+      ...opts(undefined), initialPendingText: 'Plan the release', onInitialPendingSettled,
+    }))
+    if (!alreadyPresent) {
+      expect(onInitialPendingSettled).not.toHaveBeenCalled()
+      await act(async () => {
+        messageRecords = [record]
+        for (const listener of storeListeners) listener()
+      })
+    }
+    expect(onInitialPendingSettled).toHaveBeenCalledOnce()
+    expect(result.current.pending.map(bubble => bubble.deliveryId)).toEqual(['msg_first'])
+  })
+
+  it('releases a recordless host-held first prompt after its transcript echo arrives', async () => {
     const onInitialPendingSettled = vi.fn()
     const seeded: ModelSendOptions = {
       ...opts(undefined),

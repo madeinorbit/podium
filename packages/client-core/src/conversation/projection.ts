@@ -36,11 +36,13 @@ export interface ConversationPendingTurn {
   /**
    * How the bubble learns the agent has the message. By default (`record`) from
    * the server's synced record: the bubble leaves when the history entry the
-   * record names is on screen. A send that makes no message record — a
-   * headless thread turn, a session's first prompt — leaves when the agent's
-   * next user entry appears (`next-user-item`), whatever its text.
+   * record names is on screen. A headless turn makes no message record and
+   * leaves when the next user entry appears (`next-user-item`), whatever its
+   * text. A creation prompt (`initial-prompt`)
+   * adopts its marked record when it arrives, or settles on its user echo
+   * when the harness took it on argv and made no record.
    */
-  reconcile?: 'record' | 'next-user-item'
+  reconcile?: 'record' | 'next-user-item' | 'initial-prompt'
 }
 
 /** What a bubble says about delivery. */
@@ -242,7 +244,10 @@ export function projectConversation(input: ConversationProjectionInput): Convers
       continue
     }
     if (record === undefined) {
-      bubbles.push(withLocalRetract({ ...turn, retractable: LOCAL_RETRACTABLE.has(turn.state) }))
+      bubbles.push(withLocalRetract({
+        ...turn,
+        retractable: turn.reconcile !== 'initial-prompt' && LOCAL_RETRACTABLE.has(turn.state),
+      }))
       continue
     }
     if (!recordShows(record, onScreen, input.seenOpen, input.seenHistory)) continue

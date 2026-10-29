@@ -116,7 +116,7 @@ export function useModelSend(options: ModelSendOptions): ModelSendResult {
       const initialPending = input.initialPendingText ? [{
         id: 'pending-first-turn', deliveryId: 'pending-first-turn', text: input.initialPendingText,
         wire: input.initialPendingText, at: Date.now(), state: 'sent' as const, kind: 'message' as const,
-        reconcile: 'next-user-item' as const,
+        reconcile: input.headless ? 'next-user-item' as const : 'initial-prompt' as const,
       }, ...held] : held
       return new Conversation({
         sessionId: id, drafts,
@@ -171,7 +171,7 @@ export function useModelSend(options: ModelSendOptions): ModelSendResult {
     const onSettled = options.onInitialPendingSettled
     if (!hadInitialPending || !onSettled) return
     let settled = false
-    return reaction(() => sends.pending.some(turn => turn.id === 'pending-first-turn'), pending => {
+    return reaction(() => sends.pending.some(turn => turn.id === 'pending-first-turn' && turn.reconcile !== 'record'), pending => {
       if (!pending && !settled) { settled = true; onSettled() }
     }, { fireImmediately: true })
   }, [sends, hadInitialPending, options.onInitialPendingSettled])

@@ -105,7 +105,7 @@ describe('SessionStart: creation-owned first prompt', () => {
     expect((await reg.sessionStore.sessions.loadDrafts())[sessionId]).toBeUndefined()
   })
 
-  it('queues a non-argv Cursor prompt and seeds a recoverable draft', async () => {
+  it('queues a non-argv Cursor prompt with an empty composer', async () => {
     const { reg, daemon } = await makeRegistry()
     const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'cursor',
@@ -116,11 +116,8 @@ describe('SessionStart: creation-owned first prompt', () => {
     const queued = await reg.sessionStore.sync.listQueuedMessages(sessionId)
     expect(queued.map((row) => row.text)).toEqual(['hello'])
     const session = (await reg.modules.sessions.listSessions(undefined, 'rpc')).find((item) => item.sessionId === sessionId)
-    expect(session?.draftUpdatedAt).toBeDefined()
-    // Non-empty draft writes are intentionally debounced; wait for the durable
-    // composer record rather than coupling this launch test to that interval.
-    await new Promise((resolve) => setTimeout(resolve, 800))
-    expect((await reg.sessionStore.sessions.loadDrafts())[sessionId]).toBe('hello')
+    expect(session?.draftUpdatedAt).toBeUndefined()
+    expect((await reg.sessionStore.sessions.loadDrafts())[sessionId]).toBeUndefined()
     expect(spawns(daemon).at(-1)).not.toHaveProperty('initialPrompt')
   })
 })

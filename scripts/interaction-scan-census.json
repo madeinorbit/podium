@@ -3687,20 +3687,20 @@
       "file": "apps/web/src/features/chat/ChatView.tsx",
       "holder": "ChatView/conversation",
       "rule": "reader-summary",
-      "tokens": "f4c9c0e5243c785f650b023dc97fa2da4fe8e053f1c9e41dd2d673f357d113b8",
+      "tokens": "5e600b71dfbfdc9727f79d910e9d5776d3906fc39357cf88568965f696f6efc9",
       "gate": [],
       "origin": [
         "130cdf8f9d4ed8f09fb3c14cb532c8aea0c8413756acd071787bec2d945f1ce2",
         "8bd1f9bfc0645ceea6f133dacd0f9c5342ced07a34d42d1cf4eb61dc7bdf239d",
         "eb3e9643a20228ecf463b20b4386f5c5fa7a0b783e7c6bd55a3f05c08d7d363f"
       ],
-      "fingerprint": "9dc3d72eadc6d5f4bc4aa27a0f56a69bdaf9b50318a2af25221174410cd1901c",
+      "fingerprint": "5992fc27e05b9a4373aff80f879df23234165e092a95b8944f034552947c43f6",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of ChatView/chat",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-5872: Record facts now come from shared models and the remaining machinery is a warm service read through a per-opening view model; existing collection demand is unchanged. Predecessor: 19d2f544ef62ed90bb4cf8fc6ac38d7dbaae72e22d2958a569ca426bd3419966. POD-6069: First acquisition uses the shared startup read; the imported hook body changed, with the same collection origins, gates and multiplicity. Predecessor: e366b9da4c906258720a0980fb02b686abca73f7a78a75c190d6f192e9029327.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-5872: Record facts now come from shared models and the remaining machinery is a warm service read through a per-opening view model; existing collection demand is unchanged. Predecessor: 19d2f544ef62ed90bb4cf8fc6ac38d7dbaae72e22d2958a569ca426bd3419966. POD-6069: First acquisition uses the shared startup read; the imported hook body changed, with the same collection origins, gates and multiplicity. Predecessor: e366b9da4c906258720a0980fb02b686abca73f7a78a75c190d6f192e9029327. POD-2257: The imported conversation factory now seeds native first prompts for record handoff; acquisition, collection origins, gates and multiplicity are unchanged. Predecessor: 9dc3d72eadc6d5f4bc4aa27a0f56a69bdaf9b50318a2af25221174410cd1901c.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -4033,18 +4033,18 @@
       "file": "apps/web/src/features/chat/use-conversation.ts",
       "holder": "useConversation/conversation/useOwnedConversation:callback",
       "rule": "reader-summary",
-      "tokens": "b2fac19987eed8c7ad9d4dfaae1b5407eaa29e51dc877a77119a0592ce03ad0e",
+      "tokens": "49164a8e1738b46d558639eb0b4af5fbabbb93a78da868dbc26f15f7b4b7cabe",
       "gate": [],
       "origin": [
         "adfc80928fa7e8f33d73591c8c752a6ec1006cdeb81b7b8014d0d4921ac12d7c"
       ],
-      "fingerprint": "6bf0589d085f9a2ae626946d642e2188f1b14ffb9b705c712a8f7d5964f0bba9",
+      "fingerprint": "3cf1c4e1c06ee8843750567bdefe2c5cea9e278f343ec5766cbad8cfee0c42f3",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Acquire a web conversation through the shared React lifecycle hook.",
       "bound": "One session identity is acquired; initialization may restore all held sends for that session and has no new collection cap.",
-      "reason": "The web Conversation migration moves ownership and preserves existing collection-taint debt; this record makes no claim that generic context construction or delivery is bounded. POD-5872: Record facts now come from shared models and the remaining machinery is a warm service read through a per-opening view model; existing collection demand is unchanged. Predecessor: cec908acc386d397ab1e0e27148d4eef65403317848ae5fba7c5a9f407312c52. POD-6093: superagent sends carry staged attachment paths in their text instead of refusing them; collection demand is unchanged. Predecessor: a711a0ea1c6fc8be0a850e43345510cc896125b94d7642d558ebdc94c911b25b.",
+      "reason": "The web Conversation migration moves ownership and preserves existing collection-taint debt; this record makes no claim that generic context construction or delivery is bounded. POD-5872: Record facts now come from shared models and the remaining machinery is a warm service read through a per-opening view model; existing collection demand is unchanged. Predecessor: cec908acc386d397ab1e0e27148d4eef65403317848ae5fba7c5a9f407312c52. POD-6093: superagent sends carry staged attachment paths in their text instead of refusing them; collection demand is unchanged. Predecessor: a711a0ea1c6fc8be0a850e43345510cc896125b94d7642d558ebdc94c911b25b. POD-2257: Native first prompts adopt their existing server record; factory ownership and collection origins, gates and multiplicity are unchanged. Predecessor: 6bf0589d085f9a2ae626946d642e2188f1b14ffb9b705c712a8f7d5964f0bba9.",
       "guard": "Exact fingerprint and multiplicity remain enforced. conversation-renders.test.tsx and conversation-sends.optimistic.test.ts cover migrated observation and delivery behavior, not a new collection bound."
     },
     {
@@ -13438,18 +13438,18 @@
       "file": "packages/client-core/src/conversation/sends.ts",
       "holder": "Sends/observeRecords",
       "rule": "loop:for-of",
-      "tokens": "179c87b3174962c57ef6b9b56591ed5044cb258e5ba7bb7097f6fd5894c06dd6",
+      "tokens": "14d5b0ba71ff0b028b59ddc6a5e0ed133830c40fe9ea87523ce53142a06cd189",
       "gate": [],
       "origin": [
         "8c67b353d2857ce0d76b9f17107d713905703b26992fccdb9b1c82d33669d4ac"
       ],
-      "fingerprint": "fa84adfa99f68d3760b6d62439728b55c5e08c5085ae0756246016af717d0a78",
+      "fingerprint": "3c5ab34291509d880a4c435dd397ad0cc7dfe7061f6009877c5806d74de255e5",
       "count": 1,
       "classification": "ingest",
       "owner": "POD-5621",
       "trigger": "Sends starts, reconnects, receives its conversation record snapshot or settles requested delivery lookups.",
       "bound": "Only the addressed conversation's record snapshot and this device's held delivery ids participate. Each lookup request is capped at CATCH_UP_BATCH (100); total catch-up work follows the number of held sends.",
-      "reason": "This ingests the supplied per-conversation record feed and own lookup answers; transcript membership is answered by byId.has and maintained seen-user ids.",
+      "reason": "This ingests the supplied per-conversation record feed and own lookup answers; transcript membership is answered by byId.has and maintained seen-user ids. POD-2257: The existing ingestion loop also binds the startup placeholder when it visits the marked first record. No second traversal or new acquisition is added; first-prompt.test.ts covers existing and late records, attachments, cancellation and confirmation. Predecessor: fa84adfa99f68d3760b6d62439728b55c5e08c5085ae0756246016af717d0a78.",
       "guard": "conversation/sends.test.ts preserves send, lookup and reconciliation behavior; sends.work.test.ts proves unchanged context/offer/retract/draft work at 1x/4x transcript sizes with a negative control; model-observation.test.ts guards atomic retirement and disposed actions."
     },
     {

@@ -99,7 +99,7 @@ export function createWebConversation(runtime: ClientRuntime<Trpc>, pool: MobxPo
   const initialPending = mount.initialPendingText ? [{
     id: 'pending-first-turn', deliveryId: 'pending-first-turn', text: mount.initialPendingText,
     wire: mount.initialPendingText, at: Date.now(), state: 'sent' as const, kind: 'message' as const,
-    reconcile: 'next-user-item' as const,
+    reconcile: headless ? 'next-user-item' as const : 'initial-prompt' as const,
   }, ...held] : held
   conversation = new WebConversation({
     sessionId, drafts: { get: id => pool.sessionObject(id).messageDraft, set: (id, text) => pool.sessionObject(id).setMessageDraft(text) }, ...(typeof hub.on === 'function' ? { hub } : {}), headless,
@@ -218,7 +218,7 @@ export function useConversation(sessionId: SessionId, options: ConversationMount
   useEffect(() => {
     if (!conversation || !onInitialPendingSettled || conversation.mount.initialPendingText === undefined) return
     let settled = false
-    return reaction(() => conversation.sends.pending.some(turn => turn.id === 'pending-first-turn'), pending => {
+    return reaction(() => conversation.sends.pending.some(turn => turn.id === 'pending-first-turn' && turn.reconcile !== 'record'), pending => {
       if (!pending && !settled) { settled = true; onInitialPendingSettled() }
     }, { fireImmediately: true })
   }, [conversation, onInitialPendingSettled])

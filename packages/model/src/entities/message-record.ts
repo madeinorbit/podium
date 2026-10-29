@@ -39,6 +39,8 @@ export const MessageRecordWire = z.object({
   /** The user who sent it. */
   senderUserId: z.string().min(1),
   body: z.string(),
+  /** The creation-owned first prompt, identified by its server-derived message id. */
+  initialPrompt: z.literal(true).optional(),
   attachments: z.array(MessageRecordAttachment).optional(),
   createdAt: z.string(),
   /** Where its delivery stands. Read tolerantly (POD-4885): a status a newer

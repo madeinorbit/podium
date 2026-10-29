@@ -95,11 +95,11 @@ const ACCEPTED: readonly AcceptedFinding[] = [
     why: 'Authority.finalize publishes immediately when AuthorityDeps.postCommit is UNSET, and relay.ts sets it — ledger §A row 3. The immediate branch is real code the type system cannot tell is unreachable in the server, so the lint sees it and this line records why it stands.',
   },
   {
-    key: 'packages/sync/src/authority/ports.ts#ChangeSubscriber.ChangeSubscriber@apps/server/src/modules/message-feed/feed.ts:221',
+    key: 'packages/sync/src/authority/ports.ts#ChangeSubscriber.ChangeSubscriber@apps/server/src/modules/message-feed/feed.ts:225',
     why: "The chat message feed's boot reconcile [POD-4764]: `Ledger.reconcile` inside `MessageFeedDeps.transact` reaches Authority.finalize, whose immediate-delivery arm is the same one the two rows around this adjudicate — unreachable in the server because relay.ts wires `AuthorityDeps.postCommit`, so delivery waits for the reconcile's commit. The reconcile is in a span on purpose: the open set it reads, the changes it appends and the capture it turns on must be one unit, or a write between the read and the turn-on would be neither reconciled nor captured.",
   },
   {
-    key: 'packages/sync/src/authority/ports.ts#ChangeSubscriber.ChangeSubscriber@apps/server/src/modules/message-feed/feed.ts:372',
+    key: 'packages/sync/src/authority/ports.ts#ChangeSubscriber.ChangeSubscriber@apps/server/src/modules/message-feed/feed.ts:376',
     why: "The chat message feed's retire of an ended session's window [POD-4814]: `Ledger.capture` inside `MessageFeedDeps.transact` reaches Authority.finalize, whose immediate-delivery arm is the one the reconcile row above adjudicates — unreachable in the server because relay.ts wires `AuthorityDeps.postCommit`, so delivery waits for the retire's commit. The retire is in a span on purpose: it re-reads which sessions are still live and removes the rest's records as one unit, so a session resumed between the read and the removal cannot lose the window it is typing into.",
   },
   {

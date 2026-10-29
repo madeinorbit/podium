@@ -185,7 +185,7 @@ export class SessionMetaOps {
   /** Agent kind may be omitted — the settings default decides ('auto' = Claude Code).
    *  `initialPrompt` hands the fresh session the human's first prompt: for argv-capable
    *  agents (claude/codex/grok) it rides the launch command (`claude "<prompt>"`,
-   *  race-free); for the rest it's seeded into the composer draft. */
+   *  race-free); prompts with files and other harnesses use the durable delivery queue. */
   /** Create a session: resolve the request, then spawn it. Delegated to
    *  {@link SessionStart}, which owns both halves. */
 

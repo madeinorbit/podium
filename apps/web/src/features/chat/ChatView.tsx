@@ -284,7 +284,7 @@ const ConversationChatView = observer(function ConversationChatView({
   /** The first prompt shown optimistically while the freshly-created headless
    * transcript catches up to the thread/session swap. */
   initialPendingText?: string
-  /** Called once the transcript echoes `initialPendingText`. */
+  /** Called once a message record or transcript entry replaces the first prompt. */
   onInitialPendingSettled?: () => void
   /** Wait to read/subscribe until a client-minted session id exists on the
    * authority. The optimistic prompt remains visible during this boundary. */

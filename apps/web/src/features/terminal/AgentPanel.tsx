@@ -258,8 +258,8 @@ export function AgentPanel({
   const observedOptimisticFirstPrompt = usePendingSpawnPrompt(sessionId)
   // Replica confirmation retires the engine's prompt seed at the same time it
   // can move this panel between live/parked/ended surface branches. Those
-  // branches remount ChatView, so retain the seed one level higher until the
-  // transcript explicitly echoes it; otherwise a fast terminal row can flash
+  // branches remount ChatView, so retain the seed one level higher until its
+  // message record or transcript entry arrives; otherwise a fast terminal row can flash
   // an empty conversation between confirmation and the transcript write.
   const [heldOptimisticFirstPrompt, setHeldOptimisticFirstPrompt] = useState<{
     sessionId: SessionId

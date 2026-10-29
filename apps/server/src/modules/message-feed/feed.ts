@@ -89,6 +89,7 @@ import { applyAfterCommit } from '../../store/executor/executor'
 import type { MessageFeedCapture } from '../../store/messages'
 import type { SessionsRepository } from '../../store/sessions'
 import type { MessageRow, SessionRow } from '../../store/types'
+import { spawnPromptMessageId } from '../../message-ids'
 
 const log = createLogger('server:message-feed')
 
@@ -126,6 +127,9 @@ export function messageRecordOf(row: MessageRow): MessageRecordWire | null {
     sessionId: row.toId as MessageRecordWire['sessionId'],
     senderUserId,
     body: row.body,
+    ...(row.id === spawnPromptMessageId(row.toId as MessageRecordWire['sessionId'])
+      ? { initialPrompt: true as const }
+      : {}),
     ...(row.attachments?.length
       ? {
           attachments: row.attachments.map(({ id, filename, mediaType, kind }) => ({

@@ -41,6 +41,7 @@ import {
   spawnedByFor,
 } from './command-plane'
 import { DurableIssueAccessIndex } from '../issues/access-index'
+import { messageRecordOf } from '../message-feed/feed'
 import { disposeOracles, makeOracle, messageOf } from './oracle-support'
 import {
   ambiguousSessionPrefixMessage,
@@ -215,6 +216,14 @@ describe('held chat uploads (POD-2148)', () => {
     // The first bubble's record names the file.
     const prompt = await o.store.messages.getMessage(queued[0]?.sourceMessageId ?? '')
     expect(prompt?.attachments).toEqual([ref])
+    expect(prompt && messageRecordOf(prompt)).toMatchObject({
+      id: queued[0]?.sourceMessageId,
+      initialPrompt: true,
+      attachments: [{ id: ref.id, filename: 'shot.png', mediaType: 'image/png', kind: 'image' }],
+    })
+    expect((await o.reg.modules.sessions.listSessions(undefined, 'rpc'))
+      .find(session => session.sessionId === created.sessionId)?.draftUpdatedAt).toBeUndefined()
+    expect((await o.store.sessions.loadDrafts())[created.sessionId]).toBeUndefined()
   })
 
   it('a create that fails after claiming hands the files back, so the same refs work on retry', async () => {

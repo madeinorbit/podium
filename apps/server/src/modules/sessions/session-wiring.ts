@@ -357,7 +357,6 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
       ? { discardUnlaunchedDraft: bag.deps.discardUnlaunchedDraft }
       : {}),
     sessionOwner: (sessionId) => ownership.sessionOwner(sessionId),
-    setSessionDraft: (input) => bag.state.setDraft(input),
     queueInitialPrompt: (i) => bag.inbox.queueInitialPrompt(i),
     ...(bag.deps.recordSpawnPrompt ? { recordSpawnPrompt: bag.deps.recordSpawnPrompt } : {}),
     ...(bag.deps.recordOwnerPrompt ? { recordOwnerPrompt: bag.deps.recordOwnerPrompt } : {}),
