@@ -1,8 +1,9 @@
 import '@/test-support/mock-core-store-handle'
-import { asSessionId, type TranscriptItem } from '@podium/model'
-import { TranscriptGraph, type TranscriptToolRun } from '@podium/client-core/conversation'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
+import { TranscriptGraph, type TranscriptToolRun } from '@podium/client-core/conversation'
+import { asSessionId, type TranscriptItem } from '@podium/model'
+import { waitFor } from '@testing-library/react'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -120,17 +121,19 @@ it('observes retained failure and count facts while folded, then shows current c
 })
 
 /**
- * The sheet is a lazy chunk (the chat must not pay for it on open). A 200ms
- * poll lost the race with the first transform of that chunk, so the wait is
- * the import the click already started — then one more act() to paint it.
+ * Import the lazy sheet before polling so its first transform does not consume
+ * the content wait. The sheet can mount or rerender before its diff text arrives.
  */
-async function waitForDiffSheet(): Promise<Element> {
+async function waitForDiffSheet(...expectedText: string[]): Promise<Element> {
   await act(async () => {
     await import('@/features/git/DiffSheet')
   })
-  const sheet = host.querySelector('[data-testid="diff-sheet"]')
-  if (!sheet) throw new Error('expected the file-edit to open the diff sheet')
-  return sheet
+  return waitFor(() => {
+    const sheet = host.querySelector('[data-testid="diff-sheet"]')
+    if (!sheet) throw new Error('expected the file-edit to open the diff sheet')
+    for (const text of expectedText) expect(sheet.textContent).toContain(text)
+    return sheet
+  })
 }
 
 beforeEach(() => {
@@ -290,13 +293,10 @@ describe('ToolBatchView — the work line', () => {
       line.querySelector<HTMLButtonElement>('.tool-row')!.click()
     })
     expect(line.querySelector('[data-testid="tool-edit-diff"]')).toBeNull()
-    const sheet = await waitForDiffSheet()
-
     // AND IT SHOWS THE RUN'S OWN DIFF. `git diff` would answer "what does this
     // file hold NOW" — nothing, for an edit already committed — which is what
     // the first cut of this did. The rows come from what the tool recorded.
-    expect(sheet.textContent).toContain('const a = 1')
-    expect(sheet.textContent).toContain('const a = 2')
+    const sheet = await waitForDiffSheet('const a = 1', 'const a = 2')
     expect(git.calls).toEqual([])
     // Nothing to re-probe: there is no working tree behind a recorded edit.
     expect(sheet.parentElement?.querySelector('.animate-spin')).toBeNull()
@@ -548,10 +548,8 @@ describe('ToolBatchView — lazy collapsed tool diffs', () => {
     act(() => {
       line.querySelector<HTMLButtonElement>('.tool-row[title^="Open "]')!.click()
     })
-    const sheet = await waitForDiffSheet()
+    await waitForDiffSheet('const a = 1', 'const a = 2')
     expect(diffBuilds.count).toBeGreaterThan(0)
-    expect(sheet.textContent).toContain('const a = 1')
-    expect(sheet.textContent).toContain('const a = 2')
     expect(git.calls).toEqual([])
   })
 
@@ -574,7 +572,7 @@ describe('ToolBatchView — lazy collapsed tool diffs', () => {
     act(() => {
       line.querySelector<HTMLButtonElement>('.tool-row[title^="Open "]')!.click()
     })
-    await waitForDiffSheet()
+    await waitForDiffSheet('one', 'ONE')
     const built = diffBuilds.count
     expect(built).toBeGreaterThan(0)
 
@@ -586,10 +584,8 @@ describe('ToolBatchView — lazy collapsed tool diffs', () => {
         call({ id: 'r', toolName: 'Read', toolInput: 'b.ts', toolPaths: ['/r/b.ts'] }),
       ]),
     )
+    const sheet = await waitForDiffSheet('one', 'ONE')
     expect(diffBuilds.count).toBe(built)
-    const sheet = host.querySelector('[data-testid="diff-sheet"]')!
-    expect(sheet.textContent).toContain('one')
-    expect(sheet.textContent).toContain('ONE')
     expect(sheet.textContent).not.toContain('b.ts')
   })
 })
