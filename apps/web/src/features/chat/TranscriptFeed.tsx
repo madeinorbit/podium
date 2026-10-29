@@ -19,13 +19,19 @@ import type { SessionId} from '@podium/model/browser'
 import { MESSAGE_ACCEPTED_LINE } from '@podium/model'
 import { ArrowUp, Image as ImageIcon, RotateCcw } from 'lucide-react'
 import type { JSX, RefCallback, UIEventHandler } from 'react'
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { observer, Observer } from 'mobx-react-lite'
 import type { ChatSurface } from './use-chat-layout'
 import { renderMarkdown, sanitizeRenderedMarkdown } from '@/lib/markdown'
 import { renderMarkdownUnsafe } from '@/lib/markdown-renderer'
+import { useKnownRefPrefixesVersion } from '@/lib/use-known-ref-prefixes'
 import { cn } from '@/lib/utils'
-import { ChatBlockView, type ProcessPosition, type TurnPosition } from './ChatBlockView'
+import {
+  ChatBlockView,
+  type ProcessPosition,
+  StableMarkdown,
+  type TurnPosition,
+} from './ChatBlockView'
 import { ChatUploadThumb } from './ChatUploadThumb'
 import type { PendingItem } from './chat'
 import { MetaGlyph } from './MetaGlyph'
@@ -41,6 +47,24 @@ import { rowIdentity, useFeedArrivals } from './use-feed-arrivals'
 import type { HeadlessOverlay, TurnPreview } from '@podium/client-core/conversation'
 import type { SessionIssueOutcome } from '@podium/client-core/values'
 import type { QuoteInput } from '@/lib/quote/quote-sinks'
+
+/** Pending text uses the same sanitized Markdown and link handling as history. */
+const PendingMarkdown = memo(function PendingMarkdown({
+  text,
+  sessionId,
+  cwd,
+  openFile,
+}: {
+  text: string
+  sessionId: SessionId
+  cwd: string
+  openFile: (sessionId: SessionId, path: string) => void
+}): JSX.Element {
+  const refPrefixesVersion = useKnownRefPrefixesVersion()
+  // biome-ignore lint/correctness/useExhaustiveDependencies: renderMarkdown reads the ref-prefix registry.
+  const html = useMemo(() => renderMarkdown(text), [text, refPrefixesVersion])
+  return <StableMarkdown html={html} sessionId={sessionId} cwd={cwd} openFile={openFile} />
+})
 
 /** Render a live partial through the same worker boundary as settled messages. */
 function StreamingMarkdown({ text }: { text: string }): JSX.Element {
@@ -555,7 +579,7 @@ export const TranscriptFeed = observer(function TranscriptFeed(props: Transcript
                   className={cn('transcript-you-bubble', waiting && 'transcript-you-bubble--queued')}
                 >
                   <div className="transcript-you-body">
-                    <div className="chat-md whitespace-pre-wrap">{p.text}</div>
+                    <PendingMarkdown text={p.text} sessionId={sessionId} cwd={cwd} openFile={openFile} />
                     {p.files && p.files.length > 0 ? (
                       <div className="mt-1.5 flex flex-wrap items-start gap-1.5">
                         {p.files.map((file, i) => {

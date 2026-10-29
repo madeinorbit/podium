@@ -224,7 +224,7 @@ function PromptBubble({ children }: { children: ReactNode }): JSX.Element {
  * `memo` make the message body update only when its own content or link-routing
  * context actually changes.
  */
-const StableMarkdown = memo(function StableMarkdown({
+export const StableMarkdown = memo(function StableMarkdown({
   html,
   className = 'chat-md',
   sessionId,
