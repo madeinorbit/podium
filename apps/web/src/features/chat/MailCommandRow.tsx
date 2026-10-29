@@ -92,25 +92,30 @@ export function InboxReadRow({
     >
       <div className="transcript-rail transcript-rail--none" aria-hidden="true" />
       <div className="transcript-body">
-        <div className="mail-group" data-open={open ? 'true' : 'false'}>
+        <div className="work-line mail-group" data-open={open ? 'true' : 'false'}>
           <button
             data-pressable
             type="button"
-            className="mail-fold"
+            className="work-line-row mail-fold"
             aria-expanded={open}
             onClick={() => setOpen((v) => !v)}
           >
-            <MailIcon className="mail-fold-icon" size={13} aria-hidden="true" />
-            <span className="mail-fold-count">{label}</span>
+            <span className="work-line-glyph mail-fold-glyph" aria-hidden="true">
+              <MailIcon size={13} />
+            </span>
+            <span className="work-line-phrase">{label}</span>
             {stamp && (
-              <time className="mail-fold-meta" dateTime={ts} title={fullTimeLabel(stamp)}>
-                · {clockLabel(stamp)}
+              <time className="work-line-time" dateTime={ts} title={fullTimeLabel(stamp)}>
+                {clockLabel(stamp)}
               </time>
             )}
-            <span className="mail-fold-gap" />
-            <ChevronDown className="mail-fold-chev" size={14} aria-hidden="true" />
+            <ChevronDown className="work-line-chev" size={11} aria-hidden="true" />
           </button>
-          {open && <pre className="tool-result-full">{result ?? '(no result captured)'}</pre>}
+          {open && (
+            <div className="work-line-list">
+              <pre className="tool-result-full">{result ?? '(no result captured)'}</pre>
+            </div>
+          )}
         </div>
       </div>
     </div>

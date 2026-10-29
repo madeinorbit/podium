@@ -455,7 +455,7 @@ describe('mail the agent sent', () => {
     expect(host.textContent).not.toContain('podium mail send')
     expect(bodyRequests).toEqual([])
     click(toggle())
-    expect(host.querySelector('.mail-card-kind')?.textContent).toBe('Sent')
+    expect(host.querySelector('.mail-item-route')?.textContent).toContain('POD-2128')
     expect(bodyRequests).toEqual(['msg_9'])
     expect(host.textContent).toContain('full body of msg_9')
   })

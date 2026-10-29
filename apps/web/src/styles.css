@@ -4259,179 +4259,55 @@ button.pane-branch:hover {
   color: var(--text-dim, var(--muted-foreground));
 }
 
-/* ── PODIUM'S OWN MAIL (POD-993 round 2) ────────────────────────────────────
-   Mail is machine provenance, not a card asking the operator to choose. Boxed
-   and open by default, a run of system frames was the loudest thing between two
-   human turns while being the least important thing on the surface. Round one
-   folded each frame to a quiet keyline; the delivered design goes one further
-   and folds the whole BURST into one object, because three folded keylines in a
-   row is still three rows of chrome saying the same thing.
-
-   Folded, it is a single tinted line: an icon, a count, the issues it came from.
-   The tint is Info at 3-5% behind a 2px Info edge — enough to group the line
-   against the prose either side, nowhere near enough to compete with it. Opened,
-   it becomes a real mail list: sender in a fixed column, subject and time on one
-   baseline, two lines of body, and the whole thing bounded so a burst of twelve
-   notes cannot become a wall.
+/* ── PODIUM'S OWN MAIL (POD-993, POD-2234) ──────────────────────────────────
+   Mail is machine provenance, not a card asking the operator to choose. A burst
+   of frames folds into ONE object, and that object is a quiet row of the same
+   family as a run of tool calls: the `.work-line` box, glyph slot, trailing
+   time and chevron, opening into the same seamed list. What tells a note from a
+   run is its mail glyph in place of the verdict, in dim ink rather than the
+   live hue — a note did not succeed or fail, it arrived. The row itself is the
+   only toggle: no close button, no card header repeating the line above it.
    ─────────────────────────────────────────────────────────────────────────── */
-.mail-group {
-  /* Mail is a solid in the document, like a run of tool calls, and takes the
-     same kind of air: a touch more than the feed's beat on both sides. */
-  margin: 7px 0 8px;
-}
-/* ONE QUIET LINE (POD-2076): mail icon, "Note from steward", "· 03:13", then a
-   hairline running out to the edge. No tint, no rail, no message id — the
-   line says THAT a note arrived and from whom; the card below says the rest. */
-.mail-fold {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  padding: 2px 0;
-  text-align: left;
-  font-size: 12px;
-  line-height: 18px;
+.work-line-glyph.mail-fold-glyph {
   color: var(--text-dim, var(--muted-foreground));
-  cursor: pointer;
-  transition: color 160ms ease;
-}
-.mail-fold:hover {
-  color: var(--muted-foreground);
 }
 /* The ask an agent-mail frame carries is the receiving agent's, so it is a
    word on the line, not a reason to open the card (POD-2070). */
 .mail-fold-flag {
-  flex: none;
+  margin-left: 5px;
   color: var(--text-faint);
-}
-.mail-fold-icon {
-  flex: none;
-}
-.mail-fold-count {
-  flex: 0 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-.mail-fold-meta {
-  flex: none;
-  color: var(--text-faint);
-}
-/* The hairline is the one flexible cell: it collapses first in a narrow pane. */
-.mail-fold-gap {
-  flex: 1 1 auto;
-  min-width: 0;
-  height: 1px;
-  background: var(--hairline-soft, var(--chat-rule));
-}
-/* The fold's chevron is an affordance, not information: it appears under the
-   pointer or focus, and stays while the card is open. */
-.mail-fold-chev {
-  flex: none;
-  color: var(--text-faint);
-  opacity: 0;
-  transition:
-    opacity 160ms ease,
-    transform 200ms cubic-bezier(0.22, 1, 0.36, 1);
-}
-.mail-fold:is(:hover, :focus-visible) .mail-fold-chev,
-.mail-group[data-open="true"] .mail-fold-chev {
-  opacity: 1;
-}
-.mail-group[data-open="true"] .mail-fold-chev {
-  transform: rotate(180deg);
-}
-
-.mail-card {
-  margin-top: 5px;
-  border: 1px solid var(--chat-rule);
-  border-radius: 9px;
-  background: var(--chat-face);
-  overflow: hidden;
-  animation: mail-unfold 220ms cubic-bezier(0.22, 1, 0.36, 1);
-}
-.mail-card-head {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  padding: 7px 11px;
-  border-bottom: 1px solid var(--chat-rule);
-}
-.mail-card-kind {
-  flex: none;
-  font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: var(--shell-type-micro);
-  line-height: 1;
-  font-weight: 600;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--text-dim, var(--muted-foreground));
-}
-.mail-card-route {
-  flex: 1 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-  font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 10.5px;
-  line-height: 1;
-  color: var(--text-faint);
-}
-.mail-card-arrow {
-  padding: 0 6px;
-  color: color-mix(in oklab, var(--muted-foreground) 40%, transparent);
-}
-.mail-card-close {
-  flex: none;
-  display: inline-flex;
-  width: 18px;
-  height: 18px;
-  align-items: center;
-  justify-content: center;
-  border-radius: 5px;
-  color: var(--text-faint);
-  cursor: pointer;
-  transition:
-    color 160ms ease,
-    background-color 160ms ease;
-}
-.mail-card-close:hover {
-  background: var(--chat-chip);
-  color: var(--text-strong, var(--foreground));
 }
 /* BOUNDED, NOT TRUNCATED. Six or seven notes is a plausible burst and the list
-   holds four of them at rest; past that it scrolls INSIDE the card, so the
+   holds four of them at rest; past that it scrolls INSIDE the list, so the
    transcript underneath never has to move to accommodate somebody else's inbox. */
-.mail-card-list {
-  max-height: 176px;
+.mail-card {
+  max-height: 220px;
   overflow-y: auto;
 }
 .mail-item {
   display: flex;
-  gap: 11px;
-  padding: 9px 12px 10px;
+  flex-direction: column;
+  min-width: 0;
+  padding: 6px 8px 7px 0;
 }
 .mail-item + .mail-item {
   border-top: 1px solid var(--chat-rule);
 }
-.mail-item-from {
-  flex: none;
-  width: 52px;
+/* The route the card header used to carry, on each note: who sent it and to
+   whom, in machine voice under the text it labels. */
+.mail-item-route {
+  margin-top: 3px;
   overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
+  text-overflow: ellipsis;
   font-family: var(--font-mono, ui-monospace, monospace);
   font-size: 10.5px;
-  line-height: 18px;
-  color: var(--text-dim, var(--muted-foreground));
+  line-height: 16px;
+  color: var(--text-faint);
 }
-.mail-item-main {
-  flex: 1 1 auto;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
+.mail-item-arrow {
+  padding: 0 6px;
+  color: color-mix(in oklab, var(--muted-foreground) 40%, transparent);
 }
 .mail-item-head {
   display: flex;
@@ -4522,26 +4398,6 @@ button.pane-branch:hover {
   font-size: var(--shell-type-micro);
   line-height: 1.6;
   color: var(--live, var(--info));
-}
-@keyframes mail-unfold {
-  from {
-    opacity: 0;
-    transform: translateY(-3px);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .mail-card {
-    animation: none;
-  }
-  .mail-fold,
-  .mail-fold-chev,
-  .mail-card-close {
-    transition: none;
-  }
 }
 
 /* THE ISSUE OUTCOME (POD-2151): the last row of a transcript whose session its
@@ -4783,6 +4639,39 @@ button.pane-branch:hover {
      12px beat; this needs more, because it is a box with an edge and the line of
      text above would otherwise land on that edge. */
   margin: 6px 0;
+}
+/* A RUN OF QUIET ROWS PACKS (POD-2234). Tool runs and notes are each a solid
+   with air of their own, which is right against prose and wrong between two of
+   them: three notes and a run of calls read as four separate events, 24px
+   apart, when they are one stretch of background activity. A quiet row that
+   follows another sits 4px under it; the full air stays where the stretch meets
+   prose. The rows live in the transcript window's shells, so adjacency is the
+   shells'. */
+[data-transcript-row]:has(> .transcript-row > .transcript-body > .work-line):has(
+    + [data-transcript-row] > .transcript-row > .transcript-body > .work-line
+  )
+  > .transcript-row {
+  padding-bottom: 0;
+}
+[data-transcript-row]:has(> .transcript-row > .transcript-body > .work-line):has(
+    + [data-transcript-row] > .transcript-row > .transcript-body > .work-line
+  )
+  > .transcript-row
+  > .transcript-body
+  > .work-line {
+  margin-bottom: 0;
+}
+[data-transcript-row]:has(> .transcript-row > .transcript-body > .work-line)
+  + [data-transcript-row]
+  > .transcript-row:has(> .transcript-body > .work-line) {
+  padding-top: 0;
+}
+[data-transcript-row]:has(> .transcript-row > .transcript-body > .work-line)
+  + [data-transcript-row]
+  > .transcript-row
+  > .transcript-body
+  > .work-line {
+  margin-top: 4px;
 }
 /* ONE HAIRLINE ROW (POD-2076): a folded run is a quiet line in the document —
    no carve, no fanned deck, no count badge. The summary says how much

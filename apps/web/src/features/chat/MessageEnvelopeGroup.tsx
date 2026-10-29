@@ -6,8 +6,9 @@
  * row with its own header, so a turn receiving three notes spent three rows
  * before the answer got a word in.
  *
- * The whole burst is now ONE object — a quiet "Note from steward · 03:13" line
- * (POD-2076: no tint, no ids) that opens into a real mail list. See `.mail-group` in styles.css for the shape and its reasons.
+ * The whole burst is now ONE object — a "Note from steward · 03:13" row in the
+ * tool run's shell (POD-2234), opening into the same seamed list a run of calls
+ * opens into. See `.mail-group` in styles.css for what differs and why.
  *
  * NOTHING OPENS ON ARRIVAL (POD-2070): a question or reply request binds the
  * receiving agent, not the reader, so the fold line only flags it.
@@ -23,7 +24,7 @@ import {
   pointerFallbackBody,
   principalShortName,
 } from '@podium/client-core/values'
-import { ChevronDown, Mail as MailIcon, X } from 'lucide-react'
+import { ChevronDown, Mail as MailIcon } from 'lucide-react'
 import type { JSX, MouseEvent as ReactMouseEvent, ReactNode } from 'react'
 import { memo, useMemo, useState } from 'react'
 import { renderMarkdown, sanitizeRenderedMarkdown } from '@/lib/markdown'
@@ -160,33 +161,43 @@ function EnvelopeItem({
   }, [cachedHtml, body, full, refPrefixesVersion])
   return (
     <div className="mail-item" data-testid="mail-item" data-full={full ? 'true' : undefined}>
-      <span className="mail-item-from">
-        <PrincipalLabel label={direction === 'from' ? envelope.from : envelope.to} />
-      </span>
-      <span className="mail-item-main">
-        <button
-          data-pressable
-          type="button"
-          className="mail-item-head"
-          aria-expanded={full}
-          onClick={() => {
-            setFull((v) => !v)
-          }}
-        >
-          <span className="mail-item-subject">{subject || envelope.id}</span>
-          {envelope.question && <span className="mail-item-badge">question</span>}
-        </button>
-        {full ? (
-          <StableEnvelopeMarkdown html={html} />
+      <button
+        data-pressable
+        type="button"
+        className="mail-item-head"
+        aria-expanded={full}
+        onClick={() => {
+          setFull((v) => !v)
+        }}
+      >
+        <span className="mail-item-subject">{subject || envelope.id}</span>
+        {envelope.question && <span className="mail-item-badge">question</span>}
+      </button>
+      {full ? (
+        <StableEnvelopeMarkdown html={html} />
+      ) : (
+        preview !== '' && <span className="mail-item-preview">{preview}</span>
+      )}
+      {full && envelope.machineNote && (
+        <span className="mail-item-note">{envelope.machineNote}</span>
+      )}
+      {/* The route the card header used to carry, per note: in a burst from
+          several senders each note names its own (POD-2234). */}
+      <span className="mail-item-route">
+        {direction === 'from' ? (
+          <>
+            <PrincipalLabel label={envelope.from} />
+            {envelope.to && <span className="mail-item-arrow">→</span>}
+            {envelope.to && <PrincipalLabel label={envelope.to} />}
+          </>
         ) : (
-          preview !== '' && <span className="mail-item-preview">{preview}</span>
+          <>
+            to <PrincipalLabel label={envelope.to} />
+          </>
         )}
-        {full && envelope.machineNote && (
-          <span className="mail-item-note">{envelope.machineNote}</span>
-        )}
-        {envelope.expectsReply && <span className="mail-item-reply">reply · {envelope.id}</span>}
-        {footer}
       </span>
+      {envelope.expectsReply && <span className="mail-item-reply">reply · {envelope.id}</span>}
+      {footer}
     </div>
   )
 }
@@ -231,14 +242,7 @@ export function MessageEnvelopeGroup({
       ? 'reply asked'
       : undefined
   const single = envelopes.length === 1
-  const first = envelopes[0]
   const stamp = parseTs(ts)
-  // The route only names a sender when the whole burst shares one; otherwise the
-  // senders are the card's left column and repeating one of them in the header
-  // would be a lie about the other two.
-  // A sent note has no sender to name: it is this session's.
-  const sharedFrom =
-    direction === 'from' && envelopes.every((e) => e.from === first?.from) ? first?.from : undefined
   const count = envelopes.length
   const noun = single ? 'Note' : `${count} notes`
   // Distinct short senders, in arrival order: "Note from steward",
@@ -257,75 +261,56 @@ export function MessageEnvelopeGroup({
     >
       <div className="transcript-rail transcript-rail--none" aria-hidden="true" />
       <div className="transcript-body">
-        <div className="mail-group" data-open={open ? 'true' : 'false'}>
+        {/* THE TOOL RUN'S SHELL (POD-2234): a note is a quiet row like a run of
+            calls — the same box, glyph slot, trailing time and chevron — told
+            apart by its mail glyph. The row is the only toggle. */}
+        <div className="work-line mail-group" data-open={open ? 'true' : 'false'}>
           <button
             data-pressable
             type="button"
-            className="mail-fold"
+            className="work-line-row mail-fold"
             data-testid="message-envelope-toggle"
             aria-expanded={open}
             aria-label={`${open ? 'Fold' : 'Unfold'} these notes${flag ? `, ${flag}` : ''}`}
             onClick={toggle}
           >
-            <MailIcon className="mail-fold-icon" size={13} aria-hidden="true" />
-            <span className="mail-fold-count">{foldLabel}</span>
+            <span className="work-line-glyph mail-fold-glyph" aria-hidden="true">
+              <MailIcon size={13} />
+            </span>
+            <span className="work-line-phrase">
+              {foldLabel}
+              {flag && <span className="mail-fold-flag">· {flag}</span>}
+            </span>
             {stamp && (
-              <time className="mail-fold-meta" dateTime={ts} title={fullTimeLabel(stamp)}>
-                · {clockLabel(stamp)}
+              <time className="work-line-time" dateTime={ts} title={fullTimeLabel(stamp)}>
+                {clockLabel(stamp)}
               </time>
             )}
-            {flag && <span className="mail-fold-flag">· {flag}</span>}
-            <span className="mail-fold-gap" />
-            <ChevronDown className="mail-fold-chev" size={14} aria-hidden="true" />
+            <ChevronDown className="work-line-chev" size={11} aria-hidden="true" />
           </button>
           {open && (
-            // biome-ignore lint/a11y/noStaticElementInteractions: delegated clicks activate only semantic links — the sender chips in the route and the left column, and the anchors sanitized markdown emits
+            // biome-ignore lint/a11y/noStaticElementInteractions: delegated clicks activate only semantic links — the route chips and the anchors sanitized markdown emits
             // biome-ignore lint/a11y/useKeyWithClickEvents: keyboard users activate those anchors natively
-            <div className="mail-card" onClick={onBodyClick}>
-              <div className="mail-card-head">
-                <span className="mail-card-kind">
-                  {direction === 'from' ? 'From Podium' : 'Sent'}
-                </span>
-                <span className="mail-card-route">
-                  {sharedFrom !== undefined && (
-                    <>
-                      <PrincipalLabel label={sharedFrom} />
-                      {first?.to && <span className="mail-card-arrow">→</span>}
-                    </>
-                  )}
-                  {first?.to && <PrincipalLabel label={first.to} />}
-                </span>
-                <button
-                  data-pressable
-                  type="button"
-                  className="mail-card-close"
-                  aria-label="Fold these notes"
-                  onClick={toggle}
-                >
-                  <X size={13} aria-hidden="true" />
-                </button>
-              </div>
-              <div className="mail-card-list">
-                {envelopes.map((envelope) =>
-                  envelope.pointer === 'by-id' ? (
-                    <PointerEnvelopeItem
-                      key={envelope.id}
-                      envelope={envelope}
-                      forceFull={forceOpen}
-                      direction={direction}
-                    />
-                  ) : (
-                    <EnvelopeItem
-                      key={envelope.id}
-                      envelope={envelope}
-                      body={envelope.pointer ? pointerFallbackBody(envelope) : envelope.body}
-                      markdownHtml={markdownHtml}
-                      forceFull={forceOpen}
-                      direction={direction}
-                    />
-                  ),
-                )}
-              </div>
+            <div className="work-line-list mail-card" onClick={onBodyClick}>
+              {envelopes.map((envelope) =>
+                envelope.pointer === 'by-id' ? (
+                  <PointerEnvelopeItem
+                    key={envelope.id}
+                    envelope={envelope}
+                    forceFull={forceOpen}
+                    direction={direction}
+                  />
+                ) : (
+                  <EnvelopeItem
+                    key={envelope.id}
+                    envelope={envelope}
+                    body={envelope.pointer ? pointerFallbackBody(envelope) : envelope.body}
+                    markdownHtml={markdownHtml}
+                    forceFull={forceOpen}
+                    direction={direction}
+                  />
+                ),
+              )}
             </div>
           )}
         </div>
