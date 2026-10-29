@@ -88,22 +88,11 @@ function formatIssueStatus(value: WorklistIssue | SidebarRowValues): string {
   if ('showsChildProgress' in value ? value.showsChildProgress : value.statusFromChildren) {
     const progressValue = value.progress
     if (progressValue === LOADING) return 'no active subtasks'
-    const { total, done, run, review, stall, block, wait } = progressValue
+    const { total, done, run, stall, wait } = progressValue
     if (total === 0) return 'no active subtasks'
     const progress = `${done}/${total} ${total === 1 ? 'subtask' : 'subtasks'} done`
     if (done === total) return progress
-    const next =
-      block > 0
-        ? `${block} blocked`
-        : review > 0
-          ? `${review} in review`
-          : run > 0
-            ? `${run} underway`
-            : stall > 0
-              ? `${stall} stalled`
-              : wait > 0
-                ? `${wait} to go`
-                : null
+    const next = run > 0 ? `${run} working` : stall > 0 ? `${stall} waiting` : wait > 0 ? `${wait} to do` : null
     return next ? `${progress} · ${next}` : progress
   }
   if (value.decision === 'merge')
@@ -201,7 +190,7 @@ export type RowTone =
 
 /** What line 2 says, in the calm design's vocabulary (POD-2074): one tone, one
  * word, and an optional sub-fact. The old status sentence stays the filter's
- * haystack, so typing "needs review" or "2 underway" still finds a row. */
+ * haystack, so typing "needs review" or "2 working" still finds a row. */
 export interface RowVoice {
   tone: RowTone
   word: string

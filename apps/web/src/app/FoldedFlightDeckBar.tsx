@@ -1,4 +1,8 @@
-import type { MissionProgress } from '@podium/client-core/values'
+import {
+  type MissionProgress,
+  missionProgressFromBuckets,
+  missionProgressLabel,
+} from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph'
 import { MissionScreen, missionRootId } from '@podium/client-graph/mission-screen'
 import { observer } from '@podium/client-graph/react'
@@ -38,19 +42,6 @@ import { useWorklistPool, useWorklistPoolProjection } from './store-worklist-poo
 
 /** The mission's state as one sentence — the same one the open gauge speaks, so
  *  folding cannot change what the mission is said to have done (POD-1181). */
-function reading(progress: MissionProgress): string {
-  const { total, done, run, review, stall, block, wait } = progress
-  return [
-    `${done} of ${total} task${total === 1 ? '' : 's'} done`,
-    run > 0 ? `${run} underway` : null,
-    review > 0 ? `${review} in review` : null,
-    stall > 0 ? `${stall} stalled` : null,
-    block > 0 ? `${block} blocked` : null,
-    wait > 0 ? `${wait} to go` : null,
-  ]
-    .filter(Boolean)
-    .join(', ')
-}
 
 const NO_PROGRESS: MissionProgress = {
   total: 0,
@@ -95,7 +86,16 @@ const FoldedOpening = observer(function FoldedOpening({
 }): JSX.Element {
   const screen = useMemo(() => new MissionScreen(pool, rootId), [pool, rootId])
   useEffect(() => () => screen.close(), [screen])
-  return <FoldedBar progress={screen.ready ? screen.progress : NO_PROGRESS} actions={actions} />
+  return (
+    <FoldedBar
+      progress={
+        screen.ready && screen.full.ready
+          ? missionProgressFromBuckets(screen.full.buckets)
+          : NO_PROGRESS
+      }
+      actions={actions}
+    />
+  )
 })
 
 function FoldedBar({
@@ -105,7 +105,7 @@ function FoldedBar({
   progress: MissionProgress
   actions: FoldedBarActions
 }): JSX.Element {
-  const sentence = progress.total > 0 ? reading(progress) : null
+  const sentence = progress.total > 0 ? missionProgressLabel(progress) : null
   const onEdgePointerDown = (e: ReactPointerEvent<HTMLDivElement>): void => {
     e.preventDefault()
     const handle = e.currentTarget

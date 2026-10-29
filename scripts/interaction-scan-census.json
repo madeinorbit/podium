@@ -21345,25 +21345,6 @@
     },
     {
       "file": "packages/client-core/src/values/mission.ts",
-      "holder": "computeMissionRollup/staffed",
-      "rule": "helper-consumer",
-      "tokens": "4fdb2db0a81ec8fe72ab095c70a2f844b747105a95b7bcc5c01367ef15453811",
-      "gate": [],
-      "origin": [
-        "14f6b06c3687a3ebc05c8292afa934c01bc3588779b725b439eba0a6d3880309",
-        "b380ff6e76d05b42d0936b610ad147799a5dd6e533b5bac425b5eff87c17f798"
-      ],
-      "fingerprint": "6035ff845cfbefad8d401ed1e383289558208be398a760905aa43311c2c1c133",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of computeMissionRollup/staffed",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-core/src/values/mission.ts",
       "holder": "computeMissionRollup/units/filter:callback/own",
       "rule": "helper-consumer",
       "tokens": "bb8d2038eb06211fda836c0084678705d3043c9b62d5b4c975931d638c069318",
@@ -21381,42 +21362,6 @@
       "trigger": "Invocation of computeMissionRollup/units/filter:callback/own",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-core/src/values/mission.ts",
-      "holder": "computeStaffedSubtreeIds",
-      "rule": "helper-consumer",
-      "tokens": "ef8d254c629e47be31cd0c7fe42d6da392247f02f77cdef5716c531016aa6a0c",
-      "gate": [],
-      "origin": [
-        "a3034219a93819ff864cdfeb0cfe6cbe0f1a55b636e851b3cf2f36894af09bab"
-      ],
-      "fingerprint": "ae7277710d35aca8c0e64f1d0c432fae1eb51d5f208d56b946701cf3f389f54a",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of computeStaffedSubtreeIds",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-core/src/values/mission.ts",
-      "holder": "computeStaffedSubtreeIds",
-      "rule": "loop:for-of",
-      "tokens": "071655415226c6c48736dfafaea2e0d2e3c2954e962c5f62363ff7502ea9b4f2",
-      "gate": [],
-      "origin": [
-        "2f2bf618ee644586bd02413c3348b93db23282c90269d1ee3b16ef997a717b9f"
-      ],
-      "fingerprint": "4df82fcf4d796d7b660c7e96c0f94b7d93bdf7ba82f94a05b3afae63433b408c",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of computeStaffedSubtreeIds",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "loop:for-of carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -22810,26 +22755,26 @@
       "file": "packages/client-core/src/values/mission.ts",
       "holder": "missionProgress",
       "rule": "helper-consumer",
-      "tokens": "89b00fd17a60d85fd7bf431c23e1c37ac2a666f42d793550f2cbaa1818aeab56",
+      "tokens": "d5ccbd5cda680201c295eaa1acac0a9909f441a962d53ffab9d2feb5b5b5d58f",
       "gate": [],
       "origin": [
         "e1718d763445a15f2425142657526db4eee0711fae691caca45b4efd22ff7b00",
         "e86934b770d2688dea1a7084a4ef7fb9a788bbcc6c5d9dac6bf9273aa99a969d"
       ],
-      "fingerprint": "7634f46464e0dcc63ead520f7f789982197a2f2fa5c2b2593176d24c9ebf3f6e",
+      "fingerprint": "857747078d6e26b7ef55cc2850ed65443793c39e94a18888d98a24dc9188fd05",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of missionProgress",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Predecessor: 7634f46464e0dcc63ead520f7f789982197a2f2fa5c2b2593176d24c9ebf3f6e.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
       "file": "packages/client-core/src/values/mission.ts",
       "holder": "missionRollup/memoBySlices:callback",
       "rule": "helper-consumer",
-      "tokens": "db66e7d47bc15672b10318b16917e9aeda6c2539f7dca10f5e378d7821a8d131",
+      "tokens": "7c693ad4a167821bbe9b60370d19a841074481dfaca97333593dc1dd8315c030",
       "gate": [
         "exit:then:f0a635fb2fab4a48857c14d2bf67cacd54205a89ff726e77888e576b77f8a178"
       ],
@@ -22837,20 +22782,20 @@
         "0bc1e6c030a1f9b93ff1fe4499f8e21d977c8fe3ce1b8874a00d85de467bfebb",
         "0ece8b4a77147488eccac2b10630c44b9b6a0dce4ce8272b8612bc0148b8885b"
       ],
-      "fingerprint": "1708b1f4b4f5aae2c06d2662d510414bce651f1c52be7867d191ed71c5d6b5a3",
+      "fingerprint": "c49f8c94eeccb3e763d949ab9629976f4fb2ef5fcf373377f9cd928ab50fa6eb",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of missionRollup/memoBySlices:callback",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Predecessor: 1708b1f4b4f5aae2c06d2662d510414bce651f1c52be7867d191ed71c5d6b5a3.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
       "file": "packages/client-core/src/values/mission.ts",
       "holder": "missionRollup/memoBySlices:callback",
       "rule": "helper-consumer",
-      "tokens": "db66e7d47bc15672b10318b16917e9aeda6c2539f7dca10f5e378d7821a8d131",
+      "tokens": "7c693ad4a167821bbe9b60370d19a841074481dfaca97333593dc1dd8315c030",
       "gate": [
         "exit:then:f0a635fb2fab4a48857c14d2bf67cacd54205a89ff726e77888e576b77f8a178"
       ],
@@ -22858,13 +22803,13 @@
         "e1718d763445a15f2425142657526db4eee0711fae691caca45b4efd22ff7b00",
         "e86934b770d2688dea1a7084a4ef7fb9a788bbcc6c5d9dac6bf9273aa99a969d"
       ],
-      "fingerprint": "39ae1730b1bd9860b30756520c88f16768908b06fa3fa4d4cdcdc4232a785b57",
+      "fingerprint": "c3f9d0974e76e3db4416d009116430e4927169d01741e8fa72bdcf7fc3ed8b91",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of missionRollup/memoBySlices:callback",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Predecessor: 39ae1730b1bd9860b30756520c88f16768908b06fa3fa4d4cdcdc4232a785b57.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -23992,44 +23937,6 @@
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of staffedSpinOff",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-core/src/values/mission.ts",
-      "holder": "staffedSubtreeIds/memoBySlices:callback",
-      "rule": "helper-consumer",
-      "tokens": "e9924ff95b664f98bc1328e8c9dfbd9c9702cddf6703465202cd63df81025c77",
-      "gate": [],
-      "origin": [
-        "14f6b06c3687a3ebc05c8292afa934c01bc3588779b725b439eba0a6d3880309",
-        "b380ff6e76d05b42d0936b610ad147799a5dd6e533b5bac425b5eff87c17f798"
-      ],
-      "fingerprint": "2acde0e68fa1e1d7cf2fbcb3e7c3c7eddf40a0804ae109bed2ae5842d9365aff",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of staffedSubtreeIds/memoBySlices:callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-core/src/values/mission.ts",
-      "holder": "staffedSubtreeIds/memoBySlices:callback",
-      "rule": "helper-consumer",
-      "tokens": "e9924ff95b664f98bc1328e8c9dfbd9c9702cddf6703465202cd63df81025c77",
-      "gate": [],
-      "origin": [
-        "860eac25c3b7fb518bde882e47b191e474fbefa7f258d19c36a1578ab4eef773",
-        "9863485997e6c670ad2563e96a36676c6ad22721bdd539417fae2b6710eb3373"
-      ],
-      "fingerprint": "9e174dbb4a954b6ab549a581354f4c00e315d4343dba74be7818333ec7a81b48",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of staffedSubtreeIds/memoBySlices:callback",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
@@ -35566,6 +35473,173 @@
       "bound": "Exactly eight fixed per-user preference keys: tips.enabled and seven tips.seen.<id> rows. No catalogue or collection is read.",
       "reason": "The tip log reads only its own named preference rows from the pool; the reader summary is the TipLog object built over those eight keys.",
       "guard": "account-tip-log.test.ts covers hydration, record() and skip-all over the fixed key set."
+    },
+    {
+      "file": "packages/client-core/src/values/mission.ts",
+      "holder": "computeMissionRollup/counts/tallyMissionBuckets:callback",
+      "rule": "consume:some",
+      "tokens": "4d4dd759b1d966040865ae347ad5dad11575927697ef4513e44d66ebff72dafa",
+      "gate": [
+        "||:fcccd137393520aca42bb847070fe9d4987d4357782ca7a329238e60d616f3cb"
+      ],
+      "origin": [
+        "b380ff6e76d05b42d0936b610ad147799a5dd6e533b5bac425b5eff87c17f798"
+      ],
+      "fingerprint": "86b06bc18aa352dfa6a6e409c2b9dc8c3676e21a600a40962fc74dc669bd1863",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-2237",
+      "trigger": "Legacy missionProgress classifies a task with explicit member session IDs.",
+      "bound": "Only reached with nonempty memberSessionIds; sessionsForIssueNav takes its indexed member-list branch with includeShells=true, avoiding its catalogue fallback.",
+      "reason": "The shared helper is conservatively tainted by other branches. This caller supplies explicit membership and reads only those members to detect computation.",
+      "guard": "mission.test.ts counts member-only sessions and retains archived history; session index sharing tests cover repeated roots. The caller's nonempty memberSessionIds guard and includeShells option are explicit."
+    },
+    {
+      "file": "packages/client-core/src/values/mission.ts",
+      "holder": "computeMissionRollup/counts/tallyMissionBuckets:callback/members",
+      "rule": "helper-consumer",
+      "tokens": "c8256b95fda8092dbd95db4c81f30a30e36ab38f313fe5ce0a81baaac79b01a9",
+      "gate": [
+        "then:40a247e5e9dcfcb5305ed1a0439af6ccaee0c30b82c6f3e8afdda8d67201ec34"
+      ],
+      "origin": [
+        "b380ff6e76d05b42d0936b610ad147799a5dd6e533b5bac425b5eff87c17f798"
+      ],
+      "fingerprint": "bc1351c6f6c03b08850e10e3aaf6807723ec6ea260167618a11d85da416849c1",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-2237",
+      "trigger": "Legacy missionProgress classifies a task with explicit member session IDs.",
+      "bound": "Only reached with nonempty memberSessionIds; sessionsForIssueNav takes its indexed member-list branch with includeShells=true, avoiding its catalogue fallback.",
+      "reason": "The shared helper is conservatively tainted by other branches. This caller supplies explicit membership and reads only those members to detect computation.",
+      "guard": "mission.test.ts counts member-only sessions and retains archived history; session index sharing tests cover repeated roots. The caller's nonempty memberSessionIds guard and includeShells option are explicit."
+    },
+    {
+      "file": "packages/client-core/src/values/mission.ts",
+      "holder": "computeMissionRollup/counts/tallyMissionBuckets:callback/members",
+      "rule": "reader-summary",
+      "tokens": "838faf2b33b4c58304196ce15a88d4229cd3255936255ac48dcf02e86a23bdcf",
+      "gate": [
+        "then:40a247e5e9dcfcb5305ed1a0439af6ccaee0c30b82c6f3e8afdda8d67201ec34"
+      ],
+      "origin": [
+        "b380ff6e76d05b42d0936b610ad147799a5dd6e533b5bac425b5eff87c17f798"
+      ],
+      "fingerprint": "bf6af630e9814bae7508dc8e9254ca0a4df84cbadbe7d9389b51895358d27a49",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-2237",
+      "trigger": "Legacy missionProgress classifies a task with explicit member session IDs.",
+      "bound": "Only reached with nonempty memberSessionIds; sessionsForIssueNav takes its indexed member-list branch with includeShells=true, avoiding its catalogue fallback.",
+      "reason": "The shared helper is conservatively tainted by other branches. This caller supplies explicit membership and reads only those members to detect computation.",
+      "guard": "mission.test.ts counts member-only sessions and retains archived history; session index sharing tests cover repeated roots. The caller's nonempty memberSessionIds guard and includeShells option are explicit."
+    },
+    {
+      "file": "packages/client-core/src/values/mission.ts",
+      "holder": "computeMissionRollup/counts/tallyMissionBuckets:callback/own",
+      "rule": "helper-consumer",
+      "tokens": "82a7e1310431462e62627ea7859e6e77092584e7ada63b68bba58ce934b089a7",
+      "gate": [
+        "??:59b4a87f61448022b77b69b1e4d338ce87b87bee51d9109dddf16da39333c0d7"
+      ],
+      "origin": [
+        "b380ff6e76d05b42d0936b610ad147799a5dd6e533b5bac425b5eff87c17f798"
+      ],
+      "fingerprint": "c8b4da6b0cb97d5deb43adcf99935ee5c56bb1cbf2479d6880a4a00e74ecf21b",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-2237",
+      "trigger": "Legacy missionProgress classifies one accepted task.",
+      "bound": "An addressed byIssue lookup into the existing memoized MissionSessionIndex, followed by that task's sessions only.",
+      "reason": "This reuses the existing per-snapshot index already read by the eligibility check. It does not add an index build or a whole-slice traversal per task.",
+      "guard": "mission.test.ts proves session index sharing between roots and exact progress updates when either input slice changes."
+    },
+    {
+      "file": "packages/client-core/src/values/session-ownership.ts",
+      "holder": "sessionsForIssueNav",
+      "rule": "consume:filter",
+      "tokens": "f2f78eff771420178d23585a5e3e376f8eb9814dc7fbe589723ed5a0452b3c2d",
+      "gate": [
+        "exit:then:14bfd6d390d7698cfd16866fac8770ae66081845aad058c1f7ee5dff31a9f5d6",
+        "exit:then:89e8047f678e077a1938fe26b69336b8dfc74fae53ce2afffe0dd4170be7c497"
+      ],
+      "origin": [
+        "b380ff6e76d05b42d0936b610ad147799a5dd6e533b5bac425b5eff87c17f798"
+      ],
+      "fingerprint": "7e6589f3441956377532424bed704b510aa8426bc4c7ac83b1c46dd1410fbf2d",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-2237",
+      "trigger": "Legacy missionProgress classifies a task with explicit member session IDs.",
+      "bound": "Only reached with nonempty memberSessionIds; sessionsForIssueNav takes its indexed member-list branch with includeShells=true, avoiding its catalogue fallback.",
+      "reason": "The shared helper is conservatively tainted by other branches. This caller supplies explicit membership and reads only those members to detect computation.",
+      "guard": "mission.test.ts counts member-only sessions and retains archived history; session index sharing tests cover repeated roots. The caller's nonempty memberSessionIds guard and includeShells option are explicit."
+    },
+    {
+      "file": "packages/client-graph/src/worklist/visible.ts",
+      "holder": "rollupInputsOf/missionBucket/callback",
+      "rule": "loop:for-of",
+      "tokens": "028b691c60f5c603f4d27676e536a4b2fbe8db8ca99424b1df83b7e46cb66138",
+      "gate": [
+        "??:4a21d5481d26ea73b863933b03dcbad7d7a237830df9f25ac2458ed385848042",
+        "exit:then:4e83d6ec988459cc6cd5b27d35905c83d45b86939b8786ff127a71af3ee9a302",
+        "exit:then:cc87d747f6f64de81ce3b77d7901f2cec77f95c74595326741fcca187505db8e"
+      ],
+      "origin": [
+        "5a375a0ecfee7cbfa42c258372b591b6c49adcbfa9aab950d857c120b7142198"
+      ],
+      "fingerprint": "b1e5daa117486422c5a29c813fe9b652e13844b4a855092237dda722406de3bf",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-2237",
+      "trigger": "Independent worklist rebuild computes one task execution bucket.",
+      "bound": "The addressed issue ID's declared missionSessions relation only; no issue or session catalogue enumeration.",
+      "reason": "The live pool supplies the shared IssueModel.missionBucket. This fallback reads the same issue and its own attached sessions in the independent rebuild.",
+      "guard": "models.test.ts compares demanded unitOwn and unitsBelow with eager parts, including a cycle; mission-full-deck.test.ts execution buckets covers archived, shell and headless sessions."
+    },
+    {
+      "file": "packages/client-graph/src/worklist/visible.ts",
+      "holder": "rollupInputsOf/missionBucket/callback/ids",
+      "rule": "dynamic-question",
+      "tokens": "dec1c0f5426bda8c0c6db30a1691f1092867ed7ccf9221ad547265460b0bd42b",
+      "gate": [
+        "??:4a21d5481d26ea73b863933b03dcbad7d7a237830df9f25ac2458ed385848042",
+        "exit:then:4e83d6ec988459cc6cd5b27d35905c83d45b86939b8786ff127a71af3ee9a302",
+        "exit:then:cc87d747f6f64de81ce3b77d7901f2cec77f95c74595326741fcca187505db8e"
+      ],
+      "origin": [
+        "5a375a0ecfee7cbfa42c258372b591b6c49adcbfa9aab950d857c120b7142198"
+      ],
+      "fingerprint": "48421616e70a8a1fdb1f4fc776899ecf23c4d4fc9107c032a4c79d58e3223748",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-2237",
+      "trigger": "Independent worklist rebuild computes one task execution bucket.",
+      "bound": "The addressed issue ID's declared missionSessions relation only; no issue or session catalogue enumeration.",
+      "reason": "The live pool supplies the shared IssueModel.missionBucket. This fallback reads the same issue and its own attached sessions in the independent rebuild.",
+      "guard": "models.test.ts compares demanded unitOwn and unitsBelow with eager parts, including a cycle; mission-full-deck.test.ts execution buckets covers archived, shell and headless sessions."
+    },
+    {
+      "file": "packages/client-graph/src/worklist/visible.ts",
+      "holder": "rollupInputsOf/missionBucket/callback/ids",
+      "rule": "spread",
+      "tokens": "2f0d33bcddab10bfa72ee558bfbc3619d280269cc4e9cc991d91ac0f93e148f1",
+      "gate": [
+        "??:4a21d5481d26ea73b863933b03dcbad7d7a237830df9f25ac2458ed385848042",
+        "exit:then:4e83d6ec988459cc6cd5b27d35905c83d45b86939b8786ff127a71af3ee9a302",
+        "exit:then:cc87d747f6f64de81ce3b77d7901f2cec77f95c74595326741fcca187505db8e"
+      ],
+      "origin": [
+        "5a375a0ecfee7cbfa42c258372b591b6c49adcbfa9aab950d857c120b7142198"
+      ],
+      "fingerprint": "a3258e88a97031d1aaa20b97bf572e96b7a1797ab4c8798b085cba86db0331e1",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-2237",
+      "trigger": "Independent worklist rebuild computes one task execution bucket.",
+      "bound": "The addressed issue ID's declared missionSessions relation only; no issue or session catalogue enumeration.",
+      "reason": "The live pool supplies the shared IssueModel.missionBucket. This fallback reads the same issue and its own attached sessions in the independent rebuild.",
+      "guard": "models.test.ts compares demanded unitOwn and unitsBelow with eager parts, including a cycle; mission-full-deck.test.ts execution buckets covers archived, shell and headless sessions."
     }
   ]
 }

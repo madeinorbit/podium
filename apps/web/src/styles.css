@@ -11154,32 +11154,6 @@ button.waterfall-fold:hover {
   font-size: 1em;
 }
 
-/* ── THE MISSION GAUGE — "the split readout" (POD-710) ───────────────────────
-   The flight deck's mission bar is a row of bands, one per state, each sized by
-   how many tasks it holds and each carrying its own count INSIDE itself. A band
-   with no work in it is not rendered at all — not a sliver, not a zero — so a
-   one-task mission reads `1 UNDERWAY` across the whole track and says one thing
-   once. `MissionGauge.tsx` owns the markup and the reasoning.
-
-   THE NARROW LADDER. The deck column is resizable from 300px, so a band running
-   out of room is routine. It sheds the way the command bar sheds (DESIGN.md §5):
-   WORDS BEFORE DATA, DATA BEFORE MATERIAL, NOTHING EVER CLIPPED.
-
-       `4 DONE`  →  `4`  →  bare material (colour / hatch / floor rule)
-
-   Each band is its OWN inline-size container, so the rung is the band's width,
-   not the column's: a wide `6 DONE` can keep its noun while the one-task band
-   beside it is already down to a numeral, which is the honest reading of who
-   has the room.
-
-   The rungs are the text's own measure, checked in a browser: Geist Mono
-   advances 0.6em, so a character at 9px with 0.06em tracking costs ~6px. Each
-   word rung is its label with a single-digit count plus ten of breathing room,
-   of which a second digit spends six; the count's own rung is keyed on how many
-   digits it actually has, so `128` never lands in a box sized for `4`. They are
-   min-width rungs ONLY, so a browser without container queries lands on bare
-   material rather than on clipped text — and the full sentence is on the
-   gauge's aria-label and title at every rung either way. */
 /* Full mission header (v6). Keep these rules local: the development views
    retain their measured, resizable brief and their current gauge. */
 .flight-full-header .shell-type-column-title {
@@ -11341,369 +11315,109 @@ button.waterfall-fold:hover {
 .flight-full-gauge-row {
   gap: 6px;
 }
+.flight-full-gauge-row:has(> .mission-gauge) {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  column-gap: 6px;
+  row-gap: 6px;
+}
 .flight-full-gauge-row > :is(button, [data-testid="mission-cost-chip"]) {
-  flex-shrink: 0;
   white-space: nowrap;
 }
-.mission-gauge-full {
-  flex: 1 1 260px;
-  flex-wrap: wrap;
+.mission-gauge {
+  display: grid;
   gap: 6px;
-  min-width: 120px;
-}
-.mission-gauge-full [data-testid="mission-gauge-track"] {
-  flex: 1 1 160px;
-  min-width: 120px;
-}
-
-.gauge-band {
-  position: relative;
-  container: gauge-band / inline-size;
-  display: flex;
-  flex: 0 1 0;
-  align-items: center;
-  justify-content: center;
   min-width: 0;
-  height: 100%;
-  padding: 0 3px;
-  overflow: hidden;
-  border-radius: 2px;
+}
+.flight-full-gauge-row > .mission-gauge {
+  display: contents;
+}
+.mission-gauge-counts {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 11px;
+  min-width: 0;
   font-family: var(--font-mono);
-  font-size: var(--shell-type-micro);
-  font-weight: 500;
-  line-height: 1;
+  font-size: 11px;
+  line-height: 16px;
   font-variant-numeric: tabular-nums;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  white-space: nowrap;
-  transition: flex-grow 0.3s ease-out;
-}
-/* DONE IS THE GAUGE'S ONLY SOLID BAND, and everything unfinished is a tint.
-   Finished work is settled, so it is dense; work in flight is light and carries
-   the motion. That one weight step is what keeps done and running apart in
-   Podium, where `--success` is itself a blue and hue alone cannot carry it.
-   `--success-solid` rather than `--success`: a fill under 10.5px type is a
-   different job from a line, and on paper it wants one step darker to clear the
-   contrast floor. */
-.gauge-band[data-s="done"] {
-  background-color: var(--success-solid);
-  color: var(--success-foreground);
-}
-/* NOTHING TO MEASURE — a closed or memberless root, where `total` is 0.
-   Not a success state and not an empty groove: nothing here is done, there is
-   simply nothing to count, so the band takes the neutral `to go` ground, says
-   so in one word, and keeps the track the same object at the same height. The
-   stage the mission IS in is already on the eyebrow two lines above. */
-.gauge-band[data-s="none"] {
-  background-color: color-mix(in srgb, var(--foreground) 8%, transparent);
-  box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--foreground) 22%, transparent);
-  color: var(--text-dim);
-}
-.gauge-band[data-s="run"] {
-  background-color: color-mix(in srgb, var(--live) 26%, transparent);
-  box-shadow: inset 0 -2px 0 var(--live);
-  color: var(--text-strong);
-}
-.gauge-band[data-s="review"] {
-  background-color: color-mix(in srgb, var(--attention) 20%, transparent);
-  box-shadow: inset 0 -2px 0 var(--attention);
-  color: var(--text-strong);
-}
-/* STALLED — started work with an empty seat (POD-1314).
-   The run band's material, drained: half its blue in the ground so the band
-   still reads as started work, and a DOTTED floor rule where run has a solid
-   one. Dotted is the spine's single reserved meaning — a session belongs here
-   and there is not one — which is the rim the `no agent` chip in the same header
-   wears, so this borrows the column's vocabulary rather than spending a sixth
-   colour on it. The rule is a background image, not a `box-shadow`: a shadow
-   cannot be dashed, and a real border would take 2px out of a 22px band's
-   content box and shift the count off the centre every other band shares.
-   No march, ever: motion is licensed by an agent computing (MissionGauge.tsx),
-   and this band's whole claim is that there is not one. */
-.gauge-band[data-s="stall"] {
-  background-color: color-mix(in srgb, var(--live) 13%, transparent);
-  background-image: repeating-linear-gradient(to right, var(--live) 0 3px, transparent 3px 6px);
-  background-repeat: no-repeat;
-  background-position: bottom left;
-  background-size: 100% 2px;
-  color: var(--text-dim);
-}
-/* Blocked's ground is `.gauge-hatch`; its floor rule is the theme's own
-   foreground, never a hue. */
-.gauge-band[data-s="block"] {
-  box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--foreground) 34%, transparent);
-  color: var(--text-dim);
-}
-.gauge-band[data-s="wait"] {
-  background-color: color-mix(in srgb, var(--foreground) 8%, transparent);
   color: var(--text-faint);
 }
-/* Over the sweep, never under it. */
-.gauge-band-text {
-  position: relative;
+.mission-gauge-key {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
 }
-/* The count is the datum, so it is the loud half of the label: DESIGN.md §3 puts
-   badge counts at 9px/700. Pinned here rather than borrowed from `<b>`'s UA
-   weight. */
-.gauge-band-count {
-  font-weight: 700;
+.mission-gauge-key b {
+  font-weight: 600;
+  color: var(--text-strong);
 }
-/* The base state is the LAST rung: material only. Every rung above it is opt-in. */
-.gauge-band-count,
-.gauge-band-word {
-  display: none;
+.mission-gauge-swatch {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  flex: none;
 }
-@container gauge-band (min-width: 8px) {
-  .gauge-band-count[data-w="1"] {
-    display: inline;
-  }
+.mission-gauge-bar {
+  min-width: 0;
+  height: 26px;
+  display: flex;
+  align-items: center;
 }
-@container gauge-band (min-width: 14px) {
-  .gauge-band-count[data-w="2"] {
-    display: inline;
-  }
-}
-@container gauge-band (min-width: 20px) {
-  .gauge-band-count[data-w="3"] {
-    display: inline;
-  }
-}
-@container gauge-band (min-width: 46px) {
-  .gauge-band[data-s="done"] .gauge-band-word {
-    display: inline;
-  }
-}
-@container gauge-band (min-width: 52px) {
-  .gauge-band[data-s="wait"] .gauge-band-word {
-    display: inline;
-  }
-}
-@container gauge-band (min-width: 58px) {
-  .gauge-band[data-s="none"] .gauge-band-word {
-    display: inline;
-  }
-}
-@container gauge-band (min-width: 64px) {
-  .gauge-band[data-s="review"] .gauge-band-word,
-  /* `STALLED` is `BLOCKED`'s measure to the character, so it is the same rung
-     rather than a second literal a character-count apart from it. */
-  .gauge-band[data-s="stall"] .gauge-band-word,
-  .gauge-band[data-s="block"] .gauge-band-word {
-    display: inline;
-  }
-}
-/* `UNDERWAY` (POD-1181) is three characters shorter than `IN PROGRESS`, which the
-   run band wore while its bucket was one stage, so the rung comes back DOWN with
-   it: the word now survives on a band 16px narrower than before. Below this the
-   band sheds to the count alone, exactly as at every other rung. */
-@container gauge-band (min-width: 70px) {
-  .gauge-band[data-s="run"] .gauge-band-word {
-    display: inline;
-  }
-}
-
-/* Full gauge text: each band sheds independently. data-fit is the text's
-   mono character measure, rounded up to the next 8px. It accounts for every
-   count digit; a long count must not reveal a word that cannot fit beside it.
-   No query support means bare material with the complete accessible reading. */
-.mission-gauge-full .gauge-band {
-  font-size: 9px;
-  font-weight: 700;
-}
-.mission-gauge-full .gauge-band :is(.gauge-band-count, .gauge-band-word) {
-  display: none;
-}
-@container gauge-band (min-width: 8px) {
-  .mission-gauge-full .gauge-band [data-fit="8"] {
-    display: inline;
-  }
-}
-@container gauge-band (min-width: 16px) {
-  .mission-gauge-full .gauge-band [data-fit="16"] {
-    display: inline;
-  }
-}
-@container gauge-band (min-width: 24px) {
-  .mission-gauge-full .gauge-band [data-fit="24"] {
-    display: inline;
-  }
-}
-@container gauge-band (min-width: 32px) {
-  .mission-gauge-full .gauge-band [data-fit="32"] {
-    display: inline;
-  }
-}
-@container gauge-band (min-width: 40px) {
-  .mission-gauge-full .gauge-band [data-fit="40"] {
-    display: inline;
-  }
-}
-@container gauge-band (min-width: 48px) {
-  .mission-gauge-full .gauge-band [data-fit="48"] {
-    display: inline;
-  }
-}
-@container gauge-band (min-width: 56px) {
-  .mission-gauge-full .gauge-band [data-fit="56"] {
-    display: inline;
-  }
-}
-@container gauge-band (min-width: 64px) {
-  .mission-gauge-full .gauge-band [data-fit="64"] {
-    display: inline;
-  }
-}
-@container gauge-band (min-width: 72px) {
-  .mission-gauge-full .gauge-band [data-fit="72"] {
-    display: inline;
-  }
-}
-@container gauge-band (min-width: 80px) {
-  .mission-gauge-full .gauge-band [data-fit="80"] {
-    display: inline;
-  }
-}
-@container gauge-band (min-width: 88px) {
-  .mission-gauge-full .gauge-band [data-fit="88"] {
-    display: inline;
-  }
-}
-@container gauge-band (min-width: 96px) {
-  .mission-gauge-full .gauge-band [data-fit="96"] {
-    display: inline;
-  }
-}
-@container gauge-band (min-width: 104px) {
-  .mission-gauge-full .gauge-band [data-fit="104"] {
-    display: inline;
-  }
-}
-@container gauge-band (min-width: 112px) {
-  .mission-gauge-full .gauge-band [data-fit="112"] {
-    display: inline;
-  }
-}
-@container gauge-band (min-width: 120px) {
-  .mission-gauge-full .gauge-band [data-fit="120"] {
-    display: inline;
-  }
-}
-@container gauge-band (min-width: 128px) {
-  .mission-gauge-full .gauge-band [data-fit="128"] {
-    display: inline;
-  }
-}
-@container gauge-band (min-width: 136px) {
-  .mission-gauge-full .gauge-band [data-fit="136"] {
-    display: inline;
-  }
-}
-
-/* ── THE RUNNING BAND'S CELLS (POD-1146, made fluid in POD-1177) ─────────────
-   The band used to carry `.row-progress-sweep` — a full-height sheen travelling
-   over the whole segment, which is right on the sidebar's 3px rule and wrong
-   here, because THIS band has words in it and the sweep washed straight across
-   them twice a second.
-   So the motion moves under the type: cells of the band's own blue, six on and
-   three off, and at 42% it reads as texture beneath the count rather than as a
-   highlight over it.
-   Gated by its caller on `working` (an agent computing right now), never on the
-   stage: see the note in MissionGauge.tsx.
-
-   IT GLIDES NOW. POD-1146 stepped the light along in `steps(8, end)` — the
-   braille spinner's grammar rendered as a meter, advancing rather than gliding.
-   The grammar was the right idea at the wrong scale. The spinner steps a GLYPH,
-   where each frame is a whole new character and there is nothing to be smooth
-   between; this steps a POSITION across a band, where eight frames per 1.3s
-   means 88% of rendered frames repaint nothing at all and the light then leaps
-   a sixth of the band in one go. What the operator reads is not "advancing", it
-   is dropped frames — the one thing motion must never counterfeit, because a
-   stuttering instrument is how this app says the machine is struggling.
-
-   Three things changed, and none of them is the material:
-
-   1. LINEAR, NOT STEPPED. The light moves every frame it is on screen.
-   2. TRANSFORM, NOT `background-position`. Sliding a background is a paint on
-      every frame; sliding a layer is a compositor transform on none. The gauge
-      sits in a column that re-renders on every wire frame, so the motion has to
-      survive being animated on a busy main thread — which is the second half of
-      the stutter, and the half that would have survived a linear timing alone.
-   3. A REPEATING TRAIN, NOT ONE TRAVERSAL. The old glow crossed the band once
-      per cycle, so its SPEED was the band's width over 1.3s — a mission whose
-      run band grew got a faster march for no reason the operator could name,
-      and every cycle ended with the light jumping from off the right edge back
-      to off the left. The train repeats every 180px and translates exactly one
-      period, so the loop is seamless (the first frame and the last are the same
-      pixels) and the speed is a constant ~129px/s at every band width.
-
-   The cells themselves DO NOT MOVE: the mask is on the box and the light is on
-   its child, so the segments stay pinned to the band and light up in place as
-   the glow passes under them. That is what keeps this a meter with cells rather
-   than a barber pole, which is what a moving mask would have made it. The glow
-   is the same 72px it always was; only the dark 108px between glows is new, and
-   that is what keeps the band's density where POD-1146 set it. */
-@keyframes podium-gauge-march {
-  from {
-    transform: translate3d(-180px, 0, 0);
-  }
-  to {
-    transform: translate3d(0, 0, 0);
-  }
-}
-.gauge-band-march {
-  position: absolute;
-  inset: 0;
+.mission-gauge-track {
+  display: flex;
+  flex: 1;
+  height: 8px;
+  gap: 2px;
+  border-radius: 4px;
   overflow: hidden;
-  -webkit-mask-image: repeating-linear-gradient(90deg, #000 0 6px, transparent 6px 9px);
-  mask-image: repeating-linear-gradient(90deg, #000 0 6px, transparent 6px 9px);
 }
-.gauge-band-march::before {
+.mission-gauge-track:empty {
+  background: color-mix(in srgb, var(--text-strong) 9%, transparent);
+}
+.mission-gauge-segment {
+  flex-basis: 0;
+  min-width: 3px;
+  position: relative;
+  overflow: hidden;
+}
+:is(.mission-gauge-segment, .mission-gauge-swatch)[data-s="done"] {
+  background: var(--success);
+}
+:is(.mission-gauge-segment, .mission-gauge-swatch)[data-s="working"] {
+  background: color-mix(in srgb, var(--live) 55%, transparent);
+}
+:is(.mission-gauge-segment, .mission-gauge-swatch)[data-s="waiting"] {
+  background: color-mix(in srgb, var(--text-strong) 24%, transparent);
+}
+:is(.mission-gauge-segment, .mission-gauge-swatch)[data-s="todo"] {
+  background: color-mix(in srgb, var(--text-strong) 9%, transparent);
+}
+.mission-gauge-segment[data-working="true"]::after {
   content: "";
   position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 0;
-  /* One period wider than the band, so translating by exactly one period
-     always leaves the band covered and lands on an identical frame. */
-  width: calc(100% + 180px);
-  background-image: repeating-linear-gradient(
+  inset: 0;
+  background: linear-gradient(
     90deg,
-    transparent 0 108px,
-    color-mix(in srgb, var(--live) 42%, transparent) 144px,
-    transparent 180px
+    transparent,
+    color-mix(in srgb, var(--background) 55%, transparent),
+    transparent
   );
-  will-change: transform;
-  animation: podium-gauge-march 1.4s linear infinite;
+  animation: mission-gauge-glide 2.4s linear infinite;
 }
-
-/* THE GAUGE'S BLOCKED GROUND (POD-710).
-   The same idea as `.deck-hatch`, and deliberately the same 135° rhythm —
-   "stopped" is ONE texture in this app — one step denser and one step tighter,
-   because the deck strip wears it across a 28px row while the gauge wears it in
-   a 22px band, where a 4/8px 5% hatch resolves to nothing. Still hueless: the
-   theme's own foreground, no warning tone, because blocked work asks the
-   operator for nothing and amber is what asking looks like. */
-.gauge-hatch {
-  background-color: color-mix(in srgb, var(--foreground) 7%, transparent);
-  background-image: repeating-linear-gradient(
-    135deg,
-    transparent 0 3px,
-    color-mix(in srgb, var(--foreground) 13%, transparent) 3px 6px
-  );
+@keyframes mission-gauge-glide {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(100%);
+  }
 }
 @media (prefers-reduced-motion: reduce) {
-  /* A band resizing is structural motion, but it is still motion. */
-  .gauge-band {
-    transition: none;
-  }
-  /* The cells stop marching; the band's own reserved working blue still says
-     which part of the mission is the moving part. The animation now lives on
-     the child, so it is the child that has to be stopped. */
-  .gauge-band-march {
-    opacity: 0;
-  }
-  .gauge-band-march::before {
-    animation: none;
+  .mission-gauge-segment[data-working="true"]::after {
+    display: none;
   }
 }
 

@@ -14,7 +14,12 @@
  * Everything here is IDs, numbers and booleans on lazy fields. Components read
  * a task's displayed fields from its `MissionDeckIssueModel` (`task.row`).
  */
-import { type ProposalPlacement, proposalShape } from '@podium/client-core/values'
+import {
+  type MissionBuckets,
+  type ProposalPlacement,
+  proposalShape,
+  tallyMissionBuckets,
+} from '@podium/client-core/values'
 import { companion, lazy } from '@podium/mobx-helpers'
 import {
   counterChildren,
@@ -362,7 +367,18 @@ export class FullDeck {
   @lazy({ equals: compareShallow }) get leafIds(): readonly string[] {
     return leafTasks(this.rootId, this.tree)
   }
-  /** Leaf words: the gauge and the done line. */
+  /** Execution counts are separate from the attention filters' state words. */
+  @lazy({ equals: compareStructural }) get buckets(): MissionBuckets {
+    return tallyMissionBuckets(this.leafIds, (id) => this.task(id).entity.missionBucket)
+  }
+  /** Shipping counts as working but licenses no motion without a computing session. */
+  @lazy get computing(): boolean {
+    return this.leafIds.some((id) => {
+      const task = this.task(id).entity
+      return task.missionBucket === 'working' && task.missionWorking
+    })
+  }
+  /** Leaf words for the filters and done line. */
   @lazy({ equals: compareStructural }) get tally(): TaskWordTally {
     return tallyTaskWords(this.leafIds, (id) => this.task(id).word)
   }
@@ -480,6 +496,8 @@ export class FullDeck {
       settled(() => {
         void this.rowIds
         void this.counts
+        void this.buckets
+        void this.computing
         void this.proposalIds
         return true
       }) === true

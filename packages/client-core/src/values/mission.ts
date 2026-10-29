@@ -5,6 +5,7 @@ import {
   isPhaseIssue,
   isFinished as issueClosed,
   seatWords,
+  sessionWorkingFact,
   TASK_WORD_LABEL,
   type TaskWord,
   type TaskWords,
@@ -177,21 +178,66 @@ export function reuseFlightDeckRows(
   return unchanged ? (previous as FlightDeckRow[]) : reused
 }
 
+/** Four task counts. The legacy field names remain for mobile consumers. */
 export interface MissionProgress {
   total: number
   done: number
+  /** Working: shipping or a session computing now. */
   run: number
-  /** Work awaiting the operator's review, not active execution. */
+  /** Reserved compatibility fields, always zero. */
   review: number
-  /**
-   * Work that BEGAN AND HAS NOBODY ON IT — a started stage with no open session
-   * anywhere under the task (POD-1314). Split out of {@link MissionProgress.run}
-   * so the meter cannot say `underway` about a mission whose own crew chip says
-   * `0 agents`; see {@link missionProgress}.
-   */
-  stall: number
   block: number
+  /** Waiting: started, with nothing computing. */
+  stall: number
+  /** To do: backlog with no session history. */
   wait: number
+}
+
+export type MissionTaskBucket = 'done' | 'working' | 'waiting' | 'todo'
+export type MissionBuckets = Record<MissionTaskBucket, number> & { total: number }
+
+/** Task execution is independent of its attention word and dependency state. */
+export function missionTaskBucket(
+  issue: { stage?: unknown; closedReason?: unknown },
+  hasSessions: boolean,
+  working: boolean,
+): MissionTaskBucket | null {
+  if (taskHidden(issue)) return null
+  if (issueClosed(issue)) return 'done'
+  if (issue.stage === 'proposed') return null
+  if (issue.stage === 'shipping' || working) return 'working'
+  if (issue.stage === 'backlog' && !hasSessions) return 'todo'
+  return 'waiting'
+}
+
+export function tallyMissionBuckets<T>(
+  tasks: Iterable<T>,
+  bucketOf: (task: T) => MissionTaskBucket | null,
+): MissionBuckets {
+  const counts: MissionBuckets = { total: 0, done: 0, working: 0, waiting: 0, todo: 0 }
+  for (const task of tasks) {
+    const bucket = bucketOf(task)
+    if (bucket === null) continue
+    counts[bucket]++
+    counts.total++
+  }
+  return counts
+}
+
+export function missionProgressFromBuckets(counts: MissionBuckets): MissionProgress {
+  return {
+    total: counts.total,
+    done: counts.done,
+    run: counts.working,
+    stall: counts.waiting,
+    wait: counts.todo,
+    review: 0,
+    block: 0,
+  }
+}
+
+export function missionProgressLabel(progress: MissionProgress): string {
+  return `${progress.done} of ${progress.total} tasks done, ${progress.run} working, ${progress.stall} waiting, ${progress.wait} to do`
 }
 
 /**
@@ -865,7 +911,7 @@ interface MissionIssueIndex<T extends MissionIssueTopology = MissionIssueTopolog
    */
   startedCandidates: Array<{ id: string; startedBySession: SessionId }>
   /** Child id → parent id, for walking UP the formal tree. `children` answers
-   *  "what is under this"; {@link staffedSubtreeIds} needs the other direction,
+   *  "what is under this"; ancestor traversals need the other direction,
    *  and rebuilding it per call would undo exactly what this index is for —
    *  `UnifiedIssueRow` asks for `missionProgress` once per visible row. */
   parents: Map<string, string>
@@ -1006,8 +1052,6 @@ function missionIssueIndex<T extends MissionIssueTopology>(
  * - `memberComputes`  {@link missionIssueIds} bodies run — once per
  *                     (issue slice, session slice, root), however many surfaces ask.
  * - `progressComputes` {@link missionProgress} bodies run, same key.
- * - `staffedComputes` {@link staffedSubtreeIds} bodies run — once per
- *                     (issue slice, session slice).
  */
 export function missionIndexStats(): {
   builds: number
@@ -1015,7 +1059,6 @@ export function missionIndexStats(): {
   sessionBuilds: number
   memberComputes: number
   progressComputes: number
-  staffedComputes: number
 } {
   return {
     builds: missionIndexBuilds,
@@ -1023,7 +1066,6 @@ export function missionIndexStats(): {
     sessionBuilds: sessionIndexBuilds,
     memberComputes: missionMemberComputes,
     progressComputes: missionProgressComputes,
-    staffedComputes: staffedSubtreeComputes,
   }
 }
 
@@ -1279,83 +1321,8 @@ const missionProgressCache = new WeakMap<
 >()
 let missionProgressComputes = 0
 
-/**
- * Mission progress over the WHOLE mission, never the filtered spine.
- *
- * The filter is a display preference; the mission's shape is not. Computing this
- * from the rendered rows made `Active` (which hides done work) report `0 / N`,
- * which is the one number the operator is most likely to read as truth.
- *
- * ---------------------------------------------------------------------------
- * ONE UNIT OF WORK IS ONE TASK IN THE MISSION (POD-710)
- * ---------------------------------------------------------------------------
- *
- * THE RULE: when the mission root has real members besides itself, the root is
- * the CONTAINER BEING MEASURED and is not also a segment; when it stands alone,
- * it is the single unit. So a root with one child is `total = 1`, not 2.
- *
- * This used to count the root as one more task — "it is one, with its own
- * stage" — which is true of the issue and false of the meter. A mission of one
- * sub-issue reported two units and lit two different segments (the root running
- * and the child not started), which is the whole of the operator's complaint:
- * "if there is only one task, it still shows two points of information … that is
- * just confusing." A container's own stage is a roll-up OF its members, so
- * counting it beside them double-counts the same work and puts the bar's
- * denominator one above the number of things anyone can point at.
- *
- * Archived and deleted issues are not units either, at any level. Proposed
- * issues are not units either: they have not been accepted, the spine already
- * keeps them in their own section, and counting them as "to go" makes a
- * mission that is itself being worked read as nothing happening.
- *
- * NOR IS ANYTHING THE MISSION MERELY DISCOVERED. Membership of the DECK is
- * wider than membership of the METER — see {@link formalMemberIds} for why the
- * denominator is the formal parent-child subtree and nothing else.
- *
- * NOR IS ABANDONED WORK, at either end of the fraction (POD-1074). A cancelled
- * task is not a task the mission completed and not one it still owes; it is a
- * task the mission is no longer doing, so it leaves the count entirely rather
- * than filling the done band. That is Linear's rule and the reason its
- * Completed and Canceled categories are kept apart at all. The fallback below
- * then does the honest thing on its own: a root whose every member was
- * cancelled has nothing left to be the container OF, so it becomes the unit
- * again and the bar reports the root's own state instead of `100% done`.
- *
- * Six segments: done / run / stall / review / block / wait. The artifact's arithmetic
- * (`done` by stage, `run` by stage, `review` by stage, `block` by state, `wait` = the
- * remainder) lets one issue land in two buckets, which would push the bar past 100%.
- * Classification here is EXCLUSIVE in the order done → block → review → run/stall
- * → wait: blocked work is not running, and review work is an obligation rather
- * than execution.
- *
- * `wait` IS THE REMAINDER, AND IT USED TO SWALLOW STAGES (POD-1181). `run` matched
- * `in_progress` alone, so `planning` and `shipping` fell through to the remainder
- * and the gauge said `to go` — "nobody has picked this up" — about a task with an
- * agent designing in it, and about one already in Shipping's custody. See
- * {@link UNDERWAY}: the run bucket is every stage that says work has begun, which
- * is also what `deckIssueState` and `operationalState` already read `shipping` as,
- * so the meter and the strips can no longer disagree about the same task.
- *
- * `run` THEN SPLIT IN TWO (POD-1314). Reading the stage alone, the bar said
- * `1 UNDERWAY` about a task whose agent had exited hours before — beside a crew
- * chip correctly reading `0 agents`, a strip reading `Retired` and a `no agent`
- * seat, on the same header. The stage was not wrong; the WORD was, because
- * `underway` is a claim about execution and the only thing executing is a
- * session. So a started task with nobody on it leaves `run` for {@link
- * MissionProgress.stall}, which is the state {@link presenceNote} already names
- * (`Agent left · choose a handoff`) and the state the empty seat is drawn for.
- *
- *   NOBODY IS COUNTED PER SUBTREE, not per issue. A container in a started stage
- *   whose CHILD holds the working agent is not stalled — the work under it is
- *   moving — so the predicate is "no open session on this task or anything
- *   beneath it". The same {@link openSession} presence rule the roster, the
- *   strips and the crew chip use, so all four answer one question one way.
- *
- *   `shipping` IS NEVER STALLED. It is the one started stage whose work is not a
- *   session's: the shipping service has custody (`presenceNote`), and a
- *   sessionless shipping task is exactly what that stage looks like when it is
- *   working correctly.
- */
+/** Progress over accepted formal tasks, independent of filters and folds.
+ * The root is counted only when there are no accepted tasks below it. */
 export function missionProgress(
   issues: readonly IssueNavigationModel[],
   sessions: readonly SessionView[],
@@ -1430,81 +1397,19 @@ function computeMissionRollup(
       return !isVacatedOrigin(issue, own, byId)
     },
   )
-  const staffed = staffedSubtreeIds(issues, sessions)
-  let done = 0
-  let run = 0
-  let review = 0
-  let stall = 0
-  let block = 0
-  for (const issue of units) {
-    if (issueClosed(issue)) done += 1
-    else if (issue.blocked) block += 1
-    else if (issue.stage === 'review') review += 1
-    else if (UNDERWAY.has(issue.stage)) {
-      // Shipping's work is the service's, not a session's — see the note above.
-      if (issue.stage === 'shipping' || staffed.has(issue.id)) run += 1
-      else stall += 1
-    }
-  }
-  const total = units.length
-  return {
-    progress: Object.freeze({
-      total,
-      done,
-      run,
-      review,
-      stall,
-      block,
-      wait: Math.max(0, total - done - run - review - stall - block),
-    }),
-    fromChildren,
-  }
-}
-
-const staffedSubtrees = new WeakMap<
-  readonly IssueNavigationModel[],
-  WeakMap<readonly SessionView[], Map<string, Set<string>>>
->()
-let staffedSubtreeComputes = 0
-
-/**
- * Every issue that has an open session ON it or ANYWHERE BENEATH it.
- *
- * Built once per call rather than walked per unit: a mission's units are its
- * whole formal subtree, so the per-unit walk is quadratic on exactly the deep
- * missions this is asked about most. One pass over the SESSIONS walks each
- * staffed issue's ancestor chain, stopping at the first already-marked
- * ancestor, so the whole thing is linear in the crew — and the parent edges
- * come off the shared {@link missionIssueIndex}, which is memoised on the issue
- * slice's identity, so a sidebar asking for one mission per row does not
- * rebuild them per row.
- */
-function staffedSubtreeIds(
-  issues: readonly IssueNavigationModel[],
-  sessions: readonly SessionView[],
-): Set<string> {
-  // Root-independent: one set per pair of slices serves every mission asking.
-  return memoBySlices(staffedSubtrees, issues, sessions, '', () =>
-    computeStaffedSubtreeIds(issues, sessions),
-  )
-}
-
-function computeStaffedSubtreeIds(
-  issues: readonly IssueNavigationModel[],
-  sessions: readonly SessionView[],
-): Set<string> {
-  staffedSubtreeComputes += 1
-  const { parents } = missionIssueIndex(issues)
-  const staffed = new Set<string>()
-  for (const session of sessions) {
-    if (!session.issueId || !openSession(session)) continue
-    let id: string | undefined = session.issueId
-    while (id && !staffed.has(id)) {
-      staffed.add(id)
-      id = parents.get(id)
-    }
-  }
-  return staffed
+  const counts = tallyMissionBuckets(units, (issue) => {
+    const own = (sessionIndex ?? missionSessionIndex(sessions)).byIssue.get(issue.id) ?? NO_SESSIONS
+    const members = issue.memberSessionIds?.length
+      ? sessionsForIssueNav(issue, sessions, [], { includeShells: true })
+      : NO_SESSIONS
+    const works = (session: SessionView) => !session.archived && sessionWorkingFact(session)
+    return missionTaskBucket(
+      issue,
+      own.length > 0 || Boolean(issue.memberSessionIds?.length),
+      own.some(works) || members.some(works),
+    )
+  })
+  return { progress: Object.freeze(missionProgressFromBuckets(counts)), fromChildren }
 }
 
 /**

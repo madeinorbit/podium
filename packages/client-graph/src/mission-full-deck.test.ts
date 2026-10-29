@@ -9,6 +9,7 @@ import { MISSION_VIEW_SUMMARIES } from './mission-view-schema'
 import { MobxPool } from './pool'
 import { attachPreferenceSource } from './preference-source'
 import { LOADING } from './worklist/rollup'
+import { rollupInputsOf } from './worklist/visible'
 
 const stamp = '2026-10-15T12:00:00Z',
   later = '2026-10-15T12:05:00Z'
@@ -713,5 +714,61 @@ describe('legacy modes', () => {
     const gate = screen.rows.find((row) => row.id === 'gate')!
     expect(gate.folded(screen.folds)).toBe(true)
     expect(tracked(() => full.task('gate').open)).toBe(true)
+  })
+})
+
+describe('execution buckets', () => {
+  it('includes shell and headless sessions in the raw execution fact', async () => {
+    const { full } = await open({
+      issues: [issue('root', 1, null), issue('shell-task', 2, 'root', { stage: 'backlog' }),
+        issue('headless-task', 3, 'root', { stage: 'backlog' })],
+      sessions: [session('shell', 'shell-task', 'working', { agentKind: 'shell' }),
+        session('headless', 'headless-task', 'working', { headless: true })],
+    })
+    expect(tracked(() => full.buckets)).toEqual({ total: 2, done: 0, working: 2, waiting: 0, todo: 0 })
+  })
+
+  it('separates working facts from attention words and retains ended session history', async () => {
+    const fixture = {
+      issues: [
+        issue('root', 1, null),
+        issue('work', 2, 'root'),
+        issue('idle', 3, 'root'),
+        issue('history', 4, 'root', { stage: 'backlog' }),
+        issue('todo', 5, 'root', { stage: 'backlog', blocked: true }),
+        issue('ship', 6, 'root', { stage: 'shipping' }),
+        issue('done', 7, 'root', { stage: 'done' }),
+        issue('cancel', 8, 'root', { stage: 'done', closedReason: 'cancelled' }),
+        issue('proposal', 9, 'root', { stage: 'proposed' }),
+      ],
+      sessions: [
+        session('w', 'work', 'working', { offer: { message: 'Review', actions: [] } }),
+        session('i', 'idle', 'idle'),
+        session('h', 'history', 'ended', { status: 'exited', archived: true }),
+      ],
+    }
+    const { full, pool } = await open(fixture)
+    const rebuilt = rollupInputsOf({ ...pool.visibleInputs, missionBucket: undefined })
+    expect(rebuilt.missionBucket?.('work')).toBe('working')
+    expect(rebuilt.missionBucket?.('history')).toBe('waiting')
+    expect(tracked(() => full.buckets)).toEqual({
+      total: 6,
+      done: 1,
+      working: 2,
+      waiting: 2,
+      todo: 1,
+    })
+    expect(tracked(() => full.computing)).toBe(true)
+    pool.apply({
+      type: 'update',
+      rows: [{ kind: 'session', id: 'w', value: session('w', 'work', 'idle') as never }],
+    })
+    expect(tracked(() => full.buckets)).toEqual({
+      total: 6,
+      done: 1,
+      working: 1,
+      waiting: 3,
+      todo: 1,
+    })
   })
 })

@@ -1,3 +1,5 @@
+import { LOADING } from '../loading'
+import { missionTaskBucket, type MissionTaskBucket } from '@podium/client-core/values'
 import type { IssueSessionFactReader } from '../shared/issue-session-facts'
 import { isFinished, isExcluded } from '../shared/predicates'
 /**
@@ -87,7 +89,7 @@ import { isFinished, isExcluded } from '../shared/predicates'
  */
 
 import { compareStructural, createAtom, reaction, runInAction } from 'mobx'
-import { type SeatInteractions, type SeatSessionFacts, sessionErrorFact } from '@podium/model/browser'
+import { type SeatInteractions, type SeatSessionFacts, sessionErrorFact, sessionWorkingFact } from '@podium/model/browser'
 import { debugName } from '../debug-name'
 import { type RelationLinks, refs } from '../shared/links'
 import { compareRank, type RowRank } from '../shared/row-view'
@@ -127,6 +129,7 @@ export const FINISHED_UNREAD_WINDOW_MS = 7 * 24 * 60 * 60 * 1000
 
 /** Everything the visibility parts read. Tracked in the live pool; plain in the rebuild. */
 export interface VisibleInputs {
+  readonly missionBucket?: (id: string) => MissionTaskBucket | null
   readonly issueSessionFact?: IssueSessionFactReader
   /** Every relation, by typed name (POD-4758, `shared/src/links.ts`). */
   readonly links: RelationLinks
@@ -527,6 +530,19 @@ export interface IssueVisibility extends RollupParts, Members {
 /** The roll-up parts' inputs over the visibility inputs: held issues for rows, sessions for seats. */
 export function rollupInputsOf(input: VisibleInputs): RollupInputs {
   return {
+    missionBucket: input.missionBucket ?? ((id) => {
+      const issue = input.loadedIssue(id)
+      if (issue === LOADING) throw LOADING
+      if (!issue) return null
+      const ids = [...input.links.issue.missionSessions.ids(id)]
+      let working = false
+      for (const sessionId of ids) {
+        const session = input.loadedSession(sessionId)
+        if (session === LOADING) throw LOADING
+        working ||= Boolean(session && !session.archived && sessionWorkingFact(session as SeatSessionFacts))
+      }
+      return missionTaskBucket(issue, ids.length > 0, working)
+    }),
     reached: input.reached,
     loadedIssue: (id) => input.loadedIssue(id),
     tipActivityAt: input.issueSessionFact ? (id) => input.issueSessionFact!(id, 'tipActivityAt') : undefined,

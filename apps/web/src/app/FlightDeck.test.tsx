@@ -713,13 +713,13 @@ describe('Full mission header', () => {
     ]
     harness.sessions = []
     await deck()
-    await waitFor(() => expect(screen.getByTestId('mission-gauge').getAttribute('aria-label')).toBe(
-      '2 of 3 tasks done, 1 to go · 0 agents',
+    await waitFor(() => expect(screen.getByTestId('mission-gauge-track').parentElement?.getAttribute('aria-label')).toBe(
+      '1 of 2 tasks done, 0 working, 0 waiting, 1 to do',
     ))
     expect(screen.getByRole('button', { name: /2 tasks done Show/ })).toBeTruthy()
-    const before = screen.getByTestId('mission-gauge').getAttribute('aria-label')
+    const before = screen.getByTestId('mission-gauge-track').parentElement?.getAttribute('aria-label')
     fireEvent.click(screen.getByRole('button', { name: /2 tasks done Show/ }))
-    expect(screen.getByTestId('mission-gauge').getAttribute('aria-label')).toBe(before)
+    expect(screen.getByTestId('mission-gauge-track').parentElement?.getAttribute('aria-label')).toBe(before)
     captureHeader('Leaf totals · parents and phases excluded')
   })
 
@@ -733,8 +733,8 @@ describe('Full mission header', () => {
     ]
     harness.sessions = [session('worker', { issueId: 'working', agentState: WORKING })]
     await deck()
-    expect(screen.getByTestId('mission-gauge').getAttribute('aria-label')).toBe(
-      '1 of 4 tasks done, 1 underway, 1 blocked, 1 to go · 1 working',
+    expect(screen.getByTestId('mission-gauge-track').parentElement?.getAttribute('aria-label')).toBe(
+      '1 of 4 tasks done, 1 working, 0 waiting, 2 to do',
     )
     captureHeader('Four bands · shared live leaf totals')
   })
@@ -743,12 +743,12 @@ describe('Full mission header', () => {
     harness.issues = [issue('root', { stage: 'backlog' })]
     harness.sessions = []
     await deck()
-    expect(screen.getByTestId('mission-gauge').getAttribute('aria-label')).toBe(
-      '0 of 1 task done, 1 to go · 0 agents',
+    expect(screen.getByTestId('mission-gauge-track').parentElement?.getAttribute('aria-label')).toBe(
+      '0 of 1 tasks done, 0 working, 0 waiting, 1 to do',
     )
   })
 
-  it('keeps the cost floor and live crew while Add agent uses the existing default action', async () => {
+  it('keeps the cost floor and existing Add agent action without the crew chip', async () => {
     harness.issues = [issue('root', { description: 'Human summary.', defaultAgent: 'codex', agentProfileId: 'profile' })]
     harness.sessions = [session('present', { issueId: 'root', agentState: WORKING })]
     const usage = { model: 'claude-opus-5', inputTokens: 1_000_000, outputTokens: 0,
@@ -760,7 +760,7 @@ describe('Full mission header', () => {
     } satisfies TaskCostWire
     await deck()
     await waitFor(() => expect(screen.getByTestId('mission-cost-chip').textContent).toContain('≥$'))
-    expect(screen.getByTestId('mission-live-chip').textContent).toBe('1 working')
+    expect(screen.queryByTestId('mission-live-chip')).toBeNull()
     expect(screen.getByRole('button', { name: 'Collapse Flight Deck' })).toBeTruthy()
     captureHeader('Live crew · partial cost · Add agent')
     fireEvent.click(screen.getByRole('button', { name: 'Add agent to mission' }))

@@ -102,8 +102,10 @@ describe('folded Flight Deck', () => {
     const count = screen.getByTestId('flight-deck-gauge')
     expect(count.textContent).toBe('1/5')
     // The gauge's full sentence survives on the count's label and tooltip.
-    expect(count.getAttribute('aria-label')).toContain('1 of 5 tasks done, 2 underway, 2 to go')
-    expect(count.getAttribute('title')).toBe('1 of 5 tasks done, 2 underway, 2 to go')
+    expect(count.getAttribute('aria-label')).toContain(
+      '1 of 5 tasks done, 2 working, 0 waiting, 2 to do',
+    )
+    expect(count.getAttribute('title')).toBe('1 of 5 tasks done, 2 working, 0 waiting, 2 to do')
 
     // No identity chip, tick gauge or foot stacks on the closed rail.
     expect(screen.queryByTestId('issue-id-square')).toBeNull()
@@ -116,11 +118,11 @@ describe('folded Flight Deck', () => {
     expect(onExpand).toHaveBeenCalledTimes(2)
   })
 
-  it('reports a zero-agent review root as review, not underway', async () => {
+  it('reports a zero-agent review root as waiting', async () => {
     await mount(vi.fn(), { stages: [], stage: 'review', crew: [] })
 
     const count = screen.getByTestId('flight-deck-gauge')
-    expect(count.getAttribute('aria-label')).toContain('1 in review')
+    expect(count.getAttribute('aria-label')).toContain('1 waiting')
     expect(count.getAttribute('aria-label')).not.toContain('underway')
   })
 

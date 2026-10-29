@@ -51,7 +51,41 @@ declare global {
 const ago = (minutes: number): string =>
   new Date(Date.parse('2026-01-01T00:30:00.000Z') - minutes * 60_000).toISOString()
 
+function statusCountsFixture(counts: readonly number[]) {
+  state.issues = [
+    issue('root', {
+      title: 'Flight deck status counts',
+      description:
+        'Task counts separate completed work, computation, waiting tasks and work yet to start.',
+      stage: 'in_progress',
+    }),
+  ]
+  state.sessions = []
+  for (const [bucket, count] of counts.entries()) {
+    for (let n = 0; n < count; n++) {
+      const id = `status-${bucket}-${n}`
+      state.issues.push(
+        issue(id, {
+          parentId: 'root',
+          title: ['Completed task', 'Working task', 'Waiting task', 'Unstarted task'][bucket],
+          stage: bucket === 0 ? 'done' : bucket === 3 ? 'backlog' : 'in_progress',
+        }),
+      )
+      if (bucket === 1 || bucket === 2)
+        state.sessions.push(
+          session(`s-${id}`, {
+            issueId: id,
+            agentState: { phase: bucket === 1 ? 'working' : 'idle', since: ago(5) },
+          }),
+        )
+    }
+  }
+}
+
 const MISSIONS = {
+  statusCounts: () => statusCountsFixture([4, 3, 2, 3]),
+  statusCountsWide: () => statusCountsFixture([12, 13, 14, 15]),
+  statusCountsWaiting: () => statusCountsFixture([0, 0, 7, 0]),
   /**
    * THE COMPLEX TICKET THE WATERFALL IS FOR (POD-1854): an epic with staggered
    * real times, a reviewer that looped three times (on/off/on — the segmented
@@ -320,7 +354,10 @@ const MISSIONS = {
           workingMsTotal: 900_000,
           // The coordinator's own fan-out, listed inside its card (POD-2027).
           nativeSubagentCount: 2,
-          nativeSubagents: [{ id: 'a1f3', type: 'Explore' }, { id: 'b7c2', type: 'Plan' }],
+          nativeSubagents: [
+            { id: 'a1f3', type: 'Explore' },
+            { id: 'b7c2', type: 'Plan' },
+          ],
         },
       }),
       session('s2', {
@@ -1002,9 +1039,7 @@ function Harness(): JSX.Element {
   }, [changeDisplay])
 
   return (
-    <div
-      className="desktop-shell"
-    >
+    <div className="desktop-shell">
       {/* The shell spends its top bar and status strip before the row gets any
           height; a harness without them hands the deck a taller pane than
           production and every vertical number comes out optimistic. */}

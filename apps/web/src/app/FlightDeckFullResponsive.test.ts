@@ -23,7 +23,7 @@ function declaration(width: number, selector: string, property: string): string 
     if (
       !rule[1]!
         .split(',')
-        .map((s) => s.trim())
+        .map((s) => s.trim().replace(/"/g, "'"))
         .includes(selector)
     )
       continue
@@ -85,13 +85,13 @@ it('keeps intrinsic identity/state, title minima and the edge gutter through wra
   expect(declaration(300, '.flight-v6-state', 'min-width')).toBe('max-content')
   expect(declaration(300, '.flight-v6-title', 'min-width')).toBe('var(--v6-title-min, 60px)')
   expect(full).toContain('--v6-indent-limit: clamp(0px, calc(100cqi - 440px), 66px)')
-  expect(full).toContain(
+  expect(full.replace(/\s+/g, ' ')).toContain(
     '.flight-full-phase-content { position: relative; margin-left: 0; padding-left: 0; border-left: 0; }',
   )
   expect(declaration(300, '.flight-full-phase-hairline', 'min-width')).toBe('0')
   expect(declaration(300, '.flight-full-phase-toggle', 'flex-wrap')).toBe('wrap')
   expect(declaration(300, '.flight-proposal-actions button', 'flex')).toBe('none')
   expect(full).not.toContain('@media')
-  expect(css).toContain('container: gauge-band / inline-size')
+  expect(css).toContain('.mission-gauge-counts')
   expect(css).toContain('.flight-full-gauge-row > :is(button, [data-testid="mission-cost-chip"])')
 })

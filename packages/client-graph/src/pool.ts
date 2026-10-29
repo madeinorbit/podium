@@ -542,6 +542,7 @@ export class MobxPool {
       passed: (t) => this.clock.passed(t),
     }
     this.visibleInputs = {
+      missionBucket: (id) => this.issueObject(id).missionBucket,
       links,
       issueSessionFact: (id, field) => {
         const issue = this.issueObject(id)

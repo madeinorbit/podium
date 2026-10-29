@@ -18,6 +18,8 @@ import {
   issueOwnContentUnread,
   type MissionDeparture,
   type MissionProgress,
+  tallyMissionBuckets,
+  missionProgressFromBuckets,
   type PresenceNote,
   panelLabel,
   subtreeUnread,
@@ -534,22 +536,7 @@ const progress = ((deck: MissionDeckModel): MissionProgress | typeof LOADING => 
     else if (eligible) units.push(id)
   }
   if (pending) return LOADING
-  const staffed = new Set<string>()
-  for (const issueId of scope) {
-    if (!view.facts(issueId).live) continue
-    let id: string | null = issueId
-    while (id && !staffed.has(id)) { staffed.add(id); id = view.pool.graph.one('issue', id, 'parent') }
-  }
-  const result: MissionProgress = { total: units.length, done: 0, run: 0, review: 0, stall: 0, block: 0, wait: 0 }
-  for (const id of units) {
-    const facts = view.facts(id)
-    if (facts.finished) result.done++
-    else if (facts.blocked) result.block++
-    else if (facts.stage === 'review') result.review++
-    else if (underway(facts.stage)) { if (facts.stage === 'shipping' || staffed.has(id)) result.run++; else result.stall++ }
-  }
-  result.wait = Math.max(0, result.total - result.done - result.block - result.review - result.run - result.stall)
-  return result
+  return missionProgressFromBuckets(tallyMissionBuckets(units, (id) => view.facts(id).missionBucket))
 }))
 
 // The header is mounted only after its own references and scalar rollups have

@@ -1,3 +1,4 @@
+import { missionTaskBucket, type MissionTaskBucket } from '@podium/client-core/values'
 import { type CoordinatedSeat, coordinatedSeat, coordinatorLive, NO_INTERACTIONS, type SeatInteractions, type SeatRole, type SeatSessionFacts, taskOwnAsks } from '@podium/model/browser'
 import { isFinished } from '../shared/predicates'
 /**
@@ -63,8 +64,8 @@ import { isFinished } from '../shared/predicates'
  *   seats are hot, so markers arise only from cold spin-offs (the review
  *   withdrawal's continuation) and transient cold rows.
  *
- * NO LEGACY IMPORT. The per-session rules are re-expressed from the spec with
- * the legacy line each follows cited, as `views.ts` does.
+ * Attention remains independent for parity checks. Execution buckets use the
+ * shared pure task rule and the live pool's shared issue fact.
  */
 
 import { LOADING, type Loaded } from '../loading'
@@ -778,6 +779,7 @@ export { LOADING, type Loaded } from '../loading'
 
 /** What the roll-up parts read. Tracked in the live pool; plain in the rebuild. */
 export interface RollupInputs {
+  readonly missionBucket?: (id: string) => MissionTaskBucket | null
   readonly tipActivityAt?: (id: string) => string | undefined
   reached?(at: number): boolean
   /** The row when resident; `LOADING` when cold (the read queues its load); undefined when unknown. */
@@ -1086,6 +1088,11 @@ export function aggregatePartOf(
  * session on the task, and a spin-off), asked in that order so a row with
  * no spin-off never reads its sessions.
  */
+function missionUnitState(input: RollupInputs, id: string, issue: ProgressFacts, hasSessions: boolean): UnitState | undefined {
+  const bucket = input.missionBucket ? input.missionBucket(id) : missionTaskBucket(issue, hasSessions, false)
+  return bucket === 'working' ? 'run' : bucket === 'waiting' ? 'stall' : bucket === 'todo' ? 'wait' : bucket ?? undefined
+}
+
 export function unitOwnPartOf(
   input: RollupInputs,
   id: string,
@@ -1097,17 +1104,7 @@ export function unitOwnPartOf(
   const vacated = input.spinOffCount(id) > 0 && !self.openOwn
   const staffed = self.openOwn || self.unitsBelow.staffed === true
   const unit = unitOwnOf(issue, vacated)
-  const state: UnitState = unit.done
-    ? 'done'
-    : issue.blocked
-      ? 'block'
-      : issue.stage === 'review'
-        ? 'review'
-        : ['planning', 'in_progress', 'shipping'].includes(issue.stage)
-          ? issue.stage === 'shipping' || staffed
-            ? 'run'
-            : 'stall'
-          : 'wait'
+  const state = missionUnitState(input, id, issue, self.openOwn)
   return { ...unit, staffed, state }
 }
 
@@ -1564,10 +1561,7 @@ export function unitOwnFields(
     get solo() { return !issueAbandoned(issue) && !vacated() },
     get staffed() { return staffed() },
     get state() {
-      return unit() && finished() ? 'done' : issue.blocked ? 'block' :
-        issue.stage === 'review' ? 'review' :
-          ['planning', 'in_progress', 'shipping'].includes(issue.stage)
-            ? issue.stage === 'shipping' || staffed() ? 'run' : 'stall' : 'wait'
+      return missionUnitState(input, id, issue, self.openOwn)
     },
   }
 }

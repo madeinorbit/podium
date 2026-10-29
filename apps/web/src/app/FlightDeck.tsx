@@ -918,10 +918,9 @@ const DeckGaugeRow = observer(function DeckGaugeRow({
   const target = screen.rootAgentTarget
   return (
     <div className="flight-full-gauge-row mt-3 flex flex-wrap items-center gap-2">
-      {/* A MOVED CONVERSATION HAS NOTHING TO COUNT (POD-2043). The gauge would
-          count this task itself, in review with nobody on it, as "1 underway". */}
+      {/* A moved conversation has no task progress to display. */}
       {screen.conversationMoved ? null : settled(() => screen.full.ready) === true ? (
-        <MissionGauge full={screen.full} live={screen.liveCount} working={screen.workingCount} />
+        <MissionGauge full={screen.full} />
       ) : (
         <span className="flex-1" role="status" aria-label="Loading mission progress">
           <GhostBar />

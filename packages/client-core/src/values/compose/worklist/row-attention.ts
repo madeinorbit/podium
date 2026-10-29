@@ -221,23 +221,12 @@ export function rowErrorLine(row: UnifiedWorkRow): string | null {
 function childTaskStatusLine(row: UnifiedIssueRow): string | null {
   const rollup = row.missionRollup
   if (!rollup?.fromChildren) return null
-  const { total, done, run, review, stall, block, wait } = rollup.progress
+  const { total, done, run, stall, wait } = rollup.progress
   if (total === 0) return 'no active subtasks'
   const noun = total === 1 ? 'subtask' : 'subtasks'
   const progress = `${done}/${total} ${noun} done`
   if (done === total) return progress
-  const next =
-    block > 0
-      ? `${block} blocked`
-      : review > 0
-        ? `${review} in review`
-        : run > 0
-          ? `${run} underway`
-          : stall > 0
-            ? `${stall} stalled`
-            : wait > 0
-              ? `${wait} to go`
-              : null
+  const next = run > 0 ? `${run} working` : stall > 0 ? `${stall} waiting` : wait > 0 ? `${wait} to do` : null
   return next ? `${progress} · ${next}` : progress
 }
 

@@ -1,4 +1,4 @@
-import { type IssueNavigationModel, issuePendingDecision } from '@podium/client-core/values'
+import { type IssueNavigationModel, issuePendingDecision, missionTaskBucket, type MissionTaskBucket } from '@podium/client-core/values'
 import type { IssueGitState, IssuePanel, IssuePanelArtifact, IssueProjection } from '@podium/model'
 import { isGone, type Lookup, omitGone } from './lookup'
 import type { MessageModel, PendingInteractionModel } from './message-models'
@@ -10,7 +10,7 @@ export type { AutomationModel, AutomationRunModel, MachineModel } from './synced
 import { attentionGroup, effectiveRecency } from '@podium/client-core/focus'
 import type { SessionView } from '@podium/client-core/session-values'
 import { groupRelations, type IssueCloseMemberCounts, type IssueCloseScalarSubject, type ReferentExit, motionPhase as sessionMotion, type TaskProgress } from '@podium/client-core/values'
-import { asSessionId, type CoordinatedSeat, coordinatedSeat, isExcluded, isFinished, NO_INTERACTIONS, type SeatInteractions, type SeatRole, type SeatSessionFacts, type SessionWord, type SessionWordFacts, sessionWord, wordWantsAttention } from '@podium/model/browser'
+import { asSessionId, type CoordinatedSeat, coordinatedSeat, sessionWorkingFact, isExcluded, isFinished, NO_INTERACTIONS, type SeatInteractions, type SeatRole, type SeatSessionFacts, type SessionWord, type SessionWordFacts, sessionWord, wordWantsAttention } from '@podium/model/browser'
 import type { ReaderQueries } from './reader-queries'
 import type { IssueSessionFactReader } from './shared/issue-session-facts'
 
@@ -673,6 +673,21 @@ export class IssueModel extends EntityModel {
     return pending ? LOADING : latest
   }
 
+  /** The raw execution fact does not let an offer hide ongoing computation. */
+  @lazy get missionWorking(): boolean {
+    for (const id of this.host.relations.many('issue', this.id, 'missionSessions')) {
+      if (this.host.sessionObject(id).workingFact) return true
+    }
+    return false
+  }
+
+  /** History includes archived and ended sessions, so backlog cannot become unstarted again. */
+  @lazy get missionBucket(): MissionTaskBucket | null {
+    const bucket = missionTaskBucket(this, false, false)
+    if (bucket === null || bucket === 'done' || bucket === 'working') return bucket
+    return missionTaskBucket(this, this.host.relations.size('issue', this.id, 'missionSessions') > 0, this.missionWorking)
+  }
+
   // Task progress: formal descendants, independent of sidebar/mission placement.
   get childCount(): number { return this.host.relations.size('issue', this.id, 'treeChildren') }
 
@@ -890,6 +905,10 @@ export class SessionModel extends EntityModel {
 
   @lazy
   get rosterEligible(): boolean { return this.exists && !this.headless && this.agentKind !== 'shell' }
+
+  @lazy get workingFact(): boolean {
+    return this.exists && !this.archived && sessionWorkingFact(this)
+  }
 
   // Unlike verdict.working, atWork includes starting/reconnecting before motion.
   @lazy
