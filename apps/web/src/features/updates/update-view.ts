@@ -36,10 +36,20 @@ import {
  */
 export type PlaceKind = 'this-app' | 'phone' | 'server' | 'machines'
 
+/**
+ * How much the operator will notice at a place: `interrupts` briefly takes it
+ * away (a reload, a restart), `needs-you` asks them to do something there, and
+ * `background` changes nothing they can see.
+ */
+export type PlaceImpact = 'interrupts' | 'needs-you' | 'background'
+
 export interface Place {
   kind: PlaceKind
   label: string
+  /** A secondary identifier shown beside the label, such as the server's host name. */
+  detail?: string
   effect: string
+  impact?: PlaceImpact
 }
 
 /**
@@ -133,10 +143,12 @@ function legacyTrustBlockedNote(input: UpdateInput): string | undefined {
     subject +
     ' ' +
     (count === 1 ? 'needs' : 'need') +
-    ' host-local repair before ' +
-    (count === 1 ? 'it' : 'they') +
-    ' can verify instance-signed development updates. The older updater uses the baked ' +
-    'release key for feed delivery instead of the pinned instance key.'
+    ' a manual fix: ' +
+    (count === 1 ? 'its' : 'their') +
+    " updater is too old to check development updates from this server. Reconnecting won't " +
+    'fix it. Run scripts/repair-stranded-update.sh on ' +
+    (count === 1 ? 'that machine' : 'each one') +
+    ', as described in docs/updating-a-dev-instance.md.'
   )
 }
 
@@ -205,9 +217,20 @@ function restartNote(input: UpdateInput): string {
 }
 
 function appPlace(input: UpdateInput): Place {
-  const effect =
-    input.surface === 'desktop-all-in-one' ? 'will refresh, about 5 seconds' : 'will refresh'
-  return { kind: 'this-app', label: 'This app', effect }
+  if (input.surface === 'desktop-all-in-one') {
+    return {
+      kind: 'this-app',
+      label: 'Podium',
+      effect: 'Restarts, about 5 seconds',
+      impact: 'interrupts',
+    }
+  }
+  return {
+    kind: 'this-app',
+    label: input.surface === 'desktop-remote' ? 'This app' : 'This tab',
+    effect: 'Reloads when the update is done',
+    impact: 'interrupts',
+  }
 }
 
 function placesFor(input: UpdateInput): Place[] {
@@ -222,14 +245,15 @@ function placesFor(input: UpdateInput): Place[] {
     isDevChannelVersion(input.server.target?.version ?? '')
 
   if (sourceAppAndServer) {
-    const server = input.serverName ? `your server (${input.serverName})` : 'your server'
     places.push({
       kind: 'server',
-      label: `This app and ${server}`,
+      label: 'This tab and server',
+      ...(input.serverName ? { detail: input.serverName } : {}),
       effect:
         input.skew === 'schema-skew'
-          ? 'need matching builds and a restart'
-          : 'will rebuild; this page will need to reload',
+          ? 'Need matching builds and a restart'
+          : 'Server rebuilds and restarts. This tab reloads afterwards',
+      impact: 'interrupts',
     })
   }
 
@@ -239,14 +263,15 @@ function placesFor(input: UpdateInput): Place[] {
   if (appTouched && !sourceAppAndServer) places.push(appPlace(input))
 
   if (affected.server && input.surface !== 'desktop-all-in-one' && !sourceAppAndServer) {
-    const label = input.serverName ? `Your server (${input.serverName})` : 'Your server'
     places.push({
       kind: 'server',
-      label,
+      label: 'Server',
+      ...(input.serverName ? { detail: input.serverName } : {}),
       effect:
         input.skew === 'schema-skew'
-          ? 'needs a matching build and restart'
-          : 'will briefly reconnect',
+          ? 'Needs a matching build and a restart'
+          : `Restarts. ${input.surface === 'desktop-remote' ? 'This app' : 'This tab'} reconnects within a few seconds`,
+      impact: 'interrupts',
     })
   }
 
@@ -256,8 +281,9 @@ function placesFor(input: UpdateInput): Place[] {
   if (affected.phone) {
     places.push({
       kind: 'phone',
-      label: 'Podium on your phone',
-      effect: 'will rebuild; reload it there',
+      label: 'Phone',
+      effect: 'Reload Podium on your phone afterwards',
+      impact: 'needs-you',
     })
   }
 
@@ -268,7 +294,8 @@ function placesFor(input: UpdateInput): Place[] {
     places.push({
       kind: 'machines',
       label: affectedMachineLabel(input),
-      effect: 'will not be interrupted',
+      effect: 'Updates in the background',
+      impact: 'background',
     })
   }
 

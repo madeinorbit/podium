@@ -1038,7 +1038,7 @@ export function planUpdateOperation(input: UpdatePlanInput): OperationPlan {
   if (packable && behind.some((machine) => machineNeedsPack(machine, target))) {
     steps.push({
       id: UPDATE_STEP_PREPARE,
-      title: 'Preparing the update',
+      title: 'Prepare update',
       state: 'pending',
     })
   }
@@ -1073,7 +1073,7 @@ export function planUpdateOperation(input: UpdatePlanInput): OperationPlan {
   if (core.length > 0) {
     steps.push({
       id: UPDATE_STEP_MACHINES,
-      title: 'Updating your machines',
+      title: 'Update machines',
       state: 'pending',
       progress: { done: 0, total: core.length },
       places: core.map(placeOf),
@@ -1090,7 +1090,7 @@ export function planUpdateOperation(input: UpdatePlanInput): OperationPlan {
   ) {
     steps.push({
       id: UPDATE_STEP_SERVER,
-      title: 'Updating your server',
+      title: 'Update server',
       state: 'pending',
     })
   }
@@ -1107,7 +1107,7 @@ export function planUpdateOperation(input: UpdatePlanInput): OperationPlan {
   ) {
     steps.push({
       id: UPDATE_STEP_WEB,
-      title: 'Serving the new app',
+      title: 'Update the interface',
       state: 'pending',
     })
     // VOLUNTARY, and that is the whole point of the flag: a tab that has not
@@ -1118,7 +1118,7 @@ export function planUpdateOperation(input: UpdatePlanInput): OperationPlan {
       id: RELOAD_SURFACES_ASK,
       surface: 'web',
       title: 'Reload open Podium tabs',
-      detail: 'Reloads this page in about two seconds; your sessions keep running.',
+      detail: 'Takes about 2 seconds. Your sessions keep running.',
       required: false,
     })
   }

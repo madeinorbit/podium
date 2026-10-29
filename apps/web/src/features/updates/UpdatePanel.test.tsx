@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { UpdatePanelView } from './operation-view'
-import { UpdatePanel } from './UpdatePanel'
+import { UpdatePanel, versionLine } from './UpdatePanel'
 
 afterEach(cleanup)
 
@@ -39,21 +39,71 @@ describe('UpdatePanel', () => {
     expect(screen.getByTestId('update-liveness').textContent).toBe('Step 2 of 3 · Running for 30 s')
   })
 
-  /** One dismiss verb, in every state (§6.1) — the old dialog had four labels. */
-  it('says Hide and only Hide, whatever the state', () => {
+  /** One dismiss button in every state (§6.1): Later while there is more to come, Close once it is over. */
+  it('says Later, or Close once the update is over, and nothing else', () => {
     for (const state of ['offer', 'running', 'waiting-you', 'done', 'failed'] as const) {
       cleanup()
+      const onHide = vi.fn()
       render(
         <UpdatePanel
           view={{ ...RUNNING, state, title: state }}
           pending={null}
           onAction={vi.fn()}
-          onHide={vi.fn()}
+          onHide={onHide}
         />,
       )
-      expect(screen.getByRole('button', { name: 'Hide' })).toBeTruthy()
-      expect(screen.queryByRole('button', { name: /later|dismiss|^ok$/i })).toBeNull()
+      const label = state === 'done' || state === 'failed' ? 'Close' : 'Later'
+      fireEvent.click(screen.getByRole('button', { name: label }))
+      expect(onHide).toHaveBeenCalledTimes(1)
+      expect(screen.queryByRole('button', { name: /^hide$|dismiss|^ok$/i })).toBeNull()
     }
+  })
+
+  it('shows a dev build version as version and commit on its own line', () => {
+    render(
+      <UpdatePanel
+        view={{ ...RUNNING, version: '0.2.1-dev.76+bcca0ff' }}
+        pending={null}
+        onAction={vi.fn()}
+        onHide={vi.fn()}
+      />,
+    )
+    expect(screen.getByTestId('update-version').textContent).toBe('0.2.1-dev.76 · bcca0ff')
+    expect(versionLine('0.4.3')).toBe('0.4.3')
+  })
+
+  it('lists places with their host and an impact a screen reader can hear', () => {
+    render(
+      <UpdatePanel
+        view={{
+          ...RUNNING,
+          state: 'offer',
+          steps: [],
+          places: [
+            { kind: 'this-app', label: 'This tab', effect: 'Reloads', impact: 'interrupts' },
+            {
+              kind: 'server',
+              label: 'Server',
+              detail: 'ludovico',
+              effect: 'Restarts',
+              impact: 'interrupts',
+            },
+            { kind: 'machines', label: 'vmi3431366', effect: 'Updates in the background' },
+          ],
+        }}
+        pending={null}
+        onAction={vi.fn()}
+        onHide={vi.fn()}
+      />,
+    )
+    const rows = screen.getAllByRole('listitem')
+    expect(rows.map((row) => row.getAttribute('data-impact'))).toEqual([
+      'interrupts',
+      'interrupts',
+      'background',
+    ])
+    expect(rows[1]?.textContent).toBe('ServerludovicoInterrupts briefly: Restarts')
+    expect(rows[2]?.textContent).toBe('vmi3431366Background only: Updates in the background')
   })
 
   it('renders exactly one primary action', () => {
