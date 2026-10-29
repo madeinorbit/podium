@@ -132,21 +132,18 @@ export function useChatUploadSrc(
   )
   return useWorklistPoolProjection(read, null)
 }
-const NO_ATTACHMENTS: readonly { id?: string; filename: string; kind: 'image' | 'file' }[] = []
-/** The attachments of the chat message matched to this history entry
- * (POD-2148), for an entry that names none of its own. */
-export function useChatItemAttachments(sessionId: SessionId, itemId: string) {
+/** Read the shared message model by its server-confirmed transcript identity.
+ * Non-user rows do not need a message lookup. */
+export function useChatItemMessage(sessionId: SessionId, itemId: string | undefined) {
   const read = useCallback(
     (pool: MobxPool) => {
+      if (!itemId) return undefined
       const reader = omitGone(pool.row('chatContextReader', 'reader'))
-      return (
-        (reader && !pending(reader) ? reader.itemAttachments(sessionId, itemId) : undefined) ??
-        NO_ATTACHMENTS
-      )
+      return reader && !pending(reader) ? reader.itemMessage(sessionId, itemId) : undefined
     },
     [sessionId, itemId],
   )
-  return useWorklistPoolProjection(read, NO_ATTACHMENTS)
+  return useWorklistPoolProjection(read, undefined)
 }
 export function useChatIssueSeq() {
   const pool = useWorklistPool()

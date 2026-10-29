@@ -115,7 +115,7 @@ vi.mock('@/lib/ModelEffortPicker', () => ({
 
 import { observer } from 'mobx-react-lite'
 import { ChatComposer } from './ChatComposer'
-import { ItemAttachmentTags } from './ChatUploadThumb'
+import { ItemAttachments } from './ChatUploadThumb'
 import { OfferArtifactStrip } from './OfferArtifactStrip'
 import {
   useChatArtifactIssue,
@@ -132,9 +132,15 @@ import {
   useChatThreads,
   useChatThread,
   useChatUploadSrc,
+  useChatItemMessage,
 } from './use-chat-context'
 import { useChatConversationPorts } from './test-support/conversation-ports'
 import { useModelSend } from './test-support/model-send'
+
+const ItemAttachmentTags = observer(({ itemId, ...props }: Omit<Parameters<typeof ItemAttachments>[0], 'attachments'> & { itemId: string }) => {
+  const message = useChatItemMessage(props.sessionId, itemId)
+  return <ItemAttachments {...props} attachments={message?.attachments ?? []} />
+})
 
 beforeEach(async () => {
   f.guard = true
@@ -382,6 +388,7 @@ it('shows a path-less image turn from its matched message record’s stored copy
   )
   expect(view.container.textContent).toBe('')
 })
+
 
 it('updates addressed records, question membership and outbox without re-reading collections', async () => {
   const corpus = f.fixture!

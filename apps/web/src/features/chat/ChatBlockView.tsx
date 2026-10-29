@@ -4,6 +4,7 @@ import {
   isInteractiveTool,
   isInterviewQuestion,
   MACHINE_CONTEXT_RE,
+  messageAttachmentText,
   mcpLabel,
   parseEnvelopeBatch,
   type TranscriptAttribution,
@@ -11,6 +12,7 @@ import {
 import { codexQuestionReplyText } from '@podium/harness/browser'
 import { machinePathBasename, resolveMachinePath } from '@podium/model'
 import type { SessionId, TranscriptItem } from '@podium/model/browser'
+import { observer } from 'mobx-react-lite'
 import {
   ChevronRight,
   Clock,
@@ -28,7 +30,7 @@ import { useKnownRefPrefixesVersion } from '@/lib/use-known-ref-prefixes'
 import { cn } from '@/lib/utils'
 import { AskUserQuestionCard } from './AskUserQuestionCard'
 import { AttributionMark } from './AttributionMark'
-import { ChatUploadThumb, ItemAttachmentTags, stagedAttachmentId } from './ChatUploadThumb'
+import { ChatUploadThumb, ItemAttachments, stagedAttachmentId } from './ChatUploadThumb'
 import type { ChatBlock } from './chat'
 import { handleChatMdClick } from './chat-md-click'
 import { MachineContextRow } from './MachineContextRow'
@@ -38,6 +40,7 @@ import { MetaGlyph } from './MetaGlyph'
 import { SendUserFileBlock } from './SendUserFileBlock'
 import { ToolBlock } from './ToolBlock'
 import { clockLabel, fullTimeLabel, parseTs } from './transcript-time'
+import { useChatItemMessage } from './use-chat-context'
 
 /** A row's place in its exchange (POD-376). `open` puts the air of a turn
  *  boundary in front of the row; `bind` pulls machine activity up under the
@@ -334,7 +337,7 @@ function CompactionNote({
 // is stable across renders that don't change `items` (the compute client reuses
 // its indexed graph), so memo skips the expensive markdown re-render for
 // unaffected rows.
-export const ChatBlockView = memo(function ChatBlockView({
+export const ChatBlockView = observer(function ChatBlockView({
   block,
   index,
   highlighted,
@@ -402,6 +405,9 @@ export const ChatBlockView = memo(function ChatBlockView({
   markdownHtml?: ReadonlyMap<string, string>
 }): JSX.Element | null {
   const { item } = block
+  const message = useChatItemMessage(sessionId, item.role === 'user' ? item.id : undefined)
+  const attachmentText = messageAttachmentText(item, message)
+  const attachments = message?.attachments ?? []
   // Delivered-message envelope (#237) [spec:SP-34d7 web]: an inter-agent /
   // superagent / system message reaches the harness as a server-rendered frame
   // in a "user" turn — render it as a distinct framed block, never a "You"
@@ -429,7 +435,7 @@ export const ChatBlockView = memo(function ChatBlockView({
     envelopeBatch?.operatorText ||
     nextSplit?.body ||
     (item.role === 'user' ? codexQuestionReplyText(item.text) : undefined) ||
-    item.text
+    attachmentText
   const refPrefixesVersion = useKnownRefPrefixesVersion()
   // biome-ignore lint/correctness/useExhaustiveDependencies: refPrefixesVersion is a deliberate recompute trigger — linkifyRefs reads the prefix registry.
   const html = useMemo(() => {
@@ -723,7 +729,9 @@ export const ChatBlockView = memo(function ChatBlockView({
         files (artifacts, docs) as openable chips — instead of anonymous
         "image"/"file" tag chips. Tags without a resolvable path (older
         transcripts) keep the labelled chip. */}
-      {((item.toolPaths?.length ?? 0) > 0 || (item.tags?.length ?? 0) > 0) && (
+      {((item.toolPaths?.length ?? 0) > 0 ||
+        (item.tags?.length ?? 0) > 0 ||
+        attachments.length > 0) && (
         <div className="mt-1.5 flex flex-wrap items-start gap-2">
           {(item.toolPaths ?? []).map((p) => {
             const abs = resolveMachinePath(cwd, p)
@@ -759,15 +767,17 @@ export const ChatBlockView = memo(function ChatBlockView({
               )
             return chip
           })}
-          {(item.toolPaths?.length ?? 0) === 0 && item.tags && (
-            <ItemAttachmentTags
-              sessionId={sessionId}
-              itemId={item.id}
-              tags={item.tags}
-              httpOrigin={httpOrigin}
-              onOpenImage={onOpenImage}
-            />
-          )}
+          <ItemAttachments
+            sessionId={sessionId}
+            attachments={attachments.filter(
+              (attachment) =>
+                !attachment.id ||
+                !item.toolPaths?.some((path) => stagedAttachmentId(path) === attachment.id),
+            )}
+            tags={(item.toolPaths?.length ?? 0) === 0 ? (item.tags ?? []) : []}
+            httpOrigin={httpOrigin}
+            onOpenImage={onOpenImage}
+          />
         </div>
       )}
     </>

@@ -3692,9 +3692,10 @@
       "origin": [
         "130cdf8f9d4ed8f09fb3c14cb532c8aea0c8413756acd071787bec2d945f1ce2",
         "8bd1f9bfc0645ceea6f133dacd0f9c5342ced07a34d42d1cf4eb61dc7bdf239d",
+        "a1fc014805eff8197c2cfbf8c3943a8a0ad26cebbcae96266980f0cef377b090",
         "eb3e9643a20228ecf463b20b4386f5c5fa7a0b783e7c6bd55a3f05c08d7d363f"
       ],
-      "fingerprint": "5992fc27e05b9a4373aff80f879df23234165e092a95b8944f034552947c43f6",
+      "fingerprint": "091512487a789ec6fee45a500c4ac9f39195912fcc78144ba7acc6bdbc5b177d",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -3932,14 +3933,14 @@
       "gate": [
         "exit:then:eb95bf59088a0aacae48b47f694da8acc66addfb6b485c18369f3695b5bbc40b",
         "exit:then:2a9160b19112a59c7b44e568540986db57a63545f1718707ed26b3ea3dbe9c22",
-        "exit:then:7136ea1142cb7d82eb65b9b95bdb9ea722d2a2f156a797e77cdfc9fdf397d2c9",
-        "exit:then:e7faca80913fcec9acba0724fbf6fa5f9a649a71055137d715dde8fc1f5fb0ae",
+        "exit:then:997cc1c443014ddbfa946aa1133a9985b45e8a127652136b1ddfbb651b489fe7",
+        "exit:then:5799af1627b016837931d2861081342e87f6732a59e9d8262d795296da0f4ff9",
         "exit:then:1f514a0dff4fa91030eabaff13a4dd5cf7302b10a2151aac0ef27d498360df90"
       ],
       "origin": [
-        "fecc492b25994def9bcd26f83ec17f8fc3f11aafb75cb26cfcd02756a7370ee4"
+        "eaac8c86e36a9afe9b268169b929c86806feb42241bc5d8d8f0724806d984283"
       ],
-      "fingerprint": "90d2c0aac1de442e621b7f3566a84c126d8ae336168e0d51be6f42c850d4abd9",
+      "fingerprint": "0358bb2c653bae189b14799ea975a388995302f28484aa3bccef87a041d30c6b",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -3952,14 +3953,14 @@
       "file": "apps/web/src/features/chat/use-conversation.ts",
       "holder": "createWebConversation/sends/deliver/callback/composer",
       "rule": "helper-consumer",
-      "tokens": "205ca83d36685936166ab802e1cd531e3f1c8d491acfcf659b502aafb6f04094",
+      "tokens": "7bf147209bbf6ee9641e00ce801916c14699ed9675dbb4cd1c21745497d5f6c7",
       "gate": [
-        "exit:then:e7faca80913fcec9acba0724fbf6fa5f9a649a71055137d715dde8fc1f5fb0ae"
+        "exit:then:5799af1627b016837931d2861081342e87f6732a59e9d8262d795296da0f4ff9"
       ],
       "origin": [
         "adfc80928fa7e8f33d73591c8c752a6ec1006cdeb81b7b8014d0d4921ac12d7c"
       ],
-      "fingerprint": "9029b1b73222a91ab742ab78da2fd3a41c16dbaea65445ef356be10c49419c47",
+      "fingerprint": "baa2b8a8f92aaf0ab4bf9a276313fd000ad7e87b43d6224251a868f00afca022",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -3995,12 +3996,12 @@
       "tokens": "73ef294c6129cac466f29d0b83fe0f8f577a66cc1f1ed432e11b5df65511ac7f",
       "gate": [
         "else:b324373e6dc9a92f7b216cd4c94e835a9b0a35fb5d91fe38a7e84bd9c31844c2",
-        "??:ab006fa1e1fd8f809ae303c5be1be25185a2bf6a2179d815dbcb0c698b76c463"
+        "??:1535f4be6c8f7ac3b5c2db659d7b216f04efee86dc4e45a21a52f376f897a4e5"
       ],
       "origin": [
         "eb3e9643a20228ecf463b20b4386f5c5fa7a0b783e7c6bd55a3f05c08d7d363f"
       ],
-      "fingerprint": "0731ef13ef1e47b91b3e990f3d51a997007f9342e6e276489b08938a1767d8cb",
+      "fingerprint": "52b1428c198e0a4d9caae68a8dbe399b9648052a248cbadea6bee09fcbcb24ba",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5872",
@@ -4013,14 +4014,14 @@
       "file": "apps/web/src/features/chat/use-conversation.ts",
       "holder": "createWebConversation/sends/records/subscribe/callback/reaction:callback",
       "rule": "consume:map",
-      "tokens": "75e19d09f8ffa7de4e7712330873d3ede57f1ba3432c6aec5daff4204b6ee496",
+      "tokens": "9e36ba30b6c15fddbd51c6ea07686e56a6095e6d6e567d931e5f68320e851791",
       "gate": [
         "else:b324373e6dc9a92f7b216cd4c94e835a9b0a35fb5d91fe38a7e84bd9c31844c2"
       ],
       "origin": [
         "39197dabd3ad3a37f7543aa35da562935365fcf39c41b4c5daf5374710794ec9"
       ],
-      "fingerprint": "fb0a4dc8ff9e9bb919095049455b6950dc82651b7d3cc1061e131f1b0ccff7b3",
+      "fingerprint": "f7ccab7429b608e010b0a2ef8b453da51946e2cd458267fbbefbe008d438ad14",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5872",
@@ -4033,12 +4034,12 @@
       "file": "apps/web/src/features/chat/use-conversation.ts",
       "holder": "useConversation/conversation/useOwnedConversation:callback",
       "rule": "reader-summary",
-      "tokens": "49164a8e1738b46d558639eb0b4af5fbabbb93a78da868dbc26f15f7b4b7cabe",
+      "tokens": "1a71dacfa2b824ce1b6b1a78f78d61781aaf226809f1968e9d80056275712208",
       "gate": [],
       "origin": [
         "adfc80928fa7e8f33d73591c8c752a6ec1006cdeb81b7b8014d0d4921ac12d7c"
       ],
-      "fingerprint": "3cf1c4e1c06ee8843750567bdefe2c5cea9e278f343ec5766cbad8cfee0c42f3",
+      "fingerprint": "86b228537a5884c5559cd0d342fd4b8097a36d03dc20f05c90c5cf97fefb4884",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -10767,7 +10768,7 @@
       "file": "apps/web/src/test-support/mock-screen-pool.ts",
       "holder": "mock:callback/useWorklistPoolProjection/pool",
       "rule": "reader-summary",
-      "tokens": "55f79e9efe67b9d7b90e6d47763e7d2b0f7308e3ce9b2c1723cbe940d9d421a5",
+      "tokens": "ccc95221dbcb8a195bf0ca77d6cac1b0b1bfdfccd16c2e7487db1b7319d4f5e8",
       "gate": [],
       "origin": [
         "07cb6cd219d8b29bc3dd2c7b3a1e1ca227fe25c0b4b896649fd749265d86c704",
@@ -10802,7 +10803,7 @@
         "ee146fea4afb84b56b3e0b90929f3fa73313f6e9d06d70719b0415c24524c64f",
         "f35fbf75a9191b6b6b2796aba1314c0b716360ad6ffbe40bb2a13c777d8a0061"
       ],
-      "fingerprint": "5ba1d84a658c0ed4a3834f2fe14771589c5f1a1a6cdf74d7c34576b2380d3a23",
+      "fingerprint": "0181a22919eb8bc09ec6edaa42f1b84b23e622bbc52d9d313b43c3fbedfea644",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -12204,13 +12205,14 @@
         "exit:then:b3936369a06b36560d470294eb32180add66f8b0d6af826dedc1e88619e15ea7",
         "exit:then:490592b68a5cd2ae3cfdf77b3461191ce737eeb09b3c0625c036173ce0ad6446",
         "exit:then:52aee1fd5824cbfe0ed41e12ba317f1fa35ab46ddf02f7b330b608a4667a2a0b",
-        "exit:then:bd83af45d010dd4b9fe588b706b8081cd92d1d41550f47659651b8d8c0cd61b8"
+        "exit:then:bd83af45d010dd4b9fe588b706b8081cd92d1d41550f47659651b8d8c0cd61b8",
+        "exit:then:26ef8440b5785901a94222769f3fe8036dd961cc5750061644ab467471f7a797"
       ],
       "origin": [
         "5641f8f84581485a31d010b99e085652ec205d16df8e17343cb00db585a2e662",
         "a835815122562d1d0dd22a71ddbd055fbfba7f823cba8712a4b31941ff575f25"
       ],
-      "fingerprint": "f2d28208524d9e0afbc3b29dcf3189925c834509cd008473adfb355a0ca111ca",
+      "fingerprint": "fafe29da271a533710971648ab98f698203f4fd3390c4446ce6e602c0d9873cb",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -12235,13 +12237,14 @@
         "exit:then:b3936369a06b36560d470294eb32180add66f8b0d6af826dedc1e88619e15ea7",
         "exit:then:490592b68a5cd2ae3cfdf77b3461191ce737eeb09b3c0625c036173ce0ad6446",
         "exit:then:52aee1fd5824cbfe0ed41e12ba317f1fa35ab46ddf02f7b330b608a4667a2a0b",
-        "exit:then:bd83af45d010dd4b9fe588b706b8081cd92d1d41550f47659651b8d8c0cd61b8"
+        "exit:then:bd83af45d010dd4b9fe588b706b8081cd92d1d41550f47659651b8d8c0cd61b8",
+        "exit:then:26ef8440b5785901a94222769f3fe8036dd961cc5750061644ab467471f7a797"
       ],
       "origin": [
         "5641f8f84581485a31d010b99e085652ec205d16df8e17343cb00db585a2e662",
         "a835815122562d1d0dd22a71ddbd055fbfba7f823cba8712a4b31941ff575f25"
       ],
-      "fingerprint": "71c0a577d142b1620c70037ff82ac591bd86f1ad325240627a94a33de3c8ff29",
+      "fingerprint": "8e3aa21769f38aae4a3ebe871a096b0628935ee04c4d7e7071dc90f7f695b635",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -12267,13 +12270,14 @@
         "exit:then:490592b68a5cd2ae3cfdf77b3461191ce737eeb09b3c0625c036173ce0ad6446",
         "exit:then:52aee1fd5824cbfe0ed41e12ba317f1fa35ab46ddf02f7b330b608a4667a2a0b",
         "exit:then:bd83af45d010dd4b9fe588b706b8081cd92d1d41550f47659651b8d8c0cd61b8",
+        "exit:then:26ef8440b5785901a94222769f3fe8036dd961cc5750061644ab467471f7a797",
         "loop:a5d5204aac10d37bd360b99f063b3ec267fbefd34cf33a846791bd209ccf8542"
       ],
       "origin": [
         "5641f8f84581485a31d010b99e085652ec205d16df8e17343cb00db585a2e662",
         "a835815122562d1d0dd22a71ddbd055fbfba7f823cba8712a4b31941ff575f25"
       ],
-      "fingerprint": "2e186b43c1a6c84bd968171108e432770f7c99fb6be0096d38ebf11add027355",
+      "fingerprint": "3bb5169dc3c2232e48bb63887e29b2ddadde601114b635eef98e879cbdec0d35",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -12297,6 +12301,7 @@
         "exit:then:490592b68a5cd2ae3cfdf77b3461191ce737eeb09b3c0625c036173ce0ad6446",
         "exit:then:52aee1fd5824cbfe0ed41e12ba317f1fa35ab46ddf02f7b330b608a4667a2a0b",
         "exit:then:bd83af45d010dd4b9fe588b706b8081cd92d1d41550f47659651b8d8c0cd61b8",
+        "exit:then:26ef8440b5785901a94222769f3fe8036dd961cc5750061644ab467471f7a797",
         "then:65c5e3289cd4367b58cffafbd1428c801267e3d5aa7b9afb8e185a1f177d41ec",
         "exit:then:20aba40a100d587b33abe8783fe94cd6fcd1c3240df4efc7b49dd4072378969e",
         "exit:then:34fbd9309765a9958e997e147c21fe0eebe79179bc489fcbecb1cf4271763891"
@@ -12305,7 +12310,7 @@
         "5641f8f84581485a31d010b99e085652ec205d16df8e17343cb00db585a2e662",
         "a835815122562d1d0dd22a71ddbd055fbfba7f823cba8712a4b31941ff575f25"
       ],
-      "fingerprint": "0c4e528d2adc16fea0dccc5e7f3d3ef5949ba92889fa8d7eb771a35d98774f09",
+      "fingerprint": "c37c1caaa2f3c566e1415b12b4313baa63127c826863df40c7d38c6e6c62a3c8",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -12329,6 +12334,7 @@
         "exit:then:490592b68a5cd2ae3cfdf77b3461191ce737eeb09b3c0625c036173ce0ad6446",
         "exit:then:52aee1fd5824cbfe0ed41e12ba317f1fa35ab46ddf02f7b330b608a4667a2a0b",
         "exit:then:bd83af45d010dd4b9fe588b706b8081cd92d1d41550f47659651b8d8c0cd61b8",
+        "exit:then:26ef8440b5785901a94222769f3fe8036dd961cc5750061644ab467471f7a797",
         "then:65c5e3289cd4367b58cffafbd1428c801267e3d5aa7b9afb8e185a1f177d41ec",
         "exit:then:20aba40a100d587b33abe8783fe94cd6fcd1c3240df4efc7b49dd4072378969e"
       ],
@@ -12336,7 +12342,7 @@
         "5641f8f84581485a31d010b99e085652ec205d16df8e17343cb00db585a2e662",
         "a835815122562d1d0dd22a71ddbd055fbfba7f823cba8712a4b31941ff575f25"
       ],
-      "fingerprint": "bfb7a509356e154809c55af2550064611c72e1c6fc7c852f3c6e436648d4184a",
+      "fingerprint": "9da4456468fa5f06dbdc4d0f7111906dd894c90ebf605b5d0a8f859e86621431",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -35549,6 +35555,224 @@
       "bound": "The addressed issue ID's declared missionSessions relation only; no issue or session catalogue enumeration.",
       "reason": "The live pool supplies the shared IssueModel.missionBucket. This fallback reads the same issue and its own attached sessions in the independent rebuild.",
       "guard": "models.test.ts compares demanded unitOwn and unitsBelow with eager parts, including a cycle; mission-full-deck.test.ts execution buckets covers archived, shell and headless sessions."
+    },
+    {
+      "file": "apps/web/src/features/chat/use-conversation.ts",
+      "holder": "createWebConversation/transcript/source/read/callback",
+      "rule": "loop",
+      "tokens": "053853cf636ff61a2b753713577e92fe5d8e5d1611012e578da7919c4888e377",
+      "gate": [],
+      "origin": [
+        "28c4bcdcd718357a75d6b774f6d18e3aaf564e6281b93722bd9761d814eba91c"
+      ],
+      "fingerprint": "6c291d86ecaf4673caf9f1164e3087287e2cd5bbf9da23bdd9b0924330208219",
+      "count": 1,
+      "owner": "POD-2256",
+      "classification": "ingest",
+      "trigger": "A transcriptRead page resolves while this conversation is open.",
+      "bound": "The requested page window only: initialLimit 200 or pageLimit 400; each message-record query contains at most 100 transcript item IDs. Successful and pending lookups are deduplicated and the transcript page returns without waiting.",
+      "reason": "Historical attachment records enter the existing shared message table by authoritative session and transcript identity. Existing live records skip the request; no collection is read from the complete message history.",
+      "guard": "apps/web/src/features/chat/ChatBlockView.attachments.test.tsx covers deferred history answers, empty attachment-only turns and one lookup across repeated history reads; packages/client-graph/src/message-models.test.ts covers quiet identity lookup updates."
+    },
+    {
+      "file": "apps/web/src/features/chat/use-conversation.ts",
+      "holder": "createWebConversation/transcript/source/read/callback",
+      "rule": "loop:for-of",
+      "tokens": "f5722df6ee0a3d9684b7957545a2b00fb1050949661edfc2509dee55b7d076b8",
+      "gate": [
+        "loop:441d7a2823007b94457873037aabe003eeb6d910f3faee16c00ffecbe67478b3"
+      ],
+      "origin": [
+        "28c4bcdcd718357a75d6b774f6d18e3aaf564e6281b93722bd9761d814eba91c"
+      ],
+      "fingerprint": "ce67a91f32afda90855c6d4d9bb0d8f6862cdd7383ca2eab5f121976a1333aee",
+      "count": 1,
+      "owner": "POD-2256",
+      "classification": "ingest",
+      "trigger": "A transcriptRead page resolves while this conversation is open.",
+      "bound": "The requested page window only: initialLimit 200 or pageLimit 400; each message-record query contains at most 100 transcript item IDs. Successful and pending lookups are deduplicated and the transcript page returns without waiting.",
+      "reason": "Historical attachment records enter the existing shared message table by authoritative session and transcript identity. Existing live records skip the request; no collection is read from the complete message history.",
+      "guard": "apps/web/src/features/chat/ChatBlockView.attachments.test.tsx covers deferred history answers, empty attachment-only turns and one lookup across repeated history reads; packages/client-graph/src/message-models.test.ts covers quiet identity lookup updates."
+    },
+    {
+      "file": "apps/web/src/features/chat/use-conversation.ts",
+      "holder": "createWebConversation/transcript/source/read/callback/batch",
+      "rule": "consume:slice",
+      "tokens": "a42e4c4cc2b797ced106a83b6e37707ed301ffa239d9f498e614b82181615db1",
+      "gate": [
+        "loop:441d7a2823007b94457873037aabe003eeb6d910f3faee16c00ffecbe67478b3"
+      ],
+      "origin": [
+        "28c4bcdcd718357a75d6b774f6d18e3aaf564e6281b93722bd9761d814eba91c"
+      ],
+      "fingerprint": "c36083043824325dac75e73f0c650b6758ffda9f9d26e1c383be7bf3642014a6",
+      "count": 1,
+      "owner": "POD-2256",
+      "classification": "ingest",
+      "trigger": "A transcriptRead page resolves while this conversation is open.",
+      "bound": "The requested page window only: initialLimit 200 or pageLimit 400; each message-record query contains at most 100 transcript item IDs. Successful and pending lookups are deduplicated and the transcript page returns without waiting.",
+      "reason": "Historical attachment records enter the existing shared message table by authoritative session and transcript identity. Existing live records skip the request; no collection is read from the complete message history.",
+      "guard": "apps/web/src/features/chat/ChatBlockView.attachments.test.tsx covers deferred history answers, empty attachment-only turns and one lookup across repeated history reads; packages/client-graph/src/message-models.test.ts covers quiet identity lookup updates."
+    },
+    {
+      "file": "apps/web/src/features/chat/use-conversation.ts",
+      "holder": "createWebConversation/transcript/source/read/callback/catch:callback",
+      "rule": "loop:for-of",
+      "tokens": "d3ad42c353357b06fdaaa729a2dbb02a08612d170087626701329cfa8757f18e",
+      "gate": [
+        "loop:441d7a2823007b94457873037aabe003eeb6d910f3faee16c00ffecbe67478b3"
+      ],
+      "origin": [
+        "28c4bcdcd718357a75d6b774f6d18e3aaf564e6281b93722bd9761d814eba91c"
+      ],
+      "fingerprint": "9631801d2560ff5fac0c5a7bf6b061a1ffd57f5730b4634319062f65c90b34ca",
+      "count": 1,
+      "owner": "POD-2256",
+      "classification": "ingest",
+      "trigger": "A transcriptRead page resolves while this conversation is open.",
+      "bound": "The requested page window only: initialLimit 200 or pageLimit 400; each message-record query contains at most 100 transcript item IDs. Successful and pending lookups are deduplicated and the transcript page returns without waiting.",
+      "reason": "Historical attachment records enter the existing shared message table by authoritative session and transcript identity. Existing live records skip the request; no collection is read from the complete message history.",
+      "guard": "apps/web/src/features/chat/ChatBlockView.attachments.test.tsx covers deferred history answers, empty attachment-only turns and one lookup across repeated history reads; packages/client-graph/src/message-models.test.ts covers quiet identity lookup updates."
+    },
+    {
+      "file": "apps/web/src/features/chat/use-conversation.ts",
+      "holder": "createWebConversation/transcript/source/read/callback/ids",
+      "rule": "consume:map",
+      "tokens": "0350d1541fdb5b60599c28edf6048c2115e3952b9025c897750c67c2242d7247",
+      "gate": [],
+      "origin": [
+        "28c4bcdcd718357a75d6b774f6d18e3aaf564e6281b93722bd9761d814eba91c"
+      ],
+      "fingerprint": "a7de14a2168359869789b2924b3e8642bb59b630f02a002b2997cc20749cff77",
+      "count": 1,
+      "owner": "POD-2256",
+      "classification": "ingest",
+      "trigger": "A transcriptRead page resolves while this conversation is open.",
+      "bound": "The requested page window only: initialLimit 200 or pageLimit 400; each message-record query contains at most 100 transcript item IDs. Successful and pending lookups are deduplicated and the transcript page returns without waiting.",
+      "reason": "Historical attachment records enter the existing shared message table by authoritative session and transcript identity. Existing live records skip the request; no collection is read from the complete message history.",
+      "guard": "apps/web/src/features/chat/ChatBlockView.attachments.test.tsx covers deferred history answers, empty attachment-only turns and one lookup across repeated history reads; packages/client-graph/src/message-models.test.ts covers quiet identity lookup updates."
+    },
+    {
+      "file": "apps/web/src/features/chat/use-conversation.ts",
+      "holder": "createWebConversation/transcript/source/read/callback/ids",
+      "rule": "consume:filter",
+      "tokens": "95378a8fe9b0b8cecfa189b6d3c0787beaebe5759568e1cc7c0087015259970b",
+      "gate": [],
+      "origin": [
+        "28c4bcdcd718357a75d6b774f6d18e3aaf564e6281b93722bd9761d814eba91c"
+      ],
+      "fingerprint": "eee937b54d7148c60cd102af781ce6778ec47b4d27cbfff9c0ea779a7cccde5c",
+      "count": 1,
+      "owner": "POD-2256",
+      "classification": "ingest",
+      "trigger": "A transcriptRead page resolves while this conversation is open.",
+      "bound": "The requested page window only: initialLimit 200 or pageLimit 400; each message-record query contains at most 100 transcript item IDs. Successful and pending lookups are deduplicated and the transcript page returns without waiting.",
+      "reason": "Historical attachment records enter the existing shared message table by authoritative session and transcript identity. Existing live records skip the request; no collection is read from the complete message history.",
+      "guard": "apps/web/src/features/chat/ChatBlockView.attachments.test.tsx covers deferred history answers, empty attachment-only turns and one lookup across repeated history reads; packages/client-graph/src/message-models.test.ts covers quiet identity lookup updates."
+    },
+    {
+      "file": "apps/web/src/features/chat/use-conversation.ts",
+      "holder": "createWebConversation/transcript/source/read/callback/then:callback",
+      "rule": "helper-consumer",
+      "tokens": "74552dd71749d3331c9e68dab24212c9e7b50a2dded06ceba2c1883d6a45cb92",
+      "gate": [
+        "loop:441d7a2823007b94457873037aabe003eeb6d910f3faee16c00ffecbe67478b3"
+      ],
+      "origin": [
+        "a1fc014805eff8197c2cfbf8c3943a8a0ad26cebbcae96266980f0cef377b090"
+      ],
+      "fingerprint": "d2839874904e1f6ad3e715185110296e50deb5017f7dd71c5997c9943f792988",
+      "count": 1,
+      "owner": "POD-2256",
+      "classification": "ingest",
+      "trigger": "A transcriptRead page resolves while this conversation is open.",
+      "bound": "The requested page window only: initialLimit 200 or pageLimit 400; each message-record query contains at most 100 transcript item IDs. Successful and pending lookups are deduplicated and the transcript page returns without waiting.",
+      "reason": "Historical attachment records enter the existing shared message table by authoritative session and transcript identity. Existing live records skip the request; no collection is read from the complete message history.",
+      "guard": "apps/web/src/features/chat/ChatBlockView.attachments.test.tsx covers deferred history answers, empty attachment-only turns and one lookup across repeated history reads; packages/client-graph/src/message-models.test.ts covers quiet identity lookup updates."
+    },
+    {
+      "file": "packages/client-core/src/values/chat.ts",
+      "holder": "messageAttachmentText",
+      "rule": "consume:filter",
+      "tokens": "6bcb9a6bb7c923b812fab0cd1df7f8eec96bfc4548bd991fafb13476b678f2f7",
+      "gate": [
+        "exit:then:135758bd8774bf9d6f4533fe6dd0be53f044249b1f0584a107d63d1d59f72509",
+        "exit:then:eb0ba6cad3161f9e485739e24b8e4321cb6a0dfce50172a558546f8afb2988f8",
+        "then:db294a3ddb4216430e6d3467bdfa63f4aaee684fdb331d3c8e06737f8bbbfe5f"
+      ],
+      "origin": [
+        "b786bf09a362e45c5eaff83bd4f530bae45a0038f1c996198566a34923cee477"
+      ],
+      "fingerprint": "730aed3d11baeebb769ad94f00cad0d0a5ccd0ccd1b9cbdc32e32109ba3a4aa2",
+      "count": 1,
+      "owner": "POD-2256",
+      "classification": "bounded local work",
+      "trigger": "Render the text of one user transcript item with its confirmed message record.",
+      "bound": "Only attachments declared on that one message and the leading path prefix of that item. No other message, session or issue is enumerated.",
+      "reason": "Upload IDs and the saved authored body prove which transport paths may be hidden. The helper returns display text and leaves the recorded item untouched.",
+      "guard": "packages/client-core/src/values/message-attachments.test.ts covers owned prefixes, multiple images, empty turns, indentation, quotes, unrelated identities and unchanged raw receipt text."
+    },
+    {
+      "file": "packages/client-core/src/values/chat.ts",
+      "holder": "messageAttachmentText/ids",
+      "rule": "materialize:Set",
+      "tokens": "655f8d19f8303786713402e59ef764ef17c1505c00ea60ba7bc48cf05df9c399",
+      "gate": [
+        "exit:then:135758bd8774bf9d6f4533fe6dd0be53f044249b1f0584a107d63d1d59f72509",
+        "exit:then:eb0ba6cad3161f9e485739e24b8e4321cb6a0dfce50172a558546f8afb2988f8",
+        "then:a260f8a4709418b2ac32e8d9ba4c8336f7fc377125547d115cff164fc8c0d453"
+      ],
+      "origin": [
+        "b786bf09a362e45c5eaff83bd4f530bae45a0038f1c996198566a34923cee477"
+      ],
+      "fingerprint": "98cde5e0dc73e9a0844b536207894d0a92d7e2dbefd142aad71cd080eaecc55c",
+      "count": 1,
+      "owner": "POD-2256",
+      "classification": "bounded local work",
+      "trigger": "Render the text of one user transcript item with its confirmed message record.",
+      "bound": "Only attachments declared on that one message and the leading path prefix of that item. No other message, session or issue is enumerated.",
+      "reason": "Upload IDs and the saved authored body prove which transport paths may be hidden. The helper returns display text and leaves the recorded item untouched.",
+      "guard": "packages/client-core/src/values/message-attachments.test.ts covers owned prefixes, multiple images, empty turns, indentation, quotes, unrelated identities and unchanged raw receipt text."
+    },
+    {
+      "file": "packages/client-core/src/values/chat.ts",
+      "holder": "messageAttachmentText/ids",
+      "rule": "consume:flatMap",
+      "tokens": "165f50745ba4b88f042b4ade8066c85abfb2bfa6cb194881ef5650373ad65e4a",
+      "gate": [
+        "exit:then:135758bd8774bf9d6f4533fe6dd0be53f044249b1f0584a107d63d1d59f72509",
+        "exit:then:eb0ba6cad3161f9e485739e24b8e4321cb6a0dfce50172a558546f8afb2988f8",
+        "then:a260f8a4709418b2ac32e8d9ba4c8336f7fc377125547d115cff164fc8c0d453"
+      ],
+      "origin": [
+        "b786bf09a362e45c5eaff83bd4f530bae45a0038f1c996198566a34923cee477"
+      ],
+      "fingerprint": "bccb68c77718b938440a1afcfae89b82e49e2f61ecd8ac741023419a28cc961b",
+      "count": 1,
+      "owner": "POD-2256",
+      "classification": "bounded local work",
+      "trigger": "Render the text of one user transcript item with its confirmed message record.",
+      "bound": "Only attachments declared on that one message and the leading path prefix of that item. No other message, session or issue is enumerated.",
+      "reason": "Upload IDs and the saved authored body prove which transport paths may be hidden. The helper returns display text and leaves the recorded item untouched.",
+      "guard": "packages/client-core/src/values/message-attachments.test.ts covers owned prefixes, multiple images, empty turns, indentation, quotes, unrelated identities and unchanged raw receipt text."
+    },
+    {
+      "file": "packages/client-graph/src/chat-context.ts",
+      "holder": "ChatItemMessageIndex/callback/runInAction:callback",
+      "rule": "loop:for-of",
+      "tokens": "619b86c8afeec1772a52ed715ce517c69ed1d9c68a51904a5413e7c843253296",
+      "gate": [],
+      "origin": [
+        "790073f431681b9ae1fd10650106367218f3e4a0d8b9fe8a06ef4e6046b4ada2"
+      ],
+      "fingerprint": "dc422648666d82bcaefb17376a21520cc75f1501a6431983b3b1f72d78e8a8fe",
+      "count": 1,
+      "owner": "POD-2256",
+      "classification": "ingest",
+      "trigger": "The first transcript attachment identity lookup creates the pool-owned index.",
+      "bound": "One pass over resident messageRecord rows at index creation. Later publications inspect only the changed row and update keys only when its session or transcript identity changes.",
+      "reason": "The index stores message IDs and returns the existing shared models. This also includes requested historical records outside the live feed index; lookups do not scan the working set.",
+      "guard": "packages/client-graph/src/message-models.test.ts: looks up transcript identity without waking for unrelated message changes. ChatBlockView.attachments.test.tsx covers historical rows absent from the live feed."
     }
   ]
 }

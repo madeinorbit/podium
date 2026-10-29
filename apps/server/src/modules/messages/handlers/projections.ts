@@ -113,5 +113,7 @@ export async function recordsHandler(
 ): Promise<{ records: MessageRecordWire[] }> {
   const { principal } = ctx.caller
   if (principal.kind !== 'user') return { records: [] }
-  return { records: await ctx.deps.messageRecords(principal.user, input.ids) }
+  return { records: 'ids' in input
+    ? await ctx.deps.messageRecords(principal.user, input.ids)
+    : await ctx.deps.messageRecords(principal.user, input.transcriptItemIds, input.sessionId) }
 }

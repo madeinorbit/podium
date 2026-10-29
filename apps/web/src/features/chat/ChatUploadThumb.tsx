@@ -1,8 +1,9 @@
+import type { MessageRecordAttachment } from '@podium/model'
 import type { SessionId, TranscriptTag } from '@podium/model/browser'
 import { FileText, Image as ImageIcon } from 'lucide-react'
 import type { JSX } from 'react'
 import { SentImageThumb } from './SendUserFileBlock'
-import { useChatItemAttachments, useChatUploadSrc } from './use-chat-context'
+import { useChatUploadSrc } from './use-chat-context'
 
 // Shared with the phone app (POD-2148).
 export { stagedAttachmentId } from '@podium/client-core/values'
@@ -57,31 +58,29 @@ function TagChip({ kind, label }: { kind: string; label: string }): JSX.Element 
   )
 }
 
-/** A user entry's attachment tags when the entry names no file paths. Claude
- *  Code can record an image turn without its source path (a prompt queued
- *  while it was busy, a bare `[Image #N]`), so the images are resolved from the
- *  chat message the server matched to this entry, by attachment id (POD-2148).
- *  Without a match, or for a tag with no attachment behind it, the labelled
- *  chip it always was. */
-export function ItemAttachmentTags({
+/** Saved message attachments render even when the provider records only text.
+ * Unresolved provider tags retain their labelled chips. */
+export function ItemAttachments({
   sessionId,
-  itemId,
+  attachments,
   tags,
   httpOrigin,
   onOpenImage,
 }: {
   sessionId: SessionId
-  itemId: string
+  attachments: readonly MessageRecordAttachment[]
   tags: readonly TranscriptTag[]
   httpOrigin: string
   onOpenImage: (src: string) => void
 }): JSX.Element {
-  const attachments = useChatItemAttachments(sessionId, itemId)
   const images = attachments.filter((a) => a.kind === 'image' && a.id)
-  const imageTags = tags.filter((tag) => tag.kind === 'image')
-  // The record's images stand for the entry's image tags; any other tag, and
-  // any image tag past the record's count, keeps its chip.
-  const rest = [...imageTags.slice(images.length), ...tags.filter((tag) => tag.kind !== 'image')]
+  const remaining = { image: 0, file: 0 }
+  for (const attachment of attachments) remaining[attachment.kind]++
+  const rest = tags.filter((tag) => {
+    if (remaining[tag.kind] === 0) return true
+    remaining[tag.kind]--
+    return false
+  })
   return (
     <>
       {images.map((a) => (
@@ -96,6 +95,11 @@ export function ItemAttachmentTags({
           fallback={<TagChip kind="image" label={a.filename} />}
         />
       ))}
+      {attachments
+        .filter((a) => a.kind !== 'image' || !a.id)
+        .map((a, i) => (
+          <TagChip key={a.id ?? `${a.filename}-${i}`} kind={a.kind} label={a.filename} />
+        ))}
       {rest.map((tag, i) => (
         <TagChip key={`${tag.kind}-${i}`} kind={tag.kind} label={tag.label ?? tag.kind} />
       ))}

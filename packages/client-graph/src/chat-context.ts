@@ -1,6 +1,6 @@
 import type { MessageModel } from './message-models'
 import { omitGone } from './lookup'
-import { action, compareStructural, observable, observableRef, when } from 'mobx'
+import { action, compareStructural, observable, observableRef, observe, runInAction, when } from 'mobx'
 import { headerEntities } from './header-entities'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
@@ -119,19 +119,61 @@ export function chatRecords(pool: MobxPool, sessionId: string) {
     }
   return { records, pending }
 }
-/** The attachments of the chat message the server matched to this history
- * entry (POD-2148). Claude Code can record an image turn with no source path
- * (a prompt queued while it was busy, or a bare `[Image #N]`), so the entry
- * carries image tags and nothing to find the stored copy by; the message's
- * record does. Only the records the feed holds for the session are searched. */
-export function chatItemAttachments(
+/** The authoritative message for this transcript identity. Provider image
+ * tags and text are not message identities. */
+class ChatItemMessageIndex {
+  private readonly ids = observable.map<string, string>(undefined, { deep: false })
+  private readonly stop: () => void
+  constructor(private readonly pool: MobxPool) {
+    runInAction(() => {
+      for (const [id, row] of pool.tables.messageRecord) this.update(id, undefined, row)
+    })
+    this.stop = observe(pool.tables.messageRecord, (change) =>
+      this.update(
+        change.name,
+        change.type === 'add' ? undefined : change.oldValue,
+        change.type === 'delete' ? undefined : change.newValue,
+      ),
+    )
+  }
+  private key(value: unknown): string | undefined {
+    const row = value as { sessionId?: string; transcriptItem?: { id: string } } | undefined
+    return row?.sessionId && row.transcriptItem?.id
+      ? JSON.stringify([row.sessionId, row.transcriptItem.id])
+      : undefined
+  }
+  @action private update(id: string, previous: unknown, next: unknown): void {
+    const before = this.key(previous),
+      after = this.key(next)
+    if (before === after) return
+    if (before && this.ids.get(before) === id) this.ids.delete(before)
+    if (after) this.ids.set(after, id)
+  }
+  message(sessionId: string, itemId: string): MessageModel | undefined {
+    const id = this.ids.get(JSON.stringify([sessionId, itemId]))
+    if (!id) return undefined
+    const record = this.pool.model('messageRecord', id)
+    // `kind` is a stored message field. Test model identity without reading it.
+    return !loading(record) && 'entity' in record ? record : undefined
+  }
+  dispose(): void {
+    this.stop()
+    this.ids.clear()
+  }
+}
+
+export function chatItemMessage(
   pool: MobxPool,
   sessionId: string,
   itemId: string,
-): MessageModel['attachments'] {
-  for (const record of chatRecords(pool, sessionId).records)
-    if (record.transcriptItem?.id === itemId) return record.attachments
-  return undefined
+): MessageModel | undefined {
+  // Observe the shared table, including requested history rows which are not
+  // on the live feed's index. The pool owns and disposes this index.
+  pool.row('noticeSession', sessionId)
+  return pool.sources.view('chatItemMessages', () => new ChatItemMessageIndex(pool)).message(sessionId, itemId)
+}
+export function chatItemAttachments(pool: MobxPool, sessionId: string, itemId: string) {
+  return chatItemMessage(pool, sessionId, itemId)?.attachments
 }
 export function chatArtifactIssue(
   pool: MobxPool,
@@ -269,6 +311,7 @@ export function createChatContextReader(pool: MobxPool) {
       chatUploadArtifact(pool, sessionId, attachmentId),
     itemAttachments: (sessionId: string, itemId: string) =>
       chatItemAttachments(pool, sessionId, itemId),
+    itemMessage: (sessionId: string, itemId: string) => chatItemMessage(pool, sessionId, itemId),
     referencePicker: () => createReferencePicker(pool),
     sessions: () => chatReferenceSessions(pool, counts),
     machines: () => chatReferenceMachines(pool),

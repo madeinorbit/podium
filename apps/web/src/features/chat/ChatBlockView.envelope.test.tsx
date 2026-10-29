@@ -1,3 +1,4 @@
+import './test-support/no-message-attachments'
 import { presentToolBlock } from '@podium/client-core/values'
 import { renderMailPointer } from '@podium/commands/mail-pointer-nudge'
 import type { TranscriptItem } from '@podium/model'

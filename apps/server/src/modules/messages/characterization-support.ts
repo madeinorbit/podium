@@ -420,11 +420,12 @@ export async function mailHarness(opts?: HarnessOptions): Promise<MailHarness> {
       messages: svc,
       issues,
       sessionById: async (sessionId) => sessions.find((s) => s.sessionId === sessionId),
-      messageRecords: async (userId, ids) =>
+      messageRecords: async (userId, ids, transcriptSessionId) =>
         await readMessageRecords(
           { messages: store.messages, sessions: store.sessions },
           userId,
           ids,
+          transcriptSessionId,
         ),
       spawnSession:
         opts?.spawnSession ??

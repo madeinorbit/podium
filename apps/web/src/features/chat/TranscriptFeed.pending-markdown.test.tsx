@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import './test-support/no-message-attachments'
 import type { RenderableRow } from '@podium/client-core/values'
 import { asSessionId, type TranscriptItem } from '@podium/model'
 import { act } from 'react'

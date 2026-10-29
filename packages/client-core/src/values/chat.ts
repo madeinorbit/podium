@@ -6,7 +6,7 @@ import {
   mailReceipts,
   mailRecipientLabel,
 } from '@podium/commands/mail-command'
-import type { TranscriptItem } from '@podium/model'
+import type { MessageRecordWire, TranscriptItem } from '@podium/model'
 import { machinePathBasename } from '@podium/model'
 import { principalShortName } from './message-envelope'
 
@@ -803,4 +803,54 @@ export function stagedAttachmentId(path: string): string | undefined {
   const parts = path.split(/[\\/]/)
   if (parts.length < 3 || parts[parts.length - 3] !== 'uploads') return undefined
   return STAGED_NAME.exec(parts[parts.length - 1] ?? '')?.[1]?.toLowerCase()
+}
+
+/** Display cleanup only. Receipt correlation must keep using `item.text`.
+ * Remove a leading upload path only when the matched message owns its id and
+ * the remaining text is exactly the person's saved body. A path in that body,
+ * including a quote of a previous upload, is always preserved. */
+export function messageAttachmentText(
+  item: Pick<TranscriptItem, 'id' | 'role' | 'text'>,
+  message:
+    | (Pick<MessageRecordWire, 'body' | 'attachments' | 'transcriptItem'> & { sessionId?: string })
+    | undefined,
+): string {
+  if (
+    item.role !== 'user' ||
+    message?.transcriptItem?.id !== item.id ||
+    !message.attachments?.length
+  )
+    return item.text
+  const body = message.body.trimEnd()
+  if (item.text === message.body.trim()) return item.text
+  const prefix =
+    body === ''
+      ? item.text
+      : item.text.endsWith(`\n${body}`)
+        ? item.text.slice(0, -body.length - 1)
+        : undefined
+  if (prefix) {
+    const ids = new Set(
+      message.attachments.flatMap((attachment) => (attachment.id ? [attachment.id] : [])),
+    )
+    const ownedPaths = prefix.split('\n').every((path) => {
+      const id = stagedAttachmentId(path)
+      return (
+        /^(?:\/|[A-Za-z]:[\\/])/.test(path) &&
+        path.split(/[\\/]/).at(-2) === message.sessionId &&
+        !!id &&
+        ids.delete(id)
+      )
+    })
+    if (ownedPaths) return body
+  }
+  // Codex can turn an image-only paste into numbered placeholders, with no
+  // image tags or paths in its normalized item. A saved empty body proves
+  // these are transport text rather than words the person wrote.
+  if (body === '' && /^(?:\[Image #\d+\]\s*)+$/.test(item.text)) {
+    const count = item.text.match(/\[Image #\d+\]/g)!.length
+    if (count === message.attachments.filter((attachment) => attachment.kind === 'image').length)
+      return ''
+  }
+  return item.text
 }

@@ -2611,11 +2611,12 @@ export class SessionRegistry {
         issues,
         sessionById: async (sessionId) => await sessionsSvc.sessionById(sessionId),
         sessionOwner: async (sessionId) => await sessionsSvc.sessionOwner(sessionId),
-        messageRecords: async (userId, ids) =>
+        messageRecords: async (userId, ids, transcriptSessionId) =>
           await readMessageRecords(
             { messages: this.store.messages, sessions: this.store.sessions },
             userId,
             ids,
+            transcriptSessionId,
           ),
         mutations,
         // Cross-harness subagent spawn (#237) [spec:SP-34d7 cross-harness]: the

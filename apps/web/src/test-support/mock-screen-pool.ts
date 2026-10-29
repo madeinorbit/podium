@@ -687,6 +687,10 @@ function useFixturePool(): MobxPool {
         },
         view: (name: string, _factory: unknown): unknown => {
           const fixture = pool as unknown as Record<string, unknown>
+          if (name === 'chatItemMessages') return {
+            message: (sessionId: string, itemId: string) => messages().find(row =>
+              row.sessionId === sessionId && row.transcriptItem?.id === itemId),
+          }
           if (name === 'issue-activity')
             return records().sources.view(name, _factory as () => object)
           if (name === 'issue-page') return issuePages(records())

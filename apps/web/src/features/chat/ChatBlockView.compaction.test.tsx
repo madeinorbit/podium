@@ -1,3 +1,4 @@
+import './test-support/no-message-attachments'
 import { asSessionId, type TranscriptItem } from '@podium/model'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'

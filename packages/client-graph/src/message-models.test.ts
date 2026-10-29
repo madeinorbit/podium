@@ -12,7 +12,7 @@ import { TranscriptLog } from '../../client-core/src/conversation/transcript-log
 import { autorun, reaction } from 'mobx'
 import { afterEach, expect, it, vi } from 'vitest'
 import { noticeFixture } from '../../../tests/worklist/diagnostics/notice-fixture'
-import { chatInteractions, chatRecords } from './chat-context'
+import { chatInteractions, chatRecords, chatItemMessage } from './chat-context'
 import { here } from './lookup'
 import { currentMessageRecord, ingestLedgerMessages, ingestMessageRecords } from './message-models'
 import { MessageLedger } from './message-ledger'
@@ -72,6 +72,28 @@ function fixture(initial = [record()]) {
 }
 const settle = async () => { for (let turn = 0; turn < 8; turn++) await Promise.resolve() }
 afterEach(() => vi.useRealTimers())
+
+it('looks up transcript identity without waking for unrelated message changes', async () => {
+  const row = record({ transcriptItem: { id: 'native-item' }, status: 'confirmed' })
+  const f = fixture([row])
+  let stop = () => {}
+  try {
+    chatItemMessage(f.pool, 'seat', 'native-item')
+    await settle()
+    const reads: unknown[] = []
+    stop = autorun(() => { reads.push(chatItemMessage(f.pool, 'seat', 'native-item')) })
+    expect(reads).toHaveLength(1)
+    expect(chatItemMessage(f.pool, 'seat', 'native-item')?.id).toBe(row.id)
+    f.update({ ...row, body: 'updated text', transcriptItem: { id: 'native-item' } })
+    expect(reads).toHaveLength(1)
+    f.update({ ...row, transcriptItem: { id: 'corrected-item' } })
+    expect(reads).toHaveLength(2)
+    expect(chatItemMessage(f.pool, 'seat', 'native-item')).toBeUndefined()
+    expect(chatItemMessage(f.pool, 'seat', 'corrected-item')?.id).toBe(row.id)
+    expect(chatItemMessage(f.pool, 'another-seat', 'corrected-item')).toBeUndefined()
+  } finally { stop(); f.pool.dispose() }
+})
+
 
 it('matches old notice facts and all interaction card answers on identical fixtures; detects a wrong answer', async () => {
   const f = fixture(['failed', 'expired', 'unknown'].map((status, i) => record({ id: `message-${i}`, status: status as MessageRecordWire['status'], body: 'long '.repeat(30) })))
