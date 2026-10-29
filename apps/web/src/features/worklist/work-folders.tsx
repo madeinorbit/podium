@@ -12,7 +12,7 @@ import { shallowEqual } from '@podium/client-core/shallow-equal'
 import { mergeVisibleProjectOrder } from '@podium/client-core/values'
 import { Archive, ChevronRight, Ellipsis, GripVertical, Pin, Plus } from 'lucide-react'
 import type { JSX, PointerEvent as ReactPointerEvent } from 'react'
-import { useCallback, useLayoutEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useLayoutEffect, useRef, useState } from 'react'
 import { openAddProject } from '@/app/desktop-menu'
 import { useRuntimeSelector } from '@/app/store'
 import {
@@ -22,10 +22,18 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { RepoBaseBranchMenu } from '@/lib/BaseBranchMenu'
+import { throughRestarts } from '@/lib/chunk-recovery'
 import { useReducedMotion } from '@/lib/use-reduced-motion'
 import { cn } from '@/lib/utils'
 import { cssEase, EASE_OUT, MOTION_S } from './worklist-motion-tokens'
+
+// The sidebar needs the project row at startup, but the branch editor and its
+// settings request belong to the menu opening.
+const RepoBaseBranchMenu = lazy(() =>
+  throughRestarts(() => import('@/lib/BaseBranchMenu')).then((module) => ({
+    default: module.RepoBaseBranchMenu,
+  })),
+)
 
 export type WorkLane = 'open' | 'snoozed' | 'closed'
 
@@ -363,13 +371,15 @@ function FolderOptions({
       {menu.repo && (
         <DropdownMenu modal={false} open={branchOpen} onOpenChange={setBranchOpen}>
           {branchOpen && (
-            <RepoBaseBranchMenu
-              repoId={menu.repo.repoId}
-              path={menu.repo.path}
-              align="end"
-              anchor={trigger.current}
-              onDone={() => setBranchOpen(false)}
-            />
+            <Suspense fallback={null}>
+              <RepoBaseBranchMenu
+                repoId={menu.repo.repoId}
+                path={menu.repo.path}
+                align="end"
+                anchor={trigger.current}
+                onDone={() => setBranchOpen(false)}
+              />
+            </Suspense>
           )}
         </DropdownMenu>
       )}

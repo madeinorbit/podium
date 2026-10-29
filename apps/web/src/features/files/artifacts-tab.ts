@@ -1,13 +1,12 @@
 import type { FileTab } from '@podium/client-core/values'
 import { artifactKind, basename } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph'
-import type { PageIssue } from '@podium/client-graph/issue-page'
+import { type PageIssue, readPageIssue } from '@podium/client-graph/issue-page'
 import type { Loaded } from '@podium/client-graph/worklist/rollup'
 import type { IssueId, IssuePanelArtifact } from '@podium/model/browser'
 import { useCallback } from 'react'
 import { useCommandLaunchActions } from '@/app/command-launch-data'
 import { useWorklistPoolProjection } from '@/app/store-worklist-pool'
-import { useIssueViews } from '@/features/issues/issue-page/opening-context'
 import { ARTIFACTS_TAB_ARTIFACT_ID, isArtifactsTabScope } from './artifacts-tab-id'
 
 export { ARTIFACTS_TAB_ARTIFACT_ID, isArtifactsTabScope }
@@ -54,12 +53,11 @@ export function useOpenArtifactsTab(): (issueId: IssueId, worktreePath?: string 
   )
 }
 
-/** The issue an Artifacts tab belongs to, read from the same pool page the task
- *  panel reads — no second subscription shape for the same record. Undefined
- *  while loading, null when the issue is gone. */
+/** The issue record shared by artifact badges, tips and the Artifacts page.
+ * Uses the detail page's identity lookup without its view-owned queries.
+ * Undefined while loading, null when the issue is gone. */
 export function usePageIssue(issueId: string): PageIssue | null | undefined {
-  const views = useIssueViews()
-  const read = useCallback((_owner: MobxPool) => views?.issue(issueId), [views, issueId])
+  const read = useCallback((pool: MobxPool) => readPageIssue(pool, issueId), [issueId])
   const data = useWorklistPoolProjection<Loaded<PageIssue>>(read, undefined)
   return typeof data === 'symbol' ? undefined : data
 }

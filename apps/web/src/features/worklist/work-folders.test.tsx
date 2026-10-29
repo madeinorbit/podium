@@ -1,8 +1,46 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { ClosedLaneHeader } from './work-folders'
+import { ClosedLaneHeader, ProjectFolderHeader } from './work-folders'
+
+const branchMenu = vi.hoisted(() => ({ loads: 0 }))
+vi.mock('@/lib/BaseBranchMenu', () => {
+  branchMenu.loads++
+  return {
+    RepoBaseBranchMenu: ({ onDone }: { onDone: () => void }) => (
+      <button type="button" onClick={onDone}>
+        Finish branch change
+      </button>
+    ),
+  }
+})
 
 afterEach(cleanup)
+
+it('loads the base-branch editor only after choosing it and closes it on completion', async () => {
+  render(
+    <ProjectFolderHeader
+      label="Project"
+      count={1}
+      collapsed={false}
+      onToggle={vi.fn()}
+      menu={{
+        onToggle: vi.fn(),
+        repo: { repoId: 'project', path: '/repo' },
+      }}
+    />,
+  )
+  expect(branchMenu.loads).toBe(0)
+  fireEvent.click(screen.getByRole('button', { name: 'Project options' }))
+  const openBranch = await screen.findByRole('menuitem', { name: 'Base branch…' })
+  expect(branchMenu.loads).toBe(0)
+  fireEvent.click(openBranch)
+  const done = await screen.findByRole('button', { name: 'Finish branch change' })
+  expect(branchMenu.loads).toBe(1)
+  fireEvent.click(done)
+  await waitFor(() =>
+    expect(screen.queryByRole('button', { name: 'Finish branch change' })).toBeNull(),
+  )
+})
 
 describe('Closed lane summary', () => {
   it('shows the count, retention note and archive action', () => {

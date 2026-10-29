@@ -42,6 +42,10 @@ const STARTUP_GRAPH_SOURCES = new Set([
   'src/host/pool-host.ts', 'src/host/screens.ts',
   'src/header-entities.ts', 'src/header-schema.ts', 'src/header-session.ts', 'src/header-sessions.ts',
   'src/header-source.ts', 'src/header-views.ts',
+  // Header lifecycle samples ingest the shared settings record at startup.
+  // This passive source owns no requests or view lifetimes; those remain in
+  // requested-records.ts and request-answer.ts behind their screen boundaries.
+  'src/requested-record-source.ts',
   // First-screen header and worklist rules moved out of models.ts (POD-5767).
   // These exact modules serve the already-eager header/sidebar; optional
   // screens and future worklist modules still need their own boundary decision.

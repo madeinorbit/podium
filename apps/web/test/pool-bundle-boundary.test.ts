@@ -10,8 +10,14 @@ const entry = `${root}pool-boundary-fixture.js`
 /** Exercise actual emitted static imports. The pool is the startup store now;
  * optional screen implementations retain their own deferred chunks. */
 async function eagerSources(marker: string): Promise<string[]> {
-  const exported = marker === '@podium/client-graph' ? 'MobxPool' :
-    marker === '@podium/client-graph/issue-board-source' ? 'createIssueBoardSource' : 'LOADING'
+  const exported =
+    marker === '@podium/client-graph'
+      ? 'MobxPool'
+      : marker === '@podium/client-graph/issue-board-source'
+        ? 'createIssueBoardSource'
+        : marker === '@podium/client-graph/header-source'
+          ? 'attachHeaderSource'
+          : 'LOADING'
   const result = await build({
     configFile: false,
     root,
@@ -72,6 +78,21 @@ describe('client-graph in Vite startup chunks', () => {
     expect(sources.some(source => source.endsWith('/client-graph/src/pool.ts'))).toBe(true)
     expect(sources.some(source => source.endsWith('/client-graph/src/synced-models.ts'))).toBe(false)
     expect(eagerClientGraphSources(sources)).toEqual([])
+  }, 30_000)
+
+  it('keeps header settings ingestion in startup without the view request owners', async () => {
+    const sources = await eagerSources('@podium/client-graph/header-source')
+    const ingestion = sources.filter((source) =>
+      source.endsWith('/client-graph/src/requested-record-source.ts'),
+    )
+    expect(ingestion).toHaveLength(1)
+    expect(eagerClientGraphSources(ingestion)).toEqual([])
+    expect(
+      sources.some((source) => source.endsWith('/client-graph/src/requested-records.ts')),
+    ).toBe(false)
+    expect(sources.some((source) => source.endsWith('/client-graph/src/request-answer.ts'))).toBe(
+      false,
+    )
   }, 30_000)
 
   it('catches a planted eager board reader using the actual emitted sources', async () => {
