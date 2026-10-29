@@ -386,7 +386,7 @@ export class FullDeck {
   @lazy({ equals: compareStructural }) get counts(): FullDeckCounts {
     const t = this.tally
     return {
-      all: t.total,
+      all: this.buckets.total,
       'needs-you': t.error + t['needs-you'],
       active: t.error + t['needs-you'] + t.working + t.idle,
       'up-next': t.blocked + t['not-started'],

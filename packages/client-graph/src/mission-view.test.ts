@@ -190,6 +190,30 @@ it('a standalone progress read batches cold siblings without preparing their dis
   } finally { stop() }
 })
 
+it('loads cold leaf issues and their sessions in two batches for standalone progress', () => {
+  const children = Array.from({ length: 8 }, (_, index) => issue(`child-${index}`, {
+    ...coldRoot(), id: `child-${index}`, parentId: 'root',
+  }))
+  const seats = children.map((child, index) => session(`seat-${index}`, child.id, {
+    archived: false, stoppedAt: '2026-09-20T12:00:00Z', lastActiveAt: '2026-09-20T12:00:00Z', readAt: '2026-09-20T12:00:00Z',
+  }))
+  const { pool, load, reader } = open([issue('root'), ...children], seats)
+  expect(seats.every((seat) => !pool.tables.session.has(seat.sessionId))).toBe(true)
+  let result: unknown
+  const stop = autorun(() => { result = reader.deck('root').progress })
+  try {
+    expect(result).toBe(LOADING)
+    expect(pool.hydrate()).toBe(8)
+    expect(load.mock.calls.map(([kind]) => kind)).toEqual(Array(8).fill('issue'))
+    expect(result).toBe(LOADING)
+    load.mockClear()
+    expect(pool.hydrate()).toBe(8)
+    expect(load.mock.calls.map(([kind]) => kind)).toEqual(Array(8).fill('session'))
+    expect(result).toMatchObject({ total: 8, done: 8 })
+    expect(pool.hydrate()).toBe(0)
+  } finally { stop() }
+})
+
 it('keeps crew presentation unobserved when a hidden row asks only for its collapsed task count', () => {
   const { reader } = open([issue('root'), issue('child', { parentId: 'root' })], [
     session('crew', 'child', { archived: false, status: 'live' }),

@@ -681,7 +681,8 @@ export class IssueModel extends EntityModel {
     return false
   }
 
-  /** Birth references preserve started history when a session is rehomed; current attachments also count. */
+  /** Birth references survive rehoming. Intermediate attachments (A → B → C)
+   * are not retained in this model, so a backlog B can return to "to do". */
   @lazy get missionBucket(): MissionTaskBucket | null {
     const bucket = missionTaskBucket(this, false, false)
     if (bucket === null || bucket === 'done' || bucket === 'working') return bucket

@@ -266,7 +266,7 @@ describe('counting', () => {
       total: 12,
     })
     expect(tracked(() => full.counts)).toEqual({
-      all: 12,
+      all: 10,
       'needs-you': 2,
       active: 3,
       'up-next': 5,
@@ -293,7 +293,7 @@ describe('counting', () => {
     })
     expect(tracked(() => full.needsYouTone)).toBe('needs-you')
     expect(tracked(() => full.counts)).toEqual({
-      all: 12,
+      all: 10,
       'needs-you': 1,
       active: 3,
       'up-next': 5,
@@ -662,7 +662,7 @@ describe('loading', () => {
     while (!tracked(() => full.ready) && rounds++ < 10) pool.hydrate()
     expect(tracked(() => full.ready)).toBe(true)
     expect(tracked(() => full.counts)).toEqual({
-      all: 12,
+      all: 10,
       'needs-you': 2,
       active: 3,
       'up-next': 5,
@@ -745,7 +745,7 @@ describe('execution buckets', () => {
       sessions: [],
     })
     expect(tracked(() => full.buckets)).toMatchObject({ total: 0, done: 0 })
-    expect(tracked(() => full.counts.done)).toBe(0)
+    expect(tracked(() => full.counts)).toMatchObject({ all: 0, done: 0 })
     expect(tracked(() => full.doneLine)).toBeNull()
     expect(tracked(() => screen.progress)).toMatchObject({ total: 0, done: 0 })
     expect(tracked(() => pool.worklistRow('root')!.progress)).toMatchObject({ total: 0, done: 0 })

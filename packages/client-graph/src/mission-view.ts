@@ -514,11 +514,18 @@ const progress = ((deck: MissionDeckModel): MissionProgress | typeof LOADING => 
     if (visible === LOADING) pending = true
   }
   if (pending) return LOADING
-  const units = leafTasks(deck.id, {
+  const leaves = leafTasks(deck.id, {
     task: (id) => view.facts(id),
     children: (id) => [...view.pool.graph.many('issue', id, 'children')].filter((child) =>
       view.facts(child).visible && view.facts(child).stage !== 'proposed'),
-  }).filter((id) => {
+  })
+  // Settle every leaf's session demand before propagating LOADING, so cold
+  // history hydrates as one batch rather than restarting the leaf walk per seat.
+  for (const id of leaves) {
+    if (settled(() => view.facts(id).live) === LOADING) pending = true
+  }
+  if (pending) return LOADING
+  const units = leaves.filter((id) => {
     const facts = view.facts(id)
     return facts.visible && (facts.live || (view.tipIds(id, true).length === 0 && !view.hasSpinOffDependent(id)))
   })
