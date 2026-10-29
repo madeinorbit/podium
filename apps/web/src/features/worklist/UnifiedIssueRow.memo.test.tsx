@@ -39,9 +39,9 @@ afterEach(() => {
 
 const NOW = Date.parse('2026-08-12T12:00:00.000Z')
 
-const PROG_A = { total: 3, done: 1, run: 1, review: 0, stall: 0, block: 0, wait: 1 }
-const PROG_B = { total: 2, done: 0, run: 1, review: 0, stall: 0, block: 0, wait: 1 }
-const PROG_C = { total: 4, done: 2, run: 0, review: 0, stall: 0, block: 0, wait: 2 }
+const PROG_A = { total: 3, done: 1, working: 1, waiting: 0, todo: 1 }
+const PROG_B = { total: 2, done: 0, working: 1, waiting: 0, todo: 1 }
+const PROG_C = { total: 4, done: 2, working: 0, waiting: 0, todo: 2 }
 
 it('preserves continuation text ahead of child progress and pending decisions', () => {
   const row = {

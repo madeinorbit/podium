@@ -1048,9 +1048,9 @@ export class WorklistIssue implements HeldIssue, RowView {
     const below = this.unitsBelow, own = this.unitOwn
     if (below.pending > 0 || own.cold) return LOADING
     return below.members > 0
-      ? { done: 0, run: 0, review: 0, stall: 0, block: 0, wait: 0, ...below.progress, total: below.units }
-      : { done: 0, run: 0, review: 0, stall: 0, block: 0, wait: 0, total: own.solo ? 1 : 0,
-        ...(own.solo ? { [own.state ?? 'wait']: 1 } : {}) }
+      ? { done: 0, working: 0, waiting: 0, todo: 0, ...below.progress, total: below.units }
+      : { done: 0, working: 0, waiting: 0, todo: 0, total: own.solo ? 1 : 0,
+        ...(own.solo ? { [own.state ?? 'todo']: 1 } : {}) }
   }
   @lazy get hasChildProgress() { return this.unitsBelow.members > 0 }
   @lazy get showsChildProgress() { return this.nestParent === null && this.hasChildProgress }

@@ -56,10 +56,16 @@ describe('the check itself', () => {
     try {
       const answers = ask(pool, startupQuestions({ roots: [], parents: ['branch', 'hidden'], needles: [] }))
       expect(answers.get('closed-children:mission:branch')).toEqual({
-        total: 3, done: 1, review: 1, stall: 1, run: 0, block: 0, wait: 0,
+        total: 2, done: 1,
+        waiting: 1,
+        working: 0,
+        todo: 0,
       })
       expect(answers.get('closed-children:mission:hidden')).toEqual({
-        total: 0, done: 0, review: 0, stall: 0, run: 0, block: 0, wait: 0,
+        total: 0, done: 0,
+        waiting: 0,
+        working: 0,
+        todo: 0,
       })
     } finally { pool.dispose() }
   })

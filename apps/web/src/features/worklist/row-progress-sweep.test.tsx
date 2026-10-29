@@ -7,11 +7,9 @@ import { RowProgressMeter } from './row-progress'
 const progress: MissionProgress = {
   total: 4,
   done: 1,
-  run: 1,
-  review: 0,
-  stall: 0,
-  block: 0,
-  wait: 2,
+  working: 1,
+  waiting: 0,
+  todo: 2,
 }
 
 class Observer {
@@ -94,7 +92,7 @@ describe('row progress sweep visibility', () => {
   })
 
   it('starts during growth from zero width without needing a second intersection callback', () => {
-    const view = render(<RowProgressMeter progress={{ ...progress, run: 0 }} working />)
+    const view = render(<RowProgressMeter progress={{ ...progress, working: 0 }} working />)
     view.rerender(<RowProgressMeter progress={progress} working />)
     const sweep = view.container.querySelector<HTMLSpanElement>('.row-progress-sweep')!
     // Native observers report ratio 1 for an intersecting zero-area target.
@@ -145,7 +143,7 @@ describe('row progress sweep visibility', () => {
     )
     expect(view.container.querySelector('.row-progress-sweep')).toBeNull()
     expect(Observer.instances.at(-1)!.disconnect).toHaveBeenCalled()
-    view.rerender(<RowProgressMeter progress={{ ...progress, run: 0, wait: 3 }} working />)
+    view.rerender(<RowProgressMeter progress={{ ...progress, working: 0, todo: 3 }} working />)
     expect(view.container.querySelector('.row-progress-sweep')).toBeNull()
     expect(view.container.querySelector('[data-testid="row-progress"]')).toBeTruthy()
     view.rerender(<RowProgressMeter progress={progress} working />)

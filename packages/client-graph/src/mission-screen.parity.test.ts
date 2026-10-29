@@ -282,7 +282,7 @@ function newPhoneDeck(screen: MissionScreen) {
   }
 }
 
-it('opens phone missions with the phone bundle\'s answers: crew, header issue, progress, deck lists', async () => {
+it("opens phone missions with the phone bundle's answers: crew, header issue, progress, deck lists", async () => {
   const { pool, ui, issues, sessions } = corpusPool(1)
   await attachMobileScreens(pool)
   try {
@@ -302,7 +302,7 @@ it('opens phone missions with the phone bundle\'s answers: crew, header issue, p
         let current: { next: unknown } | undefined
         const screen = typeof rootId === 'string' ? new MissionScreen(pool, rootId, { setPreference: (key, raw) => ui.set(key, raw) }) : undefined
         const stop = autorun(() => {
-          const next = settled(() => !screen ? { root: undefined, crew: [], header: [], progress: { total: 0, done: 0, run: 0, review: 0, stall: 0, block: 0, wait: 0 }, deck: null }
+          const next = settled(() => !screen ? { root: undefined, crew: [], header: [], progress: { total: 0, done: 0, working: 0, waiting: 0, todo: 0 }, deck: null }
             : !screen.ready ? LOADING : {
               root: screen.rootId,
               crew: screen.crew.map(s => s.sessionId),

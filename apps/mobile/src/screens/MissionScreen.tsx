@@ -2,7 +2,7 @@ import { issueAgentKind, issueAgentLabel, modelLabel } from '@podium/client-core
 import { useHarnessDescriptors } from '@podium/client-core/react'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
-import { type MissionProgress, missionCrewLabel } from '@podium/client-core/values'
+import type { FullDeck } from '@podium/client-graph/mission-full-deck'
 import type { SessionModel } from '@podium/client-graph/models'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { asIssueId, type SessionId } from '@podium/model'
@@ -12,7 +12,7 @@ import * as Haptics from 'expo-haptics'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { observer } from 'mobx-react-lite'
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { StyleSheet, Text, View } from 'react-native'
+import { StyleSheet, View } from 'react-native'
 import { useMissionOpening, useStoreActions } from '../client/hooks'
 import { useMobilePool } from '../client/mobile-pool'
 import type { MobileTrpc } from '../client/trpc'
@@ -22,17 +22,15 @@ import { HarnessChip } from '../components/AgentMark'
 import { ConfiguredIssueLaunchSheet } from '../components/ConfiguredIssueLaunchSheet'
 import { Icon } from '../components/Icon'
 import { IssueCloseSheet } from '../components/IssueCloseSheet'
-import { ChevronRight, MoreVertical, SquareTerminal } from '../components/icons'
+import { MoreVertical, SquareTerminal } from '../components/icons'
 import { BootstrapCrossfade, DetailSkeleton } from '../components/LaunchPlaceholders'
-import { PressableScale } from '../components/PressableScale'
+import { MissionBar } from '../components/MissionBar'
 import { HeaderButton, Screen } from '../components/Screen'
 import { SessionConversation } from '../components/SessionConversation'
 import { TaskSheet } from '../components/TaskSheet'
 import { EmptyState } from '../components/ui'
-import { WorkingMark } from '../components/WorkingMark'
 import { mostRelevantSession } from '../lib/mission-session'
-import { alpha } from '../theme/mix'
-import { color, font, mono, monoLabel, space } from '../theme/theme'
+import { color } from '../theme/theme'
 
 /**
  * THE TASK, AS THE PHONE SHOULD OPEN IT [POD-724].
@@ -51,7 +49,6 @@ import { color, font, mono, monoLabel, space } from '../theme/theme'
  */
 
 const NO_SESSIONS: readonly SessionView[] = []
-const NO_PROGRESS: MissionProgress = { total: 0, done: 0, run: 0, review: 0, stall: 0, block: 0, wait: 0 }
 
 export const MissionScreen = observer(function MissionScreen() {
   const pool = useMobilePool()
@@ -72,7 +69,6 @@ export const MissionScreen = observer(function MissionScreen() {
   const rootValue = ready ? screen.reader.issue(screen.rootId) : undefined
   const root = rootValue && rootValue !== LOADING ? rootValue : undefined
   const missionSessions = ready ? (screen.crew as unknown as readonly SessionView[]) : NO_SESSIONS
-  const progress = ready ? screen.progress : NO_PROGRESS
 
   const requestedSessionId = Array.isArray(params.sessionId)
     ? params.sessionId[0]
@@ -220,11 +216,11 @@ export const MissionScreen = observer(function MissionScreen() {
       }
     >
       <BootstrapCrossfade resolved={resolved} placeholder={<DetailSkeleton />}>
-        {root ? (
+        {root && screen ? (
           <MissionBody
             current={current}
             currentIssue={currentIssue}
-            progress={progress}
+            full={screen.full}
             live={live}
             working={working}
             attention={attention}
@@ -276,7 +272,7 @@ export const MissionScreen = observer(function MissionScreen() {
 function MissionBody({
   current,
   currentIssue,
-  progress,
+  full,
   live,
   working,
   attention,
@@ -285,7 +281,7 @@ function MissionBody({
 }: {
   current: SessionView | undefined
   currentIssue: IssueViewModel | undefined
-  progress: MissionProgress
+  full: FullDeck
   live: number
   working: number
   attention: number
@@ -295,7 +291,7 @@ function MissionBody({
   return (
     <View style={styles.body}>
       <MissionBar
-        progress={progress}
+        full={full}
         live={live}
         working={working}
         attention={attention}
@@ -322,137 +318,10 @@ function MissionBody({
   )
 }
 
-/**
- * THE MISSION BAR — the deck, collapsed to one line it can always afford.
- *
- * Four facts, in the order an operator triages them: how much of the mission is
- * done, whether anything is asking, who is computing (or who is on the task),
- * and that there is more behind it. The segmented meter is the same derivation
- * the deck's own progress uses, so the shut bar and the open panel can never
- * disagree.
- */
-function MissionBar({
-  progress,
-  live,
-  working,
-  attention,
-  onOpen,
-}: {
-  progress: MissionProgress
-  live: number
-  working: number
-  attention: number
-  onOpen: () => void
-}) {
-  const total = Math.max(1, progress.total)
-  const pct = (n: number) => `${Math.round((n / total) * 10000) / 100}%` as const
-  const crew = missionCrewLabel(live, working)
-  const crewCount = working > 0 ? working : live
-  return (
-    <PressableScale
-      accessibilityRole="button"
-      accessibilityLabel="Mission details"
-      accessibilityHint={`${progress.done} of ${progress.total} tasks done, ${crew}${progress.stall > 0 ? `, ${progress.stall} stalled` : ''}${attention > 0 ? `, ${attention} asking` : ''}`}
-      onPress={onOpen}
-      scaleTo={0.995}
-      haptic={false}
-      style={({ pressed }) => [styles.bar, pressed && styles.barPressed]}
-    >
-      <Text style={styles.barLabel}>DECK</Text>
-      <Text style={styles.barCount}>
-        {progress.done}/{progress.total}
-      </Text>
-      {crewCount > 0 ? (
-        <View style={styles.barLive}>
-          {working > 0 ? <WorkingMark size={11} /> : null}
-          <Text style={styles.barLiveText}>{crewCount}</Text>
-        </View>
-      ) : null}
-      {attention > 0 ? <Text style={styles.barAsk}>{`${attention} asking`}</Text> : null}
-      <View style={styles.barSpacer} />
-      <Icon as={ChevronRight} size={16} color={color.textDim} />
-      {/* The bar's baseline rule IS the mission meter — it costs no height, and
-          it sits at the seam where the deck will emerge. */}
-      <View style={styles.barMeter}>
-        <View
-          style={[styles.barSeg, { width: pct(progress.done), backgroundColor: color.workingText }]}
-        />
-        <View
-          style={[
-            styles.barSeg,
-            { width: pct(progress.run), backgroundColor: alpha(color.working, 0.45) },
-          ]}
-        />
-        <View
-          style={[styles.barSeg, { width: pct(progress.review), backgroundColor: color.needsYou }]}
-        />
-        <View
-          style={[styles.barSeg, { width: pct(progress.block), backgroundColor: color.danger }]}
-        />
-      </View>
-    </PressableScale>
-  )
-}
-
 const styles = StyleSheet.create({
   body: {
     flex: 1,
     minHeight: 0,
-  },
-  bar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space.sm,
-    minHeight: 44,
-    paddingHorizontal: space.lg,
-    paddingBottom: 3,
-    backgroundColor: color.bar,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: color.hairlineBar,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: color.hairline,
-  },
-  barPressed: {
-    opacity: 0.85,
-  },
-  barLabel: {
-    ...monoLabel(),
-    color: color.label,
-  },
-  barCount: {
-    ...mono(600),
-    color: color.body,
-    fontSize: font.micro,
-  },
-  barLive: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  barLiveText: {
-    ...mono(500),
-    color: color.workingText,
-    fontSize: font.micro,
-  },
-  barAsk: {
-    ...mono(600),
-    color: color.needsYouText,
-    fontSize: font.micro,
-  },
-  barSpacer: {
-    flex: 1,
-  },
-  barMeter: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    flexDirection: 'row',
-    height: 2,
-    backgroundColor: alpha(color.border, 0.6),
-  },
-  barSeg: {
-    height: '100%',
   },
   stage: {
     flex: 1,

@@ -404,7 +404,7 @@ function UnifiedIssueRowInner({
 }
 
 function fallbackEmptyProgress(): MissionProgress {
-  return { total: 0, done: 0, run: 0, review: 0, stall: 0, block: 0, wait: 0 }
+  return { total: 0, done: 0, working: 0, waiting: 0, todo: 0 }
 }
 
 const ResolvedIssueMenu = observer(function ResolvedIssueMenu({

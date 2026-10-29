@@ -20,7 +20,6 @@ import {
   type MissionDeparture,
   type MissionProgress,
   tallyMissionBuckets,
-  missionProgressFromBuckets,
   type PresenceNote,
   panelLabel,
   subtreeUnread,
@@ -529,7 +528,7 @@ const progress = ((deck: MissionDeckModel): MissionProgress | typeof LOADING => 
     const facts = view.facts(id)
     return facts.visible && (facts.live || (view.tipIds(id, true).length === 0 && !view.hasSpinOffDependent(id)))
   })
-  return missionProgressFromBuckets(tallyMissionBuckets(units, (id) => view.facts(id).missionBucket))
+  return tallyMissionBuckets(units, (id) => view.facts(id).missionBucket)
 }))
 
 // The header is mounted only after its own references and scalar rollups have

@@ -614,11 +614,9 @@ describe('missionIssueIds', () => {
     expect(missionProgress(issues, sessions, 'root')).toEqual({
       total: 1,
       done: 1,
-      run: 0,
-      review: 0,
-      stall: 0,
-      block: 0,
-      wait: 0,
+      working: 0,
+      waiting: 0,
+      todo: 0,
     })
   })
 
@@ -1300,9 +1298,15 @@ describe('missionProgress', () => {
   it('counts member-only sessions and retains archived session history', () => {
     const root = issue('root', { stage: 'backlog', memberSessionIds: ['member'] })
     const computing = sess('member', { issueId: 'elsewhere', agentState: workingState })
-    expect(missionProgress([root], [computing], 'root')).toMatchObject({ run: 1, stall: 0, wait: 0 })
+    expect(missionProgress([root], [computing], 'root')).toMatchObject({
+      working: 1,
+      waiting: 0,
+      todo: 0 })
     expect(missionProgress([root], [{ ...computing, archived: true }], 'root'))
-      .toMatchObject({ run: 0, stall: 1, wait: 0 })
+      .toMatchObject({
+      working: 0,
+      waiting: 1,
+      todo: 0 })
   })
 
   // The fourth element is the mission's SESSIONS, and it is optional because
@@ -1314,12 +1318,12 @@ describe('missionProgress', () => {
     [
       'no mission at all',
       [],
-      { total: 0, done: 0, run: 0, review: 0, stall: 0, block: 0, wait: 0 },
+      { total: 0, done: 0, working: 0, waiting: 0, todo: 0 },
     ],
     [
       'a lone root, which IS the single unit because it contains nothing',
       [issue('root')],
-      { total: 1, done: 0, run: 0, review: 0, stall: 1, block: 0, wait: 0 },
+      { total: 1, done: 0, working: 0, waiting: 1, todo: 0 },
     ],
     [
       // POD-710, the whole complaint: one sub-issue is ONE unit of work. The
@@ -1328,7 +1332,7 @@ describe('missionProgress', () => {
       // untouched child.
       'a root with one child, as one unit and one only',
       [issue('root', { stage: 'in_progress' }), issue('a', { parentId: 'root', stage: 'backlog' })],
-      { total: 1, done: 0, run: 0, review: 0, stall: 0, block: 0, wait: 1 },
+      { total: 1, done: 0, working: 0, waiting: 0, todo: 1 },
     ],
     [
       'a root with N children, every one of them a unit and the root none',
@@ -1338,7 +1342,7 @@ describe('missionProgress', () => {
         issue('b', { parentId: 'root', stage: 'in_progress' }),
         issue('c', { parentId: 'root', stage: 'backlog' }),
       ],
-      { total: 3, done: 1, run: 1, review: 0, stall: 0, block: 0, wait: 1 },
+      { total: 3, done: 1, working: 1, waiting: 0, todo: 1 },
       [sess('s-b', { issueId: 'b', agentState: workingState })],
     ],
     [
@@ -1349,7 +1353,7 @@ describe('missionProgress', () => {
         issue('a1', { parentId: 'a', stage: 'done' }),
         issue('a2', { parentId: 'a', stage: 'backlog' }),
       ],
-      { total: 2, done: 1, run: 0, review: 0, stall: 0, block: 0, wait: 1 },
+      { total: 2, done: 1, working: 0, waiting: 0, todo: 1 },
     ],
     [
       'all four buckets at once',
@@ -1364,7 +1368,7 @@ describe('missionProgress', () => {
         // nobody is here — which is the whole of the sixth band (POD-1314).
         issue('f', { parentId: 'root', stage: 'in_progress' }),
       ],
-      { total: 6, done: 1, run: 1, review: 0, stall: 3, block: 0, wait: 1 },
+      { total: 6, done: 1, working: 1, waiting: 3, todo: 1 },
       [sess('s-e', { issueId: 'e', agentState: workingState })],
     ],
     [
@@ -1381,13 +1385,13 @@ describe('missionProgress', () => {
       ],
       // `b` runs on nobody: shipping's work is the service's, so it is the one
       // started stage a missing session does not stall (POD-1314).
-      { total: 3, done: 0, run: 2, review: 0, stall: 0, block: 0, wait: 1 },
+      { total: 3, done: 0, working: 2, waiting: 0, todo: 1 },
       [sess('s-a', { issueId: 'a', agentState: workingState })],
     ],
     [
       'a child closed as done by reason rather than by stage',
       [issue('root', { stage: 'backlog' }), issue('a', { parentId: 'root', closedReason: 'done' })],
-      { total: 1, done: 1, run: 0, review: 0, stall: 0, block: 0, wait: 0 },
+      { total: 1, done: 1, working: 0, waiting: 0, todo: 0 },
     ],
     [
       // An abandoned leaf leaves the total; its parent remains a container.
@@ -1396,7 +1400,7 @@ describe('missionProgress', () => {
         issue('root', { stage: 'backlog' }),
         issue('a', { parentId: 'root', closedReason: 'duplicate' }),
       ],
-      { total: 0, done: 0, run: 0, review: 0, stall: 0, block: 0, wait: 0 },
+      { total: 0, done: 0, working: 0, waiting: 0, todo: 0 },
     ],
     [
       'cancelled work among live work, out of both halves of the fraction',
@@ -1407,13 +1411,13 @@ describe('missionProgress', () => {
         issue('c', { parentId: 'root', closedReason: 'wontfix' }),
         issue('d', { parentId: 'root', stage: 'in_progress' }),
       ],
-      { total: 2, done: 1, run: 1, review: 0, stall: 0, block: 0, wait: 0 },
+      { total: 2, done: 1, working: 1, waiting: 0, todo: 0 },
       [sess('s-d', { issueId: 'd', agentState: workingState })],
     ],
     [
       'blocked started work waits',
       [issue('root', { stage: 'backlog' }), issue('a', { parentId: 'root', blocked: true })],
-      { total: 1, done: 0, run: 0, review: 0, stall: 1, block: 0, wait: 0 },
+      { total: 1, done: 0, working: 0, waiting: 1, todo: 0 },
     ],
     [
       'done work that is also flagged blocked, counted once as done',
@@ -1421,7 +1425,7 @@ describe('missionProgress', () => {
         issue('root', { stage: 'backlog' }),
         issue('a', { parentId: 'root', stage: 'done', blocked: true }),
       ],
-      { total: 1, done: 1, run: 0, review: 0, stall: 0, block: 0, wait: 0 },
+      { total: 1, done: 1, working: 0, waiting: 0, todo: 0 },
     ],
   ]
 
@@ -1460,21 +1464,17 @@ describe('missionProgress', () => {
     expect(missionProgress([root], sessions, 'root')).toEqual({
       total: 1,
       done: 0,
-      run: 1,
-      review: 0,
-      stall: 0,
-      block: 0,
-      wait: 0,
+      working: 1,
+      waiting: 0,
+      todo: 0,
     })
     // A dependency does not erase a session that is computing.
     expect(missionProgress([{ ...root, blocked: true }], sessions, 'root')).toEqual({
       total: 1,
       done: 0,
-      run: 1,
-      review: 0,
-      stall: 0,
-      block: 0,
-      wait: 0,
+      working: 1,
+      waiting: 0,
+      todo: 0,
     })
   })
 
@@ -1487,20 +1487,24 @@ describe('missionProgress', () => {
 
     it('does not call a started task with a retired agent underway', () => {
       const gone = [sess('s-root', { issueId: 'root', status: 'exited' })]
-      expect(missionProgress([root], gone, 'root')).toMatchObject({ total: 1, run: 0, stall: 1 })
+      expect(missionProgress([root], gone, 'root')).toMatchObject({ total: 1,
+        working: 0,
+        waiting: 1 })
       // An archived session is gone the same way, and a task nobody ever
       // started on is stalled without ever having had one to lose.
       const archived = [sess('s-root', { issueId: 'root', archived: true })]
-      expect(missionProgress([root], archived, 'root')).toMatchObject({ run: 0, stall: 1 })
-      expect(missionProgress([root], [], 'root')).toMatchObject({ run: 0, stall: 1 })
+      expect(missionProgress([root], archived, 'root')).toMatchObject({ working: 0, waiting: 1 })
+      expect(missionProgress([root], [], 'root')).toMatchObject({ working: 0, waiting: 1 })
     })
 
     it('calls it working only while an agent computes', () => {
       const crew = [sess('s-root', { issueId: 'root', agentState: workingState })]
-      expect(missionProgress([root], crew, 'root')).toMatchObject({ total: 1, run: 1, stall: 0 })
+      expect(missionProgress([root], crew, 'root')).toMatchObject({ total: 1,
+        working: 1,
+        waiting: 0 })
       // Hibernated sessions have started but are not computing.
       const parked = [sess('s-root', { issueId: 'root', status: 'hibernated' })]
-      expect(missionProgress([root], parked, 'root')).toMatchObject({ run: 0, stall: 1 })
+      expect(missionProgress([root], parked, 'root')).toMatchObject({ working: 0, waiting: 1 })
     })
 
     it('counts only the leaf in a nested task chain', () => {
@@ -1511,17 +1515,23 @@ describe('missionProgress', () => {
         issue('a1', { parentId: 'a', stage: 'in_progress' }),
       ]
       const crew = [sess('s-a1', { issueId: 'a1', agentState: workingState })]
-      expect(missionProgress(issues, crew, 'root')).toMatchObject({ total: 1, run: 1, stall: 0 })
+      expect(missionProgress(issues, crew, 'root')).toMatchObject({ total: 1,
+        working: 1,
+        waiting: 0 })
       // Take the one agent out and the whole chain stalls together.
-      expect(missionProgress(issues, [], 'root')).toMatchObject({ total: 1, run: 0, stall: 1 })
+      expect(missionProgress(issues, [], 'root')).toMatchObject({ total: 1,
+        working: 0,
+        waiting: 1 })
     })
 
     it('keeps backlog started after its session is rehomed', () => {
       const issues = [issue('root'), issue('history', { parentId: 'root', stage: 'backlog' }), issue('elsewhere')]
       const original = sess('worker', { issueId: 'history', refIssueId: 'history', agentState: workingState })
-      expect(missionProgress(issues, [original], 'root')).toMatchObject({ total: 1, run: 1, wait: 0 })
+      expect(missionProgress(issues, [original], 'root')).toMatchObject({ total: 1,
+        working: 1,
+        todo: 0 })
       expect(missionProgress(issues, [{ ...original, issueId: asIssueId('elsewhere') }], 'root'))
-        .toMatchObject({ total: 1, run: 0, stall: 1, wait: 0 })
+        .toMatchObject({ total: 1, working: 0, waiting: 1, todo: 0 })
     })
 
     it('looks through phases and never replaces abandoned leaves with their parent', () => {
@@ -1530,27 +1540,25 @@ describe('missionProgress', () => {
         issue('cancelled', { parentId: 'parent', stage: 'done', closedReason: 'cancelled' }),
         issue('proposal', { parentId: 'root', stage: 'proposed' }),
         issue('unaccepted', { parentId: 'proposal' })]
-      expect(missionProgress(issues, [], 'root')).toMatchObject({ total: 0, done: 0, stall: 0 })
+      expect(missionProgress(issues, [], 'root')).toMatchObject({ total: 0, done: 0, waiting: 0 })
       expect(missionProgress([issue('root', { type: 'phase' })], [], 'root')).toMatchObject({ total: 0 })
     })
 
     it("never stalls shipping, whose work is the service's and not a session's", () => {
       const shipping = issue('root', { stage: 'shipping' })
-      expect(missionProgress([shipping], [], 'root')).toMatchObject({ run: 1, stall: 0 })
+      expect(missionProgress([shipping], [], 'root')).toMatchObject({ working: 1, waiting: 0 })
     })
 
     it('puts stopped work in waiting and completed work in done', () => {
       expect(missionProgress([{ ...root, blocked: true }], [], 'root')).toMatchObject({
-        block: 0,
-        stall: 1,
+        waiting: 1,
       })
       expect(missionProgress([issue('root', { stage: 'review' })], [], 'root')).toMatchObject({
-        review: 0,
-        stall: 1,
+        waiting: 1,
       })
       expect(missionProgress([issue('root', { stage: 'done' })], [], 'root')).toMatchObject({
         done: 1,
-        stall: 0,
+        waiting: 0,
       })
     })
   })
@@ -1559,11 +1567,9 @@ describe('missionProgress', () => {
     expect(missionProgress([issue('root', { stage: 'review' })], [], 'root')).toEqual({
       total: 1,
       done: 0,
-      run: 0,
-      review: 0,
-      stall: 1,
-      block: 0,
-      wait: 0,
+      working: 0,
+      waiting: 1,
+      todo: 0,
     })
   })
 
@@ -1585,11 +1591,9 @@ describe('missionProgress', () => {
     ).toEqual({
       total: 0,
       done: 0,
-      run: 0,
-      review: 0,
-      stall: 0,
-      block: 0,
-      wait: 0,
+      working: 0,
+      waiting: 0,
+      todo: 0,
     })
   })
 
@@ -1614,11 +1618,9 @@ describe('missionProgress', () => {
     expect(missionProgress(issues, sessions, 'root')).toEqual({
       total: 1,
       done: 0,
-      run: 1,
-      review: 0,
-      stall: 0,
-      block: 0,
-      wait: 0,
+      working: 1,
+      waiting: 0,
+      todo: 0,
     })
   })
 
@@ -1630,7 +1632,7 @@ describe('missionProgress', () => {
       issue('c', { parentId: 'root', stage: 'planning' }),
     ]
     const p = missionProgress(issues, [], 'root')
-    expect(p.done + p.run + p.review + p.stall + p.block + p.wait).toBe(p.total)
+    expect(p.done + p.working + p.waiting + p.todo).toBe(p.total)
   })
 
   // THE bug this signature exists to fix: the filter is a display preference,
@@ -1643,7 +1645,7 @@ describe('missionProgress', () => {
       issue('b', { parentId: 'root', seq: 2, stage: 'done' }),
       issue('c', { parentId: 'root', seq: 3 }),
     ]
-    const expected = { total: 3, done: 2, run: 0, review: 0, stall: 1, block: 0, wait: 0 }
+    const expected = { total: 3, done: 2, working: 0, waiting: 1, todo: 0 }
     for (const mode of ['full', 'working', 'needs-you'] as const) {
       // The spine really does shrink in the filtered modes…
       const rows = buildFlightDeckRows(issues, [], 'root', mode)
@@ -1660,11 +1662,9 @@ describe('missionProgress', () => {
     expect(missionProgress([issue('root', { stage: 'done' })], [], 'root')).toEqual({
       total: 1,
       done: 1,
-      run: 0,
-      review: 0,
-      stall: 0,
-      block: 0,
-      wait: 0,
+      working: 0,
+      waiting: 0,
+      todo: 0,
     })
   })
 
@@ -1679,19 +1679,17 @@ describe('missionProgress', () => {
       [],
       'root',
     )
-    expect(alone).toEqual({ total: 1, done: 0, run: 1, review: 0, stall: 0, block: 0, wait: 0 })
-    expect(container).toEqual({ total: 1, done: 1, run: 0, review: 0, stall: 0, block: 0, wait: 0 })
+    expect(alone).toEqual({ total: 1, done: 0, working: 1, waiting: 0, todo: 0 })
+    expect(container).toEqual({ total: 1, done: 1, working: 0, waiting: 0, todo: 0 })
   })
 
   it('is empty rather than throwing when there is no mission root', () => {
     expect(missionProgress([issue('root')], [], null)).toEqual({
       total: 0,
       done: 0,
-      run: 0,
-      review: 0,
-      stall: 0,
-      block: 0,
-      wait: 0,
+      working: 0,
+      waiting: 0,
+      todo: 0,
     })
   })
 
@@ -1706,11 +1704,9 @@ describe('missionProgress', () => {
     expect(missionProgress(issues, [], 'root')).toEqual({
       total: 1,
       done: 1,
-      run: 0,
-      review: 0,
-      stall: 0,
-      block: 0,
-      wait: 0,
+      working: 0,
+      waiting: 0,
+      todo: 0,
     })
   })
 
@@ -1724,11 +1720,9 @@ describe('missionProgress', () => {
     expect(missionProgress(issues, [], 'root')).toEqual({
       total: 1,
       done: 0,
-      run: 0,
-      review: 0,
-      stall: 0,
-      block: 0,
-      wait: 1,
+      working: 0,
+      waiting: 0,
+      todo: 1,
     })
   })
 
@@ -1751,11 +1745,9 @@ describe('missionProgress', () => {
     ).toEqual({
       total: 1,
       done: 0,
-      run: 1,
-      review: 0,
-      stall: 0,
-      block: 0,
-      wait: 0,
+      working: 1,
+      waiting: 0,
+      todo: 0,
     })
 
     const acceptedAndProposed = [
@@ -1773,11 +1765,9 @@ describe('missionProgress', () => {
     ).toEqual({
       total: 1,
       done: 0,
-      run: 1,
-      review: 0,
-      stall: 0,
-      block: 0,
-      wait: 0,
+      working: 1,
+      waiting: 0,
+      todo: 0,
     })
 
     const backlogAndProposed = [
@@ -1788,11 +1778,9 @@ describe('missionProgress', () => {
     expect(missionProgress(backlogAndProposed, [], 'root')).toEqual({
       total: 1,
       done: 0,
-      run: 0,
-      review: 0,
-      stall: 0,
-      block: 0,
-      wait: 1,
+      working: 0,
+      waiting: 0,
+      todo: 1,
     })
 
     // The screenshot case: discoveries grafted by startedBySession, no parentId.
@@ -1811,11 +1799,9 @@ describe('missionProgress', () => {
     ).toEqual({
       total: 1,
       done: 0,
-      run: 1,
-      review: 0,
-      stall: 0,
-      block: 0,
-      wait: 0,
+      working: 1,
+      waiting: 0,
+      todo: 0,
     })
   })
 
@@ -1851,11 +1837,9 @@ describe('missionProgress', () => {
     expect(missionProgress(issues, sessions, 'root')).toEqual({
       total: 1,
       done: 0,
-      run: 0,
-      review: 0,
-      stall: 1,
-      block: 0,
-      wait: 0,
+      working: 0,
+      waiting: 1,
+      todo: 0,
     })
     // An agent arrives. Nothing about the ISSUE slice changed — only the session
     // slice — and `stall` must become `run` all the same.
@@ -1863,11 +1847,9 @@ describe('missionProgress', () => {
     expect(missionProgress(issues, staffed, 'root')).toEqual({
       total: 1,
       done: 0,
-      run: 1,
-      review: 0,
-      stall: 0,
-      block: 0,
-      wait: 0,
+      working: 1,
+      waiting: 0,
+      todo: 0,
     })
     // And the other way round: same sessions, a republished issue slice.
     const closed = [

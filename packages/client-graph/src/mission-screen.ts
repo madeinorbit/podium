@@ -270,7 +270,7 @@ export class MissionScreen {
       if (child.stage !== 'proposed' && !issueAbandoned(child)) return progress
       stack.push(...this.pool.graph.many('issue', id, 'children'))
     }
-    return { total: 0, done: 0, run: 0, review: 0, stall: 0, block: 0, wait: 0 }
+    return { total: 0, done: 0, working: 0, waiting: 0, todo: 0 }
   }
   @lazy get liveCount(): number { return this.rootRow?.liveAgentCount ?? 0 }
   @lazy get workingCount(): number { return this.rootRow?.workingAgentCount ?? 0 }

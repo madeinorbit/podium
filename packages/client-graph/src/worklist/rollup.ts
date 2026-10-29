@@ -625,7 +625,7 @@ function continuedByField(issue: SliceIssue): boolean {
 // ------------------------------------------------------------ progress
 
 /** One issue's own contribution to an ancestor's progress (`computeMissionRollup`). */
-export type UnitState = 'done' | 'run' | 'review' | 'stall' | 'block' | 'wait'
+export type UnitState = MissionTaskBucket
 
 export interface UnitOwn {
   readonly state?: UnitState
@@ -685,11 +685,9 @@ export function unitsOf(input: {
   let { members, units, done, pending } = NO_UNITS
   const progress: Record<UnitState, number> = {
     done: 0,
-    run: 0,
-    review: 0,
-    stall: 0,
-    block: 0,
-    wait: 0,
+    working: 0,
+    waiting: 0,
+    todo: 0,
   }
   let staffed = false
   for (const { own, below } of input.children) {
@@ -698,7 +696,7 @@ export function unitsOf(input: {
       continue
     }
     staffed ||= own.staffed === true || below.staffed === true
-    if (own.unit && below.members === 0) progress[own.state ?? (own.done ? 'done' : 'wait')] += 1
+    if (own.unit && below.members === 0) progress[own.state ?? (own.done ? 'done' : 'todo')] += 1
     for (const state of Object.keys(progress) as UnitState[])
       progress[state] += below.progress?.[state] ?? 0
     members += (own.member ? 1 : 0) + below.members
@@ -1090,7 +1088,7 @@ export function aggregatePartOf(
  */
 function missionUnitState(input: RollupInputs, id: string, issue: ProgressFacts, hasSessions: boolean): UnitState | undefined {
   const bucket = input.missionBucket ? input.missionBucket(id) : missionTaskBucket(issue, hasSessions, false)
-  return bucket === 'working' ? 'run' : bucket === 'waiting' ? 'stall' : bucket === 'todo' ? 'wait' : bucket ?? undefined
+  return bucket ?? undefined
 }
 
 export function unitOwnPartOf(
@@ -1591,10 +1589,10 @@ function unitsFields(children: () => Iterable<UnitChild>): Units {
       return false
     },
     get progress() {
-      const progress = { done: 0, run: 0, review: 0, stall: 0, block: 0, wait: 0 }
+      const progress = { done: 0, working: 0, waiting: 0, todo: 0 }
       for (const { own, below } of children()) {
         if (own.cold) continue
-        if (own.unit && below.members === 0) progress[own.state ?? (own.done ? 'done' : 'wait')]++
+        if (own.unit && below.members === 0) progress[own.state ?? (own.done ? 'done' : 'todo')]++
         const nested = below.progress
         for (const state of Object.keys(progress) as (keyof typeof progress)[])
           progress[state] += nested?.[state] ?? 0

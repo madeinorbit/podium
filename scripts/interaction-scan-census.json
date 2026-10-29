@@ -12033,7 +12033,7 @@
       "file": "apps/web/src/test-support/mock-screen-pool.ts",
       "holder": "useFixturePool/useMemo:callback/pool/sidebar/row/callback",
       "rule": "helper-consumer",
-      "tokens": "baf7dfd328b1e50dd1c7048536664de7a038484290f245b5f2a73f770dd04fb0",
+      "tokens": "38a91581fe2f0382e0a4da02c6ba7a77e1bff5ef9c5dc1a03afb56edf228a76e",
       "gate": [
         "exit:then:2b4f18499c8215cdd61f2462bac62beed1908aa8157f047393ee49214db8ff66"
       ],
@@ -12042,13 +12042,13 @@
         "a835815122562d1d0dd22a71ddbd055fbfba7f823cba8712a4b31941ff575f25",
         "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
       ],
-      "fingerprint": "781cf84c14c8452b4e325035e9d9c7abfb304dbcfa59c488a8c7d2fb34420a8d",
+      "fingerprint": "14cd9a018f1857b34d9448a14b34101ac44306c2efbd8f78ca96dec2a836af18",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Fixture sidebar projection over normalized synthetic issues (POD-5566)",
       "bound": "Test fixture collection; no production import caller. Exact taint remains monitored.",
-      "reason": "Test-only reference implementations changed to match addressed APIs. Conservative fixture taint retained, not a product regression or fixed runtime path. Session execution, presence and timestamp predicates now borrow shared model facts; the same collection and demand bounds remain. POD-2102 removes task color controls and tint props; the retained operation keeps its trigger and classification, with collection demand unchanged or reduced.",
+      "reason": "Test-only reference implementations changed to match addressed APIs. Conservative fixture taint retained, not a product regression or fixed runtime path. Session execution, presence and timestamp predicates now borrow shared model facts; the same collection and demand bounds remain. POD-2102 removes task color controls and tint props; the retained operation keeps its trigger and classification, with collection demand unchanged or reduced. POD-2239 removes progress compatibility fields; this retained path keeps its collection demand and classification. Predecessor: b00bdaef43c2b434d5a5ff46cc016086300043e14109a25220a18c660e17d3ce. Rebased onto tf.dev while retaining its fixture unread and historical-attachment behavior; the combined callback replaces parent fingerprint 781cf84c14c8452b4e325035e9d9c7abfb304dbcfa59c488a8c7d2fb34420a8d.",
       "guard": "apps/web/src/features/worklist/SidebarUnified.search.test.tsx; exact fingerprint remains monitored."
     },
     {
@@ -22663,26 +22663,26 @@
       "file": "packages/client-core/src/values/mission.ts",
       "holder": "missionProgress",
       "rule": "helper-consumer",
-      "tokens": "e8981db52ec400dbb2f20b9542d37a65c12fec44eec5ad71054f188e67fea539",
+      "tokens": "f38f9455a84a92bf105db890bf3c22bee90b452266052d5cd4cdc208d92206e9",
       "gate": [],
       "origin": [
         "e1718d763445a15f2425142657526db4eee0711fae691caca45b4efd22ff7b00",
         "e86934b770d2688dea1a7084a4ef7fb9a788bbcc6c5d9dac6bf9273aa99a969d"
       ],
-      "fingerprint": "07164cad0e7ce3f41f3f0bdc4eeee964c49fa22f8fb97b6e155919ec7ba4aebf",
+      "fingerprint": "60cc3139371cf005275bd22a8c75728429b6f2a173962dbf8c0906a29922b526",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of missionProgress",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Predecessor: 7634f46464e0dcc63ead520f7f789982197a2f2fa5c2b2593176d24c9ebf3f6e. Predecessor: 857747078d6e26b7ef55cc2850ed65443793c39e94a18888d98a24dc9188fd05.",
+      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Predecessor: 7634f46464e0dcc63ead520f7f789982197a2f2fa5c2b2593176d24c9ebf3f6e. Predecessor: 857747078d6e26b7ef55cc2850ed65443793c39e94a18888d98a24dc9188fd05. POD-2239 removes progress compatibility fields; this retained path keeps its collection demand and classification. Predecessor: 07164cad0e7ce3f41f3f0bdc4eeee964c49fa22f8fb97b6e155919ec7ba4aebf.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
       "file": "packages/client-core/src/values/mission.ts",
       "holder": "missionRollup/memoBySlices:callback",
       "rule": "helper-consumer",
-      "tokens": "9dc4ac729c3668b2bc231f45606404559f3a64c5fceb4aa6ffbfa4da7080f62e",
+      "tokens": "0ed2105ab28903d77d908327c35df06680a76c9ccb49b993a769065ef37a8814",
       "gate": [
         "exit:then:f0a635fb2fab4a48857c14d2bf67cacd54205a89ff726e77888e576b77f8a178"
       ],
@@ -22690,20 +22690,20 @@
         "0bc1e6c030a1f9b93ff1fe4499f8e21d977c8fe3ce1b8874a00d85de467bfebb",
         "0ece8b4a77147488eccac2b10630c44b9b6a0dce4ce8272b8612bc0148b8885b"
       ],
-      "fingerprint": "76ed3c0b5e56f3b45bfa5e4fbff3399bb72e418c7c34b69fd22769e88bce8d86",
+      "fingerprint": "d371091e92e4145995faf924d36c2a4206d5e89b3eb4412c52971945eb17f528",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of missionRollup/memoBySlices:callback",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Predecessor: 1708b1f4b4f5aae2c06d2662d510414bce651f1c52be7867d191ed71c5d6b5a3. Predecessor: c49f8c94eeccb3e763d949ab9629976f4fb2ef5fcf373377f9cd928ab50fa6eb.",
+      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Predecessor: 1708b1f4b4f5aae2c06d2662d510414bce651f1c52be7867d191ed71c5d6b5a3. Predecessor: c49f8c94eeccb3e763d949ab9629976f4fb2ef5fcf373377f9cd928ab50fa6eb. POD-2239 removes progress compatibility fields; this retained path keeps its collection demand and classification. Predecessor: 76ed3c0b5e56f3b45bfa5e4fbff3399bb72e418c7c34b69fd22769e88bce8d86.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
       "file": "packages/client-core/src/values/mission.ts",
       "holder": "missionRollup/memoBySlices:callback",
       "rule": "helper-consumer",
-      "tokens": "9dc4ac729c3668b2bc231f45606404559f3a64c5fceb4aa6ffbfa4da7080f62e",
+      "tokens": "0ed2105ab28903d77d908327c35df06680a76c9ccb49b993a769065ef37a8814",
       "gate": [
         "exit:then:f0a635fb2fab4a48857c14d2bf67cacd54205a89ff726e77888e576b77f8a178"
       ],
@@ -22711,13 +22711,13 @@
         "e1718d763445a15f2425142657526db4eee0711fae691caca45b4efd22ff7b00",
         "e86934b770d2688dea1a7084a4ef7fb9a788bbcc6c5d9dac6bf9273aa99a969d"
       ],
-      "fingerprint": "663bcdb9bce4319127fff660fc73a557a7d3bf03d1c3dd7c57b2ce91a9840048",
+      "fingerprint": "d9e740164648be8ee9aa49257815289cc6e5adeb388b35e4efb2b03b66acb1ea",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of missionRollup/memoBySlices:callback",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Predecessor: 39ae1730b1bd9860b30756520c88f16768908b06fa3fa4d4cdcdc4232a785b57. Predecessor: c3f9d0974e76e3db4416d009116430e4927169d01741e8fa72bdcf7fc3ed8b91.",
+      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Predecessor: 39ae1730b1bd9860b30756520c88f16768908b06fa3fa4d4cdcdc4232a785b57. Predecessor: c3f9d0974e76e3db4416d009116430e4927169d01741e8fa72bdcf7fc3ed8b91. POD-2239 removes progress compatibility fields; this retained path keeps its collection demand and classification. Predecessor: 663bcdb9bce4319127fff660fc73a557a7d3bf03d1c3dd7c57b2ce91a9840048.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -35731,6 +35731,60 @@
       "bound": "One pass over resident messageRecord rows at index creation. Later publications inspect only the changed row and update keys only when its session or transcript identity changes.",
       "reason": "The index stores message IDs and returns the existing shared models. This also includes requested historical records outside the live feed index; lookups do not scan the working set.",
       "guard": "packages/client-graph/src/message-models.test.ts: looks up transcript identity without waking for unrelated message changes. ChatBlockView.attachments.test.tsx covers historical rows absent from the live feed."
+    },
+    {
+      "file": "apps/web/src/test-support/mock-screen-pool.ts",
+      "holder": "fixtureSidebarRow/bucketOf/callback",
+      "rule": "consume:some",
+      "tokens": "5507dd2b554162e0f9941f6d710d36850733f2c1dbf9618bb361228136a31c58",
+      "gate": [],
+      "origin": [
+        "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
+      ],
+      "fingerprint": "3ee056defe020e7e5b0f73d194255a0f39121fe57d211b9235130fb5ca426b84",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Fixture sidebar task-bucket projection over synthetic session rows (POD-2239)",
+      "bound": "Test fixture collection; no production import caller. Exact taint remains monitored.",
+      "reason": "POD-2239 traces the existing fixture session filter and checks the matching sessions for current execution. Test-only synthetic input; no production import caller. Conservative fixture taint remains REQUIRED REPAIR, with no claim to repair existing collection debt. Predecessor fixture projection: b00bdaef43c2b434d5a5ff46cc016086300043e14109a25220a18c660e17d3ce.",
+      "guard": "apps/web/src/features/worklist/SidebarUnified.search.test.tsx; exact fingerprint remains monitored."
+    },
+    {
+      "file": "apps/web/src/test-support/mock-screen-pool.ts",
+      "holder": "fixtureSidebarRow/bucketOf/callback/sessions",
+      "rule": "reader-summary",
+      "tokens": "e49352c410f1473477e91d170745f5427371ddbc731705ad68a905db24b4d2fb",
+      "gate": [],
+      "origin": [
+        "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
+      ],
+      "fingerprint": "18aedd694620939e7c0ab8e628016c11ad43b74d26325310138e1ef36621e878",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Fixture sidebar task-bucket projection over synthetic session rows (POD-2239)",
+      "bound": "Test fixture collection; no production import caller. Exact taint remains monitored.",
+      "reason": "POD-2239 traces the existing fixture session filter and checks the matching sessions for current execution. Test-only synthetic input; no production import caller. Conservative fixture taint remains REQUIRED REPAIR, with no claim to repair existing collection debt. Predecessor fixture projection: b00bdaef43c2b434d5a5ff46cc016086300043e14109a25220a18c660e17d3ce.",
+      "guard": "apps/web/src/features/worklist/SidebarUnified.search.test.tsx; exact fingerprint remains monitored."
+    },
+    {
+      "file": "apps/web/src/test-support/mock-screen-pool.ts",
+      "holder": "fixtureSidebarRow/childSessionsOf/callback",
+      "rule": "consume:filter",
+      "tokens": "b89c9fff24c1d491d6bc6a4c5de1a5be4c4e95526b2d4311be3ec65e2909dc5b",
+      "gate": [],
+      "origin": [
+        "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
+      ],
+      "fingerprint": "7314502b0276b1b3095c4fbe6f2b66facd9d30a2d1c63ca4096744e4296508d5",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Fixture sidebar task-bucket projection over synthetic session rows (POD-2239)",
+      "bound": "Test fixture collection; no production import caller. Exact taint remains monitored.",
+      "reason": "POD-2239 traces the existing fixture session filter and checks the matching sessions for current execution. Test-only synthetic input; no production import caller. Conservative fixture taint remains REQUIRED REPAIR, with no claim to repair existing collection debt. Predecessor fixture projection: b00bdaef43c2b434d5a5ff46cc016086300043e14109a25220a18c660e17d3ce.",
+      "guard": "apps/web/src/features/worklist/SidebarUnified.search.test.tsx; exact fingerprint remains monitored."
     }
   ]
 }

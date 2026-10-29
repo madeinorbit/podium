@@ -88,11 +88,18 @@ function formatIssueStatus(value: WorklistIssue | SidebarRowValues): string {
   if ('showsChildProgress' in value ? value.showsChildProgress : value.statusFromChildren) {
     const progressValue = value.progress
     if (progressValue === LOADING) return 'no active subtasks'
-    const { total, done, run, stall, wait } = progressValue
+    const { total, done, working, waiting, todo } = progressValue
     if (total === 0) return 'no active subtasks'
     const progress = `${done}/${total} ${total === 1 ? 'subtask' : 'subtasks'} done`
     if (done === total) return progress
-    const next = run > 0 ? `${run} working` : stall > 0 ? `${stall} waiting` : wait > 0 ? `${wait} to do` : null
+    const next =
+      working > 0
+        ? `${working} working`
+        : waiting > 0
+          ? `${waiting} waiting`
+          : todo > 0
+            ? `${todo} to do`
+            : null
     return next ? `${progress} · ${next}` : progress
   }
   if (value.decision === 'merge')

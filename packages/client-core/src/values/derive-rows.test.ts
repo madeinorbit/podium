@@ -322,30 +322,28 @@ describe('rowStatusLine — task status, separate from agent activity', () => {
     const container = (progress: {
       total: number
       done: number
-      run: number
-      review: number
-      stall: number
-      block: number
-      wait: number
+      working: number
+      waiting: number
+      todo: number
     }) => ({
       ...issueRow([done()], false, { stage: 'in_progress', childCount: progress.total }),
       missionRollup: { progress, fromChildren: true },
     })
     expect(
       rowStatusLine(
-        container({ total: 3, done: 1, run: 1, review: 0, stall: 0, block: 0, wait: 1 }),
+        container({ total: 3, done: 1, working: 1, waiting: 0, todo: 1 }),
         NOW,
       ),
-    ).toBe('1/3 subtasks done · 1 underway')
+    ).toBe('1/3 subtasks done · 1 working')
     expect(
       rowStatusLine(
-        container({ total: 2, done: 0, run: 0, review: 0, stall: 0, block: 1, wait: 1 }),
+        container({ total: 2, done: 0, working: 0, waiting: 1, todo: 1 }),
         NOW,
       ),
-    ).toBe('0/2 subtasks done · 1 blocked')
+    ).toBe('0/2 subtasks done · 1 waiting')
     expect(
       rowStatusLine(
-        container({ total: 2, done: 2, run: 0, review: 0, stall: 0, block: 0, wait: 0 }),
+        container({ total: 2, done: 2, working: 0, waiting: 0, todo: 0 }),
         NOW,
       ),
     ).toBe('2/2 subtasks done')

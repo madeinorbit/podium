@@ -22,6 +22,7 @@ type Store = ReferenceState & { drafts?: Record<string, string> }
 import {
   createRepositoryUsageSelector,
   isSessionWorking,
+  missionTaskBucket,
   resolveDefaultAgent,
   rowMotionTiming,
   rowPendingDecision,
@@ -32,6 +33,7 @@ import { createChatContextReader } from '@podium/client-graph/chat-context'
 import { settingsRepositoryId } from '@podium/client-graph/settings-schema'
 import { settingsView } from '@podium/client-graph/settings-views'
 import { isExcluded, isFinished, isMessageRecordAttention } from '@podium/model'
+import { sessionWorkingFact } from '@podium/model/browser'
 import { computed, observable, reaction, runInAction } from 'mobx'
 import { useCallback, useLayoutEffect, useMemo, useRef, useSyncExternalStore } from 'react'
 import { afterEach, vi } from 'vitest'
@@ -192,16 +194,11 @@ function fixtureSidebarRow(
     allSessions.filter(
       (session) => (session as unknown as Record<string, unknown>)['issueId'] === id,
     )
-  // A started task with an agent on it runs; started with nobody on it it
-  // stalls (POD-1314). Backlog and the rest wait.
-  const bucketOf = (child: IssueViewModel): 'done' | 'review' | 'block' | 'run' | 'stall' | 'wait' => {
-    const fields = child as unknown as Record<string, unknown>
-    if (fields['stage'] === 'done' || fields['closedReason'] != null) return 'done'
-    if (fields['stage'] === 'review') return 'review'
-    if (fields['blocked'] === true) return 'block'
-    if (fields['stage'] === 'in_progress')
-      return childSessionsOf(child.id).length > 0 ? 'run' : 'stall'
-    return 'wait'
+  const bucketOf = (child: IssueViewModel) => {
+    const sessions = childSessionsOf(child.id)
+    return missionTaskBucket(child, sessions.length > 0, sessions.some(session => !session.archived && sessionWorkingFact({
+      status: session.status, busy: session.busy, agentState: { phase: session.agentState?.phase },
+    })))
   }
   const buckets = descendantModels.map(bucketOf)
   const countBucket = (bucket: string): number => buckets.filter((entry) => entry === bucket).length
@@ -239,11 +236,9 @@ function fixtureSidebarRow(
     progress: {
       total: descendantModels.length,
       done: countBucket('done'),
-      run: countBucket('run'),
-      review: countBucket('review'),
-      stall: countBucket('stall'),
-      block: countBucket('block'),
-      wait: countBucket('wait'),
+      working: countBucket('working'),
+      waiting: countBucket('waiting'),
+      todo: countBucket('todo'),
     },
     fromChildren,
     statusFromChildren: record['parentId'] == null && fromChildren,

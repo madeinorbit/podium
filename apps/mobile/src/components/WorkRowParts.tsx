@@ -3,6 +3,7 @@ import {
   FLEET_KIND_LIMIT,
   type GitStampModel,
   type MissionProgress,
+  missionProgressLabel,
 } from '@podium/client-core/values'
 import type { SidebarRowValues } from '@podium/client-graph/worklist/sidebar-row'
 import type { IssueGitState } from '@podium/model'
@@ -124,8 +125,7 @@ export type RowProgress = MissionProgress
 /**
  * The row's baseline rule: a segmented meter drawn across the text column, in
  * the row's existing bottom padding, so a row that has one costs no height and
- * a list of thirty keeps one even rhythm. Review is the one bisque segment: it
- * is the progress state that explicitly asks the operator for attention.
+ * a list of thirty keeps one even rhythm. Counts use the shared task buckets.
  */
 export function RowProgressMeter({
   progress,
@@ -141,6 +141,7 @@ export function RowProgressMeter({
     <View
       accessibilityRole="progressbar"
       accessibilityValue={{ min: 0, max: progress.total, now: progress.done }}
+      accessibilityLabel={missionProgressLabel(progress)}
       style={styles.meter}
     >
       <View
@@ -150,17 +151,11 @@ export function RowProgressMeter({
         style={[
           styles.seg,
           {
-            width: pct(progress.run),
+            width: pct(progress.working),
             backgroundColor: alpha(color.working, working ? 0.55 : 0.34),
           },
         ]}
       />
-      {progress.review > 0 ? (
-        <View
-          style={[styles.seg, { width: pct(progress.review), backgroundColor: color.needsYou }]}
-        />
-      ) : null}
-      <View style={[styles.seg, { width: pct(progress.block), backgroundColor: color.danger }]} />
     </View>
   )
 }

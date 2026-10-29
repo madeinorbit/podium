@@ -29,7 +29,7 @@ const openings = new WeakMap<MobxPool, Map<string, MissionScreen>>()
 function pane(pool: MobxPool, selectedId: string) {
   const rootId = missionRootId(pool, selectedId)
   if (rootId === LOADING) return LOADING
-  if (!rootId) return { root: undefined, rows: [], archivedCount: 0, progress: { total: 0, done: 0, run: 0, review: 0, stall: 0, block: 0, wait: 0 } }
+  if (!rootId) return { root: undefined, rows: [], archivedCount: 0, progress: { total: 0, done: 0, working: 0, waiting: 0, todo: 0 } }
   let byRoot = openings.get(pool)
   if (!byRoot) openings.set(pool, byRoot = new Map())
   let screen = byRoot.get(rootId)
@@ -243,7 +243,7 @@ it('bounds parent child-list reads for earliest-child parenting at 1x and 4x', (
   }
 })
 
-it('renders an addressed dependency label without loading that target\'s unrelated dependents', () => {
+it("renders an addressed dependency label without loading that target's unrelated dependents", () => {
   const root = issue('root', { blocked: true, deps: [{ id: 'blocker', type: 'blocked-by' }] })
   const { pool, reader } = open([root, issue('blocker', { seq: 2, stage: 'backlog' }),
     issue('unrelated', { ...coldRoot(), id: 'unrelated', deps: [{ id: 'blocker', type: 'related' }] })], [])

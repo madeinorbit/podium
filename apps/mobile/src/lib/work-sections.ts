@@ -219,22 +219,18 @@ export function worklistRowStatus(sidebar: WorklistIssue): string {
   if (sidebar.showsChildProgress) {
     const parts = sidebar.progress
     if (typeof parts === 'symbol') return 'no active subtasks'
-    const { total, done, run, review, stall, block, wait } = parts
+    const { total, done, working, waiting, todo } = parts
     if (total === 0) return 'no active subtasks'
     const progress = `${done}/${total} ${total === 1 ? 'subtask' : 'subtasks'} done`
     if (done === total) return progress
     const next =
-      block > 0
-        ? `${block} blocked`
-        : review > 0
-          ? `${review} in review`
-          : run > 0
-            ? `${run} underway`
-            : stall > 0
-              ? `${stall} stalled`
-              : wait > 0
-                ? `${wait} to go`
-                : null
+      working > 0
+        ? `${working} working`
+        : waiting > 0
+          ? `${waiting} waiting`
+          : todo > 0
+            ? `${todo} to do`
+            : null
     return next ? `${progress} · ${next}` : progress
   }
   if (sidebar.decision === 'merge')
