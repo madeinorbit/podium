@@ -13,7 +13,6 @@ import type { SessionView } from '../../../session-values'
  */
 
 import type { MissionRollup } from '../../mission'
-import { isSessionWorking } from '../../session-status'
 import { subtreeUnread } from '../../unread'
 import type { IssueNavigationModel } from '../issues'
 import type { WorktreeNavView } from './nav'
@@ -93,14 +92,8 @@ function isRowUnread(row: UnifiedWorkRow): boolean {
   })
 }
 
-/** Whether a unified row should actually RENDER the unread (email-style) emphasis.
- *  Extends `isRowUnread` with the #138 rule: a row that has a currently-working
- *  session is active work, not "new unseen work" — and a working session re-flips
- *  `unread` on every output — so its emphasis is suppressed wherever it renders
- *  (WORK or WORKING). Read rows and rows with only idle/waiting sessions are
- *  unaffected. Applies to the row LABEL; child session rows gate on
- *  `isSessionWorking` in PanelRow. */
+/** Whether a row has unseen activity. Working state alone says nothing
+ * about whether the operator has actually viewed it. */
 export function rowUnreadEmphasized(row: UnifiedWorkRow): boolean {
-  if (!isRowUnread(row)) return false
-  return !rowSessions(row).some(isSessionWorking)
+  return isRowUnread(row)
 }

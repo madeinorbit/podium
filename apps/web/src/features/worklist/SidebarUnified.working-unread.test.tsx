@@ -149,25 +149,17 @@ vi.mock('@/lib/hooks/use-session-guard', () => ({
 
 afterEach(cleanup)
 
-describe('SidebarUnified WORKING rows suppress unread emphasis (#138 FIX B)', () => {
-  it('a fully-working unread issue is not emphasized, while an idle unread issue in WORK is', () => {
+describe('SidebarUnified preserves unseen working activity', () => {
+  it('emphasizes unseen activity in both working and idle issues', () => {
     render(<SidebarUnified />)
-    // Same issue, both unread — the only difference is WORKING vs WORK placement.
-    //
-    // The emphasis is `font-semibold` (unreadTitleClass in components/UnreadMark),
-    // not the `font-medium` these once looked for. Both lines move together on
-    // purpose: with the row on semibold, the negative assertion would have gone on
-    // passing against a row that WAS emphasized, so leaving it would have kept a
-    // green test that could no longer fail for the reason it exists.
-    expect(screen.getByText('Working issue').className).not.toContain('font-semibold')
+    expect(screen.getByText('Working issue').className).toContain('font-semibold')
     expect(screen.getByText('Work issue').className).toContain('font-semibold')
   })
 
   // The lifted working session used to render as its own PanelRow inside the
   // parent's roster band, and this asserted that IT was not emphasized. POD-516
   // §1.1 removed the band: no session has a row in this column any more, so the
-  // suppression is now carried entirely by the issue row (asserted above) and
-  // the session's own weight is a Flight Deck / dock question. What is asserted
+  // session's own weight is a Flight Deck / dock question. What is asserted
   // here instead is that the column really has stopped rendering sessions.
   it('renders no session rows of its own — the Flight Deck holds them', () => {
     render(<SidebarUnified />)

@@ -12033,7 +12033,7 @@
       "file": "apps/web/src/test-support/mock-screen-pool.ts",
       "holder": "useFixturePool/useMemo:callback/pool/sidebar/row/callback",
       "rule": "helper-consumer",
-      "tokens": "ef3b814f8692cfd0073bd56e72fa5f9c3dbbb2b178a774f536a333df71b8212d",
+      "tokens": "baf7dfd328b1e50dd1c7048536664de7a038484290f245b5f2a73f770dd04fb0",
       "gate": [
         "exit:then:2b4f18499c8215cdd61f2462bac62beed1908aa8157f047393ee49214db8ff66"
       ],
@@ -12042,7 +12042,7 @@
         "a835815122562d1d0dd22a71ddbd055fbfba7f823cba8712a4b31941ff575f25",
         "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
       ],
-      "fingerprint": "b00bdaef43c2b434d5a5ff46cc016086300043e14109a25220a18c660e17d3ce",
+      "fingerprint": "781cf84c14c8452b4e325035e9d9c7abfb304dbcfa59c488a8c7d2fb34420a8d",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -19284,48 +19284,6 @@
       "trigger": "Invocation of isRowUnread",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-core/src/values/compose/worklist/row-types.ts",
-      "holder": "rowUnreadEmphasized",
-      "rule": "consume:some",
-      "tokens": "85cc815a8e3cbcd8ef14c7df1d4a57459afc901edbcf52027e54af755fb3b83d",
-      "gate": [
-        "exit:then:5f3b16c3338a85f0d94eeb7565ea821d0e02b25f2e9f339ad8e4ae8ba567f223"
-      ],
-      "origin": [
-        "62abb4dee19f33d18d7a2cb2006b4568298ee197e8610db8d3b96ee653348065",
-        "817ecc6bbfcc0faf265ba91310e86a6477735cbdd6c698786fa50f3e3c863de2"
-      ],
-      "fingerprint": "5b9a34d9b7aee64fb7b8fd7e4b577d1bf67148bebb9f49178ee05eb578a87efe",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of rowUnreadEmphasized",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:some carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-core/src/values/compose/worklist/row-types.ts",
-      "holder": "rowUnreadEmphasized",
-      "rule": "reader-summary",
-      "tokens": "ecab755e3289ac0809815b43c312c9edd869eb93d62d3d6f8abde79171fbe355",
-      "gate": [
-        "exit:then:5f3b16c3338a85f0d94eeb7565ea821d0e02b25f2e9f339ad8e4ae8ba567f223"
-      ],
-      "origin": [
-        "62abb4dee19f33d18d7a2cb2006b4568298ee197e8610db8d3b96ee653348065",
-        "817ecc6bbfcc0faf265ba91310e86a6477735cbdd6c698786fa50f3e3c863de2"
-      ],
-      "fingerprint": "65630016d4ff99ccdcd76aace3c30521a64c52254eef058e7bbbff0e11f35ec3",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of rowUnreadEmphasized",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {

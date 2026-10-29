@@ -732,6 +732,35 @@ describe('focusIssueSession waits for the session a launch started', () => {
 })
 
 describe('navigation read command coalescing', () => {
+  it('keeps the latest observed receipt when a visit ends during leading enqueue', async () => {
+    const h = harness()
+    const first = h.actions.markIssueRead('issue-1', '2026-10-29T12:00:00.000Z')
+    const last = h.actions.markIssueRead('issue-1', '2026-10-29T12:00:01.000Z')
+    await Promise.all([first, last])
+    expect(h.queued).toEqual([
+      { kind: 'issueMarkRead', input: { id: 'issue-1', readAt: '2026-10-29T12:00:00.000Z' } },
+      { kind: 'issueMarkRead', input: { id: 'issue-1', readAt: '2026-10-29T12:00:01.000Z' } },
+    ])
+  })
+
+  it.each([
+    'issue',
+    'session',
+  ] as const)('manual %s unread cancels a receipt waiting on enqueue', async (kind) => {
+    const h = harness()
+    const read = kind === 'issue' ? h.actions.markIssueRead : h.actions.markSessionRead
+    const unread = kind === 'issue' ? h.actions.markIssueUnread : h.actions.markSessionUnread
+    const first = read(sessionId, '2026-10-29T12:00:00.000Z')
+    const last = read(sessionId, '2026-10-29T12:00:01.000Z')
+    await unread(sessionId)
+    await Promise.all([first, last])
+    expect(h.queued.map((entry) => entry.kind)).toEqual(
+      kind === 'issue'
+        ? ['issueMarkRead', 'issueMarkUnread']
+        : ['sessionMarkRead', 'sessionMarkUnread'],
+    )
+  })
+
   it('shares the reaction and click read until its optimistic overlay is published', async () => {
     const h = harness()
     const issueId = asIssueId('issue-1')

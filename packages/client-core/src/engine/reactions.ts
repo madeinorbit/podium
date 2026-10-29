@@ -1,4 +1,5 @@
 import { isMachinePathWithinRoot, machinePathsEqual } from '@podium/model'
+import { ReadAcknowledgements } from './read-acknowledgements'
 /**
  * THE REACTION TABLE (POD-404, split out of the old `engine.ts`).
  *
@@ -83,11 +84,7 @@ function pruningState(state: EngineState): PruningState {
   )
 }
 
-/** Throttle window (ms) for mark-read-on-view. The FIRST activity on the surface
- *  the operator is looking at marks it read immediately (POD-272 — it is already
- *  on screen); this window then bounds the follow-ups, so a streaming session
- *  costs one mutation per window plus one trailing pass rather than one a frame.
- *  Still the default trailing debounce for the standalone useMarkReadOnView. */
+/** Default settle delay for the standalone useMarkReadOnView hook. */
 export const MARK_READ_ON_VIEW_MS = 1200
 
 /**
@@ -111,8 +108,8 @@ export interface ReactionPorts {
   readonly hub: SocketHub
   readonly notices: StoreNotices
   /** Resolved lazily: the action surface is built after this object exists. */
-  readonly markSessionRead: (sessionId: SessionId) => void
-  readonly markIssueRead: (issueId: IssueId) => void
+  readonly markSessionRead: (sessionId: SessionId, readAt: string) => void | Promise<void>
+  readonly markIssueRead: (issueId: IssueId, readAt: string) => void | Promise<void>
   /**
    * IS THIS CLIENT ON SCREEN — from the platform's visibility source, not from
    * `document` (POD-2055 WP-C4). Every read below used to go through the
@@ -132,14 +129,8 @@ export class Reactions {
   private readonly ports: ReactionPorts
   private prevCwds: Record<string, string> = {}
   private prevIssueIds: Record<string, string> = {}
-  private markReadKey: string | null = null
-  private markReadTimer: ReturnType<typeof setTimeout> | null = null
-  /** When the focused session's eager mark-read last actually fired (POD-272) —
-   *  the throttle window's origin, so a burst of activity costs one mutation. */
-  private markReadFiredAt = 0
-  private issueMarkReadKey: string | null = null
-  private issueMarkReadTimer: ReturnType<typeof setTimeout> | null = null
-  private issueMarkReadFiredAt = 0
+  private readonly sessionReads: ReadAcknowledgements
+  private readonly issueReads: ReadAcknowledgements
   /** When each currently-unresolved tab id was FIRST seen naming nothing —
    *  the clock the prune grace period runs against. */
   private unknownSince = new Map<TabId, number>()
@@ -149,6 +140,18 @@ export class Reactions {
 
   constructor(ports: ReactionPorts) {
     this.ports = ports
+    const reads = (kind: 'issue' | 'session') =>
+      new ReadAcknowledgements({
+        observe: (id, at) => ports.state().navigation.observeRead?.(kind, id, at) ?? true,
+        allowed: (id) => ports.state().navigation.automaticReadAllowed?.(kind, id) ?? true,
+        leave: (id) => ports.state().navigation.leaveReadVisit?.(kind, id),
+        save: (id, at) =>
+          kind === 'issue'
+            ? ports.markIssueRead(id as IssueId, at)
+            : ports.markSessionRead(id as SessionId, at),
+      })
+    this.sessionReads = reads('session')
+    this.issueReads = reads('issue')
     this.pruneGraceMs = ports.pruneGraceMs ?? WORKSPACE_PRUNE_GRACE_MS
   }
 
@@ -170,21 +173,17 @@ export class Reactions {
   }
 
   dispose(): void {
-    if (this.markReadTimer !== null) {
-      clearTimeout(this.markReadTimer)
-      this.markReadTimer = null
-    }
-    if (this.issueMarkReadTimer !== null) {
-      clearTimeout(this.issueMarkReadTimer)
-      this.issueMarkReadTimer = null
-    }
+    this.leaveReadVisits()
     if (this.pruneTimer !== null) {
       clearTimeout(this.pruneTimer)
       this.pruneTimer = null
     }
-    this.markReadKey = null
-    this.issueMarkReadKey = null
     this.unknownSince.clear()
+  }
+
+  leaveReadVisits(): void {
+    this.sessionReads.dispose()
+    this.issueReads.dispose()
   }
 
   /**
@@ -322,7 +321,8 @@ export class Reactions {
       let follow: string | null = null
       // Only identities changed since the previous navigation wake participate.
       // Their final source order preserves which visible move follows first.
-      const moves = changes.filter(change => change.before && change.after && change.before.cwd !== change.after.cwd)
+      const moves = changes
+        .filter((change) => change.before && change.after && change.before.cwd !== change.after.cwd)
         .sort((a, b) => {
           const left = a.after?.order ?? '', right = b.after?.order ?? ''
           return left < right ? -1 : left > right ? 1 : a.id.localeCompare(b.id)
@@ -453,17 +453,8 @@ export class Reactions {
     this.updateIssueVisitBaseline()
     this.ports.hub.setVisible(this.isVisible())
     this.reportViewState()
-    if (this.isVisible()) {
-      this.updateMarkReadTimer()
-      this.updateIssueMarkReadTimer()
-    } else {
-      this.markReadKey = null
-      this.issueMarkReadKey = null
-      if (this.markReadTimer !== null) clearTimeout(this.markReadTimer)
-      if (this.issueMarkReadTimer !== null) clearTimeout(this.issueMarkReadTimer)
-      this.markReadTimer = null
-      this.issueMarkReadTimer = null
-    }
+    this.updateMarkReadTimer()
+    this.updateIssueMarkReadTimer()
   }
 
   /**
@@ -489,92 +480,33 @@ export class Reactions {
     })
   }
 
-  /** Mark the session the operator is LOOKING AT read on view (#138), keyed on
-   *  the focused session's id + activity. The activity that lands while the
-   *  session IS the open pane is already on screen, so it's marked read EAGERLY
-   *  — leading edge, no settle wait (POD-272: waiting left a "new" chip on the
-   *  row of the very session being read). MARK_READ_ON_VIEW_MS survives as the
-   *  throttle window: a burst costs one mutation now plus one trailing pass, so
-   *  a streaming session still can't spam the outbox.
-   *
-   *  The trigger stays ACTIVITY, never the `unread` flag itself, so manually
-   *  marking the open session unread isn't instantly undone; `unread` +
-   *  visibility are re-checked at fire time. */
+  /** Only the focused workspace pane has actually been viewed. Selection in
+   * a hidden workspace must never acknowledge its session's activity. */
   updateMarkReadTimer(): void {
     const st = this.ports.state()
-    const focusedId = focusedPaneSession(st)
+    const focusedId = this.isVisible() && st.view === 'workspace' ? focusedPaneSession(st) : null
     const session = focusedId ? navigationSession(st, focusedId) : undefined
-    const key = session ? `${session.sessionId}\n${session.lastActiveAt}` : null
-    if (key === this.markReadKey) return
-    this.markReadKey = key
-    if (this.markReadTimer !== null) {
-      clearTimeout(this.markReadTimer)
-      this.markReadTimer = null
-    }
-    if (!session) return
-    const sessionId = session.sessionId
-    const wait = MARK_READ_ON_VIEW_MS - (Date.now() - this.markReadFiredAt)
-    if (wait <= 0) {
-      this.fireMarkSessionRead(sessionId)
-      return
-    }
-    this.markReadTimer = setTimeout(() => {
-      this.markReadTimer = null
-      this.fireMarkSessionRead(sessionId)
-    }, wait)
+    this.sessionReads.update(
+      session?.sessionId ?? null,
+      session?.lastActiveAt,
+      session?.unread === true,
+    )
   }
 
-  /** The guarded mark-read itself: only when this session is STILL the focused
-   *  pane, still unread, and the tab is visible. */
-  private fireMarkSessionRead(sessionId: SessionId): void {
-    const cur = this.ports.state()
-    const s = navigationSession(cur, sessionId)
-    if (focusedPaneSession(cur) !== sessionId || s?.unread !== true || !this.isVisible()) return
-    this.markReadFiredAt = Date.now()
-    this.ports.markSessionRead(sessionId)
-  }
-
-  /** The issue half of eager mark-read-on-view (POD-272): while an issue is the
-   *  foreground surface its incoming activity is on screen, so the row must not
-   *  hold a "new message" chip for it. Same shape as the session reaction —
-   *  keyed on activity (so a manual mark-unread sticks), leading edge, throttled
-   *  by MARK_READ_ON_VIEW_MS. */
   updateIssueMarkReadTimer(): void {
     const st = this.ports.state()
-    const issue = foregroundIssue(st)
+    const issue = this.isVisible() ? foregroundIssue(st) : undefined
     const activity = issue ? navigationActivityAt(st, issue) : undefined
-    const key = issue && activity ? `${issue.id}\n${activity}` : null
-    if (key === this.issueMarkReadKey) return
-    this.issueMarkReadKey = key
-    if (this.issueMarkReadTimer !== null) {
-      clearTimeout(this.issueMarkReadTimer)
-      this.issueMarkReadTimer = null
-    }
-    if (!issue || !activity) return
-    const issueId = issue.id
-    const wait = MARK_READ_ON_VIEW_MS - (Date.now() - this.issueMarkReadFiredAt)
-    if (wait <= 0) {
-      this.fireMarkIssueRead(issueId)
-      return
-    }
-    this.issueMarkReadTimer = setTimeout(() => {
-      this.issueMarkReadTimer = null
-      this.fireMarkIssueRead(issueId)
-    }, wait)
+    const cursor = issue ? navigationIssueReadAt(st, issue.id) : null
+    this.issueReads.update(
+      issue?.id ?? null,
+      activity,
+      !!activity && (!cursor || activity > cursor),
+    )
   }
 
-  private fireMarkIssueRead(issueId: IssueId): void {
-    const st = this.ports.state()
-    const issue = foregroundIssue(st)
-    if (issue?.id !== issueId || !this.isVisible()) return
-    const activity = navigationActivityAt(st, issue)
-    if (activity === undefined) return
-    const activityAt = Date.parse(activity)
-    const cursor = navigationIssueReadAt(st, issue.id)
-    const readAt = cursor ? Date.parse(cursor) : Number.NaN
-    const unread = !Number.isFinite(readAt) || (Number.isFinite(activityAt) && activityAt > readAt)
-    if (!unread) return
-    this.issueMarkReadFiredAt = Date.now()
-    this.ports.markIssueRead(issueId)
+  /** Called before reload's local outbox durability barrier. */
+  async flushReadAcknowledgements(): Promise<void> {
+    await Promise.all([this.sessionReads.settle(), this.issueReads.settle()])
   }
 }

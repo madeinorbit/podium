@@ -125,6 +125,21 @@ export const IssueContextMenu = observer(function IssueContextMenu({
   primaryStart?: boolean
   poolInputs: IssueMenuPoolInputs
 }): JSX.Element | null {
+  // The anchor object identifies a context-menu gesture. A repeated gesture
+  // may reuse this component, so capture again when it or the target changes.
+  const readTarget = issues.length === 1 ? issues[0] : undefined
+  const captureReadAction = () => ({
+    anchor,
+    id: readTarget?.id,
+    action: !readTarget
+      ? null
+      : readTarget.unread
+        ? ('markRead' as const)
+        : ('markUnread' as const),
+  })
+  const [readChoice, setReadChoice] = useState(captureReadAction)
+  if (readChoice.anchor !== anchor || readChoice.id !== readTarget?.id)
+    setReadChoice(captureReadAction())
   const readOrigins = useCallback(
     (pool: import('@podium/client-graph').MobxPool) => readIssueMenuOrigins(pool, issues),
     [issues],
@@ -220,6 +235,9 @@ export const IssueContextMenu = observer(function IssueContextMenu({
   }
 
   const eligibility = issueMenuEligibility(issues, surface)
+  const canMark = eligibility.canMarkRead || eligibility.canMarkUnread
+  eligibility.canMarkRead = canMark && readChoice.action === 'markRead'
+  eligibility.canMarkUnread = canMark && readChoice.action === 'markUnread'
   const ids = issues.map((issue) => issue.id)
   const handoff =
     handoffEnabled && issues.length === 1

@@ -471,15 +471,15 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
   setSnooze: (sessionId: SessionId, until: string | null) => Promise<void>
   /** Un-snooze a session (return it to the normal attention flow). */
   clearSnooze: (sessionId: SessionId) => Promise<void>
-  /** Mark a session read (issue #124): stamp readAt = now, clearing derived `unread`.
-   *  Optimistic + outboxed. Called when the operator opens/focuses the session. */
-  markSessionRead: (sessionId: SessionId) => Promise<void>
+  /** Mark a session read. Automatic receipts pass the observed activity;
+   * explicit gestures omit it to acknowledge current server activity. Outboxed. */
+  markSessionRead: (sessionId: SessionId, readAt?: string) => Promise<void>
   /** Mark a session UNREAD again (issue #138, email-style inverse of markSessionRead):
    *  stamp readAt = null so derived `unread` flips back to true. Optimistic + outboxed. */
   markSessionUnread: (sessionId: SessionId) => Promise<void>
-  /** Mark an issue read (issue #124): stamp readAt = now, clearing derived `unread`.
-   *  Optimistic + outboxed. Called when the operator opens the issue. */
-  markIssueRead: (id: string) => Promise<void>
+  /** Mark an issue read. Automatic receipts pass the observed activity;
+   * explicit gestures omit it for a covering server cursor. Outboxed. */
+  markIssueRead: (id: string, readAt?: string) => Promise<void>
   /** Mark an issue UNREAD again (issue #138, email-style inverse of markIssueRead):
    *  stamp readAt = null so derived `unread` flips back to true. Optimistic + outboxed. */
   markIssueUnread: (id: string) => Promise<void>

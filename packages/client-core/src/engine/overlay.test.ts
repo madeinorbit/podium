@@ -179,6 +179,16 @@ describe('overlayForOutboxEntry projection', () => {
     expect(unread.coveredBy({ readAt: null } as OverlayRow)).toBe(true)
   })
 
+  it.each(['issueMarkRead', 'sessionMarkRead'])('keeps %s replay bounded to observed activity', kind => {
+    const readAt = '2026-10-29T12:00:00.000Z'
+    const input = kind === 'issueMarkRead' ? { id: 'i1', readAt } : { sessionId: 's1', readAt }
+    const overlay = overlayForOutboxEntry(entry(kind, input, Date.parse('2026-10-29T13:00:00.000Z')))
+    if (overlay?.op !== 'patch') throw new Error('expected patch')
+    expect(overlay.patch).toEqual({ readAt })
+    expect(overlay.coveredBy({ readAt: '2026-10-29T11:59:00.000Z' } as OverlayRow)).toBe(false)
+    expect(overlay.coveredBy({ readAt } as OverlayRow)).toBe(true)
+  })
+
   // Tuck-away rides the SAME optimistic mechanism as the rest (POD-333), which is
   // what lets the fold be server state without the press feeling slow: the entry
   // paints tuckedAt until the server's own stamp lands — including across a

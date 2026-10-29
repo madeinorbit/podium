@@ -2,6 +2,7 @@ import { type IssueNavigationModel, issuePendingDecision, missionTaskBucket, typ
 import type { IssueGitState, IssuePanel, IssuePanelArtifact, IssueProjection } from '@podium/model'
 import { isGone, type Lookup, omitGone } from './lookup'
 import type { MessageModel, PendingInteractionModel } from './message-models'
+import { ReadObservation } from './read-observation'
 import type { AccountModel, DeviceModel, MemberModel, PodiumSettingsModel, RepositoryModel } from './requested-models'
 import type { AutomationModel, AutomationRunModel, MachineModel } from './synced-models'
 
@@ -318,6 +319,7 @@ export type RelationGetters<E extends EntityName> = {
 
 /** The one shared issue record. Worklist presentation belongs to WorklistIssue. */
 export class IssueModel extends EntityModel {
+  readonly readObservation = new ReadObservation()
   static override readonly answers: ReadonlySet<string> = new Set(['description'])
   constructor(id: string, host: ModelHost) {
     super('issue', id, host)
@@ -615,7 +617,11 @@ export class IssueModel extends EntityModel {
   @lazy get unread(): boolean {
     const row = this.readFacts()
     if (row === undefined || row.deletedAt) return false
-    const read = parseMs(this.host.visibleInputs.issueRead(this.id))
+    if (this.readObservation.blocked) return true
+    if (this.readObservation.viewing) return false
+    const durable = this.host.visibleInputs.issueRead(this.id)
+    const seen = this.readObservation.seenAt
+    const read = parseMs(seen && (!durable || seen > durable) ? seen : durable)
     if (read === null) return true
     const updated = this.updatedMs, active = parseMs(this.lastActivityAt)
     if ((updated !== null && updated > read) || (active !== null && active > read)) return true
@@ -817,6 +823,7 @@ export class IssueModel extends EntityModel {
 
 /** THE session: its row, and what its issues read of it. */
 export class SessionModel extends EntityModel {
+  readonly readObservation = new ReadObservation()
   static override readonly answers = new Set(['archived', 'unread', 'cwd', 'issueId', 'machineId', 'status', 'geometry', 'messageDraft'])
 
   constructor(id: string, host: ModelHost) {
@@ -947,7 +954,13 @@ export class SessionModel extends EntityModel {
 
   @lazy get workingMsTotal(): number | undefined { return this.agentState?.workingMsTotal }
 
-  @lazy get unread(): SessionView['unread'] { return this.storedField('unread') as SessionView['unread'] }
+  @lazy get unread(): SessionView['unread'] {
+    if (this.readObservation.blocked) return true
+    if (this.readObservation.viewing) return false
+    const seen = this.readObservation.seenAt
+    if (seen && this.lastActiveAt <= seen) return false
+    return this.storedField('unread') as SessionView['unread']
+  }
 
   @lazy({ equals: compareStructural })
   get workingTimer(): SidebarSessionFacts['working'] {

@@ -79,7 +79,7 @@ export class WorklistSession implements SessionVisibility {
 
   @lazy
   private get retentionUnread(): Retention['unread'] {
-    return this.host.visibleInputs.sessionRow(this.id)!.unread === true
+    return this.session.unread === true
   }
 
   @lazy

@@ -507,6 +507,7 @@ export const undeferInput = byIssueId.extend({
 
 export const markReadInput = z.object({
   id: IssueIdField,
+  readAt: z.string().datetime().optional(),
   mutationId: z.string().max(128).pipe(MutationIdField).optional(),
 })
 

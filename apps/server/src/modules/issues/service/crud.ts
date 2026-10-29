@@ -1752,23 +1752,34 @@ export class IssueCrudModule {
     }
   }
 
-  /** Mark this issue read (issue #124): stamp a covering read_at, persist + broadcast,
-   *  and log issue.read. The stamp is max(now, this issue's updatedAt, descendant
-   *  updatedAts, subtree lastActiveAt) so a session whose clock is a tick ahead of
-   *  `now` cannot flip derived unread back on the same click (POD-912). PER-USER
-   *  STATE (POD-1076): the marker is written to the actor's `(userId, issueId)`
-   *  row, not to the issue. */
-  async markIssueRead(id: string): Promise<IssueProjection> {
-    const row = await this.store.draft(await this.store.resolveRef(id))
-    if (!row) throw new IssueNotFound(id)
-    await this.store.writeIssueUserState(row.id, { readAt: await this.coveringReadAt(row) })
-    const wire = await this.store.persist(row, { touch: false })
+  /** Publish only the actor's read cursor and issue.read event. Automatic
+   * receipts carry the observed activity; an explicit mark-read still covers
+   * now, this issue's updates, descendants and their sessions (POD-912). */
+  async markIssueRead(id: string, observedAt?: string): Promise<IssueProjection> {
+    const row = await this.store.rowOrThrow(id)
+    // Automatic receipts name what was actually seen, including across an
+    // offline replay. Open-issue receipts avoid subtree discovery entirely;
+    // read receipts never rewrite the issue.
+    const previous = this.store.issueOverlay(row.id).readAt
+    let readAt = observedAt ?? (await this.coveringReadAt(row))
+    // A quiet closed issue keeps its existing post-read retention grace. Only
+    // advance to receipt time after proving there is no newer unseen activity.
+    if (
+      observedAt && this.store.isClosed(row) &&
+      (await this.coveringReadAt(row, row.updatedAt)) <= observedAt
+    ) {
+      const now = this.store.now()
+      if (now > readAt) readAt = now
+    }
+    if (previous && previous >= readAt) return await this.store.projection(row)
+    await this.store.writeIssueUserState(row.id, { readAt })
+    const wire = await this.store.projection(row)
     await this.store.emitEvent('issue.read', row.id, { seq: row.seq })
     return wire
   }
 
   /** The cursor that covers everything currently visible on this issue's row. */
-  private async coveringReadAt(row: IssueRow): Promise<string> {
+  private async coveringReadAt(row: IssueRow, floor = this.store.now()): Promise<string> {
     const ids = new Set<string>([row.id])
     let grew = true
     while (grew) {
@@ -1780,7 +1791,7 @@ export class IssueCrudModule {
         }
       }
     }
-    let latest = this.store.now()
+    let latest = floor
     for (const other of this.store.rows.values()) {
       if (!ids.has(other.id)) continue
       if (other.updatedAt > latest) latest = other.updatedAt
@@ -1797,10 +1808,9 @@ export class IssueCrudModule {
    *  markIssueRead exactly, on the actor's own `(userId, issueId)` row (POD-1076);
    *  marking MY copy unread never touches yours. */
   async markIssueUnread(id: string): Promise<IssueProjection> {
-    const row = await this.store.draft(await this.store.resolveRef(id))
-    if (!row) throw new IssueNotFound(id)
+    const row = await this.store.rowOrThrow(id)
     await this.store.writeIssueUserState(row.id, { readAt: null })
-    const wire = await this.store.persist(row, { touch: false })
+    const wire = await this.store.projection(row)
     await this.store.emitEvent('issue.unread', row.id, { seq: row.seq })
     return wire
   }

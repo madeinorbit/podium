@@ -38,9 +38,9 @@ import {
   recoverableAuthoredText,
   sessionGoneNotice,
 } from '../outbox-recovery-copy'
+import type { Replica } from '../replica/kernel/facade'
 import { applyLegacyMetadataState } from '../replica/legacy-wire-v1-binding'
 import { LegacyWireV1Feed } from '../replica/legacy-wire-v1-feed'
-import type { Replica } from '../replica/kernel/facade'
 import { type FeedSinkPort, SocketHub } from '../socket-transport'
 import { assertSendAccepted } from './send-outcome'
 import type { StoreNotices } from './types'
@@ -77,7 +77,7 @@ export type OutboxKinds = {
   setWorkState: { sessionId: SessionId; workState: WorkState | null }
   snoozeSet: { sessionId: SessionId; until: string | null }
   snoozeClear: { sessionId: SessionId }
-  sessionMarkRead: { sessionId: SessionId }
+  sessionMarkRead: { sessionId: SessionId; readAt?: string }
   sessionMarkUnread: { sessionId: SessionId }
   /**
    * THE OFFER DISMISSAL (POD-1110) — "none of these", and only that.
@@ -92,7 +92,7 @@ export type OutboxKinds = {
    * under the chat give-up window rather than this one's.
    */
   dismissOffer: { sessionId: SessionId; offerCreatedAt: string }
-  issueMarkRead: { id: string }
+  issueMarkRead: { id: string; readAt?: string }
   issueMarkUnread: { id: string }
   issueSetTucked: { id: string; tucked: boolean }
   /**

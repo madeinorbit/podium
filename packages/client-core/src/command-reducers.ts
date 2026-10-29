@@ -437,11 +437,15 @@ function overlayOf(entry: OutboxEntry): PendingOverlay | PendingOverlay[] | null
       const pressedAt = new Date(entry.queuedAt).toISOString()
       const activity = baselineCell(entry, 'lastActiveAt')
       const readAt =
-        typeof activity === 'string' && Date.parse(activity) > entry.queuedAt ? activity : pressedAt
+        i.readAt ??
+        (typeof activity === 'string' && Date.parse(activity) > entry.queuedAt
+          ? activity
+          : pressedAt)
       const previousReadAt = baselineCell(entry, 'readAt')
       return patchOverlay('sessionUserStates', i.sessionId, entry.mutationId, { readAt }, (r) => {
         const current = (r as SessionUserStateWire).readAt
         if (current == null) return false
+        if (i.readAt) return current >= i.readAt
         if (entry.baseline !== undefined) return current !== previousReadAt
         return Date.parse(current) >= entry.queuedAt
       })
@@ -487,10 +491,10 @@ function overlayOf(entry: OutboxEntry): PendingOverlay | PendingOverlay[] | null
         'issueUserStates',
         i.id,
         entry.mutationId,
-        { readAt: new Date(entry.queuedAt).toISOString() },
+        { readAt: i.readAt ?? new Date(entry.queuedAt).toISOString() },
         (r) => {
           const readAt = (r as IssueUserStateWire).readAt
-          return readAt != null && readAt !== previousReadAt
+          return readAt != null && (i.readAt ? readAt >= i.readAt : readAt !== previousReadAt)
         },
       )
     }

@@ -1058,10 +1058,13 @@ export class WorklistIssue implements HeldIssue, RowView {
     return sidebarTimingFromFacts(this.visibleAttention.sidebarFacts ?? NO_SIDEBAR_SESSIONS,
       this.visiblePhase, this.ownFacts.finished, this.visibleActivityAt, this.visibleAttention.decidingAt)
   }
-  /** Desktop emphasis in the drawn subtree; working activity suppresses retention unread. */
+  /** Emphasize unseen activity even while a background agent is working. */
   @lazy get visibleUnread(): boolean {
-    if (this.visibleWorking) return false
-    const readAt = this.issue.readAt, readMs = Date.parse(readAt ?? '')
+    if (this.issue.readObservation.blocked) return true
+    if (this.issue.readObservation.viewing) return false
+    const durable = this.issue.readAt, seen = this.issue.readObservation.seenAt
+    const readAt = seen && (!durable || seen > durable) ? seen : durable
+    const readMs = Date.parse(readAt ?? '')
     return this.issue.unread || Boolean(readAt && Number.isFinite(readMs) &&
       ((Date.parse(this.visibleAttention.updatedAt ?? '') || 0) > readMs || (this.visibleSessionActivity ?? 0) > readMs) && this.visibleDescendantIds.length > 0)
   }

@@ -7263,6 +7263,7 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
             input: {
                 id: string;
                 mutationId?: string | undefined;
+                readAt?: string | undefined;
             };
             output: Output_issues_addComment;
             meta: unknown;
@@ -8220,6 +8221,7 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
         "markRead": TRPC.TRPCMutationProcedure<{
             input: {
                 mutationId?: string | undefined;
+                readAt?: string | undefined;
                 sessionId: string;
             };
             output: void;

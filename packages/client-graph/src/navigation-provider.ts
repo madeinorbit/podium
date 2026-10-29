@@ -1,10 +1,13 @@
-import { omitGone } from './lookup'
-import { NAVIGATION_LOADING, type NavigationProvider } from '@podium/client-core/navigation-provider'
+import {
+  NAVIGATION_LOADING,
+  type NavigationProvider,
+} from '@podium/client-core/navigation-provider'
 import type { SessionView } from '@podium/client-core/session-values'
 import { allowImperativeRead } from '@podium/mobx-helpers'
 import { asIssueId, machinePathAncestors, machinePathSeparator } from '@podium/model/browser'
 import { parseSessionRef } from '@podium/protocol'
 import { compareStructural, transaction } from 'mobx'
+import { omitGone } from './lookup'
 import { missions } from './mission'
 import { navigationActivity } from './navigation-activity'
 import type { MobxPool } from './pool'
@@ -29,7 +32,10 @@ export function createPoolNavigationProvider(pool: MobxPool): NavigationProvider
       return rows
     },
     issue(id) {
-      let row = omitGone(pool.row('issue', id, 'summary')) as SliceIssue | typeof LOADING | undefined
+      let row = omitGone(pool.row('issue', id, 'summary')) as
+        | SliceIssue
+        | typeof LOADING
+        | undefined
       if (
         row &&
         row !== LOADING &&
@@ -70,7 +76,11 @@ export function createPoolNavigationProvider(pool: MobxPool): NavigationProvider
     },
     registeredWorktree(path) {
       const registered = pool.queries.registeredWorktreePath(path)
-      return registered !== undefined && (omitGone(pool.row('worktree', registered)) as { path?: string } | undefined)?.path === registered
+      return (
+        registered !== undefined &&
+        (omitGone(pool.row('worktree', registered)) as { path?: string } | undefined)?.path ===
+          registered
+      )
     },
     worktreeForCwd(cwd) {
       if (machinePathSeparator(cwd) === '\\') {
@@ -96,17 +106,31 @@ export function createPoolNavigationProvider(pool: MobxPool): NavigationProvider
       return null
     },
     firstWorktree: () => pool.queries.firstWorktreePath(),
-    hasWorktreeSession: path => pool.queries.hasSessionWithin(path),
+    hasWorktreeSession: (path) => pool.queries.hasSessionWithin(path),
     worktreeSession(id) {
       const row = omitGone(pool.row('session', id, 'summary-fields'))
-      return row === LOADING ? NAVIGATION_LOADING : row as ReturnType<NonNullable<NavigationProvider['worktreeSession']>>
+      return row === LOADING
+        ? NAVIGATION_LOADING
+        : (row as ReturnType<NonNullable<NavigationProvider['worktreeSession']>>)
     },
-    topologySession: id => pool.queries.sessionTopology(id),
+    topologySession: (id) => pool.queries.sessionTopology(id),
     activityAt(id) {
       const latest = navigationActivity(pool).activityAt(id)
       return latest === LOADING ? NAVIGATION_LOADING : latest
     },
     issueReadAt: (id) => pool.readCursor(id),
+    observeRead: (kind, id, at) =>
+      (kind === 'issue' ? pool.issueObject(id) : pool.sessionObject(id)).readObservation.observe(
+        at,
+      ),
+    automaticReadAllowed: (kind, id) =>
+      !(kind === 'issue' ? pool.issueObject(id) : pool.sessionObject(id)).readObservation.blocked,
+    leaveReadVisit: (kind, id) =>
+      (kind === 'issue' ? pool.issueObject(id) : pool.sessionObject(id)).readObservation.leave(),
+    readIntent: (kind, id, read) =>
+      (kind === 'issue' ? pool.issueObject(id) : pool.sessionObject(id)).readObservation.intent(
+        read,
+      ),
     // This port returns small scalar tuples, not memoized row identities.
     watch: (read, changed) => createPoolProjection(pool, read, { equals: compareStructural }).subscribe(changed),
   }

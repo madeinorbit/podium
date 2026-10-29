@@ -248,9 +248,7 @@ function fixtureSidebarRow(
     fromChildren,
     statusFromChildren: record['parentId'] == null && fromChildren,
     gitState: record['gitState'] as SidebarRowValues['gitState'],
-    // A row with an agent computing is never "new unseen work" (models.ts
-    // `sidebarValues`): working suppresses the unread emphasis outright.
-    unread: !working && record['unread'] === true,
+    unread: record['unread'] === true,
     errorClass: null,
     internal: record['audience'] === 'agent',
     unsnoozed: cycle.unsnoozed,

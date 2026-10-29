@@ -164,7 +164,7 @@ describe('sessionUrgencyRank / mostUrgentSession', () => {
   })
 })
 
-describe('rowUnreadEmphasized (#138: suppress unread while actively working)', () => {
+describe('rowUnreadEmphasized preserves unseen working activity', () => {
   const issueRow = (
     over: Partial<UnbrandIds<IssueNavigationModel>>,
     sessions: SessionView[] = [],
@@ -188,22 +188,22 @@ describe('rowUnreadEmphasized (#138: suppress unread while actively working)', (
     ).toBe(true)
   })
 
-  it('suppresses an unread issue row that has a currently-working session', () => {
+  it('emphasizes an unread issue row that has a currently-working session', () => {
     expect(
       rowUnreadEmphasized(
         issueRow({ unread: true } as Partial<UnbrandIds<IssueNavigationModel>>, [
           working('a', '/w'),
         ]),
       ),
-    ).toBe(false)
+    ).toBe(true)
   })
 
-  it('suppresses an unread worktree row that has a currently-working session', () => {
+  it('emphasizes an unread worktree row that has a currently-working session', () => {
     expect(
       rowUnreadEmphasized(
         wtRow([idle('a', '/w', { unread: true } as Partial<SessionViewInput>), working('b', '/w')]),
       ),
-    ).toBe(false)
+    ).toBe(true)
   })
 
   it('leaves a read row un-emphasized regardless of working state', () => {

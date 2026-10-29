@@ -32,14 +32,16 @@ const state: IssueMenuPoolInputs = {
   sessions: [],
 }
 const handoffMutate = vi.fn(async () => ({ ok: true }))
+const markIssueRead = vi.fn(async () => {})
+const markIssueUnread = vi.fn(async () => {})
 
 vi.mock('@podium/client-core/react', async (original) => ({
   ...(await original<typeof import('@podium/client-core/react')>()),
   useStoreHandle: () => ({
     access: {
       trpc: { sessions: { handoff: { mutate: handoffMutate } } },
-      markIssueRead: vi.fn(),
-      markIssueUnread: vi.fn(),
+      markIssueRead,
+      markIssueUnread,
       get sessions() {
         throw new Error('Task menu read legacy sessions')
       },
@@ -139,11 +141,128 @@ const handoffItem = (): HTMLElement => screen.getByRole('menuitem', { name: /Han
 afterEach(() => {
   cleanup()
   handoffMutate.mockClear()
+  markIssueRead.mockClear()
+  markIssueUnread.mockClear()
   featureEnabled.value = true
   state.repos = []
   state.machines = []
   state.sessions = []
   settings.model = undefined
+})
+
+it.each([
+  true,
+  false,
+])('holds the read action through 600 live updates, initially unread=%s', (unread) => {
+  const issue = makeIssue({ unread })
+  const props = {
+    issues: [issue],
+    allIssues: [issue],
+    poolInputs: state,
+    anchor: { x: 10, y: 10 },
+    onClose: vi.fn(),
+    onOpen: vi.fn(),
+  }
+  const view = render(
+    <ConfirmProvider>
+      <IssueContextMenu {...props} />
+    </ConfirmProvider>,
+  )
+  const label = unread ? 'Mark as read' : 'Mark as unread'
+  const opposite = unread ? 'Mark as unread' : 'Mark as read'
+  for (let index = 0; index < 600; index++) {
+    const changed = {
+      ...issue,
+      unread: index % 2 === 0,
+      updatedAt: new Date(Date.parse('2026-10-29T12:00:00.000Z') + index * 100).toISOString(),
+    }
+    view.rerender(
+      <ConfirmProvider>
+        <IssueContextMenu {...props} issues={[changed]} />
+      </ConfirmProvider>,
+    )
+    expect(screen.getByRole('menuitem', { name: label })).toBeTruthy()
+    expect(screen.queryByRole('menuitem', { name: opposite })).toBeNull()
+  }
+  fireEvent.click(screen.getByRole('menuitem', { name: label }))
+  expect(unread ? markIssueRead : markIssueUnread).toHaveBeenCalledWith(issue.id)
+  expect(unread ? markIssueUnread : markIssueRead).not.toHaveBeenCalled()
+  view.unmount()
+  render(
+    <ConfirmProvider>
+      <IssueContextMenu {...props} issues={[{ ...issue, unread: !unread }]} />
+    </ConfirmProvider>,
+  )
+  expect(screen.getByRole('menuitem', { name: opposite })).toBeTruthy()
+})
+
+it('keeps deletion and lifecycle eligibility live while the read action is stored', () => {
+  const issue = makeIssue({ unread: false })
+  const props = {
+    issues: [issue],
+    allIssues: [issue],
+    poolInputs: state,
+    anchor: { x: 10, y: 10 },
+    onClose: vi.fn(),
+    onOpen: vi.fn(),
+  }
+  const view = render(
+    <ConfirmProvider>
+      <IssueContextMenu {...props} />
+    </ConfirmProvider>,
+  )
+  expect(screen.getByRole('menuitem', { name: 'Mark as unread' })).toBeTruthy()
+  view.rerender(
+    <ConfirmProvider>
+      <IssueContextMenu {...props} issues={[{ ...issue, closedReason: 'done' }]} />
+    </ConfirmProvider>,
+  )
+  expect(screen.queryByRole('menuitem', { name: /Close as/ })).toBeNull()
+  expect(screen.getByRole('menuitem', { name: 'Mark as unread' })).toBeTruthy()
+  view.rerender(
+    <ConfirmProvider>
+      <IssueContextMenu {...props} issues={[{ ...issue, deletedAt: '2026-10-29T12:00:00.000Z' }]} />
+    </ConfirmProvider>,
+  )
+  expect(screen.queryByRole('menuitem', { name: 'Mark as unread' })).toBeNull()
+  expect(screen.queryByRole('menuitem', { name: 'Delete' })).toBeNull()
+})
+
+it('takes a new read action when another context-menu gesture replaces the opening', () => {
+  const issue = makeIssue({ unread: true })
+  const props = {
+    issues: [issue],
+    allIssues: [issue],
+    poolInputs: state,
+    anchor: { x: 10, y: 10 },
+    onClose: vi.fn(),
+  }
+  const view = render(
+    <ConfirmProvider>
+      <IssueContextMenu {...props} />
+    </ConfirmProvider>,
+  )
+  expect(screen.getByRole('menuitem', { name: 'Mark as read' })).toBeTruthy()
+  view.rerender(
+    <ConfirmProvider>
+      <IssueContextMenu
+        {...props}
+        issues={[{ ...issue, unread: false }]}
+        anchor={{ x: 30, y: 20 }}
+      />
+    </ConfirmProvider>,
+  )
+  expect(screen.getByRole('menuitem', { name: 'Mark as unread' })).toBeTruthy()
+  view.rerender(
+    <ConfirmProvider>
+      <IssueContextMenu
+        {...props}
+        issues={[makeIssue({ id: 'other', unread: true })]}
+        anchor={{ x: 30, y: 20 }}
+      />
+    </ConfirmProvider>,
+  )
+  expect(screen.getByRole('menuitem', { name: 'Mark as read' })).toBeTruthy()
 })
 
 it('updates an open auto agent submenu when the Settings harness changes', () => {

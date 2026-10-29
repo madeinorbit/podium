@@ -440,7 +440,7 @@ export function createEngineActions<TApi extends PodiumClientApi>(
   let transcriptRevealNonce = 0
   // The navigation reaction and the row gesture can request the same read
   // before durable enqueue has painted its overlay. Share that in-flight act.
-  const pendingReads = new Map<string, Promise<void>>()
+  const pendingReads = new Map<string, { readAt?: string; write: Promise<void> }>()
   const markRead = <K extends 'issueMarkRead' | 'sessionMarkRead'>(
     kind: K,
     id: string,
@@ -448,9 +448,24 @@ export function createEngineActions<TApi extends PodiumClientApi>(
   ): Promise<void> => {
     const key = `${kind}:${id}`
     const pending = pendingReads.get(key)
-    if (pending) return pending
-    const write = Promise.resolve(rt.write(kind, input)).finally(() => pendingReads.delete(key))
-    pendingReads.set(key, write)
+    const readAt = (input as { readAt?: string }).readAt
+    if (
+      pending &&
+      (readAt === pending.readAt || (readAt && pending.readAt && readAt <= pending.readAt))
+    )
+      return pending.write
+    // A visit can end before its leading enqueue finishes. Preserve that last
+    // observation in order rather than dropping it as a duplicate.
+    const write: Promise<void> = (
+      pending
+        ? pending.write.then(() =>
+            pendingReads.get(key)?.write === write ? rt.write(kind, input) : undefined,
+          )
+        : Promise.resolve(rt.write(kind, input))
+    ).finally(() => {
+      if (pendingReads.get(key)?.write === write) pendingReads.delete(key)
+    })
+    pendingReads.set(key, { readAt, write })
     return write
   }
   const replicatedLayout = createReplicatedLayoutController({
@@ -715,7 +730,7 @@ export function createEngineActions<TApi extends PodiumClientApi>(
       const excluded = new Set(opts?.excludeSessionIds ?? [])
       rt.apply({ selectedIssueId: issueId })
       const session = await waitForState(
-        listener => {
+        (listener) => {
           let stopRows: (() => void) | undefined
           const arm = () => {
             stopRows?.()
@@ -723,8 +738,14 @@ export function createEngineActions<TApi extends PodiumClientApi>(
             stopRows = navigation.watch?.(() => [navigation.issue(issueId), navigation.issueSessions?.(issueId)], listener)
           }
           arm()
-          const stopLocal = rt.onLocals(['selectedIssueId', 'navigation'], () => { arm(); listener() })
-          return () => { stopRows?.(); stopLocal() }
+          const stopLocal = rt.onLocals(['selectedIssueId', 'navigation'], () => {
+            arm()
+            listener()
+          })
+          return () => {
+            stopRows?.()
+            stopLocal()
+          }
         },
         () => {
           const st = rt.state()
@@ -1039,10 +1060,24 @@ export function createEngineActions<TApi extends PodiumClientApi>(
       rt.write('setWorkState', { sessionId, workState }),
     setSnooze: async (sessionId, until) => rt.write('snoozeSet', { sessionId, until }),
     clearSnooze: async (sessionId) => rt.write('snoozeClear', { sessionId }),
-    markSessionRead: (sessionId) => markRead('sessionMarkRead', sessionId, { sessionId }),
-    markSessionUnread: async (sessionId) => rt.write('sessionMarkUnread', { sessionId }),
-    markIssueRead: (id) => markRead('issueMarkRead', id, { id }),
-    markIssueUnread: async (id) => rt.write('issueMarkUnread', { id }),
+    markSessionRead: (sessionId, readAt) => {
+      if (readAt === undefined) rt.state().navigation.readIntent?.('session', sessionId, true)
+      return markRead('sessionMarkRead', sessionId, { sessionId, ...(readAt ? { readAt } : {}) })
+    },
+    markSessionUnread: async (sessionId) => {
+      pendingReads.delete(`sessionMarkRead:${sessionId}`)
+      rt.state().navigation.readIntent?.('session', sessionId, false)
+      return rt.write('sessionMarkUnread', { sessionId })
+    },
+    markIssueRead: (id, readAt) => {
+      if (readAt === undefined) rt.state().navigation.readIntent?.('issue', id, true)
+      return markRead('issueMarkRead', id, { id, ...(readAt ? { readAt } : {}) })
+    },
+    markIssueUnread: async (id) => {
+      pendingReads.delete(`issueMarkRead:${id}`)
+      rt.state().navigation.readIntent?.('issue', id, false)
+      return rt.write('issueMarkUnread', { id })
+    },
     setIssueTucked: async (id, tucked) => rt.write('issueSetTucked', { id, tucked }),
     // The curation writes (POD-781). Nothing here but the enqueue: the queued
     // entry IS the optimistic apply (#263), so there is no local mirror to keep

@@ -1096,7 +1096,7 @@ const defs = {
     handler: async (ctx, input) =>
       await ctx.withMutation(
         input.mutationId,
-        async () => await ctx.attention.markIssueRead(input.id),
+        async () => await ctx.attention.markIssueRead(input.id, input.readAt),
       ),
   }),
   // Mark an issue UNREAD again (issue #138): clear read_at, flipping derived
