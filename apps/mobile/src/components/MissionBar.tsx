@@ -3,7 +3,7 @@ import type { FullDeck } from '@podium/client-graph/mission-full-deck'
 import { observer } from 'mobx-react-lite'
 import { StyleSheet, Text, View } from 'react-native'
 import { alpha } from '../theme/mix'
-import { color, font, mono, monoLabel, space } from '../theme/theme'
+import { color, font, leading, mono, sans, space } from '../theme/theme'
 import { Icon } from './Icon'
 import { ChevronRight } from './icons'
 import { PressableScale } from './PressableScale'
@@ -44,20 +44,20 @@ export const MissionBar = observer(function MissionBar({
       haptic={false}
       style={({ pressed }) => [styles.bar, pressed && styles.pressed]}
     >
-      <Text style={styles.label}>DECK</Text>
       <View style={styles.counts}>
         {bands
           .filter(([, , count]) => count > 0)
           .map(([state, word, count]) => (
             <View key={state} style={styles.key}>
               {state === 'working' && full.computing ? <WorkingMark size={11} /> : null}
-              <Text style={[styles.count, state === 'working' && styles.working]}>
-                {count} {word}
+              <Text style={styles.caption}>
+                <Text style={[styles.number, state === 'working' && styles.working]}>{count}</Text>{' '}
+                {word}
               </Text>
             </View>
           ))}
-        {counts?.total === 0 ? <Text style={styles.count}>0 tasks</Text> : null}
-        {!counts ? <Text style={styles.count}>Loading tasks…</Text> : null}
+        {counts?.total === 0 ? <Text style={styles.caption}>0 tasks</Text> : null}
+        {!counts ? <Text style={styles.caption}>Loading tasks…</Text> : null}
         {attention > 0 ? <Text style={styles.ask}>{attention} asking</Text> : null}
       </View>
       <Icon as={ChevronRight} size={16} color={color.textDim} />
@@ -80,7 +80,7 @@ const styles = StyleSheet.create({
   bar: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: space.sm,
+    gap: space.md,
     minHeight: 44,
     paddingHorizontal: space.lg,
     paddingVertical: space.sm,
@@ -91,18 +91,28 @@ const styles = StyleSheet.create({
     borderBottomColor: color.hairline,
   },
   pressed: { opacity: 0.85 },
-  label: { ...monoLabel(), color: color.label },
   counts: {
     flex: 1,
     flexDirection: 'row',
     flexWrap: 'wrap',
-    columnGap: space.sm,
+    columnGap: space.lg,
     rowGap: space.xs,
   },
   key: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  count: { ...mono(600), color: color.body, fontSize: font.micro },
+  caption: {
+    ...sans(),
+    color: color.textDim,
+    fontSize: font.tiny,
+    lineHeight: leading(font.tiny),
+  },
+  number: { ...mono(600), color: color.body, fontVariant: ['tabular-nums'] },
   working: { color: color.workingText },
-  ask: { ...mono(600), color: color.needsYouText, fontSize: font.micro },
+  ask: {
+    ...sans(600),
+    color: color.needsYouText,
+    fontSize: font.tiny,
+    lineHeight: leading(font.tiny),
+  },
   meter: {
     position: 'absolute',
     left: 0,

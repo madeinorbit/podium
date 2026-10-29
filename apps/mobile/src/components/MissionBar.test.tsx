@@ -130,13 +130,13 @@ it('shares accepted leaf counts with the deck and updates working tasks to waiti
 
 it('shows shipping as working without animating an absent agent', () => {
   mount(open([issue('root', 'shipping')]))
-  expect(screen.getByText('1 working')).toBeTruthy()
+  expect(screen.getByRole('button').textContent).toBe('1 working')
   expect(screen.queryByTestId('working-mark')).toBeNull()
 })
 
 it('keeps zero buckets in the accessible reading for a waiting mission', () => {
   mount(open([issue('root', 'review')]))
-  expect(screen.getByRole('button').textContent).toBe('DECK1 waiting')
+  expect(screen.getByRole('button').textContent).toBe('1 waiting')
   expect(screen.getByRole('button').getAttribute('aria-label')).toBe(
     'Mission details, 0 of 1 tasks done, 0 working, 1 waiting, 0 to do',
   )
