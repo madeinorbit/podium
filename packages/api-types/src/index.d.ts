@@ -924,8 +924,8 @@ type SendDisposition = 'delivered' | 'queued' | 'held' | 'spawning' | 'dead_lett
 interface ModelCatalogSnapshot {
     /** The machine this fact is ABOUT — the scoping key, not decoration. */
     machineId: MachineId;
-    /** Live models keyed by agent kind (grok/cursor/opencode). Absent agents fall
-     *  back to the web's static catalog. */
+    /** Live models keyed by agent kind. Omitted probe keys keep their last reported
+     *  list; a reported empty list replaces it. */
     byAgent: Record<string, ModelChoiceWire[]>;
     /** Epoch ms of the last successful probe; 0 = never fetched yet. */
     fetchedAt: number;

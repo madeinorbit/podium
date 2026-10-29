@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest'
+import { addSink, createRingBufferSink } from '@podium/logger'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   type FetchLike,
   parseCodexModels,
@@ -129,6 +130,14 @@ function capturingClaudeFetch(status: number, data: unknown) {
 }
 
 describe('probeClaudeModels (Anthropic /v1/models — subscription OAuth OR API key)', () => {
+  const logs = createRingBufferSink()
+  let removeSink: () => void
+  beforeEach(() => {
+    logs.clear()
+    removeSink = addSink(logs)
+  })
+  afterEach(() => removeSink())
+
   const eff = (...levels: string[]) => ({
     effort: {
       supported: levels.length > 0,
@@ -180,14 +189,44 @@ describe('probeClaudeModels (Anthropic /v1/models — subscription OAuth OR API 
     expect(models.find((m) => m.value === 'claude-haiku-4-5')?.efforts).toEqual([])
   })
 
-  it('returns [] when neither an API key nor a token is available (→ static fallback)', async () => {
+  it('skips the lookup and logs when neither an API key nor a token is available', async () => {
     const { fetchImpl } = capturingClaudeFetch(200, MODELS)
     expect(await probeClaudeModels({ token: null, fetchImpl })).toEqual([])
+    expect(logs.snapshot()).toContainEqual(
+      expect.objectContaining({
+        level: 'debug',
+        msg: 'Claude model probe skipped: no credentials',
+      }),
+    )
   })
 
-  it('returns [] on a 401 without throwing', async () => {
-    const { fetchImpl } = capturingClaudeFetch(401, null)
-    expect(await probeClaudeModels({ token: 't', fetchImpl })).toEqual([])
+  it.each([
+    401, 429, 503,
+  ])('logs HTTP %s and returns [] without exposing credentials', async (status) => {
+    const { fetchImpl } = capturingClaudeFetch(status, null)
+    expect(await probeClaudeModels({ token: 'oat-secret', fetchImpl })).toEqual([])
+    expect(logs.snapshot()).toContainEqual(
+      expect.objectContaining({ level: 'warn', msg: 'Claude model probe rejected', status }),
+    )
+    expect(JSON.stringify(logs.snapshot())).not.toContain('oat-secret')
+  })
+
+  it.each([
+    new TypeError('fetch failed'),
+    new DOMException('The operation timed out', 'TimeoutError'),
+  ])('logs request failures and returns [] for $name', async (err) => {
+    const fetchImpl: FetchLike = async () => {
+      throw err
+    }
+    expect(await probeClaudeModels({ token: 'oat-secret', fetchImpl })).toEqual([])
+    expect(logs.snapshot()).toContainEqual(
+      expect.objectContaining({
+        level: 'warn',
+        msg: 'Claude model probe failed',
+        err: expect.objectContaining({ name: err.name, message: err.message }),
+      }),
+    )
+    expect(JSON.stringify(logs.snapshot())).not.toContain('oat-secret')
   })
 })
 
@@ -241,7 +280,7 @@ describe('probe (injected exec — no shelling out)', () => {
     expect(byAgent.codex?.length).toBe(2)
   })
 
-  it('omits claude-code when the OAuth call yields nothing (static fallback)', async () => {
+  it('omits claude-code when the OAuth call yields nothing so the cache can retain it', async () => {
     const byAgent = await probeAllModels({
       exec: async () => '',
       claude: { token: null, fetchImpl: claudeFetch(200, []) },

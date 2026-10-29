@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
+import { createLogger } from '@podium/logger'
 import { claudeCodeDescriptor } from './adapters/claude-code/descriptor.js'
 import { codexModelProbeArgv, parseCodexModels } from './adapters/codex/model-probe.js'
 import { cursorModelProbeArgv, parseCursorModels } from './adapters/cursor/model-probe.js'
@@ -11,6 +12,7 @@ import { opencodeModelProbeArgv, parseOpencodeModels } from './adapters/opencode
 import { parsePiModels, piModelProbeArgv } from './adapters/pi/model-probe.js'
 
 const execFileAsync = promisify(execFile)
+const log = createLogger('harness:model-probe')
 
 /**
  * Live model enumeration for every agent:
@@ -26,11 +28,12 @@ const execFileAsync = promisify(execFile)
  * to be built by that machine's daemon and shipped back (`modelProbeRequest` /
  * `modelProbeResult`) — the same shape `inventoryReport` already uses.
  *
- * CLI probes receive generation-resolved absolute paths; the Claude call is a raw fetch, so this stays a
- * dependency-free corner of the package. The lists are network-backed (~2s warm,
+ * CLI probes receive generation-resolved absolute paths; the Claude call uses fetch.
+ * The lists are network-backed (~2s warm,
  * ~7s cold), so the ModelCatalog caches them per machineId (stale-while-revalidate)
- * rather than probing on every open. Every source degrades to [] on failure, and the
- * web falls back to its static catalog per agent. The catalog stamps the machineId
+ * rather than probing on every open. CLI sources report [] on failure; Claude is
+ * omitted when its lookup yields no models so the catalog keeps its last good list.
+ * The catalog stamps the machineId
  * the caller named so two machines never share one snapshot.
  */
 
@@ -166,9 +169,8 @@ export interface ClaudeProbeOptions {
  * metadata call. Works for BOTH auth modes the user might run the agent with, with no
  * dedicated setting: an Anthropic API key (`x-api-key`) for API-based Claude, else the
  * Claude Code OAuth token (`Authorization: Bearer`) for subscription Claude. Returns []
- * on any failure (no creds, expired/401, network) → the web falls back to its static
- * claude list. (The response also carries per-model `capabilities.effort`, available
- * for a future per-model effort picker.)
+ * on any failure (no creds, expired/401, network). `probeAllModels` omits the Claude
+ * key in that case so ModelCatalog can retain the last good models and efforts.
  */
 export async function probeClaudeModels(opts: ClaudeProbeOptions = {}): Promise<ModelChoice[]> {
   const apiKey = opts.apiKey || undefined
@@ -182,14 +184,20 @@ export async function probeClaudeModels(opts: ClaudeProbeOptions = {}): Promise<
     : token
       ? { authorization: `Bearer ${token}` }
       : null
-  if (!auth) return []
+  if (!auth) {
+    log.debug('Claude model probe skipped: no credentials')
+    return []
+  }
   const fetchImpl = (opts.fetchImpl ?? (fetch as unknown as FetchLike)) as FetchLike
   try {
     const res = await fetchImpl('https://api.anthropic.com/v1/models?limit=100', {
       headers: { ...auth, 'anthropic-version': '2023-06-01' },
       signal: AbortSignal.timeout(opts.timeoutMs ?? 8000),
     })
-    if (!res.ok) return []
+    if (!res.ok) {
+      log.warn('Claude model probe rejected', { status: res.status })
+      return []
+    }
     const body = (await res.json()) as {
       data?: Array<{ id?: unknown; display_name?: unknown; capabilities?: unknown }>
     }
@@ -205,7 +213,8 @@ export async function probeClaudeModels(opts: ClaudeProbeOptions = {}): Promise<
         // (e.g. haiku) — authoritative, so the web won't show a spurious effort picker.
         efforts: claudeEffortLevels(m.capabilities),
       }))
-  } catch {
+  } catch (err) {
+    log.warn('Claude model probe failed', { err })
     return []
   }
 }
