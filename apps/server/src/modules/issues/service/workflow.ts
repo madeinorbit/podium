@@ -753,7 +753,7 @@ export class IssueGitWorkflowModule {
   }
 
   async action(
-    id: string,
+    ref: string,
     kind: 'rebase' | 'pr' | 'merge',
   ): Promise<{ ok: boolean; output: string; issue: IssueProjection }> {
     /**
@@ -780,7 +780,10 @@ export class IssueGitWorkflowModule {
      * put back the very thing this removed: an unpersisted copy in scope while the
      * awaits run, for a later reader to mistake for the write's subject.
      */
-    const planned = await this.store.rowOrThrow(id)
+    const planned = await this.store.rowOrThrow(ref)
+    // Resolved once: the CLI passes what the operator typed (`2254`), and the
+    // ephemeral maps below are keyed by the issue id, never by a ref.
+    const id = planned.id
     if (!planned.worktreePath || !planned.branch) throw new IssueRefusal('issue not started')
     const worktreePath = planned.worktreePath
     const branch = planned.branch
@@ -844,15 +847,16 @@ export class IssueGitWorkflowModule {
       // The merge axis is a fact we just produced [POD-2151], not one to infer:
       // write it before close() frees the worktree, so the close broadcast
       // carries it and no later probe is needed to clear "ready to merge".
-      // Keyed by the resolved id: `id` may be a ref like `2254`, and a write
-      // under that key leaves the row's own pre-merge state in place.
-      const cached = this.store.gitStates.get(row.id)
-      this.store.gitStates.set(row.id, {
+      // After the stamp, not before: a probe finishing mid-commit still sees no
+      // `landedAt` and would overwrite it. The pre-merge dirt count goes too: a
+      // freed worktree has none, and one close keeps is re-probed below.
+      const cached = this.store.gitStates.get(id)
+      this.store.gitStates.set(id, {
         branch: row.branch,
-        dirtyFiles: 0,
         ...cached,
         updatedAt: this.store.now(),
         shared: false,
+        dirtyFiles: 0,
         merged: true,
         ahead: 0,
       })
@@ -865,7 +869,7 @@ export class IssueGitWorkflowModule {
       // timer whose callback inherits this scope, and a span that has closed by
       // then refuses every read the probe makes [POD-3806].
       afterCommit(() => {
-        void this.refreshGitState(row.id).catch(() => {})
+        void this.refreshGitState(id).catch(() => {})
       }, 'issue-git-state-landed')
       return { ...r, issue }
     }
