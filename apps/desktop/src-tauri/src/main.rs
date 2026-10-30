@@ -1183,6 +1183,19 @@ fn eval_menu_hook(app: &tauri::AppHandle, hook: &str) {
     }
 }
 
+/// Tell the page whether the main window is in a native fullscreen Space, where macOS
+/// hides the traffic lights and the command bar drops their inset. The page cannot
+/// measure this itself: on a notched display a fullscreen window stops below the notch
+/// strip, the same height as a zoomed one.
+#[cfg(target_os = "macos")]
+fn sync_fullscreen_attribute(window: &tauri::WebviewWindow) {
+    let full = window.is_fullscreen().unwrap_or(false);
+    let _ = window.eval(format!(
+        "(() => {{ const d = document.documentElement.dataset; \
+         if ({full}) d.podiumFullscreen = 'true'; else delete d.podiumFullscreen; }})();"
+    ));
+}
+
 /// JS expression for `launchMode` in a LOCAL (all-in-one / server) shell.
 ///
 /// The question this answers is "is the page in front of the user THIS shell's own UI, or a
@@ -2544,6 +2557,8 @@ fn main() {
                         .on_page_load(move |window, payload| {
                             if matches!(payload.event(), tauri::webview::PageLoadEvent::Finished) {
                                 flush_native_open_queue(&window, &page_open_queue);
+                                #[cfg(target_os = "macos")]
+                                sync_fullscreen_attribute(&window);
                             }
                         });
 
@@ -2679,6 +2694,12 @@ fn main() {
                 tauri::WindowEvent::CloseRequested { api, .. } => {
                     api.prevent_close();
                     window.app_handle().exit(0);
+                }
+                #[cfg(target_os = "macos")]
+                tauri::WindowEvent::Resized(_) => {
+                    if let Some(webview) = window.app_handle().get_webview_window(window.label()) {
+                        sync_fullscreen_attribute(&webview);
+                    }
                 }
                 tauri::WindowEvent::Destroyed => {
                     // Reap the child when the window is actually destroyed (e.g. app.exit).
