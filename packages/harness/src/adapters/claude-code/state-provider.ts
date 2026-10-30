@@ -1037,8 +1037,8 @@ export interface ClaudeTranscriptCapture {
   terminalInterrupt: ClaudeInterruptRecord | null
   /** Whether Claude wrote any output record in that same range. */
   assistantOutputInRange: boolean
-  /** The scanned range adds a compaction summary without conversational activity. */
-  compactionOnly: boolean
+  /** Whether the scanned range includes compaction context. */
+  compactedInRange: boolean
 }
 
 export interface ClaudeTranscriptCaptureOptions {
@@ -1259,15 +1259,22 @@ async function previousNewlineBoundary(
   return 0
 }
 
-function bootEventsForClaudeRecords(records: unknown[]): AgentStateEvent[] {
+function bootEventsForClaudeRecords(
+  records: unknown[],
+  includeActivity = false,
+): AgentStateEvent[] {
   const state = claudeHookClassifier().classify(records, 'default')
   const at = [...records].reverse().find((record) => {
     if (typeof record !== 'object' || record === null) return false
+    if (!conversationalTexts(record as Record<string, unknown>)) return false
     const timestamp = (record as Record<string, unknown>).timestamp
     return typeof timestamp === 'string' && Number.isFinite(Date.parse(timestamp))
   }) as Record<string, unknown> | undefined
   const timestamp = typeof at?.timestamp === 'string' ? at.timestamp : undefined
-  if (state.status === 'resolved' && state.label === 'idle.needs_input.ask_user_tool') {
+  if (
+    state.status === 'resolved' &&
+    (includeActivity || state.label === 'idle.needs_input.ask_user_tool')
+  ) {
     return deterministicStateToEvents(state).map((event) =>
       timestamp ? { ...event, at: timestamp } : event,
     )
@@ -1320,27 +1327,41 @@ function conversationalTexts(record: Record<string, unknown>): string[] | null {
 function createTurnEndReader() {
   let last: ClaudeRecordRow | null = null
   let assistantOutput = false
-  let compacted = false
+  let compaction: ClaudeRecordRow | null = null
   return {
     add(row: ClaudeRecordRow): void {
-      if (isClaudeCompactSummaryRecord(row.record)) {
-        compacted = true
+      if (
+        isClaudeCompactSummaryRecord(row.record) ||
+        (row.record.type === 'system' && row.record.subtype === 'compact_boundary')
+      ) {
+        compaction = row
         return
       }
       if (row.record.type === 'assistant') assistantOutput = true
       if (conversationalTexts(row.record)) last = row
     },
-    classificationRecords(tail: Record<string, unknown>[]): Record<string, unknown>[] {
+    bootEvents(tail: Record<string, unknown>[]): AgentStateEvent[] {
       // A large summary can displace the turn's final answer or interrupt from
       // the byte-bounded tail. The gap scan already read that record, so retain
       // its evidence instead of turning an observed ending into an idle guess.
-      return compacted && last && !tail.some((record) => conversationalTexts(record))
-        ? [last.record]
-        : tail
+      const records =
+        compaction && last && !tail.some((record) => conversationalTexts(record))
+          ? [last.record]
+          : tail
+      const events =
+        compaction && !last ? [] : bootEventsForClaudeRecords(records, compaction !== null)
+      if (!compaction) return events
+      const timestamp = str(compaction.record.timestamp)
+      const end: AgentStateEvent = {
+        kind: 'compaction',
+        phase: 'end',
+        ...(timestamp && Number.isFinite(Date.parse(timestamp)) ? { at: timestamp } : {}),
+      }
+      return last && last.offset > compaction.offset ? [end, ...events] : [...events, end]
     },
     result(): Pick<
       ClaudeTranscriptCapture,
-      'terminalInterrupt' | 'assistantOutputInRange' | 'compactionOnly'
+      'terminalInterrupt' | 'assistantOutputInRange' | 'compactedInRange'
     > {
       const texts = last ? conversationalTexts(last.record) : null
       const interrupted =
@@ -1355,7 +1376,7 @@ function createTurnEndReader() {
             ? { recordBoundary: last.boundary, promptId: str(last.record.promptId) ?? null }
             : null,
         assistantOutputInRange: assistantOutput,
-        compactionOnly: compacted && last === null,
+        compactedInRange: compaction !== null,
       }
     },
   }
@@ -1435,10 +1456,7 @@ export async function captureClaudeTranscript(
       device,
       inode,
       fileIdentity: `${device}:${inode}`,
-      bootEvents: withStateChannel(
-        bootEventsForClaudeRecords(turnEnd.classificationRecords(records)),
-        'classifier',
-      ),
+      bootEvents: withStateChannel(turnEnd.bootEvents(records), 'classifier'),
       prompts: promptAccumulator.collected,
       promptCount: promptAccumulator.count,
       firstPrompt: promptAccumulator.first,

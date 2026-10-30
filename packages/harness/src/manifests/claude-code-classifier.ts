@@ -525,7 +525,14 @@ export function classifyClaudeFeatures(
     (tool) => tool.name && !['AskUserQuestion', 'Bash', 'Agent'].includes(tool.name),
   )
 
-  if (!features.realUserTurns && !text) return resolvedState('new', 'no user or assistant records')
+  if (
+    !features.realUserTurns &&
+    !text &&
+    unresolved.length === 0 &&
+    features.terminalEvent !== 'tool_result'
+  ) {
+    return resolvedState('new', 'no user or assistant records')
+  }
   if (features.terminalInterrupt) {
     return resolvedState('idle.interrupted', 'terminal user interrupt marker', {
       summary: 'request interrupted by user',

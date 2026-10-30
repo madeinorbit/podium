@@ -15,7 +15,8 @@ import { createSessionObservers } from './session-observers'
 
 const at = '2026-10-30T14:30:56.211Z'
 const record = (value: unknown) => `${JSON.stringify(value)}\n`
-const prompt = (content: string) => record({ type: 'user', message: { role: 'user', content } })
+const prompt = (content: string) =>
+  record({ type: 'user', timestamp: at, message: { role: 'user', content } })
 const finished = record({
   type: 'assistant',
   timestamp: at,
@@ -31,6 +32,13 @@ describe('Claude compaction rebuild [POD-2275]', () => {
     it.each([
       'idle',
       'working',
+      'waiting',
+      'compacting_working',
+      'compacting_waiting',
+      'tool_use',
+      'tool_result',
+      'question',
+      'error',
       'lost_stop',
       'interrupt',
       'next_prompt',
@@ -47,6 +55,9 @@ describe('Claude compaction rebuild [POD-2275]', () => {
         cwdTracker: { onHookCwd: vi.fn(async () => {}) },
       })
       try {
+        const waiting = scenario === 'waiting' || scenario === 'compacting_waiting'
+        const compacting = scenario === 'compacting_working' || scenario === 'compacting_waiting'
+        const need = { kind: 'question' as const, summary: 'Which option?' }
         const accepted = prompt('finish the task') + (scenario === 'idle' ? finished : '')
         await writeFile(path, accepted)
         const identity = await captureClaudeTranscript(path)
@@ -68,8 +79,23 @@ describe('Claude compaction rebuild [POD-2275]', () => {
           providerTurnId: null,
           providerPromptId: 'prompt-5',
           turnState: {
-            phase: scenario === 'idle' ? 'idle' : 'working',
+            phase: compacting
+              ? 'compacting'
+              : waiting
+                ? 'needs_user'
+                : scenario === 'idle'
+                  ? 'idle'
+                  : 'working',
             ...(scenario === 'idle' ? { idle: { kind: 'done' as const } } : {}),
+            ...(waiting && !compacting ? { need } : {}),
+            ...(compacting
+              ? {
+                  compactingFrom: {
+                    phase: waiting ? ('needs_user' as const) : ('working' as const),
+                    ...(waiting ? { need } : {}),
+                  },
+                }
+              : {}),
             since: at,
             workingMsTotal: 920_171,
             nativeSubagentCount: 0,
@@ -85,6 +111,7 @@ describe('Claude compaction rebuild [POD-2275]', () => {
         }
         const summary = record({
           type: 'user',
+          timestamp: '2026-10-30T15:25:42.345Z',
           isCompactSummary: true,
           message: {
             role: 'user',
@@ -96,7 +123,48 @@ describe('Claude compaction rebuild [POD-2275]', () => {
             ? finished
             : scenario === 'interrupt'
               ? prompt('[Request interrupted by user]')
-              : ''
+              : scenario === 'tool_use' || scenario === 'question'
+                ? record({
+                    type: 'assistant',
+                    timestamp: at,
+                    message: {
+                      role: 'assistant',
+                      content: [
+                        {
+                          type: 'tool_use',
+                          id: 'tool-1',
+                          name: scenario === 'question' ? 'AskUserQuestion' : 'Bash',
+                          input:
+                            scenario === 'question'
+                              ? {
+                                  questions: [
+                                    { question: 'Which option?', options: [{ label: 'A' }] },
+                                  ],
+                                }
+                              : { command: 'true' },
+                        },
+                      ],
+                    },
+                  })
+                : scenario === 'tool_result'
+                  ? record({
+                      type: 'user',
+                      timestamp: at,
+                      message: {
+                        role: 'user',
+                        content: [{ type: 'tool_result', tool_use_id: 'tool-1', content: 'ok' }],
+                      },
+                    })
+                  : scenario === 'error'
+                    ? record({
+                        type: 'assistant',
+                        timestamp: at,
+                        message: {
+                          role: 'assistant',
+                          content: [{ type: 'text', text: 'API Error: 503 service unavailable' }],
+                        },
+                      })
+                    : ''
         await appendFile(
           path,
           beforeSummary + summary + (scenario === 'next_prompt' ? prompt('do the next task') : ''),
@@ -127,15 +195,32 @@ describe('Claude compaction rebuild [POD-2275]', () => {
         await vi.waitFor(() => expect(sent).toHaveLength(1))
         const bootstrap = sent[0]
         if (!bootstrap) throw new Error('Missing bootstrap observation')
-        const working = scenario === 'working' || scenario === 'next_prompt'
+        const working = [
+          'working',
+          'compacting_working',
+          'tool_use',
+          'tool_result',
+          'next_prompt',
+        ].includes(scenario)
+        const expectedPhase = working
+          ? 'working'
+          : waiting || scenario === 'question'
+            ? 'needs_user'
+            : scenario === 'error'
+              ? 'errored'
+              : 'idle'
         expect(bootstrap).toMatchObject({
           provenance: 'bootstrap',
           turnEpoch: scenario === 'next_prompt' ? 6 : 5,
-          nextPhase: working ? 'working' : 'idle',
-          state: { workingMsTotal: 920_171 },
+          nextPhase: expectedPhase,
         })
-        if (!working)
+        expect(bootstrap.state.workingMsTotal).toBeGreaterThanOrEqual(920_171)
+        if (!compacting) expect(bootstrap.state.workingMsTotal).toBe(920_171)
+        if (expectedPhase === 'needs_user') expect(bootstrap.state.need?.kind).toBe('question')
+        if (expectedPhase === 'idle') {
           expect(bootstrap.state.idle?.kind).toBe(scenario === 'interrupt' ? 'interrupted' : 'done')
+          expect(bootstrap.state.since).toBe(at)
+        }
         const lease = {
           provider: 'claude-code' as const,
           providerSessionId: 'claude-1',
@@ -144,7 +229,11 @@ describe('Claude compaction rebuild [POD-2275]', () => {
         }
         const result = acceptAgentObservation(checkpoint, lease, bootstrap, at)
         if (result.kind === 'rejected') throw new Error(result.rejectionReason)
-        expect(result.checkpoint.terminalFence?.turnEpoch).toBe(working ? undefined : 5)
+        if (expectedPhase !== 'errored') {
+          expect(result.checkpoint.terminalFence?.turnEpoch).toBe(
+            expectedPhase === 'idle' ? 5 : undefined,
+          )
+        }
         observers.onObservationAck({
           type: 'agentObservationAck',
           sessionId,

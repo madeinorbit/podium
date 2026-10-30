@@ -757,7 +757,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
       latestPrompt: null,
       terminalInterrupt: null,
       assistantOutputInRange: false,
-      compactionOnly: false,
+      compactedInRange: false,
     }
     const bootstrapOffset = capture.boundary
     // Capture is asynchronous; Spawn/Reattach may have replaced this exact
@@ -810,14 +810,16 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     const latestPrompt = gapPromptCount > 0 ? capture.latestPrompt : null
     const bootstrapPromptOrigin = latestPrompt?.origin
     let bootstrapState = checkpoint?.turnState ?? initialAgentState(new Date().toISOString())
-    // A summary adds context to the same turn. With no conversational activity
-    // after the checkpoint, its phase and terminal fence remain authoritative.
-    if (
-      !checkpoint ||
-      (bootstrapAdvanced && !onlyUnflushedAcceptedPrompt && !capture.compactionOnly)
-    ) {
-      bootstrapState = initialAgentState(new Date().toISOString())
+    if (!checkpoint || (bootstrapAdvanced && !onlyUnflushedAcceptedPrompt)) {
+      // Compaction continues the accepted turn. Fold its actual state evidence
+      // over that checkpoint; a bounded tail's empty/default guess proves no
+      // phase change and must not erase working or waiting state.
+      const sameTurnCompaction = checkpoint && gapPromptCount === 0 && capture.compactedInRange
+      bootstrapState = sameTurnCompaction
+        ? checkpoint.turnState
+        : initialAgentState(new Date().toISOString())
       for (const event of capture.bootEvents) {
+        if (sameTurnCompaction && event.kind === 'session_started') continue
         bootstrapState = reduceAgentState(bootstrapState, event, new Date().toISOString())
       }
       if (latestPrompt?.hasAssistantOutputAfter === false) {
