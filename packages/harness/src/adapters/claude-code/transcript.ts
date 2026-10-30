@@ -235,8 +235,41 @@ function mapClaudeRecord(record: unknown, previousRecord?: unknown): TranscriptI
       }
       return lines.length ? [{ id: uuid ?? '', role: 'system', ts, text: lines.join('\n') }] : []
     }
+    // A compaction writes three records: this boundary, the summary (a `user`
+    // record) and, when it ran while idle, an informational notice. The boundary
+    // and notice carry no prose of their own; the chat folds them into the
+    // summary's note, so they arrive as text-less compaction items.
+    if (subtype === 'compact_boundary') {
+      const meta = (r.compactMetadata ?? {}) as Record<string, unknown>
+      return [
+        {
+          id: uuid ?? '',
+          role: 'system',
+          ts,
+          text: '',
+          systemKind: 'compaction',
+          compaction: {
+            trigger: typeof meta.trigger === 'string' ? meta.trigger : 'auto',
+            ...(typeof meta.preTokens === 'number' ? { preTokens: meta.preTokens } : {}),
+            ...(typeof meta.postTokens === 'number' ? { postTokens: meta.postTokens } : {}),
+          },
+        },
+      ]
+    }
     const text = typeof r.content === 'string' ? r.content : ''
     if (!text.trim()) return []
+    if (subtype === 'informational' && text.startsWith(IDLE_COMPACTION_NOTICE)) {
+      return [
+        {
+          id: uuid ?? '',
+          role: 'system',
+          ts,
+          text: '',
+          systemKind: 'compaction',
+          compaction: { idle: true, notice: text },
+        },
+      ]
+    }
     // away_summary is Claude Code's while-you-were-gone recap — tag it so the chat
     // renders a distinct "Recap" block rather than a generic "System" line.
     if (subtype === 'away_summary') {
@@ -944,6 +977,11 @@ export function claudeRecordReceipts(record: unknown): TranscriptItem[] {
   }
   return []
 }
+
+/** Opens the notice Claude writes after an idle compaction, as measured on
+ *  2.1.x: "Compacted while idle, before the prompt cache expired", later with
+ *  " · turn off with "idleCompaction": false in settings.json" appended. */
+const IDLE_COMPACTION_NOTICE = 'Compacted while idle'
 
 const BLOCKED_BY_HOOK = 'UserPromptSubmit operation blocked by hook:'
 const ORIGINAL_PROMPT = '\n\nOriginal prompt: '

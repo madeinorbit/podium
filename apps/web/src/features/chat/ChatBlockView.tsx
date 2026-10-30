@@ -1,5 +1,6 @@
 import {
   formatChurn,
+  formatTokens,
   isImagePath,
   isInteractiveTool,
   isInterviewQuestion,
@@ -256,8 +257,21 @@ export const StableMarkdown = memo(function StableMarkdown({
   )
 })
 
+/** What the note's head says beside "Context compacted": how it was started
+ *  and how far it shrank the context, when the harness recorded either. */
+function compactionDetail(item: TranscriptItem): string {
+  const meta = item.compaction
+  const parts: string[] = []
+  if (meta?.idle) parts.push('while idle')
+  else if (meta?.trigger === 'manual') parts.push('on request')
+  if (meta?.preTokens !== undefined && meta.postTokens !== undefined)
+    parts.push(`${formatTokens(meta.preTokens)} → ${formatTokens(meta.postTokens)} tokens`)
+  return parts.join(' · ')
+}
+
 /** Compaction is background context. Keep the summary readable on request and
- * expose it automatically when search lands inside it. */
+ * expose it automatically when search lands inside it. One note stands for the
+ * whole compaction: Claude's boundary and idle notice fold into it upstream. */
 function CompactionNote({
   item,
   cls,
@@ -280,7 +294,9 @@ function CompactionNote({
   onQuote?: ((quote: QuoteInput) => void) | undefined
 }): JSX.Element {
   const [expanded, setExpanded] = useState(false)
-  const open = expanded || highlighted
+  const hasSummary = item.text.trim() !== ''
+  const open = hasSummary && (expanded || highlighted)
+  const detail = compactionDetail(item)
   const bodyId = useId()
   const refPrefixesVersion = useKnownRefPrefixesVersion()
   const unsafeHtml = markdownHtml?.get(item.text)
@@ -295,25 +311,47 @@ function CompactionNote({
     <div className={cls} data-block={index} data-row-key={item.id} data-system-kind="compaction">
       <div className="transcript-rail transcript-rail--none" aria-hidden="true" />
       <div className="transcript-body compaction-note">
-        <button
-          type="button"
-          className="compaction-note-head"
-          aria-expanded={open}
-          aria-controls={bodyId}
-          onClick={() => setExpanded((value) => !value)}
-        >
-          <Layers2 size={13} strokeWidth={1.5} aria-hidden="true" />
-          <span className="compaction-note-label">Context compacted</span>
-          <span className="compaction-note-action">{open ? 'Hide summary' : 'Show summary'}</span>
-          <ChevronRight
-            className="compaction-note-chevron"
-            size={12}
-            strokeWidth={1.5}
-            aria-hidden="true"
-          />
-          <span className="compaction-note-rule" aria-hidden="true" />
-          <BlockClock ts={item.ts} />
-        </button>
+        {hasSummary ? (
+          <button
+            type="button"
+            className="compaction-note-head"
+            aria-expanded={open}
+            aria-controls={bodyId}
+            onClick={() => setExpanded((value) => !value)}
+          >
+            <Layers2 size={13} strokeWidth={1.5} aria-hidden="true" />
+            <span className="compaction-note-label">Context compacted</span>
+            {detail && (
+              <span className="compaction-note-detail" title={item.compaction?.notice}>
+                {detail}
+              </span>
+            )}
+            <span className="compaction-note-action">{open ? 'Hide summary' : 'Show summary'}</span>
+            <ChevronRight
+              className="compaction-note-chevron"
+              size={12}
+              strokeWidth={1.5}
+              aria-hidden="true"
+            />
+            <span className="compaction-note-rule" aria-hidden="true" />
+            <BlockClock ts={item.ts} />
+          </button>
+        ) : (
+          // The boundary arrives a moment before its summary; until then (or
+          // when the summary sits outside the loaded window) there is nothing
+          // to disclose.
+          <div className="compaction-note-head compaction-note-head--static">
+            <Layers2 size={13} strokeWidth={1.5} aria-hidden="true" />
+            <span className="compaction-note-label">Context compacted</span>
+            {detail && (
+              <span className="compaction-note-detail" title={item.compaction?.notice}>
+                {detail}
+              </span>
+            )}
+            <span className="compaction-note-rule" aria-hidden="true" />
+            <BlockClock ts={item.ts} />
+          </div>
+        )}
         <div id={bodyId} hidden={!open} className="compaction-note-body">
           {open && (
             <>

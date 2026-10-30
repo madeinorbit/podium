@@ -4,7 +4,8 @@ import { companion, lazy } from '@podium/mobx-helpers'
 import { LatestTranscriptId } from '../transcript/merge'
 import { isCodexAsyncQuestion, isInterviewQuestion, isPendingAskQuestion } from '../values/ask-question'
 import {
-  isBatchableTool, isUserMediaMarker, pairToolResults, presentToolBlock,
+  foldsIntoCompaction, isBatchableTool, isCompactionPart, isUserMediaMarker, pairToolResults,
+  presentToolBlock,
   type ChatBlock, type ChatRow,
 } from '../values/chat'
 import { rowSurvivesSummary, type ChatVerbosity } from '../values/chat-verbosity'
@@ -385,13 +386,15 @@ export class TranscriptGraph {
       const sorted = ids.sort((a, b) => this.rank(a) - this.rank(b))
       for (const id of sorted) this.ingestIdentity(id, dirty)
       // A page may supply the missing call for a previously orphaned result,
-      // or the user turn into which the old head's media marker now folds.
+      // or the user turn into which the old head's media marker now folds, or
+      // the compaction note the old head's summary and notice now belong to.
       if (beforeHead) {
         let at = ordered.length
         while (at < this.orderedIds.length) {
           const id = this.orderedIds[at++]!
           const item = this.items.get(id)!
           if (isUserMediaMarker(item)) this.ingestMedia(id, dirty)
+          else if (isCompactionPart(item)) this.ingestCompaction(id, dirty)
           else if (!this.owners.has(id)) break
         }
       }
@@ -505,6 +508,7 @@ export class TranscriptGraph {
   private ingestIdentity(id: string, dirty = new Set<string>()): void {
     const item = this.items.get(id)!
     if (isUserMediaMarker(item)) { this.ingestMedia(id, dirty); return }
+    if (isCompactionPart(item)) { this.ingestCompaction(id, dirty); return }
     if (item.role !== 'tool' || !item.toolUseId) { this.emit(id, true, dirty); return }
     let members = this.toolMembers.get(item.toolUseId)
     if (!members) { members = { calls: [], results: [] }; this.toolMembers.set(item.toolUseId, members) }
@@ -537,6 +541,24 @@ export class TranscriptGraph {
       const tags = item.tags ?? []
       this.emit(id, !(tags.length > 0 && tags.every(tag => tag.kind === 'file')), dirty)
     }
+  }
+
+  /** A compaction's records (Claude writes a boundary, the summary, and an idle
+   *  notice, with invisible attachments between) become children of the note
+   *  the first of them opened, as {@link pairToolResults} folds them. */
+  private ingestCompaction(id: string, dirty: Set<string>): void {
+    const at = this.insertionPoint(this.blockIds, id)
+    const previous = this.blockIds[at - 1]
+    let owner: string | undefined
+    if (previous !== undefined && isCompactionPart(this.items.get(previous)!)) {
+      const related = [previous, ...(this.children.get(previous) ?? [])]
+        .filter(member => member !== id)
+        .map(member => this.items.get(member)!)
+      const note = pairToolResults(related)[0]?.item
+      if (note && foldsIntoCompaction(note, this.items.get(id)!)) owner = previous
+    }
+    this.attach(id, owner, dirty)
+    if (!owner) this.emit(id, true, dirty)
   }
 
   private liftPrompt(id: string, dirty: Set<string>): void {

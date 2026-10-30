@@ -50,6 +50,53 @@ describe('Claude user records that are not a prompt entry', () => {
     ])
   })
 
+  it('reads the compaction boundary and idle notice as parts of the compaction note', () => {
+    const boundary = claudeRecordToItems({
+      type: 'system',
+      subtype: 'compact_boundary',
+      uuid: 'b0',
+      timestamp: '2026-10-29T10:00:00.000Z',
+      level: 'info',
+      isMeta: false,
+      content: 'Conversation compacted',
+      compactMetadata: { trigger: 'auto', preTokens: 358780, postTokens: 8952, durationMs: 37473 },
+    })
+    expect(boundary).toEqual([
+      {
+        id: 'b0',
+        role: 'system',
+        ts: '2026-10-29T10:00:00.000Z',
+        text: '',
+        systemKind: 'compaction',
+        compaction: { trigger: 'auto', preTokens: 358780, postTokens: 8952 },
+      },
+    ])
+    const notice =
+      'Compacted while idle, before the prompt cache expired · turn off with "idleCompaction": false in settings.json'
+    const idle = claudeRecordToItems({
+      type: 'system',
+      subtype: 'informational',
+      uuid: 'n0',
+      timestamp: '2026-10-29T10:00:01.000Z',
+      level: 'notice',
+      isMeta: false,
+      content: notice,
+    })
+    expect(idle).toEqual([
+      {
+        id: 'n0',
+        role: 'system',
+        ts: '2026-10-29T10:00:01.000Z',
+        text: '',
+        systemKind: 'compaction',
+        compaction: { idle: true, notice },
+      },
+    ])
+    expect(
+      [...boundary, ...idle].filter((i) => transcriptEchoAcceptCorrelation.accepts(i)),
+    ).toEqual([])
+  })
+
   it('shows a slash command as a system note carrying the command as typed', () => {
     const custom = {
       type: 'user',

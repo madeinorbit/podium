@@ -4530,6 +4530,20 @@ button.pane-branch:hover {
   font-size: 12px;
   font-weight: 500;
 }
+.compaction-note-head--static {
+  cursor: default;
+}
+.compaction-note-head--static:hover {
+  color: var(--muted-foreground);
+}
+.compaction-note-detail {
+  overflow: hidden;
+  color: var(--text-dim, var(--muted-foreground));
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .compaction-note-action {
   margin-left: 5px;
   color: var(--text-dim, var(--muted-foreground));

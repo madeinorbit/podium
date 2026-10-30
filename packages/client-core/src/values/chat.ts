@@ -112,10 +112,42 @@ export function isUserMediaMarker(item: TranscriptItem): boolean {
   )
 }
 
+/** One record of a compaction: its summary, or (Claude) the boundary or the
+ *  idle notice written beside it. */
+export function isCompactionPart(item: TranscriptItem): boolean {
+  return item.role === 'system' && item.systemKind === 'compaction'
+}
+
+/** Whether `part` belongs to the compaction note `note` already holds: both are
+ *  compaction parts and the note lacks what `part` brings. A second summary,
+ *  boundary or notice starts a note of its own. */
+export function foldsIntoCompaction(note: TranscriptItem, part: TranscriptItem): boolean {
+  if (!isCompactionPart(note) || !isCompactionPart(part)) return false
+  const boundary = (item: TranscriptItem) =>
+    item.compaction?.trigger !== undefined || item.compaction?.preTokens !== undefined
+  if (part.text && note.text) return false
+  if (boundary(part) && boundary(note)) return false
+  if (part.compaction?.idle && note.compaction?.idle) return false
+  return true
+}
+
+/** The note with `part` folded in. The note keeps its id and time (the first
+ *  record of the compaction); summary text and metadata come from whichever
+ *  record carries them. */
+export function foldCompaction(note: TranscriptItem, part: TranscriptItem): TranscriptItem {
+  const compaction = { ...note.compaction, ...part.compaction }
+  return {
+    ...note,
+    text: note.text || part.text,
+    ...(Object.keys(compaction).length ? { compaction } : {}),
+  }
+}
+
 /**
  * Collapse the raw item stream into renderable blocks: tool results fold into
  * their originating tool call; a media-marker user item folds its paths into
- * the preceding user block; everything else passes through in order.
+ * the preceding user block; the records of one compaction fold into one note;
+ * everything else passes through in order.
  */
 export function pairToolResults(items: TranscriptItem[]): ChatBlock[] {
   const blocks: ChatBlock[] = []
@@ -139,6 +171,11 @@ export function pairToolResults(items: TranscriptItem[]): ChatBlock[] {
       // narrowly — a tag-less item keeps its old standalone rendering.
       const tags = item.tags ?? []
       if (!(tags.length > 0 && tags.every((t) => t.kind === 'file'))) blocks.push({ item })
+      continue
+    }
+    const prev = blocks[blocks.length - 1]
+    if (prev && foldsIntoCompaction(prev.item, item)) {
+      prev.item = foldCompaction(prev.item, item)
       continue
     }
     if (item.role === 'tool' && item.toolResult !== undefined && item.toolUseId) {

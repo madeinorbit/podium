@@ -123,6 +123,27 @@ it('folds image/file markers through paired results and repairs the older-page s
   f.append(media('orphan-file', 'file'), prose('break'), media('seam-file', 'file'), media('seam-image'))
 })
 
+it('folds a compaction boundary, summary and idle notice into one note across frames and seams', () => {
+  const part = (id: string, extra: Partial<TranscriptItem>): TranscriptItem =>
+    ({ id, role: 'system', text: '', systemKind: 'compaction', ...extra })
+  const boundary = (id: string) => part(id, { compaction: { trigger: 'auto', preTokens: 300_000, postTokens: 9_000 } })
+  const summary = (id: string) => part(id, { text: `${id} needle` })
+  const idle = (id: string) => part(id, { compaction: { idle: true, notice: 'Compacted while idle' } })
+  const f = fixture([prose('before'), boundary('b1')])
+  f.append(summary('s1'), media('reread', 'file'))
+  f.append(idle('n1'), prose('after'))
+  expect(f.graph.structuralBlocks.map(block => block.item.id)).toEqual(['before', 'b1', 'after'])
+  expect(f.graph.block('b1')?.item).toMatchObject({
+    text: 's1 needle', compaction: { trigger: 'auto', preTokens: 300_000, idle: true },
+  })
+  // A second compaction starts its own note, and a page that brings the older
+  // boundary in front of a summary folds the head into it.
+  f.append(boundary('b2'), summary('s2'))
+  const g = fixture([summary('s3'), idle('n3'), prose('tail')])
+  g.prepend(prose('older'), boundary('b3'))
+  expect(g.graph.structuralBlocks.map(block => block.item.id)).toEqual(['older', 'b3', 'tail'])
+})
+
 it('repairs local prompt timestamps on append and prepend without sorting file order', () => {
   const stamped = (item: TranscriptItem, second: number) => ({ ...item, ts: `2026-10-06T00:00:0${second}Z` })
   const f = fixture([stamped(prose('reply'), 4)])

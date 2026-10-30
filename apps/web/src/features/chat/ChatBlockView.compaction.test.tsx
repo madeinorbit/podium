@@ -78,6 +78,25 @@ describe('chat compaction notes', () => {
     expect(host.querySelector('.chat-md')).toBeNull()
   })
 
+  it('names an idle compaction and its token counts in the head', () => {
+    const notice = 'Compacted while idle, before the prompt cache expired'
+    mount({
+      ...summary,
+      compaction: { trigger: 'auto', preTokens: 358_780, postTokens: 8_952, idle: true, notice },
+    })
+    const detail = host.querySelector('.compaction-note-detail')
+    expect(detail?.textContent).toBe('while idle · 359k → 9k tokens')
+    expect(detail?.getAttribute('title')).toBe(notice)
+    expect(host.querySelectorAll('[data-system-kind="compaction"]')).toHaveLength(1)
+  })
+
+  it('shows a boundary whose summary has not arrived without an empty disclosure', () => {
+    mount({ ...summary, text: '', compaction: { trigger: 'manual' } })
+    expect(host.querySelector('button')).toBeNull()
+    expect(host.textContent).toContain('Context compacted')
+    expect(host.querySelector('.compaction-note-detail')?.textContent).toBe('on request')
+  })
+
   it('reveals an active search hit and folds again when search leaves', () => {
     mount(summary, true)
     expect(host.querySelector('button')?.getAttribute('aria-expanded')).toBe('true')
