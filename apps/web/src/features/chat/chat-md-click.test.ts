@@ -9,6 +9,7 @@ const clickMocks = vi.hoisted(() => ({
 vi.mock('@/lib/code-copy', () => ({ handleCodeCopyClick: clickMocks.codeCopy }))
 vi.mock('@/lib/ref-activation', () => ({ activateRef: clickMocks.activateRef }))
 
+import { renderMarkdown } from '@/lib/markdown'
 import { handleChatMdClick } from './chat-md-click'
 
 function delegatedEvent(target: HTMLElement): {
@@ -80,5 +81,28 @@ describe('chat Markdown click delegation', () => {
 
     expect(event.preventDefault).not.toHaveBeenCalled()
     expect(clickMocks.activateRef).not.toHaveBeenCalled()
+  })
+
+  it('opens a Markdown link to an absolute file instead of navigating the app', () => {
+    // How Codex links the files it wrote (ONA-31): a host-less absolute href
+    // that, left to the browser, loads the Podium SPA again.
+    document.body.innerHTML = renderMarkdown('[**review.html**](/home/me/site/docs/review.html)')
+    const event = delegatedEvent(document.querySelector('strong') as HTMLElement)
+    const openFile = vi.fn()
+
+    handleChatMdClick(event as never, asSessionId('s1'), '/home/me/site', openFile)
+
+    expect(event.preventDefault).toHaveBeenCalledOnce()
+    expect(openFile).toHaveBeenCalledWith(asSessionId('s1'), '/home/me/site/docs/review.html')
+  })
+
+  it('opens a relative Markdown link with a line suffix against the session cwd', () => {
+    document.body.innerHTML = renderMarkdown('[ref](<references/tool ref.md:12>)')
+    const event = delegatedEvent(document.querySelector('a') as HTMLElement)
+    const openFile = vi.fn()
+
+    handleChatMdClick(event as never, asSessionId('s1'), '/repo', openFile)
+
+    expect(openFile).toHaveBeenCalledWith(asSessionId('s1'), '/repo/references/tool ref.md')
   })
 })

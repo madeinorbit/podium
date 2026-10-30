@@ -6,6 +6,7 @@ import type { SessionId } from '@podium/model/browser'
 import { type JSX, useMemo } from 'react'
 import { assetUrl } from '@/lib/asset-url'
 import { handleCodeCopyClick } from '@/lib/code-copy'
+import { linkedFilePath } from '@/lib/markdown-file-link'
 import { handlePodiumLinkClick } from '@/lib/podium-link-click'
 import { cn } from '@/lib/utils'
 import { renderMarkdownBlocks } from './markdown-blocks'
@@ -38,6 +39,15 @@ export function MarkdownPreview({
 
   const onClick = (e: React.MouseEvent): void => {
     if (handleCodeCopyClick(e)) return // copy button works even without a session
+    // A relative link in a Markdown file names a sibling file, not a page on
+    // the Podium origin. Checked before Podium links, which would claim
+    // `/abs/path.md` as an unroutable view and reload the app.
+    const linked = sessionId ? linkedFilePath(e.target as HTMLElement, fileDir) : null
+    if (sessionId && linked) {
+      e.preventDefault()
+      openFile(sessionId, resolveMachinePath(fileDir, linked))
+      return
+    }
     // A link into this Podium needs no session, and must be claimed here: the
     // preview's anchors are marked exactly like the transcript's, and without a
     // handler an internal link full-page-navigates the SPA off this file
