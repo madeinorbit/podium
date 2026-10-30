@@ -5,26 +5,35 @@
 //! event still travels through WebKit, including text input, iframes and terminals.
 //! Window > Full Screen and its native shortcut still use `toggleFullScreen:`.
 
+use std::ptr;
+use std::sync::atomic::{AtomicPtr, Ordering};
 use std::sync::OnceLock;
 
-use objc2::runtime::{AnyClass, AnyObject, ClassBuilder, Sel};
-use objc2::{msg_send, sel};
+use objc2::runtime::{AnyClass, AnyObject, Bool, Imp, Sel};
+use objc2::{ffi, msg_send, sel};
 use objc2_app_kit::NSWindowStyleMask;
 
-static WINDOW_CLASS: OnceLock<&'static AnyClass> = OnceLock::new();
+// The class that received the override, and the one window it applies to.
+// Never swap the window's class: on macOS 27 AppKit asserts in titlebar layout
+// (NSDP_getComputedPropertyValue) for an instance whose isa is a runtime subclass.
+static PATCHED_CLASS: OnceLock<Option<&'static AnyClass>> = OnceLock::new();
+static MAIN_WINDOW: AtomicPtr<AnyObject> = AtomicPtr::new(ptr::null_mut());
 
 extern "C" fn cancel_operation(window: &AnyObject, _cmd: Sel, sender: *mut AnyObject) {
-    // SAFETY: This method is installed only on an NSWindow subclass. Its sender
+    // SAFETY: This method is installed only on an NSWindow class. Its sender
     // and the method signature are the same as NSResponder's cancelOperation:.
     unsafe {
-        let style: NSWindowStyleMask = msg_send![window, styleMask];
-        if style.contains(NSWindowStyleMask::FullScreen) {
-            return;
+        if ptr::eq(window, MAIN_WINDOW.load(Ordering::Relaxed)) {
+            let style: NSWindowStyleMask = msg_send![window, styleMask];
+            if style.contains(NSWindowStyleMask::FullScreen) {
+                return;
+            }
         }
-        // Use our registered superclass, even if AppKit later subclasses the
-        // instance again. Looking up window.class().superclass() could recurse.
-        let superclass = WINDOW_CLASS.get().unwrap().superclass().unwrap();
-        let _: () = msg_send![super(window, superclass), cancelOperation: sender];
+        // Use the patched class's superclass, even if AppKit later subclasses the
+        // instance. Looking up window.class().superclass() could recurse.
+        let patched = PATCHED_CLASS.get().copied().flatten().unwrap();
+        let _: () =
+            msg_send![super(window, patched.superclass().unwrap()), cancelOperation: sender];
     }
 }
 
@@ -38,31 +47,38 @@ pub fn install(window: &tauri::WebviewWindow) -> tauri::Result<()> {
     Ok(())
 }
 
-/// The receiver must implement NSWindow's styleMask and cancelOperation: methods,
-/// and its owner must serialize class changes on the owning thread.
+/// The receiver must implement NSWindow's styleMask and inherit, not define,
+/// cancelOperation:. Other instances of its class keep the inherited behavior.
 unsafe fn install_on_window(window: &AnyObject) {
-    let subclass = WINDOW_CLASS.get_or_init(|| {
-        let mut builder = ClassBuilder::new(c"PodiumMainWindowEscape", window.class())
-            .expect("main window Escape class must be unique");
+    let patched = PATCHED_CLASS.get_or_init(|| {
+        let class = window.class();
         // SAFETY: The override has NSResponder's void-returning, nullable-id ABI.
-        unsafe {
-            builder.add_method(
+        // class_addMethod refuses a class that defines the selector itself.
+        let added = unsafe {
+            let imp: Imp = std::mem::transmute(cancel_operation as extern "C" fn(_, _, _));
+            ffi::class_addMethod(
+                class as *const AnyClass as *mut AnyClass,
                 sel!(cancelOperation:),
-                cancel_operation as extern "C" fn(_, _, _),
+                imp,
+                c"v@:@".as_ptr(),
+            )
+        };
+        if added == Bool::NO {
+            log::error!(
+                "{} already defines cancelOperation:; fullscreen Escape not routed",
+                class.name().to_string_lossy()
             );
+            return None;
         }
-        builder.register()
+        Some(class)
     });
-    if window.class() == *subclass {
-        return;
+    if let Some(patched) = patched {
+        assert_eq!(window.class(), *patched);
+        MAIN_WINDOW.store(
+            window as *const AnyObject as *mut AnyObject,
+            Ordering::Relaxed,
+        );
     }
-    let superclass = subclass.superclass().unwrap();
-    assert_eq!(window.class(), superclass);
-    assert_eq!(subclass.instance_size(), superclass.instance_size());
-    // SAFETY: This is a subclass of the current class, adds no ivars and overrides
-    // one ABI-compatible method. No shared AppKit or Tauri class is modified.
-    let previous = unsafe { AnyObject::set_class(window, subclass) };
-    assert_eq!(previous, superclass);
 }
 
 #[cfg(test)]
@@ -82,9 +98,23 @@ mod tests {
     }
 
     // Exercise Objective-C dispatch and per-window isolation without opening a
-    // GUI or entering a fullscreen Space on the test runner.
+    // GUI or entering a fullscreen Space on the test runner. The base stands in
+    // for NSWindow, so the test class inherits cancelOperation: as TaoWindow does.
     define_class!(
         #[unsafe(super(NSObject))]
+        #[name = "PodiumFullscreenEscapeTestBase"]
+        struct TestBase;
+
+        impl TestBase {
+            #[unsafe(method(cancelOperation:))]
+            fn cancel_operation(&self, _sender: Option<&AnyObject>) {
+                let _: () = unsafe { msg_send![self, recordNativeCancellation] };
+            }
+        }
+    );
+
+    define_class!(
+        #[unsafe(super(TestBase, NSObject))]
         #[name = "PodiumFullscreenEscapeTestWindow"]
         #[ivars = WindowState]
         struct TestWindow;
@@ -99,8 +129,8 @@ mod tests {
                 }
             }
 
-            #[unsafe(method(cancelOperation:))]
-            fn cancel_operation(&self, _sender: Option<&AnyObject>) {
+            #[unsafe(method(recordNativeCancellation))]
+            fn record_native_cancellation(&self) {
                 let calls = &self.ivars().native_cancellations;
                 calls.set(calls.get() + 1);
             }
@@ -127,10 +157,7 @@ mod tests {
             install_on_window(window.as_ref());
             install_on_window(window.as_ref());
         }
-        assert_eq!(
-            window.class().instance_size(),
-            original_class.instance_size()
-        );
+        assert_eq!(window.class(), original_class);
         assert_eq!(untouched.class(), original_class);
 
         window.cancel();
