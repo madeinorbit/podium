@@ -164,7 +164,7 @@ describe('ToolBatchView — the work line', () => {
     expect(elapsedRung).toBeGreaterThan(-1)
     expect(countRung).toBeGreaterThan(elapsedRung)
     expect(disclosureRung).toBeGreaterThan(countRung)
-    expect(css.slice(elapsedRung, countRung)).toMatch(/\.work-line-time\s*\{[^}]*display: none/s)
+    expect(css.slice(elapsedRung, countRung)).toMatch(/\.work-line-time[^{]*\{[^}]*display: none/s)
     expect(css.slice(disclosureRung)).toMatch(/\.work-line-chev\s*\{[^}]*display: none/s)
   })
 
@@ -204,8 +204,8 @@ describe('ToolBatchView — the work line', () => {
     expect(line.querySelector('.work-line-time')?.textContent).toBe('0:09')
   })
 
-  // POD-2076: the folded face counts; the subjects stay in the tooltip.
-  it('folds to a count-only summary and keeps the named title as the tooltip', () => {
+  // POD-2286: the folded face names its subjects, as the tooltip does.
+  it('folds to the named title', () => {
     mount(
       batchOf([
         call({ id: 'a', toolName: 'Edit', toolPaths: ['/r/apps/web/src/ChatView.tsx'] }),
@@ -213,7 +213,9 @@ describe('ToolBatchView — the work line', () => {
       ]),
     )
     const row = host.querySelector('.work-line-row')!
-    expect(row.querySelector('.work-line-phrase')?.textContent).toBe('Edited 2 files')
+    expect(row.querySelector('.work-line-phrase')?.textContent).toBe(
+      'Edited ChatView.tsx, OfferBar.tsx',
+    )
     expect(row.getAttribute('title')).toContain('ChatView.tsx')
   })
 

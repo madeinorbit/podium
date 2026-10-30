@@ -6,6 +6,7 @@ import { useMemo, useState } from 'react'
 import { cn } from '@/lib/utils'
 import { type ChatBlock, failLine, mcpLabel, toolSubject, toolVerdict } from './chat'
 import { ToolEditDiff } from './ToolEditDiff'
+import { clockLabel, fullTimeLabel, parseTs } from './transcript-time'
 
 /** How a call NAMES ITSELF in a list: the tool that ran, in the operator's
  *  words rather than the wire's. Shared with the folded run's hover preview
@@ -81,6 +82,7 @@ export function ToolBlock({
   block,
   onOpenDiff,
   diffPath,
+  timed = false,
 }: {
   block: ChatBlock
   sessionId: SessionId
@@ -95,9 +97,12 @@ export function ToolBlock({
    *  the row unfolds instead. Deciding this here rather than in the row is what
    *  keeps the rail and the rows describing the same set of files. */
   diffPath?: string | undefined
+  /** The call's clock time goes in the opened run's gutter (POD-2286). */
+  timed?: boolean
 }): JSX.Element {
   const [open, setOpen] = useState(false)
   const { item } = block
+  const stamp = timed ? parseTs(item.ts) : undefined
   const result = block.result ?? item.toolResult
   const abnormal = item.toolEffects?.some(
     (effect) =>
@@ -149,6 +154,11 @@ export function ToolBlock({
   }
   return (
     <div className="tool-block min-w-0" data-verdict={verdict}>
+      {stamp && (
+        <time className="quiet-time" dateTime={item.ts} title={fullTimeLabel(stamp)}>
+          {clockLabel(stamp)}
+        </time>
+      )}
       <button
         data-pressable
         type="button"

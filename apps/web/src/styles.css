@@ -3235,8 +3235,6 @@ html[data-setup-only="true"] [data-testid="update-panel"] {
   --chat-face: var(--tabstrip);
   --chat-rule: var(--border);
   --chat-rim: var(--border-strong);
-  --chat-tool-border: var(--hairline-soft, var(--chat-rule));
-  --chat-tool-border-hover: var(--chat-rim);
   --chat-bubble: var(--engraved);
   --chat-bubble-rim: var(--border-strong);
   --chat-chip: var(--muted);
@@ -3248,9 +3246,6 @@ html[data-setup-only="true"] [data-testid="update-panel"] {
   --chat-mail-bg: color-mix(in srgb, var(--live) 3.5%, transparent);
 }
 .dark {
-  /* Match the offer card's rim; a small hover lift keeps disclosures distinct. */
-  --chat-tool-border: var(--border-strong);
-  --chat-tool-border-hover: color-mix(in srgb, var(--border-strong) 88%, var(--foreground));
   /* On a dark ground the plain hairline disappears against the tab-strip face a
      work line is drawn on — the two are four steps apart — so the rule is mixed
      one notch toward the strong border. On paper the hairline already reads,
@@ -3746,9 +3741,10 @@ html[data-density="compact"] .brief-shelf {
   min-width: 0;
   width: 100%;
   font-family: var(--font-mono, ui-monospace, monospace);
-  /* DESIGN.md's mono size — the bottom of the feed's type band (POD-376). */
-  font-size: 10.5px;
-  line-height: 1.75;
+  /* A step up from DESIGN.md's 10.5px mono (POD-2286): the list is now the only
+     structure an opened run has, so its lines carry a 24px rhythm. */
+  font-size: 11.5px;
+  line-height: 24px;
   color: var(--text-dim, var(--muted-foreground));
 }
 .tool-glyph {
@@ -3763,7 +3759,7 @@ html[data-density="compact"] .brief-shelf {
 .tool-name {
   flex: none;
   min-width: 42px;
-  color: var(--text-strong, var(--foreground));
+  color: var(--text-faint, var(--muted-foreground));
 }
 .tool-glyph--ok {
   color: var(--text-faint);
@@ -3785,22 +3781,22 @@ html[data-density="compact"] .brief-shelf {
 
 .tool-result-full {
   max-height: 280px;
-  margin: 4px 0 5px 21px;
+  margin: 4px 0 8px 15px;
   overflow: auto;
-  padding: 6px 9px;
-  border: 1px solid color-mix(in oklab, var(--border) 75%, transparent);
-  border-left: 2px solid var(--hairline-soft, var(--border));
-  border-radius: 0 6px 6px 0;
-  background: color-mix(in oklab, var(--background) 88%, black);
+  /* A soft well, no border (POD-2286): the guide already says whose it is. */
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: color-mix(in oklab, var(--foreground) 4%, transparent);
   color: var(--muted-foreground);
   font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 10.5px;
+  font-size: 11px;
+  line-height: 1.6;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
 .tool-block[data-verdict="err"] .tool-result-full {
-  border-left-color: color-mix(in oklab, var(--destructive) 60%, var(--border));
-  background: color-mix(in oklab, var(--destructive) 4%, var(--background));
+  background: color-mix(in oklab, var(--destructive) 6%, transparent);
 }
 
 /* File-edit unfold (same box as .tool-result-full). Blue adds / red removes —
@@ -4304,15 +4300,15 @@ button.pane-branch:hover {
 
 /* ── PODIUM'S OWN MAIL (POD-993, POD-2234) ──────────────────────────────────
    Mail is machine provenance, not a card asking the operator to choose. A burst
-   of frames folds into ONE object, and that object is a quiet row of the same
-   family as a run of tool calls: the `.work-line` box, glyph slot, trailing
-   time and chevron, opening into the same seamed list. What tells a note from a
+   of frames folds into ONE object, and that object is a quiet line of the same
+   family as a run of tool calls: the `.work-line` glyph slot, trailing time and
+   chevron, opening into the same timed list (POD-2286). What tells a note from a
    run is its mail glyph in place of the verdict, in dim ink rather than the
    live hue — a note did not succeed or fail, it arrived. The row itself is the
    only toggle: no close button, no card header repeating the line above it.
    ─────────────────────────────────────────────────────────────────────────── */
 .work-line-glyph.mail-fold-glyph {
-  color: var(--text-dim, var(--muted-foreground));
+  color: var(--text-faint, var(--muted-foreground));
 }
 /* The ask an agent-mail frame carries is the receiving agent's, so it is a
    word on the line, not a reason to open the card (POD-2070). */
@@ -4320,28 +4316,8 @@ button.pane-branch:hover {
   margin-left: 5px;
   color: var(--text-faint);
 }
-/* OPENED, THE BOX HOLDS THE NOTE. A run of calls hangs its list below its
-   row; a note is one object, so opening it grows the row's box around the
-   text instead. The border moves from the row to the group, and the list sits
-   inside it, its seam under the glyph and its text under the phrase. */
-.work-line.mail-group[data-open="true"] {
-  border: 1px solid var(--chat-tool-border);
-  border-radius: 7px;
-  transition: border-color 160ms ease;
-}
-.work-line.mail-group[data-open="true"]:has(> .work-line-row:hover) {
-  border-color: var(--chat-tool-border-hover);
-}
-.work-line.mail-group[data-open="true"] > .work-line-row {
-  /* The group's border replaces the row's, so the row keeps its folded
-     geometry: same glyph inset, same height. */
-  min-height: 30px;
-  border-width: 0;
-}
-.work-line.mail-group[data-open="true"] > .work-line-list {
-  margin: 0 12px 10px 17px;
-  padding: 0 0 0 16px;
-}
+/* Opened, a note hangs under its line on the same guide a run uses (POD-2286);
+   POD-2234's box around the opened note is gone with the row's box. */
 /* BOUNDED, NOT TRUNCATED. Six or seven notes is a plausible burst and the list
    holds four of them at rest; past that it scrolls INSIDE the list, so the
    transcript underneath never has to move to accommodate somebody else's inbox. */
@@ -4353,7 +4329,7 @@ button.pane-branch:hover {
   display: flex;
   flex-direction: column;
   min-width: 0;
-  padding: 6px 8px 7px 0;
+  padding: 3px 8px 8px 0;
 }
 .mail-item + .mail-item {
   border-top: 1px solid var(--chat-rule);
@@ -4739,18 +4715,17 @@ button.pane-branch:hover {
   position: relative;
   container-type: inline-size;
   container-name: work-line;
-  /* A RUN IS A SOLID (POD-993 round 2). Prose either side of it gets the feed's
-     12px beat; this needs more, because it is a box with an edge and the line of
-     text above would otherwise land on that edge. */
-  margin: 6px 0;
+  /* A LINE OF TEXT, NOT A SOLID (POD-2286). With no box there is no edge for
+     the prose above to land on, so the feed's own beat is all the air it needs. */
+  margin: 0;
 }
 /* A RUN OF QUIET ROWS PACKS (POD-2234). Tool runs and notes are each a solid
    with air of their own, which is right against prose and wrong between two of
    them: three notes and a run of calls read as four separate events, 24px
    apart, when they are one stretch of background activity. A quiet row that
-   follows another sits 4px under it; the full air stays where the stretch meets
-   prose. The rows live in the transcript window's shells, so adjacency is the
-   shells'. */
+   follows another sits directly under it, line after line like a list (POD-2286);
+   the full air stays where the stretch meets prose. The rows live in the
+   transcript window's shells, so adjacency is the shells'. */
 [data-transcript-row]:has(> .transcript-row > .transcript-body > .work-line):has(
     + [data-transcript-row] > .transcript-row > .transcript-body > .work-line
   )
@@ -4775,11 +4750,14 @@ button.pane-branch:hover {
   > .transcript-row
   > .transcript-body
   > .work-line {
-  margin-top: 4px;
+  margin-top: 0;
 }
-/* ONE HAIRLINE ROW (POD-2076): a folded run is a quiet line in the document —
-   no carve, no fanned deck, no count badge. The summary says how much
-   happened; the time and the chevron trail it. */
+/* MURMUR (POD-2286): a folded run or note is a line of text in the document, a
+   step quieter than prose — no box, no border. The phrase names what happened
+   (the command, the file, the sender and subject); the glyph is a faint marker
+   in front of it. Time and chevron are affordances, so they appear under the
+   pointer, on focus and while open, and otherwise the line is only its words.
+   Replaces POD-2234's boxed row: twelve boxes in a row were a wall. */
 .work-line-row {
   position: relative;
   z-index: 1;
@@ -4787,17 +4765,12 @@ button.pane-branch:hover {
   align-items: center;
   gap: 9px;
   width: 100%;
-  min-height: 32px;
-  padding: 0 12px;
-  border: 1px solid var(--chat-tool-border);
-  border-radius: 7px;
+  min-height: 28px;
+  padding: 0;
+  border: 0;
   background: transparent;
   text-align: left;
   cursor: pointer;
-  transition: border-color 160ms ease;
-}
-.work-line-row:hover {
-  border-color: var(--chat-tool-border-hover);
 }
 .work-line-glyph {
   display: flex;
@@ -4809,21 +4782,43 @@ button.pane-branch:hover {
   font-size: 11px;
   color: var(--live, var(--info));
 }
+/* A settled verdict is a marker, not a signal: only a live run keeps the live
+   hue, and only a failure keeps a colour once it settles. */
+.work-line[data-state="done"] .work-line-glyph:not(.work-line-glyph--err) {
+  color: var(--text-faint, var(--muted-foreground));
+}
 .work-line-glyph--err {
   color: var(--destructive);
 }
 .work-line-phrase {
-  flex: 1 1 auto;
+  /* Sized to its text, so the time and chevron trail the words rather than
+     sitting at the far edge of the column. */
+  flex: 0 1 auto;
   align-self: baseline;
   min-width: 0;
   overflow: hidden;
   /* Machine voice, a step below prose (POD-376 type scale). The full-height
      line box is the time's baseline partner — see `.work-line-time`. */
-  font-size: 12px;
-  line-height: 30px;
+  font-size: 12.5px;
+  line-height: 28px;
   white-space: nowrap;
   text-overflow: ellipsis;
+  color: var(--text-dim, var(--muted-foreground));
+}
+.work-line-row:hover .work-line-phrase,
+.work-line[data-open="true"] > .work-line-row .work-line-phrase {
   color: var(--muted-foreground);
+}
+.work-line-row:hover .work-line-glyph:not(.work-line-glyph--err) {
+  color: var(--muted-foreground);
+}
+.work-line[data-state="live"] .work-line-row:hover .work-line-glyph {
+  color: var(--live, var(--info));
+}
+/* A command or path in the phrase reads as the code it is. */
+.work-line-code {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11.5px;
 }
 .work-line-fail {
   flex: none;
@@ -4852,13 +4847,32 @@ button.pane-branch:hover {
   font-variant-numeric: tabular-nums;
   color: var(--text-faint, var(--muted-foreground));
 }
+/* The chevron points at the words while folded and turns down when open. */
 .work-line-chev {
   flex: none;
   color: color-mix(in oklab, var(--muted-foreground) 65%, transparent);
-  transition: transform 200ms cubic-bezier(0.22, 1, 0.36, 1);
+  transform: rotate(-90deg);
+  transition:
+    transform 200ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 160ms ease;
 }
 .work-line[data-open="true"] .work-line-chev {
-  transform: rotate(180deg);
+  transform: none;
+}
+/* Shown on demand. A live run's timer is its progress, so it always shows. */
+.work-line-time,
+.work-line-chev {
+  opacity: 0;
+}
+.work-line-row:is(:hover, :focus-visible) :is(.work-line-time, .work-line-chev),
+.work-line[data-open="true"] > .work-line-row :is(.work-line-time, .work-line-chev),
+.work-line:is([data-state="live"], [data-state="wait"]) .work-line-time {
+  opacity: 1;
+}
+@media (hover: none) {
+  .work-line-chev {
+    opacity: 1;
+  }
 }
 
 /* THE NARROW RUN'S LADDER (POD-1370). Transcript panes can become much
@@ -4884,14 +4898,56 @@ button.pane-branch:hover {
   }
 }
 
-/* The unfolded run: one hairline seam holds the calls to the row above. */
+/* The unfolded run: one hairline guide from under the glyph holds the calls to
+   the line above, so what opens plainly belongs to it. */
 .work-line-list {
   display: flex;
   flex-direction: column;
-  margin: 4px 0 0 15px;
-  padding: 2px 0 1px 12px;
+  margin: 0 0 6px 6px;
+  padding: 2px 0 2px 15px;
   border-left: 1px solid var(--chat-rule);
   animation: work-line-unfold 220ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+/* TIMES IN THE MARGIN (POD-2286). An opened run or burst of notes is read in
+   order, so each entry carries its clock time in a gutter left of the guide,
+   like a log beside the text. Folded, none of this exists. */
+.work-line-list--timed {
+  margin-left: 0;
+  padding-left: 58px;
+  border-left: 0;
+  /* The guide is painted rather than positioned so it runs the whole length of
+     a list that scrolls inside itself (a long burst of notes). */
+  background:
+    linear-gradient(var(--chat-rule), var(--chat-rule)) no-repeat 48px 4px / 1px calc(100% - 12px);
+  background-attachment: local;
+}
+.work-line-list--timed > * {
+  position: relative;
+}
+.quiet-time {
+  position: absolute;
+  top: 0;
+  right: calc(100% + 18px);
+  width: 40px;
+  text-align: right;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 10.5px;
+  line-height: 24px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-faint, var(--muted-foreground));
+}
+/* A call's row sits 2px down inside its block (its own padding). */
+.tool-block > .quiet-time {
+  top: 2px;
+}
+@container work-line (max-width: 280px) {
+  .work-line-list--timed {
+    padding-left: 15px;
+    background-position: 6px 4px;
+  }
+  .quiet-time {
+    display: none;
+  }
 }
 @keyframes work-line-unfold {
   from {
@@ -4917,7 +4973,9 @@ button.pane-branch:hover {
 .work-line-phrase,
 .work-line-time,
 .work-line-glyph {
-  transition: color 320ms ease;
+  transition:
+    color 320ms ease,
+    opacity 160ms ease;
 }
 @media (prefers-reduced-motion: no-preference) {
   .work-line[data-settle="true"] .work-line-glyph {

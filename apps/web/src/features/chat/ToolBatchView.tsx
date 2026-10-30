@@ -328,9 +328,11 @@ export const ToolBatchView = observer(function ToolBatchView({
   // A tools row always folds ≥1 block, so the last one exists.
   const lastItem = (run?.lastBlock ?? row.blocks[count - 1]!).item
   const title = run?.title ?? row.title
-  // The folded face says how much happened ("Ran 4 commands"); the named
-  // subjects stay in the tooltip and the unfolded rows (POD-2076).
-  const summary = run?.summary ?? row.summary ?? title
+  // The folded face names what happened ("Ran pnpm check", "Read chat.ts,
+  // ToolBlock.tsx +2"), not only how much (POD-2286): with no box around it, the
+  // line is all a reader sees of the run, and a bare count ("Ran a command")
+  // made every folded run look the same.
+  const summary = title
   const settling = useSettleFlash(computing)
   const pushing = usePushFlash(count)
   const phrase = activeWaiting
@@ -411,11 +413,12 @@ export const ToolBatchView = observer(function ToolBatchView({
             {face}
           </button>
           {expanded && (
-            <div className="work-line-list">
+            <div className="work-line-list work-line-list--timed">
               {blocks.map((b) => (
                 <ToolBlock
                   key={b.item.id}
                   block={b}
+                  timed
                   sessionId={sessionId}
                   cwd={cwd}
                   openFile={openFile}

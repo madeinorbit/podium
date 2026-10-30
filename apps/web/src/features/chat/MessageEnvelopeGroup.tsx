@@ -6,9 +6,10 @@
  * row with its own header, so a turn receiving three notes spent three rows
  * before the answer got a word in.
  *
- * The whole burst is now ONE object — a "Note from steward · 03:13" row in the
- * tool run's shell (POD-2234), opening into the same seamed list a run of calls
- * opens into. See `.mail-group` in styles.css for what differs and why.
+ * The whole burst is now ONE object — a quiet line like a tool run's (POD-2234,
+ * POD-2286): "steward · Merge lock released" for one note, "3 notes from
+ * steward" for a burst, opening into the same timed list a run of calls opens
+ * into. See `.mail-group` in styles.css for what differs and why.
  *
  * NOTHING OPENS ON ARRIVAL (POD-2070): a question or reply request binds the
  * receiving agent, not the reader, so the fold line only flags it.
@@ -100,6 +101,7 @@ function PointerEnvelopeItem(props: {
   envelope: ParsedEnvelope
   forceFull?: boolean
   direction: 'from' | 'to'
+  ts?: string | undefined
 }): JSX.Element {
   const mail = useMailBody(props.envelope.id)
   const body =
@@ -132,8 +134,12 @@ function EnvelopeItem({
   forceFull = false,
   footer,
   direction,
+  ts,
 }: {
   envelope: ParsedEnvelope
+  /** The burst's arrival time, for the opened list's gutter (POD-2286). Only
+   *  the first note carries it: a burst arrives at one moment. */
+  ts?: string | undefined
   /** Which party the left column names: the sender, or the recipient of a
    *  note this session sent. */
   direction: 'from' | 'to'
@@ -150,6 +156,7 @@ function EnvelopeItem({
   const full = opened || forceFull
   const setFull = setOpened
   const { subject, preview } = useMemo(() => splitSubject(body), [body])
+  const stamp = parseTs(ts)
   const cachedHtml = markdownHtml?.get(body)
   const refPrefixesVersion = useKnownRefPrefixesVersion()
   // biome-ignore lint/correctness/useExhaustiveDependencies: refPrefixesVersion is a deliberate recompute trigger — linkifyRefs reads the prefix registry.
@@ -161,6 +168,11 @@ function EnvelopeItem({
   }, [cachedHtml, body, full, refPrefixesVersion])
   return (
     <div className="mail-item" data-testid="mail-item" data-full={full ? 'true' : undefined}>
+      {stamp && (
+        <time className="quiet-time" dateTime={ts} title={fullTimeLabel(stamp)}>
+          {clockLabel(stamp)}
+        </time>
+      )}
       <button
         data-pressable
         type="button"
@@ -250,7 +262,16 @@ export function MessageEnvelopeGroup({
   const names = [
     ...new Set(envelopes.map((e) => principalShortName(direction === 'from' ? e.from : e.to))),
   ].join(' · ')
-  const foldLabel = `${noun} ${direction} ${names}`
+  // ONE NOTE NAMES ITS SUBJECT (POD-2286): "steward · Merge lock released"
+  // says what arrived; "Note from steward" only says that something did. A
+  // pointer's body is fetched on open, so it keeps the generic line.
+  const lone = single ? envelopes[0] : undefined
+  const loneSubject = lone && lone.pointer !== 'by-id' ? splitSubject(lone.body).subject : ''
+  const foldLabel = loneSubject
+    ? direction === 'from'
+      ? `${names} · ${loneSubject}`
+      : `To ${names} · ${loneSubject}`
+    : `${noun} ${direction} ${names}`
 
   return (
     <div
@@ -261,8 +282,8 @@ export function MessageEnvelopeGroup({
     >
       <div className="transcript-rail transcript-rail--none" aria-hidden="true" />
       <div className="transcript-body">
-        {/* THE TOOL RUN'S SHELL (POD-2234): a note is a quiet row like a run of
-            calls — the same box, glyph slot, trailing time and chevron — told
+        {/* THE TOOL RUN'S LINE (POD-2234, POD-2286): a note is a quiet line like a
+            run of calls — the same glyph slot, trailing time and chevron — told
             apart by its mail glyph. The row is the only toggle. */}
         <div className="work-line mail-group" data-open={open ? 'true' : 'false'}>
           <button
@@ -291,14 +312,15 @@ export function MessageEnvelopeGroup({
           {open && (
             // biome-ignore lint/a11y/noStaticElementInteractions: delegated clicks activate only semantic links — the route chips and the anchors sanitized markdown emits
             // biome-ignore lint/a11y/useKeyWithClickEvents: keyboard users activate those anchors natively
-            <div className="work-line-list mail-card" onClick={onBodyClick}>
-              {envelopes.map((envelope) =>
+            <div className="work-line-list work-line-list--timed mail-card" onClick={onBodyClick}>
+              {envelopes.map((envelope, i) =>
                 envelope.pointer === 'by-id' ? (
                   <PointerEnvelopeItem
                     key={envelope.id}
                     envelope={envelope}
                     forceFull={forceOpen}
                     direction={direction}
+                    ts={i === 0 ? ts : undefined}
                   />
                 ) : (
                   <EnvelopeItem
@@ -308,6 +330,7 @@ export function MessageEnvelopeGroup({
                     markdownHtml={markdownHtml}
                     forceFull={forceOpen}
                     direction={direction}
+                    ts={i === 0 ? ts : undefined}
                   />
                 ),
               )}
