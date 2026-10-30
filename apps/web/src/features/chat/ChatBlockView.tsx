@@ -599,7 +599,7 @@ export const ChatBlockView = observer(function ChatBlockView({
       </div>
     )
   // A file the agent had read changed under it from outside its own tool calls
-  // (POD-2179): one quiet line, like a mail fold, that opens the file.
+  // (POD-2179): one quiet line that opens the file.
   if (item.role === 'system' && item.systemKind === 'file-changed') {
     const path = item.toolPaths?.[0]
     const stamp = parseTs(item.ts)
@@ -612,27 +612,27 @@ export const ChatBlockView = observer(function ChatBlockView({
       >
         <div className="transcript-rail transcript-rail--none" aria-hidden="true" />
         <div className="transcript-body">
-          <div className="mail-group">
+          <div className="work-line">
             <button
               data-pressable
               type="button"
-              className="mail-fold"
+              className="file-change-row"
               title={path ? `Open ${path}` : undefined}
               disabled={!path}
               onClick={() => {
                 if (path) openFile(sessionId, resolveMachinePath(cwd, path))
               }}
             >
-              <FilePen className="mail-fold-icon" size={13} aria-hidden="true" />
-              <span className="mail-fold-count">
+              <FilePen size={13} strokeWidth={1.5} aria-hidden="true" />
+              <span className="file-change-label">
                 Changed on disk · {path ? machinePathBasename(path, cwd) : 'a file'}
               </span>
               {stamp && (
-                <time className="mail-fold-meta" dateTime={item.ts} title={fullTimeLabel(stamp)}>
+                <time className="file-change-time" dateTime={item.ts} title={fullTimeLabel(stamp)}>
                   · {clockLabel(stamp)}
                 </time>
               )}
-              <span className="mail-fold-gap" />
+              <span className="file-change-rule" aria-hidden="true" />
             </button>
           </div>
         </div>

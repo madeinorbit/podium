@@ -4259,6 +4259,49 @@ button.pane-branch:hover {
   color: var(--text-dim, var(--muted-foreground));
 }
 
+/* File notices stay below prose in one dim line (POD-2179, POD-2276).
+   Their work-line wrapper shares quiet-row spacing; their appearance is
+   independent of mail's expandable box. */
+.file-change-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 22px;
+  padding: 2px 0;
+  text-align: left;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--muted-foreground);
+  cursor: pointer;
+}
+.file-change-row:hover:not(:disabled) {
+  color: var(--foreground);
+}
+.file-change-row > svg {
+  flex: none;
+}
+.file-change-label {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.file-change-time {
+  flex: none;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted-foreground);
+}
+.file-change-rule {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 1px;
+  background: var(--hairline-soft, var(--chat-rule));
+}
+
 /* ── PODIUM'S OWN MAIL (POD-993, POD-2234) ──────────────────────────────────
    Mail is machine provenance, not a card asking the operator to choose. A burst
    of frames folds into ONE object, and that object is a quiet row of the same
@@ -4824,7 +4867,8 @@ button.pane-branch:hover {
    them: elapsed time first, count second, disclosure last. Each rung also
    takes a little air out of the row rather than making the phrase pay for it. */
 @container work-line (max-width: 280px) {
-  .work-line-time {
+  .work-line-time,
+  .file-change-time {
     display: none;
   }
 }
