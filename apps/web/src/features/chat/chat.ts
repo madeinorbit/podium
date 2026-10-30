@@ -16,6 +16,8 @@ export {
   failLine,
   isBatchableTool,
   isInteractiveTool,
+  isQuietNote,
+  isStretchItem,
   mcpLabel,
   mcpParts,
   pairToolResults,

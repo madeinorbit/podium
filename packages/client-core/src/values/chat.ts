@@ -8,7 +8,7 @@ import {
 } from '@podium/commands/mail-command'
 import type { MessageRecordWire, TranscriptItem } from '@podium/model'
 import { machinePathBasename } from '@podium/model'
-import { principalShortName } from './message-envelope'
+import { parseEnvelopeBatch, principalShortName } from './message-envelope'
 
 /**
  * Presentation-pure helpers for the chat surface, shared between the web
@@ -241,6 +241,32 @@ export function isBatchableTool(item: TranscriptItem): boolean {
 }
 
 /**
+ * Notes that arrived and ask nothing of the reader (POD-2286): Podium's own
+ * mail, with no human text behind it and no question in it. A question keeps a
+ * row of its own, outside any fold.
+ */
+export function isQuietNote(item: TranscriptItem): boolean {
+  if (item.role !== 'user') return false
+  const batch = parseEnvelopeBatch(item.text)
+  return (
+    batch !== null &&
+    batch.operatorText === '' &&
+    batch.envelopes.length > 0 &&
+    !batch.envelopes.some((e) => e.question)
+  )
+}
+
+/**
+ * ONE STRETCH OF QUIET ACTIVITY (POD-2286). Neighbouring tool calls, the
+ * agent's own mail and the notes it received fold into one line ("Ran 5
+ * commands, read 6 notes"), so a busy stretch takes one line between two
+ * messages instead of a column of them.
+ */
+export function isStretchItem(item: TranscriptItem): boolean {
+  return (item.role === 'tool' && !isInteractiveTool(item)) || isQuietNote(item)
+}
+
+/**
  * THE AGENT'S OWN MAIL (POD-2146): the `podium mail send|reply|inbox` a shell
  * call ran, which the chat shows as a "Note to X" card or a "Read N notes" row
  * instead of a command. Pure; a call that never names podium mail costs two
@@ -447,7 +473,7 @@ export function buildChatRows(blocks: ChatBlock[]): ChatRow[] {
     run = null
   }
   blocks.forEach((block, i) => {
-    if (isBatchableTool(block.item)) {
+    if (isStretchItem(block.item)) {
       run ??= { blocks: [], indices: [] }
       run.blocks.push(block)
       run.indices.push(i)
@@ -463,6 +489,9 @@ export function buildChatRows(blocks: ChatBlock[]): ChatRow[] {
 // Tool → the verb/noun the summary counts it under. Past tense to read as a log
 // of what happened ("Read 3 files", "Created 4 files", "Ran 5 commands").
 export function toolCategory(item: TranscriptItem): { verb: string; noun: string } {
+  if (item.role === 'user') return { verb: 'Read', noun: 'note' }
+  const mail = toolMailCommand(item)
+  if (mail) return mail.op === 'inbox' ? { verb: 'Checked', noun: 'inbox' } : { verb: 'Sent', noun: 'note' }
   switch (item.toolName) {
     case 'Read':
     case 'NotebookRead':
@@ -527,6 +556,8 @@ export function toolSubject(item: TranscriptItem, max: number = SUBJECT_MAX): st
   // room. Batch titles pack several subjects onto one line and cap each;
   // live work lines and unfolded rows pass Infinity so CSS clips only at the
   // actual column edge.
+  // A note is counted, not named: its sender and subject are its own row's.
+  if (item.role === 'user' || toolMailCommand(item)) return undefined
   const name = item.toolName
   // A path-bearing call is named by its file, always — the basename, since the
   // full path is one disclosure away in the expanded row.
@@ -594,7 +625,11 @@ const pluralizeNoun = (noun: string): string =>
 const articleFor = (noun: string): string => (/^[aeiou]/i.test(noun) ? 'an' : 'a')
 const lowerFirst = (s: string): string => s.charAt(0).toLowerCase() + s.slice(1)
 const clauseFor = (verb: string, noun: string, count: number): string =>
-  count === 1 ? `${verb} ${articleFor(noun)} ${noun}` : `${verb} ${count} ${pluralizeNoun(noun)}`
+  noun === 'inbox'
+    ? `${verb} the inbox${count > 1 ? ` ${count} times` : ''}`
+    : count === 1
+      ? `${verb} ${articleFor(noun)} ${noun}`
+      : `${verb} ${count} ${pluralizeNoun(noun)}`
 
 /**
  * Smart one-line summary for a tool batch — clauses per tool kind in first-

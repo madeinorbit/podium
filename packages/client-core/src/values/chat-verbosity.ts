@@ -63,8 +63,10 @@ export function rowSurvivesSummary(row: ChatRow): boolean {
       )
     return true
   }
-  // A folded run survives only when something in it failed.
+  // A folded stretch survives when something in it failed, or when it holds a
+  // note — summary keeps mail, folded into a stretch or not (POD-2286).
   return row.blocks.some((b) => {
+    if (b.item.role === 'user' || b.mail?.op === 'note') return true
     const result = b.result ?? b.item.toolResult
     return result !== undefined && FAILED_RESULT_RE.test(result.trimStart().split('\n', 1)[0] ?? '')
   })

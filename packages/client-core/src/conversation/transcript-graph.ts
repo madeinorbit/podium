@@ -4,7 +4,7 @@ import { companion, lazy } from '@podium/mobx-helpers'
 import { LatestTranscriptId } from '../transcript/merge'
 import { isCodexAsyncQuestion, isInterviewQuestion, isPendingAskQuestion } from '../values/ask-question'
 import {
-  foldsIntoCompaction, isBatchableTool, isCompactionPart, isUserMediaMarker, pairToolResults,
+  foldsIntoCompaction, isCompactionPart, isStretchItem, isUserMediaMarker, pairToolResults,
   presentToolBlock,
   type ChatBlock, type ChatRow,
 } from '../values/chat'
@@ -839,7 +839,7 @@ export class TranscriptGraph {
 
   private setItem(id: string, item: TranscriptItem): void {
     this.items.set(id, item)
-    this.batchable.set(id, isBatchableTool(item))
+    this.batchable.set(id, isStretchItem(item))
     if (!this.records.has(id)) this.records.set(id, new TranscriptRecord(id))
   }
 

@@ -897,10 +897,17 @@ const TranscriptRow = observer(function TranscriptRow({ props, template, index: 
   const ctxSeq = props.chat?.view.ctxSeq ?? props.ctxSeq ?? null
   const markdownHtml = props.chat?.view?.presentation.markdownHtml ?? props.markdownHtml
   const presentation = props.chat?.view?.presentation
-  const row: ChatRow = !presentation ? template : template.kind === 'block'
+  const base: ChatRow = !presentation ? template : template.kind === 'block'
     ? { ...template, block: presentation.block(template.block.item.id) ?? template.block }
     : template
-  const run = row.kind === 'tools' ? presentation?.run(row.blocks[0]!.item.id) : undefined
+  const run = base.kind === 'tools' ? presentation?.run(base.blocks[0]!.item.id) : undefined
+  // A LONE NOTE KEEPS ITS OWN ROW (POD-2286). Notes and mail fold into a
+  // stretch with the calls around them; on its own, a note reads better as the
+  // sender and subject than as "Read a note".
+  const lone = base.kind === 'tools' && (run?.count ?? base.blocks.length) === 1 ? base.blocks[0] : undefined
+  const row: ChatRow = base.kind === 'tools' && lone && !isBatchableTool(lone.item)
+    ? { kind: 'block', block: lone, blockIndex: base.blockIndices[0] ?? -1 }
+    : base
 
           // An operator prompt opens an exchange — except at the very top of the
           // mounted window, where the air would only pad the scrollport (and
