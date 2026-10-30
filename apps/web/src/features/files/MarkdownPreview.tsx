@@ -2,7 +2,7 @@ import { machinePathDirname, resolveMachinePath } from '@podium/model'
 // apps/web/src/MarkdownPreview.tsx
 
 import { useStoreHandle } from '@podium/client-core/react'
-import type { SessionId } from '@podium/model/browser'
+import type { MachineId, SessionId } from '@podium/model/browser'
 import { type JSX, useMemo } from 'react'
 import { assetUrl } from '@/lib/asset-url'
 import { handleCodeCopyClick } from '@/lib/code-copy'
@@ -13,21 +13,24 @@ import { renderMarkdownBlocks } from './markdown-blocks'
 
 /** Rendered markdown preview. Relative images resolve through /files/asset; clicking
  *  a linkified file path opens it as a tab (same behavior as chat). The scroll
- *  container is exposed via scrollRef for split-view sync. */
+ *  container is exposed via scrollRef for split-view sync. A worktree-scoped
+ *  preview (empty sessionId) opens linked files through `worktree` instead. */
 export function MarkdownPreview({
   sessionId,
+  worktree,
   path,
   content,
   scrollRef,
   className,
 }: {
   sessionId: SessionId
+  worktree?: { root: string; machineId?: MachineId }
   path: string
   content: string
   scrollRef?: React.MutableRefObject<HTMLDivElement | null>
   className?: string
 }): JSX.Element {
-  const { httpOrigin, openFile } = useStoreHandle().access
+  const { httpOrigin, openFile, openFileInWorktree } = useStoreHandle().access
   const fileDir = machinePathDirname(path)
   const html = useMemo(
     () =>
@@ -39,13 +42,19 @@ export function MarkdownPreview({
 
   const onClick = (e: React.MouseEvent): void => {
     if (handleCodeCopyClick(e)) return // copy button works even without a session
+    const open = sessionId
+      ? (abs: string) => openFile(sessionId, abs)
+      : worktree
+        ? (abs: string) => openFileInWorktree({ ...worktree, path: abs })
+        : null
     // A relative link in a Markdown file names a sibling file, not a page on
     // the Podium origin. Checked before Podium links, which would claim
     // `/abs/path.md` as an unroutable view and reload the app.
-    const linked = sessionId ? linkedFilePath(e.target as HTMLElement, fileDir) : null
-    if (sessionId && linked) {
+    const linked =
+      open && !e.defaultPrevented ? linkedFilePath(e.target as HTMLElement, fileDir) : null
+    if (open && linked) {
       e.preventDefault()
-      openFile(sessionId, resolveMachinePath(fileDir, linked))
+      open(resolveMachinePath(fileDir, linked))
       return
     }
     // A link into this Podium needs no session, and must be claimed here: the
@@ -53,12 +62,12 @@ export function MarkdownPreview({
     // handler an internal link full-page-navigates the SPA off this file
     // (POD-1606).
     if (handlePodiumLinkClick(e)) return
-    if (!sessionId) return // worktree-scoped preview has no session; links are inert until MarkdownPreview is scope-aware
+    if (!open) return
     const a = (e.target as HTMLElement).closest('a.file-link') as HTMLAnchorElement | null
     if (!a) return
     e.preventDefault()
     const p = a.getAttribute('data-path')
-    if (p) openFile(sessionId, resolveMachinePath(fileDir, p))
+    if (p) open(resolveMachinePath(fileDir, p))
   }
 
   return (

@@ -38,7 +38,8 @@ export function handleChatMdClick(
     return
   }
 
-  const pathAnchor = linkedFilePath(target, cwd)
+  // The desktop shell's capture-phase shim already handed a web link to the OS.
+  const pathAnchor = event.defaultPrevented ? null : linkedFilePath(target, cwd)
   if (pathAnchor) {
     event.preventDefault()
     openFile(sessionId, resolveMachinePath(cwd, pathAnchor))

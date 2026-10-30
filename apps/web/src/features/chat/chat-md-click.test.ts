@@ -105,4 +105,43 @@ describe('chat Markdown click delegation', () => {
 
     expect(openFile).toHaveBeenCalledWith(asSessionId('s1'), '/repo/references/tool ref.md')
   })
+
+  it.each([
+    ['file:///repo/docs/a.md', '/repo/docs/a.md'],
+    ['README.md:12', '/repo/README.md'],
+  ])('keeps %s through the sanitizer and opens it', (href, path) => {
+    document.body.innerHTML = renderMarkdown(`[x](${href})`)
+    const event = delegatedEvent(document.querySelector('a') as HTMLElement)
+    const openFile = vi.fn()
+
+    handleChatMdClick(event as never, asSessionId('s1'), '/repo', openFile)
+
+    expect(openFile).toHaveBeenCalledWith(asSessionId('s1'), path)
+  })
+
+  it('keeps a drive path through the sanitizer for a Windows session', () => {
+    document.body.innerHTML = renderMarkdown('[x](C:/repo/a.md)')
+    const event = delegatedEvent(document.querySelector('a') as HTMLElement)
+    const openFile = vi.fn()
+
+    handleChatMdClick(event as never, asSessionId('s1'), 'C:\\repo', openFile)
+
+    expect(openFile).toHaveBeenCalledWith(
+      asSessionId('s1'),
+      expect.stringMatching(/^C:[\\/]repo[\\/]a\.md$/),
+    )
+  })
+
+  it('leaves a link the desktop shell already handed off', () => {
+    document.body.innerHTML = renderMarkdown('[x](/repo/a.md)')
+    const event = {
+      ...delegatedEvent(document.querySelector('a') as HTMLElement),
+      defaultPrevented: true,
+    }
+    const openFile = vi.fn()
+
+    handleChatMdClick(event as never, asSessionId('s1'), '/repo', openFile)
+
+    expect(openFile).not.toHaveBeenCalled()
+  })
 })

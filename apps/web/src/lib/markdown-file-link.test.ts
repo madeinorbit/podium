@@ -13,6 +13,11 @@ describe('markdownLinkFilePath', () => {
     ['file:///home/me/x.md', '/home/me/x.md'],
     ['file:///C:/Users/me/x.md', 'C:/Users/me/x.md'],
     ['C:/Users/me/x.md', 'C:/Users/me/x.md'],
+    ['README.md:12', 'README.md'],
+    ['app.ts:12:3', 'app.ts'],
+    ['/repo/src/a.ts#L4-L9', '/repo/src/a.ts'],
+    ['/home/me/notes', '/home/me/notes'],
+    ['/tmp/run.log', '/tmp/run.log'],
   ])('reads %s as a file', (href, path) => {
     expect(markdownLinkFilePath(href, '/repo')).toBe(path)
   })
@@ -30,7 +35,20 @@ describe('markdownLinkFilePath', () => {
     '/file?path=/repo/a.ts',
     'file://otherhost/share/a.md',
     'docs/',
+    '/de/pricing.html#plans',
+    '/de/pricing.html',
+    '/home/pricing',
+    'de/pricing#plans',
+    'localhost:3000',
+    '/\\external.example/a.js',
+    'ht\ntps://external.example/a.js',
   ])('leaves %s alone', (href) => {
     expect(markdownLinkFilePath(href, '/repo')).toBeNull()
+  })
+
+  it('lets Podium routes win over a cwd that contains them', () => {
+    expect(markdownLinkFilePath('/workspace', '/workspace')).toBeNull()
+    expect(markdownLinkFilePath('/issues/POD-2272', '/')).toBeNull()
+    expect(markdownLinkFilePath('/workspace/README.md', '/workspace')).toBe('/workspace/README.md')
   })
 })
