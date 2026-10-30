@@ -810,7 +810,10 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     const latestPrompt = gapPromptCount > 0 ? capture.latestPrompt : null
     const bootstrapPromptOrigin = latestPrompt?.origin
     let bootstrapState = checkpoint?.turnState ?? initialAgentState(new Date().toISOString())
-    if (!checkpoint || (bootstrapAdvanced && !onlyUnflushedAcceptedPrompt)) {
+    if (
+      !checkpoint ||
+      (bootstrapAdvanced && (!onlyUnflushedAcceptedPrompt || capture.compactedInRange))
+    ) {
       // Compaction continues the accepted turn. Fold its actual state evidence
       // over that checkpoint; a bounded tail's empty/default guess proves no
       // phase change and must not erase working or waiting state.

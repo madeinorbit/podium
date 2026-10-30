@@ -5,6 +5,7 @@ import {
   acceptAgentObservation,
   agentStateProviderFor,
   captureClaudeTranscript,
+  claudePromptHookFingerprint,
   claudeTranscriptSegmentId,
 } from '@podium/harness'
 import { asSessionId } from '@podium/model'
@@ -35,6 +36,7 @@ describe('Claude compaction rebuild [POD-2275]', () => {
       'waiting',
       'compacting_working',
       'compacting_waiting',
+      'late_prompt_compacting',
       'tool_use',
       'tool_result',
       'question',
@@ -56,9 +58,15 @@ describe('Claude compaction rebuild [POD-2275]', () => {
       })
       try {
         const waiting = scenario === 'waiting' || scenario === 'compacting_waiting'
-        const compacting = scenario === 'compacting_working' || scenario === 'compacting_waiting'
+        const compacting =
+          scenario === 'compacting_working' ||
+          scenario === 'compacting_waiting' ||
+          scenario === 'late_prompt_compacting'
         const need = { kind: 'question' as const, summary: 'Which option?' }
-        const accepted = prompt('finish the task') + (scenario === 'idle' ? finished : '')
+        const accepted =
+          scenario === 'late_prompt_compacting'
+            ? ''
+            : prompt('finish the task') + (scenario === 'idle' ? finished : '')
         await writeFile(path, accepted)
         const identity = await captureClaudeTranscript(path)
         const cursor = {
@@ -77,7 +85,10 @@ describe('Claude compaction rebuild [POD-2275]', () => {
           lastAcceptedLiveCursor: cursor,
           turnEpoch: 5,
           providerTurnId: null,
-          providerPromptId: 'prompt-5',
+          providerPromptId:
+            scenario === 'late_prompt_compacting'
+              ? `fingerprint:${claudePromptHookFingerprint({ prompt: 'finish the task' })}`
+              : 'prompt-5',
           turnState: {
             phase: compacting
               ? 'compacting'
@@ -122,52 +133,54 @@ describe('Claude compaction rebuild [POD-2275]', () => {
           },
         })
         const beforeSummary =
-          scenario === 'lost_stop'
-            ? finished
-            : scenario === 'interrupt'
-              ? prompt('[Request interrupted by user]')
-              : scenario === 'tool_use' || scenario === 'question'
-                ? record({
-                    type: 'assistant',
-                    timestamp: at,
-                    message: {
-                      role: 'assistant',
-                      content: [
-                        {
-                          type: 'tool_use',
-                          id: 'tool-1',
-                          name: scenario === 'question' ? 'AskUserQuestion' : 'Bash',
-                          input:
-                            scenario === 'question'
-                              ? {
-                                  questions: [
-                                    { question: 'Which option?', options: [{ label: 'A' }] },
-                                  ],
-                                }
-                              : { command: 'true' },
-                        },
-                      ],
-                    },
-                  })
-                : scenario === 'tool_result'
+          scenario === 'late_prompt_compacting'
+            ? prompt('finish the task')
+            : scenario === 'lost_stop'
+              ? finished
+              : scenario === 'interrupt'
+                ? prompt('[Request interrupted by user]')
+                : scenario === 'tool_use' || scenario === 'question'
                   ? record({
-                      type: 'user',
+                      type: 'assistant',
                       timestamp: at,
                       message: {
-                        role: 'user',
-                        content: [{ type: 'tool_result', tool_use_id: 'tool-1', content: 'ok' }],
+                        role: 'assistant',
+                        content: [
+                          {
+                            type: 'tool_use',
+                            id: 'tool-1',
+                            name: scenario === 'question' ? 'AskUserQuestion' : 'Bash',
+                            input:
+                              scenario === 'question'
+                                ? {
+                                    questions: [
+                                      { question: 'Which option?', options: [{ label: 'A' }] },
+                                    ],
+                                  }
+                                : { command: 'true' },
+                          },
+                        ],
                       },
                     })
-                  : scenario === 'error'
+                  : scenario === 'tool_result'
                     ? record({
-                        type: 'assistant',
+                        type: 'user',
                         timestamp: at,
                         message: {
-                          role: 'assistant',
-                          content: [{ type: 'text', text: 'API Error: 503 service unavailable' }],
+                          role: 'user',
+                          content: [{ type: 'tool_result', tool_use_id: 'tool-1', content: 'ok' }],
                         },
                       })
-                    : ''
+                    : scenario === 'error'
+                      ? record({
+                          type: 'assistant',
+                          timestamp: at,
+                          message: {
+                            role: 'assistant',
+                            content: [{ type: 'text', text: 'API Error: 503 service unavailable' }],
+                          },
+                        })
+                      : ''
         await appendFile(
           path,
           beforeSummary + summary + (scenario === 'next_prompt' ? prompt('do the next task') : ''),
@@ -201,6 +214,7 @@ describe('Claude compaction rebuild [POD-2275]', () => {
         const working = [
           'working',
           'compacting_working',
+          'late_prompt_compacting',
           'tool_use',
           'tool_result',
           'next_prompt',
@@ -215,6 +229,7 @@ describe('Claude compaction rebuild [POD-2275]', () => {
         expect(bootstrap).toMatchObject({
           provenance: 'bootstrap',
           turnEpoch: scenario === 'next_prompt' ? 6 : 5,
+          providerPromptId: scenario === 'next_prompt' ? null : checkpoint.providerPromptId,
           nextPhase: expectedPhase,
         })
         expect(bootstrap.state.workingMsTotal).toBeGreaterThanOrEqual(920_171)
