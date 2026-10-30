@@ -816,7 +816,14 @@ export function createSessionObservers(deps: SessionObserversDeps) {
       // phase change and must not erase working or waiting state.
       const sameTurnCompaction = checkpoint && gapPromptCount === 0 && capture.compactedInRange
       bootstrapState = sameTurnCompaction
-        ? checkpoint.turnState
+        ? {
+            ...checkpoint.turnState,
+            // Keep the accepted state, but the old observer's confidence must
+            // not suppress evidence in this new transcript snapshot.
+            stateSource: undefined,
+            stateConfidence: undefined,
+            stateObservedAt: undefined,
+          }
         : initialAgentState(new Date().toISOString())
       for (const event of capture.bootEvents) {
         if (sameTurnCompaction && event.kind === 'session_started') continue

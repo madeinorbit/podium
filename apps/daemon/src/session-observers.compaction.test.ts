@@ -99,6 +99,9 @@ describe('Claude compaction rebuild [POD-2275]', () => {
             since: at,
             workingMsTotal: 920_171,
             nativeSubagentCount: 0,
+            stateSource: 'hook',
+            stateConfidence: 1,
+            stateObservedAt: new Date().toISOString(),
           },
           terminalFence:
             scenario === 'idle'
