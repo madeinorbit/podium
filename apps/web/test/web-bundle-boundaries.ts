@@ -37,6 +37,9 @@ const STARTUP_GRAPH_SOURCES = new Set([
   'src/lookup.ts',
   'src/cached.ts', 'src/clock.ts', 'src/create.ts', 'src/debug-name.ts', 'src/enumerate.ts',
   'src/models.ts', 'src/pool.ts', 'src/query-result.ts', 'src/reader-queries.ts',
+  // Each startup issue/session model in models.ts owns one. A mobx-only leaf
+  // with no optional screen dependency (POD-2264).
+  'src/read-observation.ts',
   'src/relations.ts', 'src/residency.ts', 'src/source-registry.ts', 'src/tables.ts', 'src/views.ts',
   'src/runtime-pool.ts',
   'src/host/pool-host.ts', 'src/host/screens.ts',
