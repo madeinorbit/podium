@@ -1,4 +1,7 @@
-import { isClaudeInterruptMarker } from '../adapters/claude-code/transcript.js'
+import {
+  isClaudeCompactSummaryRecord,
+  isClaudeInterruptMarker,
+} from '../adapters/claude-code/transcript.js'
 import type {
   DeterministicAgentState,
   GlobalAgentStateLabel,
@@ -246,13 +249,16 @@ export function extractClaudeTranscriptFeatures(
   records: unknown[],
   permissionMode: unknown,
 ): ClaudeTranscriptFeatures {
+  const stateRecords = records.filter(
+    (record) => !isRecord(record) || !isClaudeCompactSummaryRecord(record),
+  )
   const realUsers: { index: number; text: string }[] = []
-  records.forEach((record, index) => {
+  stateRecords.forEach((record, index) => {
     if (!isRealUserRecord(record)) return
     realUsers.push({ index, text: recordText(record) })
   })
 
-  const terminal = [...records].reverse().find((record) => {
+  const terminal = [...stateRecords].reverse().find((record) => {
     if (!isRecord(record)) return false
     if (record.type !== 'assistant' && record.type !== 'user') return false
     return (
@@ -286,8 +292,8 @@ export function extractClaudeTranscriptFeatures(
   let launchedBackgroundAgent = false
   let launchedBackgroundShell = false
 
-  for (let index = startIndex; index < records.length; index += 1) {
-    const record = records[index]
+  for (let index = startIndex; index < stateRecords.length; index += 1) {
+    const record = stateRecords[index]
     if (isAssistantRecord(record)) {
       const text = recordText(record)
       if (text) {
@@ -379,7 +385,7 @@ export function extractClaudeTranscriptFeatures(
     currentAskUserQuestions,
     // A whole-list `TodoWrite` snapshot from THIS turn is the most direct
     // evidence there is; without one, fold the incremental Task* list.
-    openTodoCount: todoWriteCount ?? openTaskListCount(records),
+    openTodoCount: todoWriteCount ?? openTaskListCount(stateRecords),
     scheduledSelfWake,
     launchedBackgroundAgent,
     launchedBackgroundShell,

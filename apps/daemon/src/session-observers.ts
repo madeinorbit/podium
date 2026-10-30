@@ -1,4 +1,3 @@
-import type { TerminalStateObservation } from '@podium/harness/driver/host'
 import { isDeepStrictEqual } from 'node:util'
 import {
   type AgentRuntimeState,
@@ -28,12 +27,8 @@ import {
   transcriptRuntimeReaderFor,
   withStateChannelEvent,
 } from '@podium/harness'
-import { createLogger } from '@podium/logger'
-import type { AgentKind, SessionId } from '@podium/model'
-import type { DurableAttachment, ScreenReader } from '@podium/process/screen'
-import type { AgentObservation, ObservationInputOrigin } from '@podium/protocol'
-import { ObservationProvider, SessionObservationCheckpointV1 } from '@podium/protocol'
-import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
+import { hookString } from '@podium/harness/adapters/shared/hook-fields'
+import type { TerminalStateObservation } from '@podium/harness/driver/host'
 import {
   createSharedStatTick,
   type StatTick,
@@ -41,8 +36,13 @@ import {
   type TranscriptTailer,
   tailTranscript,
 } from '@podium/harness/store'
+import { createLogger } from '@podium/logger'
+import type { AgentKind, SessionId } from '@podium/model'
+import type { DurableAttachment, ScreenReader } from '@podium/process/screen'
+import type { AgentObservation, ObservationInputOrigin } from '@podium/protocol'
+import { ObservationProvider, SessionObservationCheckpointV1 } from '@podium/protocol'
+import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
 import { createGitCapture } from './git-capture'
-import { hookString } from '@podium/harness/adapters/shared/hook-fields'
 import { countTail, timeTask } from './loop-attribution'
 import type { SessionBinding } from './session-binding'
 import {
@@ -664,7 +664,8 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     const probeLater = (): void => {
       causal.interruptTimer = setTimeout(() => {
         causal.interruptTimer = undefined
-        if (claudeCausal.get(sessionId) !== causal || causal.observer.openTurnEpoch !== epoch) return
+        if (claudeCausal.get(sessionId) !== causal || causal.observer.openTurnEpoch !== epoch)
+          return
         enqueueClaudeInterruptProbe(sessionId, epoch)
         probes += 1
         if (probes < CLAUDE_INTERRUPT_PROBES) probeLater()
@@ -756,6 +757,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
       latestPrompt: null,
       terminalInterrupt: null,
       assistantOutputInRange: false,
+      compactionOnly: false,
     }
     const bootstrapOffset = capture.boundary
     // Capture is asynchronous; Spawn/Reattach may have replaced this exact
@@ -808,7 +810,12 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     const latestPrompt = gapPromptCount > 0 ? capture.latestPrompt : null
     const bootstrapPromptOrigin = latestPrompt?.origin
     let bootstrapState = checkpoint?.turnState ?? initialAgentState(new Date().toISOString())
-    if (!checkpoint || (bootstrapAdvanced && !onlyUnflushedAcceptedPrompt)) {
+    // A summary adds context to the same turn. With no conversational activity
+    // after the checkpoint, its phase and terminal fence remain authoritative.
+    if (
+      !checkpoint ||
+      (bootstrapAdvanced && !onlyUnflushedAcceptedPrompt && !capture.compactionOnly)
+    ) {
       bootstrapState = initialAgentState(new Date().toISOString())
       for (const event of capture.bootEvents) {
         bootstrapState = reduceAgentState(bootstrapState, event, new Date().toISOString())
@@ -1302,7 +1309,10 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     // lose their marker on the live tail alone (POD-4936).
     const liveRecordToItems: TranscriptRecordMapper = recordReceipts
       ? Object.assign(
-          (record: unknown, previousRecord?: unknown) => [...recordToItems(record, previousRecord), ...recordReceipts(record)],
+          (record: unknown, previousRecord?: unknown) => [
+            ...recordToItems(record, previousRecord),
+            ...recordReceipts(record),
+          ],
           recordToItems.endsTurn ? { endsTurn: recordToItems.endsTurn } : {},
         )
       : recordToItems
@@ -1339,12 +1349,21 @@ export function createSessionObservers(deps: SessionObserversDeps) {
           recordToItems: liveRecordToItems,
           statTick,
           ...(recordColor ? { recordColor } : {}),
-          onColor: (color, at) => send({ type: 'agentColor', sessionId, color, ...(at ? { at } : {}) }),
+          onColor: (color, at) =>
+            send({ type: 'agentColor', sessionId, color, ...(at ? { at } : {}) }),
           // As do the observed model + effort (assistant `message.model` / `effort`).
           onModel: (model, effort, at) =>
-            send({ type: 'agentModel', sessionId, model, source: 'transcript', ...(at ? { at } : {}), ...(effort ? { effort } : {}) }),
+            send({
+              type: 'agentModel',
+              sessionId,
+              model,
+              source: 'transcript',
+              ...(at ? { at } : {}),
+              ...(effort ? { effort } : {}),
+            }),
           recordRuntime: transcriptRuntimeReaderFor(agentKind) ?? (() => ({})),
-          onContextUsage: (percent, at) => send({ type: 'agentContext', sessionId, percent, ...(at ? { at } : {}) }),
+          onContextUsage: (percent, at) =>
+            send({ type: 'agentContext', sessionId, percent, ...(at ? { at } : {}) }),
           ...(deps.tailSeedGate ? { seedGate: deps.tailSeedGate } : {}),
           initialWindowBytes: TAIL_SEED_WINDOW_BYTES,
           maxInitialItems: TAIL_SEED_MAX_ITEMS,
@@ -1479,7 +1498,12 @@ export function createSessionObservers(deps: SessionObserversDeps) {
           type: 'sessionResumeRef',
           sessionId,
           resume: { kind: adapter.resumeKind, value },
-          ...(tracker ? { observerGeneration: tracker.observerGeneration, bindingVersion: tracker.bindingVersion } : {}),
+          ...(tracker
+            ? {
+                observerGeneration: tracker.observerGeneration,
+                bindingVersion: tracker.bindingVersion,
+              }
+            : {}),
           ...(confidence ? { confidence } : {}),
         })
       },
@@ -1505,7 +1529,13 @@ export function createSessionObservers(deps: SessionObserversDeps) {
         })
       },
       onModel: (model, effort) =>
-        send({ type: 'agentModel', sessionId, model, source: 'native', ...(effort ? { effort } : {}) }),
+        send({
+          type: 'agentModel',
+          sessionId,
+          model,
+          source: 'native',
+          ...(effort ? { effort } : {}),
+        }),
     }
   }
 

@@ -19,10 +19,7 @@ import type {
   ObservationInputOrigin,
   SessionObservationCheckpointV1,
 } from '@podium/protocol'
-import { locateClaudeSessionFile } from './state-locate.js'
-import { isClaudeInterruptMarker } from './transcript.js'
 import { deterministicStateToEvents } from '../../agent-state/deterministic.js'
-import { carryAcrossRebuild, reduceAgentState } from '../../observer.js'
 import {
   type AgentInstrumentation,
   type AgentStateEvent,
@@ -30,11 +27,12 @@ import {
   withStateChannel,
   withStateChannelEvent,
 } from '../../agent-state/types.js'
+import { carryAcrossRebuild, reduceAgentState } from '../../observer.js'
 import {
-  claudeCodeInstrumentation,
-  claudeHookClassifier,
   classifyClaudeTranscriptState,
   classifyIdleTranscript,
+  claudeCodeInstrumentation,
+  claudeHookClassifier,
   claudeHookSettings,
   configureClaudeTranscriptClassifier,
   idleClassificationFromState,
@@ -48,14 +46,16 @@ import {
   promptText,
   stripInjectedContext,
 } from './state.js'
+import { locateClaudeSessionFile } from './state-locate.js'
+import { isClaudeCompactSummaryRecord, isClaudeInterruptMarker } from './transcript.js'
 
 export {
-  claudeHookClassifier,
+  classifyClaudeScreen,
   classifyClaudeTranscriptState,
   classifyIdleTranscript,
+  claudeHookClassifier,
   claudeHookSettings,
   claudePromptHookFingerprint,
-  classifyClaudeScreen,
   configureClaudeTranscriptClassifier,
   idleClassificationFromState,
   translateClaudeHookPayload,
@@ -819,7 +819,10 @@ export class ClaudeCausalObserver {
     const next = reduceAgentState(
       prior,
       withStateChannelEvent(
-        { kind: 'turn_completed', verdict: { kind: 'interrupted', summary: 'request interrupted by user' } },
+        {
+          kind: 'turn_completed',
+          verdict: { kind: 'interrupted', summary: 'request interrupted by user' },
+        },
         'hook',
       ),
       this.now(),
@@ -832,7 +835,9 @@ export class ClaudeCausalObserver {
     // had already flushed it may have carried the offset past it. The sequence
     // component advances either way, so the fence is strictly after the checkpoint.
     const offset =
-      evidence.kind === 'marker' ? Math.max(this.lastOffset, evidence.recordBoundary) : this.lastOffset
+      evidence.kind === 'marker'
+        ? Math.max(this.lastOffset, evidence.recordBoundary)
+        : this.lastOffset
     this.lastOffset = offset
     this.hookSequence += 1
     return this.observation({
@@ -929,7 +934,6 @@ export class ClaudeCausalObserver {
 const TAIL_BYTES = 128 * 1024
 const MAX_PENDING_INPUT_ORIGINS = 64
 const MAX_SEEN_HOOK_RECORDS = 256
-
 
 export interface ClaudePromptEvidence {
   offset: number
@@ -1033,6 +1037,8 @@ export interface ClaudeTranscriptCapture {
   terminalInterrupt: ClaudeInterruptRecord | null
   /** Whether Claude wrote any output record in that same range. */
   assistantOutputInRange: boolean
+  /** The scanned range adds a compaction summary without conversational activity. */
+  compactionOnly: boolean
 }
 
 export interface ClaudeTranscriptCaptureOptions {
@@ -1086,7 +1092,6 @@ export function parseClaudeTranscriptSegmentId(
 const READ_CHUNK_BYTES = 64 * 1024
 const MAX_JSONL_RECORD_BYTES = 2 * 1024 * 1024
 
-
 function parseRecord(text: string): Record<string, unknown> | null {
   const trimmed = text.trim()
   if (!trimmed) return null
@@ -1104,7 +1109,7 @@ function promptPayload(record: Record<string, unknown>): {
   payload: unknown
   origin: ObservationInputOrigin
 } | null {
-  if (record.type !== 'user') return null
+  if (record.type !== 'user' || isClaudeCompactSummaryRecord(record)) return null
   const message = record.message
   if (typeof message !== 'object' || message === null) return null
   const m = message as Record<string, unknown>
@@ -1284,6 +1289,7 @@ function bootEventsForClaudeRecords(records: unknown[]): AgentStateEvent[] {
  *  its terminal record, so a thinking-only record or bookkeeping never counts. */
 function conversationalTexts(record: Record<string, unknown>): string[] | null {
   if (record.type !== 'user' && record.type !== 'assistant') return null
+  if (isClaudeCompactSummaryRecord(record)) return null
   const message = record.message
   if (typeof message !== 'object' || message === null) return null
   const content = (message as Record<string, unknown>).content
@@ -1314,12 +1320,28 @@ function conversationalTexts(record: Record<string, unknown>): string[] | null {
 function createTurnEndReader() {
   let last: ClaudeRecordRow | null = null
   let assistantOutput = false
+  let compacted = false
   return {
     add(row: ClaudeRecordRow): void {
+      if (isClaudeCompactSummaryRecord(row.record)) {
+        compacted = true
+        return
+      }
       if (row.record.type === 'assistant') assistantOutput = true
       if (conversationalTexts(row.record)) last = row
     },
-    result(): Pick<ClaudeTranscriptCapture, 'terminalInterrupt' | 'assistantOutputInRange'> {
+    classificationRecords(tail: Record<string, unknown>[]): Record<string, unknown>[] {
+      // A large summary can displace the turn's final answer or interrupt from
+      // the byte-bounded tail. The gap scan already read that record, so retain
+      // its evidence instead of turning an observed ending into an idle guess.
+      return compacted && last && !tail.some((record) => conversationalTexts(record))
+        ? [last.record]
+        : tail
+    },
+    result(): Pick<
+      ClaudeTranscriptCapture,
+      'terminalInterrupt' | 'assistantOutputInRange' | 'compactionOnly'
+    > {
       const texts = last ? conversationalTexts(last.record) : null
       const interrupted =
         last !== null &&
@@ -1333,6 +1355,7 @@ function createTurnEndReader() {
             ? { recordBoundary: last.boundary, promptId: str(last.record.promptId) ?? null }
             : null,
         assistantOutputInRange: assistantOutput,
+        compactionOnly: compacted && last === null,
       }
     },
   }
@@ -1412,7 +1435,10 @@ export async function captureClaudeTranscript(
       device,
       inode,
       fileIdentity: `${device}:${inode}`,
-      bootEvents: withStateChannel(bootEventsForClaudeRecords(records), 'classifier'),
+      bootEvents: withStateChannel(
+        bootEventsForClaudeRecords(turnEnd.classificationRecords(records)),
+        'classifier',
+      ),
       prompts: promptAccumulator.collected,
       promptCount: promptAccumulator.count,
       firstPrompt: promptAccumulator.first,
@@ -1425,7 +1451,6 @@ export async function captureClaudeTranscript(
 }
 
 /** Last `maxBytes` of a JSONL file as parsed records (first partial line dropped). */
-
 
 // agentStateProviderFor moved to the harness adapter registry (harness/registry.ts,
 // #158) — each adapter carries its own state provider.

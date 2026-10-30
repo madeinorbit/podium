@@ -124,11 +124,20 @@ function metaImageSourceItems(
 }
 
 export function claudeRecordToItems(record: unknown, previousRecord?: unknown): TranscriptItem[] {
-  const promptId = typeof record === 'object' && record !== null && 'promptId' in record &&
-    typeof record.promptId === 'string' && record.promptId ? record.promptId : undefined
-  const items = mapClaudeRecord(record, previousRecord).map((item): TranscriptItem =>
-    promptId && item.role === 'user' && item.promptEntry !== false && !item.event
-      ? { ...item, harnessRef: [{ kind: 'claude-prompt', id: promptId }] } : item)
+  const promptId =
+    typeof record === 'object' &&
+    record !== null &&
+    'promptId' in record &&
+    typeof record.promptId === 'string' &&
+    record.promptId
+      ? record.promptId
+      : undefined
+  const items = mapClaudeRecord(record, previousRecord).map(
+    (item): TranscriptItem =>
+      promptId && item.role === 'user' && item.promptEntry !== false && !item.event
+        ? { ...item, harnessRef: [{ kind: 'claude-prompt', id: promptId }] }
+        : item,
+  )
   if (items.every((item) => item.id !== '')) return items
   // Pure fallback for direct mapper consumers. File readers replace these with
   // cursor identity, which also distinguishes identical records at two offsets.
@@ -376,6 +385,14 @@ const COMMAND_OUTPUT_RE = /^\s*<local-command-(stdout|stderr)>([\s\S]*)<\/local-
 // biome-ignore lint/suspicious/noControlCharactersInRegex: the escape codes are the point
 const ANSI_ESCAPE_RE = /\u001b\[[0-9;]*[A-Za-z]/g
 
+/** Claude's compaction summary is transcript context, never a new model prompt. */
+export function isClaudeCompactSummaryRecord(record: Record<string, unknown>): boolean {
+  return (
+    record.type === 'user' &&
+    (record.isCompactSummary === true || record.isVisibleInTranscriptOnly === true)
+  )
+}
+
 // The user stopping the agent mid-run is written as a normal user turn whose only
 // text is this marker. It IS a user action (role stays 'user'), but it isn't a
 // chat message — flag it so the UI shows it inline and a state detector can read
@@ -424,12 +441,14 @@ function recordedPromptText(text: string): string {
     // an incomplete/foreign form; never join across it to find a later closer.
     /<\/?pasted_content\b/.test(body) ? wrapper : body,
   )
-  return unwrapped
-    // Restore Claude's escape of literal tags only AFTER decoding envelopes:
-    // an example pasted by the person must not be unwrapped a second time.
-    .replace(/<\\(\/?pasted_content)(?=[\s>])/g, '<$1')
-    .replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '')
-    .trim()
+  return (
+    unwrapped
+      // Restore Claude's escape of literal tags only AFTER decoding envelopes:
+      // an example pasted by the person must not be unwrapped a second time.
+      .replace(/<\\(\/?pasted_content)(?=[\s>])/g, '<$1')
+      .replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '')
+      .trim()
+  )
 }
 
 // Pasted/uploaded images ride in as an image block plus a text marker
@@ -945,7 +964,9 @@ export function claudeRecordReceipts(record: unknown): TranscriptItem[] {
       ...(ts ? { ts } : {}),
       text,
       promptEntry: false,
-      ...(images > 0 ? { tags: Array.from({ length: images }, () => ({ kind: 'image' as const })) } : {}),
+      ...(images > 0
+        ? { tags: Array.from({ length: images }, () => ({ kind: 'image' as const })) }
+        : {}),
       ...(kind === 'queued' ? { queued: true } : { dropped: true }),
     },
   ]
