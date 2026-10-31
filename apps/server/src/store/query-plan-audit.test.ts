@@ -809,6 +809,16 @@ async function reachMethodDefinitions(target: SessionStore): Promise<void> {
   await attempt(() =>
     target.repos.updateRepoOrigin(machineId, '/audit/four', 'https://example.invalid/four.git'),
   )
+  // A base branch set on a path-derived id whose origin already has a prefix
+  // row elsewhere: gaining that origin carries the base branch across.
+  await attempt(() => target.repos.addRepo('/audit/five', machineId))
+  await attempt(() => target.repos.setRepoDefaultParentBranch(machineId, '/audit/five', 'develop'))
+  await attempt(() =>
+    target.repos.addRepo('/audit/six', machineId, 'https://example.invalid/five.git', 'AUDF'),
+  )
+  await attempt(() =>
+    target.repos.updateRepoOrigin(machineId, '/audit/five', 'https://example.invalid/five.git'),
+  )
   await attempt(() => target.repos.removeRepo('/audit/one', machineId))
 
   await attempt(() =>
