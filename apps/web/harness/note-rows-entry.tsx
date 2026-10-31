@@ -468,6 +468,8 @@ function MessageControlsPane(): JSX.Element {
     {
       id: 'linked-narration',
       role: 'assistant',
+      // This scene tests adjacent prose controls. Narration now lives inside a turn.
+      answer: true,
       text: 'Please read [the full conflict report before landing](https://example.com/murmur-narration).',
       ts: clock('17:20'),
     },

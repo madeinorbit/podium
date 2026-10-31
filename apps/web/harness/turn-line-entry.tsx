@@ -132,9 +132,19 @@ const initial: Scene =
         activeMatch: undefined,
         activeRow: undefined,
       }
-    : params.get('state') === 'question'
+    : ['question', 'codex'].includes(params.get('state') ?? '')
       ? {
-          items: [...work.slice(0, 4), ask],
+          items: [
+            ...work.slice(0, 4),
+            params.get('state') === 'codex'
+              ? {
+                  ...ask,
+                  toolName: 'request_user_input',
+                  toolInputJson: undefined,
+                  toolTitle: 'Which branch should I use?',
+                }
+              : ask,
+          ],
           activity: { tone: 'attention', label: 'needs answer' },
           preview: null,
           query: '',

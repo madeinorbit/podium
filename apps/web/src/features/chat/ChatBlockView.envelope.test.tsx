@@ -660,3 +660,25 @@ it('includes the visible recipient and subject in a sent-note toggle accessible 
     toggle(),
   )
 })
+
+it.each([
+  'request_user_input',
+  'ExitPlanMode',
+])('renders an unstructured %s question once and retains the real result', (toolName) => {
+  const item: TranscriptItem = {
+    id: 'generic-question',
+    role: 'tool',
+    text: '',
+    toolName,
+    toolTitle: 'Which branch should I use?',
+    toolInput: 'Which branch should I use?',
+  }
+  mount(item)
+  const card = host.querySelector('.asked-you')!
+  expect(card.textContent?.split('Which branch should I use?')).toHaveLength(2)
+  expect(card.querySelector('.tool-block')).toBeNull()
+  expect(card.querySelector('.asked-you-result')).toBeNull()
+  mount(item, false, false, undefined, 'Use main.')
+  expect(card.querySelector('.asked-you-result')?.textContent).toBe('Use main.')
+  expect(card.textContent?.split('Which branch should I use?')).toHaveLength(2)
+})

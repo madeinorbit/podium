@@ -656,7 +656,11 @@ export const ChatBlockView = observer(function ChatBlockView({
             {(item.toolTitle ?? item.toolInput) && (
               <div className="asked-you-body">{item.toolTitle ?? item.toolInput}</div>
             )}
-            <ToolBlock block={block} sessionId={sessionId} cwd={cwd} openFile={openFile} />
+            {(block.result ?? item.toolResult) !== undefined && (
+              <pre className="tool-result-full asked-you-result">
+                {block.result ?? item.toolResult}
+              </pre>
+            )}
           </div>
         </div>
       </div>
