@@ -4,12 +4,12 @@ import {
   failLine,
   formatChurn,
   type ParsedEnvelope,
-  parseEnvelopeBatch,
   pointerFallbackBody,
   resultPreview,
   toolBatchTitles,
   toolRunFailures,
   toolVerdict,
+  transcriptActivityFacts,
 } from '@podium/client-core/values'
 import type { TranscriptItem } from '@podium/model'
 import * as Clipboard from 'expo-clipboard'
@@ -317,7 +317,7 @@ const ToolsRun = observer(function ToolsRun({
       {expanded
         ? (run?.blocks ?? blocks).map((b) => {
             const { item } = b
-            const batch = item.role === 'user' ? parseEnvelopeBatch(item.text) : null
+            const batch = item.role === 'user' ? transcriptActivityFacts(item).envelopes : null
             if (batch)
               return (
                 <View key={item.id}>

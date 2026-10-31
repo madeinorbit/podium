@@ -1,21 +1,21 @@
-import { here, omitGone } from '@podium/client-graph/lookup'
-import type { SessionModel } from '@podium/client-graph/models'
 import {
+  type ChatRow,
   chatActivityState,
   chatSessionReference,
   composerState,
   isOperatorPromptRow,
-  parseEnvelopeBatch,
   pendingAskFromState,
+  type SuperThreadRef,
+  transcriptActivityFacts,
   transcriptAttributionTable,
   transcriptPhase,
-  type ChatRow,
-  type SuperThreadRef,
 } from '@podium/client-core/values'
+import { here, omitGone } from '@podium/client-graph/lookup'
+import type { SessionModel } from '@podium/client-graph/models'
 import { lazy } from '@podium/mobx-helpers'
+import type { MachineWire } from '@podium/model/browser'
 import { isAgentComputing, isMachineOfflineForLiveTerminal } from '@podium/model/browser'
 import { actionBound, compareShallow, compareStructural, observable, observableRef } from 'mobx'
-import type { MachineWire } from '@podium/model/browser'
 import type { PendingItem } from './chat'
 import { ConversationPresentation } from './conversation-presentation'
 import type { WebConversation } from './use-conversation'
@@ -51,19 +51,45 @@ export class ChatViewModel {
     this.active = active
     this.stickyPrompts = stickyPrompts
   }
-  @lazy get session(): SessionModel | undefined { return this.conversation.session }
-  @lazy get draft(): string { return this.conversation.pool.sessionObject(this.conversation.sessionId).messageDraft }
-  @actionBound setDraft(text: string): void { this.conversation.pool.sessionObject(this.conversation.sessionId).setMessageDraft(text) }
-  @lazy get preview() { return this.conversation.preview }
-  @lazy get overlay() { return this.headless ? this.conversation.headless : null }
-  @lazy get overlayStatus() { return this.overlay?.status }
-  @lazy get loadingOlder(): boolean { return this.conversation.transcript.loadingOlder }
-  @lazy get transcriptFreshness() { return this.conversation.transcript.freshness }
-  @lazy get offlineAsOf() { return this.conversation.transcript.offlineAsOf }
-  @lazy get offlineMachineName() { return this.conversation.transcript.offlineMachineName }
-  @lazy get canInterrupt(): boolean { return this.conversation.sends.canInterrupt }
-  @lazy get interruptError() { return this.conversation.sends.interruptError }
-  @lazy get superagent(): boolean { return this.superThread !== undefined }
+  @lazy get session(): SessionModel | undefined {
+    return this.conversation.session
+  }
+  @lazy get draft(): string {
+    return this.conversation.pool.sessionObject(this.conversation.sessionId).messageDraft
+  }
+  @actionBound setDraft(text: string): void {
+    this.conversation.pool.sessionObject(this.conversation.sessionId).setMessageDraft(text)
+  }
+  @lazy get preview() {
+    return this.conversation.preview
+  }
+  @lazy get overlay() {
+    return this.headless ? this.conversation.headless : null
+  }
+  @lazy get overlayStatus() {
+    return this.overlay?.status
+  }
+  @lazy get loadingOlder(): boolean {
+    return this.conversation.transcript.loadingOlder
+  }
+  @lazy get transcriptFreshness() {
+    return this.conversation.transcript.freshness
+  }
+  @lazy get offlineAsOf() {
+    return this.conversation.transcript.offlineAsOf
+  }
+  @lazy get offlineMachineName() {
+    return this.conversation.transcript.offlineMachineName
+  }
+  @lazy get canInterrupt(): boolean {
+    return this.conversation.sends.canInterrupt
+  }
+  @lazy get interruptError() {
+    return this.conversation.sends.interruptError
+  }
+  @lazy get superagent(): boolean {
+    return this.superThread !== undefined
+  }
   @lazy get reference() {
     const row = omitGone(this.conversation.pool.row('sessionExit', this.conversation.sessionId))
     const exit = row && typeof row !== 'symbol' ? row.kind : undefined
@@ -175,7 +201,9 @@ export class ChatViewModel {
     const pool = this.conversation.pool
     const id = this.session?.machineId
     const machine =
-      id === undefined ? undefined : (omitGone(pool.row('machine', id)) as MachineWire | symbol | undefined)
+      id === undefined
+        ? undefined
+        : (omitGone(pool.row('machine', id)) as MachineWire | symbol | undefined)
     return machine && typeof machine !== 'symbol' && isMachineOfflineForLiveTerminal(machine)
       ? (this.session?.machineName ?? machine.name ?? id ?? null)
       : null
@@ -229,6 +257,9 @@ export class ChatViewModel {
   isOperatorPromptRow = (row: ChatRow): boolean =>
     isOperatorPromptRow(row, {
       collapseMachineContext: this.headless,
-      operatorTextOf: (text) => parseEnvelopeBatch(text)?.operatorText,
+      operatorTextOf: () =>
+        row.kind === 'block'
+          ? transcriptActivityFacts(row.block.item).envelopes?.operatorText
+          : undefined,
     })
 }

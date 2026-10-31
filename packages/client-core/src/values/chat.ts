@@ -8,7 +8,12 @@ import {
 } from '@podium/commands/mail-command'
 import type { MessageRecordWire, TranscriptItem } from '@podium/model'
 import { machinePathBasename } from '@podium/model'
-import { isOperatorQuestion, parseEnvelopeBatch, principalShortName } from './message-envelope'
+import {
+  isOperatorQuestion,
+  type ParsedEnvelopeBatch,
+  parseEnvelopeBatch,
+  principalShortName,
+} from './message-envelope'
 
 /**
  * Presentation-pure helpers for the chat surface, shared between the web
@@ -232,6 +237,74 @@ export function isInteractiveTool(item: TranscriptItem): boolean {
   return INTERACTIVE_TOOL_RE.test(mcpParts(name)?.tool ?? name)
 }
 
+/** Shared classification of one transcript item revision. Display mail still
+ * depends on the paired result, so only the parsed command belongs here. */
+export interface TranscriptActivityFacts {
+  readonly envelopes: ParsedEnvelopeBatch | null
+  readonly mailCommand: MailCommand | null
+  readonly quietNote: boolean
+  readonly stretch: boolean
+  readonly eventCount: number
+}
+
+type ActivityInputs = Pick<
+  TranscriptItem,
+  'role' | 'text' | 'toolName' | 'toolInput' | 'toolInputJson'
+>
+interface ActivityRevision extends ActivityInputs {
+  readonly facts: TranscriptActivityFacts
+}
+
+// Keys are item revisions, never IDs: released records and old revisions are
+// collectible. The input guard also invalidates callers that edit an item in place.
+const activityRevisions = new WeakMap<TranscriptItem, ActivityRevision>()
+const NO_ACTIVITY: TranscriptActivityFacts = {
+  envelopes: null,
+  mailCommand: null,
+  quietNote: false,
+  stretch: false,
+  eventCount: 1,
+}
+const TOOL_ACTIVITY: TranscriptActivityFacts = { ...NO_ACTIVITY, stretch: true }
+
+export function transcriptActivityFacts(item: TranscriptItem): TranscriptActivityFacts {
+  if (item.role !== 'user' && (item.role !== 'tool' || item.toolName !== 'Bash'))
+    return item.role === 'tool' && !isInteractiveTool(item) ? TOOL_ACTIVITY : NO_ACTIVITY
+  const held = activityRevisions.get(item)
+  if (
+    held &&
+    held.role === item.role &&
+    held.text === item.text &&
+    held.toolName === item.toolName &&
+    held.toolInput === item.toolInput &&
+    held.toolInputJson === item.toolInputJson
+  )
+    return held.facts
+  const envelopes = item.role === 'user' ? parseEnvelopeBatch(item.text) : null
+  const mailCommand = readToolMailCommand(item)
+  const quietNote =
+    envelopes !== null &&
+    envelopes.operatorText === '' &&
+    envelopes.envelopes.length > 0 &&
+    !envelopes.envelopes.some(isOperatorQuestion)
+  const facts: TranscriptActivityFacts = {
+    envelopes,
+    mailCommand,
+    quietNote,
+    stretch: (item.role === 'tool' && !isInteractiveTool(item)) || quietNote,
+    eventCount: envelopes?.envelopes.length ?? 1,
+  }
+  activityRevisions.set(item, {
+    role: item.role,
+    text: item.text,
+    toolName: item.toolName,
+    toolInput: item.toolInput,
+    toolInputJson: item.toolInputJson,
+    facts,
+  })
+  return facts
+}
+
 /**
  * A tool call quiet enough to fold into a batch — i.e. anything that isn't
  * addressing the human, and isn't the agent's own mail (POD-2146).
@@ -245,14 +318,7 @@ export function isBatchableTool(item: TranscriptItem): boolean {
  * Questions between agents stay with the other quiet activity.
  */
 export function isQuietNote(item: TranscriptItem): boolean {
-  if (item.role !== 'user') return false
-  const batch = parseEnvelopeBatch(item.text)
-  return (
-    batch !== null &&
-    batch.operatorText === '' &&
-    batch.envelopes.length > 0 &&
-    !batch.envelopes.some(isOperatorQuestion)
-  )
+  return transcriptActivityFacts(item).quietNote
 }
 
 /**
@@ -262,7 +328,7 @@ export function isQuietNote(item: TranscriptItem): boolean {
  * messages instead of a column of them.
  */
 export function isStretchItem(item: TranscriptItem): boolean {
-  return (item.role === 'tool' && !isInteractiveTool(item)) || isQuietNote(item)
+  return transcriptActivityFacts(item).stretch
 }
 
 /**
@@ -273,6 +339,10 @@ export function isStretchItem(item: TranscriptItem): boolean {
  * item, {@link presentToolBlock} when it builds a block).
  */
 export function toolMailCommand(item: TranscriptItem): MailCommand | null {
+  return transcriptActivityFacts(item).mailCommand
+}
+
+function readToolMailCommand(item: TranscriptItem): MailCommand | null {
   if (item.role !== 'tool' || item.toolName !== 'Bash') return null
   const text = item.toolInputJson ?? item.toolInput ?? ''
   if (!text.includes('podium') || !text.includes('mail')) return null
@@ -454,7 +524,7 @@ export type ChatRow = SingleRow | ToolBatchRow
 
 /** One delivered transcript item can hold several notes. Count the notes. */
 export function toolActivityCount(item: TranscriptItem): number {
-  return item.role === 'user' ? (parseEnvelopeBatch(item.text)?.envelopes.length ?? 1) : 1
+  return transcriptActivityFacts(item).eventCount
 }
 
 /**

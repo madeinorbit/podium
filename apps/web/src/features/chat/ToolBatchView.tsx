@@ -1,13 +1,13 @@
 import type { TranscriptToolRun } from '@podium/client-core/conversation'
 import {
   formatClock,
-  parseEnvelopeBatch,
   resolveToolEdit,
   type ToolEditView,
   toolBatchTitles,
   toolEditDiffKey,
   toolEditHasDiff,
   toolEditUnifiedDiff,
+  transcriptActivityFacts,
 } from '@podium/client-core/values'
 import type { SessionId } from '@podium/model/browser'
 import {
@@ -167,7 +167,7 @@ export const ToolBatchView = observer(function ToolBatchView({
   const first = run?.firstBlock ?? row.blocks[0]!
   const noteCount =
     count === 1 && first.item.role === 'user'
-      ? (parseEnvelopeBatch(first.item.text)?.envelopes.length ?? 0)
+      ? (transcriptActivityFacts(first.item).envelopes?.envelopes.length ?? 0)
       : 0
   const singleMember = count === 1 && (first.mail !== undefined || noteCount === 1)
   const multiple = count > 1 || noteCount > 1
@@ -501,7 +501,7 @@ function StretchMember({
   onBodyClick: (e: ReactMouseEvent) => void
   forceOpen: boolean
 }) {
-  const batch = block.item.role === 'user' ? parseEnvelopeBatch(block.item.text) : null
+  const batch = transcriptActivityFacts(block.item).envelopes
   if (batch)
     return (
       <MessageEnvelopeGroup

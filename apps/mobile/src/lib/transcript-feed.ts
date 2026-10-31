@@ -11,8 +11,8 @@ import {
   machineContextLabel,
   type ParsedEnvelope,
   parseAskQuestions,
-  parseEnvelopeBatch,
   searchBlocks,
+  transcriptActivityFacts,
 } from '@podium/client-core/values'
 import type { TranscriptItem } from '@podium/model'
 
@@ -195,7 +195,7 @@ export function shapeMobileChatRow(
     return rows
   }
   if (item.role === 'user') {
-    const batch = parseEnvelopeBatch(item.text)
+    const batch = transcriptActivityFacts(item).envelopes
     if (batch) {
       batch.envelopes.forEach((envelope, index) => {
         append({

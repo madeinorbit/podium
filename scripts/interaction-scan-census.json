@@ -13816,12 +13816,12 @@
       "file": "packages/client-core/src/conversation/transcript-log.ts",
       "holder": "TranscriptLog/prepend",
       "rule": "consume:map",
-      "tokens": "2a6033527e626e0a1163a802a7dc835c2557b986748c3ca14354ee9418e1918f",
+      "tokens": "699eb3e5b8ad338bb708a994229d66f9bc2745791e13e803a6a02fc64f74659b",
       "gate": [],
       "origin": [
         "731923a9ac9d3c2fc4bfe3d922b8bc2a2c685bd6e8b868edcd45af5900fd1fb2"
       ],
-      "fingerprint": "94700c59e2689949c0e1dc04479913958e90c5499de6987673970aca457eedab",
+      "fingerprint": "b27a808f715455db8e90eb26efdf7f54af2ca1b363904a0066d6386742f17acc",
       "count": 1,
       "classification": "ingest",
       "owner": "POD-5629",

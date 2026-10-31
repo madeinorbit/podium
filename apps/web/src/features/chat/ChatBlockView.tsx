@@ -7,9 +7,9 @@ import {
   MACHINE_CONTEXT_RE,
   mcpLabel,
   messageAttachmentText,
-  parseEnvelopeBatch,
   principalShortName,
   type TranscriptAttribution,
+  transcriptActivityFacts,
 } from '@podium/client-core/values'
 import { codexQuestionReplyText } from '@podium/harness/browser'
 import { machinePathBasename, resolveMachinePath } from '@podium/model'
@@ -444,10 +444,7 @@ export const ChatBlockView = observer(function ChatBlockView({
   // in a "user" turn — render it as a distinct framed block, never a "You"
   // bubble. Operator messages arrive unwrapped and fall through to the
   // ordinary user rendering (unwrapped = the human).
-  const envelopeBatch = useMemo(
-    () => (item.role === 'user' ? parseEnvelopeBatch(item.text) : null),
-    [item.role, item.text],
-  )
+  const envelopeBatch = transcriptActivityFacts(item).envelopes
   // The agent's own mail (POD-2146), as the compute path read it: a send or
   // reply that went out is a note, an inbox read a quiet line. A mail call that
   // failed carries no `mail` and stays its tool row.

@@ -1,7 +1,3 @@
-import type { SessionView } from '../../session-values'
-import { sessionById } from '../../session-index'
-import { isCodexAsyncQuestion, isInterviewQuestion, isPendingAskQuestion } from '../ask-question'
-import { parseEnvelopeBatch } from '../message-envelope'
 /**
  * THE CHAT SLICE (POD-405, completing POD-330's per-feature split).
  *
@@ -58,8 +54,12 @@ import {
   formatAgentError,
   type SessionId,
   type ThreadId,
-  type TranscriptItem} from '@podium/model'
-import { type ChatBlock, type ChatRow, MACHINE_CONTEXT_RE } from '../chat'
+  type TranscriptItem,
+} from '@podium/model'
+import { sessionById } from '../../session-index'
+import type { SessionView } from '../../session-values'
+import { isCodexAsyncQuestion, isInterviewQuestion, isPendingAskQuestion } from '../ask-question'
+import { type ChatBlock, type ChatRow, MACHINE_CONTEXT_RE, transcriptActivityFacts } from '../chat'
 import { type ReferentExit, type ReferentState, resolveReferent } from '../session-ownership'
 import { type ChatActivity, chatActivity, sessionWaking } from '../session-status'
 
@@ -192,7 +192,9 @@ export function attributionForRole(
 /** The agent half of the pair, from server-stamped session fields only. The
  *  curated `name` is preferred because a human may have set it (`nameSource`),
  *  and the harness kind is the fallback identity the server always carries. */
-function agentActorId(session: Pick<SessionView, 'name' | 'agentKind'> | undefined): string | undefined {
+function agentActorId(
+  session: Pick<SessionView, 'name' | 'agentKind'> | undefined,
+): string | undefined {
   if (!session) return undefined
   return session.name ?? session.agentKind ?? undefined
 }
@@ -205,7 +207,9 @@ function agentActorId(session: Pick<SessionView, 'name' | 'agentKind'> | undefin
  * one function means the field arrives in exactly one place, and until it does
  * every consumer gets `undefined` (unknown) rather than a fabricated value.
  */
-function sessionOnBehalfOf(session: Pick<SessionView, 'name' | 'agentKind'> | undefined): string | null | undefined {
+function sessionOnBehalfOf(
+  session: Pick<SessionView, 'name' | 'agentKind'> | undefined,
+): string | null | undefined {
   if (!session) return undefined
   const carried = (session as { onBehalfOf?: string | null }).onBehalfOf
   return carried === undefined ? undefined : carried
@@ -223,7 +227,9 @@ function sessionOnBehalfOf(session: Pick<SessionView, 'name' | 'agentKind'> | un
  * revoked (POD-1077), the entity still exists, and rendering it as a deletion is
  * the defect this type exists to prevent. `removed` is a real tombstone.
  */
-export interface ChatSessionReference<T extends Pick<SessionView, 'sessionId'> = Pick<SessionView, 'sessionId'>> {
+export interface ChatSessionReference<
+  T extends Pick<SessionView, 'sessionId'> = Pick<SessionView, 'sessionId'>,
+> {
   readonly state: ReferentState
   readonly id: string
   readonly value?: T
@@ -234,11 +240,7 @@ export function chatSessionReference<T extends Pick<SessionView, 'sessionId'>>(
   sessions: readonly T[],
   exitOf: (id: string) => ReferentExit | undefined = () => undefined,
 ): ChatSessionReference<T> {
-  const resolved = resolveReferent(
-    sessionId,
-    (id) => sessionById(sessions).get(id),
-    exitOf,
-  )
+  const resolved = resolveReferent(sessionId, (id) => sessionById(sessions).get(id), exitOf)
   return {
     state: resolved.state,
     id: sessionId,
@@ -456,10 +458,14 @@ export function livePendingAskIndex(
   for (let i = blocks.length - 1; i >= 0; i--) {
     const block = blocks[i]!
     if (isPendingAskQuestion(block) && (!isCodexAsyncQuestion(block.item) || !superseded)) return i
-    if (isInterviewQuestion(block.item) || isOperatorPrompt(block.item, {
-      collapseMachineContext: true,
-      operatorTextOf: text => parseEnvelopeBatch(text)?.operatorText,
-    })) superseded = true
+    if (
+      isInterviewQuestion(block.item) ||
+      isOperatorPrompt(block.item, {
+        collapseMachineContext: true,
+        operatorTextOf: () => transcriptActivityFacts(block.item).envelopes?.operatorText,
+      })
+    )
+      superseded = true
   }
   return -1
 }
@@ -507,7 +513,11 @@ export function issueClosedPlaceholder(state: ComposerState): string {
 }
 
 export function composerState(input: {
-  session: (Pick<SessionView, 'status' | 'resumable' | 'agentState' | 'queuedMessageCount'> & { readonly archived?: boolean }) | undefined
+  session:
+    | (Pick<SessionView, 'status' | 'resumable' | 'agentState' | 'queuedMessageCount'> & {
+        readonly archived?: boolean
+      })
+    | undefined
   headless: boolean
   turnRunning: boolean
   compact: boolean
@@ -548,24 +558,24 @@ export function composerState(input: {
     ? archived
       ? 'Session is archived.'
       : turnRunning
-      ? 'Agent is working. Stop it to interject…'
-      : compact
-        ? // The fresh-thread box says this too. It is ONE box either side of the
-          // first turn, so its statement of scope must not change under the
-          // operator at the moment they start using it (POD-516 R3).
-          'Ask across all tasks…'
-        : 'Message the agent…'
+        ? 'Agent is working. Stop it to interject…'
+        : compact
+          ? // The fresh-thread box says this too. It is ONE box either side of the
+            // first turn, so its statement of scope must not change under the
+            // operator at the moment they start using it (POD-516 R3).
+            'Ask across all tasks…'
+          : 'Message the agent…'
     : archived
       ? 'Session is archived.'
       : terminalError
-      ? asSentences(formatAgentError(terminalError), agentErrorRecoveryInstruction(terminalError))
-      : waking
-        ? 'Waking the agent. Your message will queue…'
-        : sendable
-          ? 'Message the agent…'
-          : canResume
-            ? RESUME_PLACEHOLDER
-            : 'Session is not running.'
+        ? asSentences(formatAgentError(terminalError), agentErrorRecoveryInstruction(terminalError))
+        : waking
+          ? 'Waking the agent. Your message will queue…'
+          : sendable
+            ? 'Message the agent…'
+            : canResume
+              ? RESUME_PLACEHOLDER
+              : 'Session is not running.'
   return {
     deliverable,
     sendable,

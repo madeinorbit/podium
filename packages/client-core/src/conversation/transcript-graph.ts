@@ -16,6 +16,7 @@ import {
   isUserMediaMarker,
   pairToolResults,
   presentToolBlock,
+  transcriptActivityFacts,
 } from '../values/chat'
 import { type ChatVerbosity, rowSurvivesSummary } from '../values/chat-verbosity'
 import {
@@ -23,7 +24,6 @@ import {
   type LastAnswer,
   type TranscriptSearchState,
 } from '../values/compose/chat'
-import { parseEnvelopeBatch } from '../values/message-envelope'
 import {
   promptsBeforeTheirReplies,
   type TranscriptComputeResult,
@@ -860,7 +860,7 @@ export class TranscriptGraph {
 
   private indexOperators(id: string, item: TranscriptItem | undefined): void {
     const operatorText =
-      item?.role === 'user' ? parseEnvelopeBatch(item.text)?.operatorText : undefined
+      item?.role === 'user' ? transcriptActivityFacts(item).envelopes?.operatorText : undefined
     for (const collapse of [false, true]) {
       const ids = this.operatorIds[collapse ? 1 : 0]
       const at = this.insertionPoint(ids, id)
