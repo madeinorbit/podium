@@ -398,8 +398,25 @@ const TurnList = observer(function TurnList({
       {members.map((member) => (
         <TurnEntry
           key={member.key}
-          member={member}
-          props={props}
+          id={member.id}
+          memberKey={member.key}
+          index={member.index}
+          snapshot={member.block}
+          chat={props.chat}
+          sessionId={props.sessionId}
+          cwd={props.cwd}
+          openFile={props.openFile}
+          httpOrigin={props.httpOrigin}
+          onOpenImage={props.onOpenImage}
+          onQuote={props.onQuote}
+          onAnswerAsk={props.onAnswerAsk}
+          markdownHtml={
+            member.block.item.role === 'system' ||
+            (member.block.item.role === 'user' &&
+              !transcriptActivityFacts(member.block.item).envelopes)
+              ? props.markdownHtml
+              : undefined
+          }
           live={live}
           forceOpen={
             singleWell ||
@@ -416,32 +433,54 @@ const TurnList = observer(function TurnList({
   )
 })
 
+/** Pass the entry's actual inputs. A fresh feed props/member object on append
+ * must not re-render every unchanged opened entry and reparse its markdown. */
 const TurnEntry = observer(function TurnEntry({
-  member,
-  props,
+  id,
+  memberKey,
+  index,
+  snapshot,
+  chat,
+  sessionId,
+  cwd,
+  openFile,
+  httpOrigin,
+  onOpenImage,
+  onQuote,
+  onAnswerAsk,
+  markdownHtml,
   live,
   forceOpen,
   arrived,
   initialOpen,
-}: {
-  member: TurnMember
-  props: TranscriptFeedProps
+}: Pick<
+  TranscriptFeedProps,
+  | 'chat'
+  | 'sessionId'
+  | 'cwd'
+  | 'openFile'
+  | 'httpOrigin'
+  | 'onOpenImage'
+  | 'onQuote'
+  | 'onAnswerAsk'
+> & {
+  markdownHtml?: ReadonlyMap<string, string> | undefined
+  id: string
+  memberKey: string
+  index: number
+  snapshot: import('@podium/client-core/values').ChatBlock
   live: boolean
   forceOpen: boolean
   arrived: boolean
   initialOpen: boolean
 }) {
-  const durable = props.chat?.view.presentation.block(member.id)
-  const preview = durable
-    ? undefined
-    : (props.chat?.view.previewMember?.(member.key)?.block ??
-      previewMembers(props).find((entry) => entry.key === member.key)?.block)
-  const block = durable ?? preview ?? member.block
+  const durable = chat?.view.presentation.block(id)
+  const preview = durable ? undefined : chat?.view.previewMember?.(memberKey)?.block
+  const block = durable ?? preview ?? snapshot
   const { item } = block
   const bodyClick = useCallback(
-    (event: React.MouseEvent) =>
-      handleChatMdClick(event, props.sessionId, props.cwd, props.openFile),
-    [props.sessionId, props.cwd, props.openFile],
+    (event: React.MouseEvent) => handleChatMdClick(event, sessionId, cwd, openFile),
+    [sessionId, cwd, openFile],
   )
   const narration = item.role === 'assistant' && !item.answer
   const activity = item.role === 'tool' || transcriptActivityFacts(item).envelopes !== null
@@ -454,10 +493,10 @@ const TurnEntry = observer(function TurnEntry({
         narration && 'tl-say',
         !activity && !narration && 'turn-entry-context',
       )}
-      data-block={member.index >= 0 ? member.index : undefined}
-      data-row-key={member.id}
-      data-turn-preview={member.index < 0 || undefined}
-      data-testid={preview && narration ? 'streaming-text' : undefined}
+      data-block={index >= 0 ? index : undefined}
+      data-row-key={id}
+      data-turn-preview={index < 0 || undefined}
+      data-testid={(preview || index < 0) && narration ? 'streaming-text' : undefined}
     >
       {narration ? (
         <>
@@ -468,10 +507,10 @@ const TurnEntry = observer(function TurnEntry({
           )}
           <StableMarkdown
             html={renderMarkdown(item.text)}
-            className={cn('chat-md', preview && 'chat-md--streaming')}
-            sessionId={props.sessionId}
-            cwd={props.cwd}
-            openFile={props.openFile}
+            className={cn('chat-md', (preview || index < 0) && 'chat-md--streaming')}
+            sessionId={sessionId}
+            cwd={cwd}
+            openFile={openFile}
           />
         </>
       ) : activity ? (
@@ -488,25 +527,25 @@ const TurnEntry = observer(function TurnEntry({
           forceOpen={forceOpen}
           initialOpen={initialOpen}
           onBodyClick={bodyClick}
-          sessionId={props.sessionId}
-          cwd={props.cwd}
-          openFile={props.openFile}
+          sessionId={sessionId}
+          cwd={cwd}
+          openFile={openFile}
         />
       ) : (
         <ChatBlockView
           block={block}
-          index={member.index}
-          markdownHtml={props.markdownHtml}
+          index={index}
+          markdownHtml={markdownHtml}
           highlighted={forceOpen}
           dimmed={false}
-          sessionId={props.sessionId}
-          cwd={props.cwd}
-          httpOrigin={props.httpOrigin}
-          onOpenImage={props.onOpenImage}
-          openFile={props.openFile}
-          onQuote={props.onQuote}
+          sessionId={sessionId}
+          cwd={cwd}
+          httpOrigin={httpOrigin}
+          onOpenImage={onOpenImage}
+          openFile={openFile}
+          onQuote={onQuote}
           askLivePending={false}
-          onAnswerAsk={props.onAnswerAsk}
+          onAnswerAsk={onAnswerAsk}
         />
       )}
     </div>

@@ -1,16 +1,18 @@
 import './test-support/no-message-attachments'
-import type { TurnPreview } from '@podium/client-core/conversation'
+import { TranscriptGraph, type TurnPreview } from '@podium/client-core/conversation'
 import { buildChatRows, pairToolResults, transcriptActivityFacts } from '@podium/client-core/values'
 import { asSessionId, type TranscriptItem } from '@podium/model'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import * as markdown from '@/lib/markdown'
 import { TranscriptFeed, type TranscriptFeedProps } from './TranscriptFeed'
 
 vi.mock('./mail-body', () => ({
   useMailBody: () => ({ status: 'ready', body: 'Status\nI am reading this body.' }),
 }))
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+const disposals: (() => void)[] = []
 let host: HTMLDivElement, root: Root
 beforeEach(() => {
   host = document.createElement('div')
@@ -19,6 +21,7 @@ beforeEach(() => {
 })
 afterEach(() => {
   act(() => root.unmount())
+  for (const dispose of disposals.splice(0)) dispose()
   host.remove()
 })
 const ts = '2026-10-31T12:00:00.000Z'
@@ -313,4 +316,40 @@ it('restamps a Grok narration into the answer without leaving stale phrase text 
     'The result is ready.',
   )
   expect(host.querySelector('[data-row-key="final"]')?.closest('.tl-answer')).not.toBeNull()
+})
+
+it('keeps unchanged opened narration cold on append, and still reads a live text edit', () => {
+  const items = [prompt, say('intro', 'An unchanged narration.'), call('cmd', 'done')]
+  const graph = new TranscriptGraph(items)
+  disposals.push(() => graph.dispose())
+  const presentation = {
+    block: (id: string) => graph.block(id),
+    run: (id: string) => graph.run(id),
+    rowMatches: () => false,
+    tailRow: (row: unknown) => row,
+  }
+  const chat = {
+    view: { presentation, pending: [], preview: null, session: undefined, activity: null },
+  } as never
+  const stable = {
+    chat,
+    expandRuns: true,
+    activity: null,
+    onAnswerAsk: async () => {},
+    markdownHtml: new Map<string, string>(),
+  }
+  render(items, { ...stable, rows: graph.structuralRows.map((row, index) => ({ row, index })) })
+  const before = host.querySelector('[data-row-key="intro"] .chat-md')!
+  const spy = vi.spyOn(markdown, 'renderMarkdown')
+  const next = call('next', 'done')
+  act(() => graph.apply({ changed: [next], insertions: [{ id: next.id }] }))
+  render([...items, next], {
+    ...stable,
+    rows: graph.structuralRows.map((row, index) => ({ row, index })),
+  })
+  expect(spy.mock.calls.some(([text]) => text === 'An unchanged narration.')).toBe(false)
+  expect(host.querySelector('[data-row-key="intro"] .chat-md')).toBe(before)
+  act(() => graph.apply({ changed: [{ ...items[1]!, text: 'An edited narration.' }] }))
+  expect(before.textContent).toContain('An edited narration.')
+  spy.mockRestore()
 })
