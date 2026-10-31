@@ -5008,6 +5008,7 @@ button.pane-branch:hover {
 }
 .tl-answer > div {
   min-height: 0;
+  min-width: 0;
   /* Clip the height reveal without creating a horizontal scroller that pans
      the prose when its gutter action receives keyboard focus. */
   overflow-y: clip;
@@ -6143,6 +6144,14 @@ button.pane-branch:hover {
   .transcript-row:hover .msg-narrow-actions,
   .msg-narrow-actions:focus-within {
     opacity: 1;
+  }
+  /* The compact feed has a 14px gutter. Reserve the remaining 12px beside
+     prose so the 21px trigger stays inside the pane without covering text. */
+  [data-feed-container][data-compact] .transcript-prose > :is(.chat-md, .transcript-answer-label) {
+    padding-inline-end: 12px;
+  }
+  [data-feed-container][data-compact] .transcript-prose > .msg-narrow-actions {
+    inset-inline-start: calc(100% - 10px);
   }
 }
 @media (hover: none) {

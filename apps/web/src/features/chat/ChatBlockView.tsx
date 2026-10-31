@@ -24,7 +24,7 @@ import {
 } from 'lucide-react'
 import { observer } from 'mobx-react-lite'
 import type { JSX, MouseEvent as ReactMouseEvent, ReactNode } from 'react'
-import { memo, useCallback, useId, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useContext, useId, useMemo, useRef, useState } from 'react'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -46,6 +46,7 @@ import { InboxReadRow, SentNoteRow } from './MailCommandRow'
 import { MessageEnvelopeGroup } from './MessageEnvelopeGroup'
 import { MetaGlyph } from './MetaGlyph'
 import type { MailReply } from './mail-reply'
+import { NarrowMessageActions } from './message-actions-layout'
 import { SendUserFileBlock } from './SendUserFileBlock'
 import { ToolBlock } from './ToolBlock'
 import { clockLabel, fullTimeLabel, parseTs } from './transcript-time'
@@ -117,6 +118,7 @@ function MessageActions({
    *  message — the queued turn's Retract is the only one today. */
   children?: ReactNode
 }): JSX.Element | null {
+  const narrow = useContext(NarrowMessageActions)
   const [copied, setCopied] = useState(false)
   const ack = useRef<ReturnType<typeof setTimeout> | null>(null)
   const copy = useCallback(() => {
@@ -165,7 +167,7 @@ function MessageActions({
           </span>
         )}
       </div>
-      {side === 'left' && !empty && (
+      {narrow && side === 'left' && !empty && (
         <span className="msg-narrow-actions">
           <DropdownMenu>
             <DropdownMenuTrigger

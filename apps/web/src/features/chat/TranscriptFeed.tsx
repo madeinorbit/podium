@@ -50,6 +50,7 @@ import type { PendingItem } from './chat'
 import { IssueOutcomeCard } from './IssueOutcomeCard'
 import { MetaGlyph } from './MetaGlyph'
 import type { MailReply } from './mail-reply'
+import { NarrowMessageActions, useNarrowMessageActions } from './message-actions-layout'
 import { ToolBatchView } from './ToolBatchView'
 import { TranscriptCold } from './TranscriptCold'
 import { TranscriptStandby } from './TranscriptStandby'
@@ -508,8 +509,13 @@ export const TranscriptFeed = observer(function TranscriptFeed(
     previousFolds.current = folds
     foldState.prime()
   }, [folds, foldState])
-  return (
-    <div data-feed-container="" className="flex min-h-0 min-w-0 flex-1">
+  const narrowActions = useNarrowMessageActions(windowScroller)
+  const feed = (
+    <div
+      data-feed-container=""
+      data-compact={compact || undefined}
+      className="flex min-h-0 min-w-0 flex-1"
+    >
       <div
         // Named so a portalled overlay hanging off a row can find the box it must
         // stay inside. A tooltip's default collision boundary is the VIEWPORT, and
@@ -1040,6 +1046,7 @@ export const TranscriptFeed = observer(function TranscriptFeed(
       </div>
     </div>
   )
+  return <NarrowMessageActions.Provider value={narrowActions}>{feed}</NarrowMessageActions.Provider>
 })
 
 const TurnFeedRow = observer(function TurnFeedRow({
