@@ -5,7 +5,7 @@ export const workPaper = {
   ground: adaptiveColor('#f2f1ed', '#000000', '#f2f1ed', '#000000'),
   ink: adaptiveColor('#1d1c19', '#ffffff', '#151411', '#ffffff'),
   secondary: adaptiveColor('#5f5d55', '#a8a8af', '#46443e', '#c8c8ce'),
-  tertiary: adaptiveColor('#8b8983', '#94949c', '#5f5d55', '#b0b0b8'),
+  tertiary: adaptiveColor('#706e67', '#94949c', '#5f5d55', '#b0b0b8'),
   separator: adaptiveColor(
     'rgba(95,93,85,0.22)',
     'rgba(84,84,88,0.65)',

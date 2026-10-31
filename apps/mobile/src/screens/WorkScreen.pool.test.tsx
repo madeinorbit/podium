@@ -43,11 +43,12 @@ const state = vi.hoisted(() => ({
   rowDerivations: 0,
   errors: [] as string[],
 }))
-const router = vi.hoisted(() => ({ push: vi.fn(), replace: vi.fn() }))
+const router = vi.hoisted(() => ({ push: vi.fn(), replace: vi.fn(), setParams: vi.fn() }))
 vi.mock('expo-router', async () => {
   const { useEffect } = await import('react')
   return {
     useRouter: () => router,
+    useLocalSearchParams: () => ({}),
     usePathname: () => '/work',
     Stack: { SearchBar: () => null },
     useFocusEffect: (effect: () => void) => useEffect(effect, [effect]),

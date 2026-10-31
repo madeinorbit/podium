@@ -7,8 +7,8 @@ import { PhoneWorkFilters } from '@podium/client-graph/worklist/phone'
 import type { SidebarState } from '@podium/client-graph/worklist/sidebar'
 import { worklistView } from '@podium/client-graph/worklist/view-model'
 import { parseIssueStatusValue, type SessionId } from '@podium/model'
-import { useFocusEffect, useRouter } from 'expo-router'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useStoreActions } from '../client/hooks'
 import { useMobilePool, useMobilePoolProjection } from '../client/mobile-pool'
 import { useIssueCloseGuard } from '../client/use-issue-close'
@@ -26,6 +26,8 @@ import { type PoolWorkMenuData, resolvePoolWorkMenu } from '../lib/pool-work-men
 import { sessionHref } from '../lib/session-route'
 import type { WorkMenuActionId } from '../lib/work-menu'
 import { WorkSurface } from './WorkSurface'
+import { readWorkNavigation, type WorkRouteParams, workFilterParams } from './work-navigation'
+import { saveWorkNavigation } from './work-restoration'
 
 const EMPTY_LAYOUT: SidebarState = Object.freeze({
   projectOrder: [],
@@ -57,6 +59,9 @@ export function WorkScreen() {
 
 const PoolWorkScreen = observer(function PoolWorkScreen() {
   const router = useRouter()
+  const params = useLocalSearchParams<WorkRouteParams>()
+  const position = readWorkNavigation(params)
+  const scrollOffset = useRef(position.offset)
   const pool = useMobilePool()
   const model = useWorklistModel()
   const store = useStoreActions()
@@ -68,7 +73,13 @@ const PoolWorkScreen = observer(function PoolWorkScreen() {
   useEffect(() => {
     model?.setLayout(layout)
   }, [model, layout])
-  const [filters] = useState(() => model?.phone.filters ?? new PhoneWorkFilters())
+  const [filters] = useState(
+    () =>
+      new PhoneWorkFilters(position, (snapshot) => router.setParams(workFilterParams(snapshot))),
+  )
+  useLayoutEffect(() => {
+    filters.restore({ lane: position.lane, query: position.query })
+  }, [filters, position.lane, position.query])
   // Initialize each newly attached presentation before its list renders. Only
   // the screen's UI state crosses that boundary; records stay with their pool.
   const phone = useMemo(() => {
@@ -92,18 +103,36 @@ const PoolWorkScreen = observer(function PoolWorkScreen() {
     (issue: IssueNavigationModel) => {
       model?.select(issue.id)
       setPendingNav(issue.id)
-      router.push(`/mission/${encodeURIComponent(issue.id)}`)
-      void store.markIssueRead(issue.id)
+      saveWorkNavigation(
+        () =>
+          router.setParams({
+            ...workFilterParams(filters),
+            workOffset: String(scrollOffset.current),
+            workFocus: issue.id,
+          }),
+        () => {
+          router.push(`/mission/${encodeURIComponent(issue.id)}`)
+          void store.markIssueRead(issue.id)
+        },
+      )
     },
-    [model, router, store],
+    [filters, model, router, store],
   )
   const openSession = useCallback(
     (sessionId: SessionId, rowKey: string) => {
       model?.select(rowKey)
       setPendingNav(rowKey)
-      router.push(sessionHref(sessionId, '/work'))
+      saveWorkNavigation(
+        () =>
+          router.setParams({
+            ...workFilterParams(filters),
+            workOffset: String(scrollOffset.current),
+            workFocus: rowKey,
+          }),
+        () => router.push(sessionHref(sessionId, '/work')),
+      )
     },
-    [model, router],
+    [filters, model, router],
   )
   const openMenu = useCallback(
     (
@@ -165,6 +194,9 @@ const PoolWorkScreen = observer(function PoolWorkScreen() {
   return (
     <>
       <WorkSurface
+        scrollOffset={scrollOffset}
+        returnOffset={position.offset}
+        returnFocus={position.focus}
         phone={phone}
         collapsed={collapsed}
         onToggle={toggle}

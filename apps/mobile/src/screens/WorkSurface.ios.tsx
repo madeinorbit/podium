@@ -50,9 +50,10 @@ import { mobileWorkView } from '@podium/client-graph/worklist/mobile'
 import type { PhoneWorkLane, PhoneWorkSection } from '@podium/client-graph/worklist/phone'
 import { issueStatusMenuEntries, issueStatusValueOf, type SessionId } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
-import { Stack } from 'expo-router'
-import { useCallback, useState } from 'react'
+import { Stack, useFocusEffect } from 'expo-router'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { StyleSheet, useWindowDimensions, View } from 'react-native'
+import type { SearchBarCommands } from 'react-native-screens'
 import { NewWorkButton } from '../components/NewWorkButton'
 import { MIN_REFRESH_CONFIRMATION_MS } from '../hooks/useRefreshableTab'
 import { useAgeNow } from '../lib/clock-hooks'
@@ -75,6 +76,21 @@ const quietRow = [...plainRow, listRowSeparator('hidden')]
 /** A real SwiftUI plain list. UIKit owns the stack, search, toolbar and tab bar. */
 export const WorkSurface = observer(function WorkSurface(props: WorkSurfaceProps) {
   const { phone } = props
+  const searchRef = useRef<SearchBarCommands | null>(null)
+  const nativeQuery = useRef<string | undefined>(undefined)
+  const restoreQuery = useCallback(() => {
+    if (searchRef.current && nativeQuery.current !== phone.query) {
+      searchRef.current.setText(phone.query)
+      nativeQuery.current = phone.query
+    }
+  }, [phone, phone.query])
+  useEffect(restoreQuery, [restoreQuery])
+  useFocusEffect(
+    useCallback(() => {
+      const frame = requestAnimationFrame(restoreQuery)
+      return () => cancelAnimationFrame(frame)
+    }, [restoreQuery]),
+  )
   // Native List virtualizes the views; bound the number of JS row observers as well.
   const [window, setWindow] = useState({ scope: '', size: PAGE_SIZE })
   const scope = `${phone.lane}:${phone.needle}`
@@ -134,11 +150,18 @@ export const WorkSurface = observer(function WorkSurface(props: WorkSurfaceProps
         )}
       />
       <Stack.SearchBar
+        ref={searchRef}
         placeholder="Search tasks or ID"
         hideWhenScrolling
         autoCapitalize="none"
-        onChangeText={(event) => phone.setQuery(event.nativeEvent.text)}
-        onCancelButtonPress={() => phone.setQuery('')}
+        onChangeText={(event) => {
+          nativeQuery.current = event.nativeEvent.text
+          phone.setQuery(event.nativeEvent.text)
+        }}
+        onCancelButtonPress={() => {
+          nativeQuery.current = ''
+          phone.setQuery('')
+        }}
       />
       <View>{props.notices}</View>
       <Host style={styles.host} seedColor={color.accentTint}>

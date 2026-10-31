@@ -34,11 +34,12 @@ const state = vi.hoisted(() => ({
   errors: [] as string[],
   sections: [] as readonly MobileWorkSection[],
 }))
-const router = vi.hoisted(() => ({ push: vi.fn() }))
+const router = vi.hoisted(() => ({ push: vi.fn(), setParams: vi.fn() }))
 vi.mock('expo-router', async () => {
   const { useEffect } = await import('react')
   return {
     useRouter: () => router,
+    useLocalSearchParams: () => ({}),
     Stack: { SearchBar: () => null },
     useFocusEffect: (effect: () => void) => useEffect(effect, [effect]),
   }
@@ -419,9 +420,11 @@ describe('mobile pool work-list actions', () => {
   it('opens the mission before the deferred mark-read, then restores unread on refusal', async () => {
     await mount((f) => f.patchIssue(TARGET, { readAt: null }))
     expect(value().emphasizeUnread).toBe(true)
+    const navigation = vi.fn(() => expect(requests).toEqual([]))
+    router.push.mockImplementationOnce(navigation)
     fireEvent.click(button())
-    expect(router.push).toHaveBeenCalledWith(`/mission/${TARGET}`)
-    expect(requests).toEqual([])
+    await waitFor(() => expect(router.push).toHaveBeenCalledWith(`/mission/${TARGET}`))
+    expect(navigation).toHaveBeenCalledOnce()
     const write = await request('issues.markRead')
     expect(write.input).toMatchObject({ id: TARGET, mutationId: expect.any(String) })
     expect(pool().readCursor(TARGET)).toBe(iso(0))
@@ -436,10 +439,12 @@ describe('mobile pool work-list actions', () => {
       f.patchIssue(TARGET, { isDraftVessel: true, title: '', worktreePath: null })
     })
     fireEvent.click(button())
-    expect(router.push).toHaveBeenCalledWith({
-      pathname: '/session/[sessionId]',
-      params: { sessionId: 'synthetic-session-3', backTo: '/work' },
-    })
+    await waitFor(() =>
+      expect(router.push).toHaveBeenCalledWith({
+        pathname: '/session/[sessionId]',
+        params: { sessionId: 'synthetic-session-3', backTo: '/work' },
+      }),
+    )
     expect(requests).toEqual([])
     await settled()
   })

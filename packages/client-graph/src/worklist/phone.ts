@@ -22,15 +22,34 @@ export interface PhoneListSection {
   readonly data: readonly MobileWorkRef[]
 }
 
-/** Screen-owned UI state survives a same-account pool reattachment. */
+export interface PhoneWorkFilterSnapshot {
+  lane: PhoneWorkLane
+  query: string
+}
+
+/** Live filters, with a serializable navigation snapshot for a remounted screen. */
 export class PhoneWorkFilters {
   @observable accessor lane: PhoneWorkLane = 'open'
   @observable accessor query = ''
+  constructor(
+    initial?: PhoneWorkFilterSnapshot,
+    private readonly changed?: (snapshot: PhoneWorkFilterSnapshot) => void,
+  ) {
+    if (initial) this.restore(initial)
+  }
+  @action restore(snapshot: PhoneWorkFilterSnapshot) {
+    this.lane = snapshot.lane
+    this.query = snapshot.query
+  }
   @action setLane(lane: PhoneWorkLane) {
+    if (this.lane === lane) return
     this.lane = lane
+    this.changed?.({ lane: this.lane, query: this.query })
   }
   @action setQuery(query: string) {
+    if (this.query === query) return
     this.query = query
+    this.changed?.({ lane: this.lane, query: this.query })
   }
 }
 

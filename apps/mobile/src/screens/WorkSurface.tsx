@@ -1,7 +1,8 @@
 import { observer } from '@podium/client-graph/react'
 import type { MobileWorkRef } from '@podium/client-graph/worklist/mobile'
 import type { PhoneListSection, PhoneWorkSection } from '@podium/client-graph/worklist/phone'
-import { useCallback, useEffect, useMemo, useRef } from 'react'
+import { useFocusEffect } from 'expo-router'
+import { useCallback, useEffect, useId, useMemo, useRef } from 'react'
 import { SectionList, StyleSheet, Text, TextInput, View } from 'react-native'
 import { Icon } from '../components/Icon'
 import { ChevronDown, ChevronRight, Search, X } from '../components/icons'
@@ -15,6 +16,7 @@ import { useMinimizeTabBarOnScroll } from '../hooks/useMinimizeTabBarOnScroll'
 import { color, mono, radius, sans } from '../theme/theme'
 import { PoolWorkRowSlot } from './WorkListRow'
 import { WORK_LANE_LABELS, WORK_LANES, type WorkSurfaceProps } from './WorkSurface.types'
+import { restoreWorkFocus } from './work-restoration'
 
 /** Web keeps the desktop row grammar; iOS resolves WorkSurface.ios instead. */
 export const WorkSurface = observer(function WorkSurface(props: WorkSurfaceProps) {
@@ -29,30 +31,60 @@ export const WorkSurface = observer(function WorkSurface(props: WorkSurfaceProps
     [sections, collapsed, searching],
   )
   const minimizeOnScroll = useMinimizeTabBarOnScroll()
+  // A stack may retain an older Work screen with the same task IDs.
+  const focusPrefix = useId()
+  const restored = useRef(false)
+  const restore = useCallback(() => {
+    if (restored.current || !props.returnFocus) return
+    const scroller = refresh.listRef.current?.getScrollResponder?.()
+    if (!scroller) return
+    scroller.scrollTo({ y: props.returnOffset, animated: false })
+    restored.current = restoreWorkFocus(`${focusPrefix}--${props.returnFocus}`)
+  }, [props.returnFocus, props.returnOffset, refresh.listRef, focusPrefix])
+  useFocusEffect(
+    useCallback(() => {
+      restored.current = false
+      const frame = requestAnimationFrame(restore)
+      return () => cancelAnimationFrame(frame)
+    }, [restore]),
+  )
   const previousLane = useRef(phone.lane)
   useEffect(() => {
     if (previousLane.current === phone.lane) return
     previousLane.current = phone.lane
+    props.scrollOffset.current = 0
     if (display.length)
       refresh.listRef.current?.scrollToLocation?.({
         sectionIndex: 0,
         itemIndex: 0,
         animated: false,
       })
-  }, [phone.lane, display.length, refresh.listRef])
+  }, [phone.lane, display.length, refresh.listRef, props.scrollOffset])
   const renderItem = useCallback(
     ({ item }: { item: MobileWorkRef }) => (
       <PoolWorkRowSlot
         item={item}
         lane={phone.lane}
         navPending={pendingNav === item.id}
+        focusId={`${focusPrefix}--${item.id}`}
+        onRestore={props.returnFocus === item.id ? restore : undefined}
         onOpenIssue={props.onOpenIssue}
         onOpenSession={props.onOpenSession}
         onLongPress={props.onMenu}
         onTuck={props.onTuck}
       />
     ),
-    [phone.lane, pendingNav, props.onOpenIssue, props.onOpenSession, props.onMenu, props.onTuck],
+    [
+      phone.lane,
+      pendingNav,
+      props.onOpenIssue,
+      props.onOpenSession,
+      props.onMenu,
+      props.onTuck,
+      props.returnFocus,
+      restore,
+      focusPrefix,
+    ],
   )
   return (
     <Screen large title="Work" right={<NewWorkButton size={34} />}>
@@ -87,6 +119,7 @@ export const WorkSurface = observer(function WorkSurface(props: WorkSurfaceProps
               key={lane}
               accessibilityRole="tab"
               accessibilityState={{ selected: phone.lane === lane }}
+              aria-selected={phone.lane === lane}
               onPress={() => phone.setLane(lane)}
               scaleTo={1}
               style={[styles.lane, phone.lane === lane && styles.laneSelected]}
@@ -108,6 +141,11 @@ export const WorkSurface = observer(function WorkSurface(props: WorkSurfaceProps
             {...listWindow}
             {...minimizeOnScroll}
             {...refresh.refreshAccessibilityProps}
+            onScroll={(event) => {
+              props.scrollOffset.current = event.nativeEvent.contentOffset.y
+              minimizeOnScroll.onScroll?.(event)
+            }}
+            onContentSizeChange={restore}
             ref={refresh.listRef as never}
             sections={display}
             keyExtractor={(ref) => ref.listKey}

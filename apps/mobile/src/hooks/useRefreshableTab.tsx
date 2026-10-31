@@ -11,6 +11,7 @@ import { color } from '../theme/theme'
 
 /** The scroll methods the tab roots' lists actually expose. */
 interface Scrollable {
+  getScrollResponder?(): { scrollTo(o: { y: number; animated: boolean }): void } | null
   scrollToOffset?(o: { offset: number; animated?: boolean }): void
   scrollTo?(o: { y: number; animated?: boolean }): void
   scrollToLocation?(o: {

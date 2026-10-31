@@ -12,7 +12,7 @@ import type { RowTone } from '@podium/client-graph/worklist/voice'
 import type { SessionId } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import { observer } from 'mobx-react-lite'
-import { memo, useCallback, useEffect, useState } from 'react'
+import { memo, useCallback, useEffect, useId, useState } from 'react'
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native'
 import { useMobilePool } from '../client/mobile-pool'
 import { NotSavedMark } from '../components/NotSavedMark'
@@ -45,6 +45,8 @@ export interface WorkListRowProps {
   navPending: boolean
   onOpen: () => void
   onLongPress: () => void
+  onRestore?: () => void
+  focusId?: string
 }
 
 export const WorkRow = observer(function WorkRow({
@@ -53,8 +55,14 @@ export const WorkRow = observer(function WorkRow({
   navPending,
   onOpen,
   onLongPress,
+  onRestore,
+  focusId,
 }: WorkListRowProps) {
+  const ownFocusId = useId()
   const navLoader = useDelayedFlag(navPending, NAV_LOADER_DELAY_MS)
+  useEffect(() => {
+    if (row.ready === 'ready') onRestore?.()
+  }, [row, row.ready, onRestore])
   if (typeof row.ready === 'symbol') return <View accessibilityLabel="Loading work" />
   if (row.ready !== 'ready') return null
   const ref = issueDisplayRef(row.issue)
@@ -78,6 +86,7 @@ export const WorkRow = observer(function WorkRow({
   const unread = row.emphasizeUnread
   return (
     <PressableScale
+      nativeID={focusId ?? ownFocusId}
       {...workRowMenuEvents(onLongPress)}
       accessibilityRole="button"
       accessibilityLabel={`${ref} ${row.title}`}
@@ -207,6 +216,8 @@ export const PoolWorkRowSlot = memo(
     item: MobileWorkRef
     lane?: PhoneWorkLane
     navPending: boolean
+    focusId?: string
+    onRestore?: () => void
     onOpenIssue: (issue: IssueNavigationModel) => void
     onOpenSession: (sessionId: SessionId, rowKey: string) => void
     onLongPress: (issue: IssueNavigationModel, lane?: 'live' | 'snoozed' | 'closed') => void
@@ -241,6 +252,8 @@ export const PoolWorkRowSlot = memo(
         row={row}
         lane={lane}
         navPending={callbacks.navPending}
+        focusId={callbacks.focusId}
+        onRestore={callbacks.onRestore}
         onOpen={openRow}
         onLongPress={longPress}
         onTuck={row.canTuck ? tuck : undefined}
@@ -252,6 +265,8 @@ export const PoolWorkRowSlot = memo(
     a.item.id === b.item.id &&
     a.item.listKey === b.item.listKey &&
     a.navPending === b.navPending &&
+    a.focusId === b.focusId &&
+    a.onRestore === b.onRestore &&
     a.onTuck === b.onTuck &&
     a.onOpenIssue === b.onOpenIssue &&
     a.onOpenSession === b.onOpenSession &&
