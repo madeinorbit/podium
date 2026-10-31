@@ -84,18 +84,9 @@ const COPY_ACK_MS = 1400
  * Quote hands the composer a blockquote so a reply can point at the line it is
  * answering.
  *
- * THE FOOT (POD-993). The actions used to be a floating chip over the top-right
- * corner of the message, and the time lived in an eyebrow above it — so a row's
- * metadata was in two places, one of them covering the first line of the words
- * it belonged to. They are one line now, in flow, directly UNDER the message and
- * hanging from the message's own edge: right under the human's card, left under
- * everything the machine says. Reading order gets what it wants (the words
- * first, their provenance after), and the two facts a reader wants about a
- * message — when, and take-a-copy — are in the same place for every voice.
- *
- * It is always present and always the same height, so nothing reflows when the
- * pointer crosses a row; what changes is ink, in two registers — see `.msg-foot`
- * in styles.css for why the clock and the buttons rest differently.
+ * The foot follows the words in reading order. On agent prose its hover
+ * controls sit outside the flow so hidden controls do not widen the transcript's
+ * 12px beat. Human prompts keep their foot below the bubble and their turn seam.
  */
 function MessageActions({
   text,
@@ -853,6 +844,7 @@ export const ChatBlockView = observer(function ChatBlockView({
         <div
           className={cn(
             'transcript-body',
+            item.role === 'assistant' && 'transcript-prose',
             isUser && 'transcript-you',
             isAnswer && 'transcript-answer',
           )}
@@ -882,9 +874,8 @@ export const ChatBlockView = observer(function ChatBlockView({
               full width (see `.transcript-you` in styles.css) — at that width an
               indented bubble is a column of ragged offcuts. */}
           {isUser ? <PromptBubble>{turnBody}</PromptBubble> : turnBody}
-          {/* The foot: when, copy, quote — under the words, on the speaker's own
-              side. Machine activity is excluded; a work line is a summary of
-              rows that each have their own affordances. */}
+          {/* Message controls follow the words in reading order. Activity
+              members carry their own disclosures instead. */}
           <MessageActions
             text={displayText}
             onQuote={onQuote}

@@ -140,9 +140,8 @@ export const ToolBatchView = observer(function ToolBatchView({
   forceOpen: boolean
   /** True only for the trailing run of a turn with a call actually in flight. */
   live?: boolean
-  /** True once this live row is visible enough to take the transcript's one
-   *  working mark. A newly arriving row remains live but yields this ownership
-   *  to TranscriptTail for its 260ms unroll (POD-1334). */
+  /** Whether this row owns the live phrase, glyph and timer. TranscriptFeed
+   *  keeps that status in TranscriptTail and always passes false. */
   ownsTail?: boolean
   /** This run is the last thing in the feed and the transcript tail has stood
    *  down for it (POD-747), so the row takes the tail's rule out to the right
@@ -319,8 +318,9 @@ export const ToolBatchView = observer(function ToolBatchView({
     dimmed && 'opacity-35',
   )
   const failed = run?.failures ?? toolRunFailures(row.blocks)
-  // One interval per work line, and only a live one ticks — a settled
-  // transcript full of them must not re-render every second.
+  // The tail owns live status in a feed. Yield the phrase, glyph and timer
+  // together so this stretch cannot show a second clock from its first event.
+  const ownsLiveStatus = live && ownsTail
   const activeWaiting = ownsTail ? waiting : undefined
   // A tools row always folds ≥1 block, so the last one exists.
   const lastItem = (run?.lastBlock ?? row.blocks[count - 1]!).item
@@ -333,11 +333,11 @@ export const ToolBatchView = observer(function ToolBatchView({
       : singleCommand
         ? (toolSubject(firstItem, Infinity) ?? title)
         : title
-  const settling = useSettleFlash(live)
+  const settling = useSettleFlash(ownsLiveStatus)
   const pushing = usePushFlash(count)
   const phrase = activeWaiting
     ? `${activeWaiting.label}${activeWaiting.detail ? ` · ${activeWaiting.detail}` : ''}`
-    : live
+    : ownsLiveStatus
       ? toolCallPhrase(lastItem)
       : summary
   const accessibleSummary =
@@ -351,14 +351,18 @@ export const ToolBatchView = observer(function ToolBatchView({
       >
         <WorkGlyph item={firstItem} stretch={multiple} />
       </span>
-      <span className={cn('work-line-phrase', singleCommand && !live && 'work-line-code')}>
+      <span
+        className={cn('work-line-phrase', singleCommand && !ownsLiveStatus && 'work-line-code')}
+      >
         {phrase}
       </span>
       {failed > 0 && <span className="work-line-fail">✕ {failed} failed</span>}
       {multiple && (
         <ChevronRight className="work-line-chev" size={12} strokeWidth={1.5} aria-hidden="true" />
       )}
-      <ToolElapsed run={run} blocks={row.blocks} live={live} count={count} />
+      {(!live || ownsTail) && (
+        <ToolElapsed run={run} blocks={row.blocks} live={ownsLiveStatus} count={count} />
+      )}
     </>
   )
   const toggle = (): void => setOpen((v) => !v)
@@ -378,7 +382,7 @@ export const ToolBatchView = observer(function ToolBatchView({
       <div className="transcript-body">
         <div
           className="work-line"
-          data-state={activeWaiting ? 'wait' : live ? 'live' : 'done'}
+          data-state={activeWaiting ? 'wait' : ownsLiveStatus ? 'live' : live ? 'pending' : 'done'}
           data-verdict={failed > 0 ? 'err' : undefined}
           data-transcript-run-view={!singleMember || (forceOpen && !open) ? '' : undefined}
           data-open={expanded ? 'true' : 'false'}

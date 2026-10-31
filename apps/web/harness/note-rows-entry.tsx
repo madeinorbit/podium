@@ -1,16 +1,21 @@
 /** Murmur review scenes using the shipping row builder and activity renderers. */
+import { asClientPrincipal } from '@podium/client-core/principal'
+import { StoreProvider } from '@podium/client-core/react'
 import {
   buildChatRows,
+  type ChatActivity,
   type ChatRow,
   pairToolResults,
   parseEnvelopeBatch,
 } from '@podium/client-core/values'
-import { asSessionId, type TranscriptItem } from '@podium/model/browser'
+import { asSessionId, asUserId, type TranscriptItem } from '@podium/model/browser'
 import { type JSX, type ReactNode, useEffect, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
+import { attachWorklistPool } from '@/app/store-worklist-pool'
 import { MessageEnvelopeGroup } from '@/features/chat/MessageEnvelopeGroup'
 import { ToolBatchView } from '@/features/chat/ToolBatchView'
 import { TranscriptFeed } from '@/features/chat/TranscriptFeed'
+import { createSidebarFixture } from '../test/sidebar-fixture'
 import '@/index.css'
 import '@/styles.css'
 
@@ -286,6 +291,8 @@ function Pane({ scene, narrow = false }: { scene: string; narrow?: boolean }): J
 function LiveNotePane(): JSX.Element {
   const [joined, setJoined] = useState(false)
   const items = [
+    { id: 'watch', role: 'assistant' as const, text: "I'll watch for the reviewer's follow-up." },
+    { id: 'reading', role: 'assistant' as const, text: 'The reviewer is reading the fold change.' },
     note(
       'live-note',
       'issue:POD-2242',
@@ -294,8 +301,6 @@ function LiveNotePane(): JSX.Element {
     ),
     ...(joined ? [command('live-command', 'git status', '17:20', 'clean')] : []),
   ]
-  const blocks = pairToolResults(items)
-  const rows = buildChatRows(blocks).map((row, index) => ({ row, index }))
   return (
     <section data-scenario="live-note" style={{ width: 960, maxWidth: '100%' }}>
       <div
@@ -321,48 +326,122 @@ function LiveNotePane(): JSX.Element {
           borderRadius: 10,
         }}
       >
-        <TranscriptFeed
-          setScrollerRef={noop}
-          setContentRef={noop}
-          onScroll={noop}
-          onPointerUp={noop}
-          compact={false}
-          superagent={false}
-          phase="ready"
-          rows={rows}
-          blocks={blocks}
-          markdownHtml={new Map()}
-          search={{
-            activeRow: undefined,
-            filtering: false,
-            matches: [],
-            activeMatch: undefined,
-            position: 0,
-            total: 0,
-          }}
-          moreAbove={false}
-          loadingOlder={false}
-          loadOlder={noop}
-          sessionId={sessionId}
-          cwd="/repo"
-          session={undefined}
-          httpOrigin="http://localhost"
-          openFile={noop}
-          onOpenImage={noop}
-          onAnswerAsk={async () => {}}
-          livePendingAskIndex={-1}
-          pendingAskBlock={null}
-          lastAnswerBlockIndex={-1}
-          ctxSeq={null}
-          collapseContext={false}
-          stickyEnabled={false}
-          isOperatorPromptRow={() => false}
-          pending={[]}
-          onRetractQueued={async () => {}}
-          overlay={null}
-          turnPreview={null}
-          activity={null}
-          attribution={{} as never}
+        <ReviewFeed items={items} />
+      </div>
+    </section>
+  )
+}
+
+function ReviewFeed({
+  items,
+  activity = null,
+}: {
+  items: TranscriptItem[]
+  activity?: ChatActivity | null
+}): JSX.Element {
+  const blocks = pairToolResults(items)
+  const rows = buildChatRows(blocks).map((row, index) => ({ row, index }))
+  return (
+    <TranscriptFeed
+      setScrollerRef={noop}
+      setContentRef={noop}
+      onScroll={noop}
+      onPointerUp={noop}
+      compact={false}
+      superagent={false}
+      phase="ready"
+      rows={rows}
+      blocks={blocks}
+      markdownHtml={new Map()}
+      search={{
+        activeRow: undefined,
+        filtering: false,
+        matches: [],
+        activeMatch: undefined,
+        position: 0,
+        total: 0,
+      }}
+      moreAbove={false}
+      loadingOlder={false}
+      loadOlder={noop}
+      sessionId={sessionId}
+      cwd="/repo"
+      session={undefined}
+      httpOrigin="http://localhost"
+      openFile={noop}
+      onOpenImage={noop}
+      onAnswerAsk={async () => {}}
+      livePendingAskIndex={-1}
+      pendingAskBlock={null}
+      lastAnswerBlockIndex={-1}
+      ctxSeq={null}
+      collapseContext={false}
+      stickyEnabled={false}
+      isOperatorPromptRow={() => false}
+      pending={[]}
+      onRetractQueued={async () => {}}
+      overlay={null}
+      turnPreview={null}
+      activity={activity}
+      attribution={{} as never}
+    />
+  )
+}
+
+function LiveCommandPane(): JSX.Element {
+  const [complete, setComplete] = useState(false)
+  const items: TranscriptItem[] = [
+    { id: 'prompt', role: 'user', text: 'Where does POD-2242 stand?', ts: clock('17:13') },
+    { id: 'intro', role: 'assistant', text: "On it. First I'll check the issue." },
+    RUN[0]!,
+    { id: 'status', role: 'assistant', text: "It's in review and based on main." },
+    {
+      id: 'answer',
+      role: 'assistant',
+      answer: true,
+      text: "I'll rebase, run the checks and take the merge lock.",
+    },
+    command('live-rebase', 'git rebase main', '17:16'),
+    note(
+      'live-lock',
+      'system:steward',
+      'Merge lock released\nThe parent branch is free again.',
+      '17:16',
+    ),
+    {
+      ...command('live-test', 'bun run test', '17:17', 'lean gate green', 120000),
+      toolResult: complete ? 'lean gate green' : undefined,
+      durationMs: complete ? 120000 : undefined,
+    },
+  ]
+  return (
+    <section data-scenario="live-command" style={{ width: 960, maxWidth: '100%' }}>
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          marginBottom: 14,
+          font: '11px var(--font-mono)',
+          color: 'var(--text-dim)',
+        }}
+      >
+        <span>Transcript rhythm · one live status while a command runs</span>
+        <button type="button" data-testid="complete-check" onClick={() => setComplete(!complete)}>
+          {complete ? 'Run checks again' : 'Complete checks'}
+        </button>
+      </div>
+      <div
+        style={{
+          height: 400,
+          display: 'flex',
+          background: 'var(--chat-face)',
+          border: '1px solid var(--border-strong)',
+          borderRadius: 10,
+        }}
+      >
+        <ReviewFeed
+          items={items}
+          activity={complete ? null : { tone: 'working', label: 'Working' }}
         />
       </div>
     </section>
@@ -380,12 +459,16 @@ function Harness(): JSX.Element {
         background: 'var(--background)',
         padding: '32px',
         display: 'grid',
+        gridTemplateColumns: 'minmax(0, 1fr)',
         justifyItems: 'center',
+        alignItems: 'start',
         gap: 28,
       }}
     >
       {state === 'live-note' ? (
         <LiveNotePane />
+      ) : state === 'live-command' ? (
+        <LiveCommandPane />
       ) : state ? (
         <Pane scene={state} narrow={state === 'narrow'} />
       ) : (
@@ -396,10 +479,32 @@ function Harness(): JSX.Element {
           <Pane scene="narrow" narrow />
           <Pane scene="note-body" />
           <LiveNotePane />
+          <LiveCommandPane />
         </>
       )}
     </main>
   )
 }
 const root = document.getElementById('root')
-if (root) createRoot(root).render(<Harness />)
+if (root) {
+  const fixture = createSidebarFixture(0, 0, true)
+  createRoot(root).render(
+    <StoreProvider
+      principal={asClientPrincipal(asUserId('operator'))}
+      config={{ httpOrigin: 'http://offline.invalid', wsClientUrl: 'ws://offline.invalid' }}
+      api={fixture.api}
+      createReplicaFn={() => fixture.replica}
+      networkEnabled={false}
+      onFatalError={(message) => {
+        throw new Error(message)
+      }}
+      attachRuntime={(owner) =>
+        attachWorklistPool(owner, (error) => {
+          throw error
+        })
+      }
+    >
+      <Harness />
+    </StoreProvider>,
+  )
+}

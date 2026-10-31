@@ -3286,10 +3286,16 @@ html[data-setup-only="true"] [data-testid="update-panel"] {
   padding-bottom: 6px;
 }
 
-/* Narration shares prose's full ink; activity uses the quiet register. */
-.transcript-process-start {
+/* Keep the existing seam after the operator's bubble. Other process starts
+   share prose's ordinary beat, including a stretch after an answer. */
+:where(
+    [data-transcript-row]:has(> .transcript-row[data-operator-prompt="true"])
+      + [data-transcript-row]
+  )
+  > .transcript-process-start {
   padding-top: 10px;
 }
+/* Narration shares prose's full ink; activity uses the quiet register. */
 .transcript-process-row > .transcript-body > .chat-md {
   font-size: 14.5px;
   line-height: 23px;
@@ -3623,7 +3629,7 @@ html[data-density="compact"] .brief-shelf {
 /* The final answer is a typographic step, not an attention state. Yellow is
    withheld until the operator is actually asked to act. */
 .transcript-answer {
-  padding-top: 10px;
+  padding-top: 0;
 }
 /* Narration remains compact enough to read as progress. The conclusion is the
    document a reader came for, so it steps to 16px with relaxed leading while
@@ -5854,6 +5860,27 @@ button.pane-branch:hover {
   justify-content: flex-end;
   padding-right: 2px;
 }
+/* Hidden message controls must not add 27px to every prose gap. Keep them
+   reachable on hover and keyboard focus without moving the words. */
+.transcript-prose > .msg-foot {
+  position: absolute;
+  inset-block-end: 0;
+  inset-inline-end: 0;
+  margin-top: 0;
+}
+.transcript-row:hover .transcript-prose > .msg-foot,
+.transcript-prose > .msg-foot:focus-within {
+  background: var(--chat-face);
+  box-shadow: -6px 0 6px var(--chat-face);
+}
+/* Wide panes have room for the controls beside the reading column. */
+@container feed (min-width: 900px) {
+  .transcript-prose > .msg-foot {
+    inset-inline-start: calc(100% + 12px);
+    inset-inline-end: auto;
+    width: max-content;
+  }
+}
 /* NOT EVERYTHING IN THE FOOT IS METADATA, AND THE REST MUST NOT FADE WITH IT.
    Two things ride here that are not "when and take-a-copy":
 
@@ -6978,10 +7005,14 @@ html[data-density="compact"] .chat-md {
   font-size: 13px;
   line-height: 21px;
 }
-.chat-md > :first-child {
+/* Paragraph and heading margins space the inside of a message. The row owns
+   the gap outside it, including the answer's larger paragraph margins. */
+.chat-md > :first-child,
+.transcript-answer > .chat-md > :first-child {
   margin-top: 0;
 }
-.chat-md > :last-child {
+.chat-md > :last-child,
+.transcript-answer > .chat-md > :last-child {
   margin-bottom: 0;
 }
 /* A turn is paragraphs, not a wall. 0.55em put barely half a line between two

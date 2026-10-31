@@ -1055,11 +1055,9 @@ const TranscriptRow = observer(function TranscriptRow({
             ? presentation.rowMatches(identity)
             : row.blockIndices.some((bi) => searchMatches.has(bi)))
         }
-        // The work line names an in-flight call only when it is the
-        // trailing row. The permanent tail below remains the one owner of
-        // live motion, so a tool-result commit cannot remove the working
-        // indicator. MOUNT POSITION, not `idx`: `rows` is the bounded
-        // trailing window while `idx` is the absolute index.
+        // Track the trailing call's pending state while the permanent tail
+        // owns its live phrase and timer. MOUNT POSITION, not `idx`: `rows`
+        // is the bounded trailing window while `idx` is the absolute index.
         live={
           pos === props.rows.length - 1 &&
           trailingRunIsLive(
