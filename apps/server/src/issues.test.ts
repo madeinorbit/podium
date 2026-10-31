@@ -2637,9 +2637,10 @@ describe('IssueService.action', () => {
     })
     await svc.gitWorkflow.action(id, 'merge')
     // Closing frees the worktree before the post-merge probe runs.
-    const row = svc.reports.store.rows.get(id)
+    const row = await svc.reports.store.deps.store.issues.getIssue(id)
     if (!row) throw new Error('row missing')
-    row.worktreePath = null
+    // Row-level free, through the table the map follows (POD-6155).
+    await svc.reports.store.deps.store.issues.upsertIssue({ ...row, worktreePath: null })
     await svc.gitWorkflow.refreshGitState(id)
     const wire = await svc.reports.get(id)
     expect(wire?.landedAt).toEqual(expect.any(String))
@@ -2729,9 +2730,10 @@ describe('IssueService.action', () => {
     await probeStarted
     await svc.gitWorkflow.action(id, 'merge')
     // Closing freed the worktree; the merge's own refresh coalesces into this one.
-    const row = svc.reports.store.rows.get(id)
+    const row = await svc.reports.store.deps.store.issues.getIssue(id)
     if (!row) throw new Error('row missing')
-    row.worktreePath = null
+    // Row-level free, through the table the map follows (POD-6155).
+    await svc.reports.store.deps.store.issues.upsertIssue({ ...row, worktreePath: null })
     release()
     await refresh
     const wire = (await svc.reports.get(id))!
@@ -2747,10 +2749,11 @@ describe('IssueService.action', () => {
       return { ok: true, output: mergeProbeOutput(op) }
     })
     await svc.gitWorkflow.action(id, 'merge')
-    const row = svc.reports.store.rows.get(id)
+    const row = await svc.reports.store.deps.store.issues.getIssue(id)
     if (!row) throw new Error('row missing')
     const freed = row.worktreePath as string
-    row.worktreePath = null
+    // Row-level free, through the table the map follows (POD-6155).
+    await svc.reports.store.deps.store.issues.upsertIssue({ ...row, worktreePath: null })
     calls.length = 0
     // Turn-end and git-activity refreshes pass the session's (deleted) cwd; two coalesce.
     await Promise.all([
