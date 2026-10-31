@@ -10,7 +10,7 @@ describe('pool startup bundle boundary', () => {
   }
   const sources: Record<string, string[]> = {
     'assets/app.js': ['../../src/app/main.tsx'],
-    'assets/shared.js': ['../../src/features/issues/explorer/explorer-context.tsx'],
+    'assets/shared.js': ['../../src/features/issues/dock-issue.tsx'],
     'assets/loading.js': ['../../../../packages/client-graph/src/loading.ts'],
     'assets/board.js': ['../../../../packages/client-graph/src/issue-board-projection.ts'],
   }
@@ -55,6 +55,7 @@ describe('pool startup bundle boundary', () => {
       'packages/client-graph/src/shared/feed-diagnostics.ts',
       'packages/client-graph/src/shared/predicates.ts',
       'packages/client-graph/src/header-repositories.ts',
+      'packages/client-graph/src/requested-record-source.ts',
       'packages/client-graph/src/settings-schema.ts',
       'packages/client-graph/src/command-launch-schema.ts',
       'packages/client-graph/src/loading.ts',
@@ -72,5 +73,16 @@ describe('pool startup bundle boundary', () => {
         'packages/client-core/src/loading.ts',
       ]),
     ).toHaveLength(7)
+  })
+
+  it('keeps branch editing and view request lifetimes outside startup', () => {
+    const optional = [
+      'react/opening-view',
+      'repo-base-branch',
+      'request-answer',
+      'requested-records',
+      'visible-request',
+    ].map((module) => `packages/client-graph/src/${module}.ts`)
+    expect(eagerClientGraphSources(optional)).toEqual(optional)
   })
 })

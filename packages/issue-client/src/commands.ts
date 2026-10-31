@@ -4,7 +4,6 @@ import {
   type DeliveryReceipt,
   HOST_REPOS,
   ISSUE_TYPES,
-  IssueColor,
   type IssueDeck,
   type IssueId,
   type IssueLabelWire,
@@ -12,6 +11,9 @@ import {
   type IssueShowWire,
   type IssueTreeNode,
   type IssueTreeSession,
+  isIssueStage,
+  issueStatusLabel,
+  issueStatusOf,
   machineByRef,
   machineRejectionMessage,
   machinesFor,
@@ -31,6 +33,11 @@ import {
   TITLE_RULE_TERSE,
 } from '@podium/protocol'
 import { z } from 'zod'
+import {
+  artifactFromText,
+  type IssueCommandEnvironment,
+  uploadArtifact,
+} from './artifact-upload.js'
 import type { IssueTrpc } from './client.js'
 import { renderIssueDeck } from './deck.js'
 import { newMessageId, repeatUntilAnswered } from './send-once.js'
@@ -81,7 +88,11 @@ export interface IssueCommand {
   /** Variadic tail: positionals beyond `positionals` join (comma-separated) into this
    *  arg key, so `show 1 2 3` ≡ `show 1 --ids 2,3`. An explicit flag wins. */
   restKey?: string
-  run(client: IssueTrpc, args: Record<string, unknown>): Promise<IssueCommandResult>
+  run(
+    client: IssueTrpc,
+    args: Record<string, unknown>,
+    environment?: IssueCommandEnvironment,
+  ): Promise<IssueCommandResult>
 }
 
 const repoArg = { repoPath: z.string() }
@@ -233,10 +244,25 @@ function terminalEvidenceInput(a: Record<string, unknown>): Record<string, unkno
   return { terminalEvidence: true, sourceRoot: process.cwd() }
 }
 
+// The shared status vocabulary, preserving unfamiliar closing reasons.
+function statusWord(i: { stage?: string; closedReason?: string | null }): string {
+  if (!isIssueStage(i.stage)) return i.closedReason || i.stage || ''
+  const row = { stage: i.stage, closedReason: i.closedReason }
+  return i.closedReason && issueStatusOf(row) === 'done'
+    ? issueStatusLabel(row).toLowerCase()
+    : issueStatusOf(row)
+}
+
 // One-line summary of an issue for list/ready/blocked output.
-function line(i: { seq: number; title: string; priority?: number; stage?: string }): string {
+function line(i: {
+  seq: number
+  title: string
+  priority?: number
+  stage?: string
+  closedReason?: string | null
+}): string {
   const p = i.priority != null ? `P${i.priority} ` : ''
-  const s = i.stage ? `[${i.stage}] ` : ''
+  const s = i.stage ? `[${statusWord(i)}] ` : ''
   return `#${i.seq} ${p}${s}${i.title}`
 }
 
@@ -416,13 +442,13 @@ function renderShow(
 ): string {
   const meta = [
     `stage=${i.stage} P${i.priority} ready=${i.ready} blocked=${i.blocked}`,
+    i.closedReason ? `status=${statusWord(i)}` : null,
     i.assignee ? `assignee=${i.assignee}` : null,
     i.agentProfileId ? `profile=${profileNames.get(i.agentProfileId) ?? i.agentProfileId}` : null,
     i.defaultAgent || i.defaultModel || i.defaultEffort
       ? `agent=${i.defaultAgent ?? 'auto'} model=${i.defaultModel ?? 'auto'} effort=${i.defaultEffort ?? 'auto'}`
       : null,
     i.machineId ? `machine=${i.machineId}` : null,
-    i.color ? `color=${i.color}` : null,
     i.labels?.length ? `labels=${i.labels.join(',')}` : null,
     i.branch ? `branch=${i.branch}` : null,
     i.needsHuman ? `NEEDS HUMAN${i.humanQuestion ? `: ${i.humanQuestion}` : ''}` : null,
@@ -614,7 +640,13 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
       const out: string[] = []
       const walk = (n: TreeNode, depth: number): void => {
         const pad = '  '.repeat(depth)
-        const status = n.closed ? 'DONE' : n.blocked ? 'BLOCKED' : n.ready ? 'READY' : n.stage
+        const status = n.closed
+          ? statusWord(n).toUpperCase()
+          : n.blocked
+            ? 'BLOCKED'
+            : n.ready
+              ? 'READY'
+              : n.stage
         const extras = [
           n.assignee ? `assignee=${n.assignee}` : null,
           n.branch ? `branch=${n.branch}` : null,
@@ -622,7 +654,7 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
           n.needsHuman ? `NEEDS HUMAN${n.humanQuestion ? `: ${n.humanQuestion}` : ''}` : null,
         ].filter(Boolean)
         out.push(
-          `${pad}#${n.seq} P${n.priority} [${n.stage}] ${n.title} — ${status}${extras.length ? ` (${extras.join(' ')})` : ''}`,
+          `${pad}#${n.seq} P${n.priority} [${statusWord(n)}] ${n.title} — ${status}${extras.length ? ` (${extras.join(' ')})` : ''}`,
         )
         if (n.description) out.push(`${pad}    ${n.description}`)
         // Sessions nest under their issue so sibling agents are visible before spawn [spec:SP-99d3].
@@ -673,7 +705,7 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
   },
   {
     name: 'create',
-    summary: `Create an issue: create --title "…". Agent top-level discoveries land in Proposed; sub-issues are internal decomposition. Description is human-facing; use --brief for technical detail. ${TITLE_RULE_TERSE}`,
+    summary: `Create an issue: create --title "…". Agent top-level discoveries land in Proposed; sub-issues are internal decomposition. Description is human-facing; use --brief for technical detail. --type task (default): a unit of work. --type phase: one of two or more sequential stages of its parent, shown as a section on the deck. It only groups: put its tasks under it with --parent-id <phase>, it reads done when they are, and it takes no blocked-by edge (link the tasks instead). Whoever coordinates it is the phase lead. A new sibling lands at the top of the deck: order phases with move <id> --after <ref>. Without --start a task is only filed (Not started); start it later with start <id>. --type decision: a question only the user closes; it blocks what waits on it. Creating a sub-issue under your own issue claims its coordinator seat if the seat is empty. ${TITLE_RULE_TERSE}`,
     args: z.strictObject({
       ...repoArg,
       title: z.string().min(1),
@@ -693,8 +725,6 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
       // POD-6106: an agent applies only existing labels; this adds missing ones.
       createLabel: z.boolean().optional(),
       parentBranch: z.string().optional(),
-      // Colour slot [spec:SP-b4d1]: rose|pink|fuchsia|violet|indigo|blue|cyan|teal|green|lime.
-      color: IssueColor.optional(),
       start: z.boolean().optional(),
     }),
     async run(c, a) {
@@ -719,7 +749,6 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
         ...(a.profile ? { agentProfile: a.profile as string } : {}),
         ...(machineId ? { machineId } : {}),
         ...(a.assignee ? { assignee: a.assignee as string } : {}),
-        ...(a.color ? { color: a.color as never } : {}),
         // --labels is comma-separated on the CLI; the proc takes an array.
         ...(a.labels
           ? {
@@ -830,8 +859,6 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
       // row's sibling scope. Normally written by the sidebar drag; exposed here
       // so agents/scripts can reorder too.
       sortKey: z.string().optional(),
-      // Colour slot [spec:SP-b4d1]; 'none' clears back to the neutral flow.
-      color: z.union([IssueColor, z.literal('none')]).optional(),
       estimateMin: z.coerce.number().int().optional(),
       // Closing through update (`--stage done`, `--closed-reason`) takes close's guard.
       confirmInterrupt: z.boolean().optional(),
@@ -865,8 +892,6 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
       if (a.profile != null) patch.agentProfile = a.profile === 'none' ? null : a.profile
       // 'none' clears the pin (back to repo-affinity routing).
       if (a.machine != null) patch.machineId = a.machine === 'none' ? null : a.machine
-      // 'none' clears the colour (back to the neutral slate flow) [spec:SP-b4d1].
-      if (a.color != null) patch.color = a.color === 'none' ? null : a.color
       // An empty patch is a caller mistake (typo'd/absent flags), not a success (#345).
       if (Object.keys(patch).length === 0) {
         throw new Error('update: no fields given — nothing changed (see update --help for flags)')
@@ -1069,7 +1094,7 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
   {
     name: 'coordinator',
     summary:
-      'Set the issue coordinator session (actionable-mail target): coordinator <id> --claim | --set <sessionId> | --clear.',
+      'Set the issue coordinator session: coordinator <id> --claim | --set <sessionId> | --clear. Claim it when you orchestrate other agents or phases on the issue: sessions on it and below it then ask you by issue mail instead of the user.',
     args: z.strictObject({
       id: idArg,
       claim: cliBool.optional(),
@@ -1202,7 +1227,7 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
   {
     name: 'dep-add',
     summary:
-      'Add a dependency, <from> depends on <to>: dep-add <fromId> <toId> [--type blocked-by|related|discovered-from|supersedes|duplicates] (default blocked-by: <from> waits for <to>).',
+      'Add a dependency, <from> depends on <to>: dep-add <fromId> <toId> [--type blocked-by|related|discovered-from|supersedes|duplicates] (default blocked-by: <from> waits for <to>). A blocked-by edge joins two tasks; a phase is refused at either end.',
     args: z.strictObject({ fromId: idArg, toId: idArg, type: z.string().optional() }),
     positionals: ['fromId', 'toId'],
     async run(c, a) {
@@ -1930,10 +1955,12 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
   {
     name: 'artifact',
     summary:
-      'Artifacts the USER should look at (images/videos/html/md — UX shots, concept docs), shown in the issue sidebar: artifact <id> [--add <path>] [--title "…"] [--terminal-evidence] [--remove n] [--get <n|path> [--file <rel>] [--out <path>]]. Adding COPIES the bytes to the server, so the artifact survives even if the file is never committed and the worktree is later deleted — do NOT commit screenshots or scratch docs just to attach them. Normal paths must live inside the owning issue worktree. For a screenshot captured in the current issue session checkout, use --terminal-evidence; it requires an explicit acknowledgement and accepts raster images only, never raw scrollback text. --get reads a stored artifact BACK (any agent, any machine, even after the worktree is gone): text prints, anything else needs --out. No flags = print the list.',
+      'Attach review files to the issue: artifact <id> --add <local-file-or-directory> [--name <stable-name>] [--title "…"], or --add - --name report.md for stdin, or --content "…" --name report.md for generated text. Files are uploaded to permanent server storage; no worktree or commit is required. Relative files resolve from the CLI current directory; absolute sources use their basename as the attachment name. Re-add the same name to replace a snapshot. Directories preserve HTML and sibling assets. In-process MCP accepts --content; its --add reads only the owning worktree through the daemon. --terminal-evidence preserves the older acknowledged raster screenshot path. --get <n|name> [--file <member>] [--out <path>] reads a stored artifact. --remove n deletes it. No flags lists attachments.',
     args: z.strictObject({
       id: idArg,
       add: z.string().optional(),
+      content: z.string().optional(),
+      name: z.string().min(1).optional(),
       title: z.string().optional(),
       remove: z.coerce.number().int().min(1).optional(),
       terminalEvidence: z.boolean().optional(),
@@ -1946,7 +1973,19 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
       out: z.string().optional(),
     }),
     positionals: ['id'],
-    async run(c, a) {
+    async run(c, a, environment) {
+      if ([a.add, a.content, a.get, a.remove].filter((value) => value != null).length > 1) {
+        throw new Error('choose one of --add, --content, --get or --remove')
+      }
+      if (a.name != null && a.add == null && a.content == null)
+        throw new Error('--name requires --add or --content')
+      if (a.title != null && a.add == null && a.content == null)
+        throw new Error('--title requires --add or --content')
+      if (a.content != null && !a.name) throw new Error('--content requires --name <filename>')
+      if (a.terminalEvidence === true && a.content != null)
+        throw new Error('--terminal-evidence only applies to --add')
+      if (a.terminalEvidence === true && a.add == null)
+        throw new Error('--terminal-evidence only applies to --add')
       if (a.get != null) return readArtifact(c, a)
       if (a.file != null || a.out != null) {
         throw new Error('--file and --out only apply to --get')
@@ -1965,10 +2004,22 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
           : a.remove != null
             ? { op: 'artifact-remove', index: a.remove }
             : null
+      const source =
+        a.content != null
+          ? artifactFromText(a.name as string, a.content as string)
+          : a.add != null && a.terminalEvidence !== true && environment?.readArtifactSource
+            ? await environment.readArtifactSource(a.add as string, a.name as string | undefined)
+            : undefined
+      if (a.add === '-' && !source)
+        throw new Error('stdin is available in the CLI; use --content --name for MCP')
+      if (a.name != null && !source)
+        throw new Error('--name is available with CLI uploads or --content')
       const i = (
-        op
-          ? await c.issues.panelApply.mutate({ id: a.id as string, ...op } as never)
-          : await c.issues.get.query({ id: a.id as string })
+        source
+          ? await uploadArtifact(c, a.id as string, source, a.title as string | undefined)
+          : op
+            ? await c.issues.panelApply.mutate({ id: a.id as string, ...op } as never)
+            : await c.issues.get.query({ id: a.id as string })
       ) as {
         seq: number
         panel?: {
@@ -2035,7 +2086,7 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
       })) as (Row & { ready: boolean; blocked: boolean; closedReason?: string })[]
       const mark = (r: (typeof rows)[number]) =>
         r.stage === 'done' || r.closedReason
-          ? 'DONE'
+          ? statusWord(r).toUpperCase()
           : r.blocked
             ? 'BLOCKED'
             : r.ready
@@ -2063,6 +2114,7 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
         seq: number
         title: string
         stage: string
+        closedReason?: string | null
         priority: number
         closed: boolean
         blocked: boolean
@@ -2074,7 +2126,13 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
         `#${r.seq} (${r.closed ? 'closed' : 'open'}${r.type === 'blocked-by' ? '' : `, ${r.type}`})`
       const text = entries
         .map((e) => {
-          const status = e.closed ? 'DONE' : e.blocked ? 'BLOCKED' : e.ready ? 'READY' : e.stage
+          const status = e.closed
+            ? statusWord(e).toUpperCase()
+            : e.blocked
+              ? 'BLOCKED'
+              : e.ready
+                ? 'READY'
+                : e.stage
           const lines = [`${line(e)} — ${status}`]
           if (e.deps.length) lines.push(`  waits on: ${e.deps.map(edge).join(', ')}`)
           if (e.dependents.length) lines.push(`  blocks: ${e.dependents.map(edge).join(', ')}`)

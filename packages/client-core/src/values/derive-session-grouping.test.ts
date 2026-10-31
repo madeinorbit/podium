@@ -3,13 +3,10 @@ import type { SessionView, SessionViewInput } from '../session-values'
 
 import { describe, expect, it } from 'vitest'
 import {
-  groupSessionsByParent,
-  isConsumedChild,
   nativeSubagentCountOf,
   nativeSubagentLabel,
   sessionHasNativeSubagents,
   sessionIssueLinkage,
-  sessionsNeedChildRows,
 } from './index'
 
 function sess(id: string, over: Partial<SessionViewInput> = {}): SessionView {
@@ -26,67 +23,6 @@ function sess(id: string, over: Partial<SessionViewInput> = {}): SessionView {
     ...over,
   } as unknown as SessionView
 }
-
-describe('groupSessionsByParent', () => {
-  it('nests a single remote-spawned child under its listed parent', () => {
-    const parent = sess('p')
-    const child = sess('c1', { spawnedBy: 'session:p' })
-    const groups = groupSessionsByParent([parent, child])
-    expect(groups).toHaveLength(1)
-    expect(groups[0]!.session.sessionId).toBe('p')
-    expect(groups[0]!.children.map((s) => s.sessionId)).toEqual(['c1'])
-  })
-
-  it('nests spawned children under their listed parent, preserving order', () => {
-    const parent = sess('p')
-    const c1 = sess('c1', { spawnedBy: 'session:p' })
-    const c2 = sess('c2', { spawnedBy: 'session:p' })
-    const other = sess('o')
-    const groups = groupSessionsByParent([parent, c1, other, c2])
-    expect(groups.map((g) => g.session.sessionId)).toEqual(['p', 'o'])
-    expect(groups[0]!.children.map((s) => s.sessionId)).toEqual(['c1', 'c2'])
-  })
-
-  it('a child whose spawner is NOT listed stays top-level', () => {
-    const groups = groupSessionsByParent([sess('a', { spawnedBy: 'session:gone' })])
-    expect(groups).toHaveLength(1)
-    expect(groups[0]!.children).toHaveLength(0)
-  })
-
-  it('consumed (exited) children split out for the auto-tuck disclosure', () => {
-    const done = sess('c1', { spawnedBy: 'session:p', status: 'exited' })
-    const live = sess('c2', { spawnedBy: 'session:p' })
-    expect(isConsumedChild(done)).toBe(true)
-    expect(isConsumedChild(live)).toBe(false)
-    const groups = groupSessionsByParent([sess('p'), done, live])
-    expect(groups[0]!.children.map((s) => s.sessionId)).toEqual(['c2'])
-    expect(groups[0]!.consumed.map((s) => s.sessionId)).toEqual(['c1'])
-  })
-})
-
-describe('sessionsNeedChildRows', () => {
-  it('is false for an empty list or a lone session with no native subagents', () => {
-    expect(sessionsNeedChildRows([])).toBe(false)
-    expect(sessionsNeedChildRows([sess('p')])).toBe(false)
-  })
-
-  it('is true for a lone parent with nativeSubagentCount > 0', () => {
-    const parent = sess('p', {
-      agentState: { phase: 'working', since: 't', nativeSubagentCount: 2 },
-    })
-    expect(sessionsNeedChildRows([parent])).toBe(true)
-  })
-
-  it('is true for parent + a single remote-spawned child (do not hide genuine child)', () => {
-    const parent = sess('p')
-    const child = sess('c1', { spawnedBy: 'session:p' })
-    expect(sessionsNeedChildRows([parent, child])).toBe(true)
-  })
-
-  it('is true for two unrelated sessions (multi-agent row)', () => {
-    expect(sessionsNeedChildRows([sess('a'), sess('b')])).toBe(true)
-  })
-})
 
 describe('nativeSubagent helpers', () => {
   it('reads nativeSubagentCount from agentState (0 when absent)', () => {

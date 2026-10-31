@@ -1,7 +1,53 @@
 import { FileText } from './icons'
+import { useState } from 'react'
 import { Image, StyleSheet, Text, View } from 'react-native'
+import { authenticatedImageSource } from '../client/authenticated-assets'
+import { useChatUploadUrl } from '../client/chat-uploads'
+import { useServerProfile } from '../client/server-profile-context'
+import type { TranscriptAssetContext } from '../lib/transcript-assets'
 import { color, font, radius, sans, space } from '../theme/theme'
 import { Icon } from './Icon'
+
+type PendingFile = {
+  path: string
+  previewUri?: string
+  name?: string
+  attachmentId?: string
+  kind?: 'image' | 'file'
+}
+
+function FileChip({ name }: { name: string }) {
+  return (
+    <View style={styles.chip}>
+      <Icon as={FileText} size={13} color={color.textDim} />
+      <Text style={styles.chipText} numberOfLines={1}>
+        {name}
+      </Text>
+    </View>
+  )
+}
+
+/** A file this device no longer has in hand — the server's record of the
+ *  message names it by upload id — shown from the issue's stored copy
+ *  (POD-2148), or as its name until that copy is there. */
+function HeldFile({ file, context }: { file: PendingFile; context?: TranscriptAssetContext }) {
+  const { bearer } = useServerProfile()
+  const url = useChatUploadUrl(context?.sessionId, file.attachmentId, context?.httpOrigin)
+  const [failedUrl, setFailedUrl] = useState<string | null>(null)
+  const name = file.name ?? file.path
+  // Only an image is drawn; a document, a copy not stored yet, or one that
+  // fails to decode is its name.
+  if (file.kind !== 'image' || !url || failedUrl === url) return <FileChip name={name} />
+  return (
+    <Image
+      source={authenticatedImageSource(url, bearer)}
+      accessibilityLabel={name}
+      resizeMode="cover"
+      style={styles.thumb}
+      onError={() => setFailedUrl(url)}
+    />
+  )
+}
 
 /**
  * The attachments on a turn that has been sent but not yet echoed.
@@ -18,14 +64,18 @@ import { Icon } from './Icon'
  */
 export function PendingFiles({
   files,
+  context,
 }: {
-  files: readonly { path: string; previewUri: string; name: string }[]
+  files: readonly PendingFile[]
+  context?: TranscriptAssetContext
 }) {
   if (files.length === 0) return null
   return (
     <View style={styles.row}>
       {files.map((file) =>
-        file.previewUri ? (
+        !file.previewUri && file.attachmentId ? (
+          <HeldFile key={file.attachmentId} file={file} context={context} />
+        ) : file.previewUri ? (
           <Image
             key={file.path}
             source={{ uri: file.previewUri }}
@@ -34,12 +84,7 @@ export function PendingFiles({
             style={styles.thumb}
           />
         ) : (
-          <View key={file.path} style={styles.chip}>
-            <Icon as={FileText} size={13} color={color.textDim} />
-            <Text style={styles.chipText} numberOfLines={1}>
-              {file.name}
-            </Text>
-          </View>
+          <FileChip key={file.path} name={file.name ?? file.path} />
         ),
       )}
     </View>

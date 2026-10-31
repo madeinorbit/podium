@@ -593,6 +593,10 @@ const defs = {
       // Artifact ops route through the permanent-store paths ([spec:SP-0fc9]):
       // add pulls a snapshot from the owning daemon before the panel commit;
       // remove also deletes the snapshot dir.
+      if (input.op === 'artifact-upload') {
+        if (!input.upload) throw new IssueRefusal('artifact-upload requires an upload packet')
+        return await ctx.crud.panelArtifactTransfer(input.id, input.upload)
+      }
       if (input.op === 'artifact-add') {
         if (!input.path) throw new IssueRefusal('artifact-add requires a path')
         return await ctx.crud.panelArtifactAdd(
@@ -1097,7 +1101,7 @@ const defs = {
     handler: async (ctx, input) =>
       await ctx.withMutation(
         input.mutationId,
-        async () => await ctx.attention.markIssueRead(input.id),
+        async () => await ctx.attention.markIssueRead(input.id, input.readAt),
       ),
   }),
   // Mark an issue UNREAD again (issue #138): clear read_at, flipping derived

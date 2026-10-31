@@ -12,8 +12,7 @@ it.each([1, 4] as const)('settles a cold production mission at %sx before its fi
   const handle = createRuntimeWorklistPool(ctx.engine, screenOptions(poolBackedScreens, ctx.engine))
   const input = { selectedIssueId: scale === 1 ? 'i1766' : 'i13916', paneA: 's0', paneB: null, split: false,
     mode: 'full' as const, handoff: false }
-  const screen = new MissionScreen(handle.pool, input.selectedIssueId, { development: true })
-  screen.open()
+  const screen = new MissionScreen(handle.pool, input.selectedIssueId, { fullOnly: true })
   // The deleted reader returned a lazy deck once its opening boundary was
   // ready. Preserve that question; rich fields load in their small observers.
   const projection = createPoolProjection(handle.pool, () => {

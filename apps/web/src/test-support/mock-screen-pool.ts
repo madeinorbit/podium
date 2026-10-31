@@ -1,26 +1,24 @@
-import { issuePages } from '@podium/client-graph/issue-page'
+import { isDeepStrictEqual } from 'node:util'
 import { boardCards } from '@podium/client-graph/issue-board-cards'
 import { ISSUE_BOARD_ENTITIES } from '@podium/client-graph/issue-board-schema'
-import { syncPoolFixture } from './pool-fixture'
+import { issuePages } from '@podium/client-graph/issue-page'
 import { omitGone } from '@podium/client-graph/lookup'
-import { allIssueViewModels } from '../../../../tests/worklist/diagnostics/reference/issue-view-models'
-import type { IssueViewModel } from '../../../../tests/worklist/diagnostics/reference/issue-view-models'
-import type { SliceIssue, SliceSession } from '@podium/client-graph/shared/slice-types'
-import { compareRank, type RowRank } from '@podium/client-graph/shared/row-view'
 import { issueAbandoned } from '@podium/client-graph/shared/predicates'
+import { compareRank, type RowRank } from '@podium/client-graph/shared/row-view'
+import type { SliceIssue, SliceSession } from '@podium/client-graph/shared/slice-types'
 import { bandOf, closedOf, displayTitleOf, foldAtOf, ownPartOfRow, rankOfPart } from '@podium/client-graph/views'
-import { fleetOf, sidebarLifecycle } from '@podium/client-graph/worklist/sidebar-row'
 import type { SidebarSections } from '@podium/client-graph/worklist/sidebar'
 import type { SidebarRowValues } from '@podium/client-graph/worklist/sidebar-row'
-import { poolFixtureIssues } from './pool-issue-fixture'
-import { isDeepStrictEqual } from 'node:util'
+import { fleetOf, sidebarLifecycle } from '@podium/client-graph/worklist/sidebar-row'
+import type { IssueViewModel } from '../../../../tests/worklist/diagnostics/reference/issue-view-models'
+import { allIssueViewModels } from '../../../../tests/worklist/diagnostics/reference/issue-view-models'
 import type { ReferenceState } from '../../../../tests/worklist/diagnostics/reference-state'
+import { syncPoolFixture } from './pool-fixture'
+import { poolFixtureIssues } from './pool-issue-fixture'
+
 // Older provider-free fixtures carry saved documents as plain test data.
 type Store = ReferenceState & { drafts?: Record<string, string> }
-import type { MobxPool } from '@podium/client-graph'
-import { createChatContextReader } from '@podium/client-graph/chat-context'
-import { settingsRepositoryId } from '@podium/client-graph/settings-schema'
-import { isExcluded, isFinished, isMessageRecordAttention } from '@podium/model'
+
 import {
   createRepositoryUsageSelector,
   isSessionWorking,
@@ -29,9 +27,13 @@ import {
   rowPendingDecision,
   type UnifiedIssueRow,
 } from '@podium/client-core/values'
+import type { MobxPool } from '@podium/client-graph'
+import { createChatContextReader } from '@podium/client-graph/chat-context'
+import { settingsRepositoryId } from '@podium/client-graph/settings-schema'
 import { settingsView } from '@podium/client-graph/settings-views'
-import { useCallback, useLayoutEffect, useMemo, useRef, useSyncExternalStore } from 'react'
+import { isExcluded, isFinished, isMessageRecordAttention } from '@podium/model'
 import { computed, observable, reaction, runInAction } from 'mobx'
+import { useCallback, useLayoutEffect, useMemo, useRef, useSyncExternalStore } from 'react'
 import { afterEach, vi } from 'vitest'
 import * as storeInputs from '@/app/store'
 
@@ -215,7 +217,6 @@ function fixtureSidebarRow(
   const gitState = record['gitState'] as { ahead?: unknown } | null | undefined
   return {
     idNumber: typeof record['seq'] === 'number' ? record['seq'] : 0,
-    color: typeof record['color'] === 'string' ? record['color'] : null,
     title: displayTitleOf(issue, () => sessions[0]),
     timing: rowMotionTiming(legacy),
     working,
@@ -247,9 +248,7 @@ function fixtureSidebarRow(
     fromChildren,
     statusFromChildren: record['parentId'] == null && fromChildren,
     gitState: record['gitState'] as SidebarRowValues['gitState'],
-    // A row with an agent computing is never "new unseen work" (models.ts
-    // `sidebarValues`): working suppresses the unread emphasis outright.
-    unread: !working && record['unread'] === true,
+    unread: record['unread'] === true,
     errorClass: null,
     internal: record['audience'] === 'agent',
     unsnoozed: cycle.unsnoozed,
@@ -278,7 +277,7 @@ function fixtureSidebarRow(
  * until focus moves (R-GROUP 5). Children nest under their roots and proposed
  * rows stay out entirely, so the column shows mission roots plus the two
  * folds, as the real sidebar does. Repos with nothing in them keep their
- * band with the quiet start-first-task door.
+ * band, which the sidebar greys and offers a new task in.
  */
 function fixtureSidebarSections(
   models: readonly IssueViewModel[],
@@ -384,7 +383,6 @@ function fixtureSidebarSections(
       aliases: [key],
       repoPath: band.repoPath,
       rowIds: band.open.map((entry) => entry.id),
-      worktreeIds: [],
       snoozedIds: band.snoozed.map((entry) => entry.id),
       closedIds: band.closed.map((entry) => entry.id),
       collapsed: false,
@@ -393,8 +391,6 @@ function fixtureSidebarSections(
       foldKey: `podium:sidebar:project-fold:${key}`,
       snoozedFoldKey: `podium:sidebar:snoozed-fold:${key}`,
       closedFoldKey: `podium:sidebar:closed-fold:${key}`,
-      startFirstTask:
-        band.open.length === 0 && band.snoozed.length === 0 && band.closed.length === 0,
     })),
   }
 }
@@ -689,6 +685,10 @@ function useFixturePool(): MobxPool {
         },
         view: (name: string, _factory: unknown): unknown => {
           const fixture = pool as unknown as Record<string, unknown>
+          if (name === 'chatItemMessages') return {
+            message: (sessionId: string, itemId: string) => messages().find(row =>
+              row.sessionId === sessionId && row.transcriptItem?.id === itemId),
+          }
           if (name === 'issue-activity')
             return records().sources.view(name, _factory as () => object)
           if (name === 'issue-page') return issuePages(records())

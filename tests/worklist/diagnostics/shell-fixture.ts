@@ -1,16 +1,16 @@
-import { headerEntities } from '@podium/client-graph/header-entities'
-import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 /** Synthetic rows only. Used by the focused tests and browser fixture. */
 import type { ClientRuntime } from '@podium/client-core/engine'
-import type { ReferenceState as Store } from './reference-state'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
-import { emptyWorkspace, openTab, missionRootFor, workspaceKeyFor } from '@podium/client-core/values'
-import { asIssueId, asMachineId, asRepoId, asSessionId, DEFAULT_HARNESS_AGENT } from '@podium/model/browser'
-import { shipLaneId, type ShipOrderProjection, type ShipLaneProjection } from '@podium/model'
+import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
+import { emptyWorkspace, missionRootFor, openTab, workspaceKeyFor } from '@podium/client-core/values'
+import { headerEntities } from '@podium/client-graph/header-entities'
 import { MobxPool } from '@podium/client-graph/pool'
 import { SHELL_ENTITIES, SHELL_SUMMARIES } from '@podium/client-graph/shell-schema'
 import { ShellSource } from '@podium/client-graph/shell-source'
+import { type ShipLaneProjection, type ShipOrderProjection, shipLaneId } from '@podium/model'
+import { asIssueId, asMachineId, asRepoId, asSessionId, DEFAULT_HARNESS_AGENT } from '@podium/model/browser'
+import type { ReferenceState as Store } from './reference-state'
 
 
 export const SHELL_NOW = Date.parse('2026-10-01T14:00:00Z')
@@ -19,7 +19,7 @@ export function shellFixture(count = 40) {
   const issues = Array.from({ length: count }, (_, index) => ({ id: asIssueId(`shell-issue-${String(index).padStart(4, '0')}`), seq: index + 1,
     title: `Synthetic task ${index}`, repoId, repoPath: '/synthetic/project', worktreePath: index < 2 ? `/synthetic/project/w${index}` : null,
     parentId: index === 1 ? asIssueId('shell-issue-0000') : null, stage: index >= 20 ? 'done' : 'review', closedReason: null,
-    archived: index >= 20, deletedAt: null, color: index === 0 ? 'red' : null, audience: 'human', sortKey: `a${index}`,
+    archived: index >= 20, deletedAt: null, audience: 'human', sortKey: `a${index}`,
     branch: `issue/synthetic-${index}`, gitState: { ahead: 2, merged: false }, createdAt: stamp, updatedAt: stamp,
     description: 'Synthetic body', deps: [], blocked: false, panel: { todos: [], deferred: [], artifacts: [{ path: 'review/index.html', artifactId: 'synthetic-artifact', entry: 'index.html', files: [{ path: 'index.html', size: 3 }] }] },
     prefix: 'SYN', displayRef: `SYN-${index + 1}`, memberSessionIds: [], childIds: [], childCount: 0, childDoneCount: 0,

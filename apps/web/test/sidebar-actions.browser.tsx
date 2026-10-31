@@ -9,7 +9,6 @@ import {
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
 import { LOADING, type MobxPool } from '@podium/client-graph'
-import { checkSidebar } from '../../../tests/worklist/diagnostics/sidebar-check'
 import { spreadSortKeys } from '@podium/model'
 import { asUserId } from '@podium/model/browser'
 import { useEffect } from 'react'
@@ -95,16 +94,6 @@ const fixture = {
       failures,
     }
   },
-  compare: () => {
-    const store = referenceState(runtime!)
-    return checkSidebar(pool!, store, {
-      pinnedRepos: store.pins.repos,
-      pinnedWorktrees: store.pins.worktrees,
-      projectOrder: store.sidebarSettings.repoOrder,
-      paneA: store.paneA,
-      selectedWorktree: store.selectedWorktree,
-    })
-  },
   refuse: (index: number) => {
     const request = requests[index]!
     request.settled = true
@@ -126,6 +115,14 @@ const fixture = {
       tuckedAt: new Date().toISOString(),
     }
     synthetic.patchIssue(id, patch)
+  },
+  reopen: (id: string) => {
+    synthetic.patchIssue(id, {
+      stage: 'in_progress',
+      closedReason: null,
+      closedAt: null,
+      tuckedAt: null,
+    })
   },
 }
 Object.assign(window, { __sidebarActions: fixture })

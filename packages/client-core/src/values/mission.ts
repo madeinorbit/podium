@@ -1,30 +1,28 @@
-import type { SessionView } from '../session-values'
 import type { IssueProjection } from '@podium/model'
+import { type AgentKind, asIssueId, asSessionId, type IssueId, type SessionId } from '@podium/model'
 import {
-  type AgentKind,
-  asIssueId,
-  asSessionId,
-  type IssueId,
-  type SessionId,
-} from '@podium/model'
+  isDecisionIssue,
+  isFinished as issueClosed,
+  leafTasks,
+  seatWords,
+  sessionWorkingFact,
+  TASK_WORD_LABEL,
+  type TaskWord,
+  type TaskWords,
+  taskHidden,
+  taskWords,
+  wordWantsAttention,
+} from '@podium/model/browser'
 import { type HarnessDescriptorWire, issueDisplayRef } from '@podium/protocol'
+import type { SessionView } from '../session-values'
+import { type IssueNavigationModel, isEmptyDraftVessel, issueAbandoned } from './compose/issues'
 import { sessionParked, sessionPresentOnTask } from './fleet'
 import { agentLabel } from './quota'
 import { sessionsForIssueNav } from './session-ownership'
 import { motionPhase, sessionErrored, sessionErrorLabel } from './session-status'
-import { type IssueNavigationModel, isEmptyDraftVessel, issueAbandoned } from './compose/issues'
-import {
-  isDecisionIssue,
-  isFinished as issueClosed,
-  isPhaseIssue,
-  sessionWord,
-  TASK_WORD_LABEL,
-  type TaskWord,
-  taskHidden,
-  taskWord,
-  wordWantsAttention,
-} from '@podium/model/browser'
+
 export { isFinished as issueClosed } from '@podium/model/browser'
+
 import { isCoordinatorSession } from './compose/terminal'
 
 /**
@@ -180,21 +178,66 @@ export function reuseFlightDeckRows(
   return unchanged ? (previous as FlightDeckRow[]) : reused
 }
 
+/** Four task counts. The legacy field names remain for mobile consumers. */
 export interface MissionProgress {
   total: number
   done: number
+  /** Working: shipping or a session computing now. */
   run: number
-  /** Work awaiting the operator's review, not active execution. */
+  /** Reserved compatibility fields, always zero. */
   review: number
-  /**
-   * Work that BEGAN AND HAS NOBODY ON IT — a started stage with no open session
-   * anywhere under the task (POD-1314). Split out of {@link MissionProgress.run}
-   * so the meter cannot say `underway` about a mission whose own crew chip says
-   * `0 agents`; see {@link missionProgress}.
-   */
-  stall: number
   block: number
+  /** Waiting: started, with nothing computing. */
+  stall: number
+  /** To do: backlog with no session history. */
   wait: number
+}
+
+export type MissionTaskBucket = 'done' | 'working' | 'waiting' | 'todo'
+export type MissionBuckets = Record<MissionTaskBucket, number> & { total: number }
+
+/** Task execution is independent of its attention word and dependency state. */
+export function missionTaskBucket(
+  issue: { stage?: unknown; closedReason?: unknown },
+  hasSessions: boolean,
+  working: boolean,
+): MissionTaskBucket | null {
+  if (taskHidden(issue)) return null
+  if (issueClosed(issue)) return 'done'
+  if (issue.stage === 'proposed') return null
+  if (issue.stage === 'shipping' || working) return 'working'
+  if (issue.stage === 'backlog' && !hasSessions) return 'todo'
+  return 'waiting'
+}
+
+export function tallyMissionBuckets<T>(
+  tasks: Iterable<T>,
+  bucketOf: (task: T) => MissionTaskBucket | null,
+): MissionBuckets {
+  const counts: MissionBuckets = { total: 0, done: 0, working: 0, waiting: 0, todo: 0 }
+  for (const task of tasks) {
+    const bucket = bucketOf(task)
+    if (bucket === null) continue
+    counts[bucket]++
+    counts.total++
+  }
+  return counts
+}
+
+export function missionProgressFromBuckets(counts: MissionBuckets): MissionProgress {
+  return {
+    total: counts.total,
+    done: counts.done,
+    run: counts.working,
+    stall: counts.waiting,
+    wait: counts.todo,
+    review: 0,
+    block: 0,
+  }
+}
+
+export function missionProgressLabel(progress: MissionProgress): string {
+  return `${progress.done} of ${progress.total} tasks done, ${progress.run} working, ${progress.stall} waiting, ${progress.wait} to do`
 }
 
 /**
@@ -374,6 +417,9 @@ export function issueNeedsHuman(
   issue: IssueNavigationModel,
   sessions: readonly SessionView[],
   byId?: ReadonlyMap<string, IssueNavigationModel>,
+  /** Whether a session on it asks; a coordinated deck row passes its delegates' policy (POD-2171). */
+  sessionAsks: (session: SessionView) => boolean = (session) =>
+    !session.archived && sessionNeedsHuman(session),
 ): boolean {
   // A CLOSED TASK NEVER NEEDS YOU (POD-1072). Closing is the operator's own
   // "this is finished" flip, and nothing downstream of it may keep demanding a
@@ -386,7 +432,7 @@ export function issueNeedsHuman(
   if (issue.needsHuman === true) return true
   // An open decision is the user's to answer (POD-6106, D2/D6).
   if (isDecisionIssue(issue)) return true
-  if (sessions.some((session) => !session.archived && sessionNeedsHuman(session))) return true
+  if (sessions.some(sessionAsks)) return true
   // An empty review whose session hopscotched is a signpost, not a review item.
   if (issue.stage === 'review' && isVacatedOrigin(issue, sessions, byId)) return false
   return issue.stage === 'review'
@@ -559,6 +605,8 @@ export interface MissionSessionIndex {
    * to helpers that draw their own archived/open lines.
    */
   byIssue: Map<string, SessionView[]>
+  /** Permanent birth references survive a session moving to another issue. */
+  bornIssues: Set<string>
   /** Issue ids carrying at least one {@link openSession} — the `some(...)`
    *  presence test the staffing rules ask, precomputed. */
   openIssues: Set<string>
@@ -580,10 +628,18 @@ const emptyLegacyMissionCounts = () => ({ missionIssueIds: 0, indexMissionSessio
 let legacyMissionCounting = false
 let legacyMissionCounts = emptyLegacyMissionCounts()
 export const missionLegacyStats = {
-  enable() { legacyMissionCounting = true },
-  disable() { legacyMissionCounting = false },
-  reset() { legacyMissionCounts = emptyLegacyMissionCounts() },
-  read() { return { ...legacyMissionCounts } },
+  enable() {
+    legacyMissionCounting = true
+  },
+  disable() {
+    legacyMissionCounting = false
+  },
+  reset() {
+    legacyMissionCounts = emptyLegacyMissionCounts()
+  },
+  read() {
+    return { ...legacyMissionCounts }
+  },
 }
 
 function missionSessionIndex(sessions: readonly SessionView[]): MissionSessionIndex {
@@ -599,9 +655,11 @@ export function indexMissionSessions(sessions: readonly SessionView[]): MissionS
   if (legacyMissionCounting) legacyMissionCounts.indexMissionSessions++
   sessionIndexBuilds += 1
   const byIssue = new Map<string, SessionView[]>()
+  const bornIssues = new Set<string>()
   const openIssues = new Set<string>()
   const lastActive = new Map<string, string>()
   for (const session of sessions) {
+    if (session.refIssueId) bornIssues.add(session.refIssueId)
     const issueId = session.issueId
     if (issueId === undefined) continue
     const existing = byIssue.get(issueId)
@@ -614,7 +672,7 @@ export function indexMissionSessions(sessions: readonly SessionView[]): MissionS
       lastActive.set(issueId, session.lastActiveAt)
     }
   }
-  const index: MissionSessionIndex = { byIssue, openIssues, lastActive }
+  const index: MissionSessionIndex = { byIssue, bornIssues, openIssues, lastActive }
   return index
 }
 
@@ -738,10 +796,7 @@ function preferredSpinOffTip(
 ): IssueNavigationModel | null {
   if (candidates.length === 0) return null
   const staffed = candidates.filter((issue) => issueStaffed(sessions, issue.id, sessionIndex))
-  const pool =
-    staffed.length > 0
-      ? staffed
-      : candidates.filter((issue) => !issueClosed(issue))
+  const pool = staffed.length > 0 ? staffed : candidates.filter((issue) => !issueClosed(issue))
   const pick = (pool.length > 0 ? pool : candidates).slice()
   pick.sort((a, b) =>
     lastActiveAt(b, sessions, sessionIndex).localeCompare(lastActiveAt(a, sessions, sessionIndex)),
@@ -832,7 +887,10 @@ export function isVacatedOrigin(
  * not on the root, not on the sessions — so they can be built once and reused.
  */
 /** Facts needed for workspace membership, without a render-model dependency. */
-export type MissionIssueTopology = Pick<IssueProjection, 'id' | 'parentId' | 'archived' | 'deletedAt' | 'stage' | 'startedBySession'> & {
+export type MissionIssueTopology = Pick<
+  IssueProjection,
+  'id' | 'parentId' | 'archived' | 'deletedAt' | 'stage' | 'startedBySession'
+> & {
   deps?: readonly { id: string; type: string }[]
 }
 
@@ -857,9 +915,9 @@ interface MissionIssueIndex<T extends MissionIssueTopology = MissionIssueTopolog
    */
   startedCandidates: Array<{ id: string; startedBySession: SessionId }>
   /** Child id → parent id, for walking UP the formal tree. `children` answers
-   *  "what is under this"; {@link staffedSubtreeIds} needs the other direction,
+   *  "what is under this"; ancestor traversals need the other direction,
    *  and rebuilding it per call would undo exactly what this index is for —
-   *  `SidebarRail` asks for `missionProgress` once per visible row. */
+   *  `UnifiedIssueRow` asks for `missionProgress` once per visible row. */
   parents: Map<string, string>
   /**
    * EVERY issue by id — archived and deleted included, exactly as the per-call
@@ -927,11 +985,17 @@ let lastMissionIndexIssues: readonly MissionIssueTopology[] | undefined
 let lastMissionIndex: MissionIssueIndex | undefined
 
 /** Formal-tree eligibility, shared with the incremental relationship index. */
-export function missionParentId(issue: { parentId?: string | null; archived?: boolean; deletedAt?: string | null }): string | null {
+export function missionParentId(issue: {
+  parentId?: string | null
+  archived?: boolean
+  deletedAt?: string | null
+}): string | null {
   return issue.archived || issue.deletedAt ? null : issue.parentId || null
 }
 
-function missionIssueIndex<T extends MissionIssueTopology>(issues: readonly T[]): MissionIssueIndex<T> {
+function missionIssueIndex<T extends MissionIssueTopology>(
+  issues: readonly T[],
+): MissionIssueIndex<T> {
   const cached = missionIndexes.get(issues)
   if (cached) return cached as MissionIssueIndex<T>
   // Same rows, new array: `[...issues]`, a fresh fold, a fresh view-model `all`
@@ -992,8 +1056,6 @@ function missionIssueIndex<T extends MissionIssueTopology>(issues: readonly T[])
  * - `memberComputes`  {@link missionIssueIds} bodies run — once per
  *                     (issue slice, session slice, root), however many surfaces ask.
  * - `progressComputes` {@link missionProgress} bodies run, same key.
- * - `staffedComputes` {@link staffedSubtreeIds} bodies run — once per
- *                     (issue slice, session slice).
  */
 export function missionIndexStats(): {
   builds: number
@@ -1001,7 +1063,6 @@ export function missionIndexStats(): {
   sessionBuilds: number
   memberComputes: number
   progressComputes: number
-  staffedComputes: number
 } {
   return {
     builds: missionIndexBuilds,
@@ -1009,7 +1070,6 @@ export function missionIndexStats(): {
     sessionBuilds: sessionIndexBuilds,
     memberComputes: missionMemberComputes,
     progressComputes: missionProgressComputes,
-    staffedComputes: staffedSubtreeComputes,
   }
 }
 
@@ -1022,8 +1082,7 @@ export function missionIndexStats(): {
  * adds no assumption); the innermost is a plain `Map` because a root id is a
  * string. The whole table for a superseded publish dies with its issue array.
  *
- * WHAT THIS BUYS. `SidebarRail` asks for `missionProgress` once per visible
- * root, `UnifiedIssueRow` once per visible row, and `FlightDeck` and
+ * `UnifiedIssueRow` asks for `missionProgress` once per visible row, and `FlightDeck` and
  * `FoldedFlightDeckBar` once each for the open mission — all inside the same
  * publish, all with the identical slices. Without this each of those recomputed
  * the whole derivation; with it the first one computes and the rest read.
@@ -1266,83 +1325,8 @@ const missionProgressCache = new WeakMap<
 >()
 let missionProgressComputes = 0
 
-/**
- * Mission progress over the WHOLE mission, never the filtered spine.
- *
- * The filter is a display preference; the mission's shape is not. Computing this
- * from the rendered rows made `Active` (which hides done work) report `0 / N`,
- * which is the one number the operator is most likely to read as truth.
- *
- * ---------------------------------------------------------------------------
- * ONE UNIT OF WORK IS ONE TASK IN THE MISSION (POD-710)
- * ---------------------------------------------------------------------------
- *
- * THE RULE: when the mission root has real members besides itself, the root is
- * the CONTAINER BEING MEASURED and is not also a segment; when it stands alone,
- * it is the single unit. So a root with one child is `total = 1`, not 2.
- *
- * This used to count the root as one more task — "it is one, with its own
- * stage" — which is true of the issue and false of the meter. A mission of one
- * sub-issue reported two units and lit two different segments (the root running
- * and the child not started), which is the whole of the operator's complaint:
- * "if there is only one task, it still shows two points of information … that is
- * just confusing." A container's own stage is a roll-up OF its members, so
- * counting it beside them double-counts the same work and puts the bar's
- * denominator one above the number of things anyone can point at.
- *
- * Archived and deleted issues are not units either, at any level. Proposed
- * issues are not units either: they have not been accepted, the spine already
- * keeps them in their own section, and counting them as "to go" makes a
- * mission that is itself being worked read as nothing happening.
- *
- * NOR IS ANYTHING THE MISSION MERELY DISCOVERED. Membership of the DECK is
- * wider than membership of the METER — see {@link formalMemberIds} for why the
- * denominator is the formal parent-child subtree and nothing else.
- *
- * NOR IS ABANDONED WORK, at either end of the fraction (POD-1074). A cancelled
- * task is not a task the mission completed and not one it still owes; it is a
- * task the mission is no longer doing, so it leaves the count entirely rather
- * than filling the done band. That is Linear's rule and the reason its
- * Completed and Canceled categories are kept apart at all. The fallback below
- * then does the honest thing on its own: a root whose every member was
- * cancelled has nothing left to be the container OF, so it becomes the unit
- * again and the bar reports the root's own state instead of `100% done`.
- *
- * Six segments: done / run / stall / review / block / wait. The artifact's arithmetic
- * (`done` by stage, `run` by stage, `review` by stage, `block` by state, `wait` = the
- * remainder) lets one issue land in two buckets, which would push the bar past 100%.
- * Classification here is EXCLUSIVE in the order done → block → review → run/stall
- * → wait: blocked work is not running, and review work is an obligation rather
- * than execution.
- *
- * `wait` IS THE REMAINDER, AND IT USED TO SWALLOW STAGES (POD-1181). `run` matched
- * `in_progress` alone, so `planning` and `shipping` fell through to the remainder
- * and the gauge said `to go` — "nobody has picked this up" — about a task with an
- * agent designing in it, and about one already in Shipping's custody. See
- * {@link UNDERWAY}: the run bucket is every stage that says work has begun, which
- * is also what `deckIssueState` and `operationalState` already read `shipping` as,
- * so the meter and the strips can no longer disagree about the same task.
- *
- * `run` THEN SPLIT IN TWO (POD-1314). Reading the stage alone, the bar said
- * `1 UNDERWAY` about a task whose agent had exited hours before — beside a crew
- * chip correctly reading `0 agents`, a strip reading `Retired` and a `no agent`
- * seat, on the same header. The stage was not wrong; the WORD was, because
- * `underway` is a claim about execution and the only thing executing is a
- * session. So a started task with nobody on it leaves `run` for {@link
- * MissionProgress.stall}, which is the state {@link presenceNote} already names
- * (`Agent left · choose a handoff`) and the state the empty seat is drawn for.
- *
- *   NOBODY IS COUNTED PER SUBTREE, not per issue. A container in a started stage
- *   whose CHILD holds the working agent is not stalled — the work under it is
- *   moving — so the predicate is "no open session on this task or anything
- *   beneath it". The same {@link openSession} presence rule the roster, the
- *   strips and the crew chip use, so all four answer one question one way.
- *
- *   `shipping` IS NEVER STALLED. It is the one started stage whose work is not a
- *   session's: the shipping service has custody (`presenceNote`), and a
- *   sessionless shipping task is exactly what that stage looks like when it is
- *   working correctly.
- */
+/** Progress over accepted formal leaves, independent of filters and folds.
+ * The root is counted only when there are no accepted tasks below it. */
 export function missionProgress(
   issues: readonly IssueNavigationModel[],
   sessions: readonly SessionView[],
@@ -1359,9 +1343,8 @@ export function missionRollup(
   sessionIndex?: MissionSessionIndex,
 ): MissionRollup {
   if (!rootId) return EMPTY_ROLLUP
-  // FROZEN, AND SHARED. Four surfaces ask this about the same root inside one
-  // publish (`UnifiedIssueRow` per row, `SidebarRail` per root, the deck and its
-  // folded bar); they all read the six counts and none writes, and the freeze is
+  // FROZEN, AND SHARED. Three surfaces ask this about the same root inside one
+  // publish (`UnifiedIssueRow` per row, the deck and its folded bar); they all read the six counts and none writes, and the freeze is
   // what keeps it that way now that they read the same object.
   return memoBySlices(missionProgressCache, issues, sessions, rootId, () =>
     Object.freeze(computeMissionRollup(issues, sessions, rootId, sessionIndex)),
@@ -1375,124 +1358,33 @@ function computeMissionRollup(
   sessionIndex?: MissionSessionIndex,
 ): MissionRollup {
   missionProgressComputes += 1
-  const ids = missionIssueIds(issues, rootId, sessions)
-  // `missionIssueIndex` already paid the one full-slice walk for this publish.
-  // Looking members up by id keeps a work list of N independent missions at
-  // O(N): the old `issues.filter(...)` repeated the same N-row scan once per
-  // visible mission and made the list O(N²), even when every mission stood alone.
-  const { byId } = missionIssueIndex(issues)
-  const scope: IssueNavigationModel[] = []
-  for (const id of ids) {
-    const issue = byId.get(id)
-    if (issue && !issue.archived && !issue.deletedAt) scope.push(issue)
+  const { byId, children } = missionIssueIndex(issues)
+  const root = byId.get(rootId)
+  if (!root || root.archived || root.deletedAt) {
+    return EMPTY_ROLLUP
   }
-  // The units are the accepted members; the root only becomes one when it has
-  // no accepted members to be the container of. Proposed work is offered, not
-  // remaining — leaving it in `members` is how a working parent with three
-  // discoveries read as "3 to go". A root that is itself archived is already
-  // out of `scope`, so the fallback never resurrects it.
-  // A phase is a section of its parent, never itself a unit of work (POD-6106,
-  // flight deck v6 D1): its children are counted, the phase is not.
-  const formal = formalMemberIds(issues, rootId)
-  const members = scope.filter(
-    (issue) =>
-      formal.has(issue.id) &&
-      issue.stage !== 'proposed' &&
-      !isPhaseIssue(issue) &&
-      !issueAbandoned(issue),
+  const leafIds = leafTasks(rootId, {
+    task: (id) => byId.get(id),
+    children: (id) => (children.get(id) ?? []).filter((issue) => issue.stage !== 'proposed').map((issue) => issue.id),
+  })
+  const fromChildren = leafIds.some((id) => id !== rootId)
+  const index = sessionIndex ?? missionSessionIndex(sessions)
+  const units = leafIds.map((id) => byId.get(id)!).filter((issue) =>
+    !isVacatedOrigin(issue, index.byIssue.get(issue.id) ?? NO_SESSIONS, byId),
   )
-  // The root can be abandoned too, and then there is nothing to measure at all
-  // rather than one cancelled unit sitting in a band of its own.
-  const fromChildren = members.length > 0
-  const units = (fromChildren ? members : scope.filter((issue) => issue.id === rootId)).filter(
-    (issue) => {
-      if (issueAbandoned(issue)) return false
-      // `isVacatedOrigin` is deliberately still asked about the issue's OWN
-      // sessions and nothing else — that is what decides which spin-off tips it
-      // can see, and widening it here would change the answer. The subset is now
-      // a lookup rather than a scan of the whole slice per unit, which is the line
-      // the profile named.
-      const own = sessionIndex
-        ? (sessionIndex.byIssue.get(issue.id) ?? NO_SESSIONS)
-        : sessionsOnIssue(sessions, issue.id)
-      return !isVacatedOrigin(issue, own, byId)
-    },
-  )
-  const staffed = staffedSubtreeIds(issues, sessions)
-  let done = 0
-  let run = 0
-  let review = 0
-  let stall = 0
-  let block = 0
-  for (const issue of units) {
-    if (issueClosed(issue)) done += 1
-    else if (issue.blocked) block += 1
-    else if (issue.stage === 'review') review += 1
-    else if (UNDERWAY.has(issue.stage)) {
-      // Shipping's work is the service's, not a session's — see the note above.
-      if (issue.stage === 'shipping' || staffed.has(issue.id)) run += 1
-      else stall += 1
-    }
-  }
-  const total = units.length
-  return {
-    progress: Object.freeze({
-      total,
-      done,
-      run,
-      review,
-      stall,
-      block,
-      wait: Math.max(0, total - done - run - review - stall - block),
-    }),
-    fromChildren,
-  }
-}
-
-const staffedSubtrees = new WeakMap<
-  readonly IssueNavigationModel[],
-  WeakMap<readonly SessionView[], Map<string, Set<string>>>
->()
-let staffedSubtreeComputes = 0
-
-/**
- * Every issue that has an open session ON it or ANYWHERE BENEATH it.
- *
- * Built once per call rather than walked per unit: a mission's units are its
- * whole formal subtree, so the per-unit walk is quadratic on exactly the deep
- * missions this is asked about most. One pass over the SESSIONS walks each
- * staffed issue's ancestor chain, stopping at the first already-marked
- * ancestor, so the whole thing is linear in the crew — and the parent edges
- * come off the shared {@link missionIssueIndex}, which is memoised on the issue
- * slice's identity, so a sidebar asking for one mission per row does not
- * rebuild them per row.
- */
-function staffedSubtreeIds(
-  issues: readonly IssueNavigationModel[],
-  sessions: readonly SessionView[],
-): Set<string> {
-  // Root-independent: one set per pair of slices serves every mission asking.
-  return memoBySlices(staffedSubtrees, issues, sessions, '', () =>
-    computeStaffedSubtreeIds(issues, sessions),
-  )
-}
-
-function computeStaffedSubtreeIds(
-  issues: readonly IssueNavigationModel[],
-  sessions: readonly SessionView[],
-): Set<string> {
-  staffedSubtreeComputes += 1
-  const { parents } = missionIssueIndex(issues)
-  const staffed = new Set<string>()
-  for (const session of sessions) {
-    if (!session.issueId || !openSession(session)) continue
-    let id: string | undefined = session.issueId
-    while (id && !staffed.has(id)) {
-      staffed.add(id)
-      id = parents.get(id)
-    }
-  }
-  return staffed
+  const counts = tallyMissionBuckets(units, (issue) => {
+    const own = index.byIssue.get(issue.id) ?? NO_SESSIONS
+    const members = issue.memberSessionIds?.length
+      ? sessionsForIssueNav(issue, sessions, [], { includeShells: true })
+      : NO_SESSIONS
+    const works = (session: SessionView) => !session.archived && sessionWorkingFact(session)
+    return missionTaskBucket(
+      issue,
+      index.bornIssues.has(issue.id) || own.length > 0 || Boolean(issue.memberSessionIds?.length),
+      own.some(works) || members.some(works),
+    )
+  })
+  return { progress: Object.freeze(missionProgressFromBuckets(counts)), fromChildren }
 }
 
 /**
@@ -1858,6 +1750,8 @@ export type DeckState = TaskWord
 
 export interface DeckIssueState {
   state: DeckState
+  /** The word this issue shows an ancestor whose coordinator is live: only exceptions ask (POD-2171, `taskWords`). */
+  delegated: DeckState
   /** The right-aligned word beside the mark. */
   label: string
   /**
@@ -1879,6 +1773,10 @@ export interface DeckIssueState {
  * draws the cancel mark beside it, so its label says `Cancelled` rather than
  * contradicting the glyph. D6 hides those rows; until the v6 deck does, they
  * say what they are.
+ *
+ * On an issue whose coordinator is live (`coordinated`), asks come only from
+ * the coordinator and the issue's own facts; its other sessions and its
+ * sub-issues pass up only work and exceptions (POD-2171, `taskWords`).
  */
 export function deckIssueState(
   issue: IssueNavigationModel,
@@ -1889,7 +1787,11 @@ export function deckIssueState(
     /** The deck's own answer to the same question, from its catalog. */
     unmetDependency?: boolean
     /** The sub-issues' words, for a parent. */
-    children?: readonly TaskWord[]
+    children?: readonly TaskWords[]
+    /** The issue's coordinator seat is held by a live session (`coordinatorLive`). */
+    coordinated?: boolean
+    /** Open pending interactions addressed to a session (a seat fact, `seatAttention`). */
+    pendingInteractions?: (sessionId: string) => number
   } = {},
 ): DeckIssueState {
   const closed = issueClosed(issue)
@@ -1899,14 +1801,28 @@ export function deckIssueState(
     closedReason: issue.closedReason,
     needsHuman: issue.needsHuman,
     blocked:
-      issue.blocked || context.unmetDependency === true || waitingRefs(issue, context.byId).length > 0,
+      issue.blocked ||
+      context.unmetDependency === true ||
+      waitingRefs(issue, context.byId).length > 0,
   }
-  const state = taskWord(facts, {
-    sessions: sessions.map((session) => sessionWord(session, { issueClosed: closed })),
+  const words = taskWords(facts, {
+    seats: sessions.map((session) =>
+      // The plain word reads as it always did on the client; the role words
+      // count open interactions, as every coordinated surface does.
+      seatWords(
+        session,
+        { issueClosed: closed },
+        session.sessionId === issue.coordinatorSessionId,
+        context.pendingInteractions?.(session.sessionId) ?? 0,
+      ),
+    ),
     children: context.children,
+    coordinated: context.coordinated,
   })
+  const state = words.word
   return {
     state,
+    delegated: words.delegated,
     label: taskHidden(facts) ? 'Cancelled' : TASK_WORD_LABEL[state],
     attention: wordWantsAttention(state),
   }
@@ -2553,8 +2469,8 @@ export function portfolioActionableCount(
  * every attention count in the product.
  *
  * Exported because the number has to be the same number wherever it appears:
- * the rail badge counts it over the portfolio, the issue explorer's "Needs you"
- * tab lists exactly the tasks it returns true for. Two surfaces re-deriving
+ * the Flight Deck's "Needs you" filter lists exactly the tasks it returns true
+ * for. Two surfaces re-deriving
  * "needs me" independently is how a badge reading 3 comes to sit above a list
  * of 5.
  */
@@ -2563,10 +2479,7 @@ export function issueIsActionable(
   sessions: readonly SessionView[],
 ): boolean {
   return (
-    !issue.archived &&
-    !issue.deletedAt &&
-    !issueClosed(issue) &&
-    issueNeedsHuman(issue, sessions)
+    !issue.archived && !issue.deletedAt && !issueClosed(issue) && issueNeedsHuman(issue, sessions)
   )
 }
 

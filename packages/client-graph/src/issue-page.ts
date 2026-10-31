@@ -240,6 +240,11 @@ export class IssuePageRow {
     if (present === LOADING) throw LOADING
     return reader.presence(this.issue, present, false, this.issue.id)
   }
+  /** Where this task's work went on (a spin-off tip, a superseding task),
+   *  for the panel's one-line notice; null while an agent is still on it. */
+  @lazy get continuation() {
+    return missionView(this.pool).continuation(this.issue, false)
+  }
   @lazy get hasTargets(): boolean {
     return (
       this.pool.queries.ids({

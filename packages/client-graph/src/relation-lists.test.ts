@@ -3,10 +3,7 @@ import { autorun, runInAction } from 'mobx'
 import { expect, it, vi } from 'vitest'
 import { lazyKeptCount } from '@podium/mobx-helpers'
 import { MobxPool } from './pool'
-import { hostOf, type EntityModel, type LazyCollection } from './models'
-import { createRelationIndex } from './shared/relation-index'
-import { SCHEMA, type EntityName } from './shared/schema'
-import { manyBefore, ModelCollectionBefore, subsetBefore } from './relation-lists-before.test-helper'
+import type { EntityModel } from './models'
 
 const stamp = '2026-10-09T00:00:00Z'
 const issue = (id: string, patch: object = {}) => ({ kind: 'issue' as const, id,
@@ -26,51 +23,6 @@ function fixture() {
   pool.apply({ type: 'replace', rows: initial() })
   return pool
 }
-
-it('matches every old collection and subset reader on the same changing fixtures', () => {
-  const pool = fixture(), index = createRelationIndex(SCHEMA)
-  const rows = new Map<string, ReturnType<typeof initial>[number]>()
-  function publish(next: ReturnType<typeof initial>) {
-    index.begin()
-    for (const row of next) {
-      const key = `${row.kind}:${row.id}`
-      index.changed(row.kind, row.id, rows.has(key), row.value)
-      rows.set(key, row)
-    }
-    index.flush()
-    runInAction(() => pool.apply({ type: 'update', rows: next }))
-  }
-  function parity() {
-    for (const row of rows.values()) {
-      const from: EntityName = row.kind, model = requireHere(pool.model(from, row.id))
-      for (const [name, spec] of Object.entries(SCHEMA[from].relations)) {
-        if (!(spec.kind === 'hasMany' || (spec.kind === 'edge' && (spec.direction === 'in' || spec.many)))) continue
-        const before = () => manyBefore(index, from, row.id, name)
-        expect([...pool.graph.many(from, row.id, name)], `${from}.${name} IDs`).toEqual([...before()])
-        const current = Reflect.get(model, name) as LazyCollection<EntityModel>
-        const old = new ModelCollectionBefore(hostOf(model), spec.to, row.id, before)
-        const answer = current.ready
-        // Explicit negative-control run must fail the real parity assertion.
-        expect(process.env.PODIUM_RELATION_NEGATIVE_CONTROL === '1' && answer.length ? [] : answer,
-          `${from}.${name} models`).toEqual(old.ready)
-        expect(current.loading, `${from}.${name} loading`).toBe(old.loading)
-        for (const subset of spec.kind === 'hasMany' ? Object.keys(spec.subsets ?? {}) : []) {
-          const beforeSubset = () => subsetBefore(index, from, row.id, name, subset)
-          expect([...pool.graph.subset(from, row.id, name, subset)], `${from}.${name}.${subset} IDs`).toEqual([...beforeSubset()])
-          const actual = Reflect.get(current, subset) as LazyCollection<EntityModel>
-          const expected = new ModelCollectionBefore(hostOf(model), spec.to, row.id, beforeSubset)
-          expect(actual.ready, `${from}.${name}.${subset} models`).toEqual(expected.ready)
-          expect(actual.loading, `${from}.${name}.${subset} loading`).toBe(expected.loading)
-        }
-      }
-    }
-  }
-  try {
-    publish(initial()); parity()
-    publish([issue('child', { parentId: 'other', deps: [{ id: 'other', type: 'custom' }] }), session('free', { issueId: 'root' })]); parity()
-    publish([issue('child', { title: 'renamed', parentId: 'other' }), session('seat', { archived: true }), session('joined')]); parity()
-  } finally { pool.dispose() }
-})
 
 it('keeps ID and model lists across payload changes and replaces them on joins and leaves', () => {
   const pool = fixture(), root = requireHere(pool.model('issue', 'root'))
@@ -132,8 +84,7 @@ it('a retained collection leaves loading after hydration and follows deletion an
   let answer: readonly EntityModel[] = [], loading = -1
   const stop = autorun(() => { answer = held.ready; loading = held.loading })
   try {
-    const before = new ModelCollectionBefore(hostOf(root), 'issue', 'root', () => pool.graph.many('issue', 'root', 'children'))
-    expect(answer).toEqual(before.ready); expect(loading).toBe(before.loading); expect(loading).toBe(1)
+    expect(answer).toEqual([]); expect(loading).toBe(1)
     runInAction(() => { pool.hydrate() })
     expect(loading).toBe(0); expect(answer.map(row => row.id)).toEqual(['cold'])
     const loaded = answer

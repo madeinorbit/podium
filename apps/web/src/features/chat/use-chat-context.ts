@@ -1,6 +1,7 @@
 import { loadedPaneSession, paneMachines } from '@podium/client-graph/session-pane'
 import { omitGone } from '@podium/client-graph/lookup'
 import type { SessionView } from '@podium/client-core/session-values'
+import { artifactUrl } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph'
 import type { ChatContextRows } from '@podium/client-graph/chat-context-schema'
 import type { SessionExitRows } from '@podium/client-graph/session-exit-schema'
@@ -9,6 +10,7 @@ import { useCallback, useEffect, useMemo } from 'react'
 import { useWorklistPool, useWorklistPoolProjection } from '@/app/store-worklist-pool'
 import type { AtOption } from '@/lib/at-mention/at-mention'
 import { issueMentions } from '@/lib/at-mention/mention-sources'
+import { currentWorkspaceSlug } from '@/lib/workspace-request'
 
 const pending = (row: unknown): row is symbol => typeof row === 'symbol'
 const EMPTY_OPTIONS: AtOption[] = []
@@ -98,6 +100,48 @@ export function useChatArtifactIssue(session: Pick<SessionView, 'sessionId' | 'i
       return pending(issue) ? undefined : issue
     },
     [issueId, sessionId],
+  )
+  return useWorklistPoolProjection(read, undefined)
+}
+/** The stored-copy URL for a file attached in this session's chat (POD-2148),
+ * by attachment id, or null when the issue holds no copy of it and the caller
+ * keeps its fallback. A string, so a panel change elsewhere does not redraw
+ * the thumbnail. */
+export function useChatUploadSrc(
+  sessionId: SessionId,
+  attachmentId: string | undefined,
+  httpOrigin: string,
+) {
+  const read = useCallback(
+    (pool: MobxPool) => {
+      const reader = omitGone(pool.row('chatContextReader', 'reader'))
+      const found =
+        attachmentId && reader && !pending(reader)
+          ? reader.chatUpload(sessionId, attachmentId)
+          : undefined
+      return found
+        ? artifactUrl({
+            httpOrigin,
+            workspace: currentWorkspaceSlug(),
+            issueId: found.issueId,
+            artifact: found.artifact,
+          })
+        : null
+    },
+    [sessionId, attachmentId, httpOrigin],
+  )
+  return useWorklistPoolProjection(read, null)
+}
+/** Read the shared message model by its server-confirmed transcript identity.
+ * Non-user rows do not need a message lookup. */
+export function useChatItemMessage(sessionId: SessionId, itemId: string | undefined) {
+  const read = useCallback(
+    (pool: MobxPool) => {
+      if (!itemId) return undefined
+      const reader = omitGone(pool.row('chatContextReader', 'reader'))
+      return reader && !pending(reader) ? reader.itemMessage(sessionId, itemId) : undefined
+    },
+    [sessionId, itemId],
   )
   return useWorklistPoolProjection(read, undefined)
 }

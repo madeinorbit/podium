@@ -1,3 +1,11 @@
+/**
+ * THE WATERFALL VIEW IS DORMANT (POD-2027). The flight deck redesign draws Full
+ * only and has no view selector, so nothing mounts this component any more. The
+ * code and its tests stay so the view can come back; to bring it back, render
+ * `FlightDeckWaterfall` from `FlightDeckContent` (FlightDeck.tsx) with the
+ * mission screen, the deck scroller ref and the deck's selection handlers. The
+ * Timeline view that sat beside it was deleted outright.
+ */
 import { asIssueId, isFinished } from '@podium/model/browser'
 import { Tooltip as TooltipPrimitive } from '@base-ui/react/tooltip'
 import { useStoreHandle } from '@podium/client-core/react'

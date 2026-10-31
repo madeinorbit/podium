@@ -75,7 +75,6 @@ it('accepts only the latest worker request and keeps a streamed delta sparse', a
   resolve(0)
   await Promise.resolve()
   expect(presentation.block('a')?.item.text).toBe('newer')
-  expect(presentation.lastAnswer.text).toBe('newer')
 })
 
 it('a streamed item changes its observed block without changing the list or another block', async () => {

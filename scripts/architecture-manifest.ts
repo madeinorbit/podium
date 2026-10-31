@@ -558,6 +558,7 @@ export const MANIFEST: Readonly<Record<string, WorkspaceTags>> = {
       'packages/model',
       'packages/runtime',
       'packages/logger',
+      'packages/commands',
     ],
     // HOST CAPABILITY (legacy rule 2), with a declared open surface.
     //

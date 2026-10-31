@@ -1,4 +1,5 @@
 import { currentMessageRecord, ingestMessageRecords } from '@podium/client-graph/message-models'
+import { chatItemMessage } from '@podium/client-graph/chat-context'
 import { here } from '@podium/client-graph/lookup'
 import { omitGone } from '@podium/client-graph/lookup'
 import type { SessionModel } from '@podium/client-graph/models'
@@ -9,7 +10,7 @@ import type { ClientRuntime } from '@podium/client-core/engine'
 import { randomUUID } from '@podium/client-core/id'
 import { REPLICA_TRANSCRIPT_ITEM_CAP } from '@podium/client-core/replica'
 import { useStoreHandle, useConversation as useOwnedConversation } from '@podium/client-core/react'
-import { chatSendRoute, composerState, parseEnvelopeBatch, type SuperThreadRef, OPTIMISTIC_SEND_CEILING_MS } from '@podium/client-core/values'
+import { chatSendRoute, composerState, parseEnvelopeBatch, stagedAttachmentId, type SuperThreadRef, OPTIMISTIC_SEND_CEILING_MS } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph'
 import { asMutationId, asSessionId, HarnessAgent, type SessionId } from '@podium/model/browser'
 import { actionBound, compareShallow, observable, reaction } from 'mobx'
@@ -89,6 +90,7 @@ export function createWebConversation(runtime: ClientRuntime<Trpc>, pool: MobxPo
   const readRecords = () => loaded(omitGone(pool.row('chatContextReader', 'reader')))?.records(sessionId).records ?? []
   const readHeld = () => loaded(omitGone(pool.row('chatHeld', sessionId)))?.sends ?? []
   const headless = mount.superThread !== undefined || readSession()?.headless === true
+  const attachmentHistoryReads = new Set<string>()
   let conversation: WebConversation
   const held: ConversationPendingTurn[] = headless ? [] : readHeld().map((send, index) => ({
     id: `outbox-${index}-${send.mutationId}`, deliveryId: send.mutationId,
@@ -99,7 +101,7 @@ export function createWebConversation(runtime: ClientRuntime<Trpc>, pool: MobxPo
   const initialPending = mount.initialPendingText ? [{
     id: 'pending-first-turn', deliveryId: 'pending-first-turn', text: mount.initialPendingText,
     wire: mount.initialPendingText, at: Date.now(), state: 'sent' as const, kind: 'message' as const,
-    reconcile: 'next-user-item' as const,
+    reconcile: headless ? 'next-user-item' as const : 'initial-prompt' as const,
   }, ...held] : held
   conversation = new WebConversation({
     sessionId, drafts: { get: id => pool.sessionObject(id).messageDraft, set: (id, text) => pool.sessionObject(id).setMessageDraft(text) }, ...(typeof hub.on === 'function' ? { hub } : {}), headless,
@@ -113,7 +115,33 @@ export function createWebConversation(runtime: ClientRuntime<Trpc>, pool: MobxPo
       collapseMachineContext: headless,
       visible: () => typeof document === 'undefined' || document.visibilityState !== 'hidden',
       source: {
-        read: request => trpc.sessions.transcriptRead.query(request),
+        read: async request => {
+          const page = await trpc.sessions.transcriptRead.query(request)
+          const ids = page.items.filter(item => {
+            if (item.role !== 'user') return false
+            if (chatItemMessage(pool, request.sessionId, item.id)) {
+              attachmentHistoryReads.delete(item.id)
+              return false
+            }
+            return !attachmentHistoryReads.has(item.id) && (
+              item.tags?.length || item.toolPaths?.length || item.text === '' ||
+              stagedAttachmentId(item.text.split('\n', 1)[0] ?? '') || /^\[Image #\d+\]/.test(item.text)
+            )
+          }).map(item => item.id)
+          // The feed has a bounded confirmation window. Ask for attachment
+          // records by item identity when loading history, including after a
+          // reload or session exit. These reads never delay transcript display.
+          for (let at = 0; at < ids.length; at += 100) {
+            const batch = ids.slice(at, at + 100)
+            for (const id of batch) attachmentHistoryReads.add(id)
+            void trpc.messages.records.query({ sessionId: request.sessionId, transcriptItemIds: batch }).then(answer => {
+              ingestMessageRecords(pool, answer.records, id => currentMessageRecord(pool, replica, id))
+            }).catch(() => {
+              for (const id of batch) attachmentHistoryReads.delete(id)
+            })
+          }
+          return page
+        },
         subscribe: (id, since, listener) => hub.subscribeTranscript(id, since, listener),
       },
       ...(replica ? { cache: { maxItems: REPLICA_TRANSCRIPT_ITEM_CAP, read: id => replica.transcriptWindow(id), write: (id, items) => replica.putTranscriptWindow(id, [...items]) } } : {}),
@@ -218,7 +246,7 @@ export function useConversation(sessionId: SessionId, options: ConversationMount
   useEffect(() => {
     if (!conversation || !onInitialPendingSettled || conversation.mount.initialPendingText === undefined) return
     let settled = false
-    return reaction(() => conversation.sends.pending.some(turn => turn.id === 'pending-first-turn'), pending => {
+    return reaction(() => conversation.sends.pending.some(turn => turn.id === 'pending-first-turn' && turn.reconcile !== 'record'), pending => {
       if (!pending && !settled) { settled = true; onInitialPendingSettled() }
     }, { fireImmediately: true })
   }, [conversation, onInitialPendingSettled])

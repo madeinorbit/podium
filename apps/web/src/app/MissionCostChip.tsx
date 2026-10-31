@@ -1,4 +1,3 @@
-import { observer } from 'mobx-react-lite'
 import { Popover } from '@base-ui/react/popover'
 import { useStoreHandle } from '@podium/client-core/react'
 import {
@@ -11,6 +10,7 @@ import {
   formatTokens,
   type TaskCostView,
 } from '@podium/client-core/values'
+import { observer } from 'mobx-react-lite'
 import type { JSX } from 'react'
 import { useState } from 'react'
 import { useMissionCost } from '@/features/cost/useMissionCost'
@@ -94,11 +94,8 @@ import type { Trpc } from './trpc'
  */
 export const MissionCostChip = observer(function MissionCostChip({
   issueId,
-  onOpenInExplorer,
 }: {
   issueId: string
-  /** The chip's last line — the door to the full page, never the chip's job. */
-  onOpenInExplorer: () => void
 }): JSX.Element | null {
   const trpc = useStoreHandle<Trpc>().access.trpc
   const [open, setOpen] = useState(false)
@@ -106,10 +103,7 @@ export const MissionCostChip = observer(function MissionCostChip({
   if (view?.state !== 'costed') return null
   const { rollup } = view
   return (
-    <Popover.Root
-      open={open}
-      onOpenChange={setOpen}
-    >
+    <Popover.Root open={open} onOpenChange={setOpen}>
       <Popover.Trigger
         data-testid="mission-cost-chip"
         className={cn(
@@ -132,7 +126,7 @@ export const MissionCostChip = observer(function MissionCostChip({
             // keyboard, the panel takes it, which is the point of that gesture.
             initialFocus={(openType) => (openType === 'keyboard' ? undefined : false)}
           >
-            <MissionCostBreakdown view={view} onOpenInExplorer={onOpenInExplorer} />
+            <MissionCostBreakdown view={view} />
           </Popover.Popup>
         </Popover.Positioner>
       </Popover.Portal>
@@ -147,18 +141,10 @@ export const MissionCostChip = observer(function MissionCostChip({
  * sentence appear — outside it the figure stays rounded and prefixed, because
  * the rounding IS the provenance. Both behaviours the operator asked for live
  * in one control rather than two competing ones: the panel answers the question
- * where it was asked, and its last line is the door to the explorer for anyone
- * who wants the full page. That ordering is the whole point — most of the time
- * "what has this mission cost" is a glance, not a visit, and the cheap answer
- * must not cost a navigation.
+ * where it was asked. Most of the time "what has this mission cost" is a glance,
+ * not a visit, and the cheap answer must not cost a navigation.
  */
-function MissionCostBreakdown({
-  view,
-  onOpenInExplorer,
-}: {
-  view: TaskCostView
-  onOpenInExplorer: () => void
-}): JSX.Element {
+function MissionCostBreakdown({ view }: { view: TaskCostView }): JSX.Element {
   const { own, rollup, descendantCount } = view
   const childrenUsd = Math.max(0, rollup.estCostUsd - own.estCostUsd)
   const attribution = view.floor === 'partial' ? costHarnessLabel(view.harnesses) : null
@@ -272,17 +258,6 @@ function MissionCostBreakdown({
           </div>
         )}
       </div>
-
-      <Popover.Close
-        className="-mx-[5px] flex items-center rounded-md px-[5px] py-[4.5px] text-left text-[11.5px] text-text-dim outline-none hover:bg-hairline-soft hover:text-text-strong focus-visible:bg-hairline-soft focus-visible:text-text-strong"
-        onClick={onOpenInExplorer}
-        data-testid="mission-cost-open"
-      >
-        Open in explorer
-        <span aria-hidden="true" className="ml-1">
-          →
-        </span>
-      </Popover.Close>
     </div>
   )
 }

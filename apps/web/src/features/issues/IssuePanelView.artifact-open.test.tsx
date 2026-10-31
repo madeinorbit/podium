@@ -6,6 +6,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { makeIssue } from '@/lib/test-issue'
 import { IssuePanelView } from './IssuePanelView'
+import { IssueAgentActivity } from './issue-page/IssueAgentActivity'
 
 // Snapshotted artifact ([spec:SP-0fc9]) on an issue whose repoPath exists:
 // clicking must open the permanent snapshot as an in-app artifact file tab,
@@ -24,6 +25,9 @@ const ISSUE = makeIssue({
     artifacts: [
       { path: 'proof.html', title: 'Proof', addedAt: '2026-07-14', artifactId: 'art1' },
       { path: 'legacy.html', title: 'Legacy', addedAt: '2026-07-14' },
+      { path: 'first.png', title: 'First image', addedAt: '2026-07-14', artifactId: 'art2' },
+      { path: 'clip.mp4', title: 'Video clip', addedAt: '2026-07-14', artifactId: 'art3' },
+      { path: 'last.png', title: 'Last image', addedAt: '2026-07-14', artifactId: 'art4' },
     ],
   },
 })
@@ -66,6 +70,25 @@ afterEach(() => {
 })
 
 describe('IssuePanelView artifact click', () => {
+  it.each([
+    'sidebar',
+    'issue page',
+  ])('navigates media from the selected entry in the %s', (surface) => {
+    render(
+      surface === 'sidebar' ? <IssuePanelView cwd="/r" /> : <IssueAgentActivity issue={ISSUE} />,
+    )
+    fireEvent.click(screen.getByTitle('Play Video clip'))
+    expect(screen.getByRole('dialog').querySelector('video')?.getAttribute('src')).toContain(
+      '/art3/clip.mp4',
+    )
+    fireEvent.keyDown(window, { key: 'ArrowRight' })
+    expect(screen.getByRole('dialog').querySelector('img')?.alt).toBe('Last image')
+    fireEvent.click(screen.getByLabelText('Next artifact'))
+    expect(screen.getByRole('dialog').querySelector('img')?.alt).toBe('First image')
+    expect(openArtifact).not.toHaveBeenCalled()
+    expect(openFileInWorktree).not.toHaveBeenCalled()
+  })
+
   it('opens a snapshotted artifact as an in-app artifact tab, not a worktree tab or window', () => {
     const open = vi.spyOn(window, 'open').mockReturnValue(null)
     render(<IssuePanelView cwd="/r" />)

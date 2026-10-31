@@ -8,21 +8,20 @@
  * the assertion is about feed scoping, not SQLite.
  */
 
-import { asCapabilityRef, asDeviceId } from '@podium/protocol'
-import { type Principal } from '@podium/protocol'
 import {
   asUserId,
+  type LayoutSnapshot,
   layoutRowId,
   parseLayoutRowId,
-  type LayoutSnapshot,
   type UserId,
 } from '@podium/model'
+import { asCapabilityRef, asDeviceId, type Principal } from '@podium/protocol'
 import {
   Authority,
   DeviceGradeNoAnchors,
   GrantEdgeVisibilityPolicy,
-  type VisibilityStatePort,
   NoDelegationsGranted,
+  type VisibilityStatePort,
 } from '@podium/sync'
 import { describe, expect, it } from 'vitest'
 import { LayoutService } from './service'
@@ -135,6 +134,10 @@ function build() {
   const service = new LayoutService({
     layout: repo as never,
     ledger: {
+      reconcile: async (entity, rows) => {
+        await authority.reconcile(entity, rows)
+        return []
+      },
       capture: async (specs) => {
         await authority.capture(
           specs.map((s) => ({

@@ -487,4 +487,25 @@ describe('IssueGitScope', () => {
 
     expect(screen.queryByText(/26 dirty/)).toBeNull()
   })
+
+  it('reports no delivery pending on a merged branch (POD-2151)', () => {
+    const stale = {
+      updatedAt: '2026-10-26T00:00:00.000Z',
+      branch: 'issue/2125-x',
+      shared: false,
+      ahead: 1,
+      dirtyFiles: 0,
+    }
+    const { rerender } = render(<IssueGitScope issue={makeIssue({ gitState: stale })} />)
+    expect(screen.getByText(/1 commit awaiting delivery/)).toBeTruthy()
+    rerender(<IssueGitScope issue={makeIssue({ gitState: { ...stale, merged: true } })} />)
+    expect(screen.queryByText(/awaiting delivery/)).toBeNull()
+    // Shared-checkout attribution still counts the task's own commits.
+    rerender(
+      <IssueGitScope
+        issue={makeIssue({ gitState: { ...stale, shared: true, commits: ['a1', 'b2'] } })}
+      />,
+    )
+    expect(screen.getByText(/2 commits awaiting delivery/)).toBeTruthy()
+  })
 })

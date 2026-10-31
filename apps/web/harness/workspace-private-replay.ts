@@ -4,10 +4,6 @@ import { hostname } from 'node:os'
 
 if (hostname() !== 'ludovico') throw new Error('Counts replay requires ludovico')
 const lanes = [
-  ['sidebar', 'tests/worklist/harness/src/oracle/sidebar-replay.ts', '--live'],
-  ['mission', 'tests/worklist/harness/src/oracle/mission-view-replay.ts'],
-  ['issuePage', 'tests/worklist/harness/src/oracle/issue-page-replay.ts'],
-  ['session', 'tests/worklist/diagnostics/session-pane-replay.ts'],
   ['board', 'apps/web/harness/issue-board-replay.ts'],
 ] as const
 const fields = new Set([

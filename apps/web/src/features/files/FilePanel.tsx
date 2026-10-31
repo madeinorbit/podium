@@ -1,6 +1,7 @@
 import type { FileScope } from '@podium/client-core/values'
 import type { JSX } from 'react'
 import { AssetFilePanel } from './AssetFilePanel'
+import { isArtifactsTabScope } from './artifacts-tab-id'
 import { fileKindForPath } from './file-kind'
 import { HtmlFilePanel } from './HtmlFilePanel'
 import { JsonFilePanel } from './JsonFilePanel'
@@ -15,7 +16,10 @@ export function FilePanel({
   scope: FileScope
   path: string
   onClose: () => void
-}): JSX.Element {
+}): JSX.Element | null {
+  // The Artifacts index's sentinel scope has no bytes behind it (POD-2078):
+  // never mount a reader for it, whichever route handed it here.
+  if (isArtifactsTabScope(scope)) return null
   const kind = fileKindForPath(path)
   if (kind === 'html') {
     return <HtmlFilePanel scope={scope} path={path} onClose={onClose} />

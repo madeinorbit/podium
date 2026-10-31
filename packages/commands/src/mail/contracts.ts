@@ -741,9 +741,15 @@ export const mailStatusContract: CommandContract<typeof mailStatusInput> = {
 /** How many message ids one `mail.records` read may name. */
 export const MAIL_RECORDS_MAX_IDS = 100
 
-export const mailRecordsInput = z.object({
-  ids: z.array(z.string().min(1)).min(1).max(MAIL_RECORDS_MAX_IDS),
-})
+export const mailRecordsInput = z.union([
+  z.object({ ids: z.array(z.string().min(1)).min(1).max(MAIL_RECORDS_MAX_IDS) }),
+  // History previews need the same authoritative records after they leave
+  // the feed. Scope provider item ids to their session, never to their text.
+  z.object({
+    sessionId: SessionIdField,
+    transcriptItemIds: z.array(z.string().min(1)).min(1).max(MAIL_RECORDS_MAX_IDS),
+  }),
+])
 
 /**
  * A DEVICE CATCHES UP ON ITS OWN MESSAGES, BY ID (POD-4811). The feed carries a
@@ -754,6 +760,8 @@ export const mailRecordsInput = z.object({
  * would carry it (with `noticeDismissedAt` once its sender let a notice go).
  * An id it does not name is one the server has no row for — or none this
  * caller may see; the two are the same answer.
+ * A transcript window may instead name its session and item ids to retrieve
+ * saved attachment records that have left the live feed, under the same rule.
  */
 export const mailRecordsContract: CommandContract<typeof mailRecordsInput> = {
   name: 'mail.records',

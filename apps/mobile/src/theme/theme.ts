@@ -31,8 +31,7 @@ export const appearancePalette = {
  * Ink ramp, so this native migration does not repaint unsupported renderers.
  *
  * Bisque is the primary action and attention signal, blue means active work,
- * red is destructive, and terracotta identifies Claude. Issue accents remain
- * distinct from those reserved signals and are derived in issueColors.ts.
+ * red is destructive, and terracotta identifies Claude.
  */
 export const color = {
   // UIKit owns the structural chassis and resolves appearance and contrast.
@@ -101,7 +100,7 @@ export const color = {
   // Legacy alias
   accentText: '#16171a',
 
-  // Attention semantics — reserved hues, never issue colours
+  // Attention semantics — semantic signal colors
   needsYou: '#d9b477',
   needsYouSoft: 'rgba(217, 180, 119, 0.12)',
   needsYouBorder: 'rgba(217, 180, 119, 0.4)',
@@ -131,9 +130,6 @@ export const color = {
   /** Claude brand terracotta. */
   claude: '#d97757',
   claudeText: adaptiveColor('#9f3e23', '#e58d70', '#7e311c', '#ecaa94'),
-  /** Neutral no-colour issue flow — a TRUE grey, not slate: a blue-grey
-   *  default tint over neutral ink reads as an issue colour nobody chose. */
-  flow: '#949aa4',
 
   // Chat
   userBubbleGradient: ['#2452c9', '#1c41a4'] as const,

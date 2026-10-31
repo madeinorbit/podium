@@ -541,6 +541,34 @@ it('renders the Bash input as coloured inline text when a work run opens', () =>
   expect(getComputedStyle(description as HTMLElement).whiteSpace).toBe('nowrap')
 })
 
+// POD-2143: an oversized mail reaches the agent as a one-line inbox pointer
+// with no body. The phone shows it as an envelope that says where the body
+// went — never an empty card, never the person's own bubble.
+it('renders an inbox pointer as an envelope that says where its body went', () => {
+  render(
+    <TranscriptList
+      transcriptQuestion={null}
+      live={false}
+      onAnswer={async () => {}}
+      items={[
+        {
+          id: 'pointer',
+          role: 'user',
+          text:
+            "[podium] 1 message(s) from issue:POD-2128 (msg_big) — run 'podium issue mail inbox' to read them, " +
+            'then close your turn without repeating your last answer: no message if they needed ' +
+            'nothing or only a reply, one sentence if you acted on them, more only if they change ' +
+            'what you told the human; leave your standing offer as it is',
+        },
+      ]}
+    />,
+  )
+  expect(screen.getByText('Internal')).toBeTruthy()
+  expect(screen.getByText(/Delivered via the inbox/)).toBeTruthy()
+  expect(screen.getByText(/podium mail show msg_big/)).toBeTruthy()
+  expect(screen.queryByText(/podium issue mail inbox/)).toBeNull()
+})
+
 /**
  * WHAT A SENT BUBBLE SAYS (POD-4764). A message the server handed on toward the
  * agent used to read "sending…" until its text matched a transcript entry —

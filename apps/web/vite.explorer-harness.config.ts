@@ -1,4 +1,4 @@
-// Throwaway harness config for the task explorer — see harness/explorer-entry.tsx.
+// Throwaway harness config for the dock task panel — see harness/dock-launch-entry.tsx.
 // Same shape as vite.issue-page-harness.config.ts: `app/store` is redirected to a
 // stub by RESOLVED PATH rather than by specifier, so `./store` from inside src/app
 // and `@/app/store` from everywhere else both land on it.

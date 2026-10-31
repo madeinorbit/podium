@@ -1,4 +1,3 @@
-import { omitGone } from '@podium/client-graph/lookup'
 /** POD-5133 heap-ownership fixture. The same synthetic assembly and sidebar
  * surface as the POD-4959 memory cells (sidebar-acceptance.browser.tsx with
  * measure=0), with no measurement hooks. It adds only `__memory.holdOwners()`:
@@ -8,9 +7,15 @@ import { omitGone } from '@podium/client-graph/lookup'
 import type { PodiumClientApi } from '@podium/client-core/api'
 import { type ClientRuntime, openKernelEngineOutbox } from '@podium/client-core/engine'
 import { asClientPrincipal } from '@podium/client-core/principal'
-import { StoreProvider, useStoreHandle, useRuntimeSelector } from '@podium/client-core/react'
-import { createKernelReplica, createSideCache, replicaNamespaceKey, retainReplicaEntity } from '@podium/client-core/replica'
+import { StoreProvider, useRuntimeSelector, useStoreHandle } from '@podium/client-core/react'
+import {
+  createKernelReplica,
+  createSideCache,
+  replicaNamespaceKey,
+  retainReplicaEntity,
+} from '@podium/client-core/replica'
 import type { MobxPool } from '@podium/client-graph'
+import { omitGone } from '@podium/client-graph/lookup'
 import { asUserId } from '@podium/model/browser'
 import { IndexedDbSyncStore } from '@podium/sync/adapters/indexeddb'
 import { useEffect } from 'react'
@@ -26,7 +31,7 @@ import { CommandPaletteBoundary } from '../src/app/CommandPaletteBoundary'
 import { OperatorFocusProvider } from '../src/app/operator-focus'
 import { attachWorklistPool, useWorklistPool } from '../src/app/store-worklist-pool'
 import { TooltipProvider } from '../src/components/ui/tooltip'
-import { IssueExplorerProvider } from '../src/features/issues/explorer/explorer-context'
+import { DockIssueProvider } from '../src/features/issues/dock-issue'
 import { SidebarUnified } from '../src/features/worklist/SidebarUnified'
 import { ConfirmProvider } from '../src/lib/hooks/use-confirm'
 import '../src/index.css'
@@ -127,23 +132,21 @@ function Fixture() {
   graph = pool
   useEffect(() => {
     ready = false
-    void runtime.access
-      .refreshRepos()
-      .then(() => {
-        ready = pool !== null
-      })
+    void runtime.access.refreshRepos().then(() => {
+      ready = pool !== null
+    })
     return () => {
       ready = false
     }
   }, [runtime, pool])
   return (
     <OperatorFocusProvider missionId={selected}>
-      <IssueExplorerProvider>
+      <DockIssueProvider>
         <CommandPaletteBoundary />
         <div className="desktop-shell">
           <div className="desktop-shell-row" style={{ height: '100vh' }}>
             <aside
-              data-sidebar-shell
+              data-worklist-fixture
               style={{ width: 300, flexShrink: 0 }}
               className="worklist-column flex w-[300px] flex-none flex-col"
             >
@@ -151,7 +154,7 @@ function Fixture() {
             </aside>
           </div>
         </div>
-      </IssueExplorerProvider>
+      </DockIssueProvider>
     </OperatorFocusProvider>
   )
 }
@@ -220,8 +223,12 @@ const memory = {
         .join('')
     }
     return {
-      models: await hash(graph?.queries.ids({ kind: 'commandIssues' }).map(id => omitGone(graph!.row('issue', id, 'peek')))),
-      sidebar: await hash(document.querySelector('[data-sidebar-shell]')?.textContent),
+      models: await hash(
+        graph?.queries
+          .ids({ kind: 'commandIssues' })
+          .map((id) => omitGone(graph!.row('issue', id, 'peek'))),
+      ),
+      sidebar: await hash(document.querySelector('[data-worklist-fixture]')?.textContent),
       visible: await hash(
         [...document.querySelectorAll('[data-issue-row]')].map((row) =>
           row.getAttribute('data-issue-row'),

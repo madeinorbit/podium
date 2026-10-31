@@ -1,33 +1,4 @@
-/**
- * THE APP'S DROPDOWN, IN THE HOUSE VOCABULARY (POD-1099).
- *
- * Base UI's menu, skinned from `lib/menu-surface` (POD-380) rather than from the
- * stock shadcn popover tokens it shipped with. It used to open on `--popover`
- * behind a `ring-foreground/10` hairline, `shadow-md`, `rounded-lg` and 14px
- * rows — a second overlay look that appeared a pixel from the session menu, the
- * issue menu and the colour picker, all of which already wore the preset.
- *
- * POD-1084 bridged one menu with a pair of opt-in constants
- * (`MENU_DROPDOWN_PANEL` / `MENU_DROPDOWN_ITEM`). POD-1099 moved the preset in
- * here instead, which is where it belongs: opting in per call site meant the
- * next dropdown anyone added still opened in the retired look, and the opt-in
- * pair could only reach panels and rows — a checkbox item, a radio item, a group
- * label and a separator had no bridge at all and stayed stock.
- *
- * Three details are load-bearing and were each found the hard way:
- *
- *  - The seam is a BORDER, not the stock RING. A border cannot override a ring,
- *    so the ring is not overridden here — it is gone.
- *  - `focus:` is stated everywhere `hover:` is. Base UI moves real DOM focus to
- *    the highlighted row, so arrow-key navigation lights `focus:` while the
- *    pointer lights `hover:`; painting only one leaves keyboard and mouse
- *    showing the same row in two different colours.
- *  - An un-classed glyph is sized by CSS, not by its `size={n}` prop:
- *    `[&_svg:not([class*='size-'])]:size-3.5` beats the prop's width/height
- *    attributes. 14px is the house text column, so the default lands right; a
- *    glyph that must be smaller (a status dot, a lock) says so with a `size-`
- *    class, which is the one thing the rule yields to.
- */
+
 import { Menu as MenuPrimitive } from '@base-ui/react/menu'
 import { CheckIcon, ChevronRightIcon } from 'lucide-react'
 import type * as React from 'react'

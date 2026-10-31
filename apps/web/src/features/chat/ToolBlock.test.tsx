@@ -1,6 +1,7 @@
-import { asSessionId, type TranscriptItem } from '@podium/model/browser'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { presentToolBlock } from '@podium/client-core/values'
+import { asSessionId, type TranscriptItem } from '@podium/model/browser'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -39,7 +40,11 @@ function mount(input: Partial<TranscriptItem>): void {
   act(() => {
     root.render(
       <ToolBlock
-        block={{ item: { id: 'bash', role: 'tool', text: '', toolName: 'Bash', ...input } }}
+        // Blocks reach the row through the compute path, which precomputes
+        // what the row lists (POD-2146).
+        block={presentToolBlock({
+          item: { id: 'bash', role: 'tool', text: '', toolName: 'Bash', ...input },
+        })}
         sessionId={asSessionId('s1')}
         cwd="/repo"
         openFile={() => {}}
@@ -315,4 +320,96 @@ it('defers folded edit-body work across streamed results and unfolds the latest 
       unfold: { resolve: editWork.resolve - folded.resolve, lines: editWork.lines - folded.lines },
     }),
   )
+})
+
+describe('Codex script rows', () => {
+  it('lists the script calls above its own output once unfolded', () => {
+    mount({
+      toolName: 'Script',
+      toolTitle: '2 actions',
+      toolInputJson: JSON.stringify({
+        kind: 'script-calls',
+        calls: [
+          { tool: 'Bash', input: 'git diff --stat' },
+          { tool: 'Edit', input: 'src/a.ts' },
+        ],
+      }),
+      toolResult: 'Script completed\nOutput:\n 1 file changed',
+    })
+    expect(host.querySelector('.tool-name')?.textContent).toBe('Script')
+    expect(host.querySelector('.tool-subject')?.textContent).toBe('2 actions')
+    expect(host.querySelector('.tool-script-calls')).toBeNull()
+
+    unfold()
+    const lines = [...host.querySelectorAll('.tool-script-calls li')].map((line) =>
+      [...line.children].map((part) => part.textContent),
+    )
+    expect(lines).toEqual([
+      ['Bash', 'git diff --stat'],
+      ['Edit', 'src/a.ts'],
+    ])
+    expect(
+      host.querySelector('.tool-script-calls .hljs-built_in, .tool-script-calls .tool-cmd'),
+    ).not.toBeNull()
+    expect(host.querySelector('pre.tool-result-full')?.textContent).toBe(
+      'Script completed\nOutput:\n 1 file changed',
+    )
+  })
+
+  describe('a mail send inside a script (POD-2146)', () => {
+    const send = `podium issue mail send POD-2128 --body 'Ready for review'`
+    const script = (toolResult: string): Partial<TranscriptItem> => ({
+      toolName: 'Script',
+      toolTitle: '3 commands',
+      toolInputJson: JSON.stringify({
+        kind: 'script-calls',
+        calls: [
+          { tool: 'Bash', input: 'git status' },
+          { tool: 'Bash', input: send },
+          { tool: 'Bash', input: 'podium issue mail inbox' },
+        ],
+      }),
+      toolResult,
+    })
+    const lines = (): (string | null)[][] =>
+      [...host.querySelectorAll('.tool-script-calls li')].map((line) =>
+        [...line.children].map((part) => part.textContent),
+      )
+
+    it('names the note when the output carries its receipt', () => {
+      mount(
+        script(
+          `Script completed\nOutput:\n${JSON.stringify({ exit_code: 0, output: 'mail DELIVERED to POD-2128 (msg_9) — confirmed' })}`,
+        ),
+      )
+      unfold()
+      expect(lines()).toEqual([
+        ['Bash', 'git status'],
+        ['Mail', 'Note to POD-2128 · Ready for review'],
+        ['Bash', 'podium issue mail inbox'],
+      ])
+    })
+
+    it('keeps the shell line without a receipt, or when the script failed', () => {
+      for (const result of [
+        'Script completed\nOutput:\npodium: relay unavailable',
+        'Script failed\nOutput:\nmail DELIVERED to POD-2128 (msg_9) — confirmed',
+      ]) {
+        mount(script(result))
+        unfold()
+        expect(lines()[1], result).toEqual(['Bash', send])
+        act(() => root.render(null))
+      }
+    })
+  })
+
+  it('marks a failed script as failed', () => {
+    mount({
+      toolName: 'Script',
+      toolTitle: '2 commands',
+      toolResult:
+        'Script failed\nWall time 0.2 seconds\nOutput:\n\nScript error:\nexec_command failed',
+    })
+    expect(host.querySelector('.tool-block')?.getAttribute('data-verdict')).toBe('err')
+  })
 })

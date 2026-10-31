@@ -1,0 +1,229 @@
+body {
+  margin: 0;
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+}
+.demo-page {
+  padding: 30px 42px;
+  max-width: 1440px;
+  margin: auto;
+}
+.demo-heading {
+  display: flex;
+  align-items: center;
+  gap: 28px;
+  height: 44px;
+  color: var(--muted-foreground);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+}
+.demo-wordmark {
+  font: 600 22px var(--font-sans);
+  letter-spacing: -0.06em;
+  color: var(--foreground);
+}
+.demo-heading a {
+  margin-left: auto;
+}
+.demo-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 24px 0 18px;
+  font-size: 11px;
+}
+.demo-controls strong {
+  margin-right: 8px;
+  font-weight: 500;
+}
+.demo-controls a,
+.demo-controls button {
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 6px 9px;
+  background: var(--card);
+  text-decoration: none;
+  cursor: pointer;
+  font: inherit;
+}
+.demo-workspace {
+  display: flex;
+  height: 620px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 12px 50px #00000006;
+}
+.demo-sidebar {
+  display: flex;
+  flex-direction: column;
+  width: 214px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--border);
+  background: var(--sidebar);
+}
+.demo-sidebar-title {
+  display: flex;
+  justify-content: space-between;
+  margin: 22px 18px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.demo-sidebar-title span {
+  color: var(--muted-foreground);
+}
+.demo-task {
+  margin: 0 8px 8px;
+  border-radius: 6px;
+  padding: 12px 10px;
+  background: var(--accent);
+  font-size: 11px;
+}
+.demo-task small {
+  display: block;
+  color: var(--primary);
+  margin: 6px 0 0 12px;
+  font-size: 10px;
+}
+.demo-task.muted {
+  background: transparent;
+  color: var(--muted-foreground);
+}
+.demo-task-dot {
+  display: inline-block;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--primary);
+  margin: 0 7px 2px 0;
+}
+.demo-sidebar-space {
+  flex: 1;
+}
+.demo-main {
+  flex: 1;
+  min-width: 0;
+  background: var(--background);
+}
+.demo-breadcrumb {
+  padding: 22px 28px;
+  border-bottom: 1px solid var(--border);
+  font: 9px var(--font-mono);
+  letter-spacing: 0.07em;
+  color: var(--muted-foreground);
+}
+.demo-breadcrumb span {
+  margin: 0 10px;
+}
+.demo-composition {
+  margin: 64px 0 0 56px;
+  max-width: 490px;
+}
+.demo-kicker {
+  font: 9px var(--font-mono);
+  letter-spacing: 0.12em;
+  color: var(--primary);
+}
+.demo-composition h1 {
+  margin: 15px 0 10px;
+  font-size: 28px;
+  font-weight: 500;
+  letter-spacing: -0.045em;
+}
+.demo-intro {
+  color: var(--muted-foreground);
+  font-size: 12px;
+  margin-bottom: 27px;
+}
+.demo-composer {
+  width: 385px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--card);
+}
+.demo-composer textarea {
+  display: block;
+  resize: none;
+  width: 100%;
+  height: 100px;
+  padding: 18px;
+  border: 0;
+  border-radius: 10px;
+  outline: none;
+  font: 13px var(--font-sans);
+  color: var(--foreground);
+  background: transparent;
+}
+.demo-composer > div {
+  display: flex;
+  justify-content: space-between;
+  padding: 12px;
+  align-items: center;
+  color: var(--muted-foreground);
+  font-size: 10px;
+}
+.demo-composer button {
+  background: var(--primary);
+  color: var(--primary-foreground);
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+}
+.demo-offer {
+  width: 280px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  margin-top: 30px;
+  padding: 15px;
+}
+.demo-offer > span {
+  font: 8px var(--font-mono);
+  color: var(--muted-foreground);
+  letter-spacing: 0.08em;
+}
+.demo-offer p {
+  font-size: 11px;
+  margin: 10px 0;
+}
+.demo-offer button {
+  font-size: 10px;
+  color: var(--primary);
+  cursor: pointer;
+}
+.demo-notes {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 18px;
+  font-size: 10px;
+  color: var(--muted-foreground);
+}
+.demo-help {
+  font-size: 10px;
+  color: var(--muted-foreground);
+  margin-top: 20px;
+}
+.motion-reduced {
+  display: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .motion-standard {
+    display: none;
+  }
+  .motion-reduced {
+    display: inline;
+  }
+}
+.demo-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.demo-legend span {
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 3px 5px;
+  font-size: 9px;
+  color: var(--muted-foreground);
+}

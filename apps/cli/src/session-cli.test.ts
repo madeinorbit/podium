@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
+import { ALL_ISSUE_STATUSES, isIssueStage } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import { parseSessionArgs, runSessionCli, type SessionControlClient } from './session-cli'
 
@@ -352,6 +353,21 @@ describe('podium session title (#490)', () => {
 })
 
 describe('podium session status/read (#237 read toolkit)', () => {
+  it.each(ALL_ISSUE_STATUSES)('status names the bound task as %s', async status => {
+    const out = await runSessionCli(['status', 's1'], client(undefined, undefined, undefined, {
+      ...STATUS,
+      issue: { ...STATUS.issue, stage: isIssueStage(status) ? status : 'done',
+        closedReason: isIssueStage(status) ? undefined : status },
+    }))
+    expect(out).toContain(`issue #7 [${status}] T`)
+  })
+
+  it('status canonicalizes legacy cancelled tasks', async () => {
+    const out = await runSessionCli(['status', 's1'], client(undefined, undefined, undefined, {
+      ...STATUS, issue: { ...STATUS.issue, stage: 'done', closedReason: 'wontfix' },
+    }))
+    expect(out).toContain('issue #7 [cancelled] T')
+  })
   it('status renders phase, issue, commits, files, and the unacked count', async () => {
     const c = client()
     const out = await runSessionCli(['status', 's1'], c)

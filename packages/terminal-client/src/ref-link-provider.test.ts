@@ -1,4 +1,6 @@
 // @vitest-environment happy-dom
+
+import { ALL_ISSUE_STATUSES, ISSUE_STATUS_LABELS } from '@podium/model'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { BufferLike, Cell } from './buffer-line'
 import { findRefMatches, makeRefLinkProvider } from './ref-link-provider'
@@ -49,6 +51,25 @@ describe('findRefMatches', () => {
     expect(m[0]?.cells[0]?.x).toBe(2)
     expect(m[0]?.cells[m[0].cells.length - 1]?.x).toBe(7)
     expect(m[0]?.cells.map((c) => c.char).join('')).toBe('POD-13')
+  })
+})
+
+it.each(ALL_ISSUE_STATUSES)('names the %s status in the terminal hover hint', (status) => {
+  const provider = makeRefLinkProvider(
+    () => fakeBuf(['POD-13']),
+    () => ({
+      isKnownPrefix: known,
+      onActivate: () => {},
+      resolveStatus: () => status,
+    }),
+  )
+  provider.provideLinks(1, (links) => {
+    const event = new MouseEvent('mousemove', { clientX: 20, clientY: 20 })
+    links?.[0]?.hover?.(event, 'POD-13')
+    expect(document.body.lastElementChild?.textContent).toMatch(
+      `${ISSUE_STATUS_LABELS[status]} · Click to preview`,
+    )
+    links?.[0]?.leave?.(event, 'POD-13')
   })
 })
 

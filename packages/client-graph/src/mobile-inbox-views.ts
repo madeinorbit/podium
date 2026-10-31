@@ -47,6 +47,7 @@ export function createMobileInboxViews(pool: MobxPool) {
             issueId: null,
             title: null,
             stage: null,
+            status: null,
             availability: 'unavailable',
             accessibleLabel: `Task ${token.trim()} is unavailable`,
           }

@@ -1,3 +1,4 @@
+import { forgetTranscriptPositions } from '@podium/client-core/react/transcript-scroll'
 import { asSessionId } from '@podium/model'
 import { act, type ReactNode, useRef } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
@@ -108,6 +109,27 @@ function scrollTo(offset: number): void {
   })
 }
 
+/** Browsers round scroll writes and clamp an old offset when the range shrinks. */
+function useRoundedScrollOffsets(): void {
+  const element = scroller()
+  let offset = element.scrollTop
+  const maximum = () => Math.max(0, Math.round(element.scrollHeight) - element.clientHeight)
+  Object.defineProperty(element, 'scrollTop', {
+    configurable: true,
+    get() {
+      offset = Math.max(0, Math.min(maximum(), offset))
+      return offset
+    },
+    set(value: number) {
+      offset = Math.max(0, Math.min(maximum(), Math.round(value)))
+    },
+  })
+}
+
+function deliverScroll(): void {
+  act(() => scroller().dispatchEvent(new Event('scroll', { bubbles: true })))
+}
+
 function renderHarness(node: ReactNode): void {
   act(() => root.render(node))
   // The browser delivers the initial/change observation after layout.
@@ -150,10 +172,13 @@ beforeEach(() => {
           targets: this.targets,
           notify: () =>
             callback(
-              [...this.targets].map((target) => ({
-                target,
-                contentRect: target.getBoundingClientRect(),
-              }) as ResizeObserverEntry),
+              [...this.targets].map(
+                (target) =>
+                  ({
+                    target,
+                    contentRect: target.getBoundingClientRect(),
+                  }) as ResizeObserverEntry,
+              ),
               this as unknown as ResizeObserver,
             ),
         })
@@ -202,6 +227,7 @@ beforeEach(() => {
 
 afterEach(() => {
   act(() => root.unmount())
+  forgetTranscriptPositions()
   host.remove()
   window.getSelection()?.removeAllRanges()
   vi.restoreAllMocks()
@@ -315,36 +341,39 @@ describe('transcript scrolling', () => {
     act(() => scroller().dispatchEvent(new WheelEvent('wheel', { deltaY: -100, bubbles: true })))
     expect(loadOlder).toHaveBeenCalledTimes(1)
   })
-  it.each(['wheel', 'touch', 'keyboard'])(
-    'requests history from %s input at the top even when the loaded page cannot scroll',
-    (input) => {
-      const keys = held.slice(0, 2)
-      const moveUp = () => {
-        if (input === 'wheel') {
-          scroller().dispatchEvent(new WheelEvent('wheel', { deltaY: -100, bubbles: true }))
-        } else if (input === 'keyboard') {
-          scroller().dispatchEvent(new KeyboardEvent('keydown', { key: 'PageUp', bubbles: true }))
-        } else {
-          scroller().dispatchEvent(
-            Object.assign(new Event('touchstart', { bubbles: true }), { touches: [{ clientY: 100 }] }),
-          )
-          scroller().dispatchEvent(
-            Object.assign(new Event('touchmove', { bubbles: true }), { touches: [{ clientY: 160 }] }),
-          )
-        }
+  it.each([
+    'wheel',
+    'touch',
+    'keyboard',
+  ])('requests history from %s input at the top even when the loaded page cannot scroll', (input) => {
+    const keys = held.slice(0, 2)
+    const moveUp = () => {
+      if (input === 'wheel') {
+        scroller().dispatchEvent(new WheelEvent('wheel', { deltaY: -100, bubbles: true }))
+      } else if (input === 'keyboard') {
+        scroller().dispatchEvent(new KeyboardEvent('keydown', { key: 'PageUp', bubbles: true }))
+      } else {
+        scroller().dispatchEvent(
+          Object.assign(new Event('touchstart', { bubbles: true }), {
+            touches: [{ clientY: 100 }],
+          }),
+        )
+        scroller().dispatchEvent(
+          Object.assign(new Event('touchmove', { bubbles: true }), { touches: [{ clientY: 160 }] }),
+        )
       }
-      renderHarness(<Harness keys={keys} moreAbove />)
-      expect(scroller().scrollHeight).toBeLessThan(viewport)
-      expect(loadOlder).not.toHaveBeenCalled()
-      act(moveUp)
-      expect(loadOlder).toHaveBeenCalledTimes(1)
-      expect(api.atBottom).toBe(false)
-      // No scroll event is dispatched: a browser cannot move this short page.
-      renderHarness(<Harness keys={keys} moreAbove loadingOlder />)
-      act(moveUp)
-      expect(loadOlder).toHaveBeenCalledTimes(1)
-    },
-  )
+    }
+    renderHarness(<Harness keys={keys} moreAbove />)
+    expect(scroller().scrollHeight).toBeLessThan(viewport)
+    expect(loadOlder).not.toHaveBeenCalled()
+    act(moveUp)
+    expect(loadOlder).toHaveBeenCalledTimes(1)
+    expect(api.atBottom).toBe(false)
+    // No scroll event is dispatched: a browser cannot move this short page.
+    renderHarness(<Harness keys={keys} moreAbove loadingOlder />)
+    act(moveUp)
+    expect(loadOlder).toHaveBeenCalledTimes(1)
+  })
   it('does not accumulate small fractional reflows into a visible drift', () => {
     renderHarness(<Harness />)
     scrollTo(320)
@@ -353,6 +382,167 @@ describe('transcript scrolling', () => {
       resize()
     }
     expect(top('row-3')).toBeCloseTo(-20)
+  })
+
+  describe('browser rounding and clamping', () => {
+    it('keeps the reading row when shrinking content clamps the current offset', () => {
+      renderHarness(<Harness moreAbove />)
+      useRoundedScrollOffsets()
+      scrollTo(820)
+      heights.set('row-0', 50)
+      expect(scroller().scrollTop).toBe(790)
+      resize()
+      deliverScroll()
+      resize()
+      expect(scroller().scrollTop).toBe(770)
+      expect(top('row-8')).toBe(-20)
+      expect(api.atBottom).toBe(false)
+      expect(loadOlder).not.toHaveBeenCalled()
+    })
+
+    it('preserves pending reader movement below the new boundary without inventing a clamp', () => {
+      renderHarness(<Harness />)
+      useRoundedScrollOffsets()
+      scrollTo(820)
+      scroller().scrollTop = 720
+      heights.set('row-0', 50)
+      expect(scroller().scrollTop).toBe(720)
+      resize()
+      deliverScroll()
+      expect(scroller().scrollTop).toBe(670)
+      expect(top('row-8')).toBe(80)
+      expect(api.atBottom).toBe(false)
+    })
+
+    it('keeps a new reading position established after a clamp correction', () => {
+      renderHarness(<Harness />)
+      useRoundedScrollOffsets()
+      scrollTo(820)
+      heights.set('row-0', 50)
+      resize()
+      deliverScroll()
+      scrollTo(600)
+      resize()
+      deliverScroll()
+      expect(scroller().scrollTop).toBe(600)
+    })
+
+    it.each([
+      0.4, -0.4,
+    ])('retains fractional corrections of %s through own and duplicate events', (step) => {
+      renderHarness(<Harness />)
+      useRoundedScrollOffsets()
+      scrollTo(320)
+      for (let index = 1; index <= 30; index++) {
+        heights.set('row-0', 100 + index * step)
+        heights.set('row-11', 100 - index * step)
+        resize()
+        deliverScroll()
+        deliverScroll()
+        resize()
+        expect(Math.abs(top('row-3') + 20)).toBeLessThanOrEqual(0.5)
+      }
+      expect(api.atBottom).toBe(false)
+    })
+
+    it.each([
+      'wheel',
+      'keyboard',
+      'offset',
+      'block',
+    ])('adopts %s navigation after a fractional correction', (input) => {
+      renderHarness(<Harness />)
+      useRoundedScrollOffsets()
+      scrollTo(320)
+      heights.set('row-0', 100.4)
+      resize()
+      if (input === 'wheel') scrollTo(480)
+      else if (input === 'keyboard') {
+        act(() =>
+          scroller().dispatchEvent(
+            new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }),
+          ),
+        )
+        scroller().scrollTop = 480
+      } else if (input === 'offset') act(() => api.scrollToOffset(480))
+      else {
+        scroller().scrollTo = (options) => {
+          scroller().scrollTop = typeof options === 'number' ? options : (options?.top ?? 0)
+        }
+        act(() => api.scrollToBlock(6, { instant: true }))
+      }
+      deliverScroll()
+      const position = scroller().scrollTop
+      resize()
+      deliverScroll()
+      expect(scroller().scrollTop).toBe(position)
+      expect(api.atBottom).toBe(false)
+    })
+
+    it('adopts browser navigation without wheel intent after a fractional correction', () => {
+      renderHarness(<Harness />)
+      useRoundedScrollOffsets()
+      scroller().scrollTo = (options) => {
+        scroller().scrollTop = typeof options === 'number' ? options : (options?.top ?? 0)
+      }
+      act(() => api.scrollToBlock(6, { instant: true }))
+      deliverScroll()
+      heights.set('row-0', 100.4)
+      resize()
+      scroller().scrollTop = 600
+      deliverScroll()
+      resize()
+      expect(scroller().scrollTop).toBe(600)
+    })
+
+    it('does not retain unreachable movement as debt when the tail shrinks', () => {
+      renderHarness(<Harness />)
+      useRoundedScrollOffsets()
+      scrollTo(820)
+      tail = 0
+      resize()
+      deliverScroll()
+      expect(scroller().scrollTop).toBe(800)
+      tail = 200
+      resize()
+      expect(scroller().scrollTop).toBe(800)
+      expect(api.atBottom).toBe(false)
+    })
+
+    it('retains a fractional reading position when its row is rekeyed', () => {
+      renderHarness(<Harness />)
+      useRoundedScrollOffsets()
+      scrollTo(320)
+      heights.set('row-0', 100.4)
+      resize()
+      renderHarness(
+        <Harness
+          keys={[...held.slice(0, 3), 'merged', ...held.slice(4)]}
+          aliases={{ merged: ['row-3'] }}
+        />,
+      )
+      for (let index = 2; index <= 30; index++) {
+        heights.set('row-0', 100 + index * 0.4)
+        resize()
+        deliverScroll()
+      }
+      expect(Math.abs(top('merged') + 20)).toBeLessThanOrEqual(0.5)
+      expect(api.atBottom).toBe(false)
+    })
+
+    it('clears fractional reading corrections when jumping back to newest', () => {
+      renderHarness(<Harness />)
+      useRoundedScrollOffsets()
+      scrollTo(320)
+      heights.set('row-0', 100.4)
+      resize()
+      act(() => api.jumpToBottom())
+      deliverScroll()
+      tail += 200
+      resize()
+      expect(scroller().scrollTop).toBe(1040)
+      expect(api.atBottom).toBe(true)
+    })
   })
   it('finds the retained item when prepending merges it into a differently keyed tool row', () => {
     renderHarness(<Harness />)
@@ -371,8 +561,13 @@ describe('transcript scrolling', () => {
   it('resolves a rekeyed anchor through the retained model without a DOM alias list', () => {
     renderHarness(<Harness />)
     scrollTo(80)
-    const lookupAnchorRow = vi.fn((key: string) => key === 'row-0' ? 2 : undefined)
-    renderHarness(<Harness keys={['older-a', 'older-b', 'regrouped', ...held.slice(1)]} lookupAnchorRow={lookupAnchorRow} />)
+    const lookupAnchorRow = vi.fn((key: string) => (key === 'row-0' ? 2 : undefined))
+    renderHarness(
+      <Harness
+        keys={['older-a', 'older-b', 'regrouped', ...held.slice(1)]}
+        lookupAnchorRow={lookupAnchorRow}
+      />,
+    )
     expect(lookupAnchorRow).toHaveBeenCalledWith('row-0')
     expect(scroller().scrollTop).toBe(280)
     expect(top('regrouped')).toBe(-80)
@@ -470,16 +665,20 @@ describe('transcript scrolling', () => {
     const rich = row('row-0')
     const shell = document.createElement('div')
     shell.dataset.transcriptRow = 'row-0'
-    rich.replaceWith(shell); shell.append(rich)
+    rich.replaceWith(shell)
+    shell.append(rich)
     const original = vi.mocked(HTMLElement.prototype.getBoundingClientRect).getMockImplementation()!
-    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function(this: HTMLElement) {
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (
+      this: HTMLElement,
+    ) {
       if (this !== shell) return original.call(this)
       const box = original.call(shell.firstElementChild ?? shell)
       return rect(box.top - 24, box.height)
     })
     scrollTo(80)
     rich.remove()
-    shell.dataset.block = '0'; shell.dataset.rowKey = 'row-0'
+    shell.dataset.block = '0'
+    shell.dataset.rowKey = 'row-0'
     resize()
     expect(scroller().scrollTop).toBe(80)
   })
@@ -498,13 +697,20 @@ describe('transcript scrolling', () => {
     renderHarness(<Harness lookupAnchorRow={lookupAnchorRow} />)
     row('row-0').dataset.transcriptRow = 'row-0'
     scrollTo(80)
-    act(() => root.render(<Harness keys={['merged', ...held.slice(1)]} lookupAnchorRow={lookupAnchorRow} />))
+    act(() =>
+      root.render(
+        <Harness keys={['merged', ...held.slice(1)]} lookupAnchorRow={lookupAnchorRow} />,
+      ),
+    )
     const rich = row('merged')
     const shell = document.createElement('div')
     shell.dataset.transcriptRow = 'merged'
-    rich.replaceWith(shell); shell.append(rich)
+    rich.replaceWith(shell)
+    shell.append(rich)
     const original = vi.mocked(HTMLElement.prototype.getBoundingClientRect).getMockImplementation()!
-    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function(this: HTMLElement) {
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (
+      this: HTMLElement,
+    ) {
       if (this === shell) return original.call(rich)
       const box = original.call(this)
       return this === rich ? rect(box.top + 24, box.height - 24) : box
@@ -606,6 +812,91 @@ describe('transcript scrolling', () => {
     renderHarness(<Harness sessionId="session-2" />)
     expect(scroller().scrollTop).toBe(1040)
     expect(api.atBottom).toBe(true)
+  })
+
+  it('puts the anchor back when a revealed scroller comes back at another offset', () => {
+    renderHarness(<Harness />)
+    scrollTo(320)
+    renderHarness(<Harness active={false} />)
+    // WebKit can restore a display:none scroller to a stale offset on reveal.
+    scroller().scrollTop = 0
+    renderHarness(<Harness />)
+    expect(scroller().scrollTop).toBe(320)
+    expect(top('row-3')).toBe(-20)
+    expect(api.atBottom).toBe(false)
+  })
+
+  it('restores a revealed reader even while a composer has focus', () => {
+    renderHarness(<Harness />)
+    scrollTo(320)
+    renderHarness(<Harness active={false} />)
+    scroller().scrollTop = 0
+    act(() => host.querySelector<HTMLTextAreaElement>('[data-composer]')!.focus())
+    renderHarness(<Harness />)
+    expect(top('row-3')).toBe(-20)
+  })
+
+  it('keeps a scroll the browser makes after the reveal has settled', async () => {
+    renderHarness(<Harness />)
+    scrollTo(320)
+    renderHarness(<Harness active={false} />)
+    renderHarness(<Harness />)
+    await act(() => new Promise((done) => setTimeout(done, 100)))
+    // Native Find moves the reader with no wheel or key on the scroller.
+    act(() => {
+      scroller().scrollTop = 600
+      scroller().dispatchEvent(new Event('scroll', { bubbles: true }))
+    })
+    tail += 50
+    resize()
+    expect(scroller().scrollTop).toBe(600)
+  })
+
+  it('releases follow for a small shelf-forwarded step up from the tail', () => {
+    renderHarness(<Harness />)
+    act(() => api.scrollBy(-5))
+    expect(api.atBottom).toBe(false)
+    tail += 100
+    resize()
+    expect(scroller().scrollTop).toBe(835)
+  })
+
+  it('returns an evicted reader to its row, and opens at the tail without one', () => {
+    renderHarness(<Harness />)
+    scrollTo(320)
+    act(() => root.unmount())
+    root = createRoot(host)
+    tail += 200
+    renderHarness(<Harness keys={[...held, 'row-12']} />)
+    expect(top('row-3')).toBe(-20)
+    expect(api.atBottom).toBe(false)
+    act(() => root.unmount())
+    root = createRoot(host)
+    renderHarness(<Harness keys={held.slice(6)} />)
+    expect(api.atBottom).toBe(true)
+    expect(scroller().scrollTop).toBe(440)
+  })
+
+  it('reopens an evicted follower at the tail', () => {
+    renderHarness(<Harness />)
+    act(() => root.unmount())
+    root = createRoot(host)
+    renderHarness(<Harness keys={[...held, 'row-12']} />)
+    expect(api.atBottom).toBe(true)
+    expect(scroller().scrollTop).toBe(940)
+  })
+
+  it('keeps following when the end settles back a few pixels without upward input', () => {
+    renderHarness(<Harness />)
+    act(() => {
+      scroller().dispatchEvent(new WheelEvent('wheel', { deltaY: 100, bubbles: true }))
+      scroller().scrollTop = 834
+      scroller().dispatchEvent(new Event('scroll', { bubbles: true }))
+    })
+    expect(api.atBottom).toBe(true)
+    tail += 100
+    resize()
+    expect(scroller().scrollTop).toBe(940)
   })
 
   it('routes minimap and shelf navigation through the same reading state', () => {

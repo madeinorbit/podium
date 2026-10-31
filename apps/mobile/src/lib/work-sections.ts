@@ -1,120 +1,27 @@
-import { worklistGroups } from '@podium/client-graph/worklist/groups'
-import { mapQueryResult } from '@podium/client-graph/query-result'
-import type { WorklistIssue } from '@podium/client-graph/worklist/issue'
-import type { WorklistWorktree } from '@podium/client-graph/worklist/worktree'
-import { mobileWorkView } from '@podium/client-graph/worklist/mobile'
 import { relativeTime } from '@podium/client-core/focus'
-import {
-  deriveGitStamp,
-  FLEET_KIND_LIMIT,
-  formatClock,
-  rowStatusLine,
-  type UnifiedWorkRow,
-} from '@podium/client-core/values'
+import { formatClock } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph/pool'
-import type { MobileWorkSection as WorkSection, MobileWorkRef } from '@podium/client-graph/worklist/mobile'
+import { mapQueryResult } from '@podium/client-graph/query-result'
+import { worklistGroups } from '@podium/client-graph/worklist/groups'
+import type { WorklistIssue } from '@podium/client-graph/worklist/issue'
+import type { MobileWorkRef, MobileWorkSection as WorkSection } from '@podium/client-graph/worklist/mobile'
+import { mobileWorkView } from '@podium/client-graph/worklist/mobile'
 export type MobileWorkSection = Omit<WorkSection, 'data'> & { readonly data: readonly MobileWorkRef[] }
-import type { MobileRowValues } from '@podium/client-graph/worklist/mobile-row'
-import { type IssueGitState, issueStatusLabel } from '@podium/model'
-import { issueDisplayRef } from '@podium/protocol'
+
+import type { SidebarTiming } from '@podium/client-graph/worklist/sidebar-row'
+import { issueLanding, issueStatusLabel } from '@podium/model'
 
 /** Fold keys keep the existing replicated sidebar namespace. */
 export const workGroupFoldKey = (sectionKey: string): string =>
   `podium:sidebar:work-group-fold:${sectionKey}`
 
-/** Only paint facts cross the row subscription. Navigation reads the current
- * pool value on the gesture; bookkeeping and payloads cannot invalidate it. */
-export function mobileRowPaint(value: MobileRowValues, now: number) {
-  const sidebar = value.sidebar
-  const issue = sidebar?.issue
-  const git = deriveGitStamp(value.branch, value.gitState as IssueGitState | undefined)
-  const ahead = value.suppressAhead ? undefined : git.ahead
-  const gitShown =
-    git.kind === 'ready' &&
-    (git.mismatch || git.merged || git.dirty !== undefined || ahead !== undefined)
-  return {
-    id: value.id,
-    kind: value.kind,
-    label: value.label,
-    ref: issue ? issueDisplayRef(issue) : null,
-    color: value.color,
-    internal: value.internal,
-    pinned: value.pinned,
-    branch: value.kind === 'worktree' ? value.branch : null,
-    progress: value.progress && value.progress.total >= 2 ? value.progress : null,
-    originSeq: value.originSeq,
-    statusLine: mobileRowStatus(value, now),
-    stamp: mobileRowStamp(value.timing, now),
-    snoozed: value.snoozed,
-    unsnoozed: value.unsnoozed,
-    tuckable: value.tuckable,
-    display: {
-      phase: value.timing.phase,
-      working: value.working,
-      waitingCount: value.waitingCount,
-      decision: value.decision,
-      unread: value.unread,
-      draftOnly: value.draftOnly,
-      fleet: value.draftOnly
-        ? { total: 0, parkedCount: 0, nativeCount: 0, tiles: [] }
-        : { ...value.fleet, tiles: value.fleet.tiles.slice(0, FLEET_KIND_LIMIT) },
-      gitStamp: {
-        kind: gitShown ? ('ready' as const) : ('hidden' as const),
-        mismatch: gitShown && git.mismatch,
-        merged: gitShown && git.merged,
-        dirty: gitShown ? git.dirty : undefined,
-        ahead: gitShown ? ahead : undefined,
-      },
-    },
-  }
-}
-export type MobileRowPaint = ReturnType<typeof mobileRowPaint>
-
-function mobileRowStatus(value: MobileRowValues, now: number): string {
-  const sidebar = value.sidebar
-  if (!sidebar) {
-    // The existing worktree formatter is pure and sees this roster alone.
-    return rowStatusLine(
-      {
-        kind: 'worktree',
-        worktree: { sessions: value.sessions },
-        activityAt: value.activityAt,
-      } as unknown as UnifiedWorkRow,
-      now,
-      0,
-    )
-  }
-  if (sidebar.awaitingFirstPrompt) return 'awaiting first prompt'
-  if (sidebar.statusFromChildren) {
-    const { total, done, run, review, stall, block, wait } = sidebar.progress
-    if (total === 0) return 'no active subtasks'
-    const progress = `${done}/${total} ${total === 1 ? 'subtask' : 'subtasks'} done`
-    if (done === total) return progress
-    const next =
-      block > 0
-        ? `${block} blocked`
-        : review > 0
-          ? `${review} in review`
-          : run > 0
-            ? `${run} underway`
-            : stall > 0
-              ? `${stall} stalled`
-              : wait > 0
-                ? `${wait} to go`
-                : null
-    return next ? `${progress} · ${next}` : progress
-  }
-  if (value.decision === 'merge')
-    return sidebar.mergeCommits > 0 ? `ready to merge · ${sidebar.mergeCommits}` : 'ready to merge'
-  if (value.decision === 'review') return 'needs review'
-  if (sidebar.continuation) return `${sidebar.continuation.kind} · ${sidebar.continuation.ref}`
-  if (sidebar.issue.blocked) return 'blocked'
-  return issueStatusLabel(
-    sidebar.issue as unknown as Parameters<typeof issueStatusLabel>[0],
-  ).toLowerCase()
+/** The web row's `Landed · <branch> · <sha>` in the phone's lower-case grammar (POD-2151). */
+function landedStatus(issue: object): string | null {
+  const landing = issueLanding(issue as unknown as Parameters<typeof issueLanding>[0])
+  return landing ? ['landed', landing.branch, landing.sha].filter(Boolean).join(' · ') : null
 }
 
-export function mobileRowStamp(timing: MobileRowValues['timing'], now: number): string | null {
+export function mobileRowStamp(timing: SidebarTiming, now: number): string | null {
   if (timing.phase === 'done')
     return timing.totalMs !== undefined ? `∑ ${formatClock(timing.totalMs)}` : null
   if (!Number.isFinite(timing.sinceMs) || timing.sinceMs <= 0) return null
@@ -153,12 +60,12 @@ const sameSectionFields = (a: WorkSection, b: WorkSection) =>
   a.data === b.data && a.snoozedIds === b.snoozedIds && a.closedIds === b.closedIds &&
   a.foldKey === b.foldKey && a.collapsed === b.collapsed
 
-/** Matching is one shared title/ref id-set pass (POD-5561) plus one label
- * read per worktree; unchanged matches allocate no row array. A changed
- * match copies its lane only, keeping other native sections intact. No row
- * is painted here — painting happens per visible row in WorkListRow — so a
- * keystroke costs the short-string scan plus worktree label reads, never a
- * paint per candidate across bands, snoozed and closed. The kept bands
+/** Matching is one shared title/ref id-set pass (POD-5561); unchanged
+ * matches allocate no row array. A changed match copies its lane only,
+ * keeping other native sections intact. No row is painted here — painting
+ * happens per visible row in WorkListRow — so a keystroke costs the
+ * short-string scan, never a paint per candidate across bands, snoozed and
+ * closed. The kept bands
  * belong to one search over one pool: ending the search or a new pool
  * (another principal) drops them, so a screen holds one instance. */
 export class MobileSearchSections {
@@ -180,7 +87,6 @@ export class MobileSearchSections {
         ? mobileWorkView(pool).mobileSections().pinned.openIds : EMPTY_SECTION_IDS
       if (old && old.pinnedIds === pinnedIds && sameSectionFields(old.source, source)) return old.native
       const data = mapQueryResult(source.data, id => ({ id,
-        kind: pool.tables.worktree.has(id) ? 'worktree' as const : 'issue' as const,
         listKey: source.kind === 'attention' && worklistGroups(pool).placementOf(id)?.pinned ? `needs-you:${id}` : id }))
       const native: MobileWorkSection = { ...source, data }
       this.sources.set(source.key, { source, native, pinnedIds })
@@ -211,14 +117,6 @@ export class MobileSearchSections {
     // per row and never on the clock. The pass builds no fact objects and
     // reads no descriptions; status text is not searched locally.
     const textIds = pool.queries.localTextIds(needle)
-    // Worktrees are not issues, so the shared set cannot cover them. Their
-    // labels (`repo · branch`) are already short strings: one row read per
-    // worktree, no paint, bounded by the worktree count rather than issues.
-    const worktreeMatches = (ref: MobileWorkSection['data'][number]): boolean => {
-      const value = mobileWorkView(pool).mobileRow({ id: ref.id, kind: 'worktree' })
-      if (!value || typeof value === 'symbol') return false
-      return value.title.toLowerCase().includes(needle)
-    }
     const active = new Set<string>(),
       next: MobileWorkSection[] = []
     for (const source of sections) {
@@ -226,7 +124,7 @@ export class MobileSearchSections {
       const old = this.bands.get(source.key)
       const data = filteredNative(
         source.data,
-        (ref) => (ref.kind === 'issue' ? textIds.has(ref.id) : worktreeMatches(ref)),
+        (ref) => textIds.has(ref.id),
         old?.data,
         sameMobileRef,
       )
@@ -259,7 +157,7 @@ export class MobileSearchSections {
 const sameMobileRef = (
   a: MobileWorkSection['data'][number],
   b: MobileWorkSection['data'][number],
-) => a.id === b.id && a.kind === b.kind && a.listKey === b.listKey
+) => a.id === b.id && a.listKey === b.listKey
 
 function filteredNative<T>(
   source: readonly T[],
@@ -316,25 +214,7 @@ export class MobileNativeSections {
   }
 }
 
-export function worklistRowStatus(value: WorklistIssue | WorklistWorktree, now: number): string {
-  const sidebar = 'issue' in value ? value : undefined
-  if (!sidebar) {
-    const tree = value as WorklistWorktree
-    if (tree.visiblePhase === 'working')
-      return `${tree.workingCount > 1 ? `${tree.workingCount} agents · ` : ''}working`
-    if (tree.visiblePhase !== 'waiting')
-      return `${tree.sessionCount > 1 ? `${tree.sessionCount} agents · ` : ''}${tree.visiblePhase === 'done' ? 'done' : 'idle'}`
-    // The existing worktree formatter is pure and sees this roster alone.
-    return rowStatusLine(
-      {
-        kind: 'worktree',
-        worktree: { sessions: value.sessions },
-        activityAt: value.activityAt,
-      } as unknown as UnifiedWorkRow,
-      now,
-      0,
-    )
-  }
+export function worklistRowStatus(sidebar: WorklistIssue): string {
   if (sidebar.awaitingFirstPrompt) return 'awaiting first prompt'
   if (sidebar.showsChildProgress) {
     const parts = sidebar.progress
@@ -362,6 +242,8 @@ export function worklistRowStatus(value: WorklistIssue | WorklistWorktree, now: 
   if (sidebar.decision === 'review') return 'needs review'
   if (sidebar.continuation) return `${sidebar.continuation.kind} · ${sidebar.continuation.ref}`
   if (sidebar.issue.blocked) return 'blocked'
+  const landed = landedStatus(sidebar.issue)
+  if (landed) return landed
   return issueStatusLabel(
     sidebar.issue as unknown as Parameters<typeof issueStatusLabel>[0],
   ).toLowerCase()

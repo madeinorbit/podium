@@ -234,7 +234,7 @@ export function isAgentAuthenticationError(error: Pick<AgentError, 'class'>): bo
 /** The action sentence for a blocked send, shared by server and client surfaces. */
 export function agentErrorRecoveryInstruction(error: Pick<AgentError, 'class'>): string {
   return isAgentAuthenticationError(error)
-    ? 'Re-authenticate with the provider, then choose “I signed in — retry”.'
+    ? 'Re-authenticate with the provider, then choose “I signed in, retry”.'
     : 'Fix the provider issue, then choose “Resume the session”.'
 }
 
@@ -251,6 +251,21 @@ export const NativeSubagent = z.object({
   type: z.string().optional(),
 })
 export type NativeSubagent = z.infer<typeof NativeSubagent>
+
+/**
+ * The state a compaction interrupted, restored when it ends. Claude Code
+ * compacts between turns too (idle auto-compaction, manual /compact), and no
+ * Stop follows those, so an end that always resumed `working` read working
+ * forever. Absent means a turn was running: the end resumes plain `working`.
+ */
+export const AgentCompactingFrom = z.object({
+  phase: z.enum(['working', 'idle', 'needs_user', 'errored']),
+  awaitingSubagents: z.boolean().optional(),
+  idle: IdleVerdict.optional(),
+  need: AgentNeed.optional(),
+  error: AgentError.optional(),
+})
+export type AgentCompactingFrom = z.infer<typeof AgentCompactingFrom>
 
 export const AgentRuntimeState = z.object({
   phase: AgentPhase,
@@ -272,6 +287,7 @@ export const AgentRuntimeState = z.object({
   idle: IdleVerdict.optional(), // present when phase === 'idle'
   need: AgentNeed.optional(), // present when phase === 'needs_user'
   error: AgentError.optional(), // present when phase === 'errored'
+  compactingFrom: AgentCompactingFrom.optional(), // present when phase === 'compacting'
   /** A harness explicitly reported that its normal state channel is unavailable.
    *  Present only with phase=unknown; this is observed uncertainty, not idle. */
   observationGap: z.object({ reason: z.enum(['transcript_disabled']) }).optional(),

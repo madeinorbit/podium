@@ -1,11 +1,9 @@
-import { asIssueId } from '@podium/model/browser'
 import { observer } from '@podium/client-graph/react'
 import { LOADING, type Loaded } from '@podium/client-graph/worklist/rollup'
 import {
+  CircleDot,
   FolderTree,
   GitBranch,
-  ListOrdered,
-  ListTree,
   type LucideIcon,
   Mail,
   Sparkles,
@@ -20,8 +18,7 @@ import { PerspectiveRoad } from '@/features/shipping/PerspectiveRoad'
 import type { ShippingPanelCommands } from '@/features/shipping/ShippingPanel'
 import { throughRestarts } from '@/lib/chunk-recovery'
 import { DockHeaderSlotProvider } from './DockHeaderSlot'
-import { useOperatorFocus } from './operator-focus'
-import { useShellActions, useShellDock, useShellDockCatalogs, useShellWindow } from './shell-data'
+import { useShellActions, useShellDock } from './shell-data'
 import type { RightPanelTab } from './shell-state'
 
 const WorktreeFileTree = lazy(() =>
@@ -36,7 +33,7 @@ const GitPanelView = lazy(() =>
 )
 const RightDockIssuePanel = lazy(() => throughRestarts(() => import('./RightDockIssuePanel')))
 /**
- * The seventh dock panel, deferred like the other six (POD-2730). It used to be
+ * The shell panel, deferred like the other panels (POD-2730). It used to be
  * the one static import in this list, with the note "changing xterm's
  * mount/attach timing belongs to POD-847" — but a lazy MODULE is not a changed
  * mount: the component still mounts synchronously once its chunk is resolved,
@@ -49,11 +46,6 @@ const RightDockIssuePanel = lazy(() => throughRestarts(() => import('./RightDock
 const DockShellPanel = lazy(() =>
   throughRestarts(() => import('@/features/terminal/DockShellPanel')).then((module) => ({
     default: module.DockShellPanel,
-  })),
-)
-const MergeQueuePanel = lazy(() =>
-  throughRestarts(() => import('@/features/merge-queue/MergeQueuePanel')).then((module) => ({
-    default: module.MergeQueuePanel,
   })),
 )
 const ShippingPanel = lazy(() =>
@@ -92,11 +84,10 @@ function DockPanelFallback(): JSX.Element {
 export type { RightPanelTab } from './shell-state'
 
 export const RIGHT_PANELS: { id: RightPanelTab; label: string; icon: LucideIcon }[] = [
-  // A LIST glyph, not a task glyph (POD-743): this cell opens an explorer
-  // over every task in the repo, so an icon that stands for one issue — and,
-  // before this, the selected issue's own ID square wearing its status badge —
-  // named the wrong thing and claimed a relationship the panel no longer has.
-  { id: 'issue', label: 'Tasks', icon: ListTree },
+  // One task: the shell's, or one a chip or linked row pointed the panel at.
+  // A plain issue glyph — not the selected issue's own ID square wearing its
+  // status badge, which tinted the rail with one task's state.
+  { id: 'issue', label: 'Task', icon: CircleDot },
   { id: 'superagent', label: 'Superagent', icon: Sparkles },
   { id: 'git', label: 'Git', icon: GitBranch },
   { id: 'files', label: 'Files', icon: FolderTree },
@@ -106,7 +97,6 @@ export const RIGHT_PANELS: { id: RightPanelTab; label: string; icon: LucideIcon 
   // The message ledger (#237) [spec:SP-34d7 web] — the active session's and
   // its issue's delivery ledger ("what happened to my message").
   { id: 'mail', label: 'Messages', icon: Mail },
-  { id: 'merge-queue', label: 'Queues', icon: ListOrdered },
   { id: 'shipping', label: 'Shipping', icon: PerspectiveRoad },
 ]
 
@@ -119,13 +109,10 @@ export const RightDock = observer(function RightDock({
   tab: RightPanelTab
   onClose: () => void
 }): JSX.Element {
-  const { trpc, setSelectedIssueId } = useShellActions()
+  const { trpc } = useShellActions()
   // The dock's routing fields, each read where a panel shows it.
   const dock = useShellDock()
   const active = shown(dock?.active) ?? null
-  // Shipping owns its request windows; only the queue reads the catalog.
-  const { issues } = useShellDockCatalogs(tab === 'merge-queue')
-  const { setFocusedIssueId } = useOperatorFocus()
   const shippingCommands = useMemo<ShippingPanelCommands>(
     () => ({
       resolveHold: (input) => trpc.issues.resolveShipHold.mutate(input),
@@ -151,11 +138,10 @@ export const RightDock = observer(function RightDock({
             close — the Paper shell's head metrics (POD-725 §7). */}
         <div className="flex h-11 flex-none items-center gap-[9px] border-b border-border px-3.5">
           {tab === 'issue' ? (
-            // The one panel whose header is not a name. The explorer moves
-            // between tasks, so what belongs up here is where you are and how
-            // to get back — the task's own name is the head of the panel below.
+            // The one panel whose header is not a name: it names the task it
+            // shows by ref, and the task's own name heads the panel below.
             <Suspense fallback={<span className="min-w-0 flex-1" aria-hidden="true" />}>
-              <RightDockIssuePanel kind="crumbs" />
+              <RightDockIssuePanel kind="header" />
             </Suspense>
           ) : (
             <span className="flex min-w-0 flex-1 items-center gap-[9px]">
@@ -215,12 +201,12 @@ export const RightDock = observer(function RightDock({
             ))}
           {tab === 'issue' &&
             (active ? (
-              // Not keyed on the worktree: the explorer's whole point is that it
-              // outlives what the workspace is pointed at. `cwd` only tells it
-              // where to serve the artifacts of a task with no checkout of its own.
-              <RightDockIssuePanel kind="explorer" cwd={active.cwd} machineId={active.machineId} />
+              // Not keyed on the worktree: the panel follows its own pointer, not
+              // the workspace. `cwd` only tells it where to serve the artifacts
+              // of a task with no checkout of its own.
+              <RightDockIssuePanel kind="panel" cwd={active.cwd} machineId={active.machineId} />
             ) : (
-              <RightDockIssuePanel kind="explorer" cwd="" />
+              <RightDockIssuePanel kind="panel" cwd="" />
             ))}
           {tab === 'superagent' && <SuperagentView />}
           {tab === 'shell' &&
@@ -229,20 +215,6 @@ export const RightDock = observer(function RightDock({
             ) : (
               <div className="p-3 text-xs text-muted-foreground/70">No active worktree.</div>
             ))}
-          {tab === 'merge-queue' && (
-            <MergeQueuePanel
-              issues={issues}
-              scope={shown(dock?.scope) ?? null}
-              // A queue entry can be any issue in the repo, including one outside
-              // the mission on screen — so this moves the MISSION, not just the
-              // focus inside it. Focusing alone would be discarded by
-              // `resolveFocus` as not-in-mission and silently snap back.
-              onSelectIssue={(issue) => {
-                setSelectedIssueId(asIssueId(issue.id))
-                setFocusedIssueId(asIssueId(issue.id))
-              }}
-            />
-          )}
           {tab === 'shipping' && (
             <ShippingDockPanel
               repoId={shown(dock?.scope)?.repoId ?? null}

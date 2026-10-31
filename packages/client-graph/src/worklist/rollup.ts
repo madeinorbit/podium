@@ -1,3 +1,5 @@
+import { missionTaskBucket, type MissionTaskBucket } from '@podium/client-core/values'
+import { type CoordinatedSeat, coordinatedSeat, coordinatorLive, NO_INTERACTIONS, type SeatInteractions, type SeatRole, type SeatSessionFacts, taskOwnAsks } from '@podium/model/browser'
 import { isFinished } from '../shared/predicates'
 /**
  * The row roll-ups: `phase`, `working`, `asking`,
@@ -17,8 +19,8 @@ import { isFinished } from '../shared/predicates'
  * - ATTENTION (`phase`, `working`, `asking`) composes over the VISIBLE
  *   subtree (L1d): a row's own seats plus the aggregates of the rows NESTED
  *   under it (`rows.ts:331-334`, `attach`). The nest children are derived
- *   per row from the nearest present ancestor by the raw `parentId` (or the
- *   started-by owner): each row's own `nested` value, read cached. A hidden
+ *   per row from the nearest present ancestor by the raw `parentId`: each
+ *   row's own `nested` value, read cached. A hidden
  *   issue has no row and so no own part; its visible descendants nest under
  *   the nearest visible ancestor, which is the legacy walk-past
  *   (`rows.ts:272-283`).
@@ -62,8 +64,8 @@ import { isFinished } from '../shared/predicates'
  *   seats are hot, so markers arise only from cold spin-offs (the review
  *   withdrawal's continuation) and transient cold rows.
  *
- * NO LEGACY IMPORT. The per-session rules are re-expressed from the spec with
- * the legacy line each follows cited, as `views.ts` does.
+ * Attention remains independent for parity checks. Execution buckets use the
+ * shared pure task rule and the live pool's shared issue fact.
  */
 
 import { LOADING, type Loaded } from '../loading'
@@ -74,7 +76,10 @@ import { issueAbandoned } from '../views'
 import {
   combineSidebarSessions,
   combineSidebarSessionField,
+  delegatedSidebarFacts,
+  exceptionSidebarFacts,
   NO_SIDEBAR_SESSIONS,
+  roleSidebarFacts,
   type SidebarSessionFacts,
   type SidebarSessionOrder,
   sidebarSessionFacts,
@@ -197,6 +202,31 @@ export function motionPhase(session: SliceSession, rowFinished: boolean, executi
   return 'queued'
 }
 
+/**
+ * A seat's verdict in one role on a coordinated task (POD-2171): the model's
+ * `coordinatedSeat`, the one derivation, in the sidebar's terms. Its work is
+ * read apart from any ask; it waits only when the role lets its ask reach the
+ * human, and from when that began.
+ */
+export interface RoleVerdict {
+  readonly phase: SlicePhase
+  readonly working: boolean
+  readonly workingSinceMs: number | null
+  readonly waitingSinceMs: number | null
+  readonly errorClass: string | null
+}
+
+export function roleVerdictOf(seat: CoordinatedSeat, stateSinceMs: number): RoleVerdict {
+  const since = Number.isFinite(stateSinceMs) ? stateSinceMs : null
+  return {
+    phase: seat.asks ? 'waiting' : seat.done ? 'done' : seat.working ? 'working' : 'queued',
+    working: seat.working,
+    workingSinceMs: seat.working ? since : null,
+    waitingSinceMs: seat.asks ? (seat.asksSince ?? since) : null,
+    errorClass: seat.errorClass,
+  }
+}
+
 /** `sessionPresentOnTask` (`fleet.ts:36`, mission.ts's `openSession`). */
 export function presentOnTask(session: {
   readonly archived?: boolean
@@ -213,6 +243,10 @@ export interface SeatVerdict {
   readonly open: SlicePhase
   /** `motionPhase` under a finished row: an offer-only ask is not waiting. */
   readonly finished: SlicePhase
+  /** The seat in each role on a coordinated task (POD-2171): what `asRoleSeat` shows. */
+  readonly roles: { readonly coordinator: RoleVerdict; readonly delegate: RoleVerdict }
+  /** Neither archived nor exited: as a coordinator, it is live (`coordinatorLive`). */
+  readonly present: boolean
   /** `isSessionWorking`. */
   readonly working: boolean
   /**
@@ -229,16 +263,30 @@ export interface SeatVerdict {
   readonly sidebarOrder?: SidebarSessionOrder
 }
 
-export function seatVerdictOf(session: SliceSession): SeatVerdict {
+/**
+ * One seat's verdict. `interactions` are its open pending interactions and
+ * `taskOpen` whether its own task is open: two of the seat facts the role
+ * verdicts read (`coordinatedSeat`).
+ */
+export function seatVerdictOf(
+  session: SliceSession,
+  interactions: SeatInteractions = NO_INTERACTIONS,
+  taskOpen = true,
+): SeatVerdict {
   const working = isSessionWorking(session)
-  const at = working ? Date.parse(stateOf(session)?.since ?? session.lastActiveAt) : Number.NaN
+  const stateSince = Date.parse(stateOf(session)?.since ?? session.lastActiveAt)
+  const role = (name: SeatRole): RoleVerdict =>
+    roleVerdictOf(coordinatedSeat(session as SeatSessionFacts, name, interactions, taskOpen), stateSince)
+  const roles = { coordinator: role('coordinator'), delegate: role('delegate') }
   return {
     open: motionPhase(session, false),
     finished: motionPhase(session, true),
+    roles,
+    present: coordinatorLive(session),
     working,
-    workingSinceMs: Number.isFinite(at) ? at : null,
+    workingSinceMs: working && Number.isFinite(stateSince) ? stateSince : null,
     id: session.sessionId,
-    sidebarFacts: sidebarSessionFacts(session),
+    sidebarFacts: sidebarSessionFacts(session, roles.delegate),
     sidebarOrder: sidebarSessionOrder(session),
   }
 }
@@ -265,6 +313,8 @@ export interface Aggregate {
     readonly open: number
     readonly finished: number
     readonly decisions: number
+    /** Seats waiting as delegates (exceptions only): the counts `asDelegated` shows. */
+    readonly delegated: number
   }
   /**
    * Its seats' ids (`rowSessions(row)`, by id): own seats in sidebar order,
@@ -284,8 +334,16 @@ export interface Aggregate {
   readonly open: PhaseFlags
   /** The seats' verdicts under a finished root. */
   readonly finished: PhaseFlags
+  /**
+   * Every seat's verdict as a DELEGATE (`SeatVerdict.delegate`), over the
+   * whole subtree whatever its own coordination: what it shows a parent whose
+   * coordinator is live (`asDelegated`).
+   */
+  readonly delegated: PhaseFlags
   /** Cold rows it could not read yet (queued): the row shows `loading`. */
   readonly pending: number
+  /** On a row's own part only: see `OwnAttention.coordinated`. */
+  readonly coordinated?: boolean
 }
 
 /** A row's own part: its own seats and decision, plus its own working stamp. */
@@ -296,6 +354,12 @@ export interface OwnAttention extends Aggregate {
   readonly workingSince: number | null
   /** Its row is cold: the part is only a pending marker, and nothing below it is composed yet. */
   readonly cold: boolean
+  /**
+   * Its row's coordinator is live (POD-2171, `coordinatorLive`): its other
+   * seats count as delegates here, and `aggregate` shows its nest children
+   * `asDelegated`.
+   */
+  readonly coordinated: boolean
 }
 
 const NO_FLAGS: PhaseFlags = { waiting: false, working: false, allDone: true }
@@ -307,9 +371,11 @@ export const EMPTY_OWN: OwnAttention = {
   deciding: false,
   open: NO_FLAGS,
   finished: NO_FLAGS,
+  delegated: NO_FLAGS,
   pending: 0,
   workingSince: null,
   cold: false,
+  coordinated: false,
 }
 
 /** A row whose own row is cold: nothing known yet, one marker pending. */
@@ -341,7 +407,109 @@ export function withSeat(own: OwnAttention, seat: SeatVerdict): OwnAttention {
     working: own.working || seat.working,
     open: flagsWith(own.open, seat.open),
     finished: flagsWith(own.finished, seat.finished),
+    delegated: flagsWith(own.delegated, seat.roles.delegate.phase),
     workingSince: since,
+  }
+}
+
+/**
+ * A seat as a coordinated row shows it (POD-2171): in its role there, the
+ * coordinator or a delegate, from its role verdict alone. Its phase is the
+ * same under an open or a finished row (a role verdict has no offer-only
+ * case), and its timers and error line are the role's. A view over the seat.
+ */
+export function asRoleSeat(seat: SeatVerdict, role: SeatRole): SeatVerdict {
+  return {
+    get open() { return seat.roles[role].phase },
+    get finished() { return seat.roles[role].phase },
+    get roles() { return seat.roles },
+    get present() { return seat.present },
+    get working() { return seat.roles[role].working },
+    get workingSinceMs() { return seat.roles[role].workingSinceMs },
+    get id() { return seat.id },
+    get sidebarFacts() {
+      const facts = seat.sidebarFacts
+      return facts === undefined ? undefined : roleSidebarFacts(facts, seat.roles[role])
+    },
+    get sidebarOrder() { return seat.sidebarOrder },
+  }
+}
+
+/** The role a seat holds on a row whose live coordinator is `coordinator` (null: the row is not coordinated). */
+function roleOn(coordinator: string | null, id: string | undefined): SeatRole | null {
+  return coordinator === null ? null : id === coordinator ? 'coordinator' : 'delegate'
+}
+
+/**
+ * A row's seats off its roster whose exception still stands (`exceptionSeatIds`:
+ * exited, not archived, crashed). Admitted by the task's and the session's
+ * lifecycle, never by the display retention window: the delegate role verdict
+ * already asks nothing once the seat's task closed. They add only that
+ * exception (POD-2171): to what the row shows a coordinated parent, and on a
+ * coordinated row to the row's own asks. A cold one is skipped, not counted
+ * pending; reading it queues its load.
+ */
+export function* exceptionSeatsOf(
+  input: Pick<RollupInputs, 'seat'>,
+  self: { readonly exceptionSeatIds?: readonly string[] },
+): Iterable<SeatVerdict> {
+  for (const id of self.exceptionSeatIds ?? []) {
+    const seat = input.seat(id)
+    if (seat !== LOADING && seat !== undefined && seat.roles.delegate.phase === 'waiting') yield seat
+  }
+}
+
+/** A flag set with `waiting` raised. */
+function waitingWith(flags: PhaseFlags): PhaseFlags {
+  return flags.waiting ? flags : { ...flags, waiting: true }
+}
+
+/**
+ * The live coordinator of a row (POD-2171): its `coordinatorSessionId` when
+ * that session is resident and live (`SeatVerdict.present`). The coordinator
+ * may sit on another row (a parent's coordinator holds its children's seats).
+ * A cold or unknown coordinator is not live: a session nothing has kept hot
+ * has exited or been archived.
+ */
+export function liveCoordinatorOf(input: Pick<RollupInputs, 'seat'>, facts: OwnFacts): string | null {
+  const id = facts.state === 'ready' ? facts.coordinatorSessionId : undefined
+  if (!id) return null
+  const seat = input.seat(id)
+  return seat !== LOADING && seat !== undefined && seat.present ? id : null
+}
+
+/**
+ * THE COORDINATED RULE'S ONE STEP (POD-2171, `seat-attention.ts`):
+ * what a nest child shows a parent whose coordinator is live. Its work, seats,
+ * activity and exceptions pass; its asks do not. Its seats read as delegates,
+ * its decision is the coordinator's to take, and its waiting counts and timer
+ * keep only exceptions. A view over the child, so a live reader still reads
+ * only the fields it asks for.
+ */
+export function asDelegated(part: Aggregate): Aggregate {
+  return {
+    get railWaiting() {
+      const counts = part.railWaiting
+      if (counts === undefined) return undefined
+      const waiting = counts.delegated
+      return { open: waiting, finished: waiting, decisions: 0, delegated: waiting }
+    },
+    get sessionIds() { return part.sessionIds },
+    get sidebarFacts() {
+      const facts = part.sidebarFacts
+      return facts === undefined ? undefined : delegatedSidebarFacts(facts)
+    },
+    get updatedAt() { return part.updatedAt },
+    get order() { return part.order },
+    decidingAt: undefined,
+    get seated() { return part.seated },
+    // Its delegates' work, read apart from their suppressed offers.
+    get working() { return part.delegated.working },
+    deciding: false,
+    get open() { return part.delegated },
+    get finished() { return part.delegated },
+    get delegated() { return part.delegated },
+    get pending() { return part.pending },
   }
 }
 
@@ -356,20 +524,22 @@ function joinFlags(a: PhaseFlags, b: PhaseFlags): PhaseFlags {
 /**
  * THE COMBINE: a row's visible-subtree aggregate from its own part and its
  * nest children's aggregates (`rowSessions` = own sessions plus attached
- * children's aggregate sessions, `rows.ts:331-334`). No store, no row, no
+ * children's aggregate sessions, `rows.ts:331-334`). Under a live coordinator
+ * (`own.coordinated`) each child is read `asDelegated`. No store, no row, no
  * relation: values in, a value out.
  */
 export function aggregate(input: {
   readonly own: Aggregate
   readonly children: readonly Aggregate[]
 }): Aggregate {
-  let { seated, working, deciding, open, finished, pending } = input.own
+  let { seated, working, deciding, open, finished, delegated, pending } = input.own
   const sessionIds = [...(input.own.sessionIds ?? [])]
   let sidebarFacts = input.own.sidebarFacts ?? NO_SIDEBAR_SESSIONS
   let updatedAt = input.own.updatedAt ?? ''
   let decidingAt = input.own.decidingAt
-  let railWaiting = input.own.railWaiting ?? { open: 0, finished: 0, decisions: 0 }
-  for (const child of input.children) {
+  let railWaiting = input.own.railWaiting ?? { open: 0, finished: 0, decisions: 0, delegated: 0 }
+  for (const nested of input.children) {
+    const child = input.own.coordinated === true ? asDelegated(nested) : nested
     sessionIds.push(...(child.sessionIds ?? []))
     sidebarFacts = combineSidebarSessions(sidebarFacts, child.sidebarFacts ?? NO_SIDEBAR_SESSIONS)
     if ((child.updatedAt ?? '') > updatedAt) updatedAt = child.updatedAt ?? ''
@@ -383,12 +553,14 @@ export function aggregate(input: {
     deciding ||= child.deciding
     open = joinFlags(open, child.open)
     finished = joinFlags(finished, child.finished)
+    delegated = joinFlags(delegated, child.delegated)
     pending += child.pending
     if (child.railWaiting)
       railWaiting = {
         open: railWaiting.open + child.railWaiting.open,
         finished: railWaiting.finished + child.railWaiting.finished,
         decisions: railWaiting.decisions + child.railWaiting.decisions,
+        delegated: railWaiting.delegated + child.railWaiting.delegated,
       }
   }
   return {
@@ -397,6 +569,7 @@ export function aggregate(input: {
     deciding,
     open,
     finished,
+    delegated,
     pending,
     sessionIds,
     sidebarFacts,
@@ -457,13 +630,13 @@ export type UnitState = 'done' | 'run' | 'review' | 'stall' | 'block' | 'wait'
 export interface UnitOwn {
   readonly state?: UnitState
   readonly staffed?: boolean
-  /** Accepted formal member: not proposed, not abandoned (`mission.ts:1368-1370`). */
+  /** Non-phase task in the accepted tree, including abandoned leaves that suppress parent fallback. */
   readonly member: boolean
-  /** A member that is not a vacated origin (`mission.ts:1375-1388`). */
+  /** A non-abandoned member that is not a vacated origin; counted only without tasks below. */
   readonly unit: boolean
   /** A unit that is closed (`issueClosed`, `mission.ts:349-351`). */
   readonly done: boolean
-  /** As a LONE root (no accepted members): not abandoned, not vacated. */
+  /** As a lone root: an accepted, non-phase, non-abandoned, non-vacated task. */
   readonly solo: boolean
   /** Its row is cold: the unit is only a pending marker (its load is queued), and nothing below it is composed yet. */
   readonly cold: boolean
@@ -485,7 +658,7 @@ export const PENDING_UNIT: UnitOwn = { ...NO_UNIT, cold: true }
  * `stage` for proposed and closed, `closedReason` for abandoned and closed),
  * and no more.
  */
-export type ProgressFacts = Pick<SliceIssue, 'stage' | 'closedReason'>
+export type ProgressFacts = Pick<SliceIssue, 'stage' | 'closedReason' | 'type'>
 
 /** The progress counts of a formal closure (the root excluded). Plain data. */
 export interface Units {
@@ -525,12 +698,12 @@ export function unitsOf(input: {
       continue
     }
     staffed ||= own.staffed === true || below.staffed === true
-    if (own.unit) progress[own.state ?? (own.done ? 'done' : 'wait')] += 1
+    if (own.unit && below.members === 0) progress[own.state ?? (own.done ? 'done' : 'wait')] += 1
     for (const state of Object.keys(progress) as UnitState[])
       progress[state] += below.progress?.[state] ?? 0
     members += (own.member ? 1 : 0) + below.members
-    units += (own.unit ? 1 : 0) + below.units
-    done += (own.done ? 1 : 0) + below.done
+    units += (own.unit && below.members === 0 ? 1 : 0) + below.units
+    done += (own.done && below.members === 0 ? 1 : 0) + below.done
     pending += below.pending
   }
   return { members, units, done, pending, progress, staffed }
@@ -538,10 +711,10 @@ export function unitsOf(input: {
 
 export function unitOwnOf(facts: ProgressFacts, vacated: boolean): UnitOwn {
   const gone = issueAbandoned(facts)
-  const member = facts.stage !== 'proposed' && !gone
-  const unit = member && !vacated
+  const member = facts.stage !== 'proposed' && facts.type !== 'phase'
+  const unit = member && !gone && !vacated
   const closed = isFinished(facts)
-  return { member, unit, done: unit && closed, solo: !gone && !vacated, cold: false }
+  return { member, unit, done: unit && closed, solo: unit, cold: false }
 }
 
 // ------------------------------------------------------------ the row
@@ -606,6 +779,7 @@ export { LOADING, type Loaded } from '../loading'
 
 /** What the roll-up parts read. Tracked in the live pool; plain in the rebuild. */
 export interface RollupInputs {
+  readonly missionBucket?: (id: string) => MissionTaskBucket | null
   readonly tipActivityAt?: (id: string) => string | undefined
   reached?(at: number): boolean
   /** The row when resident; `LOADING` when cold (the read queues its load); undefined when unknown. */
@@ -631,6 +805,8 @@ export interface OwnFacts {
   readonly state: 'ready' | 'cold' | 'unknown'
   readonly finished: boolean
   readonly decision: 'review' | 'merge' | null
+  /** Its own explicit request to a human: open, and `needsHuman` or a decision-type issue (`taskOwnAsks`). */
+  readonly requests?: boolean
   readonly continuedByField: boolean
   readonly updatedAt?: string
   readonly closedAt?: string | null
@@ -666,6 +842,8 @@ export interface RollupSelf extends RollupParts {
   readonly finished: boolean | undefined
   readonly rosterIds: readonly string[]
   readonly seatIds: readonly string[]
+  /** Exited seats whose exception stands (`Members.exceptionSeatIds`): they add only that exception. */
+  readonly exceptionSeatIds?: readonly string[]
 }
 
 const UNKNOWN_FACTS: OwnFacts = {
@@ -689,6 +867,7 @@ export function ownFactsOf(issue: Loaded<SliceIssue>): OwnFacts {
     state: 'ready',
     finished: isFinished(issue),
     decision: pendingDecisionOf(issue),
+    requests: taskOwnAsks(issue),
     continuedByField: continuedByField(issue),
     updatedAt: issue.updatedAt,
     closedAt: issue.closedAt,
@@ -774,21 +953,24 @@ export function tipPartOf(input: RollupInputs, id: string): Tip {
  */
 export function ownAttentionPartOf(
   input: RollupInputs,
-  self: Pick<RollupSelf, 'present' | 'ownFacts' | 'rosterIds' | 'openOwn' | 'tip'>,
+  self: Pick<RollupSelf, 'present' | 'ownFacts' | 'rosterIds' | 'openOwn' | 'tip' | 'exceptionSeatIds'>,
 ): OwnAttention {
   if (!self.present) return EMPTY_OWN
   const facts = self.ownFacts
   if (facts.state === 'cold') return PENDING_OWN
   if (facts.state === 'unknown') return EMPTY_OWN
+  const coordinator = liveCoordinatorOf(input, facts)
   let own = EMPTY_OWN
   let pending = 0
   // One pass over the roster; the own part is assembled once, never copied per seat.
   const seats = new Map<string, SeatVerdict>()
   const ids: string[] = []
   for (const sessionId of self.rosterIds) {
-    const seat = input.seat(sessionId)
-    if (seat === LOADING) pending += 1
-    else if (seat !== undefined) {
+    const verdict = input.seat(sessionId)
+    if (verdict === LOADING) pending += 1
+    else if (verdict !== undefined) {
+      const role = roleOn(coordinator, verdict.id)
+      const seat = role === null ? verdict : asRoleSeat(verdict, role)
       own = withSeat(own, seat)
       if (seat.id !== undefined) {
         seats.set(seat.id, seat)
@@ -809,6 +991,8 @@ export function ownAttentionPartOf(
       }
     }
   }
+  // A coordinated row's own explicit requests ask as its decision does (POD-2171).
+  if (coordinator !== null && facts.requests) deciding = true
   const orderFor = (id: string): SidebarSessionOrder =>
     (seats.get(id) as SeatVerdict).sidebarOrder as SidebarSessionOrder
   const sessionIds = sortedSidebarSessions(
@@ -817,20 +1001,30 @@ export function ownAttentionPartOf(
     facts.coordinatorSessionId,
     orderFor,
   )
-  const sidebarFacts = sessionIds.reduce(
+  let sidebarFacts = sessionIds.reduce(
     (combined, id) =>
       combineSidebarSessions(combined, seats.get(id)?.sidebarFacts ?? NO_SIDEBAR_SESSIONS),
     NO_SIDEBAR_SESSIONS,
   )
-  const railWaiting = { open: 0, finished: 0, decisions: deciding ? 1 : 0 }
+  const railWaiting = { open: 0, finished: 0, decisions: deciding ? 1 : 0, delegated: 0 }
   for (const id of sessionIds) {
-    const verdict = seats.get(id)
+    const verdict = seats.get(id) as SeatVerdict
+    if (verdict.roles.delegate.phase === 'waiting') railWaiting.delegated += 1
     if (deciding && orderFor(id).offerOnly) continue
-    if (verdict?.open === 'waiting') railWaiting.open += 1
-    if (verdict?.finished === 'waiting') railWaiting.finished += 1
+    if (verdict.open === 'waiting') railWaiting.open += 1
+    if (verdict.finished === 'waiting') railWaiting.finished += 1
+  }
+  for (const seat of exceptionSeatsOf(input, self)) {
+    const asks = coordinator !== null
+    own = { ...own, delegated: waitingWith(own.delegated),
+      ...(asks ? { open: waitingWith(own.open), finished: waitingWith(own.finished) } : {}) }
+    sidebarFacts = combineSidebarSessions(sidebarFacts, exceptionSidebarFacts(seat.sidebarFacts ?? NO_SIDEBAR_SESSIONS, asks))
+    railWaiting.delegated += 1
+    if (asks) { railWaiting.open += 1; railWaiting.finished += 1 }
   }
   return {
     ...own,
+    coordinated: coordinator !== null,
     deciding,
     pending: own.pending + pending,
     sessionIds,
@@ -894,6 +1088,11 @@ export function aggregatePartOf(
  * session on the task, and a spin-off), asked in that order so a row with
  * no spin-off never reads its sessions.
  */
+function missionUnitState(input: RollupInputs, id: string, issue: ProgressFacts, hasSessions: boolean): UnitState | undefined {
+  const bucket = input.missionBucket ? input.missionBucket(id) : missionTaskBucket(issue, hasSessions, false)
+  return bucket === 'working' ? 'run' : bucket === 'waiting' ? 'stall' : bucket === 'todo' ? 'wait' : bucket ?? undefined
+}
+
 export function unitOwnPartOf(
   input: RollupInputs,
   id: string,
@@ -905,17 +1104,7 @@ export function unitOwnPartOf(
   const vacated = input.spinOffCount(id) > 0 && !self.openOwn
   const staffed = self.openOwn || self.unitsBelow.staffed === true
   const unit = unitOwnOf(issue, vacated)
-  const state: UnitState = unit.done
-    ? 'done'
-    : issue.blocked
-      ? 'block'
-      : issue.stage === 'review'
-        ? 'review'
-        : ['planning', 'in_progress', 'shipping'].includes(issue.stage)
-          ? issue.stage === 'shipping' || staffed
-            ? 'run'
-            : 'stall'
-          : 'wait'
+  const state = missionUnitState(input, id, issue, self.openOwn)
   return { ...unit, staffed, state }
 }
 
@@ -1067,7 +1256,7 @@ export interface Attention {
 export function attentionOf(
   input: RollupInputs,
   id: string,
-  self: Pick<RollupSelf, 'present' | 'ownFacts' | 'rosterIds' | 'openOwn' | 'tip'>,
+  self: Pick<RollupSelf, 'present' | 'ownFacts' | 'rosterIds' | 'openOwn' | 'tip' | 'exceptionSeatIds'>,
 ): Attention {
   const ownAttention = ownAttentionPartOf(input, self)
   return { ownAttention, aggregate: aggregatePartOf(input, id, { ownAttention }) }
@@ -1099,6 +1288,9 @@ function sidebarFields(read: <K extends keyof SidebarSessionFacts>(key: K) => Si
     get working() { return read('working') },
     get waitingOpen() { return read('waitingOpen') },
     get waitingFinished() { return read('waitingFinished') },
+    get workingDelegated() { return read('workingDelegated') },
+    get waitingDelegated() { return read('waitingDelegated') },
+    get errorClassDelegated() { return read('errorClassDelegated') },
     get doneSince() { return read('doneSince') },
     get totalMs() { return read('totalMs') },
     get errorClass() { return read('errorClass') },
@@ -1126,19 +1318,36 @@ export function ownAttentionFields(input: RollupInputs, self: RollupSelf): OwnAt
       if (seat !== LOADING && seat !== undefined) yield seat
     }
   }
-  const flags = (finished: boolean): PhaseFlags => {
-    const phase = (seat: SeatVerdict) => finished ? seat.finished : seat.open
+  const coordinator = () => ready() ? liveCoordinatorOf(input, self.ownFacts) : null
+  /** The seats as this row shows them: under a live coordinator, the others as delegates. */
+  function* rowSeats(): Iterable<SeatVerdict> {
+    const live = coordinator()
+    // An uncoordinated row reads no seat's id here: its working reader stays as narrow as it was.
+    if (live === null) yield* seats()
+    else for (const seat of seats()) yield asRoleSeat(seat, seat.id === live ? 'coordinator' : 'delegate')
+  }
+  /** Exited seats' exceptions (`exceptionSeatsOf`): the delegate flags always, the row's own on a coordinated row. */
+  const excepted = () => {
+    for (const _seat of exceptionSeatsOf(input, self)) return true
+    return false
+  }
+  const exceptions = () => {
+    let count = 0
+    for (const _seat of exceptionSeatsOf(input, self)) count++
+    return count
+  }
+  const flags = (phase: (seat: SeatVerdict) => SlicePhase, exceptionsAsk: () => boolean): PhaseFlags => {
     return {
       get waiting() {
-        if (ready()) for (const seat of seats()) if (phase(seat) === 'waiting') return true
-        return false
+        if (ready()) for (const seat of rowSeats()) if (phase(seat) === 'waiting') return true
+        return ready() && exceptionsAsk() && excepted()
       },
       get working() {
-        if (ready()) for (const seat of seats()) if (phase(seat) === 'working') return true
+        if (ready()) for (const seat of rowSeats()) if (phase(seat) === 'working') return true
         return false
       },
       get allDone() {
-        if (ready()) for (const seat of seats()) if (phase(seat) !== 'done') return false
+        if (ready()) for (const seat of rowSeats()) if (phase(seat) !== 'done') return false
         return true
       },
     }
@@ -1146,26 +1355,27 @@ export function ownAttentionFields(input: RollupInputs, self: RollupSelf): OwnAt
   const railWaiting = (finished: boolean) => {
     let count = 0
     const deciding = self.ownAttention.deciding
-    for (const seat of seats()) {
+    for (const seat of rowSeats()) {
       if (seat.id === undefined) continue
       if (deciding && seat.sidebarOrder?.offerOnly) continue
       if ((finished ? seat.finished : seat.open) === 'waiting') count++
     }
-    return count
+    return coordinator() !== null ? count + exceptions() : count
   }
   return {
     get cold() { return self.present && self.ownFacts.state === 'cold' },
+    get coordinated() { return coordinator() !== null },
     get seated() {
       if (ready()) for (const _seat of seats()) return true
       return false
     },
     get working() {
-      if (ready()) for (const seat of seats()) if (seat.working) return true
+      if (ready()) for (const seat of rowSeats()) if (seat.working) return true
       return false
     },
     get workingSince() {
       let since: number | null = null
-      if (ready()) for (const seat of seats()) {
+      if (ready()) for (const seat of rowSeats()) {
         const at = seat.workingSinceMs
         if (at !== null && (since === null || at < since)) since = at
       }
@@ -1174,6 +1384,7 @@ export function ownAttentionFields(input: RollupInputs, self: RollupSelf): OwnAt
     get deciding() {
       if (!ready()) return false
       const facts = self.ownFacts
+      if (facts.requests && self.ownAttention.coordinated) return true
       if (facts.decision === null || (!facts.finished && self.ownAttention.working)) return false
       return facts.decision !== 'review' ||
         (!facts.continuedByField && (self.openOwn || !self.tip.found))
@@ -1189,8 +1400,9 @@ export function ownAttentionFields(input: RollupInputs, self: RollupSelf): OwnAt
         !facts.continuedByField && !self.openOwn) pending += self.tip.pending
       return pending
     },
-    get open() { return flags(false) },
-    get finished() { return flags(true) },
+    get open() { return flags(seat => seat.open, () => coordinator() !== null) },
+    get finished() { return flags(seat => seat.finished, () => coordinator() !== null) },
+    get delegated() { return flags(seat => seat.roles.delegate.phase, () => true) },
     get sessionIds() {
       if (!ready()) return undefined
       const ids: string[] = []
@@ -1210,6 +1422,11 @@ export function ownAttentionFields(input: RollupInputs, self: RollupSelf): OwnAt
         get open() { return railWaiting(false) },
         get finished() { return railWaiting(true) },
         get decisions() { return self.ownAttention.deciding ? 1 : 0 },
+        get delegated() {
+          let count = 0
+          for (const seat of seats()) if (seat.id !== undefined && seat.roles.delegate.phase === 'waiting') count++
+          return count + exceptions()
+        },
       }
     },
     get sidebarFacts() {
@@ -1217,10 +1434,17 @@ export function ownAttentionFields(input: RollupInputs, self: RollupSelf): OwnAt
       return sidebarFields(<K extends keyof SidebarSessionFacts>(key: K) => {
         // Order matters for fleet glyphs, error choice and tied timer anchors.
         function* facts(): Iterable<SidebarSessionFacts> {
+          const live = coordinator()
           for (const id of self.ownAttention.sessionIds ?? []) {
             const seat = input.seat(id)
-            if (seat !== LOADING && seat !== undefined) yield seat.sidebarFacts ?? NO_SIDEBAR_SESSIONS
+            if (seat !== LOADING && seat !== undefined)
+            {
+              const role = roleOn(live, id)
+              yield (role === null ? seat : asRoleSeat(seat, role)).sidebarFacts ?? NO_SIDEBAR_SESSIONS
+            }
           }
+          for (const seat of exceptionSeatsOf(input, self))
+            yield exceptionSidebarFacts(seat.sidebarFacts ?? NO_SIDEBAR_SESSIONS, live !== null)
         }
         return sidebarField(key, facts())
       })
@@ -1239,21 +1463,22 @@ export function aggregateFields(input: RollupInputs, id: string, self: RollupSel
   function* parts(): Iterable<Aggregate> {
     yield self.ownAttention
     if (self.ownAttention.cold) return
+    const coordinated = self.ownAttention.coordinated
     for (const childId of input.nested(id)) {
       const child = input.rollupNode(childId)
-      if (child !== undefined) yield child.aggregate
+      if (child !== undefined) yield coordinated ? asDelegated(child.aggregate) : child.aggregate
     }
   }
   const any = (key: 'working' | 'deciding' | 'seated') => {
     for (const part of parts()) if (part[key]) return true
     return false
   }
-  const flags = (key: 'open' | 'finished'): PhaseFlags => ({
+  const flags = (key: 'open' | 'finished' | 'delegated'): PhaseFlags => ({
     get waiting() { for (const part of parts()) if (part[key].waiting) return true; return false },
     get working() { for (const part of parts()) if (part[key].working) return true; return false },
     get allDone() { for (const part of parts()) if (!part[key].allDone) return false; return true },
   })
-  const rail = (key: 'open' | 'finished' | 'decisions') => {
+  const rail = (key: 'open' | 'finished' | 'decisions' | 'delegated') => {
     let total = 0
     for (const part of parts()) total += part.railWaiting?.[key] ?? 0
     return total
@@ -1277,12 +1502,14 @@ export function aggregateFields(input: RollupInputs, id: string, self: RollupSel
     get seated() { return any('seated') },
     get open() { return flags('open') },
     get finished() { return flags('finished') },
+    get delegated() { return flags('delegated') },
     get pending() { let total = 0; for (const part of parts()) total += part.pending; return total },
     get railWaiting() {
       return {
         get open() { return rail('open') },
         get finished() { return rail('finished') },
         get decisions() { return rail('decisions') },
+        get delegated() { return rail('delegated') },
       }
     },
     get sessionIds() {
@@ -1322,8 +1549,8 @@ export function unitOwnFields(
   if (issue === LOADING) return PENDING_UNIT
   if (issue === undefined) return NO_UNIT
   const vacated = () => input.spinOffCount(id) > 0 && !self.openOwn
-  const member = () => issue.stage !== 'proposed' && !issueAbandoned(issue)
-  const unit = () => member() && !vacated()
+  const member = () => issue.stage !== 'proposed' && issue.type !== 'phase'
+  const unit = () => member() && !issueAbandoned(issue) && !vacated()
   const staffed = () => self.openOwn || self.unitsBelow.staffed === true
   const finished = () => self.ownFacts?.finished ?? isFinished(issue)
   return {
@@ -1331,13 +1558,10 @@ export function unitOwnFields(
     get member() { return member() },
     get unit() { return unit() },
     get done() { return unit() && finished() },
-    get solo() { return !issueAbandoned(issue) && !vacated() },
+    get solo() { return unit() },
     get staffed() { return staffed() },
     get state() {
-      return unit() && finished() ? 'done' : issue.blocked ? 'block' :
-        issue.stage === 'review' ? 'review' :
-          ['planning', 'in_progress', 'shipping'].includes(issue.stage)
-            ? issue.stage === 'shipping' || staffed() ? 'run' : 'stall' : 'wait'
+      return missionUnitState(input, id, issue, self.openOwn)
     },
   }
 }
@@ -1349,7 +1573,7 @@ function unitsFields(children: () => Iterable<UnitChild>): Units {
     const ownKey = key === 'members' ? 'member' : key === 'units' ? 'unit' : 'done'
     let total = 0
     for (const { own, below } of children())
-      if (!own.cold) total += (own[ownKey] ? 1 : 0) + below[key]
+      if (!own.cold) total += (own[ownKey] && (key === 'members' || below.members === 0) ? 1 : 0) + below[key]
     return total
   }
   return {
@@ -1370,7 +1594,7 @@ function unitsFields(children: () => Iterable<UnitChild>): Units {
       const progress = { done: 0, run: 0, review: 0, stall: 0, block: 0, wait: 0 }
       for (const { own, below } of children()) {
         if (own.cold) continue
-        if (own.unit) progress[own.state ?? (own.done ? 'done' : 'wait')]++
+        if (own.unit && below.members === 0) progress[own.state ?? (own.done ? 'done' : 'wait')]++
         const nested = below.progress
         for (const state of Object.keys(progress) as (keyof typeof progress)[])
           progress[state] += nested?.[state] ?? 0

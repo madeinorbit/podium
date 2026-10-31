@@ -46,6 +46,9 @@ interface BoundedVirtualListOptions {
   pinnedKeys?: readonly (string | null | undefined)[]
   /** Reveal independently of retention (a drag source must not pull scroll back). */
   revealKey?: string | null
+  /** Called in the commit whose layout change above the viewport the scroll
+   * position absorbed, before the browser paints it. */
+  onScrollAnchor?: () => void
 }
 
 interface BoundedVirtualList {
@@ -113,6 +116,18 @@ function containerOffset(scroll: HTMLElement, container: HTMLElement): number {
   return top(container) - top(scroll)
 }
 
+/** Whether the scroller's top edge lies in the section (a direct child of the
+ * scroller) that holds `container`, header included. A section below that
+ * edge cannot tell a change above the viewport from one inside it. */
+function holdsViewportTop(scroll: HTMLElement, container: HTMLElement | null | undefined): boolean {
+  if (!container || container === scroll) return true
+  let section: HTMLElement | null = container
+  while (section && section.parentElement !== scroll) section = section.parentElement
+  if (!section) return true
+  const start = containerOffset(scroll, section)
+  return start <= scroll.scrollTop && scroll.scrollTop < start + section.offsetHeight
+}
+
 /**
  * A small variable-height virtualizer specialised for Podium's issue surfaces.
  * It deliberately owns only mounting and geometry: full issue order, selection,
@@ -130,6 +145,7 @@ export function useBoundedVirtualList({
   initialItems = DEFAULT_INITIAL_ITEMS,
   pinnedKeys = [],
   revealKey,
+  onScrollAnchor,
 }: BoundedVirtualListOptions): BoundedVirtualList {
   const sizesRef = useRef(new Map<string, number>())
   const nodesRef = useRef(new Map<string, HTMLElement>())
@@ -328,27 +344,40 @@ export function useBoundedVirtualList({
   // Keep the same visible row at the same pixel when expansion, filtering or a
   // replica update inserts/removes rows above it. ID snapshots are immutable;
   // their identity already signals changes without joining the whole column
-  // on selection, heartbeat, or scroll renders.
+  // on selection, heartbeat, or scroll renders. A section of a grouped list
+  // must also follow its container when an earlier section changes, which no
+  // key of its own signals, so this checks every commit and returns early
+  // when neither the rows nor the container moved.
   useLayoutEffect(() => {
     const previous = layout
     // layoutRef already points at the current render, so retain the prior
     // render's geometry separately.
     const prior = priorLayoutRef.current
-    if (prior.keys.length > 0) {
-      const scroll = scrollRef.current
-      const currentTop = localScrollTop(scroll, containerRef?.current)
-      const saved = priorViewportRef.current
-      const top = saved && scroll ? saved.top + scroll.scrollTop - saved.scrollTop : currentTop
-      // Only the section intersecting a shared grouped-list viewport may move
-      // that viewport. Offscreen sections update their geometry silently.
-      if (scroll && top < prior.totalSize && top + scroll.clientHeight > 0) {
-        const anchorIndex = itemAt(prior, Math.max(0, top))
-        const anchorKey = prior.keys[anchorIndex]
-        const currentIndex = anchorKey ? (previous.indexes.get(anchorKey) ?? -1) : -1
-        if (currentIndex >= 0) {
-          const delta =
-            offsetAt(previous, currentIndex) - offsetAt(prior, anchorIndex) + top - currentTop
-          if (delta !== 0) scroll.scrollTop += delta
+    const scroll = scrollRef.current
+    const currentTop = localScrollTop(scroll, containerRef?.current)
+    const saved = priorViewportRef.current
+    const top = saved && scroll ? saved.top + scroll.scrollTop - saved.scrollTop : currentTop
+    if (prior === previous && top === currentTop) return
+    // Only the section holding the viewport's top edge may move a shared
+    // grouped-list viewport. A section further down also sees its container
+    // shift when a row above it leaves, but that row may sit below the top
+    // edge too, and compensating for it scrolls the whole list (POD-2127).
+    if (
+      prior.keys.length > 0 &&
+      scroll &&
+      top < prior.totalSize &&
+      top + scroll.clientHeight > 0 &&
+      holdsViewportTop(scroll, containerRef?.current)
+    ) {
+      const anchorIndex = itemAt(prior, Math.max(0, top))
+      const anchorKey = prior.keys[anchorIndex]
+      const currentIndex = anchorKey ? (previous.indexes.get(anchorKey) ?? -1) : -1
+      if (currentIndex >= 0) {
+        const delta =
+          offsetAt(previous, currentIndex) - offsetAt(prior, anchorIndex) + top - currentTop
+        if (delta !== 0) {
+          scroll.scrollTop += delta
+          onScrollAnchor?.()
         }
       }
     }
@@ -358,7 +387,7 @@ export function useBoundedVirtualList({
       scrollTop: scrollRef.current?.scrollTop ?? 0,
     }
     publishViewport()
-  }, [layout, scrollRef, containerRef, publishViewport])
+  })
 
   const focusKey =
     revealKey === undefined

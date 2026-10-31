@@ -198,6 +198,35 @@ describe('mail.records, through the gate the tRPC router reaches', () => {
     expect(answer.records).toEqual([])
   })
 
+  it('loads historical attachments by session and transcript identity with the same visibility', async () => {
+    const h = await mailHarness()
+    const attachment = {
+      id: '758cc885-68cc-44ec-83c3-531f071689a4', filename: 'image.png',
+      mediaType: 'image/png', kind: 'image' as const,
+      path: `/home/podium/.podium/uploads/${S1}/758cc885-68cc-44ec-83c3-531f071689a4.png`,
+    }
+    for (const row of [
+      chat('msg_image', { attachments: [attachment] }),
+      chat('msg_text'),
+      chat('msg_other_session', { attachments: [attachment], toId: asSessionId('ses_other') }),
+    ]) {
+      await h.store.messages.addMessage(row)
+      await h.store.messages.markDispatched(row.id, row.toId as typeof S1, 't1')
+      await h.store.messages.markDelivered(row.id, row.toId as typeof S1, 't2')
+      await h.store.messages.nameTranscriptItem(row.id, row.toId as typeof S1, { id: row.id === 'msg_text' ? 'text-item' : 'image-item' })
+    }
+    const input = { sessionId: S1, transcriptItemIds: ['image-item', 'text-item', 'unknown'] }
+    const answer = await h.gate.dispatch(person(ALICE), undefined, 'records', input, 'trpc') as { records: unknown[] }
+    expect(answer.records).toEqual([expect.objectContaining({
+      id: 'msg_image', transcriptItem: { id: 'image-item' },
+      attachments: [{ id: attachment.id, filename: 'image.png', mediaType: 'image/png', kind: 'image' }],
+    })])
+    expect(await h.gate.dispatch(person(CAROL), undefined, 'records', input, 'trpc')).toEqual({ records: [] })
+    expect(await h.gate.dispatch({ ...person(ALICE), actorSessionId: asSessionId('ses_agent') }, undefined, 'records', input, 'trpc')).toEqual({ records: [] })
+    await expect(h.gate.dispatch(person(ALICE), undefined, 'records', { sessionId: S1, transcriptItemIds: [] }, 'trpc')).rejects.toThrow()
+    await expect(h.gate.dispatch(person(ALICE), undefined, 'records', { sessionId: S1, transcriptItemIds: Array.from({ length: 101 }, (_, i) => `item-${i}`) }, 'trpc')).rejects.toThrow()
+  })
+
   it('refuses a read naming no id, or more than one request may', async () => {
     const h = await mailHarness()
     await expect(

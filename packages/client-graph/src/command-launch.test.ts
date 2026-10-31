@@ -25,12 +25,7 @@ import {
   writeStageMove,
   writeTitleRename,
 } from '../../../tests/worklist/shared/src/scenarios'
-import {
-  checkCommandLaunch,
-  compareCommandLaunchSnapshots,
-  legacyCommandLaunchSnapshot,
-  poolCommandLaunchSnapshot,
-} from '../../../tests/worklist/diagnostics/command-launch-check'
+import { poolCommandLaunchSnapshot } from '../../../tests/worklist/diagnostics/command-launch-check'
 import { COMMAND_SUMMARIES } from './command-launch-schema'
 import { attachCommandLaunchSource } from './command-launch-source'
 import { attachHeaderSource } from './header-source'
@@ -68,24 +63,16 @@ async function fixture() {
     }
     throw new Error('Selected command detail failed to settle')
   }
-  function parity(label = 'initial') {
+  function settled(label = 'initial') {
     settle()
-    const result = runInAction(() => checkCommandLaunch(handle.pool, referenceState(ctx.engine)))
-    if (result.first) {
-      const expected = legacyCommandLaunchSnapshot(referenceState(ctx.engine)),
-        actual = runInAction(() => poolCommandLaunchSnapshot(handle.pool))
-      expect(actual.sections[result.first.sectionIndex], label).toEqual(
-        expected.sections[result.first.sectionIndex],
-      )
-    }
-    expect(result, label).toMatchObject({ differences: 0, pending: 0, first: null })
+    expect(runInAction(() => poolCommandLaunchSnapshot(handle.pool)).pending, label).toBe(0)
   }
   return {
     ctx,
     ...handle,
     source,
     settle,
-    parity,
+    settled,
     close() {
       detachHeader()
       handle.dispose()
@@ -149,12 +136,12 @@ describe('declared command and launch targets', () => {
     const f = await fixture(),
       stop = autorun(() => poolCommandLaunchSnapshot(f.pool))
     try {
-      f.parity()
+      f.settled()
       const actions = referenceState(f.ctx.engine)
       actions.setPaletteOpen(true)
       actions.openFileInWorktree({ root: f.ctx.corpus.repos[0]!.path, path: 'README.md' })
       await Promise.resolve()
-      f.parity('palette and recent-file locals')
+      f.settled('palette and recent-file locals')
       for (const write of [
         writeHeartbeat,
         writePhaseChange,
@@ -172,7 +159,7 @@ describe('declared command and launch targets', () => {
       ]) {
         await write(f.ctx)
         await Promise.resolve()
-        f.parity(write.name)
+        f.settled(write.name)
       }
     } finally {
       stop()
@@ -189,17 +176,17 @@ describe('declared command and launch targets', () => {
       await new Promise((resolve) => setTimeout(resolve, f.ctx.settleMs))
     }
     try {
-      f.parity()
+      f.settled()
       const repos = f.ctx.discovery.repos as GitRepositoryWire[]
       const before = f.source.counts.sessionLinks
       await discover(repos.map((repo, at) => (at === 0 ? { ...repo, branch: 'renamed' } : repo)))
-      f.parity('branch rename')
+      f.settled('branch rename')
       expect(f.source.counts.sessionLinks).toBe(before)
       const at = repos.findIndex((repo) => repo.worktrees.length > 0)
       await discover(repos.map((repo, i) => (i === at ? { ...repo, worktrees: repo.worktrees.slice(1) } : repo)))
-      f.parity('worktree removed')
+      f.settled('worktree removed')
       await discover(repos)
-      f.parity('worktree restored')
+      f.settled('worktree restored')
     } finally {
       stop()
       f.close()
@@ -225,7 +212,7 @@ describe('declared command and launch targets', () => {
       expect(selected && selected !== LOADING ? selected.pending : 0).toBeGreaterThan(0)
       expect(f.pool.hydrate()).toBeGreaterThan(0)
       f.settle()
-      f.parity('selected cold context')
+      f.settled('selected cold context')
     } finally {
       f.close()
     }
@@ -242,7 +229,7 @@ describe('declared command and launch targets', () => {
       expect(f.source.counts.windowChanges).toBe(before.windowChanges)
       expect(f.source.counts.sessionChanges).toBeGreaterThan(before.sessionChanges)
       expect(omitGone(f.pool.row('commandWindow', 'window'))).toBe(window)
-      f.parity('heartbeat relations')
+      f.settled('heartbeat relations')
       const id = f.ctx.targets.phaseSessionId,
         row = f.ctx.cache.read('session', id)!.value as { issueId: string }
       expect(f.pool.resident('session', id)).toBe('resident')
@@ -252,7 +239,7 @@ describe('declared command and launch targets', () => {
       await new Promise((resolve) => setTimeout(resolve, f.ctx.settleMs))
       expect(f.pool.sources.related('commandIssue', row.issueId, 'sessions')).not.toContain(id)
       expect(f.pool.sources.related('commandIssue', nextIssueId, 'sessions')).toContain(id)
-      f.parity('addressed session relation move')
+      f.settled('addressed session relation move')
     } finally {
       f.close()
     }
@@ -292,29 +279,7 @@ describe('declared command and launch targets', () => {
           : [],
       ).toEqual(['command-z-parked', 'command-middle'])
       expect(f.pool.hydrate()).toBe(0)
-      f.parity('parked resume first-slot order')
-    } finally {
-      f.close()
-    }
-  }, 120_000)
-
-  it('reports planted value, ordering and membership faults even with pending detail', async () => {
-    const f = await fixture()
-    try {
-      f.parity()
-      const expected = legacyCommandLaunchSnapshot(referenceState(f.ctx.engine)),
-        actual = runInAction(() => poolCommandLaunchSnapshot(f.pool))
-      for (const fault of ['value', 'order', 'membership'] as const) {
-        const damaged = { ...structuredClone(actual), pending: 1 }
-        const section = damaged.sections.find((section) => section.key === 'issues')!
-        expect(section.rows.length).toBeGreaterThan(1)
-        if (fault === 'value') (section.fields as Record<string, unknown>).fault = true
-        if (fault === 'order') (section.rows as unknown[]).reverse()
-        if (fault === 'membership') (section.rows as unknown[]).pop()
-        const result = compareCommandLaunchSnapshots(expected, damaged)
-        expect(result.differences, fault).toBeGreaterThan(0)
-        expect(result.first?.section, fault).toBe('issues')
-      }
+      f.settled('parked resume first-slot order')
     } finally {
       f.close()
     }
@@ -347,7 +312,7 @@ describe('declared command and launch targets', () => {
     ]
     const census = vi.spyOn(f.pool.residency!, 'ids')
     try {
-      f.parity()
+      f.settled()
       expect(views.counts.coldSessionVisits).toBeGreaterThan(0)
       const globals = () => {
         const { addressedSessionReads: _addressed, ...counts } = views.counts
@@ -357,13 +322,13 @@ describe('declared command and launch targets', () => {
         beforeFields = { ...fieldRuns }
       for (const id of [f.ctx.targets.visibleRootId, f.ctx.targets.stageMoveId]) {
         await writeSelectionClick(f.ctx, id)
-        f.parity(`click ${id}`)
+        f.settled(`click ${id}`)
         expect(globals()).toEqual(before)
         expect(fieldRuns).toEqual(beforeFields)
       }
       referenceState(f.ctx.engine).setPane('A', asSessionId(f.ctx.targets.phaseSessionId))
       await Promise.resolve()
-      f.parity('session click')
+      f.settled('session click')
       expect(globals()).toEqual(before)
       expect(fieldRuns).toEqual(beforeFields)
       expect(census).not.toHaveBeenCalled()
@@ -374,7 +339,7 @@ describe('declared command and launch targets', () => {
       const addressed = views.counts.addressedSessionReads
       await referenceState(f.ctx.engine).markSessionRead(id)
       await new Promise((resolve) => setTimeout(resolve, f.ctx.settleMs))
-      f.parity('session mark-read')
+      f.settled('session mark-read')
       expect(globals()).toEqual(before)
       expect(views.counts.addressedSessionReads).toBeGreaterThan(addressed)
       const marked = referenceState(f.ctx.engine)
@@ -385,7 +350,7 @@ describe('declared command and launch targets', () => {
       const readAt = new Date(Date.parse(marked.readAt!) + 1).toISOString()
       upsert(f.ctx, 'sessionUserState', homeId, { ...home, readAt })
       await new Promise((resolve) => setTimeout(resolve, f.ctx.settleMs))
-      f.parity('session read echo')
+      f.settled('session read echo')
       expect(globals()).toEqual(before)
       const sessions = views.sessions()
       expect(
@@ -397,13 +362,13 @@ describe('declared command and launch targets', () => {
       expect(fieldRuns.files).toBe(beforeFields.files)
       expect(fieldRuns.sessions).toBeGreaterThan(beforeFields.sessions)
       await writeClockTick(f.ctx, 1000)
-      f.parity('clock without activity')
+      f.settled('clock without activity')
       expect(globals()).toEqual(before)
       expect(census).not.toHaveBeenCalled()
       // A relevant activity publication arms usage work, without cold scans.
       const heartbeatCold = !f.pool.tables.session.has(f.ctx.targets.heartbeatSessionId)
       await writeHeartbeat(f.ctx)
-      f.parity('activity publication')
+      f.settled('activity publication')
       expect(views.counts.usageQueries).toBeGreaterThan(before.usageQueries)
       // The keyed helper counts this addressed cold value too; it never
       // revisits the remaining browsing summaries on this publication.
@@ -418,7 +383,7 @@ describe('declared command and launch targets', () => {
   it('matches independent repository activity and rejects a faulty indexed maximum', async () => {
     const f = await fixture()
     try {
-      f.parity()
+      f.settled()
       const state = referenceState(f.ctx.engine),
         views = commandLaunchViews(f.pool),
         data = views.palette()

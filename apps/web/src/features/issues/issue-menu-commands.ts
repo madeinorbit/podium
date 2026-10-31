@@ -4,7 +4,6 @@ import {
   asMachineId,
   DEFER_NEXT_MESSAGE,
   type IssueCloseReason,
-  isIssueColorSlot,
   issueStatusIntent,
   type MachineId,
   snoozeUntil1h,
@@ -12,7 +11,7 @@ import {
 import type { Trpc } from '@/app/trpc'
 import { deferDateFromNow, describeCascade, toggleLabelAcross } from './issue-context-menu'
 import type { IssueMenuConfig, IssueMenuData } from './issue-menu-config'
-import { ISSUE_MENU_COLOR_NONE, statusValue } from './issue-menu-config'
+import { statusValue } from './issue-menu-config'
 
 export interface IssueMenuCommandDeps {
   trpc: Trpc
@@ -144,11 +143,6 @@ export function runIssueMenuCommand(
       const priority = Number(value)
       if (!Number.isInteger(priority) || priority < 0 || priority > 4) return
       return Promise.all(data.issues.map((issue) => deps.updateIssue(issue.id, { priority })))
-    }
-    case 'color': {
-      if (value !== ISSUE_MENU_COLOR_NONE && !isIssueColorSlot(value)) return
-      const color = value === ISSUE_MENU_COLOR_NONE ? null : value
-      return Promise.all(data.issues.map((issue) => deps.updateIssue(issue.id, { color })))
     }
     case 'agent':
       return spawnIssueAgent(deps.trpc.issues, value ? { id, agentKind: value } : { id })

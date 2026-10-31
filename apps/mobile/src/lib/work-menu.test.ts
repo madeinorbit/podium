@@ -51,7 +51,6 @@ describe('Work long-press menu projection', () => {
       'rename',
       'read',
       'status',
-      'color',
       'placement',
       'delete',
     ])

@@ -14,6 +14,8 @@ export function paintIssueRefAnchor(
   const loading = model === 'loading'
   const ready = loading ? null : model
   let changed = setOrRemove(anchor, 'data-issue-stage', ready?.stage ?? null)
+  changed = setOrRemove(anchor, 'data-issue-status', ready?.status ?? null) || changed
+  changed = setOrRemove(anchor, 'title', ready?.accessibleLabel ?? null) || changed
   changed =
     setOrRemove(
       anchor,

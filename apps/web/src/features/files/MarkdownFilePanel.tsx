@@ -9,7 +9,7 @@ import {
   writeFilePanelMode,
 } from '@podium/client-core/ui-state'
 import { type FileScope, scopeKey } from '@podium/client-core/values'
-import { asSessionId, type SessionId } from '@podium/model/browser'
+import { asSessionId, type MachineId, type SessionId } from '@podium/model/browser'
 import { Columns2, Eye, Flower2, Pencil, Save, X } from 'lucide-react'
 import { type JSX, useCallback, useEffect, useId, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
@@ -41,6 +41,10 @@ export function MarkdownFilePanel({
   onClose: () => void
 }): JSX.Element {
   const doc = useFileDocument(scope, path)
+  const worktree =
+    scope.kind === 'worktree'
+      ? { root: scope.root, ...(scope.machineId ? { machineId: scope.machineId } : {}) }
+      : undefined
   const saveFeedbackId = useId()
   const { uiState } = useStoreHandle().access
   const md = isMarkdownPath(path)
@@ -236,6 +240,7 @@ export function MarkdownFilePanel({
             <div className="flex min-w-0 flex-1">
               <MarkdownPreview
                 sessionId={scope.kind === 'session' ? scope.sessionId : asSessionId('')}
+                {...(worktree ? { worktree } : {})}
                 path={path}
                 content={doc.content}
                 scrollRef={previewScrollRef}
@@ -247,6 +252,7 @@ export function MarkdownFilePanel({
       {calmReading && doc.status === 'ready' && (
         <CalmMarkdownReader
           sessionId={scope.kind === 'session' ? scope.sessionId : asSessionId('')}
+          {...(worktree ? { worktree } : {})}
           path={path}
           content={doc.content}
           onClose={closeCalmReading}
@@ -260,11 +266,13 @@ export function MarkdownFilePanel({
  *  through the subdued backdrop, preserving place while attention moves to the text. */
 function CalmMarkdownReader({
   sessionId,
+  worktree,
   path,
   content,
   onClose,
 }: {
   sessionId: SessionId
+  worktree?: { root: string; machineId?: MachineId }
   path: string
   content: string
   onClose: () => void
@@ -320,6 +328,7 @@ function CalmMarkdownReader({
         </header>
         <MarkdownPreview
           sessionId={sessionId}
+          {...(worktree ? { worktree } : {})}
           path={path}
           content={content}
           className="calm-reader-document"

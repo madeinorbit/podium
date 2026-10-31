@@ -41,6 +41,7 @@ import type {
   MessageFailedCause,
   Refusal,
   RuntimeAttachmentRef,
+  StagedAttachmentRef,
   TurnReceipt,
 } from '@podium/protocol/daemon'
 import { asDelegationRef, type DelegationRef } from '@podium/protocol'
@@ -133,7 +134,41 @@ const EXACT_HISTORY_IDS: ReadonlySet<string> = new Set([
   'claude-uuid', 'codex-client-message', 'grok-prompt', 'opencode-message', 'opencode-part',
 ])
 
-const REFUSALS_PROVING_NO_WRITE: ReadonlySet<Refusal['reason']> = new Set(['not_running', 'unsupported', 'staging_failed'])
+/**
+ * WHAT A STAGING ANSWER MEANS FOR THE ROW (POD-2148). A refusal the machine
+ * may get over (not running yet, no answer, a write error) leaves the row
+ * queued for the next pass. `unsupported` never changes for this session —
+ * the agent cannot take files at all, or a driver refuses them for good — and
+ * a daemon that staged under an id of its own predates caller-chosen ids:
+ * both fail the row, so the messages behind it still arrive.
+ */
+export function chatUploadStageAnswer(
+  attachment: RuntimeAttachmentRef,
+  staged: StagedAttachmentRef | Refusal,
+): { ref: StagedAttachmentRef } | { retry: string } | { fail: string } {
+  if ('reason' in staged) {
+    const detail = staged.detail ?? staged.reason
+    return staged.reason === 'unsupported' ? { fail: detail } : { retry: detail }
+  }
+  if (staged.id !== attachment.id) {
+    return {
+      fail: "the agent's machine runs an older Podium that cannot take this attachment; update it and send the file again",
+    }
+  }
+  return { ref: staged }
+}
+
+/** A ref already staged on the agent's machine; a chat upload held on the
+ *  server has no path until a forward stages it (POD-2148). */
+function isStaged(attachment: RuntimeAttachmentRef): attachment is StagedAttachmentRef {
+  return attachment.path !== undefined
+}
+
+const REFUSALS_PROVING_NO_WRITE: ReadonlySet<Refusal['reason']> = new Set([
+  'not_running',
+  'unsupported',
+  'staging_failed',
+])
 
 /**
  * Stable authorization identity stored with a queued input.
@@ -504,15 +539,28 @@ export interface SessionInboxDeps {
     held?: 'durable'
     initialPrompt?: boolean
     delivery: QueuedDelivery
-    attachments?: readonly RuntimeAttachmentRef[]
+    attachments?: readonly StagedAttachmentRef[]
     text: string
     origin: ObservationInputOrigin
     principal: InboxPrincipalReference
   }): Promise<TurnReceipt>
   /**
-  * REQUEST an interrupt through the runtime contract — the only delivery an
-  * agent session has.
-  *
+   * Stage one chat upload held on the server (POD-2148) on the session's
+   * machine under its own id, for the forward about to carry it. `retry`: the
+   * machine could not take it now (not running, no answer) and nothing was
+   * typed, so the row waits for the next pass. `fail`: it can never be staged
+   * (the server no longer holds the file, or the machine's daemon cannot stage
+   * under an id), so the row fails visibly rather than blocking the queue.
+   * Absent = a fixture or server without chat uploads; such a row fails.
+   */
+  stageChatUpload?(input: {
+    sessionId: SessionId
+    attachment: RuntimeAttachmentRef
+  }): Promise<{ ref: StagedAttachmentRef } | { retry: string } | { fail: string }>
+  /**
+   * REQUEST an interrupt through the runtime contract — the only delivery an
+   * agent session has.
+   *
    * The answer is the DRIVER's, and it says the request was accepted or names
    * the reason it was not — it never says the turn stopped. The fence is a
    * provider-confirmed terminal turn event on the causal stream, and this reply
@@ -692,7 +740,9 @@ export class SessionInbox {
    * keeps the proof requirement recognizable if the server restarts before the
    * first turn is observed.
    */
-  async queueInitialPrompt(input: InboxSendInput): Promise<{
+  async queueInitialPrompt(
+    input: InboxSendInput & { attachments?: readonly RuntimeAttachmentRef[] },
+  ): Promise<{
     ok: boolean
     queued?: boolean
     reason?: string
@@ -1353,6 +1403,50 @@ export class SessionInbox {
           await this.deps.queue.delete(row.id)
           continue
         }
+        // A CHAT UPLOAD IS STAGED ON THE AGENT'S MACHINE NOW (POD-2148), on
+        // every forward and never stored back on the row: a hibernate or exit
+        // clears the machine's uploads, and a session can move machines while
+        // the row waits. It runs before the reservation, so a staging failure
+        // proves nothing was typed. It stages under the upload's own id, so a
+        // re-forward lands on the same path (headless turns digest the paths).
+        let attachments: readonly StagedAttachmentRef[] | undefined =
+          row.attachments?.filter(isStaged)
+        if (row.attachments?.some((attachment) => !isStaged(attachment))) {
+          const staged = await this.stageRowAttachments(sessionId, row.attachments)
+          if (!current()) return
+          if (!(await this.deps.queue.list(sessionId)).some((entry) => entry.id === row.id))
+            continue
+          if (!current()) return
+          if ('retry' in staged) {
+            log.warn('chat upload staging failed; the row stays queued', {
+              sessionId,
+              rowId: row.id,
+              reason: staged.retry,
+            })
+            return
+          }
+          if ('fail' in staged) {
+            // The same end as a refused sender: what an earlier forward handed
+            // the daemon is withdrawn first, then the row fails visibly.
+            if (row.deliveryOwner === 'daemon') {
+              if (!this.deps.contractCancel) return
+              const cancelled = await this.deps.contractCancel(sessionId, row.id)
+              if (!current() || !('ok' in cancelled && cancelled.ok)) return
+              if (!(await this.deps.queue.list(sessionId)).some((entry) => entry.id === row.id))
+                continue
+              if (!current()) return
+            }
+            await this.deps.authorization.rejected({
+              queueId: row.id,
+              sourceMessageId: row.sourceMessageId,
+              principal: row.principal,
+              reason: staged.fail,
+            })
+            await this.deps.queue.delete(row.id)
+            continue
+          }
+          attachments = staged.refs
+        }
         // Duplicate custody after a server restart is the DAEMON's to absorb
         // (POD-4687): rows forward with their stable row id, and the daemon's
         // delivery queue replays the already-delivered outcome instead of
@@ -1385,7 +1479,7 @@ export class SessionInbox {
             ...(heldDurably ? { held: 'durable' as const } : {}),
             initialPrompt: isInitialPromptRow(sessionId, row),
             delivery: row.delivery,
-            ...(row.attachments?.length ? { attachments: row.attachments } : {}),
+            ...(attachments?.length ? { attachments } : {}),
           })
           if (!current()) return
           if (receipt.outcome !== 'queued' && receipt.outcome !== 'accepted') {
@@ -1445,6 +1539,26 @@ export class SessionInbox {
     const operation = run()
     this.forwarding.set(sessionId, operation)
     try { await operation } finally { if (this.forwarding.get(sessionId) === operation) this.forwarding.delete(sessionId) }
+  }
+
+  /** Every ref of a row as the daemon is handed it: staged ones as they are,
+   *  each chat upload staged now, in order. The first failure decides. */
+  private async stageRowAttachments(
+    sessionId: SessionId,
+    refs: readonly RuntimeAttachmentRef[],
+  ): Promise<{ refs: StagedAttachmentRef[] } | { retry: string } | { fail: string }> {
+    const out: StagedAttachmentRef[] = []
+    for (const attachment of refs) {
+      if (isStaged(attachment)) {
+        out.push(attachment)
+        continue
+      }
+      if (!this.deps.stageChatUpload) return { fail: 'file attachments cannot be delivered here' }
+      const staged = await this.deps.stageChatUpload({ sessionId, attachment })
+      if (!('ref' in staged)) return staged
+      out.push(staged.ref)
+    }
+    return { refs: out }
   }
 
   /** The delivered half of a row's settlement: the ledger learns it was

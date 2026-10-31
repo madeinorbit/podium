@@ -6,13 +6,18 @@ import { here } from './lookup'
 import type { MobxPool } from './pool'
 import type { RepositoryModel } from './requested-models'
 
-/** A settings row is a scan plus the existing logical repository's prefix. */
+/** A settings row is a scan plus the existing logical repository's prefix and base branch. */
 export class SettingsRepository {
   constructor(readonly repository: RepositoryModel, private readonly pool: MobxPool) {}
   @lazy get path() { return this.repository.path }
   @lazy get machineId() { return this.repository.machineId }
+  @lazy get repoId() { return this.repository.repoId ?? null }
   @lazy get prefix() {
     return this.repository.repoId ? here(this.pool.model('repo', this.repository.repoId))?.prefix ?? null : null
+  }
+  /** The repo's base branch [POD-2065]; `null` defers to the Podium default. */
+  @lazy get defaultParentBranch() {
+    return this.repository.repoId ? here(this.pool.model('repo', this.repository.repoId))?.defaultParentBranch ?? null : null
   }
 }
 export class SettingsRepositories {

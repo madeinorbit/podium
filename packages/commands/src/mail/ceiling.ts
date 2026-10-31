@@ -1,4 +1,4 @@
-import { asIssueId, asSessionId, type IssueId, type SessionId, type MachineId } from '@podium/model'
+import { asIssueId, asSessionId, type IssueId, type MachineId, type SessionId } from '@podium/model'
 
 /**
  * THE human ceiling, and the consistent-error rule that keeps it from becoming
@@ -113,7 +113,7 @@ export async function resolveAddress(ref: string, deps: AddressDeps): Promise<Ad
     // `isKnownSession` has just confirmed this ref names a live session, so the
     // brand is applied on the far side of the existence check, not before it.
     const sessionId = asSessionId(ref)
-    return await deps.ceiling.canSee({ kind: 'session', id: sessionId })
+    return (await deps.ceiling.canSee({ kind: 'session', id: sessionId }))
       ? { kind: 'session', id: sessionId }
       : { kind: 'unresolvable' }
   }
@@ -129,8 +129,8 @@ export async function resolveAddress(ref: string, deps: AddressDeps): Promise<Ad
   // real one, the scope gate found a real target, and the caller got a
   // confirm-required error naming an issue it may not see. Collapsing to a
   // single value removes the branch that could differ.
-  if (!await deps.issueExists(id)) return { kind: 'unresolvable' }
-  if (!await deps.ceiling.canSee({ kind: 'issue', id })) return { kind: 'unresolvable' }
+  if (!(await deps.issueExists(id))) return { kind: 'unresolvable' }
+  if (!(await deps.ceiling.canSee({ kind: 'issue', id }))) return { kind: 'unresolvable' }
   return { kind: 'issue', id }
 }
 

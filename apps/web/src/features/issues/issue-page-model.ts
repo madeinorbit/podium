@@ -1,4 +1,3 @@
-import type { SessionView } from '@podium/client-core/session-values'
 import { machinePathBasename } from '@podium/model'
 /**
  * Navigation and mutation ports for the issue page. Record facts are read by
@@ -8,14 +7,14 @@ import { machinePathBasename } from '@podium/model'
 import { shallowEqual } from '@podium/client-core'
 import type { IssueId, SessionId, UserId } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { toast } from 'sonner'
 import type { Store } from '@/app/store'
 import { type IssueViewModel, useRuntimeSelector } from '@/app/store'
 import type { Trpc } from '@/app/trpc'
 import type { PropertyOption } from '@/lib/PropertyMenu'
 import { issueNeighbors } from './issue-page'
-import { loadMergeStyle, type MergeStyle, type RunMutation } from './issue-page-commands'
+import type { RunMutation } from './issue-page-commands'
 
 export interface IssuePageModel {
   trpc: Trpc
@@ -74,26 +73,6 @@ export function useIssuePageModel(issue: IssueViewModel, orderedIds: IssueId[]):
     repoName: machinePathBasename(issue.repoPath),
     openSession: ports.navigateToSession,
   }
-}
-
-/** The configured merge style, loaded once per mount ('ff-only' is the safe
- *  default primary while loading / on error). */
-export function useMergeStyle(trpc: Trpc): MergeStyle {
-  const [mergeStyle, setMergeStyle] = useState<MergeStyle>('ff-only')
-  useEffect(() => {
-    let cancelled = false
-    loadMergeStyle(trpc)
-      .then((style) => {
-        if (!cancelled) setMergeStyle(style)
-      })
-      .catch(() => {
-        // best-effort — ff-only is a safe default primary
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [trpc])
-  return mergeStyle
 }
 
 // ---------------------------------------------------------------------------

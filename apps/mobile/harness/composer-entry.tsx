@@ -15,7 +15,7 @@ import { OldComposer } from './OldComposer'
 
 /** The placeholder the screenshot was taken with, plus the two shorter ones. */
 const CASES = [
-  { label: 'session — resume', placeholder: 'Message — resumes the agent…' },
+  { label: 'session — resume', placeholder: 'Message the agent to resume it…' },
   { label: 'session — live', placeholder: 'Message the agent…' },
   { label: 'superagent', placeholder: 'Delegate a task…' },
 ]
@@ -73,7 +73,7 @@ function Harness() {
         <View style={styles.row}>
           <Frame title="before">
             <OldComposer
-              placeholder="Message — resumes the agent…"
+              placeholder="Message the agent to resume it…"
               onSend={noop}
               caption="Editing Composer.tsx"
               attachments={attachments}
@@ -81,7 +81,7 @@ function Harness() {
           </Frame>
           <Frame title="after">
             <Composer
-              placeholder="Message — resumes the agent…"
+              placeholder="Message the agent to resume it…"
               onSend={noop}
               caption="Editing Composer.tsx"
               attachments={attachments}

@@ -40,10 +40,10 @@ const schema = {
     fields: {
       // Identity and chat delivery
       ...fields('MessageRecordWire', 'replica:messageRecords', {
-        id: 'id', sessionId: 'id', senderUserId: 'id', body: 'string', attachments: 'object',
+        id: 'id', sessionId: 'id', senderUserId: 'id', body: 'string', initialPrompt: 'boolean', attachments: 'object',
         createdAt: 'isoDate', status: 'enum', reason: 'string', transcriptItem: 'object',
         retractRequestedAt: 'isoDate', noticeDismissedAt: 'isoDate',
-      }, { optional: ['sessionId', 'senderUserId', 'attachments', 'reason', 'transcriptItem', 'retractRequestedAt', 'noticeDismissedAt'] }),
+      }, { optional: ['sessionId', 'senderUserId', 'initialPrompt', 'attachments', 'reason', 'transcriptItem', 'retractRequestedAt', 'noticeDismissedAt'] }),
       // Requested ledger metadata
       ...fields('MessageLedgerWire', 'request:messages.ledger', {
         threadId: 'id', inReplyTo: 'id', from: 'string', to: 'string', kind: 'enum', urgency: 'enum', lifecycle: 'enum',
@@ -79,7 +79,7 @@ registerModels(schema, { messageRecord: MessageModel, pendingInteraction: Intera
  * Request callers provide the current replica row: a late response cannot
  * overwrite an authoritative pushed record (the declared component precedence). */
 export type CurrentMessageRecord = (id: string) => MessageRecordWire | undefined
-const CHAT_OPTIONAL = ['attachments', 'reason', 'transcriptItem', 'retractRequestedAt', 'noticeDismissedAt'] as const
+const CHAT_OPTIONAL = ['initialPrompt', 'attachments', 'reason', 'transcriptItem', 'retractRequestedAt', 'noticeDismissedAt'] as const
 const LEDGER_OPTIONAL = ['queuePosition', 'readAt', 'deadLetteredAt', 'deliveryDeferredAt', 'deliveryDeferredReason'] as const
 function replaceChatFields(previous: Partial<MessagePoolRow>, record: MessageRecordWire): MessagePoolRow {
   const next = { ...previous }

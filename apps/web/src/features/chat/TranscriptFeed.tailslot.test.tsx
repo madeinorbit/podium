@@ -1,4 +1,4 @@
-import type { ChatActivity, RenderableRow } from '@podium/client-core/values'
+import type { ChatActivity, RenderableRow, SessionIssueOutcome } from '@podium/client-core/values'
 import { asSessionId, type TranscriptItem } from '@podium/model'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
@@ -49,6 +49,7 @@ function rowsFor(items: TranscriptItem[]): RenderableRow[] {
 function render(
   activity: ChatActivity | null,
   items: TranscriptItem[] = [say('a1', 'an answer')],
+  outcome: SessionIssueOutcome | null = null,
 ): void {
   const blocks = pairToolResults(items)
   act(() => {
@@ -88,6 +89,7 @@ function render(
         turnPreview={null}
         activity={activity}
         attribution={{} as never}
+        outcome={outcome}
       />,
     )
   })
@@ -160,5 +162,46 @@ describe('the tail stands in a slot of constant height', () => {
     expect(line()?.querySelector('.pod-mark')).toBeNull()
     expect(tailRow()?.dataset.tail).toBe('working')
     expect(host.querySelectorAll('.pod-mark')).toHaveLength(1)
+  })
+})
+
+describe('an issue outcome ends the transcript (POD-2151)', () => {
+  const landed: SessionIssueOutcome = {
+    kind: 'landed',
+    at: '2026-10-26T19:59:00.000Z',
+    branch: 'tf.dev',
+    sha: 'fcd1385',
+  }
+  const card = (): HTMLElement | null => host.querySelector('[data-testid="issue-outcome-card"]')
+
+  it('suppresses the stale status a parent stop kept, such as a retryable error', () => {
+    render({ tone: 'error', label: 'rate limited' } as ChatActivity, undefined, landed)
+    expect(card()?.textContent).toContain('Landed on tf.dev')
+    expect(tailRow()).toBeNull()
+    expect(card()?.nextElementSibling).toBe(slot())
+    render({ tone: 'idle', label: 'interrupted' } as ChatActivity, undefined, landed)
+    expect(tailRow()).toBeNull()
+  })
+
+  it('still reports a wake the operator asked for after it', () => {
+    render({ tone: 'working', label: 'Waking the agent…' } as ChatActivity, undefined, landed)
+    expect(card()).not.toBeNull()
+    expect(tailRow()?.dataset.tail).toBe('working')
+  })
+
+  it('still reports a message the operator just sent after it', () => {
+    render(
+      { tone: 'idle', label: 'Sending', transient: 'just-sent' } as ChatActivity,
+      undefined,
+      landed,
+    )
+    expect(card()).not.toBeNull()
+    expect(tailRow()?.dataset.tail).toBe('sending')
+  })
+
+  it('leaves the tail alone without an outcome', () => {
+    render({ tone: 'error', label: 'rate limited' } as ChatActivity)
+    expect(card()).toBeNull()
+    expect(tailRow()?.dataset.tail).toBe('error')
   })
 })

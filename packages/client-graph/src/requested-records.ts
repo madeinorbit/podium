@@ -1,49 +1,35 @@
-import './requested-models'
 import type { PodiumClientApi } from '@podium/client-core/api'
+
 type PodiumSettings = Awaited<ReturnType<PodiumClientApi['settings']['get']['query']>>
+
 import { lazy } from '@podium/mobx-helpers'
 import { action, compareShallow } from 'mobx'
-import type { ModelOf } from './models'
-import { here } from './lookup'
 import { LOADING } from './loading'
+import { here } from './lookup'
+import type { ModelOf } from './models'
 import type { MobxPool, PoolRows } from './pool'
 import { RequestAnswer } from './request-answer'
-import type { PoolSource } from './source-registry'
+import {
+  ingestRequested,
+  ingestSettings,
+  type RequestedEntity,
+  requestedRecords,
+  SETTINGS_RECORD_ID,
+} from './requested-record-source'
 
-export type RequestedEntity = 'account' | 'member' | 'device' | 'podiumSettings'
-declare module './source-registry' {
-  interface PoolSourceRows extends Pick<PoolRows, RequestedEntity> {}
-}
-const ENTITIES = ['account', 'member', 'device', 'podiumSettings'] as const
-/** Marks independently requested rows as owned through a core-feed replacement.
- * All payloads live in the generic tables; this owner keeps no record mirror. */
-function records(pool: MobxPool) {
-  return pool.sources.view('requested.records', () => {
-    const source: PoolSource<RequestedEntity> = {
-      read: (entity, id) => here(pool.row(entity, id)), dispose() {},
-    }
-    pool.sources.register(ENTITIES, source)
-    return source
-  })
-}
-export function ingestRequested<E extends RequestedEntity>(pool: MobxPool, entity: E,
-  rows: readonly PoolRows[E][], key: (row: PoolRows[E]) => string): string[] {
-  records(pool)
-  pool.apply({ type: 'update', rows: rows.map(value => ({ kind: entity, id: key(value), value })) })
-  return rows.map(key)
-}
-export const SETTINGS_RECORD_ID = 'viewer'
-export function ingestSettings(pool: MobxPool, settings: PodiumSettings): void {
-  records(pool)
-  pool.apply({ type: 'update', rows: [{ kind: 'podiumSettings', id: SETTINGS_RECORD_ID, value: settings }] })
-}
+export {
+  ingestRequested,
+  ingestSettings,
+  type RequestedEntity,
+  SETTINGS_RECORD_ID,
+} from './requested-record-source'
 
 /** Request answers contain membership only; record facts are always pool models.
  * RequestAnswer fences superseded responses before ingestion, as well as on close. */
 export class RecordRequest<E extends RequestedEntity> extends RequestAnswer<readonly string[]> {
   constructor(readonly pool: MobxPool, readonly entity: E, private readonly key: (row: PoolRows[E]) => string) {
     super()
-    records(pool)
+    requestedRecords(pool)
   }
   @action read(read: () => Promise<readonly PoolRows[E][]>): Promise<void> {
     return this.load(read, false, rows => {
@@ -68,7 +54,7 @@ export class RecordRequest<E extends RequestedEntity> extends RequestAnswer<read
 }
 
 export class SettingsRecordRequest extends RequestAnswer<string> {
-  constructor(readonly pool: MobxPool) { super(); records(pool) }
+  constructor(readonly pool: MobxPool) { super(); requestedRecords(pool) }
   @action read(read: () => Promise<PodiumSettings>): Promise<void> {
     return this.load(read, false, settings => { ingestSettings(this.pool, settings); return SETTINGS_RECORD_ID })
   }

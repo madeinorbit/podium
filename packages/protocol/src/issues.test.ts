@@ -37,10 +37,6 @@ describe('issue protocol types', () => {
 
   // POD-797: readAt remains durable, while replica-derived unread is stripped.
 
-  // Issue colour [spec:SP-b4d1]: an additive optional slot NAME ('rose' … 'lime',
-  // never a hex). Absent = no colour; an unknown value from a newer peer degrades
-  // to unset instead of failing the whole issue.
-
   // #175: comment bodies left the wire. `comments` is a deprecated optional
   // (old payloads/hubs may still send it); `commentCount` is the additive
   // replacement, also optional so pre-#175 payloads keep parsing (wire v1).

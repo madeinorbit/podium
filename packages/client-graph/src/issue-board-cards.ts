@@ -75,67 +75,10 @@ export class BoardCard {
   }
 }
 
-/** An explorer line's own rule: the one operational word on its right. */
-export class ExplorerRow {
-  constructor(readonly issue: BoardIssue, private readonly pool: MobxPool) {}
-
-  /** The record this line draws (names its derivations per record). */
-  get id(): string { return this.issue.id }
-
-  /** Unarchived explicit sessions, shells included, known from a resident
-   * row or declared summary (no payload load), in collapse order. */
-  @lazy({ equals: compareShallow })
-  get sessions(): readonly SessionModel[] {
-    const { issue } = this, pool = this.pool
-    const present: SessionModel[] = []
-    let pending = false
-    for (const id of pool.graph.subset('issue', issue.id, 'missionSessions', 'unarchived')) {
-      const session = pool.sessionObject(id)
-      try {
-        if (session.known && !pool.queries.collapsed(id)) present.push(session)
-      } catch (error) { if (error !== LOADING) throw error; pending = true }
-    }
-    if (pending) throw LOADING
-    return present.sort((a, b) =>
-      pool.graph.orderKey('session', a.id).localeCompare(pool.graph.orderKey('session', b.id)))
-  }
-
-  /** Known dependency targets name a blocker; read only for a blocked task. */
-  @lazy({ equals: compareShallow })
-  private get dependencies(): ReadonlyMap<string, BoardIssue> {
-    const { issue } = this, pool = this.pool
-    const byId = new Map<string, BoardIssue>([[issue.id, issue]])
-    for (const id of pool.graph.many('issue', issue.id, 'pageDependencies')) {
-      const target = pool.issueObject(id) as BoardIssue
-      if (target.finished !== undefined) byId.set(id, target)
-    }
-    return byId
-  }
-
-  @lazy({ equals: compareStructural })
-  get state(): ReturnType<typeof operationalState> {
-    const { issue } = this
-    return operationalState(issue, this.sessions as unknown as readonly SessionView[],
-      issue.blocked ? this.dependencies : undefined)
-  }
-}
-
-/** The deferred explorer root owns its row companions until this opening closes. */
-export function createExplorerViews(pool: MobxPool) {
-  const explorerRow = companion((issue: BoardIssue) => new ExplorerRow(issue, pool))
-  return {
-    explorerRow,
-    dispose() { clearCompanions(explorerRow) },
-  }
-}
-
-export type ExplorerViews = ReturnType<typeof createExplorerViews>
-
 /** The always-on board's per-record companions, one per pool. */
 export class BoardCards {
   private readonly cards = [false, true].map(agents =>
     companion((issue: BoardIssue) => new BoardCard(issue, this.pool, agents)))
-  readonly explorerRow = companion((issue: BoardIssue) => new ExplorerRow(issue, this.pool))
   constructor(private readonly pool: MobxPool) {}
 
   issue(id: string): BoardIssue {

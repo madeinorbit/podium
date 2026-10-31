@@ -1,14 +1,15 @@
-import type { Trpc } from '@/app/trpc'
-import { useWorklistPool } from '@/app/store-worklist-pool'
-import { readSessions } from '@/app/command-launch-readers'
-import { useStoreHandle } from '@podium/client-core/react'
-import { observe, reaction } from 'mobx'
-import { useConversation } from '@/features/chat/use-conversation'
 import { beginSwitch, isSwitchTraced, markSwitch } from '@podium/client-core/perf'
+import { useStoreHandle } from '@podium/client-core/react'
 import { effectivePanelMode, type PanelMode } from '@podium/client-core/ui-state'
+import { observe, reaction } from 'mobx'
+import { readSessions } from '@/app/command-launch-readers'
+import { useWorklistPool } from '@/app/store-worklist-pool'
+import type { Trpc } from '@/app/trpc'
+import { useConversation } from '@/features/chat/use-conversation'
 
 export { effectivePanelMode, effectivePanelMode as initialPanelMode, type PanelMode }
 
+import { issueAgentKind } from '@podium/client-core/agent-models'
 import { attentionGroup } from '@podium/client-core/focus'
 import { formatClock, panelLabel, resumeCommand, sessionWaking } from '@podium/client-core/values'
 import type { SessionId } from '@podium/model/browser'
@@ -24,7 +25,6 @@ import {
 import {
   ArrowDownToLine,
   Ellipsis,
-  Folder,
   Keyboard,
   MessageSquareText,
   Mic,
@@ -53,37 +53,34 @@ import { FileLinkPathIndex } from '@/features/chat/chat'
 import { OfferBar } from '@/features/chat/OfferBar'
 import { OfferDismissalContext, useOfferDismissalHost } from '@/features/chat/offer-dismissal'
 import { OfferLiftContext, useOfferLiftHost } from '@/features/chat/offer-lift'
-import { agentBrandDot } from '@/lib/agent-tone'
+import { useClock, useDeadlineNow } from '@/lib/clock-hooks'
 import { useSessionGuard } from '@/lib/hooks/use-session-guard'
-import { issueAgentKind } from '@podium/client-core/agent-models'
 import { EffortPicker, ModelPicker } from '@/lib/ModelEffortPicker'
 import { isKnownRefPrefix } from '@/lib/markdown-references'
 import { activateRef } from '@/lib/ref-activation'
 import { SnoozeControl } from '@/lib/SnoozeControl'
 import { sessionMenuEligibility } from '@/lib/session-context-menu'
-import { useClock, useDeadlineNow } from '@/lib/clock-hooks'
 import { cn } from '@/lib/utils'
-import { KindIcon, sessionDisplayName } from '@/lib/WorkerLabel'
 import type { AgentPanelProps } from './agent-panel-props'
-import { applyInitialTerminalAppearance, paneTintedBackground, withBackground } from './appearance'
+import { applyInitialTerminalAppearance, TERMINAL_DEFAULTS, withBackground } from './appearance'
 import { createDraftSync } from './draft-sync'
 import { EchoHud, echoHudEnabled } from './EchoHud'
 import { HandoverPane, useHandoverView } from './HandoverPane'
 import { hibernateAction } from './lifecycle-actions'
 import { PaneGitStamp } from './PaneGitStamp'
-import { prettyCwd } from './pretty-cwd'
 import {
   ExitedBanner,
   ExitedPane,
   HibernatedBanner,
   HibernatedPane,
+  IssueOutcomeBanner,
   MachineOfflineBanner,
 } from './SessionLifecyclePanes'
 import { SessionWatchers } from './SessionWatchers'
 import { sessionAgeMs, startupOverlay } from './startup-overlay'
 import { usePanelSurface } from './use-panel-surface'
 import {
-  usePaneIssueHex,
+  usePaneIssueOutcome,
   usePaneMachines,
   usePaneReferenceStages,
   usePaneSelectedIssueId,
@@ -227,9 +224,10 @@ export function AgentPanel({
     navigateToSession,
   } = useRuntimeActions(PANEL_ACTIONS)
   const session = usePaneSession(sessionId)
+  // A session its issue's closing stopped ends with that outcome (POD-2151).
+  const outcome = usePaneIssueOutcome(sessionId)
   const machines = usePaneMachines()
   const selectedIssueId = usePaneSelectedIssueId()
-  const issueHex = usePaneIssueHex()
   const [loginTerminalBusy, setLoginTerminalBusy] = useState(false)
   const [loginTerminalError, setLoginTerminalError] = useState<string | null>(null)
   const [pendingLoginSessionId, setPendingLoginSessionId] = useState<SessionId | null>(null)
@@ -260,8 +258,8 @@ export function AgentPanel({
   const observedOptimisticFirstPrompt = usePendingSpawnPrompt(sessionId)
   // Replica confirmation retires the engine's prompt seed at the same time it
   // can move this panel between live/parked/ended surface branches. Those
-  // branches remount ChatView, so retain the seed one level higher until the
-  // transcript explicitly echoes it; otherwise a fast terminal row can flash
+  // branches remount ChatView, so retain the seed one level higher until its
+  // message record or transcript entry arrives; otherwise a fast terminal row can flash
   // an empty conversation between confirmation and the transcript write.
   const [heldOptimisticFirstPrompt, setHeldOptimisticFirstPrompt] = useState<{
     sessionId: SessionId
@@ -338,8 +336,8 @@ export function AgentPanel({
   // without remounting the terminal or changing its transcript subscription.
   const referenceStagesRef = useRef(referenceStages)
   referenceStagesRef.current = referenceStages
-  const resolveReferenceStage = useCallback(
-    (ref: string) => referenceStagesRef.current.resolveStage(ref),
+  const resolveReferenceStatus = useCallback(
+    (ref: string) => referenceStagesRef.current.resolveStatus(ref),
     [],
   )
   const pickModeWithTrace = (mode: PanelMode): void => {
@@ -561,11 +559,8 @@ export function AgentPanel({
   // `appearance` is memoized on the stored blob, so a settings change applies to
   // the LIVE terminal via useTerminalSession's setAppearance effect — no remount.
   const { settings: termSettings, appearance: termAppearance } = useTerminalAppearance()
-  // The terminal floats on the pane's issue-tinted surface (native-pane spec
-  // §2.5): the selected issue's colour (slate flow when uncoloured) mixed over
-  // the terminal base, mirrored into the xterm theme via setAppearance — no
-  // remount. A user-set custom background wins over the tint (Q6).
-  const termBg = termSettings.background ?? paneTintedBackground(issueHex)
+  // A custom terminal background takes precedence over the default palette.
+  const termBg = termSettings.background ?? TERMINAL_DEFAULTS.background
   const appearance = useMemo(
     () => (termSettings.background ? termAppearance : withBackground(termAppearance, termBg)),
     [termSettings.background, termAppearance, termBg],
@@ -642,7 +637,7 @@ export function AgentPanel({
       mounted.view.setRefLinks({
         isKnownPrefix: (p) => isKnownRefPrefix(p),
         onActivate: (ref, event) => activateRef(ref, event),
-        resolveStage: resolveReferenceStage,
+        resolveStatus: resolveReferenceStatus,
         beginPaint: () => referenceStagesRef.current.beginPaint(),
         endPaint: () => referenceStagesRef.current.endPaint(),
       })
@@ -825,13 +820,13 @@ export function AgentPanel({
       mountedRef.current?.view.setRefLinks({
         isKnownPrefix: (p) => isKnownRefPrefix(p),
         onActivate: (ref, event) => activateRef(ref, event),
-        resolveStage: resolveReferenceStage,
+        resolveStatus: resolveReferenceStatus,
         beginPaint: () => referenceStagesRef.current.beginPaint(),
         endPaint: () => referenceStagesRef.current.endPaint(),
       })
     paint()
     return referenceStages.subscribe(paint)
-  }, [referenceStages, mountedRef, resolveReferenceStage])
+  }, [referenceStages, mountedRef, resolveReferenceStatus])
 
   const sendKey = (key: SpecialKey): void => {
     mountedRef.current?.connection.sendInput(keySequence(key))
@@ -856,19 +851,14 @@ export function AgentPanel({
           // `offer-lift-header`: the band the pane slides under when an offer
           // fold opens. It has to outrank the lifted surface to cast its shadow
           // over it, hence the z-rung.
-          className="offer-lift-header relative z-[1] flex h-[36px] flex-none items-center overflow-hidden gap-3 border-b border-hairline-soft px-4"
+          className="offer-lift-header relative z-[1] flex h-[34px] flex-none items-center overflow-hidden gap-2 border-b border-hairline-soft pr-2 pl-[18px] text-[11.5px] text-text-dim"
         >
-          {session && (
-            <>
-              <KindIcon kind={session.agentKind} />
-              <span
-                className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-[11.5px] font-medium text-text-strong"
-                title={sessionDisplayName(session)}
-              >
-                {sessionDisplayName(session)}
-              </span>
-            </>
-          )}
+          {/* ONE QUIET LINE (POD-2076): where the work happens on the left —
+              the branch, or the working directory when there is none — and
+              "model · effort" with the mode switch and ⋯ on the right. The
+              session's name lives on the stage tab above, so it is not
+              repeated here. */}
+          <PaneGitStamp sessionId={sessionId} cwd={session?.cwd} />
           {/* Machine badge: only when > 1 machine is connected, so single-machine
             users see no change. Shows which daemon host this session runs on. */}
           {machines.length > 1 && session?.machineName && (
@@ -880,18 +870,6 @@ export function AgentPanel({
               {session.machineName}
             </Badge>
           )}
-          {/* The agent's working directory — context for which checkout/worktree this
-            session runs in. Truncates; full path on hover. */}
-          {session?.cwd && (
-            <span
-              className="hidden min-w-0 max-w-[34%] items-center gap-1 truncate font-mono text-[10.5px] text-text-dim sm:inline-flex"
-              title={session.cwd}
-            >
-              <Folder size={11} aria-hidden="true" className="flex-none" />
-              <span className="truncate">{prettyCwd(session.cwd)}</span>
-            </span>
-          )}
-          <PaneGitStamp sessionId={sessionId} />
           {/* Right cluster [POD-121]: model token · mode segment · the triage pair
             (snooze, archive) · overflow. Transient utilities (take control, copy
             resume, ask superagent, hibernate) live in the overflow menu. */}
@@ -913,9 +891,9 @@ export function AgentPanel({
               OBSERVED in the transcript (plain, because it is simply true) or
               merely REQUESTED at spawn and not yet seen (dotted rule, the
               typographic mark for provisional). The tooltip names it in words. */}
-            {session && modelToken(session) && (
+            {session && !(runtimeAgentKind && canConfigureRuntime) && modelToken(session) && (
               <span
-                className="model-token hidden flex-none items-center gap-[5px] font-mono text-[10px] text-(--issue-muted) lg:inline-flex"
+                className="model-token hidden flex-none items-center gap-[5px] lg:inline-flex"
                 data-provenance={session.observedModel ? 'observed' : 'requested'}
                 title={
                   // POD-3087: whether the model can be changed HERE is now a
@@ -945,17 +923,6 @@ export function AgentPanel({
                         '')
                 }
               >
-                {/* Brand mark for harnesses that have one — a table lookup, so a new
-                  harness adds a row rather than another branch here. */}
-                {agentBrandDot(session.agentKind) && (
-                  <span
-                    className={cn(
-                      'size-[6px] flex-none rounded-full',
-                      agentBrandDot(session.agentKind),
-                    )}
-                    aria-hidden="true"
-                  />
-                )}
                 <span className="model-token-text">{modelToken(session)}</span>
               </span>
             )}
@@ -964,16 +931,17 @@ export function AgentPanel({
               a missing report is not permission to guess from driver family. */}
             {session && runtimeAgentKind && canConfigureRuntime && (
               <>
+                <span className="hidden flex-none items-center lg:inline-flex">
                 <ModelPicker
                   agentKind={runtimeAgentKind}
                   value={runtimeModel}
                   onChange={(model) => {
                     void configureRuntime({ model })
                   }}
-                  variant="pill"
-                  className="hidden flex-none lg:inline-flex"
+                  variant="quiet"
                   machineId={session.machineId}
                 />
+                <span aria-hidden="true">·</span>
                 <EffortPicker
                   disabled={!canConfigureRuntimeEffort}
                   agentKind={runtimeAgentKind}
@@ -982,10 +950,10 @@ export function AgentPanel({
                   onChange={(effort) => {
                     void configureRuntime({ effort })
                   }}
-                  variant="pill"
-                  className="hidden flex-none lg:inline-flex"
+                  variant="quiet"
                   machineId={session.machineId}
                 />
+                </span>
               </>
             )}
             {/* Mode switch [POD-121, replaces #20's toggle]: one two-segment
@@ -1055,7 +1023,7 @@ export function AgentPanel({
                         variant="ghost"
                         size="icon"
                         data-testid="header-menu"
-                        className="size-[26px] rounded-[6px] text-(--issue-muted-bright)"
+                        className="size-[26px] rounded-[6px] text-(--muted-foreground)"
                         title="More session actions"
                         aria-label="More session actions"
                       >
@@ -1213,17 +1181,28 @@ export function AgentPanel({
           // still worth reading. Show it (read-only; the composer disables itself
           // when the session isn't live) with a banner to wake it back up.
           <>
-            <HibernatedBanner
-              sessionId={sessionId}
-              waking={sessionWaking(session)}
-              queuedCount={session?.queuedMessageCount ?? 0}
-            />
+            {outcome ? (
+              <IssueOutcomeBanner
+                sessionId={sessionId}
+                outcome={outcome}
+                resume="parked"
+                waking={sessionWaking(session)}
+                queuedCount={session?.queuedMessageCount ?? 0}
+              />
+            ) : (
+              <HibernatedBanner
+                sessionId={sessionId}
+                waking={sessionWaking(session)}
+                queuedCount={session?.queuedMessageCount ?? 0}
+              />
+            )}
             <ChatView
               sessionId={sessionId}
               active={active}
               initialPendingText={optimisticFirstPrompt}
               onInitialPendingSettled={settleOptimisticFirstPrompt}
               deferInitialTranscript={!spawnConfirmed}
+              outcome={outcome}
             />
           </>
         ) : (
@@ -1235,21 +1214,31 @@ export function AgentPanel({
           // readable (and resumable via the composer) with a banner, instead of
           // replacing it with a dead-end pane. Shells (no transcript) still get it.
           <>
-            <ExitedBanner
-              sessionId={sessionId}
-              exitCode={session.exitCode}
-              spawnFailure={session.spawnFailure}
-              isShell={session.agentKind === 'shell'}
-              resumable={session.resumable === true}
-              {...(session.neverBound ? { neverBound: true as const } : {})}
-              waking={sessionWaking(session)}
-            />
+            {outcome ? (
+              <IssueOutcomeBanner
+                sessionId={sessionId}
+                outcome={outcome}
+                resume={session.resumable === true ? 'ended' : null}
+                waking={sessionWaking(session)}
+              />
+            ) : (
+              <ExitedBanner
+                sessionId={sessionId}
+                exitCode={session.exitCode}
+                spawnFailure={session.spawnFailure}
+                isShell={session.agentKind === 'shell'}
+                resumable={session.resumable === true}
+                {...(session.neverBound ? { neverBound: true as const } : {})}
+                waking={sessionWaking(session)}
+              />
+            )}
             <ChatView
               sessionId={sessionId}
               active={active}
               initialPendingText={optimisticFirstPrompt}
               onInitialPendingSettled={settleOptimisticFirstPrompt}
               deferInitialTranscript={!spawnConfirmed}
+              outcome={outcome}
             />
           </>
         ) : (
@@ -1367,9 +1356,9 @@ export function AgentPanel({
                     : {})}
                 />
               )}
-              {/* The container is pinned to the TERMINAL's background — the pane's
-              issue tint (§2.5), or the user's custom color from the appearance
-              settings — regardless of the app theme: otherwise a light theme
+              {/* The container follows the terminal's background, including a
+              custom color from appearance settings, regardless of the app theme:
+              otherwise a light theme
               shows a white container edge around the terminal, and a custom
               background a dark one. */}
               <div
@@ -1442,7 +1431,7 @@ export function AgentPanel({
                 )}
                 style={{ backgroundColor: termBg }}
               >
-                <div className="border-t issue-hairline-35" aria-hidden="true" />
+                <div className="border-t surface-hairline-35" aria-hidden="true" />
                 {session?.harnessPromptModeHints === true && (
                   <div className="flex items-center gap-1.5 px-[2px] pt-[5px] pb-[7px] shell-type-micro text-text-dim">
                     <span>(shift+tab to cycle modes)</span>

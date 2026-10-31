@@ -119,7 +119,10 @@ describe('characterization: delivery ledger fields on the success axis (D1)', ()
     // A closed-and-archived issue is GONE — no future session primes on it, so
     // holding would be a black hole.
     await h.archive(iss.id)
-    const r2 = await h.svc.send({ kind: 'operator' }, { to: { kind: 'issue', id: iss.id }, body: 'y' })
+    const r2 = await h.svc.send(
+      { kind: 'operator' },
+      { to: { kind: 'issue', id: iss.id }, body: 'y' },
+    )
     expect(r2.disposition).toBe('dead_letter')
     expect(r2.reason).toBe(`dead-lettered: issue #${iss.seq} is archived`)
   })
@@ -232,11 +235,13 @@ describe('characterization: envelope byte-fidelity (D2)', () => {
     const iss = await h.createIssue({ title: 'target' })
     h.put({ sessionId: asSessionId('s1'), issueId: iss.id, phase: 'idle' })
     const body = 'x'.repeat(INLINE_BODY_MAX + 1)
-    await h.svc.send({ kind: 'operator' }, { to: { kind: 'issue', id: iss.id }, body })
+    const r = await h.svc.send({ kind: 'operator' }, { to: { kind: 'issue', id: iss.id }, body })
+    // The id lets the chat open the body the agent was not typed [POD-2143].
     expect(h.pushes[0]!.text).toBe(
-      "[podium] 1 message(s) from operator — run 'podium issue mail inbox' to read them, " +
-        'then close your turn by saying briefly who mailed you and what you did, repeating ' +
-        'your previous summary below that, and leaving your standing offer as it is',
+      `[podium] 1 message(s) from operator (${r.message.id}) — run 'podium issue mail inbox' to read them, ` +
+        'then close your turn without repeating your last answer: no message if they needed ' +
+        'nothing or only a reply, one sentence if you acted on them, more only if they change ' +
+        'what you told the human; leave your standing offer as it is',
     )
   })
 })
@@ -288,7 +293,10 @@ describe('characterization: urgency x target state (D3)', () => {
           kind: 'user',
           principalRef: firstAdminMemberId(),
           delegation: null,
-          attribution: { actor: { kind: 'user', id: firstAdminMemberId() }, onBehalfOf: firstAdminMemberId() },
+          attribution: {
+            actor: { kind: 'user', id: firstAdminMemberId() },
+            onBehalfOf: firstAdminMemberId(),
+          },
         },
       },
     ])
@@ -355,7 +363,10 @@ describe('characterization: urgency x target state (D3)', () => {
           kind: 'user',
           principalRef: firstAdminMemberId(),
           delegation: null,
-          attribution: { actor: { kind: 'user', id: firstAdminMemberId() }, onBehalfOf: firstAdminMemberId() },
+          attribution: {
+            actor: { kind: 'user', id: firstAdminMemberId() },
+            onBehalfOf: firstAdminMemberId(),
+          },
         },
       },
     ])
@@ -569,14 +580,19 @@ describe('characterization: delivered (echo) vs read (inbox) (D6)', () => {
     expect(delivered.deliveredAt).toBe(h.now())
     expect(delivered.readAt).toBeNull()
     expect(
-      (await h.events(['message.delivered'])).map((e) => (e.payload as { confirmedVia: string }).confirmedVia),
+      (await h.events(['message.delivered'])).map(
+        (e) => (e.payload as { confirmedVia: string }).confirmedVia,
+      ),
     ).toEqual(['echo'])
   })
 
   it('an inbox READ is a different state from a pushed delivery, and marks readAt', async () => {
     const h = await mailHarness()
     const iss = await h.createIssue({ title: 'target' })
-    const r = await h.svc.send({ kind: 'operator' }, { to: { kind: 'issue', id: iss.id }, body: 'x' })
+    const r = await h.svc.send(
+      { kind: 'operator' },
+      { to: { kind: 'issue', id: iss.id }, body: 'x' },
+    )
     const id = r.message.id
     expect((await h.svc.message(id))!.deliveryStatus).toBe('stored')
 
@@ -585,7 +601,11 @@ describe('characterization: delivered (echo) vs read (inbox) (D6)', () => {
     })
     expect(rows.map((m) => m.deliveryStatus)).toEqual(['confirmed'])
     const read = (await h.svc.message(id))!
-    expect(read).toMatchObject({ deliveryStatus: 'confirmed', readAt: h.now(), deliveredTo: 'sReader' })
+    expect(read).toMatchObject({
+      deliveryStatus: 'confirmed',
+      readAt: h.now(),
+      deliveredTo: 'sReader',
+    })
     // The legacy issue_messages mirror is consumed in step, or the stop-hook's
     // legacy fallback keeps nagging "You have mail".
     expect(await h.store.issues.countUnreadIssueMessages(iss.id)).toBe(0)
@@ -611,7 +631,9 @@ describe('characterization: delivered (echo) vs read (inbox) (D6)', () => {
     await h.svc.onQueuedInputApplied(id, asSessionId('s1'))
     expect((await h.svc.message(id))!.deliveryStatus).toBe('confirmed')
     expect(
-      (await h.events(['message.delivered'])).map((e) => (e.payload as { confirmedVia: string }).confirmedVia),
+      (await h.events(['message.delivered'])).map(
+        (e) => (e.payload as { confirmedVia: string }).confirmedVia,
+      ),
     ).toEqual(['injection'])
   })
 })
@@ -650,7 +672,10 @@ describe('characterization: duplicate delivery is impossible by timer (D7)', () 
     h.put({ sessionId: asSessionId('s1'), issueId: iss.id, phase: 'working' })
     // A pointer is an issue body too long to type inline [POD-4845].
     for (const body of ['one', 'two'].map((b) => b + 'x'.repeat(INLINE_BODY_MAX))) {
-      await h.svc.send({ kind: 'operator' }, { to: { kind: 'issue', id: iss.id }, body, urgency: 'fyi' })
+      await h.svc.send(
+        { kind: 'operator' },
+        { to: { kind: 'issue', id: iss.id }, body, urgency: 'fyi' },
+      )
     }
     // Each pointer row goes to the daemon on its own, at once [POD-4661].
     expect(h.pushes.map((p) => p.fn)).toEqual(['queueText', 'queueText'])
@@ -707,7 +732,9 @@ describe('characterization: reply threading and thread termination (D8)', () => 
     // A reply PROVES receipt — a stronger signal than a transcript echo.
     expect(acked.deliveryStatus).toBe('confirmed')
     expect(
-      (await h.events(['message.delivered'])).map((e) => (e.payload as { confirmedVia: string }).confirmedVia),
+      (await h.events(['message.delivered'])).map(
+        (e) => (e.payload as { confirmedVia: string }).confirmedVia,
+      ),
     ).toContain('ack')
     expect(await kinds(h)).toContain('message.acked')
   })
@@ -784,29 +811,34 @@ describe('characterization: who owes a reply, and the single redelivery (D9)', (
     h.put({ sessionId: asSessionId('s1'), issueId: iss.id, phase: 'idle' })
     const to = { kind: 'session' as const, id: 's1' }
 
-    expect((await h.svc.send({ kind: 'operator' }, { to, body: 'plain' })).message.expectsResponse).toBe(
-      false,
-    )
+    expect(
+      (await h.svc.send({ kind: 'operator' }, { to, body: 'plain' })).message.expectsResponse,
+    ).toBe(false)
     expect(
       (await h.svc.send({ kind: 'operator' }, { to, body: 'asked', expectsResponse: true })).message
         .expectsResponse,
     ).toBe(true)
     expect(
-      (await h.svc.send({ kind: 'operator' }, { to, body: 'q', kind: 'question' })).message.expectsResponse,
+      (await h.svc.send({ kind: 'operator' }, { to, body: 'q', kind: 'question' })).message
+        .expectsResponse,
     ).toBe(true)
     // An ack is never itself ackable (this is what killed the #243 ack-of-acks).
     const original = await h.svc.send({ kind: 'operator' }, { to, body: 'o' })
     expect(
-      (await h.svc.send(
-        { kind: 'operator' },
-        { to, body: 'a', kind: 'ack', inReplyTo: original.message.id, expectsResponse: true },
-      )).message.expectsResponse,
+      (
+        await h.svc.send(
+          { kind: 'operator' },
+          { to, body: 'a', kind: 'ack', inReplyTo: original.message.id, expectsResponse: true },
+        )
+      ).message.expectsResponse,
     ).toBe(false)
     expect(
-      (await h.svc.send(
-        { kind: 'operator' },
-        { to, body: 'n', kind: 'notification', expectsResponse: true },
-      )).message.expectsResponse,
+      (
+        await h.svc.send(
+          { kind: 'operator' },
+          { to, body: 'n', kind: 'notification', expectsResponse: true },
+        )
+      ).message.expectsResponse,
     ).toBe(false)
   })
 
@@ -822,7 +854,8 @@ describe('characterization: who owes a reply, and the single redelivery (D9)', (
       { kind: 'operator' },
       { to, body: 'reply please', expectsResponse: true },
     )
-    for (const r of [plain, asked]) await h.svc.onQueuedInputApplied(r.message.id, asSessionId('s1'))
+    for (const r of [plain, asked])
+      await h.svc.onQueuedInputApplied(r.message.id, asSessionId('s1'))
 
     const first = await h.svc.pendingReminders(asSessionId('s1'))
     expect(first).toEqual([{ id: asked.message.id, from: 'operator', body: 'reply please' }])
@@ -830,7 +863,9 @@ describe('characterization: who owes a reply, and the single redelivery (D9)', (
     // fallback owns it. Unreplied mail does not nag forever.
     expect(await h.svc.pendingReminders(asSessionId('s1'))).toEqual([])
     // Still outstanding for the settle path until a reply lands.
-    expect((await h.svc.settleNotifiable(asSessionId('s1'))).map((m) => m.id)).toEqual([asked.message.id])
+    expect((await h.svc.settleNotifiable(asSessionId('s1'))).map((m) => m.id)).toEqual([
+      asked.message.id,
+    ])
     await h.svc.sendReply(
       { kind: 'agent', issueId: iss.id, sessionId: asSessionId('s1') },
       {
@@ -876,14 +911,18 @@ describe('characterization: who owes a reply, and the single redelivery (D9)', (
     // ONE notice PER MESSAGE — a group notice referencing only the latest would
     // leave the others unmarked and re-fire them next settle (the loop that sent
     // one message 7 notices in 33 minutes).
-    const notices = (await h.svc.inbox([{ kind: 'session', id: 'sFrom' }])).filter((m) => m.kind === 'notification')
+    const notices = (await h.svc.inbox([{ kind: 'session', id: 'sFrom' }])).filter(
+      (m) => m.kind === 'notification',
+    )
     expect(notices).toHaveLength(2)
     expect(notices[0]!.body).toContain('finished without responding to your message')
     expect(notices[0]!.body).toContain(`issue #${to.seq} stage=review`)
     // Idempotent: a second settle produces nothing new.
     await h.svc.systemAckFallback(asSessionId('sTo'), { outcome: 'finished' })
     expect(
-      (await h.svc.inbox([{ kind: 'session', id: 'sFrom' }])).filter((m) => m.kind === 'notification'),
+      (await h.svc.inbox([{ kind: 'session', id: 'sFrom' }])).filter(
+        (m) => m.kind === 'notification',
+      ),
     ).toHaveLength(2)
   })
 })
@@ -974,11 +1013,16 @@ describe('characterization: a send never blocks on the agent (D11)', () => {
       const iss = await h.createIssue({ title: 'target' })
       h.put({ sessionId: asSessionId('s1'), issueId: iss.id, phase })
       const before = h.now()
-      const r = (await h.gate.dispatch(h.agentCap(iss.id, asSessionId('sFrom')), undefined, 'send', {
-        to: 's1',
-        body: 'hello',
-        urgency,
-      })) as { disposition: string }
+      const r = (await h.gate.dispatch(
+        h.agentCap(iss.id, asSessionId('sFrom')),
+        undefined,
+        'send',
+        {
+          to: 's1',
+          body: 'hello',
+          urgency,
+        },
+      )) as { disposition: string }
       expect(r.disposition).toBe('queued')
       // The injected clock only advances inside a poll: untouched means no wait.
       expect(h.now()).toBe(before)
@@ -1028,12 +1072,12 @@ describe('characterization: sender-queryable status (D12)', () => {
   })
 })
 
-describe('characterization: the mail turn-closing rule (D13) [POD-604]', () => {
+describe('characterization: the mail turn-closing rule (D13) [POD-604, POD-2070]', () => {
   // Mail only ever lands on an IDLE session, so almost every delivery interrupts
-  // an agent that has just finished and reported. The rule is what keeps the
-  // human's two artefacts — the summary they read and the offer they click —
-  // from being buried by the mail-handling turn.
-  it('appends the rule to agent mail, naming the summary AND the standing offer', async () => {
+  // an agent that has just finished and reported. The rule keeps the mail turn
+  // quiet so the summary the human reads stays on screen, and keeps the offer
+  // they click from being replaced by one about the mail.
+  it('appends the rule to agent mail: no repeated summary, the standing offer kept', async () => {
     const h = await mailHarness()
     const from = await h.createIssue({ title: 'sender' })
     const to = await h.createIssue({ title: 'receiver' })
@@ -1044,13 +1088,14 @@ describe('characterization: the mail turn-closing rule (D13) [POD-604]', () => {
     )
     expect(h.pushes[0]!.text).toContain(TURN_CLOSE_RULE)
     expect(TURN_CLOSE_RULE).toBe(
-      '[before you go idle: a human returning here reads only your LAST message. In one or two ' +
-        'plain sentences say who mailed you, what they wanted and what you did — then repeat, ' +
-        'below that, the summary of your own work this interrupted, so it is still what they ' +
-        'see.]\n' +
-        '[your standing offer survived this mail: leave it, or re-post it unchanged — never ' +
-        'replace it with one about the mail. Check the issue stage still matches reality before ' +
-        'you stop.]\n',
+      '[when you finish with this mail: the human already has your last answer — do not repeat ' +
+        'it. If the mail needed nothing from you, or only a reply, end your ' +
+        'turn without a message; the reply goes through `podium mail reply` and is never echoed ' +
+        'here. If you did something about it beyond replying, say what in one plain sentence. If ' +
+        'it changes what you told the human, say clearly what changed and what now holds.]\n' +
+        '[your standing offer survived this mail: leave it as it is unless this mail changed ' +
+        'what the human must decide. Check the issue stage still matches reality before you ' +
+        'stop.]\n',
     )
   })
 
@@ -1064,7 +1109,7 @@ describe('characterization: the mail turn-closing rule (D13) [POD-604]', () => {
     )
     // Queued for UI pickup, never pushed into a session — the human reading it
     // has no turn to close and no offer to preserve.
-    expect(await h.svc.renderFor(r.message)).not.toContain('before you go idle')
+    expect(await h.svc.renderFor(r.message)).not.toContain('when you finish with this mail')
   })
 
   it('omits the rule for an operator question — that human is still reading the session', async () => {
@@ -1076,6 +1121,6 @@ describe('characterization: the mail turn-closing rule (D13) [POD-604]', () => {
       { to: { kind: 'session', id: 's1' }, body: 'why this?', kind: 'question' },
     )
     expect(h.pushes[0]!.text).toContain('this is a question')
-    expect(h.pushes[0]!.text).not.toContain('before you go idle')
+    expect(h.pushes[0]!.text).not.toContain('when you finish with this mail')
   })
 })

@@ -30,10 +30,10 @@ export * from './entities/draft-doc'
 export * from './entities/handoff'
 export * from './entities/issue'
 export * from './entities/issue-git-state'
-export * from './entities/issue-color'
+export * from './entities/label-color'
 // The flat STATUS vocabulary (POD-1074): `stage` and `closedReason` joined into
 // the one list every picker renders, plus the legacy `wontfix` → `cancelled`
-// canonicalization. A leaf module beside `issue-color`, for the same reason.
+// canonicalization. A leaf module beside `label-color`, for the same reason.
 export * from './entities/issue-status'
 // The issue DEPENDENCY EDGE and the LOGICAL REPO as first-class entities
 // (POD-822; decided POD-1254, ported from main at the POD-1246 catch-up). Each
@@ -210,6 +210,7 @@ export * from './representations/registry'
 export * from './dead-letter'
 export * from './predicates/active-work'
 export * from './predicates/agent-computing'
+export * from './predicates/seat-attention'
 export * from './predicates/idle-verdict'
 export * from './predicates/issue-stage'
 export { isFinished, isClosed, isExcluded } from './predicates/issue-lifecycle'
@@ -228,3 +229,5 @@ export * from './predicates/unaddressable-send'
 export { MessageLedgerWire } from './entities/message-ledger'
 
 export * from './entities/settings-records'
+
+export * from './artifact-upload'

@@ -42,7 +42,11 @@ import {
   SubscriptionRegistry,
   wireSchemaDigest,
 } from '@podium/protocol'
-import type { MessageFailedCause, QueueDrainAbandonedReason } from '@podium/protocol/daemon'
+import type {
+  MessageFailedCause,
+  QueueDrainAbandonedReason,
+  RuntimeAttachmentRef,
+} from '@podium/protocol/daemon'
 import { resolveSpawnDefaults } from '@podium/runtime'
 import { resolveLaunchSelection } from './model-validation'
 import { durableSessionLabel } from '@podium/runtime/instance'
@@ -104,6 +108,7 @@ import { IssueAuthorityArbitration } from './modules/issues/authority-arbitratio
 import { IssueAutoArchive } from './modules/issues/auto-archive'
 import { IssueCommandDispatcher } from './modules/issues/dispatcher'
 import { IssueGitWatch } from './modules/issues/git-watch'
+import { PENDING_UPLOAD_SWEEP_MS, PendingUploadStore } from './modules/issues/pending-uploads'
 import { repoProjectionRows } from './modules/issues/projection'
 import { makeAgentRelayDispatch } from './modules/issues/relay-dispatch'
 import { AgentRelayGate } from './modules/issues/relay-gate'
@@ -372,6 +377,8 @@ export interface RegistryModules {
   readToolkit: SessionReadToolkit
   /** Permanent artifact snapshot store ([spec:SP-0fc9] #441). */
   issueArtifacts: IssueArtifactStore
+  /** Composer uploads awaiting the send that claims them (POD-2148). */
+  pendingUploads: PendingUploadStore
   /** Total operational contract for every semantically asynchronous reaction. */
   reactions: readonly ReactionDefinition[]
   /** Switch-latency perf registry [POD-701] — the process-level singleton,
@@ -485,6 +492,8 @@ export class SessionRegistry {
    *  above walks the message LEDGER; this one re-arms the drains that actually
    *  move bytes, which had no timer at all. */
   private readonly queuedInputSweep: ReturnType<typeof setInterval>
+  /** Unclaimed composer uploads past their day (POD-2148). */
+  private readonly pendingUploadSweep: ReturnType<typeof setInterval>
   /** Stalled-approval deadline (POD-2223) — modules/approvals. */
   private readonly approvalStallSweep: ReturnType<typeof setInterval>
   /** Read-gated auto-archive timers (issue #127) — modules/issues. */
@@ -523,6 +532,8 @@ export class SessionRegistry {
     if (!this.recoveryOnly || rehearseBoot) await this.modules.sessions.loadFromStore()
     bootStage('sessions recovery', stageStarted)
     stageStarted = performance.now()
+    // Migration-seeded account state must be in the feed before the first bootstrap.
+    await this.modules.layout.reconcileAllToLedger()
     await this.ledger.reconcile('machine', await this.modules.machines.projectionRows())
     await this.issueEventFeed.resolve()
     await this.interactionFeed.resolve()
@@ -1446,11 +1457,13 @@ export class SessionRegistry {
         parentSessionId: SessionId
         sessionId: SessionId
         text: string
+        attachments?: readonly RuntimeAttachmentRef[]
       }) => Promise<string>
       ownerPrompt?: (input: {
         sessionId: SessionId
         text: string
         attribution: Attribution
+        attachments?: readonly RuntimeAttachmentRef[]
       }) => Promise<string>
       continueSession?: (input: {
         sessionId: SessionId
@@ -1539,6 +1552,12 @@ export class SessionRegistry {
       recordOwnerPrompt: async (input) => {
         if (!queuedApplyHooks.ownerPrompt) throw new Error('the message ledger is not wired yet')
         return await queuedApplyHooks.ownerPrompt(input)
+      },
+      // Claimed chat uploads, staged at delivery (POD-2148). Lazy: `issues` is
+      // composed below and only read once a row is forwarded.
+      chatUploads: {
+        bytes: async (issueId, uploadId) => await issues.crud.chatUploadBytes(issueId, uploadId),
+        owner: async (issueId, uploadId) => await issues.crud.chatUploadOwner(issueId, uploadId),
       },
       // Auto-continue is a message (POD-4846).
       sendContinue: async (input) => {
@@ -1635,6 +1654,22 @@ export class SessionRegistry {
       onWorktreesChanged: broadcastWorktreesChanged,
       instructionsForStart: (input) => sessionInstructions.prepare(input),
       agentLaunch: async (input) => await agentProfiles.launch(input),
+      // The issue service is composed after sessions; these run only on a start.
+      draftForStart: async ({ cwd, agentKind, ownerUserId, machineId }) =>
+        (await this.store.repos.machineHasRootContaining(cwd, machineId))
+          ? (
+              await this.issues.attention.createDraftFor(
+                cwd,
+                agentKind,
+                undefined,
+                { ownerUserId, createdByActor: ownerUserId, createdByOnBehalfOf: ownerUserId },
+                machineId,
+              )
+            ).id
+          : undefined,
+      discardUnlaunchedDraft: async (issueId) => {
+        await this.issues.attention.discardUnlaunchedDraft(issueId)
+      },
       // POD-1081: clientCount is a degenerate view of session-room occupancy.
       // Attach still owns frame delivery; presence rooms own who-is-watching.
       // PTY attach auto-joins the room so the two stay one mechanism.
@@ -1944,6 +1979,12 @@ export class SessionRegistry {
       },
       portableStateFence,
     )
+    // Files picked in a composer, held until a send or create claims them into
+    // an issue (POD-2148). A sibling of the artifact store, so a claim is a rename.
+    const pendingUploads = new PendingUploadStore(
+      join(stateDir(), 'pending-uploads'),
+      portableStateFence,
+    )
     // Late-bound because the lifecycle object below needs services this one
     // composes. `Promise<void>`, not `void` [POD-3820]: the assignment at the
     // bottom is `async`, and under a `void` declaration TypeScript accepted it
@@ -1974,6 +2015,7 @@ export class SessionRegistry {
       // the ledger's commit applications do [POD-3366, spec §3.3 mechanism 1].
       applyCommit: { spanOpen, onCommit: applyAfterCommit },
       artifacts: issueArtifacts,
+      pendingUploads,
       // The cheap fleet read [POD-3857]: the issue service's own reasoning —
       // worktree occupancy, the close cascade, auto-archive — runs on facts.
       sessionFacts: () => sessionsSvc.sessionFacts(),
@@ -2035,6 +2077,7 @@ export class SessionRegistry {
         }),
       agentProfiles,
       repoOp: async (op, cwd, args, machineId) => await rpc.repoOp(op, cwd, args, machineId),
+      readRepo: async (op, cwd, args, machineId) => await rpc.repoOp(op, cwd, args, machineId),
       resolveMachine: async (requested, cwd) => await machines.resolveMachine(requested, cwd),
       requireMachineForRepo: async (machineId, repoPath) =>
         await machines.requireMachineForRepo(machineId, repoPath),
@@ -2609,11 +2652,13 @@ export class SessionRegistry {
         messages: messagesSvc,
         issues,
         sessionById: async (sessionId) => await sessionsSvc.sessionById(sessionId),
-        messageRecords: async (userId, ids) =>
+        sessionOwner: async (sessionId) => await sessionsSvc.sessionOwner(sessionId),
+        messageRecords: async (userId, ids, transcriptSessionId) =>
           await readMessageRecords(
             { messages: this.store.messages, sessions: this.store.sessions },
             userId,
             ids,
+            transcriptSessionId,
           ),
         mutations,
         // Cross-harness subagent spawn (#237) [spec:SP-34d7 cross-harness]: the
@@ -2993,10 +3038,14 @@ export class SessionRegistry {
       label: `Shipping ${orderId} attempt ${generation}`,
       workspace: null,
     })
-    const shippingPolicy = new CompatibilityShippingPolicyResolver(
-      async () =>
-        (await this.store.settings.getSettings()).gitWorkflow.defaultParentBranch || 'main',
-    )
+    // Repo base branch → instance default → main, for the issue's repo [POD-2065].
+    const shippingPolicy = new CompatibilityShippingPolicyResolver(async (issue) => {
+      const instance = (await this.store.settings.getSettings()).gitWorkflow.defaultParentBranch
+      const repo = issue.repoPath
+        ? await this.store.repos.defaultParentBranchForIssueRepo(issue.repoPath, issue.machineId)
+        : null
+      return repo || instance.trim() || 'main'
+    })
     const shippingEvidence = new ShippingEvidenceRegistry(this.store.shipping)
     const shipwright = new ShipwrightService({
       headless,
@@ -3667,6 +3716,7 @@ export class SessionRegistry {
       messageGate,
       readToolkit,
       issueArtifacts,
+      pendingUploads,
       automations,
       perf,
       logs,
@@ -3821,6 +3871,21 @@ export class SessionRegistry {
         })
     }, QUEUED_INPUT_SWEEP_MS)
     this.queuedInputSweep.unref?.()
+    // Composer uploads nobody sent within a day (POD-2148). Hourly, and once at
+    // boot; a server-transfer fence skips a pass rather than failing it.
+    const sweepPendingUploads = () => {
+      if (!backgroundDisabled)
+        void pendingUploads.sweep().catch((err: unknown) => {
+          log.warn('pending upload sweep failed', { err })
+        })
+      if (!backgroundDisabled)
+        void issueArtifacts.sweepUploads().catch((err: unknown) => {
+          log.warn('artifact upload sweep failed', { err })
+        })
+    }
+    sweepPendingUploads()
+    this.pendingUploadSweep = setInterval(sweepPendingUploads, PENDING_UPLOAD_SWEEP_MS)
+    this.pendingUploadSweep.unref?.()
     // An approved op whose daemon takes the frame and never answers must not sit
     // `executing` forever (POD-2223) — on the day an op-catalog widening ships, every
     // daemon in the fleet is one that drops it.
@@ -3977,6 +4042,7 @@ export class SessionRegistry {
     this.ledger.dispose()
     clearInterval(this.messageSweep)
     clearInterval(this.queuedInputSweep)
+    clearInterval(this.pendingUploadSweep)
     clearInterval(this.approvalStallSweep)
     this.modules.messages.dispose()
     this.modules.machines.dispose()

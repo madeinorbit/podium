@@ -38,9 +38,9 @@ import {
   recoverableAuthoredText,
   sessionGoneNotice,
 } from '../outbox-recovery-copy'
+import type { Replica } from '../replica/kernel/facade'
 import { applyLegacyMetadataState } from '../replica/legacy-wire-v1-binding'
 import { LegacyWireV1Feed } from '../replica/legacy-wire-v1-feed'
-import type { Replica } from '../replica/kernel/facade'
 import { type FeedSinkPort, SocketHub } from '../socket-transport'
 import { assertSendAccepted } from './send-outcome'
 import type { StoreNotices } from './types'
@@ -69,13 +69,15 @@ export type OutboxKinds = {
    * sends are two sends.
    */
   sendText: { sessionId: SessionId; text: string; attachments?: RuntimeAttachmentRef[] }
-  resumeAndSend: { sessionId: SessionId; text: string }
+  /** Attachments ride a wake too: the server holds the files and stages them
+   *  when the woken agent is handed the message (POD-2148). */
+  resumeAndSend: { sessionId: SessionId; text: string; attachments?: RuntimeAttachmentRef[] }
   rename: { sessionId: SessionId; name: string }
   setArchived: { sessionId: SessionId; archived: boolean }
   setWorkState: { sessionId: SessionId; workState: WorkState | null }
   snoozeSet: { sessionId: SessionId; until: string | null }
   snoozeClear: { sessionId: SessionId }
-  sessionMarkRead: { sessionId: SessionId }
+  sessionMarkRead: { sessionId: SessionId; readAt?: string }
   sessionMarkUnread: { sessionId: SessionId }
   /**
    * THE OFFER DISMISSAL (POD-1110) — "none of these", and only that.
@@ -90,7 +92,7 @@ export type OutboxKinds = {
    * under the chat give-up window rather than this one's.
    */
   dismissOffer: { sessionId: SessionId; offerCreatedAt: string }
-  issueMarkRead: { id: string }
+  issueMarkRead: { id: string; readAt?: string }
   issueMarkUnread: { id: string }
   issueSetTucked: { id: string; tucked: boolean }
   /**
@@ -98,7 +100,7 @@ export type OutboxKinds = {
    *
    * ONE GENERIC PATCH KIND rather than one kind per field, and the precedent is
    * `settingsUpdatePersonal` directly above: the command is `issues.update` and
-   * its input is a partial patch, so a `issueRename` / `issueSetColor` /
+   * its input is a partial patch, so a `issueRename` / `issueSetPriority` /
    * `issueSetStage` family would be N kinds all naming ONE contract, N routing
    * rows and N overlay cases that differ only in which key they carry. The
    * distinctions those kinds would encode are not distinctions the queue has —
@@ -543,7 +545,7 @@ export const OUTBOX_ROUTING: {
   //
   // `issueUpdate` gets NO COLLAPSE, for the reason `layoutSet` and
   // `settingsUpdatePersonal` get none: it is a PARTIAL patch. Two updates to one
-  // issue are usually two different fields — rename then recolour — and
+  // issue are usually two different fields — title then priority — and
   // collapsing them on the row id would drop the rename. There is no cell to key
   // on, because the kind does not name a cell; it names a patch.
   issueUpdate: (i) => ({ partitionKey: `issue:${i.id}` }),

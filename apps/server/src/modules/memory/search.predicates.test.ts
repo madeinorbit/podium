@@ -48,7 +48,6 @@ const issue = (): IssueRow => ({
   supersededBy: null,
   duplicateOf: null,
   sortKey: null,
-  color: null,
   estimateMin: null,
   needsHuman: false,
   humanQuestion: null,

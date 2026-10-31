@@ -93,10 +93,11 @@ const fullRow = (): IssueRow => ({
   deferUntil: '2026-01-20T00:00:00Z',
   closedReason: 'fixed',
   closedAt: '2026-01-08T00:00:00Z',
+  landedAt: '2026-01-08T00:00:00Z',
+  landedSha: 'abc1234def',
   supersededBy: asIssueId('iss_super'),
   duplicateOf: asIssueId('iss_dupe'),
   sortKey: 'a0',
-  color: 'rose',
   estimateMin: 90,
   needsHuman: true,
   humanQuestion: 'which branch?',
@@ -154,10 +155,11 @@ const emptyRow = (): IssueRow => ({
   deferUntil: null,
   closedReason: null,
   closedAt: null,
+  landedAt: null,
+  landedSha: null,
   supersededBy: null,
   duplicateOf: null,
   sortKey: null,
-  color: null,
   estimateMin: null,
   needsHuman: false,
   humanQuestion: null,
@@ -199,6 +201,8 @@ describe('StoredIssue members ARE the shared field-group instances', () => {
     ['suggestedStage', IssueLifecycle.shape.suggestedStage],
     ['closedReason', IssueLifecycle.shape.closedReason],
     ['closedAt', IssueLifecycle.shape.closedAt],
+    ['landedAt', IssueLifecycle.shape.landedAt],
+    ['landedSha', IssueLifecycle.shape.landedSha],
     ['deferUntil', IssueLifecycle.shape.deferUntil],
     ['archived', IssueLifecycle.shape.archived],
     ['deletedAt', IssueLifecycle.shape.deletedAt],
@@ -206,7 +210,6 @@ describe('StoredIssue members ARE the shared field-group instances', () => {
     ['type', IssueTriage.shape.type],
     ['assignee', IssueTriage.shape.assignee],
     ['estimateMin', IssueTriage.shape.estimateMin],
-    ['color', IssueTriage.shape.color],
     ['sortKey', IssueTriage.shape.sortKey],
     ['dueAt', IssueTriage.shape.dueAt],
     ['parentId', IssueGraphRefs.shape.parentId],
@@ -343,11 +346,6 @@ describe('fromStorage / toStorage round-trip per key', () => {
     expect(fromStorage(row).panel).toEqual({ todos: [], artifacts: [], deferred: [] })
   })
 
-  it('degrades an unknown colour slot to no colour rather than throwing', () => {
-    const row = fullRow()
-    row.color = 'chartreuse' as IssueRow['color']
-    expect(fromStorage(row).color).toBeUndefined()
-  })
 
   it('passes an unrecognised stage through instead of refusing the row', () => {
     // A decoder on a persisted format that refuses what it cannot classify makes

@@ -5,8 +5,31 @@ import { EditorState } from '@codemirror/state'
 import type { EditorView as EditorViewType } from '@codemirror/view'
 import { basicSetup, EditorView } from 'codemirror'
 import { type JSX, useEffect, useRef } from 'react'
+import { registerQuoteResolver } from '@/lib/quote/QuoteLayer'
 import { langIdForPath, loadLanguage } from './editor-lang'
 import { editorTheme } from './editor-theme'
+
+/**
+ * ADD TO CHAT FROM SOURCE (POD-2057). CodeMirror's DOM holds only the lines in
+ * view, so the quote comes from the editor's own selection: the exact text and
+ * its line range. Registered once, when this chunk first loads, which keeps the
+ * editor out of the shell's bundle.
+ */
+registerQuoteResolver((el) => {
+  const dom = el.closest<HTMLElement>('.cm-editor')
+  if (!dom) return undefined
+  const view = EditorView.findFromDOM(dom)
+  const source = dom.closest<HTMLElement>('[data-quote-source]')?.dataset.quoteSource
+  if (!view || !source) return null
+  const { from, to } = view.state.selection.main
+  const text = view.state.sliceDoc(from, to).replace(/^\n+|\s+$/g, '')
+  if (!text.trim()) return null
+  const first = view.state.doc.lineAt(from).number
+  // A selection that ends at the start of a line took only its newline.
+  const end = view.state.doc.lineAt(to)
+  const last = end.from === to && to > from ? end.number - 1 : end.number
+  return { text, source: `${source}:${first === last ? first : `${first}-${last}`}` }
+})
 
 /** CodeMirror source view over a document. Seeds from `initialContent` at mount;
  *  give it a stable `key` so a reload remounts with fresh content. Edits flow out
@@ -92,5 +115,5 @@ export function SourceEditor({
   // `editorTheme`) and scrolls INSIDE itself, which is what keeps the line-number
   // gutter pinned while the document moves. Scrolling the host instead took the
   // gutter with it.
-  return <div ref={hostRef} className="min-h-0 flex-1 overflow-hidden" />
+  return <div ref={hostRef} className="min-h-0 flex-1 overflow-hidden" data-quote-source={path} />
 }

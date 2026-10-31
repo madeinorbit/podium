@@ -2,23 +2,16 @@ import { describe, expect, it } from 'vitest'
 import {
   isOverlayView,
   nextBaseView,
-  readBooleanState,
   readFlightDeckCollapsed,
   readRightPanel,
   rightPanelAllowed,
 } from './shell-state'
 
 describe('desktop shell persistence readers', () => {
-  it('restores independent sidebar collapse state without treating corrupt values as true', () => {
-    expect(readBooleanState('true')).toBe(true)
-    expect(readBooleanState('0', true)).toBe(false)
-    expect(readBooleanState('wat', false)).toBe(false)
-  })
-
   it('accepts only a known right-dock panel', () => {
     expect(readRightPanel('superagent')).toBe('superagent')
     expect(readRightPanel('git')).toBe('git')
-    expect(readRightPanel('merge-queue')).toBe('merge-queue')
+    expect(readRightPanel('merge-queue')).toBeNull()
     expect(readRightPanel('shipping')).toBe('shipping')
     expect(readRightPanel('unknown')).toBeNull()
   })
@@ -35,11 +28,9 @@ describe('desktop shell persistence readers', () => {
   })
 
   it('gates experimental dock panels independently', () => {
-    const features = { git: true, messages: true, mergeQueue: false, shipping: false }
+    const features = { git: true, messages: true, shipping: false }
     expect(rightPanelAllowed('files', features)).toBe(true)
     expect(rightPanelAllowed('git', features)).toBe(true)
-    expect(rightPanelAllowed('merge-queue', features)).toBe(false)
-    expect(rightPanelAllowed('merge-queue', { ...features, mergeQueue: true })).toBe(true)
     expect(rightPanelAllowed('shipping', features)).toBe(false)
     expect(rightPanelAllowed('shipping', { ...features, shipping: true })).toBe(true)
   })

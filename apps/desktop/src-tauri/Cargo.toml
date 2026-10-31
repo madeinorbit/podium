@@ -68,6 +68,9 @@ log = "0.4"
 # Detect whether the installed bundle lives on a read-only volume before download.
 # Darwin exposes the mount flag through statfs.
 libc = "0.2"
+# Keep AppKit's fullscreen cancellation fallback from claiming the app's Escape key.
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSWindow"] }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["test-util"] }

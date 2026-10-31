@@ -39,7 +39,8 @@ function rewriteImageSrc(html: string, resolveAsset?: (src: string) => string | 
  * behavior differs under happy-dom).
  *
  * Assembles markdown into HTML where each top-level block is wrapped in
- * `<div class="md-block" data-source-line="N">` (N = 1-based source line). Pure and
+ * `<div class="md-block" data-source-line="N" data-source-end="M">` (1-based first and
+ * last source line). Pure and
  * deterministic — this is the unit that carries the source-line map.
  */
 export function assembleMarkdownBlocksUnsafe(text: string, opts: RenderBlocksOptions = {}): string {
@@ -56,7 +57,10 @@ export function assembleMarkdownBlocksUnsafe(text: string, opts: RenderBlocksOpt
     const inner = marked.parser(single)
     offset += token.raw.length
     if (!inner.trim()) continue // skip whitespace-only 'space' tokens
-    out += `<div class="md-block" data-source-line="${line}">${inner}</div>`
+    // The block's last non-blank line, so a quote from the preview can name the
+    // range it came from (POD-2057), not just where it starts.
+    const end = line + countNewlines(token.raw.trimEnd())
+    out += `<div class="md-block" data-source-line="${line}" data-source-end="${end}">${inner}</div>`
   }
   return rewriteImageSrc(linkifyCodePaths(out), opts.resolveAsset)
 }

@@ -1,7 +1,7 @@
-# Worklist test support
+# Pool test support
 
-This private test workspace holds the retained worklist corpus, correctness oracle, work meters, scenario engines and pool regression harness. Product entries do not import it. The retired hand arm and its tracking baseline are deleted.
+This private test workspace holds the shared pool test support: the reference state the screen checks compare against, the synthetic corpus, scenario engines, work meters and the pool tests built on them. Product entries do not import it. The legacy worklist derivation, its sidebar oracle and the prototype arms' parity machinery are deleted.
 
-Run individual files through `bun run test:file -- tests/worklist/<path>`. Native files route through the workspace config, which aliases React Native to its web test renderer. The structural command retains the existing MobX reader bounds and expected-failure ownership.
+Run individual files through `bun run test:file -- tests/worklist/<path>`, or use `bun run test:lane -- worklist <paths>`. Both use the workspace config, including happy-dom and the work measurement plugins. The full package sweep schedules `@podium/worklist-tests#test`; its cache includes the product sources these tests read. The lean gate checks this wiring without executing the workspace. `bun run speed:structural` runs the pool screens' work ratios with their expected-failure ownership (`harness/src/screen-work.expected-failures.json`).
 
-`harness/src/fixture` builds synthetic data, `shared/src/scenarios.ts` owns disposable scenario engines, and `harness/src/work-meter.ts` counts work from outside product readers. `arms/mobx` contains pool regression tests and renderer adapters over the product module factories. The lean comparison wrapper imported the deleted hand implementation and was retired with it.
+`harness/src/fixture` builds synthetic data, `shared/src/scenarios.ts` owns disposable scenario engines, `harness/src/work-meter.ts` counts work from outside product readers, and `diagnostics/` holds the per-screen reference checks. `harness/lint` holds the fence ESLint plugin client-graph lints with.

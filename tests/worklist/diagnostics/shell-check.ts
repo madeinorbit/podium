@@ -13,32 +13,25 @@ import {
   selectedMissionRoot,
   shippingPanelModel,
 } from '@podium/client-core/values'
-import { allIssueViewModels } from './reference/issue-view-models'
-import type { ReferenceState as Store } from './reference-state'
+import { headerIds } from '@podium/client-graph/enumerate'
+import { here } from '@podium/client-graph/lookup'
 import type { MobxPool } from '@podium/client-graph/pool'
 import { SHELL_SCHEMA, SHELL_SUMMARIES } from '@podium/client-graph/shell-schema'
 import { shellViews } from '@podium/client-graph/shell-views'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
+import { MachineWire } from '@podium/model/browser'
+import { allIssueViewModels } from './reference/issue-view-models'
+import type { ReferenceState as Store } from './reference-state'
 import { type CheckRow, compareSidebarSnapshots, type SidebarSnapshot } from './sidebar-check'
 
 const fields = (value: object, keys: readonly string[]) =>
   Object.fromEntries(keys.map((key) => [key, Reflect.get(value, key) ?? null]))
 const row = (id: string, value: object): CheckRow => ({ id, fields: { value } })
+// Models expose wire fields through getters; their own keys hold pool internals.
+const machineFields = (value: Store['machines'][number]) =>
+  fields(value, Object.keys(MachineWire.shape))
 const missionExpanded = (value: Pick<IssueNavigationModel, 'type' | 'childCount'> | undefined) =>
   Boolean(value && value.childCount >= 6)
-function colorChain(
-  current: { id: string; color?: string | null; parentId?: string | null } | undefined,
-  byId: (id: string) => typeof current,
-) {
-  const values: object[] = [],
-    seen = new Set<string>()
-  while (current && !seen.has(current.id)) {
-    values.push(fields(current, ['id', 'color', 'parentId']))
-    seen.add(current.id)
-    current = current.parentId ? byId(current.parentId) : undefined
-  }
-  return values
-}
 function closeFields(
   layout: Store['workspaces'][string] | undefined,
   key: string,
@@ -131,10 +124,6 @@ export function legacyShellSnapshot(
           repoCount: repos.length,
           worktreeCount: repos.reduce((sum, repo) => sum + repo.worktrees.length, 0),
           sessionCount: sessions.length,
-          colors: colorChain(
-            issues.find(issue => issue.id === state.selectedIssueId && !issue.archived && !issue.deletedAt),
-            id => issues.find(issue => issue.id === id),
-          ),
           missionRootId: missionRoot?.id ?? null,
           missionExpanded: missionExpanded(missionRoot),
         },
@@ -160,7 +149,11 @@ export function legacyShellSnapshot(
       },
       { key: 'orders', fields: {}, rows: state.shipOrders.map((value) => row(value.id, value)) },
       { key: 'lanes', fields: {}, rows: state.shipLanes.map((value) => row(value.id, value)) },
-      { key: 'machines', fields: {}, rows: state.machines.map((value) => row(value.id, value)) },
+      {
+        key: 'machines',
+        fields: {},
+        rows: state.machines.map((value) => row(value.id, machineFields(value))),
+      },
       {
         key: 'sessions',
         fields: {},
@@ -181,14 +174,22 @@ export function legacyShellSnapshot(
 /** Test-only composition of the dock's separate fields in the shape the old
  * dock bundle returned, so the legacy comparisons keep their assertions.
  * `LOADING` while any field loads, as the bundle was. */
-export function dockSnapshot(views: ReturnType<typeof shellViews>, includeCatalog = false) {
+export function dockSnapshot(views: ReturnType<typeof shellViews>) {
   const dock = views.dock
-  const active = dock.active, scope = dock.scope, gitIssue = dock.gitIssue,
-    mailIssueId = dock.mailIssueId, shipping = dock.shipping
-  const catalogs = includeCatalog ? views.catalogs() : { issues: [], shipOrders: [], shipLanes: [] }
-  if (active === LOADING || scope === LOADING || gitIssue === LOADING || mailIssueId === LOADING ||
-    shipping === LOADING || catalogs === LOADING) return LOADING
-  return { active, scope, gitIssue, mailIssueId, shipping, ...catalogs }
+  const active = dock.active,
+    scope = dock.scope,
+    gitIssue = dock.gitIssue,
+    mailIssueId = dock.mailIssueId,
+    shipping = dock.shipping
+  if (
+    active === LOADING ||
+    scope === LOADING ||
+    gitIssue === LOADING ||
+    mailIssueId === LOADING ||
+    shipping === LOADING
+  )
+    return LOADING
+  return { active, scope, gitIssue, mailIssueId, shipping }
 }
 export function poolShellSnapshot(pool: MobxPool): SidebarSnapshot {
   const views = shellViews(pool),
@@ -197,11 +198,15 @@ export function poolShellSnapshot(pool: MobxPool): SidebarSnapshot {
     files = views.files(),
     close = views.close(),
     chrome = views.chrome(),
-    dock = dockSnapshot(views, true),
+    dock = dockSnapshot(views),
     shipping = dock === LOADING ? LOADING : dock.shipping,
     sessions = views.sessions(),
     issues = views.issues(),
-    lanes = views.lanes()
+    lanes = views.lanes(),
+    shipOrders = headerIds(pool, 'shipOrder').flatMap((id) => {
+      const order = here(pool.row('shipOrder', id)) as Store['shipOrders'][number] | undefined
+      return order ? [order] : []
+    })
   if (
     !state ||
     state === LOADING ||
@@ -238,7 +243,6 @@ export function poolShellSnapshot(pool: MobxPool): SidebarSnapshot {
               repoCount: chrome.repoCount,
               worktreeCount: chrome.worktreeCount,
               sessionCount: chrome.sessionCount,
-              colors: colorChain(chrome.colorIssue, chrome.colorById),
               missionRootId: chrome.missionRoot?.id ?? null,
               missionExpanded: missionExpanded(chrome.missionRoot),
             }
@@ -261,12 +265,7 @@ export function poolShellSnapshot(pool: MobxPool): SidebarSnapshot {
         key: 'shipping',
         fields: dock
           ? {
-              ...shippingFields(
-                dock.shipOrders,
-                dock.issues,
-                dock.scope?.repoId ?? null,
-                dock.shipLanes,
-              ),
+              ...shippingFields(shipOrders, issues ?? [], dock.scope?.repoId ?? null, lanes ?? []),
               ...shipping,
             }
           : {},
@@ -275,10 +274,14 @@ export function poolShellSnapshot(pool: MobxPool): SidebarSnapshot {
       {
         key: 'orders',
         fields: {},
-        rows: (dock?.shipOrders ?? []).map((value) => row(value.id, value)),
+        rows: shipOrders.map((value) => row(value.id, value)),
       },
       { key: 'lanes', fields: {}, rows: (lanes ?? []).map((value) => row(value.id, value)) },
-      { key: 'machines', fields: {}, rows: views.machines().map((value) => row(value.id, value)) },
+      {
+        key: 'machines',
+        fields: {},
+        rows: views.machines().map((value) => row(value.id, machineFields(value))),
+      },
       {
         key: 'sessions',
         fields: {},

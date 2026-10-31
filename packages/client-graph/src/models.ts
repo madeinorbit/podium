@@ -1,46 +1,48 @@
-import type { AccountModel, MemberModel, DeviceModel, PodiumSettingsModel, RepositoryModel } from './requested-models'
+import { type IssueNavigationModel, issuePendingDecision, missionTaskBucket, type MissionTaskBucket } from '@podium/client-core/values'
+import type { IssueGitState, IssuePanel, IssuePanelArtifact, IssueProjection } from '@podium/model'
+import { isGone, type Lookup, omitGone } from './lookup'
 import type { MessageModel, PendingInteractionModel } from './message-models'
-import { type Lookup, omitGone, isGone } from './lookup'
-import { issuePendingDecision, type IssueNavigationModel } from '@podium/client-core/values'
-import type { IssueGitState, IssueProjection } from '@podium/model'
+import { ReadObservation } from './read-observation'
+import type { AccountModel, DeviceModel, MemberModel, PodiumSettingsModel, RepositoryModel } from './requested-models'
 import type { AutomationModel, AutomationRunModel, MachineModel } from './synced-models'
+
 export type { AutomationModel, AutomationRunModel, MachineModel } from './synced-models'
-import type { IssueSessionFactReader } from './shared/issue-session-facts'
+
 import { attentionGroup, effectiveRecency } from '@podium/client-core/focus'
 import type { SessionView } from '@podium/client-core/session-values'
-import { asSessionId, isFinished, isExcluded, type SessionWord, type SessionWordFacts, sessionWord, wordWantsAttention } from '@podium/model/browser'
-import { groupRelations, type IssueCloseMemberCounts, type IssueCloseScalarSubject, type ReferentExit, type TaskProgress } from '@podium/client-core/values'
+import { groupRelations, type IssueCloseMemberCounts, type IssueCloseScalarSubject, type ReferentExit, motionPhase as sessionMotion, type TaskProgress } from '@podium/client-core/values'
+import { asSessionId, type CoordinatedSeat, coordinatedSeat, sessionWorkingFact, isExcluded, isFinished, NO_INTERACTIONS, type SeatInteractions, type SeatRole, type SeatSessionFacts, type SessionWord, type SessionWordFacts, sessionWord, wordWantsAttention } from '@podium/model/browser'
 import type { ReaderQueries } from './reader-queries'
-import { motionPhase as sessionMotion } from '@podium/client-core/values'
+import type { IssueSessionFactReader } from './shared/issue-session-facts'
 
 /** One shared object per server record. Schema fields and relations are installed
  * once; derived entity facts use @lazy. Views own their per-record companions. */
 
-import { compareShallow, compareStructural, observable, runInAction, action } from 'mobx'
 import { lazy } from '@podium/mobx-helpers'
+import { action, compareShallow, compareStructural, observable, runInAction } from 'mobx'
 import type { Residence } from './pool'
 import type { SeatRelation } from './session-seats'
 import type { CollectionName, IsLazy, SingleName, SubsetName, TargetOf } from './shared/links'
 import type { RelationReader } from './shared/relation-reader'
 import { FEED_SPELLING } from './shared/repo-from-lane'
-import { type EntityName, type ModelSchema, SCHEMA, awaitingMergeOf } from './shared/schema'
+import { awaitingMergeOf, type EntityName, type ModelSchema, SCHEMA } from './shared/schema'
 import { computingDeadlineOf } from './shared/session-facts'
 import type { SliceIssue, SliceSession, SliceWorktree } from './shared/slice-types'
-import { type EditableStage, type EditPatch, EDITABLE_FIELDS, type TxId, type WritableKind } from './write/commands'
 import type { StoredRow } from './tables'
-import { DEFER_NEXT_MESSAGE } from './views'
-import { activityMsOf, displayRefOf, parseMs, type RepoRow, repoTargetPartOf, prefixPartOf, originRefPartOf, type ViewInputs } from './views'
-import { LOADING, type Loaded as LoadedRow, type OwnFacts, ownFactsOf, type RollupInputs, isSessionWorking } from './worklist/rollup'
+import { activityMsOf, DEFER_NEXT_MESSAGE, displayRefOf, originRefPartOf, parseMs, prefixPartOf, type RepoRow, repoTargetPartOf, type ViewInputs } from './views'
+import { isSessionWorking, LOADING, type Loaded as LoadedRow, type OwnFacts, ownFactsOf, type RollupInputs } from './worklist/rollup'
+import { fleetOf, type SidebarSessionFacts, unstarted } from './worklist/sidebar-row'
 import type { VisibleInputs } from './worklist/visible'
-import { fleetOf, unstarted, type SidebarSessionFacts } from './worklist/sidebar-row'
+import { EDITABLE_FIELDS, type EditableStage, type EditPatch, type TxId, type WritableKind } from './write/commands'
 
 const EMPTY_DEPENDENTS: readonly { id: string; type: string }[] = Object.freeze([])
 
 // Direct work-row paint readers need scalar equality when an unrelated stored
 // field changes. Other installed stored getters stay plain.
 const ISSUE_PAINT_FIELDS: ReadonlySet<string> = new Set([
-  'title', 'color', 'audience', 'pinned', 'linearIdentifier', 'seq', 'acceptance',
+  'title', 'audience', 'pinned', 'linearIdentifier', 'seq', 'acceptance',
   'stage', 'closedReason', 'blocked', 'branch', 'gitState', 'parentBranch',
+  'landedAt', 'landedSha',
 ])
 
 /** What a model reads from its pool. */
@@ -60,6 +62,8 @@ export interface ModelHost {
   issueObject(id: string): IssueModel
   /** Addressed raw archived field, independent of payload/residency. */
   sessionArchiveField(id: string): boolean | undefined
+  /** Open pending interactions addressed to a session (`MobxPool.sessionOpenInteractions`). */
+  sessionOpenInteractions(id: string): SeatInteractions
   /** Whether the cutoff declares a stored session field, even when optional. */
   sessionSummaryField(property: string): boolean
   issueSummaryField(property: string): boolean
@@ -83,8 +87,6 @@ export interface ModelHost {
   model<E extends EntityName>(entity: E, id: string): Lookup<ModelOf[E]>
   /** Where a row stands; a cold one answers `loading` and is queued (first access). */
   resident(entity: EntityName, id: string, absent?: 'load' | 'summary-fields'): Residence
-  /** Resident fallback seats; cold rows are requested from a declared lane summary. */
-  rosterCandidates(path: string): Iterable<string>
 }
 
 function documentText(value: unknown): string {
@@ -317,6 +319,7 @@ export type RelationGetters<E extends EntityName> = {
 
 /** The one shared issue record. Worklist presentation belongs to WorklistIssue. */
 export class IssueModel extends EntityModel {
+  readonly readObservation = new ReadObservation()
   static override readonly answers: ReadonlySet<string> = new Set(['description'])
   constructor(id: string, host: ModelHost) {
     super('issue', id, host)
@@ -344,6 +347,17 @@ export class IssueModel extends EntityModel {
 
   @lazy get authoredTitle(): string {
     return String(this.storedField('title') ?? '')
+  }
+
+  // Chat uploads (POD-2148): the stored copy of each file attached in one of
+  // this issue's chats, by the attachment id it was staged under. The chat
+  // shows a thumbnail from it once the daemon's upload sweep deleted the file.
+  @lazy get chatUploads(): ReadonlyMap<string, IssuePanelArtifact> {
+    const panel = this.storedField('panel') as IssuePanel | undefined
+    const out = new Map<string, IssuePanelArtifact>()
+    for (const artifact of panel?.artifacts ?? [])
+      if (artifact.chatUploadId && artifact.artifactId) out.set(artifact.chatUploadId, artifact)
+    return out
   }
   @lazy get description(): string {
     return documentText(this.storedField('description'))
@@ -603,7 +617,11 @@ export class IssueModel extends EntityModel {
   @lazy get unread(): boolean {
     const row = this.readFacts()
     if (row === undefined || row.deletedAt) return false
-    const read = parseMs(this.host.visibleInputs.issueRead(this.id))
+    if (this.readObservation.blocked) return true
+    if (this.readObservation.viewing) return false
+    const durable = this.host.visibleInputs.issueRead(this.id)
+    const seen = this.readObservation.seenAt
+    const read = parseMs(seen && (!durable || seen > durable) ? seen : durable)
     if (read === null) return true
     const updated = this.updatedMs, active = parseMs(this.lastActivityAt)
     if ((updated !== null && updated > read) || (active !== null && active > read)) return true
@@ -659,6 +677,22 @@ export class IssueModel extends EntityModel {
       } catch (error) { if (error !== LOADING) throw error; pending = true }
     }
     return pending ? LOADING : latest
+  }
+
+  /** The raw execution fact does not let an offer hide ongoing computation. */
+  @lazy get missionWorking(): boolean {
+    for (const id of this.host.relations.many('issue', this.id, 'missionSessions')) {
+      if (this.host.sessionObject(id).workingFact) return true
+    }
+    return false
+  }
+
+  /** Birth references survive rehoming. Intermediate attachments (A → B → C)
+   * are not retained in this model, so a backlog B can return to "to do". */
+  @lazy get missionBucket(): MissionTaskBucket | null {
+    const bucket = missionTaskBucket(this, false, false)
+    if (bucket === null || bucket === 'done' || bucket === 'working') return bucket
+    return missionTaskBucket(this, this.host.relations.size('issue', this.id, 'bornSessions') > 0 || this.host.relations.size('issue', this.id, 'missionSessions') > 0, this.missionWorking)
   }
 
   // Task progress: formal descendants, independent of sidebar/mission placement.
@@ -733,6 +767,7 @@ export class IssueModel extends EntityModel {
       get state() { return model.ownState },
       get finished() { return model.ownFactFinished },
       get decision() { return model.ownFactDecision },
+      get requests() { return model.ownFactRequests },
       get continuedByField() { return model.ownFactContinuedByField },
       get updatedAt() { return model.ownFactUpdatedAt },
       get closedAt() { return model.ownFactClosedAt },
@@ -754,6 +789,11 @@ export class IssueModel extends EntityModel {
   @lazy
   private get ownFactDecision(): OwnFacts['decision'] {
     return this.readOwnFacts().decision
+  }
+
+  @lazy
+  private get ownFactRequests(): OwnFacts['requests'] {
+    return this.readOwnFacts().requests
   }
 
   @lazy
@@ -783,6 +823,7 @@ export class IssueModel extends EntityModel {
 
 /** THE session: its row, and what its issues read of it. */
 export class SessionModel extends EntityModel {
+  readonly readObservation = new ReadObservation()
   static override readonly answers = new Set(['archived', 'unread', 'cwd', 'issueId', 'machineId', 'status', 'geometry', 'messageDraft'])
 
   constructor(id: string, host: ModelHost) {
@@ -873,6 +914,10 @@ export class SessionModel extends EntityModel {
   @lazy
   get rosterEligible(): boolean { return this.exists && !this.headless && this.agentKind !== 'shell' }
 
+  @lazy get workingFact(): boolean {
+    return this.exists && !this.archived && sessionWorkingFact(this)
+  }
+
   // Unlike verdict.working, atWork includes starting/reconnecting before motion.
   @lazy
   get atWork(): boolean {
@@ -909,7 +954,13 @@ export class SessionModel extends EntityModel {
 
   @lazy get workingMsTotal(): number | undefined { return this.agentState?.workingMsTotal }
 
-  @lazy get unread(): SessionView['unread'] { return this.storedField('unread') as SessionView['unread'] }
+  @lazy get unread(): SessionView['unread'] {
+    if (this.readObservation.blocked) return true
+    if (this.readObservation.viewing) return false
+    const seen = this.readObservation.seenAt
+    if (seen && this.lastActiveAt <= seen) return false
+    return this.storedField('unread') as SessionView['unread']
+  }
 
   @lazy({ equals: compareStructural })
   get workingTimer(): SidebarSessionFacts['working'] {
@@ -925,6 +976,29 @@ export class SessionModel extends EntityModel {
   }
 
   @lazy get doneSinceMs(): number { return this.stateSinceMs || 0 }
+
+  // A seat on a coordinated task (POD-2171): one derivation (`coordinatedSeat`)
+  // per role, which every coordinated surface reads. Uncoordinated readers keep
+  // `word`, `motion` and the rest above, as they were.
+  /** Open pending interactions addressed to this session: how many, and the earliest asked. */
+  @lazy({ equals: compareStructural })
+  get openInteractions(): SeatInteractions { return this.exists ? this.host.sessionOpenInteractions(this.id) : NO_INTERACTIONS }
+
+  /** Its own task is open: a closed task asks nothing of its seats. */
+  @lazy get taskOpen(): boolean {
+    const issueId = this.exists ? this.issueId : undefined
+    return !issueId || this.host.issueObject(issueId).finished !== true
+  }
+
+  @lazy({ equals: compareStructural })
+  get coordinatorSeat(): CoordinatedSeat { return this.roleSeat('coordinator') }
+
+  @lazy({ equals: compareStructural })
+  get delegateSeat(): CoordinatedSeat { return this.roleSeat('delegate') }
+
+  private roleSeat(role: SeatRole): CoordinatedSeat {
+    return coordinatedSeat(this as unknown as SeatSessionFacts, role, this.openInteractions, this.taskOpen)
+  }
 
   @lazy get errorClass(): string | null {
     return this.open && this.phase === 'errored' ? this.agentState?.error?.class ?? 'unknown' : null

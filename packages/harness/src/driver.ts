@@ -110,6 +110,7 @@ export type {
   TurnDelivery,
   TurnReceipt,
 } from './driver/turns.js'
+export { attachmentKindFor } from './driver/turns.js'
 
 // ---- The headless receipt facts --------------------------------------------
 // The server verifies headless delivery receipts against these without ever

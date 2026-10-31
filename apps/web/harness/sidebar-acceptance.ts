@@ -206,16 +206,7 @@ try {
           await page.waitForTimeout(100)
           await save({ kind, scale, mode, result: await page.evaluate(() => window.__acceptance.stop()) })
         }
-        if (mode === 'pool') {
-          for (let iteration = 0; iteration < 12; iteration++) {
-            if (iteration && iteration % 5 === 0) {
-              await page.locator('[data-issue-row]').nth(iteration === 5 ? 0 : 1).click()
-            } else if (iteration) await page.evaluate(i => window.__acceptance.event(['unrelated', 'title', 'phase', 'draft'][i % 4]!, i), iteration)
-            await page.waitForTimeout(100)
-            await save({ kind: 'parity', scale, mode, iteration, result: await page.evaluate(() => window.__acceptance.compare()) })
-          }
-          await page.screenshot({ path: resolve(out, `synthetic-${scale}.png`) })
-        }
+        if (mode === 'pool') await page.screenshot({ path: resolve(out, `synthetic-${scale}.png`) })
         for (const [principal, rebuild] of [['acceptance-bob', false], ['acceptance-bob', true]] as const) {
           const began = performance.now()
           await page.evaluate(({ principal, rebuild }) => window.__acceptance.show(principal, rebuild), { principal, rebuild })

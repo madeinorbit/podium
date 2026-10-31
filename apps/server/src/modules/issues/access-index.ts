@@ -1,4 +1,4 @@
-import type { IssueAction, IssueId } from '@podium/model'
+import type { IssueAction, IssueId, MachineId } from '@podium/model'
 import { machinePathKey, machinePathsEqual } from '@podium/model'
 import type { IssueAccessIndex } from '../../issue-authz'
 import type { GrantsRepository } from '../../store/grants'
@@ -62,9 +62,14 @@ export class DurableIssueAccessIndex implements IssueAccessIndex {
       .some((row) => row.worktreePath !== null && machinePathsEqual(row.worktreePath, cwd))
   }
 
-  async soleOwnerForCwd(cwd: string): Promise<IssueId | null> {
-    const repoRoots = new Set((await this.repos.listRepoPaths()).map(machinePathKey))
-    return soleOwner(await this.issues.worktreeOwnerCandidates([cwd]), cwd, repoRoots)
+  /** The one live issue whose worktree holds `cwd` (see `soleOwner`). With
+   *  `machineId`, only an issue homed on that machine (or on none) counts. */
+  async soleOwnerForCwd(cwd: string, machineId?: MachineId): Promise<IssueId | null> {
+    const roots = async (machine?: MachineId) =>
+      new Set((await this.repos.listRepoPaths(machine)).map(machinePathKey))
+    const any = await roots()
+    const home = machineId === undefined ? any : await roots(machineId)
+    return soleOwner(await this.issues.worktreeOwnerCandidates([cwd]), cwd, { any, home }, machineId)
   }
 
   async issueForCwd(cwd: string): Promise<IssueId | null> {

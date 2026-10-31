@@ -1,4 +1,5 @@
 import type { SessionId } from '@podium/model'
+import type { RuntimeAttachmentRef } from '@podium/protocol/daemon'
 import { useCallback, useRef, useState } from 'react'
 import { useTrpc } from '../client/hooks'
 import {
@@ -40,8 +41,12 @@ export interface ComposerAttachment {
   /** A local data URI while the bytes are in hand, or '' for a file with no
    *  preview — the chip then shows its name and a document glyph. */
   previewUri: string
-  /** The absolute path on the session's machine, once uploaded. */
+  /** The absolute path on the session's machine, when the upload was put
+   *  there at once (a shell, or the superagent's headless session). */
   path?: string
+  /** The upload as the server holds it (POD-2148): an agent session's file
+   *  waits on the server and reaches the agent's machine with the message. */
+  ref?: RuntimeAttachmentRef
   state: 'uploading' | 'ready' | 'failed'
   /** A useful per-file refusal, kept until the operator removes the chip. */
   error?: string
@@ -76,7 +81,10 @@ export interface ComposerAttachmentsApi {
  * photo should be.
  */
 export interface SentAttachment {
-  path: string
+  /** Set when the file is already on the agent's machine; its path then rides
+   *  the prompt text. Absent for a held upload, which travels as `ref`. */
+  path?: string
+  ref?: RuntimeAttachmentRef
   /** A local data URI, or '' for a file with no preview. */
   previewUri: string
   name: string
@@ -141,13 +149,17 @@ export function useComposerAttachments(
           dataBase64: file.dataBase64,
         })
         if (!result || !('path' in result)) throw new Error('upload refused')
-        // An empty path is a refusal wearing a success shape — the daemon
-        // answers `{ path: '' }` when nothing answered in time.
-        if (!result.path) {
+        // A held upload answers its ref with no path (POD-2148). Otherwise an
+        // empty path is a refusal wearing a success shape — the daemon answers
+        // `{ path: '' }` when nothing answered in time.
+        const ref = 'attachment' in result ? result.attachment : undefined
+        if (!result.path && !ref) {
           throw new Error(('error' in result ? result.error : undefined) ?? 'upload refused')
         }
         setAttachments((prev) =>
-          prev.map((a) => (a.id === id ? { ...a, path: result.path, state: 'ready' } : a)),
+          prev.map((a) =>
+            a.id === id ? { ...a, path: result.path || undefined, ref, state: 'ready' } : a,
+          ),
         )
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
@@ -236,8 +248,13 @@ export function useComposerAttachments(
     ready: useCallback(
       () =>
         latest.current
-          .filter((a) => a.state === 'ready' && a.path)
-          .map((a) => ({ path: a.path as string, previewUri: a.previewUri, name: a.name })),
+          .filter((a) => a.state === 'ready' && (a.path || a.ref))
+          .map((a) => ({
+            ...(a.path ? { path: a.path } : {}),
+            ...(a.ref ? { ref: a.ref } : {}),
+            previewUri: a.previewUri,
+            name: a.name,
+          })),
       [],
     ),
   }

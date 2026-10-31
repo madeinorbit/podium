@@ -858,7 +858,7 @@ describe('SessionRegistry', () => {
     await reg.dispose()
   })
 
-  it('does NOT put initialPrompt on the spawn for non-argv agents — seeds the composer draft instead', async () => {
+  it('delivers initialPrompt for non-argv agents with an empty composer', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const daemon: ControlMessage[] = []
     await attachHostDaemon(reg, (m) => daemon.push(m))
@@ -872,16 +872,9 @@ describe('SessionRegistry', () => {
     const spawn = daemon.find((m) => m.type === 'spawn')
     expect(spawn).toBeDefined()
     expect(spawn).not.toHaveProperty('initialPrompt')
-    // The prompt is delivered as a draft instead, broadcast to clients. It is a
-    // sequenced document like every other draft (POD-2045) — the server seeding
-    // one is an edit at `origin: 'seed'`, not a separate unversioned lane.
-    expect(client.sent).toContainEqual(
-      expect.objectContaining({
-        type: 'sessionDraftChanged',
-        sessionId,
-        text: 'remember this',
-        rev: 1,
-      }),
+    expect((await reg.sessionStore.sessions.loadDrafts())[sessionId]).toBeUndefined()
+    expect(client.sent).not.toContainEqual(
+      expect.objectContaining({ type: 'sessionDraftChanged', sessionId }),
     )
   })
 

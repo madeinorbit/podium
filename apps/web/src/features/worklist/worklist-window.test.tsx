@@ -142,6 +142,13 @@ describe('worklist viewport', () => {
   })
 
   it('keeps the visible anchor when rows above are inserted or removed', () => {
+    // happy-dom has no layout: give the window, the scroller's only section,
+    // a height so it holds the viewport's top edge as in a browser.
+    vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockImplementation(function (
+      this: HTMLElement,
+    ) {
+      return this.dataset.testid === 'worklist-window' ? 100_000 : 0
+    })
     const view = render(<Harness />)
     flush()
     const scroll = view.getByTestId('window-scroll')

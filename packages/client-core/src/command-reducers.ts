@@ -166,7 +166,7 @@ export function rowFingerprint(row: object): string {
  *
  * `null` and `undefined` are ONE value here, and that is not laziness about
  * types: the wire spells "unset" both ways for the same field. `issues.update`
- * clears a colour with `color: null` while `IssueProjection.color` is `optional()` —
+ * clears acceptance with `acceptance: null` while `IssueProjection.acceptance` is `optional()` —
  * absent once cleared — so a strict `===` would leave every clear painted until
  * its TTL. `rowFingerprint` above already makes the same collapse for the same
  * reason (JSON.stringify drops undefined-valued keys).
@@ -437,11 +437,15 @@ function overlayOf(entry: OutboxEntry): PendingOverlay | PendingOverlay[] | null
       const pressedAt = new Date(entry.queuedAt).toISOString()
       const activity = baselineCell(entry, 'lastActiveAt')
       const readAt =
-        typeof activity === 'string' && Date.parse(activity) > entry.queuedAt ? activity : pressedAt
+        i.readAt ??
+        (typeof activity === 'string' && Date.parse(activity) > entry.queuedAt
+          ? activity
+          : pressedAt)
       const previousReadAt = baselineCell(entry, 'readAt')
       return patchOverlay('sessionUserStates', i.sessionId, entry.mutationId, { readAt }, (r) => {
         const current = (r as SessionUserStateWire).readAt
         if (current == null) return false
+        if (i.readAt) return current >= i.readAt
         if (entry.baseline !== undefined) return current !== previousReadAt
         return Date.parse(current) >= entry.queuedAt
       })
@@ -487,10 +491,10 @@ function overlayOf(entry: OutboxEntry): PendingOverlay | PendingOverlay[] | null
         'issueUserStates',
         i.id,
         entry.mutationId,
-        { readAt: new Date(entry.queuedAt).toISOString() },
+        { readAt: i.readAt ?? new Date(entry.queuedAt).toISOString() },
         (r) => {
           const readAt = (r as IssueUserStateWire).readAt
-          return readAt != null && readAt !== previousReadAt
+          return readAt != null && (i.readAt ? readAt >= i.readAt : readAt !== previousReadAt)
         },
       )
     }

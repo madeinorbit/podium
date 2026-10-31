@@ -1,14 +1,13 @@
-import { referenceState } from '../../../tests/worklist/diagnostics/reference-state'
 import { storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
-import type { SidebarSnapshot } from '../../../tests/worklist/diagnostics/sidebar-check'
-import { checkWorkflows } from '../../../tests/worklist/diagnostics/workflow-check'
 import { asUserId } from '@podium/model/browser'
 import { createRoot } from 'react-dom/client'
+import { referenceState } from '../../../tests/worklist/diagnostics/reference-state'
+import type { SidebarSnapshot } from '../../../tests/worklist/diagnostics/sidebar-check'
+import { checkWorkflows } from '../../../tests/worklist/diagnostics/workflow-check'
 import { attachWorklistPool, useWorklistPool } from '../src/app/store-worklist-pool'
 import type { Trpc } from '../src/app/trpc'
-import { MergeQueuePanel } from '../src/features/merge-queue/MergeQueuePanel'
 import { AgentProfiles } from '../src/features/workflows/AgentProfiles'
 import { RunProgress } from '../src/features/workflows/RunProgress'
 import { useWorkflows } from '../src/features/workflows/use-workflows'
@@ -30,19 +29,12 @@ function Surface() {
   pool = useWorklistPool()
   const source = useWorkflows()
   return (
-    <main className="grid h-screen grid-cols-[2fr_2fr_1fr] bg-background text-foreground">
+    <main className="grid h-screen grid-cols-2 bg-background text-foreground">
       <div data-proof-surface="profiles">
         <AgentProfiles source={source} />
       </div>
       <div data-proof-surface="progress">
         <RunProgress source={source} rights={OPERATOR_WORKFLOW_RIGHTS} />
-      </div>
-      <div data-proof-surface="queues">
-        <MergeQueuePanel
-          issues={[]}
-          scope={{ repoPath: '/synthetic/project' }}
-          onSelectIssue={() => {}}
-        />
       </div>
     </main>
   )
@@ -77,7 +69,6 @@ const driver = {
     Boolean(
       owner &&
         fixture.calls.get &&
-        fixture.calls.locks &&
         document.querySelector('[data-profile-id]') &&
         document.querySelector('[data-run-id]') &&
         !document.querySelector('[role="status"]') &&

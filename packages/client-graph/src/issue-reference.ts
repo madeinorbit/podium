@@ -112,6 +112,7 @@ export class IssueReferences implements IssueReferenceReader {
       seq: issue.seq,
       title: issue.title,
       stage: issue.stage,
+      closedReason: issue.closedReason,
       archived: issue.archived,
       deletedAt: issue.deletedAt,
       ...(prefix ? { prefix } : {}),

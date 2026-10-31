@@ -1,18 +1,17 @@
-import { here } from '@podium/client-graph/lookup'
 import type { IssueViewModel } from '@podium/client-core/replica'
-import { MobileTasksBoard, type MobileTaskIssue } from '@podium/client-graph/mobile-tasks'
-import type { BoardListRow } from '@podium/client-graph/issue-board-schema'
-import { LOADING } from '@podium/client-graph/worklist/rollup'
-import { observer } from 'mobx-react-lite'
 import { ISSUES_DISPLAY_KEY } from '@podium/client-core/ui-state'
 import {
   type BoardFilter,
-  filterChips,
-  readSharedIssuesDisplay as readMobileTaskDisplay,
+  type filterChips,
   type RankedTaskIssue,
+  readSharedIssuesDisplay as readMobileTaskDisplay,
   taskStateWord,
   writeSharedIssuesDisplay as writeMobileTaskDisplay,
 } from '@podium/client-core/values'
+import type { BoardListRow } from '@podium/client-graph/issue-board-schema'
+import { here } from '@podium/client-graph/lookup'
+import { type MobileTaskIssue, MobileTasksBoard } from '@podium/client-graph/mobile-tasks'
+import { LOADING } from '@podium/client-graph/worklist/rollup'
 import {
   type IssueBoardStage,
   type IssueCloseReason,
@@ -25,9 +24,9 @@ import {
 import { isFinished } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import { Stack, useRouter } from 'expo-router'
+import { observer } from 'mobx-react-lite'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Animated, SectionList, StyleSheet, Text, TextInput, View } from 'react-native'
-import { listWindow } from '../components/list-window'
 import { useBooting, useStoreActions } from '../client/hooks'
 import { useMobilePool } from '../client/mobile-pool'
 import { useIssueCloseGuard } from '../client/use-issue-close'
@@ -37,6 +36,7 @@ import { IdSquare } from '../components/IdSquare'
 import { IssueCloseSheet } from '../components/IssueCloseSheet'
 import { ChevronDown, ChevronRight, Filter, Layers, Plus, Search, X } from '../components/icons'
 import { BootstrapCrossfade, TasksSkeleton } from '../components/LaunchPlaceholders'
+import { listWindow } from '../components/list-window'
 import { NotSavedMark } from '../components/NotSavedMark'
 import { PressableScale } from '../components/PressableScale'
 import { PullToRefreshBoundary } from '../components/PullToRefreshBoundary'
@@ -54,7 +54,6 @@ import { useReduceMotion } from '../hooks/useReduceMotion'
 import { useRefreshableTab } from '../hooks/useRefreshableTab'
 import { stageFoldKey } from '../lib/fold-keys'
 import { taskRowAccessibilityProps } from '../lib/task-row-accessibility'
-import { flow, issueColorHex } from '../theme/issueColors'
 import { alpha } from '../theme/mix'
 import { stageColor } from '../theme/stage'
 import { color, font, leading, mono, monoLabel, radius, sans, space, spring } from '../theme/theme'
@@ -612,7 +611,6 @@ const TaskRow = observer(function TaskRow({
     if (error === LOADING) return <View style={styles.rowWrap} />
     throw error
   }
-  const hex = issueColorHex(issue.color)
   const resting = issue.stage === 'backlog' || issue.stage === 'proposed'
   const repo = machinePathBasename(issue.repoPath) ?? ''
   const parent = issue.treeParent
@@ -665,7 +663,6 @@ const TaskRow = observer(function TaskRow({
         onLongPress={() => onOpenActions(issue)}
         style={({ pressed }) => [
           styles.card,
-          hex ? { backgroundColor: flow.rowBg(hex) } : null,
           pressed && styles.cardPressed,
         ]}
       >
@@ -681,9 +678,9 @@ const TaskRow = observer(function TaskRow({
                     ? 'queued'
                     : 'working'
             }
-            ringColor={hex ? flow.rowBg(hex) : color.surface}
+            ringColor={color.surface}
           />
-          <Text style={[styles.title, hex ? { color: flow.text(hex) } : null]} numberOfLines={2}>
+          <Text style={styles.title} numberOfLines={2}>
             {issue.title}
           </Text>
         </View>

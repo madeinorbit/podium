@@ -16,7 +16,7 @@
 
 import { type AgentStateEvent, initialAgentState, reduceAgentState } from '@podium/harness/metadata'
 import { createLogger } from '@podium/logger'
-import { asUserId, computePriorities, type SessionId } from '@podium/model'
+import { asUserId, computePriorities, type SessionId, type UserId } from '@podium/model'
 import { asDelegationRef } from '@podium/protocol'
 import { RuntimeAttachmentRef, type RuntimeEvent } from '@podium/protocol/daemon'
 import { MutationLedger, type SyncRepository } from '@podium/sync'
@@ -38,6 +38,7 @@ import { SessionDaemonLifecycle } from './daemon-lifecycle'
 import { SessionDaemonProjection } from './daemon-projection'
 import {
   archivedSessionSendReason,
+  chatUploadStageAnswer,
   inboxActorColumns,
   inboxActorFromColumns,
   SessionInbox,
@@ -373,11 +374,21 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     toMachine: (machineId, message) => bag.toMachine(machineId, message),
     toPtyInput: (machineId, input) => bag.toPtyInput(machineId, input),
     broadcastSessions: () => bag.broadcastSessions(),
-    soleOwnerForCwd: async (cwd) => (await bag.deps.issueAccess.soleOwnerForCwd(cwd)) ?? undefined,
+    soleOwnerForCwd: async (cwd, machineId) =>
+      (await bag.deps.issueAccess.soleOwnerForCwd(cwd, machineId)) ?? undefined,
+    mayJoinIssue: async (issueId, userId) => {
+      const target = await bag.deps.issueAccess.ownedTarget(issueId, 'write')
+      if (!target) return false
+      if (target.owner === userId || target.grants.includes(userId)) return true
+      return (await store.users.roleOf(userId)) === 'admin'
+    },
     instructionsForStart: (i) => bag.deps.instructionsForStart(i),
     ...(bag.deps.agentLaunch ? { agentLaunch: bag.deps.agentLaunch } : {}),
+    ...(bag.deps.draftForStart ? { draftForStart: bag.deps.draftForStart } : {}),
+    ...(bag.deps.discardUnlaunchedDraft
+      ? { discardUnlaunchedDraft: bag.deps.discardUnlaunchedDraft }
+      : {}),
     sessionOwner: (sessionId) => ownership.sessionOwner(sessionId),
-    setSessionDraft: (input) => bag.state.setDraft(input),
     queueInitialPrompt: (i) => bag.inbox.queueInitialPrompt(i),
     ...(bag.deps.recordSpawnPrompt ? { recordSpawnPrompt: bag.deps.recordSpawnPrompt } : {}),
     ...(bag.deps.recordOwnerPrompt ? { recordOwnerPrompt: bag.deps.recordOwnerPrompt } : {}),
@@ -680,6 +691,27 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
         ...(input.attachments?.length ? { attachments: input.attachments } : {}),
         principal: input.principal,
       }),
+    // A chat upload held on the server is staged under its own id on the
+    // machine the session runs on NOW (POD-2148). Late-bound like the rest.
+    stageChatUpload: async ({ sessionId, attachment }) => {
+      const issueId = bag.sessions.get(sessionId)?.issueId
+      const bytes =
+        issueId && deps.chatUploads
+          ? await deps.chatUploads.bytes(issueId, attachment.id)
+          : undefined
+      if (!bytes)
+        return { fail: `${attachment.filename} is no longer stored with this session's issue` }
+      const staged = await bag.runtimeGateway.stageAttachment({
+        sessionId,
+        source: {
+          bytes,
+          filename: attachment.filename,
+          mediaType: attachment.mediaType,
+          id: attachment.id,
+        },
+      })
+      return chatUploadStageAnswer(attachment, staged)
+    },
     // Stop follows the same contract delivery route, including headed sessions.
     contractInterrupt: (sessionId) => bag.runtimeGateway.interrupt(sessionId),
     // Late-bound for the same reason the two above it are.
@@ -1061,6 +1093,10 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     },
     systemPrincipal: () => SYSTEM_INBOX_PRINCIPAL,
     now: () => bag.now(),
+    chatUploadOwner: async (sessionId: SessionId, uploadId: string) => {
+      const issueId = bag.sessions.get(sessionId)?.issueId
+      return issueId ? await deps.chatUploads?.owner(issueId, uploadId) : undefined
+    },
   })
   bag.daemonLifecycle = new SessionDaemonLifecycle({
     initializeRuntimeMetadata: async (sessionId, machineId) => {
@@ -1255,6 +1291,8 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     broadcastSessions: () => bag.broadcastSessions(),
     toMachine: (machineId, message) => bag.toMachine(machineId, message),
     spawn: (input) => bag.sessionStart.spawn(input),
+    startTask: (input) => bag.sessionStart.startTask(input),
+    discardDraft: (issueId) => bag.sessionStart.discardDraft(issueId),
     machineUseGate: (caller) => bag.machineUseGate(caller),
     issueAccess: bag.deps.issueAccess,
     instructionsForStart: (i) => bag.deps.instructionsForStart(i),

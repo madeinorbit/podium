@@ -80,12 +80,20 @@ export function classifyScreenWork(
 export function screenWorkVerdicts(
   at1x: readonly ScreenWorkCell[],
   at4x: readonly ScreenWorkCell[],
+  actions: readonly ScreenAction[] = SCREEN_ACTIONS,
 ): ScreenWorkVerdict[] {
-  if (at1x.length !== SCREEN_ACTIONS.length || at4x.length !== SCREEN_ACTIONS.length) {
+  // Focused fixtures may name their actions explicitly; the full guard
+  // still requires every action by default and cannot pass an empty run.
+  if (
+    !actions.length ||
+    new Set(actions).size !== actions.length ||
+    at1x.length !== actions.length ||
+    at4x.length !== actions.length
+  ) {
     throw new Error('Screen work guard needs every click and single-row delta at both scales')
   }
   const verdicts: ScreenWorkVerdict[] = []
-  for (const action of SCREEN_ACTIONS) {
+  for (const action of actions) {
     const left = at1x.filter((cell) => cell.action === action),
       right = at4x.filter((cell) => cell.action === action)
     if (left.length !== 1 || right.length !== 1)

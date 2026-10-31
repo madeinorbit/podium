@@ -520,6 +520,8 @@ const DECLARED = defineSchema({
       archived: { type: 'boolean', optional: true, source: projection() },
       stage: { type: 'string', source: projection(), note: 'Vocabulary in model/src/predicates/issue-stage.ts; the value set is a view rule (L1b), not a schema rule.' },
       closedReason: { type: 'string', optional: true, nullable: true, source: projection() },
+      landedAt: { type: 'isoDate', optional: true, nullable: true, source: projection(), note: 'Set by the merge action; the row reads Landed while nothing awaits merge (`issueLanding`).' },
+      landedSha: { type: 'string', optional: true, nullable: true, source: projection() },
       audience: { type: 'enum', values: ['human', 'agent'], optional: true, source: projection(), note: 'Who the issue is FOR (entities/issue.ts:289).' },
       isDraftVessel: { type: 'boolean', optional: true, source: projection('isDraftVessel') },
       pinned: { type: 'boolean', optional: true, source: { schema: 'IssueUserStateWire', arrivesOn: 'replica:issueUserStates' } },
@@ -542,7 +544,7 @@ const DECLARED = defineSchema({
         },
       },
       coordinatorSessionId: { type: 'id', optional: true, nullable: true, source: projection() },
-      startedBySession: { type: 'id', optional: true, nullable: true, source: projection(), note: 'Foreign key of the `startedBy` relation: the worklist nests a parentless issue under the one its starter session belongs to.' },
+      startedBySession: { type: 'id', optional: true, nullable: true, source: projection(), note: 'Foreign key of the `startedBy` relation: missions and the issue header follow it to the task of the starter session; the sidebar never nests by it.' },
       deps: {
         type: 'depEdgeList',
         source: { schema: 'IssueDepProjection', property: 'toId', arrivesOn: 'replica:issueDeps' },
@@ -613,7 +615,7 @@ const DECLARED = defineSchema({
         targetKey: 'sessionId',
         inverse: 'startedIssues',
         lazy: true,
-        why: "The session that started this issue: the nest fallback for a parentless issue that is not a spin-off (nestStartedByIssues, rows.ts:288-305).",
+        why: "The session that started this issue: provenance for missions and the Flight Deck (poolMissionContains). The sidebar nests by parentId only, never by this.",
       }),
       missionStartedBy: belongsTo({
         to: 'session',
@@ -834,7 +836,7 @@ const DECLARED = defineSchema({
         to: 'issue',
         inverse: 'startedBy',
         lazy: true,
-        why: "The issues this session started: a present issue finds the ones its sessions started, nested under it by the started-by fallback.",
+        why: "The issues this session started, the inverse of startedBy: provenance for missions and the Flight Deck. The sidebar never nests by it.",
       }),
       missionStartedIssues: hasMany({
         to: 'issue',
@@ -1002,6 +1004,7 @@ const DECLARED = defineSchema({
     fields: {
       id: { type: 'id', source: { schema: 'RepoProjection', arrivesOn: 'replica:repos' } },
       prefix: { type: 'string', optional: true, nullable: true, source: { schema: 'RepoProjection', arrivesOn: 'replica:repos' }, note: 'Absent renders `#seq` (slice §3 R-SUM).' },
+      defaultParentBranch: { type: 'string', optional: true, nullable: true, source: { schema: 'RepoProjection', arrivesOn: 'replica:repos' }, note: "The repo's base branch [POD-2065]. Absent defers to `gitWorkflow.defaultParentBranch`, then auto-detection." },
       path: { type: 'string', source: scan('GitRepositoryWire'), note: 'The repo label is derived from this at view time (L1b), never stored.' },
     },
     relations: {

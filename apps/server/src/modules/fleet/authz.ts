@@ -128,6 +128,8 @@ export const FLEET_TARGETS = {
   'repos.addMany': (input: unknown) => named((input as { machineId?: MachineId }).machineId),
   'repos.remove': (input: unknown) => named((input as { machineId?: MachineId }).machineId),
   'repos.setPrefix': (input: unknown) => named((input as { machineId?: MachineId }).machineId),
+  'repos.setDefaultParentBranch': (input: unknown) =>
+    named((input as { machineId?: MachineId }).machineId),
   'repos.cloneGithub': (input: unknown) => named((input as { machineId: MachineId }).machineId),
   'repos.createFolder': (input: unknown) => named((input as { machineId: MachineId }).machineId),
   'repos.createRepo': (input: unknown) => named((input as { machineId: MachineId }).machineId),

@@ -18,10 +18,10 @@ exports[`renders the real composer and artifact strip identically and keeps arti
     {
       "disabled": false,
       "label": "Synthetic concept",
-      "text": "Synthetic concept",
+      "text": "HTMLSynthetic concept",
     },
   ],
   "draft": "Saved draft",
-  "text": "Transcript may be outdated. Waiting for current messages.Transcript may be outdatedwaiting for current messagesCtrl / to focusSaved draftSynthetic concept",
+  "text": "Transcript may be outdated. Waiting for current messages.Transcript may be outdatedwaiting for current messagesSaved draftHTMLSynthetic concept",
 }
 `;

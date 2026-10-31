@@ -1,8 +1,8 @@
 /**
  * THE FOCUS CHORD (POD-993) — ⌘/ (Ctrl+/ off Mac) puts the caret in the prompt.
  *
- * The composer advertises a chord in its top-right corner while it is unfocused
- * and empty, and a hint that names a chord the app does not implement is worse
+ * The composer advertises the chord as keycaps beside its send cluster while it
+ * is unfocused and empty, and a hint that names a chord the app does not implement is worse
  * than no hint, so the chord lives here rather than in the shell's menu wiring:
  * the thing that shows it and the thing that answers it are the same module.
  *
@@ -52,6 +52,12 @@ function isChord(e: KeyboardEvent): boolean {
 export function chordLabel(): string {
   if (isMacNativeShell()) return '⌘L'
   return isApplePlatform() ? '⌘/' : 'Ctrl /'
+}
+
+/** The same chord as separate keys, for drawing it as keycaps. */
+export function chordKeys(): string[] {
+  if (isMacNativeShell()) return ['⌘', 'L']
+  return isApplePlatform() ? ['⌘', '/'] : ['Ctrl', '/']
 }
 
 /**

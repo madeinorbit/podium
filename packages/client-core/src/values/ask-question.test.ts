@@ -1,10 +1,12 @@
-import { PendingInteractionWire } from '@podium/protocol'
 import type { TranscriptItem } from '@podium/model'
+import { PendingInteractionWire } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import {
+  codexAsyncQuestionReply,
+  isPendingAskQuestion,
   isPreviewLayout,
-  matchesQuestionInteraction,
   latestPendingQuestion,
+  matchesQuestionInteraction,
   optionPreview,
   parseAskQuestions,
   pendingAskFromState,
@@ -152,13 +154,37 @@ describe('ask question view model', () => {
 })
 
 
+it('keeps an acknowledged async interview pending and builds a correlated chat reply', () => {
+  const item = ask('call_async', { toolName: 'request_user_input_async', toolUseId: 'call_async' })
+  // The phone's native-menu reader must not offer to answer this via keystrokes.
+  expect(latestPendingQuestion([item])).toBeNull()
+  expect(isPendingAskQuestion({ item, result: '{"accepted":true}' })).toBe(true)
+  expect(isPendingAskQuestion({ item: ask('claude'), result: '{"accepted":true}' })).toBe(false)
+  const text = codexAsyncQuestionReply(item, [
+    { freeText: 'main, using an isolated branch', otherIndex: 3 },
+  ])
+  const json = text.split('\n')[1] ?? ''
+  expect(JSON.parse(json)).toEqual([
+    {
+      answer: 'main, using an isolated branch',
+      question: 'Which way?',
+      questionItemId: '["request_user_input_async","call_async",0]',
+    },
+  ])
+  expect(() => codexAsyncQuestionReply(item, [])).toThrow('unavailable')
+})
+
 it('refuses a rendered question whose text, options, or layout differs from its interaction', () => {
   const row = PendingInteractionWire.parse({ id: 'ask:new', sessionId: 'session', askedAt: '2026-09-18T00:00:00.000Z',
     source: 'screen-classifier', answerable: 'keystroke-emulated', fingerprint: 'runtime:ask:new', kind: 'question', status: 'asked', payload: { v: 1,
     questions: [{ question: 'Pick', multiSelect: false, previewLayout: false,
-      options: [{ label: 'One' }, { label: 'Two' }] }] },
+      options: [{ label: 'One' }, { label: 'Two' }],
+        },
+      ],
+    },
   })
-  const raw = (question = 'Pick', options = [{ label: 'One' }, { label: 'Two' }], multiSelect = false) =>
+  const raw = (question = 'Pick', options = [{ label: 'One' }, { label: 'Two' }], multiSelect = false,
+  ) =>
     JSON.stringify({ questions: [{ question, options, multiSelect }] })
   expect(matchesQuestionInteraction(row, raw())).toBe(true)
   expect(matchesQuestionInteraction(row, raw('Old question'))).toBe(false)

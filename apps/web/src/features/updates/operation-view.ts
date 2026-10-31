@@ -130,7 +130,6 @@ export interface UpdatePanelView {
   /** Offer only: the place-language rows the old dialog already got right. */
   places?: Place[]
   notes?: { summary?: string; url?: string }
-  restartNote?: string
   /** Why this update is not optional, when it is not. */
   reason?: string
   /** "Running for 40 s" / "No progress for 2 min" — never ambiguous (P4). */
@@ -385,8 +384,8 @@ function livenessLine(operation: Operation, step: OperationStep | undefined, now
  * `required` picks which field: a required ask gates correctness, and the
  * server writes its `detail` for the onlooker ("Finish this in Podium Desktop
  * on ludovico"), which is exactly what this surface needs to say. A voluntary
- * ask's detail is written for the ACTOR ("Reloads this page in about two
- * seconds") and would be a lie here, so its `title` is used instead.
+ * ask's detail is written for the ACTOR ("Takes about 2 seconds") and
+ * would be a lie here, so its `title` is used instead.
  */
 function askLine(ask: AwaitingAsk): string {
   const chosen = ask.required ? (ask.detail ?? ask.title) : (ask.title ?? ask.detail)
@@ -407,7 +406,8 @@ function elsewhereAsks(operation: Operation, surface: UpdateSurface): string[] {
 
 function deferredSubject(deferred: readonly { name?: string }[]): string {
   const names = deferred.flatMap((place) => (place.name ? [place.name] : []))
-  if (names.length > 0 && names.length <= 3) return names.join(', ')
+  // Names only when every place has one: a partial list would hide the unnamed.
+  if (names.length === deferred.length && names.length <= 3) return names.join(', ')
   return deferred.length + ' machine' + (deferred.length === 1 ? '' : 's')
 }
 
@@ -435,9 +435,11 @@ function deferredNote(operation: Operation): string | undefined {
     notes.push(
       subject +
         (legacy.length === 1 ? ' needs' : ' need') +
-        ' host-local repair before ' +
-        (legacy.length === 1 ? 'it can verify' : 'they can verify') +
-        ' instance-signed development updates. Reconnecting will not clear this blocker.',
+        ' a manual fix before ' +
+        (legacy.length === 1 ? 'it' : 'they') +
+        " can take development updates. Reconnecting won't fix it. " +
+        'Run scripts/repair-stranded-update.sh there, as described in ' +
+        'docs/updating-a-dev-instance.md.',
     )
   }
   if (gone.length > 0) {
@@ -445,7 +447,7 @@ function deferredNote(operation: Operation): string | undefined {
     const superseded = gone.some((place) => place.reason === 'target-superseded')
     notes.push(
       subject +
-        ' did not come back before this update\'s package was ' +
+        " did not come back before this update's package was " +
         (superseded ? 'replaced by a newer one' : 'withdrawn') +
         '. ' +
         (gone.length === 1 ? 'It' : 'They') +
@@ -671,7 +673,7 @@ function localAction(input: OperationViewInput): PrimaryAction | undefined {
       kind: 'install-desktop',
       label: 'Restart Podium',
       pendingLabel: 'Installing…',
-      consequence: 'Installs the update and restarts Podium; your sessions keep running.',
+      consequence: 'Installs the update and restarts Podium. Your sessions keep running.',
     }
   }
   if (input.local.canReload) {
@@ -679,7 +681,7 @@ function localAction(input: OperationViewInput): PrimaryAction | undefined {
       kind: 'reload',
       label: 'Reload',
       pendingLabel: 'Reloading…',
-      consequence: 'Reloads this page, about 2 seconds; your sessions keep running.',
+      consequence: 'Takes about 2 seconds. Your sessions keep running.',
     }
   }
   return undefined
@@ -700,7 +702,7 @@ function offerView(input: OperationViewInput): UpdatePanelView {
       ...noneView(),
       state: 'offer',
       title: 'Checking for updates…',
-      subtitle: 'Asking this app and the rest of the fleet.',
+      subtitle: 'Asking your server and machines.',
     }
   }
   if (offer.state === 'current') {
@@ -715,21 +717,21 @@ function offerView(input: OperationViewInput): UpdatePanelView {
   if (offer.state === 'blocked') {
     return {
       state: 'offer',
-      title: 'Host-local repair required',
+      title: 'Manual fix needed',
       subtitle: offer.blockedNote,
       version: offer.version,
       steps: [],
       awaitingElsewhere: [],
       indicator: 'attention',
-      indicatorLabel: 'Host-local repair required',
+      indicatorLabel: 'Manual fix needed',
     }
   }
   if (offer.state === 'local-stale') {
     const primary = localAction(input)
     return {
       state: 'waiting-you',
-      title: `Podium ${offer.version} is ready here`,
-      subtitle: 'Everything else is updated. This page is still on the previous build.',
+      title: finishTitle(primary),
+      subtitle: staleSubtitle(primary),
       version: offer.version,
       steps: [],
       ...(primary ? { primary } : {}),
@@ -742,18 +744,18 @@ function offerView(input: OperationViewInput): UpdatePanelView {
   if (offer.state !== 'available' && offer.state !== 'required') return noneView()
   const primary: PrimaryAction = {
     kind: 'start',
-    label: 'Update Podium',
+    label: 'Update now',
     pendingLabel: 'Starting…',
   }
   return {
     state: 'offer',
-    title: `Podium ${offer.version} is ${offer.state === 'required' ? 'required' : 'available'}`,
-    subtitle: 'One Podium update, applied where it is needed.',
+    title: offer.state === 'required' ? 'Update required' : 'Update available',
+    // The one fact people want before pressing the button, so it leads.
+    subtitle: offer.restartNote,
     version: offer.version,
     steps: [],
     places: offer.places,
     ...(offer.notes ? { notes: offer.notes } : {}),
-    restartNote: offer.restartNote,
     ...(offer.reason ? { reason: offer.reason } : {}),
     ...(offer.blockedNote ? { deferredNote: offer.blockedNote } : {}),
     primary,
@@ -761,6 +763,32 @@ function offerView(input: OperationViewInput): UpdatePanelView {
     indicator: offer.state === 'required' ? 'attention' : 'idle-dot',
     indicatorLabel: `Podium ${offer.version} is ${offer.state === 'required' ? 'required' : 'available'}`,
   }
+}
+
+/** Without a local action this surface cannot finish anything, so it only reports. */
+function finishTitle(primary: PrimaryAction | undefined): string {
+  if (!primary) return 'Updated, except this app'
+  return primary.kind === 'install-desktop' ? 'Restart to finish' : 'Reload to finish'
+}
+
+function staleSubtitle(primary: PrimaryAction | undefined): string {
+  return primary?.kind === 'install-desktop'
+    ? 'Your server and machines are updated. This app is still on the old version.'
+    : 'Your server and machines are updated. This tab is still on the old version.'
+}
+
+/**
+ * Names the machine being waited on only when every other surface's ask names
+ * the same one. Otherwise it stays neutral: the ask may belong to the desktop
+ * app on this very machine, so "another machine" would misdirect.
+ */
+function waitingTitle(operation: Operation, surface: UpdateSurface): string {
+  const asks = (operation.awaiting ?? []).filter(
+    (ask) => ask.surface !== undefined && ask.surface !== surface,
+  )
+  const places = new Set(asks.map((ask) => ask.place))
+  const [place] = places
+  return places.size === 1 && place ? `Waiting on ${place}` : 'Waiting to finish'
 }
 
 function noneView(): UpdatePanelView {
@@ -838,7 +866,7 @@ function computeView(input: OperationViewInput): UpdatePanelView {
           : { kind: 'retry' as const, label: 'Try again', pendingLabel: 'Trying again…' }
     return {
       state: 'failed',
-      title: 'Podium update failed',
+      title: 'Update failed',
       ...(operation ? { operationId: operation.id } : {}),
       steps: operation ? stepRows(operation) : [],
       error,
@@ -875,7 +903,7 @@ function computeView(input: OperationViewInput): UpdatePanelView {
     return {
       ...base,
       state: 'failed',
-      title: version ? `Podium ${version} could not be applied` : 'Podium update failed',
+      title: 'Update failed',
       error,
       ...(failureCanRetry(operation.error?.code)
         ? {
@@ -905,11 +933,8 @@ function computeView(input: OperationViewInput): UpdatePanelView {
       return {
         ...base,
         state: 'waiting-you',
-        title: version ? `Podium ${version} is ready here` : 'The update is ready here',
-        subtitle:
-          primary?.kind === 'install-desktop'
-            ? 'Everything else is updated. This app is still on the previous build.'
-            : 'Everything else is updated. This page is still on the previous build.',
+        title: finishTitle(primary),
+        subtitle: staleSubtitle(primary),
         ...(primary ? { primary } : {}),
         indicator: 'attention',
         indicatorLabel:
@@ -922,19 +947,16 @@ function computeView(input: OperationViewInput): UpdatePanelView {
     return {
       ...base,
       state: 'done',
-      title: permanentlyDeferred
-        ? version
-          ? 'Podium ' + version + ' was applied where supported'
-          : 'Podium was updated where supported'
-        : hasDeliveryRefusal
-          ? version ? `Podium ${version} update complete` : 'Podium update complete'
-          : version
-          ? 'Podium is on ' + version + ' everywhere'
-          : 'Podium is up to date everywhere',
+      title:
+        (operation.deferred ?? []).length > 0
+          ? `Updated, except ${deferredSubject(operation.deferred ?? [])}`
+          : hasDeliveryRefusal
+            ? 'Updated, except some machines'
+            : 'Podium is up to date',
       ...(deferred ? { subtitle: deferred } : {}),
       indicator: permanentlyDeferred ? 'attention' : 'idle-dot',
       indicatorLabel: permanentlyDeferred
-        ? 'Host-local repair still required'
+        ? 'Manual fix needed'
         : version
           ? 'Podium is on ' + version
           : 'Podium is up to date',
@@ -978,8 +1000,8 @@ function computeView(input: OperationViewInput): UpdatePanelView {
       return {
         ...base,
         state: 'waiting-you',
-        title: version ? `Podium ${version} is ready here` : 'The update is ready here',
-        subtitle: 'The shared steps are done. This page is the last one.',
+        title: finishTitle(primary),
+        subtitle: staleSubtitle(primary),
         // NO LIVENESS LINE HERE, on purpose. Liveness reports on WORK; the
         // shared work has finished and the operation is waiting on a person, so
         // the same heartbeat that means "alive" while running would read as
@@ -996,17 +1018,19 @@ function computeView(input: OperationViewInput): UpdatePanelView {
     return {
       ...base,
       state: 'waiting-elsewhere',
-      title: version ? `Podium ${version} is finishing elsewhere` : 'The update is finishing',
+      title: waitingTitle(operation, input.surface),
+      // The first ask becomes the subtitle, so it is not repeated below it.
+      awaitingElsewhere: elsewhere.slice(1),
       subtitle:
         elsewhere[0] ??
         (input.surface === 'web'
           ? 'Finish this in Podium Desktop on that machine.'
-          : 'Waiting for another place to finish.'),
+          : 'Waiting for Podium to finish somewhere else.'),
       // Same reason as above: the wait is on a PERSON somewhere else, and
       // counting the seconds of their inattention is not liveness, it is
       // nagging about something this surface cannot do anything about (P5).
       indicator: 'animating',
-      indicatorLabel: 'Update waiting for another place',
+      indicatorLabel: 'Update waiting to finish',
     }
   }
 
@@ -1014,8 +1038,8 @@ function computeView(input: OperationViewInput): UpdatePanelView {
   return {
     ...base,
     state: 'running',
-    title: version ? `Podium ${version} is being applied` : 'Podium is being updated',
-    ...(step ? { subtitle: stepTitle(step) } : {}),
+    title: 'Updating…',
+    subtitle: 'Your sessions keep running.',
     liveness,
     cancel: { label: 'Cancel', operationId: operation.id },
     indicator: stalled ? 'attention' : 'animating',

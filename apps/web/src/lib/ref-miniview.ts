@@ -12,12 +12,7 @@ import type { IssueViewModel } from '@podium/client-core/replica'
  * without React or the store.
  */
 
-import type {
-  IssuePanelArtifact,
-  IssuePanelTodo,
-  SessionId,
-  IssueId,
-} from '@podium/model/browser'
+import type { IssueId, SessionId } from '@podium/model/browser'
 import { type AnyRef, parseAnyRef } from '@podium/protocol'
 
 /**
@@ -48,8 +43,6 @@ export type RefIssueLike = Pick<IssueViewModel, 'id' | 'seq' | 'title'> &
       | 'childDoneCount'
       | 'parentId'
       | 'description'
-      | 'activityNotes'
-      | 'notesUpdatedAt'
       | 'updatedAt'
       // Membership, for the card's "Go to session" action: the designated
       // coordinator wins over the merely-most-recent member.
@@ -66,19 +59,7 @@ export type RefIssueLike = Pick<IssueViewModel, 'id' | 'seq' | 'title'> &
       | 'archived'
       | 'deletedAt'
     >
-  > & {
-    /**
-     * The card renders a genuinely NARROWER panel than the wire carries — two of
-     * the three groups, and only two members of an artifact. That narrowing is
-     * legitimate (ADR 4: a projection reads what it renders), so it stays; what
-     * does not stay is restating `{ text, done }` and `{ path, title }` by hand.
-     * The member types come from the panel group itself.
-     */
-    panel?: {
-      todos?: readonly IssuePanelTodo[]
-      artifacts?: readonly Pick<IssuePanelArtifact, 'path' | 'title'>[]
-    }
-  }
+  >
 
 /** The minimal session shape the resolver needs (a structural subset of SessionMeta). */
 export interface RefSessionLike {

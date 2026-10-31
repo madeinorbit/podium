@@ -1,8 +1,8 @@
 # Running tests — which lane, when
 
-Doctrine for agents working in this repo [spec:SP-0be7]. Tests are end-of-task evidence,
-not an editing ritual. Do not run tests after each edit or intermediate commit, and do not
-accumulate overlapping lanes merely to say more commands were run.
+Validation guidance for agents working in this repo [spec:SP-0be7]. Run focused tests during
+implementation when they answer a concrete question, then select final checks for the finished
+candidate. Avoid repeating broad lanes after each edit or accumulating overlapping checks.
 
 ## The normal agent path
 
@@ -10,7 +10,8 @@ At the end of an ordinary runtime-affecting task, run:
 
     bun run test
 
-This is the lean confidence gate. It runs cached, lock-free typecheck, then four exact hermetic
+This is the lean confidence gate. The root `test` script in `package.json` runs cached,
+lock-free typecheck and static checks, including the span-effect lint, then four exact hermetic
 boot/configuration files with one worker:
 
 | Test file | What it cheaply protects |
@@ -61,12 +62,14 @@ runtime; say so in the handoff.
 
 Only add a specialized lane when the diff matches a trigger below. If that specialized lane
 already proves the relevant basic wiring, use it instead of `test`; otherwise run the
-two commands once each, sequentially, at the end. “More confidence” without a concrete risk
-is not a reason to add a lane.
+two commands sequentially on the finished candidate. Rerun affected checks after fixing a
+failure or changing the candidate. Once a candidate is green, don't repeat validation without
+a new change, failure or unresolved concern. "More confidence" without a concrete risk is not
+a reason to add a lane.
 
 ## MobX click speed gate
 
-- Every capture first runs the focused structural lane (`bun run speed:structural`): named pool readers and app consumers, six clicks and three single-row deltas at 1×/4×, row calls, derivation bodies and collection elements compared individually against the visible-neighbourhood ratio. Known failures name their fixing issues in `work-pool-screens.json`; correctness, new reader failures and the legacy negative control remain enforced. `bun run speed:gate -- --structural-only` runs this portion without a production build, timing capture or benchmark lease. Promotion reuses the saved capture.
+- Every capture first runs the focused structural lane (`bun run speed:structural`): named pool readers and app consumers, six clicks and three single-row deltas at 1×/4×, row calls, derivation bodies and collection elements compared individually against the visible-neighbourhood ratio. Known failures name their fixing issues in `work-pool-screens.json`; correctness and new reader failures remain enforced. `bun run speed:gate -- --structural-only` runs this portion without a production build, timing capture or benchmark lease. Promotion reuses the saved capture.
 - Exceptions are exact action/kind/reader entries in `tests/worklist/harness/src/screen-work.expected-failures.json`, each with an owning issue. Passing entries are reported as fixed without failing the gate; retire those entries with the fix so the same scan cannot return under an old exception. A new action, counter kind or reader has no allowance. The report also lists the app consumers and addressed neighbourhood for every step.
 - Run `bun run speed:gate` on flatblock once at the end of each MobX step before landing; skip small fixes and test-only changes. It owns `bench:flatblock`.
 - One minified production build, real Chromium, the fixed 4× corpus: sidebar issue, mission switch, session pane, rename, unrelated visible background feed update; six samples each (ten exceeded the initial calibration budget), median and worst input → actual Paint.
@@ -91,8 +94,41 @@ cannot skip the slot budget, the install fingerprint, or the forced flags.
 
 Typecheck is TypeScript 7 (the Go compiler) everywhere, `--incremental` forced on the command
 line, with each project's `*.tsbuildinfo` declared as a Turbo output so a cache hit in a fresh
-worktree restores it. TypeScript 6 remains installed under `scripts/` only, as the JavaScript
-API the repository audits are written against; it never typechecks anything.
+worktree restores it. Packages that need TypeScript's JavaScript API for AST audits still
+declare TypeScript 6 as a library; it does not typecheck the repository.
+
+## Caches, the span-effect lint, and runs that die
+
+**The typecheck cache is shared across worktrees.** `scripts/typecheck.ts` keys one Turbo cache
+by the repository's common git dir, so a fresh worktree can reuse existing results. The default
+base is an absolute `XDG_CACHE_HOME`, then the user's `.cache` directory; temporary storage is
+only a fallback when neither is usable. The wrapper also honors `TURBO_CACHE_DIR`. See
+`scripts/shared-cache-dir.ts` for the path selection. Re-running to "warm it up" is unnecessary.
+Run `bun run typecheck` or `bun run typecheck -- --filter <package>` and let Turbo pick the set.
+A checkout installed before the move to TypeScript 7 needs `bun run deps:repair`, not
+`setup:worktree`: the frozen reconcile leaves a dangling `.bin/tsserver` behind, and the topology
+census refuses the gate on it.
+
+**Use cached validation by default.** For a concrete missing cache input, file the gap and use
+`bun run typecheck -- --uncached-because="<missing input>"` as a one-off exception. Generic
+`TURBO_FORCE`, `--force` and write-only `--cache` flags bypass that accounting and are refused
+without a reason.
+
+**The span-effect lint** (`bun run lint:span-effects`, spec §6 rule 19: nothing a caller outside
+this process can observe inside a transaction body) is part of `bun run test`. It runs
+there and not only in CI because work lands by local fast-forward, so most changes never meet CI.
+A cache hit replays the result; a change to its inputs runs the lint again. When it fires, read
+[docs/gates/pod-3332-span-effect-lint.md](../gates/pod-3332-span-effect-lint.md). The failure
+text names the span, the path and the two ways out.
+
+**The wrappers limit compiler concurrency and host admission.** `scripts/typecheck.ts` caps
+compilers within a run; `scripts/validation-admission.ts` bounds concurrent admitted runs by
+slots and a memory budget. Let those wrappers select the limits rather than bypassing them.
+
+**Exit 144 with an empty log has occurred under host memory pressure.** The interrupted run
+is no validation result, and that exit code alone does not establish a source error or the
+cause of termination. Retry the affected lane; if it recurs, inspect the host and runner
+diagnostics before attributing it to the change.
 
 ## Exhaustive command and ownership map
 
@@ -102,10 +138,11 @@ API the repository audits are written against; it never typechecks anything.
 | --- | --- | --- | --- |
 | `bun run test` | Cached lock-free workspace typecheck, then `scripts/test-lean.ts`: the four exact files above via the `node` project in `vitest.unit.config.ts`, with a footer built from the runner's own tally, a refusal if any of the four is no longer collected, and a non-zero exit if the run executed less than all four | `test:agent` compatibility alias | Default end-of-task gate for ordinary runtime code |
 | `bun run test:agent` | Exactly the same command and scope as `test` | Alias only | Compatibility only; prefer the conventional `bun run test` |
-| `bun run test:full -- --full-because="<reason>"` | Cached typecheck, then package-owned `*.test.*` / `*.spec.*` under `apps/*`, `packages/*`, and `scripts/*`; one Turbo `test` task per owner; server expands to five shards; exclusions come from `vitest.unit.config.ts`. **A bare `test:full` is refused**: it prints every task the sweep would run and the focused lane that usually answers instead, and runs only once the reason is stated (same shape as `--uncached-because`) | `oracle` as its `unit` component; CI `unit-tests` | Scheduled CI, merge batches, release validation, or explicit request—not ordinary agent work |
+| `bun run test:full -- --full-because="<reason>"` | Cached typecheck, then package-owned `*.test.*` / `*.spec.*` under `apps/*`, `packages/*`, `scripts/*`, and `tests/worklist`; one Turbo `test` task per owner; server expands to five shards; exclusions come from `vitest.unit.config.ts`. **A bare `test:full` is refused**: it prints every task the sweep would run and the focused lane that usually answers instead, and runs only once the reason is stated (same shape as `--uncached-because`) | `oracle` as its `unit` component; CI `unit-tests` | Scheduled CI, merge batches, release validation, or explicit request—not ordinary agent work |
 | `bun run test:unit -- --full-because="<reason>"` | The exhaustive package sweep without the leading typecheck; same refusal | `test:full` tail | Compatibility/diagnosis only; prefer `test:full` when a full sweep is intentionally required |
 | `bun run test:file -- <test files...> [vitest args]` | Exactly the named files. Integration/process files (including server integration and PTY files) use the root integration config before package unit routing; `tests/e2e` uses that config with only the named files. Server/web unit files use `bun --bun`, mobile uses Node, and `*.bun.test.ts` uses `bun test`. Groups run sequentially with admission. Extra arguments (`-t <pattern>`, `--reporter`) go to vitest. A missing file, a Vitest file excluded by its config, or a named Vitest file executing zero tests exits non-zero. Collection is checked before execution to refuse extra files | No parent command | A regression or a new test needs exact evidence from named files — this replaces every hand-rolled vitest command |
-| `bun run test:lane -- <lane> [vitest args]` | One named lane from `scripts/test-lanes.ts`: `node`, `normalized-wire`, `server`, `server-contracts`, `server-store`, `server-services`, `server-boundary`, `server-normalized-wire`, `web`, `mobile`, `scripts`, `integration`, `acceptance`, `e2e`. `--list` prints them with their admission class; heavy lanes take `test:heavy` and build the clients first. An e2e path filter replaces the default `tests/e2e` directory filter; `-t` alone retains the directory. Named files get the same collection and execution checks as `test:file` | No parent command | A change matches one lane's trigger and you need that lane with a filter or name pattern |
+| `bun run test:lane -- <lane> [vitest args]` | One named lane from `scripts/test-lanes.ts`: `node`, `normalized-wire`, `server`, `server-contracts`, `server-store`, `server-services`, `server-boundary`, `server-normalized-wire`, `web`, `mobile`, `worklist`, `worklist-native`, `scripts`, `integration`, `acceptance`, `e2e`. `--list` prints them with their admission class; heavy lanes take `test:heavy` and build the clients first. An e2e path filter replaces the default `tests/e2e` directory filter; `-t` alone retains the directory. Named files get the same collection and execution checks as `test:file` | No parent command | A change matches one lane's trigger and you need that lane with a filter or name pattern |
+| `bun run test:lane -- worklist [paths or vitest args]` | Worklist fixtures, diagnostics, product regressions and native renderer tests through `tests/worklist/vitest.config.ts`, with happy-dom and the work measurement plugins. `test:file` routes worklist files to this same config; `worklist-native` remains a compatibility name | `test:full` via `@podium/worklist-tests#test`; CI unit sweep | Worklist fixture, reader, join, lifecycle or work-measurement changes; prefer bounded named files while working |
 | `bun run test:web` | `apps/web/**/*.{test,spec}.*` through `apps/web/vitest.config.ts` | `test:cached`; full `test:full` | A broad web package change where a few exact tests cannot represent the risk |
 | `bun run test:mobile` | `apps/mobile/**/*.{test,spec}.*` through `apps/mobile/vitest.config.ts` | `test:cached`; full `test:full` | A broad mobile package change |
 | `bun run test:cached` | The web and mobile package tasks above | No parent command | A deliberately cross-client change; never as generic confidence |
@@ -380,6 +417,6 @@ hermetic setup, lane exclusions, and exit-status safeguards.
   runs all five lanes locally in one command (sequentially — the heavy lanes bind
   fixed ports). The lane set lives in `scripts/oracle.ts`; a drift guard in
   `scripts/test-configuration.test.ts` pins it against the CI matrix and the
-  package.json scripts, so a lane cannot fall out of CI silently. Land-flow
-  convention: acquiring the merge lock for main wants a green oracle on the
-  candidate sha (see docs/rearchitecture-v3.md) — advisory, with CI as backstop.
+  package.json scripts, so a lane cannot fall out of CI silently. It is reserved for
+  rewrite phase boundaries, release validation or explicit requests. Taking a merge lock
+  does not require the oracle; choose the default or focused checks by the triggers above.

@@ -1,11 +1,11 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { IssuePanelArtifact, SessionOffer } from '@podium/model'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { Pressable } from 'react-native'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 // Offer evidence in the offer [POD-120]: the strip draws the artifacts the
-// agent named, and a tap opens the app's own artifact viewer — not the task
-// peek the "N artifacts →" link used to open.
+// agent named. A tile opens the artifact viewer; +N opens the full list.
 
 afterEach(cleanup)
 
@@ -71,10 +71,14 @@ describe('OfferArtifactStrip', () => {
       />,
     )
 
-    // Both the image thumbnail and the named file chip are on the strip itself.
+    // Images and files both have a caption on the strip itself.
     expect(screen.getAllByTestId('offer-artifact').length).toBe(2)
+    expect(screen.getAllByTestId('offer-artifact-caption').map((el) => el.textContent)).toEqual([
+      'shot.png',
+      'notes.md',
+    ])
     expect(screen.getByTestId('offer-artifacts').textContent).toContain('notes.md')
-    // The chip says what kind of file a tap will open.
+    // A file preview says what kind of file a tap will open.
     expect(screen.getByTestId('offer-artifacts').textContent).toContain('MD')
 
     fireEvent.click(screen.getByLabelText('Open notes.md'))
@@ -85,18 +89,66 @@ describe('OfferArtifactStrip', () => {
 
   it('sends the overflow to the full artifact list', () => {
     const onShowAll = vi.fn()
-    const paths = ['a.png', 'b.png', 'c.png', 'd.png']
+    const onCardPress = vi.fn()
+    const paths = ['a.png', 'b.png', 'c.png', 'd.png', 'e.png', 'f.png']
     render(
-      <OfferArtifactStrip
-        offer={offer(paths)}
-        issue={issue(paths.map((p) => art(p)))}
-        onShowAll={onShowAll}
-      />,
+      <Pressable onPress={onCardPress}>
+        <OfferArtifactStrip
+          offer={offer(paths)}
+          issue={issue(paths.map((p) => art(p)))}
+          onShowAll={onShowAll}
+        />
+      </Pressable>,
     )
 
     expect(screen.getAllByTestId('offer-artifact').length).toBe(3)
+    expect(screen.getByTestId('offer-artifact-extra').textContent).toBe('+3View all')
     fireEvent.click(screen.getByTestId('offer-artifact-extra'))
     expect(onShowAll).toHaveBeenCalledOnce()
+    expect(onCardPress).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByLabelText('Open a.png'))
+    expect(screen.getByTestId('viewer').textContent).toContain('a.png')
+    expect(onCardPress).not.toHaveBeenCalled()
+  })
+
+  it('uses all four slots when the offered list fits exactly', () => {
+    const paths = ['a.png', 'b.html', 'c.md', 'd.mp4']
+    render(<OfferArtifactStrip offer={offer(paths)} issue={issue(paths.map((p) => art(p)))} />)
+
+    expect(screen.getAllByTestId('offer-artifact').length).toBe(4)
+    expect(screen.queryByTestId('offer-artifact-extra')).toBeNull()
+    expect(screen.getAllByTestId('offer-artifact-caption').map((el) => el.textContent)).toEqual(
+      paths,
+    )
+  })
+
+  it('keeps the evidence visible while the offer collects feedback', async () => {
+    const { SessionActionCard } = await import('./SessionActionCard')
+    render(
+      <SessionActionCard
+        offer={{
+          ...offer(['shot.png', 'concept.html']),
+          actions: [{ label: 'Send back', prompt: 'Address this feedback', input: true }],
+        }}
+        issue={issue([art('shot.png'), art('concept.html')])}
+        onAction={async () => {}}
+      />,
+    )
+
+    expect(screen.getAllByTestId('offer-artifact').length).toBe(2)
+    fireEvent.click(screen.getByLabelText('Send back'))
+    expect(screen.getAllByTestId('offer-artifact').length).toBe(2)
+  })
+
+  it('keeps overflow as an inert tile when no full-list navigation is available', () => {
+    const paths = ['a.png', 'b.png', 'c.png', 'd.png', 'e.png']
+    render(<OfferArtifactStrip offer={offer(paths)} issue={issue(paths.map((p) => art(p)))} />)
+
+    const extra = screen.getByTestId('offer-artifact-extra')
+    expect(extra.textContent).toBe('+2More artifacts')
+    fireEvent.click(extra)
+    expect(screen.queryByTestId('viewer')).toBeNull()
   })
 
   it('renders nothing at all when no offered path resolves', () => {

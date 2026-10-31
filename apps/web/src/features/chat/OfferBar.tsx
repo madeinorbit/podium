@@ -1,7 +1,10 @@
+import { relativeTime } from '@podium/client-core/focus'
 import type { SessionView } from '@podium/client-core/session-values'
 import type { SessionOffer } from '@podium/model/browser'
-import { ChevronDown, Lightbulb, Pencil, X } from 'lucide-react'
-import { type JSX, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { ChevronDown, Pencil, X } from 'lucide-react'
+import { type JSX, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
+import { useTipAnchorVisible, useTipMoment, useTipUnseen } from '@/features/tips'
+import { useClock } from '@/lib/clock-hooks'
 import { cn } from '@/lib/utils'
 import { OfferArtifactStrip } from './OfferArtifactStrip'
 import { OfferText } from './OfferText'
@@ -68,8 +71,8 @@ function useOfferFoldLift(
         close()
       }
     }
-    // The detail grows on its own while open — the feedback field appears, the
-    // artifact strip loads — and the lift has to follow it.
+    // The detail grows on its own while open — the feedback field appears, an
+    // error lands under it — and the lift has to follow it.
     const observer = new ResizeObserver(publish)
     observer.observe(body)
     return () => {
@@ -79,6 +82,41 @@ function useOfferFoldLift(
     }
   }, [body, expanded, lift])
   return { lifted: lift !== null, capped }
+}
+
+/**
+ * First Flights moment 6 (first-offer): the first offer card this person sees.
+ *
+ * A bar can be mounted where nobody sees it (the native dock stays mounted,
+ * clipped shut, in chat mode), so each bar has its own anchor name and only a
+ * bar that is fully on screen is eligible. "Fully" also waits out the dock's
+ * opening fold: the tip lands on the settled card, never mid-animation.
+ * Card 2 anchors the task's sidebar row (`task-row:<id>`, WorkRowShell).
+ */
+function useFirstOfferTip(card: HTMLElement | null, issueId: string | null | undefined): string {
+  const anchor = `first-offer-${useId()}`
+  // Watch only while the moment can still show; the registration stays for replay.
+  const onScreen = useTipAnchorVisible(useTipUnseen('first-offer') ? card : null)
+  useTipMoment('first-offer', {
+    active: onScreen,
+    cards: [
+      {
+        anchor,
+        title: 'Your next move.',
+        body: 'When an agent is done, it suggests what comes next. One tap sends it.',
+      },
+      ...(issueId
+        ? [
+            {
+              anchor: `task-row:${issueId}`,
+              title: 'It waits for you.',
+              body: 'Offers stay in your list and on your phone. Answer from anywhere.',
+            },
+          ]
+        : []),
+    ],
+  })
+  return anchor
 }
 
 /** The mark on an action that opens the feedback field instead of sending. */
@@ -108,12 +146,27 @@ function OfferActionLabel({ label, pending }: { label: string; pending: boolean 
   )
 }
 
+/** How long the decision has waited ("8h"). Its own leaf on a minute clock, so
+ *  the tick re-renders three characters rather than the card. */
+function OfferAge({ since }: { since: string }): JSX.Element | null {
+  const now = useClock(60_000)
+  const age = relativeTime(since, now).replace(/ ago$/, '')
+  if (!age) return null
+  return <span className="offer-card-age"> · {age === 'just now' ? 'now' : age}</span>
+}
+
 /**
- * Agent action offer [spec:SP-c7f1]. Its resting state is one quiet decision
- * row: signal + five-second headline, the recommended action, dismiss, and a
- * disclosure. Supporting copy, evidence, alternative actions, and feedback
- * stay folded until requested. The row is its own inline-size container so a
- * narrow native dock gets the same two-row fallback as a narrow viewport.
+ * Agent action offer [spec:SP-c7f1]. THE ONE PLACE "NEEDS YOU" IS SAID
+ * (POD-2076): a card whose header reads "Needs your decision · 8h", then the
+ * headline, the body, the evidence, and every action in one row — the
+ * recommendation filled, the alternatives outlined. The chevron collapses the
+ * card to its header and headline.
+ *
+ * The evidence ({@link OfferArtifactStrip}) sits in the card's own flow, between
+ * the text and the actions, because it is what the decision is judged on: the
+ * user reads the claim, looks at the proof, then answers, top to bottom. Only
+ * what the user asked for opens in the fold below (the lifted reveal): an input
+ * action's feedback field, and an error that needs a retry.
  *
  * Dismissal is deliberately recoverable. The offer leaves immediately, an
  * Undo row remains for ten seconds, and only after that window does onDismiss
@@ -136,15 +189,17 @@ export function OfferBar({
   /** Take the offer off every surface without answering it. Absent on a host
    *  that cannot write (the offer then keeps its two original exits). */
   onDismiss?: (offerCreatedAt: string) => Promise<void> | void
-  /** When given, the offer's issue-artifact evidence renders as a thumbnail
-   *  strip [POD-120] (needs the session to find its issue + input recency). */
+  /** When given, the offer's issue-artifact evidence renders as a row of tiles
+   *  [POD-120] (needs the session to find its issue + input recency). */
   session?: Pick<SessionView, 'sessionId' | 'issueId' | 'lastInputAt'>
 }): JSX.Element {
-  const [expanded, setExpanded] = useState(false)
+  // `collapsed` is the card itself folded down to its header and headline.
+  const [collapsed, setCollapsed] = useState(false)
   // Callback ref, not useRef: the fold has to be measured the moment its body
   // lands in the DOM, and a plain ref never re-renders to say so.
   const [bodyEl, setBodyEl] = useState<HTMLDivElement | null>(null)
-  const { lifted, capped } = useOfferFoldLift(bodyEl, expanded)
+  const [cardEl, setCardEl] = useState<HTMLDivElement | null>(null)
+  const tipAnchor = useFirstOfferTip(cardEl, session?.issueId)
   // The input-action awaiting feedback (index into offer.actions), if any.
   const [pending, setPending] = useState<number | null>(null)
   const [feedback, setFeedback] = useState('')
@@ -152,6 +207,11 @@ export function OfferBar({
   const dismissal = useOfferDismissal(offer.createdAt)
   const dismissPhase = dismissal.phase
   const [error, setError] = useState<string | null>(null)
+  // The FOLD is open exactly while it has something to show, a feedback field
+  // or an error, so clearing the last of them (Escape, Cancel, a send) closes
+  // it and an empty fold can never hold a lift.
+  const expanded = pending !== null || error !== null
+  const { lifted, capped } = useOfferFoldLift(bodyEl, expanded)
   const mounted = useRef(true)
   const currentOfferAt = useRef(offer.createdAt)
   const previousOfferAt = useRef(offer.createdAt)
@@ -178,7 +238,7 @@ export function OfferBar({
   useEffect(() => {
     if (previousOfferAt.current === offer.createdAt) return
     previousOfferAt.current = offer.createdAt
-    setExpanded(false)
+    setCollapsed(false)
     setPending(null)
     setFeedback('')
     setSubmitting(null)
@@ -198,7 +258,6 @@ export function OfferBar({
       }
     } catch {
       if (currentOfferAt.current === invokedAt) {
-        setExpanded(true)
         setError('Could not send this action. Try again.')
       }
     } finally {
@@ -211,7 +270,6 @@ export function OfferBar({
     if (!action) return
     if (action.input === true) {
       setPending(index)
-      setExpanded(true)
       setError(null)
       return
     }
@@ -234,7 +292,6 @@ export function OfferBar({
       // A host that optimistically hides the server-backed offer may remount
       // this component itself. Hosts that keep it mounted recover here.
       if (mounted.current) {
-        setExpanded(true)
         setError('Could not dismiss this offer. Try again.')
       }
       throw cause
@@ -243,7 +300,6 @@ export function OfferBar({
 
   const dismiss = (): void => {
     if (!onDismiss || dismissPhase !== 'visible' || submitting !== null) return
-    setExpanded(false)
     setPending(null)
     setFeedback('')
     setError(null)
@@ -278,41 +334,69 @@ export function OfferBar({
   }
 
   const detailId = `offer-detail-${offer.createdAt}`
+  const toggleCollapsed = (): void => {
+    if (!collapsed) {
+      setPending(null)
+      setFeedback('')
+      setError(null)
+    }
+    setCollapsed(!collapsed)
+  }
+
+  const actionRow = (
+    <div className="offer-card-actions">
+      {primaryAction && (
+        <button
+          data-pressable
+          data-testid="offer-primary-action"
+          type="button"
+          disabled={disabled || submitting !== null}
+          aria-busy={submitting === 0 || undefined}
+          onClick={() => chooseAction(0)}
+          title={primaryAction.prompt}
+          className="offer-fold-primary btn-primary-rim"
+        >
+          <OfferActionLabel label={primaryAction.label} pending={submitting === 0} />
+          {primaryAction.input === true && <InputMark />}
+        </button>
+      )}
+      {secondaryActions.map((action, offset) => {
+        const index = offset + 1
+        return (
+          <button
+            data-pressable
+            data-testid="offer-secondary-action"
+            key={`${action.label}:${action.prompt}`}
+            type="button"
+            disabled={disabled || submitting !== null}
+            aria-busy={submitting === index || undefined}
+            onClick={() => chooseAction(index)}
+            title={action.prompt}
+            className="offer-fold-action"
+          >
+            <OfferActionLabel label={action.label} pending={submitting === index} />
+            {action.input === true && <InputMark />}
+          </button>
+        )
+      })}
+    </div>
+  )
 
   const detailBody = (
     <div ref={setBodyEl} className="offer-fold-detail-body">
-      {detail && (
-        <OfferText
-          text={detail}
-          className="max-w-[132ch] text-[13px] leading-[1.6] whitespace-pre-wrap text-muted-foreground"
-        />
-      )}
-      {session && (
-        <OfferArtifactStrip
-          offer={offer}
-          session={session}
-          className={detail ? 'mt-2' : undefined}
-        />
-      )}
-
-      {pendingAction ? (
-        <div className="offer-feedback mt-2 flex flex-col gap-1.5" data-testid="offer-feedback">
+      {pendingAction && (
+        <div className="offer-feedback flex flex-col gap-1.5" data-testid="offer-feedback">
           <textarea
-            // biome-ignore lint/a11y/noAutofocus: the field appears on the user's own click; focus is the expected next step
             autoFocus
             rows={4}
             value={feedback}
             disabled={disabled || submitting !== null}
-            placeholder={`${pendingAction.label} — add your feedback…`}
+            placeholder={`${pendingAction.label}: add your feedback…`}
             onChange={(event) => setFeedback(event.target.value)}
             onKeyDown={(event) => {
               if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) send()
               if (event.key === 'Escape') setPending(null)
             }}
-            // Neutral at rest, like the ask card's own free-text field: the
-            // recommendation above is still on screen holding the region's one
-            // yellow, and a four-row box rimmed in the same colour made the
-            // field compete with the decision it is a footnote to (POD-1462).
             className="min-h-24 w-full resize-none rounded-[7px] border border-border bg-transparent px-2.5 py-2 text-[12.5px] text-foreground outline-none transition-colors placeholder:text-muted-foreground/70 focus:border-foreground/30"
           />
           <div className="flex gap-1.5">
@@ -340,30 +424,6 @@ export function OfferBar({
             </button>
           </div>
         </div>
-      ) : (
-        secondaryActions.length > 0 && (
-          <div className="mt-3.5 flex flex-wrap items-center gap-1.5">
-            {secondaryActions.map((action, offset) => {
-              const index = offset + 1
-              return (
-                <button
-                  data-pressable
-                  data-testid="offer-secondary-action"
-                  key={`${action.label}:${action.prompt}`}
-                  type="button"
-                  disabled={disabled || submitting !== null}
-                  aria-busy={submitting === index || undefined}
-                  onClick={() => chooseAction(index)}
-                  title={action.prompt}
-                  className="offer-fold-action"
-                >
-                  <OfferActionLabel label={action.label} pending={submitting === index} />
-                  {action.input === true && <InputMark />}
-                </button>
-              )
-            })}
-          </div>
-        )
       )}
       {error && (
         <p role="alert" className="mt-2 text-xs text-destructive">
@@ -375,52 +435,34 @@ export function OfferBar({
 
   return (
     <div
+      ref={setCardEl}
       data-testid="offer-bar"
+      data-tip-anchor={tipAnchor}
       aria-busy={submitting !== null || undefined}
+      data-collapsed={collapsed ? 'true' : undefined}
       className={cn(
-        'offer-fold-root font-sans',
-        // The host absorbs the fold by lifting the pane above it, so the detail
-        // is sized in px from `--offer-lift` rather than revealed in place.
+        'offer-fold-root offer-card font-sans',
         lifted && 'offer-fold-root--lifted',
         expanded && 'offer-fold-root--expanded',
         dismissPhase === 'leaving' && 'offer-fold-root--leaving',
       )}
     >
-      <div className="offer-fold-summary">
+      <div className="offer-card-head">
         <button
           data-pressable
           data-testid="offer-disclosure"
           type="button"
-          aria-expanded={expanded}
-          aria-controls={detailId}
-          onClick={() => setExpanded((open) => !open)}
-          className="offer-fold-disclosure"
+          aria-expanded={!collapsed}
+          onClick={toggleCollapsed}
+          className="offer-card-heading"
         >
-          <span className="offer-fold-signal" aria-hidden="true">
-            <Lightbulb size={12} />
+          <span className="offer-card-eyebrow">
+            <span className="offer-card-dot" aria-hidden="true" />
+            Needs your decision
+            <OfferAge since={offer.createdAt} />
           </span>
-          <span className="min-w-0 text-left">
-            <span className="offer-fold-eyebrow">Offer · needs you</span>
-            <span className="offer-fold-title">{headline}</span>
-          </span>
+          <span className="offer-fold-title">{headline}</span>
         </button>
-
-        {primaryAction && (
-          <button
-            data-pressable
-            data-testid="offer-primary-action"
-            type="button"
-            disabled={disabled || submitting !== null}
-            aria-busy={submitting === 0 || undefined}
-            onClick={() => chooseAction(0)}
-            title={primaryAction.prompt}
-            className="offer-fold-primary btn-primary-rim"
-          >
-            <OfferActionLabel label={primaryAction.label} pending={submitting === 0} />
-            {primaryAction.input === true && <InputMark />}
-          </button>
-        )}
-
         <div className="offer-fold-controls">
           {onDismiss && (
             <button
@@ -431,25 +473,32 @@ export function OfferBar({
               onClick={dismiss}
               aria-label="Dismiss offer"
               title="Dismiss — removes this offer without answering"
-              className="offer-fold-icon"
+              className="offer-fold-icon offer-card-dismiss"
             >
-              <X size={14} aria-hidden="true" />
+              <X size={13} aria-hidden="true" />
             </button>
           )}
           <button
             data-pressable
             type="button"
-            aria-label={expanded ? 'Hide offer details' : 'Show offer details'}
-            title={expanded ? 'Hide details' : 'Show details'}
-            aria-expanded={expanded}
-            aria-controls={detailId}
-            onClick={() => setExpanded((open) => !open)}
+            aria-label={collapsed ? 'Show offer' : 'Collapse offer'}
+            title={collapsed ? 'Show offer' : 'Collapse'}
+            aria-expanded={!collapsed}
+            onClick={toggleCollapsed}
             className="offer-fold-icon offer-fold-chevron"
           >
-            <ChevronDown size={15} aria-hidden="true" />
+            <ChevronDown size={14} aria-hidden="true" />
           </button>
         </div>
       </div>
+
+      {!collapsed && (
+        <>
+          {detail && <OfferText text={detail} className="offer-card-body" />}
+          {session && <OfferArtifactStrip offer={offer} session={session} />}
+          {!pendingAction && actionRow}
+        </>
+      )}
 
       <div
         id={detailId}

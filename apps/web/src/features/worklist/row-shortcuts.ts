@@ -74,9 +74,8 @@ export interface RowShortcutTarget {
 /**
  * Register the ⌘-hold behaviour for one ordered list of rows.
  *
- * Exactly one work column is mounted at a time (the wide sidebar or the
- * collapsed rail), so each may call this with its own order without the two
- * ever racing for the same keystroke.
+ * The sidebar registers its visible row order so each digit activates the
+ * matching row.
  */
 export function useRowShortcuts(targets: readonly RowShortcutTarget[]): {
   /** Row id → digit, and EMPTY unless Command is actually down: a row should

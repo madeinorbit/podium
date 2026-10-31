@@ -72,6 +72,28 @@ export function inferRepoFromRoots(roots: string[], path: string): string | unde
     .sort((a, b) => b.length - a.length)[0]
 }
 
+/**
+ * Whether `name` is a plain branch name by `git check-ref-format --branch` rules:
+ * no revision syntax (`~ ^ : ? * [ \`, `..`, `@{`), no control characters or
+ * spaces, no leading `-` or `/`, no trailing `/`, `.` or `.lock`, no empty or
+ * dot-led component, and not `HEAD` [POD-2065].
+ *
+ * Stricter than git on one name: `@` alone. `check-ref-format --branch` reads it
+ * as the current branch's shorthand and answers with that branch, not with `@`,
+ * so there is no branch literally named `@` to store.
+ */
+export function isBranchName(name: string): boolean {
+  if (name === '' || name === '@' || name === 'HEAD') return false
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: control characters are what it refuses
+  if (/[\x00-\x20\x7f~^:?*[\\]/u.test(name)) return false
+  if (name.includes('..') || name.includes('@{')) return false
+  if (name.startsWith('-') || name.startsWith('/')) return false
+  if (name.endsWith('/') || name.endsWith('.') || name.endsWith('.lock')) return false
+  return name
+    .split('/')
+    .every((part) => part !== '' && !part.startsWith('.') && !part.endsWith('.lock'))
+}
+
 /** Persisted list of absolute repo-root paths, backed by SessionStore. Shared by all
  *  clients so the repo list survives and shows on every device (desktop + phone).
  *
@@ -137,6 +159,39 @@ export class RepoRegistry {
   async setPrefix(path: string, prefix: string, machineId?: MachineId): Promise<void> {
     const mid = machineId ?? await this.sessionReg.modules.machines.defaultMachine()
     await this.store.repos.setRepoPrefix(mid, normalizeRepoPath(path), prefix.toUpperCase())
+    await this.publishRepos()
+  }
+
+  /**
+   * Set (or clear, with null) the repo's base branch: the parent new issues in it
+   * are cut from and the branch they land on [POD-2065]. Refused unless the branch
+   * exists in the checkout at `path`, asked of the machine that holds it. Existing
+   * issues keep their parent; only issues created afterwards pick this up.
+   */
+  async setDefaultParentBranch(
+    path: string,
+    branch: string | null,
+    machineId?: MachineId,
+  ): Promise<void> {
+    const mid = machineId ?? (await this.sessionReg.modules.machines.defaultMachine())
+    const p = normalizeRepoPath(path)
+    const name = branch?.trim() || null
+    if (name !== null) {
+      // A name, not a revision: `refs/heads/<x>` plus the daemon's `^{commit}` would
+      // otherwise let `tf.dev~1` resolve and be stored as a branch.
+      if (!isBranchName(name)) throw new Error(`invalid branch name '${name}'`)
+      const rpc = this.sessionReg.modules.rpc
+      const found = await rpc.repoOp('revParseVerify', p, { ref: `refs/heads/${name}` }, mid)
+      if (!found.ok) {
+        // A repository that cannot resolve HEAD either did not answer; say that
+        // rather than blaming the branch.
+        const head = await rpc.repoOp('revParseVerify', p, { ref: 'HEAD' }, mid)
+        if (!head.ok)
+          throw new Error(`could not read the repository at ${p}: ${head.output.trim()}`)
+        throw new Error(`branch '${name}' does not exist in ${p}`)
+      }
+    }
+    await this.store.repos.setRepoDefaultParentBranch(mid, p, name)
     await this.publishRepos()
   }
 

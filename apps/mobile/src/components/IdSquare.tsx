@@ -1,5 +1,4 @@
 import { StyleSheet, Text, View } from 'react-native'
-import { issueColorHex, issueSquareFg } from '../theme/issueColors'
 import { alpha } from '../theme/mix'
 import { color, mono } from '../theme/theme'
 import { CountPill } from './StatusGlyphs'
@@ -19,7 +18,6 @@ export interface IdSquareIssue {
   seq: number
   displayRef?: string
   linearIdentifier?: string
-  color?: string | null
 }
 
 /** Split the display identifier into the square's two stacked lines. Twin of
@@ -60,7 +58,6 @@ export function IdSquare({
   ringColor?: string
 }) {
   const label = idSquareLabel(issue)
-  const hex = issueColorHex(issue.color)
   const resting = state === 'queued' || state === 'idle'
   const fontSize = size >= 26 ? 6.5 : size >= 22 ? 5.5 : 4.5
   const borderRadius = size >= 26 ? 7 : size >= 22 ? 6 : 5
@@ -72,38 +69,28 @@ export function IdSquare({
           width: size,
           height: size,
           borderRadius,
-          backgroundColor: hex ?? color.elevated,
+          backgroundColor: color.elevated,
           opacity: resting && !selected ? 0.65 : 1,
         },
-        hex
-          ? null
-          : resting
-            ? styles.restingBorder
-            : { borderWidth: 1, borderColor: selected ? '#c8d2e0' : '#8d8d9a' },
+        resting
+          ? styles.restingBorder
+          : { borderWidth: 1, borderColor: selected ? '#c8d2e0' : '#8d8d9a' },
         selected
           ? {
-              boxShadow: `0 0 0 2px ${hex ? alpha(hex, 0.35) : 'rgba(148,163,184,0.3)'}`,
+              boxShadow: `0 0 0 2px ${alpha(color.textFaint, 0.3)}`,
             }
           : null,
         styles.square,
       ]}
     >
       <Text
-        style={[
-          mono(600),
-          styles.line,
-          { fontSize, color: hex ? issueSquareFg(hex) : squareInk(selected, resting) },
-        ]}
+        style={[mono(600), styles.line, { fontSize, color: squareInk(selected, resting) }]}
         numberOfLines={1}
       >
         {label.prefix}
       </Text>
       <Text
-        style={[
-          mono(600),
-          styles.line,
-          { fontSize, color: hex ? issueSquareFg(hex) : squareInk(selected, resting) },
-        ]}
+        style={[mono(600), styles.line, { fontSize, color: squareInk(selected, resting) }]}
         numberOfLines={1}
       >
         {label.number}

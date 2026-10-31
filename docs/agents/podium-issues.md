@@ -12,9 +12,13 @@ it is relayed through your daemon with a capability scoped to the issue you're w
    `podium issue create --title "Bug: X" --repoPath <repo>` then
    `podium issue dep-add --fromId <new> --toId <current> --type discovered-from`.
 5. Decompose a big issue into children: `podium issue create --title "..."` then
-   `podium issue reparent --id <new> --parentId <current>`.
+   `podium issue reparent --id <new> --parentId <current>`. Work spread across several agents
+   gets a claimed coordinator and a task per delegate, all filed before the first launch.
+   Add `--type phase` children only to group work that runs in two or more stages one after
+   another; a stage in that plan may contain one task. Phases take no edges. See
+   [delegating.md § Phases and coordinators](delegating.md#phases-and-coordinators).
 6. Record real blockers: `podium issue dep-add --fromId <blocked> --toId <blocker> --type blocked-by`
-   (the default). The full list: `blocked-by`, `related`, `discovered-from`, `supersedes`, `duplicates`.
+   (the default), between tasks; a phase is refused at either end. The full list: `blocked-by`, `related`, `discovered-from`, `supersedes`, `duplicates`.
 7. Finished? Move it to `review` and post an offer with a Close action. Close your own issue
    only when the user tells you to — closing ends your session at once, even mid-work, so the
    close is refused while a session on the issue is working (yours is, while you run it):
@@ -70,7 +74,7 @@ The issue **you** are on is the exception, and it is the one agents get wrong:
 
 | Good | Bad |
 | --- | --- |
-| `I merged it to main and closed this issue.` | `POD-557 is merged and closed.` |
+| `I merged it into its parent branch and closed this issue.` | `POD-557 is merged and closed.` |
 | `Retry backoff is ready for review` (offer headline) | `POD-557 is ready for review` |
 | `Podium-Issue: POD-557` (commit trailer) | `This issue (POD-557) is in review.` in every line |
 
@@ -88,33 +92,35 @@ proposals — belongs on the issue, not only in the chat where it scrolls away:
 podium issue artifact <id> --add <path> --title "Commit chip — iteration 2"
 ```
 
-The artifact renders in the issue's sidebar and survives across sessions. Three rules:
+The CLI uploads files from the machine where the command runs. No issue worktree or commit is
+required. Relative paths resolve from the current directory; absolute sources use their basename
+as the attachment name. Use `--name` to choose a stable name, then re-add that name to replace
+its snapshot in place while preserving offer references and the previous title.
 
-- **Inside the owning worktree — committing is not required.** Save the file under the owning
-  issue's worktree (e.g. an `e2e/` or `.design/` directory); paths outside it, including
-  scratchpads and `/tmp`, are refused. Adding copies the bytes into the server's permanent
-  store, so an artifact keeps rendering and reading back even though the file was never
-  `git add`ed and even after the worktree is deleted. Do **not** commit screenshots, scratch docs,
-  or one-off explainers just to attach them — that pollutes the repo for no gain. Track a file only
-  when it belongs in the codebase on its own merits.
-- **Terminal screenshots have a deliberate escape hatch.** If the proof was captured in the
-  current checkout of the session working on the issue, run the command from that checkout with
-  `--terminal-evidence`, for example:
+```
+podium issue artifact <id> --add /tmp/mockup.html --name mockup.html --title "Mockup"
+podium issue artifact <id> --add /tmp/proposal-bundle --name proposal
+podium issue artifact <id> --content "# Findings" --name findings.md
+printf '%s' '# Findings' | podium issue artifact <id> --add - --name findings.md
+```
 
-  ```
-  podium issue artifact 2602 --add artifacts/POD-2602/resume-before.png --terminal-evidence
-  ```
+Directory uploads preserve relative paths so HTML can load sibling styles and images. Symlinks
+and special files are refused. Uploads use bounded packets and retain the 100 MB per-file,
+500 MB per-bundle and 200-file limits. A failed upload never publishes a partial attachment.
 
-  This is an explicit acknowledgement that the image may contain terminal output. It only accepts
-  raster image files and only the calling session's own issue can use it; raw scrollback/text is
-  refused. Redact text into the owning issue worktree and attach it through the ordinary path.
-- **Delete the file once it is attached** (unless it belongs in the repo). The sidebar keeps
-  rendering it from the server's copy — the source file is never read again. Leaving it behind is
-  not harmless: an untracked file is a dirty worktree, and `podium issue cleanup` refuses one
-  outright while `free` needs `--force`.
-- **Post each significant iteration** with a title that names it. The artifact list doubles as
-  the review trail for visual work; publishing somewhere else (chat upload, external artifact
-  link) does not replace attaching it here.
+- **The server owns the saved copy.** Source cleanup, worktree deletion and the originating
+  machine going offline do not affect it. Saved attachments can enter review without a worktree,
+  including user-uploaded references from older clients.
+- **Delete scratch files after uploading.** Keep a file in the repository only when it belongs
+  there independently. Do not commit a screenshot or explainer solely to attach it.
+- **Attach each significant iteration** with a descriptive title. The sidebar is the review trail;
+  name its attachment in `podium offer --artifact <name>` so the offer can show it.
+
+In-process MCP uses `--content` for generated documents. Its older `--add` operation still asks
+the owning daemon for a path inside the issue worktree; it cannot read arbitrary files on the
+server. The CLI always reads ordinary `--add` sources locally. `--terminal-evidence` preserves
+the older acknowledged raster screenshot path for compatibility; ordinary screenshots can use
+the normal upload command.
 
 ### Reading one back
 
@@ -141,7 +147,7 @@ podium issue artifact 12 --add e2e/login-final.png --title "Login · final"
 podium offer --message "Login screen ready to merge — fused bar landed, shot attached.
 Branch pod-12, 2 ahead, clean. Riskiest bit: wordmark scaling under 380px." \
   --artifact e2e/login-final.png \
-  --action "Merge to main::Merge this issue to main under the merge lock" \
+  --action "Merge and close::Land this issue into its stored parentBranch under the merge lock and close it, following docs/agents/podium-issues.md. Use an authorized runner that survives issue shutdown through verification and lock release." \
   --action-input "Send back::Revise the login screen:"
 ```
 
@@ -187,52 +193,97 @@ the issue.)
 moving an issue to `review` renders nothing by itself. When you set `--stage review`, always
 post an offer naming the decision you need (merge, send back, discuss).
 
-## Landing on main
+<a id="landing-on-main"></a>
 
-This is the Podium repository's landing policy, not behavior prescribed by the Podium product
-[spec:SP-a69c]. Landing integrates an issue into local `main`. Publishing local `main` to a
-remote is a separate project or operator decision and may happen later, in a batch, or not at all.
+## Landing on the parent branch
 
-### Always
+This is the Podium repository's landing policy [spec:SP-a69c]. Landing integrates an issue into
+its stored local `parentBranch`. Publishing to a remote is a separate operator decision.
 
-1. `podium merge-lock acquire --wait` — while you hold it, only you may move main.
-   It refuses if a sibling (another session on your issue, or one sharing your worktree)
-   already holds or is queued for it; coordinate with the session it names rather than
-   reaching for `--allow-sibling`, which is for deliberate serialised multi-session access.
-   Use the `merge-lock` sugar, not `podium lock acquire <name>`. The mutex is
-   `merge:<branch>` and nothing else — the bare name `merge` is now refused, because for a
-   while it was accepted as a *separate* lease and two sessions each believed they held the
-   merge lock [POD-672].
-2. On the **issue branch**, `git rebase` onto the current local `main`.
-3. On **local `main`**, `git merge --ff-only <issue-branch>` so the **issue tip** becomes an
-   ancestor of main.
-4. `podium merge-lock release` **immediately** after the local merge.
+Read `podium issue show <id> --json` for `parentBranch`, `branch`, `worktreePath` and `repoPath`.
+Creation chooses an explicit parent first, then `gitWorkflow.defaultParentBranch`, then `main`.
+Changing that setting does not retarget existing issues, and stacked issues can name another
+issue's branch. Use the stored parent, not a guessed target or the current default.
 
-Stay in your issue worktree throughout; use `git -C <main-checkout>` for operations against main.
-This procedure neither fetches, pulls, nor pushes. Remote synchronization is a separate action;
-do not hold the merge lock while deciding whether or when to publish—the lock protects local
-integration, not remote policy.
+### Approval and the landing runner
 
-### Never
+The user must authorize both landing and closing. Posting an offer requests that decision;
+it does not authorize it. Finish the issue's work and publish its handoff before landing.
 
-- **Reset local main to a remote-tracking ref (for example, `git reset --hard origin/main`).**
-  Local `main` legitimately carries unpublished landings. A reset throws those away and
-  *succeeds*, whereas `merge --ff-only` refuses and exposes divergence. This is not hypothetical:
-  it happened on 2026-08-10 and cost three commits [POD-672]. If it happens, inspect
-  `git -C <main-checkout> reflog main`; the pre-reset tip may still be recoverable.
-- Cherry-pick the issue commit onto main.
-- “Land the unique content under a new SHA” and leave the issue branch behind.
-- Treat diverged history as permission to invent an alternate land path. If rebase fails or
-  foreign commits appear on the issue branch, **stop and ask**.
+`podium issue action --id <id> --kind merge` closes the issue on success, stopping **every
+session on it**, including the caller if it is a member. The runner must survive that shutdown.
+Use an operator context, an authorized Podium session outside the issue, or a detached command
+process independent of the issue's PTY and process group. A detached runner can keep the issue's
+existing scoped relay for this own-issue operation; it does not need an additional operator
+login. It must keep its cwd outside the issue worktree, which closure can remove.
+
+The runner owns acquisition, verification and release. Issue sessions hand off the issue ref,
+parent, worktree and validation evidence; they do not schedule agent work after their own closing
+action. Existing cross-issue permission rules still apply; detaching does not widen the scope.
+
+Session-exit cleanup releases a stopped session's locks best-effort, with lease expiry as a
+backstop. The detached runner must still verify ancestry and confirm that its lease is released.
+
+### Landing sequence
+
+The runner keeps its original cwd and uses `git -C` for the two checkouts below. The
+`<main-checkout>` placeholder means the issue's `repoPath`, not a checkout of a branch named main.
+
+1. Confirm `git -C <issue-worktree> symbolic-ref --short HEAD` names the issue's `branch` and
+   `git -C <main-checkout> symbolic-ref --short HEAD` names its stored `<parent-branch>`.
+   If either differs or HEAD is detached, stop and ask. This includes older issues with a
+   different default and stacked issues whose parent is checked out elsewhere. Do not switch
+   the live main checkout's branch, retarget the issue, or bypass the refusal with a hand merge.
+   The checkout can be the running backend's deployment source, even when the action's error
+   suggests checking out another branch.
+2. `podium merge-lock acquire <parent-branch> --wait`. Check the exit code without piping the
+   command, then confirm ownership with `podium merge-lock status <parent-branch>`. All verbs
+   default to `main` if the branch is omitted. Use the branch name, not `merge:<branch>`;
+   `merge-lock` constructs the canonical lock name. If a sibling holds or is queued for it,
+   coordinate with that session; `--allow-sibling` is for deliberate serialized access.
+   Repeat the checkout checks after acquiring the lock, since they may have changed while waiting.
+   Keep the lease current with `podium merge-lock renew <parent-branch>` if needed. If it
+   expires, reacquire it and repeat the checkout and history checks before proceeding.
+3. Inspect `git -C <issue-worktree> log --oneline <parent-branch>..HEAD`. Only commits for this
+   issue should be present; ordinary incoming commits on the parent are not unexpected issue
+   commits. Rebase only the issue branch with `git -C <issue-worktree> rebase <parent-branch>`,
+   using the local ref. Inspect the range again and record the rebased `<issue-tip>` with
+   `git -C <issue-worktree> rev-parse HEAD`. On unexpected commits or a rebase refusal, release
+   the lock and ask before choosing another route.
+4. Reconfirm the main checkout's branch, then call
+   `podium issue action --id <id> --kind merge`. It can rebase according to the operator's
+   settings, checks the root checkout against the stored parent, and fast-forwards it to the
+   issue branch. A successful action closes the issue and stops its sessions; the independent
+   runner remains available for the next steps.
+5. From the main checkout, run
+   `git -C <main-checkout> merge-base --is-ancestor <issue-tip> <parent-branch>`. Check this even
+   after an error: the Git merge can succeed while the response or later issue update fails.
+   A zero exit verifies the recorded tip is in the parent's current history. If ancestry holds
+   but the issue is still open, report that partial state rather than blindly repeating a merge.
+6. Release the held lock with `podium merge-lock release <parent-branch>`, including after
+   a refusal, error or failed ancestry check. A scoped runner may find that session-exit cleanup
+   already released it: check `podium merge-lock status <parent-branch>` and confirm the lease
+   is no longer held by its session. If release races with that cleanup, recheck status. Do not
+   release a different holder's lease. Do this before returning to the user; this sequence never
+   fetches, pulls or pushes, and the lock need not cover a later publishing decision.
+
+### Protecting branch history
+
+- Preserve the parent's unpublished commits. A reset to a remote-tracking ref can discard them;
+  a fast-forward refusal exposes divergence without replacing them. If a parent was reset,
+  inspect `git -C <main-checkout> reflog <parent-branch>` and ask before restoring anything.
+- Land the issue tip through the guarded action, retaining its ancestry. Cherry-picking its
+  content under another SHA does not establish that the issue tip reached the parent.
+- In the shared checkout, advance only the stored parent. Rebasing the issue branch in its
+  worktree is part of the sequence; modifying another shared branch is not.
+- Treat mismatches, unexpected issue commits and refused fast-forwards as reasons to stop and
+  ask after releasing the lock, not as permission to invent another landing route.
 
 ### When the fast-forward is blocked by untracked files
 
-Step 3 can abort with *“untracked working tree files would be overwritten by merge”*: the
-shared main checkout has loose files at paths your branch is about to introduce as tracked
-content. **The abort is git protecting you — it is the safe outcome.** The danger is the
-recovery, because `git merge -f`, `git checkout --force`, and a bare `rm` all get past the
-block and none of them can be undone: an untracked file has no reflog, no object in the
-store, nothing.
+The merge action can abort because untracked files in the shared checkout would be overwritten.
+Those loose files may be another agent's work. Forcing a checkout or deleting them can destroy
+content Git has never recorded; an untracked file has no reflog recovery.
 
 Compare the bytes first, and only then remove:
 
@@ -242,35 +293,23 @@ git -C <main-checkout> hash-object <path>
 git -C <issue-worktree> rev-parse HEAD:<path>
 ```
 
-Identical hashes mean the file is a duplicate of committed content and removing it loses
-nothing — back it up anyway, remove it, and merge; it returns as tracked content with the
-same bytes. **Different** hashes mean the loose file holds work nobody committed: stop and
-ask before touching it. This is the quietest of the three landing hazards — a reset at
-least leaves `main@{n}`, an overwritten untracked file leaves nothing.
+Identical hashes mean the loose file duplicates committed content. Back it up before removing
+the duplicate, then retry the guarded action under the named parent lock after repeating the
+checkout checks. Different hashes mean the loose file contains work not present at that branch
+path: release the lock and ask before touching it.
 
-### Why ancestry matters
+### Current ancestry and historical landing evidence
 
-A closed issue with a private branch that is **not** an ancestor of local `main` (and
-`gitState.merged !== true`) stays **“ready to merge”** in the sidebar forever
-(`issueAwaitingMerge` in client-core). Shipping the blobs onto main by cherry-pick does
-**not** clear that: the issue branch tip must join main’s history (or git must report
-`merged: true`).
+The ancestry check in the sequence verifies that the recorded issue tip reached the specific
+parent's current history. `gitState.merged` answers a broader UI question and is not equivalent.
+It can be true from a stored landing stamp, ancestry into either the cut parent or the configured
+landing branch, or commit-message evidence after that history was rewritten. `gitState.ahead`
+is measured against the cut parent and is not proof of landing either.
 
-`gitState.ahead` is only a proxy, measured against `parentBranch` (where the branch was
-cut from). For a stacked issue whose cut parent has itself landed, that ref freezes and
-`ahead` can stay `> 0` forever even when the tip is already on main [POD-576]. Trust the
-ancestry check, not the ahead counter alone.
-
-### Done only when
-
-The issue tip is an ancestor of local `main`:
-
-```bash
-git -C <main-checkout> merge-base --is-ancestor <issue-tip> main
-```
-
-Or, equivalently, `gitState.merged` is true. Content-on-main without that is **not** a
-finished land.
+If the parent is later rebased, a historical landing stamp can remain true while the exact tip
+is no longer its ancestor. Preserve the issue branch and recorded tip, report both observations,
+and ask the operator how to resolve the rewritten history. Do not reset the parent or replay
+the content under another SHA just to make an indicator agree.
 
 ## Rules
 

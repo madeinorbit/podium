@@ -1,12 +1,9 @@
-import { worklistGroups } from '@podium/client-graph/worklist/groups'
-import { sidebarView } from '@podium/client-graph/worklist/sidebar'
-import { referenceState } from '../../../tests/worklist/diagnostics/reference-state'
 /** Synthetic acceptance fixture. No operator RPC, cache, runtime or data. */
 import type { PodiumClientApi } from '@podium/client-core/api'
 import { type ClientRuntime, openKernelEngineOutbox } from '@podium/client-core/engine'
 import { storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
-import { StoreProvider, useStoreHandle, useRuntimeSelector } from '@podium/client-core/react'
+import { StoreProvider, useRuntimeSelector, useStoreHandle } from '@podium/client-core/react'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import {
   createKernelReplica,
@@ -14,15 +11,17 @@ import {
   replicaNamespaceKey,
 } from '@podium/client-core/replica'
 import type { MobxPool } from '@podium/client-graph'
+import { worklistGroups } from '@podium/client-graph/worklist/groups'
 import { asIssueId, asUserId } from '@podium/model/browser'
 import { IndexedDbSyncStore } from '@podium/sync/adapters/indexeddb'
 import type { EntityRecord } from '@podium/sync/replica'
 import { useEffect, useState } from 'react'
 import { flushSync } from 'react-dom'
 import { createRoot } from 'react-dom/client'
+import { buildFlightDeckRows } from '../../../packages/client-core/src/values/mission'
 
 import { allIssueViewModels } from '../../../tests/worklist/diagnostics/reference/issue-view-models'
-import { buildFlightDeckRows } from '../../../packages/client-core/src/values/mission'
+import { referenceState } from '../../../tests/worklist/diagnostics/reference-state'
 import {
   buildCorpus,
   buildCorpusCell,
@@ -35,13 +34,12 @@ import { FlightDeck } from '../src/app/FlightDeck'
 import { OperatorFocusProvider } from '../src/app/operator-focus'
 import { RightDock } from '../src/app/RightDock'
 import { attachWorklistPool, useWorklistPool } from '../src/app/store-worklist-pool'
+import { ToolbarSlotProvider, ToolbarSlotTarget } from '../src/app/ToolbarSlot'
 import { Workspace } from '../src/app/Workspace'
 import { TooltipProvider } from '../src/components/ui/tooltip'
-import { IssueExplorerProvider } from '../src/features/issues/explorer/explorer-context'
+import { DockIssueProvider } from '../src/features/issues/dock-issue'
 import { IssuePage } from '../src/features/issues/IssuePage'
 import { IssuesView } from '../src/features/issues/IssuesView'
-import { ToolbarSlotProvider, ToolbarSlotTarget } from '../src/app/ToolbarSlot'
-import { IssueExplorerList } from '../src/features/issues/explorer/IssueExplorerList'
 import { SidebarUnified } from '../src/features/worklist/SidebarUnified'
 import { ConfirmProvider } from '../src/lib/hooks/use-confirm'
 import { seedAcceptanceCache } from './sidebar-acceptance-seed'
@@ -75,7 +73,7 @@ const answers: Record<string, unknown> = {
     sessionDefaults: { agent: 'codex' },
     roles: { coding: { startScreen: 'chat' } },
   },
-  'features.state.query': { devMode: true, channel: 'edge', flags: params.get('enableWaterfall') === '1' ? [{ id: 'podium-development', enabled: true }] : [] },
+  'features.state.query': { devMode: true, channel: 'edge', flags: [] },
   'pins.list.query': corpus.pins,
   'sessions.models.query': [],
   'issues.cost.query': null,
@@ -200,32 +198,55 @@ function Fixture() {
   }, [runtime, pool])
   return (
     <OperatorFocusProvider missionId={selected}>
-      <IssueExplorerProvider>
+      <DockIssueProvider>
         {measured && <MeasurementBinding />}
         <CommandPaletteBoundary />
         <div className="desktop-shell">
           <div className="desktop-shell-row" style={{ height: '100vh' }}>
             <aside
-              data-sidebar-shell
+              data-worklist-fixture
               style={{ width: 300, flexShrink: 0 }}
               className="worklist-column flex w-[300px] flex-none flex-col"
             >
               <SidebarUnified />
             </aside>
-            {scrollSurface && <div className="flex min-h-0 flex-1 flex-col"><ToolbarSlotProvider><ToolbarSlotTarget /><IssuesView /></ToolbarSlotProvider></div>}
-            {params.get('surface') === 'waterfall-css' && <div
-              data-testid="waterfall-css-scroller"
-              className="engraved-column overflow-y-auto"
-              style={{ width: 330, height: '100vh' }}
-            >
-              {/* The experimental whole view cannot mount on this fixture.
+            {scrollSurface && (
+              <div className="flex min-h-0 flex-1 flex-col">
+                <ToolbarSlotProvider>
+                  <ToolbarSlotTarget />
+                  <IssuesView />
+                </ToolbarSlotProvider>
+              </div>
+            )}
+            {params.get('surface') === 'waterfall-css' && (
+              <div
+                data-testid="waterfall-css-scroller"
+                className="engraved-column overflow-y-auto"
+                style={{ width: 330, height: '100vh' }}
+              >
+                {/* The experimental whole view cannot mount on this fixture.
                   Exercise its shipped CSS containment with a long row corpus. */}
-              {corpus.issues.slice(0, 600).map(issue => <div key={issue.id}
-                className="waterfall-issue-row"
-                style={{ display: 'grid', gridTemplateColumns: '180px 1fr', '--waterfall-lane-height': '32px', '--waterfall-row-padding': '8px' } as import('react').CSSProperties}
-              ><div className="waterfall-issue-cell"><span>{issue.title}</span></div><div>Working</div></div>)}
-            </div>}
-            {(scrollSurface || params.get('surface') === 'explorer') && <aside className="flex min-h-0 w-[316px] flex-none"><IssueExplorerList /></aside>}
+                {corpus.issues.slice(0, 600).map((issue) => (
+                  <div
+                    key={issue.id}
+                    className="waterfall-issue-row"
+                    style={
+                      {
+                        display: 'grid',
+                        gridTemplateColumns: '180px 1fr',
+                        '--waterfall-lane-height': '32px',
+                        '--waterfall-row-padding': '8px',
+                      } as import('react').CSSProperties
+                    }
+                  >
+                    <div className="waterfall-issue-cell">
+                      <span>{issue.title}</span>
+                    </div>
+                    <div>Working</div>
+                  </div>
+                ))}
+              </div>
+            )}
             {pageSurface && <IssuePageProbe ids={pageTargets} />}
             {full && (
               <>
@@ -246,7 +267,7 @@ function Fixture() {
             )}
           </div>
         </div>
-      </IssueExplorerProvider>
+      </DockIssueProvider>
     </OperatorFocusProvider>
   )
 }
@@ -427,33 +448,11 @@ const fixture = {
         lastActiveAt: stamp,
       })
     else if (kind === 'draft')
-      referenceState(owner!)
-        .setSessionDraft(targets.phaseSessionId as never, `Acceptance draft ${iteration}`)
+      referenceState(owner!).setSessionDraft(
+        targets.phaseSessionId as never,
+        `Acceptance draft ${iteration}`,
+      )
     else throw new Error(`Unknown event ${kind}`)
-  },
-  async compare() {
-    if (!graph) throw new Error('No pool for side-by-side comparison')
-    const { checkSidebar } = await import('../../../tests/worklist/diagnostics/sidebar-check')
-    const s = referenceState(owner!)
-    const keys = [
-      'podium:sidebar:pinned-fold',
-      ...sidebarView(graph)
-        .sections()
-        .bands.flatMap((band) => [band.foldKey, band.snoozedFoldKey, band.closedFoldKey]),
-    ]
-    return checkSidebar(graph, s, {
-      pinnedRepos: s.pins.repos,
-      pinnedWorktrees: s.pins.worktrees,
-      projectOrder: s.sidebarSettings.repoOrder,
-      paneA: s.paneA,
-      selectedWorktree: s.selectedWorktree,
-      collapsed: Object.fromEntries(
-        keys.flatMap((key) => {
-          const value = owner!.ui.get(key)
-          return value === null ? [] : [[key, value === 'true']]
-        }),
-      ),
-    })
   },
   survivors: () => retired.filter(({ ref }) => ref.deref() !== undefined).map(({ name }) => name),
   rowCount: () =>

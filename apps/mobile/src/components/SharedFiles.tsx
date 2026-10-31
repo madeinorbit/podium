@@ -1,12 +1,13 @@
-import { isImagePath } from '@podium/client-core/values'
+import { isImagePath, stagedAttachmentId } from '@podium/client-core/values'
 import type { TranscriptItem } from '@podium/model'
-import { machinePathBasename } from '@podium/model'
+import { machinePathBasename, resolveMachinePath } from '@podium/model'
 import { useEffect, useState } from 'react'
 import { Image, Linking, Modal, Platform, ScrollView, StyleSheet, Text, View } from 'react-native'
 import {
   authenticatedImageSource,
   fetchAuthenticatedAsset,
   readAuthenticatedTextPreview} from '../client/authenticated-assets'
+import { useChatItemAttachments, useChatUploadUrl } from '../client/chat-uploads'
 import { useServerProfile } from '../client/ServerProfileGate'
 import { sessionAssetUrl, type TranscriptAssetContext } from '../lib/transcript-assets'
 import { color, font, leading, monoLabel, radius, sans, space } from '../theme/theme'
@@ -32,12 +33,33 @@ function FileChip({ label, onPress }: { label: string; onPress?: () => void }) {
   )
 }
 
-function SharedPath({ path, context }: { path: string; context?: TranscriptAssetContext }) {
+function SharedPath({
+  path,
+  context,
+  uploadId,
+}: {
+  path: string
+  context?: TranscriptAssetContext
+  /** A chat upload named by its id alone (a path-less image turn). */
+  uploadId?: string
+}) {
   const { bearer } = useServerProfile()
-  const [failed, setFailed] = useState(false)
+  const [failedUrl, setFailedUrl] = useState<string | null>(null)
   const [preview, setPreview] = useState(false)
   const name = machinePathBasename(path, context?.cwd ?? path)
-  const url = context ? sessionAssetUrl(context, path) : undefined
+  // A chat upload shows from the issue's stored copy (POD-2148); the daemon
+  // file is the fallback for messages sent before it, and is swept after 24h.
+  const stored = useChatUploadUrl(
+    context?.sessionId,
+    uploadId ?? (context ? stagedAttachmentId(resolveMachinePath(context.cwd, path)) : undefined),
+    context?.httpOrigin,
+  )
+  const url =
+    stored ?? (context && uploadId === undefined ? sessionAssetUrl(context, path) : undefined)
+  // Failure belongs to the URL that failed: the issue's copy landing after a
+  // swept daemon file failed gets its own attempt.
+  const failed = failedUrl !== null && failedUrl === url
+  const setFailed = () => setFailedUrl(url ?? null)
 
   if (!url) return <FileChip label={name} />
 
@@ -75,7 +97,7 @@ function SharedPath({ path, context }: { path: string; context?: TranscriptAsset
           accessibilityLabel={name}
           resizeMode="cover"
           style={styles.thumb}
-          onError={() => setFailed(true)}
+          onError={setFailed}
         />
       </PressableScale>
       <Modal
@@ -100,7 +122,7 @@ function SharedPath({ path, context }: { path: string; context?: TranscriptAsset
             resizeMode="contain"
             style={styles.lightboxImage}
             onError={() => {
-              setFailed(true)
+              setFailed()
               setPreview(false)
             }}
           />
@@ -176,8 +198,15 @@ export function SharedFiles({
   showHeader?: boolean
 }) {
   const paths = item.toolPaths ?? []
-  const tags = paths.length === 0 ? (item.tags ?? []) : []
-  if (paths.length === 0 && tags.length === 0) return null
+  const allTags = paths.length === 0 ? (item.tags ?? []) : []
+  // An entry that names no path can still be a chat upload: the message the
+  // server matched to it names the files by id (POD-2148). Its images stand for
+  // the entry's image tags; any other tag keeps its chip.
+  const matched = useChatItemAttachments(context?.sessionId, item.id)
+  const uploads = paths.length === 0 ? matched.filter((a) => a.kind === 'image' && a.id) : []
+  const imageTags = allTags.filter((tag) => tag.kind === 'image')
+  const tags = [...imageTags.slice(uploads.length), ...allTags.filter((tag) => tag.kind !== 'image')]
+  if (paths.length === 0 && uploads.length === 0 && tags.length === 0) return null
 
   return (
     <View style={styles.root}>
@@ -188,6 +217,9 @@ export function SharedFiles({
       <View style={styles.files}>
         {paths.map((path) => (
           <SharedPath key={path} path={path} context={context} />
+        ))}
+        {uploads.map((upload) => (
+          <SharedPath key={upload.id} path={upload.filename} context={context} uploadId={upload.id} />
         ))}
         {tags.map((tag, index) => (
           // biome-ignore lint/suspicious/noArrayIndexKey: transcript tags have no identity and are immutable

@@ -367,7 +367,7 @@ export class Sends {
     const messageId = bubble.deliveryId
     const turn = this.pending.find((candidate) => candidate.deliveryId === messageId)
     const retracted: ConversationPendingTurn = turn
-      ? { ...turn, state: 'retracted' }
+      ? { ...turn, state: 'retracted', ...(bubble.files ? { files: bubble.files } : {}) }
       : {
           id: `retracted-${messageId}`,
           deliveryId: messageId,
@@ -525,7 +525,17 @@ export class Sends {
       ...(input.backend ? { backend: input.backend } : {}),
       ...(input.tags && input.tags.length > 0 ? { tags: input.tags } : {}),
       ...(input.toolPaths && input.toolPaths.length > 0 ? { toolPaths: input.toolPaths } : {}),
-      ...(input.files && input.files.length > 0 ? { files: input.files } : {}),
+      ...(input.files && input.files.length > 0
+        ? { files: input.files }
+        : input.attachments && input.attachments.length > 0
+          ? {
+              files: input.attachments.map((attachment) => ({
+                path: attachment.filename,
+                kind: attachment.kind,
+                attachmentId: attachment.id,
+              })),
+            }
+          : {}),
       ...(input.attachments && input.attachments.length > 0
         ? { attachments: input.attachments }
         : {}),
@@ -655,7 +665,7 @@ export class Sends {
     const carried = new Set((this.options.records?.getSnapshot() ?? []).map((record) => record.id))
     const asked = new Map<string, ConversationPendingTurn['state']>()
     for (const turn of this.pending) {
-      if (turn.reconcile === 'next-user-item') continue
+      if (turn.reconcile === 'next-user-item' || turn.reconcile === 'initial-prompt') continue
       if (turn.state === 'interrupted' || turn.state === 'retracted') continue
       if (carried.has(turn.deliveryId)) continue
       asked.set(turn.deliveryId, turn.state)
@@ -736,12 +746,20 @@ export class Sends {
    */
   @actionBound private observeRecords(notify = true): void {
     const records = this.options.records?.getSnapshot() ?? []
+    const seed = this.pending.find(turn => turn.reconcile === 'initial-prompt')
     this.feedIds = records.map(record => record.id)
     const present = new Map<string, ConversationMessage>()
     for (const record of records) {
       present.set(record.id, record)
       this.seenRecord.add(record.id)
       if (record.status !== 'confirmed') this.seenOpen.add(record.id)
+      if (seed && record.initialPrompt) {
+        this.seenOpen.delete(seed.deliveryId)
+        this.seenOpen.add(record.id)
+        this.pending.replace(this.pending.map(turn => turn === seed
+          ? freezePlain({ ...turn, deliveryId: record.id, reconcile: 'record' as const })
+          : turn))
+      }
     }
     for (const [id, status] of this.hidden) {
       if (status !== null && present.get(id)?.status !== status) this.hidden.delete(id)
@@ -759,6 +777,7 @@ export class Sends {
       (turn) =>
         (turn.state === 'retracted' || !completed.has(turn.deliveryId)) &&
         (turn.reconcile === 'next-user-item' ||
+          turn.reconcile === 'initial-prompt' ||
           turn.state === 'interrupted' ||
           turn.state === 'retracted' ||
           present.has(turn.deliveryId) ||
@@ -856,7 +875,10 @@ export class Sends {
     }
     let arrivals = fresh.filter((item) => item.event !== 'interrupt').length
     const pending = retained.filter((turn) => {
-      if (turn.reconcile !== 'next-user-item' || turn.state === 'interrupted' || arrivals === 0)
+      if (
+        (turn.reconcile !== 'next-user-item' && turn.reconcile !== 'initial-prompt') ||
+        turn.state === 'interrupted' || arrivals === 0
+      )
         return true
       arrivals--
       return false
@@ -969,7 +991,7 @@ export class Sends {
       (bubble) => bubble.state !== 'failed' && bubble.state !== 'unknown',
     )
     this.interruptMessageId =
-      !latest || latest.state === 'interrupted' || latest.state === 'retracted'
+      !latest || latest.reconcile === 'initial-prompt' || latest.state === 'interrupted' || latest.state === 'retracted'
         ? null
         : latest.deliveryId
   }

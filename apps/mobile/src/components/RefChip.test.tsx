@@ -1,4 +1,5 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
+import { ALL_ISSUE_STATUSES, ISSUE_STATUS_LABELS, isIssueStage } from '@podium/model'
 import { render, screen } from '@testing-library/react'
 import type { ComponentProps } from 'react'
 import type { View as RNView } from 'react-native'
@@ -26,7 +27,7 @@ vi.mock('../client/use-inbox-data', () => ({
 vi.mock('react-native-svg', async () => {
   const { View } = await import('react-native')
   const Stub = (props: ComponentProps<typeof RNView>) => <View {...props} />
-  return { default: Stub, Svg: Stub, Circle: Stub, Path: Stub, Rect: Stub }
+  return { default: Stub, Svg: Stub, Circle: Stub, Path: Stub, Rect: Stub, G: Stub }
 })
 
 const { RefChip } = await import('./RefChip')
@@ -57,6 +58,20 @@ beforeEach(() => {
 })
 
 describe('RefChip', () => {
+  it.each(ALL_ISSUE_STATUSES)('renders the %s status from the live reference model', (status) => {
+    issues = [
+      {
+        ...issue(2050, isIssueStage(status) ? status : 'done'),
+        closedReason: isIssueStage(status) ? undefined : status,
+      },
+    ]
+    const { container, unmount } = render(<RefChip token="POD-2050" refKind="issue" prefix="POD" />)
+    const glyph = container.querySelector(`[aria-label="${ISSUE_STATUS_LABELS[status]}"]`)
+    expect(glyph).toBeTruthy()
+    const chip = container.querySelector('[aria-label*="task POD-2050"]')
+    expect(chip?.getAttribute('aria-label')).toContain(ISSUE_STATUS_LABELS[status])
+    unmount()
+  })
   it('paints a resolved ref in its live workflow stage [POD-724]', () => {
     render(<RefChip token="POD-529" refKind="issue" prefix="POD" onPress={vi.fn()} />)
 

@@ -1,18 +1,5 @@
 import type { SessionView } from '@podium/client-core/session-values'
-/**
- * The tab/row status grammar of the redesign (.design/specs/native-pane.md
- * §2.8): one component so the desktop tab strip, the mobile panel-menu rows
- * and any future surface render the exact same signal —
- *
- *   working        → the working mark (the only ongoing motion; reserved blue)
- *   waiting on you → amber stillness: a plain 6px dot on desktop tabs, a
- *                    13px (optionally numbered) amber pill on menu rows
- *   idle / done    → nothing — stillness is the signal
- *
- * Semantic colours only (reserved amber/green, see lib/issueColors.ts) — the
- * glyph must never pick up the issue colour. Corner badges on ID squares/rails
- * remain StatusBadge's job.
- */
+
 import { motionPhase } from '@podium/client-core/values'
 
 import type { JSX } from 'react'

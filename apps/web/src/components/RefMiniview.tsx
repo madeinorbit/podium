@@ -1,18 +1,18 @@
-import { omitGone } from '@podium/client-graph/lookup'
-import { relativeTime } from '@podium/client-core/focus'
 import { shallowEqual } from '@podium/client-core/shallow-equal'
-import { issueReferenceModel } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph'
+import { omitGone } from '@podium/client-graph/lookup'
 import { machinePathBasename } from '@podium/model'
 import type { IssueComment, IssueId, SessionId } from '@podium/model/browser'
 import { formatLong, parseAnyRef, truncateTitle } from '@podium/protocol'
 import {
   ArchiveRestore,
   Check,
+  ChevronDown,
+  ChevronUp,
   ExternalLink,
-  ListTree,
   LoaderCircle,
   MessagesSquare,
+  PanelRight,
   Play,
   User,
   X,
@@ -21,22 +21,28 @@ import {
   type JSX,
   useCallback,
   useEffect,
+  useId,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   useSyncExternalStore,
 } from 'react'
 import { createPortal } from 'react-dom'
 import { OPEN_RIGHT_PANEL_EVENT } from '@/app/shell-state'
-import { useRuntimeSelector } from '@/app/store'
+import { type IssueViewModel, useRuntimeSelector } from '@/app/store'
 import { useWorklistPool, useWorklistPoolProjection } from '@/app/store-worklist-pool'
+import { DropdownMenuOwner } from '@/components/ui/dropdown-menu'
 import { IssueChipLiveness } from '@/features/chat/IssueChipLiveness'
 import { useChatReferenceMachines } from '@/features/chat/use-chat-context'
-import { useIssueExplorer } from '@/features/issues/explorer/explorer-context'
+import { useDockIssue } from '@/features/issues/dock-issue'
 import { IssueAgentSettings } from '@/features/issues/IssueAgentSettings'
+import { IssueStatusPicker } from '@/features/issues/IssueStatusPicker'
 import { PriorityGlyph } from '@/features/issues/issue-glyphs'
 import { isIssueStartable } from '@/features/issues/issue-startable'
 import type { LaunchMachine } from '@/features/issues/LaunchBox'
+import { useIssueStatusApply } from '@/features/issues/use-issue-status-apply'
+import { renderReadoutMarkdown } from '@/lib/markdown'
 import { setKnownRefPrefixes } from '@/lib/markdown-references'
 import {
   closeMiniview,
@@ -167,25 +173,21 @@ function RefMiniviewContents({
     }),
     shallowEqual,
   )
-  const { retarget } = useIssueExplorer()
+  const { show } = useDockIssue()
   const loadComments = useCallback((id: IssueId) => trpc.issues.comments.query({ id }), [trpc])
 
   /**
-   * The card's escalation (POD-786): point the ISSUE EXPLORER at this task and
-   * reveal the dock. It replaces the peek drawer, which was a second, parallel
-   * detail surface over the same `IssuePanelView` — the explorer already renders
-   * that panel, with a trail the drawer never had.
+   * The card's escalation (POD-786): point the dock's TASK PANEL at this task
+   * and reveal the dock.
    *
-   * IN THE EXPLORER, AND NOWHERE ELSE (POD-1265). This used to get there by
-   * moving the shell — select the mission root, focus the task — because that
-   * was the only lever the explorer followed. But the shell selection is also
-   * what the sidebar highlights and what keys the tab area's workspace, so
-   * reading a ref in chat swapped the operator's whole workspace over to
-   * whatever task the message happened to mention. The explorer now takes a
-   * target directly, and the deck is left exactly where the work is.
+   * IN THE PANEL, AND NOWHERE ELSE (POD-1265). Moving the shell instead —
+   * select the mission root, focus the task — would swap the operator's whole
+   * workspace and the sidebar's selection over to whatever task the message
+   * happened to mention. The panel takes a target directly, and the deck is
+   * left exactly where the work is.
    */
-  const openInExplorer = (issueId: IssueId): void => {
-    retarget(issueId)
+  const openInPanel = (issueId: IssueId): void => {
+    show(issueId)
     window.dispatchEvent(new CustomEvent(OPEN_RIGHT_PANEL_EVENT, { detail: 'issue' }))
   }
   const state = useSyncExternalStore(subscribeMiniview, getMiniviewState, getMiniviewState)
@@ -205,11 +207,11 @@ function RefMiniviewContents({
       onOpenFull={() => {
         if (!target) return
         closeMiniview()
-        // One rung up the ladder: an issue escalates INTO THE EXPLORER, which
+        // One rung up the ladder: an issue escalates INTO THE TASK PANEL, which
         // keeps the chat where it is; the full /issues/:id page stays one more
-        // step away (Cmd/Ctrl-click on the chip). Sessions have no explorer
-        // surface and still navigate.
-        if (target.kind === 'issue') openInExplorer(target.issue.id)
+        // step away (Cmd/Ctrl-click on the chip). Sessions have no panel of
+        // their own and still navigate.
+        if (target.kind === 'issue') openInPanel(target.issue.id)
         else navigateToSession(state.ref)
       }}
       onGoToSession={(sessionId) => {
@@ -310,6 +312,8 @@ export function RefCard({
     observer.observe(el)
     return () => observer.disconnect()
   }, [anchorY])
+  // The stage glyph is the shared status picker; the hook holds the close guard.
+  const status = useIssueStatusApply()
   const targetTitle =
     target?.kind === 'issue'
       ? target.issue.title
@@ -347,6 +351,9 @@ export function RefCard({
       // Portaled settings menus belong to this card for light-dismiss.
       if (e.target instanceof Element && e.target.closest('[data-overlay-owner="ref-miniview"]'))
         return
+      // So does the close guard the status picker raises: dismissing the card
+      // from inside it would unmount the dialog mid-decision.
+      if (e.target instanceof Element && e.target.closest('[role=alertdialog]')) return
       onClose()
     }
     window.addEventListener('pointerdown', onPointerDown, true)
@@ -374,6 +381,7 @@ export function RefCard({
       role="dialog"
       aria-label={`Reference ${refToken}`}
     >
+      {status.dialog}
       {target?.kind === 'issue' ? (
         <>
           <div className="px-4 pt-4 pb-3">
@@ -383,26 +391,44 @@ export function RefCard({
                 end of a dot-separated run. Here it sits where the ref is, in the
                 same mono voice, and reads first. */}
             <div className="mb-2.5 flex items-center justify-between gap-3">
-              <div className="flex min-w-0 items-center gap-2 text-[11px] font-semibold tracking-[0.04em] text-muted-foreground">
-                <IssueReference
-                  model={
-                    target.issue.stage
-                      ? issueReferenceModel({
-                          ...target.issue,
+              <div
+                data-testid="ref-card-identity"
+                className="flex min-w-0 items-center gap-2 text-[11px] font-semibold tracking-[0.04em] text-muted-foreground"
+              >
+                {target.issue.stage ? (
+                  <span className="inline-flex min-w-0 items-center gap-1.5">
+                    <DropdownMenuOwner value="ref-miniview">
+                      <IssueStatusPicker
+                        issue={{
                           stage: target.issue.stage,
-                          displayRef: refToken,
-                        })
-                      : {
-                          ref: refToken,
-                          issueId: target.issue.id,
-                          title: target.issue.title,
-                          stage: null,
-                          availability: 'present',
-                          accessibleLabel: `Task ${refToken}: ${target.issue.title}`,
+                          closedReason: target.issue.closedReason,
+                        }}
+                        size={13}
+                        // The hook reads only the id: the close guard and its
+                        // dialog look the rest up in the pool.
+                        onPick={(value) =>
+                          status.pick(target.issue as unknown as IssueViewModel, value)
                         }
-                  }
-                  showTitle={false}
-                />
+                      />
+                    </DropdownMenuOwner>
+                    <span className="flex-none font-mono text-[0.88em] text-muted-foreground">
+                      {refToken}
+                    </span>
+                  </span>
+                ) : (
+                  <IssueReference
+                    model={{
+                      ref: refToken,
+                      issueId: target.issue.id,
+                      title: target.issue.title,
+                      stage: null,
+                      status: null,
+                      availability: 'present',
+                      accessibleLabel: `Task ${refToken}: ${target.issue.title}`,
+                    }}
+                    showTitle={false}
+                  />
+                )}
                 {target.issue.priority !== undefined && (
                   <span
                     className="flex flex-none items-center gap-1"
@@ -417,36 +443,14 @@ export function RefCard({
             </div>
             <IssueSummary issue={target.issue} />
             {target.issue.description?.trim() && (
-              <div
-                className="mt-2 overflow-hidden text-[12px] leading-[1.5] text-muted-foreground"
-                style={{ display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical' }}
-                title={target.issue.description}
-              >
-                {target.issue.description}
-              </div>
+              <ExpandableText
+                key={target.issue.id}
+                text={target.issue.description}
+                label="description"
+                className="mt-2 text-[12px] leading-[1.5] text-muted-foreground"
+              />
             )}
           </div>
-          {target.issue.activityNotes && (
-            <div className="mx-3 mb-3 rounded-[10px] border border-border/60 bg-muted/40 px-3.5 py-3">
-              <div className="mb-1.5 flex items-baseline justify-between gap-3 text-[10px]">
-                <span className="font-semibold tracking-[0.09em] text-muted-foreground/70 uppercase">
-                  Latest update
-                </span>
-                {target.issue.notesUpdatedAt && (
-                  <span className="flex-none text-muted-foreground/60">
-                    {relativeTime(target.issue.notesUpdatedAt, Date.now())}
-                  </span>
-                )}
-              </div>
-              <div
-                className="overflow-hidden text-[12.5px] leading-[1.5] text-foreground/90"
-                style={{ display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical' }}
-                title={target.issue.activityNotes}
-              >
-                {target.issue.activityNotes}
-              </div>
-            </div>
-          )}
           {isIssueStartable(target.issue) && (
             <div className="mx-3 mb-3 rounded-lg border border-border/60 bg-muted/30 px-3 py-2.5">
               <IssueAgentSettings
@@ -648,8 +652,8 @@ function IssueActions({
  * The card is a glance. Both exits leave the chat exactly where it is, and each
  * answers a different question the glance provokes:
  *
- *  - "tell me more about this task" → the ISSUE EXPLORER, which owns task detail
- *    now. It replaced a peek drawer that rendered the same `IssuePanelView` on a
+ *  - "tell me more about this task" → the dock's TASK PANEL, which owns task
+ *    detail. It replaced a peek drawer that rendered the same `IssuePanelView` on a
  *    scrim, so what used to be a parallel surface is now the one surface.
  *  - "take me to the agent doing it" → the session. For a subtask that is usually
  *    the PARENT's session, and when it is, the button says so rather than
@@ -700,12 +704,73 @@ function IssueEscalations({
         data-pressable
         type="button"
         className="inline-flex h-8 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-lg text-[12px] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-        title="Show this task in the issue explorer"
+        title="Show this task in the side panel"
         onClick={onOpenFull}
       >
-        <ListTree size={12} className="flex-none" aria-hidden="true" />
-        <span className="truncate">Open in explorer</span>
+        <PanelRight size={12} className="flex-none" aria-hidden="true" />
+        <span className="truncate">Open task</span>
       </button>
+    </div>
+  )
+}
+
+/**
+ * Human text clamped to three lines that unfolds in place. The toggle appears
+ * only when the clamp hides something; unfolded, the text scrolls inside a
+ * capped box so a long brief cannot push the card's actions off screen.
+ */
+function ExpandableText({
+  text,
+  label,
+  className,
+}: {
+  text: string
+  label: string
+  className?: string
+}): JSX.Element {
+  const html = useMemo(() => renderReadoutMarkdown(text.trim()), [text])
+  const [open, setOpen] = useState(false)
+  const [overflows, setOverflows] = useState(false)
+  const bodyRef = useRef<HTMLDivElement | null>(null)
+  const bodyId = useId()
+  // biome-ignore lint/correctness/useExhaustiveDependencies: new text can overflow a clamp whose box size never changes, so re-measure on it
+  useLayoutEffect(() => {
+    const body = bodyRef.current
+    if (!body || open) return
+    const measure = () => setOverflows(body.scrollHeight > body.clientHeight + 1)
+    measure()
+    if (typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(measure)
+    observer.observe(body)
+    return () => observer.disconnect()
+  }, [html, open])
+  return (
+    <div className={className}>
+      <div
+        ref={bodyRef}
+        id={bodyId}
+        className="ref-miniview-text"
+        data-open={open}
+        // biome-ignore lint/security/noDangerouslySetInnerHtml: renderReadoutMarkdown sanitizes through DOMPurify and drops every anchor
+        dangerouslySetInnerHTML={{ __html: html }}
+      />
+      {(overflows || open) && (
+        <button
+          type="button"
+          className="ref-miniview-text-toggle"
+          aria-expanded={open}
+          aria-controls={bodyId}
+          aria-label={open ? `Show less of the ${label}` : `Show the full ${label}`}
+          onClick={() => setOpen(!open)}
+        >
+          {open ? 'Show less' : 'Show more'}
+          {open ? (
+            <ChevronUp size={11} aria-hidden="true" />
+          ) : (
+            <ChevronDown size={11} aria-hidden="true" />
+          )}
+        </button>
+      )}
     </div>
   )
 }
@@ -791,18 +856,12 @@ function IssueDetailsStrip({
       cancelled = true
     }
   }, [issue.id, issue.updatedAt, loadComments])
-  const todos = issue.panel?.todos ?? []
-  const todosDone = todos.filter((t) => t.done).length
-  const artifacts = issue.panel?.artifacts?.length ?? 0
   const cells: { label: string; value: string }[] = []
-  if (todos.length > 0)
-    cells.push({ label: 'Tasks', value: `${todosDone} of ${todos.length} done` })
   if ((issue.childCount ?? 0) > 0)
     cells.push({
       label: 'Subissues',
       value: `${issue.childDoneCount ?? 0}/${issue.childCount} done`,
     })
-  if (artifacts > 0) cells.push({ label: 'Artifacts', value: `${artifacts}` })
   if (comments > 0)
     cells.push({ label: 'Activity', value: `${comments} comment${comments === 1 ? '' : 's'}` })
   if (cells.length === 0) return null

@@ -103,7 +103,6 @@ async function open(issues = mixed(), sessions: Row[] = []) {
   const screen = new MissionScreen(pool, 'root', {
     setPreference: (key, value) => uiState.set(key, value),
   })
-  screen.open()
   const stop = autorun(() => {
     void settled(() => screen.full.ready)
   })
@@ -116,6 +115,7 @@ async function open(issues = mixed(), sessions: Row[] = []) {
   const actions = {
     activeSessionId: null,
     renameTarget: null,
+    onOpenTask: vi.fn(),
     onSelectSession: vi.fn(),
     onMenu: vi.fn(),
     onStatusPick: vi.fn(),
@@ -239,6 +239,36 @@ it('collapses a phase by pointer, Enter and Space without selecting a session or
   expect(f.actions.onSelectSession).not.toHaveBeenCalled()
   expect(f.actions.onStatusPick).not.toHaveBeenCalled()
   capture('Build collapsed · counts retained', f.ui.container)
+})
+
+it('folds a task branch from its row and chevron while preserving nested folds', async () => {
+  const f = await open([
+    issue('root', null, 'a'),
+    issue('parent', 'root', 'a'),
+    issue('child', 'parent', 'a'),
+    issue('grandchild', 'child', 'a'),
+    issue('sibling', 'root', 'b'),
+  ])
+  const body = () => f.task('parent')!.querySelector<HTMLButtonElement>('.flight-v6-task-body')!
+  const chevron = (id: string) => f.task(id)!.querySelector<HTMLButtonElement>('.flight-v6-fold')!
+  const keyboard = userEvent.setup()
+  await act(async () => fireEvent.click(chevron('child')))
+  expect(f.task('grandchild')).toBeNull()
+  await act(async () => fireEvent.click(body()))
+  expect(f.task('child')).toBeNull()
+  expect(f.task('sibling')).not.toBeNull()
+  expect(f.screen.folds.get('parent')).toBe('closed')
+  body().focus()
+  await keyboard.keyboard('{Enter}')
+  expect(f.task('child')).not.toBeNull()
+  expect(f.task('grandchild')).toBeNull()
+  await keyboard.keyboard(' ')
+  expect(f.task('child')).toBeNull()
+  await act(async () => fireEvent.click(chevron('parent')))
+  expect(f.task('child')).not.toBeNull()
+  expect(f.screen.folds.get('child')).toBe('closed')
+  expect(f.actions.onOpenTask).not.toHaveBeenCalled()
+  expect(f.actions.onSelectSession).not.toHaveBeenCalled()
 })
 
 it('preserves nested phases under both tasks and phases, with phase-local elbows and no lost work', async () => {
@@ -372,7 +402,7 @@ it('keeps long identity, shared state, dependency locks and position hooks at ar
   if (f.full.allFolded) act(() => f.full.foldAll())
   const strip = f.task('blocked')!.querySelector('[data-flight-task-row]')!
   expect(strip.getAttribute('data-flight-task-row')).toBe('blocked')
-  expect(strip.getAttribute('data-edge-gutter')).toBe('28')
+  expect(strip.getAttribute('data-edge-gutter')).toBe('6')
   const dependency = strip.querySelector('[data-dependency-slot="blocked"]')!
   expect(dependency.getAttribute('data-kind')).toBe('blocked')
   expect(dependency.querySelector('svg')).not.toBeNull()
@@ -403,7 +433,7 @@ it('keeps long identity, shared state, dependency locks and position hooks at ar
       <FlightDeckFullCoordinator full={f.full} {...f.actions} />
       <FlightDeckFullControls full={f.full} />
       <FlightDeckFullGroups {...f.props} />
-      <FlightDeckProposals full={f.full} onSelect={vi.fn()} onMenu={vi.fn()} />
+      <FlightDeckProposals full={f.full} onMenu={vi.fn()} />
     </div>,
   )
   for (const name of ['Backlog', 'Start'])
@@ -427,9 +457,9 @@ it('keeps long identity, shared state, dependency locks and position hooks at ar
 
 it('keeps phase actions and rename accessible without coupling collapse to issue stages', async () => {
   const f = await open()
-  fireEvent.click(f.ui.getByRole('button', { name: 'Phase actions for build' }))
+  expect(f.ui.queryByRole('button', { name: 'Phase actions for build' })).toBeNull()
   fireEvent.contextMenu(f.group('build')!.querySelector('.flight-full-phase-header')!)
-  expect(f.actions.onMenu).toHaveBeenCalledTimes(2)
+  expect(f.actions.onMenu).toHaveBeenCalledTimes(1)
   expect(f.actions.onMenu.mock.calls[0]?.[0]).toBe(f.full.task('build'))
   expect(f.full.task('build').open).toBe(true)
   f.ui.rerender(<FlightDeckFullGroups {...f.props} renameTarget={{ id: 'build', seed: 'build' }} />)
@@ -497,7 +527,7 @@ it('uses task dependency notes without inventing a phase waiting gate', async ()
   expect(f.full.task('second').open).toBe(true)
 })
 
-it('keeps coordinator and helpers visible above the groups through filters, search and fold-all', async () => {
+it('keeps the coordinator above and helpers atop the groups through filters, search and fold-all', async () => {
   const f = await open(
     [issue('root', null, 'a', { coordinatorSessionId: 'coord' }), issue('task', 'root', 'a')],
     ['helper', 'coord'].map((id) => ({
@@ -516,14 +546,25 @@ it('keeps coordinator and helpers visible above the groups through filters, sear
   f.ui.rerender(
     <>
       <FlightDeckFullCoordinator {...f.props} activeSessionId="helper" />
-      <FlightDeckFullGroups {...f.props} />
+      <FlightDeckFullGroups {...f.props} activeSessionId="helper" />
     </>,
   )
+  const ids = (testId: string) =>
+    [...f.ui.getByTestId(testId).querySelectorAll('[data-flight-session]')].map((node) =>
+      node.getAttribute('data-flight-session'),
+    )
+  const seats = () => ({
+    coordinator: ids('flight-full-coordinator'),
+    helpers: ids('flight-full-helpers'),
+  })
+  // Helpers open the task list, ahead of the first task row.
+  expect(
+    f.ui.getByTestId('flight-full-helpers').compareDocumentPosition(f.task('task')!) &
+      Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy()
   for (const filter of ['needs-you', 'active', 'up-next', 'all'] as const) {
     act(() => f.full.setFilter(filter))
-    expect(
-      f.ui.getByTestId('flight-full-coordinator').querySelectorAll('[data-flight-session]'),
-    ).toHaveLength(2)
+    expect(seats()).toEqual({ coordinator: ['coord'], helpers: ['helper'] })
     expect(
       f.ui.container.querySelectorAll('[data-flight-session][data-selected="true"]'),
     ).toHaveLength(1)
@@ -532,21 +573,19 @@ it('keeps coordinator and helpers visible above the groups through filters, sear
     f.screen.setQuery('no-match')
     f.full.foldAll()
   })
-  expect(
-    f.ui.getByTestId('flight-full-coordinator').querySelectorAll('[data-flight-session]'),
-  ).toHaveLength(2)
+  expect(seats()).toEqual({ coordinator: ['coord'], helpers: ['helper'] })
   expect(f.ui.container.querySelector('[data-flight-issue="task"]')).toBeNull()
 })
 
 it('uses the existing loading placeholder until the coordinator roster settles', async () => {
   const f = coldMissionRowFixture()
   const screen = new MissionScreen(f.pool, 'cold-task')
-  screen.open()
   try {
     const actions = {
       full: screen.full,
       activeSessionId: 'cold-agent-0',
       renameTarget: null,
+      onOpenTask: vi.fn(),
       onSelectSession: vi.fn(),
       onMenu: vi.fn(),
       onStatusPick: vi.fn(),

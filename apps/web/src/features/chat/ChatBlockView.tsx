@@ -1,31 +1,47 @@
 import {
   formatChurn,
+  formatTokens,
   isImagePath,
   isInteractiveTool,
+  isInterviewQuestion,
   MACHINE_CONTEXT_RE,
+  messageAttachmentText,
   mcpLabel,
   parseEnvelopeBatch,
   type TranscriptAttribution,
 } from '@podium/client-core/values'
+import { codexQuestionReplyText } from '@podium/harness/browser'
 import { machinePathBasename, resolveMachinePath } from '@podium/model'
-import type { SessionId } from '@podium/model/browser'
-import { Clock, FileText, Image as ImageIcon, MessageCircleQuestion } from 'lucide-react'
+import type { SessionId, TranscriptItem } from '@podium/model/browser'
+import { observer } from 'mobx-react-lite'
+import {
+  ChevronRight,
+  Clock,
+  FilePen,
+  FileText,
+  Layers2,
+  MessageCircleQuestion,
+} from 'lucide-react'
 import type { JSX, MouseEvent as ReactMouseEvent, ReactNode } from 'react'
-import { memo, useCallback, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useId, useMemo, useRef, useState } from 'react'
 import { assetUrl } from '@/lib/asset-url'
 import { renderMarkdown, sanitizeRenderedMarkdown } from '@/lib/markdown'
+import type { QuoteInput } from '@/lib/quote/quote-sinks'
 import { useKnownRefPrefixesVersion } from '@/lib/use-known-ref-prefixes'
 import { cn } from '@/lib/utils'
 import { AskUserQuestionCard } from './AskUserQuestionCard'
 import { AttributionMark } from './AttributionMark'
+import { ChatUploadThumb, ItemAttachments, stagedAttachmentId } from './ChatUploadThumb'
 import type { ChatBlock } from './chat'
 import { handleChatMdClick } from './chat-md-click'
 import { MachineContextRow } from './MachineContextRow'
+import { InboxReadRow, SentNoteRow } from './MailCommandRow'
 import { MessageEnvelopeGroup } from './MessageEnvelopeGroup'
 import { MetaGlyph } from './MetaGlyph'
-import { SendUserFileBlock, SentImageThumb } from './SendUserFileBlock'
+import { SendUserFileBlock } from './SendUserFileBlock'
 import { ToolBlock } from './ToolBlock'
 import { clockLabel, fullTimeLabel, parseTs } from './transcript-time'
+import { useChatItemMessage } from './use-chat-context'
 
 /** A row's place in its exchange (POD-376). `open` puts the air of a turn
  *  boundary in front of the row; `bind` pulls machine activity up under the
@@ -83,12 +99,15 @@ const COPY_ACK_MS = 1400
 function MessageActions({
   text,
   onQuote,
+  quoteSource,
   ts,
   side,
   children,
 }: {
   text: string
-  onQuote?: ((markdown: string) => void) | undefined
+  onQuote?: ((quote: QuoteInput) => void) | undefined
+  /** What the quote button says this message is (see `quoteSourceLabel`). */
+  quoteSource?: string | undefined
   /** The row's own instant. Every voice now carries one here — see the foot's
    *  note below for why the clock left the label rows. */
   ts?: string | undefined
@@ -111,8 +130,8 @@ function MessageActions({
     })
   }, [text])
   const quote = useCallback(() => {
-    onQuote?.(`${text.trim().replace(/^/gm, '> ')}\n\n`)
-  }, [text, onQuote])
+    onQuote?.({ text: text.trim(), source: quoteSource ?? 'a message' })
+  }, [text, onQuote, quoteSource])
   const empty = !text.trim()
   if (empty && !children && !ts) return null
   return (
@@ -137,8 +156,8 @@ function MessageActions({
               type="button"
               className="msg-action"
               onClick={quote}
-              title="Quote in composer"
-              aria-label="Quote in composer"
+              title="Add to chat"
+              aria-label="Add to chat"
             >
               <MetaGlyph name="quote" />
             </button>
@@ -161,6 +180,16 @@ function MessageActions({
  * reader who needs more should not have to leave the row to get it. Absent or
  * unparseable ts → nothing, never a fabricated time.
  */
+/**
+ * How a quote from this message names its origin to the agent (POD-2057). The
+ * prompt is written by the operator, so "my" is theirs and "your" is the agent's.
+ */
+function quoteSourceLabel(isUser: boolean, ts: string | undefined): string {
+  const d = parseTs(ts)
+  const who = isUser ? 'my message' : 'your reply'
+  return d ? `${who}, ${clockLabel(d)}` : who
+}
+
 function BlockClock({ ts }: { ts?: string | undefined }): JSX.Element | null {
   const d = parseTs(ts)
   if (!d || !ts) return null
@@ -199,7 +228,7 @@ function PromptBubble({ children }: { children: ReactNode }): JSX.Element {
  * `memo` make the message body update only when its own content or link-routing
  * context actually changes.
  */
-const StableMarkdown = memo(function StableMarkdown({
+export const StableMarkdown = memo(function StableMarkdown({
   html,
   className = 'chat-md',
   sessionId,
@@ -228,12 +257,125 @@ const StableMarkdown = memo(function StableMarkdown({
   )
 })
 
+/** What the note's head says beside "Context compacted": how it was started
+ *  and how far it shrank the context, when the harness recorded either. */
+function compactionDetail(item: TranscriptItem): string {
+  const meta = item.compaction
+  const parts: string[] = []
+  if (meta?.idle) parts.push('while idle')
+  else if (meta?.trigger === 'manual') parts.push('on request')
+  if (meta?.preTokens !== undefined && meta.postTokens !== undefined)
+    parts.push(`${formatTokens(meta.preTokens)} → ${formatTokens(meta.postTokens)} tokens`)
+  return parts.join(' · ')
+}
+
+/** Compaction is background context. Keep the summary readable on request and
+ * expose it automatically when search lands inside it. One note stands for the
+ * whole compaction: Claude's boundary and idle notice fold into it upstream. */
+function CompactionNote({
+  item,
+  cls,
+  index,
+  highlighted,
+  sessionId,
+  cwd,
+  openFile,
+  markdownHtml,
+  onQuote,
+}: {
+  item: TranscriptItem
+  cls: string
+  index: number
+  highlighted: boolean
+  sessionId: SessionId
+  cwd: string
+  openFile: (sessionId: SessionId, path: string) => void
+  markdownHtml?: ReadonlyMap<string, string> | undefined
+  onQuote?: ((quote: QuoteInput) => void) | undefined
+}): JSX.Element {
+  const [expanded, setExpanded] = useState(false)
+  const hasSummary = item.text.trim() !== ''
+  const open = hasSummary && (expanded || highlighted)
+  const detail = compactionDetail(item)
+  const bodyId = useId()
+  const refPrefixesVersion = useKnownRefPrefixesVersion()
+  const unsafeHtml = markdownHtml?.get(item.text)
+  // biome-ignore lint/correctness/useExhaustiveDependencies: prefix registration changes reference links.
+  const html = useMemo(() => {
+    if (!open) return ''
+    return unsafeHtml === undefined
+      ? renderMarkdown(item.text)
+      : sanitizeRenderedMarkdown(unsafeHtml)
+  }, [open, unsafeHtml, item.text, refPrefixesVersion])
+  return (
+    <div className={cls} data-block={index} data-row-key={item.id} data-system-kind="compaction">
+      <div className="transcript-rail transcript-rail--none" aria-hidden="true" />
+      <div className="transcript-body compaction-note">
+        {hasSummary ? (
+          <button
+            type="button"
+            className="compaction-note-head"
+            aria-expanded={open}
+            aria-controls={bodyId}
+            onClick={() => setExpanded((value) => !value)}
+          >
+            <Layers2 size={13} strokeWidth={1.5} aria-hidden="true" />
+            <span className="compaction-note-label">Context compacted</span>
+            {detail && (
+              <span className="compaction-note-detail" title={item.compaction?.notice}>
+                {detail}
+              </span>
+            )}
+            <span className="compaction-note-action">{open ? 'Hide summary' : 'Show summary'}</span>
+            <ChevronRight
+              className="compaction-note-chevron"
+              size={12}
+              strokeWidth={1.5}
+              aria-hidden="true"
+            />
+            <span className="compaction-note-rule" aria-hidden="true" />
+            <BlockClock ts={item.ts} />
+          </button>
+        ) : (
+          // The boundary arrives a moment before its summary; until then (or
+          // when the summary sits outside the loaded window) there is nothing
+          // to disclose.
+          <div className="compaction-note-head compaction-note-head--static">
+            <Layers2 size={13} strokeWidth={1.5} aria-hidden="true" />
+            <span className="compaction-note-label">Context compacted</span>
+            {detail && (
+              <span className="compaction-note-detail" title={item.compaction?.notice}>
+                {detail}
+              </span>
+            )}
+            <span className="compaction-note-rule" aria-hidden="true" />
+            <BlockClock ts={item.ts} />
+          </div>
+        )}
+        <div id={bodyId} hidden={!open} className="compaction-note-body">
+          {open && (
+            <>
+              <StableMarkdown html={html} sessionId={sessionId} cwd={cwd} openFile={openFile} />
+              <MessageActions
+                text={item.text}
+                onQuote={onQuote}
+                quoteSource="the context compaction summary"
+                side="left"
+              />
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // Memoized: ChatView re-renders on every search keystroke, every 700ms
 // transcript poll, and every session-state change in the store. Block identity
 // is stable across renders that don't change `items` (the compute client reuses
 // its indexed graph), so memo skips the expensive markdown re-render for
 // unaffected rows.
-export const ChatBlockView = memo(function ChatBlockView({
+export const ChatBlockView = observer(function ChatBlockView({
   block,
   index,
   highlighted,
@@ -296,11 +438,14 @@ export const ChatBlockView = memo(function ChatBlockView({
    *  its one-shot arrival. See `useFeedArrivals`. */
   arrived?: boolean
   /** Quote this message into the composer. Absent → no Quote action. */
-  onQuote?: ((markdown: string) => void) | undefined
+  onQuote?: ((quote: QuoteInput) => void) | undefined
   /** Unsafe HTML produced off-thread; sanitation and link policy stay here. */
   markdownHtml?: ReadonlyMap<string, string>
 }): JSX.Element | null {
   const { item } = block
+  const message = useChatItemMessage(sessionId, item.role === 'user' ? item.id : undefined)
+  const attachmentText = messageAttachmentText(item, message)
+  const attachments = message?.attachments ?? []
   // Delivered-message envelope (#237) [spec:SP-34d7 web]: an inter-agent /
   // superagent / system message reaches the harness as a server-rendered frame
   // in a "user" turn — render it as a distinct framed block, never a "You"
@@ -310,6 +455,10 @@ export const ChatBlockView = memo(function ChatBlockView({
     () => (item.role === 'user' ? parseEnvelopeBatch(item.text) : null),
     [item.role, item.text],
   )
+  // The agent's own mail (POD-2146), as the compute path read it: a send or
+  // reply that went out is a note, an inbox read a quiet line. A mail call that
+  // failed carries no `mail` and stays its tool row.
+  const { mail } = block
   // Compact answers ending in a "→ next: …" line render it as a mono amber row
   // of its own (mock S1), not markdown prose.
   const nextSplit = useMemo(() => {
@@ -320,10 +469,16 @@ export const ChatBlockView = memo(function ChatBlockView({
       ? { body: lines.slice(0, -1).join('\n'), next: last.replace(/^->\s*/, '→ ') }
       : null
   }, [compact, item.role, item.answer, item.text])
-  const displayText = envelopeBatch?.operatorText || nextSplit?.body || item.text
+  const displayText =
+    envelopeBatch?.operatorText ||
+    nextSplit?.body ||
+    (item.role === 'user' ? codexQuestionReplyText(item.text) : undefined) ||
+    attachmentText
   const refPrefixesVersion = useKnownRefPrefixesVersion()
   // biome-ignore lint/correctness/useExhaustiveDependencies: refPrefixesVersion is a deliberate recompute trigger — linkifyRefs reads the prefix registry.
   const html = useMemo(() => {
+    // A summary can be many pages. Its disclosure renders markdown only on open.
+    if (item.role === 'system' && item.systemKind === 'compaction') return ''
     const unsafeHtml = markdownHtml?.get(displayText)
     return unsafeHtml === undefined
       ? renderMarkdown(displayText)
@@ -334,7 +489,7 @@ export const ChatBlockView = memo(function ChatBlockView({
     // fleet state: it changes when a repo prefix appears, and a row rendered
     // before the registry arrived has no ref links until it re-renders
     // (POD-4966).
-  }, [displayText, markdownHtml, refPrefixesVersion])
+  }, [displayText, markdownHtml, refPrefixesVersion, item.role, item.systemKind])
   // Envelopes render as rows AHEAD of this block's own row (a provider turn can
   // deliver several frames before the operator's text), so when they exist they
   // are what opens the exchange and the body row binds to them.
@@ -368,10 +523,25 @@ export const ChatBlockView = memo(function ChatBlockView({
   if (collapseContext && item.role === 'user' && MACHINE_CONTEXT_RE.test(item.text))
     return <MachineContextRow item={item} cls={rowClass} index={index} />
 
-  if (item.role === 'tool' && item.toolName === 'AskUserQuestion' && item.toolInputJson)
+  if (item.role === 'system' && item.systemKind === 'compaction')
+    return (
+      <CompactionNote
+        item={item}
+        cls={rowClass}
+        index={index}
+        highlighted={highlighted}
+        sessionId={sessionId}
+        cwd={cwd}
+        openFile={openFile}
+        markdownHtml={markdownHtml}
+        onQuote={onQuote}
+      />
+    )
+
+  if (isInterviewQuestion(item))
     return (
       <AskUserQuestionCard
-        key={askLivePending ? answerInteractionId : item.id}
+        key={askLivePending ? `${item.id}:${answerInteractionId ?? ''}` : item.id}
         interactionId={askLivePending ? answerInteractionId : undefined}
         block={block}
         cls={rowClass}
@@ -428,6 +598,47 @@ export const ChatBlockView = memo(function ChatBlockView({
         <span className="h-px flex-1 bg-border/60" />
       </div>
     )
+  // A file the agent had read changed under it from outside its own tool calls
+  // (POD-2179): one quiet line that opens the file.
+  if (item.role === 'system' && item.systemKind === 'file-changed') {
+    const path = item.toolPaths?.[0]
+    const stamp = parseTs(item.ts)
+    return (
+      <div
+        className={cn(nonStickyRowClass, turnClass(turn))}
+        data-block={index}
+        data-row-key={item.id}
+        data-testid="file-changed"
+      >
+        <div className="transcript-rail transcript-rail--none" aria-hidden="true" />
+        <div className="transcript-body">
+          <div className="work-line">
+            <button
+              data-pressable
+              type="button"
+              className="file-change-row"
+              title={path ? `Open ${path}` : undefined}
+              disabled={!path}
+              onClick={() => {
+                if (path) openFile(sessionId, resolveMachinePath(cwd, path))
+              }}
+            >
+              <FilePen size={13} strokeWidth={1.5} aria-hidden="true" />
+              <span className="file-change-label">
+                Changed on disk · {path ? machinePathBasename(path, cwd) : 'a file'}
+              </span>
+              {stamp && (
+                <time className="file-change-time" dateTime={item.ts} title={fullTimeLabel(stamp)}>
+                  · {clockLabel(stamp)}
+                </time>
+              )}
+              <span className="file-change-rule" aria-hidden="true" />
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
   // A call that ADDRESSED THE HUMAN but carries no structured input to build a
   // card from (POD-376). Claude and Grok fill `toolInputJson` when they can;
   // on a Codex / MCP session this is every interview the agent ever ran — and
@@ -459,6 +670,31 @@ export const ChatBlockView = memo(function ChatBlockView({
       </div>
     )
   }
+  if (mail?.op === 'note')
+    return (
+      <SentNoteRow
+        note={mail}
+        fallbackId={item.id}
+        className={cn(nonStickyRowClass, turnClass(turn))}
+        blockIndex={index}
+        ts={item.ts}
+        onBodyClick={(e: ReactMouseEvent) => {
+          handleChatMdClick(e, sessionId, cwd, openFile)
+        }}
+        forceOpen={highlighted}
+      />
+    )
+  if (mail?.op === 'inbox')
+    return (
+      <InboxReadRow
+        notes={mail.notes}
+        result={block.result ?? item.toolResult}
+        className={cn(nonStickyRowClass, turnClass(turn))}
+        blockIndex={index}
+        rowKey={item.id}
+        ts={item.ts}
+      />
+    )
   // Ordinary tool calls render inside a collapsed ToolBatchView, so they don't
   // reach here. Anything else stray shows as a lone quiet tool row.
   if (item.role === 'tool')
@@ -466,7 +702,6 @@ export const ChatBlockView = memo(function ChatBlockView({
       <div className={rowClass} data-block={index} data-row-key={item.id}>
         <div className="transcript-rail transcript-rail--none" aria-hidden="true" />
         <div className="transcript-body py-0.5">
-          {process === 'start' && <div className="transcript-process-label">Process</div>}
           <ToolBlock block={block} sessionId={sessionId} cwd={cwd} openFile={openFile} />
         </div>
       </div>
@@ -521,6 +756,7 @@ export const ChatBlockView = memo(function ChatBlockView({
   // than permanent signal colour — yellow is reserved for a request to act.
   const isUser = item.role === 'user'
   const isAnswer = item.role === 'assistant' && !!item.answer
+  const quoteSource = quoteSourceLabel(isUser, item.ts)
 
   const turnBody = (
     <>
@@ -531,7 +767,9 @@ export const ChatBlockView = memo(function ChatBlockView({
         files (artifacts, docs) as openable chips — instead of anonymous
         "image"/"file" tag chips. Tags without a resolvable path (older
         transcripts) keep the labelled chip. */}
-      {((item.toolPaths?.length ?? 0) > 0 || (item.tags?.length ?? 0) > 0) && (
+      {((item.toolPaths?.length ?? 0) > 0 ||
+        (item.tags?.length ?? 0) > 0 ||
+        attachments.length > 0) && (
         <div className="mt-1.5 flex flex-wrap items-start gap-2">
           {(item.toolPaths ?? []).map((p) => {
             const abs = resolveMachinePath(cwd, p)
@@ -552,35 +790,32 @@ export const ChatBlockView = memo(function ChatBlockView({
                 {name}
               </button>
             )
-            if (isImagePath(p)) {
-              const url = assetUrl({ httpOrigin, sessionId, fileDir: cwd, src: abs })
-              if (url)
-                return (
-                  <SentImageThumb
-                    key={p}
-                    url={url}
-                    name={name}
-                    onOpen={() => onOpenImage(url)}
-                    fallback={chip}
-                  />
-                )
-            }
+            if (isImagePath(p))
+              return (
+                <ChatUploadThumb
+                  key={p}
+                  sessionId={sessionId}
+                  attachmentId={stagedAttachmentId(abs)}
+                  fallbackUrl={assetUrl({ httpOrigin, sessionId, fileDir: cwd, src: abs })}
+                  name={name}
+                  httpOrigin={httpOrigin}
+                  onOpenImage={onOpenImage}
+                  fallback={chip}
+                />
+              )
             return chip
           })}
-          {(item.toolPaths?.length ?? 0) === 0 &&
-            item.tags?.map((tag, i) => (
-              <span
-                key={`${tag.kind}-${i}`}
-                className="inline-flex items-center gap-1 rounded border border-input px-[7px] py-0.5 text-[11px] text-muted-foreground"
-              >
-                {tag.kind === 'image' ? (
-                  <ImageIcon size={12} aria-hidden="true" />
-                ) : (
-                  <FileText size={12} aria-hidden="true" />
-                )}
-                {tag.label ?? tag.kind}
-              </span>
-            ))}
+          <ItemAttachments
+            sessionId={sessionId}
+            attachments={attachments.filter(
+              (attachment) =>
+                !attachment.id ||
+                !item.toolPaths?.some((path) => stagedAttachmentId(path) === attachment.id),
+            )}
+            tags={(item.toolPaths?.length ?? 0) === 0 ? (item.tags ?? []) : []}
+            httpOrigin={httpOrigin}
+            onOpenImage={onOpenImage}
+          />
         </div>
       )}
     </>
@@ -607,25 +842,21 @@ export const ChatBlockView = memo(function ChatBlockView({
             isUser && 'transcript-you',
             isAnswer && 'transcript-answer',
           )}
+          data-quote-source={quoteSource}
         >
-          {process === 'start' && <div className="transcript-process-label">Process</div>}
           {item.role === 'system' && (
             <div className="transcript-header">
               <span className="transcript-role transcript-role--system">System</span>
             </div>
           )}
-          {/* THE ONE SURVIVING IDENTIFIER (POD-993). Every other voice label is
-              gone — the human's side says who they are, and narration needs no
-              name — but the ANSWER is a different kind of row: it is where the
-              turn lands, and a reader scanning back through a long session is
-              looking for exactly this. It keeps its eyebrow; its time went to
-              the foot with everyone else's. */}
-          {isAnswer && (
+          {/* NO ANSWER EYEBROW IN THE STAGE (POD-2076). The answer stands out by
+              ink alone — narration above it is muted and smaller. The narrow
+              superagent dock keeps its voice label and context ref: there the
+              answer shares a column with the thread's own chrome. */}
+          {isAnswer && compact && (
             <div className="transcript-answer-label">
-              {compact ? 'Super agent' : 'Answer'}
-              {compact && ctxSeq !== null && (
-                <span className="chat-ctx">· POD-{ctxSeq} context</span>
-              )}
+              Super agent
+              {ctxSeq !== null && <span className="chat-ctx">· POD-{ctxSeq} context</span>}
             </div>
           )}
           {/* THE OPERATOR'S TURN IS A CHAT ENTRY (POD-993). It reads right, in
@@ -643,6 +874,7 @@ export const ChatBlockView = memo(function ChatBlockView({
           <MessageActions
             text={displayText}
             onQuote={onQuote}
+            quoteSource={quoteSource}
             ts={item.ts}
             side={isUser ? 'right' : 'left'}
           >

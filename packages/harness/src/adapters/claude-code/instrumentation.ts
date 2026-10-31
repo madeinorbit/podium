@@ -41,7 +41,7 @@ export function claudeHookSettings(endpointUrl: string, opts?: { seedTheme?: boo
   return JSON.stringify(
     {
       // theme:auto makes Claude Code query the terminal background (OSC 11 —
-      // xterm answers from its live, issue-tinted theme) instead of assuming a
+      // xterm answers from its current theme) instead of assuming a
       // scheme. Per-session --settings only; the user's global config is never
       // touched, and with seeding off the key is absent entirely [spec:SP-a04d].
       ...(opts?.seedTheme ? { theme: 'auto' } : {}),

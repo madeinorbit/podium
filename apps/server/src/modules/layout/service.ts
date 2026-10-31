@@ -20,7 +20,7 @@ export interface LayoutServiceDeps {
    * and delta share one log. Optional only for pure unit tests of storage;
    * production always wires it.
    */
-  readonly ledger?: Pick<Ledger, 'capture'>
+  readonly ledger?: Pick<Ledger, 'capture' | 'reconcile'>
 }
 
 export class LayoutService {
@@ -88,9 +88,16 @@ export class LayoutService {
    * Boot reconcile: every durable layout row becomes a positive upsert on the
    * log so a reconnecting principal's bootstrap sees them without a second path.
    */
-  reconcileAllToLedger(): void {
-    // Full-table read is only for boot. Repository has no all(); use the store
-    // SQL via a dedicated path when wired — for now capture is driven by writes.
+  async reconcileAllToLedger(): Promise<void> {
+    if (!this.deps.ledger) return
+    // Reconcile needs the full entity truth: limiting this to migrated tip keys
+    // would remove every other layout entry from the feed. It also deduplicates
+    // unchanged rows, so restarting does not append a second set of seed events.
+    const rows = await this.deps.layout.allForBootReconcile()
+    await this.deps.ledger.reconcile(
+      'userLayout',
+      rows.map((value) => ({ id: layoutRowId(value.userId, value.key), value })),
+    )
   }
 
   private async publish(

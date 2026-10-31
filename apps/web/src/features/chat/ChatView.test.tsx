@@ -139,7 +139,6 @@ vi.mock('@/app/store', () => {
     setPanelMode: storeActions.setPanelMode,
     openFile: vi.fn(),
     httpOrigin: 'http://x',
-    tldrSession: vi.fn(),
     uiState: fakeUiState,
   })
   // The selector-store hook reads slices off the same store shape.
@@ -166,7 +165,27 @@ vi.mock('@/lib/markdown-references', () => ({
   subscribeKnownRefPrefixes: () => () => {},
 }))
 
+// Counts composer draws without changing them: the ask-anything regression
+// below holds an agent-state publication that keeps the phase to none.
+const composerRenders = vi.hoisted(() => vi.fn())
+vi.mock('./ChatComposer', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./ChatComposer')>()
+  const { createElement } = await import('react')
+  return {
+    ...actual,
+    ChatComposer: (props: Parameters<typeof actual.ChatComposer>[0]) => {
+      composerRenders()
+      return createElement(actual.ChatComposer, props)
+    },
+  }
+})
+
 const { ChatView } = await import('./ChatView')
+const { ASK_ANYTHING_EXAMPLES } = await import('./ask-anything-tip')
+const { MemoryTipLog } = await import('@/features/tips/memory-tip-log')
+const { TipContext } = await import('@/features/tips/tip-context')
+const { TipEngine } = await import('@/features/tips/tip-engine')
+const { publishScreenPoolFixture } = await import('@/test-support/mock-screen-pool')
 
 function meta(over: Partial<SessionMetaInput>): SessionMeta {
   return {
@@ -588,7 +607,7 @@ This is agent mail, not the operator's latest prompt.
     expect(container.querySelector('[data-testid="sticky-user-message"]')).toBeNull()
 
     const mailRow = [...container.querySelectorAll<HTMLElement>('.transcript-row')].find((el) =>
-      el.textContent?.includes('1 note from Podium'),
+      el.querySelector('.mail-group') !== null,
     )
     expect(mailRow).toBeDefined()
     expect(mailRow?.dataset.operatorPrompt).toBeUndefined()
@@ -1526,5 +1545,73 @@ describe('ChatView sending into a hibernated session', () => {
     await flush()
     // Confirmed, and its history entry not on screen yet: still one bubble.
     expect(container.querySelectorAll('.transcript-pending')).toHaveLength(1)
+  })
+})
+
+describe('ChatView ask-anything tip (POD-2222)', () => {
+  async function mountWithTips(over: Partial<SessionMetaInput> = {}) {
+    storeSessions = [meta(over)]
+    const engine = new TipEngine(new MemoryTipLog(), () => true)
+    const disconnect = engine.connect()
+    act(() =>
+      root.render(
+        <TipContext.Provider value={engine}>
+          <ChatView sessionId={asSessionId('s1')} />
+        </TipContext.Provider>,
+      ),
+    )
+    await act(async () => reads[0]?.resolve({ items: [], hasMore: false }))
+    await flush()
+    return { engine, disconnect }
+  }
+
+  it('appends a chip example to the draft typed after the card opened', async () => {
+    const { engine, disconnect } = await mountWithTips()
+    await act(async () => {
+      engine.replay('ask-anything')
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+    expect(engine.current?.registration.id).toBe('ask-anything')
+    const textarea = container.querySelector('textarea')
+    if (!textarea) throw new Error('chat composer missing')
+    // Typed while the card stays open.
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set?.call(
+        textarea,
+        'a paragraph typed after the tip opened',
+      )
+      textarea.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    expect(textarea.value).toBe('a paragraph typed after the tip opened')
+    const card = document.createElement('div')
+    document.body.appendChild(card)
+    const cardRoot = createRoot(card)
+    act(() => cardRoot.render(engine.current?.card.extra))
+    const chip = [...card.querySelectorAll('button')].find((b) => b.textContent === ASK_ANYTHING_EXAMPLES[0])
+    act(() => chip?.click())
+    expect(textarea.value).toBe(`a paragraph typed after the tip opened\n${ASK_ANYTHING_EXAMPLES[0]}`)
+    act(() => cardRoot.unmount())
+    card.remove()
+    disconnect()
+  })
+
+  it('does not redraw the composer for an agent-state publication that keeps the phase', async () => {
+    const since = '2026-06-03T00:00:01.000Z'
+    const publish = async (agentState: object) => {
+      composerRenders.mockClear()
+      storeSessions = [meta({ agentState: agentState as never })]
+      act(() => publishScreenPoolFixture())
+      await flush()
+      return composerRenders.mock.calls.length
+    }
+    const { disconnect } = await mountWithTips({
+      agentState: { phase: 'working', since, workingMsTotal: 10 } as never,
+    })
+    // The hand-mock store wakes the whole chat on any publish; that is the floor.
+    const floor = await publish({ phase: 'working', since, workingMsTotal: 10 })
+    expect(await publish({ phase: 'working', since, workingMsTotal: 2_000 })).toBe(floor)
+    // Control: a phase change does reach the composer.
+    expect(await publish({ phase: 'idle', since, workingMsTotal: 2_000 })).toBeGreaterThan(floor)
+    disconnect()
   })
 })

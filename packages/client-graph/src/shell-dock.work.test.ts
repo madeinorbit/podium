@@ -131,11 +131,6 @@ it('bounds dock and shipping reader work at 1x/4x candidate, worktree and order 
       expect(output).toHaveLength(before)
       expect(row).not.toHaveBeenCalled()
       expect(indexed.mock.calls.some(([question]) => question.kind === 'containingIssues')).toBe(false)
-      // Catalogues are acquired only by an explicitly opened queue/shipping panel.
-      expect(dockSnapshot(views)).toMatchObject({ issues: [], shipOrders: [], shipLanes: [] })
-      const catalog = dockSnapshot(views, true)
-      expect(catalog && catalog !== LOADING ? catalog.shipOrders.length : 0).toBe(f.count + 4)
-      expect(catalog && catalog !== LOADING ? catalog.shipLanes : []).toEqual(f.shipLanes)
       samples.push({ scale, cold: cold.work, observed: observed.work, pane: pane.work,
         order: order.work, repo: repo.work, issue: issue.work, unrelated: unrelated.work })
     } finally {

@@ -66,6 +66,8 @@ const DRAFT_TITLE = 'Draft'
 /** A repo row as the feed spells it (a root lane, or the raw replicated row). */
 export interface RepoRow {
   readonly prefix?: string | null
+  /** The repo's base branch [POD-2065]; absent defers to the instance default. */
+  readonly defaultParentBranch?: string | null
 }
 
 /**

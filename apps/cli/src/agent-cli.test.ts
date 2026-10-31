@@ -124,6 +124,30 @@ describe('podium agent spawn', () => {
     expect(out).toContain('podium agent await child1')
   })
 
+  it('[POD-2062] shows how much of the per-issue spawn budget is used', async () => {
+    const c = client({
+      spawnAgent: {
+        ok: true,
+        sessionId: 'child1',
+        issueId: 'iss_a',
+        issueSeq: 336,
+        cwd: '/wt/a',
+        agentId: 'child1',
+        harness: 'claude-code',
+        model: null,
+        effort: null,
+        machine: null,
+        spawnBudget: { used: 8, limit: 10 },
+      },
+    })
+    const out = await runAgentCli(['spawn', '--issue', '#336', '--prompt', 'research'], c)
+    expect(out).toContain('budget: spawn 8/10 today on #336')
+    // Operator spawns carry no budget and print no line.
+    expect(
+      await runAgentCli(['spawn', '--issue', '#228', '--prompt', 'x'], client()),
+    ).not.toContain('budget:')
+  })
+
   it('[POD-6107] --profile names an agent profile for the spawn', async () => {
     const c = client()
     await runAgentCli(

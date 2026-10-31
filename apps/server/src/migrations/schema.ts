@@ -503,6 +503,8 @@ export const settingsAuditEvents = sqliteTable(
 export const repoPrefixes = sqliteTable('repo_prefixes', {
   repoId: text('repo_id').$type<RepoId>().primaryKey(),
   prefix: text().notNull().unique(),
+  // The repo's base branch [POD-2065]; NULL defers to the instance default.
+  defaultParentBranch: text('default_parent_branch'),
 })
 
 export const issueRefLetters = sqliteTable('issue_ref_letters', {
@@ -1391,7 +1393,7 @@ export const notificationFacts = sqliteTable(
 /**
  * The label vocabulary (POD-6106, flight deck v6 D3). One row per label; names
  * are unique ignoring case, so `Bug` and `bug` are the same label and the first
- * spelling stays. `color` is an issue colour SLOT name, never a hex. The id is
+ * spelling stays. `color` is a label palette slot name, never a hex. The id is
  * server-local: the wire names a label by its name.
  */
 export const labels = sqliteTable(
@@ -1558,7 +1560,6 @@ export const issues = sqliteTable(
      *  One key space per sibling scope (project-group top level, a parent's
      *  children, PINNED); null = legacy row, sorts after keyed rows. */
     sortKey: text('sort_key'),
-    color: text(),
     estimateMin: integer('estimate_min'),
     needsHuman: integer('needs_human', { mode: 'boolean' }).default(sql`0`).notNull(),
     humanQuestion: text('human_question'),

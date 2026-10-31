@@ -1,7 +1,7 @@
 import { asMachineId } from '@podium/model'
 import { MODEL_CATALOG_MAX_AGE_MS } from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
-import { MODEL_CATALOG_VERSION, ModelCatalog } from './model-catalog'
+import { MODEL_CATALOG_VERSION, ModelCatalog, type ModelProbe } from './model-catalog'
 
 describe('ModelCatalog (stale-while-revalidate, machine-keyed)', () => {
   const M = 'machine-a'
@@ -98,6 +98,83 @@ describe('ModelCatalog (stale-while-revalidate, machine-keyed)', () => {
     ok = false
     await cat.refresh(asMachineId(M))
     expect((await cat.get(asMachineId(M))).byAgent.grok?.[0]?.value).toBe('g')
+  })
+
+  it('retains omitted agents and their efforts while refreshing reported agents', async () => {
+    let t = 1
+    const claude = [
+      { value: 'claude-sonnet-5', label: 'Claude Sonnet 5', efforts: ['low', 'high'] },
+    ]
+    const grok = [{ value: 'grok-4.5', label: 'Grok 4.5' }]
+    const codex = [{ value: 'gpt-5.5', label: 'GPT-5.5', efforts: ['low', 'xhigh'] }]
+    const probe = vi
+      .fn<ModelProbe>()
+      .mockResolvedValue({})
+      .mockResolvedValueOnce({
+        'claude-code': claude,
+        grok,
+        codex: [{ value: 'gpt-5.4', label: 'GPT-5.4' }],
+      })
+      .mockResolvedValueOnce({ codex })
+    const save = vi.fn()
+    const cat = new ModelCatalog(probe, { now: () => t, save })
+
+    await cat.refresh(asMachineId(M))
+    t = 42
+    await cat.refresh(asMachineId(M))
+
+    const snapshot = cat.get(asMachineId(M))
+    expect(snapshot.byAgent).toEqual({ 'claude-code': claude, grok, codex })
+    expect(snapshot.fetchedAt).toBe(42)
+    expect(save).toHaveBeenLastCalledWith(snapshot)
+
+    await cat.refresh(asMachineId(M2))
+    expect(cat.get(asMachineId(M2)).byAgent).toEqual({})
+  })
+
+  it('replaces cached models with a reported empty list', async () => {
+    const probe = vi
+      .fn<ModelProbe>()
+      .mockResolvedValueOnce({
+        'claude-code': [{ value: 'claude-sonnet-5', label: 'Claude Sonnet 5' }],
+      })
+      .mockResolvedValueOnce({ 'claude-code': [] })
+    const cat = new ModelCatalog(probe, { now: () => 1 })
+
+    await cat.refresh(asMachineId(M))
+    await cat.refresh(asMachineId(M))
+
+    expect(cat.get(asMachineId(M)).byAgent).toEqual({ 'claude-code': [] })
+  })
+
+  it('retains persisted models when the first stale refresh omits their agent', async () => {
+    const claude = [
+      { value: 'claude-sonnet-5', label: 'Claude Sonnet 5', efforts: ['low', 'high'] },
+    ]
+    const codex = [{ value: 'gpt-5.5', label: 'GPT-5.5' }]
+    const save = vi.fn()
+    const cat = new ModelCatalog(async () => ({ codex }), {
+      now: () => 42,
+      ttlMs: 10,
+      load: () => ({
+        machineId: asMachineId(M),
+        byAgent: { 'claude-code': claude },
+        fetchedAt: 1,
+        version: MODEL_CATALOG_VERSION,
+      }),
+      save,
+    })
+
+    cat.get(asMachineId(M))
+    await cat.refresh(asMachineId(M))
+
+    expect(cat.get(asMachineId(M)).byAgent).toEqual({ 'claude-code': claude, codex })
+    expect(save).toHaveBeenCalledWith({
+      machineId: asMachineId(M),
+      byAgent: { 'claude-code': claude, codex },
+      fetchedAt: 42,
+      version: MODEL_CATALOG_VERSION,
+    })
   })
 
   it('dedups concurrent refreshes for the same machine into a single probe', async () => {

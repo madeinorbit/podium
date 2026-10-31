@@ -45,10 +45,10 @@
 
 import { type CommandDef, isExposedOn, sessionStateCommand } from '@podium/commands'
 import {
+  type AuthTarget,
   asIssueId,
   asMutationId,
   asSessionId,
-  type AuthTarget,
   authorize,
   type Capability,
   type IssueId,
@@ -58,7 +58,8 @@ import {
 import type { MutationLedgerPort } from '@podium/sync'
 import type { CommandPrincipal } from '../../../command-principal'
 import type { SessionLifecycle } from '../lifecycle'
-import { type SessionStatePrincipal, SessionStateService } from './service'
+import type { SessionStatePrincipal, SessionStateService } from './service'
+
 export type { SessionStatePrincipal } from './service'
 
 /**
@@ -295,7 +296,11 @@ const REGISTRATIONS: Record<string, Registration> = {
     // move is storage-only and needs no contract or wire change.
     target: ownPerUserSessionRow,
     handler: async (input, principal, deps) => {
-      await deps.state.markRead(principal, sessionIdOf(input.sessionId))
+      await deps.state.markRead(
+        principal,
+        sessionIdOf(input.sessionId),
+        input.readAt as string | undefined,
+      )
     },
   },
   'sessions.markUnread': {

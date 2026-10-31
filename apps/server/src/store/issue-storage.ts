@@ -66,9 +66,8 @@
  * PERSISTED format makes yesterday's data unreadable (unlike a too-strict test,
  * which only fails a build). So `stage` and `type` are CAST rather than parsed —
  * exactly as `toWire` cast them before this file existed, and the DDL's CHECK
- * constraints are what actually constrain them. `color` keeps its existing
- * tolerant guard and `panel` its existing tolerant parse. Quarantining a
- * genuinely corrupt row is `IssueStore.listIssueRows`' job (it already skips,
+ * constraints are what actually constrain them. `panel` keeps its existing
+ * tolerant parse. Quarantining a genuinely corrupt row is `IssueStore.listIssueRows`' job (it already skips,
  * logs and counts), not this mapper's.
  *
  * THE ONE KEY THAT DOES NOT ROUND-TRIP BY BYTES IS `panel`. It decodes through
@@ -84,7 +83,6 @@ import {
   IssuePanel,
   type IssueStage,
   type IssueType,
-  isIssueColorSlot,
   NeedsHuman,
   SessionIdField,
 } from '@podium/model'
@@ -214,6 +212,8 @@ export function fromStorage(row: IssueRow): StoredIssue {
     ...(row.suggestedStage ? { suggestedStage: row.suggestedStage as IssueStage } : {}),
     ...opt('closedReason', row.closedReason),
     ...opt('closedAt', row.closedAt),
+    ...opt('landedAt', row.landedAt),
+    ...opt('landedSha', row.landedSha),
     ...opt('deferUntil', row.deferUntil),
     archived: row.archived,
     ...opt('deletedAt', row.deletedAt),
@@ -228,9 +228,6 @@ export function fromStorage(row: IssueRow): StoredIssue {
     // settled the same question the same way before the merge.
     ...opt('assignee', row.assignee),
     ...(row.estimateMin != null ? { estimateMin: row.estimateMin } : {}),
-    // Guarded so a corrupt/unknown stored slot degrades to "no colour" rather
-    // than failing the issue [spec:SP-b4d1] — the behaviour `toWire` had.
-    ...(isIssueColorSlot(row.color) ? { color: row.color } : {}),
     ...opt('sortKey', row.sortKey),
     ...opt('dueAt', row.dueAt),
 
@@ -345,6 +342,8 @@ export function toStorage(
     suggestedStage: issue.suggestedStage ?? null,
     closedReason: issue.closedReason ?? null,
     closedAt: issue.closedAt ?? null,
+    landedAt: issue.landedAt ?? null,
+    landedSha: issue.landedSha ?? null,
     deferUntil: issue.deferUntil ?? null,
     archived: issue.archived,
     deletedAt: issue.deletedAt ?? null,
@@ -354,7 +353,6 @@ export function toStorage(
     type: issue.type,
     assignee: issue.assignee ?? null,
     estimateMin: issue.estimateMin ?? null,
-    color: issue.color ?? null,
     sortKey: issue.sortKey ?? null,
     dueAt: issue.dueAt ?? null,
 

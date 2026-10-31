@@ -1,12 +1,12 @@
-import { referenceView } from '@podium/client-graph/issue-reference'
 import { recordChipWork } from '@podium/client-core/perf'
 import { useStoreHandle } from '@podium/client-core/react'
 import type { IssueReferenceModel as IssueReferenceView } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph'
+import { referenceView } from '@podium/client-graph/issue-reference'
 import type { JSX } from 'react'
 import { memo, useCallback, useLayoutEffect } from 'react'
 import { useWorklistPoolProjection } from '@/app/store-worklist-pool'
-import { StageGlyph, UnknownRefGlyph } from '@/features/issues/issue-glyphs'
+import { StatusGlyph, UnknownRefGlyph } from '@/features/issues/issue-glyphs'
 import { cn } from '@/lib/utils'
 
 function unavailable(ref: string, loading = false): IssueReferenceView {
@@ -15,6 +15,7 @@ function unavailable(ref: string, loading = false): IssueReferenceView {
     issueId: null,
     title: null,
     stage: null,
+    status: null,
     availability: 'unavailable',
     accessibleLabel: `Task ${ref} is ${loading ? 'loading' : 'unavailable'}`,
   }
@@ -81,13 +82,15 @@ export function IssueReference({
       className={cn('inline-flex min-w-0 items-center gap-1.5', className)}
       data-issue-reference={model.ref}
       data-issue-stage={model.stage ?? undefined}
+      data-issue-status={model.status ?? undefined}
       data-issue-availability={model.availability}
       role="img"
       aria-label={model.accessibleLabel}
+      title={model.accessibleLabel}
     >
       <span className="flex-none" aria-hidden="true">
-        {model.stage ? (
-          <StageGlyph stage={model.stage} size={size} />
+        {model.status ? (
+          <StatusGlyph status={model.status} size={size} />
         ) : (
           <UnknownRefGlyph size={size} />
         )}

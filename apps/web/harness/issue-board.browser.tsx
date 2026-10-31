@@ -21,8 +21,6 @@ import { OperatorFocusProvider } from '../src/app/operator-focus'
 import { attachWorklistPool, useWorklistPool } from '../src/app/store-worklist-pool'
 import { ToolbarSlotProvider, ToolbarSlotTarget } from '../src/app/ToolbarSlot'
 import { TooltipProvider } from '../src/components/ui/tooltip'
-import { IssueExplorerProvider } from '../src/features/issues/explorer/explorer-context'
-import { IssueExplorerList } from '../src/features/issues/explorer/IssueExplorerList'
 import { IssuesView } from '../src/features/issues/IssuesView'
 import { ConfirmProvider } from '../src/lib/hooks/use-confirm'
 import { seedAcceptanceCache } from '../test/sidebar-acceptance-seed'
@@ -96,7 +94,7 @@ function Fixture() {
   owner = runtime
   const currentPool = useWorklistPool()
   pool = currentPool
-  const [surface, setSurface] = useState<'closed' | 'board' | 'explorer'>('closed')
+  const [surface, setSurface] = useState<'closed' | 'board'>('closed')
   useEffect(() => {
     void referenceState(runtime)
       .refreshRepos()
@@ -109,32 +107,22 @@ function Fixture() {
   }, [runtime, currentPool])
   return (
     <OperatorFocusProvider missionId={null}>
-      <IssueExplorerProvider>
-        <ToolbarSlotProvider>
-          <div style={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
-            <div style={{ display: 'flex', minHeight: 42, gap: 12 }}>
-              <button type="button" data-board-open onClick={() => setSurface('board')}>
-                Open board
-              </button>
-              <button type="button" data-explorer-open onClick={() => setSurface('explorer')}>
-                Open explorer
-              </button>
-              <button type="button" data-board-close onClick={() => setSurface('closed')}>
-                Close
-              </button>
-              <ToolbarSlotTarget />
-            </div>
-            <main style={{ display: 'flex', flex: 1, minHeight: 0 }}>
-              {surface === 'board' && <IssuesView />}
-              {surface === 'explorer' && (
-                <div style={{ width: 316, display: 'flex', flexDirection: 'column' }}>
-                  <IssueExplorerList />
-                </div>
-              )}
-            </main>
+      <ToolbarSlotProvider>
+        <div style={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
+          <div style={{ display: 'flex', minHeight: 42, gap: 12 }}>
+            <button type="button" data-board-open onClick={() => setSurface('board')}>
+              Open board
+            </button>
+            <button type="button" data-board-close onClick={() => setSurface('closed')}>
+              Close
+            </button>
+            <ToolbarSlotTarget />
           </div>
-        </ToolbarSlotProvider>
-      </IssueExplorerProvider>
+          <main style={{ display: 'flex', flex: 1, minHeight: 0 }}>
+            {surface === 'board' && <IssuesView />}
+          </main>
+        </div>
+      </ToolbarSlotProvider>
     </OperatorFocusProvider>
   )
 }

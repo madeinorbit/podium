@@ -486,17 +486,25 @@ export class SessionStateService {
     )
   }
 
-  async markRead(principal: SessionStatePrincipal, sessionId: SessionId): Promise<boolean> {
+  async markRead(
+    principal: SessionStatePrincipal,
+    sessionId: SessionId,
+    observedAt?: string,
+  ): Promise<boolean> {
     if (!(await this.canReadSession(principal, sessionId))) return false
+    const previous = await this.ports.store.sessions.getReadAt(principal.userId, sessionId)
+    const now = new Date(this.ports.now()).toISOString()
+    const activity = this.ports.getSession(sessionId)?.lastActiveAt
+    // Preserve post-read grace for quiet historical sessions. A delayed receipt
+    // cannot advance past activity that arrived after the observation.
+    const readAt =
+      !observedAt || (activity && activity <= observedAt && now > observedAt) ? now : observedAt
+    if (previous && previous >= readAt) return true
     return this.persistPerUser(
       principal.userId,
       sessionId,
       async () =>
-        await this.ports.store.sessions.markSessionRead(
-          principal.userId,
-          sessionId,
-          new Date(this.ports.now()).toISOString(),
-        ),
+        await this.ports.store.sessions.markSessionRead(principal.userId, sessionId, readAt),
     )
   }
 

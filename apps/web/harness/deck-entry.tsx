@@ -17,8 +17,12 @@ import type { JSX } from 'react'
 import { useCallback, useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { FlightDeck } from '@/app/FlightDeck'
+import { MovedConversationPane } from '@/app/MovedConversationPane'
 import { OperatorFocusProvider } from '@/app/operator-focus'
 import { setHoveredSession } from '@/app/session-hover'
+import { DockIssueProvider } from '@/features/issues/dock-issue'
+import { TipHost } from '@/features/tips'
+import { MemoryTipLog } from '@/features/tips/memory-tip-log'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
 import '@/index.css'
 import '@/styles.css'
@@ -30,9 +34,7 @@ declare global {
       setWidth: (px: number) => void
       /** Swap the fixture; `bump` re-renders against the new one. */
       setMission: (name: keyof typeof MISSIONS) => void
-      setMode: (mode: 'full' | 'working' | 'needs-you' | 'waterfall') => void
       setDisplay: (display: 'compact' | 'expanded') => void
-      setIssueColor: (hex: string | null) => void
       setTheme: (mode: 'light' | 'dark') => void
       point: (sessionId: string | null) => void
     }
@@ -49,7 +51,41 @@ declare global {
 const ago = (minutes: number): string =>
   new Date(Date.parse('2026-01-01T00:30:00.000Z') - minutes * 60_000).toISOString()
 
+function statusCountsFixture(counts: readonly number[]) {
+  state.issues = [
+    issue('root', {
+      title: 'Flight deck status counts',
+      description:
+        'Task counts separate completed work, computation, waiting tasks and work yet to start.',
+      stage: 'in_progress',
+    }),
+  ]
+  state.sessions = []
+  for (const [bucket, count] of counts.entries()) {
+    for (let n = 0; n < count; n++) {
+      const id = `status-${bucket}-${n}`
+      state.issues.push(
+        issue(id, {
+          parentId: 'root',
+          title: ['Completed task', 'Working task', 'Waiting task', 'Unstarted task'][bucket],
+          stage: bucket === 0 ? 'done' : bucket === 3 ? 'backlog' : 'in_progress',
+        }),
+      )
+      if (bucket === 1 || bucket === 2)
+        state.sessions.push(
+          session(`s-${id}`, {
+            issueId: id,
+            agentState: { phase: bucket === 1 ? 'working' : 'idle', since: ago(5) },
+          }),
+        )
+    }
+  }
+}
+
 const MISSIONS = {
+  statusCounts: () => statusCountsFixture([4, 3, 2, 3]),
+  statusCountsWide: () => statusCountsFixture([12, 13, 14, 15]),
+  statusCountsWaiting: () => statusCountsFixture([0, 0, 7, 0]),
   /**
    * THE COMPLEX TICKET THE WATERFALL IS FOR (POD-1854): an epic with staggered
    * real times, a reviewer that looped three times (on/off/on — the segmented
@@ -316,6 +352,12 @@ const MISSIONS = {
           phase: 'working',
           since: new Date(Date.now() - 125_000).toISOString(),
           workingMsTotal: 900_000,
+          // The coordinator's own fan-out, listed inside its card (POD-2027).
+          nativeSubagentCount: 2,
+          nativeSubagents: [
+            { id: 'a1f3', type: 'Explore' },
+            { id: 'b7c2', type: 'Plan' },
+          ],
         },
       }),
       session('s2', {
@@ -816,6 +858,54 @@ const MISSIONS = {
     state.paneA = null
   },
   /**
+   * THE CONVERSATION THAT MOVED (POD-2043) — POD-2119 as filed: a question
+   * answered, then a follow-up that `attach --spinoff` re-homed to POD-2122
+   * with its session, leaving the origin in review with nobody on it. The fix
+   * it found was filed as the proposal POD-2121.
+   */
+  moved: () => {
+    state.issues = [
+      issue('root', {
+        id: 'root',
+        seq: 2119,
+        displayRef: 'POD-2119',
+        title: 'Closed issue tuck visibility',
+        description:
+          'Explain why the Tuck control is absent for the finished calm design follow-ups issue.',
+        activityNotes:
+          'Diagnosis confirmed in the running web client. POD-2097 has canTuck=false because closed children POD-2099, POD-2100 and POD-2111 still contribute three merge decisions from stale Git snapshots. Each retained branch tip is already an ancestor of tf.dev, verified with git merge-base --is-ancestor. All three worktrees are freed; the Git watch excludes them and a refresh without a fallback cwd returns early. Repair proposed as POD-2121. No code changed; the test gate was skipped for this read-only diagnosis.',
+        stage: 'review',
+      }),
+      issue('chat', {
+        id: 'chat',
+        seq: 2122,
+        displayRef: 'POD-2122',
+        title: 'Tuck and Closed behavior',
+        stage: 'review',
+        deps: [{ id: 'root', type: 'discovered-from' }],
+        memberSessionIds: ['moved'],
+      }),
+      issue('fix', {
+        id: 'fix',
+        seq: 2121,
+        displayRef: 'POD-2121',
+        title: 'Bug: stale merge decisions',
+        stage: 'proposed',
+        deps: [{ id: 'root', type: 'discovered-from' }],
+      }),
+    ]
+    state.sessions = [
+      session('moved', {
+        issueId: 'chat',
+        displayRef: 'POD-2119-A',
+        name: 'Finished work filing rules',
+        status: 'hibernated',
+      }),
+    ]
+    state.selectedIssueId = 'root'
+    state.paneA = null
+  },
+  /**
    * THE MISSION THAT IS SIMPLY OVER (POD-1268) — the filed screenshot: a task
    * withdrawn, its session retired, no sub-task and no destination. The spine
    * has nothing to draw, which is exactly why the ending has to be a card in it
@@ -912,11 +1002,13 @@ const MISSIONS = {
 document.documentElement.setAttribute('data-theme', 'podium')
 document.documentElement.classList.add('dark')
 
+const paneParam = new URLSearchParams(location.search).get('pane')
+const paneWidth = paneParam ? Number(paneParam) : 0
+
 function Harness(): JSX.Element {
   const [width, setWidth] = useState(366)
   const [display, setDisplay] = useState<'compact' | 'expanded'>('compact')
   const [mission, setMission] = useState<keyof typeof MISSIONS>('asking')
-  const [color, setColor] = useState<string | null>(null)
   const [, bump] = useState(0)
 
   // Phase history belongs to the fixture that declared it; a swap must not
@@ -936,14 +1028,7 @@ function Harness(): JSX.Element {
         setMission(name)
         bump((v) => v + 1)
       },
-      // The view bar's own state is persisted UI state, so the harness sets it
-      // the way the app does rather than reaching into the component.
-      setMode: (mode) => {
-        state.ui.set('podium.flightDeck.mode', mode === 'full' ? null : mode)
-        bump((v) => v + 1)
-      },
       setDisplay: changeDisplay,
-      setIssueColor: (hex) => setColor(hex),
       setTheme: (mode) => {
         document.documentElement.classList.toggle('dark', mode === 'dark')
       },
@@ -954,11 +1039,7 @@ function Harness(): JSX.Element {
   }, [changeDisplay])
 
   return (
-    <div
-      className="desktop-shell issue-scope"
-      data-issue-colored={color ? 'true' : 'false'}
-      style={{ '--issue': color ?? 'var(--flow)' } as never}
-    >
+    <div className="desktop-shell">
       {/* The shell spends its top bar and status strip before the row gets any
           height; a harness without them hands the deck a taller pane than
           production and every vertical number comes out optimistic. */}
@@ -967,7 +1048,7 @@ function Harness(): JSX.Element {
         <div
           className="flex min-h-0 min-w-0 flex-[0_1_auto] overflow-hidden"
           data-flight-deck-shell="open"
-          style={{ width }}
+          style={{ width, display: paneWidth ? 'none' : undefined }}
         >
           <div
             className={`relative flex min-w-0 flex-[0_1_auto] ${
@@ -979,20 +1060,56 @@ function Harness(): JSX.Element {
           >
             <OperatorFocusProvider missionId="root">
               <ConfirmProvider>
-                <FlightDeck
-                  onCollapse={() => {}}
-                  display={display}
-                  onDisplayChange={changeDisplay}
-                />
+                <DockIssueProvider>
+                  <FlightDeck
+                    onCollapse={() => {}}
+                    display={display}
+                    onDisplayChange={changeDisplay}
+                  />
+                </DockIssueProvider>
               </ConfirmProvider>
             </OperatorFocusProvider>
           </div>
         </div>
-        <div className="min-w-0 flex-1" />
+        {/* The task's pane beside the deck (POD-2043): `?pane` mounts it,
+            `?pane=390` alone at phone width with the deck closed. */}
+        {paneParam === null ? (
+          <div className="min-w-0 flex-1" />
+        ) : (
+          <div
+            className="flex min-w-0 p-3"
+            style={paneWidth ? { width: paneWidth, flex: 'none' } : { flex: 1 }}
+          >
+            <section
+              className="native-agents-pane relative flex min-w-0 flex-1"
+              data-testid="harness-pane"
+            >
+              <div className="workspace-sheet relative flex min-h-0 flex-1">
+                <OperatorFocusProvider missionId="root">
+                  <ConfirmProvider>
+                    <MovedConversationPane
+                      issueId="root"
+                      fallback={<p className="m-auto text-text-dim">fallback: Empty</p>}
+                    />
+                  </ConfirmProvider>
+                </OperatorFocusProvider>
+              </div>
+            </section>
+          </div>
+        )}
       </div>
       <div style={{ height: 'var(--status-strip-h)', flex: 'none' }} />
     </div>
   )
 }
 
-createRoot(document.getElementById('root') as HTMLElement).render(<Harness />)
+// `?tips` mounts the First Flights engine so a deck moment can be screenshotted.
+createRoot(document.getElementById('root') as HTMLElement).render(
+  new URLSearchParams(location.search).has('tips') ? (
+    <TipHost log={new MemoryTipLog()}>
+      <Harness />
+    </TipHost>
+  ) : (
+    <Harness />
+  ),
+)

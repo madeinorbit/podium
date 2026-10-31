@@ -1,5 +1,5 @@
 import { clientSessionViews } from './test-support/session-views'
-import { asSessionId, asThreadId, firstAdminMemberId, type TranscriptItem } from '@podium/model'
+import { asSessionId, asThreadId, asUserId, firstAdminMemberId, type TranscriptItem } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { describe, expect, it, vi } from 'vitest'
 import {
@@ -191,6 +191,49 @@ describe('start_agent tool wiring (issue #60)', () => {
     const meta = (await clientSessionViews(registry)).find((s) => s.sessionId === out.sessionId)
     expect(meta?.title).toBe('Investigate flake')
     expect(meta?.spawnedBy).toBe('superagent:global')
+  })
+
+  it('gives an agent started in a repo by cwd its own draft task', async () => {
+    const { registry, sa } = await harness()
+    const out = JSON.parse(
+      await sa.callMcpTool(
+        'start_agent',
+        { agentKind: 'claude-code', cwd: '/r', confirmed: true },
+        asThreadId('global'),
+      ),
+    ) as { sessionId: string }
+    const meta = (await clientSessionViews(registry)).find((s) => s.sessionId === out.sessionId)
+    expect(meta?.issueId).toBeDefined()
+    expect((await registry.issues.reports.get(meta?.issueId ?? ''))?.draft).toBe(true)
+  })
+
+  it("opens a non-admin's thread in a terminal as that owner, never joining a task they cannot write", async () => {
+    const { registry, sa } = await harness()
+    const colleague = asUserId('colleague')
+    const task = await registry.issues.crud.create({ repoPath: '/r', title: 'Admin work', startNow: false })
+    await registry.issues.crud.update(task.id, { worktreePath: '/r/.worktrees/a' })
+    const threadId = 'concierge_colleague'
+    await registry.sessionStore.superagent.upsertSuperagentThread({
+      id: threadId,
+      ownerUserId: colleague,
+      kind: 'concierge',
+      repoPath: '/r/.worktrees/a',
+    })
+    await registry.sessionStore.superagent.updateSuperagentThreadBinding(threadId, {
+      agentKind: 'claude-code',
+      harnessSessionId: 'native-colleague',
+    })
+
+    const { sessionId } = await sa.openInTerminal({
+      ownerUserId: colleague,
+      threadId: asThreadId(threadId),
+    })
+
+    const issueId = registry.modules.sessions.getSessionIssueId(sessionId)
+    expect(issueId).not.toBe(task.id)
+    const draft = await registry.sessionStore.issues.getIssue(issueId ?? '')
+    expect(draft?.draft).toBe(true)
+    expect(draft?.ownerUserId).toBe(colleague)
   })
 
   it('tags spawnedBy with the executing thread when known', async () => {

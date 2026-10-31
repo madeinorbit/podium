@@ -61,17 +61,16 @@ for (const fixture of fixtures.filter(name => !process.argv.includes('--fixture'
       page.on('pageerror', error => errors.push(error.message))
       const name = fixture === 'lists' ? 'sidebar-acceptance' : fixture === 'phone-lists' ? 'inbox' : 'conversation-stream'
       console.log(`Opening ${arm} ${fixture} ${variant}`)
-      await page.goto(`http://127.0.0.1:${(server.address() as { port: number }).port}/test/${name}.browser.html?scale=4&surface=${variant === 'list' ? 'scroll' : variant === 'waterfall' ? 'full' : variant}&scrollScreen=${variant}&enableWaterfall=${variant === 'waterfall' ? 1 : 0}`)
+      await page.goto(`http://127.0.0.1:${(server.address() as { port: number }).port}/test/${name}.browser.html?scale=4&surface=${variant === 'list' ? 'scroll' : variant}&scrollScreen=${variant}`)
       await page.waitForFunction(() => (window as any).__acceptance?.ready() || (window as any).__conversationStream?.ready() || (window as any).__inbox?.readiness().attached, null, { timeout: 90_000 }).catch(async error => { console.log(await page.evaluate(() => ({ errors: (window as any).__acceptance?.errors() ?? (window as any).__inbox?.stats(), body: document.body.innerText.slice(0, 1000), pageErrors: errors }))); throw error })
       await page.waitForTimeout(750)
       await page.evaluate(() => document.fonts.ready)
       if (variant === 'list') { await page.getByTitle('Display', { exact: true }).click(); await page.getByRole('menuitemradio', { name: 'List', exact: true }).click(); await page.keyboard.press('Escape'); await page.waitForTimeout(500) }
-      if (fixture === 'lists' && ['full', 'waterfall'].includes(variant)) {
+      if (fixture === 'lists' && variant === 'full') {
         const id = 'i14941'
         console.log('Mission proof', id, await page.evaluate(id => (window as any).__acceptance.shape([id]), id))
         await page.evaluate(id => (window as any).__acceptance.select(id), id)
         await page.waitForTimeout(1000)
-        if (variant === 'waterfall') { await page.getByRole('button', { name: 'Waterfall', exact: true }).click(); await page.waitForTimeout(500) }
       }
       await page.keyboard.press('Escape')
       if (fixture === 'lists' && variant === 'full') await page.getByTestId('flight-deck-scroller').waitFor({ state: 'visible' })

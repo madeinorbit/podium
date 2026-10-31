@@ -48,9 +48,9 @@ const INTRODUCED = [
   '--carve-drop',
   '--carve-popover-far',
   '--carve-popover-near',
-  '--issue-tint-scale',
-  '--issue-line-scale',
-  '--issue-row-tint-scale',
+  '--surface-tint-scale',
+  '--surface-line-scale',
+  '--surface-row-tint-scale',
 ] as const
 
 describe('Podium token blocks', () => {
@@ -89,34 +89,31 @@ describe('Podium token blocks', () => {
     expect(cool, 'cool neutrals in the Paper block').toEqual([])
   })
 
-  it('scales issue tints down on paper and leaves dark at 1:1', () => {
+  it('scales neutral surface tints down on paper and leaves dark at 1:1', () => {
     // A hue mixed into a light base saturates about twice as fast; without this
     // the 28% selected row becomes a flat fill, which the Tint-Never-Fill Rule
     // forbids. Set here rather than at ~28 call sites.
-    expect(light).toContain('--issue-tint-scale: 0.4%')
-    expect(light).toContain('--issue-line-scale: 0.8%')
-    expect(dark).toContain('--issue-tint-scale: 1%')
-    expect(dark).toContain('--issue-line-scale: 1%')
+    expect(light).toContain('--surface-tint-scale: 0.4%')
+    expect(light).toContain('--surface-line-scale: 0.8%')
+    expect(dark).toContain('--surface-tint-scale: 1%')
+    expect(dark).toContain('--surface-line-scale: 1%')
   })
 
   it('gives the sidebar row one dose across both appearances', () => {
-    // POD-1456. The general scale is held down for surfaces that carry tint
-    // across half the window; a 306px work row is not one of them, and at paper's
-    // 0.4% its hue was visible without being nameable. The row therefore rides
-    // its own scale, at the SAME value in both blocks: an issue's colour should
-    // be the same statement whichever theme you are in.
+    // POD-1456. Wide surfaces use a lighter dose on paper. Rows keep the same
+    // neutral contrast dose in both appearances.
     const scale = (blk: string, token: string) =>
       Number.parseFloat(new RegExp(`${token}:\\s*([\\d.]+)%`).exec(blk)?.[1] ?? 'NaN')
-    expect(light).toContain('--issue-row-tint-scale: 1%')
-    expect(dark).toContain('--issue-row-tint-scale: 1%')
-    expect(scale(light, '--issue-row-tint-scale')).toBe(scale(dark, '--issue-row-tint-scale'))
+    expect(light).toContain('--surface-row-tint-scale: 1%')
+    expect(dark).toContain('--surface-row-tint-scale: 1%')
+    expect(scale(light, '--surface-row-tint-scale')).toBe(scale(dark, '--surface-row-tint-scale'))
     // The split is the whole point of the token: equal ROW doses must not be
     // achieved by letting paper's general scale drift up to meet dark's, which
     // is what would put the deck fade and the tab strip back where POD-725
     // found them claiming the centre of the window.
-    expect(scale(light, '--issue-tint-scale')).toBeLessThan(scale(dark, '--issue-tint-scale'))
-    expect(scale(light, '--issue-row-tint-scale')).toBeGreaterThan(
-      scale(light, '--issue-tint-scale'),
+    expect(scale(light, '--surface-tint-scale')).toBeLessThan(scale(dark, '--surface-tint-scale'))
+    expect(scale(light, '--surface-row-tint-scale')).toBeGreaterThan(
+      scale(light, '--surface-tint-scale'),
     )
   })
 
@@ -159,8 +156,8 @@ describe('Podium token blocks', () => {
   it('keeps the utilities reading the scales rather than a hardcoded 1%', () => {
     // If someone reinlines `* 1%`, every light-mode tint silently doubles.
     expect(css).not.toMatch(/--value\(integer\) \* 1%/)
-    expect(css).toContain('--value(integer) * var(--issue-tint-scale, 1%)')
-    expect(css).toContain('--value(integer) * var(--issue-line-scale, 1%)')
+    expect(css).toContain('--value(integer) * var(--surface-tint-scale, 1%)')
+    expect(css).toContain('--value(integer) * var(--surface-line-scale, 1%)')
   })
 })
 

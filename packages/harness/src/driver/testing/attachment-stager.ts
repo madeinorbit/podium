@@ -12,7 +12,7 @@ import { type AttachmentStager, attachmentKindFor } from '../turns.js'
 export function createMemoryAttachmentStager(): AttachmentStager {
   let seq = 0
   return async ({ sessionId, source }) => {
-    const id = `attachment-${++seq}`
+    const id = source.id ?? `attachment-${++seq}`
     return {
       id,
       path: `/tmp/podium-test-uploads/${sessionId}/${id}-${source.filename}`,

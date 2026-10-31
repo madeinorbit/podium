@@ -101,7 +101,7 @@ function readRows(pool: MobxPool) {
     .mobileSections()
     .sectionKeys.map(key => mobileWorkView(pool).mobileSections().section(key)).flatMap((section) =>
       section.data.flatMap((ref) => {
-        const row = mobileWorkView(pool).mobileRow({ id: ref, kind: pool.tables.worktree.has(ref) ? 'worktree' : 'issue' })
+        const row = mobileWorkView(pool).mobileRow(ref)
         return row && typeof row !== 'symbol' ? [row.title] : []
       }),
     )

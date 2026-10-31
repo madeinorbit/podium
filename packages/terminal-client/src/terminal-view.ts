@@ -375,7 +375,7 @@ export class TerminalView {
       getCols: () => this.term.cols,
       getRows: () => this.term.rows,
       getIsKnownPrefix: () => this.refLinkConfig?.isKnownPrefix ?? null,
-      getResolveStage: () => this.refLinkConfig?.resolveStage ?? null,
+      getResolveStatus: () => this.refLinkConfig?.resolveStatus ?? null,
       beginPaint: () => this.refLinkConfig?.beginPaint?.(),
       endPaint: () => this.refLinkConfig?.endPaint?.(),
     })

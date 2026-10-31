@@ -6,6 +6,8 @@
 #![allow(non_snake_case)]
 
 mod bootstrap;
+#[cfg(target_os = "macos")]
+mod fullscreen_escape;
 mod handoff;
 mod logging;
 mod updater;
@@ -1181,6 +1183,19 @@ fn eval_menu_hook(app: &tauri::AppHandle, hook: &str) {
     }
 }
 
+/// Tell the page whether the main window is in a native fullscreen Space, where macOS
+/// hides the traffic lights and the command bar drops their inset. The page cannot
+/// measure this itself: on a notched display a fullscreen window stops below the notch
+/// strip, the same height as a zoomed one.
+#[cfg(target_os = "macos")]
+fn sync_fullscreen_attribute(window: &tauri::WebviewWindow) {
+    let full = window.is_fullscreen().unwrap_or(false);
+    let _ = window.eval(format!(
+        "(() => {{ const d = document.documentElement.dataset; \
+         if ({full}) d.podiumFullscreen = 'true'; else delete d.podiumFullscreen; }})();"
+    ));
+}
+
 /// JS expression for `launchMode` in a LOCAL (all-in-one / server) shell.
 ///
 /// The question this answers is "is the page in front of the user THIS shell's own UI, or a
@@ -2173,16 +2188,15 @@ fn main() {
                     .paste()
                     .select_all()
                     .build()?;
-                let toggle_left = MenuItemBuilder::with_id("toggle-left-sidebar", "Toggle Left Sidebar")
-                    .accelerator("Shift+CmdOrCtrl+B")
-                    .build(app)?;
+                // Cmd+B opens and closes the flight deck; the right dock takes
+                // Option+Cmd+B, VS Code's chord for its secondary sidebar.
                 let toggle_flight =
                     MenuItemBuilder::with_id("toggle-flight-deck", "Toggle Flight Deck")
-                        .accelerator("Alt+CmdOrCtrl+F")
+                        .accelerator("CmdOrCtrl+B")
                         .build(app)?;
                 let toggle_right =
                     MenuItemBuilder::with_id("toggle-right-sidebar", "Toggle Right Sidebar")
-                        .accelerator("CmdOrCtrl+B")
+                        .accelerator("Alt+CmdOrCtrl+B")
                         .build(app)?;
                 // Session-input commands use one mnemonic pair. Like Cmd+W/N above,
                 // these must be real menu accelerators: WKWebView never receives a
@@ -2199,7 +2213,6 @@ fn main() {
                     .item(&focus_session_prompt)
                     .item(&toggle_session_view)
                     .separator()
-                    .item(&toggle_left)
                     .item(&toggle_flight)
                     .item(&toggle_right)
                     .build()?;
@@ -2265,17 +2278,13 @@ fn main() {
                     MenuItemBuilder::with_id("toggle-session-view", "Toggle Chat / Native View")
                         .accelerator("Shift+CmdOrCtrl+L")
                         .build(app)?;
-                let toggle_left =
-                    MenuItemBuilder::with_id("toggle-left-sidebar", "Toggle Left Sidebar")
-                        .accelerator("Shift+CmdOrCtrl+B")
-                        .build(app)?;
                 let toggle_flight =
                     MenuItemBuilder::with_id("toggle-flight-deck", "Toggle Flight Deck")
-                        .accelerator("Alt+CmdOrCtrl+F")
+                        .accelerator("CmdOrCtrl+B")
                         .build(app)?;
                 let toggle_right =
                     MenuItemBuilder::with_id("toggle-right-sidebar", "Toggle Right Sidebar")
-                        .accelerator("CmdOrCtrl+B")
+                        .accelerator("Alt+CmdOrCtrl+B")
                         .build(app)?;
                 let view_menu = SubmenuBuilder::new(app, "View")
                     .item(&settings)
@@ -2283,7 +2292,6 @@ fn main() {
                     .item(&focus_session_prompt)
                     .item(&toggle_session_view)
                     .separator()
-                    .item(&toggle_left)
                     .item(&toggle_flight)
                     .item(&toggle_right)
                     .build()?;
@@ -2549,6 +2557,8 @@ fn main() {
                         .on_page_load(move |window, payload| {
                             if matches!(payload.event(), tauri::webview::PageLoadEvent::Finished) {
                                 flush_native_open_queue(&window, &page_open_queue);
+                                #[cfg(target_os = "macos")]
+                                sync_fullscreen_attribute(&window);
                             }
                         });
 
@@ -2570,7 +2580,8 @@ fn main() {
                         )
                         .title_bar_style(tauri::TitleBarStyle::Overlay)
                         .hidden_title(true)
-                        .traffic_light_position(tauri::LogicalPosition::new(14.0, 22.0));
+                        // y centres the 14pt buttons on the 48px command bar (--topbar-h).
+                        .traffic_light_position(tauri::LogicalPosition::new(14.0, 26.0));
                     // Schedule the fallback independently of window construction: a page that
                     // never loads cannot claim ownership, and even a failed webview build must
                     // leave the shell with a native update path.
@@ -2620,8 +2631,14 @@ fn main() {
                         Some(args) => window_builder.additional_browser_args(&args),
                         None => window_builder,
                     };
-                    if let Err(error) = window_builder.build() {
-                        log::error!("window build failed: {error}");
+                    match window_builder.build() {
+                        Ok(_window) => {
+                            #[cfg(target_os = "macos")]
+                            if let Err(error) = fullscreen_escape::install(&_window) {
+                                log::error!("fullscreen Escape routing setup failed: {error}");
+                            }
+                        }
+                        Err(error) => log::error!("window build failed: {error}"),
                     }
                 });
                 // Local modes only: keep the window on a document that renders when the local
@@ -2651,7 +2668,6 @@ fn main() {
             "open-settings" => eval_menu_hook(app, "__PODIUM_SETTINGS__"),
             "focus-session-prompt" => eval_menu_hook(app, "__PODIUM_FOCUS_SESSION_PROMPT__"),
             "toggle-session-view" => eval_menu_hook(app, "__PODIUM_TOGGLE_SESSION_VIEW__"),
-            "toggle-left-sidebar" => eval_menu_hook(app, "__PODIUM_TOGGLE_LEFT_SIDEBAR__"),
             "toggle-flight-deck" => eval_menu_hook(app, "__PODIUM_TOGGLE_FLIGHT_DECK__"),
             "toggle-right-sidebar" => eval_menu_hook(app, "__PODIUM_TOGGLE_RIGHT_SIDEBAR__"),
             // Cmd+W (macOS app menu). The web app registers __PODIUM_CLOSE_TAB__
@@ -2678,6 +2694,12 @@ fn main() {
                 tauri::WindowEvent::CloseRequested { api, .. } => {
                     api.prevent_close();
                     window.app_handle().exit(0);
+                }
+                #[cfg(target_os = "macos")]
+                tauri::WindowEvent::Resized(_) => {
+                    if let Some(webview) = window.app_handle().get_webview_window(window.label()) {
+                        sync_fullscreen_attribute(&webview);
+                    }
                 }
                 tauri::WindowEvent::Destroyed => {
                     // Reap the child when the window is actually destroyed (e.g. app.exit).

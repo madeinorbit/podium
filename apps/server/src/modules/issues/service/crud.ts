@@ -1,7 +1,9 @@
-import { randomUUID } from 'node:crypto'
+import { randomBytes, randomUUID } from 'node:crypto'
 import {
   type ArtifactId,
+  type ArtifactUploadPacket,
   type Attribution,
+  asArtifactId,
   asIssueId,
   asRepoId,
   asSessionId,
@@ -15,6 +17,7 @@ import {
   isIssueStage,
   isSortKey,
   isSystemOwnedIssueStage,
+  type MachineId,
   machinePathBasename,
   machinePathRelativeToRoot,
   machinePathSegments,
@@ -36,6 +39,7 @@ import { readIssue } from '../issue-reader'
 import { type IssueStore, worktreeOf } from './core'
 import { compareWithIssueMap } from './map-parity'
 import { IssueNotFound } from './not-found'
+import { defaultParentBranchFor } from './parent-branch'
 import { IssueRefusal } from './refusal'
 import type { CreateIssueInput, IssueDeps, IssuePanelOp, IssuePatch } from './types'
 import { UNSNOOZE_BACKDATE_MS } from './types'
@@ -79,8 +83,8 @@ const TERMINAL_EVIDENCE_IMAGE_EXTENSIONS = new Set([
 const terminalEvidenceHelp = (seq: number): string =>
   `For a terminal screenshot, run from the issue session checkout with ` +
   `\`podium issue artifact ${seq} --add <relative-image> --terminal-evidence\`; ` +
-  `only raster images are accepted. Redact terminal text/scrollback into the owning ` +
-  `issue worktree and attach it normally.`
+  `only raster images are accepted. Attach redacted terminal text with an ordinary CLI upload ` +
+  `or --content "…" --name report.md; neither requires an issue worktree.`
 
 function isTerminalEvidenceImage(path: string): boolean {
   const extension = path.split('.').pop()?.toLowerCase() ?? ''
@@ -412,6 +416,8 @@ export class IssueCrudModule {
           ...(op.files ? { files: op.files } : {}),
           ...(op.sourcePaths ? { sourcePaths: op.sourcePaths } : {}),
           ...(op.sourceKind ? { sourceKind: op.sourceKind } : {}),
+          ...(op.chatUploadId ? { chatUploadId: op.chatUploadId } : {}),
+          ...(op.chatUploadOwner ? { chatUploadOwner: op.chatUploadOwner } : {}),
         }
         const existing = panel.artifacts.findIndex((a) => a.path === op.path)
         if (existing >= 0) panel.artifacts[existing] = next
@@ -500,7 +506,8 @@ export class IssueCrudModule {
     const root = terminalEvidence ? input.sourceRoot : row.worktreePath
     if (!root) {
       throw new IssueRefusal(
-        `issue ${row.seq} has no owning worktree; start or restore it before adding review artifacts. ` +
+        `issue ${row.seq} has no owning worktree for a daemon file read; use the CLI's local upload ` +
+          `or --content "…" --name report.md to attach without a worktree. ` +
           terminalEvidenceHelp(row.seq),
       )
     }
@@ -576,6 +583,39 @@ export class IssueCrudModule {
     return wire
   }
 
+  /** Upload packets are issue-scoped by the command registry. Only a complete
+   * snapshot is published; replacement keeps the logical path and list position. */
+  async panelArtifactTransfer(id: string, packet: ArtifactUploadPacket): Promise<IssueProjection> {
+    const row = await this.store.rowOrThrow(await this.store.resolveRef(id))
+    const artifacts = this.store.deps.artifacts
+    if (!artifacts?.transfer)
+      throw new IssueRefusal('direct artifact uploads are unavailable on this server')
+    const result = await artifacts.transfer(row.id, packet)
+    if (!result) return await this.store.projection(await this.store.rowOrThrow(row.id))
+    const { snapshot, path } = result
+    try {
+      // The issue may have changed or been deleted while bytes were arriving.
+      const current = await this.store.rowOrThrow(row.id)
+      const existing = this.store
+        .parsePanel(current)
+        .artifacts.find((artifact) => artifact.path === path)
+      const title = result.title ?? existing?.title
+      const wire = await this.panelApply(row.id, {
+        op: 'artifact-add',
+        path,
+        ...(title !== undefined ? { title } : {}),
+        artifactId: snapshot.artifactId,
+        entry: snapshot.entry,
+        files: snapshot.files,
+      })
+      if (existing?.artifactId) void artifacts.remove(row.id, existing.artifactId).catch(() => {})
+      return wire
+    } catch (error) {
+      await artifacts.remove(row.id, snapshot.artifactId).catch(() => {})
+      throw error
+    }
+  }
+
   /** Attach browser-provided bytes straight to the issue's permanent artifact
    *  store. Unlike `panelArtifactAdd`, this has no source path and therefore no
    *  issue-worktree requirement. */
@@ -602,6 +642,7 @@ export class IssueCrudModule {
         artifactId: snap.artifactId,
         entry: snap.entry,
         files: snap.files,
+        sourceKind: 'creation-attachment',
       })
       if (existing?.artifactId) void store.remove(row.id, existing.artifactId).catch(() => {})
       return wire
@@ -609,6 +650,210 @@ export class IssueCrudModule {
       void store.remove(row.id, snap.artifactId).catch(() => {})
       throw error
     }
+  }
+
+  /**
+   * CLAIM A COMPOSER UPLOAD INTO THIS ISSUE (POD-2148): the message that
+   * carries it was sent, or the task it was picked for was created. Only the
+   * person who uploaded it may claim it, and only into one issue; claiming it
+   * again into the same issue is the claim already made (a replayed send).
+   *
+   * The bytes move by rename (no re-read) under the server-transfer write
+   * fence, so a fenced store refuses the claim rather than losing the file.
+   * The panel entry carries the upload id: it is what the chat finds the
+   * thumbnail by, and what delivery stages the file from.
+   */
+  async panelChatUploadClaim(
+    issueId: IssueId,
+    input: { uploadId: string; ownerUserId: UserId },
+  ): Promise<void> {
+    // The uploader is checked before either shortcut (a claim already made, or
+    // one in flight), so a reader of a shared issue cannot reuse an id it sees.
+    await this.assertChatUploadOwner(issueId, input)
+    const key = `${issueId}\0${input.uploadId}`
+    const running = this.chatUploadClaims.get(key)
+    if (running) return await running
+    const claim = this.underChatUploadLock(key, () => this.claimChatUpload(issueId, input)).finally(
+      () => {
+        this.chatUploadClaims.delete(key)
+      },
+    )
+    this.chatUploadClaims.set(key, claim)
+    return await claim
+  }
+
+  /** Claim, release and the delivery read of one upload on one issue run one
+   *  at a time, so none sees another's half-moved file. */
+  private readonly chatUploadLocks = new Map<string, Promise<void>>()
+
+  private async underChatUploadLock<T>(key: string, run: () => Promise<T>): Promise<T> {
+    const previous = this.chatUploadLocks.get(key) ?? Promise.resolve()
+    const current = previous.then(run)
+    const tail = current.then(
+      () => {},
+      () => {},
+    )
+    this.chatUploadLocks.set(key, tail)
+    try {
+      return await current
+    } finally {
+      if (this.chatUploadLocks.get(key) === tail) this.chatUploadLocks.delete(key)
+    }
+  }
+
+  /** In-flight claims by issue + upload id: two overlapping sends of one
+   *  upload share a single move. */
+  private readonly chatUploadClaims = new Map<string, Promise<void>>()
+
+  private async assertChatUploadOwner(
+    issueId: IssueId,
+    input: { uploadId: string; ownerUserId: UserId },
+  ): Promise<void> {
+    const row = await this.store.rowOrThrow(issueId)
+    const entry = this.store
+      .parsePanel(row)
+      .artifacts.find((a) => a.chatUploadId === input.uploadId)
+    const owner = entry
+      ? entry.chatUploadOwner
+      : (await this.store.deps.pendingUploads?.meta(input.uploadId))?.ownerUserId
+    if (owner !== input.ownerUserId) {
+      throw new IssueRefusal('this attachment is no longer available; attach the file again')
+    }
+  }
+
+  /**
+   * Undo a discarded draft's claims before its purge deletes its artifacts
+   * (POD-2148): each chat upload's file moves back to pending and forgets the
+   * claim, so retrying the same create claims it again. Claims are found from
+   * the panel AND from the pending metas naming this issue, so one whose panel
+   * commit never landed is returned too. Answers whether every one came back;
+   * when not, the caller keeps the artifact dir, which may hold its only copy.
+   * Only for a draft whose launch failed with no session on it.
+   */
+  async panelChatUploadRelease(issueId: IssueId): Promise<boolean> {
+    const pending = this.store.deps.pendingUploads
+    const store = this.store.deps.artifacts
+    if (!pending || !store?.relinquish) return true
+    const row = await this.store.rowOrThrow(issueId).catch(() => undefined)
+    const uploadIds = new Set([
+      ...(row
+        ? this.store
+            .parsePanel(row)
+            .artifacts.flatMap((a) => (a.chatUploadId ? [a.chatUploadId] : []))
+        : []),
+      ...(await pending.claimedBy(issueId)).map((meta) => meta.id),
+    ])
+    let returned = true
+    for (const uploadId of uploadIds) {
+      try {
+        await this.underChatUploadLock(`${issueId}\0${uploadId}`, async () => {
+          const meta = await pending.meta(uploadId)
+          if (meta?.claimed?.issueId !== issueId) return
+          await store.relinquish?.({
+            issueId,
+            artifactId: meta.claimed.artifactId,
+            toDir: pending.fileDir(uploadId),
+          })
+          await pending.markUnclaimed(uploadId)
+        })
+      } catch {
+        returned = false
+      }
+    }
+    return returned
+  }
+
+  private async claimChatUpload(
+    issueId: IssueId,
+    input: { uploadId: string; ownerUserId: UserId },
+  ): Promise<void> {
+    const row = await this.store.rowOrThrow(issueId)
+    const pending = this.store.deps.pendingUploads
+    const store = this.store.deps.artifacts
+    const meta = await pending?.meta(input.uploadId)
+    // Claimed already — unless a failed launch handed the file back since.
+    const entry = this.store
+      .parsePanel(row)
+      .artifacts.some((a) => a.chatUploadId === input.uploadId)
+    if (entry && (!meta || meta.claimed?.issueId === issueId)) return
+    if (!pending || !store?.adopt)
+      throw new IssueRefusal('chat uploads are not stored on this server')
+    if (!meta || meta.ownerUserId !== input.ownerUserId) {
+      throw new IssueRefusal('this attachment is no longer available; attach the file again')
+    }
+    if (meta.claimed && meta.claimed.issueId !== issueId) {
+      throw new IssueRefusal(
+        'this attachment was already sent with another task; attach the file again',
+      )
+    }
+    const claimed = meta.claimed ?? {
+      issueId,
+      artifactId: asArtifactId(randomBytes(6).toString('hex')),
+    }
+    if (!meta.claimed) await pending.markClaimed(input.uploadId, claimed)
+    const snap = await store.adopt({
+      issueId,
+      artifactId: claimed.artifactId,
+      fromDir: pending.fileDir(input.uploadId),
+      entry: meta.entry,
+    })
+    try {
+      await this.panelApply(issueId, {
+        op: 'artifact-add',
+        path: `chat-uploads/${input.uploadId}/${snap.entry}`,
+        title: meta.filename,
+        artifactId: snap.artifactId,
+        entry: snap.entry,
+        files: snap.files,
+        chatUploadId: input.uploadId,
+        chatUploadOwner: input.ownerUserId,
+      })
+    } catch (error) {
+      // No entry names the moved file: put it back in pending and forget the
+      // claim (still under this upload's lock), so the same ref can be claimed
+      // again. If that fails too, the meta still names this issue, and a draft
+      // discard finds it there and keeps the dir rather than purge it.
+      try {
+        await store.relinquish?.({
+          issueId,
+          artifactId: snap.artifactId,
+          toDir: pending.fileDir(input.uploadId),
+        })
+        await pending.markUnclaimed(input.uploadId)
+      } catch {}
+      throw error
+    }
+  }
+
+  /** Who uploaded the chat upload this issue holds under this id (POD-2148):
+   *  undefined when it holds none, null when the entry names nobody. Only the
+   *  uploader may hand it to an agent. */
+  async chatUploadOwner(issueId: IssueId, uploadId: string): Promise<UserId | null | undefined> {
+    const row = await this.store.rowOrThrow(issueId).catch(() => undefined)
+    if (!row) return undefined
+    const entry = this.store.parsePanel(row).artifacts.find((a) => a.chatUploadId === uploadId)
+    if (!entry) return undefined
+    return entry.chatUploadOwner ? (entry.chatUploadOwner as UserId) : null
+  }
+
+  /** A claimed chat upload's bytes, for staging on the agent's machine at
+   *  delivery (POD-2148). Undefined when the issue no longer holds them. */
+  async chatUploadBytes(issueId: IssueId, uploadId: string): Promise<Uint8Array | undefined> {
+    // Never mid-move: wait out a claim or release of this upload.
+    await this.chatUploadLocks.get(`${issueId}\0${uploadId}`)
+    const row = await this.store.rowOrThrow(issueId).catch(() => undefined)
+    const store = this.store.deps.artifacts
+    if (!row || !store) return undefined
+    const entry = this.store
+      .parsePanel(row)
+      .artifacts.find((a) => a.chatUploadId === uploadId && a.artifactId)
+    if (!entry?.artifactId) return undefined
+    const found = await store.read(
+      issueId,
+      entry.artifactId,
+      entry.entry ?? machinePathBasename(entry.path) ?? '',
+    )
+    return found ? new Uint8Array(found.bytes) : undefined
   }
 
   /** artifact-remove that also deletes the snapshot's store dir ([spec:SP-0fc9]).
@@ -1060,6 +1305,34 @@ export class IssueCrudModule {
     )
   }
 
+  /**
+   * The parent an issue in `repoPath` is cut from when the caller named none
+   * [POD-2065]: the repository's base branch, else the instance default — both as
+   * configured, unprobed, so a missing one is the start refusal's to explain —
+   * else, with neither set, the repository's detected base. Detection probes the
+   * machine that holds the source repo, which is where a start resolves the start
+   * point before shipping it to a pinned target.
+   */
+  private async defaultParentBranch(
+    repoId: RepoId,
+    repoPath: string,
+    machineId: MachineId | null | undefined,
+  ): Promise<string> {
+    const repoDefault = await this.store.deps.store.repos.defaultParentBranchForRepoId(repoId)
+    if (repoDefault) return repoDefault
+    const configured = (await this.store.deps.getSettings()).gitWorkflow.defaultParentBranch.trim()
+    if (configured) return configured
+    const readRepo = this.store.deps.readRepo
+    if (!readRepo) return 'main'
+    // Ask a machine that reported THIS repository at this path: the same path on
+    // another machine can be a different repository with a different base. With no
+    // such machine there is nobody to ask — routing by path alone could probe that
+    // other repository — so the issue takes `main`, and start explains if it lacks it.
+    const at = await this.store.deps.store.repos.reportingMachineFor(repoId, repoPath, machineId)
+    if (!at) return 'main'
+    return await defaultParentBranchFor((op, cwd, args) => readRepo(op, cwd, args, at), repoPath)
+  }
+
   async create(input: CreateIssueInput): Promise<IssueProjection> {
     if ((input as { stage?: string }).stage === 'shipping') {
       throw new IssueRefusal('shipping stage is system-owned and requires a ship order')
@@ -1084,7 +1357,6 @@ export class IssueCrudModule {
     )
     const seq = await this.store.deps.store.issues.nextIssueSeq(repoId)
     const ts = this.store.now()
-    const settings = await this.store.deps.getSettings()
     const agentProfileId = input.agentProfile
       ? await this.agentProfileIdFor(input.agentProfile)
       : undefined
@@ -1102,7 +1374,9 @@ export class IssueCrudModule {
       stage: (input.stage ?? 'backlog') as StoredIssue['stage'],
       worktreePath: null,
       branch: null,
-      parentBranch: input.parentBranch || settings.gitWorkflow.defaultParentBranch || 'main',
+      parentBranch:
+        input.parentBranch ||
+        (await this.defaultParentBranch(repoId, input.repoPath, input.machineId)),
       // The issue stores picks only (POD-6133): an unnamed harness, model or effort
       // stays `auto`, so the profile and then the Settings current at each
       // session start decide it, and a stored harness is always a real pick.
@@ -1131,12 +1405,6 @@ export class IssueCrudModule {
         input.repoPath,
         input.parentId ? await this.store.resolveRef(input.parentId, input.repoPath) : null,
       ),
-      // Colour is a top-level property [spec:SP-b4d1]: a create that already
-      // names a parent is a sub-issue, and it inherits the parent's colour
-      // instead of holding one. Dropped rather than thrown — `create` takes a
-      // shape, and refusing a whole subtask create over an inapplicable accent
-      // would be a worse trade than ignoring the field.
-      ...(input.color != null && input.parentId == null ? { color: input.color } : {}),
       needsHuman: false,
       createdAt: ts,
       updatedAt: ts,
@@ -1261,20 +1529,6 @@ export class IssueCrudModule {
     if (patch.stage === 'review' && row.stage !== 'review') {
       this.assertReviewArtifactOwnership(row)
     }
-    // COLOUR IS A TOP-LEVEL PROPERTY [spec:SP-b4d1]. A sub-issue runs under its
-    // parent's colour by inheritance (see `setParentForUpdate`), so setting one
-    // on it is refused rather than silently dropped: the CLI and any older client
-    // must hear that the field does not apply here, not appear to have written it.
-    // Clearing (`color: null`) stays legal at any depth — it is how legacy slots
-    // on existing sub-issues get cleaned up.
-    if (patch.color != null) {
-      const nextParentId = 'parentId' in patch ? patch.parentId : row.parentId
-      if (nextParentId != null) {
-        throw new IssueRefusal(
-          `colour belongs to top-level tasks: ${row.id} is a sub-task and takes its parent's colour`,
-        )
-      }
-    }
     patch = this.normalizeClosedPatch(row, patch)
     // CHOOSING A PROFILE HANDS IT THE AGENT PICK (POD-6107). The issue's own
     // fields go ON TOP of the profile, so a harness left over from before (the
@@ -1330,6 +1584,18 @@ export class IssueCrudModule {
       throw new IssueRefusal(
         `refusing worktree path ${rowPatch.worktreePath}: a repository root cannot be recorded as an issue worktree`,
       )
+    }
+    // POD-2178: a phase takes no blocked-by edge (addDep refuses it), so a
+    // retype must not smuggle one in on a task that already has one.
+    if (rowPatch.type === 'phase' && row.type !== 'phase') {
+      const issues = this.store.deps.store.issues
+      const edged =
+        (await issues.listIssueDeps(row.id)).some((d) => d.type === 'blocked-by') ||
+        (await issues.listDependents(row.id)).some((d) => d.type === 'blocked-by')
+      if (edged)
+        throw new IssueRefusal(
+          `${id} has a blocked-by edge; phases only group tasks and take none. Remove it with dep-remove first, or keep it a task`,
+        )
     }
 
     if (pinnedPatch !== undefined) {
@@ -1498,18 +1764,12 @@ export class IssueCrudModule {
     return wire
   }
 
-  /** Review is the first point at which evidence is presented as durable truth.
-   *  The bytes themselves are already safe — `panelArtifactAdd` snapshots them
-   *  into the permanent store ([spec:SP-0fc9]), so evidence never has to be
-   *  committed to the repo to survive. Ordinary artifacts must still resolve
-   *  inside the owning worktree. Explicit terminal-evidence snapshots have
-   *  already passed the same-issue session + raster-image checks at add time, so
-   *  their source checkout may disappear before review. Git tracking is
-   *  deliberately NOT a gate (POD-1284). */
+  /** Stored artifacts were authorized and snapshotted into this issue's store
+   * at publication. Only old live-path entries still depend on a checkout. */
   private assertReviewArtifactOwnership(row: IssueRow): void {
     const artifacts = this.store.parsePanel(row).artifacts
     if (artifacts.length === 0) return
-    const ordinary = artifacts.filter((artifact) => artifact.sourceKind !== 'terminal-evidence')
+    const ordinary = artifacts.filter((artifact) => !artifact.artifactId)
     if (!row.worktreePath && ordinary.length > 0) {
       throw new IssueRefusal(
         `review blocked: issue ${row.seq} has artifacts but no owning worktree; restore the issue worktree and re-add the evidence`,
@@ -1518,7 +1778,7 @@ export class IssueCrudModule {
     if (!row.worktreePath) return
     const root = row.worktreePath
     for (const artifact of artifacts) {
-      if (artifact.sourceKind === 'terminal-evidence') continue
+      if (artifact.artifactId) continue
       const rel = machinePathRelativeToRoot(root, artifact.path)
       if (!rel) {
         throw new IssueRefusal(
@@ -1528,28 +1788,39 @@ export class IssueCrudModule {
     }
   }
 
-  /** Mark this issue read (issue #124): stamp a covering read_at, persist + broadcast,
-   *  and log issue.read. The stamp is max(now, this issue's updatedAt, descendant
-   *  updatedAts, subtree lastActiveAt) so a session whose clock is a tick ahead of
-   *  `now` cannot flip derived unread back on the same click (POD-912). PER-USER
-   *  STATE (POD-1076): the marker is written to the actor's `(userId, issueId)`
-   *  row, not to the issue. */
-  async markIssueRead(id: string): Promise<IssueProjection> {
-    const row = await this.store.draft(await this.store.resolveRef(id))
-    if (!row) throw new IssueNotFound(id)
-    await this.store.writeIssueUserState(row.id, { readAt: await this.coveringReadAt(row) })
-    const wire = await this.store.persist(row, { touch: false })
+  /** Publish only the actor's read cursor and issue.read event. Automatic
+   * receipts carry the observed activity; an explicit mark-read still covers
+   * now, this issue's updates, descendants and their sessions (POD-912). */
+  async markIssueRead(id: string, observedAt?: string): Promise<IssueProjection> {
+    const row = await this.store.rowOrThrow(id)
+    // Automatic receipts name what was actually seen, including across an
+    // offline replay. Open-issue receipts avoid subtree discovery entirely;
+    // read receipts never rewrite the issue.
+    const previous = this.store.issueOverlay(row.id).readAt
+    let readAt = observedAt ?? (await this.coveringReadAt(row))
+    // A quiet closed issue keeps its existing post-read retention grace. Only
+    // advance to receipt time after proving there is no newer unseen activity.
+    if (
+      observedAt && this.store.isClosed(row) &&
+      (await this.coveringReadAt(row, row.updatedAt)) <= observedAt
+    ) {
+      const now = this.store.now()
+      if (now > readAt) readAt = now
+    }
+    if (previous && previous >= readAt) return await this.store.projection(row)
+    await this.store.writeIssueUserState(row.id, { readAt })
+    const wire = await this.store.projection(row)
     await this.store.emitEvent('issue.read', row.id, { seq: row.seq })
     return wire
   }
 
   /** The cursor that covers everything currently visible on this issue's row. */
-  private async coveringReadAt(row: IssueRow): Promise<string> {
+  private async coveringReadAt(row: IssueRow, floor = this.store.now()): Promise<string> {
     // The issue and every descendant, deleted ones included, read from the
     // database one level per statement (POD-6192).
     const self = await this.store.row(row.id)
     const covered = [...(self ? [self] : []), ...(await this.store.descendantRows(row.id))]
-    let latest = this.store.now()
+    let latest = floor
     for (const other of covered) {
       if (other.updatedAt > latest) latest = other.updatedAt
       for (const session of await this.store.sessionsFor(other)) {
@@ -1565,10 +1836,9 @@ export class IssueCrudModule {
    *  markIssueRead exactly, on the actor's own `(userId, issueId)` row (POD-1076);
    *  marking MY copy unread never touches yours. */
   async markIssueUnread(id: string): Promise<IssueProjection> {
-    const row = await this.store.draft(await this.store.resolveRef(id))
-    if (!row) throw new IssueNotFound(id)
+    const row = await this.store.rowOrThrow(id)
     await this.store.writeIssueUserState(row.id, { readAt: null })
-    const wire = await this.store.persist(row, { touch: false })
+    const wire = await this.store.projection(row)
     await this.store.emitEvent('issue.unread', row.id, { seq: row.seq })
     return wire
   }
@@ -1666,7 +1936,7 @@ export class IssueCrudModule {
   /** Permanently purge the automatically-created draft abandoned by an explicit
    *  session rehome. User-facing deletion must go through IssueSessionLifecycle
    *  and never reaches this method. */
-  async purgeEmptyDraft(ref: string): Promise<void> {
+  async purgeEmptyDraft(ref: string, opts?: { keepArtifacts?: boolean }): Promise<void> {
     const id = await this.store.resolveRef(ref)
     const purged = await this.store.rowOrThrow(id)
     await this.store.deps.ledger.commit({
@@ -1737,7 +2007,11 @@ export class IssueCrudModule {
     // diff would declare the purged issue still present.
     await this.store.reconcileAndPublish()
     // Hard delete: drop any artifact snapshots too ([spec:SP-0fc9], best-effort).
-    void this.store.deps.artifacts?.removeIssue(id).catch(() => {})
+    // Awaited: a retry that reuses the client-minted id must not move files
+    // into a directory this is still deleting (POD-2148).
+    // Kept when a chat upload could not be handed back: the dir may hold its
+    // only copy, and a retry under this id re-adopts it in place.
+    if (!opts?.keepArtifacts) await this.store.deps.artifacts?.removeIssue(id).catch(() => {})
   }
 
   /** Build the issue half of a cross-aggregate restore without exposing the row

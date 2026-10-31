@@ -17,24 +17,29 @@
  * out: nobody can tell them apart from the answer.
  */
 
-import type { MessageRecordWire, UserId } from '@podium/model'
+import type { MessageRecordWire, SessionId, UserId } from '@podium/model'
 import type { MessagesRepository } from '../../store/messages'
 import type { SessionsRepository } from '../../store/sessions'
 import { messageRecordOf } from './feed'
 
 export interface MessageRecordReadDeps {
-  readonly messages: Pick<MessagesRepository, 'getMessages'>
+  readonly messages: Pick<MessagesRepository, 'getMessages' | 'getTranscriptAttachmentMessages'>
   readonly sessions: Pick<SessionsRepository, 'getSessions'>
 }
 
-/** The records of these messages that `userId` may read, in one read of each table. */
+/** Read visible messages by id, or attachment messages by transcript item id
+ * within `sessionId`. Both use the feed's existing visibility rule. */
 export async function readMessageRecords(
   deps: MessageRecordReadDeps,
   userId: UserId,
   ids: readonly string[],
+  sessionId?: SessionId,
 ): Promise<MessageRecordWire[]> {
   const records: MessageRecordWire[] = []
-  for (const row of await deps.messages.getMessages(ids)) {
+  const rows = sessionId
+    ? await deps.messages.getTranscriptAttachmentMessages(sessionId, ids)
+    : await deps.messages.getMessages(ids)
+  for (const row of rows) {
     const record = messageRecordOf(row)
     if (record !== null) records.push(record)
   }

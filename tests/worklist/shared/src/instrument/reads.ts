@@ -73,10 +73,10 @@
  */
 
 import type { ColdQueries, HeldSummaries } from '@podium/client-graph/shared/cold-index'
-import type { RowSource } from '../arm'
 import { type EntityName, SCHEMA } from '@podium/client-graph/shared/schema'
-import type { RowRecord, RowSourceEvent } from '../stats'
 import { autorun } from 'mobx'
+import type { RowSource } from '../arm'
+import type { RowRecord, RowSourceEvent } from '../stats'
 
 /** How a row was reached. Raw counts per door, for diagnosis. `feed`: a per-row read of the feed. */
 export type ReadVia = 'get' | 'iterate' | 'relation' | 'field' | 'feed'
@@ -101,6 +101,7 @@ export interface ReadStats {
 }
 
 export type { RelationReader } from '@podium/client-graph/shared/relation-reader'
+
 import type { RelationReader } from '@podium/client-graph/shared/relation-reader'
 
 /** A table the fence can wrap: keyed by id, or an array of rows. */
@@ -592,9 +593,7 @@ export function createReadFence(options: { enabled: boolean }): ReadFence {
         snapshot(kind) {
           return source.snapshot(kind).map(borrowRecord)
         },
-        ...(source.companions
-          ? { companions: () => source.companions!().map(borrowRecord) }
-          : {}),
+        ...(source.companions ? { companions: () => source.companions!().map(borrowRecord) } : {}),
         ...(source.issueIdByRef ? { issueIdByRef: source.issueIdByRef.bind(source) } : {}),
         // POD-5407: the feed's cold index answers declared questions, never
         // rows; the arm reads every row through `row` below.
@@ -682,12 +681,20 @@ export function createReadFence(options: { enabled: boolean }): ReadFence {
       // `tracked()`: it walks MobX observable state (maps, objects), which
       // warns outside a reactive context and trips the warn trap. It does read
       // observables, so the derivation is never empty.
-      let result: CopySweep | null = null
+      let result!: CopySweep
+      let failure: { error: unknown } | undefined
       const stop = autorun(() => {
-        result = sweep(root)
+        // MobX catches reaction errors. Keep the tracked walk, then report
+        // its failure synchronously to the caller after releasing the reaction.
+        try {
+          result = sweep(root)
+        } catch (error) {
+          failure = { error }
+        }
       })
       stop()
-      return result as unknown as CopySweep
+      if (failure) throw failure.error
+      return result
     },
     stats(): ReadStats {
       if (!enabled) {

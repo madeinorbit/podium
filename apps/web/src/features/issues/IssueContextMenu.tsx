@@ -1,4 +1,3 @@
-import { useIssueViews } from './issue-page/opening-context'
 import { useStoreHandle } from '@podium/client-core/react'
 import type { IssueNavigationModel } from '@podium/client-core/values'
 import {
@@ -7,13 +6,12 @@ import {
   reposToViews,
   spawnIssueAgent,
 } from '@podium/client-core/values'
+import { LOADING, type MobxPool } from '@podium/client-graph'
+import { missionView, readMissionHandoffTargets } from '@podium/client-graph/mission-view'
 import {
   DEFER_NEXT_MESSAGE,
-  ISSUE_COLOR_HEX,
-  type IssueColorSlot,
   type IssueId,
   type IssueStage,
-  isIssueColorSlot,
   isIssueStatus,
   issueStatusIntent,
   issueStatusOf,
@@ -21,18 +19,16 @@ import {
   snoozeUntil1h,
 } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
-import { LOADING, type MobxPool } from '@podium/client-graph'
-import { missionView, readMissionHandoffTargets } from '@podium/client-graph/mission-view'
 import { Check, ChevronRight } from 'lucide-react'
-import { Fragment, type JSX, type ReactNode, useCallback, useState } from 'react'
 import { observer } from 'mobx-react-lite'
+import { Fragment, type JSX, type ReactNode, useCallback, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { toast } from 'sonner'
+import { useWorklistPoolProjection } from '@/app/store-worklist-pool'
 import type { Trpc } from '@/app/trpc'
-import { IssueColorSwatches } from '@/components/IssueColorSwatches'
+import { useSettingsRecord } from '@/features/settings/record-readers'
 import { useConfirm } from '@/lib/hooks/use-confirm'
 import { issueAgentIcon, issueDefaultAgentKind } from '@/lib/issue-agents'
-import { useSettingsRecord } from '@/features/settings/record-readers'
 import {
   MENU_EMPTY,
   MENU_HEADER,
@@ -42,7 +38,6 @@ import {
   MENU_ITEM_DESTRUCTIVE,
   MENU_ITEM_DISABLED,
   MENU_PANEL,
-  MENU_PICKER_PANEL,
   MENU_RULE,
   MENU_SECTION,
   MENU_SUBTEXT,
@@ -57,9 +52,9 @@ import { useCursorMenu } from '@/lib/use-cursor-menu'
 import { useFeature } from '@/lib/use-feature'
 import { sessionDisplayName } from '@/lib/WorkerLabel'
 import {
+  cascadeSessionCount,
   deferDateFromNow,
   describeCascade,
-  cascadeSessionCount,
   type IssueMenuSurface,
   issueHandoffAvailability,
   issueMenuEligibility,
@@ -69,7 +64,6 @@ import { PriorityGlyph, StatusGlyph } from './issue-glyphs'
 import { IssueCloseDialog, type IssueCloseReason, useIssueCloseGuard } from './issue-lifecycle'
 import {
   createIssueMenuData,
-  ISSUE_MENU_COLOR_NONE,
   type IssueMenuConfig,
   type IssueMenuIcon,
   type IssueMenuOption,
@@ -80,13 +74,11 @@ import {
 } from './issue-menu-config'
 import { issueMenuIcon } from './issue-menu-icons'
 import type { IssueMenuPoolInputs } from './issue-menu-pool-inputs'
-import { useWorklistPoolProjection } from '@/app/store-worklist-pool'
 import { readIssueMenuChoices, readIssueMenuOrigins } from './issue-menu-readers'
+import { useIssueViews } from './issue-page/opening-context'
 import { isIssueStartable } from './issue-startable'
 
-/** Regions get named in mono micro-caps, the way the colour picker names its
- *  own (POD-380) — the menu's separators used to be anonymous rules. `main`
- *  has no label: the panel header already sits above it. */
+/** Shared menu section heading. */
 // A null label draws a bare rule instead of a heading. `danger` takes one
 // deliberately: Delete is a single row, and a "DANGER" banner over one item
 // shouts where the rule already separates (POD-1077). `placement` is headed
@@ -133,6 +125,21 @@ export const IssueContextMenu = observer(function IssueContextMenu({
   primaryStart?: boolean
   poolInputs: IssueMenuPoolInputs
 }): JSX.Element | null {
+  // The anchor object identifies a context-menu gesture. A repeated gesture
+  // may reuse this component, so capture again when it or the target changes.
+  const readTarget = issues.length === 1 ? issues[0] : undefined
+  const captureReadAction = () => ({
+    anchor,
+    id: readTarget?.id,
+    action: !readTarget
+      ? null
+      : readTarget.unread
+        ? ('markRead' as const)
+        : ('markUnread' as const),
+  })
+  const [readChoice, setReadChoice] = useState(captureReadAction)
+  if (readChoice.anchor !== anchor || readChoice.id !== readTarget?.id)
+    setReadChoice(captureReadAction())
   const readOrigins = useCallback(
     (pool: import('@podium/client-graph').MobxPool) => readIssueMenuOrigins(pool, issues),
     [issues],
@@ -228,6 +235,9 @@ export const IssueContextMenu = observer(function IssueContextMenu({
   }
 
   const eligibility = issueMenuEligibility(issues, surface)
+  const canMark = eligibility.canMarkRead || eligibility.canMarkUnread
+  eligibility.canMarkRead = canMark && readChoice.action === 'markRead'
+  eligibility.canMarkUnread = canMark && readChoice.action === 'markUnread'
   const ids = issues.map((issue) => issue.id)
   const handoff =
     handoffEnabled && issues.length === 1
@@ -269,15 +279,12 @@ export const IssueContextMenu = observer(function IssueContextMenu({
   }
 
   // Every one of these is optimistic + outboxed (POD-781). The menu serves the
-  // sidebar AND the issue board, so a stage move, a colour or a label repaints
+  // sidebar AND the issue board, so a stage move or a label repaints
   // the row on the press on both surfaces — the same store action, one queue.
   const setStage = (stage: IssueStage): void =>
     run(() => Promise.all(ids.map((id) => updateIssue(id, { stage }))))
   const setPriority = (priority: number): void =>
     run(() => Promise.all(ids.map((id) => updateIssue(id, { priority }))))
-  // Same patch the IdSquare picker sends; `null` clears back to the slate flow.
-  const setColor = (color: IssueColorSlot | null): void =>
-    run(() => Promise.all(ids.map((id) => updateIssue(id, { color }))))
   const toggleLabel = (label: string): void =>
     run(() =>
       Promise.all(toggleLabelAcross(issues, label).map((p) => setIssueLabels(p.id, p.labels))),
@@ -495,10 +502,6 @@ export const IssueContextMenu = observer(function IssueContextMenu({
       case 'labels':
         toggleLabel(value)
         return
-      case 'color':
-        if (value === ISSUE_MENU_COLOR_NONE) setColor(null)
-        else if (isIssueColorSlot(value)) setColor(value)
-        return
       case 'handoff': {
         const target = handoffCandidates.find((candidate) => candidate.machine.id === value)
         if (target && !target.rejection) handoffTo(target.machine.id, target.machine.name)
@@ -524,34 +527,10 @@ export const IssueContextMenu = observer(function IssueContextMenu({
     return <Glyph size={14} aria-hidden="true" />
   }
 
-  /** The colour row wears the issue's own square rather than a palette glyph —
-   *  the same mark the IdSquare shows, so the row states the current colour
-   *  instead of just naming the control. */
-  const colorGlyph = (): ReactNode => {
-    const hex = first.color ? ISSUE_COLOR_HEX[first.color] : undefined
-    return (
-      <span
-        aria-hidden="true"
-        data-testid="issue-menu-color-glyph"
-        className="size-3.5 flex-none rounded-[4px] border"
-        style={
-          hex
-            ? { background: hex, borderColor: 'transparent' }
-            : {
-                background: 'var(--hairline-soft)',
-                borderColor: 'var(--text-dim)',
-                borderStyle: 'dashed',
-              }
-        }
-      />
-    )
-  }
-
   const entryIcon = (entry: IssueMenuConfig): ReactNode => {
     if (entry.kind === 'submenu') {
       if (entry.id === 'status') return <StatusGlyph status={issueStatusOf(first)} />
       if (entry.id === 'priority') return <PriorityGlyph priority={first.priority} />
-      if (entry.id === 'color') return colorGlyph()
       if (entry.id === 'agent') return renderIcon(isIssueStartable(first) ? 'play' : 'agent')
     }
     if (entry.kind === 'action' && entry.id === 'pin') {
@@ -582,8 +561,6 @@ export const IssueContextMenu = observer(function IssueContextMenu({
   const submenuItems = new Map<IssueMenuSubmenu, JSX.Element[]>()
   for (const entry of entries) {
     if (entry.kind !== 'submenu' || entry.id !== sub?.kind) continue
-    // Colour opens the picker's swatch grid, not a row list (POD-380).
-    if (entry.id === 'color') continue
     submenuItems.set(
       entry.id,
       entry.options(menuData).map((option) =>
@@ -686,10 +663,7 @@ export const IssueContextMenu = observer(function IssueContextMenu({
     )
   })
 
-  // Flyout placement, shared by the option lists and the colour grid. The
-  // bottom clamp reserves the panel's own height so it can't hang off-screen —
-  // the fixed-size colour grid is taller than a couple of option rows.
-  const flyoutReserve = sub?.kind === 'color' ? 130 : 60
+  const flyoutReserve = 60
   const flyoutStyle = sub
     ? {
         ...(pos.x + 400 > window.innerWidth ? { left: 'auto' as const, right: '100%' } : {}),
@@ -709,7 +683,7 @@ export const IssueContextMenu = observer(function IssueContextMenu({
       style={{ left: pos.x, top: pos.y }}
       onContextMenu={(e) => e.preventDefault()}
     >
-      {/* The picker's header line, verbatim: what this panel acts on, named in
+      {/* What this panel acts on, named in
           machine voice, with the ref pushed to the right edge. */}
       <div className={`${MENU_HEADER} px-[5px]`}>
         <span>TASK</span>
@@ -718,32 +692,16 @@ export const IssueContextMenu = observer(function IssueContextMenu({
         </span>
       </div>
       {renderedEntries}
-      {sub &&
-        (sub.kind === 'color' ? (
-          <div
-            role="dialog"
-            aria-label="Task colour"
-            className={`absolute left-full z-[61] ${MENU_PICKER_PANEL}`}
-            style={flyoutStyle}
-          >
-            <div className={MENU_HEADER}>
-              <span>ISSUE COLOUR</span>
-              <span className={MENU_HEADER_REF}>
-                {issues.length > 1 ? `${issues.length} TASKS` : issueDisplayRef(first)}
-              </span>
-            </div>
-            <IssueColorSwatches value={first.color} onPick={setColor} />
-          </div>
-        ) : (
-          <div
-            role="menu"
-            aria-label={sub.kind === 'handoff' ? 'Handoff targets' : `${sub.kind} options`}
-            className={`absolute left-full z-[61] max-h-[60vh] min-w-[180px] overflow-y-auto ${MENU_PANEL}`}
-            style={flyoutStyle}
-          >
-            {submenuItems.get(sub.kind)}
-          </div>
-        ))}
+      {sub && (
+        <div
+          role="menu"
+          aria-label={sub.kind === 'handoff' ? 'Handoff targets' : `${sub.kind} options`}
+          className={`absolute left-full z-[61] max-h-[60vh] min-w-[180px] overflow-y-auto ${MENU_PANEL}`}
+          style={flyoutStyle}
+        >
+          {submenuItems.get(sub.kind)}
+        </div>
+      )}
     </div>,
     document.body,
   )

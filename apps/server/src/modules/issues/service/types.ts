@@ -22,6 +22,7 @@ import type { LinearIssue } from '../../../linear'
 import type { llmClient } from '../../../llm'
 import type { IssueRow, SessionStore } from '../../../store'
 import type { SessionFacts } from '../../sessions/facts'
+import type { PendingUploadStore } from '../pending-uploads'
 
 /**
  * The write-funnel face IssueService mutations run through (issue #190): the
@@ -79,8 +80,11 @@ export type IssuePanelOp =
       entry?: string
       files?: { path: string; size: number }[]
       sourcePaths?: string[]
-      /** Set only by the explicit same-issue terminal-evidence path. */
-      sourceKind?: 'terminal-evidence'
+      /** Set by terminal capture or user attachment creation. */
+      sourceKind?: 'terminal-evidence' | 'creation-attachment'
+      /** Set only by a chat upload's claim (POD-2148). */
+      chatUploadId?: string
+      chatUploadOwner?: UserId
     }
   | { op: 'artifact-remove'; index: number }
   | { op: 'deferred-add'; text: string }
@@ -100,6 +104,7 @@ export interface DepReportEntry {
   seq: number
   title: string
   stage: string
+  closedReason?: string | null
   priority: number
   closed: boolean
   blocked: boolean
@@ -212,6 +217,20 @@ export interface IssueDeps {
     /** The agent profile the session starts from (POD-6107). */
     agentProfileId?: string
   }): Promise<SpawnedSessionResult>
+  /**
+   * The read-only half of {@link repoOp} that create uses to choose a parent branch
+   * the selected repository has [POD-2065]: `revParseVerify` and `statusProbe`
+   * only, routed to `machineId` — the machine that reported the issue's repo at
+   * `cwd` — or, without one, to the machine that holds `cwd`. Its own member so the
+   * span lint can tell it from git writes: create runs inside spans (attach
+   * --subissue). Optional; without it create keeps the unprobed default.
+   */
+  readRepo?(
+    op: Extract<RepoOp, 'revParseVerify' | 'statusProbe'>,
+    cwd: string,
+    args?: Record<string, string>,
+    machineId?: MachineId,
+  ): Promise<{ ok: boolean; output: string }>
   repoOp(
     op: RepoOp,
     cwd: string,
@@ -370,6 +389,7 @@ export interface IssueDeps {
    *  snapshotter panelArtifactAdd/Remove ride. Optional so existing test deps
    *  literals stay valid; absent ⇒ legacy path-only artifact entries. */
   artifacts?: {
+    transfer?: import('../artifact-store').IssueArtifactStore['transfer']
     snapshot(o: {
       issueId: IssueId
       root: string
@@ -397,7 +417,27 @@ export interface IssueDeps {
     ): Promise<{ bytes: Buffer; contentType: string } | null>
     remove(issueId: IssueId, artifactId: ArtifactId): Promise<void>
     removeIssue(issueId: IssueId): Promise<void>
+    /** Move an artifact dir back out to `toDir` — a chat upload whose task
+     *  failed to launch returns to pending (POD-2148). */
+    relinquish?(o: { issueId: IssueId; artifactId: ArtifactId; toDir: string }): Promise<void>
+    /** Move a claimed chat upload's file dir in as an artifact (POD-2148). */
+    adopt?(o: {
+      issueId: IssueId
+      artifactId: ArtifactId
+      fromDir: string
+      entry: string
+    }): Promise<{
+      artifactId: ArtifactId
+      entry: string
+      files: { path: string; size: number }[]
+    }>
   }
+  /** Files picked in a composer, held until a send or create claims them
+   *  (POD-2148). Absent ⇒ chat uploads cannot be claimed. */
+  pendingUploads?: Pick<
+    PendingUploadStore,
+    'meta' | 'markClaimed' | 'markUnclaimed' | 'fileDir' | 'claimedBy'
+  >
 }
 
 /**
@@ -451,7 +491,6 @@ export interface CreateIssueInput
       | 'type'
       | 'assignee'
       | 'parentId'
-      | 'color'
       | 'draft'
     > {
   /** Client-minted id for the first session when `startNow` is true. */
@@ -503,7 +542,6 @@ export type IssuePatch = Partial<
     | 'supersededBy'
     | 'duplicateOf'
     | 'sortKey'
-    | 'color'
     | 'estimateMin'
     | 'needsHuman'
     | 'humanQuestion'

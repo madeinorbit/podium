@@ -39,6 +39,29 @@ function fixture(scale: 1 | 4 = 1, resident = false) {
   }
 }
 
+it.each([false, true])('updates terminal status when only the closing reason changes: resident=%s', resident => {
+  const f = fixture(1, resident), reader = createTerminalReferences(f.pool), paint = vi.fn()
+  const stop = reader.subscribe(paint)
+  const status = () => {
+    reader.beginPaint()
+    const value = reader.resolveStatus('POD-1')
+    reader.endPaint()
+    return value
+  }
+  try {
+    expect(status()).toBe('review')
+    for (const closedReason of ['done', 'cancelled', 'duplicate', 'superseded'] as const) {
+      f.publish({ type: 'update', rows: [issue('target', 1, { stage: 'done', closedReason })] })
+      expect(status()).toBe(closedReason)
+    }
+    expect(paint).toHaveBeenCalledTimes(4)
+    f.publish({ type: 'update', rows: [issue('target', 1, { stage: 'planning', closedReason: null })] })
+    expect(status()).toBe('planning')
+    f.publish({ type: 'update', rows: [issue('target', 1, { stage: 'done', closedReason: 'wontfix' })] })
+    expect(status()).toBe('cancelled')
+  } finally { stop(); reader.dispose(); f.pool.dispose() }
+})
+
 it('preserves archived stages, excludes deleted destinations and resolves refs independently of raw IDs', () => {
   const f = fixture(), reader = createTerminalReferences(f.pool)
   try {
@@ -46,12 +69,12 @@ it('preserves archived stages, excludes deleted destinations and resolves refs i
     expect(f.pool.queries.linkedIssueId('POD-1')).toBe('POD-1')
     expect(reader.issueId(' POD-01 ')).toBe('target')
     expect(reader.issueId('POD-1')).toBe('target')
-    expect(reader.resolveStage('POD-1')).toBe('review')
-    expect(reader.resolveStage('POD-3')).toBeNull()
+    expect(reader.resolveStatus('POD-1')).toBe('review')
+    expect(reader.resolveStatus('POD-3')).toBeNull()
     expect(reader.issueId('POD-3')).toBeUndefined()
     expect(reader.isKnownPrefix('EMPTY')).toBe(false)
     for (const token of ['POD-1-A', 'POD-DRAFT-1', '#1', 'bad', 'POD-404']) {
-      expect(reader.resolveStage(token)).toBeNull()
+      expect(reader.resolveStatus(token)).toBeNull()
       expect(reader.issueId(token)).toBeUndefined()
     }
   } finally { reader.dispose(); f.pool.dispose() }
@@ -98,7 +121,7 @@ it('keeps first paint, repaint, activation and updates flat at 1x/4x with cold a
       reader.beginPaint()
       if (token !== null) {
         expect(reader.isKnownPrefix('POD')).toBe(true)
-        expect(reader.resolveStage(token)).toBe('review')
+        expect(reader.resolveStatus(token)).toBe('review')
       }
       reader.endPaint()
     }
@@ -121,7 +144,7 @@ it('keeps first paint, repaint, activation and updates flat at 1x/4x with cold a
       const hidden = await measure('terminal hidden pane', () => {
         reader.beginPaint()
         expect(reader.isKnownPrefix('POD')).toBe(false)
-        expect(reader.resolveStage('POD-2')).toBeNull()
+        expect(reader.resolveStatus('POD-2')).toBeNull()
         reader.endPaint()
         f.publish({ type: 'update', rows: [issue('second', 2, { stage: 'done' })] })
       })
@@ -131,7 +154,7 @@ it('keeps first paint, repaint, activation and updates flat at 1x/4x with cold a
       expect(paint).not.toHaveBeenCalled()
       reader.dispose(); row.mockClear()
       expect(reader.issueId('POD-1')).toBeUndefined()
-      expect(reader.resolveStage('POD-1')).toBeNull()
+      expect(reader.resolveStatus('POD-1')).toBeNull()
       expect(reader.isKnownPrefix('POD')).toBe(false)
       expect(row).not.toHaveBeenCalled()
       expect(references.mock.calls.filter(([key]) => key === 'references')).toHaveLength(0); expect(ids).not.toHaveBeenCalled()

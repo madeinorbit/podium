@@ -7,7 +7,7 @@ import type { PendingInteractionWire } from '@podium/protocol'
 import { IssueSessionFactsIndex, type IssueSessionFacts, type IssueSessionFactReader } from './shared/issue-session-facts'
 import type { SessionPhaseChange, NotificationSession } from '@podium/client-core/sound'
 import { asSessionId } from '@podium/model'
-import { createDemandAtoms } from '@podium/mobx-helpers'
+import { createDemandAtoms, lazy } from '@podium/mobx-helpers'
 import { joinedFields, SESSION_JOIN_FIELDS } from './shared/joined-fields'
 import {
   SETUP_SESSION_SUMMARY_FIELDS,
@@ -70,6 +70,7 @@ import {
 
 import type { OutboxKinds } from '@podium/client-core/engine'
 import {
+  compareShallow,
   compareStructural,
   type IObservableArray,
   type ObservableMap,
@@ -132,9 +133,11 @@ import {
 import type { RepoRow, ViewInputs } from './views'
 import { worklistGroups } from './worklist/groups'
 import { LOADING, type Loaded, type RollupInputs } from './worklist/rollup'
+import type { NoticeRows } from './notice-schema'
+import { NO_INTERACTIONS, type SeatInteractions } from '@podium/model/browser'
 import { SeatVerdicts } from './worklist/seat-verdicts'
 import { worklistView } from './worklist/view-model'
-import { sidebarRosterView } from './worklist/sidebar-roster'
+import { projectIndex } from './worklist/projects'
 import {
   type HeldIssue,
   HIDDEN_ISSUE_FIELDS,
@@ -455,7 +458,6 @@ export class MobxPool {
       // read, in the same action that moved the bucket: binary search by id
       // (default `.sort()` order, UTF-16 code units) + splice at its position.
       onBucket: (collection, target, member, added) => {
-        if (collection === 'worktree.sessions') sidebarRosters.queueSession(member)
         if (collection !== 'issue.sessions') return
         this.seatVerdicts.queueMember(target, member, added)
         const list = seats.get(target)
@@ -494,7 +496,7 @@ export class MobxPool {
       },
       ...(residency === null ? {} : { residency }),
     }
-    const sidebarRosters = sidebarRosterView(this)
+    projectIndex(this)
     // Maintenance reads: untracked, so a summary never depends on a seat's row.
     this.seatVerdicts = new SeatVerdicts({
       // untracked-read: seat-membership-maintenance
@@ -540,6 +542,7 @@ export class MobxPool {
       passed: (t) => this.clock.passed(t),
     }
     this.visibleInputs = {
+      missionBucket: (id) => this.issueObject(id).missionBucket,
       links,
       issueSessionFact: (id, field) => {
         const issue = this.issueObject(id)
@@ -558,6 +561,8 @@ export class MobxPool {
       reached: (t) => this.clock.reached(t),
       loadedIssue: (id) => omitGone(this.row('issue', id)) as Loaded<SliceIssue>,
       loadedSession: (id) => omitGone(this.row('session', id)) as Loaded<SliceSession>,
+      openInteractions: (id) => this.sessionOpenInteractions(id),
+      interactionSessions: () => this.sessionsWithOpenInteractions(),
       issueRead: (id) => this.readCursor(id),
       nested: (id) => worklistView(this).row(this.issueObject(id)).nested,
       formalChildren: (id) => links.issue.children.ids(id),
@@ -698,10 +703,6 @@ export class MobxPool {
     return this.sourceIndex?.() ?? (this.ownIndex as ColdIndex)
   }
 
-  rosterCandidates(path: string): Iterable<string> {
-    return sidebarRosterView(this).candidates(path)
-  }
-
   /**
    * TRACKED: an issue's read cursor, from the read-state lane (POD-4686: per
    * key, so a mark-read re-validates only its own row). A pending mark-read is
@@ -770,6 +771,28 @@ export class MobxPool {
 
   sessionArchiveField(id: string): boolean | undefined {
     return this.queries.sessionStoredField(id, 'archived')
+  }
+
+  /** The sessions holding an open (asked) pending interaction, in id order: where an exited seat may still ask (POD-2171). */
+  sessionsWithOpenInteractions(): readonly string[] {
+    return (this.openInteractionSessions ??= new OpenInteractionSessions(this)).ids
+  }
+  private openInteractionSessions: OpenInteractionSessions | undefined
+
+  /** Open (asked) pending interactions addressed to session `id`, and when the earliest was asked: a seat fact (`coordinatedSeat`). */
+  sessionOpenInteractions(id: string): SeatInteractions {
+    const membership = omitGone(this.row('noticeSession', id) as Lookup<NoticeRows['noticeSession']>)
+    if (membership === undefined || membership === LOADING) return NO_INTERACTIONS
+    let count = 0
+    let since: number | null = null
+    for (const interaction of membership.interactions) {
+      const row = omitGone(this.row('pendingInteraction', interaction))
+      if (row === undefined || row === LOADING || row.sessionId !== id || row.status !== 'asked') continue
+      count++
+      const at = Date.parse(row.askedAt)
+      if (Number.isFinite(at) && (since === null || at < since)) since = at
+    }
+    return count === 0 ? NO_INTERACTIONS : { count, since }
   }
 
   sessionSummaryField(property: string): boolean {
@@ -974,7 +997,6 @@ export class MobxPool {
     return runInAction(() => {
       for (const [ref, id] of identities) referenceViewIfPresent(this)?.resolved(ref, id)
       const rows = residency.install(this.target, batch, out)
-      sidebarRosterView(this).flush()
       this.seatVerdicts.flush()
       return rows
     })
@@ -1113,7 +1135,6 @@ export class MobxPool {
       // as the members group does (hot or cold).
       for (const record of event.type === 'replace' ? [] : event.rows) {
         if (record.kind === 'session') {
-          sidebarRosterView(this).queueSession(record.id)
           this.seatVerdicts.queueSession(record.id)
         }
         if (record.kind === 'issue') {
@@ -1122,7 +1143,6 @@ export class MobxPool {
             referenceViewIfPresent(this)?.arrived(record.value as SliceIssue)
         }
       }
-      sidebarRosterView(this).flush()
       this.seatVerdicts.flush()
       this.queries.publish(event)
       for (const record of machineRows) if (record.value === undefined) this.release('machine', record.id)
@@ -1195,3 +1215,26 @@ export class MobxPool {
 
   private select(id: string | null): void { worklistView(this).select(id) }
 }
+
+/**
+ * The sessions holding an open pending interaction (POD-2171): one shared
+ * value for every row, scanned once per catalog or interaction change and
+ * compared shallowly, so an unrelated notice leaves the rows that read it
+ * alone.
+ */
+class OpenInteractionSessions {
+  constructor(private readonly pool: MobxPool) {}
+
+  @lazy({ equals: compareShallow })
+  get ids(): readonly string[] {
+    const catalog = omitGone(this.pool.row('noticeCatalog', 'catalog') as Lookup<NoticeRows['noticeCatalog']>)
+    if (catalog === undefined || catalog === LOADING) return NO_SESSIONS
+    const sessions = new Set<string>()
+    for (const interaction of catalog.interactions) {
+      const row = omitGone(this.pool.row('pendingInteraction', interaction))
+      if (row !== undefined && row !== LOADING && row.status === 'asked') sessions.add(row.sessionId)
+    }
+    return sessions.size === 0 ? NO_SESSIONS : [...sessions].sort()
+  }
+}
+const NO_SESSIONS: readonly string[] = Object.freeze([])

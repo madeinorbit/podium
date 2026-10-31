@@ -277,11 +277,11 @@ describe('SidebarUnified inline filter (POD-1078)', () => {
     await waitFor(() => expect(document.querySelectorAll('[data-drag-scope] > [data-drag-key]')).toHaveLength(3))
   })
 
-  it('gaps every section but the first (the design’s 14px)', async () => {
+  it('parts folders with a hairline rather than a gap (POD-2074)', async () => {
     render(<SidebarUnified />)
-    // Pinned opens the column, flush under the search field; the project group
-    // under it takes the gap.
-    expect(screen.getByTestId('pinned-section').className).not.toContain('mt-[14px]')
-    expect(screen.getByTestId('project-group').className).toContain('mt-[14px]')
+    for (const section of [screen.getByTestId('pinned-section'), screen.getByTestId('project-group')]) {
+      expect(section.className).toContain('border-b')
+      expect(section.className).not.toContain('mt-[14px]')
+    }
   })
 })

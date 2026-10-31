@@ -18,12 +18,9 @@ import type { JSX } from 'react'
 import { useEffect } from 'react'
 import { createRoot } from 'react-dom/client'
 import { OperatorFocusProvider } from '@/app/operator-focus'
+import RightDockIssuePanel from '@/app/RightDockIssuePanel'
 import { ThemeProvider } from '@/app/theme'
-import {
-  IssueExplorerProvider,
-  useIssueExplorer,
-} from '@/features/issues/explorer/explorer-context'
-import { IssueExplorer, IssueExplorerCrumbs } from '@/features/issues/explorer/IssueExplorer'
+import { DockIssueProvider, useDockIssue } from '@/features/issues/dock-issue'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
 import { makeIssue } from '@/lib/test-issue'
 import '@/index.css'
@@ -134,18 +131,18 @@ state.sessions = [
 state.issues = [PLAIN, DISCOVERED, RUNNING, ORIGIN]
 
 function PointAt({ id }: { id: string }): JSX.Element {
-  const { retarget } = useIssueExplorer()
+  const { show } = useDockIssue()
   useEffect(() => {
-    retarget(id)
-  }, [retarget, id])
+    show(id)
+  }, [show, id])
   return <span />
 }
 
-/** The dock column as `RightDock` builds it: a 44px head carrying the trail,
+/** The dock column as `RightDock` builds it: a 44px head naming the task,
  *  then the panel, at the width the operator actually reads it in. */
 function Dock({ id, label }: { id: string; label: string }): JSX.Element {
   return (
-    <IssueExplorerProvider>
+    <DockIssueProvider>
       <PointAt id={id} />
       <div
         className="flex min-h-0 flex-col border-border border-l bg-background"
@@ -154,11 +151,11 @@ function Dock({ id, label }: { id: string; label: string }): JSX.Element {
         data-case={label}
       >
         <div className="flex h-11 flex-none items-center gap-[9px] border-b border-border px-3.5">
-          <IssueExplorerCrumbs />
+          <RightDockIssuePanel kind="header" />
         </div>
-        <IssueExplorer cwd="/r" />
+        <RightDockIssuePanel kind="panel" cwd="/r" />
       </div>
-    </IssueExplorerProvider>
+    </DockIssueProvider>
   )
 }
 

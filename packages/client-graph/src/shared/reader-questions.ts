@@ -18,7 +18,6 @@ export type ReaderQuestion =
         | 'shellIssues'
         | 'missionIssues'
         | 'boardCatalog'
-        | 'boardCounts'
         | 'proposedIssues'
     }
   | {
@@ -53,8 +52,6 @@ export type ReaderQuestion =
       projectPaths?: readonly string[]
       archived?: boolean
       deleted?: boolean
-      explorerTab?: string
-      searching?: boolean
     }
 
 export const questionEntity = (question: ReaderQuestion): 'issue' | 'session' =>
@@ -510,9 +507,6 @@ export function createReaderIndex(options: { targetSearch?: boolean; recent?: bo
               `issue:root:${question.cwd.slice(0, at + 1)}`,
             )
           break
-        case 'boardCounts':
-          keys.push('issue:live')
-          break
         case 'spawnIssues':
           keys.push(`issue:repo:${question.repoId ?? ''}`, 'issue:repo:',
             `issue:path:${machinePathKey(question.repoPath)}`, 'issue:undeleted')
@@ -523,11 +517,6 @@ export function createReaderIndex(options: { targetSearch?: boolean; recent?: bo
           if (question.status) keys.push(`issue:${question.status}`)
           for (const path of question.projectPaths ?? []) keys.push(...pathKeys(path), `issueRepoPath:${machinePathKey(path)}`)
           keys.push('issue:live', 'issue:unarchived', 'issue:undeleted')
-          if (question.explorerTab === 'cancelled')
-            keys.push('issue:status:cancelled', 'issue:status:duplicate', 'issue:status:superseded')
-          else if (question.explorerTab === 'needs') keys.push('issue:open')
-          else if (question.explorerTab)
-            keys.push(`issue:status:${question.explorerTab}`)
           break
       }
       return keys
@@ -605,7 +594,6 @@ export function createReaderIndex(options: { targetSearch?: boolean; recent?: bo
         case 'headerOccupancy': return has('session:host')
         case 'sessionReference': return referenceKeys(question.ref).some(has)
         case 'commandIssueSessions': return has(commandIssueKey(question))
-        case 'boardCounts': return has('issue:live')
         case 'spawnIssues':
           return has('issue:undeleted') &&
             ((question.repoId !== undefined && has(`issue:repo:${question.repoId}`)) ||
@@ -623,16 +611,8 @@ export function createReaderIndex(options: { targetSearch?: boolean; recent?: bo
           if (question.stage && !has(`issue:status:${question.stage}`)) return false
           if (['open', 'closed', 'blocked'].includes(question.status ?? '') && !has(`issue:${question.status}`)) return false
           if (question.projectPaths?.length && !question.projectPaths.some(path => pathKeys(path).some(has))) return false
-          if (question.explorerTab !== undefined && !question.searching) {
-            if (!has('issue:live')) return false
-            if (question.explorerTab === 'needs') return has('issue:open')
-            if (question.explorerTab === 'cancelled')
-              return ['cancelled', 'duplicate', 'superseded'].some(tab => has(`issue:status:${tab}`))
-            return has(`issue:status:${question.explorerTab}`)
-          }
-          return question.explorerTab !== undefined ||
-            ((question.archived || has('issue:unarchived')) &&
-              (question.deleted || has('issue:undeleted')))
+          return (question.archived || has('issue:unarchived')) &&
+            (question.deleted || has('issue:undeleted'))
         default: return true
       }
     },
@@ -721,8 +701,6 @@ export function createReaderIndex(options: { targetSearch?: boolean; recent?: bo
           }
           return [...ids]
         }
-        case 'boardCounts':
-          return [...bucket('issue:live')]
         case 'spawnIssues': {
           const ids = new Set(question.repoId ? bucket(`issue:repo:${question.repoId}`) : [])
           const unassigned = bucket('issue:repo:')
@@ -744,24 +722,8 @@ export function createReaderIndex(options: { targetSearch?: boolean; recent?: bo
             sets.push(
               new Set(question.projectPaths.flatMap((path) => [...pathMembers(path)])),
             )
-          // Text searches also admit an archived exact reference. The reader
-          // resolves that exception through its declared summary, on demand.
-          if (question.explorerTab !== undefined && !question.searching) {
-            sets.push(bucket('issue:live'))
-            if (question.explorerTab === 'needs') sets.push(bucket('issue:open'))
-            else if (question.explorerTab === 'cancelled')
-              sets.push(
-                new Set(
-                  ['cancelled', 'duplicate', 'superseded'].flatMap((tab) => [
-                    ...bucket(`issue:status:${tab}`),
-                  ]),
-                ),
-              )
-            else sets.push(bucket(`issue:status:${question.explorerTab}`))
-          } else if (question.explorerTab === undefined) {
-            if (!question.archived) sets.push(bucket('issue:unarchived'))
-            if (!question.deleted) sets.push(bucket('issue:undeleted'))
-          }
+          if (!question.archived) sets.push(bucket('issue:unarchived'))
+          if (!question.deleted) sets.push(bucket('issue:undeleted'))
           return intersection(sets)
         }
         default:

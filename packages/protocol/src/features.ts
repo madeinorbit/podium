@@ -67,12 +67,6 @@ export const FEATURES = [
     visibility: 'edge',
   },
   {
-    id: 'merge-queue',
-    name: 'Queues',
-    description: 'Show merge and heavy-test queues in the right sidebar.',
-    visibility: 'edge',
-  },
-  {
     id: 'shipping',
     name: 'Shipping',
     description: 'Show durable delivery progress in the right sidebar.',

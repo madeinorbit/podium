@@ -27,7 +27,7 @@ export function refTooltipText(mac: boolean): string {
 export class RefHoverTooltip {
   private el: HTMLDivElement | null = null
 
-  show(event: MouseEvent): void {
+  show(event: MouseEvent, statusLabel?: string): void {
     if (typeof document === 'undefined') return
     const doc = (event.target as Node | null)?.ownerDocument ?? document
     if (!doc.body) return
@@ -40,7 +40,8 @@ export class RefHoverTooltip {
         'border:1px solid var(--border, #3a3a46);box-shadow:0 4px 12px rgba(0,0,0,0.35)'
       this.el = el
     }
-    this.el.textContent = refTooltipText(isMacPlatform())
+    const hint = refTooltipText(isMacPlatform())
+    this.el.textContent = statusLabel ? `${statusLabel} · ${hint}` : hint
     if (!this.el.isConnected) doc.body.appendChild(this.el)
     // Below-right of the pointer, clamped into the viewport (measure first).
     const margin = 8

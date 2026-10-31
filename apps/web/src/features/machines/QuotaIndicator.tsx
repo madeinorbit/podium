@@ -21,7 +21,7 @@ import type { HarnessDescriptorWire } from '@podium/protocol'
 import { Gauge } from 'lucide-react'
 import type { JSX } from 'react'
 import { useState } from 'react'
-import { useHeaderActions, usePoolHeaderQuotas } from '@/app/header-data'
+import { usePoolHeaderQuotas } from '@/app/header-data'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { agentIconFor } from '@/lib/agent-tone'
@@ -135,7 +135,6 @@ export function QuotaIndicator({
   /** Render the worst window as inline text ("Claude Code 68% · resets in 2h 14m"). */
   detail?: boolean
 }): JSX.Element | null {
-  const { trpc } = useHeaderActions()
   const machines = usePoolHeaderQuotas()
   const [open, setOpen] = useState(false)
 

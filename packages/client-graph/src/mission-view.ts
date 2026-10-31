@@ -1,3 +1,4 @@
+import { leafTasks } from '@podium/model/browser'
 import { omitGone } from './lookup'
 import type { SessionView } from '@podium/client-core/session-values'
 
@@ -10,8 +11,6 @@ import {
   type FlightDeckFoldMap,
   type FlightDeckMode,
   type FlightDeckRow,
-  type HandoffNextEntry,
-  type HandoffNowEntry,
   type IssueContinuation,
   type IssueNavigationModel,
   type IssueNote,
@@ -20,16 +19,17 @@ import {
   issueOwnContentUnread,
   type MissionDeparture,
   type MissionProgress,
+  tallyMissionBuckets,
+  missionProgressFromBuckets,
   type PresenceNote,
   panelLabel,
-  selectLatestPromptSession,
   subtreeUnread,
 } from '@podium/client-core/values'
 import { companion, lazy } from '@podium/mobx-helpers'
 import { compareShallow, compareStructural } from 'mobx'
-import { machinePathsEqual, type TaskWord } from '@podium/model'
+import { coordinatorLive, machinePathsEqual, type SeatRole, type TaskWord, type TaskWords } from '@podium/model'
 import type { GitRepositoryWire, MachineWire } from '@podium/model/browser'
-import { asIssueId, asSessionId, DRAFT_ISSUE_TITLE, HANDOFF_HARNESS_KINDS } from '@podium/model/browser'
+import { asIssueId, type asSessionId, DRAFT_ISSUE_TITLE, HANDOFF_HARNESS_KINDS } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import type { IssueModel, ModelOf, SessionModel } from './models'
 import { headerEntities } from './header-entities'
@@ -67,19 +67,10 @@ export interface MissionHistory {
   readonly newest: string | undefined
   /** The first archived sender, in session order, that moved elsewhere. */
   readonly moved: string | undefined
-  /** `selectLatestPromptSession` of the archived senders, by id. */
-  readonly latestPrompt: string | undefined
 }
 
 type SessionFacts = SessionModel
-/** History reads the shared scalar fields, so a display edit stops at its session. */
-const latestPromptOf = (sessions: readonly SessionModel[]) =>
-  selectLatestPromptSession(sessions.map(session => ({
-    sessionId: session.sessionId, lastActiveAt: session.lastActivity,
-    lastInputAt: session.lastInput, transcriptAvailable: session.transcript,
-    agentKind: session.historyKind,
-  })) as unknown as readonly SessionView[])?.sessionId
-const NO_HISTORY: MissionHistory = Object.freeze({ count: 0, roster: 0, newest: undefined, moved: undefined, latestPrompt: undefined })
+const NO_HISTORY: MissionHistory = Object.freeze({ count: 0, roster: 0, newest: undefined, moved: undefined })
 interface IssueMemberFacts {
   readonly ids: ReturnType<typeof asSessionId>[]
   readonly latest: number
@@ -184,8 +175,12 @@ const topology = ((deck: MissionDeckModel): DeckTopology | typeof LOADING => set
   return { scope, children, parent, parents, overlap, depths }
 }))
 
-type Count = 'tasks' | 'done' | 'run' | 'live' | 'working' | 'needsYou' | 'waiting'
-const COUNTS: readonly Count[] = ['tasks', 'done', 'run', 'live', 'working', 'needsYou', 'waiting']
+type Count = 'tasks' | 'done' | 'run' | 'live' | 'working' | 'needsYou' | 'waiting' | 'workingDelegated' | 'needsYouDelegated' | 'waitingDelegated'
+const COUNTS: readonly Count[] = ['tasks', 'done', 'run', 'live', 'working', 'needsYou', 'waiting', 'workingDelegated', 'needsYouDelegated', 'waitingDelegated']
+/** POD-2171: what a row counts of a sub-row. Under a live coordinator every
+ * session below is a delegate, so a sub-row adds its delegated counts. */
+const childCount = (row: MissionDeckIssueModel, name: Count): Count =>
+  row.coordinated && (name === 'working' || name === 'needsYou' || name === 'waiting') ? `${name}Delegated` : name
 const ownCount = (name: Count) => ((row: MissionDeckIssueModel) => {
   const facts = row.facts
   if (!facts.visible) return 0
@@ -197,9 +192,15 @@ const ownCount = (name: Count) => ((row: MissionDeckIssueModel) => {
   // Keep that additional computed lazy until a row actually draws its crew.
   const crew = requireLoaded(row.view.roster(row.id))
   if (name === 'live') return crew.filter(session => row.view.pool.sessionObject(session.sessionId).open).length
-  if (name === 'working') return crew.filter(session => { const model = row.view.pool.sessionObject(session.sessionId); return model.open && model.workingMotion }).length
+  if (name === 'working') return crew.filter(session => row.works(session.sessionId)).length
   if (name === 'waiting') return crew.filter(session => row.asks(session)).length
-  return Number(issueNeedsHuman(row.rulesIssue!, crew))
+  // As a delegate to a coordinated ancestor: its work and exceptions, none of the row's own requests.
+  if (name === 'workingDelegated') return crew.filter(session => row.works(session.sessionId, 'delegate')).length
+  if (name === 'waitingDelegated') return crew.filter(session => row.asks(session, 'delegate')).length
+  if (name === 'needsYouDelegated') return Number(crew.some(session => row.asks(session, 'delegate')))
+  return Number(row.coordinated
+    ? issueNeedsHuman(row.rulesIssue!, crew, undefined, session => row.asks(session))
+    : issueNeedsHuman(row.rulesIssue!, crew))
 })
 const own = Object.fromEntries(COUNTS.map(name => [name, (row: MissionDeckIssueModel) => row.ownCount(name)])) as Record<Count, (row: MissionDeckIssueModel) => number>
 const deriveSum = Object.fromEntries(COUNTS.map(name => [name, ((row: MissionDeckIssueModel) => settled(() => {
@@ -211,10 +212,11 @@ const deriveSum = Object.fromEntries(COUNTS.map(name => [name, ((row: MissionDec
     else total += value
   }
   if (shape.overlap) {
-    for (const id of [row.id, ...row.descendantIds]) add(settled(() => own[name](row.deck.model(id))))
+    add(settled(() => own[name](row)))
+    for (const id of row.descendantIds) add(settled(() => own[childCount(row, name)](row.deck.model(id))))
   } else {
     add(settled(() => own[name](row)))
-    for (const id of requireLoaded(row.deckChildren)) add(sum[name](row.deck.model(id)))
+    for (const id of requireLoaded(row.deckChildren)) add(sum[childCount(row, name)](row.deck.model(id)))
   }
   return pending ? LOADING : total
 }))])) as Record<Count, (row: MissionDeckIssueModel) => number | typeof LOADING>
@@ -244,7 +246,10 @@ const hasPayload = ((row: MissionDeckIssueModel) => requireLoaded(row.deckChildr
 // child row's own lazy state, so a change re-derives one path upward and never
 // reads a child's note or presence.
 const rowState = ((row: MissionDeckIssueModel): DeckIssueState => {
-  const words = settledAll(requireLoaded(row.deckChildren), id => row.deck.model(id).word)
+  const words = settledAll(requireLoaded(row.deckChildren), (id): TaskWords => {
+    const state = row.deck.model(id).state
+    return { word: state.state, delegated: state.delegated }
+  })
   const issue = settled(() => row.issue), crew = settled(() => row.sessions)
   if (words === LOADING || issue === LOADING || crew === LOADING) throw LOADING
   return row.view.deckState(issue, crew, words)
@@ -252,7 +257,7 @@ const rowState = ((row: MissionDeckIssueModel): DeckIssueState => {
 const presentation = ((row: MissionDeckIssueModel): MissionRowPresentation => row.view.presentation(row.issue, row.sessions, row.state))
 const crewOf = ((row: MissionDeckIssueModel) => deckSessionOrder(row.facts,
   requireLoaded(row.view.roster(row.id))))
-const matchedWorking = ((row: MissionDeckIssueModel) => row.sessions.some(session => row.view.pool.sessionObject(session.sessionId).atWork))
+const matchedWorking = ((row: MissionDeckIssueModel) => row.sessions.some(session => row.works(session.sessionId, row.roleOf(session.sessionId), 'atWork')))
 const matchedNeedsYou = ((row: MissionDeckIssueModel) => own.needsYou(row) > 0)
 const collapsedCrew: (row: MissionDeckIssueModel) => SessionView[] = ((row: MissionDeckIssueModel): SessionView[] => {
   const seen = new Set<string>(), candidates: SessionView[] = []
@@ -339,6 +344,12 @@ export class MissionDeckIssueModel implements FlightDeckRow {
   @lazy private get totalNeedsYou(): number | typeof LOADING { return deriveSum.needsYou(this) }
   @lazy private get ownWaiting() { return ownCount('waiting')(this) }
   @lazy private get totalWaiting(): number | typeof LOADING { return deriveSum.waiting(this) }
+  @lazy private get ownNeedsYouDelegated() { return ownCount('needsYouDelegated')(this) }
+  @lazy private get totalNeedsYouDelegated(): number | typeof LOADING { return deriveSum.needsYouDelegated(this) }
+  @lazy private get ownWaitingDelegated() { return ownCount('waitingDelegated')(this) }
+  @lazy private get ownWorkingDelegated() { return ownCount('workingDelegated')(this) }
+  @lazy private get totalWorkingDelegated(): number | typeof LOADING { return deriveSum.workingDelegated(this) }
+  @lazy private get totalWaitingDelegated(): number | typeof LOADING { return deriveSum.waitingDelegated(this) }
   ownCount(name: Count): number {
     switch (name) {
       case 'tasks': return this.ownTasks
@@ -348,6 +359,9 @@ export class MissionDeckIssueModel implements FlightDeckRow {
       case 'working': return this.ownWorking
       case 'needsYou': return this.ownNeedsYou
       case 'waiting': return this.ownWaiting
+      case 'needsYouDelegated': return this.ownNeedsYouDelegated
+      case 'waitingDelegated': return this.ownWaitingDelegated
+      case 'workingDelegated': return this.ownWorkingDelegated
     }
   }
   totalCount(name: Count): number | typeof LOADING {
@@ -359,6 +373,9 @@ export class MissionDeckIssueModel implements FlightDeckRow {
       case 'working': return this.totalWorking
       case 'needsYou': return this.totalNeedsYou
       case 'waiting': return this.totalWaiting
+      case 'needsYouDelegated': return this.totalNeedsYouDelegated
+      case 'waitingDelegated': return this.totalWaitingDelegated
+      case 'workingDelegated': return this.totalWorkingDelegated
     }
   }
   @lazy({ equals: compareShallow }) get collapsedCrew(): SessionView[] { return collapsedCrew(this) }
@@ -418,8 +435,26 @@ export class MissionDeckIssueModel implements FlightDeckRow {
   @lazy({ equals: compareShallow }) private get ownCrewIds() { return crewIds(this) }
   get crewIds() { return this.canonical.ownCrewIds }
   get hasLead() { return this.entity.hasLead }
-  asks(session: Pick<SessionView, 'sessionId'>) { return this.view.pool.sessionObject(session.sessionId).attention && !this.entity.finished }
-  @lazy({ equals: compareShallow }) get workingSessionIds() { return this.crewIds.filter(id => this.view.pool.sessionObject(id).atWork) }
+  /** POD-2171: the row's coordinator is live (it may sit on an ancestor). */
+  @lazy get coordinated() { return this.view.coordinated(this.facts) }
+  /** The session's role on this row, or null on an uncoordinated row. */
+  roleOf(sessionId: string): SeatRole | null {
+    return !this.coordinated ? null : sessionId === this.facts.coordinatorSessionId ? 'coordinator' : 'delegate'
+  }
+  /** The session wants the human on this row: in its role, its `coordinatedSeat` verdict; else its word. */
+  asks(session: Pick<SessionView, 'sessionId'>, role = this.roleOf(session.sessionId)) {
+    const model = this.view.pool.sessionObject(session.sessionId)
+    if (role === null) return model.attention && !this.entity.finished
+    return (role === 'coordinator' ? model.coordinatorSeat : model.delegateSeat).asks
+  }
+  /** The session works on this row: in a role, its `coordinatedSeat` work (an offer never hides it);
+   * else the count's motion or the filter's `atWork`, as before. */
+  works(sessionId: string, role = this.roleOf(sessionId), legacy: 'motion' | 'atWork' = 'motion') {
+    const model = this.view.pool.sessionObject(sessionId)
+    if (role !== null) return model.open && (role === 'coordinator' ? model.coordinatorSeat : model.delegateSeat).working
+    return legacy === 'atWork' ? model.atWork : model.open && model.workingMotion
+  }
+  @lazy({ equals: compareShallow }) get workingSessionIds() { return this.crewIds.filter(id => this.works(id, this.roleOf(id), 'atWork')) }
   @lazy({ equals: compareShallow }) get askingSessionIds() { return this.matches('needs-you') ? this.crewIds.filter(id => this.asks(this.view.pool.sessionObject(id))) : [] }
   sessionIds(mode: FlightDeckMode): readonly string[] {
     const row = this.canonical
@@ -471,53 +506,30 @@ export class MissionDeckIssueModel implements FlightDeckRow {
 
 const progress = ((deck: MissionDeckModel): MissionProgress | typeof LOADING => settled(() => {
   const { view } = deck, members = requireLoaded(deck.members)
-  const scope: string[] = []
   let pending = false
   // Progress is also read without the pane's topology. Request every member's
   // visibility together so cold siblings do not load one per scalar read.
   for (const id of members) {
     const visible = settled(() => view.facts(id).visible)
     if (visible === LOADING) pending = true
-    else if (visible) scope.push(id)
   }
   if (pending) return LOADING
-  const formal = new Set<string>(), stack = [...view.pool.graph.many('issue', deck.id, 'children')]
-  while (stack.length) {
-    const id = stack.pop()!
-    if (id === deck.id || formal.has(id) || !view.facts(id).visible) continue
-    formal.add(id); stack.push(...view.pool.graph.many('issue', id, 'children'))
-  }
-  // Progress needs staffing throughout this formal scope. Observe every
-  // required crew before propagating LOADING instead of loading one per frame.
-  for (const id of scope) if (settled(() => view.facts(id).live) === LOADING) pending = true
-  if (pending) return LOADING
-  const accepted = scope.filter(id => formal.has(id) && view.facts(id).stage !== 'proposed' && !issueAbandoned(view.facts(id)))
-  const units: string[] = []
-  for (const id of accepted.length ? accepted : [deck.id]) {
-    const eligible = settled(() => {
-      const facts = view.facts(id)
-      return !issueAbandoned(facts) && (facts.live || (view.tipIds(id, true).length === 0 && !view.hasSpinOffDependent(id)))
-    })
-    if (eligible === LOADING) pending = true
-    else if (eligible) units.push(id)
+  const leaves = leafTasks(deck.id, {
+    task: (id) => view.facts(id),
+    children: (id) => [...view.pool.graph.many('issue', id, 'children')].filter((child) =>
+      view.facts(child).visible && view.facts(child).stage !== 'proposed'),
+  })
+  // Settle every leaf's session demand before propagating LOADING, so cold
+  // history hydrates as one batch rather than restarting the leaf walk per seat.
+  for (const id of leaves) {
+    if (settled(() => view.facts(id).live) === LOADING) pending = true
   }
   if (pending) return LOADING
-  const staffed = new Set<string>()
-  for (const issueId of scope) {
-    if (!view.facts(issueId).live) continue
-    let id: string | null = issueId
-    while (id && !staffed.has(id)) { staffed.add(id); id = view.pool.graph.one('issue', id, 'parent') }
-  }
-  const result: MissionProgress = { total: units.length, done: 0, run: 0, review: 0, stall: 0, block: 0, wait: 0 }
-  for (const id of units) {
+  const units = leaves.filter((id) => {
     const facts = view.facts(id)
-    if (facts.finished) result.done++
-    else if (facts.blocked) result.block++
-    else if (facts.stage === 'review') result.review++
-    else if (underway(facts.stage)) { if (facts.stage === 'shipping' || staffed.has(id)) result.run++; else result.stall++ }
-  }
-  result.wait = Math.max(0, result.total - result.done - result.block - result.review - result.run - result.stall)
-  return result
+    return facts.visible && (facts.live || (view.tipIds(id, true).length === 0 && !view.hasSpinOffDependent(id)))
+  })
+  return missionProgressFromBuckets(tallyMissionBuckets(units, (id) => view.facts(id).missionBucket))
 }))
 
 // The header is mounted only after its own references and scalar rollups have
@@ -644,7 +656,6 @@ class MissionIssueReader {
   @lazy get present() { return this.view.readPresent(this.id) }
   @lazy get history() { return this.view.readHistory(this.id) }
   @lazy get historyRosterCount() { return this.view.readHistoryRosterCount(this.id) }
-  @lazy get handoff() { return deriveMissionHandoff(this.view, this.id) }
   @lazy get menuHandoff(): MissionMenuHandoff | typeof LOADING {
     const count = this.view.pool.graph.size('issue', this.id, 'handoffSessions')
     if (count === 0) return { blocker: 'no-agent-session' }
@@ -654,7 +665,6 @@ class MissionIssueReader {
     return session === LOADING ? LOADING : session ? { session } : { blocker: 'no-agent-session' }
   }
 }
-const rowOrder = (a: { id: string }, b: { id: string }) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0
 const underway = (stage: string) => stage === 'planning' || stage === 'in_progress' || stage === 'shipping'
 const leftMission = (issue: IssueNavigationModel) => !['proposed', 'backlog'].includes(issue.stage) && Boolean(issue.deps.find(dep => dep.type === 'discovered-from'))
 const originId = (issue: IssueNavigationModel) => issue.deps.find(dep => dep.type === 'discovered-from')?.id ?? null
@@ -674,7 +684,6 @@ export class MissionViewReader {
   }
   node(id: string) { return this.card(this.facts(id)) }
   constructor(readonly pool: MobxPool) {}
-  handoff(id: string): MissionHandoffValues | typeof LOADING { return this.node(id).handoff }
   issue(id: string): Loaded<IssueNavigationModel> { return this.node(id).issue }
   /** An open menu shows authored issue fields, unread and cascade counts;
    * it does not show the history roster or its phase summary. */
@@ -818,9 +827,6 @@ export class MissionViewReader {
         void session.rosterEligible
         void session.lastActivity
         void session.moved
-        void session.lastInput
-        void session.transcript
-        void session.historyKind
         return true
       })
       if (archived === LOADING) pending = true
@@ -830,7 +836,7 @@ export class MissionViewReader {
     let newest: SessionFacts | undefined
     for (const session of facts) if (!newest || session.lastActivity > newest.lastActivity) newest = session
     return { count: facts.length, roster: facts.filter(session => session.rosterEligible).length, newest: newest?.sessionId,
-      moved: facts.find(session => session.moved)?.sessionId, latestPrompt: latestPromptOf(facts) }
+      moved: facts.find(session => session.moved)?.sessionId }
   }
   readHistoryRosterCount(id: string): number | typeof LOADING {
     const ids = this.seatIds('missionSessions', id, true)
@@ -878,23 +884,6 @@ export class MissionViewReader {
   /** One session's row by id, for an aggregate's chosen member. */
   resolve(sessionId: string | undefined): SessionView | undefined {
     if (sessionId === undefined) return undefined
-    const session = this.session(sessionId)
-    if (session === LOADING) throw LOADING
-    return session
-  }
-  /** The latest prompt among the given archived senders' winners. */
-  latestPrompt(ids: Iterable<string>): string | undefined {
-    const winners: SessionFacts[] = []
-    for (const id of ids) {
-      const facts = this.sessionFacts(id)
-      if (facts === LOADING) throw LOADING
-      if (facts) winners.push(facts)
-    }
-    return latestPromptOf(winners)
-  }
-  /** An explicit mission sender of this issue, by id, without reading its roster. */
-  member(id: string, sessionId: string): SessionView | undefined {
-    if (this.pool.graph.one('session', sessionId, 'missionIssue') !== id) return undefined
     const session = this.session(sessionId)
     if (session === LOADING) throw LOADING
     return session
@@ -986,51 +975,6 @@ export class MissionViewReader {
     if (crew === LOADING) return LOADING
     return crew[0]?.name?.trim() || (crew[0] ? `New ${panelLabel(crew[0].agentKind)} session` : 'New agent')
   }
-  /** Request the addressed neighbourhood together before presentation reads
-   * can stop at the first cold child and split one batch into N batches. */
-  prepareHandoff(members: ReadonlySet<string>): boolean {
-    const drawn = new Set<string>(), tips = new Set<string>(), addressed = new Set<string>()
-    let pending = false
-    const visibleId = (id: string) => {
-      const row = omitGone(this.pool.row('issue', id, 'summary')) as Loaded<{ archived?: boolean; deletedAt?: string | null }>
-      if (row === LOADING) { pending = true; return false }
-      if (!row) return false
-      // A cold row's visibility is pending, not a reason to stop the walk.
-      const visible = settled(() => this.facts(id).visible)
-      if (visible === LOADING) { pending = true; return false }
-      return visible
-    }
-    const formal = [...members]
-    while (formal.length) {
-      const id = formal.pop()!
-      if (drawn.has(id) || !visibleId(id)) continue
-      drawn.add(id); formal.push(...this.pool.graph.many('issue', id, 'children'))
-    }
-    const departed = [...drawn]
-    while (departed.length) {
-      const id = departed.pop()!
-      if (tips.has(id) || !visibleId(id)) continue
-      tips.add(id); departed.push(...this.pool.graph.many('issue', id, 'spinOffs'))
-    }
-    for (const id of tips) {
-      addressed.add(id)
-      for (const target of this.pool.graph.many('issue', id, 'pageDependencies')) addressed.add(target)
-      for (const relation of ['treeParent', 'supersedingIssue', 'canonicalIssue']) {
-        const target = this.pool.graph.one('issue', id, relation)
-        if (target) addressed.add(target)
-      }
-    }
-    for (const id of addressed) {
-      const issue = this.issue(id)
-      if (issue === LOADING) pending = true
-      else if (issue && tips.has(id)) for (const dep of issue.deps) {
-        if (this.issue(dep.id) === LOADING) pending = true
-        if (!this.settled(dep.id)) pending = true
-      }
-      if (!this.settled(id)) pending = true
-    }
-    return !pending
-  }
   readArchiveCount(deck: MissionDeckModel): number | typeof LOADING {
     return settled(() => {
       let count = 0, pending = false
@@ -1086,8 +1030,17 @@ export class MissionViewReader {
   }
   hasSpinOffDependent(id: string) { return this.rulesIssue(id)?.dependents.some(dep => dep.type === 'discovered-from') ?? false }
   tipIds(id: string, local = false) { return this.tips(id, local).map(issue => issue.id as string) }
-  deckState(issue: IssueNavigationModel, sessions: readonly SessionView[], children: readonly TaskWord[] = []): DeckIssueState {
-    return deckIssueState(issue, sessions, { children, unmetDependency: this.waiting(issue).length > 0 })
+  deckState(issue: IssueNavigationModel, sessions: readonly SessionView[], children: readonly TaskWords[] = []): DeckIssueState {
+    return deckIssueState(issue, sessions, { children, unmetDependency: this.waiting(issue).length > 0,
+      coordinated: this.coordinated(issue),
+      pendingInteractions: id => this.pool.sessionObject(id).openInteractions.count })
+  }
+  /** POD-2171: the issue's coordinator seat is held by a live session, which may sit on an ancestor. */
+  coordinated(issue: Pick<IssueNavigationModel, 'coordinatorSessionId'>): boolean {
+    const id = issue.coordinatorSessionId
+    if (!id) return false
+    const session = this.session(id)
+    return session !== LOADING && coordinatorLive(session)
   }
   presentation(issue: IssueNavigationModel, sessions: readonly SessionView[], state = this.deckState(issue, sessions)): MissionRowPresentation {
     return { state, note: this.note(issue, true), presence: this.presence(issue, sessions, true) }
@@ -1261,190 +1214,6 @@ function newestSession(sessions: readonly SessionView[]): SessionView | undefine
   return newest
 }
 
-const NOW_RANK: Record<HandoffNowEntry['kind'], number> = {
-  working: 0,
-  review: 1,
-  blocked: 2,
-  stalled: 2,
-  'needs-you': 3,
-}
-
-/** Current mission exceptions, one truthful row per issue. */
-function poolHandoffNow(ctx: MissionViewReader, issues: readonly IssueNavigationModel[], memberIds: ReadonlySet<string>): HandoffNowEntry[] {
-  const entries: Array<{ entry: HandoffNowEntry; seq: number }> = []
-
-  // One issue still loading must not keep the next ones out of this window.
-  const visited = settledAll(issues, issue => {
-    if (!memberIds.has(issue.id) || issue.stage === 'proposed' || !ctx.facts(issue.id).visible)
-      return
-    const crew = requireLoaded(ctx.present(issue.id))
-    const present = crew.filter(session => ctx.pool.sessionObject(session.sessionId).open)
-    const asking = present.find(
-      (session) => ctx.pool.sessionObject(session.sessionId).attention && !ctx.facts(issue.id).finished,
-    )
-    const askedBy = issue.asked?.by ? ctx.member(issue.id, issue.asked.by) : undefined
-    const explicitNeed = issue.needsHuman === true || asking !== undefined
-    let entry: HandoffNowEntry | null = null
-
-    if (explicitNeed && !ctx.facts(issue.id).finished) {
-      const session = asking ?? askedBy
-      entry = {
-        kind: 'needs-you',
-        issueId: issue.id,
-        ...(session ? { sessionId: session.sessionId } : {}),
-        text:
-          session?.agentState?.need?.summary?.trim() ||
-          issue.asked?.question?.trim() ||
-          'Waiting on you.',
-      }
-    } else {
-      const working = present.find(session => ctx.pool.sessionObject(session.sessionId).atWork)
-      if (working) {
-        entry = {
-          kind: 'working',
-          issueId: issue.id,
-          sessionId: working.sessionId,
-          text:
-            (issue.blocked ? ctx.blockLabel(issue) : null) ??
-            ctx.presence(issue, crew, false, issue.id)?.text ??
-            'Agent computing now.',
-        }
-      } else if (issue.stage === 'review' && !issue.blocked) {
-        const session = ctx.newest(issue.id)
-        entry = {
-          kind: 'review',
-          issueId: issue.id,
-          ...(session ? { sessionId: session.sessionId } : {}),
-          text: 'Ready for review.',
-        }
-      } else if (issue.blocked) {
-        const session = newestSession(present)
-        entry = {
-          kind: 'blocked',
-          issueId: issue.id,
-          ...(session ? { sessionId: session.sessionId } : {}),
-          text:
-            (issue.blocked ? ctx.blockLabel(issue) : null) ??
-            ctx.presence(issue, crew, false, issue.id)?.text ??
-            'Waiting on dependency.',
-        }
-      } else if (
-        (issue.stage === 'planning' || issue.stage === 'in_progress') &&
-        present.length === 0
-      ) {
-        entry = {
-          kind: 'stalled',
-          issueId: issue.id,
-          text:
-            ctx.presence(issue, crew, false, issue.id)?.text ??
-            'Started with no present session.',
-        }
-      }
-    }
-
-    if (entry) entries.push({ entry, seq: issue.seq })
-  })
-  requireLoaded(visited)
-
-  entries.sort(
-    (left, right) => NOW_RANK[left.entry.kind] - NOW_RANK[right.entry.kind] || left.seq - right.seq,
-  )
-  return entries.map(({ entry }) => entry)
-}
-
-
-function poolHandoffNext(ctx: MissionViewReader, issues: readonly IssueNavigationModel[], memberIds: ReadonlySet<string>): HandoffNextEntry[] {
-  const entries: Array<{ entry: HandoffNextEntry; seq: number; depth: number }> = []
-  const depthMemo = new Map<string, number>()
-
-  // Each list below asks for all of its rows before it answers LOADING.
-  const openBlockersOf = (issue: IssueNavigationModel): IssueNavigationModel[] =>
-    requireLoaded(settledAll((issue.deps ?? []).filter((dep) => dep.type === 'blocked-by'), (dep) => ctx.issue(dep.id)))
-      .filter((candidate): candidate is IssueNavigationModel =>
-        Boolean(candidate && !ctx.facts(candidate.id).finished),
-      )
-  const prerequisites = (issue: IssueNavigationModel): IssueNavigationModel[] => {
-    const blockers = settled(() => openBlockersOf(issue)), children = settled(() => poolOpenChildren(ctx, memberIds, issue.id))
-    if (blockers === LOADING || children === LOADING) throw LOADING
-    return [...blockers, ...children]
-  }
-  const depthOf = (issue: IssueNavigationModel, visiting = new Set<string>()): number => {
-    const memo = depthMemo.get(issue.id)
-    if (memo !== undefined) return memo
-    if (visiting.has(issue.id)) return 0
-    const nextVisiting = new Set(visiting).add(issue.id)
-    const deps = prerequisites(issue)
-    const depth =
-      deps.length === 0 ? 0 : 1 + Math.max(...requireLoaded(settledAll(deps, (dep) => depthOf(dep, nextVisiting))))
-    depthMemo.set(issue.id, depth)
-    return depth
-  }
-
-  const visited = settledAll(issues, (issue) => {
-    if (
-      !memberIds.has(issue.id) ||
-      issue.stage === 'proposed' ||
-      !ctx.facts(issue.id).visible ||
-      ctx.facts(issue.id).finished
-    )
-      return
-    const openBlockers = openBlockersOf(issue)
-    const children = poolOpenChildren(ctx, memberIds, issue.id)
-    const session = ctx.newest(issue.id)
-    let entry: HandoffNextEntry | null = null
-
-    if (issue.stage === 'review' && openBlockers.length === 0) {
-      entry = {
-        issueId: issue.id,
-        ...(session ? { sessionId: session.sessionId } : {}),
-        text: `Review and land ${issueDisplayRef(issue)}.`,
-      }
-    } else if (openBlockers.length === 1) {
-      const blocker = openBlockers[0] as IssueNavigationModel
-      entry = {
-        issueId: issue.id,
-        afterIssueId: blocker.id,
-        ...(session ? { sessionId: session.sessionId } : {}),
-        text: `After ${issueDisplayRef(blocker)} closes, resume ${issueDisplayRef(issue)}.`,
-      }
-    } else if (openBlockers.length === 0 && children.length === 1) {
-      const child = children[0] as IssueNavigationModel
-      entry = {
-        issueId: issue.id,
-        afterIssueId: child.id,
-        ...(session ? { sessionId: session.sessionId } : {}),
-        text: `After ${issueDisplayRef(child)} closes, resume ${issueDisplayRef(issue)}.`,
-      }
-    } else if (issue.stage === 'backlog' && issue.ready && openBlockers.length === 0) {
-      entry = { issueId: issue.id, text: `${issueDisplayRef(issue)} is ready to start.` }
-    }
-
-    if (entry) entries.push({ entry, seq: issue.seq, depth: depthOf(issue) })
-  })
-  requireLoaded(visited)
-
-  entries.sort((left, right) => left.depth - right.depth || left.seq - right.seq)
-  return entries.map(({ entry }) => entry)
-}
-
-function poolOpenChildren(ctx: MissionViewReader, members: ReadonlySet<string>, parentId: string): IssueNavigationModel[] {
-  const children = [...ctx.pool.graph.many('issue', parentId, 'treeChildren')].filter(id => members.has(id))
-  return requireLoaded(settledAll(children, id => ctx.issue(id))).flatMap(issue =>
-    issue && issue.stage !== 'proposed' && ctx.facts(issue.id).visible && !ctx.facts(issue.id).finished ? [issue] : [],
-  ).sort(rowOrder)
-}
-export interface MissionHandoffValues {
-  /** The mission's seated (non-archived) senders, in session order. */
-  crew: readonly SessionView[]
-  /** Archived senders, summarized: how many, and the latest prompt among them. */
-  retired: { readonly count: number; readonly latestPrompt: SessionView | null }
-  current: readonly HandoffNowEntry[]
-  next: readonly HandoffNextEntry[]
-}
-export const EMPTY_MISSION_HANDOFF: MissionHandoffValues = Object.freeze({
-  crew: [], retired: Object.freeze({ count: 0, latestPrompt: null }), current: [], next: [],
-})
-
 export type MissionMenuHandoff = { blocker: 'no-agent-session' | 'multiple-sessions' } | { session: SessionView }
 export interface MissionActionInputs {
   issues: IssueNavigationModel[]
@@ -1509,31 +1278,4 @@ export function readMissionActionInputs(view: MissionViewReader, issueIds: reado
 export function readMissionHandoffTargets(view: MissionViewReader, sessionId: string): Pick<MissionActionInputs, 'repos' | 'machines'> | typeof LOADING {
   const inputs = readMissionActionInputs(view, [], sessionId, true, true)
   return inputs === LOADING ? LOADING : { repos: inputs.repos, machines: inputs.machines }
-}
-export function readMissionHandoff(view: MissionViewReader, rootId: string): MissionHandoffValues | typeof LOADING {
-  return view.handoff(rootId)
-}
-function deriveMissionHandoff(view: MissionViewReader, rootId: string): MissionHandoffValues | typeof LOADING {
-  try {
-    const members = missions(view.pool).members(rootId)
-    if (members === LOADING) return LOADING
-    if (!view.prepareHandoff(members)) return LOADING
-    const ctx = view
-    // Every member's row, crew and history share one load window.
-    const rows = settledAll([...members].sort(), id => ctx.issue(id))
-    const seated = settledAll(members, id => ctx.present(id))
-    const histories = settledAll(members, id => view.history(id))
-    if (rows === LOADING || seated === LOADING || histories === LOADING) return LOADING
-    const issues = rows.flatMap(issue => issue ? [issue] : [])
-    const crew = [...new Map(seated.flat().map(session => [session.sessionId, session])).values()].sort(view.sessionOrder)
-    // A session has one issue, so member histories never overlap.
-    let count = 0
-    const winners: string[] = []
-    for (const history of histories) {
-      count += history.count
-      if (history.latestPrompt !== undefined) winners.push(history.latestPrompt)
-    }
-    const latestPrompt = view.resolve(view.latestPrompt(winners)) ?? null
-    return { crew, retired: { count, latestPrompt }, current: poolHandoffNow(ctx, issues, members), next: poolHandoffNext(ctx, issues, members) }
-  } catch (error) { if (error === LOADING) return LOADING; throw error }
 }

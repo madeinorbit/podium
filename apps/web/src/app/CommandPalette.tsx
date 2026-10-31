@@ -1,16 +1,17 @@
-import { CommandPlaceTitle, CommandPlaceHint } from './command-place-labels'
 import type { SpawnTarget } from '@podium/client-core'
 import type { IssueNavigationModel } from '@podium/client-core/values'
 import {
   issueReferenceModel,
-  panelLabel,
   isUnstartedSession,
+  panelLabel,
   resolveDefaultAgent,
 } from '@podium/client-core/values'
 import { LOADING } from '@podium/client-graph'
-import { useSettingsRecord } from '@/features/settings/record-readers'
+import {
+  commandIssueReference,
+  commandIssueSearchRef,
+} from '@podium/client-graph/command-launch-views'
 import { IssueModel } from '@podium/client-graph/models'
-import { commandIssueReference, commandIssueSearchRef } from '@podium/client-graph/command-launch-views'
 import { machinePathBasename } from '@podium/model'
 import type { AgentKind, IssueId, SessionId } from '@podium/model/browser'
 import { isSnoozed, snoozeUntil1h, snoozeUntilTomorrow5am } from '@podium/model/browser'
@@ -41,10 +42,10 @@ import {
   Trash2,
   Workflow,
 } from 'lucide-react'
+import { observer } from 'mobx-react-lite'
 import type { JSX } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
-import { observer } from 'mobx-react-lite'
 import { openAddProject } from '@/app/desktop-menu'
 import { IssueReference } from '@/components/IssueReference'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
@@ -57,6 +58,7 @@ import {
 import { paletteIssueMenuData } from '@/features/issues/issue-menu-palette'
 import { issueMenuPaletteCommands } from '@/features/issues/issue-menu-palette-commands'
 import { NewIssueDialog } from '@/features/issues/NewIssueDialog'
+import { useSettingsRecord } from '@/features/settings/record-readers'
 import { SETTINGS_TABS } from '@/features/settings/SettingsView'
 import { agentIconFor } from '@/lib/agent-tone'
 import { useSessionGuard } from '@/lib/hooks/use-session-guard'
@@ -65,28 +67,28 @@ import { sessionMenuEligibility } from '@/lib/session-context-menu'
 import { useFeature } from '@/lib/use-feature'
 import { normalizeTitle, sessionDisplayName } from '@/lib/WorkerLabel'
 import {
+  useCommandIssue,
   useCommandLaunchActions,
-  useCommandPaletteData,
-  useCommandPaletteSnapshot,
+  type useCommandPaletteData,
   useCommandPaletteOpen,
+  useCommandPaletteSnapshot,
   useCommandSession,
   useCommandSessionLookup,
-  useCommandIssue,
 } from './command-launch-data'
 import {
   defaultHighlight,
   filterCommandCandidates,
-  type PaletteCandidate,
   flattenGroups,
-  GROUP_CAP,
   isResting,
-  orderCommandGroups,
   moveHighlight,
+  orderCommandGroups,
+  type PaletteCandidate,
   type PaletteCommand,
   type PaletteGroup,
   type PaletteGroupId,
   type PaletteIcon,
 } from './command-palette'
+import { CommandPlaceHint, CommandPlaceTitle } from './command-place-labels'
 import { RIGHT_PANELS } from './RightDock'
 import {
   CLOSE_RIGHT_PANEL,
@@ -98,8 +100,9 @@ import type { IssueViewModel, MainView } from './store'
 
 type PaletteIssue = Pick<
   IssueViewModel,
-  'id' | 'seq' | 'title' | 'stage' | 'displayRef' | 'linearIdentifier' | 'color' | 'parentId'
-> & Partial<Pick<IssueViewModel, 'archived' | 'deletedAt' | 'isDraftVessel'>>
+  'id' | 'seq' | 'title' | 'stage' | 'displayRef' | 'linearIdentifier' | 'parentId'
+> &
+  Partial<Pick<IssueViewModel, 'archived' | 'deletedAt' | 'isDraftVessel'>>
 
 const SEARCH_DEBOUNCE_MS = 150
 const SEARCH_MIN_QUERY_LEN = 2
@@ -233,10 +236,24 @@ const GROUP_LABEL: Record<PaletteGroupId, string> = {
   action: 'Actions',
 }
 
-function PaletteDialog(props: Omit<Parameters<typeof PaletteDialogBody>[0], 'data' | 'sessions' | 'selectedSessions' | 'recent' | 'openedDefaultAgent'>): JSX.Element {
+function isIndexedCommand(command: PaletteCandidate): boolean {
+  return (
+    command.group === 'recent' ||
+    command.group === 'task' ||
+    command.group === 'agent' ||
+    command.group === 'place'
+  )
+}
+
+function PaletteDialog(
+  props: Omit<
+    Parameters<typeof PaletteDialogBody>[0],
+    'data' | 'sessions' | 'selectedSessions' | 'recent' | 'openedDefaultAgent'
+  >,
+): JSX.Element {
   const snapshot = useCommandPaletteSnapshot()
   const data = snapshot?.data
-  if (!data || data === LOADING)
+  if (!snapshot || !data || data === LOADING)
     return (
       <Dialog open onOpenChange={(open) => !open && props.onClose()}>
         <DialogContent>
@@ -245,7 +262,16 @@ function PaletteDialog(props: Omit<Parameters<typeof PaletteDialogBody>[0], 'dat
         </DialogContent>
       </Dialog>
     )
-  return <PaletteDialogBody {...props} data={data} sessions={snapshot!.sessions} selectedSessions={snapshot!.selectedSessions} recent={snapshot!.recent} openedDefaultAgent={snapshot!.defaultAgent} />
+  return (
+    <PaletteDialogBody
+      {...props}
+      data={data}
+      sessions={snapshot.sessions}
+      selectedSessions={snapshot.selectedSessions}
+      recent={snapshot.recent}
+      openedDefaultAgent={snapshot.defaultAgent}
+    />
+  )
 }
 
 const PaletteDialogBody = observer(function PaletteDialogBody({
@@ -269,16 +295,7 @@ const PaletteDialogBody = observer(function PaletteDialogBody({
   onAddRepo: () => void
   onRequestClose: (issue: IssueNavigationModel, reason: IssueCloseReason) => void
 }): JSX.Element {
-  const {
-    repos,
-    machines,
-    pins,
-    paneA,
-    openIssueId,
-    selectedIssueId,
-    issues,
-    spawnTargets,
-  } = data
+  const { repos, machines, paneA, openIssueId, selectedIssueId, issues, spawnTargets } = data
   const sessionAtPress = useCommandSessionLookup()
   const {
     trpc,
@@ -314,7 +331,6 @@ const PaletteDialogBody = observer(function PaletteDialogBody({
   const handoffEnabled = useFeature('session-handoff')
   const gitPanelEnabled = useFeature('git-panel')
   const messagesPanelEnabled = useFeature('messages-panel')
-  const mergeQueueEnabled = useFeature('merge-queue')
   const shippingEnabled = useFeature('shipping')
   const [query, setQuery] = useState('')
   const [highlight, setHighlight] = useState(0)
@@ -335,7 +351,9 @@ const PaletteDialogBody = observer(function PaletteDialogBody({
   // Spawn targets for "New agent": the currently selected worktree AND the
   // sidebar "New <Agent> in <Repo>" button's default (the most recently active
   // repo's primary worktree) — both offered when they differ.
-  const defaultAgent: AgentKind = agentSetting ? resolveDefaultAgent(agentSetting, []) : openedDefaultAgent
+  const defaultAgent: AgentKind = agentSetting
+    ? resolveDefaultAgent(agentSetting, [])
+    : openedDefaultAgent
   /** Close the palette, then run — optimistic close; errors toast downstream. */
   const execute = (run: () => void | Promise<void>): void => {
     onClose()
@@ -351,20 +369,18 @@ const PaletteDialogBody = observer(function PaletteDialogBody({
     setView('workspace')
   }
 
-  const issueMenuData = (
-    () =>
-      paletteIssueMenuData({
-        codingHarness: agentSetting,
-        issues,
-        selectedIssue: data.selectedIssue ?? null,
-        issueId: openIssueId ?? selectedIssueId,
-        sessions: selectedSessions,
-        repos,
-        machines,
-        handoffEnabled,
-        repoViews,
-      })
-  )()
+  const issueMenuData = (() =>
+    paletteIssueMenuData({
+      codingHarness: agentSetting,
+      issues,
+      selectedIssue: data.selectedIssue ?? null,
+      issueId: openIssueId ?? selectedIssueId,
+      sessions: selectedSessions,
+      repos,
+      machines,
+      handoffEnabled,
+      repoViews,
+    }))()
 
   const focusedValue = useCommandSession(paneA && data.sessionIds.includes(paneA) ? paneA : null)
   const focused = focusedValue !== LOADING ? focusedValue : undefined
@@ -374,12 +390,17 @@ const PaletteDialogBody = observer(function PaletteDialogBody({
     undefined,
     focused ? [focused] : [],
   )
-  // biome-ignore lint/correctness/useExhaustiveDependencies: run closures capture stable store actions
   const commands = ((): PaletteCandidate[] => {
     const out: PaletteCandidate[] = []
-    const add = (...commands: PaletteCommand[]) => out.push(...commands.map(command => ({
-      id: command.id, group: command.group, search: () => command, build: () => command,
-    })))
+    const add = (...commands: PaletteCommand[]) =>
+      out.push(
+        ...commands.map((command) => ({
+          id: command.id,
+          group: command.group,
+          search: () => command,
+          build: () => command,
+        })),
+      )
 
     const sessionCommand = (
       s: (typeof sessions)[number],
@@ -390,7 +411,11 @@ const PaletteDialogBody = observer(function PaletteDialogBody({
       eligible: () => !s.archived,
       // Declared session fields only; formatted labels belong to returned rows.
       search: () => ({
-        label: s.archived ? '' : isUnstartedSession(s) ? 'New session' : s.name?.trim() || normalizeTitle(s.title) || 'untitled',
+        label: s.archived
+          ? ''
+          : isUnstartedSession(s)
+            ? 'New session'
+            : s.name?.trim() || normalizeTitle(s.title) || 'untitled',
         keywords: [machinePathBasename(s.cwd), s.agentKind, 'agent', 'session'],
       }),
       build: () => ({
@@ -410,8 +435,10 @@ const PaletteDialogBody = observer(function PaletteDialogBody({
       id: `${group}-issue:${i.id}`,
       group,
       eligible: () => !('archived' in i && (i.archived || i.deletedAt || i.isDraftVessel)),
-      search: () => ({ label: i.title,
-        keywords: ['task', 'issue', commandIssueSearchRef(i), STAGE_LABELS[i.stage]] }),
+      search: () => ({
+        label: i.title,
+        keywords: ['task', 'issue', commandIssueSearchRef(i), STAGE_LABELS[i.stage]],
+      }),
       build: () => ({
         id: `${group}-issue:${i.id}`,
         group,
@@ -433,10 +460,10 @@ const PaletteDialogBody = observer(function PaletteDialogBody({
     // with when there is nothing typed yet.
     for (const item of recent) {
       if (item.kind === 'session') {
-        const session = sessions.find(s => s.sessionId === item.id)
+        const session = sessions.find((s) => s.sessionId === item.id)
         if (session) out.push(sessionCommand(session, 'recent'))
       } else {
-        const issue = issues.find(i => i.id === item.id)
+        const issue = issues.find((i) => i.id === item.id)
         if (issue) out.push(issueCommand(issue, 'recent'))
       }
     }
@@ -448,9 +475,12 @@ const PaletteDialogBody = observer(function PaletteDialogBody({
       out.push(issueCommand(i, 'task'))
     }
     for (const i of serverIssueHits) {
-      const local = localIds.has(i.id) ? issues.find(issue => issue.id === i.id) : undefined
+      const local = localIds.has(i.id) ? issues.find((issue) => issue.id === i.id) : undefined
       const candidate = issueCommand(i, 'task')
-      out.push({ ...candidate, eligible: () => !local || Boolean(local.archived || local.deletedAt || local.isDraftVessel) })
+      out.push({
+        ...candidate,
+        eligible: () => !local || Boolean(local.archived || local.deletedAt || local.isDraftVessel),
+      })
     }
 
     // ── Agents ────────────────────────────────────────────────────────────
@@ -680,7 +710,6 @@ const PaletteDialogBody = observer(function PaletteDialogBody({
       rightPanelAllowed(panel, {
         git: gitPanelEnabled,
         messages: messagesPanelEnabled,
-        mergeQueue: mergeQueueEnabled,
         shipping: shippingEnabled,
       })
     for (const panel of RIGHT_PANELS) {
@@ -719,26 +748,35 @@ const PaletteDialogBody = observer(function PaletteDialogBody({
     return out
   })()
 
-  const indexed = (command: PaletteCandidate) => command.group === 'recent' || command.group === 'task' ||
-    command.group === 'agent' || command.group === 'place'
   // Stored for this query of the opening: metadata updates reach the small
   // addressed rows without re-ranking the catalog under the user.
   // biome-ignore lint/correctness/useExhaustiveDependencies: contextual actions do not invalidate catalog order
-  const indexedGroups = useMemo(() => filterCommandCandidates(query, commands.filter(indexed)),
-    [query, recent, sessions, issues, serverIssueHits, repoViews])
-  const contextGroups = useMemo(() => filterCommandCandidates(query, commands.filter(command => !indexed(command))),
-    [query, commands])
-  const groups = useMemo(() => orderCommandGroups(query, [...indexedGroups, ...contextGroups]),
-    [query, indexedGroups, contextGroups])
+  const indexedGroups = useMemo(
+    () => filterCommandCandidates(query, commands.filter(isIndexedCommand)),
+    [query, recent, sessions, issues, serverIssueHits, repoViews],
+  )
+  const contextGroups = useMemo(
+    () =>
+      filterCommandCandidates(
+        query,
+        commands.filter((command) => !isIndexedCommand(command)),
+      ),
+    [query, commands],
+  )
+  const groups = useMemo(
+    () => orderCommandGroups(query, [...indexedGroups, ...contextGroups]),
+    [query, indexedGroups, contextGroups],
+  )
   const flat = useMemo(() => flattenGroups(groups), [groups])
-  const resultOrder = flat.map(command => command.id).join('\0')
+  const resultOrder = flat.map((command) => command.id).join('\0')
   // The free-text fallback ("spawn an agent with what I typed") is a QUERY row:
   // with nothing typed it would only restate the Actions group's own "New …
   // agent in <worktree>", which is the same spawn with an empty first prompt.
   const fallbackTargets = resting ? [] : spawnTargets
   const rowCount = flat.length + fallbackTargets.length
 
-  // Re-highlight the top result whenever the result set changes.
+  // Reset on a new query or result order; live label updates keep the selection.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: query and resultOrder intentionally reset selection even when the count is unchanged
   useEffect(() => {
     setHighlight(defaultHighlight(flat.length))
   }, [query, resultOrder, flat.length])
@@ -791,10 +829,14 @@ const PaletteDialogBody = observer(function PaletteDialogBody({
     }
   }
 
-  const taskSubject = groups.some(group => group.group === 'on-task') && issueMenuData
-    ? issueReferenceModel(issueMenuData.first).ref : undefined
-  const agentSubject = groups.some(group => group.group === 'on-agent') && focused
-    ? sessionDisplayName(focused) : undefined
+  const taskSubject =
+    groups.some((group) => group.group === 'on-task') && issueMenuData
+      ? issueReferenceModel(issueMenuData.first).ref
+      : undefined
+  const agentSubject =
+    groups.some((group) => group.group === 'on-agent') && focused
+      ? sessionDisplayName(focused)
+      : undefined
   const groupHeading = (group: PaletteGroup): string => {
     if (group.group === 'on-task' && taskSubject) return `Task · ${taskSubject}`
     if (group.group === 'on-agent' && agentSubject) return `Agent · ${agentSubject}`
@@ -978,9 +1020,13 @@ const PaletteRow = observer(function PaletteRow({
 }): JSX.Element {
   const value = useCommandSession(cmd.sessionId ?? null)
   const session = value && value !== LOADING ? value : undefined
-  const liveIssue = useCommandIssue(cmd.issue ? null : cmd.issueReference?.issueId ?? null)
-  const reference = cmd.issue && typeof cmd.issue.seq === 'number' ? commandIssueReference(cmd.issue)
-    : liveIssue ? issueReferenceModel(liveIssue) : cmd.issueReference
+  const liveIssue = useCommandIssue(cmd.issue ? null : (cmd.issueReference?.issueId ?? null))
+  const reference =
+    cmd.issue && typeof cmd.issue.seq === 'number'
+      ? commandIssueReference(cmd.issue)
+      : liveIssue
+        ? issueReferenceModel(liveIssue)
+        : cmd.issueReference
   const Icon = cmd.icon
   return (
     <button
@@ -1010,11 +1056,25 @@ const PaletteRow = observer(function PaletteRow({
           <span className="cmdk-row-lead" aria-hidden="true">
             {Icon ? <Icon size={15} /> : null}
           </span>
-          <span className="cmdk-row-title">{session ? sessionDisplayName(session) : cmd.worktree ? <CommandPlaceTitle worktree={cmd.worktree} /> : cmd.label}</span>
+          <span className="cmdk-row-title">
+            {session ? (
+              sessionDisplayName(session)
+            ) : cmd.worktree ? (
+              <CommandPlaceTitle worktree={cmd.worktree} />
+            ) : (
+              cmd.label
+            )}
+          </span>
         </>
       )}
       {session && <AgentStatusGlyph session={session} variant="row" />}
-      {cmd.worktree ? <span className="cmdk-row-hint"><CommandPlaceHint worktree={cmd.worktree} /></span> : cmd.hint && <span className="cmdk-row-hint">{cmd.hint}</span>}
+      {cmd.worktree ? (
+        <span className="cmdk-row-hint">
+          <CommandPlaceHint worktree={cmd.worktree} />
+        </span>
+      ) : (
+        cmd.hint && <span className="cmdk-row-hint">{cmd.hint}</span>
+      )}
       <PaletteEnterCap />
     </button>
   )

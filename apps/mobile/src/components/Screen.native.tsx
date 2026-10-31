@@ -2,7 +2,6 @@ import { Stack } from 'expo-router/stack'
 import { type ReactNode, useState } from 'react'
 import { type LayoutChangeEvent, StyleSheet, Text, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { flow } from '../theme/issueColors'
 import { color, font, mono, sans, space } from '../theme/theme'
 import { PressableScale } from './PressableScale'
 
@@ -18,7 +17,6 @@ export function Screen({
   large,
   noHeader,
   safeBottom,
-  accent,
   monoSubtitle,
 }: {
   title?: string
@@ -32,24 +30,16 @@ export function Screen({
   large?: boolean
   noHeader?: boolean
   safeBottom?: boolean
-  accent?: string
   bareBack?: boolean
   monoSubtitle?: boolean
 }) {
   const insets = useSafeAreaInsets()
   const hasContext = !noHeader && (leading != null || subtitle != null)
   const [contextHeight, setContextHeight] = useState(hasContext ? 44 : 0)
-  const chrome = accent
-    ? {
-        headerStyle: { backgroundColor: flow.headerBg(accent) },
-        bodyStyle: { backgroundColor: flow.paneBg(accent) },
-      }
-    : null
   return (
     <View
       style={[
         styles.root,
-        chrome?.bodyStyle,
         noHeader && { paddingTop: insets.top },
         safeBottom && { paddingBottom: insets.bottom },
       ]}
@@ -62,7 +52,6 @@ export function Screen({
           headerLargeTitleShadowVisible: false,
           headerShadowVisible: false,
           headerBackButtonDisplayMode: 'minimal',
-          ...(chrome ? { headerStyle: chrome.headerStyle } : {}),
           ...(right ? { headerRight: () => <View style={styles.actions}>{right}</View> } : {}),
           ...(onBack && backAs === 'text'
             ? {

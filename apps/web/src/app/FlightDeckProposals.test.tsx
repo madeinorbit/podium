@@ -10,8 +10,15 @@ import userEvent from '@testing-library/user-event'
 import { autorun } from 'mobx'
 import { createRef } from 'react'
 import { afterAll, afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { findTipAnchor } from '@/features/tips/anchors'
+import { MemoryTipLog } from '@/features/tips/memory-tip-log'
+import { ON_SCREEN, PANE, stubTipVisibility } from '@/features/tips/test-visibility'
+import { TipContext } from '@/features/tips/tip-context'
+import { TipEngine } from '@/features/tips/tip-engine'
+import { closeMiniview, getMiniviewState } from '@/lib/ref-activation'
 import { FlightDeckFullGroups } from './FlightDeckFullGroups'
 import { FlightDeckProposals } from './FlightDeckProposals'
+import { OPEN_RIGHT_PANEL_EVENT } from './shell-state'
 
 const commands = vi.hoisted(() => ({ promote: vi.fn(), start: vi.fn(), close: vi.fn() }))
 vi.mock('./store', () => ({
@@ -55,6 +62,7 @@ beforeEach(() => {
 })
 afterEach(() => {
   cleanup()
+  closeMiniview()
   for (const release of releases.splice(0)) release()
 })
 function deferred() {
@@ -66,7 +74,7 @@ function deferred() {
   })
   return { promise, resolve, reject }
 }
-async function open(extra: Row[] = [], proposalPatch: Row = {}) {
+async function open(extra: Row[] = [], proposalPatch: Row = {}, tips: TipEngine | null = null) {
   const rows = [
     issue('root', 1, null, { agentProfileId: 'mission-profile' }),
     issue('parent', 2, 'root', { agentProfileId: 'parent-profile' }),
@@ -127,7 +135,6 @@ async function open(extra: Row[] = [], proposalPatch: Row = {}) {
   const screen = new MissionScreen(pool, 'root', {
     setPreference: (key, value) => preferences.set(key, value),
   })
-  screen.open()
   const stop = autorun(() => {
     void settled(() => screen.full.ready)
   })
@@ -137,14 +144,15 @@ async function open(extra: Row[] = [], proposalPatch: Row = {}) {
     pool.dispose()
   })
   await waitFor(() => expect(settled(() => screen.full.ready)).toBe(true))
-  const actions = { onSelect: vi.fn(), onMenu: vi.fn() }
+  const actions = { onMenu: vi.fn() }
   const ui = render(
-    <>
+    <TipContext.Provider value={tips}>
       <FlightDeckFullGroups
         full={screen.full}
         scrollRef={createRef()}
         activeSessionId={null}
         renameTarget={null}
+        onOpenTask={vi.fn()}
         onSelectSession={vi.fn()}
         onMenu={vi.fn()}
         onStatusPick={vi.fn()}
@@ -152,7 +160,7 @@ async function open(extra: Row[] = [], proposalPatch: Row = {}) {
         onRenameDone={vi.fn()}
       />
       <FlightDeckProposals full={screen.full} {...actions} />
-    </>,
+    </TipContext.Provider>,
   )
   const update = async (id: string, patch: Row) => {
     const row = rows.find((row) => row['id'] === id)!
@@ -167,7 +175,7 @@ async function open(extra: Row[] = [], proposalPatch: Row = {}) {
   return { ui, pool, screen, rows, update, proposal, section, actions }
 }
 
-it('shows ref and live truncating title, with provenance and placement in a keyboard tooltip', async () => {
+it('shows ref and live truncating title, the full title in a keyboard tooltip, provenance for assistive tech', async () => {
   const f = await open([], {
     title: 'A very long proposal title that must yield space to every action',
   })
@@ -178,7 +186,11 @@ it('shows ref and live truncating title, with provenance and placement in a keyb
   const user = userEvent.setup()
   details.focus()
   await user.keyboard('{Tab}{Shift>}{Tab}{/Shift}')
-  expect(await f.ui.findByText('Proposed by POD-7-C · Here in this mission')).toBeTruthy()
+  expect(
+    await f.ui.findByText('A very long proposal title that must yield space to every action', {
+      selector: '[data-slot="tooltip-content"]',
+    }),
+  ).toBeTruthy()
   expect(f.proposal()!.getAttribute('data-depth')).toBeNull()
   expect(f.proposal()!.querySelector('.flight-proposal-title')?.textContent).toContain(
     'very long proposal',
@@ -300,7 +312,7 @@ it.each([
   expect(Object.values(commands).reduce((n, cmd) => n + cmd.mock.calls.length, 0)).toBe(1)
   for (const b of buttons) expect((b as HTMLButtonElement).disabled).toBe(true)
   expect(f.ui.getByRole('status').textContent).toMatch(/Adding|Starting|Dismissing/)
-  expect(f.actions.onSelect).not.toHaveBeenCalled()
+  expect(getMiniviewState()).toBeNull()
   expect(f.screen.full.task('parent').open).toBe(wasOpen)
   await act(async () => pending.resolve())
 })
@@ -414,7 +426,7 @@ it.each([
   await waitFor(() =>
     expect(Object.values(commands).reduce((n, cmd) => n + cmd.mock.calls.length, 0)).toBe(1),
   )
-  expect(f.actions.onSelect).not.toHaveBeenCalled()
+  expect(getMiniviewState()).toBeNull()
   expect(f.screen.full.task('parent').open).toBe(wasOpen)
 })
 
@@ -446,7 +458,40 @@ it('keeps a proposal subtree outside the tree and accessible through details and
   const user = userEvent.setup()
   details.focus()
   await user.keyboard('{Enter}')
-  expect(f.actions.onSelect).toHaveBeenCalledExactlyOnceWith(f.screen.full.task('proposal'), true)
+  expect(getMiniviewState()?.ref).toBe('POD-3')
+})
+
+it.each([
+  'click',
+  'double click',
+  'modified click',
+  'Enter',
+  'Space',
+])('opens the proposal popup on %s without opening the sidebar or folding the tree', async (gesture) => {
+  const f = await open()
+  const wasOpen = f.screen.full.task('parent').open
+  const details = within(f.proposal()!).getByRole('button', { name: /^Open POD-3/ })
+  const rect = new DOMRect(100, 200, 250, 30)
+  vi.spyOn(details, 'getBoundingClientRect').mockReturnValue(rect)
+  const panelOpened = vi.fn()
+  window.addEventListener(OPEN_RIGHT_PANEL_EVENT, panelOpened)
+  try {
+    const user = userEvent.setup()
+    if (gesture === 'click') await user.click(details)
+    else if (gesture === 'double click') await user.dblClick(details)
+    else if (gesture === 'modified click')
+      fireEvent.click(details, { ctrlKey: true, metaKey: true })
+    else {
+      details.focus()
+      await user.keyboard(gesture === 'Enter' ? '{Enter}' : ' ')
+    }
+    expect(getMiniviewState()).toMatchObject({ ref: 'POD-3', anchor: { x: 100, y: 230 } })
+    expect(panelOpened).not.toHaveBeenCalled()
+    expect(f.screen.full.task('parent').open).toBe(wasOpen)
+    for (const command of Object.values(commands)) expect(command).not.toHaveBeenCalled()
+  } finally {
+    window.removeEventListener(OPEN_RIGHT_PANEL_EVENT, panelOpened)
+  }
 })
 
 it('retains full Backlog, Start and Dismiss buttons in narrow decks while the title truncates', async () => {
@@ -478,4 +523,43 @@ afterAll(() => {
   *{box-sizing:border-box}body{margin:24px;background:#16171a;color:#d7dae0;font:13px system-ui}main{max-width:960px;margin:auto}h1{font-size:18px}h3{font-size:13px}button{font:inherit;color:inherit;background:none;border:0;padding:0}svg{flex:none}article>div{container-type:inline-size;border:1px solid #33373f}p{color:#a8adb6;line-height:1.5}
   /* Full proposal triage.${css}</style><main><h1>Full proposal triage</h1><p>Actual rendered acceptance fixtures with production proposal CSS. Backlog promotes, Start delegates profiles and placement to the server, and Dismiss declines. Command receipts persist for this Full opening. Publication replaces the proposal row with a compact receipt so the accepted task appears once. These are static captures of tested states.</p>${captures.map((c) => `<article><h3>${c.title}</h3><div style="width:${c.width}px;max-width:100%">${c.html}</div></article>`).join('')}</main></html>`,
   )
+})
+
+it('anchors the first-proposal tip to the first proposal not yet acted on', async () => {
+  const f = await open([
+    issue('later', 4, 'parent', { stage: 'proposed', startedBySession: 'author' }),
+  ])
+  const anchors = () =>
+    [...f.ui.container.querySelectorAll('[data-tip-anchor="first-proposal"]')].map((row) =>
+      row.getAttribute('data-flight-issue'),
+    )
+  expect(anchors()).toEqual(['proposal'])
+  fireEvent.click(within(f.proposal()!).getByRole('button', { name: 'Backlog' }))
+  await waitFor(() => expect(f.ui.getByRole('status').textContent).toBe('In backlog'))
+  // The receipt no longer carries the anchor; the next live proposal does.
+  expect(anchors()).toEqual(['later'])
+})
+
+it('shows first-proposal once a row that stopped 95% in view is fully revealed', async () => {
+  const visibility = stubTipVisibility()
+  const log = new MemoryTipLog()
+  const engine = new TipEngine(log, (name) => !!findTipAnchor(name), Date.now, 0)
+  releases.push(engine.connect(), () => {
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
+  const f = await open([], {}, engine)
+  visibility.clip(f.ui.container, PANE)
+  const row = f.proposal()!
+  const drain = () => act(() => new Promise((resolve) => setTimeout(resolve, 0)))
+  // The deck stops scrolling with 2px of the row under the scroller's edge,
+  // and the queue drains while it rests there.
+  act(() => visibility.place(row, new DOMRect(20, 262, 120, 40)))
+  await drain()
+  expect(engine.current).toBeNull()
+  expect(log.isSeen('first-proposal')).toBe(false)
+  act(() => visibility.place(row, ON_SCREEN))
+  await drain()
+  expect(engine.current?.registration.id).toBe('first-proposal')
+  expect(engine.current?.card.anchor).toBe('first-proposal')
 })

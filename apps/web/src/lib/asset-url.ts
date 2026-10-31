@@ -1,6 +1,7 @@
 import type { FileScope } from '@podium/client-core/values'
 import { isValidMachinePath, resolveMachinePath } from '@podium/model'
 import type { SessionId } from '@podium/model/browser'
+import { isArtifactsTabScope } from '@/features/files/artifacts-tab-id'
 import { currentWorkspaceSlug } from './workspace-request'
 
 /**
@@ -38,6 +39,8 @@ export function scopedAssetUrl(args: {
   if (scope.kind === 'session')
     return assetUrl({ httpOrigin, sessionId: scope.sessionId, fileDir, src, workspace })
   if (scope.kind === 'artifact') {
+    // The Artifacts index's sentinel names no stored artifact (POD-2078).
+    if (isArtifactsTabScope(scope)) return null
     // Artifact snapshots ([spec:SP-0fc9] #441): resolve inside the artifact dir
     // and serve from the permanent /files/artifact store. Escapes (`..` above
     // the artifact root) are refused, mirroring the server's traversal guard.

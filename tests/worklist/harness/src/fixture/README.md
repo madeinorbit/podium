@@ -8,8 +8,8 @@ multiply with the scale; shares and depths stay. Seeded PRNG only — no
 `Math.random`, no `Date.now()`; two builds with the same `(scale, seed)` are
 deep-equal.
 
-The corpus carries BOTH spellings every consumer needs: the legacy rows the
-parity oracle feeds to the real derivation (`issues`, `issueProjections`,
+The corpus carries BOTH spellings every consumer needs: the replica rows the
+reference state reads (`issues`, `issueProjections`,
 `sessions`, `repoProjections`, `issueDeps`, `repos`, `machines`, `pins`) and
 the slice-shaped projection the row stream publishes (`sliceIssues`,
 `sliceSessions`, `worktrees`).
@@ -43,14 +43,12 @@ scale, measured by the same `measureShape` the live comparison uses.
   both present) so bands 0/1/2 are all non-trivial.
 - Resume twins (POD-4551): one group per branch of `dedupeSessionsByResume`
   per scale unit (`resumeTwins`: all-inactive, tie, live), each on its own
-  visible root. The oracle collapses them as the runtime does on every
-  session read; the corpus tests prove a derivation that forgets the
-  collapse fails parity on exactly the tie rows.
+  visible root, collapsed as the runtime does on every session read.
 - Sort keys are minted by the model's `spreadSortKeys`, so every key passes
   `isSortKey` as a server-written one does (asserted at every scale).
 - Hidden askers (POD-4551, the POD-4549 shape): 20 x scale asking sessions
-  on archived/proposed children of visible roots (`edgedAskers`); legacy
-  detaches the ask, so the roots do not ask.
+  on archived/proposed children of visible roots (`edgedAskers`); the ask
+  is detached, so the roots do not ask.
 - The unscanned worktree (POD-4550) and the rescue/keeper pair (#6d) are
   planted as before.
 - The #2 target (`pickTargets`) has a family larger than one level of the
@@ -66,6 +64,4 @@ epochs (the history roles only, no lanes, no live session, each epoch's clock
 only inside itself. The growth cells: `h1a1` 4,867 issues; `h10a1` 27,601
 issues / 30,611 sessions, every active row and the visible list as at `h1a1`;
 `h1a4` 11,890 issues, exactly 4x the active issues, sessions, lanes and
-visible rows (2,928), every history row as at `h1a1`. `cells.test.ts` reads
-each row's axis from the rows and the oracle (`splitAxes`), proves those
-invariants row for row, and holds each axis's shape within 20% of the base.
+visible rows (2,928), every history row as at `h1a1`.

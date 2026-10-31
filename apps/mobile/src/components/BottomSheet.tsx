@@ -21,7 +21,7 @@ import { color, elevation, radius, space, spring } from '../theme/theme'
  * THE ONE BOTTOM SHEET.
  *
  * Every overlay that rises from the bottom edge on this app — the action menus,
- * the new-work picker, the colour picker, the task inspector — is this
+ * the new-work picker, the task inspector — is this
  * component. It was three implementations before [POD-724]: `ActionSheet` tracked
  * a downward finger against a hard-coded 320pt travel, `TaskSheet` ran a proper
  * two-detent rubber-banded drag, and `TaskPeekSheet` had `animationType="slide"`
@@ -72,7 +72,6 @@ export function BottomSheet({
   visible,
   onClose,
   mode = 'fit',
-  accent,
   head,
   children,
   footer,
@@ -86,8 +85,6 @@ export function BottomSheet({
   visible: boolean
   onClose: () => void
   mode?: 'fit' | 'detented'
-  /** Issue colour for the top hairline — the sheet's one tinted edge. */
-  accent?: string | undefined
   /**
    * The fixed region above the scroll: grabber, identity, primary controls.
    * The whole region is the drag handle, so it must stay bounded — nothing
@@ -385,7 +382,6 @@ export function BottomSheet({
                 bottom: keyboardHeight,
                 paddingBottom: keyboardHeight > 0 ? space.md : insets.bottom + space.md,
               },
-          accent ? { borderTopColor: alpha(accent, 0.45), borderTopWidth: 1 } : null,
           sheetStyle,
         ]}
         onLayout={

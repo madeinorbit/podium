@@ -1,10 +1,9 @@
-import { asIssueId, ISSUE_COLOR_SLOTS } from '@podium/model'
+import { asIssueId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import { makeIssue } from '@/lib/test-issue'
 import { type IssueMenuSurface, issueMenuEligibility } from './issue-context-menu'
 import {
   createIssueMenuData,
-  ISSUE_MENU_COLOR_NONE,
   issueMenuCommandKeys,
   issueMenuEntries,
   issueMenuEntryLabel,
@@ -103,13 +102,13 @@ describe('declarative issue menu projections', () => {
       return entry ? issueMenuEntryLabel(entry, data) : null
     }
 
-    it('drops priority and labels from every list, but keeps status and colour', () => {
+    it('drops priority and labels from every list, but keeps status', () => {
       for (const surface of LISTS) {
         const ids = entryIds(makeIssue({ labels: ['bug'] }), surface)
         expect(ids).not.toContain('priority')
         expect(ids).not.toContain('labels')
         expect(ids).toContain('status')
-        expect(ids).toContain('color')
+        expect(ids).not.toContain('color')
       }
     })
 
@@ -183,46 +182,7 @@ describe('declarative issue menu projections', () => {
     ).toEqual(['hour', 'tomorrow', 'week', 'next-message'])
   })
 
-  // POD-380: colour was only reachable by clicking the IdSquare. The menu now
-  // offers every slot plus the clear option, and marks the current one.
-  it('offers every colour slot plus "no colour", checking the issue’s current one', () => {
-    const issue = makeIssue({ color: 'violet' })
-    const data = createIssueMenuData({
-      issues: [issue],
-      allIssues: [issue],
-      eligibility: issueMenuEligibility([issue], 'sidebar'),
-      surface: 'sidebar',
-    })
-    expect(data).not.toBeNull()
-    if (!data) return
-    const color = issueMenuEntries(data).find((entry) => entry.id === 'color')
-    expect(color?.kind).toBe('submenu')
-    if (!color || color.kind !== 'submenu') return
-    const options = color.options(data)
-    expect(options.map((o) => o.value)).toEqual([...ISSUE_COLOR_SLOTS, ISSUE_MENU_COLOR_NONE])
-    expect(options.filter((o) => o.checked).map((o) => o.value)).toEqual(['violet'])
-    // The palette projects the same tree, so every slot is a command there too.
-    expect(issueMenuCommandKeys(data)).toContain('color:violet')
-    expect(issueMenuCommandKeys(data)).toContain(`color:${ISSUE_MENU_COLOR_NONE}`)
-  })
 
-  it('checks "no colour" for an uncoloured issue', () => {
-    const issue = makeIssue()
-    const data = createIssueMenuData({
-      issues: [issue],
-      allIssues: [issue],
-      eligibility: issueMenuEligibility([issue]),
-    })
-    if (!data) return
-    const color = issueMenuEntries(data).find((entry) => entry.id === 'color')
-    if (!color || color.kind !== 'submenu') throw new Error('no colour entry')
-    expect(
-      color
-        .options(data)
-        .filter((o) => o.checked)
-        .map((o) => o.value),
-    ).toEqual([ISSUE_MENU_COLOR_NONE])
-  })
 })
 
 

@@ -60,19 +60,25 @@ export function externalizeLinks(html: string): string {
   return template.innerHTML
 }
 
+// Inert file addresses DOMPurify reads as unknown schemes: `file://` URLs,
+// drive paths (`C:/repo/a.md`) and a basename with a line (`README.md:12`).
+// The transcript's click handler opens them in the file viewer.
+const FILE_HREF =
+  /^(?:file:\/\/[^\s]*|[A-Za-z]:[\\/][^\s:]*|[\w.@~-]+\.[A-Za-z\d]{1,10}:\d+(?::\d+)?)$/i
+
 /**
- * Keep only validated `podium:` navigation hrefs through DOMPurify. A global
+ * Keep validated `podium:` navigation hrefs and inert file hrefs through DOMPurify. A global
  * URI-regexp override would also allow the scheme in image/form attributes;
  * the hook is deliberately limited to an anchor href that the shared parser
  * accepts, and is removed immediately after the synchronous sanitize call.
  */
 export function sanitizeMarkdownHtml(html: string): string {
   const keepPodiumHref: UponSanitizeAttributeHook = (node, event) => {
+    if (node.localName !== 'a' || event.attrName !== 'href') return
     if (
-      node.localName === 'a' &&
-      event.attrName === 'href' &&
-      /^podium:/i.test(event.attrValue) &&
-      parsePodiumLink(event.attrValue)?.kind === 'internal'
+      (/^podium:/i.test(event.attrValue) &&
+        parsePodiumLink(event.attrValue)?.kind === 'internal') ||
+      FILE_HREF.test(event.attrValue)
     ) {
       event.forceKeepAttr = true
     }

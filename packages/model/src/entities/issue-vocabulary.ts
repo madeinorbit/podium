@@ -16,9 +16,8 @@
  * dependency one-directional: BOTH `./issue.ts` and `../fields/issue.ts` import
  * from here, and neither imports the other.
  *
- * This follows the pattern `./issue-color.ts` already set, and the layout table
- * in `../../README.md` already names: `entities/` holds "entity aggregates AND
- * their field vocabularies".
+ * The layout table in `../../README.md` names this separation: `entities/`
+ * holds entity aggregates and their field vocabularies.
  *
  * Everything below is MOVED VERBATIM — same members, same order, same
  * optionality, same `.default()`s and `.catch()`es. The move is byte-identical on
@@ -29,7 +28,7 @@
 
 import { z } from 'zod'
 import { ArtifactIdField, IssueIdField } from '../ids'
-import { ISSUE_COLOR_SLOTS } from './issue-color'
+import { LABEL_COLOR_SLOTS } from './label-color'
 
 // ---------------------------------------------------------------------------
 // Issue vocabularies
@@ -144,25 +143,16 @@ export const ISSUE_DEP_TYPES = [
 export const StoredIssueDepType = z.enum(ISSUE_DEP_TYPES)
 export type StoredIssueDepType = z.infer<typeof StoredIssueDepType>
 
-/** The 10 user-pickable issue colour SLOTS [spec:SP-b4d1] — stored/transmitted
- *  as the slot NAME, never a hex (the palette maps slots to full colouring
- *  schemes client-side).
- *
- *  Built FROM {@link ISSUE_COLOR_SLOTS} rather than restating the list. Before
- *  POD-300 this enum was a second hand-maintained copy in `@podium/protocol`
- *  (protocol could not import the domain package) with a drift test in
- *  apps/server pinning the two; now that both live in L0 the drift is
- *  structurally impossible, which is the whole point of "every entity defined
- *  once". Same members, same order — byte-identical. */
-export const IssueColor = z.enum(ISSUE_COLOR_SLOTS)
-export type IssueColor = z.infer<typeof IssueColor>
+/** Color names accepted by the label vocabulary. */
+export const LabelColor = z.enum(LABEL_COLOR_SLOTS)
+export type LabelColor = z.infer<typeof LabelColor>
 
 /** One entry of the label vocabulary (POD-6106, D3) as the wire carries it. A
  *  label is named by its NAME (unique ignoring case); its id stays server-local.
- *  `color` is a colour slot, like an issue's. */
+ *  `color` is an optional palette slot. */
 export const IssueLabelWire = z.object({
   name: z.string(),
-  color: IssueColor.optional(),
+  color: LabelColor.optional(),
   description: z.string().optional(),
 })
 export type IssueLabelWire = z.infer<typeof IssueLabelWire>
@@ -194,14 +184,24 @@ export type IssueComment = z.infer<typeof IssueComment>
 export const IssuePanelTodo = z.object({ text: z.string(), done: z.boolean() })
 export type IssuePanelTodo = z.infer<typeof IssuePanelTodo>
 export const IssuePanelArtifact = z.object({
-  /** Path to the artifact file, normalized relative to its captured source root. */
+  /** Stable attachment name. Daemon snapshots retain their source-relative
+   * path; direct uploads choose a name independent of the source filesystem. */
   path: z.string(),
   title: z.string().optional(),
   addedAt: z.string(),
-  /** The bytes came from the calling issue session's checkout rather than the
-   * issue's pinned worktree. Present only for the explicit terminal-evidence
-   * path; ordinary artifacts omit it and retain the owning-worktree rule. */
-  sourceKind: z.literal('terminal-evidence').optional(),
+  /** Terminal evidence comes from the calling issue session's checkout.
+   * Creation attachments are user-supplied inputs stored directly on the server.
+   * Stored snapshots do not require an owning worktree at review. */
+  sourceKind: z.enum(['terminal-evidence', 'creation-attachment']).optional(),
+  /** Set on the copy of a file a person attached in a session's chat (POD-2148):
+   *  the attachment id it was staged under. The chat shows its thumbnail from
+   *  this copy once the daemon's 24h upload sweep removed the staged file. A
+   *  field of its own, not a `sourceKind`, so a reader that predates it keeps
+   *  the entry as an ordinary artifact instead of refusing the panel. */
+  chatUploadId: z.string().optional(),
+  /** The person who uploaded that chat file (POD-2148): only they may send it
+   *  again, so a shared issue's readers cannot reuse an id they can see. */
+  chatUploadOwner: z.string().optional(),
   /** Permanent-store snapshot id ([spec:SP-0fc9] #441). Present ⇒ the bytes are
    *  served from `<state-dir>/artifacts/<issueId>/<artifactId>/` via the
    *  server-local /files/artifact route; absent (pre-existing entries) ⇒ legacy

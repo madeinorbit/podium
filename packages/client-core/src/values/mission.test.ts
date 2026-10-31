@@ -8,7 +8,9 @@ import type { SessionView, SessionViewInput } from '../session-values'
 // filters, and the per-row operational state that drives the status column.
 
 import { asIssueId, ISSUE_STAGES, type UnbrandIds } from '@podium/model'
+import { isFinished as issueClosed, sessionWord, wordWantsAttention } from '@podium/model/browser'
 import { describe, expect, it } from 'vitest'
+import { type IssueNavigationModel, issuePendingDecision } from './compose/issues'
 import {
   buildFlightDeckRows,
   coordinatorCount,
@@ -43,8 +45,6 @@ import {
   sessionNeedsHuman,
   waitingNote,
 } from './mission'
-import { type IssueNavigationModel, issuePendingDecision } from './compose/issues'
-import { isFinished as issueClosed, sessionWord, wordWantsAttention } from '@podium/model/browser'
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -1297,6 +1297,14 @@ describe('buildFlightDeckRows', () => {
 // ---------------------------------------------------------------------------
 
 describe('missionProgress', () => {
+  it('counts member-only sessions and retains archived session history', () => {
+    const root = issue('root', { stage: 'backlog', memberSessionIds: ['member'] })
+    const computing = sess('member', { issueId: 'elsewhere', agentState: workingState })
+    expect(missionProgress([root], [computing], 'root')).toMatchObject({ run: 1, stall: 0, wait: 0 })
+    expect(missionProgress([root], [{ ...computing, archived: true }], 'root'))
+      .toMatchObject({ run: 0, stall: 1, wait: 0 })
+  })
+
   // The fourth element is the mission's SESSIONS, and it is optional because
   // most of these cases are about the denominator rather than about who is on
   // the work. Where it is omitted nothing is staffed, so a started task reads as
@@ -1331,7 +1339,7 @@ describe('missionProgress', () => {
         issue('c', { parentId: 'root', stage: 'backlog' }),
       ],
       { total: 3, done: 1, run: 1, review: 0, stall: 0, block: 0, wait: 1 },
-      [sess('s-b', { issueId: 'b' })],
+      [sess('s-b', { issueId: 'b', agentState: workingState })],
     ],
     [
       'grandchildren, which are units at any depth',
@@ -1341,10 +1349,10 @@ describe('missionProgress', () => {
         issue('a1', { parentId: 'a', stage: 'done' }),
         issue('a2', { parentId: 'a', stage: 'backlog' }),
       ],
-      { total: 3, done: 2, run: 0, review: 0, stall: 0, block: 0, wait: 1 },
+      { total: 2, done: 1, run: 0, review: 0, stall: 0, block: 0, wait: 1 },
     ],
     [
-      'all six segments at once',
+      'all four buckets at once',
       [
         issue('root', { stage: 'planning' }),
         issue('a', { parentId: 'root', stage: 'done' }),
@@ -1356,8 +1364,8 @@ describe('missionProgress', () => {
         // nobody is here — which is the whole of the sixth band (POD-1314).
         issue('f', { parentId: 'root', stage: 'in_progress' }),
       ],
-      { total: 6, done: 1, run: 1, review: 1, stall: 1, block: 1, wait: 1 },
-      [sess('s-e', { issueId: 'e' })],
+      { total: 6, done: 1, run: 1, review: 0, stall: 3, block: 0, wait: 1 },
+      [sess('s-e', { issueId: 'e', agentState: workingState })],
     ],
     [
       // POD-1181. `run` matched `in_progress` alone, so these two fell through to
@@ -1374,7 +1382,7 @@ describe('missionProgress', () => {
       // `b` runs on nobody: shipping's work is the service's, so it is the one
       // started stage a missing session does not stall (POD-1314).
       { total: 3, done: 0, run: 2, review: 0, stall: 0, block: 0, wait: 1 },
-      [sess('s-a', { issueId: 'a' })],
+      [sess('s-a', { issueId: 'a', agentState: workingState })],
     ],
     [
       'a child closed as done by reason rather than by stage',
@@ -1382,15 +1390,13 @@ describe('missionProgress', () => {
       { total: 1, done: 1, run: 0, review: 0, stall: 0, block: 0, wait: 0 },
     ],
     [
-      // POD-1074's split, arriving in the meter: `duplicate` is a state in the
-      // CANCELLED category, so this mission has nothing left to measure but its
-      // own root — not one unit it can claim it finished.
+      // An abandoned leaf leaves the total; its parent remains a container.
       'a lone cancelled child, which leaves the count rather than filling it',
       [
         issue('root', { stage: 'backlog' }),
         issue('a', { parentId: 'root', closedReason: 'duplicate' }),
       ],
-      { total: 1, done: 0, run: 0, review: 0, stall: 0, block: 0, wait: 1 },
+      { total: 0, done: 0, run: 0, review: 0, stall: 0, block: 0, wait: 0 },
     ],
     [
       'cancelled work among live work, out of both halves of the fraction',
@@ -1402,12 +1408,12 @@ describe('missionProgress', () => {
         issue('d', { parentId: 'root', stage: 'in_progress' }),
       ],
       { total: 2, done: 1, run: 1, review: 0, stall: 0, block: 0, wait: 0 },
-      [sess('s-d', { issueId: 'd' })],
+      [sess('s-d', { issueId: 'd', agentState: workingState })],
     ],
     [
-      'blocked in-progress work, counted once and as blocked',
+      'blocked started work waits',
       [issue('root', { stage: 'backlog' }), issue('a', { parentId: 'root', blocked: true })],
-      { total: 1, done: 0, run: 0, review: 0, stall: 0, block: 1, wait: 0 },
+      { total: 1, done: 0, run: 0, review: 0, stall: 1, block: 0, wait: 0 },
     ],
     [
       'done work that is also flagged blocked, counted once as done',
@@ -1460,15 +1466,14 @@ describe('missionProgress', () => {
       block: 0,
       wait: 0,
     })
-    // Blocked still wins over the stage: a planning task waiting on a dependency
-    // is stopped, and the exclusive ladder has to keep saying so.
+    // A dependency does not erase a session that is computing.
     expect(missionProgress([{ ...root, blocked: true }], sessions, 'root')).toEqual({
       total: 1,
       done: 0,
-      run: 0,
+      run: 1,
       review: 0,
       stall: 0,
-      block: 1,
+      block: 0,
       wait: 0,
     })
   })
@@ -1477,7 +1482,7 @@ describe('missionProgress', () => {
   // minutes earlier: the header carried a `no agent` seat, a `0 agents` crew
   // chip and a strip reading `Retired` — and, across the middle of all three,
   // a gauge reading `1 UNDERWAY`.
-  describe('the underway/stalled split', () => {
+  describe('the working/waiting split', () => {
     const root = issue('root', { stage: 'in_progress' })
 
     it('does not call a started task with a retired agent underway', () => {
@@ -1490,27 +1495,43 @@ describe('missionProgress', () => {
       expect(missionProgress([root], [], 'root')).toMatchObject({ run: 0, stall: 1 })
     })
 
-    it('calls it underway again the moment an agent is on it', () => {
-      const crew = [sess('s-root', { issueId: 'root' })]
+    it('calls it working only while an agent computes', () => {
+      const crew = [sess('s-root', { issueId: 'root', agentState: workingState })]
       expect(missionProgress([root], crew, 'root')).toMatchObject({ total: 1, run: 1, stall: 0 })
-      // Presence, not activity: a parked agent is still on the task (POD-756),
-      // and the march over the band is what gates on computing.
+      // Hibernated sessions have started but are not computing.
       const parked = [sess('s-root', { issueId: 'root', status: 'hibernated' })]
-      expect(missionProgress([root], parked, 'root')).toMatchObject({ run: 1, stall: 0 })
+      expect(missionProgress([root], parked, 'root')).toMatchObject({ run: 0, stall: 1 })
     })
 
-    it('counts the crew of the whole subtree, so a container is not stalled', () => {
-      // `a` holds nobody, but the work under it is moving. Both are units — the
-      // root is the container — and neither is stalled.
+    it('counts only the leaf in a nested task chain', () => {
+      // Only the child with a computing session is working.
       const issues = [
         issue('root', { stage: 'in_progress' }),
         issue('a', { parentId: 'root', stage: 'in_progress' }),
         issue('a1', { parentId: 'a', stage: 'in_progress' }),
       ]
       const crew = [sess('s-a1', { issueId: 'a1', agentState: workingState })]
-      expect(missionProgress(issues, crew, 'root')).toMatchObject({ total: 2, run: 2, stall: 0 })
+      expect(missionProgress(issues, crew, 'root')).toMatchObject({ total: 1, run: 1, stall: 0 })
       // Take the one agent out and the whole chain stalls together.
-      expect(missionProgress(issues, [], 'root')).toMatchObject({ total: 2, run: 0, stall: 2 })
+      expect(missionProgress(issues, [], 'root')).toMatchObject({ total: 1, run: 0, stall: 1 })
+    })
+
+    it('keeps backlog started after its session is rehomed', () => {
+      const issues = [issue('root'), issue('history', { parentId: 'root', stage: 'backlog' }), issue('elsewhere')]
+      const original = sess('worker', { issueId: 'history', refIssueId: 'history', agentState: workingState })
+      expect(missionProgress(issues, [original], 'root')).toMatchObject({ total: 1, run: 1, wait: 0 })
+      expect(missionProgress(issues, [{ ...original, issueId: asIssueId('elsewhere') }], 'root'))
+        .toMatchObject({ total: 1, run: 0, stall: 1, wait: 0 })
+    })
+
+    it('looks through phases and never replaces abandoned leaves with their parent', () => {
+      const issues = [issue('root'), issue('phase', { parentId: 'root', type: 'phase' }),
+        issue('parent', { parentId: 'phase' }),
+        issue('cancelled', { parentId: 'parent', stage: 'done', closedReason: 'cancelled' }),
+        issue('proposal', { parentId: 'root', stage: 'proposed' }),
+        issue('unaccepted', { parentId: 'proposal' })]
+      expect(missionProgress(issues, [], 'root')).toMatchObject({ total: 0, done: 0, stall: 0 })
+      expect(missionProgress([issue('root', { type: 'phase' })], [], 'root')).toMatchObject({ total: 0 })
     })
 
     it("never stalls shipping, whose work is the service's and not a session's", () => {
@@ -1518,14 +1539,14 @@ describe('missionProgress', () => {
       expect(missionProgress([shipping], [], 'root')).toMatchObject({ run: 1, stall: 0 })
     })
 
-    it('keeps blocked, review and done ahead of it in the exclusive ladder', () => {
+    it('puts stopped work in waiting and completed work in done', () => {
       expect(missionProgress([{ ...root, blocked: true }], [], 'root')).toMatchObject({
-        block: 1,
-        stall: 0,
+        block: 0,
+        stall: 1,
       })
       expect(missionProgress([issue('root', { stage: 'review' })], [], 'root')).toMatchObject({
-        review: 1,
-        stall: 0,
+        review: 0,
+        stall: 1,
       })
       expect(missionProgress([issue('root', { stage: 'done' })], [], 'root')).toMatchObject({
         done: 1,
@@ -1534,13 +1555,13 @@ describe('missionProgress', () => {
     })
   })
 
-  it('classifies a review-stage root with no agents as review, not running', () => {
+  it('classifies a review-stage root with no agents as waiting', () => {
     expect(missionProgress([issue('root', { stage: 'review' })], [], 'root')).toEqual({
       total: 1,
       done: 0,
       run: 0,
-      review: 1,
-      stall: 0,
+      review: 0,
+      stall: 1,
       block: 0,
       wait: 0,
     })
@@ -1555,7 +1576,13 @@ describe('missionProgress', () => {
       stage: 'in_progress',
       deps: [{ id: 'root', type: 'discovered-from' }],
     })
-    expect(missionProgress([origin, tip], [sess('s-tip', { issueId: 'tip' })], 'root')).toEqual({
+    expect(
+      missionProgress(
+        [origin, tip],
+        [sess('s-tip', { issueId: 'tip', agentState: workingState })],
+        'root',
+      ),
+    ).toEqual({
       total: 0,
       done: 0,
       run: 0,
@@ -1587,8 +1614,8 @@ describe('missionProgress', () => {
     expect(missionProgress(issues, sessions, 'root')).toEqual({
       total: 1,
       done: 0,
-      run: 0,
-      review: 1,
+      run: 1,
+      review: 0,
       stall: 0,
       block: 0,
       wait: 0,
@@ -1645,7 +1672,7 @@ describe('missionProgress', () => {
     // The same root, in two missions. Alone it is the unit and reads as running;
     // the moment it has a member it is only the thing being measured, and the
     // member's own state is the whole reading.
-    const crew = [sess('s-root', { issueId: 'root' })]
+    const crew = [sess('s-root', { issueId: 'root', agentState: workingState })]
     const alone = missionProgress([issue('root', { stage: 'in_progress' })], crew, 'root')
     const container = missionProgress(
       [issue('root', { stage: 'in_progress' }), issue('a', { parentId: 'root', stage: 'done' })],
@@ -1715,7 +1742,13 @@ describe('missionProgress', () => {
       issue('b', { parentId: 'root', stage: 'proposed' }),
       issue('c', { parentId: 'root', stage: 'proposed' }),
     ]
-    expect(missionProgress(onlyProposed, [sess('s-root', { issueId: 'root' })], 'root')).toEqual({
+    expect(
+      missionProgress(
+        onlyProposed,
+        [sess('s-root', { issueId: 'root', agentState: workingState })],
+        'root',
+      ),
+    ).toEqual({
       total: 1,
       done: 0,
       run: 1,
@@ -1731,7 +1764,13 @@ describe('missionProgress', () => {
       issue('b', { parentId: 'root', stage: 'proposed' }),
       issue('c', { parentId: 'root', stage: 'proposed' }),
     ]
-    expect(missionProgress(acceptedAndProposed, [sess('s-a', { issueId: 'a' })], 'root')).toEqual({
+    expect(
+      missionProgress(
+        acceptedAndProposed,
+        [sess('s-a', { issueId: 'a', agentState: workingState })],
+        'root',
+      ),
+    ).toEqual({
       total: 1,
       done: 0,
       run: 1,
@@ -1763,7 +1802,13 @@ describe('missionProgress', () => {
       issue('b', { stage: 'proposed', startedBySession: 's-root' }),
       issue('c', { stage: 'proposed', startedBySession: 's-root' }),
     ]
-    expect(missionProgress(grafted, [sess('s-root', { issueId: 'root' })], 'root')).toEqual({
+    expect(
+      missionProgress(
+        grafted,
+        [sess('s-root', { issueId: 'root', agentState: workingState })],
+        'root',
+      ),
+    ).toEqual({
       total: 1,
       done: 0,
       run: 1,
@@ -1777,9 +1822,9 @@ describe('missionProgress', () => {
   // -------------------------------------------------------------------------
   // ONE COMPUTE PER PUBLISH, PER ROOT (POD-1685).
   //
-  // Four surfaces ask this about the same root inside one replica publish —
-  // `UnifiedIssueRow` once per visible row, `SidebarRail` once per root, the
-  // Flight Deck and its folded bar once each — and each of them used to walk the
+  // Three surfaces ask this about the same root inside one replica publish —
+  // `UnifiedIssueRow` once per visible row, the Flight Deck and its folded bar
+  // once each — and each of them used to walk the
   // whole mission from scratch, filtering the entire session slice once per
   // member issue. The answer depends on the two slices and the root and nothing
   // else, so it is computed once and read by the rest.
@@ -1814,7 +1859,7 @@ describe('missionProgress', () => {
     })
     // An agent arrives. Nothing about the ISSUE slice changed — only the session
     // slice — and `stall` must become `run` all the same.
-    const staffed = [sess('s1', { issueId: 'c1' })]
+    const staffed = [sess('s1', { issueId: 'c1', agentState: workingState })]
     expect(missionProgress(issues, staffed, 'root')).toEqual({
       total: 1,
       done: 0,
@@ -1846,14 +1891,14 @@ describe('missionProgress', () => {
     expect(missionProgress(issues, sessions, 'root').total).toBe(progress.total)
   })
 
-  it('shares the staffed-subtree walk between roots over the same slices', () => {
+  it('shares the session index between roots over the same slices', () => {
     const { issues, sessions } = mission()
     missionProgress(issues, sessions, 'root')
-    const before = missionIndexStats().staffedComputes
+    const before = missionIndexStats().sessionBuilds
     // Fresh roots, same slices: the walk is root-independent, so asking about
     // three more missions must not walk the crew three more times.
     for (const root of ['c1', 'c2', 'g1']) missionProgress(issues, sessions, root)
-    expect(missionIndexStats().staffedComputes - before).toBe(0)
+    expect(missionIndexStats().sessionBuilds - before).toBe(0)
   })
 })
 
@@ -3036,10 +3081,40 @@ describe('deckIssueState', () => {
 
   it('rolls a sub-issue up: a parent shows its most urgent descendant (D6)', () => {
     const live = sess('s', { issueId: 'a', agentState: workingState })
-    expect(deckIssueState(issue('a'), [live], { children: ['error'] }).state).toBe('error')
     expect(
-      deckIssueState(issue('a', { stage: 'backlog' }), [], { children: ['blocked'] }).state,
+      deckIssueState(issue('a'), [live], { children: [{ word: 'error', delegated: 'error' }] })
+        .state,
+    ).toBe('error')
+    expect(
+      deckIssueState(issue('a', { stage: 'backlog' }), [], {
+        children: [{ word: 'blocked', delegated: 'blocked' }],
+      }).state,
     ).toBe('blocked')
+  })
+
+  it('under a live coordinator, asks only through the coordinator and exceptions (POD-2171)', () => {
+    const asking = sess('helper', {
+      issueId: 'a',
+      agentState: {
+        phase: 'idle',
+        since: '2026-10-26T00:00:00Z',
+        nativeSubagentCount: 0,
+        idle: { kind: 'question' },
+      },
+    })
+    const lead = sess('lead', { issueId: 'a', agentState: workingState })
+    const child = { word: 'needs-you', delegated: 'working' } as const
+    const parent = issue('a', { coordinatorSessionId: 'lead' } as never)
+    const coordinated = deckIssueState(parent, [lead, asking], {
+      children: [child],
+      coordinated: true,
+    })
+    expect(coordinated).toMatchObject({ state: 'working', delegated: 'working' })
+    expect(deckIssueState(parent, [lead, asking], { children: [child] }).state).toBe('needs-you')
+    const escalated = { word: 'needs-you', delegated: 'needs-you' } as const
+    expect(deckIssueState(parent, [lead], { children: [escalated], coordinated: true }).state).toBe(
+      'needs-you',
+    )
   })
 
   it('counts a blocked-by target the deck already sees open', () => {
@@ -3054,7 +3129,7 @@ describe('deckIssueState', () => {
 
     it('says Error instead of the stage word, with the attention dot', () => {
       const state = deckIssueState(issue('a', { stage: 'review' }), [dead()])
-      expect(state).toEqual({ state: 'error', label: 'Error', attention: true })
+      expect(state).toEqual({ state: 'error', delegated: 'error', label: 'Error', attention: true })
     })
 
     // D6 overturns POD-1601: Error ranks above a second agent still running,

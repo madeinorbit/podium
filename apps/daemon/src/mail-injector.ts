@@ -1,3 +1,4 @@
+import { mailAckNudge, mailUnreadNudge } from '@podium/commands/mail-stop-nudge'
 import type { SessionId } from '@podium/model'
 /** Mail policy is harness-neutral. Drivers own boundary selection, veto encoding,
  * loop guards and delivery; the server owns unread/reminded_at persistence. */
@@ -42,16 +43,6 @@ function contextSource(
   }
 }
 
-/** Pointer rendering (#237) [spec:SP-34d7]: coalesce N pending messages into one
- *  inbox pointer naming the senders when the server supplies them. */
-function mailBlockReason(unread: number, senders: string[]): string {
-  const who = senders.length > 0 ? ` from ${senders.join(', ')}` : ''
-  return (
-    `You have ${unread} message(s)${who} on your issue: run 'podium issue mail inbox' to read them now; ` +
-    "claim a message with 'podium issue mail claim <id>' only if you will act on it."
-  )
-}
-
 export function createMailInjector(
   relay: (sessionId: SessionId) => Promise<{ ok: boolean; result?: unknown }>,
   now: () => number = Date.now,
@@ -65,7 +56,7 @@ export function createMailInjector(
     const senders = Array.isArray(result?.senders)
       ? result.senders.filter((s): s is string => typeof s === 'string').slice(0, 5)
       : []
-    return mailBlockReason(unread, senders)
+    return mailUnreadNudge(unread, senders)
   }, now)
 }
 
@@ -88,17 +79,7 @@ export function createAckReminderInjector(
         typeof (m as { from?: unknown })?.from === 'string',
     )
     if (reminders.length === 0) return null
-    const lines = reminders
-      .slice(0, 5)
-      .map(
-        (m) =>
-          `- ${m.id} (from ${m.from}): reply with what you did — podium mail reply ${m.id} --body "…"`,
-      )
-    return (
-      `You have ${reminders.length} podium message(s) awaiting your reply before you go idle:\n` +
-      `${lines.join('\n')}\n` +
-      'This is your only reminder; unanswered senders get a mechanical system notice instead.'
-    )
+    return mailAckNudge(reminders)
   }, now)
 }
 
@@ -136,7 +117,9 @@ export function composeMailContext(...sources: MailContextSource[]): MailContext
 
 /** First non-null response wins; a responder that throws is skipped (fail-open). */
 export function composeResponders(
-  ...fns: Array<(sessionId: SessionId, payload: unknown, signal?: AbortSignal) => Promise<string | null>>
+  ...fns: Array<
+    (sessionId: SessionId, payload: unknown, signal?: AbortSignal) => Promise<string | null>
+  >
 ): (sessionId: SessionId, payload: unknown, signal?: AbortSignal) => Promise<string | null> {
   return async (sessionId, payload, signal) => {
     for (const fn of fns) {

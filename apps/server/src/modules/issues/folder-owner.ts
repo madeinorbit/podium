@@ -9,7 +9,7 @@
  * row in repository order (`repo_path`, then `seq`) on a tie.
  */
 
-import { type IssueId, machinePathKey } from '@podium/model'
+import { type IssueId, type MachineId, machinePathKey } from '@podium/model'
 import { isMemberCwd } from '../../issue-util'
 import type { WorktreeOwnerRow } from '../../store/issues'
 
@@ -28,22 +28,26 @@ export function deepestOwner(rows: readonly WorktreeOwnerRow[], cwd: string): Is
 /**
  * Spawn-time attachment [spec:SP-ccb2]: the deepest containing worktree of a
  * non-archived issue. Several issues at that same deepest root are ambiguous
- * and attach nothing. A registered repo MAIN checkout (`repoRoots`, as
- * `machinePathKey`s) is shared workspace, never an issue's own worktree
- * ([spec:SP-595b] #582).
+ * and attach nothing. A registered repo MAIN checkout is shared workspace,
+ * never an issue's own worktree ([spec:SP-595b] #582).
+ *
+ * With `machineId`, only an issue homed on that machine (or on none) counts,
+ * so a path on one machine never joins another machine's task. Main checkouts
+ * are `roots.home` (that machine's, as `machinePathKey`s) for an issue homed
+ * there and `roots.any` (every machine's) for an issue with no home.
  */
 export function soleOwner(
   rows: readonly WorktreeOwnerRow[],
   cwd: string,
-  repoRoots: ReadonlySet<string>,
+  roots: { any: ReadonlySet<string>; home: ReadonlySet<string> },
+  machineId?: MachineId,
 ): IssueId | null {
-  const owners = rows.filter(
-    (row) =>
-      !row.archived &&
-      row.worktreePath !== null &&
-      !repoRoots.has(machinePathKey(row.worktreePath)) &&
-      isMemberCwd(row.worktreePath, cwd),
-  )
+  const owners = rows.filter((row) => {
+    if (row.archived || row.worktreePath === null || !isMemberCwd(row.worktreePath, cwd)) return false
+    const home = machineId === undefined ? null : row.machineId
+    if (home != null && home !== machineId) return false
+    return !(home == null ? roots.any : roots.home).has(machinePathKey(row.worktreePath))
+  })
   const deepest = owners.reduce(
     (length, row) => Math.max(length, row.worktreePath ? machinePathKey(row.worktreePath).length : 0),
     0,

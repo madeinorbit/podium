@@ -6,15 +6,7 @@ import { settled } from '@podium/client-graph/mission-view'
 import type { SessionModel } from '@podium/client-graph/models'
 import { observer } from '@podium/client-graph/react'
 import { SESSION_WORD_LABEL, TASK_WORD_LABEL, type TaskWord } from '@podium/model/browser'
-import {
-  ArrowUpRight,
-  Check,
-  ChevronDown,
-  ChevronRight,
-  Ellipsis,
-  ListTree,
-  Lock,
-} from 'lucide-react'
+import { ArrowUpRight, Check, ChevronDown, ChevronRight, ListTree, Lock } from 'lucide-react'
 import {
   type CSSProperties,
   type MouseEvent,
@@ -43,6 +35,7 @@ import {
 } from './flight-deck-window'
 import { useSessionHovered } from './session-hover'
 import { useRuntimeSelector } from './store'
+import { TEAM_FORMS_SESSION_ANCHOR } from './TeamFormsTip'
 
 const STRIP_HEIGHT = 32
 const SESSION_HEIGHT = 28
@@ -50,6 +43,8 @@ export const V6_DEPTH_STEP = 22
 
 export type FlightDeckV6Actions = {
   activeSessionId: string | null
+  /** Open details for a task with no subtasks or crew. */
+  onOpenTask: (task: FullDeckTask) => void
   onSelectSession: (task: FullDeckTask, session: SessionView, permanent: boolean) => void
   onMenu: (task: FullDeckTask, event: MouseEvent) => void
   onStatusPick: (task: FullDeckTask, value: string) => void
@@ -226,14 +221,23 @@ export const FlightDeckV6Task = observer(function FlightDeckV6Task({
         style={{ '--v6-indent': `${task.depth * V6_DEPTH_STEP}px` } as CSSProperties}
       >
         {shown ? (
-          // biome-ignore lint/a11y/useKeyWithClickEvents lint/a11y/noStaticElementInteractions: keyboard users fold with the TaskFold button, which the strip click only duplicates for the pointer; the context menu covers the strip and its buttons provide keyboard actions
+          // biome-ignore lint/a11y/useKeyWithClickEvents lint/a11y/noStaticElementInteractions: TaskBody provides the same activation for keyboard users; the context menu covers the strip and its buttons provide keyboard actions
           <div
             className="flight-v6-strip deck-strip"
             data-flight-task-row={task.id}
             data-visual-depth={visualDepth}
-            data-edge-gutter="28"
+            // A collapsed sub-task hides its session rows; the step-in card
+            // points at its strip instead, never unfolding it for the user.
+            data-tip-anchor={
+              !task.isRoot && !open && task.sessionIds.length > 0
+                ? TEAM_FORMS_SESSION_ANCHOR
+                : undefined
+            }
+            data-edge-gutter="6"
             onClick={(event) => {
-              if (event.target === event.currentTarget) task.deck.toggleFold(task.id)
+              if (event.target !== event.currentTarget) return
+              if (task.foldable) task.deck.toggleFold(task.id)
+              else actions.onOpenTask(task)
             }}
             onContextMenu={(event) => actions.onMenu(task, event)}
             ref={window?.enabled ? window.measure(stripKey) : undefined}
@@ -257,7 +261,7 @@ export const FlightDeckV6Task = observer(function FlightDeckV6Task({
                 onCancel={actions.onRenameDone}
               />
             ) : (
-              <TaskBody task={task} contentId={controlledIds}>
+              <TaskBody task={task} contentId={controlledIds} onOpenTask={actions.onOpenTask}>
                 <span className="flight-v6-ref">{task.row.displayRef}</span>
                 <FlightDeckV6TaskTitle task={task} />
                 <TaskCounter task={task} />
@@ -270,11 +274,14 @@ export const FlightDeckV6Task = observer(function FlightDeckV6Task({
                   </span>
                 )}
                 <span className="flight-v6-state" data-word={task.word}>
-                  {TASK_WORD_LABEL[task.word]}
+                  {task.word === 'working' ? (
+                    <WorkingWord label={TASK_WORD_LABEL.working} seed={task.row.displayRef} />
+                  ) : (
+                    TASK_WORD_LABEL[task.word]
+                  )}
                 </span>
               </TaskBody>
             )}
-            <TaskActions task={task} onMenu={actions.onMenu} />
           </div>
         ) : (
           <DeckRowPlaceholder
@@ -314,6 +321,7 @@ const TaskFold = observer(function TaskFold({
   task: FullDeckTask
   contentId: string
 }) {
+  if (!task.foldable) return <span className="flight-v6-fold" aria-hidden="true" />
   return (
     <button
       type="button"
@@ -324,25 +332,19 @@ const TaskFold = observer(function TaskFold({
       aria-controls={contentId}
       onClick={() => task.deck.toggleFold(task.id)}
     >
-      {task.foldable ? (
-        task.open ? (
-          <ChevronDown size={12} />
-        ) : (
-          <ChevronRight size={12} />
-        )
-      ) : (
-        <span />
-      )}
+      {task.open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
     </button>
   )
 })
 const TaskBody = observer(function TaskBody({
   task,
   contentId,
+  onOpenTask,
   children,
 }: {
   task: FullDeckTask
   contentId: string
+  onOpenTask: FlightDeckV6Actions['onOpenTask']
   children: ReactNode
 }) {
   return (
@@ -350,34 +352,15 @@ const TaskBody = observer(function TaskBody({
       type="button"
       className="flight-v6-task-body deck-task-content"
       data-pressable
-      aria-label={`${task.open ? 'Collapse' : 'Expand'} ${task.row.displayRef} ${task.row.title}`}
-      aria-expanded={task.open}
-      aria-controls={contentId}
-      onClick={() => task.deck.toggleFold(task.id)}
-    >
-      {children}
-    </button>
-  )
-})
-const TaskActions = observer(function TaskActions({
-  task,
-  onMenu,
-}: {
-  task: FullDeckTask
-  onMenu: FlightDeckV6Actions['onMenu']
-}) {
-  return (
-    <button
-      type="button"
-      className="flight-v6-actions"
-      aria-label={`Task actions for ${task.row.title}`}
-      title="Task actions"
-      onClick={(event) => {
-        event.stopPropagation()
-        onMenu(task, event)
+      aria-label={`${task.foldable ? (task.open ? 'Collapse' : 'Expand') : 'Open'} ${task.row.displayRef} ${task.row.title}`}
+      aria-expanded={task.foldable ? task.open : undefined}
+      aria-controls={task.foldable ? contentId : undefined}
+      onClick={() => {
+        if (task.foldable) task.deck.toggleFold(task.id)
+        else onOpenTask(task)
       }}
     >
-      <Ellipsis size={12} />
+      {children}
     </button>
   )
 })
@@ -492,6 +475,10 @@ export const FlightDeckV6Session = observer(function FlightDeckV6Session({
   const natives = nativeSubagentRows(session)
   const name = sessionDisplayName(session)
   const seat = task.seat(session.sessionId)
+  // The coordinator's card lists its native subagents openly; every other
+  // session folds them behind a chip.
+  const nativesInline = seat === 'coordinator'
+  const nativesShown = nativesInline || nativeOpen
   return (
     <div
       ref={measure}
@@ -501,6 +488,7 @@ export const FlightDeckV6Session = observer(function FlightDeckV6Session({
       data-pointed={pointed}
       data-seat={seat}
       data-word={session.word}
+      data-tip-anchor={task.isRoot ? undefined : TEAM_FORMS_SESSION_ANCHOR}
     >
       <div className="flight-v6-session-line">
         {editing ? (
@@ -555,14 +543,14 @@ export const FlightDeckV6Session = observer(function FlightDeckV6Session({
                 )}
               </>
             )}
-            {natives.length > 0 && <span className="flight-v6-native-slot" />}
+            {natives.length > 0 && !nativesInline && <span className="flight-v6-native-slot" />}
             <SessionState session={session} />
             {seat === 'coordinator' && (
               <ArrowUpRight size={14} className="flight-full-conversation-arrow" aria-hidden />
             )}
           </button>
         )}
-        {natives.length > 0 && (
+        {natives.length > 0 && !nativesInline && (
           <button
             type="button"
             className="flight-v6-native-chip"
@@ -588,27 +576,15 @@ export const FlightDeckV6Session = observer(function FlightDeckV6Session({
             />
           </button>
         )}
-        <button
-          type="button"
-          className="flight-v6-actions"
-          title="Session actions"
-          aria-label={`Session actions for ${name}`}
-          onClick={(event) => {
-            event.stopPropagation()
-            setMenu({ x: event.clientX, y: event.clientY })
-          }}
-        >
-          <Ellipsis size={12} />
-        </button>
       </div>
       {natives.length > 0 && (
         <ul
           id={nativeId}
-          hidden={!nativeOpen}
+          hidden={!nativesShown}
           className="flight-v6-natives"
           aria-label={`Native subagents of ${name}`}
         >
-          {nativeOpen &&
+          {nativesShown &&
             natives.map((native) => (
               <li key={native.id}>
                 <span>{native.type}</span>
@@ -633,6 +609,24 @@ export const FlightDeckV6Session = observer(function FlightDeckV6Session({
   )
 })
 
+/** "Working" with a glint sweeping through it. The word stays plain text; an
+ * empty aria-hidden window slides across it carrying a bright copy (its
+ * ::after) that slides back the same distance, so the copy stays over the
+ * letters. Both moves are transforms, so the compositor runs the sweep and the
+ * word is never repainted. `seed` fixes each row's phase: rows sweep out of
+ * step, and a re-render doesn't restart one. */
+function WorkingWord({ label, seed }: { label: string; seed: string }) {
+  let hash = 0
+  for (let i = 0; i < seed.length; i++) hash = (hash * 31 + seed.charCodeAt(i)) | 0
+  const phase = ((hash >>> 0) % 1000) / 1000
+  return (
+    <span className="flight-v6-working" style={{ '--v6-glint-phase': phase } as CSSProperties}>
+      {label}
+      <span aria-hidden className="flight-v6-glint" data-text={label} />
+    </span>
+  )
+}
+
 /** Only this small timer subscribes to the shared clock. Working deliberately
  * omits the accumulated base: D5 shows this turn, Done shows the total. */
 const SessionState = observer(function SessionState({
@@ -644,7 +638,11 @@ const SessionState = observer(function SessionState({
   const since = session.stateSinceMs
   return (
     <span className="flight-v6-state" data-word={word}>
-      <span>{SESSION_WORD_LABEL[word]}</span>
+      {word === 'working' ? (
+        <WorkingWord label={SESSION_WORD_LABEL.working} seed={session.sessionId} />
+      ) : (
+        <span>{SESSION_WORD_LABEL[word]}</span>
+      )}
       {word === 'working' && Number.isFinite(since) && since > 0 && (
         <PhaseTimer phase="working" sinceMs={since} size={10} showSpinner={false} mutedWorking />
       )}

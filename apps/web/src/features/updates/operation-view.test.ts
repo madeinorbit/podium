@@ -1,7 +1,6 @@
 import { parseOperation } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import { SERVER_UNAVAILABLE_MESSAGE } from '@/app/trpc'
-import { errorCode, errorDetail, errorMessage } from './operations-client'
 import {
   cancelRefusalSentence,
   formatDuration,
@@ -14,6 +13,7 @@ import {
   stepRows,
   type UpdateSurface,
 } from './operation-view'
+import { errorCode, errorDetail, errorMessage } from './operations-client'
 import type { UpdateView } from './update-view'
 
 const NOW = 1_765_700_100_000
@@ -101,10 +101,12 @@ describe('operationView — the seven states', () => {
       now: NOW,
     })
     expect(result.state).toBe('offer')
-    expect(result.title).toBe('Podium 0.4.3 is available')
+    expect(result.title).toBe('Update available')
+    expect(result.subtitle).toBe('Your sessions keep running.')
+    expect(result.version).toBe('0.4.3')
     expect(result.places?.map((place) => place.label)).toEqual(['This app', 'vmi3407763'])
     expect(result.notes?.summary).toBe('Faster boards.')
-    expect(result.primary).toMatchObject({ kind: 'start', label: 'Update Podium' })
+    expect(result.primary).toMatchObject({ kind: 'start', label: 'Update now' })
     expect(result.indicator).toBe('idle-dot')
     expect(result.indicatorLabel).toBe('Podium 0.4.3 is available')
   })
@@ -124,7 +126,7 @@ describe('operationView — the seven states', () => {
     })
 
     expect(result.state).toBe('offer')
-    expect(result.title).toBe('Host-local repair required')
+    expect(result.title).toBe('Manual fix needed')
     expect(result.subtitle).toMatch(/flatblock needs host-local repair/i)
     expect(result.primary).toBeUndefined()
     expect(result.indicator).toBe('attention')
@@ -193,9 +195,9 @@ describe('operationView — the seven states', () => {
     })
 
     expect(result.state).toBe('waiting-you')
-    expect(result.title).toBe('Podium 0.4.3 is ready here')
+    expect(result.title).toBe('Reload to finish')
     expect(result.subtitle).toBe(
-      'Everything else is updated. This page is still on the previous build.',
+      'Your server and machines are updated. This tab is still on the old version.',
     )
     expect(result.primary).toMatchObject({ kind: 'reload', label: 'Reload' })
     expect(result.indicatorLabel).toBe('Reload to finish')
@@ -217,7 +219,8 @@ describe('operationView — the seven states', () => {
   it('renders the running checklist with the step position and substatus', () => {
     const result = view(operationPayload())
     expect(result.state).toBe('running')
-    expect(result.title).toBe('Podium 0.4.3 is being applied')
+    expect(result.title).toBe('Updating…')
+    expect(result.subtitle).toBe('Your sessions keep running.')
     expect(result.stepPosition).toEqual({ current: 2, total: 4 })
     expect(result.steps).toEqual([
       { id: 'prepare', title: 'Preparing the update', state: 'done' },
@@ -388,7 +391,10 @@ describe('operationView — the seven states', () => {
     const result = view(payload, { local: NOT_BEHIND, surface: 'web' })
     expect(result.state).toBe('waiting-elsewhere')
     expect(result.primary).toBeUndefined()
-    expect(result.awaitingElsewhere).toEqual(['Waiting for Podium Desktop on macbook'])
+    expect(result.title).toBe('Waiting on macbook')
+    // Said once, as the subtitle, and not repeated in the body.
+    expect(result.subtitle).toBe('Waiting for Podium Desktop on macbook')
+    expect(result.awaitingElsewhere).toEqual([])
     expect(result.indicator).toBe('animating')
   })
 
@@ -417,7 +423,7 @@ describe('operationView — the seven states', () => {
     const result = view(payload, { local: BEHIND, surface: 'web' })
     expect(result.state).toBe('waiting-elsewhere')
     expect(result.primary).toBeUndefined()
-    expect(result.title).toBe('Podium 0.4.3 is finishing elsewhere')
+    expect(result.title).toBe('Waiting on ludovico')
     // `toBe`, and the exactness is the assertion (POD-2182). `askLine` appends
     // "on <place>" unless the chosen line already says it, so a place that
     // names the machine the same way the detail does adds nothing — while the
@@ -425,7 +431,7 @@ describe('operationView — the seven states', () => {
     // reader "…on ludovico. on m_host". The server now sends the name; the
     // server-side half of this is asserted in `router.updates.test.ts`.
     expect(result.subtitle).toBe('Finish this in Podium Desktop on ludovico.')
-    expect(result.indicatorLabel).toBe('Update waiting for another place')
+    expect(result.indicatorLabel).toBe('Update waiting to finish')
   })
 
   it('still self-serves a stale surface when the wait belongs to nobody else', () => {
@@ -447,9 +453,49 @@ describe('operationView — the seven states', () => {
     })
     const result = view(payload)
     expect(result.state).toBe('done')
-    expect(result.title).toBe('Podium is on 0.4.3 everywhere')
+    expect(result.title).toBe('Updated, except macbook, laptop')
     expect(result.deferredNote).toBe('macbook, laptop will update when they reconnect.')
     expect(result.indicator).toBe('idle-dot')
+  })
+
+  it('counts deferred machines instead of naming only the ones that have names', () => {
+    const payload = operationPayload({
+      state: 'done',
+      finishedAt: NOW,
+      steps: [],
+      deferred: [
+        { id: 'm_a', name: 'ludovico', reason: 'offline' },
+        { id: 'm_b', reason: 'legacy-instance-trust' },
+      ],
+    })
+    expect(view(payload).title).toBe('Updated, except 2 machines')
+  })
+
+  it('does not tell a surface that cannot reload to reload', () => {
+    const result = view(operationPayload({ state: 'done', finishedAt: NOW }), {
+      local: { behind: true, canReload: false, canInstallDesktop: false },
+    })
+    expect(result.title).toBe('Updated, except this app')
+    expect(result.primary).toBeUndefined()
+  })
+
+  it('names the machine it waits on only when every ask names the same one', () => {
+    const ask = { id: 'a', surface: 'desktop-remote', title: 'Restart Podium', required: true }
+    const named = view(
+      operationPayload({ state: 'waiting', steps: [], awaiting: [{ ...ask, place: 'ludovico' }] }),
+    )
+    expect(named.title).toBe('Waiting on ludovico')
+    const mixed = view(
+      operationPayload({
+        state: 'waiting',
+        steps: [],
+        awaiting: [
+          { ...ask, place: 'ludovico' },
+          { ...ask, id: 'b' },
+        ],
+      }),
+    )
+    expect(mixed.title).toBe('Waiting to finish')
   })
 
   it('does not claim everywhere or reconnect for a permanent legacy trust deferment', () => {
@@ -461,10 +507,11 @@ describe('operationView — the seven states', () => {
     })
     const result = view(payload)
     expect(result.state).toBe('done')
-    expect(result.title).toBe('Podium 0.4.3 was applied where supported')
-    expect(result.deferredNote).toMatch(/flatblock needs host-local repair/i)
-    expect(result.deferredNote).toMatch(/reconnecting will not clear/i)
-    expect(result.indicatorLabel).toBe('Host-local repair still required')
+    expect(result.title).toBe('Updated, except flatblock')
+    expect(result.deferredNote).toMatch(/flatblock needs a manual fix/i)
+    expect(result.deferredNote).toMatch(/reconnecting won't fix it/i)
+    expect(result.deferredNote).toContain('scripts/repair-stranded-update.sh')
+    expect(result.indicatorLabel).toBe('Manual fix needed')
     expect(JSON.stringify(result)).not.toMatch(/everywhere/)
   })
 
@@ -538,7 +585,7 @@ describe('operationView — the seven states', () => {
 
     const result = view(payload)
     expect(result.state).toBe('done')
-    expect(result.title).toBe('Podium 0.4.3 update complete')
+    expect(result.title).toBe('Updated, except some machines')
     expect(result.steps[0]?.substatus).toContain(
       'macbook cannot take delivery: managed by Desktop updater',
     )
@@ -559,7 +606,10 @@ describe('operationView — the seven states', () => {
     })
     expect(result.state).toBe('waiting-you')
     expect(result.primary).toMatchObject({ kind: 'install-desktop', label: 'Restart Podium' })
-    expect(result.subtitle).toBe('Everything else is updated. This app is still on the previous build.')
+    expect(result.title).toBe('Restart to finish')
+    expect(result.subtitle).toBe(
+      'Your server and machines are updated. This app is still on the old version.',
+    )
     expect(result.indicatorLabel).toBe('Restart to finish')
   })
 
@@ -650,7 +700,7 @@ describe('operationView — the frozen contract (P8, §8)', () => {
   it('renders an operation with nothing but the three required fields', () => {
     const result = view({ id: 'op_bare', kind: 'update', state: 'running' })
     expect(result.state).toBe('running')
-    expect(result.title).toBe('Podium is being updated')
+    expect(result.title).toBe('Updating…')
     expect(result.steps).toEqual([])
     expect(result.stepPosition).toBeUndefined()
     expect(result.liveness).toBe('Working…')

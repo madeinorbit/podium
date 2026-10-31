@@ -102,7 +102,7 @@ describe('queuedDeliveryLabel', () => {
         blocked({ class: 'authentication', retryable: false, detail: 'token expired' }),
       ),
     ).toBe(
-      'blocked · Provider authentication failed: token expired — Re-authenticate with the provider, then choose “I signed in — retry” to send',
+      'blocked · Provider authentication failed: token expired — Re-authenticate with the provider, then choose “I signed in, retry” to send',
     )
   })
 

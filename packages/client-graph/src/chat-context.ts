@@ -1,10 +1,10 @@
 import type { MessageModel } from './message-models'
 import { omitGone } from './lookup'
-import { action, compareStructural, observable, observableRef, when } from 'mobx'
+import { action, compareStructural, observable, observableRef, observe, runInAction, when } from 'mobx'
 import { headerEntities } from './header-entities'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
-import type { MachineWire } from '@podium/model'
+import type { IssueId, IssuePanelArtifact, MachineWire } from '@podium/model'
 import { dedupeSessionsByResume } from '@podium/model'
 import { companion, lazy } from '@podium/mobx-helpers'
 import type { PendingInteractionWire } from '@podium/protocol'
@@ -119,6 +119,62 @@ export function chatRecords(pool: MobxPool, sessionId: string) {
     }
   return { records, pending }
 }
+/** The authoritative message for this transcript identity. Provider image
+ * tags and text are not message identities. */
+class ChatItemMessageIndex {
+  private readonly ids = observable.map<string, string>(undefined, { deep: false })
+  private readonly stop: () => void
+  constructor(private readonly pool: MobxPool) {
+    runInAction(() => {
+      for (const [id, row] of pool.tables.messageRecord) this.update(id, undefined, row)
+    })
+    this.stop = observe(pool.tables.messageRecord, (change) =>
+      this.update(
+        change.name,
+        change.type === 'add' ? undefined : change.oldValue,
+        change.type === 'delete' ? undefined : change.newValue,
+      ),
+    )
+  }
+  private key(value: unknown): string | undefined {
+    const row = value as { sessionId?: string; transcriptItem?: { id: string } } | undefined
+    return row?.sessionId && row.transcriptItem?.id
+      ? JSON.stringify([row.sessionId, row.transcriptItem.id])
+      : undefined
+  }
+  @action private update(id: string, previous: unknown, next: unknown): void {
+    const before = this.key(previous),
+      after = this.key(next)
+    if (before === after) return
+    if (before && this.ids.get(before) === id) this.ids.delete(before)
+    if (after) this.ids.set(after, id)
+  }
+  message(sessionId: string, itemId: string): MessageModel | undefined {
+    const id = this.ids.get(JSON.stringify([sessionId, itemId]))
+    if (!id) return undefined
+    const record = this.pool.model('messageRecord', id)
+    // `kind` is a stored message field. Test model identity without reading it.
+    return !loading(record) && 'entity' in record ? record : undefined
+  }
+  dispose(): void {
+    this.stop()
+    this.ids.clear()
+  }
+}
+
+export function chatItemMessage(
+  pool: MobxPool,
+  sessionId: string,
+  itemId: string,
+): MessageModel | undefined {
+  // Observe the shared table, including requested history rows which are not
+  // on the live feed's index. The pool owns and disposes this index.
+  pool.row('noticeSession', sessionId)
+  return pool.sources.view('chatItemMessages', () => new ChatItemMessageIndex(pool)).message(sessionId, itemId)
+}
+export function chatItemAttachments(pool: MobxPool, sessionId: string, itemId: string) {
+  return chatItemMessage(pool, sessionId, itemId)?.attachments
+}
 export function chatArtifactIssue(
   pool: MobxPool,
   session: Pick<SessionView, 'issueId' | 'sessionId'>,
@@ -132,6 +188,24 @@ export function chatArtifactIssue(
   const owner = pool.relations.one('session', session.sessionId, 'pageIssue')
   const issue = owner ? (omitGone(pool.row('issue', owner)) as Loaded<IssueViewModel>) : undefined
   return issue && !loading(issue) && issue.deletedAt ? undefined : issue
+}
+/** The stored copy of a file attached in this session's chat (POD-2148), by
+ * the attachment id it was staged under, from the session's issue. Undefined
+ * while either record is on its way, for a session with no issue, and for an
+ * attachment no copy was taken of. */
+export function chatUploadArtifact(
+  pool: MobxPool,
+  sessionId: string,
+  attachmentId: string,
+): { issueId: IssueId; artifact: IssuePanelArtifact } | undefined {
+  const session = omitGone(pool.row('session', sessionId)) as Loaded<SessionView>
+  if (!session || loading(session)) return undefined
+  const issue = chatArtifactIssue(pool, { sessionId: session.sessionId, issueId: session.issueId })
+  if (!issue || loading(issue)) return undefined
+  const model = omitGone(pool.model('issue', issue.id))
+  if (!model || loading(model)) return undefined
+  const artifact = model.chatUploads.get(attachmentId)
+  return artifact ? { issueId: issue.id, artifact } : undefined
 }
 export function chatReferenceSessions(pool: MobxPool, counts = readerCounts(pool)) {
   return pool.sources
@@ -233,6 +307,11 @@ export function createChatContextReader(pool: MobxPool) {
     records: (id: string) => chatRecords(pool, id),
     artifactIssue: (session: Pick<SessionView, 'sessionId' | 'issueId'>) =>
       chatArtifactIssue(pool, session),
+    chatUpload: (sessionId: string, attachmentId: string) =>
+      chatUploadArtifact(pool, sessionId, attachmentId),
+    itemAttachments: (sessionId: string, itemId: string) =>
+      chatItemAttachments(pool, sessionId, itemId),
+    itemMessage: (sessionId: string, itemId: string) => chatItemMessage(pool, sessionId, itemId),
     referencePicker: () => createReferencePicker(pool),
     sessions: () => chatReferenceSessions(pool, counts),
     machines: () => chatReferenceMachines(pool),

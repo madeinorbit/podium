@@ -1,14 +1,14 @@
-import type { SessionMeta } from '@podium/model'
 import type { SessionView } from '@podium/client-core/session-values'
-import { fireEvent, screen, waitFor } from '@testing-library/react'
-import { modelCatalogFixture } from '@/test-support/model-catalog-mock'
+import type { SessionMeta } from '@podium/model'
 import { asIssueId, asRepoId, asSessionId, asUserId } from '@podium/model'
 import { parseAnyRef } from '@podium/protocol'
+import { fireEvent, screen, waitFor } from '@testing-library/react'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { activateRef, closeMiniview, getMiniviewState, openMiniview } from '@/lib/ref-activation'
 import type { RefIssueLike, RefSessionLike, ResolvedRef } from '@/lib/ref-miniview'
+import { modelCatalogFixture } from '@/test-support/model-catalog-mock'
 import { publishPoolFixture } from '@/test-support/pool-fixture'
 import { RefCard, RefMiniviewHost, seedCardPosition } from './RefMiniview'
 
@@ -33,7 +33,7 @@ const hostStore = vi.hoisted(() => ({
   updateIssue: vi.fn(async () => {}),
   setSelectedIssueId: vi.fn(),
   setFocusedIssueId: vi.fn(),
-  retarget: vi.fn(),
+  showInDock: vi.fn(),
 }))
 
 vi.mock('@podium/client-core/react', async (importOriginal) => {
@@ -116,8 +116,8 @@ vi.mock('@/app/operator-focus', () => ({
   }),
 }))
 
-vi.mock('@/features/issues/explorer/explorer-context', () => ({
-  useIssueExplorer: () => ({ retarget: hostStore.retarget }),
+vi.mock('@/features/issues/dock-issue', () => ({
+  useDockIssue: () => ({ show: hostStore.showInDock }),
 }))
 
 const parent: RefIssueLike = {
@@ -145,14 +145,6 @@ const rich: RefIssueLike = {
   childCount: 4,
   childDoneCount: 2,
   parentId: asIssueId('iss_parent'),
-  activityNotes: 'Card now shows stage, todos and status.',
-  panel: {
-    todos: [
-      { text: 'widen data path', done: true },
-      { text: 'redesign card', done: true },
-      { text: 'tests', done: false },
-    ],
-  },
 }
 
 const issues = [rich, parent]
@@ -176,7 +168,7 @@ describe('RefMiniviewHost issue resolution', () => {
     hostStore.replicaIssues = []
     hostStore.setSelectedIssueId.mockClear()
     hostStore.setFocusedIssueId.mockClear()
-    hostStore.retarget.mockClear()
+    hostStore.showInDock.mockClear()
     container = document.createElement('div')
     document.body.appendChild(container)
     root = createRoot(container)
@@ -242,17 +234,20 @@ describe('RefMiniviewHost issue resolution', () => {
         cwd: '/repo',
       },
     ]
-    act(() => { publishPoolFixture(); activateRef('POD-517-A', { metaKey: true }) })
+    act(() => {
+      publishPoolFixture()
+      activateRef('POD-517-A', { metaKey: true })
+    })
     expect(hostStore.navigateToSession).toHaveBeenCalledWith('POD-517-A')
     expect(hostStore.referenceReads).not.toHaveBeenCalled()
     expect(getMiniviewState()).toBeNull()
   })
 
-  // POD-1265: the escalation is a LOOK, not a move. Pointing the explorer used
+  // POD-1265: the escalation is a LOOK, not a move. Pointing the task panel used
   // to run through the shell selection, which is also what the sidebar
   // highlights and what keys the tab area's workspace — so reading a ref in
   // chat dragged the whole workspace onto whatever task was mentioned.
-  it('points the explorer at the task without moving the shell', () => {
+  it('points the task panel at the task without moving the shell', () => {
     hostStore.replicaIssues = [rich, parent]
     const panels: unknown[] = []
     const onPanel = (event: Event): void => {
@@ -263,12 +258,12 @@ describe('RefMiniviewHost issue resolution', () => {
       act(() => root.render(<RefMiniviewHost />))
       act(() => openMiniview('POD-517', { x: 100, y: 100 }))
       const open = [...document.body.querySelectorAll('button')].find((b) =>
-        b.textContent?.includes('Open in explorer'),
+        b.textContent?.includes('Open task'),
       )
       expect(open).toBeDefined()
       act(() => open?.click())
 
-      expect(hostStore.retarget).toHaveBeenCalledWith('iss_1')
+      expect(hostStore.showInDock).toHaveBeenCalledWith('iss_1')
       expect(panels).toEqual(['issue'])
       expect(hostStore.setSelectedIssueId).not.toHaveBeenCalled()
       expect(hostStore.setFocusedIssueId).not.toHaveBeenCalled()
@@ -316,17 +311,16 @@ describe('RefCard issue summary (#517)', () => {
     container.remove()
   })
 
-  it('derives blocker count, subissue + todo progress, and the resolved parent ref', () => {
+  it('derives blocker count, subissue progress, and the resolved parent ref', () => {
     renderCard(root, rich)
     const text = container.textContent ?? ''
     // Identity: the card renders the right issue.
     expect(text).toContain('POD-517')
     expect(text).toContain('Enrich the miniview')
     // Computed values (not passthrough copy): blocker count from blockedByNotes.length,
-    // childDoneCount/childCount, done/total todos, and the resolved parent ref.
+    // childDoneCount/childCount, and the resolved parent ref.
     expect(text).toContain('blocked (2)')
     expect(text).toContain('2/4 done')
-    expect(text).toContain('2 of 3 done')
     expect(text).toContain('in POD-500')
   })
 
@@ -366,13 +360,13 @@ describe('RefCard issue summary (#517)', () => {
 
   it('loads the comment count on demand and refreshes it when issue activity moves', async () => {
     const loadComments = vi.fn().mockResolvedValue([{}, {}])
-    const issue = { ...rich, panel: undefined, childCount: 0, updatedAt: 't1', commentCount: 99 }
+    const issue = { ...rich, childCount: 0, updatedAt: 't1', commentCount: 99 }
     const show = (updatedAt: string) =>
       root.render(
         <RefCard
           refToken="POD-517"
           target={issueTarget({ ...issue, updatedAt })}
-            onClose={() => {}}
+          onClose={() => {}}
           onOpenFull={() => {}}
           loadComments={loadComments}
         />,
@@ -411,13 +405,13 @@ describe('RefCard issue summary (#517)', () => {
         <RefCard
           refToken="POD-517"
           target={issueTarget(issue)}
-            onClose={() => {}}
+          onClose={() => {}}
           onOpenFull={() => {}}
           loadComments={loadComments}
         />,
       )
     await act(async () => {
-      show({ ...rich, panel: undefined, childCount: 0 })
+      show({ ...rich, childCount: 0 })
     })
     await act(async () => {
       show({ ...parent, stage: 'done', childCount: 0 })
@@ -428,6 +422,60 @@ describe('RefCard issue summary (#517)', () => {
     })
     expect(container.textContent).toContain('1 comment')
     expect(container.textContent).not.toContain('2 comments')
+  })
+})
+
+describe('RefCard expandable text', () => {
+  let container: HTMLDivElement
+  let root: Root
+  let clamped = true
+  beforeEach(() => {
+    container = document.createElement('div')
+    document.body.appendChild(container)
+    root = createRoot(container)
+    clamped = true
+    // happy-dom has no layout: report overflow from the clamp state the test sets.
+    vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockImplementation(function (
+      this: HTMLElement,
+    ) {
+      return this.classList.contains('ref-miniview-text') && clamped ? 120 : 40
+    })
+    vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(40)
+  })
+  afterEach(() => {
+    act(() => root.unmount())
+    container.remove()
+    vi.restoreAllMocks()
+  })
+
+  const long = {
+    ...rich,
+    description: 'First paragraph.\n\n- **bold** item\n- second item\n\nLast paragraph.',
+  }
+
+  it('unfolds a clamped description in place and renders its markdown', () => {
+    renderCard(root, long)
+    const body = container.querySelector('.ref-miniview-text')
+    expect(body?.getAttribute('data-open')).toBe('false')
+    expect(body?.hasAttribute('title')).toBe(false)
+    expect(body?.querySelector('strong')?.textContent).toBe('bold')
+    expect(body?.querySelectorAll('li')).toHaveLength(2)
+
+    const more = screen.getByRole('button', { name: 'Show the full description' })
+    expect(more.getAttribute('aria-expanded')).toBe('false')
+    act(() => fireEvent.click(more))
+    expect(body?.getAttribute('data-open')).toBe('true')
+    const less = screen.getByRole('button', { name: 'Show less of the description' })
+    expect(less.getAttribute('aria-expanded')).toBe('true')
+    act(() => fireEvent.click(less))
+    expect(body?.getAttribute('data-open')).toBe('false')
+  })
+
+  it('shows no toggle when the text fits', () => {
+    clamped = false
+    renderCard(root, long)
+    expect(container.querySelector('.ref-miniview-text')).not.toBeNull()
+    expect(container.querySelector('.ref-miniview-text-toggle')).toBeNull()
   })
 })
 
@@ -453,7 +501,7 @@ describe('RefCard run now (POD-110)', () => {
         <RefCard
           refToken={issue.displayRef ?? ''}
           target={issueTarget(issue)}
-            onClose={() => {}}
+          onClose={() => {}}
           onOpenFull={() => {}}
           onStart={onStart}
         />,
@@ -530,7 +578,7 @@ describe('RefCard proposal decisions', () => {
         <RefCard
           refToken="POD-517"
           target={issueTarget(proposal)}
-            onClose={() => {}}
+          onClose={() => {}}
           onOpenFull={() => {}}
           onStart={onStart}
           onPromote={onPromote}
@@ -593,7 +641,7 @@ describe('RefCard proposal decisions', () => {
             stage: 'in_progress',
             worktreePath: '/r/.worktrees/issue-517',
           })}
-            onClose={() => {}}
+          onClose={() => {}}
           onOpenFull={() => {}}
         />,
       )
@@ -636,7 +684,7 @@ describe('RefCard planned agent settings', () => {
         <RefCard
           refToken="POD-517"
           target={issueTarget(issue)}
-            machines={hostStore.machines}
+          machines={hostStore.machines}
           onClose={onClose}
           onOpenFull={vi.fn()}
           onStart={onStart}
@@ -732,7 +780,7 @@ describe('RefCard outside-click dismissal', () => {
         <RefCard
           refToken={rich.displayRef ?? ''}
           target={issueTarget(rich)}
-            onClose={onClose}
+          onClose={onClose}
           onOpenFull={() => {}}
         />,
       )
@@ -793,7 +841,7 @@ describe('RefCard is not draggable (POD-799)', () => {
           refToken={rich.displayRef ?? ''}
           anchor={{ x: 300, y: 200 }}
           target={target}
-            onClose={() => {}}
+          onClose={() => {}}
           onOpenFull={() => {}}
         />,
       )
@@ -916,13 +964,13 @@ describe('RefCard escalations (POD-786)', () => {
   const button = (text: string): HTMLButtonElement | undefined =>
     [...container.querySelectorAll('button')].find((b) => b.textContent?.includes(text))
 
-  it('sends the reader to the explorer, not to a peek drawer', () => {
+  it('sends the reader to the task panel, not to a peek drawer', () => {
     const onOpenFull = vi.fn()
     renderWith(rich, [], { onOpenFull })
     expect(container.textContent).not.toContain('Open issue peek')
-    const explorer = button('Open in explorer')
-    expect(explorer).toBeDefined()
-    act(() => explorer?.click())
+    const open = button('Open task')
+    expect(open).toBeDefined()
+    act(() => open?.click())
     expect(onOpenFull).toHaveBeenCalled()
   })
 
@@ -968,7 +1016,7 @@ describe('RefCard escalations (POD-786)', () => {
     renderWith(rich, [])
     expect(button('Go to session')).toBeUndefined()
     expect(button('Parent session')).toBeUndefined()
-    expect(button('Open in explorer')).toBeDefined()
+    expect(button('Open task')).toBeDefined()
   })
 })
 
@@ -987,7 +1035,7 @@ describe('RefCard identity row (POD-786)', () => {
 
   it('carries priority beside the ref, not down on the meta line', () => {
     renderCard(root, rich)
-    const identity = container.querySelector('[data-issue-reference]')?.parentElement
+    const identity = container.querySelector('[data-testid="ref-card-identity"]')
     expect(identity?.textContent).toContain('POD-517')
     expect(identity?.textContent).toContain('P1')
     // The meta line still carries the enrichments — priority just is not one.
@@ -997,5 +1045,61 @@ describe('RefCard identity row (POD-786)', () => {
   it('omits priority entirely when the issue has none', () => {
     renderCard(root, { ...rich, priority: undefined })
     expect(container.querySelector('[aria-label="P1"]')).toBeNull()
+  })
+
+  it('makes the status glyph the shared picker and applies the pick without closing', async () => {
+    hostStore.updateIssue.mockClear()
+    const onClose = vi.fn()
+    act(() => {
+      root.render(
+        <RefCard
+          refToken="POD-517"
+          target={issueTarget(rich)}
+          onClose={onClose}
+          onOpenFull={() => {}}
+        />,
+      )
+    })
+    fireEvent.click(screen.getByLabelText('Status: In Progress'))
+    const backlog = await screen.findByRole('menuitem', { name: 'Backlog' })
+    // The menu is portaled out of the card; pressing in it must not light-dismiss.
+    fireEvent.pointerDown(backlog)
+    fireEvent.click(backlog)
+    await waitFor(() =>
+      expect(hostStore.updateIssue).toHaveBeenCalledWith('iss_1', { stage: 'backlog' }),
+    )
+    expect(onClose).not.toHaveBeenCalled()
+  })
+})
+
+describe('RefCard details strip', () => {
+  let container: HTMLDivElement
+  let root: Root
+  beforeEach(() => {
+    container = document.createElement('div')
+    document.body.appendChild(container)
+    root = createRoot(container)
+  })
+  afterEach(() => {
+    act(() => root.unmount())
+    container.remove()
+  })
+
+  it('shows no latest update, todo count or artifact count even when the row has them', () => {
+    renderCard(root, {
+      ...rich,
+      activityNotes: 'Card now shows stage and status.',
+      notesUpdatedAt: '2026-10-20T00:00:00.000Z',
+      panel: {
+        todos: [{ text: 'tests', done: false }],
+        artifacts: [{ path: 'a.png', title: 'Shot' }],
+      },
+    } as RefIssueLike)
+    const text = container.textContent ?? ''
+    expect(text).toContain('Subissues')
+    expect(text).not.toContain('Agent status')
+    expect(text).not.toContain('Card now shows')
+    expect(text).not.toContain('Tasks')
+    expect(text).not.toContain('Artifacts')
   })
 })

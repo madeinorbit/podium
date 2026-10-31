@@ -8,28 +8,7 @@ import { dropNullValues, wireShape } from '../shape'
  *  representation rather than the collapse of the other 17 (ADR 4 D3.3). */
 const durableWireFields = wireShape(IssueAggregate.shape)
 
-export const IssueProjection = z.object({
-  ...durableWireFields,
-
-  // ---- Forward-compatibility tolerance (wire-only) ----
-  //
-  // Derived from the field group, NOT restated: `durableWireFields.color` already
-  // carries the type, brand and optionality; `.catch()` only adds the tolerance.
-  // The tolerance belongs on R4 and NOT on R1/R3 by design — parsing a payload
-  // from a peer that may be NEWER than us is a wire concern. A newer peer that
-  // adds an 11th colour slot must degrade to "no colour" on this client rather
-  // than fail the whole issue's parse; the durable aggregate, by contrast, should
-  // never silently swallow a value it does not understand.
-  //
-  // Main tolerated a second field here, `humanQuestionOptions`. It has no
-  // counterpart to tolerate: this tree nests the needs-human pair as
-  // `asked: { question, options, at, by, attribution }` (`fields/issue.ts`,
-  // NeedsHuman) with optional historical attribution, and `options` is
-  // a plain `z.array(z.string()).optional()` inside it with no closed vocabulary
-  // a newer peer could widen. The tolerance existed for main's enum-typed slot
-  // list; it would be decoration here.
-  color: durableWireFields.color.catch(undefined),
-})
+export const IssueProjection = z.object(durableWireFields)
 export type IssueProjection = z.infer<typeof IssueProjection>
 
 /**

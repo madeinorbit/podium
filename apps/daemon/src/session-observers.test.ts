@@ -1302,6 +1302,39 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
     }
   })
 
+  it('holds a fresh Codex spawn idle until its lazy rollout binds [POD-2253]', () => {
+    // Codex writes no rollout until the first prompt, so a first prompt queued
+    // with a chat upload waited for an `idle` only its own delivery could produce.
+    const sent: DaemonMessage[] = []
+    const observers = createSessionObservers({
+      send: (message) => sent.push(message),
+      onTranscriptDirty: vi.fn(),
+      cwdTracker: { onHookCwd: vi.fn(async () => {}) },
+    })
+    const sessionId = asSessionId('podium-fresh-codex')
+    try {
+      observers.initSessionObservers(
+        {
+          type: 'spawn',
+          sessionId,
+          agentKind: 'codex',
+          cwd: '/repo',
+          geometry: G,
+          durableLabel: 'podium-podium-fresh-codex',
+          observationGeneration: 1,
+          observationBindingVersion: 1,
+        },
+        { onFrame: () => () => {} } as never,
+        agentStateProviderFor('codex'),
+        { seedOnFrame: false },
+      )
+      expect(observers.trackedState(sessionId)?.phase).toBe('idle')
+      expect(sent.filter((message) => message.type === 'agentState')).toEqual([])
+    } finally {
+      observers.clearSession(sessionId)
+    }
+  })
+
   it('follows a transcript Claude re-buckets mid-turn instead of latching the phase [POD-390]', async () => {
     // Claude stores a conversation under ~/.claude/projects/<slug(cwd)>/ and
     // RENAMES the file into a new bucket when the session's cwd changes. The

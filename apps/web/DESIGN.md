@@ -118,12 +118,12 @@ This system explicitly rejects the SaaS dashboard cliché (metric-card grids, gr
 - Compact 12px-base type scale; density is a feature, not a compromise
 - One brand yellow used as signal, never as decoration
 - Surfaces separated by tonal tier and hairline seam; the window spends exactly one resting elevation, and it is spent on the stage
-- Issue colors as translucent tints over surfaces, never flat fills
+- Neutral task surfaces, with color reserved for state and agent identity
 - Stillness means "needs you" — the only perpetual motion is an agent actually working
 
 ## 2. Colors
 
-Team colors: a neutral dark-ink chassis, Superade Yellow signal, with red and blue as the only other voices. The dark variant is the signature look; the light variant ("Paper", POD-725, replacing POD-372's "Daylight") mirrors its mechanics rather than inverting its hexes — yellow leads in both. The dark chassis was a deep race navy through POD-725; POD-737 ("Dark Ink") took the hue out of it, so that a hue on a surface always MEANS something — which is the premise the issue-accent channel rests on.
+Team colors: a neutral dark-ink chassis, Superade Yellow signal, with red and blue as the only other voices. The dark variant is the signature look; the light variant ("Paper", POD-725, replacing POD-372's "Daylight") mirrors its mechanics rather than inverting its hexes — yellow leads in both. The dark chassis was a deep race navy through POD-725; POD-737 ("Dark Ink") took the hue out of it, so that a hue on a surface always MEANS something — status colors should remain clear.
 
 ### Primary
 - **Superade Yellow** (#f5c518): The brand color. Primary buttons, the active ring, and every yellow FILL — the dots, the spines, the one primary button per region. On yellow, ink is always Dark Ink — never white.
@@ -136,8 +136,8 @@ Team colors: a neutral dark-ink chassis, Superade Yellow signal, with red and bl
 - **Accent Blue** (#2a62f0): Success, host health, info, quota meters — the settled fill. Superade has no green; blue is the calm "all good." What is MOVING takes the lighter **Live Blue** (#6f9dff): the working mark, counting timer, working dots, live rings.
 
 ### Tertiary
-- **Claude Terracotta** (#d97757): Reserved for the Claude brand — agent icons, cursor blocks, ⏺ glyphs. Never an issue color, never a UI accent.
-- **Flow Grey** (#949aa4 dark / #85817a paper): The neutral issue-accent default when an issue has no assigned color; runs the same tint mechanics, quieter. It must be a TRUE neutral of its own ground — it was Flow Slate (#94a3b8) while the chassis was navy, and a blue-grey default over neutral ink reads as a blue somebody chose. `FLOW_SLATE` in `lib/issueColors.ts` keeps the old hex as a JS-mixer fallback only; call sites use `FLOW_CSS` / `var(--flow)`.
+- **Claude Terracotta** (#d97757): Reserved for the Claude brand — agent icons, cursor blocks, ⏺ glyphs. Reserved for agent identity.
+- **Neutral Grey** (#949aa4 dark / #85817a paper): Theme accent for neutral surface mixes, borders, and selection treatments through `--neutral`.
 
 ### Neutral
 - **Dark Ink** (#16171a): App background (dark), and the darkest thing in the window. The surface tiers step UP from it, so the frame lifts rather than recedes (as on Paper, inverting the old navy ramp): Engraved (#191a1e, the work list and the right dock — a flat surface that steps AWAY from the work, and never an issue tint; the name outlived the groove, see §4), Bar (#1b1d21, command bar and status strip), Rail (#1e2024, the icon rail), Tabstrip (#202228), Panel (#23262d, the stage sheet, cards, popovers), Chip (#252830, raised buttons and badges), Secondary (#2c3038, active pills and the raised cell in a well).
@@ -149,13 +149,11 @@ Team colors: a neutral dark-ink chassis, Superade Yellow signal, with red and bl
 ### Named Rules
 **The Signal Rule.** Yellow marks the primary action or the thing waiting on you — one voice per screen region. If yellow appears somewhere nothing is asked of the operator, it is wrong.
 
-**The Tint, Never Fill Rule.** Issue colors color-mix into their base surface at prescribed percentages (selected row 28%, hairlines 30–50%, pane header 24%). A flat fill of an issue color is prohibited.
 
-A tint may never carry its surface past the surface *above* it in the ramp. Every mix walks toward a lighter color, and the Dark Ink ramp leaves only three levels between the tab strip (`#202228`) and the sheet it is cut into (`#23262d`) — so the strip's dose is capped at 2–3, not the handoff's 18, or the recess reads as a raised band. The workspace gutter takes no tint at all: since POD-725 it is the ground the sheet lies on, not a surface, and ground is the one thing an issue color has nothing to say about.
+A tint may never carry its surface past the surface *above* it in the ramp. Every mix walks toward a lighter color, and the Dark Ink ramp leaves only three levels between the tab strip (`#202228`) and the sheet it is cut into (`#23262d`) — so the strip's dose is capped at 2–3, not the handoff's 18, or the recess reads as a raised band. The workspace gutter takes no tint at all: since POD-725 it is the ground the sheet lies on, not a surface, and ground stays on the theme background.
 
-The percentages above are the *dark* values; a hue mixed into a light base saturates about twice as fast, so light themes scale them rather than restating them. Two variables do it globally — `--issue-tint-scale` and `--issue-line-scale`, consumed by the `issue-mix-*` / `issue-hairline-*` utilities — so no call site carries a per-theme percentage. **Dark Ink runs both at 1%**, which is what makes the numbers above literal. **Paper runs the tint at 0.4% and the line at 0.8%** (28 → 11), down from Daylight's 0.5% (POD-725): the issue palette is the Tailwind-500 ramp, chosen against a dark ground, and a saturated hue mixed into warm stone reads about twice as loud as the same mix into cool grey — at 0.5% a teal issue turned the middle of the window green. Hairlines scale *down*, not up: measured against both grounds, a mid-lightness hue reads more strongly on paper than on the dark ground, not less.
+Neutral surface treatments use `--surface-tint-scale` and `--surface-line-scale` through the `surface-mix-*` and `surface-hairline-*` utilities. Dark Ink uses 1% for both scales. Paper uses 0.4% for fills and 0.8% for borders to keep the surface hierarchy readable.
 
-**The Reserved Hues Rule.** Terracotta (Claude), the motion colors, and the theme's signal hues are excluded from the issue palette so state and identity never collide.
 
 ## 3. Typography
 
@@ -197,7 +195,7 @@ The old navy ramp ran the other way: `--bar` was the darkest thing in the window
 
 ### Shadow Vocabulary
 - **Sheet** (`--shadow-sheet`): The stage, and nothing else. Three layers — a 1px contact ring, a `0 2px 4px` near shadow that gives the edge weight, and `0 20px 44px -20px` of long cast that puts air under it. Built on `--carve-drop` and `--carve-popover-far`, so it blackens on ink and warms on paper.
-- **Popover** (`--shadow-popover`, `0 14px 34px var(--carve-popover-far), 0 2px 8px var(--carve-popover-near)`): Menus, color pickers, drag ghosts, the Settings save bar — the transient tier.
+- **Popover** (`--shadow-popover`, `0 14px 34px var(--carve-popover-far), 0 2px 8px var(--carve-popover-near)`): Menus, drag ghosts, the Settings save bar — the transient tier.
 - **Inset carve** (`--carve-engraved` as `inset 0 3px 7–8px -2px` plus a 1px lit bottom edge): The operator's prompt and the standby panel — a field that has to read as pressed INTO its surface. This is what survives of the engraved idiom: an ink for wells, not a groove around columns.
 - **The wells** (`--well-floor` / `-lip` / `-rim` / `-lit`, and the `--well-cell-*` inversion): The command bar's mode and instrument containers carry their own bevel contract — see §5, The Wells.
 
@@ -241,8 +239,8 @@ Refined and restrained: quiet borders, subtle states, nothing decorative. Every 
 
 ### Navigation
 - **Shell:** A 44px command bar over independently folding columns — sidebar (52px collapsed) | engraved column | native pane | dock | rail — closed by a 24px status strip. Every section is resizable. The sidebar is persistent chrome and stays mounted in every mode; the engraved column, dock and rail are workspace instruments and go with it.
-- **Tabs:** Native-pane tabs carry a 7×7px issue-color square (2.5px radius) and, when active, a 1px issue-color inset top line.
-- **States:** Hover on chrome cells = accent wash + Strong ink; selection = issue tint at its prescribed percentage.
+- **Tabs:** Native-pane tabs carry a 7×7px neutral square (2.5px radius) and, when active, a neutral selection border.
+- **States:** Hover on chrome cells = accent wash + Strong ink; selection = neutral tint at its prescribed percentage.
 - **One datum:** every column header is `--section-bar-h` (36px), so a single seam runs edge to edge across sidebar | tray | tab strip. A column needing more room takes a second row below the datum, never a taller first row.
 - **Two bands, ever:** the 44px command bar and at most one 40px contextual strip. Anything else belongs inside a column, not spanning the window. Content regions carry no page title — the mode tab already said where you are.
 
@@ -278,10 +276,9 @@ Utilities are visited and left, so they open as a **bounded inset sheet over a h
 ### The Status Strip
 24px, `--bar`, mono at label scale. Closes the frame at the bottom: a page ends by scrolling off into nothing, a window closes. It carries only what is window-scoped and unstated elsewhere — how many agents are computing, which task the window is pointed at, and link health while it is degraded. **Not branch or commit state:** `GitStamp` owns that in four densities and its rule is that one git fact is never restated in two places.
 
-### The Issue-Color Channel (signature)
-Every issue-tinted surface derives from one `--issue` custom property scoped per subtree, mixed over its base surface (`issue-mix-*` utilities), with a derived text ramp per scope. Reselecting or recoloring crossfades every derived mix together over 0.4s via a registered `@property`. Uncolored issues run identical mechanics in Flow Grey (`--flow`), slightly quieter.
+### Task identity
 
-**The color belongs to the mission (POD-697).** A slot is set on top-level tasks only — the ones the left sidebar lists — because what the color does is tell missions apart in that column. Everything downstream (flight deck, terminal tint, tab squares, rail notch) is that one color flowing down the mission, so a sub-task holds no slot of its own and offers no picker: it would be a second, competing statement of the same thing. Sub-tasks inherit from the nearest colored ancestor, which is the mission root.
+Tasks use identifiers, titles, hierarchy, and semantic status indicators. Task surfaces follow the theme, with no task color selection or inheritance.
 
 ### Agent State Grammar (signature)
 The working mark (an eight-dot braille cell, lit by a travelling wave) plus a counting mono timer are the canonical perpetual motion, running only while an agent computes. Phase changes are single one-shot morphs (~150–400ms, ease-out), then total stillness. Live activity reads calm blue (#6f9dff) in every theme — red is reserved for alerts and destructive actions (POD-166 R10). No pulses, no glows, no breathing rings.
@@ -296,11 +293,10 @@ The working mark (an eight-dot braille cell, lit by a travelling wave) plus a co
 
 ### Do:
 - **Do** use Superade Yellow only where action or attention is being asked — The Signal Rule.
-- **Do** tint issue-colored surfaces with `color-mix` over their base at the prescribed percentages; pair every colored surface with its quieter Flow Grey fallback.
 - **Do** keep controls on the compact scale: 32px buttons, 12px type, 4px spacing grid, 6–10px radii.
 - **Do** put machine voice (labels, timers, IDs, counts) in Geist Mono with `tabular-nums` where digits tick.
 - **Do** separate surfaces by tonal tier and hairline seam, and carve inward when a field must read as pressed in; reserve drop shadows for the stage and for what will disappear.
-- **Do** honor `prefers-reduced-motion`: the issue-color crossfade and phase morphs already gate on it; new motion must too.
+- **Do** honor `prefers-reduced-motion`: phase transitions already gate on it; new motion must too.
 - **Do** cap the transcript's measure on the COLUMN, not on anything inside it (POD-993, amending POD-747). POD-747 removed two nested caps and was right about the defect: caps on the row and on the prose produced three different right edges inside one pane, with the composer and the tail running full width underneath them. The pane itself now establishes one 74-character reading measure through the scroller's inline padding (`max(32px, (100% - var(--chat-reading-measure))/2)`): every voice obeys it because nothing inside sets a width, and narrower panes collapse to the same flat gutter.
 - **Do** keep the agent's public process narration visible and in flow. Intermediate assistant commentary and its tool activity form one quiet ruled region labelled `Process`; they are not hidden reasoning, are not a card, and do not fold by default. The final answer leaves that region and becomes the reading document at 16px with stronger paragraph and heading rhythm.
 
@@ -309,8 +305,7 @@ The working mark (an eight-dot braille cell, lit by a travelling wave) plus a co
 - **Don't** drift toward the AI-chat startup look: sparkle icons, purple gradients, mascot energy, or a field of alternating bubbles. **Amended by POD-993:** the OPERATOR's turn in a transcript is a right-aligned card at a measure, because side is the cheapest possible statement of who spoke and it costs no colour, no label and no vertical space. The exception is one-sided and stays that way — the agent keeps the full column and the flat ground, and only the human's turn is a surface: the theme's one-step-off-the-sheet ground, a hairline rim, and a single lit pixel along its top edge, which is the same one resting elevation every other surface in this window is built from. The corner that points at the speaker is the one that is not round. Two columns of bubbles would halve the measure of the thing the reader actually came to read, which is the defect the original rule was aimed at.
 - **Don't** ship enterprise-DevOps-console sprawl: cluttered toolbars, inconsistent panels, Jenkins/Grafana utilitarianism.
 - **Don't** let it feel like Electron-app blandness — a website in a frame; the shell is an instrument with native manners (real pointer cursors, no text selection on chrome, safe-area aware).
-- **Don't** flat-fill an issue color, use terracotta or a signal hue as an issue color, or add a green anywhere in the Superade theme — its palette is neutral ink, yellow, red, blue.
 - **Don't** add perpetual motion that is not gated on the working mark's own predicate; stillness is the "needs you" signal and must stay legible.
 - **Don't** use white text on Superade Yellow — ink on yellow is always Dark Ink; and don't put #f5c518 in a text token at all (gold writes on ink, ochre on paper).
-- **Don't** re-hue the neutrals. The dark chassis is neutral ink and the light one is warm stone; a tinted chrome competes with the issue-accent channel, whose whole premise is that a hue on a surface was chosen by somebody.
+- **Don't** re-hue the neutrals. The dark chassis is neutral ink and the light one is warm stone; color carries semantic signals.
 - **Don't** add a second resting shadow. The stage sheet is the window's one elevation, and it only reads as one while nothing else at rest casts anything.

@@ -113,6 +113,23 @@ it('orders nested phases, rolls up shared words and counts leaves without phase 
   ])
 })
 
+it('reads a phase Done once its tasks are closed, though nobody closed the phase (POD-2178)', async () => {
+  const { svc, create } = await fixture()
+  const root = await create('Mission')
+  const build = await create('Build', root.id, 'phase')
+  const empty = await create('Release', root.id, 'phase')
+  const a = await create('Server part', build.id)
+  const b = await create('Web part', build.id)
+  await svc.crud.close(a.id, 'completed')
+  const word = async (id: IssueId) =>
+    flatten((await svc.reports.deck(root.id)).root).find((row) => row.id === id)?.word
+  expect(await word(build.id)).toBe('idle')
+  await svc.crud.close(b.id, 'completed')
+  expect(await word(build.id)).toBe('done')
+  expect(await word(empty.id)).toBe('not-started')
+  expect((await svc.crud.store.rowOrThrow(build.id)).stage).not.toBe('done')
+})
+
 it('shows marker-derived seats and shared session words, excluding non-roster sessions', async () => {
   const { svc, create, seat } = await fixture()
   const root = await create('Mission')
@@ -153,7 +170,41 @@ it('shows marker-derived seats and shared session words, excluding non-roster se
     }),
     expect.objectContaining({ sessionId: asSessionId('new'), seat: 'helper', word: 'idle' }),
   ])
-  expect(row.word).toBe('needs-you')
+  // POD-2171: the helper's offer is for the live worker that coordinates the
+  // task, so the task reads Working. The helper's own line still asks.
+  expect(row.word).toBe('working')
+})
+
+it('asks only through a live coordinator, and escalates delegate exceptions (POD-2171)', async () => {
+  const { svc, create, seat, sessions } = await fixture()
+  const root = await create('Mission')
+  const task = await create('Task', root.id)
+  const reviewed = await create('Reviewed', root.id)
+  const coordinator = seat('coordinator', root.id, {
+    agentState: { ...agentState('idle'), idle: { kind: 'done' } },
+  })
+  seat('worker', task.id, { agentState: agentState('working') })
+  const asking = seat('asking', reviewed.id, {
+    agentState: { ...agentState('idle'), idle: { kind: 'question' } },
+  })
+  await svc.crud.setCoordinator(root.id, coordinator.sessionId)
+  const words = async () => {
+    const deck = await svc.reports.deck(root.id)
+    const nodes = new Map(flatten(deck.root).map((row) => [row.id, row.word]))
+    return { root: deck.root.word, reviewed: nodes.get(reviewed.id) }
+  }
+  expect(await words()).toEqual({ root: 'working', reviewed: 'needs-you' })
+  asking.agentState = agentState('needs_user')
+  expect(await words()).toEqual({ root: 'needs-you', reviewed: 'needs-you' })
+  asking.agentState = agentState('errored')
+  expect(await words()).toEqual({ root: 'error', reviewed: 'error' })
+  asking.agentState = { ...agentState('idle'), idle: { kind: 'question' } }
+  coordinator.offer = { message: 'Ready', actions: [], createdAt: '2026-10-15T00:00:00Z' }
+  expect((await words()).root).toBe('needs-you')
+  coordinator.offer = undefined
+  coordinator.status = 'exited'
+  expect(sessions.length).toBe(3)
+  expect(await words()).toEqual({ root: 'needs-you', reviewed: 'needs-you' })
 })
 
 it('lists formal and provenance proposals with author and placement, excluding departed discoveries', async () => {

@@ -105,7 +105,7 @@ describe('SessionStart: creation-owned first prompt', () => {
     expect((await reg.sessionStore.sessions.loadDrafts())[sessionId]).toBeUndefined()
   })
 
-  it('queues a non-argv Cursor prompt and seeds a recoverable draft', async () => {
+  it('queues a non-argv Cursor prompt with an empty composer', async () => {
     const { reg, daemon } = await makeRegistry()
     const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'cursor',
@@ -116,11 +116,8 @@ describe('SessionStart: creation-owned first prompt', () => {
     const queued = await reg.sessionStore.sync.listQueuedMessages(sessionId)
     expect(queued.map((row) => row.text)).toEqual(['hello'])
     const session = (await reg.modules.sessions.listSessions(undefined, 'rpc')).find((item) => item.sessionId === sessionId)
-    expect(session?.draftUpdatedAt).toBeDefined()
-    // Non-empty draft writes are intentionally debounced; wait for the durable
-    // composer record rather than coupling this launch test to that interval.
-    await new Promise((resolve) => setTimeout(resolve, 800))
-    expect((await reg.sessionStore.sessions.loadDrafts())[sessionId]).toBe('hello')
+    expect(session?.draftUpdatedAt).toBeUndefined()
+    expect((await reg.sessionStore.sessions.loadDrafts())[sessionId]).toBeUndefined()
     expect(spawns(daemon).at(-1)).not.toHaveProperty('initialPrompt')
   })
 })
@@ -639,5 +636,97 @@ describe('SessionStart: a parent session spawns with a task', () => {
     expect((await reg.sessionStore.messages.getMessage(promptId))?.deliveryStatus).toBe('failed')
     // Reported by the prompt-failed attention, not by mail.
     expect(await reg.sessionStore.messages.getMessage(failureNoticeId(promptId))).toBeNull()
+  })
+})
+
+/** POD-2156: every agent start gets a task so it has a sidebar row; shells
+ *  stay task-less. The rule lives once in SessionStart.create. */
+describe('SessionStart: the task an agent start joins', () => {
+  const owner = firstAdminMemberId()
+  const issueOf = async (reg: SessionRegistry, sessionId: string) =>
+    (await reg.sessionStore.sessions.getSession(asSessionId(sessionId)))?.issueId ?? undefined
+  const drafts = async (reg: SessionRegistry) =>
+    (await reg.sessionStore.issues.listIssueRows()).filter((row) => row.draft)
+
+  it('an explicit issue wins over the task that owns the cwd', async () => {
+    const { reg } = await makeRegistry()
+    const owning = await reg.issues.crud.create({
+      repoPath: '/r',
+      title: 'Owns cwd',
+      startNow: false,
+    })
+    await reg.issues.crud.update(owning.id, { worktreePath: '/r/.worktrees/a' })
+    const chosen = await reg.issues.crud.create({
+      repoPath: '/r',
+      title: 'Chosen',
+      startNow: false,
+    })
+    const { sessionId } = await reg.modules.sessions.createSession({
+      agentKind: 'codex',
+      cwd: '/r/.worktrees/a',
+      issueId: chosen.id,
+      ownerUserId: owner,
+    })
+    expect(await issueOf(reg, sessionId)).toBe(chosen.id)
+  })
+
+  it('an agent started in a task worktree joins that task and makes no draft', async () => {
+    const { reg } = await makeRegistry()
+    const owning = await reg.issues.crud.create({
+      repoPath: '/r',
+      title: 'Owns cwd',
+      startNow: false,
+    })
+    await reg.issues.crud.update(owning.id, { worktreePath: '/r/.worktrees/a' })
+    const { sessionId } = await reg.modules.sessions.createSession({
+      agentKind: 'codex',
+      cwd: '/r/.worktrees/a/src',
+      ownerUserId: owner,
+    })
+    expect(await issueOf(reg, sessionId)).toBe(owning.id)
+    expect(await drafts(reg)).toEqual([])
+  })
+
+  it('an agent outside every task gets its own draft; a shell there stays task-less', async () => {
+    const { reg } = await makeRegistry()
+    const agent = await reg.modules.sessions.createSession({
+      agentKind: 'codex',
+      cwd: '/r',
+      ownerUserId: owner,
+    })
+    const shell = await reg.modules.sessions.createSession({
+      agentKind: 'shell',
+      cwd: '/r',
+      ownerUserId: owner,
+    })
+    const [draft] = await drafts(reg)
+    expect(await issueOf(reg, agent.sessionId)).toBe(draft?.id)
+    expect(await issueOf(reg, shell.sessionId)).toBeUndefined()
+    expect(await drafts(reg)).toHaveLength(1)
+  })
+
+  it('an agent in no known repo stays task-less', async () => {
+    const { reg } = await makeRegistry()
+    const { sessionId } = await reg.modules.sessions.createSession({
+      agentKind: 'codex',
+      cwd: '/elsewhere',
+      ownerUserId: owner,
+    })
+    expect(await issueOf(reg, sessionId)).toBeUndefined()
+    expect(await drafts(reg)).toEqual([])
+  })
+
+  it('a start that fails before its session exists leaves no draft behind', async () => {
+    const { reg } = await makeRegistry()
+    // No inventory advertises a headed codex driver, so start() throws after the draft exists.
+    await expect(
+      reg.modules.sessions.createSession({
+        agentKind: 'codex',
+        cwd: '/r',
+        ownerUserId: owner,
+        requestTerminalDriver: true,
+      }),
+    ).rejects.toThrow('no advertised terminal runtime driver')
+    expect(await drafts(reg)).toEqual([])
   })
 })

@@ -1,7 +1,3 @@
-import { useIssueEdgeResolver, edgeIssue } from './issue-page/issue-edges'
-import type { SessionModel } from '@podium/client-graph/models'
-import { issueObserver as observer } from './issue-page/issue-observer'
-import { isFinished } from '@podium/model/browser'
 import type { SessionView } from '@podium/client-core/session-values'
 import { shallowEqual } from '@podium/client-core/shallow-equal'
 import {
@@ -11,15 +7,15 @@ import {
   type ProposalPlacement,
   sessionNeedsHuman,
 } from '@podium/client-core/values'
+import type { SessionModel } from '@podium/client-graph/models'
 import {
   type IssueId,
   type IssueStage,
+  isFinished,
   issueStatusControlLabel,
   issueStatusLabel,
-  issueStatusMenuEntries,
   issueStatusOf,
   issueStatusValueOf,
-  parseIssueStatusValue,
 } from '@podium/model/browser'
 import {
   ArrowUpRight,
@@ -31,7 +27,7 @@ import {
   MoreHorizontal,
   RotateCcw,
 } from 'lucide-react'
-import { Fragment, type JSX, lazy, Suspense, useMemo, useState } from 'react'
+import { type JSX, lazy, type ReactNode, Suspense, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import { usePoolMachines } from '@/app/header-data'
 import type { IssueViewModel } from '@/app/store'
@@ -41,7 +37,6 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { throughRestarts } from '@/lib/chunk-recovery'
@@ -49,15 +44,19 @@ import { MENU_HEADER, MENU_HEADER_REF, MENU_RULE } from '@/lib/menu-surface'
 import type { ContextMenuAnchor } from '@/lib/session-context-menu'
 import { cn } from '@/lib/utils'
 import { SessionNameEditor, sessionDisplayName, WorkerLabel } from '@/lib/WorkerLabel'
-import { StatusGlyph } from './issue-glyphs'
-import { IssueCloseDialog, type IssueCloseReason, useIssueCloseGuard } from './issue-lifecycle'
+import { IssueStatusMenuContent } from './IssueStatusPicker'
+import { CalmStatusMark } from './issue-glyphs'
+import type { IssueCloseReason } from './issue-lifecycle'
 import { PoolIssueContextMenu } from './issue-menu-pool-inputs'
+import { edgeIssue, useIssueEdgeResolver } from './issue-page/issue-edges'
+import { issueObserver as observer } from './issue-page/issue-observer'
 import {
   useIssuePageCatalog,
   useIssuePageContext,
   useIssuePageSessions,
 } from './issue-page/issue-page-data'
-import { useIssueWorkBegun, LaunchBox, type LaunchCommands } from './LaunchBox'
+import { LaunchBox, type LaunchCommands, useIssueWorkBegun } from './LaunchBox'
+import { useIssueStatusApply } from './use-issue-status-apply'
 
 // The right-click menu exists only after a right-click; loading it on demand
 // keeps the menu (and its handoff machinery) out of the eager bundle.
@@ -82,6 +81,11 @@ export const DOCK_ROW = 'text-[12px] leading-[1.4]'
 /** Machine voice at the floor of the scale: trailing state words, timestamps,
  *  the facts a row parks on its right edge. */
 export const DOCK_STAMP = 'font-mono shell-type-micro leading-none'
+
+/** The status pill: a quiet 24px tag on the card fill, the same object whether
+ *  it opens the status menu or (shipping) is held by the service. */
+const STATUS_PILL =
+  'h-6 flex-none gap-1.5 rounded-[6px] border border-border bg-card px-[9px] text-[12px] font-normal text-foreground'
 
 /** A session is still present when its process is: an exited-but-unarchived
  *  session is gone, and reading it as "standing by" would tell the operator an
@@ -194,7 +198,12 @@ export const IssueGitScope = observer(function IssueGitScope({
   const git = issue.gitState
   if (!git) return null
   const attributedDirty = git.dirtyOwn ?? (!git.shared && !git.fallback ? git.dirtyFiles : 0)
-  const delivery = git.shared ? (git.commits?.length ?? 0) : (git.ahead ?? 0)
+  // A merged branch delivered everything, whatever `ahead` last counted (POD-2151).
+  const delivery = git.shared
+    ? (git.commits?.length ?? 0)
+    : git.merged === true
+      ? 0
+      : (git.ahead ?? 0)
   return (
     // Mono facts, whole row: a branch name and a file count are both machine
     // voice, and setting only half the row in mono made the two disagree.
@@ -264,12 +273,13 @@ export const IssueSessionRow = observer(function IssueSessionRow({
   const renameSession = useRuntimeSelector((s) => s.renameSession)
   const [menu, setMenu] = useState<ContextMenuAnchor | null>(null)
   const [editing, setEditing] = useState(false)
-  const retired = 'open' in session
-    ? !(session as SessionModel).open
-    : session.archived || session.status === 'exited'
-  const needs = !retired && ('attention' in session
-    ? (session as SessionModel).attention
-    : sessionNeedsHuman(session))
+  const retired =
+    'open' in session
+      ? !(session as SessionModel).open
+      : session.archived || session.status === 'exited'
+  const needs =
+    !retired &&
+    ('attention' in session ? (session as SessionModel).attention : sessionNeedsHuman(session))
   return (
     <div
       className={cn(
@@ -516,8 +526,11 @@ const PlacementMenu = observer(function PlacementMenu({
 export const IssueCompactControls = observer(function IssueCompactControls({
   issue,
   onRename,
+  meta,
 }: {
   issue: IssueViewModel
+  /** One quiet fact read beside the status pill — the panel's subtask count. */
+  meta?: ReactNode
   /** Open the head's inline title editor. Supplying it is what puts `Rename`
    *  in the menu below (`renameEnabled: onRename !== undefined`) — this strip
    *  has no editor of its own, so a menu entry with nowhere to land would be a
@@ -531,11 +544,10 @@ export const IssueCompactControls = observer(function IssueCompactControls({
   // NAVIGATION, so it left the action row entirely: it is now a named link in
   // the panel's head (`InspectHead`), above the title, where the trail and the
   // other "where am I" chrome lives.
-  const { trpc, updateIssue, closeIssue } = useRuntimeSelector(
+  const { trpc, updateIssue } = useRuntimeSelector(
     (s) => ({
       trpc: s.trpc,
       updateIssue: s.updateIssue,
-      closeIssue: s.closeIssue,
     }),
     shallowEqual,
   )
@@ -544,9 +556,9 @@ export const IssueCompactControls = observer(function IssueCompactControls({
   const sessions = useIssuePageSessions()
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
   const menuIssues = useIssuePageCatalog(Boolean(menu))
-  const [closeReason, setCloseReason] = useState<IssueCloseReason | null>(null)
-  const needsCloseGuard = useIssueCloseGuard()
-  const [closing, setClosing] = useState(false)
+  // The status menu, the Done button and the context menu all close through the
+  // shared status apply, which holds the close guard (POD-1278).
+  const status = useIssueStatusApply()
   const [starting, setStarting] = useState(false)
 
   const page = useIssuePageContext()
@@ -573,55 +585,26 @@ export const IssueCompactControls = observer(function IssueCompactControls({
 
   if (isSystemOwnedIssueStage(issue.stage)) {
     return (
-      <div className="mt-2.5 flex items-center gap-2">
+      <div className="flex items-center gap-2">
         <Button
           type="button"
           variant="ghost"
           size="sm"
           disabled
           aria-label="Shipping controls are managed by the shipping service"
-          className="h-7 flex-none gap-1.5 border-border bg-card px-2.5 text-[11.5px] font-medium text-text-strong"
+          className={STATUS_PILL}
         >
-          <StatusGlyph status={issue.stage} size={12} />
+          <CalmStatusMark status={issue.stage} size={10} decorative />
           {statusLabel}
         </Button>
+        {meta}
       </div>
     )
   }
 
-  /** Apply one picked status. The fork between "move the lane" and "close with
-   *  a reason" is the model's, not this menu's — see `issueStatusIntent`. */
-  const currentStatusValue = issueStatusValueOf(issue)
-  const selectStatus = (value: string): void => {
-    const intent = parseIssueStatusValue(value)
-    if (!intent) return
-    if (intent.kind === 'close') {
-      requestClose(intent.reason)
-      return
-    }
-    updateIssue(issue.id, { stage: intent.stage }).catch((error: unknown) =>
-      toast.error(error instanceof Error ? error.message : String(error)),
-    )
-  }
-
-  const confirmClose = (reason: IssueCloseReason): void => {
-    setClosing(true)
-    closeIssue(issue.id, reason)
-      .then(() => setCloseReason(null))
-      .catch((error: unknown) =>
-        toast.error(error instanceof Error ? error.message : String(error)),
-      )
-      .finally(() => setClosing(false))
-  }
-
-  /** The one way this panel asks for a close (POD-1278) — the status menu, the
-   *  Done button, and the context menu all land here. The guard is raised only
-   *  when it has something to name; otherwise the ending is recorded on the
-   *  press, which is what confirming would have done. */
-  const requestClose = (reason: IssueCloseReason): void => {
-    if (needsCloseGuard(issue)) setCloseReason(reason)
-    else confirmClose(reason)
-  }
+  /** The one way this panel asks for a close (POD-1278) — the Done button and
+   *  the context menu land here; the status menu picks through the same apply. */
+  const requestClose = (reason: IssueCloseReason): void => status.close(issue, reason)
 
   /** Every write on this strip surfaces its failure the same way. */
   const reportError = (error: unknown): void => {
@@ -697,7 +680,7 @@ export const IssueCompactControls = observer(function IssueCompactControls({
     // would not be — the head must not grow with DATA, and a line break here is
     // a function of width, not of how much this task has to say. The box is
     // bounded the same way: two picker rows and a button, whatever it holds.
-    <div className="mt-2.5 flex flex-col gap-3.5">
+    <div className="flex flex-col gap-3.5">
       <div className="flex flex-wrap items-center gap-2">
         {/* STATUS, exposed as a first-class dock action. Built from the shell's
             own dropdown rather than a native <select>, which exists nowhere in
@@ -720,11 +703,10 @@ export const IssueCompactControls = observer(function IssueCompactControls({
                 size="sm"
                 aria-label="Status"
                 title={statusDetail !== statusLabel ? statusDetail : undefined}
-                className="h-7 flex-none gap-1.5 border-border bg-card px-2.5 text-[11.5px] font-medium text-text-strong"
+                className={STATUS_PILL}
               >
-                <StatusGlyph status={issueStatusOf(issue)} size={12} />
+                <CalmStatusMark status={issueStatusOf(issue)} size={10} decorative />
                 {statusLabel}
-                <ChevronDown size={13} className="size-[13px] text-text-faint" aria-hidden="true" />
               </Button>
             }
           />
@@ -732,30 +714,18 @@ export const IssueCompactControls = observer(function IssueCompactControls({
               half: correcting a closure (done → duplicate) is one pick, and
               picking an open lane reopens, which is what the reopen button beside
               this does in one step. */}
-          <DropdownMenuContent align="start">
-            {issueStatusMenuEntries().map((entry) => (
-              <Fragment key={entry.status}>
-                {entry.startsGroup && <DropdownMenuSeparator />}
-                <DropdownMenuItem
-                  className="whitespace-nowrap"
-                  onClick={() => selectStatus(entry.value)}
-                >
-                  <StatusGlyph status={entry.status} size={12} decorative />
-                  {entry.label}
-                  {currentStatusValue === entry.value && (
-                    <Check size={12} className="ml-auto text-text-faint" aria-hidden="true" />
-                  )}
-                </DropdownMenuItem>
-              </Fragment>
-            ))}
-          </DropdownMenuContent>
+          <IssueStatusMenuContent
+            current={issueStatusValueOf(issue)}
+            onPick={(value) => status.pick(issue, value)}
+          />
         </DropdownMenu>
+        {meta}
         {closed ? (
           <Button
             type="button"
             variant="outline"
             size="sm"
-            className="h-7 gap-1.5 px-3 text-[11.5px]"
+            className="h-6 gap-1.5 rounded-[6px] px-2.5 text-[12px]"
             onClick={() =>
               updateIssue(issue.id, { stage: 'backlog' }).catch((error: unknown) =>
                 toast.error(error instanceof Error ? error.message : String(error)),
@@ -784,7 +754,7 @@ export const IssueCompactControls = observer(function IssueCompactControls({
             data-testid="task-primary-action"
             data-action={action.kind}
             disabled={starting}
-            className="btn-primary-rim h-7 border px-2.5 text-[11.5px] font-semibold"
+            className="btn-primary-rim h-6 rounded-[6px] border px-2.5 text-[12px] font-semibold"
             onClick={runAction}
           >
             {action.label}
@@ -794,7 +764,7 @@ export const IssueCompactControls = observer(function IssueCompactControls({
           type="button"
           variant="ghost"
           size="icon-sm"
-          className="ml-auto size-7 text-text-dim"
+          className="ml-auto size-6 text-text-faint hover:text-foreground"
           title="More issue actions"
           aria-label="More issue actions"
           onClick={(event) => {
@@ -849,13 +819,7 @@ export const IssueCompactControls = observer(function IssueCompactControls({
           surface="dock"
         />
       )}
-      <IssueCloseDialog
-        issue={issue}
-        reason={closeReason}
-        busy={closing}
-        onOpenChange={(open) => !open && setCloseReason(null)}
-        onConfirm={confirmClose}
-      />
+      {status.dialog}
     </div>
   )
 })

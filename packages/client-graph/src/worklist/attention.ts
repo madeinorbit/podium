@@ -24,6 +24,7 @@ export class AttentionFields {
       get deciding() { return model.aggregateDeciding },
       get open() { return model.aggregateOpen },
       get finished() { return model.aggregateFinished },
+      get delegated() { return model.aggregateDelegated },
       get pending() { return model.aggregatePending },
     }
   }
@@ -34,7 +35,13 @@ export class AttentionFields {
       get open() { return model.aggregateRailWaitingOpen },
       get finished() { return model.aggregateRailWaitingFinished },
       get decisions() { return model.aggregateRailWaitingDecisions },
+      get delegated() { return model.aggregateRailWaitingDelegated },
     }
+  }
+
+  @lazy
+  private get aggregateRailWaitingDelegated(): NonNullable<Aggregate['railWaiting']>['delegated'] {
+    return this.readAggregate().railWaiting!.delegated
   }
 
   @lazy
@@ -63,6 +70,9 @@ export class AttentionFields {
       get working() { return model.aggregateSidebarFactsWorking },
       get waitingOpen() { return model.aggregateSidebarFactsWaitingOpen },
       get waitingFinished() { return model.aggregateSidebarFactsWaitingFinished },
+      get workingDelegated() { return model.aggregateSidebarFactsWorkingDelegated },
+      get waitingDelegated() { return model.aggregateSidebarFactsWaitingDelegated },
+      get errorClassDelegated() { return model.aggregateSidebarFactsErrorClassDelegated },
       get doneSince() { return model.aggregateSidebarFactsDoneSince },
       get totalMs() { return model.aggregateSidebarFactsTotalMs },
       get errorClass() { return model.aggregateSidebarFactsErrorClass },
@@ -89,6 +99,16 @@ export class AttentionFields {
     return this.readAggregate().sidebarFacts!.waitingFinished
   }
 
+  @lazy({ equals: compareStructural })
+  private get aggregateSidebarFactsWorkingDelegated(): SidebarSessionFacts['workingDelegated'] {
+    return this.readAggregate().sidebarFacts!.workingDelegated
+  }
+
+  @lazy({ equals: compareStructural })
+  private get aggregateSidebarFactsWaitingDelegated(): SidebarSessionFacts['waitingDelegated'] {
+    return this.readAggregate().sidebarFacts!.waitingDelegated
+  }
+
   @lazy
   private get aggregateSidebarFactsDoneSince(): SidebarSessionFacts['doneSince'] {
     return this.readAggregate().sidebarFacts!.doneSince
@@ -97,6 +117,11 @@ export class AttentionFields {
   @lazy
   private get aggregateSidebarFactsTotalMs(): SidebarSessionFacts['totalMs'] {
     return this.readAggregate().sidebarFacts!.totalMs
+  }
+
+  @lazy
+  private get aggregateSidebarFactsErrorClassDelegated(): SidebarSessionFacts['errorClassDelegated'] {
+    return this.readAggregate().sidebarFacts!.errorClassDelegated
   }
 
   @lazy
@@ -178,6 +203,30 @@ export class AttentionFields {
   @lazy
   private get aggregateFinishedAllDone(): import('./rollup').PhaseFlags['allDone'] {
     return this.readAggregate().finished.allDone
+  }
+
+  private get aggregateDelegated(): import('./rollup').PhaseFlags {
+    const model = this
+    return {
+      get waiting() { return model.aggregateDelegatedWaiting },
+      get working() { return model.aggregateDelegatedWorking },
+      get allDone() { return model.aggregateDelegatedAllDone },
+    }
+  }
+
+  @lazy
+  private get aggregateDelegatedWaiting(): import('./rollup').PhaseFlags['waiting'] {
+    return this.readAggregate().delegated.waiting
+  }
+
+  @lazy
+  private get aggregateDelegatedWorking(): import('./rollup').PhaseFlags['working'] {
+    return this.readAggregate().delegated.working
+  }
+
+  @lazy
+  private get aggregateDelegatedAllDone(): import('./rollup').PhaseFlags['allDone'] {
+    return this.readAggregate().delegated.allDone
   }
 
   @lazy

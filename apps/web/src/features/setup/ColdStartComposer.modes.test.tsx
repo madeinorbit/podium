@@ -140,7 +140,6 @@ afterEach(() => {
 
 const field = (): HTMLTextAreaElement =>
   screen.getByLabelText('What do you want to work on?') as HTMLTextAreaElement
-const box = (): HTMLElement => screen.getByTestId('cold-start-field')
 const launch = (): HTMLButtonElement => screen.getByTestId('cold-start-launch') as HTMLButtonElement
 
 function seedDraft(over: Record<string, unknown>): void {
@@ -150,21 +149,27 @@ function seedDraft(over: Record<string, unknown>): void {
   )
 }
 
-describe('the launch box opens closed', () => {
-  it('shows the one-line invitation and no way to dismiss what is not open', () => {
+/* ONE BOX, ALWAYS OPEN (POD-2079). The fold between a one-line CLI invitation
+ * and a prompt well is gone: the box rests two lines tall with the question as
+ * its placeholder. Start task with nothing written still opens the agent with
+ * no prompt — the one default-on way to get a bare session. */
+describe('the new task box', () => {
+  it('asks the question and offers no way to fold it', () => {
     render(<ColdStartComposer first={false} />)
-    expect(box().getAttribute('data-expanded')).toBe('false')
-    expect(field().getAttribute('placeholder')).toBe('Click here to enter a prompt')
+    expect(field().getAttribute('placeholder')).toBe('What should change, and why?')
+    expect(field().getAttribute('rows')).toBe('2')
     expect(screen.queryByTestId('cold-start-collapse')).toBeNull()
-  })
-
-  it('keeps Launch live with nothing written, because that IS the request', () => {
-    render(<ColdStartComposer first={false} />)
-    expect(launch().disabled).toBe(false)
   })
 
   it('starts the agent with no prompt, on the chosen machine, in a new tab', () => {
     render(<ColdStartComposer first={false} />)
+    expect(launch().disabled).toBe(false)
+    // Quiet secondary face while empty; the filled primary once there is text.
+    expect(launch().dataset.quiet).toBe('true')
+    expect(launch().title).toMatch(/with no prompt/)
+    fireEvent.change(field(), { target: { value: 'Fix it' } })
+    expect(launch().dataset.quiet).toBeUndefined()
+    fireEvent.change(field(), { target: { value: '' } })
     fireEvent.click(launch())
 
     expect(spawnDraftAgent).toHaveBeenCalledWith(
@@ -178,27 +183,6 @@ describe('the launch box opens closed', () => {
     expect(setPane).toHaveBeenCalledWith('A', 'session-new')
     expect(setSelectedIssueId).toHaveBeenCalledWith('issue-new')
   })
-})
-
-describe('the launch box unfolds', () => {
-  it('opens on focus, swaps the invitation for the brief, and offers the way back', () => {
-    render(<ColdStartComposer first={false} />)
-    fireEvent.focus(field())
-
-    expect(box().getAttribute('data-expanded')).toBe('true')
-    expect(field().getAttribute('placeholder')).toMatch(/Describe the mission/)
-    expect(screen.getByTestId('cold-start-collapse')).toBeTruthy()
-  })
-
-  it('keeps Launch live with nothing written after the box unfolds', () => {
-    render(<ColdStartComposer first={false} />)
-    fireEvent.focus(field())
-    expect(launch().disabled).toBe(false)
-
-    fireEvent.click(launch())
-    expect(spawnDraftAgent).toHaveBeenCalled()
-    expect(spawnIssueAgent).not.toHaveBeenCalled()
-  })
 
   it('starts a draft session with the written prompt', () => {
     render(<ColdStartComposer first={false} />)
@@ -211,33 +195,31 @@ describe('the launch box unfolds', () => {
     expect(spawnIssueAgent).not.toHaveBeenCalled()
   })
 
-  it('closes by CLEARING, so a dismissed prompt cannot launch behind the placeholder', () => {
-    render(<ColdStartComposer first={false} />)
-    fireEvent.change(field(), { target: { value: 'Half a thought' } })
-    fireEvent.click(screen.getByTestId('cold-start-collapse'))
-
-    expect(box().getAttribute('data-expanded')).toBe('false')
-    expect(field().value).toBe('')
-    expect(field().getAttribute('placeholder')).toBe('Click here to enter a prompt')
+  it('tells the overlay a launch went out', () => {
+    const onLaunched = vi.fn()
+    render(<ColdStartComposer first={false} onLaunched={onLaunched} />)
+    fireEvent.change(field(), { target: { value: 'Fix the flaky test' } })
+    fireEvent.click(launch())
+    expect(onLaunched).toHaveBeenCalledTimes(1)
   })
 
-  it('comes back open when the persisted draft still holds a sentence', () => {
+  it('comes back holding the persisted sentence', () => {
     seedDraft({ title: 'Half a thought' })
     render(<ColdStartComposer first={false} />)
-    expect(box().getAttribute('data-expanded')).toBe('true')
     expect(field().value).toBe('Half a thought')
   })
 
-  it('opens written on first run, where the headline asks for a mission', () => {
-    render(<ColdStartComposer first />)
-    expect(box().getAttribute('data-expanded')).toBe('true')
+  it('takes focus when the overlay opens it', () => {
+    seedDraft({ title: 'Half a thought' })
+    render(<ColdStartComposer first={false} autoFocus />)
+    expect(document.activeElement).toBe(field())
+    expect(field().selectionStart).toBe('Half a thought'.length)
   })
 
-  // WHITESPACE IS NOT A PROMPT. It should take the same promptless path as an
-  // untouched box, even though the box remains visually unfolded.
+  // WHITESPACE IS NOT A PROMPT. It takes the same promptless path as an
+  // untouched box.
   it('treats a box holding only spaces as promptless', () => {
     render(<ColdStartComposer first={false} />)
-    fireEvent.focus(field())
     fireEvent.change(field(), { target: { value: '   ' } })
     expect(launch().disabled).toBe(false)
 
@@ -278,10 +260,6 @@ describe('the seed a sidebar button writes', () => {
     for (const listener of uiListeners) listener(new Set([FIRST_TASK_ACTIVATION_DRAFT_KEY]))
 
     await waitFor(() => expect(field().value).toBe(''))
-    // The PROSE is what a new task discards. The fold is the operator's own
-    // gesture and is left where they put it — a box that snapped shut under a
-    // caret they had just placed would be the composer arguing with them.
-    expect(box().getAttribute('data-expanded')).toBe('true')
   })
 
   it('carries the project the button named', async () => {
@@ -298,12 +276,12 @@ describe('the seed a sidebar button writes', () => {
 })
 
 describe('a retry in flight', () => {
-  it('holds the box open and offers no way to close over it', () => {
+  it('locks the prompt it is retrying', () => {
     seedDraft({ title: 'Fix the flaky test', pendingIssueId: 'issue-half-made' })
     render(<ColdStartComposer first={false} />)
 
-    expect(box().getAttribute('data-expanded')).toBe('true')
-    expect(screen.queryByTestId('cold-start-collapse')).toBeNull()
+    expect(field().disabled).toBe(true)
+    expect(launch().getAttribute('aria-label')).toBe('Retry starting work')
   })
 
   it('retries the created mission rather than spawning a bare session', async () => {
@@ -367,50 +345,33 @@ describe('the launch chooses the panel surface', () => {
   })
 })
 
-/* The fold and subsequent auto-growth are HEIGHT changes on one element, not a
- * swap between two. Happy DOM has no layout engine, so assert the rules that
- * carry those states and leave the sizing arithmetic to its pure unit tests. */
-describe('the prompt is one element changing height', () => {
-  it('keeps the two fold heights and gives growth its own transition', () => {
-    expect(styles).toMatch(/\.cold-start-input\s*\{[^}]*height:\s*46px/)
-    expect(styles).toMatch(
-      /\.cold-start-field\[data-expanded="true"\] \.cold-start-input\s*\{[^}]*height:\s*clamp\(72px/,
-    )
-    expect(styles).toMatch(/\.cold-start-input\s*\{[^}]*transition-property:\s*height, padding/)
+/* Happy DOM has no layout engine, so assert the rules that carry the resting
+ * height and the overflow, and drive the sizing hook with stubbed metrics. */
+describe('the prompt grows with the text', () => {
+  it('rests two Geist 18/30 lines tall and scrolls only once capped', () => {
+    expect(styles).toMatch(/\.cold-start-input\s*\{[^}]*min-height:\s*calc\(2 \* 30px/)
+    expect(styles).toMatch(/\.cold-start-input\s*\{[^}]*line-height:\s*30px/)
     expect(styles).toMatch(/\.cold-start-input\[data-capped="true"\]\s*\{[^}]*overflow-y:\s*auto/)
   })
 
-  it('honours prefers-reduced-motion', () => {
-    expect(styles).toMatch(
-      /@media \(prefers-reduced-motion: reduce\) \{\s*\.cold-start-input\[data-grow\]\s*\{\s*transition-duration:\s*0s/,
-    )
-  })
-})
-
-describe('the open prompt uses the pane height', () => {
-  it('grows with the draft, then caps and scrolls at the available height', () => {
+  it('grows with the draft, then caps at 60% of the window and scrolls', () => {
     render(<ColdStartComposer first />)
     const textarea = field()
-    const bounds = document.querySelector<HTMLElement>('[data-cold-start-bounds]')
-    const body = document.querySelector<HTMLElement>('[data-cold-start-body]')
-    if (!bounds || !body) throw new Error('cold-start prompt bounds are missing')
-
     let contentHeight = 420
-    Object.defineProperty(textarea, 'offsetHeight', { configurable: true, get: () => 132 })
+    Object.defineProperty(textarea, 'offsetHeight', { configurable: true, get: () => 104 })
     Object.defineProperty(textarea, 'scrollHeight', {
       configurable: true,
       get: () => contentHeight,
     })
-    Object.defineProperty(bounds, 'clientHeight', { configurable: true, get: () => 700 })
-    Object.defineProperty(body, 'scrollHeight', { configurable: true, get: () => 300 })
+    Object.defineProperty(window, 'innerHeight', { configurable: true, value: 1000 })
 
-    fireEvent.change(textarea, { target: { value: 'A prompt that fits in the pane' } })
+    fireEvent.change(textarea, { target: { value: 'A prompt that fits' } })
     expect(textarea.style.height).toBe('420px')
     expect(textarea.dataset.capped).toBe('false')
 
     contentHeight = 900
-    fireEvent.change(textarea, { target: { value: 'A much longer prompt that fills the pane' } })
-    expect(textarea.style.height).toBe('532px')
+    fireEvent.change(textarea, { target: { value: 'A much longer prompt that fills the window' } })
+    expect(textarea.style.height).toBe('600px')
     expect(textarea.dataset.capped).toBe('true')
   })
 })

@@ -1,5 +1,5 @@
-import { parseIssueStatusValue } from '@podium/model/browser'
 import type { SessionView } from '@podium/client-core/session-values'
+import { parseIssueStatusValue } from '@podium/model/browser'
 import type { JSX } from 'react'
 import { useCallback, useState } from 'react'
 import { toast } from 'sonner'
@@ -32,6 +32,9 @@ import { IssueCloseDialog, type IssueCloseReason, useIssueCloseGuard } from './i
 export interface IssueStatusApply {
   /** Apply one picked value to one issue. */
   pick: (issue: IssueViewModel, value: string) => void
+  /** Close one issue with a reason, through the same guard — for a host's
+   *  other closing controls (a Done button, a context menu). */
+  close: (issue: IssueViewModel, reason: IssueCloseReason) => void
   /** Mount this once in the host. `null` while no close is pending. */
   dialog: JSX.Element | null
 }
@@ -40,7 +43,10 @@ const fail = (error: unknown): void => {
   toast.error(error instanceof Error ? error.message : String(error))
 }
 
-export function useIssueStatusApply(_suppliedSessions?: readonly SessionView[], _sessionsForIssue?: (issue: IssueViewModel) => readonly SessionView[] | symbol | undefined): IssueStatusApply {
+export function useIssueStatusApply(
+  _suppliedSessions?: readonly SessionView[],
+  _sessionsForIssue?: (issue: IssueViewModel) => readonly SessionView[] | symbol | undefined,
+): IssueStatusApply {
   const updateIssue = useRuntimeSelector((store) => store.updateIssue)
   const closeIssue = useRuntimeSelector((store) => store.closeIssue)
   const needsCloseGuard = useIssueCloseGuard()
@@ -52,19 +58,26 @@ export function useIssueStatusApply(_suppliedSessions?: readonly SessionView[], 
   } | null>(null)
   const [closing, setClosing] = useState(false)
 
-  const pick = useCallback((issue: IssueViewModel, value: string): void => {
-    const intent = parseIssueStatusValue(value)
-    if (!intent) return
-    if (intent.kind === 'close') {
+  const close = useCallback(
+    (issue: IssueViewModel, reason: IssueCloseReason): void => {
       if (needsCloseGuard(issue)) {
-        setPending({ issue, reason: intent.reason })
+        setPending({ issue, reason })
         return
       }
-      closeIssue(issue.id, intent.reason).catch(fail)
-      return
-    }
-    updateIssue(issue.id, { stage: intent.stage }).catch(fail)
-  }, [needsCloseGuard, closeIssue, updateIssue])
+      closeIssue(issue.id, reason).catch(fail)
+    },
+    [needsCloseGuard, closeIssue],
+  )
+
+  const pick = useCallback(
+    (issue: IssueViewModel, value: string): void => {
+      const intent = parseIssueStatusValue(value)
+      if (!intent) return
+      if (intent.kind === 'close') close(issue, intent.reason)
+      else updateIssue(issue.id, { stage: intent.stage }).catch(fail)
+    },
+    [close, updateIssue],
+  )
 
   const dialog = pending ? (
     <IssueCloseDialog
@@ -84,5 +97,5 @@ export function useIssueStatusApply(_suppliedSessions?: readonly SessionView[], 
     />
   ) : null
 
-  return { pick, dialog }
+  return { pick, close, dialog }
 }

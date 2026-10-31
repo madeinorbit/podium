@@ -1,4 +1,4 @@
-import { asIssueId } from '@podium/model'
+import { ALL_ISSUE_STATUSES, asIssueId, ISSUE_STATUS_LABELS, isIssueStage } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { IssueReferenceSource } from './issue-reference'
 import { issueReferenceModel, resolveIssueReference } from './issue-reference'
@@ -20,6 +20,7 @@ describe('issueReferenceModel', () => {
       issueId: 'iss_1',
       title: 'Normalize task references',
       stage: 'review',
+      status: 'review',
       availability: 'present',
       accessibleLabel: 'Review task POD-17: Normalize task references',
     })
@@ -32,6 +33,7 @@ describe('issueReferenceModel', () => {
       issueId: 'iss_1',
       title: 'Normalize task references',
       stage: 'done',
+      status: 'done',
       availability: 'archived',
       accessibleLabel: 'Archived Done task POD-17: Normalize task references',
     })
@@ -43,7 +45,48 @@ describe('issueReferenceModel', () => {
     )
     expect(model.availability).toBe('deleted')
     expect(model.stage).toBeNull()
+    expect(model.status).toBeNull()
     expect(model.accessibleLabel).toBe('Deleted task POD-17: Normalize task references')
+  })
+
+  it.each(ALL_ISSUE_STATUSES)('preserves the %s status and its label', (status) => {
+    const terminal = ['done', 'cancelled', 'duplicate', 'superseded'].includes(status)
+    const model = issueReferenceModel(
+      issue({
+        stage: isIssueStage(status) ? status : 'done',
+        closedReason: terminal ? status : undefined,
+      }),
+    )
+    expect(model.status).toBe(status)
+    expect(model.accessibleLabel).toBe(
+      `${ISSUE_STATUS_LABELS[status]} task POD-17: Normalize task references`,
+    )
+  })
+
+  it.each([
+    ['wontfix', 'cancelled'],
+    ['wont_fix', 'cancelled'],
+    ["won't fix", 'cancelled'],
+    ['not planned', 'cancelled'],
+    ['canceled', 'cancelled'],
+    ['dupe', 'duplicate'],
+    [' CANCELLED ', 'cancelled'],
+  ] as const)('canonicalizes legacy close reason %s', (closedReason, status) => {
+    const model = issueReferenceModel(issue({ stage: 'done', closedReason, archived: true }))
+    expect(model.status).toBe(status)
+    expect(model.accessibleLabel).toContain(`Archived ${ISSUE_STATUS_LABELS[status]}`)
+  })
+
+  it('does not give an unfamiliar close reason the successful appearance', () => {
+    const model = issueReferenceModel(issue({ stage: 'done', closedReason: 'obsolete' }))
+    expect(model.status).toBeNull()
+    expect(model.accessibleLabel).toBe('Obsolete task POD-17: Normalize task references')
+  })
+
+  it('prefers a closing reason over a stale open stage', () => {
+    const model = issueReferenceModel(issue({ stage: 'review', closedReason: 'cancelled' }))
+    expect(model.stage).toBe('review')
+    expect(model.status).toBe('cancelled')
   })
 
   it('prefers prefix+seq when displayRef is the #seq fallback (POD-4731)', () => {
@@ -97,6 +140,7 @@ describe('resolveIssueReference', () => {
       issueId: null,
       title: null,
       stage: null,
+      status: null,
       availability: 'unavailable',
       accessibleLabel: 'Task POD-99 is unavailable',
     })

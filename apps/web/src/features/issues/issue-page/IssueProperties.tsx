@@ -1,4 +1,3 @@
-import { issueObserver as observer } from './issue-observer'
 /**
  * The properties rail for the issue page. Rendered in the desktop `<aside>` and
  * mirrored inside the mobile `Details` disclosure.
@@ -7,10 +6,10 @@ import { issueObserver as observer } from './issue-observer'
  * `issue-page-properties.tsx` by the question each part answers rather than by
  * size: the parent row owns the reparent-scope decision (./IssueParentRow.tsx),
  * the dependency graph owns cross-boundary edges (./IssueRelations.tsx),
- * sessions own placement (./IssueSessionsBlock.tsx), git owns the merge-style
- * ordering (./IssueGitBlock.tsx), and About owns owner/visibility display
- * (./IssueAbout.tsx). Each of those has a reason to change that the others do
- * not, which is why they are separate files and not one file with headings.
+ * sessions own placement (./IssueSessionsBlock.tsx), and About owns
+ * owner/visibility display (./IssueAbout.tsx). Each of those has a reason to
+ * change that the others do not, which is why they are separate files and not
+ * one file with headings.
  *
  * POD-591 RANKED IT. It used to be a flat form — ten property rows of identical
  * weight, then relations, sessions, git and About — so Status and Estimate
@@ -20,7 +19,6 @@ import { issueObserver as observer } from './issue-observer'
  *
  *   what state is it in    → the property head
  *   who is working it      → sessions
- *   where is the branch    → git
  *   what does it touch     → parent + relations
  *   where it came from     → Origin
  *
@@ -38,7 +36,7 @@ import { issueObserver as observer } from './issue-observer'
  *
  * THE RHYTHM. Each band is `px-5 py-4`, and a band's heading sits 8px above its
  * content — 32px between bands against 8px inside one, which is the contrast
- * that makes the rail read as five answers rather than one long form. The head
+ * that makes the rail read as distinct answers rather than one long form. The head
  * band was `pt-5 pb-3` and the Origin block drew the rail's only horizontal
  * rule; both are gone.
  *
@@ -48,7 +46,7 @@ import { issueObserver as observer } from './issue-observer'
  * `+ Add property` menu at the foot of the head band; POD-1224 removed that too.
  * Estimate, Due, Snooze and Type are now purely DISPLAY: a row when the field is
  * set (editable and clearable there), and nothing at all when it is not. The
- * rail's job on an ordinary task is to answer five questions, and a permanent
+ * rail's job on an ordinary task is to answer four questions, and a permanent
  * control for four fields that almost no task carries was the fifth thing on
  * screen competing with them. Setting one from empty is `podium issue update`
  * (estimate / due / defer / type) — the same route the agents already use.
@@ -57,12 +55,10 @@ import { issueObserver as observer } from './issue-observer'
  * `../issue-page-commands.ts`; the pure derivations still come from
  * `../issue-page-model.ts`.
  */
-import { shallowEqual } from '@podium/client-core'
 import {
   type IssueId,
   IssueType,
   issueStatusControlLabel,
-  issueStatusMenuEntries,
   issueStatusOf,
   issueStatusValueOf,
   parseIssueStatusValue,
@@ -74,19 +70,22 @@ import { useEffect, useState } from 'react'
 import { usePoolMachines } from '@/app/header-data'
 import { type IssueViewModel, useRuntimeSelector } from '@/app/store'
 import { Button } from '@/components/ui/button'
-import { PropertyMenu, type PropertyOption } from '@/lib/PropertyMenu'
+import { DropdownMenu, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
+import { PropertyMenu } from '@/lib/PropertyMenu'
 import { cn } from '@/lib/utils'
+import { IssueStatusMenuContent } from '../IssueStatusPicker'
 import { PriorityGlyph, StatusGlyph } from '../issue-glyphs'
 import type { IssueCloseReason } from '../issue-lifecycle'
 import type { IssuePageCommands } from '../issue-page-commands'
-import { labelPoolOf, mateOptionsOf, repoMatesOf, useMergeStyle } from '../issue-page-model'
+import { labelPoolOf, mateOptionsOf, repoMatesOf } from '../issue-page-model'
 import { DateProperty, EstimateProperty } from './DateProperty'
 import { IssueAbout } from './IssueAbout'
-import { IssueGitBlock } from './IssueGitBlock'
+import { IssueParentBranch } from './IssueParentBranch'
 import { IssueParentRow } from './IssueParentRow'
 import { IssueRelations } from './IssueRelations'
 import { IssueSessionsBlock } from './IssueSessionsBlock'
 import { useIssueEdgeResolver } from './issue-edges'
+import { issueObserver as observer } from './issue-observer'
 import { useIssuePageCatalog, useIssuePageContext } from './issue-page-data'
 import { PropertyRow, TriggerButton } from './property-chrome'
 
@@ -107,20 +106,13 @@ export const IssueProperties = observer(function IssueProperties({
   onRequestClose: (reason: IssueCloseReason) => void
 }): JSX.Element {
   const page = useIssuePageContext()!
-  const { trpc, navigateToSession } = useRuntimeSelector(
-    (s) => ({
-      trpc: s.trpc,
-      navigateToSession: s.navigateToSession,
-    }),
-    shallowEqual,
-  )
+  const navigateToSession = useRuntimeSelector((s) => s.navigateToSession)
   const machines = usePoolMachines()
 
   const [optionsOpen, setOptionsOpen] = useState(false)
   const issues = useIssuePageCatalog(optionsOpen)
   const resolve = useIssueEdgeResolver()
 
-  const mergeStyle = useMergeStyle(trpc)
   // Relation add is two steps: pick a dep type, then a target issue.
   const [addRelType, setAddRelType] = useState<StoredIssueDepType>('blocked-by')
 
@@ -141,22 +133,6 @@ export const IssueProperties = observer(function IssueProperties({
     navigateToSession(session.sessionId)
   }
 
-  // ---- Status (POD-1074): ONE list, ordered by category with a rule wherever
-  // the category changes, exactly as the dock and the board context menu render
-  // it. Picking a lane on a closed issue reopens it; the endings are guarded by
-  // the shared close dialog mounted on the full page.
-  //
-  // `groupKey`, not `group`: the rules are drawn, the categories are NOT written
-  // out. A heading here would have to say something over `Done`, and every word
-  // available ("Closed") lumps it in with Cancelled — the one fusion Linear's
-  // status model exists to prevent. The glyphs already say it. ----
-  const statusOptions: PropertyOption[] = issueStatusMenuEntries().map((entry) => ({
-    value: entry.value,
-    label: entry.label,
-    icon: <StatusGlyph status={entry.status} />,
-    groupKey: entry.outcome,
-  }))
-
   // A long-tail property earns a row when it is SET, and never otherwise
   // (POD-1224) — see the module note's LONG TAIL section.
   const shows = (key: LongTailKey): boolean => {
@@ -169,22 +145,28 @@ export const IssueProperties = observer(function IssueProperties({
   return (
     <div className="flex flex-col">
       <RailSection>
+        {/* Status (POD-1074): the shared status menu, the same list the row
+            glyphs and the panel's pill open. Picking a lane on a closed issue
+            reopens it; the endings go through the page's guarded close. */}
         <PropertyRow label="Status">
-          <PropertyMenu
-            selectedValue={issueStatusValueOf(issue)}
-            options={statusOptions}
-            onSelect={(value) => {
-              const intent = parseIssueStatusValue(value)
-              if (intent?.kind === 'close') onRequestClose(intent.reason)
-              else commands.selectStatus(value)
-            }}
-            trigger={
-              <TriggerButton disabled={busy} testId="status-trigger">
-                <StatusGlyph status={issueStatusOf(issue)} />
-                {issueStatusControlLabel(issue)}
-              </TriggerButton>
-            }
-          />
+          <DropdownMenu modal={false}>
+            <DropdownMenuTrigger
+              render={
+                <TriggerButton disabled={busy} testId="status-trigger">
+                  <StatusGlyph status={issueStatusOf(issue)} />
+                  {issueStatusControlLabel(issue)}
+                </TriggerButton>
+              }
+            />
+            <IssueStatusMenuContent
+              current={issueStatusValueOf(issue)}
+              onPick={(value) => {
+                const intent = parseIssueStatusValue(value)
+                if (intent?.kind === 'close') onRequestClose(intent.reason)
+                else commands.selectStatus(value)
+              }}
+            />
+          </DropdownMenu>
         </PropertyRow>
 
         <PropertyRow label="Priority">
@@ -259,6 +241,8 @@ export const IssueProperties = observer(function IssueProperties({
           </div>
         </PropertyRow>
 
+        <IssueParentBranch issue={issue} busy={busy} commands={commands} />
+
         {shows('type') && (
           <PropertyRow label="Type">
             <PropertyMenu
@@ -317,12 +301,6 @@ export const IssueProperties = observer(function IssueProperties({
           onOpenSession={openSession}
         />
       </RailSection>
-
-      {issue.worktreePath && (
-        <RailSection>
-          <IssueGitBlock issue={issue} busy={busy} commands={commands} mergeStyle={mergeStyle} />
-        </RailSection>
-      )}
 
       <RailSection gap="loose">
         <IssueParentRow

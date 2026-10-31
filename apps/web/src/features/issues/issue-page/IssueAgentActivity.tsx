@@ -1,5 +1,5 @@
-import { issueObserver as observer } from './issue-observer'
 import { resolveMachinePath } from '@podium/model/browser'
+import { issueObserver as observer } from './issue-observer'
 /**
  * THE AGENT-ACTIVITY PANEL (issues.panel) — what an agent PRODUCED for the
  * human: artifacts with inline image/video previews plus a lightbox, and
@@ -42,17 +42,17 @@ import { resolveMachinePath } from '@podium/model/browser'
 
 import { shallowEqual } from '@podium/client-core'
 import { relativeTime } from '@podium/client-core/focus'
-import { IssueAge } from './IssueAge'
 import { artifactKind, artifactUrl, basename } from '@podium/client-core/values'
 import type { IssuePanelArtifact } from '@podium/model/browser'
 import { FileText, Play } from 'lucide-react'
 import type { JSX } from 'react'
 import { useState } from 'react'
 import { type IssueViewModel, useRuntimeSelector } from '@/app/store'
-import { MediaLightbox } from '@/components/MediaLightbox'
+import { ArtifactLightbox, artifactLightboxKey } from '@/components/ArtifactLightbox'
 import { Button } from '@/components/ui/button'
 import { currentWorkspaceSlug } from '@/lib/workspace-request'
 import { SectionHeading } from './chrome'
+import { IssueAge } from './IssueAge'
 
 export const IssueAgentActivity = observer(function IssueAgentActivity({
   issue,
@@ -67,11 +67,7 @@ export const IssueAgentActivity = observer(function IssueAgentActivity({
     }),
     shallowEqual,
   )
-  const [lightbox, setLightbox] = useState<{
-    kind: 'image' | 'video'
-    src: string
-    label: string
-  } | null>(null)
+  const [lightbox, setLightbox] = useState<string | null>(null)
 
   const artifacts = issue.panel?.artifacts ?? []
   const deferred = issue.panel?.deferred ?? []
@@ -131,7 +127,7 @@ export const IssueAgentActivity = observer(function IssueAgentActivity({
                       type="button"
                       className="group relative block w-full cursor-zoom-in"
                       title={kind === 'image' ? `View ${label} full size` : `Play ${label}`}
-                      onClick={() => setLightbox({ kind, src, label })}
+                      onClick={() => setLightbox(artifactLightboxKey(a))}
                     >
                       {kind === 'image' ? (
                         <img
@@ -207,7 +203,18 @@ export const IssueAgentActivity = observer(function IssueAgentActivity({
         </section>
       )}
 
-      {lightbox && <MediaLightbox {...lightbox} onClose={() => setLightbox(null)} />}
+      {lightbox && (
+        <ArtifactLightbox
+          artifacts={artifacts}
+          selected={lightbox}
+          onSelect={setLightbox}
+          onClose={() => setLightbox(null)}
+          httpOrigin={httpOrigin}
+          issueId={issue.id}
+          root={root}
+          machineId={issue.machineId}
+        />
+      )}
     </div>
   )
 })

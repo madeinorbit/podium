@@ -822,6 +822,7 @@ interface DepReportEntry {
     seq: number;
     title: string;
     stage: string;
+    closedReason?: string | null;
     priority: number;
     closed: boolean;
     blocked: boolean;
@@ -923,8 +924,8 @@ type SendDisposition = 'delivered' | 'queued' | 'held' | 'spawning' | 'dead_lett
 interface ModelCatalogSnapshot {
     /** The machine this fact is ABOUT — the scoping key, not decoration. */
     machineId: MachineId;
-    /** Live models keyed by agent kind (grok/cursor/opencode). Absent agents fall
-     *  back to the web's static catalog. */
+    /** Live models keyed by agent kind. Omitted probe keys keep their last reported
+     *  list; a reported empty list replaces it. */
     byAgent: Record<string, ModelChoiceWire[]>;
     /** Epoch ms of the last successful probe; 0 = never fetched yet. */
     fetchedAt: number;
@@ -1771,7 +1772,6 @@ type Input_issues_create = {
     assignee?: string | undefined;
     audience?: "agent" | "human" | undefined;
     brief?: string | undefined;
-    color?: "blue" | "cyan" | "fuchsia" | "green" | "indigo" | "lime" | "pink" | "rose" | "teal" | "violet" | undefined;
     createLabels?: boolean | undefined;
     defaultAgent?: string | undefined;
     defaultEffort?: string | undefined;
@@ -1816,12 +1816,35 @@ type Input_issues_panelApply = {
     extraPaths?: string[] | undefined;
     id: string;
     index?: number | undefined;
-    op: "artifact-add" | "artifact-remove" | "deferred-add" | "deferred-remove" | "todo-add" | "todo-clear" | "todo-done" | "todo-remove" | "todo-undone";
+    op: "artifact-add" | "artifact-remove" | "artifact-upload" | "deferred-add" | "deferred-remove" | "todo-add" | "todo-clear" | "todo-done" | "todo-remove" | "todo-undone";
     path?: string | undefined;
     sourceRoot?: string | undefined;
     terminalEvidence?: boolean | undefined;
     text?: string | undefined;
     title?: string | undefined;
+    upload?: undefined | {
+        action: "abort";
+        uploadId: string;
+    } | {
+        action: "begin";
+        entry: string;
+        files: {
+            path: string;
+            size: number;
+        }[];
+        path: string;
+        title?: string | undefined;
+        uploadId: string;
+    } | {
+        action: "chunk";
+        dataBase64: string;
+        file: string;
+        offset: number;
+        uploadId: string;
+    } | {
+        action: "commit";
+        uploadId: string;
+    };
 };
 type Input_issues_search = {
     assignee?: string | undefined;
@@ -1897,7 +1920,6 @@ type Input_issues_update = {
         assignee?: string | undefined;
         brief?: string | undefined;
         closedReason?: string | undefined;
-        color?: "blue" | "cyan" | "fuchsia" | "green" | "indigo" | "lime" | "pink" | "rose" | "teal" | "violet" | null | undefined;
         defaultAgent?: string | undefined;
         defaultEffort?: string | undefined;
         defaultModel?: string | undefined;
@@ -2043,6 +2065,13 @@ type Input_sessions_answerAskUserQuestion = {
 };
 type Input_sessions_create = {
     agentKind?: "claude-code" | "codex" | "cursor" | "grok" | "opencode" | "pi" | "shell" | undefined;
+    attachments?: undefined | {
+        filename: string;
+        id: string;
+        kind: "file" | "image";
+        mediaType: string;
+        path?: string | undefined;
+    }[];
     cwd: string;
     draftArtifacts?: undefined | {
         dataBase64: string;
@@ -2083,7 +2112,7 @@ type Input_sessions_resumeAndSend = {
         id: string;
         kind: "file" | "image";
         mediaType: string;
-        path: string;
+        path?: string | undefined;
     }[];
     effort?: string | undefined;
     forceUnknownModel?: boolean | undefined;
@@ -2096,6 +2125,14 @@ type Input_sessions_setWorkState = {
     mutationId?: string | undefined;
     sessionId: string;
     workState: "done" | "icebox" | "implementing" | "planning" | "testing" | null;
+};
+type Input_sessions_uploadImage = {
+    dataBase64: string;
+    filename: string;
+    machineId?: string | undefined;
+    mimeType: string;
+    pending?: true | undefined;
+    sessionId: string;
 };
 type Input_settings_clearSecret = {
     key: "apiKeys.anthropic" | "apiKeys.openai" | "apiKeys.openrouter" | "integrations.linearApiKey" | "notifications.telegramBotToken";
@@ -2223,6 +2260,40 @@ type Output_accounts_login = Pick<{
     agentProfileId?: string | undefined;
     agentState?: undefined | {
         awaitingSubagents?: boolean | undefined;
+        compactingFrom?: undefined | {
+            awaitingSubagents?: boolean | undefined;
+            error?: undefined | {
+                class: string;
+                detail?: string | undefined;
+                retryable: boolean;
+            };
+            idle?: undefined | {
+                kind: "approval" | "done" | "interrupted" | "open_todos" | "question";
+                summary?: string | undefined;
+            };
+            need?: undefined | {
+                ask?: undefined | {
+                    canAlwaysAllow?: boolean | undefined;
+                    detail?: string | undefined;
+                    toolName: string;
+                };
+                interview?: undefined | {
+                    questions: {
+                        header?: string | undefined;
+                        multiSelect?: boolean | undefined;
+                        options: {
+                            description?: string | undefined;
+                            label: string;
+                            preview?: string | undefined;
+                        }[];
+                        question: string;
+                    }[];
+                };
+                kind: "permission" | "question";
+                summary?: string | undefined;
+            };
+            phase: "errored" | "idle" | "needs_user" | "working";
+        };
         error?: undefined | {
             class: string;
             detail?: string | undefined;
@@ -2394,6 +2465,40 @@ type Output_accounts_login = Pick<{
     agentProfileId?: string | undefined;
     agentState?: undefined | {
         awaitingSubagents?: boolean | undefined;
+        compactingFrom?: undefined | {
+            awaitingSubagents?: boolean | undefined;
+            error?: undefined | {
+                class: string;
+                detail?: string | undefined;
+                retryable: boolean;
+            };
+            idle?: undefined | {
+                kind: "approval" | "done" | "interrupted" | "open_todos" | "question";
+                summary?: string | undefined;
+            };
+            need?: undefined | {
+                ask?: undefined | {
+                    canAlwaysAllow?: boolean | undefined;
+                    detail?: string | undefined;
+                    toolName: string;
+                };
+                interview?: undefined | {
+                    questions: {
+                        header?: string | undefined;
+                        multiSelect?: boolean | undefined;
+                        options: {
+                            description?: string | undefined;
+                            label: string;
+                            preview?: string | undefined;
+                        }[];
+                        question: string;
+                    }[];
+                };
+                kind: "permission" | "question";
+                summary?: string | undefined;
+            };
+            phase: "errored" | "idle" | "needs_user" | "working";
+        };
         error?: undefined | {
             class: string;
             detail?: string | undefined;
@@ -2917,7 +3022,6 @@ type Output_issues_action = {
         brief?: string | undefined;
         closedAt?: string | undefined;
         closedReason?: string | undefined;
-        color?: "blue" | "cyan" | "fuchsia" | "green" | "indigo" | "lime" | "pink" | "rose" | "teal" | "violet" | undefined;
         coordinatorSessionId?: (string & z.BRAND<"SessionId">) | undefined;
         createdAt: string;
         createdBy: {
@@ -2954,6 +3058,8 @@ type Output_issues_action = {
         intentOrigin: "agent" | "human";
         isDraftVessel: boolean;
         labels: string[];
+        landedAt?: string | undefined;
+        landedSha?: string | undefined;
         lastLifecycleActor?: undefined | {
             actor: {
                 id: string & z.BRAND<"AgentIdentityId">;
@@ -2981,13 +3087,15 @@ type Output_issues_action = {
             artifacts: {
                 addedAt: string;
                 artifactId?: (string & z.BRAND<"ArtifactId">) | undefined;
+                chatUploadId?: string | undefined;
+                chatUploadOwner?: string | undefined;
                 entry?: string | undefined;
                 files?: undefined | {
                     path: string;
                     size: number;
                 }[];
                 path: string;
-                sourceKind?: "terminal-evidence" | undefined;
+                sourceKind?: "creation-attachment" | "terminal-evidence" | undefined;
                 sourcePaths?: string[] | undefined;
                 title?: string | undefined;
                 tracking?: "tracked" | "unknown" | "untracked" | undefined;
@@ -3054,7 +3162,6 @@ type Output_issues_action = {
         brief?: string | undefined;
         closedAt?: string | undefined;
         closedReason?: string | undefined;
-        color?: "blue" | "cyan" | "fuchsia" | "green" | "indigo" | "lime" | "pink" | "rose" | "teal" | "violet" | undefined;
         coordinatorSessionId?: (string & z.BRAND<"SessionId">) | undefined;
         createdAt: string;
         createdBy: {
@@ -3091,6 +3198,8 @@ type Output_issues_action = {
         intentOrigin: "agent" | "human";
         isDraftVessel: boolean;
         labels: string[];
+        landedAt?: string | undefined;
+        landedSha?: string | undefined;
         lastLifecycleActor?: undefined | {
             actor: {
                 id: string & z.BRAND<"AgentIdentityId">;
@@ -3118,13 +3227,15 @@ type Output_issues_action = {
             artifacts: {
                 addedAt: string;
                 artifactId?: (string & z.BRAND<"ArtifactId">) | undefined;
+                chatUploadId?: string | undefined;
+                chatUploadOwner?: string | undefined;
                 entry?: string | undefined;
                 files?: undefined | {
                     path: string;
                     size: number;
                 }[];
                 path: string;
-                sourceKind?: "terminal-evidence" | undefined;
+                sourceKind?: "creation-attachment" | "terminal-evidence" | undefined;
                 sourcePaths?: string[] | undefined;
                 title?: string | undefined;
                 tracking?: "tracked" | "unknown" | "untracked" | undefined;
@@ -3157,7 +3268,7 @@ type Output_issues_action = {
         updatedAt: string;
         visibility: "deployment-substrate" | "owned-compute" | "per-user-state" | "personal" | "secret";
         worktreePath?: string | undefined;
-    }, ("acceptance" | "activityNotes" | "agentProfileId" | "asked" | "assignee" | "branch" | "brief" | "closedAt" | "closedReason" | "color" | "coordinatorSessionId" | "deferUntil" | "deletedAt" | "dependencyNote" | "dueAt" | "duplicateOf" | "estimateMin" | "lastLifecycleActor" | "linearId" | "linearIdentifier" | "linearUrl" | "machineId" | "notesUpdatedAt" | "panel" | "parentId" | "prUrl" | "repoId" | "revision" | "sortKey" | "startedBySession" | "suggestedReason" | "suggestedStage" | "supersededBy" | "worktreePath") | ("archived" | "audience" | "blockedByNotes" | "createdAt" | "createdBy" | "defaultAgent" | "defaultEffort" | "defaultModel" | "description" | "id" | "intentOrigin" | "isDraftVessel" | "labels" | "needsHuman" | "owner" | "parentBranch" | "priority" | "seq" | "stage" | "title" | "type" | "updatedAt" | "visibility")> & {
+    }, ("acceptance" | "activityNotes" | "agentProfileId" | "asked" | "assignee" | "branch" | "brief" | "closedAt" | "closedReason" | "coordinatorSessionId" | "deferUntil" | "deletedAt" | "dependencyNote" | "dueAt" | "duplicateOf" | "estimateMin" | "landedAt" | "landedSha" | "lastLifecycleActor" | "linearId" | "linearIdentifier" | "linearUrl" | "machineId" | "notesUpdatedAt" | "panel" | "parentId" | "prUrl" | "repoId" | "revision" | "sortKey" | "startedBySession" | "suggestedReason" | "suggestedStage" | "supersededBy" | "worktreePath") | ("archived" | "audience" | "blockedByNotes" | "createdAt" | "createdBy" | "defaultAgent" | "defaultEffort" | "defaultModel" | "description" | "id" | "intentOrigin" | "isDraftVessel" | "labels" | "needsHuman" | "owner" | "parentBranch" | "priority" | "seq" | "stage" | "title" | "type" | "updatedAt" | "visibility")> & {
         blocked: boolean;
         branch: null | string;
         childCount: number;
@@ -3217,7 +3328,6 @@ type Output_issues_addComment = _podium_model.IssueUserOverlay & Omit<{
     brief?: string | undefined;
     closedAt?: string | undefined;
     closedReason?: string | undefined;
-    color?: "blue" | "cyan" | "fuchsia" | "green" | "indigo" | "lime" | "pink" | "rose" | "teal" | "violet" | undefined;
     coordinatorSessionId?: (string & z.BRAND<"SessionId">) | undefined;
     createdAt: string;
     createdBy: {
@@ -3254,6 +3364,8 @@ type Output_issues_addComment = _podium_model.IssueUserOverlay & Omit<{
     intentOrigin: "agent" | "human";
     isDraftVessel: boolean;
     labels: string[];
+    landedAt?: string | undefined;
+    landedSha?: string | undefined;
     lastLifecycleActor?: undefined | {
         actor: {
             id: string & z.BRAND<"AgentIdentityId">;
@@ -3281,13 +3393,15 @@ type Output_issues_addComment = _podium_model.IssueUserOverlay & Omit<{
         artifacts: {
             addedAt: string;
             artifactId?: (string & z.BRAND<"ArtifactId">) | undefined;
+            chatUploadId?: string | undefined;
+            chatUploadOwner?: string | undefined;
             entry?: string | undefined;
             files?: undefined | {
                 path: string;
                 size: number;
             }[];
             path: string;
-            sourceKind?: "terminal-evidence" | undefined;
+            sourceKind?: "creation-attachment" | "terminal-evidence" | undefined;
             sourcePaths?: string[] | undefined;
             title?: string | undefined;
             tracking?: "tracked" | "unknown" | "untracked" | undefined;
@@ -3354,7 +3468,6 @@ type Output_issues_addComment = _podium_model.IssueUserOverlay & Omit<{
     brief?: string | undefined;
     closedAt?: string | undefined;
     closedReason?: string | undefined;
-    color?: "blue" | "cyan" | "fuchsia" | "green" | "indigo" | "lime" | "pink" | "rose" | "teal" | "violet" | undefined;
     coordinatorSessionId?: (string & z.BRAND<"SessionId">) | undefined;
     createdAt: string;
     createdBy: {
@@ -3391,6 +3504,8 @@ type Output_issues_addComment = _podium_model.IssueUserOverlay & Omit<{
     intentOrigin: "agent" | "human";
     isDraftVessel: boolean;
     labels: string[];
+    landedAt?: string | undefined;
+    landedSha?: string | undefined;
     lastLifecycleActor?: undefined | {
         actor: {
             id: string & z.BRAND<"AgentIdentityId">;
@@ -3418,13 +3533,15 @@ type Output_issues_addComment = _podium_model.IssueUserOverlay & Omit<{
         artifacts: {
             addedAt: string;
             artifactId?: (string & z.BRAND<"ArtifactId">) | undefined;
+            chatUploadId?: string | undefined;
+            chatUploadOwner?: string | undefined;
             entry?: string | undefined;
             files?: undefined | {
                 path: string;
                 size: number;
             }[];
             path: string;
-            sourceKind?: "terminal-evidence" | undefined;
+            sourceKind?: "creation-attachment" | "terminal-evidence" | undefined;
             sourcePaths?: string[] | undefined;
             title?: string | undefined;
             tracking?: "tracked" | "unknown" | "untracked" | undefined;
@@ -3457,7 +3574,7 @@ type Output_issues_addComment = _podium_model.IssueUserOverlay & Omit<{
     updatedAt: string;
     visibility: "deployment-substrate" | "owned-compute" | "per-user-state" | "personal" | "secret";
     worktreePath?: string | undefined;
-}, ("acceptance" | "activityNotes" | "agentProfileId" | "asked" | "assignee" | "branch" | "brief" | "closedAt" | "closedReason" | "color" | "coordinatorSessionId" | "deferUntil" | "deletedAt" | "dependencyNote" | "dueAt" | "duplicateOf" | "estimateMin" | "lastLifecycleActor" | "linearId" | "linearIdentifier" | "linearUrl" | "machineId" | "notesUpdatedAt" | "panel" | "parentId" | "prUrl" | "repoId" | "revision" | "sortKey" | "startedBySession" | "suggestedReason" | "suggestedStage" | "supersededBy" | "worktreePath") | ("archived" | "audience" | "blockedByNotes" | "createdAt" | "createdBy" | "defaultAgent" | "defaultEffort" | "defaultModel" | "description" | "id" | "intentOrigin" | "isDraftVessel" | "labels" | "needsHuman" | "owner" | "parentBranch" | "priority" | "seq" | "stage" | "title" | "type" | "updatedAt" | "visibility")> & {
+}, ("acceptance" | "activityNotes" | "agentProfileId" | "asked" | "assignee" | "branch" | "brief" | "closedAt" | "closedReason" | "coordinatorSessionId" | "deferUntil" | "deletedAt" | "dependencyNote" | "dueAt" | "duplicateOf" | "estimateMin" | "landedAt" | "landedSha" | "lastLifecycleActor" | "linearId" | "linearIdentifier" | "linearUrl" | "machineId" | "notesUpdatedAt" | "panel" | "parentId" | "prUrl" | "repoId" | "revision" | "sortKey" | "startedBySession" | "suggestedReason" | "suggestedStage" | "supersededBy" | "worktreePath") | ("archived" | "audience" | "blockedByNotes" | "createdAt" | "createdBy" | "defaultAgent" | "defaultEffort" | "defaultModel" | "description" | "id" | "intentOrigin" | "isDraftVessel" | "labels" | "needsHuman" | "owner" | "parentBranch" | "priority" | "seq" | "stage" | "title" | "type" | "updatedAt" | "visibility")> & {
     blocked: boolean;
     branch: null | string;
     childCount: number;
@@ -3516,7 +3633,6 @@ type Output_issues_answerQuestion = {
         brief?: string | undefined;
         closedAt?: string | undefined;
         closedReason?: string | undefined;
-        color?: "blue" | "cyan" | "fuchsia" | "green" | "indigo" | "lime" | "pink" | "rose" | "teal" | "violet" | undefined;
         coordinatorSessionId?: (string & z.BRAND<"SessionId">) | undefined;
         createdAt: string;
         createdBy: {
@@ -3553,6 +3669,8 @@ type Output_issues_answerQuestion = {
         intentOrigin: "agent" | "human";
         isDraftVessel: boolean;
         labels: string[];
+        landedAt?: string | undefined;
+        landedSha?: string | undefined;
         lastLifecycleActor?: undefined | {
             actor: {
                 id: string & z.BRAND<"AgentIdentityId">;
@@ -3580,13 +3698,15 @@ type Output_issues_answerQuestion = {
             artifacts: {
                 addedAt: string;
                 artifactId?: (string & z.BRAND<"ArtifactId">) | undefined;
+                chatUploadId?: string | undefined;
+                chatUploadOwner?: string | undefined;
                 entry?: string | undefined;
                 files?: undefined | {
                     path: string;
                     size: number;
                 }[];
                 path: string;
-                sourceKind?: "terminal-evidence" | undefined;
+                sourceKind?: "creation-attachment" | "terminal-evidence" | undefined;
                 sourcePaths?: string[] | undefined;
                 title?: string | undefined;
                 tracking?: "tracked" | "unknown" | "untracked" | undefined;
@@ -3653,7 +3773,6 @@ type Output_issues_answerQuestion = {
         brief?: string | undefined;
         closedAt?: string | undefined;
         closedReason?: string | undefined;
-        color?: "blue" | "cyan" | "fuchsia" | "green" | "indigo" | "lime" | "pink" | "rose" | "teal" | "violet" | undefined;
         coordinatorSessionId?: (string & z.BRAND<"SessionId">) | undefined;
         createdAt: string;
         createdBy: {
@@ -3690,6 +3809,8 @@ type Output_issues_answerQuestion = {
         intentOrigin: "agent" | "human";
         isDraftVessel: boolean;
         labels: string[];
+        landedAt?: string | undefined;
+        landedSha?: string | undefined;
         lastLifecycleActor?: undefined | {
             actor: {
                 id: string & z.BRAND<"AgentIdentityId">;
@@ -3717,13 +3838,15 @@ type Output_issues_answerQuestion = {
             artifacts: {
                 addedAt: string;
                 artifactId?: (string & z.BRAND<"ArtifactId">) | undefined;
+                chatUploadId?: string | undefined;
+                chatUploadOwner?: string | undefined;
                 entry?: string | undefined;
                 files?: undefined | {
                     path: string;
                     size: number;
                 }[];
                 path: string;
-                sourceKind?: "terminal-evidence" | undefined;
+                sourceKind?: "creation-attachment" | "terminal-evidence" | undefined;
                 sourcePaths?: string[] | undefined;
                 title?: string | undefined;
                 tracking?: "tracked" | "unknown" | "untracked" | undefined;
@@ -3756,7 +3879,7 @@ type Output_issues_answerQuestion = {
         updatedAt: string;
         visibility: "deployment-substrate" | "owned-compute" | "per-user-state" | "personal" | "secret";
         worktreePath?: string | undefined;
-    }, ("acceptance" | "activityNotes" | "agentProfileId" | "asked" | "assignee" | "branch" | "brief" | "closedAt" | "closedReason" | "color" | "coordinatorSessionId" | "deferUntil" | "deletedAt" | "dependencyNote" | "dueAt" | "duplicateOf" | "estimateMin" | "lastLifecycleActor" | "linearId" | "linearIdentifier" | "linearUrl" | "machineId" | "notesUpdatedAt" | "panel" | "parentId" | "prUrl" | "repoId" | "revision" | "sortKey" | "startedBySession" | "suggestedReason" | "suggestedStage" | "supersededBy" | "worktreePath") | ("archived" | "audience" | "blockedByNotes" | "createdAt" | "createdBy" | "defaultAgent" | "defaultEffort" | "defaultModel" | "description" | "id" | "intentOrigin" | "isDraftVessel" | "labels" | "needsHuman" | "owner" | "parentBranch" | "priority" | "seq" | "stage" | "title" | "type" | "updatedAt" | "visibility")> & {
+    }, ("acceptance" | "activityNotes" | "agentProfileId" | "asked" | "assignee" | "branch" | "brief" | "closedAt" | "closedReason" | "coordinatorSessionId" | "deferUntil" | "deletedAt" | "dependencyNote" | "dueAt" | "duplicateOf" | "estimateMin" | "landedAt" | "landedSha" | "lastLifecycleActor" | "linearId" | "linearIdentifier" | "linearUrl" | "machineId" | "notesUpdatedAt" | "panel" | "parentId" | "prUrl" | "repoId" | "revision" | "sortKey" | "startedBySession" | "suggestedReason" | "suggestedStage" | "supersededBy" | "worktreePath") | ("archived" | "audience" | "blockedByNotes" | "createdAt" | "createdBy" | "defaultAgent" | "defaultEffort" | "defaultModel" | "description" | "id" | "intentOrigin" | "isDraftVessel" | "labels" | "needsHuman" | "owner" | "parentBranch" | "priority" | "seq" | "stage" | "title" | "type" | "updatedAt" | "visibility")> & {
         blocked: boolean;
         branch: null | string;
         childCount: number;
@@ -3874,7 +3997,6 @@ type Output_issues_create = (_podium_model.IssueUserOverlay & Omit<{
     brief?: string | undefined;
     closedAt?: string | undefined;
     closedReason?: string | undefined;
-    color?: "blue" | "cyan" | "fuchsia" | "green" | "indigo" | "lime" | "pink" | "rose" | "teal" | "violet" | undefined;
     coordinator?: string;
     coordinatorSessionId?: (string & z.BRAND<"SessionId">) | undefined;
     createdAt: string;
@@ -3912,6 +4034,8 @@ type Output_issues_create = (_podium_model.IssueUserOverlay & Omit<{
     intentOrigin: "agent" | "human";
     isDraftVessel: boolean;
     labels: string[];
+    landedAt?: string | undefined;
+    landedSha?: string | undefined;
     lastLifecycleActor?: undefined | {
         actor: {
             id: string & z.BRAND<"AgentIdentityId">;
@@ -3939,13 +4063,15 @@ type Output_issues_create = (_podium_model.IssueUserOverlay & Omit<{
         artifacts: {
             addedAt: string;
             artifactId?: (string & z.BRAND<"ArtifactId">) | undefined;
+            chatUploadId?: string | undefined;
+            chatUploadOwner?: string | undefined;
             entry?: string | undefined;
             files?: undefined | {
                 path: string;
                 size: number;
             }[];
             path: string;
-            sourceKind?: "terminal-evidence" | undefined;
+            sourceKind?: "creation-attachment" | "terminal-evidence" | undefined;
             sourcePaths?: string[] | undefined;
             title?: string | undefined;
             tracking?: "tracked" | "unknown" | "untracked" | undefined;
@@ -3979,7 +4105,7 @@ type Output_issues_create = (_podium_model.IssueUserOverlay & Omit<{
     visibility: "deployment-substrate" | "owned-compute" | "per-user-state" | "personal" | "secret";
     warning: string;
     worktreePath?: string | undefined;
-}, ("acceptance" | "activityNotes" | "agentProfileId" | "asked" | "assignee" | "branch" | "brief" | "closedAt" | "closedReason" | "color" | "coordinatorSessionId" | "deferUntil" | "deletedAt" | "dependencyNote" | "dueAt" | "duplicateOf" | "estimateMin" | "lastLifecycleActor" | "linearId" | "linearIdentifier" | "linearUrl" | "machineId" | "notesUpdatedAt" | "panel" | "parentId" | "prUrl" | "repoId" | "revision" | "sortKey" | "startedBySession" | "suggestedReason" | "suggestedStage" | "supersededBy" | "worktreePath") | ("archived" | "audience" | "blockedByNotes" | "createdAt" | "createdBy" | "defaultAgent" | "defaultEffort" | "defaultModel" | "description" | "id" | "intentOrigin" | "isDraftVessel" | "labels" | "needsHuman" | "owner" | "parentBranch" | "priority" | "seq" | "stage" | "title" | "type" | "updatedAt" | "visibility")> & Omit<{
+}, ("acceptance" | "activityNotes" | "agentProfileId" | "asked" | "assignee" | "branch" | "brief" | "closedAt" | "closedReason" | "coordinatorSessionId" | "deferUntil" | "deletedAt" | "dependencyNote" | "dueAt" | "duplicateOf" | "estimateMin" | "landedAt" | "landedSha" | "lastLifecycleActor" | "linearId" | "linearIdentifier" | "linearUrl" | "machineId" | "notesUpdatedAt" | "panel" | "parentId" | "prUrl" | "repoId" | "revision" | "sortKey" | "startedBySession" | "suggestedReason" | "suggestedStage" | "supersededBy" | "worktreePath") | ("archived" | "audience" | "blockedByNotes" | "createdAt" | "createdBy" | "defaultAgent" | "defaultEffort" | "defaultModel" | "description" | "id" | "intentOrigin" | "isDraftVessel" | "labels" | "needsHuman" | "owner" | "parentBranch" | "priority" | "seq" | "stage" | "title" | "type" | "updatedAt" | "visibility")> & Omit<{
     acceptance?: string | undefined;
     activityNotes?: string | undefined;
     agentProfileId?: string | undefined;
@@ -4013,7 +4139,6 @@ type Output_issues_create = (_podium_model.IssueUserOverlay & Omit<{
     brief?: string | undefined;
     closedAt?: string | undefined;
     closedReason?: string | undefined;
-    color?: "blue" | "cyan" | "fuchsia" | "green" | "indigo" | "lime" | "pink" | "rose" | "teal" | "violet" | undefined;
     coordinatorSessionId?: (string & z.BRAND<"SessionId">) | undefined;
     createdAt: string;
     createdBy: {
@@ -4050,6 +4175,8 @@ type Output_issues_create = (_podium_model.IssueUserOverlay & Omit<{
     intentOrigin: "agent" | "human";
     isDraftVessel: boolean;
     labels: string[];
+    landedAt?: string | undefined;
+    landedSha?: string | undefined;
     lastLifecycleActor?: undefined | {
         actor: {
             id: string & z.BRAND<"AgentIdentityId">;
@@ -4077,13 +4204,15 @@ type Output_issues_create = (_podium_model.IssueUserOverlay & Omit<{
         artifacts: {
             addedAt: string;
             artifactId?: (string & z.BRAND<"ArtifactId">) | undefined;
+            chatUploadId?: string | undefined;
+            chatUploadOwner?: string | undefined;
             entry?: string | undefined;
             files?: undefined | {
                 path: string;
                 size: number;
             }[];
             path: string;
-            sourceKind?: "terminal-evidence" | undefined;
+            sourceKind?: "creation-attachment" | "terminal-evidence" | undefined;
             sourcePaths?: string[] | undefined;
             title?: string | undefined;
             tracking?: "tracked" | "unknown" | "untracked" | undefined;
@@ -4172,7 +4301,6 @@ type Output_issues_create = (_podium_model.IssueUserOverlay & Omit<{
     brief?: string | undefined;
     closedAt?: string | undefined;
     closedReason?: string | undefined;
-    color?: "blue" | "cyan" | "fuchsia" | "green" | "indigo" | "lime" | "pink" | "rose" | "teal" | "violet" | undefined;
     coordinator?: string;
     coordinatorSessionId?: (string & z.BRAND<"SessionId">) | undefined;
     createdAt: string;
@@ -4210,6 +4338,8 @@ type Output_issues_create = (_podium_model.IssueUserOverlay & Omit<{
     intentOrigin: "agent" | "human";
     isDraftVessel: boolean;
     labels: string[];
+    landedAt?: string | undefined;
+    landedSha?: string | undefined;
     lastLifecycleActor?: undefined | {
         actor: {
             id: string & z.BRAND<"AgentIdentityId">;
@@ -4237,13 +4367,15 @@ type Output_issues_create = (_podium_model.IssueUserOverlay & Omit<{
         artifacts: {
             addedAt: string;
             artifactId?: (string & z.BRAND<"ArtifactId">) | undefined;
+            chatUploadId?: string | undefined;
+            chatUploadOwner?: string | undefined;
             entry?: string | undefined;
             files?: undefined | {
                 path: string;
                 size: number;
             }[];
             path: string;
-            sourceKind?: "terminal-evidence" | undefined;
+            sourceKind?: "creation-attachment" | "terminal-evidence" | undefined;
             sourcePaths?: string[] | undefined;
             title?: string | undefined;
             tracking?: "tracked" | "unknown" | "untracked" | undefined;
@@ -4276,7 +4408,7 @@ type Output_issues_create = (_podium_model.IssueUserOverlay & Omit<{
     updatedAt: string;
     visibility: "deployment-substrate" | "owned-compute" | "per-user-state" | "personal" | "secret";
     worktreePath?: string | undefined;
-}, ("acceptance" | "activityNotes" | "agentProfileId" | "asked" | "assignee" | "branch" | "brief" | "closedAt" | "closedReason" | "color" | "coordinatorSessionId" | "deferUntil" | "deletedAt" | "dependencyNote" | "dueAt" | "duplicateOf" | "estimateMin" | "lastLifecycleActor" | "linearId" | "linearIdentifier" | "linearUrl" | "machineId" | "notesUpdatedAt" | "panel" | "parentId" | "prUrl" | "repoId" | "revision" | "sortKey" | "startedBySession" | "suggestedReason" | "suggestedStage" | "supersededBy" | "worktreePath") | ("archived" | "audience" | "blockedByNotes" | "createdAt" | "createdBy" | "defaultAgent" | "defaultEffort" | "defaultModel" | "description" | "id" | "intentOrigin" | "isDraftVessel" | "labels" | "needsHuman" | "owner" | "parentBranch" | "priority" | "seq" | "stage" | "title" | "type" | "updatedAt" | "visibility")> & Omit<{
+}, ("acceptance" | "activityNotes" | "agentProfileId" | "asked" | "assignee" | "branch" | "brief" | "closedAt" | "closedReason" | "coordinatorSessionId" | "deferUntil" | "deletedAt" | "dependencyNote" | "dueAt" | "duplicateOf" | "estimateMin" | "landedAt" | "landedSha" | "lastLifecycleActor" | "linearId" | "linearIdentifier" | "linearUrl" | "machineId" | "notesUpdatedAt" | "panel" | "parentId" | "prUrl" | "repoId" | "revision" | "sortKey" | "startedBySession" | "suggestedReason" | "suggestedStage" | "supersededBy" | "worktreePath") | ("archived" | "audience" | "blockedByNotes" | "createdAt" | "createdBy" | "defaultAgent" | "defaultEffort" | "defaultModel" | "description" | "id" | "intentOrigin" | "isDraftVessel" | "labels" | "needsHuman" | "owner" | "parentBranch" | "priority" | "seq" | "stage" | "title" | "type" | "updatedAt" | "visibility")> & Omit<{
     acceptance?: string | undefined;
     activityNotes?: string | undefined;
     agentProfileId?: string | undefined;
@@ -4310,7 +4442,6 @@ type Output_issues_create = (_podium_model.IssueUserOverlay & Omit<{
     brief?: string | undefined;
     closedAt?: string | undefined;
     closedReason?: string | undefined;
-    color?: "blue" | "cyan" | "fuchsia" | "green" | "indigo" | "lime" | "pink" | "rose" | "teal" | "violet" | undefined;
     coordinatorSessionId?: (string & z.BRAND<"SessionId">) | undefined;
     createdAt: string;
     createdBy: {
@@ -4347,6 +4478,8 @@ type Output_issues_create = (_podium_model.IssueUserOverlay & Omit<{
     intentOrigin: "agent" | "human";
     isDraftVessel: boolean;
     labels: string[];
+    landedAt?: string | undefined;
+    landedSha?: string | undefined;
     lastLifecycleActor?: undefined | {
         actor: {
             id: string & z.BRAND<"AgentIdentityId">;
@@ -4374,13 +4507,15 @@ type Output_issues_create = (_podium_model.IssueUserOverlay & Omit<{
         artifacts: {
             addedAt: string;
             artifactId?: (string & z.BRAND<"ArtifactId">) | undefined;
+            chatUploadId?: string | undefined;
+            chatUploadOwner?: string | undefined;
             entry?: string | undefined;
             files?: undefined | {
                 path: string;
                 size: number;
             }[];
             path: string;
-            sourceKind?: "terminal-evidence" | undefined;
+            sourceKind?: "creation-attachment" | "terminal-evidence" | undefined;
             sourcePaths?: string[] | undefined;
             title?: string | undefined;
             tracking?: "tracked" | "unknown" | "untracked" | undefined;
@@ -4451,7 +4586,6 @@ type Output_issues_get = (null) | ({
     childDoneCount: number;
     closedAt?: string | undefined;
     closedReason?: string | undefined;
-    color?: "blue" | "cyan" | "fuchsia" | "green" | "indigo" | "lime" | "pink" | "rose" | "teal" | "violet" | undefined;
     commentCount: number;
     coordinatorSessionId?: (string & z.BRAND<"SessionId">) | undefined;
     createdAt: string;
@@ -4477,6 +4611,8 @@ type Output_issues_get = (null) | ({
     humanQuestionOptions?: string[];
     id: string & z.BRAND<"IssueId">;
     labels: string[];
+    landedAt?: string | undefined;
+    landedSha?: string | undefined;
     linearId?: string | undefined;
     linearIdentifier?: string | undefined;
     linearUrl?: string | undefined;
@@ -4488,13 +4624,15 @@ type Output_issues_get = (null) | ({
         artifacts: {
             addedAt: string;
             artifactId?: (string & z.BRAND<"ArtifactId">) | undefined;
+            chatUploadId?: string | undefined;
+            chatUploadOwner?: string | undefined;
             entry?: string | undefined;
             files?: undefined | {
                 path: string;
                 size: number;
             }[];
             path: string;
-            sourceKind?: "terminal-evidence" | undefined;
+            sourceKind?: "creation-attachment" | "terminal-evidence" | undefined;
             sourcePaths?: string[] | undefined;
             title?: string | undefined;
             tracking?: "tracked" | "unknown" | "untracked" | undefined;
@@ -4528,6 +4666,40 @@ type Output_issues_get = (null) | ({
         agentProfileId?: string | undefined;
         agentState?: undefined | {
             awaitingSubagents?: boolean | undefined;
+            compactingFrom?: undefined | {
+                awaitingSubagents?: boolean | undefined;
+                error?: undefined | {
+                    class: string;
+                    detail?: string | undefined;
+                    retryable: boolean;
+                };
+                idle?: undefined | {
+                    kind: "approval" | "done" | "interrupted" | "open_todos" | "question";
+                    summary?: string | undefined;
+                };
+                need?: undefined | {
+                    ask?: undefined | {
+                        canAlwaysAllow?: boolean | undefined;
+                        detail?: string | undefined;
+                        toolName: string;
+                    };
+                    interview?: undefined | {
+                        questions: {
+                            header?: string | undefined;
+                            multiSelect?: boolean | undefined;
+                            options: {
+                                description?: string | undefined;
+                                label: string;
+                                preview?: string | undefined;
+                            }[];
+                            question: string;
+                        }[];
+                    };
+                    kind: "permission" | "question";
+                    summary?: string | undefined;
+                };
+                phase: "errored" | "idle" | "needs_user" | "working";
+            };
             error?: undefined | {
                 class: string;
                 detail?: string | undefined;
@@ -4883,7 +5055,6 @@ type Output_issues_searchNormalized = Array<{
     brief?: string | undefined;
     closedAt?: string | undefined;
     closedReason?: string | undefined;
-    color?: "blue" | "cyan" | "fuchsia" | "green" | "indigo" | "lime" | "pink" | "rose" | "teal" | "violet" | undefined;
     coordinatorSessionId?: (string & z.BRAND<"SessionId">) | undefined;
     createdAt: string;
     createdBy: {
@@ -4921,6 +5092,8 @@ type Output_issues_searchNormalized = Array<{
     intentOrigin: "agent" | "human";
     isDraftVessel: boolean;
     labels: string[];
+    landedAt?: string | undefined;
+    landedSha?: string | undefined;
     lastLifecycleActor?: undefined | {
         actor: {
             id: string & z.BRAND<"AgentIdentityId">;
@@ -4948,13 +5121,15 @@ type Output_issues_searchNormalized = Array<{
         artifacts: {
             addedAt: string;
             artifactId?: (string & z.BRAND<"ArtifactId">) | undefined;
+            chatUploadId?: string | undefined;
+            chatUploadOwner?: string | undefined;
             entry?: string | undefined;
             files?: undefined | {
                 path: string;
                 size: number;
             }[];
             path: string;
-            sourceKind?: "terminal-evidence" | undefined;
+            sourceKind?: "creation-attachment" | "terminal-evidence" | undefined;
             sourcePaths?: string[] | undefined;
             title?: string | undefined;
             tracking?: "tracked" | "unknown" | "untracked" | undefined;
@@ -4990,14 +5165,15 @@ type Output_issues_searchNormalized = Array<{
 }>;
 type Output_issues_seat = ({
     askUserRefusal?: string | undefined;
+    claimable?: string;
     coordinates: boolean;
-    coordinator: SeatCoordinator;
-    kind: "below";
+    kind: "top";
     text: string;
 }) | ({
     askUserRefusal?: string | undefined;
     coordinates: boolean;
-    kind: "top";
+    coordinator: SeatCoordinator;
+    kind: "below";
     text: string;
 });
 type Output_issues_ship = {
@@ -5139,7 +5315,6 @@ type Output_issues_start = _podium_model.IssueUserOverlay & Omit<Partial<{
     brief?: string | undefined;
     closedAt?: string | undefined;
     closedReason?: string | undefined;
-    color?: "blue" | "cyan" | "fuchsia" | "green" | "indigo" | "lime" | "pink" | "rose" | "teal" | "violet" | undefined;
     coordinatorSessionId?: (string & z.BRAND<"SessionId">) | undefined;
     createdAt: string;
     createdBy: {
@@ -5176,6 +5351,8 @@ type Output_issues_start = _podium_model.IssueUserOverlay & Omit<Partial<{
     intentOrigin: "agent" | "human";
     isDraftVessel: boolean;
     labels: string[];
+    landedAt?: string | undefined;
+    landedSha?: string | undefined;
     lastLifecycleActor?: undefined | {
         actor: {
             id: string & z.BRAND<"AgentIdentityId">;
@@ -5203,13 +5380,15 @@ type Output_issues_start = _podium_model.IssueUserOverlay & Omit<Partial<{
         artifacts: {
             addedAt: string;
             artifactId?: (string & z.BRAND<"ArtifactId">) | undefined;
+            chatUploadId?: string | undefined;
+            chatUploadOwner?: string | undefined;
             entry?: string | undefined;
             files?: undefined | {
                 path: string;
                 size: number;
             }[];
             path: string;
-            sourceKind?: "terminal-evidence" | undefined;
+            sourceKind?: "creation-attachment" | "terminal-evidence" | undefined;
             sourcePaths?: string[] | undefined;
             title?: string | undefined;
             tracking?: "tracked" | "unknown" | "untracked" | undefined;
@@ -5242,7 +5421,7 @@ type Output_issues_start = _podium_model.IssueUserOverlay & Omit<Partial<{
     updatedAt: string;
     visibility: "deployment-substrate" | "owned-compute" | "per-user-state" | "personal" | "secret";
     worktreePath?: string | undefined;
-}, ("acceptance" | "activityNotes" | "agentProfileId" | "asked" | "assignee" | "branch" | "brief" | "closedAt" | "closedReason" | "color" | "coordinatorSessionId" | "deferUntil" | "deletedAt" | "dependencyNote" | "dueAt" | "duplicateOf" | "estimateMin" | "lastLifecycleActor" | "linearId" | "linearIdentifier" | "linearUrl" | "machineId" | "notesUpdatedAt" | "panel" | "parentId" | "prUrl" | "repoId" | "revision" | "sortKey" | "startedBySession" | "suggestedReason" | "suggestedStage" | "supersededBy" | "worktreePath") | ("archived" | "audience" | "blockedByNotes" | "createdAt" | "createdBy" | "defaultAgent" | "defaultEffort" | "defaultModel" | "description" | "id" | "intentOrigin" | "isDraftVessel" | "labels" | "needsHuman" | "owner" | "parentBranch" | "priority" | "seq" | "stage" | "title" | "type" | "updatedAt" | "visibility")> & Omit<{
+}, ("acceptance" | "activityNotes" | "agentProfileId" | "asked" | "assignee" | "branch" | "brief" | "closedAt" | "closedReason" | "coordinatorSessionId" | "deferUntil" | "deletedAt" | "dependencyNote" | "dueAt" | "duplicateOf" | "estimateMin" | "landedAt" | "landedSha" | "lastLifecycleActor" | "linearId" | "linearIdentifier" | "linearUrl" | "machineId" | "notesUpdatedAt" | "panel" | "parentId" | "prUrl" | "repoId" | "revision" | "sortKey" | "startedBySession" | "suggestedReason" | "suggestedStage" | "supersededBy" | "worktreePath") | ("archived" | "audience" | "blockedByNotes" | "createdAt" | "createdBy" | "defaultAgent" | "defaultEffort" | "defaultModel" | "description" | "id" | "intentOrigin" | "isDraftVessel" | "labels" | "needsHuman" | "owner" | "parentBranch" | "priority" | "seq" | "stage" | "title" | "type" | "updatedAt" | "visibility")> & Omit<{
     acceptance?: string | undefined;
     activityNotes?: string | undefined;
     agentProfileId?: string | undefined;
@@ -5276,7 +5455,6 @@ type Output_issues_start = _podium_model.IssueUserOverlay & Omit<Partial<{
     brief?: string | undefined;
     closedAt?: string | undefined;
     closedReason?: string | undefined;
-    color?: "blue" | "cyan" | "fuchsia" | "green" | "indigo" | "lime" | "pink" | "rose" | "teal" | "violet" | undefined;
     coordinatorSessionId?: (string & z.BRAND<"SessionId">) | undefined;
     createdAt: string;
     createdBy: {
@@ -5313,6 +5491,8 @@ type Output_issues_start = _podium_model.IssueUserOverlay & Omit<Partial<{
     intentOrigin: "agent" | "human";
     isDraftVessel: boolean;
     labels: string[];
+    landedAt?: string | undefined;
+    landedSha?: string | undefined;
     lastLifecycleActor?: undefined | {
         actor: {
             id: string & z.BRAND<"AgentIdentityId">;
@@ -5340,13 +5520,15 @@ type Output_issues_start = _podium_model.IssueUserOverlay & Omit<Partial<{
         artifacts: {
             addedAt: string;
             artifactId?: (string & z.BRAND<"ArtifactId">) | undefined;
+            chatUploadId?: string | undefined;
+            chatUploadOwner?: string | undefined;
             entry?: string | undefined;
             files?: undefined | {
                 path: string;
                 size: number;
             }[];
             path: string;
-            sourceKind?: "terminal-evidence" | undefined;
+            sourceKind?: "creation-attachment" | "terminal-evidence" | undefined;
             sourcePaths?: string[] | undefined;
             title?: string | undefined;
             tracking?: "tracked" | "unknown" | "untracked" | undefined;
@@ -5584,6 +5766,7 @@ type Output_repos_githubList = {
     };
 };
 type Output_repos_listDetailed = Array<{
+    defaultParentBranch: null | string;
     machineId: _podium_model.MachineId;
     originUrl: null | string;
     path: string;
@@ -5642,7 +5825,7 @@ type Output_sessions_uploadImage = ({
         id: string;
         kind: "file" | "image";
         mediaType: string;
-        path: string;
+        path?: string | undefined;
     };
     path: string;
     refusal?: undefined;
@@ -7080,6 +7263,7 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
             input: {
                 id: string;
                 mutationId?: string | undefined;
+                readAt?: string | undefined;
             };
             output: Output_issues_addComment;
             meta: unknown;
@@ -7904,6 +8088,15 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
             };
             meta: unknown;
         }>;
+        "setDefaultParentBranch": TRPC.TRPCMutationProcedure<{
+            input: {
+                branch: null | string;
+                machineId?: string | undefined;
+                path: string;
+            };
+            output: Output_repos_listDetailed;
+            meta: unknown;
+        }>;
         "setPrefix": TRPC.TRPCMutationProcedure<{
             input: {
                 machineId?: string | undefined;
@@ -8028,6 +8221,7 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
         "markRead": TRPC.TRPCMutationProcedure<{
             input: {
                 mutationId?: string | undefined;
+                readAt?: string | undefined;
                 sessionId: string;
             };
             output: void;
@@ -8147,13 +8341,7 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
             meta: unknown;
         }>;
         "uploadImage": TRPC.TRPCMutationProcedure<{
-            input: {
-                dataBase64: string;
-                filename: string;
-                machineId?: string | undefined;
-                mimeType: string;
-                sessionId: string;
-            };
+            input: Input_sessions_uploadImage;
             output: Output_sessions_uploadImage;
             meta: unknown;
         }>;

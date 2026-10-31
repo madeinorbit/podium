@@ -1,22 +1,22 @@
-import { omitGone, requireHere } from './lookup'
-import { headerEntities } from './header-entities'
 import type { IssueViewModel } from '@podium/client-core/replica'
+import type { SessionView } from '@podium/client-core/session-values'
 import type { ActiveWorktree } from '@podium/client-core/values'
 import type { RepoId } from '@podium/model/browser'
-import type { SessionView } from '@podium/client-core/session-values'
 import { asSessionId, machinePathAncestors, machinePathSeparator } from '@podium/model/browser'
 import { autorun } from 'mobx'
 import { expect, it, vi } from 'vitest'
+import { SESSION_PANE_NOW, sessionPaneFixture } from '../../../tests/worklist/diagnostics/session-pane-fixture'
 import { shellFixture } from '../../../tests/worklist/diagnostics/shell-fixture'
-import { sessionPaneFixture, SESSION_PANE_NOW } from '../../../tests/worklist/diagnostics/session-pane-fixture'
 import { measureWork } from '../../../tests/worklist/harness/src/work-meter'
+import { headerEntities } from './header-entities'
 import type { HeaderRows } from './header-schema'
+import { omitGone, requireHere } from './lookup'
 import { MobxPool } from './pool'
-import { paneIssueColor, paneSession } from './session-pane'
+import { paneSession } from './session-pane'
 import { sessionPaneView } from './session-pane-view'
 import { ShellDockSession, shellViews } from './shell-views'
-import { worklistView } from './worklist/view-model'
 import { LOADING, type Loaded } from './worklist/rollup'
+import { worklistView } from './worklist/view-model'
 
 // Parity (old answer vs new answer on the same fixtures) for the facts this
 // change moves off copied session/issue bundles, and the heartbeat proof.
@@ -273,7 +273,7 @@ it('re-runs no stamp, ownership, chrome or dock routing on a heartbeat of the pa
   const runs = { stamp: 0, owner: 0, chrome: 0, dock: 0, legacyStamp: 0, legacyDock: 0 }
   const stops = [
     autorun(() => { runs.stamp++; panes.loaded(id)?.stampIssue }),
-    autorun(() => { runs.owner++; panes.selectedIssueId; panes.issueHex(color => color ?? undefined) }),
+    autorun(() => { runs.owner++; panes.selectedIssueId }),
     autorun(() => { runs.chrome++; views.chrome() }),
     autorun(() => { runs.dock++; dockAnswers(dock) }),
     // Legacy control arm: the old readers took the whole session row.
@@ -335,25 +335,14 @@ it('keeps pane lifecycle, host and birth grid equal to the row and quiet on acti
   } finally { stop(); f.pool.dispose() }
 })
 
-it('keeps selected-issue ownership and inherited tint equal and live through the worklist selection', () => {
+it('keeps selected-issue ownership live through the worklist selection', () => {
   const f = dockFixture(), panes = sessionPaneView(f.pool), worklist = worklistView(f.pool)
-  const hex = (color: string | null | undefined) => color ?? undefined
-  const stop = autorun(() => { panes.selectedIssueId; panes.issueHex(hex) })
   try {
     for (const id of [f.issues[1]!.id, f.issues[0]!.id, null]) {
       worklist.select(id)
       expect(panes.selectedIssueId).toBe(id)
-      expect(panes.issueHex(hex)).toBe(paneIssueColor(f.pool, id, hex))
     }
-    worklist.select(f.issues[1]!.id)
-    expect(panes.issueHex(hex)).toBe('red')
-    f.pool.apply({ type: 'update', rows: [{ kind: 'issue', id: f.issues[0]!.id,
-      value: { ...f.issues[0]!, color: 'violet' } }] as never })
-    expect(panes.issueHex(hex)).toBe('violet')
-    f.pool.apply({ type: 'update', rows: [{ kind: 'issue', id: f.issues[1]!.id,
-      value: { ...f.issues[1]!, archived: true } }] as never })
-    expect(panes.issueHex(hex)).toBeUndefined()
-  } finally { stop(); f.pool.dispose() }
+  } finally { f.pool.dispose() }
 })
 
 

@@ -1,20 +1,8 @@
 import { compareRecency, groupSessions } from '@podium/client-core/focus'
 import type { SessionView, SessionViewInput } from '@podium/client-core/session-values'
-import { partitionWorkItems, sortSessionsForSidebar } from '@podium/client-core/values'
-import { type AgentRuntimeState, asSessionId, type SessionId } from '@podium/model'
+import { sortSessionsForSidebar } from '@podium/client-core/values'
+import { asSessionId, type SessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
-
-const needsUser = (since: string): AgentRuntimeState => ({
-  phase: 'needs_user',
-  since,
-  nativeSubagentCount: 0,
-  need: { kind: 'question' },
-})
-const working = (since: string): AgentRuntimeState => ({
-  phase: 'working',
-  since,
-  nativeSubagentCount: 0,
-})
 
 const SAME = '2026-06-10T00:00:00.000Z'
 
@@ -72,91 +60,5 @@ describe('stable ordering with equal lastActiveAt', () => {
     expect(groupSessions([a, b]).idle.map((s) => s.sessionId)).toEqual(
       groupSessions([b, a]).idle.map((s) => s.sessionId),
     )
-  })
-})
-
-describe('partitionWorkItems (sidebar WORK ITEMS) ordering', () => {
-  // Input is oldest-first on purpose — the raw session list arrives roughly in
-  // insertion order, which is what put newest at the BOTTOM of the sidebar.
-  const old = '2026-06-08T00:00:00.000Z'
-  const mid = '2026-06-09T00:00:00.000Z'
-  const recent = '2026-06-10T00:00:00.000Z'
-
-  const agent = (over: Partial<SessionViewInput> & { sessionId: SessionId }): SessionView =>
-    meta({ agentKind: 'claude-code', ...over })
-
-  it('orders NEEDS YOUR ATTENTION newest-active first', () => {
-    const a = agent({
-      sessionId: asSessionId('old'),
-      lastActiveAt: old,
-      agentState: needsUser(old),
-    })
-    const b = agent({
-      sessionId: asSessionId('mid'),
-      lastActiveAt: mid,
-      agentState: needsUser(mid),
-    })
-    const c = agent({
-      sessionId: asSessionId('new'),
-      lastActiveAt: recent,
-      agentState: needsUser(recent),
-    })
-    const { attention } = partitionWorkItems([a, b, c], new Set(), Date.parse('2026-06-11'))
-    expect(attention.map((s) => s.sessionId)).toEqual(['new', 'mid', 'old'])
-  })
-
-  it('never shows shells in NEEDS YOUR ATTENTION (an idle shell is not a work item)', () => {
-    const idleShell = meta({ sessionId: asSessionId('sh'), agentKind: 'shell' }) // not busy → idle shell
-    const blockedAgent = agent({ sessionId: asSessionId('ag'), agentState: needsUser(recent) })
-    const { attention } = partitionWorkItems(
-      [idleShell, blockedAgent],
-      new Set(),
-      Date.parse('2026-06-11'),
-    )
-    expect(attention.map((s) => s.sessionId)).toEqual(['ag'])
-  })
-
-  it('shells never appear in the sidebar — not even a busy one in WORKING', () => {
-    const busyShell = meta({ sessionId: asSessionId('sh'), agentKind: 'shell', busy: true })
-    const {
-      attention,
-      working: w,
-      pinnedPanels,
-    } = partitionWorkItems([busyShell], new Set(['sh']), Date.parse('2026-06-11'))
-    expect(attention).toEqual([])
-    expect(w).toEqual([])
-    expect(pinnedPanels).toEqual([])
-  })
-
-  it('orders WORKING newest-active first', () => {
-    const a = meta({
-      sessionId: asSessionId('old'),
-      lastActiveAt: old,
-      agentState: working(old),
-      agentKind: 'claude-code',
-    })
-    const b = meta({
-      sessionId: asSessionId('new'),
-      lastActiveAt: recent,
-      agentState: working(recent),
-      agentKind: 'claude-code',
-    })
-    const { working: w } = partitionWorkItems([a, b], new Set(), Date.parse('2026-06-11'))
-    expect(w.map((s) => s.sessionId)).toEqual(['new', 'old'])
-  })
-
-  it('orders PINNED PANELS newest-active first', () => {
-    const a = meta({ sessionId: asSessionId('old'), lastActiveAt: old, agentKind: 'claude-code' })
-    const b = meta({
-      sessionId: asSessionId('new'),
-      lastActiveAt: recent,
-      agentKind: 'claude-code',
-    })
-    const { pinnedPanels } = partitionWorkItems(
-      [a, b],
-      new Set(['old', 'new']),
-      Date.parse('2026-06-11'),
-    )
-    expect(pinnedPanels.map((s) => s.sessionId)).toEqual(['new', 'old'])
   })
 })

@@ -1,8 +1,5 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
-import type { SessionView } from '@podium/client-core/session-values'
-import { indexSessionOwnership } from '@podium/client-core/values'
-import { sidebarSections } from '../../../../tests/worklist/legacy-values/index'
-import { type GitRepositoryWire, ISSUE_STAGES } from '@podium/model/browser'
+import { ISSUE_STAGES } from '@podium/model/browser'
 import { act, cleanup, fireEvent, render } from '@testing-library/react'
 import { flushSync } from 'react-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -27,8 +24,6 @@ const BUDGET = {
   tasksInitialButtons: 225,
   // Recalibrated on 91808701f: 79,194 reads with the current kanban.
   tasksInitialIssueReads: 80_000,
-  sidebarCwdReads: SCALE.sessions * 2,
-  sidebarIssueReads: SCALE.issues * 30,
   replicaIncomingReads: SCALE.issues * 100,
 } as const
 
@@ -99,42 +94,6 @@ function issueAt(index: number): IssueViewModel {
     blocked: false,
     deferred: false,
   } as unknown as IssueViewModel
-}
-
-function sessionAt(index: number): SessionView {
-  const worktree = index % (SCALE.repositories * SCALE.worktreesPerRepository)
-  return {
-    sessionId: `session-${String(index).padStart(4, '0')}`,
-    agentKind: index % 2 === 0 ? 'codex' : 'claude-code',
-    cwd: `${worktreePath(worktree)}/apps/web`,
-    title: `Generated session ${index}`,
-    status: 'live',
-    controllerId: `controller-${index % 12}`,
-    geometry: { cols: 120, rows: 36 },
-    epoch: 1,
-    clientCount: 1,
-    createdAt: '2026-07-18T08:00:00.000Z',
-    lastActiveAt: `2026-07-18T${String(8 + (index % 10)).padStart(2, '0')}:00:00.000Z`,
-    origin: { kind: 'spawn' },
-    archived: false,
-    readAt: null,
-    unread: index % 11 === 0,
-    issueId: index % 3 === 0 ? `issue-${String(index).padStart(4, '0')}` : undefined,
-    agentState: { phase: 'working', since: '2026-07-18T08:00:00.000Z' },
-  } as unknown as SessionView
-}
-
-function repositories(): GitRepositoryWire[] {
-  return Array.from({ length: SCALE.repositories }, (_, repoIndex) => ({
-    path: `/srv/repos/repo-${repoIndex}`,
-    branch: 'main',
-    originUrl: `github.com/anonymized/repo-${repoIndex}`,
-    machineId: `machine-${repoIndex % 3}`,
-    worktrees: Array.from({ length: SCALE.worktreesPerRepository - 1 }, (_, child) => {
-      const worktree = repoIndex * SCALE.worktreesPerRepository + child + 1
-      return { path: `/srv/worktrees/wt-${worktree}`, branch: `issue/${worktree}-generated` }
-    }),
-  })) as unknown as GitRepositoryWire[]
 }
 
 function metric(name: string, values: Record<string, number>): void {
@@ -258,54 +217,6 @@ describe('Ludovico-scale frontend budgets [spec:SP-0b2e] [spec:SP-e2c8] [spec:SP
       keyboardCards,
       initialIssuePropertyReads: initialIssueReads,
       renderMs: Math.round(renderMs * 10) / 10,
-    })
-  })
-
-  it('derives sidebar ownership with one cwd resolution per session', () => {
-    const cwdReads = { value: 0 }
-    const issueReads: Counter = { gets: 0, ownKeys: 0 }
-    const issues = Array.from({ length: SCALE.issues }, (_, index) =>
-      counted(issueAt(index), issueReads),
-    )
-    const sessions = Array.from({ length: SCALE.sessions }, (_, index) => {
-      const session = sessionAt(index)
-      return new Proxy(session, {
-        get(target, key, receiver) {
-          if (key === 'cwd') cwdReads.value++
-          return Reflect.get(target, key, receiver)
-        },
-      })
-    })
-    const repos = repositories()
-    const worktreePaths = repos.flatMap((repo) => [
-      repo.path,
-      ...repo.worktrees.map((worktree) => worktree.path),
-    ])
-
-    const started = performance.now()
-    const ownership = indexSessionOwnership(sessions, issues, worktreePaths)
-    const sections = sidebarSections(
-      repos,
-      sessions,
-      { panels: [], worktrees: [], repos: [] },
-      Date.parse('2026-07-18T18:00:00.000Z'),
-      issues,
-    )
-    const deriveMs = performance.now() - started
-    const derivedWorktrees = sections.repos.reduce((sum, repo) => sum + repo.worktrees.length, 0)
-
-    expect(ownership.sessionById.size).toBe(SCALE.sessions)
-    expect(derivedWorktrees).toBe(SCALE.repositories * SCALE.worktreesPerRepository)
-    expect(cwdReads.value).toBeLessThanOrEqual(BUDGET.sidebarCwdReads)
-    expect(issueReads.gets).toBeLessThanOrEqual(BUDGET.sidebarIssueReads)
-
-    metric('sidebar', {
-      issues: SCALE.issues,
-      sessions: SCALE.sessions,
-      worktrees: derivedWorktrees,
-      cwdReads: cwdReads.value,
-      issuePropertyReads: issueReads.gets,
-      deriveMs: Math.round(deriveMs * 10) / 10,
     })
   })
 

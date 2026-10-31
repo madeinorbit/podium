@@ -1,24 +1,24 @@
-import { omitGone } from '@podium/client-graph/lookup'
 import { useStoreHandle } from '@podium/client-core/react'
-import { LOADING } from '@podium/client-graph'
-import type { CommandPaletteData, RecentCommand } from '@podium/client-graph/command-launch-views'
 import type { SessionView } from '@podium/client-core/session-values'
 import type { RepoView } from '@podium/client-core/values'
-import type { MachineWire } from '@podium/model/browser'
+import { LOADING } from '@podium/client-graph'
+import type { CommandPaletteData, RecentCommand } from '@podium/client-graph/command-launch-views'
+import { omitGone } from '@podium/client-graph/lookup'
 import type { Loaded } from '@podium/client-graph/worklist/rollup'
+import type { MachineWire } from '@podium/model/browser'
 import { runInAction } from 'mobx'
 import { useEffect, useMemo, useState } from 'react'
 import {
   EMPTY_FILES,
+  readCommandViews,
   readFiles,
-  readLaunchOrigin,
   readLaunchOptions,
-  readTargetMachines,
+  readLaunchOrigin,
   readOpen,
   readPalette,
-  readCommandViews,
   readSession,
   readSessions,
+  readTargetMachines,
 } from './command-launch-readers'
 import type { Store } from './store'
 import { useWorklistPool, useWorklistPoolProjection } from './store-worklist-pool'
@@ -137,7 +137,7 @@ export function useCommandIssue(id: string | null) {
     const issue = reader && reader !== LOADING ? reader.issue(id) : undefined
     return issue && issue !== LOADING ? {
       id: issue.id, seq: issue.seq, title: issue.title, stage: issue.stage,
-      displayRef: issue.displayRef, linearIdentifier: issue.linearIdentifier, color: issue.color,
+      displayRef: issue.displayRef, linearIdentifier: issue.linearIdentifier,
     } : undefined
   }, [id])
   return useWorklistPoolProjection(read, undefined)

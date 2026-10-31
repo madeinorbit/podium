@@ -1,8 +1,9 @@
+import type { FileScope } from '@podium/client-core/values'
 import { RequestAnswer } from '@podium/client-graph/request-answer'
 import { lazy } from '@podium/mobx-helpers'
 import { action, observable, observableRef, runInAction } from 'mobx'
-import type { FileScope } from '@podium/client-core/values'
 import type { Trpc } from '@/app/trpc'
+import { isArtifactsTabScope } from './artifacts-tab-id'
 import { canSave } from './editor-save'
 
 type ReadResult = Pick<
@@ -96,7 +97,12 @@ export class FileDocumentView extends RequestAnswer<ReadResult> {
     this.saveFeedback = null
     this.baseHash = undefined
     await this.load(
-      () => this.ports.readFileScoped(this.scope, this.path),
+      // The Artifacts index's sentinel scope names no stored artifact
+      // (POD-2078); answer locally rather than send it to the server.
+      () =>
+        isArtifactsTabScope(this.scope)
+          ? Promise.resolve({ ok: false, error: 'not a file' } as ReadResult)
+          : this.ports.readFileScoped(this.scope, this.path),
       true,
       (answer) => {
         if (answer.ok) {

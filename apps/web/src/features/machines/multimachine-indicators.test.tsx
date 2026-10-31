@@ -3,6 +3,7 @@ import { enableFixtureHeader } from '@/test-support/pool-fixture'
 
 enableFixtureHeader()
 import '@/test-support/mock-pool-store-handle'
+import { readFileSync } from 'node:fs'
 // @vitest-environment happy-dom
 /**
  * #136: the host status strip is machine-aware.
@@ -263,35 +264,55 @@ describe('quota overlay groups by account', () => {
     })
     quotaSummary.mockResolvedValue([mixed])
 
-    render(<QuotaIndicator header />)
-
-    const chip = await screen.findByRole('button', {
-      name: /Agent quota: Claude Code \(claude@example.com\) 98% used; Codex \(codex@example.com\) 10% used/i,
-    })
-    expect(within(chip).getByText('CC')).toBeTruthy()
-    expect(within(chip).getByText('CX')).toBeTruthy()
-    const harnessIcons = chip.querySelectorAll<SVGElement>('.header-harness-icon')
-    expect(harnessIcons).toHaveLength(2)
-    expect(harnessIcons[0]?.closest('[data-harness]')?.getAttribute('data-harness')).toBe(
-      'claude-code',
+    const style = document.createElement('style')
+    style.textContent = readFileSync('src/styles.css', 'utf8')
+    document.head.append(style)
+    const view = render(
+      <div className="header-host-indicators topbar-well">
+        <QuotaIndicator header />
+      </div>,
     )
-    expect(harnessIcons[1]?.closest('[data-harness]')?.getAttribute('data-harness')).toBe('codex')
-    expect([...harnessIcons].every((icon) => icon.getAttribute('aria-hidden') === 'true')).toBe(
-      true,
-    )
-    const meters = chip.querySelectorAll<HTMLElement>('.header-quota-meter > span')
-    expect(meters).toHaveLength(2)
-    expect(meters[0]?.style.width).toBe('98%')
-    expect(meters[1]?.style.width).toBe('10%')
-    expect(meters[0]?.className).toContain('bg-destructive')
-    expect(meters[1]?.className).toContain('bg-success')
+    try {
+      const chip = await screen.findByRole('button', {
+        name: /Agent quota: Claude Code \(claude@example.com\) 98% used; Codex \(codex@example.com\) 10% used/i,
+      })
+      expect(within(chip).getByText('CC')).toBeTruthy()
+      expect(within(chip).getByText('CX')).toBeTruthy()
+      const harnessIcons = chip.querySelectorAll<SVGElement>('.header-harness-icon')
+      expect(harnessIcons).toHaveLength(2)
+      expect(harnessIcons[0]?.closest('[data-harness]')?.getAttribute('data-harness')).toBe(
+        'claude-code',
+      )
+      expect(harnessIcons[1]?.closest('[data-harness]')?.getAttribute('data-harness')).toBe('codex')
+      expect([...harnessIcons].every((icon) => icon.getAttribute('aria-hidden') === 'true')).toBe(
+        true,
+      )
+      const meters = chip.querySelectorAll<HTMLElement>('.header-quota-meter > span')
+      expect(meters).toHaveLength(2)
+      expect(meters[0]?.style.width).toBe('98%')
+      expect(meters[1]?.style.width).toBe('10%')
+      expect(meters[0]?.className).toContain('bg-destructive')
+      expect(meters[1]?.className).toContain('bg-success')
 
-    fireEvent.click(chip)
-    await waitFor(() => expect(screen.getByText('1 constrained')).toBeTruthy())
-    expect(screen.getByText('1 healthy')).toBeTruthy()
-    const verdictItems = document.querySelectorAll('.health-popover-quota .hp-verdict-item')
-    expect(verdictItems).toHaveLength(2)
-    expect([...verdictItems].every((item) => item.querySelector('i'))).toBe(true)
+      const pools = chip.querySelectorAll<HTMLElement>('.header-quota-pool')
+      expect(pools).toHaveLength(2)
+      for (const pool of pools) {
+        expect(getComputedStyle(pool).display).not.toBe('none')
+      }
+      for (const icon of harnessIcons) {
+        expect(getComputedStyle(icon).display).not.toBe('none')
+      }
+
+      fireEvent.click(chip)
+      await waitFor(() => expect(screen.getByText('1 constrained')).toBeTruthy())
+      expect(screen.getByText('1 healthy')).toBeTruthy()
+      const verdictItems = document.querySelectorAll('.health-popover-quota .hp-verdict-item')
+      expect(verdictItems).toHaveLength(2)
+      expect([...verdictItems].every((item) => item.querySelector('i'))).toBe(true)
+    } finally {
+      view.unmount()
+      style.remove()
+    }
   })
 
   it('keeps Grok visible when its quota read expires', async () => {
@@ -571,6 +592,42 @@ describe('header chips flag version skew', () => {
 
 // POD-563: host pressure extends the machine chip (no strip) with LOAD + AGT.
 describe('header machine chip carries host-pressure readouts', () => {
+  it.each([
+    'balanced',
+    'compact',
+  ])('keeps healthy machine meters visible at %s density while hiding agent counts', async (density) => {
+    const style = document.createElement('style')
+    style.textContent = readFileSync('src/styles.css', 'utf8')
+    document.head.append(style)
+    const previousDensity = document.documentElement.getAttribute('data-density')
+    document.documentElement.setAttribute('data-density', density)
+    const view = render(<HeaderHostIndicators />)
+    try {
+      await waitFor(() => expect(settingsGet).toHaveBeenCalled())
+      const chips = document.querySelectorAll('.header-machine-chip')
+      expect(chips.length).toBeGreaterThanOrEqual(2)
+      for (const chip of chips) {
+        const meters = chip.querySelector('.header-machine-meters')
+        expect(meters).not.toBeNull()
+        if (!meters) throw new Error('Missing machine meters')
+        expect(getComputedStyle(meters).display).not.toBe('none')
+        const readouts = meters.querySelectorAll('.header-readout')
+        expect(readouts).toHaveLength(3)
+        for (const readout of readouts) {
+          expect(getComputedStyle(readout).display).not.toBe('none')
+        }
+        for (const agents of chip.querySelectorAll('.header-agent-readout')) {
+          expect(getComputedStyle(agents).display).toBe('none')
+        }
+      }
+    } finally {
+      view.unmount()
+      style.remove()
+      if (previousDensity === null) document.documentElement.removeAttribute('data-density')
+      else document.documentElement.setAttribute('data-density', previousDensity)
+    }
+  })
+
   it('renders MEM, LOAD, and AGT marks on each machine chip', async () => {
     render(<HeaderHostIndicators />)
     await waitFor(() => expect(settingsGet).toHaveBeenCalled())

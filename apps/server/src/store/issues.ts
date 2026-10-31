@@ -17,7 +17,6 @@ import {
   IssueStage,
   IssueUserState,
   isIssueClosed,
-  isIssueColorSlot,
   machinePathAncestors,
   machinePathSeparator,
   type MachineId,
@@ -244,6 +243,7 @@ const worktreeOwnersOf = preparedFamily((db: StoreDrizzle, size: number) => {
     seq: issues.seq,
     worktreePath: issues.worktreePath,
     archived: issues.archived,
+    machineId: issues.machineId,
   }
   const literal = db
     .select(columns)
@@ -985,7 +985,6 @@ const UPSERT_ISSUE_SET_COLUMNS = [
   'supersededBy',
   'duplicateOf',
   'sortKey',
-  'color',
   'estimateMin',
   'needsHuman',
   'humanQuestion',
@@ -1079,6 +1078,8 @@ export interface WorktreeOwnerRow {
   seq: number
   worktreePath: string | null
   archived: boolean
+  /** The machine the issue is homed on, or null when it has none. */
+  machineId: MachineId | null
 }
 
 /** `ORDER BY repo_path, seq` in SQLite's BINARY collation: UTF-8 bytes, then
@@ -1404,7 +1405,6 @@ export class IssuesRepository {
       supersededBy: row.supersededBy,
       duplicateOf: row.duplicateOf,
       sortKey: row.sortKey ?? null,
-      color: row.color ?? null,
       estimateMin: row.estimateMin,
       needsHuman: row.needsHuman,
       humanQuestion: row.humanQuestion,
@@ -1946,7 +1946,8 @@ export class IssuesRepository {
         // The structural quarantine every cwd reader applies.
         if (typeof row.id !== 'string' || typeof row.repoPath !== 'string') continue
         byId.set(row.id, { id: asIssueId(row.id), repoPath: row.repoPath, seq: row.seq,
-          worktreePath: row.worktreePath, archived: row.archived })
+          worktreePath: row.worktreePath, archived: row.archived,
+          machineId: (row.machineId ?? null) as MachineId | null })
       }
     }
     return byRepoPathThenSeq(byId.values())
@@ -2677,7 +2678,6 @@ export function issueFromRow(r: typeof issues.$inferSelect): IssueRow {
     supersededBy: r.supersededBy,
     duplicateOf: r.duplicateOf,
     sortKey: r.sortKey,
-    color: isIssueColorSlot(r.color) ? r.color : null,
     estimateMin: r.estimateMin,
     needsHuman: r.needsHuman,
     humanQuestion: r.humanQuestion,

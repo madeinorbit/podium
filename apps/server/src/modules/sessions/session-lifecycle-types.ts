@@ -23,6 +23,7 @@ import type {
 } from '@podium/protocol'
 import type {
   QueueDrainAbandonedReason,
+  RuntimeAttachmentRef,
 } from '@podium/protocol/daemon'
 import type {
   EntityChangeSpec,
@@ -117,6 +118,7 @@ export interface SessionLifecycleDeps {
     parentSessionId: SessionId
     sessionId: SessionId
     text: string
+    attachments?: readonly RuntimeAttachmentRef[]
   }): Promise<string>
   /** Store the task a person (or a job) started a session with as the owner's
    *  message, attributed to its creator (POD-4846); answers its id. */
@@ -124,7 +126,18 @@ export interface SessionLifecycleDeps {
     sessionId: SessionId
     text: string
     attribution: Attribution
+    attachments?: readonly RuntimeAttachmentRef[]
   }): Promise<string>
+  /** Chat uploads claimed into an issue (POD-2148): the inbox stages one on
+   *  the agent's machine when it forwards the row that carries it, and the
+   *  send seam checks a ref names one on the session's issue. Absent = a
+   *  server with no issue store; a pathless ref is then refused. */
+  chatUploads?: {
+    bytes(issueId: IssueId, uploadId: string): Promise<Uint8Array | undefined>
+    /** The uploader of the chat upload the issue holds under this id;
+     *  undefined when it holds none, null when the entry names nobody. */
+    owner(issueId: IssueId, uploadId: string): Promise<UserId | null | undefined>
+  }
   /** Send an agent's continue as a message from `system:auto-continue`, one
    *  per errored turn (POD-4846). */
   sendContinue?(input: {
@@ -269,6 +282,9 @@ export interface SessionLifecycleDeps {
   }): Promise<PreparedSessionInstructions>
   /** Agent-profile launch resolver (POD-6107); absent = profiles are ignored. */
   agentLaunch?: SessionStartPorts['agentLaunch']
+  /** The draft task an agent started outside every task joins; absent = none. */
+  draftForStart?: SessionStartPorts['draftForStart']
+  discardUnlaunchedDraft?: SessionStartPorts['discardUnlaunchedDraft']
   /**
    * Presence-room occupancy for a session (POD-1081). When provided,
    * `clientCount` is derived from it and attach/watch policy can consult the

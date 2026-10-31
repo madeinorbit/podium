@@ -147,7 +147,6 @@ export function useMissionOpening(selectedId: string): { screen: MissionScreen |
   )
   useEffect(() => {
     if (!screen) return
-    screen.open()
     return () => screen.close()
   }, [screen])
   // An archived member can still own the current conversation. Its live

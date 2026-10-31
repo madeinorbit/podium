@@ -157,14 +157,19 @@ export interface ClaudePromptHookIdentity {
  * {@link ClaudeCausalObserver.inheritedTurnUnproven} settles at the constructor
  * instead, before the epoch is ever closed. Revival remains for the genuinely
  * unwitnessed NEXT turn. [POD-765]
+ *
+ * Compaction hooks are deliberately absent. Claude also compacts between turns
+ * (idle auto-compaction, manual /compact), under the summary's fresh prompt id
+ * and with no Stop to follow; reviving on that opened a turn nothing closed, so
+ * the session read working forever. A compaction outside a turn leaves the
+ * settled state alone, and a turn that really runs announces itself with its
+ * own submit or tool hooks. [POD-2231]
  */
 const EPOCH_REVIVING_HOOKS = new Set([
   'PreToolUse',
   'PostToolUse',
   'PermissionRequest',
   'Notification',
-  'PreCompact',
-  'PostCompact',
 ])
 
 /**
@@ -616,7 +621,19 @@ export class ClaudeCausalObserver {
     const event = events[0]!
 
     const prior = this.state
-    const next = reduceAgentState(prior, withStateChannelEvent(event, 'hook'), this.now())
+    let next = reduceAgentState(
+      prior,
+      withStateChannelEvent(this.compactionInOpenTurn(hook, prior) ?? event, 'hook'),
+      this.now(),
+    )
+    if (hook === 'PreCompact' && next.compactingFrom) {
+      // A compaction reaches here only inside an open epoch, which is a running
+      // turn whatever the phase says: a restart rebuilds an unfenced turn as bare
+      // idle (POD-765). It must resume working, so only a wait the turn itself
+      // opened survives.
+      const { compactingFrom, ...rest } = next
+      if (compactingFrom.phase === 'idle' || compactingFrom.phase === 'errored') next = rest
+    }
     if (next === prior) return null
     this.state = next
     if (reviving) {
@@ -836,6 +853,18 @@ export class ClaudeCausalObserver {
     // The prompt hook carried no native id to match, so position is the proof:
     // only a record written after this epoch began can be its stop.
     return record.recordBoundary > this.epochOpenedOffset
+  }
+
+  /**
+   * PostCompact inside a running turn resumes the turn, even when the state no
+   * longer reads compacting: a restart mid-compaction rebuilds the turn as bare
+   * idle while its epoch stays open (POD-765), and the reducer's end alone would
+   * leave it idle — the resumed answer's Stop would then change no phase. Null
+   * when the reducer's own compaction end applies.
+   */
+  private compactionInOpenTurn(hook: string, prior: AgentRuntimeState): AgentStateEvent | null {
+    if (hook !== 'PostCompact' || !this.epochOpen || prior.phase === 'compacting') return null
+    return { kind: 'activity' }
   }
 
   private hookIdentity(hook: string, p: Record<string, unknown>): string {

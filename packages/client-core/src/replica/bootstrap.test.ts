@@ -9,14 +9,14 @@
  * convergence would pass while the outbox is being silently eaten."
  */
 
+import { createReplicaFixture } from '@podium/client-core/test-support/replica'
 import { asMutationId } from '@podium/model'
 import type { MetadataChangeLenient } from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
 import type { OutboxEntry } from '../outbox'
 import { BootstrapSession, snapshotToChunks } from './bootstrap'
-import { advanceCursor, COLD_CURSOR, decideFeedAction, type FeedCursor } from './feed'
 import { memoryStorage, type Replica } from './contract'
-import { createReplicaFixture } from '@podium/client-core/test-support/replica'
+import { advanceCursor, COLD_CURSOR, decideFeedAction, type FeedCursor } from './feed'
 
 const at = (feedId: string, epoch: string, seq: number): FeedCursor => ({ feedId, epoch, seq })
 /** Tests pace synchronously — the real yield is a macrotask hop. */
@@ -93,7 +93,7 @@ describe('authoritative empty rescope', () => {
       issueEvents: [{ id: 'event-1' }],
       pendingInteractions: [{ id: 'ask-1', sessionId: 'old-session' }],
       messageRecords: [{ id: 'message-1', sessionId: 'old-session', senderUserId: 'user-1' }],
-      userLayouts: [{ userId: 'user-1', key: 'sidebar.collapsed', value: true }],
+      userLayouts: [{ userId: 'user-1', key: 'sidebar.section.pinned', value: true }],
     }
     const supplementKinds = Object.keys(supplements) as Array<keyof typeof supplements>
     for (const kind of supplementKinds) replica.applySnapshot(kind, supplements[kind] as never)
@@ -125,7 +125,6 @@ describe('authoritative empty rescope', () => {
     expect(replica.getFeedCursor()).toEqual(at('old-feed', 'old-epoch', 5))
     expect(notified).not.toHaveBeenCalled()
     await replica.flush()
-
   })
 
   it('applies buffered deltas over the empty replacement in sequence order', async () => {

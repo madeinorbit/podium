@@ -60,7 +60,11 @@ export interface MessageGateDeps {
   sessionById(sessionId: SessionId): Promise<SessionMeta | undefined>
   /** A person's own chat message records, by id, as the feed scopes them
    *  (`readMessageRecords`, POD-4811) — `mail.records`. */
-  messageRecords(userId: UserId, ids: readonly string[]): Promise<MessageRecordWire[]>
+  messageRecords(userId: UserId, ids: readonly string[], transcriptSessionId?: SessionId): Promise<MessageRecordWire[]>
+  /** A session's owner and grants, as the session reads decide access
+   *  (`SessionAuthz.sessionOwner`) — lets a person read mail sent by or
+   *  delivered to a session they may read (POD-2143, POD-2146). Absent (tests) = `mayView` alone. */
+  sessionOwner?(sessionId: SessionId): Promise<{ owner: UserId; grants: string[] } | undefined>
   /** Cross-harness subagent spawn seam (#237 [spec:SP-34d7 cross-harness]) —
    *  SessionLifecycle.createSession, the one spawn path. Absent = spawn proc
    *  reports unwired (tests / partial deployments). */

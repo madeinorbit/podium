@@ -1,6 +1,6 @@
 import type { IssueNavigationModel } from '@podium/client-core/values'
 import { issueDisplayRef } from '@podium/protocol'
-import { ArrowUpFromLine } from 'lucide-react'
+import { AlarmClockOff, ArrowUpFromLine } from 'lucide-react'
 import type { JSX } from 'react'
 import { createPortal } from 'react-dom'
 import {
@@ -15,26 +15,26 @@ import type { ContextMenuAnchor } from '@/lib/session-context-menu'
 import { useCursorMenu } from '@/lib/use-cursor-menu'
 
 /**
- * THE FOLDED ROW'S ONE GESTURE (POD-1188): Bring back.
+ * THE FOLDED ROW'S RETURN GESTURE (POD-1188).
  *
  * A live row carries the "Tuck" chip in its meta column, and pressing it drops
- * the finished row into Closed. Nothing carried the inverse: a row tucked away
- * by mistake could be clicked back into the panel, archived, or reopened — but
- * not simply put back where it was. So the folded row answers a right-click, and
- * what it answers with is the one move that is missing.
+ * the finished row into Closed. A snooze moves a row into Snoozed. Right-click
+ * offers the inverse for each lane: Bring back clears a tucked row's tuck;
+ * Unsnooze clears a snoozed row's deferral so it returns to Open.
  *
  * ONE ITEM, NOT THE ISSUE MENU. The full `IssueContextMenu` is what a LIVE row
  * offers: stage, priority, colour, labels, handoff, delete. A row in the fold is
- * out of triage — the whole point of `FoldedWorkRow` dropping to one dim line is
- * that the vocabulary of an open row does not apply to it — and putting sixteen
- * items behind this right-click would be re-triaging from inside the archive.
- * Bring it back and the live row's own menu is right there.
+ * out of triage. `FoldedWorkRow` keeps the task's identity and folded status,
+ * without its live vocabulary, and putting sixteen items behind this
+ * right-click would be re-triaging from inside the fold. Bring it back or
+ * unsnooze it and the live row's own menu is right there.
  *
  * DISABLED WITH ITS REASON, NEVER HIDDEN (POD-821's rule, POD-1077's reading of
- * it): a folded row past the finished-grace window is held down by the backstop
+ * it): a closed row past the finished-grace window is held down by the backstop
  * rather than by the tuck, so clearing the tuck would move nothing. An item that
  * quietly did nothing, or a right-click that opened nothing at all, are both
- * indistinguishable from a broken gate — so the row says which one it is.
+ * indistinguishable from a broken gate, so Bring back says why it is disabled.
+ * Unsnooze clears the deferral without that closed-row grace-window restriction.
  */
 export function FoldedRowMenu({
   issue,
@@ -42,6 +42,7 @@ export function FoldedRowMenu({
   anchor,
   onClose,
   onBringBack,
+  onUnsnooze,
 }: {
   issue: IssueNavigationModel
   /** Would clearing the tuck actually return the row to the live list?
@@ -50,6 +51,7 @@ export function FoldedRowMenu({
   anchor: ContextMenuAnchor
   onClose: () => void
   onBringBack: () => void
+  onUnsnooze?: () => void
 }): JSX.Element {
   const { ref, pos } = useCursorMenu(anchor, onClose)
   return createPortal(
@@ -62,14 +64,25 @@ export function FoldedRowMenu({
       // The host opens this on contextmenu; suppress a nested browser menu.
       onContextMenu={(e) => e.preventDefault()}
     >
-      {/* The same header the issue menu, the session menu and the colour picker
-          wear (POD-380) — these panels open one pixel apart in this column and
-          have to read as one object. */}
+      {}
       <div className={`${MENU_HEADER} px-[5px]`}>
         <span>TASK</span>
         <span className={`${MENU_HEADER_REF} tabular-nums`}>{issueDisplayRef(issue)}</span>
       </div>
-      {canBringBack ? (
+      {onUnsnooze ? (
+        <button
+          data-pressable
+          type="button"
+          role="menuitem"
+          className={MENU_ITEM}
+          onClick={() => {
+            onUnsnooze()
+            onClose()
+          }}
+        >
+          <AlarmClockOff size={14} aria-hidden="true" /> Unsnooze
+        </button>
+      ) : canBringBack ? (
         <button
           data-pressable
           type="button"

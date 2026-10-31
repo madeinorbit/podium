@@ -125,15 +125,15 @@ export function issueForPanel<T extends IssuePanelLike>(args: {
   sessions: SessionView[]
   cwd: string
   sessionId?: SessionId
-  /** Explicit issue (artifact file tabs, [spec:SP-0fc9] #441; every explorer
-   *  level, POD-743) — beats both the session attachment and cwd containment
+  /** Explicit issue (artifact file tabs, [spec:SP-0fc9] #441; the dock's task
+   *  panel) — beats both the session attachment and cwd containment
    *  whenever the id still names a task. */
   issueId?: IssueId
 }): T | null {
   if (args.issueId !== undefined) {
     // ARCHIVED COUNTS. An explicit id is a request to look at THAT task, and
-    // the explorer hands archived ones over deliberately — its search recovers
-    // them by exact ref and its breadcrumb labels them. Substituting the
+    // the dock panel shows archived ones deliberately — a ref chip can point
+    // it at one, and its header labels them. Substituting the
     // session's issue for one the operator asked for by name showed a panel
     // about a different task, and where nothing else resolved it showed an
     // empty state belonging to another surface entirely (POD-1277). Deleted is

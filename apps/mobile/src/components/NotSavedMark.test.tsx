@@ -29,7 +29,7 @@ afterEach(() => { cleanup(); state.current?.dispose(); state.current = null; vi.
 
 it('keeps refused words copyable on the phone, rolls back and marks the work row, then clears the mark on retry', async () => {
   const f = state.current = await refusalFixture()
-  render(<><PoolWorkRowSlot item={{ kind: 'issue', id: f.id, listKey: f.id }} navPending={false}
+  render(<><PoolWorkRowSlot item={{ id: f.id, listKey: f.id }} navPending={false}
     onOpenIssue={() => {}} onOpenSession={() => {}} onLongPress={() => {}} onTuck={() => {}} />
     <OutboxRecoveryPanel /></>)
   expect(screen.getByText(f.original)).toBeTruthy()
@@ -60,7 +60,7 @@ it('phone Copy keeps pool work and React commits flat at 1x and 4x', async () =>
     let commits = 0
     try {
       render(<Profiler id="phone recovery" onRender={() => { commits++ }}>
-        <PoolWorkRowSlot item={{ kind: 'issue', id: f.id, listKey: f.id }} navPending={false}
+        <PoolWorkRowSlot item={{ id: f.id, listKey: f.id }} navPending={false}
           onOpenIssue={() => {}} onOpenSession={() => {}} onLongPress={() => {}} onTuck={() => {}} />
         <OutboxRecoveryPanel />
       </Profiler>)

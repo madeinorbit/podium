@@ -76,25 +76,65 @@ async function scrollBack(page: Page, input: 'wheel' | 'touch' | 'keyboard'): Pr
   await settled(page)
 }
 
+async function openFixture(page: Page, viewport: string): Promise<void> {
+  await page.route('**/transcript-scroll-fixture.js', (route) =>
+    route.fulfill({ contentType: 'text/javascript', body: fixtureScript }),
+  )
+  await page.route(
+    (url) => url.pathname === '/transcript-scroll-fixture',
+    (route) =>
+      route.fulfill({
+        contentType: 'text/html',
+        body: '<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><div id="root"></div><script type="module" src="/transcript-scroll-fixture.js"></script>',
+      }),
+  )
+  await page.goto(`/transcript-scroll-fixture?viewport=${viewport}`)
+  await page.waitForFunction(() => Boolean(window.__transcriptScrollFixture))
+  await settled(page)
+}
+
+async function changeRowHeights(
+  page: Page,
+  viewport: string,
+  first: number,
+  last?: number,
+  pendingMovement = 0,
+): Promise<{ top: number; maximum: number }> {
+  return page.evaluate(
+    ({ viewport, first, last, pendingMovement }) => {
+      const scroller = document.querySelector<HTMLElement>('[data-feed-scroller]')!
+      scroller.scrollTop += pendingMovement
+      const size = (index: number, height: number) => {
+        const row = scroller.querySelector<HTMLElement>(`[data-block="${index}"]`)!
+        const content = viewport === 'phone' ? (row.firstElementChild as HTMLElement) : row
+        content.style.height = `${height}px`
+      }
+      // The fixture starts with forty 72px rows. Mutate before scroll/resize
+      // delivery to cover compositor input coalescing with a layout change.
+      size(0, first)
+      if (last !== undefined) size(39, last)
+      return { top: scroller.scrollTop, maximum: scroller.scrollHeight - scroller.clientHeight }
+    },
+    { viewport, first, last, pendingMovement },
+  )
+}
+
+const rowOffset = (page: Page, key: string): Promise<number> =>
+  page.evaluate((key) => {
+    const scroller = document.querySelector<HTMLElement>('[data-feed-scroller]')!
+    const row = [...scroller.querySelectorAll<HTMLElement>('[data-row-key]')].find(
+      (row) => row.dataset.rowKey === key,
+    )!
+    return row.getBoundingClientRect().top - scroller.getBoundingClientRect().top
+  }, key)
+
 for (const viewport of ['desktop', 'phone']) {
   test(`${viewport}: reading stays anchored through live growth, asynchronous history and real scroll input`, async ({
     page,
     isMobile,
     browserName,
   }) => {
-    await page.route('**/transcript-scroll-fixture.js', (route) =>
-      route.fulfill({ contentType: 'text/javascript', body: fixtureScript }),
-    )
-    await page.route(
-      (url) => url.pathname === '/transcript-scroll-fixture',
-      (route) =>
-        route.fulfill({
-          contentType: 'text/html',
-          body: '<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><div id="root"></div><script type="module" src="/transcript-scroll-fixture.js"></script>',
-        }),
-    )
-    await page.goto(`/transcript-scroll-fixture?viewport=${viewport}`)
-    await page.waitForFunction(() => Boolean(window.__transcriptScrollFixture))
+    await openFixture(page, viewport)
     await expect.poll(async () => (await snapshot(page)).gap).toBeLessThanOrEqual(2)
     const opened = await snapshot(page)
     const input = isMobile ? (browserName === 'chromium' ? 'touch' : 'keyboard') : 'wheel'
@@ -179,5 +219,72 @@ for (const viewport of ['desktop', 'phone']) {
     expect((await snapshot(page)).loading).toBe(false)
     await scrollBack(page, input)
     expect((await snapshot(page)).loading).toBe(true)
+  })
+
+  test(`${viewport}: shrinking the scroll range preserves reading and pending input`, async ({
+    page,
+    isMobile,
+    browserName,
+  }) => {
+    const input = isMobile ? (browserName === 'chromium' ? 'touch' : 'keyboard') : 'wheel'
+    for (const movement of [0, -100]) {
+      await openFixture(page, viewport)
+      await scrollBack(page, input)
+      await page.evaluate(() => {
+        const el = document.querySelector<HTMLElement>('[data-feed-scroller]')!
+        el.scrollTop = el.scrollHeight - el.clientHeight - 20
+      })
+      await settled(page)
+      const before = await snapshot(page)
+      expect(before.following).toBe(false)
+      const immediate = await changeRowHeights(page, viewport, 22, undefined, movement)
+      if (movement === 0) expect(Math.abs(immediate.top - immediate.maximum)).toBeLessThanOrEqual(1)
+      else expect(immediate.top).toBeLessThan(immediate.maximum - 30)
+      await settled(page)
+      const after = await snapshot(page)
+      expect(
+        Math.abs((await rowOffset(page, before.key)) - before.offset + movement),
+      ).toBeLessThanOrEqual(1)
+      expect(Math.abs(after.top - (before.top + movement - 50))).toBeLessThanOrEqual(1)
+      expect(after.following).toBe(false)
+      expect(after.loading).toBe(false)
+      // A later frame must not apply the same layout correction again.
+      await settled(page)
+      expect(Math.abs((await snapshot(page)).top - after.top)).toBeLessThanOrEqual(1)
+    }
+  })
+
+  test(`${viewport}: fractional reflows stay bounded through rounded own scroll events`, async ({
+    page,
+    isMobile,
+    browserName,
+  }) => {
+    const input = isMobile ? (browserName === 'chromium' ? 'touch' : 'keyboard') : 'wheel'
+    for (const step of [0.4, -0.4]) {
+      await openFixture(page, viewport)
+      await scrollBack(page, input)
+      await page.evaluate(() => {
+        const el = document.querySelector<HTMLElement>('[data-feed-scroller]')!
+        el.scrollTop = Math.floor((el.scrollHeight - el.clientHeight) / 2) + 13
+      })
+      await settled(page)
+      const before = await snapshot(page)
+      for (let index = 1; index <= 30; index++) {
+        await changeRowHeights(page, viewport, 72 + index * step, 72 - index * step)
+        await settled(page)
+        await page.evaluate(() =>
+          document
+            .querySelector('[data-feed-scroller]')!
+            .dispatchEvent(new Event('scroll', { bubbles: true })),
+        )
+        expect(Math.abs((await rowOffset(page, before.key)) - before.offset)).toBeLessThanOrEqual(1)
+      }
+      expect((await snapshot(page)).following).toBe(false)
+      await page.evaluate(() => window.__transcriptScrollFixture.jump())
+      await page.evaluate(() => window.__transcriptScrollFixture.append())
+      await settled(page)
+      expect((await snapshot(page)).following).toBe(true)
+      expect((await snapshot(page)).gap).toBeLessThanOrEqual(1)
+    }
   })
 }

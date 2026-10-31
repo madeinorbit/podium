@@ -1,6 +1,7 @@
 import type { SessionView } from '@podium/client-core/session-values'
-import { matchesQuestionInteraction, type SuperThreadRef } from '@podium/client-core/values'
+import { isCodexAsyncQuestion, isPendingAskQuestion, matchesQuestionInteraction, type SuperThreadRef } from '@podium/client-core/values'
 import { isMachineOfflineForLiveTerminal, type SessionId } from '@podium/model/browser'
+import { codexQuestionReplyText, parseCodexQuestionReplies } from '@podium/harness/browser'
 import type { RefObject } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { usePoolMachine } from '@/app/header-data'
@@ -50,14 +51,13 @@ export interface ChatSurface {
   answerAsk: (answer: import('./AskUserQuestionCard').AskUserQuestionAnswer) => Promise<void>
   interrupt: (draft: string) => void
   openFile: (sessionId: SessionId, path: string) => void
-  tldr: () => void
 }
 
-const LAYOUT_ACTIONS = ['trpc', 'openFile', 'httpOrigin', 'tldrSession', 'clearAttachedSession', 'clearTranscriptReveal'] as const
+const LAYOUT_ACTIONS = ['trpc', 'openFile', 'httpOrigin', 'clearAttachedSession', 'clearTranscriptReveal'] as const
 
 export function useChatLayout(opts: UseChatLayoutOptions): ChatSurface {
   const { conversation, sessionId, active, compact } = opts
-  const { trpc, openFile, httpOrigin, tldrSession, clearAttachedSession, clearTranscriptReveal } = useRuntimeActions(LAYOUT_ACTIONS)
+  const { trpc, openFile, httpOrigin, clearAttachedSession, clearTranscriptReveal } = useRuntimeActions(LAYOUT_ACTIONS)
   // Thread routing belongs to the conversation's existing identity. An inline
   // parent prop with the same thread must not replace this mounted reader.
   const view = useMemo(() => new ChatViewModel(conversation, compact, conversation.mount.superThread, clearAttachedSession),
@@ -115,7 +115,7 @@ export function useChatLayout(opts: UseChatLayoutOptions): ChatSurface {
   const submitDraft = useCallback((draft: string) => {
     const text = draft.trim()
     const { paths, legacyPaths, refs, tags } = attachments.ready()
-    if ((!text && paths.length === 0) || attachments.uploading) return
+    if ((!text && paths.length === 0 && refs.length === 0) || attachments.uploading) return
     conversation.rememberPrompt(text)
     view.captureContext()
     attachments.clearReady()
@@ -136,6 +136,31 @@ export function useChatLayout(opts: UseChatLayoutOptions): ChatSurface {
     retryPending: sends.retry.bind(sends), discardPending: sends.discard.bind(sends), sendAgain: sends.sendAgain.bind(sends),
   }), [sends])
   const answerAsk = useCallback(async (answer: import('./AskUserQuestionCard').AskUserQuestionAnswer) => {
+    if ('reply' in answer) {
+      const block = presentation.block(answer.reply.itemId)
+      if (
+        !block ||
+        !isCodexAsyncQuestion(block.item) ||
+        !isPendingAskQuestion(block) ||
+        !presentation.isPendingAsk(answer.reply.itemId) ||
+        block.item.toolInputJson !== answer.reply.question ||
+        view.headless ||
+        !view.composer.sendable ||
+        !view.composer.deliverable
+      )
+        throw new Error('The question changed; wait for the current question.')
+      // A remounted card must not create a second reply while the original is
+      // queued or waiting for its receipt. Retry and retract belong to its bubble.
+      if (sends.pending.some(turn => parseCodexQuestionReplies(turn.wire)?.some(
+        reply => reply.callId === block.item.toolUseId,
+      ))) return
+      scroll.pinToBottom()
+      await sends.submit({
+        text: codexQuestionReplyText(answer.reply.text) ?? answer.reply.text,
+        wire: answer.reply.text,
+      })
+      return
+    }
     const question = view.question
     if (question && (answer.interactionId !== question.id || !answer.question || !matchesQuestionInteraction(question, answer.question)))
       throw new Error('The question changed; wait for the current menu.')
@@ -143,7 +168,7 @@ export function useChatLayout(opts: UseChatLayoutOptions): ChatSurface {
       ? { sessionId, interactionId: answer.interactionId, skip: true }
       : { sessionId, interactionId: answer.interactionId, choices: answer.choices }) as { ok?: boolean; reason?: string } | undefined
     if (sent?.ok === false) throw new Error(sent.reason ?? 'answer not delivered')
-  }, [view, trpc, sessionId])
+  }, [view, presentation, trpc, sessionId, sends, scroll.pinToBottom])
   const activeRow = presentation.search.activeRow
   useEffect(() => {
     if (activeRow === undefined) return
@@ -153,9 +178,8 @@ export function useChatLayout(opts: UseChatLayoutOptions): ChatSurface {
     } else scroll.scrollToBlock(activeRow)
   }, [activeRow, presentation, scroll.scrollToBlock])
   const isMobile = useIsMobile()
-  const tldr = useCallback(() => void tldrSession(sessionId, presentation.lastAnswer.text), [tldrSession, sessionId, presentation])
   return { conversation, view, httpOrigin, attachments, isMobile, taRef, scrollerRef, scroll, revealedRow,
-    lightbox, setLightbox, setDraft, submitDraft, sendOfferPrompt, ...sendActions, answerAsk, interrupt, openFile, tldr }
+    lightbox, setLightbox, setDraft, submitDraft, sendOfferPrompt, ...sendActions, answerAsk, interrupt, openFile }
 }
 
 /** Presence follows only the addressed machine while the panel is visible. */

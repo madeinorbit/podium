@@ -1,8 +1,7 @@
-import { CardAge } from './CardAge'
+import type { PoolBoardData } from '@podium/client-graph/issue-board-schema'
 import type { IssueId, IssueStage } from '@podium/model/browser'
 import { ChevronDown, ChevronRight, Plus } from 'lucide-react'
 import {
-  type CSSProperties,
   type JSX,
   type MouseEvent as ReactMouseEvent,
   type RefObject,
@@ -10,13 +9,12 @@ import {
   useMemo,
   useRef,
 } from 'react'
-import { Badge } from '@/components/ui/badge'
 import { NotSavedMark } from '@/components/NotSavedMark'
-import { issueColorHex } from '@/lib/issueColors'
+import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
-import type { PoolBoardData } from '@podium/client-graph/issue-board-schema'
-import { IssueStatusPicker } from './IssueStatusPicker'
 import { BoardPoolRow } from './board-pool-row'
+import { CardAge } from './CardAge'
+import { IssueStatusPicker } from './IssueStatusPicker'
 import { cardAge, issueCardModel, issueIdTitle, STAGE_LABELS } from './issue-card'
 import { AssigneeAvatar, PriorityGlyph, StageGlyph } from './issue-glyphs'
 import { isEpic } from './issue-hierarchy'
@@ -190,24 +188,19 @@ function VirtualStageRows({
             <BoardPoolRow id={id}>{issue => {
               const m = issueCardModel(issue)
               const epic = isEpic(issue)
-              const hex = issueColorHex(issue.color)
               return (
             <button
               data-pressable
               type="button"
               data-issue-id={issue.id}
               className={cn(
-                'issue-scope flex w-full items-center gap-2.5 border-hairline-soft border-b px-4 py-2 text-left',
+                'flex w-full items-center gap-2.5 border-hairline-soft border-b px-4 py-2 text-left',
                 'transition-colors duration-150',
-                focusId === issue.id && 'ring-1 ring-[var(--issue)]/60 ring-inset',
-                !isSelected && 'hover:issue-mix-6',
-                isSelected && 'issue-mix-20 hover:issue-mix-26',
+                focusId === issue.id && 'ring-1 ring-[var(--neutral)]/60 ring-inset',
+                !isSelected && 'hover:surface-mix-6',
+                isSelected && 'surface-mix-20 hover:surface-mix-26',
               )}
-              style={{
-                ...(depth > 0 ? { paddingLeft: `${16 + depth * 22}px` } : {}),
-                ...(hex ? ({ '--issue': hex } as CSSProperties) : {}),
-              }}
-              data-issue-colored={hex ? 'true' : 'false'}
+              style={depth > 0 ? { paddingLeft: `${16 + depth * 22}px` } : undefined}
               title={issueIdTitle(issue)}
               onClick={(e) => (e.shiftKey ? onToggleSelect(issue.id) : onOpen(issue.id))}
               onContextMenu={(e) => onContextMenu(issue.id, e)}
@@ -260,7 +253,7 @@ function VirtualStageRows({
               {/* An ID is the machine talking about itself, so it is set in
                       the mono voice at the board's size and ink rather than in
                       13px sans. */}
-              <span className="w-[54px] shrink-0 whitespace-nowrap font-mono text-[10px] text-[var(--issue-dim)] tabular-nums">
+              <span className="w-[54px] shrink-0 whitespace-nowrap font-mono text-[10px] text-[var(--text-faint)] tabular-nums">
                 {m.seqLabel}
               </span>
               <span className="min-w-0 flex-1 truncate text-[13px]">{m.title}</span>
@@ -276,7 +269,7 @@ function VirtualStageRows({
               )}
               {epic && (
                 <span
-                  className="flex-none font-mono text-[9.5px] text-[var(--issue-muted)] uppercase tracking-[0.08em]"
+                  className="flex-none font-mono text-[9.5px] text-[var(--label)] uppercase tracking-[0.08em]"
                   title="Epic"
                 >
                   epic

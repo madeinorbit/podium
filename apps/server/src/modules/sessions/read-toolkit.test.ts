@@ -32,12 +32,13 @@ const ISSUE = {
   panel: { todos: [{ text: 'a', done: false }], artifacts: [], deferred: [] },
 }
 
-function harness(opts?: { sessions?: SessionMeta[]; items?: TranscriptItem[]; hasMore?: boolean; pageCursors?: boolean; sourceReset?: boolean; hidden?: Set<string> }) {
+function harness(opts?: { sessions?: SessionMeta[]; items?: TranscriptItem[]; hasMore?: boolean; pageCursors?: boolean; sourceReset?: boolean; hidden?: Set<string>; closedReason?: string }) {
   const events: { kind: string; subject: string; payload: unknown }[] = []
   const repoOps: string[] = []
   const watermarks = new Map<string, string>()
   const reads: { anchor?: string; direction: string }[] = []
   const all = (): SessionMeta[] => opts?.sessions ?? [session({ issueId: ISSUE.id })]
+  const boundIssue = { ...ISSUE, ...(opts?.closedReason ? { stage: 'done', closedReason: opts.closedReason } : {}) }
   const sourceRepo = asRepoId('repo:birth')
   const refSource = {
     issues: {
@@ -61,8 +62,8 @@ function harness(opts?: { sessions?: SessionMeta[]; items?: TranscriptItem[]; ha
             if (ref === '#228' || ref === '228' || ref === ISSUE.id) return ISSUE.id
             throw new Error(`unknown ref ${ref}`)
           },
-        getMeta: (id: string) => (id === ISSUE.id ? ISSUE : undefined),
-        get: (id: string) => (id === ISSUE.id ? ISSUE : undefined),
+        getMeta: (id: string) => (id === ISSUE.id ? boundIssue : undefined),
+        get: (id: string) => (id === ISSUE.id ? boundIssue : undefined),
         issueForCwd: () => null,
       },
     }) as unknown as IssueService,
@@ -115,6 +116,13 @@ function harness(opts?: { sessions?: SessionMeta[]; items?: TranscriptItem[]; ha
 }
 
 describe('session status (tier 1)', () => {
+  it.each(['done', 'cancelled', 'duplicate', 'superseded', 'wontfix'])(
+    'preserves the bound task closing reason %s', async closedReason => {
+      const { toolkit } = harness({ closedReason })
+      const status = await toolkit.status('s1', 'operator')
+      expect(status.issue).toMatchObject({ stage: 'done', closedReason })
+    },
+  )
   it('returns phase, issue stage/todos, ≤5 commits, files, unacked count — no transcript', async () => {
     const { toolkit, events } = harness({
       sessions: [

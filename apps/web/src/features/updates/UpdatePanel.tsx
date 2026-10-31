@@ -17,6 +17,7 @@ import type { JSX } from 'react'
 import { Button } from '@/components/ui/button'
 import type { UpdatePanelView } from './operation-view'
 import type { ReloadHandshakeStatus } from './reload-handshake'
+import type { Place, PlaceImpact } from './update-view'
 import type { PanelActionKind } from './use-update-state'
 
 export interface UpdatePanelProps {
@@ -26,6 +27,87 @@ export interface UpdatePanelProps {
   onHide: () => void
   reloadStatus?: ReloadHandshakeStatus
   onResetCachedInterface?: () => void
+}
+
+/** `0.2.1-dev.76+bcca0ff` reads as `0.2.1-dev.76 · bcca0ff`: the build hash is metadata. */
+export function versionLine(version: string): string {
+  const plus = version.indexOf('+')
+  return plus === -1 ? version : `${version.slice(0, plus)} · ${version.slice(plus + 1)}`
+}
+
+const IMPACT_LABEL: Record<PlaceImpact, string> = {
+  interrupts: 'Interrupts briefly',
+  'needs-you': 'Needs you',
+  background: 'Background only',
+}
+
+function ImpactDot({ impact }: { impact: PlaceImpact }): JSX.Element {
+  return (
+    <span
+      aria-hidden="true"
+      className={
+        impact === 'interrupts'
+          ? 'mt-[6px] size-[7px] shrink-0 rounded-full bg-warning'
+          : impact === 'needs-you'
+            ? 'mt-[6px] size-[7px] shrink-0 rounded-full border-[1.5px] border-warning'
+            : 'mt-[6px] size-[7px] shrink-0 rounded-full bg-muted-foreground/50'
+      }
+    />
+  )
+}
+
+function PlaceList({ places }: { places: Place[] }): JSX.Element {
+  const impacts = new Set(places.map((place) => place.impact ?? 'background'))
+  return (
+    <div className="flex flex-col gap-1.5">
+      <ul
+        className="flex flex-col divide-y divide-border/70 rounded-md border border-border/70 bg-muted/25"
+        aria-label="Places affected by this update"
+      >
+        {places.map((place) => {
+          const impact = place.impact ?? 'background'
+          return (
+            <li
+              key={place.kind + place.label}
+              data-impact={impact}
+              className="flex items-start gap-2 px-3 py-2"
+            >
+              <ImpactDot impact={impact} />
+              <span className="flex min-w-0 flex-col gap-0.5">
+                <span className="text-[13px] font-medium break-words text-foreground">
+                  {place.label}
+                  {place.detail && (
+                    <span className="ml-1.5 text-[11px] font-normal text-muted-foreground">
+                      {place.detail}
+                    </span>
+                  )}
+                </span>
+                <span className="text-[11px] leading-[1.45] text-muted-foreground">
+                  <span className="sr-only">{IMPACT_LABEL[impact]}: </span>
+                  {place.effect}
+                </span>
+              </span>
+            </li>
+          )
+        })}
+      </ul>
+      {impacts.size > 1 && (
+        <p
+          aria-hidden="true"
+          className="flex flex-wrap gap-x-3.5 gap-y-1 text-[10px] text-muted-foreground"
+        >
+          {(['interrupts', 'needs-you', 'background'] as const)
+            .filter((impact) => impacts.has(impact))
+            .map((impact) => (
+              <span key={impact} className="inline-flex items-center gap-1.5">
+                <ImpactDot impact={impact} />
+                <span>{IMPACT_LABEL[impact]}</span>
+              </span>
+            ))}
+        </p>
+      )}
+    </div>
+  )
 }
 
 function StepList({ view }: { view: UpdatePanelView }): JSX.Element | null {
@@ -94,30 +176,24 @@ export function UpdatePanel({
       aria-label="Podium update"
       className="fixed right-4 bottom-9 z-50 w-[min(28rem,calc(100vw-2rem))] max-h-[min(42rem,calc(100vh-4rem))] overflow-y-auto rounded-xl border border-border bg-popover text-popover-foreground shadow-[0_14px_34px_rgb(0_0_0_/_0.65),0_2px_8px_rgb(0_0_0_/_0.5)]"
     >
-      <div className="gap-1 border-b border-border px-4 pt-4 pb-3">
-        <h2 className="text-[14px] font-semibold tracking-[-0.01em]">{view.title}</h2>
+      <div className="flex flex-col gap-0.5 border-b border-border px-4 pt-4 pb-3">
+        <h2 className="text-[14px] font-semibold tracking-[-0.01em] break-words">{view.title}</h2>
+        {view.version && (
+          <p
+            data-testid="update-version"
+            className="font-mono text-[10.5px] break-all text-muted-foreground/80"
+          >
+            {versionLine(view.version)}
+          </p>
+        )}
         {view.subtitle && (
           <p className="text-[11px] leading-[1.5] text-muted-foreground">{view.subtitle}</p>
         )}
       </div>
 
       <div className="flex flex-col gap-3 px-4 py-4">
-        {/* The offer's place rows: what this update touches, in place language. */}
-        {view.places && view.places.length > 0 && (
-          <ul className="flex flex-col gap-2" aria-label="Places affected by this update">
-            {view.places.map((place) => (
-              <li
-                key={place.kind + place.label}
-                className="flex items-start justify-between gap-4 rounded-md border border-border/70 bg-muted/25 px-3 py-2"
-              >
-                <span className="font-medium text-foreground">{place.label}</span>
-                <span className="text-right text-[11px] leading-[1.45] text-muted-foreground">
-                  {place.effect}
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
+        {/* The offer's place rows: what this update touches, ordered by how much you'll notice. */}
+        {view.places && view.places.length > 0 && <PlaceList places={view.places} />}
 
         <StepList view={view} />
 
@@ -165,10 +241,6 @@ export function UpdatePanel({
 
         {view.deferredNote && view.state !== 'done' && (
           <p className="text-[11px] leading-[1.5] text-muted-foreground">{view.deferredNote}</p>
-        )}
-
-        {view.restartNote && (
-          <p className="text-[11px] leading-[1.5] text-muted-foreground">{view.restartNote}</p>
         )}
 
         {view.primary?.consequence && (
@@ -235,9 +307,13 @@ export function UpdatePanel({
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border bg-muted/30 px-4 py-3">
-        {/* ONE DISMISS VERB, in every state (§6.1). Hide collapses; it never discards. */}
+        {/*
+          ONE DISMISS BUTTON (§6.1). It collapses to the indicator and discards
+          nothing. Later while the update can still come back for the user;
+          Close once it is over, since hiding a failure acknowledges it.
+        */}
         <Button type="button" variant="ghost" size="sm" onClick={onHide}>
-          Hide
+          {view.state === 'done' || view.state === 'failed' ? 'Close' : 'Later'}
         </Button>
         <div className="flex flex-wrap justify-end gap-2">
           {view.cancel && (

@@ -2,6 +2,7 @@ import type { SessionId } from '@podium/model/browser'
 import { resolveMachinePath } from '@podium/model/browser'
 import type { MouseEvent as ReactMouseEvent } from 'react'
 import { handleCodeCopyClick } from '@/lib/code-copy'
+import { linkedFilePath } from '@/lib/markdown-file-link'
 import { handlePodiumLinkClick } from '@/lib/podium-link-click'
 import { activateRef } from '@/lib/ref-activation'
 
@@ -34,6 +35,14 @@ export function handleChatMdClick(
     event.preventDefault()
     const path = fileAnchor.getAttribute('data-path')
     if (path) openFile(sessionId, resolveMachinePath(cwd, path))
+    return
+  }
+
+  // The desktop shell's capture-phase shim already handed a web link to the OS.
+  const pathAnchor = event.defaultPrevented ? null : linkedFilePath(target, cwd)
+  if (pathAnchor) {
+    event.preventDefault()
+    openFile(sessionId, resolveMachinePath(cwd, pathAnchor))
     return
   }
 

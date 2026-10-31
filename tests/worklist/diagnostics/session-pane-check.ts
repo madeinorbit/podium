@@ -1,20 +1,19 @@
-import { referenceState } from './reference-state'
 /** Optional pane differential, using sidebar-check's positions-only report.
  * Legacy input is diagnostic-only; it never enters the switched read path. */
 import type { ClientRuntime } from '@podium/client-core/engine'
-import type { ReferenceState as Store } from './reference-state'
 import { attentionGroup } from '@podium/client-core/focus'
-import { sessionWaking, resumeCommand, sessionUrgencyRank, exitedRecovery, deriveGitStamp, sessionTerminalOutlook, defaultChatCapable } from '@podium/client-core/values'
-import type { SessionView } from '@podium/client-core/session-values'
 import type { IssueViewModel } from '@podium/client-core/replica'
-
-import { allIssueViewModels } from './reference/issue-view-models'
+import type { SessionView } from '@podium/client-core/session-values'
+import { defaultChatCapable, deriveGitStamp, exitedRecovery, resumeCommand, sessionTerminalOutlook, sessionUrgencyRank, sessionWaking } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph/pool'
-import { paneSession, paneWindow, paneMachines, paneIssueColor } from '@podium/client-graph/session-pane'
-import { sessionPaneView } from '@podium/client-graph/session-pane-view'
+import { paneMachines, paneSession, paneWindow } from '@podium/client-graph/session-pane'
 import { SESSION_PANE_SCHEMA } from '@podium/client-graph/session-pane-schema'
+import { sessionPaneView } from '@podium/client-graph/session-pane-view'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
-import { compareSidebarSnapshots, type CheckRow } from './sidebar-check'
+import { allIssueViewModels } from './reference/issue-view-models'
+import type { ReferenceState as Store } from './reference-state'
+import { referenceState } from './reference-state'
+import { type CheckRow, compareSidebarSnapshots } from './sidebar-check'
 
 export function paneComparable(row: SessionView | undefined, now: number): Record<string, unknown> {
   if (!row) return { present: false }
@@ -33,8 +32,7 @@ export function paneComparable(row: SessionView | undefined, now: number): Recor
   }
 }
 export function checkSessionPanes(pool: MobxPool, state: Pick<Store, 'sessions' | 'machines' | 'panelMode' | 'dockShells' | 'reposLoaded' | 'coarseNow' | 'selectedIssueId'>,
-  ids = state.sessions.map(row => row.sessionId as string), issues: readonly IssueViewModel[] = [],
-  hex: (color: string | null | undefined) => string | undefined = color => color ?? undefined) {
+  ids = state.sessions.map(row => row.sessionId as string), issues: readonly IssueViewModel[] = []) {
   let pending = 0
   let acceptedOwnershipDifferences = 0
   const eligible = issues.filter(issue => !issue.archived && !issue.deletedAt)
@@ -66,43 +64,28 @@ export function checkSessionPanes(pool: MobxPool, state: Pick<Store, 'sessions' 
 
   }
   const machineRows = (rows: typeof state.machines) => rows.map((row): CheckRow => ({ id: row.id, fields: { row } }))
-  const expectedColor = () => {
-    let row = issues.find(row => row.id === state.selectedIssueId && !row.archived && !row.deletedAt)
-    const seen = new Set<string>()
-    while (row) {
-      const own = hex(row.color)
-      if (own) return own
-      if (!row.parentId || seen.has(row.parentId)) return undefined
-      seen.add(row.parentId)
-      row = issues.find(candidate => candidate.id === row?.parentId)
-    }
-    return undefined
-  }
   const selectedIssueId = sessionPaneView(pool).selectedIssueId
-  const issueHex = paneIssueColor(pool, selectedIssueId, hex)
-  if (issueHex === LOADING) pending++
   const differenceFields: Record<string, number> = {}
   const result = compareSidebarSnapshots({ sections: [
     { key: 'sessions', fields: {}, rows: expected },
     { key: 'controls', fields: controls(state), rows: [] },
     { key: 'machines', fields: {}, rows: machineRows(state.machines) },
-    { key: 'ownership', fields: { selectedIssueId: state.selectedIssueId, issueHex: expectedColor() }, rows: [] },
+    { key: 'ownership', fields: { selectedIssueId: state.selectedIssueId }, rows: [] },
   ], pending: 0 }, { sections: [
     { key: 'sessions', fields: {}, rows: actual },
     { key: 'controls', fields: controls(window), pendingFields: windowPending ? ['panelMode', 'dockShells', 'reposLoaded'] : [], rows: [] },
     { key: 'machines', fields: {}, rows: machineRows(paneMachines(pool)) },
-    { key: 'ownership', fields: { selectedIssueId, issueHex: issueHex === LOADING ? undefined : issueHex },
-      pendingFields: issueHex === LOADING ? ['issueHex'] : [], rows: [] },
+    { key: 'ownership', fields: { selectedIssueId },
+      rows: [] },
   ], pending }, difference => { differenceFields[difference.field] = (differenceFields[difference.field] ?? 0) + 1 })
   return { differences: result.differences, pending: result.pending, positions: result.rows, acceptedOwnershipDifferences,
     first: result.first ? { section: result.first.sectionIndex, index: result.first.rowIndex, field: result.first.field } : null, differenceFields }
 }
-export function installSessionPaneCheck(pool: MobxPool, runtime: ClientRuntime,
-  hex?: (color: string | null | undefined) => string | undefined): () => void {
+export function installSessionPaneCheck(pool: MobxPool, runtime: ClientRuntime): () => void {
   if (typeof window === 'undefined') return () => {}
   const check = () => {
     const state = referenceState(runtime)
-    return checkSessionPanes(pool, state, undefined, allIssueViewModels(state.replica, state.issueProjections, state.issueUserStates), hex)
+    return checkSessionPanes(pool, state, undefined, allIssueViewModels(state.replica, state.issueProjections, state.issueUserStates))
   }
   Object.assign(window, { __sessionPaneCheck: check })
   return () => { if (Reflect.get(window, '__sessionPaneCheck') === check) Reflect.deleteProperty(window, '__sessionPaneCheck') }

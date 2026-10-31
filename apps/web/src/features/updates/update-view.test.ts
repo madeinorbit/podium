@@ -75,8 +75,8 @@ describe('describeUpdate', () => {
       state: 'blocked',
       version: '0.4.2',
       blockedNote:
-        'flatblock needs host-local repair before it can verify instance-signed development updates. ' +
-        'The older updater uses the baked release key for feed delivery instead of the pinned instance key.',
+        "flatblock needs a manual fix: its updater is too old to check development updates from this server. Reconnecting won't fix it. " +
+        'Run scripts/repair-stranded-update.sh on that machine, as described in docs/updating-a-dev-instance.md.',
     })
   })
 
@@ -91,9 +91,7 @@ describe('describeUpdate', () => {
     } as never)
 
     expect(v.state).toBe('available')
-    expect((v as { blockedNote?: string }).blockedNote).toMatch(
-      /flatblock needs host-local repair/i,
-    )
+    expect((v as { blockedNote?: string }).blockedNote).toMatch(/flatblock needs a manual fix/i)
   })
 
   it('offers no control when every affected machine is offline', () => {
@@ -120,8 +118,8 @@ describe('describeUpdate', () => {
     const v = describeUpdate(base as never)
     const text = JSON.stringify(v)
     expect(text).not.toMatch(/headless|bundle|daemon|artifact|tarball/i)
-    expect(text).toMatch(/This app/)
-    expect(text).toMatch(/Your server/)
+    expect(text).toMatch(/This tab/)
+    expect(text).toMatch(/"Server"/)
   })
 
   it('names the server so the user knows WHICH server', () => {
@@ -129,7 +127,7 @@ describe('describeUpdate', () => {
     const server = (v as { places: { kind: string; label: string }[] }).places.find(
       (p) => p.kind === 'server',
     )
-    expect(server?.label).toContain('ludovico')
+    expect(server).toMatchObject({ label: 'Server', detail: 'ludovico' })
   })
 
   it('folds the source browser rebuild into the coordinating server place', () => {
@@ -141,18 +139,18 @@ describe('describeUpdate', () => {
       },
     } as never)
     expect((v as { places: { kind: string; label: string }[] }).places).toMatchObject([
-      { kind: 'server', label: 'This app and your server (ludovico)' },
-      { kind: 'machines' },
+      { kind: 'server', label: 'This tab and server', detail: 'ludovico', impact: 'interrupts' },
+      { kind: 'machines', impact: 'background' },
     ])
   })
 
-  it('pluralises machines and says they are not interrupted', () => {
+  it('pluralises machines and says they update in the background', () => {
     const v = describeUpdate(base as never)
     const machines = (
       v as { places: { kind: string; label: string; effect: string }[] }
     ).places.find((p) => p.kind === 'machines')
     expect(machines?.label).toBe('3 machines')
-    expect(machines?.effect).toMatch(/not be interrupted/i)
+    expect(machines?.effect).toBe('Updates in the background')
   })
 
   it('names the first three affected machines and summarizes the rest', () => {
@@ -310,8 +308,9 @@ describe('describeUpdate', () => {
       places: [
         {
           kind: 'server',
-          label: 'This app and your server (ludovico)',
-          effect: 'need matching builds and a restart',
+          label: 'This tab and server',
+          detail: 'ludovico',
+          effect: 'Need matching builds and a restart',
         },
       ],
     })

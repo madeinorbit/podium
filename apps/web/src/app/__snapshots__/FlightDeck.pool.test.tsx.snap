@@ -2,15 +2,15 @@
 
 exports[`rendered mission pane parity > keeps archived-session reveal names/order and opens the same session > rendered output 1`] = `
 {
-  "bytes": 86027,
-  "sha256": "6f9091d85c0d821643bc388e646cddb4d6437641b4497a07f41441e474e15c8b",
+  "bytes": 82740,
+  "sha256": "6474046ff789b061adf56345ab51a57f4c5c0624f8a37ec3a374ee733b8cf251",
 }
 `;
 
 exports[`rendered mission pane parity > preserves folded bar words, labels, tick order and layout > rendered output 1`] = `
 {
-  "bytes": 5892,
-  "sha256": "2b31de4afb35c6a9916f8a5bd377a0265b6ee08a5d3d233c88c8cd308ed6c08a",
+  "bytes": 1225,
+  "sha256": "2d7391ba2f4d0694b34653081ca815c9dcfae287d1f0c20cf66bc12e56155b4b",
 }
 `;
 
@@ -28,37 +28,9 @@ exports[`rendered mission pane parity > preserves session action labels and orde
 }
 `;
 
-exports[`rendered mission pane parity > preserves visible words, labels, order and layout in full > rendered output 1`] = `
+exports[`rendered mission pane parity > preserves visible words, labels, order and layout > rendered output 1`] = `
 {
-  "bytes": 75516,
-  "sha256": "9a7d4019a62522484c12c56ab9c7d4f7ebd8e9653a3160a2c912af7e613c0362",
-}
-`;
-
-exports[`rendered mission pane parity > preserves visible words, labels, order and layout in handoff > rendered output 1`] = `
-{
-  "bytes": 51108,
-  "sha256": "30d204febe43ab136c45f7cd2c49581d26b7e951d99caa346d501dd11068d8ee",
-}
-`;
-
-exports[`rendered mission pane parity > preserves visible words, labels, order and layout in needs-you > rendered output 1`] = `
-{
-  "bytes": 42542,
-  "sha256": "629c067b23bc8944da554df154c69909d2a754e69546257662863dda9b131bce",
-}
-`;
-
-exports[`rendered mission pane parity > preserves visible words, labels, order and layout in waterfall > rendered output 1`] = `
-{
-  "bytes": 51472,
-  "sha256": "d68f9cce9b588880f75618e67d937cdda61145283f61a2a07b56f0cb6ea04bce",
-}
-`;
-
-exports[`rendered mission pane parity > preserves visible words, labels, order and layout in working > rendered output 1`] = `
-{
-  "bytes": 22901,
-  "sha256": "593270a9425266b0a213eb6471aa6d9f2ef0a0c2000233d61d4dba354e0f921e",
+  "bytes": 72229,
+  "sha256": "a824dcd9ee0d02d8020b457d3104bc37f49385d6f3423794d158c3d3b259d75f",
 }
 `;

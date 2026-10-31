@@ -1,22 +1,7 @@
-import { omitGone } from '@podium/client-graph/lookup'
-import { worklistView } from '@podium/client-graph/worklist/view-model'
-import { sidebarView } from '@podium/client-graph/worklist/sidebar'
-import { worklistGroups } from '@podium/client-graph/worklist/groups'
-/** Diagnostic-only differential. It never observes, hydrates or mutates the pool.
- * Both sides use one store publication, one clock and one caller-owned layout.
+/** Diagnostic-only differential over two snapshots of one screen's sections.
  * Reports contain locations and IDs, never titles, questions or row values.
  */
-import type { PodiumClientApi } from '@podium/client-core/api'
-import type { ReferenceState as Store } from './reference-state'
-import { partitionStaleSessions, rowStatusLine } from '@podium/client-core/values'
 import { compareStructural } from 'mobx'
-import type { MobxPool } from '@podium/client-graph/pool'
-import type { SliceLocals } from '../shared/src/slice-types'
-import { compareRank } from '@podium/client-graph/shared/row-view'
-import { LOADING } from '@podium/client-graph/worklist/rollup'
-import type { SidebarSections, SidebarState } from '@podium/client-graph/worklist/sidebar'
-import { legacyDerivationFromStore, visibleIssueRows, type LegacyDerivation } from './legacy'
-import { legacySidebarRow, legacySidebarSections, poolStatusLine, sidebarComparable, sessionComparable } from './oracle'
 
 export interface CheckRow {
   readonly id: string
@@ -99,99 +84,4 @@ export function compareSidebarSnapshots(expected: SidebarSnapshot, actual: Sideb
   }
   return { differences, first, pending: expected.pending + actual.pending, sections: expected.sections.length,
     rows: expected.sections.reduce((count, section) => count + section.rows.length, 0) }
-}
-
-function sectionSnapshot(sections: SidebarSections, issue: (id: string) => CheckRow, worktree: (id: string) => CheckRow): CheckSection[] {
-  return [
-    { key: 'pinned', fields: { collapsed: sections.pinnedCollapsed, foldKey: sections.pinnedFoldKey }, rows: sections.pinnedIds.map(issue) },
-    ...sections.bands.flatMap(band => {
-      const { rowIds, worktreeIds, snoozedIds, closedIds, ...fields } = band
-      const worktreeRows = worktreeIds.map(worktree)
-      // The empty-project affordance depends on whether any work survives.
-      // Issue membership is known from placement summaries; a provisional
-      // worktree-only lane cannot decide this fact until its roster settles.
-      const pendingFields = !rowIds.length && !snoozedIds.length && !closedIds.length
-        && worktreeRows.length > 0 && worktreeRows.every(row => row.placementPending) ? ['startFirstTask'] : []
-      return [
-        { key: `${band.key}:open`, fields, pendingFields, rows: [...rowIds.map(issue), ...worktreeRows] },
-        { key: `${band.key}:snoozed`, fields: {}, rows: snoozedIds.map(issue) },
-        { key: `${band.key}:closed`, fields: {}, rows: closedIds.map(issue) },
-      ]
-    }),
-  ]
-}
-
-export function legacySidebarSnapshot(derivation: LegacyDerivation, locals: SliceLocals, state: SidebarState = {}): SidebarSnapshot {
-  const rows = visibleIssueRows(derivation, locals)
-  const byId = new Map<string, (typeof rows)[number]>(rows.map(row => [row.issue.id, row]))
-  const issues = new Map<string, CheckRow>()
-  const issue = (id: string): CheckRow => {
-    let value = issues.get(id)
-    if (!value) {
-      const row = byId.get(id)
-      value = { id, fields: row ? { ...legacySidebarRow(row, derivation, locals.coarseNow),
-        statusLine: row.continuation ?? rowStatusLine(row, locals.coarseNow, 0) } : { absent: true } }
-      issues.set(id, value)
-    }
-    return value
-  }
-  const worktree = (path: string): CheckRow => {
-    const row = derivation.slice.work.find(row => row.kind === 'worktree' && row.worktree.path === path)
-    if (!row || row.kind !== 'worktree') return { id: path, fields: { absent: true } }
-    const partition = partitionStaleSessions(row.worktree.sessions, locals.coarseNow)
-    const ownerIds = new Set(row.worktree.sessions.flatMap(session => session.issueId ? [session.issueId] : []))
-    return { id: path, fields: {
-      sessions: row.worktree.sessions.map(sessionComparable), visible: partition.visible.map(sessionComparable), stale: partition.stale.map(sessionComparable),
-      activityAt: row.activityAt, branch: row.worktree.branch ?? null, repoName: row.worktree.repoName,
-      active: locals.selectedIssueId === null && state.selectedWorktree === path,
-      owners: [...ownerIds].map(id => ownerComparable(derivation.models.find(model => model.id === id))),
-    } }
-  }
-  const sections = legacySidebarSections(derivation, state, locals.selectedIssueId, locals.selectedIssueWasFolded === true, locals.coarseNow)
-  return { sections: [...sectionSnapshot(sections, issue, worktree), { key: 'all-visible', fields: {}, rows: rows.map(row => issue(row.issue.id)) }], pending: 0 }
-}
-
-function ownerComparable(issue: unknown): unknown {
-  if (!issue) return null
-  const row = issue as Record<string, unknown>
-  return Object.fromEntries(['id', 'seq', 'displayRef', 'archived', 'deletedAt'].map(key => [key, row[key] ?? null]))
-}
-
-export function poolSidebarSnapshot(pool: MobxPool, state: SidebarState = {}): SidebarSnapshot {
-  let pending = 0
-  const issues = new Map<string, CheckRow>()
-  const issue = (id: string): CheckRow => {
-    let value = issues.get(id)
-    if (!value) {
-      const row = sidebarView(pool).row(id)
-      if (row === LOADING) pending += 1
-      value = { id, pending: row === LOADING, fields: row === LOADING ? { loading: true } : row === undefined ? { absent: true } : {
-        ...sidebarComparable(row), statusLine: poolStatusLine(row, pool.worklistRow(id)?.activityAt ?? 0, pool.clock.current, (seat) => omitGone(pool.row('session', seat))),
-      } }
-      issues.set(id, value)
-    }
-    return value
-  }
-  const worktree = (path: string): CheckRow => {
-    const row = sidebarView(pool).worktree(path, state)
-    if (!row) return { id: path, fields: { absent: true } }
-    pending += row.pending
-    const ownerIds = new Set(row.sessions.flatMap(session => session.issueId ? [session.issueId] : []))
-    return { id: path, pending: row.pending > 0, placementPending: row.pending > 0, fields: { sessions: row.sessions.map(sessionComparable), visible: row.visible.map(sessionComparable), stale: row.stale.map(sessionComparable),
-      activityAt: row.activityAt, branch: row.worktree.branch ?? null, repoName: row.worktree.repoName, active: row.active,
-      owners: [...ownerIds].map(id => ownerComparable(row.issues.find(owner => owner.id === id))),
-    } }
-  }
-  const sections = sectionSnapshot(sidebarView(pool).sections(state), issue, worktree)
-  const layout = worklistGroups(pool).layout
-  const ids = [...layout.pinnedIds, ...layout.groups.flatMap(group => [...group.rowIds, ...group.closedIds])]
-  const ranks = new Map(ids.map(id => [id, worklistGroups(pool).rankOf(id)!]))
-  ids.sort((a, b) => compareRank(ranks.get(a)!, ranks.get(b)!))
-  sections.push({ key: 'all-visible', fields: {}, rows: ids.map(issue) })
-  return { sections, pending }
-}
-
-export function checkSidebar(pool: MobxPool, store: Store<PodiumClientApi>, state: SidebarState = {}, onDifference?: (difference: SidebarDifference) => void): SidebarCheckResult {
-  const locals: SliceLocals = { selectedIssueId: store.selectedIssueId ?? null, coarseNow: pool.clock.current, selectedIssueWasFolded: worklistView(pool).selectedWasFolded }
-  return compareSidebarSnapshots(legacySidebarSnapshot(legacyDerivationFromStore(store, locals.coarseNow), locals, state), poolSidebarSnapshot(pool, state), onDifference)
 }

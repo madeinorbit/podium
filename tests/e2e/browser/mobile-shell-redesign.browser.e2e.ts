@@ -1,6 +1,6 @@
 /**
  * Mobile shell redesign (#45, .design/specs/mobile.md): the 44px header wears
- * the issue tint on the workspace and reverts to neutral on home/superagent;
+ * the neutral theme on the workspace and reverts to neutral on home/superagent;
  * the one context dropdown is the panel selector (ID square, active panel
  * name, +N count, ▾/▴ caret) whose menu rows carry the kind label and pin/kill;
  * the "+" and panel menus are mutually exclusive; the ✦ cell toggles the
@@ -38,17 +38,17 @@ async function headerBg(page: Page): Promise<string> {
   return page.getByTestId('mobile-header').evaluate((el) => getComputedStyle(el).backgroundColor)
 }
 
-test('header tint, panel dropdown, menu exclusivity, home, superagent overlay', async ({
+test('neutral header, panel dropdown, menu exclusivity, home, superagent overlay', async ({
   page,
 }) => {
   await openApp(page) // lands in the workspace via the home work list
 
-  // ── Workspace header: issue-tinted chrome (§2.1) ─────────────────────────
-  // No colour assigned → the slate flow, but still the 16% mix over card.
+  // ── Workspace header: neutral chrome (§2.1) ─────────────────────────────
+  // The header follows the neutral theme.
   const tinted = await resolveColorIn(
     page,
     '[data-testid="mobile-header"]',
-    'color-mix(in srgb, var(--issue) 16%, var(--card))',
+    'color-mix(in srgb, var(--neutral) 16%, var(--card))',
   )
   // Poll: the click that entered the workspace commits the view change a frame
   // before styles settle on slower runs.

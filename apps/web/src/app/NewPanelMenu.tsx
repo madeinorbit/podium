@@ -1,4 +1,3 @@
-import { observer } from 'mobx-react-lite'
 import { relativeTime } from '@podium/client-core/focus'
 import type { RecentFileEntry, RepoView, WorktreeView } from '@podium/client-core/values'
 import { LOADING } from '@podium/client-graph'
@@ -17,7 +16,8 @@ import {
   onlineMachinesForRepoOrClone,
   type SessionId,
 } from '@podium/model/browser'
-import { Circle, SquarePlus, SquareTerminal } from 'lucide-react'
+import { Circle, LayoutGrid, SquarePlus, SquareTerminal } from 'lucide-react'
+import { observer } from 'mobx-react-lite'
 import type React from 'react'
 import { type JSX, useMemo, useState } from 'react'
 import { Button } from '@/components/ui/button'
@@ -31,6 +31,11 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import {
+  ARTIFACTS_TAB_ARTIFACT_ID,
+  useArtifactCount,
+  useOpenArtifactsTab,
+} from '@/features/files/artifacts-tab'
 import { FileTypeIcon } from '@/features/files/file-icon'
 import {
   agentLabel,
@@ -91,40 +96,7 @@ const MENU_GLYPH = 'size-3.5 flex-none'
  *  14px column, so the names still line up with the labels above them. */
 const MACHINE_DOT = 'mx-[4px] size-1.5 flex-none'
 
-/**
- * The "+" menu: start a fresh agent or shell in this checkout.
- *
- * ---------------------------------------------------------------------------
- * NO RESUME REGION (POD-1201)
- * ---------------------------------------------------------------------------
- *
- * It used to end in a RESUME section — a server-indexed mini-search over
- * discovered conversations, with its own filter field that took the menu's focus
- * on open and forced the panel non-modal so the mobile keyboard could pin. The
- * operator's call is that the "+" is for STARTING something: a history search
- * competing for the same 248px is a second, differently-shaped tool wearing the
- * new-panel menu's clothes, and it was the region that decided this menu's focus
- * behaviour for every other row in it. Picking up an old conversation is its own
- * gesture and does not belong on the tab strip's plus.
- *
- * ---------------------------------------------------------------------------
- * THE HOUSE VOCABULARY (POD-1084)
- * ---------------------------------------------------------------------------
- *
- * This menu opens one pixel from the tab strip's own context menu and, before
- * POD-1084, wore a different skin than every other overlay in the shell: stock
- * shadcn popover tokens over `--popover`, a `ring-foreground/10` hairline,
- * `shadow-md`, 14px rows, and section headings invented here in Geist Sans small
- * caps. `lib/menu-surface` (POD-380) is the vocabulary the session menu, the
- * issue menu and the colour picker already share, and it exists precisely
- * because two overlays a pixel apart must read as one family.
- *
- * POD-1084 dressed this one menu through a pair of opt-in bridge constants;
- * POD-1099 moved the preset into `components/ui/dropdown-menu` itself, so the
- * panel, the rows and the rules below are simply what a dropdown looks like now
- * and this file only says what is particular to it — its width, its header, its
- * search field, and the sections it names.
- */
+
 export function NewPanelMenu(
   props: Omit<Parameters<typeof NewPanelMenuBody>[0], 'data'>,
 ): JSX.Element {
@@ -207,7 +179,8 @@ const NewPanelMenuBody = observer(function NewPanelMenuBody({
 
   /** Local path to use when opening an agent on machine M. */
   function cwdFor(machineId: MachineId | undefined): string {
-    if (!machineId || machineId === (worktree.machineId ?? data.sourceMachineId)) return worktree.path
+    if (!machineId || machineId === (worktree.machineId ?? data.sourceMachineId))
+      return worktree.path
     return repoView.machines.find((m) => m.machineId === machineId)?.path ?? worktree.path
   }
 
@@ -247,7 +220,7 @@ const NewPanelMenuBody = observer(function NewPanelMenuBody({
   }
 
   const header = (
-    // The header the session menu and the colour picker wear (POD-380) — the
+    // The shared menu header (POD-380) — the
     // label in machine voice, the SUBJECT pushed right in normal case. The
     // subject here is where a pick will land: every row in this panel opens in
     // one specific checkout, and until now nothing in it said which.
@@ -260,7 +233,11 @@ const NewPanelMenuBody = observer(function NewPanelMenuBody({
   )
 
   const menuAgents = useMemo(() => menuAgentsFor(descriptors), [descriptors])
-  const targetMachines = useCommandTargetMachines(repoView, machines, menuAgents.map(agent => agent.kind))
+  const targetMachines = useCommandTargetMachines(
+    repoView,
+    machines,
+    menuAgents.map((agent) => agent.kind),
+  )
 
   // Single-machine (or no machines yet): no Machines region to choose between.
   if (machines.length <= 1) {
@@ -299,6 +276,7 @@ const NewPanelMenuBody = observer(function NewPanelMenuBody({
         {runtimeDriversEnabled && machine ? (
           <HeadlessDriverItems machine={machine} onCreate={create} agents={menuAgents} />
         ) : null}
+        {issueId ? <ArtifactsItem issueId={issueId} worktree={worktree} /> : null}
         <RecentFilesSection worktree={worktree} {...(issueId ? { issueId } : {})} />
       </DropdownMenuContent>
     )
@@ -385,6 +363,7 @@ const NewPanelMenuBody = observer(function NewPanelMenuBody({
         })}
       </TooltipProvider>
 
+      {issueId ? <ArtifactsItem issueId={issueId} worktree={worktree} /> : null}
       <RecentFilesSection worktree={worktree} {...(issueId ? { issueId } : {})} />
     </DropdownMenuContent>
   )
@@ -396,6 +375,33 @@ const NewPanelMenuBody = observer(function NewPanelMenuBody({
 function worktreeLabel(worktree: WorktreeView, repoView: RepoView): string {
   if (!worktree.isMain && worktree.branch) return worktree.branch
   return repoView.name || machinePathBasename(worktree.repoPath) || worktree.repoPath
+}
+
+/** "Artifacts" for the current task (POD-2078): opens the stage's Artifacts tab,
+ *  the same one the task panel's "View all" opens. Not a new panel of work, so
+ *  it sits apart from the agents, above the files it lists. */
+function ArtifactsItem({
+  issueId,
+  worktree,
+}: {
+  issueId: IssueId
+  worktree: WorktreeView
+}): JSX.Element {
+  const openArtifactsTab = useOpenArtifactsTab()
+  const count = useArtifactCount(issueId)
+  return (
+    <>
+      <div className={MENU_SECTION}>THIS TASK</div>
+      <DropdownMenuItem
+        data-testid="new-panel-artifacts"
+        onClick={() => openArtifactsTab(issueId, worktree.path)}
+      >
+        <LayoutGrid className={`${MENU_GLYPH} text-text-dim`} aria-hidden="true" />
+        <span className="min-w-0 flex-1">Artifacts</span>
+        {count > 0 && <span className={`${MENU_HINT} tabular-nums`}>{count}</span>}
+      </DropdownMenuItem>
+    </>
+  )
 }
 
 /** The "+" menu's Recent-files section (POD-149): strict issue scoping shows a
@@ -413,7 +419,14 @@ function RecentFilesSection({
   const recentFiles = useCommandRecentFiles()
   const { openFileInWorktree, openArtifact } = useCommandLaunchActions()
   const now = Date.now()
-    const entries = recentFiles.filter((f) => machinePathsEqual(f.worktreePath, worktree.path)).slice(0, RECENT_LIMIT)
+  // The Artifacts index is a view, not a file — it has its own row above.
+  const entries = recentFiles
+    .filter(
+      (f) =>
+        f.artifact?.artifactId !== ARTIFACTS_TAB_ARTIFACT_ID &&
+        machinePathsEqual(f.worktreePath, worktree.path),
+    )
+    .slice(0, RECENT_LIMIT)
   if (entries.length === 0) return null
 
   const reopen = (f: RecentFileEntry): void => {

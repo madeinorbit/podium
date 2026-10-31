@@ -26,7 +26,7 @@ export function joinedFields(entity: string, row: Row, fields: readonly string[]
         // Directly-fed fixtures can already carry a display value without ids.
         // Production feed rows contain normalized join keys only.
         if (entity === 'issue')
-          return typeof row.repoId === 'string' ? read('repo', row.repoId)?.repoPath ?? '' : row[field] ?? ''
+          return typeof row.repoId === 'string' ? read('repo', row.repoId)?.repoPath || row[field] || '' : row[field] ?? ''
         if (field === 'machineName')
           return typeof row.machineId === 'string' ? read('machine', row.machineId)?.name ?? '' : row[field] ?? ''
         if (field === 'condition') {

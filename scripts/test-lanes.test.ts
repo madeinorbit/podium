@@ -45,6 +45,15 @@ describe('test lanes', () => {
     ['apps/daemon/src/daemon.test.ts', 'integration'],
     ['tests/e2e/relay.e2e.test.ts', 'e2e'],
     ['tests/e2e/harness-env.test.ts', 'e2e'],
+    ['tests/worklist/shared/src/session-homes.test.ts', 'worklist'],
+    ['tests/worklist/diagnostics/debug-name.test.ts', 'worklist'],
+    ['tests/worklist/shared/src/instrument/reads.test.ts', 'worklist'],
+    ['tests/worklist/shared/src/overlay-row.test.ts', 'worklist'],
+    ['tests/worklist/harness/src/heartbeat-ancestors.test.ts', 'worklist'],
+    ['tests/worklist/harness/src/perf/header-work.test.ts', 'worklist'],
+    ['tests/worklist/harness/src/cold-structures.test.ts', 'worklist'],
+    ['tests/worklist/harness/src/mission-screen-work.test.ts', 'worklist'],
+    ['tests/worklist/product/mission-pane.work.test.ts', 'worklist'],
     ['scripts/loop-split-load.integration.test.ts', 'acceptance'],
   ])('routes %s to %s', (file, lane) => {
     expect(runnerFor(file)).toEqual({ kind: 'vitest', lane })
@@ -58,13 +67,9 @@ describe('test lanes', () => {
     ])
       expect(runnerFor(file)).toEqual({ kind: 'bun-test' })
     expect(runnerFor('packages/sync/src/span.ts')).toHaveProperty('error')
-    // POD-4825: the node lane excludes these; the package config runs them.
-    expect(
-      runnerFor('tests/worklist/harness/native/mobx-pool-fence.native.test.tsx'),
-    ).toEqual({ kind: 'vitest', lane: 'worklist-native' })
-    expect(runnerFor('tests/worklist/harness/src/fences.test.tsx')).toEqual({
+    expect(runnerFor('tests/worklist/harness/src/work-meter.test.ts')).toEqual({
       kind: 'vitest',
-      lane: 'node',
+      lane: 'worklist',
     })
   })
 

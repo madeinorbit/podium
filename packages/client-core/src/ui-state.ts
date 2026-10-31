@@ -52,6 +52,9 @@ export type UiStateHome =
   | 'known-unrouted'
 
 export const UI_STATE_KEYS = {
+  tipsEnabled: 'tips.enabled',
+  /** The first launch's task, held until its First Flights tip is seen. */
+  tipsFirstSend: 'tips.firstSend',
   view: 'podium.view',
   selectedWorktree: 'podium.selectedWorktree',
   selectedIssueId: 'podium.selectedIssueId',
@@ -85,6 +88,8 @@ export const UI_STATE_KEYS = {
   /** Last launched model/effort per machine and harness, across this user's devices. */
   launchLastPick: 'podium.launch.lastPick',
 } as const
+
+export const TIP_SEEN_KEY_PREFIX = 'tips.seen.'
 
 export const VIEW_KEY = UI_STATE_KEYS.view
 export const WT_KEY = UI_STATE_KEYS.selectedWorktree
@@ -129,6 +134,14 @@ export const UI_STATE_ROUTES = {
   [UI_STATE_KEYS.launchLastPick]: {
     home: 'per-user-replicated',
     reason: 'The last launched model and effort follow the user across devices.',
+  },
+  [UI_STATE_KEYS.tipsEnabled]: {
+    home: 'per-user-replicated',
+    reason: 'First Flights follows the person across devices.',
+  },
+  [UI_STATE_KEYS.tipsFirstSend]: {
+    home: 'per-user-replicated',
+    reason: 'A pending First Flights moment belongs to the account and survives a reload.',
   },
   [UI_STATE_KEYS.view]: {
     home: 'device-local',
@@ -348,19 +361,12 @@ export const FLIGHT_DECK_FULL_DISPLAY_KEY = 'podium.flightDeck.fullDisplay'
 export const FLIGHT_DECK_FULL_COMPACT_WIDTH_KEY = 'podium:flightDeck:fullCompactWidth'
 export const FLIGHT_DECK_FULL_EXPANDED_WIDTH_KEY = 'podium:flightDeck:fullExpandedWidth'
 
-/** The deck's saved view is also read by shell geometry before the deck opens.
- * Keep this scalar codec here so that read never imports the optional screen. */
-export type MissionScreenView = FlightDeckMode | 'waterfall' | 'handoff'
-
-/** `active` is `working`'s old id (POD-1452); an operator who chose it stays there. */
-export const readMissionScreenView = (raw: string | null): MissionScreenView =>
-  raw === 'active'
-    ? 'working'
-    : raw === 'working' || raw === 'needs-you' || raw === 'waterfall' || raw === 'handoff'
-      ? raw
-      : 'full'
-export const writeMissionScreenView = (view: MissionScreenView): string | null =>
-  view === 'full' ? null : view
+/** The phone deck's saved mode. `active` is `working`'s old id (POD-1452); an
+ * operator who chose it stays there. Retired desktop views read as `full`. */
+export const readMissionScreenView = (raw: string | null): FlightDeckMode =>
+  raw === 'active' ? 'working' : raw === 'working' || raw === 'needs-you' ? raw : 'full'
+export const writeMissionScreenView = (mode: FlightDeckMode): string | null =>
+  mode === 'full' ? null : mode
 
 export const STICKY_PROMPTS_KEY = 'podium.chat.stickyPrompts'
 export const CHAT_VERBOSITY_KEY = 'podium.chat.verbosity'
@@ -387,7 +393,6 @@ export function readStoredDensity(ui: Pick<UiState, 'get'>): ShellDensity {
 }
 /** Superagent column mode (open | folded) — replicated via layout-state. */
 export const SUPERAGENT_MODE_KEY = 'podium:superagent:mode'
-export const SIDEBAR_COLLAPSED_KEY = 'podium:sidebar:collapsed'
 
 /**
  * Keys that are not UI view-state but must still appear in the routing table so

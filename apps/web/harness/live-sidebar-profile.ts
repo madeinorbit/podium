@@ -291,13 +291,13 @@ try {
       phase: n.getAttribute('data-phase'),
       selected: n.getAttribute('data-selected') === 'true',
       visible: n instanceof HTMLElement && n.getClientRects().length > 0,
-      numbered: /^\d+$/.test(
+      numbered: /\d$/.test(
         n
-          .querySelector('[data-testid="row-id-number"] [aria-hidden="true"]')
+          .querySelector('[data-testid="row-id-number"]')
           ?.textContent?.trim() ?? '',
       ),
       number: n
-        .querySelector('[data-testid="row-id-number"] [aria-hidden="true"]')
+        .querySelector('[data-testid="row-id-number"]')
         ?.textContent?.trim(),
       title: n.querySelector('.shell-work-row-title')?.textContent?.trim(),
       attributes: [...n.attributes].map((a) => a.name),
@@ -841,9 +841,9 @@ try {
               selectedDom: s.dom !== null,
               targetPresent: !!row,
               targetSelected: row?.getAttribute('data-selected') === 'true',
-              numbered: /^\d+$/.test(
+              numbered: /\d$/.test(
                 row
-                  ?.querySelector('[data-testid="row-id-number"] [aria-hidden="true"]')
+                  ?.querySelector('[data-testid="row-id-number"]')
                   ?.textContent?.trim() ?? '',
               ),
             }

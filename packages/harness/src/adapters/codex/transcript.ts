@@ -12,6 +12,11 @@ import {
 } from '../claude-code/transcript.js'
 import { contentToText, isRecord, stringField } from '../shared/json-util.js'
 import { safeToolEditJsonFromInput } from '../shared/tool-edit.js'
+import {
+  CODEX_ASYNC_QUESTION_TOOL,
+  codexAsyncQuestionInput,
+  parseCodexQuestionReplies,
+} from './interview.js'
 import { findCodexRolloutPath } from './state-provider.js'
 
 /**
@@ -72,6 +77,11 @@ export function codexRecordToItems(record: unknown): TranscriptItem[] {
           : ''
     return text
       ? [
+          ...questionReplyResults(
+            text,
+            stringField(currentUserMessage ?? {}, 'id') ?? SYNTHESIZED_ITEM_ID_PREFIX,
+            ts,
+          ),
           {
             id:
               stringField(currentUserMessage ?? {}, 'id') ??
@@ -92,9 +102,23 @@ export function codexRecordToItems(record: unknown): TranscriptItem[] {
       : []
   }
 
-  // Compaction replays older prompts in replacement_history. Expanding those
-  // here would put an old identical prompt after a new send's history floor.
-  if (type === 'compacted') return []
+  // Show only the summary. replacement_history replays older prompts; expanding
+  // it would put an old identical prompt after a new send's history floor.
+  if (type === 'compacted') {
+    const text = stringField(payload, 'message')?.trim()
+    return text
+      ? [
+          {
+            id: stringField(payload, 'id') ?? SYNTHESIZED_ITEM_ID_PREFIX,
+            role: 'system',
+            systemKind: 'compaction',
+            promptEntry: false,
+            ...(ts ? { ts } : {}),
+            text,
+          },
+        ]
+      : []
+  }
   if (type !== 'response_item') return []
 
   switch (ptype) {
@@ -192,8 +216,12 @@ interface WrappedToolCall {
  * the work line from "Running bun test" to "Running exec" (POD-514).
  *
  * Recover only the small, generated call shape we can recognize without
- * evaluating JavaScript. Unknown scripts get a quiet "automation" summary;
- * transcript parsing must never execute agent-authored input.
+ * evaluating JavaScript; transcript parsing must never execute agent-authored
+ * input. A lone call is shown as that call. Several stay one "Script" row,
+ * which keeps the script's own output, and list their calls in
+ * `toolInputJson` (`kind: 'script-calls'`) for the expanded row. Unknown
+ * scripts get a quiet "automation" summary. Not "Workflow": that is Podium's
+ * own orchestration tool.
  */
 function codexToolDisplay(wireName: string, rawInput: unknown): CodexToolDisplay {
   if (wireName === 'exec' && typeof rawInput === 'string') {
@@ -201,14 +229,20 @@ function codexToolDisplay(wireName: string, rawInput: unknown): CodexToolDisplay
     const onlyCall = calls.length === 1 ? calls[0] : undefined
     if (onlyCall) return codexToolDisplay(onlyCall.name, onlyCall.input)
     if (calls.length > 1) {
-      const kinds = [...new Set(calls.map((call) => wrappedToolKind(call.name)))]
-      const onlyKind = kinds.length === 1 ? kinds[0] : undefined
+      const commands = calls.every(
+        (call) => call.name === 'exec_command' || call.name === 'write_stdin',
+      )
+      const lines = calls.map((call) => {
+        const display = codexToolDisplay(call.name, call.input)
+        return { tool: display.toolName, input: display.toolInput ?? display.toolTitle ?? '' }
+      })
       return {
-        toolName: 'Workflow',
-        toolTitle: `${calls.length} ${onlyKind ? pluralize(onlyKind, calls.length) : 'actions'}`,
+        toolName: 'Script',
+        toolTitle: `${calls.length} ${commands ? 'commands' : 'actions'}`,
+        toolInputJson: JSON.stringify({ kind: 'script-calls', calls: lines }),
       }
     }
-    return { toolName: 'Workflow', toolTitle: 'automation' }
+    return { toolName: 'Script', toolTitle: 'automation' }
   }
 
   const input = parseArgs(rawInput)
@@ -221,6 +255,15 @@ function codexToolDisplay(wireName: string, rawInput: unknown): CodexToolDisplay
       toolName: 'AskUserQuestion',
       toolInput: askQuestionPreview(input),
       ...(toolInputJson ? { toolInputJson } : {}),
+    }
+  }
+  if (wireName === CODEX_ASYNC_QUESTION_TOOL) {
+    const questions = codexAsyncQuestionInput(input)
+    const toolInputJson = safeAskQuestionInputJson(questions)
+    if (toolInputJson) return {
+      toolName: wireName,
+      toolInput: askQuestionPreview(questions),
+      toolInputJson,
     }
   }
   if (wireName === 'exec_command') {
@@ -296,7 +339,7 @@ function jsObjectScalar(source: string, key: string): string | number | undefine
     const previous = source.slice(0, match.index).trimEnd().at(-1)
     if (previous !== '{' && previous !== ',') continue
     const start = match.index + match[0].length
-    if (source[start] === '"') {
+    if (source[start] === '"' || source[start] === "'") {
       const literal = quotedJsonString(source, start)
       if (literal !== undefined) return literal
       continue
@@ -310,8 +353,10 @@ function jsObjectScalar(source: string, key: string): string | number | undefine
   return undefined
 }
 
-/** Decode a JSON-compatible double-quoted literal without evaluating code. */
+/** Decode a JSON-compatible quoted literal without evaluating code. A
+ *  single-quoted one is rewritten to its double-quoted spelling first. */
 function quotedJsonString(source: string, start: number): string | undefined {
+  const quote = source[start]
   let escaped = false
   for (let i = start + 1; i < source.length; i += 1) {
     const char = source[i]
@@ -323,9 +368,11 @@ function quotedJsonString(source: string, start: number): string | undefined {
       escaped = true
       continue
     }
-    if (char !== '"') continue
+    if (char !== quote) continue
+    const literal =
+      quote === '"' ? source.slice(start, i + 1) : doubleQuoted(source.slice(start + 1, i))
     try {
-      const value: unknown = JSON.parse(source.slice(start, i + 1))
+      const value: unknown = JSON.parse(literal)
       return typeof value === 'string' ? value : undefined
     } catch {
       return undefined
@@ -334,21 +381,26 @@ function quotedJsonString(source: string, start: number): string | undefined {
   return undefined
 }
 
+/** `it\'s "x"` (a single-quoted body) → `"it's \"x\""`. Other escapes carry over. */
+function doubleQuoted(body: string): string {
+  let out = '"'
+  for (let i = 0; i < body.length; i += 1) {
+    const char = body[i]
+    if (char === '\\') {
+      const next = body[i + 1] ?? ''
+      out += next === "'" ? "'" : `\\${next}`
+      i += 1
+    } else {
+      out += char === '"' ? '\\"' : char
+    }
+  }
+  return `${out}"`
+}
+
 function patchPaths(patch: string): string[] {
   return [...patch.matchAll(/^\*\*\* (?:Add|Update|Delete) File: (.+)$/gm)].flatMap((match) =>
     match[1] ? [match[1].trim()] : [],
   )
-}
-
-function wrappedToolKind(name: string): string {
-  if (name === 'exec_command' || name === 'write_stdin') return 'command'
-  if (name === 'apply_patch') return 'edit'
-  if (name === 'view_image') return 'image'
-  return 'action'
-}
-
-function pluralize(noun: string, count: number): string {
-  return count === 1 ? noun : `${noun}s`
 }
 
 /** Find generated `tools.name(firstArgument)` calls without running the script. */
@@ -474,6 +526,31 @@ function parseJsonExpression(expression: string): unknown {
   } catch {
     return undefined
   }
+}
+
+/** The async tool result only acknowledges registration. A later user message
+ * carries the answer; pair that onto its call while retaining the exact prompt. */
+function questionReplyResults(
+  text: string,
+  userId: string,
+  ts: string | undefined,
+): TranscriptItem[] {
+  const replies = parseCodexQuestionReplies(text)
+  if (!replies) return []
+  const calls = new Map<string, typeof replies>()
+  for (const reply of replies) {
+    const group = calls.get(reply.callId) ?? []
+    group.push(reply)
+    calls.set(reply.callId, group)
+  }
+  return [...calls].map(([callId, answers]) => ({
+    id: `${userId}:question-reply:${callId}`,
+    role: 'tool',
+    text: '',
+    toolUseId: callId,
+    toolResult: JSON.stringify(answers),
+    ...(ts ? { ts } : {}),
+  }))
 }
 
 function toolResultItem(payload: Record<string, unknown>, ts: string | undefined): TranscriptItem {

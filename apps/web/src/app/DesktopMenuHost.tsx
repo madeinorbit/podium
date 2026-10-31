@@ -21,12 +21,10 @@ const RepoScanFlow = lazy(() =>
 
 export function DesktopMenuHost({
   openSettings,
-  toggleLeftSidebar,
   toggleFlightDeck,
   toggleRightSidebar,
 }: {
   openSettings: () => void
-  toggleLeftSidebar: () => void
   toggleFlightDeck: () => void
   toggleRightSidebar: () => void
 }): JSX.Element {
@@ -52,7 +50,6 @@ export function DesktopMenuHost({
       // listen for.
       settings: openSettings,
       addProject: openAddProject,
-      toggleLeftSidebar,
       toggleFlightDeck,
       toggleRightSidebar,
       // Tauri's predefined Undo/Redo items are unsupported outside macOS. The
@@ -63,18 +60,15 @@ export function DesktopMenuHost({
     })
   })
 
-  // ⌘B / ⇧⌘B — same chords as View > Toggle Right/Left Sidebar. The rebuilt
-  // macOS menu owns them (an unclaimed accelerator never reaches the webview)
-  // and evals the hooks above. This keydown covers Linux/Windows and a macOS
-  // binary old enough that no menu item claimed them yet. Browser tabs are
-  // left alone: ⌘B is bookmarks there.
+  // The native menu owns Cmd/Ctrl+B and Option+Cmd/Ctrl+B on macOS; other
+  // desktop shells use keydown. Browser tabs keep their own shortcuts.
   useEffect(() => {
     if (!nativeDesktopBridge()) return
     const onKey = (event: KeyboardEvent): void => {
       const which = sidebarToggleFromEvent(event)
       if (!which) return
       event.preventDefault()
-      if (which === 'left') toggleLeftSidebar()
+      if (which === 'flight-deck') toggleFlightDeck()
       else toggleRightSidebar()
     }
     window.addEventListener('keydown', onKey)

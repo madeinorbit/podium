@@ -1,7 +1,6 @@
 import { autorun } from 'mobx'
 import { expect, it, vi } from 'vitest'
 import { legacyShellSnapshot } from '../../../tests/worklist/diagnostics/shell-check'
-import { effectiveIssueColorHex } from '../../../apps/web/src/lib/issueColors'
 import { shellFixture } from '../../../tests/worklist/diagnostics/shell-fixture'
 import { shellViews } from './shell-views'
 import { LOADING } from './worklist/rollup'
@@ -15,12 +14,9 @@ it.each([128, 512])('does not rebuild idle shell issue projections per unrelated
   const stop = autorun(() => {
     const chrome = views.chrome()
     if (chrome && chrome !== LOADING) {
-      // Read the same keyed color and mission scalars the shell consumes.
+      // Read the same mission scalars the shell consumes.
       chrome.missionRoot?.id
       chrome.missionRoot?.childCount
-      chrome.colorIssue?.color
-      const parentId = chrome.colorIssue?.parentId
-      if (parentId) chrome.colorById(parentId)?.color
     }
     answers.push(chrome)
   })
@@ -44,19 +40,12 @@ it.each([128, 512])('does not rebuild idle shell issue projections per unrelated
     const copies = projections.mock.calls.filter(([entries]) =>
       Array.isArray(entries) && entries.some(([key]) => key === 'gitState'))
     expect(copies, 'issue summary materializations').toHaveLength(0)
-    // Live values still reach the mounted shell after the unrelated messages.
-    f.pool.apply({ type: 'update', rows: [{ kind: 'issue', id: f.issues[0]!.id,
-      value: { ...f.issues[0]!, color: 'violet' } }] as never })
-    expect(answers).toHaveLength(2)
-    const chrome = views.chrome()
-    expect(chrome && chrome !== LOADING ? chrome.colorById(f.issues[0]!.id)?.color : null)
-      .toBe('violet')
     // Mission complexity reads the root's child count (POD-6106: there is no
     // `epic` type to flip), so a new child is the live change that must arrive.
     const child = { ...f.issues[0]!, id: 'shell-idle-new-child', seq: 99_999,
-      parentId: f.issues[0]!.id, color: undefined }
+      parentId: f.issues[0]!.id }
     f.pool.apply({ type: 'update', rows: [{ kind: 'issue', id: child.id, value: child }] as never })
-    expect(answers, 'live mission complexity change').toHaveLength(3)
+    expect(answers, 'live mission complexity change').toHaveLength(2)
   } finally {
     stop()
     counts.mockRestore()
@@ -67,7 +56,7 @@ it.each([128, 512])('does not rebuild idle shell issue projections per unrelated
 })
 
 
-it('preserves live shell color and mission answers through keyed ancestry changes', () => {
+it('preserves live shell mission answers through keyed ancestry changes', () => {
   const f = shellFixture(), views = shellViews(f.pool)
   let issues = [...f.issues]
   const patch = (index: number, values: Partial<typeof issues[number]>) => {
@@ -84,11 +73,6 @@ it('preserves live shell color and mission answers through keyed ancestry change
     }
     expect(chrome).not.toBe(LOADING)
     if (!chrome || chrome === LOADING) throw new Error('shell did not settle')
-    const selected = issues.find(issue => issue.id === f.state().selectedIssueId &&
-      !issue.archived && !issue.deletedAt)
-    expect(effectiveIssueColorHex(chrome.colorIssue, chrome.colorById)).toBe(
-      effectiveIssueColorHex(selected, id => issues.find(issue => issue.id === id)),
-    )
     if (!mission) return // Cyclic mission roots already differ in the landed mission reader.
     const expected = legacyShellSnapshot(f.state(), issues).sections.find(section => section.key === 'chrome')!.fields
     expect(chrome.missionRoot?.id ?? null).toBe(expected.missionRootId)
@@ -98,16 +82,9 @@ it('preserves live shell color and mission answers through keyed ancestry change
   }
   try {
     check()
-    patch(0, { color: 'violet', type: 'task' })
-    check()
-    patch(1, { color: 'teal' })
-    check()
-    // A stale synced color must retain the legacy ancestor fallback.
-    patch(1, { color: 'unknown-slot' as never })
-    check()
     patch(1, { parentId: issues[2]!.id })
     check()
-    patch(2, { color: 'rose', parentId: issues[1]!.id })
+    patch(2, { parentId: issues[1]!.id })
     check(false)
     patch(1, { archived: true })
     check()
@@ -130,7 +107,6 @@ it('keeps an archived selected child summary-only while its mission stays visibl
       value: archived }] as never })
     const chrome = views.chrome()
     expect(chrome).not.toBe(LOADING)
-    expect(chrome).toHaveProperty('colorIssue', undefined)
     expect(chrome).toHaveProperty('missionRoot.id', f.issues[0]!.id)
     expect(f.pool.hydrate()).toBe(0)
     expect(f.loads).toEqual([])

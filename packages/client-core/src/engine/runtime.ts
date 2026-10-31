@@ -494,8 +494,8 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       hub: this.hub,
       notices: this.notices,
       isVisible: () => this.visibility.isVisible(),
-      markSessionRead: (sessionId) => void this.services.markSessionRead(sessionId),
-      markIssueRead: (issueId) => void this.services.markIssueRead(issueId),
+      markSessionRead: (sessionId, readAt) => this.services.markSessionRead(sessionId, readAt),
+      markIssueRead: (issueId, readAt) => this.services.markIssueRead(issueId, readAt),
       ...(init.workspacePruneGraceMs !== undefined
         ? { pruneGraceMs: init.workspacePruneGraceMs }
         : {}),
@@ -864,6 +864,8 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
    * installed during loading or teardown. */
   setNavigationProvider(provider: NavigationProvider): void {
     if (this.destroyed) return
+    // Release observations against their owning pool before replacing it.
+    if (provider !== this.state.navigation) this.reactions.leaveReadVisits()
     this.stopTopologyWatch?.()
     this.pendingWorktreeMoves.clear()
     this.stopTopologyWatch = provider.onTopology?.((delta) => {
@@ -1176,7 +1178,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     )
       this.reactions.reportViewState()
     // Mark-the-viewed-session-read reaction.
-    if (any('paneA', 'paneB', 'split', 'focusedPane', 'workspaces', 'navigation'))
+    if (any('view', 'paneA', 'paneB', 'split', 'focusedPane', 'workspaces', 'navigation'))
       this.reactions.updateMarkReadTimer()
     // …and the same for the issue the operator has in the foreground (POD-272).
     if (any('navigation', 'view', 'selectedIssueId', 'openIssueId'))
@@ -1555,6 +1557,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
    * Delivery and awaiting-truth entries are already durable and resume after reload. */
   readonly prepareReload = async (): Promise<void> => {
     if (this.destroyed) throw new Error('The draft owner changed; please retry reloading.')
+    await this.reactions.flushReadAcknowledgements()
     this.drafts.persist(true)
     await this.replica.uiState().flush?.()
     await this.outbox.flushLocalWrites?.()
@@ -1574,7 +1577,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
 
   // Land a just-opened file/artifact tab on screen (#101) — the file-tab twin of
   // navigateToSession: opening a tab from a non-workspace view (the issues page,
-  // the issue explorer) must switch to the workspace through the router.
+  // the dock's task panel) must switch to the workspace through the router.
   // Selecting the tab's issue/worktree keeps fileTabsForWorkspace from dropping
   // the tab and bouncing the pane.
   private revealFileTab(args: Parameters<EngineActionRuntime<TApi>['revealFileTab']>[0]): void {
@@ -1636,7 +1639,6 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       // goes out, whether it went out, when it is written to disk) is a
       // consequence, and none of it can hold the typing up.
       setSessionDraft: (sessionId, text) => this.drafts.set(sessionId, text),
-      refreshSuperThreads: () => this.boot.refreshSuperThreads(),
     })
   }
 

@@ -2,9 +2,10 @@ import type { TranscriptItem } from '@podium/model'
 import { action, compareShallow, observable, type IObservableArray } from 'mobx'
 import { companion, lazy } from '@podium/mobx-helpers'
 import { LatestTranscriptId } from '../transcript/merge'
-import { isAskUserQuestion } from '../values/ask-question'
+import { isCodexAsyncQuestion, isInterviewQuestion, isPendingAskQuestion } from '../values/ask-question'
 import {
-  isBatchableTool, isUserMediaMarker, pairToolResults,
+  foldsIntoCompaction, isBatchableTool, isCompactionPart, isUserMediaMarker, pairToolResults,
+  presentToolBlock,
   type ChatBlock, type ChatRow,
 } from '../values/chat'
 import { rowSurvivesSummary, type ChatVerbosity } from '../values/chat-verbosity'
@@ -40,9 +41,12 @@ function relationship(item: TranscriptItem): string {
   return `${item.role}\0${item.toolUseId ?? ''}\0${item.toolResult !== undefined}\0${marker}\0${fileOnly}\0${item.event ?? ''}\0${item.ts ?? ''}`
 }
 
-function shape(block: ChatBlock): string {
+/** A block's structural signature. `batchable` is part of it: an in-place
+ *  edit that turns a command into the agent's own mail (POD-2146), or back,
+ *  moves it in or out of a run without changing anything else here. */
+function shape(block: ChatBlock, batchable: boolean): string {
   const item = block.item
-  return `${item.role}\0${item.answer ?? ''}\0${item.systemKind ?? ''}\0${item.ts ?? ''}\0${item.toolName ?? ''}\0${item.cursor ?? ''}\0${item.event ?? ''}`
+  return `${item.role}\0${item.answer ?? ''}\0${item.systemKind ?? ''}\0${item.ts ?? ''}\0${item.toolName ?? ''}\0${item.cursor ?? ''}\0${item.event ?? ''}\0${batchable}`
 }
 
 /**
@@ -55,6 +59,9 @@ export class TranscriptGraph {
   readonly rowIds = observable.array<string>([], { deep: false })
   readonly summaryRowIds = observable.array<string>([], { deep: false })
   private readonly items = observable.map<string, TranscriptItem>(undefined, { deep: false })
+  /** Whether each item folds into a run, decided once when it is set: telling
+   *  the agent's own mail apart (POD-2146) reads its command. */
+  private readonly batchable = observable.map<string, boolean>(undefined, { deep: false })
   private readonly children = observable.map<string, IObservableArray<string>>(undefined, { deep: false })
   private readonly effectChildren = observable.map<string, IObservableArray<string>>(undefined, { deep: false })
   private readonly rowMembers = observable.map<string, string[]>(undefined, { deep: false })
@@ -88,11 +95,10 @@ export class TranscriptGraph {
   private readonly aliasById = new Map<string, string>()
   private readonly answers = new LatestTranscriptId(id => this.rank(id))
   private readonly assistants = new LatestTranscriptId(id => this.rank(id))
-  private readonly prose = new LatestTranscriptId(id => this.rank(id))
   private readonly questions = new LatestTranscriptId(id => this.rank(id))
+  private readonly interviews = new LatestTranscriptId(id => this.rank(id))
   @observable accessor latestAnswerId: string | undefined = undefined
   @observable accessor latestAssistantId: string | undefined = undefined
-  @observable accessor latestProseId: string | undefined = undefined
   @observable accessor pendingQuestionId: string | undefined = undefined
   readonly searchIndex = new TranscriptSearchIndex(id => this.rank(id))
 
@@ -109,11 +115,9 @@ export class TranscriptGraph {
   get version(): number { return this.orderVersion }
   structuralRow(id: string): ChatRow | undefined { return this.skeletons.get(id) }
   run(id: string): TranscriptToolRun | undefined { return this.runs.get(id) }
-  @lazy get lastAnswer(): LastAnswer {
+  @lazy({ equals: compareShallow }) get lastAnswer(): LastAnswer {
     const answer = this.latestAnswerId
-    const prose = this.latestProseId
-    return { blockIndex: answer === undefined ? -1 : this.blockPosition(answer) ?? -1,
-      text: prose === undefined ? '' : this.block(prose)?.item.text ?? '' }
+    return { blockIndex: answer === undefined ? -1 : this.blockPosition(answer) ?? -1 }
   }
 
   operatorBefore(rowIndex: number, collapseContext: boolean): string | undefined {
@@ -146,12 +150,12 @@ export class TranscriptGraph {
         const item = this.items.get(id)
         if (!item) return undefined
         const children = this.children.get(id)
-        if (!children?.length) return { item }
+        if (!children?.length) return presentToolBlock({ item })
         if (item.role === 'tool' && item.toolUseId) {
           const result = this.items.get(children.at(-1)!)?.toolResult
           const effectId = this.effectChildren.get(id)?.at(-1)
           const effects = effectId === undefined ? undefined : this.items.get(effectId)?.toolEffects
-          return { item: effects ? { ...item, toolEffects: effects } : item, result }
+          return presentToolBlock({ item: effects ? { ...item, toolEffects: effects } : item, result })
         }
         const related = [item]
         for (const child of children) {
@@ -166,7 +170,7 @@ export class TranscriptGraph {
         const first = this.block(members[0]!)
         if (!first) return undefined
         const graph = this
-        if (!isBatchableTool(first.item)) return {
+        if (!this.isBatchable(first.item.id)) return {
           kind: 'block', block: first,
           get blockIndex() { return graph.blockPosition(first.item.id) ?? -1 },
         }
@@ -176,6 +180,7 @@ export class TranscriptGraph {
           kind: 'tools',
           get blocks() { return run.blocks },
           get title() { return run.title },
+          get summary() { return run.summary },
           get blockIndices() { return members.map(member => graph.blockPosition(member) ?? -1) },
         }
   }
@@ -242,6 +247,7 @@ export class TranscriptGraph {
 
   @action reset(items: readonly TranscriptItem[]): void {
     this.items.clear()
+    this.batchable.clear()
     this.records.clear()
     this.children.clear()
     this.effectChildren.clear()
@@ -262,8 +268,8 @@ export class TranscriptGraph {
     this.ranks.clear()
     this.answers.clear()
     this.assistants.clear()
-    this.prose.clear()
     this.questions.clear()
+    this.interviews.clear()
     this.searchIndex.clear()
     this.fileIds = items.map(item => item.id)
     const ordered = promptsBeforeTheirReplies([...items])
@@ -380,13 +386,15 @@ export class TranscriptGraph {
       const sorted = ids.sort((a, b) => this.rank(a) - this.rank(b))
       for (const id of sorted) this.ingestIdentity(id, dirty)
       // A page may supply the missing call for a previously orphaned result,
-      // or the user turn into which the old head's media marker now folds.
+      // or the user turn into which the old head's media marker now folds, or
+      // the compaction note the old head's summary and notice now belong to.
       if (beforeHead) {
         let at = ordered.length
         while (at < this.orderedIds.length) {
           const id = this.orderedIds[at++]!
           const item = this.items.get(id)!
           if (isUserMediaMarker(item)) this.ingestMedia(id, dirty)
+          else if (isCompactionPart(item)) this.ingestCompaction(id, dirty)
           else if (!this.owners.has(id)) break
         }
       }
@@ -396,7 +404,7 @@ export class TranscriptGraph {
     for (const id of dirty) {
       const block = this.block(id)
       if (!block || !this.isEmitted(id)) { this.searchIndex.remove(id); continue }
-      if (this.shapes.get(id) !== shape(block)) {
+      if (this.shapes.get(id) !== shape(block, this.isBatchable(id))) {
         const at = this.insertionPoint(this.blockIds, id)
         for (const neighbor of [this.blockIds[at - 1], id, this.blockIds[at + 1]])
           if (neighbor) rowsToRepair.add(neighbor)
@@ -457,7 +465,6 @@ export class TranscriptGraph {
       this.blockSkeletons.delete(id)
       this.answers.set(id, false)
       this.assistants.set(id, false)
-      this.prose.set(id, false)
       this.questions.set(id, false)
       this.setFailure(id, false)
       this.indexOperators(id, undefined)
@@ -501,6 +508,7 @@ export class TranscriptGraph {
   private ingestIdentity(id: string, dirty = new Set<string>()): void {
     const item = this.items.get(id)!
     if (isUserMediaMarker(item)) { this.ingestMedia(id, dirty); return }
+    if (isCompactionPart(item)) { this.ingestCompaction(id, dirty); return }
     if (item.role !== 'tool' || !item.toolUseId) { this.emit(id, true, dirty); return }
     let members = this.toolMembers.get(item.toolUseId)
     if (!members) { members = { calls: [], results: [] }; this.toolMembers.set(item.toolUseId, members) }
@@ -533,6 +541,24 @@ export class TranscriptGraph {
       const tags = item.tags ?? []
       this.emit(id, !(tags.length > 0 && tags.every(tag => tag.kind === 'file')), dirty)
     }
+  }
+
+  /** A compaction's records (Claude writes a boundary, the summary, and an idle
+   *  notice, with invisible attachments between) become children of the note
+   *  the first of them opened, as {@link pairToolResults} folds them. */
+  private ingestCompaction(id: string, dirty: Set<string>): void {
+    const at = this.insertionPoint(this.blockIds, id)
+    const previous = this.blockIds[at - 1]
+    let owner: string | undefined
+    if (previous !== undefined && isCompactionPart(this.items.get(previous)!)) {
+      const related = [previous, ...(this.children.get(previous) ?? [])]
+        .filter(member => member !== id)
+        .map(member => this.items.get(member)!)
+      const note = pairToolResults(related)[0]?.item
+      if (note && foldsIntoCompaction(note, this.items.get(id)!)) owner = previous
+    }
+    this.attach(id, owner, dirty)
+    if (!owner) this.emit(id, true, dirty)
   }
 
   private liftPrompt(id: string, dirty: Set<string>): void {
@@ -568,7 +594,7 @@ export class TranscriptGraph {
     for (const id of dirty) {
       const owner = this.rowByBlock.get(id)
       if (owner && typeof owner !== 'string' &&
-        (!this.isEmitted(id) || !isBatchableTool(this.items.get(id)!))) broken.add(owner)
+        (!this.isEmitted(id) || !this.isBatchable(id))) broken.add(owner)
     }
     for (const id of dirty) {
       if (this.repairToolRow(id, broken)) continue
@@ -591,10 +617,10 @@ export class TranscriptGraph {
       let previousStart = -1, previousEnd = -1
       while (start !== previousStart || end !== previousEnd) {
         previousStart = start; previousEnd = end
-        while (start > 0 && isBatchableTool(this.items.get(this.blockIds[start]!)!) &&
-          isBatchableTool(this.items.get(this.blockIds[start - 1]!)!)) start--
-        while (end < this.blockIds.length && isBatchableTool(this.items.get(this.blockIds[end - 1]!)!) &&
-          isBatchableTool(this.items.get(this.blockIds[end]!)!)) end++
+        while (start > 0 && this.isBatchable(this.blockIds[start]!) &&
+          this.isBatchable(this.blockIds[start - 1]!)) start--
+        while (end < this.blockIds.length && this.isBatchable(this.blockIds[end - 1]!) &&
+          this.isBatchable(this.blockIds[end]!)) end++
         for (let at = start; at < end; at++) addOld(this.rowOwner(this.blockIds[at]!))
       }
       const members = this.blockIds.slice(start, end)
@@ -620,9 +646,9 @@ export class TranscriptGraph {
       let at = 0
       while (at < members.length) {
         const first = members[at]!
-        const tools = isBatchableTool(this.items.get(first)!)
+        const tools = this.isBatchable(first)
         let end = at + 1
-        if (tools) while (end < members.length && isBatchableTool(this.items.get(members[end]!)!)) end++
+        if (tools) while (end < members.length && this.isBatchable(members[end]!)) end++
         const ownedMembers = observable.array<string>(members.slice(at, end), { deep: false })
         this.rowMembers.set(first, ownedMembers)
         this.rowShapes.set(first, ownedMembers.map(member => this.shapes.get(member)!))
@@ -647,7 +673,7 @@ export class TranscriptGraph {
     const first = members?.[0] === undefined ? undefined : this.block(members[0])
     const at = this.insertionPoint(this.summaryRowIds, id)
     const held = this.summaryRowIds[at] === id
-    const kept = first !== undefined && (isBatchableTool(first.item)
+    const kept = first !== undefined && (this.isBatchable(first.item.id)
       ? (this.failuresByRow.get(id) ?? 0) > 0
       : rowSurvivesSummary({ kind: 'block', block: first, blockIndex: 0 }))
     if (held && !kept) this.summaryRowIds.splice(at, 1)
@@ -657,15 +683,16 @@ export class TranscriptGraph {
   private indexBlock(id: string): void {
     const block = this.block(id)
     if (!block) return
-    if (this.shapes.get(id) !== shape(block)) this.blockSkeletons.set(id, block)
-    this.shapes.set(id, shape(block))
+    const signature = shape(block, this.isBatchable(id))
+    if (this.shapes.get(id) !== signature) this.blockSkeletons.set(id, block)
+    this.shapes.set(id, signature)
     this.setFailure(id, rowSurvivesSummary({ kind: 'tools', blocks: [block], blockIndices: [0], title: '' }))
     this.searchIndex.set(id, [block.item.text, block.item.toolName ?? '', block.item.toolInput ?? '',
       block.result ?? block.item.toolResult ?? ''].join('\n'))
     this.answers.set(id, block.item.role === 'assistant' && block.item.answer === true)
     this.assistants.set(id, block.item.role === 'assistant')
-    this.prose.set(id, block.item.role === 'assistant' && block.item.text.trim() !== '')
-    this.questions.set(id, isAskUserQuestion(block.item) && !block.item.toolResult && block.result === undefined)
+    this.questions.set(id, isPendingAskQuestion(block))
+    this.interviews.set(id, isInterviewQuestion(block.item))
     this.indexOperators(id, block.item)
     this.indexAlias(id, block.item.cursor ?? id)
     const run = this.rowByBlock.get(id)
@@ -675,8 +702,15 @@ export class TranscriptGraph {
   private publishFacts(): void {
     this.latestAnswerId = this.answers.latest()
     this.latestAssistantId = this.assistants.latest()
-    this.latestProseId = this.prose.latest()
-    this.pendingQuestionId = this.questions.latest()
+    const question = this.questions.latest()
+    // Async interviews can be answered in ordinary chat or superseded without
+    // a correlated result. Do not resurrect them after the next human prompt
+    // or interview. The existing native-menu question rules stay unchanged.
+    const superseded = question !== undefined && isCodexAsyncQuestion(this.items.get(question)!) &&
+      [this.operatorIds[1].at(-1), this.interviews.latest()].some(
+        id => id !== undefined && this.rank(id) > this.rank(question),
+      )
+    this.pendingQuestionId = superseded ? undefined : question
   }
 
   private indexOperators(id: string, item: TranscriptItem | undefined): void {
@@ -732,6 +766,7 @@ export class TranscriptGraph {
     const graph = this
     return { kind: 'tools', blocks,
       get title() { return run.title },
+      get summary() { return run.summary },
       get blockIndices() { return run.ids.map(id => graph.blockPosition(id) ?? -1) },
     }
   }
@@ -739,13 +774,13 @@ export class TranscriptGraph {
   /** Add/change one child of an existing quiet run without walking its members. */
   private repairToolRow(id: string, broken: ReadonlySet<TranscriptToolRun>): boolean {
     const item = this.items.get(id)
-    if (!item || !isBatchableTool(item) || !this.isEmitted(id)) return false
+    if (!item || !this.isBatchable(id) || !this.isEmitted(id)) return false
     const own = this.rowByBlock.get(id)
     if (typeof own === 'string') return false
     const point = this.insertionPoint(this.blockIds, id)
     const groups = new Set<TranscriptToolRun>()
     for (const neighbor of [this.blockIds[point - 1], id, this.blockIds[point + 1]]) {
-      if (!neighbor || !isBatchableTool(this.items.get(neighbor)!)) continue
+      if (!neighbor || !this.isBatchable(neighbor)) continue
       const group = this.rowByBlock.get(neighbor)
       if (group && typeof group !== 'string') groups.add(group)
     }
@@ -798,8 +833,13 @@ export class TranscriptGraph {
     return true
   }
 
+  private isBatchable(id: string): boolean {
+    return this.batchable.get(id) ?? false
+  }
+
   private setItem(id: string, item: TranscriptItem): void {
     this.items.set(id, item)
+    this.batchable.set(id, isBatchableTool(item))
     if (!this.records.has(id)) this.records.set(id, new TranscriptRecord(id))
   }
 

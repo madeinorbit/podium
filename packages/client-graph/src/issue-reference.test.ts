@@ -38,6 +38,21 @@ function fixture(scale: 1 | 4, resident: boolean) {
   }
 }
 
+it.each([false, true])('keeps closing reasons live for cold/resident references: %s', (resident) => {
+  const f = fixture(1, resident)
+  const view = createPoolProjection(f.pool, pool => referenceView(pool).read('POD-1'))
+  const paint = vi.fn(), stop = view.subscribe(paint)
+  try {
+    for (const closedReason of ['done', 'cancelled', 'duplicate', 'superseded'] as const) {
+      f.publish({ type: 'update', rows: [issue('target', 1, { stage: 'done', closedReason })] })
+      expect(view.getSnapshot()).toMatchObject({ stage: 'done', status: closedReason, availability: 'archived' })
+    }
+    expect(paint).toHaveBeenCalledTimes(4)
+    f.publish({ type: 'update', rows: [issue('target', 1, { stage: 'planning', closedReason: null })] })
+    expect(view.getSnapshot()).toMatchObject({ status: 'planning' })
+  } finally { stop(); view.dispose(); f.pool.dispose() }
+})
+
 it('keeps facade creation, first chip and named updates flat with cold and resident histories', async () => {
   async function measured(scale: 1 | 4, resident: boolean) {
     const f = fixture(scale, resident), row = vi.spyOn(f.pool, 'row')

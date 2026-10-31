@@ -70,8 +70,7 @@ function issue(id: string, title: string, over: Record<string, unknown> = {}) {
 }
 
 /** `trpc.issues.update` — kept ONLY so the assertions below can prove nothing
- *  reaches it any more. The rename and the ID-square colour are both outboxed
- *  (POD-781): they call `store.updateIssue`. */
+ *  reaches it any more. Renames use the outbox through `store.updateIssue` (POD-781). */
 const updateMutate = vi.fn(async () => ({}))
 const updateIssue = vi.fn(async () => {})
 
@@ -181,22 +180,4 @@ describe('SidebarUnified issue rename (#170 Fix 3)', () => {
     expect(updateMutate).not.toHaveBeenCalled()
   })
 
-  // The colour picker used to hang off the row's ID square. The 3a design took
-  // the square out of this column (POD-1057) and the affordance went where every
-  // other property of an issue is set — the row's context menu. The WRITE is
-  // what this test has always been about, and it is unchanged: outboxed through
-  // `store.updateIssue`, never straight at `trpc.issues.update`.
-  it('writes a picked colour through the outboxed updateIssue action', async () => {
-    render(<SidebarUnified />)
-    fireEvent.contextMenu(screen.getByText('Original title'))
-    // The menu is fetched on the right-click, not before it (POD-1239), so the
-    // first query after the gesture has to wait for the chunk.
-    fireEvent.click(await screen.findByRole('menuitem', { name: /Set colour/ }))
-    fireEvent.click(screen.getByRole('button', { name: 'Violet' }))
-
-    // The row repaints on the press (POD-781 group 2): the colour is one more
-    // `issues.update` patch, so it rides the queue the rename already does.
-    await waitFor(() => expect(updateIssue).toHaveBeenCalledWith('a', { color: 'violet' }))
-    expect(updateMutate).not.toHaveBeenCalled()
-  })
 })

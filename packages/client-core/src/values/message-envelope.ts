@@ -15,6 +15,9 @@
  * quoted frames stay quoted inside the rendered body.
  */
 
+import { type MailPointerSender, parseMailPointer } from '@podium/commands/mail-pointer-nudge'
+import { LEGACY_TURN_CLOSE_RULE, TURN_CLOSE_RULE } from '@podium/commands/mail-turn-close-rule'
+
 export interface ParsedEnvelope {
   /** The message id (`msg_…`) — links the transcript block to the ledger. */
   id: string
@@ -35,6 +38,11 @@ export interface ParsedEnvelope {
    *  machine …"), when the sender runs elsewhere — rendered as a footer, not
    *  body text. */
   machineNote?: string
+  /** Set on an inbox POINTER [POD-2143]: the line the server types in place of
+   *  an oversized body. Its `body` is empty and `to` unknown. `by-id`: `id` is
+   *  the message id to fetch the body by. `legacy`: a pointer typed before it
+   *  carried ids, whose `id` is only unique within its turn. */
+  pointer?: 'by-id' | 'legacy'
 }
 
 /** The head line. The reply part is absent from the short frame a server job
@@ -42,6 +50,15 @@ export interface ParsedEnvelope {
  *  answers, but still Podium's, never the person's. */
 const HEAD_RE =
   /^\[podium message (\S+) · from (.+?) · to (.+?)(?: · reply: podium mail reply \1)?\]\n/
+
+/** Remove the server's turn-close rule, matched as the EXACT suffix the server
+ *  appends, so a sender's own lines that merely look like it stay in the body. */
+function stripTurnCloseRule(body: string): string {
+  for (const rule of [TURN_CLOSE_RULE, LEGACY_TURN_CLOSE_RULE]) {
+    if (body.endsWith(rule)) return body.slice(0, body.length - rule.length)
+  }
+  return body
+}
 
 export interface ParsedEnvelopeBatch {
   envelopes: ParsedEnvelope[]
@@ -63,8 +80,12 @@ export function parseMessageEnvelope(text: string): ParsedEnvelope | null {
   if (!trimmed.endsWith(endTag)) return null
   let body = trimmed.slice(head[0].length, trimmed.length - endTag.length)
   // Server boilerplate sits on the lines just before the end frame, in render
-  // order body → note → question/response rule. Strip back-to-front and mark
-  // the block instead of rendering the raw instructions.
+  // order body → note → question/response rule → turn-close rule. Strip
+  // back-to-front and mark the block instead of rendering the raw instructions.
+  // The turn-close lines come last and must go first: left in place, they hid
+  // every rule above them, so agent mail showed the instructions as body text
+  // and never read as a question or a reply request (POD-2070).
+  body = stripTurnCloseRule(body)
   const questionRe = /\n?\[this is a question: [^\n]*\]\n?$/
   const question = questionRe.test(body)
   if (question) body = body.replace(questionRe, '')
@@ -98,7 +119,15 @@ export function parseEnvelopeBatch(text: string): ParsedEnvelopeBatch | null {
   let rest = text.replace(/\r\n?/g, '\n').trim()
   const envelopes: ParsedEnvelope[] = []
 
-  while (rest.startsWith('[podium message ')) {
+  for (;;) {
+    if (!rest.startsWith('[podium message ')) {
+      // An inbox pointer is Podium's too, never the human's (POD-2143).
+      const pointer = parseMailPointer(rest)
+      if (!pointer) break
+      envelopes.push(...pointerEnvelopes(pointer.senders, envelopes.length))
+      rest = pointer.rest.trimStart()
+      continue
+    }
     const head = HEAD_RE.exec(rest)
     const id = head?.[1]
     if (!head || !id) break
@@ -113,6 +142,27 @@ export function parseEnvelopeBatch(text: string): ParsedEnvelopeBatch | null {
   }
 
   return envelopes.length > 0 ? { envelopes, operatorText: rest.trim() } : null
+}
+
+/** One entry per message a pointer names; a legacy pointer names none, so it
+ *  gets one per sender. */
+function pointerEnvelopes(senders: MailPointerSender[], offset: number): ParsedEnvelope[] {
+  const base = { to: '', body: '', question: false, expectsReply: false }
+  return senders.flatMap<ParsedEnvelope>(({ from, ids }, i) =>
+    ids.length > 0
+      ? ids.map((id) => ({ ...base, id, from, pointer: 'by-id' as const }))
+      : [{ ...base, id: `pointer:${offset + i}`, from, pointer: 'legacy' as const }],
+  )
+}
+
+/** A pointer entry's text while its body is not loaded (or cannot be): where
+ *  the body went, and for a by-id pointer how to read it. Never an empty card. */
+export function pointerFallbackBody(envelope: ParsedEnvelope): string {
+  const where =
+    'Delivered via the inbox\nToo long to type into the session, so the agent read it from its inbox.'
+  return envelope.pointer === 'by-id'
+    ? `${where} Read it with \`podium mail show ${envelope.id}\`.`
+    : where
 }
 
 /** A principal label split for rendering: `pre` + `ref` + `post`, where `ref`
@@ -142,6 +192,16 @@ export function envelopePrincipal(label: string): EnvelopePrincipal {
   const session = /^session:(\S+)$/.exec(label)
   if (session) return { pre: `session ${session[1]} · agent`, ref: null, post: '' }
   return { pre: label, ref: null, post: '' }
+}
+
+/** The short name a fold line uses (POD-2076): "steward", not "system:steward";
+ *  a task's ref, not "task POD-12 · agent"; "an agent" for a bare session. */
+export function principalShortName(label: string): string {
+  const system = /^system:(\S+)$/.exec(label)
+  if (system?.[1]) return system[1]
+  const p = envelopePrincipal(label)
+  if (p.ref !== null) return p.ref
+  return /^session:/.test(label) ? 'an agent' : label
 }
 
 /** Human label for a server-rendered principal label (flat-text form of

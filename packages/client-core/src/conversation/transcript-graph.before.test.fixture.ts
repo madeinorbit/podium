@@ -88,11 +88,9 @@ export class TranscriptGraph {
   private readonly aliasById = new Map<string, string>()
   private readonly answers = new LatestTranscriptId(id => this.rank(id))
   private readonly assistants = new LatestTranscriptId(id => this.rank(id))
-  private readonly prose = new LatestTranscriptId(id => this.rank(id))
   private readonly questions = new LatestTranscriptId(id => this.rank(id))
   latestAnswerId: string | undefined = undefined
   latestAssistantId: string | undefined = undefined
-  latestProseId: string | undefined = undefined
   pendingQuestionId: string | undefined = undefined
   readonly searchIndex = new TranscriptSearchIndex(id => this.rank(id))
 
@@ -102,7 +100,6 @@ export class TranscriptGraph {
       operatorVersion: observable,
       latestAnswerId: observable,
       latestAssistantId: observable,
-      latestProseId: observable,
       pendingQuestionId: observable,
       structuralRows: computed,
       structuralBlocks: computed,
@@ -124,9 +121,7 @@ export class TranscriptGraph {
   run(id: string): TranscriptToolRun | undefined { return this.runs.get(id) }
   get lastAnswer(): LastAnswer {
     const answer = this.latestAnswerId
-    const prose = this.latestProseId
-    return { blockIndex: answer === undefined ? -1 : this.blockPosition(answer) ?? -1,
-      text: prose === undefined ? '' : this.block(prose)?.item.text ?? '' }
+    return { blockIndex: answer === undefined ? -1 : this.blockPosition(answer) ?? -1 }
   }
 
   operatorBefore(rowIndex: number, collapseContext: boolean): string | undefined {
@@ -190,6 +185,7 @@ export class TranscriptGraph {
           kind: 'tools',
           get blocks() { return run.blocks },
           get title() { return run.title },
+          get summary() { return run.summary },
           get blockIndices() { return members.map(member => graph.blockPosition(member) ?? -1) },
         }
       })
@@ -285,7 +281,6 @@ export class TranscriptGraph {
     this.ranks.clear()
     this.answers.clear()
     this.assistants.clear()
-    this.prose.clear()
     this.questions.clear()
     this.searchIndex.clear()
     this.fileIds = items.map(item => item.id)
@@ -482,7 +477,6 @@ export class TranscriptGraph {
       this.blockSkeletons.delete(id)
       this.answers.set(id, false)
       this.assistants.set(id, false)
-      this.prose.set(id, false)
       this.questions.set(id, false)
       this.setFailure(id, false)
       this.indexOperators(id, undefined)
@@ -689,7 +683,6 @@ export class TranscriptGraph {
       block.result ?? block.item.toolResult ?? ''].join('\n'))
     this.answers.set(id, block.item.role === 'assistant' && block.item.answer === true)
     this.assistants.set(id, block.item.role === 'assistant')
-    this.prose.set(id, block.item.role === 'assistant' && block.item.text.trim() !== '')
     this.questions.set(id, isAskUserQuestion(block.item) && !block.item.toolResult && block.result === undefined)
     this.indexOperators(id, block.item)
     this.indexAlias(id, block.item.cursor ?? id)
@@ -700,7 +693,6 @@ export class TranscriptGraph {
   private publishFacts(): void {
     this.latestAnswerId = this.answers.latest()
     this.latestAssistantId = this.assistants.latest()
-    this.latestProseId = this.prose.latest()
     this.pendingQuestionId = this.questions.latest()
   }
 
@@ -757,6 +749,7 @@ export class TranscriptGraph {
     const graph = this
     return { kind: 'tools', blocks,
       get title() { return run.title },
+      get summary() { return run.summary },
       get blockIndices() { return run.ids.map(id => graph.blockPosition(id) ?? -1) },
     }
   }

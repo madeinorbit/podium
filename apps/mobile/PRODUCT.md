@@ -37,10 +37,10 @@ Identical to the desktop: fast, calm, precise, technical — a quiet cockpit. On
 
 1. **Work first, at phone scale.** The app opens on the issue-first Work list. Amber task and session signals answer "what needs me?" without inventing a separate mobile destination or count to reconcile.
 2. **Decisions live at their source.** A task-level question is answerable on the task; an agent question or offer is answerable in its session transcript. Compact actions carry enough headline and evidence context to act on cold without turning navigation into a queue.
-3. **Same state, same language.** Stages, issue colors, ID squares, agent-state grammar, and vocabulary mirror the desktop exactly; the phone is a different viewport, never a different product.
+3. **Same state, same language.** Stages, ID squares, agent-state grammar, and vocabulary mirror the desktop exactly; the phone is a different viewport, never a different product.
 4. **Thumb and voice.** Primary actions live in thumb reach; composing a prompt favors dictation — big target, forgiving input, short required text.
 5. **Calm speed.** Instant paint from the local replica, offline-safe writes, motion only as state.
 
 ## Accessibility & Inclusion
 
-System appearance, Dynamic Type, VoiceOver semantics, 44pt targets, Reduce Motion, and native keyboard ownership are release requirements. Podium keeps its product vocabulary, issue colors, status meanings, and machine-data voice while iOS owns structural appearance and controls.
+System appearance, Dynamic Type, VoiceOver semantics, 44pt targets, Reduce Motion, and native keyboard ownership are release requirements. Podium keeps its product vocabulary, status meanings, and machine-data voice while iOS owns structural appearance and controls.

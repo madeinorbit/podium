@@ -37,6 +37,7 @@ import type { IssueStore } from './core'
 import type { IssueCrudModule } from './crud'
 import { IssueEpicIntegrationModule } from './integration'
 import type { IssueCommentsMailModule } from './mail'
+import { missingParentBranchRefusal } from './parent-branch'
 import { IssueRefusal } from './refusal'
 import type { CreateIssueInput } from './types'
 import { IssueWorktreeGcModule } from './worktree-gc'
@@ -109,13 +110,6 @@ type ParentBranchGroup = {
  *  keeps a landing on a busy main from spiking every core at once without
  *  meaningfully delaying the sweep (batches are sequential, the tick is 30s). */
 const GIT_PROBE_FANOUT = 8
-
-/** Default branch work lands on when an issue's cut parent is not itself the
- *  shared integration branch. Mirrors create-time fallback in crud.ts. */
-function landingBaseFromSettings(defaultParentBranch: string | undefined): string {
-  const trimmed = defaultParentBranch?.trim() ?? ''
-  return trimmed !== '' ? trimmed : 'main'
-}
 
 /**
  * Git-workflow capability: ONE issue's git life — worktree start/cleanup, PR/merge
@@ -509,11 +503,15 @@ export class IssueGitWorkflowModule {
       let startRepoPath = row.repoPath
       let startPoint = row.parentBranch
       if (homeMachineId && this.store.d.prepareMachineStart) {
-        const prepared = await this.store.d.prepareMachineStart({
-          repoPath: row.repoPath,
-          machineId: homeMachineId,
-          ...(row.parentBranch ? { startPoint: row.parentBranch } : {}),
-        })
+        const prepared = await this.store.d
+          .prepareMachineStart({
+            repoPath: row.repoPath,
+            machineId: homeMachineId,
+            ...(row.parentBranch ? { startPoint: row.parentBranch } : {}),
+          })
+          .catch(async (err: unknown) => {
+            throw (await this.missingParentBranch(row)) ?? err
+          })
         startRepoPath = prepared.repoPath
         // A bundled branch lands as OBJECTS, not as a ref, so the branch name does not
         // resolve on the target even though its commit does. prepareMachineStart hands
@@ -545,7 +543,15 @@ export class IssueGitWorkflowModule {
         { path, branch, ...(startPoint ? { startPoint } : {}) },
         worktreeMachineId,
       )
-      if (!res.ok) throw new Error(`worktree add failed: ${res.output}`)
+      if (!res.ok) {
+        throw (
+          // Same checkout as the source: ask it. A pinned start onto another layout
+          // already had its start point shipped, so a missing parent is not why.
+          (startRepoPath === row.repoPath
+            ? await this.missingParentBranch(row, worktreeMachineId)
+            : null) ?? new Error(`worktree add failed: ${res.output}`)
+        )
+      }
       // POD-665: the daemon just created this worktree out from under connected
       // clients — nudge them to re-fetch repos rather than sit invisible until reload.
       this.store.d.onWorktreesChanged?.(row.repoPath, worktreeMachineId)
@@ -748,7 +754,7 @@ export class IssueGitWorkflowModule {
   }
 
   async action(
-    id: string,
+    ref: string,
     kind: 'rebase' | 'pr' | 'merge',
   ): Promise<{ ok: boolean; output: string; issue: IssueProjection }> {
     /**
@@ -775,7 +781,10 @@ export class IssueGitWorkflowModule {
      * put back the very thing this removed: an unpersisted copy in scope while the
      * awaits run, for a later reader to mistake for the write's subject.
      */
-    const planned = await this.store.rowOrThrow(id)
+    const planned = await this.store.rowOrThrow(ref)
+    // Resolved once: the CLI passes what the operator typed (`2254`), and the
+    // ephemeral maps below are keyed by the issue id, never by a ref.
+    const id = planned.id
     if (!planned.worktreePath || !planned.branch) throw new IssueRefusal('issue not started')
     const worktreePath = planned.worktreePath
     const branch = planned.branch
@@ -836,6 +845,22 @@ export class IssueGitWorkflowModule {
       row.landedAt = new Date().toISOString()
       if (tip.ok && tip.output.trim() !== '') row.landedSha = tip.output.trim()
       await this.store.persistRow(row)
+      // The merge axis is a fact we just produced [POD-2151], not one to infer:
+      // write it before close() frees the worktree, so the close broadcast
+      // carries it and no later probe is needed to clear "ready to merge".
+      // After the stamp, not before: a probe finishing mid-commit still sees no
+      // `landedAt` and would overwrite it. The pre-merge dirt count goes too: a
+      // freed worktree has none, and one close keeps is re-probed below.
+      const cached = this.store.gitStates.get(id)
+      this.store.gitStates.set(id, {
+        branch: row.branch,
+        ...cached,
+        updatedAt: this.store.now(),
+        shared: false,
+        dirtyFiles: 0,
+        merged: true,
+        ahead: 0,
+      })
       const issue = await this.crud().close(id, 'done')
       // This branch just landed [POD-384]: settle its merge axis now, so the
       // operator who pressed merge sees the "ready to merge" chip go rather than
@@ -1883,6 +1908,39 @@ export class IssueGitWorkflowModule {
     }, 'issue-git-state-session-departed')
   }
 
+  /**
+   * The refusal for a start that failed because the source repository has no
+   * `row.parentBranch` [POD-2065], or null when that is not why it failed.
+   *
+   * Asked only AFTER a start step failed, so a start that works pays nothing and a
+   * pinned start still does no git work before its machine pre-flight. Both steps it
+   * follows fail before building anything. The stored parent is left alone:
+   * retargeting an existing issue is the operator's call, and the message says how.
+   */
+  private async missingParentBranch(
+    row: IssueRow,
+    machineId?: MachineId,
+  ): Promise<IssueRefusal | null> {
+    if (!row.parentBranch) return null
+    try {
+      const at = machineId ?? (await this.store.resolveWorktreeMachine(undefined, row.repoPath))
+      const defaults = await this.store.baseBranchDefaults(row.repoPath, row.machineId)
+      const refusal = await missingParentBranchRefusal(
+        (op, cwd, args) => this.store.d.repoOp(op, cwd, args, at),
+        {
+          repoPath: row.repoPath,
+          parentBranch: row.parentBranch,
+          issueRef: await this.issueRef(row),
+          repoDefault: defaults.repo,
+          instanceDefault: defaults.instance,
+        },
+      )
+      return refusal ? new IssueRefusal(refusal) : null
+    } catch {
+      return null
+    }
+  }
+
   /** The issue's human ref (`POD-98`, or `#98` before a prefix exists) — the
    *  commit-message marker logIssueCommits greps for. */
   private async issueRef(row: IssueRow): Promise<string> {
@@ -1977,9 +2035,18 @@ export class IssueGitWorkflowModule {
    * fanning out across every issue at boot would be pure cost.
    */
   async sweepParentBranchMovement(): Promise<void> {
-    const landingBase = landingBaseFromSettings(
-      (await this.store.d.getSettings()).gitWorkflow.defaultParentBranch,
-    )
+    // The landing base is per repository [POD-2065]; one registry read per
+    // (machine, repo) per sweep.
+    const landingBases = new Map<string, string>()
+    const landingBaseOf = async (row: IssueRow): Promise<string> => {
+      const key = parentBranchKey(row.machineId, row.repoPath, '')
+      let base = landingBases.get(key)
+      if (base === undefined) {
+        base = await this.store.landingBase(row.repoPath, row.machineId)
+        landingBases.set(key, base)
+      }
+      return base
+    }
     const groups = new Map<string, ParentBranchGroup>()
     const addToGroup = (row: IssueRow, ref: string) => {
       if (ref === '') return
@@ -2006,6 +2073,7 @@ export class IssueGitWorkflowModule {
       // Stacked issue: also watch the landing base, because that is the ref the
       // hard land procedure moves. Without this, a dead sibling parent freezes
       // the watch forever (POD-576).
+      const landingBase = await landingBaseOf(row)
       if (row.parentBranch !== landingBase) addToGroup(row, landingBase)
     }
     // Forget tips no live issue watches any more (closed out, worktree freed) so
@@ -2053,15 +2121,20 @@ export class IssueGitWorkflowModule {
   private async probeGitStateOnce(id: string, fallbackCwd?: string): Promise<boolean> {
     const row = await this.store.row(id)
     if (!row || row.deletedAt) return false
+    // Landed and freed [POD-2151]: the merge action wrote the settled state
+    // before it freed the worktree. A session's fallback cwd is that deleted
+    // worktree, and probing it as a shared checkout would overwrite the
+    // verdict, so keep whatever is cached and probe nothing.
+    if (row.worktreePath === null && row.landedAt) return false
+    // A landing during this probe makes its answer pre-merge [POD-2151].
+    const landedAt = row.landedAt ?? null
     const shared = row.worktreePath === null
     const cwd = row.worktreePath ?? fallbackCwd
     if (!cwd) return false
     try {
       const members = await this.store.sessionsFor(row)
       const attribution = this.gitAttributionFor(members)
-      const landingBranch = landingBaseFromSettings(
-        (await this.store.d.getSettings()).gitWorkflow.defaultParentBranch,
-      )
+      const landingBranch = await this.store.landingBase(row.repoPath, row.machineId)
       const state = await probeGitState(
         {
           repoOp: async (op, opCwd, args, machineId) =>
@@ -2088,6 +2161,8 @@ export class IssueGitWorkflowModule {
         },
         this.store.now(),
       )
+      // Discard it rather than overwrite the state the merge action settled.
+      if ((this.store.rows.get(id)?.landedAt ?? null) !== landedAt) return false
       this.store.gitStates.set(id, state)
       return true
     } catch {

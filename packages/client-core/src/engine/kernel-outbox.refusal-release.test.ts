@@ -188,3 +188,18 @@ describe('a release outside a drain pass starts a drain', () => {
     outbox.dispose()
   })
 })
+
+describe("a refused task base branch (POD-2153)", () => {
+  // The task page awaits only the enqueue: a server refusal arrives later, here.
+  it('surfaces as the outbox recovery notice naming the branch change', async () => {
+    const refused = (): Error =>
+      Object.assign(new Error("Branch 'nope' does not exist"), {
+        data: { code: 'BAD_REQUEST', httpStatus: 400 },
+      })
+    const { api } = authority(() => refused())
+    const { outbox, errors } = await open(api)
+    await outbox.enqueue('issueUpdate', { id: 'iss_2153', patch: { parentBranch: 'nope' } })
+    await vi.waitFor(() => expect(errors).toEqual(['Couldn’t save issue branch']))
+    outbox.dispose()
+  })
+})

@@ -1,15 +1,35 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
 import { type Replica } from '@podium/client-core/replica'
+import type { SessionView } from '@podium/client-core/session-values'
+import type { PinState } from '@podium/client-core/values'
 import { issueViewModelsFromReplica } from '../../../diagnostics/reference/issue-view-models'
 /** Synthetic/old-export fixture upgrade. Product readers never use this adapter.
  * Real exports carrying the new kinds keep those rows verbatim. */
 import {
   asUserId,
+  type GitRepositoryWire,
+  type IssueDepProjection,
   type IssueGitStateProjection,
   IssueProjection,
   type IssueUserStateWire,
+  type MachineWire,
+  type RepoProjection,
 } from '@podium/model'
-import type { LiveCollections } from './live-snapshot'
+
+/** The collections as the web client holds them. */
+export interface LiveCollections {
+  issueUserStates?: IssueUserStateWire[]
+  issueGitStates?: IssueGitStateProjection[]
+  issues: IssueViewModel[]
+  issueProjections: IssueProjection[]
+  sessions: SessionView[]
+  repoProjections: RepoProjection[]
+  issueDeps: IssueDepProjection[]
+  /** The machine scan (`GitRepositoryWire`): repo roots and their worktrees. */
+  repos: GitRepositoryWire[]
+  machines: MachineWire[]
+  pins: PinState
+}
 
 export function fixtureMarkers(issues: readonly IssueViewModel[]): IssueUserStateWire[] {
   return issues.map((issue) => ({

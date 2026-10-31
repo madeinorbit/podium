@@ -579,19 +579,33 @@ export const RuntimeFineEvent = z.intersection(
 )
 export type RuntimeFineEvent = z.infer<typeof RuntimeFineEvent>
 
+/**
+ * A file attached to a turn. `path` is where it was staged on the agent's
+ * machine; a chat upload held on the server (POD-2148) has none until the
+ * server stages it there at delivery, under its `id`. Optional and additive:
+ * every stored or queued ref that predates it still parses.
+ */
 export const RuntimeAttachmentRef = z.object({
   id: z.string().min(1),
-  path: z.string().min(1),
+  path: z.string().min(1).optional(),
   filename: z.string().min(1),
   mediaType: z.string().min(1),
   kind: z.enum(['image', 'file']),
 })
 export type RuntimeAttachmentRef = z.infer<typeof RuntimeAttachmentRef>
 
+/** A ref staged on the session's machine: what a daemon is handed and answers. */
+export const StagedAttachmentRef = RuntimeAttachmentRef.required({ path: true })
+export type StagedAttachmentRef = z.infer<typeof StagedAttachmentRef>
+
 export const RuntimeAttachmentSource = z.object({
   dataBase64: z.string().max(10 * 1024 * 1024),
   filename: z.string().min(1),
   mediaType: z.string().min(1),
+  /** The id to stage under (POD-2148): a chat upload keeps its own id, so a
+   *  re-forward lands on the same path. Absent = the daemon mints one; a daemon
+   *  that predates the field mints one too, which the server detects. */
+  id: z.string().uuid().optional(),
 })
 export type RuntimeAttachmentSource = z.infer<typeof RuntimeAttachmentSource>
 
@@ -642,7 +656,7 @@ export const RuntimeSendRequestMessage = z.object({
   text: z.string(),
   origin: ObservationInputOrigin,
   delivery: TurnDelivery,
-  attachments: z.array(RuntimeAttachmentRef).optional(),
+  attachments: z.array(StagedAttachmentRef).optional(),
   // HEADLESS PER-TURN POLICY (POD-4386). All optional; absent means absent.
   // Carried so superagent/shipwright turns can migrate off the legacy headless
   // port onto the driver-contract WS relay without losing per-turn tool, MCP,
@@ -1022,7 +1036,7 @@ export const RuntimeStageAttachmentResultMessage = z.object({
   type: z.literal('runtimeStageAttachmentResult'),
   requestId: z.string(),
   sessionId: z.string().min(1).pipe(SessionIdField),
-  result: z.union([RuntimeAttachmentRef, Refusal]),
+  result: z.union([StagedAttachmentRef, Refusal]),
 })
 export type RuntimeStageAttachmentResultMessage = z.infer<
   typeof RuntimeStageAttachmentResultMessage

@@ -12,6 +12,26 @@
       "types": "./src/index.ts",
       "import": "./src/index.ts"
     },
+    "./mail-turn-close-rule": {
+      "@podium/source": "./src/mail/turn-close-rule.ts",
+      "types": "./src/mail/turn-close-rule.ts",
+      "import": "./src/mail/turn-close-rule.ts"
+    },
+    "./mail-stop-nudge": {
+      "@podium/source": "./src/mail/stop-nudge.ts",
+      "types": "./src/mail/stop-nudge.ts",
+      "import": "./src/mail/stop-nudge.ts"
+    },
+    "./mail-pointer-nudge": {
+      "@podium/source": "./src/mail/pointer-nudge.ts",
+      "types": "./src/mail/pointer-nudge.ts",
+      "import": "./src/mail/pointer-nudge.ts"
+    },
+    "./mail-command": {
+      "@podium/source": "./src/mail/mail-command.ts",
+      "types": "./src/mail/mail-command.ts",
+      "import": "./src/mail/mail-command.ts"
+    },
     "./settings-write-plan": {
       "@podium/source": "./src/settings/write-plan.ts",
       "types": "./src/settings/write-plan.ts",

@@ -30,7 +30,7 @@ if (root) {
               type="button"
               data-pressable
               data-testid="intent-row"
-              className="issue-scope flex w-full items-center gap-2.5 border-hairline-soft border-b px-4 py-2 text-left"
+              className="flex w-full items-center gap-2.5 border-hairline-soft border-b px-4 py-2 text-left"
               onClick={() => probe.opens.push(issue.id)}
             >
               <IssueStatusPicker issue={issue} onPick={(value) => probe.picks.push(value)} />

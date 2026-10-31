@@ -34,6 +34,22 @@ describe('composer attachment session boundary', () => {
     expect(api?.attachments[0]?.path).toBeUndefined()
   })
 
+  it('readies an upload the server holds as its ref, with no path to put in the text (POD-2148)', async () => {
+    const ref = { id: 'up-1', filename: 'one.png', mediaType: 'image/png', kind: 'image' as const }
+    const uploadImage = vi.fn(async () => ({ path: '', attachment: ref }))
+    let api: ComposerAttachmentsApi | undefined
+    function Harness() {
+      api = useComposerAttachments(asSessionId('session:attachments'))
+      return null
+    }
+    await renderWithMobileStore(<Harness />, {
+      api: { sessions: { uploadImage: { mutate: uploadImage } } },
+    })
+    act(() => api?.accept([picked('one.png')]))
+    await waitFor(() => expect(api?.attachments[0]?.state).toBe('ready'))
+    expect(api?.ready()).toEqual([{ ref, previewUri: 'file:///one.png', name: 'one.png' }])
+  })
+
   it('shares one target and serializes uploads across overlapping picker batches', async () => {
     let release: ((sessionId: ReturnType<typeof asSessionId>) => void) | undefined
     let releaseFirstUpload: (() => void) | undefined

@@ -52,7 +52,7 @@ const { usePersistedUiState, usePersistedUiValue } = await import('./use-persist
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
-const KEY = 'podium:sidebar:collapsed'
+const KEY = 'podium:sidebar:pinned'
 const parseCollapsed = (raw: string | null): boolean => raw === 'true'
 const serializeCollapsed = (v: boolean): string => String(v)
 

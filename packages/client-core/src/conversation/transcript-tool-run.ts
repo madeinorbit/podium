@@ -42,6 +42,8 @@ export class TranscriptToolRun {
   /** Only an unfolded run or a complete snapshot demands all children. */
   @lazy({ equals: compareShallow }) get blocks(): ChatBlock[] { return this.ids.map(id => this.readBlock(id)!) }
   @lazy get title(): string { return toolBatchTitleFromClauses(this.clauses()) }
+  /** Count-only face for the folded row; see `toolBatchTitles`. */
+  @lazy get summary(): string { return toolBatchTitleFromClauses(this.clauses(false)) }
   elapsed(now?: number): number | undefined {
     const first = this.firstBlock, last = this.lastBlock
     return first && last ? toolRunElapsedMs([first, last], now) : undefined
@@ -90,11 +92,11 @@ export class TranscriptToolRun {
     if (this.failed.delete(id)) this.failedCount--
   }
 
-  private *clauses(): Generator<ToolTitleClause> {
+  private *clauses(named = true): Generator<ToolTitleClause> {
     for (const key of this.categoryOrder) {
       const category = this.categories.get(key)!
       yield { verb: category.verb, noun: category.noun, count: category.ids.length,
-        subjects: category.subjectOrder.slice(0, 2) }
+        subjects: named ? category.subjectOrder.slice(0, 2) : [] }
     }
   }
 

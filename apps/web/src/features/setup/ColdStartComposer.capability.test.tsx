@@ -17,6 +17,7 @@ import '@/test-support/mock-core-store-handle'
  */
 import { asMachineId } from '@podium/model'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ColdStartComposer } from './ColdStartComposer'
 
@@ -127,6 +128,23 @@ function row(label: string): HTMLElement {
 }
 
 describe('the empty-state agent menu greys what it cannot start', () => {
+  it('selects the agent by typing after Tab and skips missing harnesses', async () => {
+    const user = userEvent.setup()
+    render(<ColdStartComposer first={false} />)
+    // happy-dom does not apply the file input's Tailwind `hidden` class.
+    const input = document.querySelector<HTMLInputElement>('input[type="file"]')
+    if (input) input.style.display = 'none'
+    await user.tab()
+    await user.tab()
+    await user.tab()
+    expect(chip()).toBe(document.activeElement)
+    await user.keyboard('c')
+    expect(chip().textContent).toContain('Codex')
+    await user.keyboard('c')
+    expect(chip().textContent).toContain('Claude Code')
+    expect(screen.queryByRole('menu')).toBeNull()
+  })
+
   it('refuses a missing harness with the same words as every other spawn menu', async () => {
     render(<ColdStartComposer first={false} />)
     await openMenu()
@@ -169,13 +187,15 @@ describe('a signed-out harness still starts headed', () => {
     await openMenu()
     fireEvent.click(row('Grok'))
 
-    expect(screen.getByText(/Grok is not signed in on Studio Mac\. It opens in its terminal/)).toBeTruthy()
+    expect(
+      screen.getByText(/Grok is not signed in on Studio Mac\. It opens in its terminal/),
+    ).toBeTruthy()
     expect(screen.queryByText(/Open Settings → Agents/)).toBeNull()
 
     fireEvent.change(screen.getByLabelText('What do you want to work on?'), {
       target: { value: 'Sign in, then do the thing' },
     })
-    fireEvent.click(screen.getByRole('button', { name: 'Start work' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Start task' }))
 
     expect(store.spawnDraftAgent).toHaveBeenCalledWith(
       expect.objectContaining({ agentKind: 'grok' }),
@@ -189,13 +209,6 @@ describe('the empty-state prompt answers the session focus chord', () => {
     return screen.getByLabelText('What do you want to work on?') as HTMLTextAreaElement
   }
 
-  it('advertises the chord on the closed box', () => {
-    render(<ColdStartComposer first={false} />)
-    const hint = screen.getByTestId('composer-chord')
-    expect(hint.getAttribute('data-show')).toBe('true')
-    expect(hint.textContent).toMatch(/to focus/)
-  })
-
   it('puts the caret in the box from the shared slash chord', () => {
     render(<ColdStartComposer first={false} />)
     expect(document.activeElement).not.toBe(textarea())
@@ -205,7 +218,6 @@ describe('the empty-state prompt answers the session focus chord', () => {
     })
 
     expect(document.activeElement).toBe(textarea())
-    expect(screen.getByTestId('cold-start-field').getAttribute('data-expanded')).toBe('true')
   })
 
   it('puts the caret in the box from the native Focus Session Prompt hook', () => {

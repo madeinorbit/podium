@@ -275,6 +275,15 @@ export default defineConfig(({ command, mode }) => {
         // Subpath alias must precede the bare-package one — the bare alias also
         // prefix-matches subpath imports and would resolve them to a path INSIDE
         // index.ts, which fails at build time.
+        '@podium/commands/mail-command': fileURLToPath(
+          new URL('../../packages/commands/src/mail/mail-command.ts', import.meta.url),
+        ),
+        '@podium/commands/mail-pointer-nudge': fileURLToPath(
+          new URL('../../packages/commands/src/mail/pointer-nudge.ts', import.meta.url),
+        ),
+        '@podium/commands/mail-turn-close-rule': fileURLToPath(
+          new URL('../../packages/commands/src/mail/turn-close-rule.ts', import.meta.url),
+        ),
         '@podium/commands/settings-write-plan': fileURLToPath(
           new URL('../../packages/commands/src/settings/write-plan.ts', import.meta.url),
         ),
@@ -350,29 +359,6 @@ export default defineConfig(({ command, mode }) => {
         // measurement was taken that way before the alias existed.
         '@podium/harness/browser': fileURLToPath(
           new URL('../../packages/harness/src/browser.ts', import.meta.url),
-        ),
-        // DEV-HARNESS ONLY (POD-4537): the live prototype page
-        // (`proto-live.html`, served by `vite dev` but never built) mounts arms
-        // whose closure reaches `node:async_hooks` through the harness's
-        // work-meter. The prototype bundle stubs that module as absent and the
-        // meter falls back to UNTRACKED; the dev server's default stub throws
-        // on access instead, so the page gets the same absent shape here.
-        // Nothing in the production graph imports it — the budget is unaffected.
-        'node:async_hooks': fileURLToPath(
-          new URL('./harness/node-async-hooks-shim.ts', import.meta.url),
-        ),
-        // DEV-HARNESS ONLY (POD-4537): the prototype arms' native lists import
-        // `react-native`, whose Flow source no bundler here parses. The web
-        // page never loads those chunks (native mounts are lazy/dynamic and
-        // never called here), but the dev optimizer still tries to pre-bundle
-        // the import — the same mapping the prototype harness build uses, so it
-        // resolves to `react-native-web` instead of crashing. Nothing in the
-        // production graph imports `react-native` either.
-        'react-native': fileURLToPath(
-          new URL(
-            '../../tests/worklist/node_modules/react-native-web/dist/index.js',
-            import.meta.url,
-          ),
         ),
         // Subpath aliases must precede the bare-package one — the bare alias also
         // prefix-matches subpath imports and would resolve them to paths INSIDE

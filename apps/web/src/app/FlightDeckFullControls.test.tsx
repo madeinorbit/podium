@@ -123,7 +123,6 @@ async function open(prefs = storage(), ready = true) {
     ],
   })
   const screen = new MissionScreen(pool, 'root', { setPreference: prefs.ui.set })
-  screen.open()
   const stop = autorun(() => {
     void settled(() => screen.full.ready)
   })
@@ -136,6 +135,7 @@ async function open(prefs = storage(), ready = true) {
   const actions = {
     activeSessionId: null,
     renameTarget: null,
+    onOpenTask: vi.fn(),
     onSelectSession: vi.fn(),
     onMenu: vi.fn(),
     onStatusPick: vi.fn(),
@@ -235,7 +235,7 @@ it('colors Needs you red for Error, amber for attention alone, and neutral for z
       .querySelector('[data-tone]')
       ?.getAttribute('data-tone')
   expect(tone()).toBe('error')
-  const css = readFileSync('src/styles.css', 'utf8')
+  const css = readFileSync('src/styles.css', 'utf8').replace(/"/g, "'").replace(/\s+/g, ' ')
   expect(css).toContain(
     ".flight-full-filter-count[data-tone='error'] { color: var(--destructive); }",
   )
@@ -353,32 +353,14 @@ it('searches matching paths while respecting explicit folds, with clear and Esca
   expect(f.screen.folds.get('parent')).toBe('open')
 })
 
-it('folds every branch independent of filters and search and restores explicit opens on remount', async () => {
-  const f = await open()
-  await f.click('Up next 2')
-  await f.click('Search this mission')
-  fireEvent.change(f.ui.getByRole('textbox'), { target: { value: 'loose' } })
-  await f.click('Fold every branch')
-  expect(f.full.allFolded).toBe(true)
-  for (const id of f.full.foldableIds) expect(f.screen.folds.get(id)).toBe('closed')
-  expect(f.tally()).toEqual(totals)
-  await f.click('Expand every branch')
-  for (const id of f.full.foldableIds) expect(f.screen.folds.get(id)).toBe('open')
-  f.ui.unmount()
-  const reopened = await open(f.prefs)
-  expect(reopened.fold('working').getAttribute('aria-expanded')).toBe('true')
-  expect(reopened.fold('idle').getAttribute('aria-expanded')).toBe('true')
-  expect(reopened.full.filter).toBe('all')
-  expect(reopened.screen.searchOpen).toBe(false)
-})
-
 it('keeps explicit task and phase choices across remount, state changes and a second session', async () => {
   const f = await open()
-  // Error and Needs you open by default; ordinary tasks with crew start closed.
-  for (const id of ['parent', 'error', 'ask'])
+  // Attention opens available payload; ordinary tasks with crew start closed.
+  for (const id of ['parent', 'error'])
     expect(f.fold(id).getAttribute('aria-expanded')).toBe('true')
-  for (const id of ['working', 'idle', 'blocked'])
+  for (const id of ['working', 'idle'])
     expect(f.fold(id).getAttribute('aria-expanded')).toBe('false')
+  for (const id of ['ask', 'blocked']) expect(f.fold(id).hasAttribute('aria-expanded')).toBe(false)
   await f.click('Collapse error')
   await f.click('Expand working')
   act(() =>
@@ -453,7 +435,7 @@ function capture(title: string, node: HTMLElement) {
 afterAll(() => {
   const path = process.env['PODIUM_FULL_CONTROLS_REVIEW_HTML']
   if (!path) return
-  const css = readFileSync('src/styles.css', 'utf8').split('/* Full flight deck v6.')[1]
+  const css = readFileSync('src/styles.css', 'utf8').replace(/"/g, "'").replace(/\s+/g, ' ').split('/* Full flight deck v6.')[1]
   const tokens = readFileSync('src/index.css', 'utf8')
     .split('[data-theme="podium"].dark {')[1]
     ?.split('}')[0]

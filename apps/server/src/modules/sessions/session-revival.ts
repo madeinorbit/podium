@@ -77,8 +77,10 @@ export interface SessionRevivalPorts {
   readSessionFactsByMachine(machineId: MachineId): Promise<SessionFacts[]>
   broadcastSessions(): void
   toMachine(machineId: MachineId, message: ControlMessage): void
-  /** Fresh-mint path of resume — owned by SessionStart. */
+  /** Fresh-mint path of resume — owned by SessionStart, task rule included. */
   spawn: SessionStart['spawn']
+  startTask: SessionStart['startTask']
+  discardDraft: SessionStart['discardDraft']
   machineUseGate(caller: HandoffCaller): Promise<AssertMachineUse>
   issueAccess: DurableIssueAccessIndex
   instructionsForStart(input: {
@@ -165,7 +167,30 @@ export class SessionRevival {
       input.agentKind,
       input.use,
     )
-    const issueId = await this.ports.issueAccess.soleOwnerForCwd(input.cwd) ?? undefined
+    // Only the authenticated owner may join or own a task; a caller without
+    // one starts task-less, whatever owner the session itself falls back to.
+    const task = await this.ports.startTask({
+      cwd: input.cwd,
+      agentKind: input.agentKind,
+      ownerUserId: input.ownerUserId,
+      machineId,
+    })
+    const ownerUserId = input.ownerUserId ?? (await firstAdminMemberId(this.ports.store))
+    try {
+      return await this.mintResumed(input, ownerUserId, machineId, task?.issueId)
+    } catch (error) {
+      if (task?.draft) await this.ports.discardDraft(task.issueId)
+      throw error
+    }
+  }
+
+  /** A fresh session for a conversation no Podium row holds yet. */
+  private async mintResumed(
+    input: Parameters<SessionRevival['resumeSession']>[0],
+    ownerUserId: UserId,
+    machineId: MachineId,
+    issueId: IssueId | undefined,
+  ): Promise<{ sessionId: SessionId }> {
     // MINT SITE: a server-minted session id. The brand belongs where the id is
     // GENERATED — nothing upstream had it, so this is not an adapter cast.
     const sessionId = asSessionId(randomUUID())
@@ -177,7 +202,7 @@ export class SessionRevival {
     })
     const spawned = await this.ports.spawn({
       agentKind: input.agentKind,
-      ownerUserId: input.ownerUserId ?? (await firstAdminMemberId(this.ports.store)),
+      ownerUserId,
       cwd: input.cwd,
       title: input.title,
       origin: { kind: 'resume', conversationId: input.conversationId },

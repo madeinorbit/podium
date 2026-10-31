@@ -1,10 +1,10 @@
-import { here } from '@podium/client-graph/lookup'
-import { allowImperativeRead, assertReactiveRead } from '@podium/mobx-helpers'
 import { useStoreHandle } from '@podium/client-core/react'
 import type { IssueViewModel } from '@podium/client-core/replica'
-import type { ShellDock, shellViews } from '@podium/client-graph/shell-views'
+import { here } from '@podium/client-graph/lookup'
 import type { MobxPool } from '@podium/client-graph/pool'
+import type { ShellDock, shellViews } from '@podium/client-graph/shell-views'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
+import { allowImperativeRead, assertReactiveRead } from '@podium/mobx-helpers'
 import { useMemo } from 'react'
 import type { Store } from './store'
 import { useWorklistPool } from './store-worklist-pool'
@@ -53,18 +53,6 @@ export function useShellDock(): ShellDock | null {
   if (import.meta.env.DEV) assertReactiveRead('useShellDock')
   const pool = useWorklistPool()
   return pool ? shellView(pool).dock : null
-}
-const EMPTY_CATALOGS = { issues: [], shipOrders: [], shipLanes: [] } as {
-  issues: IssueViewModel[]
-  shipOrders: import('@podium/model').ShipOrderProjection[]
-  shipLanes: import('@podium/model').ShipLaneProjection[]
-}
-/** Queue/shipping panels opt into their catalogues; other panels never read them. */
-export function useShellDockCatalogs(enabled: boolean): typeof EMPTY_CATALOGS {
-  if (import.meta.env.DEV) assertReactiveRead('useShellDockCatalogs')
-  const pool = useWorklistPool(),
-    value = pool && enabled ? shellView(pool).catalogs() : LOADING
-  return value && value !== LOADING ? value : EMPTY_CATALOGS
 }
 const EMPTY_SHIPPING = { unfinishedCount: 0, decisionCount: 0 }
 export function useShellShipping() {
@@ -150,12 +138,13 @@ const EMPTY_CHROME = {
   sessionCount: 0,
   selectedIssueId: null as Store['selectedIssueId'],
   missionRoot: undefined as IssueViewModel | undefined,
-  colorIssue: undefined,
-  colorById: (_id: string) => undefined,
+  /** False while the snapshot loads: every field above is then a placeholder,
+   *  not an answer (a cold selection reads as "no mission"). */
+  settled: false,
 }
 export function useShellChrome() {
   if (import.meta.env.DEV) assertReactiveRead('useShellChrome')
   const pool = useWorklistPool(),
     value = pool ? shellView(pool).chrome() : LOADING
-  return value && value !== LOADING ? value : EMPTY_CHROME
+  return value && value !== LOADING ? { ...value, settled: true } : EMPTY_CHROME
 }

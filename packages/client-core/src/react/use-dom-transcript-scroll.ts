@@ -32,15 +32,27 @@ export interface UseDomTranscriptScrollResult {
 }
 
 interface ReadingAnchor {
-  element: HTMLElement
+  /** Absent for a position remembered across a remount until its row mounts. */
+  element: HTMLElement | undefined
+  shell: boolean
   key: string | undefined
   offset: number
   scrollTop: number
 }
 
-const BOTTOM_EPSILON = 2
+// Close enough to count as the tail: subpixel layout and Safari's elastic
+// bounce-back leave a reader at the end a few pixels short of the maximum.
+const BOTTOM_EPSILON = 10
 const POSITION_EPSILON = 0.01
+// Scroll dimensions and an applied offset can differ by a rounded CSS pixel.
+const SCROLL_ROUNDING_EPSILON = 1
 const HISTORY_EDGE = 120
+
+/** A reading position outlives its panel: an evicted tab remounts where it was left. */
+const savedPositions = new Map<string, Pick<ReadingAnchor, 'shell' | 'key' | 'offset'>>()
+export function forgetTranscriptPositions(): void {
+  savedPositions.clear()
+}
 
 /**
  * The transcript has one scroll authority.
@@ -82,6 +94,10 @@ export function useDomTranscriptScroll(
   const geometry = useRef({ height: 0, viewport: 0 })
   const rowHeights = useRef(new WeakMap<Element, number>())
   const readingAnchor = useRef<ReadingAnchor | null>(null)
+  // For the first frames after a reveal, a change of scrollTop is the browser's
+  // (WebKit restores a display:none scroller to a stale offset), not reading.
+  const restoring = useRef(false)
+  const hidden = useRef(false)
   const selectionPaused = useRef(false)
 
   const setScrollerRef = useCallback<RefCallback<HTMLDivElement>>(
@@ -108,29 +124,34 @@ export function useDomTranscriptScroll(
     followChangeRef.current?.(next)
   }, [])
 
-  const captureReadingAnchor = useCallback(() => {
-    const scroller = scrollerRef.current
-    if (!scroller) return
-    const viewport = scroller.getBoundingClientRect()
-    readingAnchor.current = null
-    for (const row of scroller.querySelectorAll<HTMLElement>('[data-block]')) {
-      const rect = row.getBoundingClientRect()
-      if (rect.bottom <= viewport.top || rect.top >= viewport.bottom) continue
-      // The rich row can leave the window during a prepend. Its measured shell
-      // stays connected and includes the same margins/day mark before and after.
-      const retained = row.closest<HTMLElement>('[data-transcript-row]') ?? row
-      readingAnchor.current = {
-        element: retained,
-        key: row.dataset.rowKey,
-        offset: retained.getBoundingClientRect().top - viewport.top,
-        scrollTop: scroller.scrollTop,
+  const captureReadingAnchor = useCallback(
+    (unappliedOffset = 0) => {
+      const scroller = scrollerRef.current
+      if (!scroller) return
+      const viewport = scroller.getBoundingClientRect()
+      readingAnchor.current = null
+      for (const row of scroller.querySelectorAll<HTMLElement>('[data-block]')) {
+        const rect = row.getBoundingClientRect()
+        if (rect.bottom <= viewport.top || rect.top >= viewport.bottom) continue
+        // The rich row can leave the window during a prepend. Its measured shell
+        // stays connected and includes the same margins/day mark before and after.
+        const retained = row.closest<HTMLElement>('[data-transcript-row]') ?? row
+        readingAnchor.current = {
+          element: retained,
+          shell: retained.hasAttribute('data-transcript-row'),
+          key: row.dataset.rowKey ?? retained.dataset.transcriptRow,
+          offset: retained.getBoundingClientRect().top - viewport.top - unappliedOffset,
+          scrollTop: scroller.scrollTop,
+        }
+        return
       }
-      return
-    }
-  }, [scrollerRef])
+    },
+    [scrollerRef],
+  )
 
   const releaseFollow = useCallback(() => {
     userScrolling.current = true
+    restoring.current = false
     setFollowing(false)
     captureReadingAnchor()
   }, [captureReadingAnchor, setFollowing])
@@ -150,66 +171,106 @@ export function useDomTranscriptScroll(
     [scrollerRef],
   )
 
-  const reconcileLayout = useCallback((rowsResized = false) => {
-    const scroller = scrollerRef.current
-    if (!active || !scroller || scroller.clientHeight === 0) return
-    const height = scroller.scrollHeight
-    const viewport = scroller.clientHeight
-    const focused = scroller.ownerDocument.activeElement
-    const editing =
-      focused?.matches('textarea, input') ||
-      (focused as HTMLElement | null)?.isContentEditable
-    // Safari pans/resizes the viewport as its keyboard opens. Writing a new
-    // tail offset during that transition can cancel focus and close it again.
-    // Keep geometry current, but wait for an observed row change before moving
-    // the offset. Keyboard chrome can change content padding as well as the
-    // viewport; neither is new transcript content. This also covers duplicate
-    // deliveries and a scroll event arriving before the row observation.
-    if (editing && !rowsResized) {
-      geometry.current = { height, viewport }
-      lastTop.current = scroller.scrollTop
-      writtenTop.current = null
-      return
-    }
-    const max = Math.max(0, scroller.scrollHeight - scroller.clientHeight)
-    // A browser clamp can happen before its scroll event. If the previously
-    // observed offset is now outside the legal range, reaching the new maximum
-    // is a layout adjustment, not reader input that should request history.
-    if (lastTop.current > max && Math.abs(scroller.scrollTop - max) <= BOTTOM_EPSILON)
-      lastTop.current = scroller.scrollTop
-    if (following.current) {
-      writeOffset(scroller.scrollHeight)
-      readingAnchor.current = null
-    } else {
-      const anchor = readingAnchor.current
-      let element = anchor?.element
-      if (anchor && !element?.isConnected && anchor.key !== undefined) {
-        const index = lookupAnchorRow?.(anchor.key)
-        element = index === undefined ? undefined : scroller.querySelector<HTMLElement>(`[data-block="${index}"]`) ?? undefined
-        element ??= [...scroller.querySelectorAll<HTMLElement>('[data-row-key]')].find(
-          (row) =>
-            row.dataset.rowKey === anchor.key ||
-            (row.dataset.rowAliases !== undefined &&
-              (JSON.parse(row.dataset.rowAliases) as string[]).includes(anchor.key!)),
-        )
+  const reconcileLayout = useCallback(
+    (rowsResized = false) => {
+      const scroller = scrollerRef.current
+      if (!active || !scroller || scroller.clientHeight === 0) return
+      const height = scroller.scrollHeight
+      const viewport = scroller.clientHeight
+      const focused = scroller.ownerDocument.activeElement
+      const editing =
+        focused?.matches('textarea, input') || (focused as HTMLElement | null)?.isContentEditable
+      // Safari pans/resizes the viewport as its keyboard opens. Writing a new
+      // tail offset during that transition can cancel focus and close it again.
+      // Keep geometry current, but wait for an observed row change before moving
+      // the offset. Keyboard chrome can change content padding as well as the
+      // viewport; neither is new transcript content. This also covers duplicate
+      // deliveries and a scroll event arriving before the row observation.
+      if (editing && !rowsResized && !restoring.current) {
+        geometry.current = { height, viewport }
+        lastTop.current = scroller.scrollTop
+        writtenTop.current = null
+        return
       }
-      if (anchor?.element.hasAttribute('data-transcript-row'))
-        element = element?.closest<HTMLElement>('[data-transcript-row]') ?? element
-      if (anchor && element?.isConnected) {
-        // Include movement since capture: a compositor scroll can precede its
-        // scroll event. Compensate layout without undoing that newer movement.
-        const delta =
-          element.getBoundingClientRect().top -
-          scroller.getBoundingClientRect().top -
-          anchor.offset +
-          (scroller.scrollTop - anchor.scrollTop)
-        if (Math.abs(delta) > POSITION_EPSILON) writeOffset(scroller.scrollTop + delta)
+      const max = Math.max(0, scroller.scrollHeight - scroller.clientHeight)
+      // A browser clamp can happen before its scroll event. If the previously
+      // observed offset is now outside the legal range, reaching the new maximum
+      // is a layout adjustment, not reader input that should request history.
+      const clamped =
+        lastTop.current > max && Math.abs(scroller.scrollTop - max) <= SCROLL_ROUNDING_EPSILON
+      if (clamped) lastTop.current = scroller.scrollTop
+      if (following.current) {
+        writeOffset(scroller.scrollHeight)
+        readingAnchor.current = null
+      } else {
+        const anchor = readingAnchor.current
+        let element = anchor?.element
+        if (anchor && !element?.isConnected && anchor.key !== undefined) {
+          const index = lookupAnchorRow?.(anchor.key)
+          element =
+            index === undefined
+              ? undefined
+              : (scroller.querySelector<HTMLElement>(`[data-block="${index}"]`) ?? undefined)
+          element ??= [...scroller.querySelectorAll<HTMLElement>('[data-row-key]')].find(
+            (row) =>
+              row.dataset.rowKey === anchor.key ||
+              (row.dataset.rowAliases !== undefined &&
+                (JSON.parse(row.dataset.rowAliases) as string[]).includes(anchor.key!)),
+          )
+          element ??= [...scroller.querySelectorAll<HTMLElement>('[data-transcript-row]')].find(
+            (row) => row.dataset.transcriptRow === anchor.key,
+          )
+        }
+        if (anchor?.shell)
+          element = element?.closest<HTMLElement>('[data-transcript-row]') ?? element
+        if (anchor && !anchor.element && !element?.isConnected) {
+          // A remembered position waits for the first rows; if they arrive
+          // without its row, open at the tail as an unremembered tab does.
+          if (scroller.querySelector('[data-block]')) {
+            readingAnchor.current = null
+            setFollowing(true)
+            writeOffset(scroller.scrollHeight)
+          }
+        } else {
+          let unappliedOffset = 0
+          if (anchor && element?.isConnected) {
+            // Include movement since capture: a compositor scroll can precede its
+            // scroll event. Compensate layout without undoing that newer movement.
+            // A reveal or a remembered position has no reader movement to keep.
+            // A smaller range can move the browser to its boundary before either
+            // callback. Only discard that observed clamp, not input which already
+            // moved below the new boundary before the layout changed.
+            const moved =
+              restoring.current || !anchor.element || (clamped && anchor.scrollTop > max)
+                ? 0
+                : scroller.scrollTop - anchor.scrollTop
+            const delta =
+              element.getBoundingClientRect().top -
+              scroller.getBoundingClientRect().top -
+              anchor.offset +
+              moved
+            const target = Math.max(0, Math.min(max, scroller.scrollTop + delta))
+            if (Math.abs(delta) > POSITION_EPSILON) writeOffset(target)
+            // Keep the reachable fraction the browser could not apply. Adopting
+            // the rounded row offset would lose it on every small reflow.
+            unappliedOffset = target - scroller.scrollTop
+          }
+          captureReadingAnchor(unappliedOffset)
+        }
       }
-      captureReadingAnchor()
-    }
-    geometry.current = { height: scroller.scrollHeight, viewport: scroller.clientHeight }
-    onPositionChange?.()
-  }, [active, captureReadingAnchor, scrollerRef, onPositionChange, lookupAnchorRow, writeOffset])
+      geometry.current = { height: scroller.scrollHeight, viewport: scroller.clientHeight }
+      onPositionChange?.()
+    },
+    [
+      active,
+      captureReadingAnchor,
+      scrollerRef,
+      onPositionChange,
+      lookupAnchorRow,
+      setFollowing,
+      writeOffset,
+    ],
+  )
 
   const loadOlderAnchored = useCallback(() => {
     if (!moreAbove || loadingOlder) return
@@ -228,17 +289,49 @@ export function useDomTranscriptScroll(
     reconcileLayout()
   }, [renderStart, reconcileLayout])
 
-  // A different conversation starts at its own tail. Hiding/showing a retained
-  // panel leaves the reader's intent and anchor intact.
+  // A different conversation starts at its own tail, or where it was left if
+  // its panel was evicted. Hiding/showing a retained panel leaves the reader's
+  // intent and anchor intact.
   useLayoutEffect(() => {
-    readingAnchor.current = null
+    const saved = savedPositions.get(sessionId)
+    readingAnchor.current = saved ? { ...saved, element: undefined, scrollTop: 0 } : null
     selectionPaused.current = false
     userScrolling.current = false
     writtenTop.current = null
     rowHeights.current = new WeakMap()
-    setFollowing(true)
+    setFollowing(!saved)
   }, [sessionId, setFollowing])
 
+  // Remember where a hidden or unmounted reader left off. The anchor is current
+  // from its last scroll or reconcile; geometry is unreadable once hidden.
+  useLayoutEffect(() => {
+    if (!active) return
+    // The browser's reveal offset lands with the first layout. After that, a
+    // scroll is the reader's again (native Find, focus moves, autoscroll).
+    let frame = 0
+    if (hidden.current) {
+      restoring.current = true
+      frame = requestAnimationFrame(() => {
+        frame = requestAnimationFrame(() => {
+          restoring.current = false
+        })
+      })
+    }
+    return () => {
+      hidden.current = true
+      cancelAnimationFrame(frame)
+      const anchor = readingAnchor.current
+      if (following.current || !anchor) savedPositions.delete(sessionId)
+      else
+        savedPositions.set(sessionId, {
+          shell: anchor.shell,
+          key: anchor.key,
+          offset: anchor.offset,
+        })
+    }
+  }, [active, sessionId])
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: row/session changes must reobserve the mounted DOM even when its refs stay the same.
   useLayoutEffect(() => {
     if (!active || !scroller || !content) return
     // ResizeObserver's initial delivery also opens a conversation at its tail.
@@ -248,7 +341,11 @@ export function useDomTranscriptScroll(
     const observer = new ResizeObserver((entries) => {
       let rowsResized = false
       for (const entry of entries) {
-        if (!entry.target.hasAttribute('data-block') && !entry.target.hasAttribute('data-transcript-row')) continue
+        if (
+          !entry.target.hasAttribute('data-block') &&
+          !entry.target.hasAttribute('data-transcript-row')
+        )
+          continue
         const previous = rowHeights.current.get(entry.target)
         if (previous !== entry.contentRect.height) rowsResized = true
         rowHeights.current.set(entry.target, entry.contentRect.height)
@@ -259,7 +356,8 @@ export function useDomTranscriptScroll(
     observer.observe(scroller)
     // Two rows can resize in opposite directions without changing the content
     // box. Observe row sizes too, so that net-zero reflow still conserves place.
-    for (const row of content.querySelectorAll<HTMLElement>('[data-block], [data-transcript-row]')) observer.observe(row)
+    for (const row of content.querySelectorAll<HTMLElement>('[data-block], [data-transcript-row]'))
+      observer.observe(row)
     return () => observer.disconnect()
   }, [sessionId, active, scroller, content, rowsToRender, reconcileLayout])
 
@@ -273,24 +371,37 @@ export function useDomTranscriptScroll(
       geometry.current.height !== element.scrollHeight ||
       geometry.current.viewport !== element.clientHeight
     writtenTop.current = null
-    if (layoutChanged) reconcileLayout()
-    if (!ownWrite && !layoutChanged && userScrolling.current) {
-      if (top < previous) setFollowing(false)
-      else if (
-        top > previous &&
-        !selectionPaused.current &&
-        element.scrollHeight - element.clientHeight - top <= BOTTOM_EPSILON
-      ) {
+    // A revealed panel's scroll comes from the browser, not the reader: put the
+    // anchor back rather than adopting the restored offset as a new position.
+    if (layoutChanged || restoring.current) reconcileLayout()
+    const readerMoved = !ownWrite && !layoutChanged && !restoring.current && userScrolling.current
+    if (readerMoved) {
+      const gap = element.scrollHeight - element.clientHeight - top
+      // Upward input already released follow before scrolling. Settling back
+      // within the tail (an elastic bounce, subpixel rounding) is not leaving it.
+      if (top < previous && gap > BOTTOM_EPSILON) setFollowing(false)
+      else if (top > previous && !selectionPaused.current && gap <= BOTTOM_EPSILON) {
         setFollowing(true)
       }
     }
     lastTop.current = element.scrollTop
-    if (!following.current) captureReadingAnchor()
-    onPositionChange?.()
+    // A remembered position stays pending until its row mounts.
+    const pending = readingAnchor.current !== null && !readingAnchor.current.element
+    // Reconciliation already kept the intended position. Its own scroll event
+    // and duplicate no-motion events must not replace it with a rounded one.
+    // Browser Find/focus and smooth navigation can move without wheel intent.
     if (
+      !following.current &&
+      !pending &&
       !ownWrite &&
       !layoutChanged &&
-      userScrolling.current &&
+      !restoring.current &&
+      (top !== previous || readingAnchor.current === null)
+    )
+      captureReadingAnchor()
+    onPositionChange?.()
+    if (
+      readerMoved &&
       top < previous &&
       // Start revealing history two viewports before its mounted edge. A fast
       // wheel/touch burst can cross the old 120px threshold in one frame.
@@ -339,6 +450,7 @@ export function useDomTranscriptScroll(
     const onWheel = (event: WheelEvent): void => {
       if (!scrollsFeed(event)) return
       userScrolling.current = true
+      restoring.current = false
       if (event.deltaY < 0) onUpwardInput()
     }
     const onTouchStart = (event: TouchEvent): void => {
@@ -348,6 +460,7 @@ export function useDomTranscriptScroll(
       if (!scrollsFeed(event)) return
       const y = event.touches[0]?.clientY
       userScrolling.current = true
+      restoring.current = false
       if (y !== undefined && touchY !== undefined && y > touchY) onUpwardInput()
       touchY = y
     }
@@ -359,6 +472,7 @@ export function useDomTranscriptScroll(
         return
       if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '].includes(event.key)) {
         userScrolling.current = true
+        restoring.current = false
         if (
           ['ArrowUp', 'PageUp', 'Home'].includes(event.key) ||
           (event.key === ' ' && event.shiftKey)
@@ -444,7 +558,13 @@ export function useDomTranscriptScroll(
       const scroller = scrollerRef.current
       if (!scroller) return
       userScrolling.current = true
-      setFollowing(offset >= scroller.scrollHeight - scroller.clientHeight - BOTTOM_EPSILON)
+      restoring.current = false
+      // Only a move toward the tail can resume following; a small step up from
+      // it (the shelf forwards raw wheel deltas) must release.
+      setFollowing(
+        offset >= scroller.scrollTop &&
+          offset >= scroller.scrollHeight - scroller.clientHeight - BOTTOM_EPSILON,
+      )
       writeOffset(offset)
       captureReadingAnchor()
       onPositionChange?.()

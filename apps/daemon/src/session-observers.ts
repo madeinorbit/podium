@@ -1856,6 +1856,28 @@ export function createSessionObservers(deps: SessionObserversDeps) {
             ),
           )
         }
+      } else if (
+        adapter.capabilities.observationProtocol === 'codex-exact' &&
+        msg.type === 'spawn' &&
+        !msg.resume
+      ) {
+        // THE SAME DEADLOCK FOR A FRESH CODEX (POD-2253). Codex writes its
+        // rollout lazily, at the first prompt, so its observer stays unbound and
+        // the phase `unknown` until something is typed. A first prompt that
+        // rides the durable queue (one with a chat upload, POD-2148) waited for
+        // an `idle` only its own delivery could produce. Held beside the
+        // tracker as for Claude: the rollout's first state replaces it.
+        const tracker = trackers.get(msg.sessionId)
+        if (tracker && tracker.state.phase === 'unknown') {
+          freshBootIdle.set(
+            msg.sessionId,
+            reduceAgentState(
+              tracker.state,
+              withStateChannelEvent({ kind: 'session_started' }, 'classifier'),
+              new Date().toISOString(),
+            ),
+          )
+        }
       }
     }
     // Causal leases (Claude, Grok) skip this: bootEvents would emit on the

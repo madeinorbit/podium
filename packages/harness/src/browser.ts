@@ -118,6 +118,11 @@ export {
  */
 export { decodeCursor, encodeCursor } from './store/cursor-codec'
 export { streamIdOfCursor, streamItemIdOf } from './store/stream-identity'
+export {
+  CODEX_ASYNC_QUESTION_TOOL,
+  codexQuestionReplyText,
+  parseCodexQuestionReplies,
+} from './adapters/codex/interview'
 
 // ---------------------------------------------------------------------------
 // Wire descriptors (POD-4475): the DATA half of the harness contract.

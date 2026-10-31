@@ -1,7 +1,8 @@
 // Throwaway harness config for the agent offer bar — see harness/offer-entry.tsx.
 // Same shape as vite.deck-harness.config.ts: `app/store` redirected to a stub by
 // RESOLVED PATH (so `./store` and `@/app/store` both land on it), because the
-// offer's evidence strip reads the live store and a harness has no server.
+// offer's evidence row reads the live store and a harness has no server; its
+// issue lookup (`use-chat-context`) is redirected the same way.
 // Plus one middleware: the strip's thumbnails are real bytes, since a broken
 // <img> would leave the row a different height than the one that ships.
 import { fileURLToPath } from 'node:url'
@@ -10,8 +11,14 @@ import base from './vite.config'
 
 const REAL_STORE = fileURLToPath(new URL('./src/app/store.tsx', import.meta.url))
 const STUB_STORE = fileURLToPath(new URL('./harness/offer-store-stub.ts', import.meta.url))
+const REAL_CHAT_CONTEXT = fileURLToPath(
+  new URL('./src/features/chat/use-chat-context.ts', import.meta.url),
+)
+const STUB_CHAT_CONTEXT = fileURLToPath(
+  new URL('./harness/offer-chat-context-stub.ts', import.meta.url),
+)
 
-/** A stand-in artifact thumbnail: a page of "work" at the offer's 70x44. */
+/** A stand-in screenshot: a page of "work" at an evidence tile's aspect. */
 const thumb = (tint: string): string =>
   `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 140 88">
     <rect width="140" height="88" fill="#f2f1ed"/>
@@ -39,7 +46,8 @@ export default defineConfig(async (env) => {
         name: 'offer-harness-store-stub',
         enforce: 'pre',
         async resolveId(source: string, importer: string | undefined, opts: unknown) {
-          if (source.endsWith('offer-store-stub')) return null
+          if (source.endsWith('offer-store-stub') || source.endsWith('offer-chat-context-stub'))
+            return null
           const resolved = await (
             this as unknown as {
               resolve: (
@@ -49,7 +57,9 @@ export default defineConfig(async (env) => {
               ) => Promise<{ id: string } | null>
             }
           ).resolve(source, importer, { ...(opts as Record<string, unknown>), skipSelf: true })
-          if (resolved && resolved.id.split('?')[0] === REAL_STORE) return STUB_STORE
+          const id = resolved?.id.split('?')[0]
+          if (id === REAL_STORE) return STUB_STORE
+          if (id === REAL_CHAT_CONTEXT) return STUB_CHAT_CONTEXT
           return null
         },
       } as PluginOption,
@@ -73,7 +83,7 @@ export default defineConfig(async (env) => {
             const url = req.url ?? ''
             if (!url.startsWith('/files/artifact/')) return next()
             res.setHeader('Content-Type', 'image/svg+xml')
-            res.end(thumb(url.includes('art_b') ? '#d9b477' : '#8fa6d8'))
+            res.end(thumb(url.includes('art_b') || url.includes('art_f') ? '#d9b477' : '#8fa6d8'))
           })
         },
       } as PluginOption,

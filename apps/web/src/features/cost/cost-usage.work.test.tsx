@@ -179,7 +179,7 @@ for (const scale of [1, 4]) {
       let getValue: () => unknown = () => undefined
       const mount = await capture(() => {
         if (surface === 'MissionCostChip') {
-          render(<MissionCostChip issueId={ROOT} onOpenInExplorer={() => {}} />, { wrapper: ctx.Wrapper })
+          render(<MissionCostChip issueId={ROOT} />, { wrapper: ctx.Wrapper })
         } else if (surface === 'UsageView') {
           render(<UsageView onClose={() => {}} />, { wrapper: ctx.Wrapper })
         } else {

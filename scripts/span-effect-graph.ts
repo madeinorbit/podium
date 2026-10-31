@@ -929,6 +929,14 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
     kind: 'observable',
     why: 'tells connected clients to re-fetch repos',
   },
+  'apps/server/src/modules/issues/service/types.ts#IssueDeps.readRepo': {
+    kind: 'contained',
+    why: "a read-only git probe (rev-parse --verify, status --no-optional-locks) that picks a new issue's parent branch [POD-2065]; it changes nothing in the repo, so a rollback leaves nothing outside this process wrong",
+  },
+  'apps/server/src/modules/issues/service/parent-branch.ts#RepoOpPort.RepoOpPort': {
+    kind: 'contained',
+    why: 'the read-only probe callback defaultParentBranchFor is handed: IssueDeps.readRepo from create, or a revParseVerify/statusProbe-only call from start; both only read the repo',
+  },
   'apps/server/src/modules/issues/service/types.ts#IssueDeps.repoOp': {
     kind: 'observable',
     why: "a git round trip to a machine; a rollback cannot take the repo's state back",

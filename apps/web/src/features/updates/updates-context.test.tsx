@@ -47,7 +47,6 @@ const OFFER: UpdatePanelView = {
   version: '0.4.3',
   steps: [],
   places: [{ kind: 'this-app', label: 'This app', effect: 'will refresh' }],
-  restartNote: 'Your sessions keep running.',
   primary: { kind: 'start', label: 'Update Podium', pendingLabel: 'Starting…' },
   awaitingElsewhere: [],
   indicator: 'idle-dot',

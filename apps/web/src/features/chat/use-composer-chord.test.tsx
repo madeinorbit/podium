@@ -1,7 +1,7 @@
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { chordLabel, useComposerChord } from './use-composer-chord'
+import { chordKeys, chordLabel, useComposerChord } from './use-composer-chord'
 
 // THE FOCUS CHORD IS GLOBAL, WHICH IS WHY IT HAS TO BE POLITE.
 //
@@ -129,5 +129,11 @@ describe('the chord label', () => {
     // No menu is built off macOS, so there is no ⌘L to advertise there.
     bridge.__PODIUM_DESKTOP__ = { platform: 'linux' }
     expect(chordLabel()).toBe('Ctrl /')
+  })
+
+  it('splits the same chord into keycaps', () => {
+    expect(chordKeys()).toEqual(['Ctrl', '/'])
+    bridge.__PODIUM_DESKTOP__ = { platform: 'macos' }
+    expect(chordKeys()).toEqual(['⌘', 'L'])
   })
 })

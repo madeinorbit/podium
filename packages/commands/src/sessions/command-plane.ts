@@ -206,9 +206,16 @@ const createInput = z.object({
    *  be the one in the chain. */
   sessionId: z.string().uuid().pipe(SessionIdField).optional(),
   draftIssue: z.object({ repoPath: z.string(), issueId: IssueIdField.optional() }).optional(),
+  // LEGACY(remove-after: 2027-01): browser bytes for a new draft issue, sent by
+  // web clients cached before chat uploads (POD-2148); removing it drops their
+  // new-task attachments until they reload.
   /** User-provided files for a newly-created draft issue. The create handler
    *  snapshots these before the agent starts, so its prime sees the artifacts. */
   draftArtifacts: z.array(draftIssueArtifactInput).optional(),
+  /** Files uploaded for this task with `uploadImage({ pending: true })`
+   *  (POD-2148). Create claims them into the session's issue and the first
+   *  prompt carries them, so the agent is handed them like any chat message. */
+  attachments: z.array(RuntimeAttachmentRef).min(1).max(20).optional(),
   /**
     * THE PER-SPAWN AGENT-RUNTIME OVERRIDE (POD-1761 W5; spec §9 phase 3,
     * renamed POD-4426).
@@ -568,6 +575,14 @@ const uploadImageInput = z.object({
    * explicit target is gated exactly as a session-derived one is.
    */
   machineId: MachineIdField.optional(),
+  /**
+   * HOLD THE BYTES ON THE SERVER for a session that does not exist yet
+   * (POD-2148): the new-task composer's case. The answer is a ref with no
+   * path, which `sessions.create` claims into the new task's issue. A known
+   * agent session's upload is always held this way; a headless one's is staged
+   * at once, and a shell's goes to its machine as before.
+   */
+  pending: z.literal(true).optional(),
 })
 
 const uploadImage: CommandDef = {

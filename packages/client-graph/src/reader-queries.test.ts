@@ -466,7 +466,6 @@ const readers: { name: string; bootOnly?: boolean; read(pool: MobxPool): unknown
         return {
           ids: source.queryIds({ kind: 'board', filter: { stage: 'done', archived: true } }),
           catalog: source.catalog(false),
-          explorer: source.explorer({ tab: 'proposed', query: '', windowed: true }),
         }
       } finally {
         source.dispose()
@@ -922,15 +921,11 @@ describe('readers behind declared cold questions', () => {
       { kind: 'inboxSessions' },
       { kind: 'headerSessions' },
       { kind: 'headerOccupancy' },
-      { kind: 'boardCounts' },
       { kind: 'sessionReference', ref: 'QUERY-1-A' },
       { kind: 'commandIssueSessions', issueId: 'cold-issue-0', archived: false },
       { kind: 'containingIssues', cwd: '/query/hot/file' },
       { kind: 'boardIssues', priority: 2, stage: 'proposed', projectPaths: ['/query'] },
       { kind: 'boardIssues', status: 'closed', archived: true, deleted: true },
-      { kind: 'boardIssues', explorerTab: 'cancelled' },
-      { kind: 'boardIssues', explorerTab: 'needs' },
-      { kind: 'boardIssues', explorerTab: 'proposed', searching: true },
     ]
     try {
       for (const question of questions) {

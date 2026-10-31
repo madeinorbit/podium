@@ -43,6 +43,11 @@ export interface NavigationProvider {
   onTopology?(changed: (delta?: NavigationTopologyDelta) => void): () => void
   activityAt(id: string): NavigationRead<string>
   issueReadAt(id: string): string | null | undefined
+  /** Local observations never change the durable cursor returned above. */
+  observeRead?(kind: 'issue' | 'session', id: string, at: string): boolean
+  automaticReadAllowed?(kind: 'issue' | 'session', id: string): boolean
+  leaveReadVisit?(kind: 'issue' | 'session', id: string): void
+  readIntent?(kind: 'issue' | 'session', id: string, read: boolean): void
   /** Track just the addressed reads made by the current navigation. */
   watch?(read: () => readonly unknown[], changed: () => void): () => void
 }

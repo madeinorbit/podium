@@ -8,7 +8,6 @@ import {
   chatSessionReference,
   composerState,
   isOperatorPrompt,
-  lastAnswer,
   livePendingAskIndex,
   renderableRows,
   transcriptAttribution,
@@ -289,15 +288,6 @@ describe('answerable questions and the last answer', () => {
     expect(livePendingAskIndex(blocks, 'live')).toBe(1)
     expect(livePendingAskIndex(blocks, 'hibernated')).toBe(-1)
   })
-
-  it('reports the end-of-turn answer index and the latest assistant prose apart', () => {
-    const blocks = blocksOf([
-      item({ role: 'assistant', text: 'final', answer: true }),
-      item({ role: 'assistant', text: 'narration after' }),
-    ])
-    expect(lastAnswer(blocks)).toEqual({ blockIndex: 0, text: 'narration after' })
-    expect(lastAnswer([])).toEqual({ blockIndex: -1, text: '' })
-  })
 })
 
 describe('composer, queue, offer and activity', () => {
@@ -316,7 +306,7 @@ describe('composer, queue, offer and activity', () => {
     ).toMatchObject({ deliverable: true, sendable: false, canResume: true })
     expect(
       composerState({ session: session(), headless: true, turnRunning: true, compact: false }),
-    ).toMatchObject({ deliverable: false, placeholder: 'Working — stop to interject…' })
+    ).toMatchObject({ deliverable: false, placeholder: 'Agent is working. Stop it to interject…' })
     expect(
       composerState({
         session: session({ status: 'exited', resumable: false }),
@@ -403,9 +393,9 @@ describe('composer, queue, offer and activity', () => {
       sendable: false,
       canResume: false,
       placeholder:
-        'Usage limit reached: API quota exhausted — Fix the provider issue, then choose “Resume the session”.',
+        'Usage limit reached: API quota exhausted. Fix the provider issue, then choose “Resume the session”.',
       refusalReason:
-        'Usage limit reached: API quota exhausted — Fix the provider issue, then choose “Resume the session”.',
+        'Usage limit reached: API quota exhausted. Fix the provider issue, then choose “Resume the session”.',
     })
     expect(
       chatSendRoute({
@@ -417,7 +407,7 @@ describe('composer, queue, offer and activity', () => {
     ).toEqual({
       kind: 'refused',
       reason:
-        'Usage limit reached: API quota exhausted — Fix the provider issue, then choose “Resume the session”.',
+        'Usage limit reached: API quota exhausted. Fix the provider issue, then choose “Resume the session”.',
     })
   })
 
@@ -438,7 +428,7 @@ describe('composer, queue, offer and activity', () => {
         compact: false,
       }).placeholder,
     ).toBe(
-      'Provider authentication failed: token expired — Re-authenticate with the provider, then choose “I signed in — retry”.',
+      'Provider authentication failed: token expired. Re-authenticate with the provider, then choose “I signed in, retry”.',
     )
   })
 
@@ -461,7 +451,7 @@ describe('composer, queue, offer and activity', () => {
       ).toMatchObject({
         deliverable: true,
         canResume: true,
-        placeholder: 'Waking the agent — message queues…',
+        placeholder: 'Waking the agent. Your message will queue…',
       })
       // Parked and EMPTY still offers the resume, unchanged.
       expect(
@@ -471,7 +461,7 @@ describe('composer, queue, offer and activity', () => {
           turnRunning: false,
           compact: false,
         }).placeholder,
-      ).toBe('Message — resumes the agent…')
+      ).toBe('Message the agent to resume it…')
     })
 
     it('carries the wake through the resurrect, while the process is `starting`', () => {

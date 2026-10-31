@@ -1,3 +1,5 @@
+import { LOADING } from '../loading'
+import { missionTaskBucket, type MissionTaskBucket } from '@podium/client-core/values'
 import type { IssueSessionFactReader } from '../shared/issue-session-facts'
 import { isFinished, isExcluded } from '../shared/predicates'
 /**
@@ -46,10 +48,10 @@ import { isFinished, isExcluded } from '../shared/predicates'
  *   read DOWN the children relation (`rows.ts:121-158`: a parent is kept by
  *   a child that is flat or kept), and `present` (flat, or rescued).
  * - nest candidate (`nestCandidatePartOf`): the nearest present ancestor by
- *   the raw `parentId`, else the started-by owner, without reading nesting.
+ *   the raw `parentId`, without reading nesting. Only a real parent nests.
  * - nesting (`nestingOf`): the nest parent after rejecting the edge that
  *   closes a candidate cycle (`rows.ts:254-359`),
- *   `placed` (under a placed nest parent, or top-level and not agent) and
+ *   `placed` (under a placed nest parent, or top-level) and
  *   `visible` = present && placed.
  * `unread` (the decay branch of the flat pass) and the children list are
  * read only by the presence group, and only when it needs them, so they are
@@ -59,9 +61,7 @@ import { isFinished, isExcluded } from '../shared/predicates'
  * row's nest children are the present rows whose `nestParent` it is. They
  * are found down the raw parent edge (`issue.treeChildren`, through ANY
  * issue, as the nest walk goes up through any issue): a present child is
- * one, a hidden child passes on the present rows below it. The started-by
- * fallback adds the issues its own sessions started (`session.startedIssues`).
- * Each candidate is kept only when its own `nestParent` names this row, so
+ * one, a hidden child passes on the present rows below it. Each candidate is kept only when its own `nestParent` names this row, so
  * the one rule (`nestParentPartOf`) decides and the derivation only finds.
  * The formal children, which the progress roll-up composes over, are the
  * relation engine's own `issue.children` bucket.
@@ -89,6 +89,7 @@ import { isFinished, isExcluded } from '../shared/predicates'
  */
 
 import { compareStructural, createAtom, reaction, runInAction } from 'mobx'
+import { type SeatInteractions, type SeatSessionFacts, sessionErrorFact, sessionWorkingFact } from '@podium/model/browser'
 import { debugName } from '../debug-name'
 import { type RelationLinks, refs } from '../shared/links'
 import { compareRank, type RowRank } from '../shared/row-view'
@@ -128,6 +129,7 @@ export const FINISHED_UNREAD_WINDOW_MS = 7 * 24 * 60 * 60 * 1000
 
 /** Everything the visibility parts read. Tracked in the live pool; plain in the rebuild. */
 export interface VisibleInputs {
+  readonly missionBucket?: (id: string) => MissionTaskBucket | null
   readonly issueSessionFact?: IssueSessionFactReader
   /** Every relation, by typed name (POD-4758, `shared/src/links.ts`). */
   readonly links: RelationLinks
@@ -155,6 +157,10 @@ export interface VisibleInputs {
   loadedIssue(id: string): Loaded<SliceIssue>
   /** A RESIDENT session row; `LOADING` when cold (queued). */
   loadedSession(id: string): Loaded<SliceSession>
+  /** Open pending interactions addressed to a session: one of its seat facts (`coordinatedSeat`). */
+  openInteractions?(id: string): SeatInteractions
+  /** The sessions holding an open pending interaction, in id order. */
+  interactionSessions?(): readonly string[]
   /** The present rows whose `nestParent` is `id` (the live pool's derived `nested` group). */
   nested(id: string): Iterable<string>
   /** The known issues whose declared `issue.parent` is `id` (the relation engine's `children` bucket). */
@@ -177,7 +183,6 @@ export interface Standing {
   readonly excluded: boolean
   /** `stage === 'done' || closedReason != null` (`rows.ts:82`). */
   readonly finished: boolean
-  readonly agent: boolean
   /** Human and planning / in_progress / review (`rows.ts:83-85`). */
   readonly activeHuman: boolean
   /**
@@ -200,10 +205,6 @@ export interface Standing {
   readonly rescuable: boolean
   /** The raw `parentId` (the nesting walk follows it through ANY issue, `rows.ts:276-283`). */
   readonly parentId: string | null
-  /** Parentless, not a spin-off, with a `startedBySession`: the started-by fallback applies (`rows.ts:288`). */
-  readonly startedBy: string | null
-  /** A draft with no worktree: a vessel when it has live sessions (`isDraftAgentVessel`). */
-  readonly draftVessel: boolean
   /** `issueFinishedAt` (`issues.ts:310`): `closedAt ?? updatedAt`, epoch ms. */
   readonly finishedMs: number
   readonly updatedMs: number | null
@@ -266,7 +267,6 @@ export function standingOf(issue: SliceIssue, facts?: Pick<Standing,
   return {
     get excluded() { return facts ? facts.excluded : isExcluded(issue) },
     get finished() { return facts ? facts.finished : isFinished(issue) },
-    get agent() { return issue.audience === 'agent' },
     get activeHuman() {
       return issue.audience === 'human' &&
         (issue.stage === 'planning' || issue.stage === 'in_progress' || issue.stage === 'review')
@@ -281,11 +281,6 @@ export function standingOf(issue: SliceIssue, facts?: Pick<Standing,
     },
     get rescuable() { return issue.audience === 'human' && !this.finished },
     get parentId() { return facts ? facts.parentId : issue.parentId || null },
-    get startedBy() {
-      return !issue.parentId && !issue.deps?.some(dep => dep.type === 'discovered-from') && issue.startedBySession
-        ? issue.startedBySession : null
-    },
-    get draftVessel() { return issue.isDraftVessel === true && !issue.worktreePath },
     get finishedMs() { return facts ? facts.finishedMs : parseMs(issue.closedAt ?? issue.updatedAt) ?? 0 },
     get updatedMs() { return facts ? facts.updatedMs : parseMs(issue.updatedAt) },
     get replicaActivityMs() { return facts ? facts.replicaActivityMs : parseMs(sessionFact?.(issue.id, 'replicaActivityAt')) },
@@ -361,6 +356,8 @@ export interface Retention {
   readonly seat: boolean
   readonly shell: boolean
   readonly exited: boolean
+  /** Exited on an error nobody asked for (`sessionErrorFact`: a crash, out-of-memory, a failed start). */
+  readonly crashed: boolean
   /** `open`: never finished; `at`: finished at `ms`; `idleDone`: an idle finished turn. */
   readonly finish:
     | { readonly kind: 'open' }
@@ -389,6 +386,7 @@ export function retentionOf(session: SliceSession | undefined): Retention | null
     seat: session.archived !== true && session.agentKind !== 'shell',
     shell: session.agentKind === 'shell',
     exited: session.status === 'exited',
+    crashed: session.status === 'exited' && sessionErrorFact(session as SeatSessionFacts),
     finish: finishedRaw
       ? { kind: 'at', ms: Date.parse(finishedRaw) || 0 }
       : idleDone
@@ -449,46 +447,30 @@ export function activityMsOf(session: SliceSession | undefined): number | null {
 export interface SessionVisibility {
   readonly retention: Retention | null
   readonly activityMs: number | null
-  /** `session.issue` through the engine (members only: headless out, twins collapsed). */
-  readonly issueLink: string | null
-  /** `session.worktree` through the engine (the prefix relation). */
-  readonly worktreeLink: string | null
   /** The seat's roll-up verdict, from the RESIDENT row; `LOADING` while it is cold. */
   readonly verdict: Loaded<SeatVerdict>
 }
 
 /** A seat's verdict from the resident row (the roll-ups never read a cold session). */
 export function verdictPartOf(
-  input: Pick<VisibleInputs, 'loadedSession'>,
+  input: Pick<VisibleInputs, 'loadedSession' | 'openInteractions' | 'issueRow'>,
   id: string,
 ): Loaded<SeatVerdict> {
   const row = input.loadedSession(id)
-  return row === undefined || typeof row === 'symbol' ? row : seatVerdictOf(row)
-}
-
-/** A session's two links: `session.issue` and `session.worktree`. */
-export interface SessionLinks {
-  readonly issueLink: string | null
-  readonly worktreeLink: string | null
-}
-
-export function sessionLinksOf(input: Pick<VisibleInputs, 'links'>, id: string): SessionLinks {
-  return {
-    issueLink: input.links.session.issue(id),
-    worktreeLink: input.links.session.worktree(id),
-  }
+  if (row === undefined || typeof row === 'symbol') return row
+  const task = row.issueId ? input.issueRow(row.issueId) : undefined
+  return seatVerdictOf(row, input.openInteractions?.(id), task === undefined || !isFinished(task))
 }
 
 /** A session's parts computed directly (the rebuild). */
 export function directSessionVisibility(
-  input: Pick<VisibleInputs, 'links' | 'sessionRow' | 'loadedSession'>,
+  input: Pick<VisibleInputs, 'sessionRow' | 'loadedSession' | 'openInteractions' | 'issueRow'>,
   id: string,
 ): SessionVisibility {
   const row = input.sessionRow(id)
   return {
     retention: retentionOf(row),
     activityMs: activityMsOf(row),
-    ...sessionLinksOf(input, id),
     verdict: verdictPartOf(input, id),
   }
 }
@@ -508,10 +490,10 @@ export interface Members {
    * shell, not archived), retained at the clock and not exited.
    */
   readonly rosterIds: readonly string[]
+  /** R2's exited seats that may still want the human (`exceptionSeatIdsPartOf`), in id order. */
+  readonly exceptionSeatIds: readonly string[]
   /** ≥1 retained member session (`rows.ts:70-76`). */
   readonly retained: boolean
-  /** A retained member still on the live roster: a draft vessel's test. */
-  readonly liveRoster: boolean
   /** An explicit session of its own is on the task (`openIssues`, `mission.ts:582-590`). */
   readonly openOwn: boolean
 }
@@ -548,12 +530,30 @@ export interface IssueVisibility extends RollupParts, Members {
 /** The roll-up parts' inputs over the visibility inputs: held issues for rows, sessions for seats. */
 export function rollupInputsOf(input: VisibleInputs): RollupInputs {
   return {
+    missionBucket: input.missionBucket ?? ((id) => {
+      const issue = input.loadedIssue(id)
+      if (issue === LOADING) throw LOADING
+      if (!issue) return null
+      const ids = [...input.links.issue.missionSessions.ids(id)]
+      let working = false
+      for (const sessionId of ids) {
+        const session = input.loadedSession(sessionId)
+        if (session === LOADING) throw LOADING
+        working ||= Boolean(session && !session.archived && sessionWorkingFact(session as SeatSessionFacts))
+      }
+      return missionTaskBucket(issue, input.links.issue.bornSessions.size(id) > 0 || ids.length > 0, working)
+    }),
     reached: input.reached,
     loadedIssue: (id) => input.loadedIssue(id),
     tipActivityAt: input.issueSessionFact ? (id) => input.issueSessionFact!(id, 'tipActivityAt') : undefined,
     spinOffCount: (id) => input.links.issue.spinOffs.size(id),
     nested: (id) => input.nested(id),
-    formalChildren: (id) => input.formalChildren(id),
+    formalChildren: function* (id) {
+      for (const child of input.formalChildren(id)) {
+        const issue = input.loadedIssue(child)
+        if (issue === LOADING || (issue && issue.stage !== 'proposed')) yield child
+      }
+    },
     rollupNode: (id) => input.issue(id),
     seat: (id) => input.session(id).verdict,
     seatActivity: (id) => input.session(id).activityMs,
@@ -647,6 +647,38 @@ export function rosterIdsPartOf(
   return roster.length === retainedSeatIds.length ? retainedSeatIds : roster
 }
 
+/**
+ * R2's exited seats, not archived, that may still want the human (POD-2171):
+ * the ones that crashed (`crashed`, the live summary's list) and the ones
+ * holding an open pending interaction. Both are R2 seats (`seatIds`, the
+ * declared `session.issue` membership: headless out, twins collapsed), never a
+ * raw `issueId`, and never chosen by the display window. Only candidates: the delegate role verdict
+ * (`coordinatedSeat`, through `exceptionSeatsOf`) decides whether one asks, by
+ * the same rule as every other seat. The two sources keep the scan small: a
+ * long seat history is read only where a crash or an interaction points.
+ */
+export function exceptionSeatIdsPartOf(
+  input: VisibleInputs,
+  seatIds: readonly string[],
+  crashed: readonly string[] = crashedSeatIdsOf(input, seatIds),
+): readonly string[] {
+  const asking = (input.interactionSessions?.() ?? []).filter((sessionId) => {
+    if (!sortedHas(seatIds, sessionId)) return false
+    const retention = input.session(sessionId).retention
+    return retention !== null && retention.seat && retention.exited
+  })
+  if (asking.length === 0) return crashed.length === 0 ? NO_EXCEPTIONS : crashed
+  return [...new Set([...crashed, ...asking])].sort()
+}
+
+function crashedSeatIdsOf(input: VisibleInputs, seatIds: readonly string[]): readonly string[] {
+  return seatIds.filter((sessionId) => {
+    const retention = input.session(sessionId).retention
+    return retention !== null && retention.seat && retention.crashed
+  })
+}
+const NO_EXCEPTIONS: readonly string[] = Object.freeze([])
+
 /** Who the members are: R2's seats and R3's lane, without judging any of them. */
 export type MemberSeats = Pick<Members, 'seatIds' | 'laneMemberIds' | 'memberIds'>
 
@@ -717,7 +749,9 @@ export function memberVerdictsOf(
   let retainedSeatIds: readonly string[]
   let rosterIds: readonly string[]
   let openOwn: boolean
+  let exceptionSeatIds: readonly string[]
   if (summary === undefined) {
+    exceptionSeatIds = exceptionSeatIdsPartOf(input, seats.seatIds)
     retainedSeatIds = retainedSeatIdsPartOf(input, id, standing, seats.memberIds)
     rosterIds = rosterIdsPartOf(input, retainedSeatIds)
     openOwn = openOwnPartOf(input, id, seats.seatIds, standing)
@@ -729,12 +763,13 @@ export function memberVerdictsOf(
     rosterIds =
       standing === undefined ? [] : mergeIds(summary.roster, rosterIdsPartOf(input, laneRetained))
     openOwn = summary.present > 0 || standing?.headlessStaffed === true
+    exceptionSeatIds = exceptionSeatIdsPartOf(input, seats.seatIds, summary.crashed)
   }
   return {
     retainedSeatIds,
     rosterIds,
+    exceptionSeatIds,
     retained: standing !== undefined && !standing.excluded && retainedSeatIds.length > 0,
-    liveRoster: rosterIds.length > 0,
     openOwn,
   }
 }
@@ -1007,9 +1042,8 @@ function flatOf(
 
 /**
  * The nearest present ancestor by the raw `parentId`, through any held issue
- * (`rows.ts:271-283`); else, for a parentless non-spin-off, the present
- * issue owning its `startedBySession` unless that one is a draft vessel
- * (`rows.ts:288-305`, `issueIdOwningSession`, `session-ownership.ts:371-410`).
+ * (`rows.ts:271-283`). A parentless task is a root row: the session that
+ * started it never nests it (PIPP-351 hid under another repo's task).
  */
 export function nestCandidatePartOf(
   input: VisibleInputs,
@@ -1029,12 +1063,7 @@ export function nestCandidatePartOf(
     if (parent.present) return parentId
     parentId = parent.parentRef
   }
-  if (standing.parentId !== null || standing.startedBy === null) return null
-  const owner = ownerOf(input, standing.startedBy)
-  if (owner === null || owner === id) return null
-  const candidate = input.issue(owner)
-  if (candidate?.standing?.draftVessel === true && candidate.liveRoster) return null
-  return owner
+  return null
 }
 
 /**
@@ -1062,42 +1091,10 @@ export function nestParentPartOf(
   return candidate
 }
 
-/**
- * The present issue a session belongs to (`issueIdOwningSession` with the
- * ownership index): its explicit issue when that one is present, else, for a
- * session with no `issueId`, a present issue checked out at its worktree
- * (lowest id: legacy takes the first in its list order, which no pool has).
- */
-function ownerOf(input: VisibleInputs, sessionId: string): string | null {
-  // The session's CACHED parts, never its row: a heartbeat of a starter
-  // session re-runs none of the issues it started.
-  const session = input.session(sessionId)
-  const retention = session.retention
-  if (retention === null || retention.archived) return null
-  if (retention.issueId !== undefined) {
-    const issueId = session.issueLink
-    return issueId !== null &&
-      issueId === retention.issueId &&
-      input.issue(issueId)?.present === true
-      ? issueId
-      : null
-  }
-  const worktree = session.worktreeLink
-  if (worktree === null) return null
-  let owner: string | null = null
-  for (const issueId of input.links.worktree.issues.ids(worktree)) {
-    if (owner !== null && issueId > owner) continue
-    const issue = input.issue(issueId)
-    // Presence first: a hidden issue answers it without its row.
-    if (issue?.present === true && issue.standing?.excluded === false) owner = issueId
-  }
-  return owner
-}
-
 /** The nesting group (see the header). */
 export interface Nesting {
   readonly nestParent: string | null
-  /** Reaches the screen: under a placed nest parent, or top-level and not agent-audience. */
+  /** Reaches the screen: under a placed nest parent, or top-level (any audience). */
   readonly placed: boolean
   readonly visible: boolean
 }
@@ -1115,7 +1112,7 @@ export function nestingOf(
   if (!present) return UNPLACED
   const nestParent = nestParentPartOf(input, id, candidate)
   const placed =
-    nestParent !== null ? input.issue(nestParent)?.placed === true : standing?.agent === false
+    nestParent !== null ? input.issue(nestParent)?.placed === true : standing !== undefined
   return { nestParent, placed, visible: placed }
 }
 
@@ -1144,25 +1141,16 @@ export function nestBelowPartOf(input: VisibleInputs, id: string): readonly stri
 
 /**
  * The present rows nested under `id` (the inverse of `nestParentPartOf`): the
- * candidates below it, and the issues its member sessions started (the
- * started-by fallback), each kept when its own `nestParent` is `id`.
+ * candidates below it, each kept when its own `nestParent` is `id`.
  */
 export function nestedPartOf(
   input: VisibleInputs,
   id: string,
-  self: Pick<IssueVisibility, 'present' | 'memberIds' | 'nestBelow'>,
+  self: Pick<IssueVisibility, 'present' | 'nestBelow'>,
 ): readonly string[] {
   if (!self.present) return NONE
-  const nested = new Set<string>()
-  for (const childId of self.nestBelow) {
-    if (input.issue(childId)?.nestParent === id) nested.add(childId)
-  }
-  for (const sessionId of self.memberIds) {
-    for (const started of input.links.session.startedIssues.ids(sessionId)) {
-      if (input.issue(started)?.nestParent === id) nested.add(started)
-    }
-  }
-  return nested.size === 0 ? NONE : [...nested].sort()
+  const nested = self.nestBelow.filter(childId => input.issue(childId)?.nestParent === id)
+  return nested.length === 0 ? NONE : nested
 }
 
 /** L1b `rankOf` over the own row: the fields it reads, band from the clock (spec R-ORDER). */
@@ -1225,12 +1213,12 @@ export function directVisibility(
     get rosterIds() {
       return once('rosterIds', () => rosterIdsPartOf(input, parts.retainedSeatIds))
     },
+    get exceptionSeatIds() {
+      return once('exceptionSeatIds', () => exceptionSeatIdsPartOf(input, parts.seatIds))
+    },
     get retained() {
       const standing = parts.standing
       return standing !== undefined && !standing.excluded && parts.retainedSeatIds.length > 0
-    },
-    get liveRoster() {
-      return parts.rosterIds.length > 0
     },
     get openOwn() {
       return once('openOwn', () => openOwnPartOf(input, id, parts.seatIds, parts.standing))

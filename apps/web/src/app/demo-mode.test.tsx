@@ -73,7 +73,7 @@ describe('web demo mode', () => {
       </>,
     )
     await waitFor(() =>
-      expect(screen.getByTestId('status-strip-burn').textContent).toBe('measuring token burn'),
+      expect(screen.getByTestId('status-strip-burn').textContent).toMatch(/^token burn /),
     )
   })
 

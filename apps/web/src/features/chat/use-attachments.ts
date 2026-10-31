@@ -1,4 +1,3 @@
-import type { DraftIssueArtifactInput } from '@podium/commands'
 import type { MachineId, SessionId } from '@podium/model/browser'
 import type { RuntimeAttachmentRef } from '@podium/protocol/daemon'
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -10,12 +9,14 @@ import { hasFileItems } from './transfer-items'
  *
  * One part owning every destination a file can take. Picked from the file
  * dialog, dropped on the composer or pasted from the clipboard, read as base64,
- * and then one of three things: staged through the live driver and
- * sent as an out-of-band reference; uploaded to the session's workspace, whose
- * path prefixes the prose for cold-start and pre-contract sessions; or, for the
- * home composer, kept as browser bytes so draft creation can store them on the
- * issue without a staging file. The composer renders the strip; this owns the
- * state machine behind each chip (`uploading` → `ready` | `failed`).
+ * and uploaded. For an agent session, and for the home composer's task that
+ * does not exist yet, the server holds the file and answers a ref with no path
+ * (POD-2148); the send (or the task's create) claims it into the issue and the
+ * server puts it on the agent's machine when the message is delivered. The
+ * superagent's upload is staged at once and its path rides the text; a shell's
+ * lands in its workspace, whose path prefixes the prose. The composer renders
+ * the strip; this owns the state machine behind each chip (`uploading` →
+ * `ready` | `failed`).
  *
  * IMAGES WERE NEVER THE POINT, only the first case (POD-1203). Everything below
  * the mime check was already format-blind — the harness reads an attachment by
@@ -42,9 +43,6 @@ export interface Attachment {
   path?: string
   ref?: RuntimeAttachmentRef
   error?: string
-  /** Browser bytes retained for a direct issue attachment. This mode never
-   *  writes a staging file into a daemon or checkout. */
-  dataBase64?: string
   state: 'uploading' | 'ready' | 'failed'
   /** The picked bytes, kept so the upload can be REDONE against a different
    *  machine (POD-1203). The home composer's target is a dropdown the operator
@@ -70,14 +68,13 @@ export interface UseAttachmentsResult {
   clearReady: () => void
   /** True while any chip is still uploading — the send button waits for it. */
   uploading: boolean
-  /** Legacy paths still prefix cold-start prose; staged refs travel out-of-band;
-   *  draft artifacts carry browser bytes straight onto a new issue. */
+  /** Legacy paths still prefix shell prose; refs (held or staged) travel
+   *  out-of-band. */
   ready: () => {
     paths: string[]
     legacyPaths: string[]
     refs: RuntimeAttachmentRef[]
     tags: { kind: 'image' | 'file'; label: string }[]
-    draftArtifacts: DraftIssueArtifactInput[]
   }
   /** DOM handlers for the composer box. Grouped so the shell spreads them
    *  rather than re-deriving four closures. */
@@ -97,8 +94,8 @@ export function useAttachments(opts: {
    *  composer's case. Omitted by the session chat composer, whose session
    *  decides for itself. */
   machineId?: MachineId
-  /** Existing-session prompts need workspace paths. A new issue instead keeps
-   *  bytes in memory until `sessions.create` stores them on the draft issue. */
+  /** `issue`: the home composer's task, which does not exist yet. Its files
+   *  are held on the server until `sessions.create` claims them. */
   destination?: 'session' | 'issue'
 }): UseAttachmentsResult {
   const { sessionId, trpc, machineId, destination = 'session' } = opts
@@ -120,17 +117,12 @@ export function useAttachments(opts: {
           reader.onerror = () => reject(new Error('FileReader error'))
           reader.readAsDataURL(file)
         })
-        if (destination === 'issue') {
-          setAttachments((prev) =>
-            prev.map((a) => (a.id === id ? { ...a, dataBase64, state: 'ready' } : a)),
-          )
-          return
-        }
         const res = await trpc.sessions.uploadImage.mutate({
           sessionId,
           filename: file.name,
           mimeType: file.type || 'application/octet-stream',
           dataBase64,
+          ...(destination === 'issue' ? { pending: true as const } : {}),
           ...(target ? { machineId: target } : {}),
         })
         if ('refusal' in res) {
@@ -149,7 +141,8 @@ export function useAttachments(opts: {
             a.id === id
               ? {
                   ...a,
-                  path: res.path,
+                  // A held upload answers `path: ''`: it has none yet.
+                  path: res.path || undefined,
                   ...('attachment' in res ? { ref: res.attachment } : {}),
                   state: 'ready' as const,
                 }
@@ -217,11 +210,7 @@ export function useAttachments(opts: {
   }, [destination, machineId, upload])
 
   const ready = useCallback(() => {
-    const readyOnes = attachments.filter(
-      (a) =>
-        a.state === 'ready' &&
-        (destination === 'issue' ? a.dataBase64 !== undefined && a.file !== undefined : !!a.path),
-    )
+    const readyOnes = attachments.filter((a) => a.state === 'ready' && (!!a.ref || !!a.path))
     return {
       paths: readyOnes.flatMap((a) => (a.path ? [a.path] : [])),
       legacyPaths: readyOnes.flatMap((a) => (!a.ref && a.path ? [a.path] : [])),
@@ -233,20 +222,8 @@ export function useAttachments(opts: {
         kind: a.previewUrl ? ('image' as const) : ('file' as const),
         label: a.name,
       })),
-      draftArtifacts: readyOnes.flatMap((a) =>
-        a.file !== undefined && a.dataBase64 !== undefined
-          ? [
-              {
-                id: a.id,
-                filename: a.name,
-                mimeType: a.file.type,
-                dataBase64: a.dataBase64,
-              },
-            ]
-          : [],
-      ),
     }
-  }, [attachments, destination])
+  }, [attachments])
 
   return {
     attachments,

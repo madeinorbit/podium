@@ -1,5 +1,25 @@
 # Delegating to other agents (for agents)
 
+Instructions to use **subtasks** or **subagents** mean **Podium sub-issues** for task
+tracking and **Podium sessions** for delegated agents by default. This applies to
+coordinators and other agents, including read-only research and review. It keeps work
+visible in the issue tree and session list. [spec:SP-f7a5]
+
+Use native harness tools only when the user explicitly requests them for that work.
+That request permits **both native task tracking and native subagents**, so the work
+does not also need Podium sub-issues. A generic request to "use subagents" or "break
+this into subtasks" uses the Podium default. Tool availability or convenience does
+not grant the exception. Keep the current Podium issue's progress and final handoff
+up to date whichever tools the user chose.
+
+For example, "delegate reviews to subagents" means Podium sessions. "Use native
+harness subagents for these reviews" permits native subagents and native task
+tracking for those reviews. State the chosen tools and scope in each delegate's
+instructions. A native subagent must not self-attach to a Podium issue; its parent
+handles any Podium issue attachment.
+
+## Podium delegation
+
 You can spawn other agents onto an issue with `podium agent spawn`. Podium deliberately
 has **no agent roles, no write-claim, and no activity-based auto-isolation**
 ([spec:SP-4ef9]). Nothing about your delegate is inferred from how it behaves: placement
@@ -16,9 +36,9 @@ Every spawn prompt should carry four things.
 
 Discovered or adjacent work that can ship independently is a **top-level** issue linked
 with `discovered-from`; agent top-level creates land in **Proposed** automatically, so do
-not stage or claim them. Decomposition of the current deliverable is always a sub-issue
-under it. If adjacent work blocks shipping the parent, make it a blocking sub-issue rather
-than a proposal.
+not stage or claim them. With Podium task tracking, decomposition of the current
+deliverable is a sub-issue under it. If adjacent work blocks shipping the parent, make
+it a blocking sub-issue rather than a proposal.
 
 Write `description` for the human: 1–3 concise, jargon-free sentences that stand alone.
 Put reproduction steps, file paths, constraints, and agent instructions in `brief`.
@@ -36,7 +56,8 @@ reviewer, a researcher, or a spec author.
 
 The thing to internalise: **placement is decided when an issue is created and started,
 not when you spawn.** `agent spawn` has no say in it — it inherits whatever worktree the
-issue already got. So by the time you are writing a spawn command, the only placement
+issue already got. An issue that was never started has no worktree, so a delegate spawned
+onto it runs in the repository checkout, not in the parent issue's worktree. So by the time you are writing a spawn command, the only placement
 question left is *which issue* you are spawning onto.
 
 `--worktree` does **not** isolate it, and this trips people up. The flag only asserts
@@ -138,6 +159,117 @@ A fresh session knows its issue. It does not know it has colleagues. Tell it:
 - **That mail is how to reach them**: `podium issue mail send <id> --body "…"`. Say this
   explicitly. A delegate that discovers a problem in someone else's file should mail the
   owner, not fix it.
+
+## Phases and coordinators
+
+This applies with Podium task tracking (see the top of this guide for the native-tools
+exception). When you orchestrate other agent sessions, plan the work **on the issue
+tree**, not in your head, in chat or in a bash queue. The flight deck
+(`podium issue deck <id>`) is how the user sees what is done, what is running and what
+is coming, and it only knows what is on the tree. A plan that lives in your chat shows
+the user nothing ahead.
+
+Solo edit/test/review work, where you do the work yourself, stays flat: no coordinator
+claim, no phases, no child tasks. List its steps on the issue panel with
+`podium issue todo <id> --add "…"`.
+
+**When to use phases.** Use them when the work has **two or more stages that run one
+after another** and grouping them helps the user follow progress. Then use them even if
+the user never said "phases". A stage may hold a single task. Otherwise leave phases out
+and put tasks directly under the issue: a phase per routine task, or phases around one
+agent's ordinary steps, only add rows the user has to read past.
+
+**A phase only groups** (flight deck decision D1). It is a section of its parent, not a
+unit of work: it reads done once all its tasks are, and it takes no `blocked-by` edge;
+`dep-add` refuses a phase at either end. Waits go between the tasks themselves.
+
+1. **Claim the coordinator role** when the user names you coordinator or you orchestrate
+   other agent sessions: `podium issue coordinator <id> --claim`. Sessions on the issue and
+   below it then ask you by issue mail instead of the user. Creating a child under your
+   own issue also claims the seat, but only an empty one; it never replaces an existing
+   or stale coordinator. The seat line in `podium issue prime` says when the issue has no
+   active coordinator.
+2. **File the whole known plan first.** In your first pass create every phase and every
+   task you can already name, later stages included, **without `--start`**. A task
+   created without `--start` is only filed: the deck shows it as Not started and it spends
+   no spawn budget.
+   - One phase per stage: `podium issue create --type phase --parent-id <id> --title "…"`.
+     **A new sibling appears at the top of the deck**, so after creating each later phase,
+     put it after the one before it: `podium issue move <new> --after <previous>`.
+   - One task per unit of delegated work, under its phase (`--parent-id <phase>`).
+   - When a later task's split depends on an earlier result (which competitors, which
+     files), file one task named for the outcome ("Profile each shortlisted competitor")
+     and split or retitle it when that result lands. The brief is read when the task
+     starts, so `podium issue update --id <task> --brief "…"` before launching is enough.
+3. **Record waits between tasks.** `podium issue dep-add <later-task> <earlier-task>`
+   whenever a task needs another task's output: a build that needs its design, a review
+   that needs its build, the page that needs the profiles. The deck draws the edge and
+   shows the later task as blocked until the earlier one closes. Link only real needs; a
+   task that needs nothing from the previous stage gets no edge. Edges enforce nothing:
+   neither `issue start` nor `agent spawn` refuses, so launch a task only once what it
+   waits on is done.
+4. **Launch each task in its turn:**
+   - Work that needs its own worktree: `podium issue start <task>`, or `--start` at
+     creation for a task you launch right away. That makes the worktree and exactly one
+     agent; do not also `agent spawn` onto it.
+   - Read-only work such as research: `podium agent spawn --issue <task>` once. With no
+     task worktree it runs in the repository checkout, so name the checkout it should read
+     and forbid writes.
+5. **Accept or send back each task.** A delegate that finishes moves its task to `review`
+   and mails you; nothing advances it further, so a task you leave there keeps its phase
+   and the deck short of done. Check the deliverable against the brief, then either:
+   - accept it: `podium issue close <task> --reason done --note "<what you accepted>"`.
+     Closing stops every session on the task, so close only once its delegate has finished
+     (the close is refused while one is still working). A phase reads done once all its
+     tasks are closed.
+   - send it back: mail the delegate's session (`podium issue mail send <task> --body "…"`)
+     with concrete reasons: what is missing or wrong and what would make it acceptable.
+     Mail does not wake a hibernated session; send to one with
+     `podium session resume-and-send <session-id> --text "…"`.
+
+   Accept a research or design task once its output has been used, for example after the
+   build task it informed has started from it. Close only your children; your own issue
+   stays open for the user to close.
+
+   To be told when a task reaches review instead of polling the deck, subscribe once
+   after claiming the role:
+   `podium issue subscription add issue.stage_changed:review --source-kind relationship --source-ref my-children`.
+   `my-children` matches only direct children; when your tasks sit under phases, use
+   `--source-ref my-subtree` instead.
+
+The other issue types: `task` is the default, and `decision` is a question only the user
+closes; it blocks whatever waits on it. A decision is a task, so it takes edges: file
+the user's review as a decision and make the next stage's tasks wait on it.
+
+**Spawn budget.** Agent-initiated `podium agent spawn` is limited to 10 spawns per
+*target* issue per UTC day, shared by every spawn onto that issue, including
+mail-triggered ones. Create tasks for real units of work, never to get around a refusal.
+Successful spawn output shows the count (`budget: spawn 8/10 today on #336`). A refusal
+starts nothing and exits 1 with the reason on stderr (`--json` returns `ok:false` on
+stdout instead). Mail a live session on the issue, or ask your coordinator or the
+operator.
+
+Check each spawn's exit status and session id before the next launch. A pipeline reports
+only its last command's status, so `podium agent spawn … | grep …` hides a refusal from a
+script even though the message still reaches stderr.
+
+Example (an epic for a competitor comparison page), all filed in the first pass:
+
+```
+Epic: Competitor comparison page        ← you: coordinator --claim
+├─ Phase: Discovery                     ← create --type phase
+│  └─ Task: Competitor shortlist        ← one researcher; spawn --issue now
+├─ Phase: Profiles                      ← move --after Discovery
+│  └─ Task: Profile each competitor     ← dep-add <it> <shortlist>; split per competitor later
+└─ Phase: Page                          ← move --after Profiles
+   └─ Task: Build comparison page       ← dep-add <it> <profiles>; issue start once they close
+```
+
+The deck shows all three stages from the start, and the edges say which task waits on
+which. When the shortlist lands, split "Profile each competitor" into one task per
+competitor, each waiting on the shortlist, and make the page task wait on all of them.
+The same work run as eleven helper sessions spawned onto the epic is a flat list on the
+deck, and the eleventh spawn is refused by the budget.
 
 ## A worked brief
 

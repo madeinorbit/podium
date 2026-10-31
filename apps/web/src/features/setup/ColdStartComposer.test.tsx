@@ -3,6 +3,7 @@ import '@/test-support/mock-core-store-handle'
 // @vitest-environment happy-dom
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
+import { FIRST_TASK_ACTIVATION_DRAFT_KEY } from '@podium/client-core/ui-state'
 import {
   asIssueId,
   asMachineId,
@@ -11,8 +12,12 @@ import {
   type GitRepositoryWire,
   type SessionMeta,
 } from '@podium/model'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { TipContext } from '@/features/tips/tip-context'
+import type { TipEngine } from '@/features/tips/tip-engine'
+import type { TipMoment } from '@/features/tips/types'
 import { ColdStartComposer } from './ColdStartComposer'
 
 const styles = readFileSync(resolve(import.meta.dirname, '../../styles.css'), 'utf8')
@@ -156,6 +161,18 @@ afterEach(() => {
     outcome: Promise.resolve<'started' | 'issue-only' | 'failed'>('started'),
   })
   uploadImage.mockReset()
+  // The server holds a new task's file and answers its ref (POD-2148).
+  uploadImage.mockImplementation(async (input: { filename: string; mimeType: string }) => ({
+    path: '',
+    attachment: heldRef(input.filename, input.mimeType),
+  }))
+})
+
+const heldRef = (filename: string, mediaType: string) => ({
+  id: `up-${filename}`,
+  filename,
+  mediaType,
+  kind: mediaType.startsWith('image/') ? ('image' as const) : ('file' as const),
 })
 
 /** The hidden `<input type=file>` the paperclip clicks — it has no accessible
@@ -206,6 +223,48 @@ function recentSession(cwd: string): SessionMeta {
  * looks. The button keeps its own label when it is the focused thing, which is
  * where "Project:" is worth saying. */
 describe('ColdStartComposer', () => {
+  it('selects the project and machine by typing after tabbing into their fields', async () => {
+    const user = userEvent.setup()
+    const machineB = asMachineId('machine-b')
+    store.repos.push(
+      {
+        ...initialRepo,
+        path: '/work/beta',
+        name: 'beta',
+        originUrl: 'https://example.com/beta.git',
+      } as GitRepositoryWire,
+      {
+        ...initialRepo,
+        path: '/srv/beta',
+        name: 'beta',
+        machineId: machineB,
+        originUrl: 'https://example.com/beta.git',
+      } as GitRepositoryWire,
+    )
+    const primary = store.machines[0]
+    if (!primary) throw new Error('missing fixture machine')
+    store.machines.push({ ...primary, id: machineB, name: 'Build host' })
+    uiValues.set('podium.firstTaskActivation.draft', JSON.stringify({ repoPath: '/work/podium' }))
+    render(<ColdStartComposer first={false} />)
+    // happy-dom does not apply the file input's Tailwind `hidden` class.
+    fileInput().style.display = 'none'
+
+    await user.tab()
+    expect(screen.getByRole('button', { name: 'Project: podium' })).toBe(document.activeElement)
+    await user.keyboard('be')
+    expect(screen.getByRole('button', { name: 'Project: beta' })).toBe(document.activeElement)
+    // Prompt, agent, model, effort, then machine.
+    for (let step = 0; step < 5; step++) await user.tab()
+    expect(screen.getByRole('button', { name: 'Studio Mac' })).toBe(document.activeElement)
+    await user.keyboard('bu')
+    expect(screen.getByRole('button', { name: 'Build host' })).toBe(document.activeElement)
+    expect(screen.queryByRole('menu')).toBeNull()
+    expect(JSON.parse(uiValues.get('podium.firstTaskActivation.draft') ?? '{}')).toMatchObject({
+      repoPath: '/work/beta',
+      machineId: machineB,
+    })
+  })
+
   it.each([
     '/Users/bob/src/podium',
     'C:\\src\\podium',
@@ -217,20 +276,20 @@ describe('ColdStartComposer', () => {
 
     render(<ColdStartComposer first />)
 
-    expect(screen.getByRole('heading', { name: /Give podium its first mission/ })).toBeTruthy()
+    expect(screen.getByRole('heading', { name: /First task in podium/ })).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Project: podium' })).toBeTruthy()
   })
 
   it('starts the prompt in a draft issue for the agent to name', async () => {
     render(<ColdStartComposer first />)
 
-    expect(screen.getByRole('heading', { name: /Give podium its first mission/ })).toBeTruthy()
+    expect(screen.getByRole('heading', { name: /First task in podium/ })).toBeTruthy()
     fireEvent.change(screen.getByLabelText('What do you want to work on?'), {
       target: { value: 'Ship the new onboarding\nKeep the empty state subtle.' },
     })
     fireEvent.click(screen.getByRole('button', { name: 'Model' }))
     fireEvent.click(screen.getByRole('button', { name: 'Effort' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Start work' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Start task' }))
 
     await waitFor(() =>
       expect(spawnDraftAgent).toHaveBeenCalledWith(
@@ -280,7 +339,7 @@ describe('ColdStartComposer', () => {
     fireEvent.change(screen.getByLabelText('What do you want to work on?'), {
       target: { value: 'Crash-safe launch' },
     })
-    fireEvent.click(screen.getByRole('button', { name: 'Start work' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Start task' }))
 
     expect(spawnDraftAgent).toHaveBeenCalledTimes(1)
   })
@@ -300,7 +359,7 @@ describe('ColdStartComposer', () => {
     fireEvent.change(screen.getByLabelText('What do you want to work on?'), {
       target: { value: 'Ship the new onboarding' },
     })
-    fireEvent.click(screen.getByRole('button', { name: 'Start work' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Start task' }))
 
     expect(setSelectedIssueId).toHaveBeenCalledWith(asIssueId('instant-issue'))
     expect(setPanelMode).toHaveBeenCalledWith(asSessionId('instant-session'), 'chat')
@@ -324,7 +383,7 @@ describe('ColdStartComposer', () => {
     fireEvent.change(screen.getByLabelText('What do you want to work on?'), {
       target: { value: 'Do not lose this request' },
     })
-    fireEvent.click(screen.getByRole('button', { name: 'Start work' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Start task' }))
 
     await waitFor(() => expect(screen.getByText(/Couldn't start the agent/)).toBeTruthy())
     const saved = uiValues.get('podium.firstTaskActivation.draft') ?? ''
@@ -341,7 +400,7 @@ describe('ColdStartComposer', () => {
     expect(
       (screen.getByLabelText('What do you want to work on?') as HTMLTextAreaElement).value,
     ).toBe('Do not lose this request')
-    fireEvent.click(screen.getByRole('button', { name: 'Start work' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Start task' }))
     expect(spawnDraftAgent).toHaveBeenLastCalledWith(
       expect.objectContaining({
         issueId: firstInput.issueId,
@@ -410,7 +469,7 @@ describe('ColdStartComposer', () => {
       }),
     )
     render(<ColdStartComposer first={false} />)
-    fireEvent.click(screen.getByRole('button', { name: 'Start work' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Start task' }))
     await waitFor(() =>
       expect(screen.getByText(/task was saved, but its agent couldn't start/i)).toBeTruthy(),
     )
@@ -424,9 +483,7 @@ describe('ColdStartComposer', () => {
 
   it('switches to reusable workspace wording when tasks already exist', () => {
     render(<ColdStartComposer first={false} />)
-    expect(
-      screen.getByRole('heading', { name: /What do you want to work on in podium/ }),
-    ).toBeTruthy()
+    expect(screen.getByRole('heading', { name: /New task in podium/ })).toBeTruthy()
   })
 
   it('deduplicates multi-machine repos and selects and lists them by recent use', () => {
@@ -560,7 +617,7 @@ describe('ColdStartComposer', () => {
     )
 
     render(<ColdStartComposer first={false} />)
-    fireEvent.click(screen.getByRole('button', { name: 'Start work' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Start task' }))
 
     await waitFor(() => expect(spawnDraftAgent).toHaveBeenCalled())
     const input = spawnDraftAgent.mock.calls[0]?.[0]
@@ -614,10 +671,8 @@ describe('ColdStartComposer', () => {
     render(<ColdStartComposer first={false} />)
     fireEvent.click(screen.getByRole('button', { name: 'Project: alpha' }))
     fireEvent.click(screen.getByRole('menuitem', { name: 'beta' }))
-    await waitFor(() =>
-      expect(screen.getByRole('button', { name: 'Project: beta' })).toBeTruthy(),
-    )
-    fireEvent.click(screen.getByRole('button', { name: 'Start work' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Project: beta' })).toBeTruthy())
+    fireEvent.click(screen.getByRole('button', { name: 'Start task' }))
 
     await waitFor(() => expect(spawnDraftAgent).toHaveBeenCalled())
     const input = spawnDraftAgent.mock.calls[0]?.[0]
@@ -632,7 +687,9 @@ describe('ColdStartComposer', () => {
    * cannot find, so the box puts the pill back to Auto first, and the launch
    * goes out without it instead of into that refusal. */
   it('launches on Auto when the machine no longer lists the draft model', async () => {
-    modelCatalogFixture.current = { codex: [{ value: 'gpt-5.5', label: 'GPT-5.5', efforts: ['high'] }] }
+    modelCatalogFixture.current = {
+      codex: [{ value: 'gpt-5.5', label: 'GPT-5.5', efforts: ['high'] }],
+    }
     try {
       uiValues.set(
         'podium.firstTaskActivation.draft',
@@ -651,7 +708,7 @@ describe('ColdStartComposer', () => {
           'auto',
         ),
       )
-      fireEvent.click(screen.getByRole('button', { name: 'Start work' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Start task' }))
 
       await waitFor(() => expect(spawnDraftAgent).toHaveBeenCalled())
       const input = spawnDraftAgent.mock.calls[0]?.[0]
@@ -664,7 +721,9 @@ describe('ColdStartComposer', () => {
   })
 
   it('keeps a model and effort the machine lists', async () => {
-    modelCatalogFixture.current = { codex: [{ value: 'gpt-5.5', label: 'GPT-5.5', efforts: ['high'] }] }
+    modelCatalogFixture.current = {
+      codex: [{ value: 'gpt-5.5', label: 'GPT-5.5', efforts: ['high'] }],
+    }
     try {
       uiValues.set(
         'podium.firstTaskActivation.draft',
@@ -678,7 +737,7 @@ describe('ColdStartComposer', () => {
         }),
       )
       render(<ColdStartComposer first={false} />)
-      fireEvent.click(screen.getByRole('button', { name: 'Start work' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Start task' }))
 
       await waitFor(() => expect(spawnDraftAgent).toHaveBeenCalled())
       const input = spawnDraftAgent.mock.calls[0]?.[0]
@@ -690,17 +749,15 @@ describe('ColdStartComposer', () => {
     }
   })
 
-  /* POD-1169. The instrument strip clips its own contents (`overflow-hidden`)
-   * to keep the three pickers in one groove, and that sets its automatic
-   * minimum size to 0 — as a shrinkable flex item it SQUASHED instead of
-   * wrapping, so a narrow pane lost the agent, model and effort controls
-   * silently rather than moving them to a second line. `flex-none` is the fix
+  /* POD-1169. A shrinkable agent chip SQUASHED instead of wrapping, so a
+   * narrow pane lost the agent, model and effort controls silently rather than
+   * moving them to a second line. `flex-none` plus a wrapping footer is the fix
    * and it is invisible in a jsdom render, so assert it directly. */
-  it('keeps the instrument strip unshrinkable, so a narrow pane wraps it whole', () => {
+  it('keeps the agent chip unshrinkable, so a narrow pane wraps it whole', () => {
     render(<ColdStartComposer first={false} />)
-    const strip = screen.getByRole('button', { name: 'Agent' }).parentElement
-    expect(strip?.className).toContain('overflow-hidden')
-    expect(strip?.className).toContain('flex-none')
+    const chip = screen.getByRole('button', { name: 'Agent' }).parentElement
+    expect(chip?.className).toContain('flex-none')
+    expect(styles).toMatch(/\.cold-start-foot\s*\{[^}]*flex-wrap:\s*wrap/)
   })
 
   /* POD-1184. The deck scrolls when a pane is too short for it, and a scroll
@@ -724,33 +781,120 @@ describe('ColdStartComposer', () => {
     expect(styles).toMatch(/\.cold-start-body\s*\{[^}]*margin-block:\s*auto/)
   })
 
-  /* POD-1184. The headline is one SENTENCE with a control set into it, not a
-   * flex row of three items: as a flex row the trailing mark was its own item
-   * behind a 0.4em gap, and a narrow pane stranded it under the pill. Inline
-   * flow puts it hard against the pill instead, joined by U+2060 so no line can
-   * break between them. */
-  it('keeps the sentence mark attached to the project pill', () => {
+  /* POD-2079. The label names where the task lands, and the project pill in
+   * it is the way to change that. */
+  it('names the target project in the label, with the picker in it', () => {
     render(<ColdStartComposer first={false} />)
-    const heading = screen.getByRole('heading', { name: /What do you want to work on in podium/ })
-    expect(heading.className).not.toContain('flex')
-    expect(heading.textContent?.endsWith('⁠?')).toBe(true)
+    const heading = screen.getByRole('heading', { name: /New task in podium/ })
     expect(heading.lastElementChild?.className).toContain('cold-start-project')
+  })
+
+  /* POD-2079. The word count only appears once there are words to count. */
+  it('counts words once the prompt has any', () => {
+    render(<ColdStartComposer first={false} />)
+    expect(screen.queryByTestId('cold-start-words')).toBeNull()
+    fireEvent.change(screen.getByLabelText('What do you want to work on?'), {
+      target: { value: 'Keep the cart  for\n24 hours' },
+    })
+    expect(screen.getByTestId('cold-start-words').textContent).toBe('6 words')
+  })
+
+  /* POD-2079. The coordinator prompt is behind a link rather than on screen. */
+  it('adds the coordinator prompt after what was written', () => {
+    render(<ColdStartComposer first={false} />)
+    const field = screen.getByLabelText('What do you want to work on?') as HTMLTextAreaElement
+    fireEvent.change(field, { target: { value: 'Rebuild billing' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Try adding a coordinator prompt' }))
+    expect(field.value).toBe(
+      'Rebuild billing\n\nThis is a complex epic. You are the designated coordinator. Organize your work accordingly. Check with me on key decisions.',
+    )
+    expect(screen.queryByTestId('cold-start-coordinator')).toBeNull()
+  })
+
+  /* POD-2196. First Flights moment 1: the ghost demo is painted over the box
+   * and never typed into it, so the draft the operator had is the one they get. */
+  describe('first-prompt tip', () => {
+    function renderWithTips(first: boolean) {
+      const moments = new Map<string, () => TipMoment>()
+      const engine = {
+        register: (id: string, read: () => TipMoment) => {
+          moments.set(id, read)
+          return () => moments.delete(id)
+        },
+        refresh: () => {},
+      } as unknown as TipEngine
+      render(
+        <TipContext.Provider value={engine}>
+          <ColdStartComposer first={first} />
+        </TipContext.Provider>,
+      )
+      const moment = () => {
+        const read = moments.get('first-prompt')
+        if (!read) throw new Error('first-prompt is not registered')
+        return read()
+      }
+      return { moment }
+    }
+
+    it('is active only for the first task, anchored on the composer box', () => {
+      const { moment } = renderWithTips(true)
+      expect(moment().active).toBe(true)
+      expect(moment().cards.map(({ title }) => title)).toEqual(['Aim high.', 'Or start small.'])
+      const anchor = moment().cards[0]?.anchor
+      expect(screen.getByTestId('cold-start-field').getAttribute('data-tip-anchor')).toBe(anchor)
+      cleanup()
+      expect(renderWithTips(false).moment().active).toBe(false)
+    })
+
+    it('shows the demo without writing it into the draft, and restores the field', () => {
+      const { moment } = renderWithTips(true)
+      const field = screen.getByLabelText('What do you want to work on?') as HTMLTextAreaElement
+      fireEvent.change(field, { target: { value: 'Half a thought' } })
+      const stored = uiValues.get(FIRST_TASK_ACTIVATION_DRAFT_KEY)
+      act(() => moment().cards[0]?.onShow?.())
+      expect(screen.getByTestId('first-prompt-ghost')).toBeTruthy()
+      expect(field.dataset.ghosted).toBe('true')
+      expect(screen.getByTestId('cold-start-coordinator').closest('p')?.style.visibility).toBe(
+        'hidden',
+      )
+      act(() => {
+        moment().cards[0]?.onHide?.()
+        moment().cards[1]?.onShow?.()
+      })
+      expect(screen.queryByTestId('first-prompt-ghost')).toBeNull()
+      expect(field.dataset.ghosted).toBeUndefined()
+      expect(field.value).toBe('Half a thought')
+      expect(uiValues.get(FIRST_TASK_ACTIVATION_DRAFT_KEY)).toBe(stored)
+      act(() => moment().cards[1]?.onHide?.())
+      expect(screen.getByTestId('cold-start-coordinator').closest('p')?.style.visibility).toBe('')
+    })
+
+    it('focuses the composer from Write my task', () => {
+      const { moment } = renderWithTips(true)
+      const cta = moment().cards[1]?.cta
+      expect(cta?.label).toBe('Write my task')
+      act(() => cta?.onClick())
+      expect(document.activeElement).toBe(screen.getByLabelText('What do you want to work on?'))
+    })
   })
 
   /* POD-1203. The home box can be given a screenshot or a document, and the
    * whole point is that the agent receives it — a chip that only ever decorated
    * this screen would be worse than no affordance at all. */
   describe('attachments', () => {
-    it('keeps the bytes out of the selected machine filesystem', async () => {
+    it('holds the file on the server, not on the selected machine (POD-2148)', async () => {
       render(<ColdStartComposer first />)
 
       attach(new File(['bytes'], 'shot.png', { type: 'image/png' }))
 
       await waitForAttachment('shot.png')
-      expect(uploadImage).not.toHaveBeenCalled()
+      expect(uploadImage).toHaveBeenCalledWith(
+        expect.objectContaining({ filename: 'shot.png', dataBase64: 'Ynl0ZXM=', pending: true }),
+      )
+      expect(uploadImage.mock.calls[0]?.[0]).not.toHaveProperty('machineId')
     })
 
-    it('attaches browser bytes to the draft while leaving its metadata to the agent', async () => {
+    it('hands the held files to the task’s create while leaving its metadata to the agent', async () => {
       render(<ColdStartComposer first />)
 
       fireEvent.change(screen.getByLabelText('What do you want to work on?'), {
@@ -758,26 +902,20 @@ describe('ColdStartComposer', () => {
       })
       attach(new File(['bytes'], 'mock.png', { type: 'image/png' }))
       await waitForAttachment('mock.png')
-      fireEvent.click(screen.getByRole('button', { name: 'Start work' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Start task' }))
 
       await waitFor(() => expect(spawnDraftAgent).toHaveBeenCalled())
       const input = spawnDraftAgent.mock.calls[0]?.[0]
       if (!input) throw new Error('launch was not dispatched')
       expect(input.firstPrompt).toBe('Match this mock')
-      expect(input.draftArtifacts).toEqual([
-        expect.objectContaining({
-          filename: 'mock.png',
-          mimeType: 'image/png',
-          dataBase64: 'Ynl0ZXM=',
-        }),
-      ])
+      expect(input.attachments).toEqual([heldRef('mock.png', 'image/png')])
+      expect(input).not.toHaveProperty('draftArtifacts')
       expect(input).not.toHaveProperty('title')
       expect(input).not.toHaveProperty('description')
       expect(input).not.toHaveProperty('brief')
-      expect(uploadImage).not.toHaveBeenCalled()
     })
 
-    it('keeps direct attachments in memory for an ambiguous launch retry', async () => {
+    it('keeps the held files for an ambiguous launch retry', async () => {
       spawnDraftAgent.mockReturnValue({
         sessionId: asSessionId('attachment-session'),
         issueId: asIssueId('attachment-issue'),
@@ -790,12 +928,13 @@ describe('ColdStartComposer', () => {
       })
       attach(new File(['bytes'], 'retry.png', { type: 'image/png' }))
       await waitForAttachment('retry.png')
-      fireEvent.click(screen.getByRole('button', { name: 'Start work' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Start task' }))
       await waitFor(() => expect(screen.getByText(/Couldn't start the agent/)).toBeTruthy())
 
-      const firstArtifacts = spawnDraftAgent.mock.calls[0]?.[0]?.draftArtifacts
-      fireEvent.click(screen.getByRole('button', { name: 'Start work' }))
-      expect(spawnDraftAgent.mock.calls[1]?.[0]?.draftArtifacts).toEqual(firstArtifacts)
+      const firstAttachments = spawnDraftAgent.mock.calls[0]?.[0]?.attachments
+      expect(firstAttachments).toEqual([heldRef('retry.png', 'image/png')])
+      fireEvent.click(screen.getByRole('button', { name: 'Start task' }))
+      expect(spawnDraftAgent.mock.calls[1]?.[0]?.attachments).toEqual(firstAttachments)
       expect(spawnDraftAgent.mock.calls[1]?.[0]?.firstPrompt).toBe('Review the attachment')
     })
 
@@ -807,7 +946,7 @@ describe('ColdStartComposer', () => {
       })
       attach(new File(['bytes'], 'spec.pdf', { type: 'application/pdf' }))
 
-      const launch = () => screen.getByRole('button', { name: 'Start work' }) as HTMLButtonElement
+      const launch = () => screen.getByRole('button', { name: 'Start task' }) as HTMLButtonElement
       expect(launch().disabled).toBe(true)
       fireEvent.click(launch())
       expect(spawnDraftAgent).not.toHaveBeenCalled()
@@ -824,9 +963,9 @@ describe('ColdStartComposer', () => {
       attach(new File(['%PDF'], 'brief.pdf', { type: 'application/pdf' }))
       await waitForAttachment('brief.pdf')
       expect(screen.getByText('brief.pdf')).toBeTruthy()
-      fireEvent.click(screen.getByRole('button', { name: 'Start work' }))
-      expect(spawnDraftAgent.mock.calls[0]?.[0]?.draftArtifacts).toEqual([
-        expect.objectContaining({ filename: 'brief.pdf', mimeType: 'application/pdf' }),
+      fireEvent.click(screen.getByRole('button', { name: 'Start task' }))
+      expect(spawnDraftAgent.mock.calls[0]?.[0]?.attachments).toEqual([
+        heldRef('brief.pdf', 'application/pdf'),
       ])
     })
 
@@ -848,9 +987,8 @@ describe('ColdStartComposer', () => {
       const deck = (): HTMLElement => screen.getByTestId('cold-start-deck')
       const well = (): HTMLElement => screen.getByTestId('cold-start-field')
 
-      it('attaches a file dropped on the empty air beside the well, and opens the box', async () => {
+      it('attaches a file dropped on the empty air beside the well', async () => {
         render(<ColdStartComposer first={false} />)
-        expect(well().dataset.expanded).toBe('false')
 
         const file = new File(['bytes'], 'shot.png', { type: 'image/png' })
         fireEvent.dragOver(deck(), { dataTransfer: transfer([file]) })
@@ -861,10 +999,8 @@ describe('ColdStartComposer', () => {
         fireEvent.drop(deck(), { dataTransfer: transfer([file]) })
 
         await waitForAttachment('shot.png')
-        expect(uploadImage).not.toHaveBeenCalled()
-        // An attachment unfolds the box by the rule a written prompt does — the
-        // strip lives inside the well, so a closed box would hide what landed.
-        expect(well().dataset.expanded).toBe('true')
+        expect(uploadImage).toHaveBeenCalledWith(expect.objectContaining({ pending: true }))
+        expect(well().textContent).toContain('shot.png')
         expect(screen.queryByText('Drop files to attach')).toBeNull()
       })
 
@@ -887,7 +1023,7 @@ describe('ColdStartComposer', () => {
         fireEvent.change(screen.getByLabelText('What do you want to work on?'), {
           target: { value: 'Ship the new onboarding' },
         })
-        fireEvent.click(screen.getByRole('button', { name: 'Start work' }))
+        fireEvent.click(screen.getByRole('button', { name: 'Start task' }))
         await waitFor(() => expect(spawnDraftAgent).toHaveBeenCalled())
 
         const file = new File(['bytes'], 'late.png', { type: 'image/png' })

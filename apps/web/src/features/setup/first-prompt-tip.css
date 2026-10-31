@@ -1,0 +1,82 @@
+/* First Flights moment 1 (POD-2196): the ghost prompt painted over the
+   cold-start box, and the legend that names its three parts. */
+.first-prompt-ghost,
+.first-prompt-legend {
+  --first-prompt-what: var(--primary);
+  --first-prompt-who: var(--info);
+  --first-prompt-when: var(--claude);
+}
+.first-prompt-ghost {
+  white-space: pre-wrap;
+  pointer-events: none;
+  user-select: none;
+}
+.first-prompt-ghost mark {
+  color: inherit;
+  border-radius: 3px;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+  padding: 1px 2px;
+  background: color-mix(in srgb, var(--first-prompt-part) 16%, transparent);
+  box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--first-prompt-part) 70%, transparent);
+}
+.first-prompt-ghost [data-part="what"],
+.first-prompt-legend [data-part="what"] {
+  --first-prompt-part: var(--first-prompt-what);
+}
+.first-prompt-ghost [data-part="who"],
+.first-prompt-legend [data-part="who"] {
+  --first-prompt-part: var(--first-prompt-who);
+}
+.first-prompt-ghost [data-part="when"],
+.first-prompt-legend [data-part="when"] {
+  --first-prompt-part: var(--first-prompt-when);
+}
+.first-prompt-caret {
+  display: inline-block;
+  width: 2px;
+  height: 22px;
+  margin-left: 2px;
+  vertical-align: -4px;
+  background: var(--primary);
+  animation: first-prompt-caret 1s steps(1) infinite;
+}
+@keyframes first-prompt-caret {
+  50% {
+    opacity: 0;
+  }
+}
+.first-prompt-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--muted-foreground);
+}
+.first-prompt-legend li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.first-prompt-legend li::before {
+  content: "";
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--first-prompt-part) 22%, transparent);
+  box-shadow: inset 0 -2px 0 var(--first-prompt-part);
+}
+/* While the demo shows, the real field keeps its size and text but steps out of
+   the flow and out of sight, so nothing the operator wrote is touched. */
+.cold-start-input[data-ghosted="true"] {
+  position: absolute;
+  inset: 0 0 auto;
+  visibility: hidden;
+}
+@media (prefers-reduced-motion: reduce) {
+  .first-prompt-caret {
+    display: none;
+  }
+}

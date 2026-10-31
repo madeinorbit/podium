@@ -326,7 +326,10 @@ const claudeCases: [string, object][] = [
     { type: 'user', message: { content: 'same words' }, toolUseResult: { newEffect: true } },
   ],
   ['duration', { type: 'system', subtype: 'turn_duration', durationMs: 42 }],
-  ['stop hooks', { type: 'system', subtype: 'stop_hook_summary', hookCount: 1 }],
+  [
+    'stop hooks',
+    { type: 'system', subtype: 'stop_hook_summary', hookCount: 1, hookErrors: ['same words'] },
+  ],
   ['away summary', { type: 'system', subtype: 'away_summary', content: 'same words' }],
   ['system text', { type: 'system', content: 'same words' }],
   [

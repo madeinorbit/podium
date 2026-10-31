@@ -523,8 +523,8 @@ describe('normalizeSettings — experimental [spec:SP-f4b9]', () => {
 
   it('keeps known and unknown feature ids as-is', () => {
     const s = normalizeSettings({
-      experimental: { 'merge-queue': true, 'future-flag': false },
+      experimental: { shipping: true, 'future-flag': false },
     })
-    expect(s.experimental).toEqual({ 'merge-queue': true, 'future-flag': false })
+    expect(s.experimental).toEqual({ shipping: true, 'future-flag': false })
   })
 })

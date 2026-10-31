@@ -1,18 +1,13 @@
 import { launchRepositoryFacts, machineFacts } from '@podium/client-graph/test-support/launch-repository-facts.test.fixture'
-/** Fixture and private-replay comparison. Row values stay in process;
- * reports contain counts and positions. */
+/** The command palette and launcher's pool data as one comparable snapshot.
+ * Row values stay in process; reports contain counts and positions. */
 
-import type { PodiumClientApi } from '@podium/client-core/api'
 import type { SessionView } from '@podium/client-core/session-values'
-import type { ReferenceState as Store } from './reference-state'
-import { type RepoNavView, reposToViews, repoUsageAt, spawnTargetForRepo } from '@podium/client-core/values'
-import { lastUsedMaps } from '../legacy-values/index'
 import { COMMAND_SUMMARIES } from '@podium/client-graph/command-launch-schema'
 import { type CommandLaunchData, commandLaunchViews } from '@podium/client-graph/command-launch-views'
 import type { MobxPool } from '@podium/client-graph/pool'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
-import { legacyDerivationFromStore } from './legacy'
-import { type CheckRow, compareSidebarSnapshots, type SidebarSnapshot } from './sidebar-check'
+import type { CheckRow, SidebarSnapshot } from './sidebar-check'
 
 const fields = (value: object, keys: readonly string[]) =>
   Object.fromEntries(keys.map((key) => [key, (value as Record<string, unknown>)[key] ?? null]))
@@ -119,62 +114,4 @@ export function poolCommandLaunchSnapshot(pool: MobxPool): SidebarSnapshot {
     sessions: rows.filter((row): row is SessionView => !!row && row !== LOADING),
     pending: data.pending + rows.filter(row => row === LOADING).length,
   })
-}
-export function legacyCommandLaunchSnapshot(store: Store<PodiumClientApi>): SidebarSnapshot {
-  const legacy = legacyDerivationFromStore(store),
-    repos = store.repos,
-    sessions = store.sessions,
-    sections = legacy.slice.sections
-  const repoViews = reposToViews(repos),
-    current = repoViews
-      .flatMap((repo) => repo.worktrees)
-      .find((tree) => tree.path === store.selectedWorktree)
-  const { byRepo } = lastUsedMaps(sections, sessions)
-  const navs: RepoNavView[] = [...sections.pinnedRepos, ...sections.repos]
-  const repo = navs.reduce<RepoNavView | undefined>(
-    (best, r) => (!best || (byRepo.get(r.path) ?? 0) > (byRepo.get(best.path) ?? 0) ? r : best),
-    undefined,
-  )
-  const primary = repo ? spawnTargetForRepo(repo).worktree : undefined
-  const choices = repos.filter((repo) => repo.kind !== 'worktree')
-  // Memoize the per-repo usage once: the sorts below previously recomputed
-  // repoUsageAt (an O(sessions) scan with Date.parse per session) on every
-  // comparison — O(repos log repos * sessions), ~6s per sort at 1x (485 repos
-  // x 4302 sessions). Same values and same tie-breakers, one scan per repo.
-  const usageByRepo = new Map<typeof choices[number], number>()
-  for (const repo of choices) usageByRepo.set(repo, repoUsageAt(repo, sessions))
-  const byUsage = (
-    a: (typeof choices)[number],
-    b: (typeof choices)[number],
-  ): number => (usageByRepo.get(b) ?? 0) - (usageByRepo.get(a) ?? 0)
-  const initialRepoPath =
-    [...choices].sort(byUsage)[0]?.path ?? repos[0]?.path ?? ''
-  const label = (path: string) => path.split('/').filter(Boolean).pop() ?? path
-  const repoChoices = [...choices].sort(
-    (a, b) =>
-      byUsage(a, b) ||
-      label(a.path).localeCompare(label(b.path), undefined, { sensitivity: 'base' }),
-  )
-  return snapshot({
-    ...store,
-    repoViews,
-    repos,
-    sessions,
-    issues: legacy.models as CommandLaunchData['issues'],
-    repoChoices,
-    initialRepoPath,
-    spawnTargets: [
-      ...(current ? [current] : []),
-      ...(primary && primary.path !== current?.path ? [primary] : []),
-    ],
-  })
-}
-export function compareCommandLaunchSnapshots(expected: SidebarSnapshot, actual: SidebarSnapshot) {
-  return compareSidebarSnapshots(expected, actual)
-}
-export function checkCommandLaunch(pool: MobxPool, store: Store<PodiumClientApi>) {
-  return compareCommandLaunchSnapshots(
-    legacyCommandLaunchSnapshot(store),
-    poolCommandLaunchSnapshot(pool),
-  )
 }

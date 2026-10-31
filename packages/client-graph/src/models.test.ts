@@ -118,26 +118,27 @@ it.each([true, false])('a cold reference uses only declared identity (%s) withou
   } finally { pool.dispose() }
 })
 
-it('keeps a parent-only reader asleep when its unchanged parent becomes unplaced', () => {
+// A present parent is always placed (POD-2167: any audience at the top
+// level, POD-2157: only a real parentId nests), so the parent's own nesting
+// is what can still move under an unchanged parent.
+it('keeps a parent-only reader asleep when its unchanged parent moves under another task', () => {
   const pool = fixture(), child = pool.worklistRow('child')!
   let parentRuns = 0, placementRuns = 0
   let parent: string | null = null, placed = false
   const stopParent = autorun(() => { parentRuns++; parent = child.nestParent })
   const stopPlacement = autorun(() => { placementRuns++; placed = child.placed })
   try {
-    expect(parent).toBe('root')
-    expect(placed).toBe(true)
+    expect([parent, placed]).toEqual(['root', true])
     runInAction(() => pool.apply({ type: 'update', rows: [
-      { kind: 'issue', id: 'root', value: issueRow('root', { audience: 'agent' }) as never },
+      { kind: 'issue', id: 'grand', value: issueRow('grand') as never },
+      { kind: 'issue', id: 'root', value: issueRow('root', { parentId: 'grand' }) as never },
     ] }))
-    expect(parent).toBe('root')
-    expect(placed).toBe(false)
-    expect(parentRuns).toBe(1)
-    expect(placementRuns).toBe(2)
+    expect(pool.worklistRow('root')!.nestParent).toBe('grand')
+    expect([parent, placed]).toEqual(['root', true])
     runInAction(() => pool.apply({ type: 'update', rows: [
       { kind: 'issue', id: 'root', value: issueRow('root') as never },
     ] }))
-    expect(placed).toBe(true)
+    expect([parent, placed]).toEqual(['root', true])
     expect(parentRuns).toBe(1)
   } finally { stopParent(); stopPlacement(); pool.dispose() }
 })
@@ -175,7 +176,7 @@ it('resident, ordering and finished readers ignore a title change', () => {
 // answer equality alone would miss both unnecessary allocations and reads.
 it.each([
   ['activeHuman', true, 0], ['sessionless', 'keep', 0],
-  ['rescuable', true, 1], ['startedBy', null, 0], ['band', 1, 0],
+  ['rescuable', true, 1], ['band', 1, 0],
   ['repoKey', machinePathKey('/synthetic'), 0], ['foldAt', stamp, 0],
 ] as const)('allocates only the demanded %s field and releases it after the last observer', async (field, expected, sharedCount) => {
   const pool = fixture('demand'), root = pool.worklistRow('root')!

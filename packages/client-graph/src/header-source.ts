@@ -1,4 +1,4 @@
-import { ingestSettings } from './requested-records'
+import { ingestSettings } from './requested-record-source'
 import { omitGone } from './lookup'
 import { headerEntities } from './header-entities'
 import type { PodiumClientApi } from '@podium/client-core/api'

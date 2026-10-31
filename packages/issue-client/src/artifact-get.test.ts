@@ -10,6 +10,7 @@
 import { mkdtemp, readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import type { ArtifactUploadPacket } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import type { IssueTrpc } from './client.js'
 import { ISSUE_COMMANDS } from './commands.js'
@@ -146,9 +147,39 @@ describe('artifact --add terminal evidence', () => {
 
   it('does not let the acknowledgement silently become a list or remove operation', async () => {
     const c = client(undefined)
-    await expect(
-      artifact().run(c.trpc, { id: '7', terminalEvidence: true }),
-    ).rejects.toThrow(/only applies to --add/)
+    await expect(artifact().run(c.trpc, { id: '7', terminalEvidence: true })).rejects.toThrow(
+      /only applies to --add/,
+    )
+    expect(c.panelApply).not.toHaveBeenCalled()
+  })
+})
+
+describe('generated artifact content', () => {
+  it('publishes generated text without accessing the MCP server filesystem', async () => {
+    const c = client(undefined)
+    await artifact().run(c.trpc, { id: '7', content: '# Findings', name: 'findings.md' })
+    const packets = c.panelApply.mock.calls.map(
+      (call) => (call as unknown as [{ upload: ArtifactUploadPacket }])[0].upload,
+    )
+    expect(packets[0]).toMatchObject({ action: 'begin', path: 'findings.md', entry: 'findings.md' })
+    expect(packets[1]).toMatchObject({
+      action: 'chunk',
+      file: 'findings.md',
+      offset: 0,
+      dataBase64: Buffer.from('# Findings').toString('base64'),
+    })
+    expect(packets[2]).toMatchObject({ action: 'commit' })
+  })
+
+  it.each([
+    { content: 'x' },
+    { name: 'x' },
+    { add: 'x', content: 'y', name: 'z' },
+    { get: '1', remove: 1 },
+    { add: '-' },
+  ])('rejects incomplete or conflicting options before any write: %j', async (args) => {
+    const c = client(undefined)
+    await expect(artifact().run(c.trpc, { id: '7', ...args })).rejects.toThrow()
     expect(c.panelApply).not.toHaveBeenCalled()
   })
 })

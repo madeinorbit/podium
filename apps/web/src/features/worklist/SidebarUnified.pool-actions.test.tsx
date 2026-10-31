@@ -1,7 +1,3 @@
-import { worklistView } from '@podium/client-graph/worklist/view-model'
-import { sidebarView } from '@podium/client-graph/worklist/sidebar'
-import { worklistGroups } from '@podium/client-graph/worklist/groups'
-import { referenceState } from '../../../../../tests/worklist/diagnostics/reference-state'
 import {
   type ClientRuntime,
   createEngineOutbox,
@@ -10,13 +6,12 @@ import {
 import { beginSwitch } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
-
-import { allIssueViewModels } from '../../../../../tests/worklist/diagnostics/reference/issue-view-models'
 import { missionIssueIds, missionRootFor, pickPaneSession, planReorderKeys, sessionsForIssueNav } from '@podium/client-core/values'
-import { worklistSlice } from '../../../../../tests/worklist/diagnostics/reference/worklist'
 import { LOADING, type MobxPool } from '@podium/client-graph'
-import { poolSidebarSnapshot } from '../../../../../tests/worklist/diagnostics/sidebar-check'
 import type { SliceIssue } from '@podium/client-graph/shared/slice-types'
+import { worklistGroups } from '@podium/client-graph/worklist/groups'
+import { sidebarView } from '@podium/client-graph/worklist/sidebar'
+import { worklistView } from '@podium/client-graph/worklist/view-model'
 import { spreadSortKeys } from '@podium/model'
 import { asIssueId, asSessionId, asUserId } from '@podium/model/browser'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
@@ -26,7 +21,8 @@ import { OperatorFocusProvider, useOperatorFocus } from '@/app/operator-focus'
 import { attachWorklistPool, useWorklistPool } from '@/app/store-worklist-pool'
 import { IssueContextMenu } from '@/features/issues/IssueContextMenu'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
-import { expectPoolOutput } from '../../../../../tests/worklist/harness/src/oracle/pool-output'
+import { allIssueViewModels } from '../../../../../tests/worklist/diagnostics/reference/issue-view-models'
+import { referenceState } from '../../../../../tests/worklist/diagnostics/reference-state'
 import { createSidebarActionsFixture } from '../../../test/sidebar-actions-fixture'
 import { SidebarUnified } from './SidebarUnified'
 import {
@@ -182,15 +178,14 @@ async function mount(prepare?: (fixture: Fixture) => void, count = 12, probeId?:
   await waitFor(() => expect(pool).not.toBeNull())
   await waitFor(() => expect(sidebarView(pool!).sections().bands.length).toBeGreaterThan(0))
   runtime.subscribeOutboxOutcomes((outcome) => outcomes.push(outcome))
-  await parity()
+  await settle()
   return fixture
 }
 
-async function parity() {
+async function settle() {
   await act(async () => {
     await Promise.resolve()
   })
-  expectPoolOutput(poolSidebarSnapshot(pool!), 'sidebar action output')
 }
 function row(id = TARGET) {
   return document.querySelector<HTMLElement>(`[data-issue-row="${id}"]`)!
@@ -223,7 +218,7 @@ async function accept(write: Request) {
     write.resolve({ ok: true })
   })
   await waitFor(() => expect(outcomes.slice(before).some((o) => o.type === 'applied')).toBe(true))
-  await parity()
+  await settle()
 }
 async function refuse(write: Request) {
   const before = outcomes.length
@@ -236,7 +231,7 @@ async function refuse(write: Request) {
     )
   })
   await waitFor(() => expect(outcomes.slice(before).some((o) => o.type === 'rejected')).toBe(true))
-  await parity()
+  await settle()
 }
 async function menu(id = TARGET) {
   const target = row(id)?.querySelector('button')
@@ -328,7 +323,7 @@ describe('pool navigation uses the existing gesture semantics', () => {
     const focus = vi.fn(() => {
       calls.push('focus')
     })
-    const work = createPoolWorkActions(pool!, { access: store }, focus)
+    const work = createPoolWorkActions(pool!, { ...runtime, access: store }, focus)
     work.selectPanelForIssue('synthetic-3', asSessionId('synthetic-session-3'))
     expect(calls).toEqual([
       'trace',
@@ -502,7 +497,7 @@ describe('pool navigation uses the existing gesture semantics', () => {
       }),
     ).toBe(expected)
     expect(focused).toBe('synthetic-3')
-    await parity()
+    await settle()
     if (scenario === 'headless-starter') {
       expect(value('synthetic-7').continuation).toBeNull()
       for (const [status, archived, continued] of [
@@ -514,7 +509,7 @@ describe('pool navigation uses the existing gesture semantics', () => {
         await act(async () => {
           fixture.patch('session', 'synthetic-session-7', { status, archived })
         })
-        await parity()
+        await settle()
         expect(value('synthetic-7').continuation?.kind).toBe(continued ? 'continued' : undefined)
       }
     }
@@ -541,7 +536,7 @@ describe('pool navigation uses the existing gesture semantics', () => {
     const focus = vi.fn()
     const work = createPoolWorkActions(
       pool!,
-      { access: store },
+      { ...runtime, access: store },
       focus,
     )
     work.selectIssue('synthetic-3')
@@ -551,37 +546,6 @@ describe('pool navigation uses the existing gesture semantics', () => {
     expect(beginSwitch).not.toHaveBeenCalled()
     work.selectPanelForIssue('synthetic-3', file)
     expect(beginSwitch).not.toHaveBeenCalled()
-  })
-
-  it('selects a worktree and its explicit panel with the same trace and mark-read actions', async () => {
-    await mount((fixture) =>
-      fixture.patch('session', 'synthetic-guest-1', {
-        lastActiveAt: new Date(NOW - 1).toISOString(),
-        cwd: `${ROOT}/guests/src`,
-      }),
-    )
-    await act(async () => {
-      actions.selectWorktree(`${ROOT}/guests`)
-    })
-    expect(referenceState(runtime)).toMatchObject({
-      selectedIssueId: null,
-      selectedWorktree: `${ROOT}/guests`,
-      paneA: 'synthetic-guest-1',
-      view: 'workspace',
-    })
-    expect(beginSwitch).toHaveBeenLastCalledWith({ sessionId: 'synthetic-guest-1', issueId: null })
-    const read = await request('sessions.markRead', 'synthetic-guest-1')
-    expect(read.input).toMatchObject({
-      sessionId: 'synthetic-guest-1',
-    })
-    await accept(read)
-    await act(async () => {
-      actions.selectPanel(`${ROOT}/guests`, asSessionId('synthetic-guest-0'))
-    })
-    expect(referenceState(runtime).paneA).toBe('synthetic-guest-0')
-    expect(beginSwitch).toHaveBeenLastCalledWith({ sessionId: 'synthetic-guest-0', issueId: null })
-    await refuse(await request('sessions.markRead', 'synthetic-guest-0'))
-    await parity()
   })
 
   it('waits without a mutation for unloaded rows and loads repeated clicks in one batch', async () => {
@@ -622,7 +586,7 @@ describe('pool navigation uses the existing gesture semantics', () => {
       residency.coldRule = coldRule
       residency.hidden = hidden
     }
-    await parity()
+    await settle()
   })
 
   it('waits for a loading mission ancestor before navigating or mutating a loaded child', async () => {
@@ -660,7 +624,7 @@ describe('pool navigation uses the existing gesture semantics', () => {
       residency.coldRule = coldRule
       residency.hidden = hidden
     }
-    await parity()
+    await settle()
   })
 })
 
@@ -687,7 +651,7 @@ describe('real pool row mutations and receipts', () => {
       }),
     ).toEqual(patches)
     expect(sidebarView(pool!).sections().bands[0]!.rowIds).toEqual(order)
-    await parity()
+    await settle()
     for (const patch of patches) await refuse(await request('issues.update', patch.id))
     expect(sidebarView(pool!).sections().bands[0]!.rowIds).toEqual(original)
   })
@@ -719,7 +683,7 @@ describe('real pool row mutations and receipts', () => {
       patch: { pinned, sortKey: expect.any(String) },
     })
     expect(sidebarView(pool!).sections().pinnedIds.includes(movedId)).toBe(pinned)
-    await parity()
+    await settle()
     await refuse(write)
     expect(sidebarView(pool!).sections().pinnedIds.includes(movedId)).toBe(!pinned)
   })
@@ -736,7 +700,7 @@ describe('real pool row mutations and receipts', () => {
     expect(write.input).toMatchObject({ id: TARGET, patch: { title: 'Optimistic title' } })
     expect(row().textContent).toContain('Optimistic title')
     expect(value().title).toBe('Optimistic title')
-    await parity()
+    await settle()
     await refuse(write)
     expect(value().title).toBe('Only responsive target')
     await waitFor(() => expect(row()?.textContent).toContain('Only responsive target'))
@@ -752,7 +716,7 @@ describe('real pool row mutations and receipts', () => {
     })
     await waitFor(() => expect(outcomes.some((o) => o.type === 'applied')).toBe(true))
     expect(value().title).toBe('Accepted title')
-    await parity()
+    await settle()
     act(() => actions.renameIssue(TARGET, 'Second pending title'))
     await waitFor(() =>
       expect(requests.filter((r) => r.procedure === 'issues.update')).toHaveLength(2),
@@ -762,7 +726,7 @@ describe('real pool row mutations and receipts', () => {
       patchIssue(fixture, TARGET, { title: 'Accepted title' })
     })
     expect(value().title).toBe('Second pending title')
-    await parity()
+    await settle()
     await refuse(second)
     expect(value().title).toBe('Accepted title')
     expect((runtime as unknown as { poolWriter: import('@podium/client-graph/write/transactions').PoolTransactions }).poolWriter.pending.byRow('issueProjections').has(TARGET)).toBe(false)
@@ -781,7 +745,7 @@ describe('real pool row mutations and receipts', () => {
     fireEvent.change(input, { target: { value: '   ' } })
     fireEvent.keyDown(input, { key: 'Enter' })
     expect(requests).toHaveLength(0)
-    await parity()
+    await settle()
     fireEvent.doubleClick(screen.getByText('Only responsive target'))
     input = screen.getByDisplayValue('Only responsive target')
     fireEvent.change(input, { target: { value: '  Blurred title  ' } })
@@ -789,7 +753,7 @@ describe('real pool row mutations and receipts', () => {
     const write = await request('issues.update')
     expect(write.input).toMatchObject({ patch: { title: 'Blurred title' } })
     expect(value().title).toBe('Blurred title')
-    await parity()
+    await settle()
     await refuse(write)
   })
 
@@ -801,7 +765,7 @@ describe('real pool row mutations and receipts', () => {
     expect(write.input).toMatchObject({ patch: { pinned: true } })
     expect(sidebarView(pool!).sections().pinnedIds).toContain(TARGET)
     expect(screen.getByTestId('pinned-section').contains(row())).toBe(true)
-    await parity()
+    await settle()
     await refuse(write)
     expect(sidebarView(pool!).sections().pinnedIds).not.toContain(TARGET)
     expect(screen.getByTestId('pinned-section').contains(row())).toBe(false)
@@ -819,18 +783,18 @@ describe('real pool row mutations and receipts', () => {
     const tuck = await request('issues.setTucked')
     expect(tuck.input).toMatchObject({ id: TARGET, tucked: true })
     await waitFor(() => expect(sidebarView(pool!).sections().bands[0]!.closedIds).toContain(TARGET))
-    await parity()
+    await settle()
     await refuse(tuck)
     expect(sidebarView(pool!).sections().bands[0]!.rowIds).toContain(TARGET)
     fireEvent.click(within(row()).getByTestId('tuck-away'))
     await accept(await request('issues.setTucked'))
     await act(async () => patchIssue(fixture, TARGET, { tuckedAt: new Date(NOW).toISOString() }))
-    fireEvent.click(screen.getByTestId('closed-fold-toggle'))
+    fireEvent.click(screen.getByTestId('work-lane-closed'))
     const folded = await screen.findByText('Only responsive target', {
       selector: '[data-testid="folded-work-row"] *',
     })
     fireEvent.click(folded)
-    await parity()
+    await settle()
     expect(worklistView(pool!).selectedWasFolded).toBe(true)
     for (const queued of runtime.outbox.pending().filter((entry) => entry.kind === 'issueMarkRead'))
       await accept(await request('issues.markRead', (queued.input as { id: string }).id))
@@ -839,10 +803,33 @@ describe('real pool row mutations and receipts', () => {
     const bringBack = await request('issues.setTucked')
     expect(bringBack.input).toMatchObject({ id: TARGET, tucked: false })
     await waitFor(() => expect(sidebarView(pool!).sections().bands[0]!.rowIds).toContain(TARGET))
+    // Brought back to Open: the row is there once that lane shows (POD-2074).
+    fireEvent.click(screen.getByTestId('work-lane-open'))
     await waitFor(() => expect(row()?.textContent).toContain('Only responsive target'))
-    await parity()
+    await settle()
     await refuse(bringBack)
     expect(sidebarView(pool!).sections().bands[0]!.closedIds).toContain(TARGET)
+  })
+
+  it('unsnoozes from the snoozed row context menu and restores it on refusal', async () => {
+    await mount((fixture) =>
+      patchIssue(fixture, TARGET, { deferUntil: new Date(NOW + 3600000).toISOString() }),
+    )
+    fireEvent.click(screen.getByTestId('work-lane-snoozed'))
+    const title = await screen.findByText('Only responsive target', {
+      selector: '[data-testid="snoozed-fold-row"] *',
+    })
+    fireEvent.contextMenu(title, { clientX: 30, clientY: 40 })
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Unsnooze' }))
+    const write = await request('issues.undefer')
+    expect(write.input).toMatchObject({ id: TARGET })
+    expect(value().issue.deferred).toBe(false)
+    expect(screen.queryByRole('menu', { name: 'Folded task actions' })).toBeNull()
+    expect(sidebarView(pool!).sections().bands[0]!.rowIds).toContain(TARGET)
+    await settle()
+    await refuse(write)
+    expect(value().issue.deferred).toBe(true)
+    expect(sidebarView(pool!).sections().bands[0]!.snoozedIds).toContain(TARGET)
   })
 
   it('keeps Bring back disabled with its explanation after the grace window', async () => {
@@ -851,7 +838,7 @@ describe('real pool row mutations and receipts', () => {
         closedAt: new Date(NOW - 2 * 86400000).toISOString(),
       }),
     )
-    fireEvent.click(screen.getByTestId('closed-fold-toggle'))
+    fireEvent.click(screen.getByTestId('work-lane-closed'))
     const folded = await screen.findByTestId('folded-work-row')
     fireEvent.contextMenu(folded)
     const blocked = await screen.findByTestId('bring-back-blocked')
@@ -859,14 +846,14 @@ describe('real pool row mutations and receipts', () => {
     expect(blocked.textContent).toContain('older than a day')
     fireEvent.click(blocked)
     expect(requests).toHaveLength(0)
-    await parity()
+    await settle()
   })
 
   it('archives through the closed-fold dismiss, hides optimistically and returns on refusal', async () => {
     await mount()
-    fireEvent.click(screen.getByTestId('closed-fold-toggle'))
+    fireEvent.click(screen.getByTestId('work-lane-closed'))
     fireEvent.click(await screen.findByTestId('closed-issue-archive'))
-    await parity()
+    await settle()
     expect(
       sidebarView(pool!).sections().bands[0]!.closedIds,
       JSON.stringify({
@@ -878,7 +865,7 @@ describe('real pool row mutations and receipts', () => {
     const write = await request('issues.archive', 'synthetic-5')
     expect(write.input).toMatchObject({ id: 'synthetic-5' })
     expect(sidebarView(pool!).sections().bands[0]!.closedIds).not.toContain('synthetic-5')
-    await parity()
+    await settle()
     await refuse(write)
     expect(sidebarView(pool!).sections().bands[0]!.closedIds).toContain('synthetic-5')
     await waitFor(() =>
@@ -897,7 +884,7 @@ describe('real pool row mutations and receipts', () => {
       paneA: pane,
     })
     expect(requests).toHaveLength(0)
-    await parity()
+    await settle()
   })
 
   it.each([
@@ -915,24 +902,17 @@ describe('real pool row mutations and receipts', () => {
     fireEvent.click(await item(option))
     const write = await request(name)
     expect(write.input).toMatchObject({ id: TARGET, ...expected })
-    await parity()
+    await settle()
     await refuse(write)
   })
 
-  it('sets colour and unread state through the shared menu actions', async () => {
+  it('sets unread state through the shared menu actions', async () => {
     await mount()
-    await menu()
-    fireEvent.click(await item('Set colour'))
-    fireEvent.click(screen.getByRole('button', { name: 'Violet' }))
-    const color = await request('issues.update')
-    expect(color.input).toMatchObject({ patch: { color: 'violet' } })
-    expect(value().issue.color).toBe('violet')
-    await refuse(color)
     await menu()
     fireEvent.click(await item('Mark as unread'))
     const unread = await request('issues.markUnread')
     expect(value().issue.unread).toBe(true)
-    await parity()
+    await settle()
     await refuse(unread)
     expect(value().issue.unread).toBe(false)
   })
@@ -948,7 +928,6 @@ describe('real pool row mutations and receipts', () => {
       'Rename',
       'Mark as unread',
       'Set status',
-      'Set colour',
       'Snooze / defer',
       'Pin',
       'Archive…',
@@ -965,7 +944,7 @@ describe('real pool row mutations and receipts', () => {
     ])
       expect(screen.queryByRole('menuitem', { name })).toBeNull()
     fireEvent.keyDown(document, { key: 'Escape' })
-    await parity()
+    await settle()
   })
 
   it('marks an unread task read, clears deferral and unpins through the actual menu', async () => {
@@ -982,7 +961,7 @@ describe('real pool row mutations and receipts', () => {
     fireEvent.click(await item('Mark as read'))
     const read = await request('issues.markRead')
     expect(value().issue.unread).toBe(false)
-    await parity()
+    await settle()
     await refuse(read)
     expect(value().issue.unread).toBe(true)
     await menu()
@@ -990,7 +969,7 @@ describe('real pool row mutations and receipts', () => {
     fireEvent.click(await item('Unsnooze'))
     const unsnooze = await request('issues.undefer')
     expect(value().issue.deferred).toBe(false)
-    await parity()
+    await settle()
     await refuse(unsnooze)
     await menu()
     fireEvent.click(await item('Unpin'))
@@ -1009,7 +988,7 @@ describe('real pool row mutations and receipts', () => {
     const close = await request('issues.close')
     expect(close.input).toMatchObject({ id: TARGET, reason: 'done' })
     expect(value().issue.closedReason).toBe('done')
-    await parity()
+    await settle()
     await refuse(close)
     expect(value().issue.closedReason).toBeFalsy()
   })
@@ -1035,7 +1014,7 @@ describe('real pool row mutations and receipts', () => {
     expect(value(targetId).issue.parentId ?? null).toBe(
       placement === 'mission' ? 'synthetic-1' : null,
     )
-    await parity()
+    await settle()
     await refuse(write)
     expect(value(targetId).issue.parentId ?? null).toBe(placement === 'own' ? 'synthetic-1' : null)
   })
@@ -1082,10 +1061,10 @@ describe('real pool row mutations and receipts', () => {
     // Handoff retains the shared menu's existing direct command semantics.
     expect(runtime.outbox.pending()).toHaveLength(0)
     await act(async () => write.reject(new Error('Synthetic handoff refusal')))
-    await parity()
+    await settle()
   })
 
-  it('archives every closed row from the fold footer through the same outbox', async () => {
+  it('archives every closed row from the summary card through the same outbox', async () => {
     await mount((fixture) =>
       patchIssue(fixture, TARGET, {
         stage: 'done',
@@ -1094,9 +1073,11 @@ describe('real pool row mutations and receipts', () => {
         tuckedAt: new Date(NOW - 500).toISOString(),
       }),
     )
-    fireEvent.click(screen.getByTestId('closed-fold-toggle'))
-    fireEvent.click(await screen.findByTestId('closed-issues-archive-all'))
-    await parity()
+    fireEvent.click(screen.getByTestId('work-lane-closed'))
+    expect(screen.getByTestId('closed-lane-header').textContent).toContain('2 closed this week')
+    fireEvent.click(await screen.findByRole('button', { name: 'Archive all 2 closed tasks' }))
+    expect(screen.getByTestId('closed-lane-header').textContent).toContain('Archiving…')
+    await settle()
     expect(
       runtime.outbox
         .pending()
@@ -1105,10 +1086,225 @@ describe('real pool row mutations and receipts', () => {
         .sort(),
     ).toEqual(['synthetic-5', TARGET].sort())
     expect(sidebarView(pool!).sections().bands[0]!.closedIds).toHaveLength(0)
-    await parity()
+    await settle()
     for (const entry of runtime.outbox.pending().filter((entry) => entry.kind === 'issueArchive'))
       await refuse(await request('issues.archive', (entry.input as { id: string }).id))
     expect(sidebarView(pool!).sections().bands[0]!.closedIds).toHaveLength(2)
+    await waitFor(() => expect(screen.queryByTestId('closed-issues-undo')).toBeNull())
+  })
+
+  it('undoes exactly the archived batch through issue updates when another task closes', async () => {
+    const fixture = await mount((fixture) =>
+      patchIssue(fixture, TARGET, {
+        stage: 'done',
+        closedReason: 'done',
+        closedAt: new Date(NOW - 1000).toISOString(),
+        tuckedAt: new Date(NOW - 500).toISOString(),
+      }),
+    )
+    fireEvent.click(screen.getByTestId('work-lane-closed'))
+    fireEvent.click(await screen.findByTestId('closed-issues-archive-all'))
+    for (const entry of runtime.outbox.pending().filter((entry) => entry.kind === 'issueArchive')) {
+      expect((screen.getByRole('button', { name: 'Undo' }) as HTMLButtonElement).disabled).toBe(
+        true,
+      )
+      const id = (entry.input as { id: string }).id
+      const write = await request('issues.archive', id)
+      await act(async () => patchIssue(fixture, id, { archived: true }))
+      await accept(write)
+    }
+    expect((screen.getByRole('button', { name: 'Undo' }) as HTMLButtonElement).disabled).toBe(false)
+    expect(screen.getByText('2 tasks archived')).toBeTruthy()
+    await waitFor(() =>
+      expect(screen.getByTestId('work-lane-empty').textContent).toBe(
+        'Nothing closed in the last 7 days.',
+      ),
+    )
+    // The batch remains available after the rows finish leaving and the feed changes.
+    await act(async () =>
+      patchIssue(fixture, 'synthetic-2', {
+        stage: 'done',
+        closedReason: 'done',
+        closedAt: new Date(NOW).toISOString(),
+        tuckedAt: new Date(NOW).toISOString(),
+      }),
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Undo' }))
+    const restores = runtime.outbox.pending().filter((entry) => entry.kind === 'issueUpdate')
+    expect(
+      restores
+        .map((entry) => entry.input)
+        .sort((a, b) => (a as { id: string }).id.localeCompare((b as { id: string }).id)),
+    ).toEqual([TARGET, 'synthetic-5'].map((id) => ({ id, patch: { archived: false } })))
+    await settle()
+    expect(
+      sidebarView(pool!)
+        .sections()
+        .bands.flatMap((band) => band.closedIds)
+        .sort(),
+    ).toEqual([TARGET, 'synthetic-2', 'synthetic-5'].sort())
+    expect(screen.queryByTestId('closed-issues-undo')).toBeNull()
+    expect(screen.getByTestId('closed-lane-header').textContent).toContain('3 closed this week')
+  })
+
+  it('drops the archive Undo when leaving the Closed lane', async () => {
+    await mount()
+    fireEvent.click(screen.getByTestId('work-lane-closed'))
+    fireEvent.click(await screen.findByTestId('closed-issues-archive-all'))
+    expect(screen.getByRole('button', { name: 'Undo' })).toBeTruthy()
+    fireEvent.click(screen.getByTestId('work-lane-open'))
+    fireEvent.click(screen.getByTestId('work-lane-closed'))
+    await waitFor(() => expect(screen.queryByTestId('closed-lane-header')).toBeNull())
+    expect((await screen.findByTestId('work-lane-empty')).textContent).toBe(
+      'Nothing closed in the last 7 days.',
+    )
+  })
+
+  it('undoes archived descendants after the parent cascade, preserving already archived children', async () => {
+    const ids = ['synthetic-5', 'synthetic-6', 'synthetic-8']
+    const fixture = await mount((fixture) => {
+      for (const [id, parentId] of [
+        ['synthetic-6', 'synthetic-5'],
+        ['synthetic-8', 'synthetic-6'],
+      ] as const) {
+        patchIssue(fixture, id, {
+          parentId,
+          stage: 'done',
+          closedReason: 'done',
+          closedAt: new Date(NOW - 10 * 86400000).toISOString(),
+          readAt: null,
+        })
+        fixture.patch('session', id.replace('synthetic-', 'synthetic-session-'), {
+          archived: true,
+          status: 'exited',
+        })
+      }
+      patchIssue(fixture, 'synthetic-7', { parentId: 'synthetic-5', archived: true })
+      patchIssue(fixture, 'synthetic-9', { parentId: 'synthetic-7' })
+    })
+    // Cold payloads still have formal links and declared archive summaries.
+    expect(pool!.tables.issue.has('synthetic-6')).toBe(false)
+    fireEvent.click(screen.getByTestId('work-lane-closed'))
+    fireEvent.click(await screen.findByTestId('closed-issues-archive-all'))
+    expect(screen.getByTestId('closed-lane-header').textContent).toContain('Archiving…')
+    await act(async () => {
+      await Promise.resolve()
+    })
+    expect((screen.getByRole('button', { name: 'Undo' }) as HTMLButtonElement).disabled).toBe(true)
+    expect(screen.queryByTestId('closed-issues-archive-all')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Undo' }))
+    const archive = await request('issues.archive', 'synthetic-5')
+    expect(runtime.outbox.pending().filter((entry) => entry.kind === 'issueUpdate')).toHaveLength(0)
+    // Model the server's whole cascade before accepting the parent command.
+    await act(async () => {
+      for (const id of ids) patchIssue(fixture, id, { archived: true })
+    })
+    await accept(archive)
+    expect(screen.getByText('3 tasks archived')).toBeTruthy()
+    expect((screen.getByRole('button', { name: 'Undo' }) as HTMLButtonElement).disabled).toBe(false)
+    fireEvent.click(screen.getByRole('button', { name: 'Undo' }))
+    // No receipt waiter or microtask may stand between the gesture and any restore.
+    expect(
+      runtime.outbox
+        .pending()
+        .filter((entry) => entry.kind === 'issueUpdate')
+        .map((entry) => entry.input),
+    ).toEqual(ids.map((id) => ({ id, patch: { archived: false } })))
+    for (const id of ids)
+      expect(pool!.row('issue', id, 'summary-fields')).toMatchObject({ archived: false })
+    expect(pool!.row('issue', 'synthetic-7', 'summary-fields')).toMatchObject({ archived: true })
+    expect(pool!.row('issue', 'synthetic-9', 'summary-fields')).toMatchObject({ archived: false })
+  })
+
+  it('does not delay an Undo past a newer archive of a promoted child', async () => {
+    const fixture = await mount((fixture) =>
+      patchIssue(fixture, 'synthetic-6', {
+        parentId: 'synthetic-5',
+        stage: 'done',
+        closedReason: 'done',
+        closedAt: new Date(NOW - 1000).toISOString(),
+        tuckedAt: new Date(NOW - 500).toISOString(),
+      }),
+    )
+    fireEvent.click(screen.getByTestId('work-lane-closed'))
+    fireEvent.click(await screen.findByTestId('closed-issues-archive-all'))
+    const undo = screen.getByRole('button', { name: 'Undo' }) as HTMLButtonElement
+    expect(undo.disabled).toBe(true)
+    fireEvent.click(undo)
+    expect(screen.queryByTestId('closed-issues-archive-all')).toBeNull()
+    // A newer archive from another control must not be overwritten by an old Undo.
+    await act(async () => actions.archiveIssue('synthetic-6'))
+    const parentArchive = await request('issues.archive', 'synthetic-5')
+    await act(async () => {
+      for (const id of ['synthetic-5', 'synthetic-6']) patchIssue(fixture, id, { archived: true })
+    })
+    await accept(parentArchive)
+    await accept(await request('issues.archive', 'synthetic-6'))
+    expect(runtime.outbox.pending().filter((entry) => entry.kind === 'issueUpdate')).toHaveLength(0)
+    expect(pool!.row('issue', 'synthetic-6', 'summary-fields')).toMatchObject({ archived: true })
+  })
+
+  it('does not restore descendants when a pending parent archive is refused', async () => {
+    await mount((fixture) => patchIssue(fixture, 'synthetic-6', { parentId: 'synthetic-5' }))
+    fireEvent.click(screen.getByTestId('work-lane-closed'))
+    fireEvent.click(await screen.findByTestId('closed-issues-archive-all'))
+    fireEvent.click(screen.getByRole('button', { name: 'Undo' }))
+    await refuse(await request('issues.archive', 'synthetic-5'))
+    expect(runtime.outbox.pending().filter((entry) => entry.kind === 'issueUpdate')).toHaveLength(0)
+    expect(pool!.row('issue', 'synthetic-6', 'summary-fields')).toMatchObject({ archived: false })
+  })
+
+  it('does not archive a partial batch while a descendant summary is loading', async () => {
+    await mount((fixture) => patchIssue(fixture, 'synthetic-6', { parentId: 'synthetic-5' }))
+    fireEvent.click(screen.getByTestId('work-lane-closed'))
+    const read = pool!.row.bind(pool!)
+    const lookup = vi
+      .spyOn(pool!, 'row')
+      .mockImplementation((entity, id, mode) =>
+        entity === 'issue' && id === 'synthetic-6' && mode === 'summary-fields'
+          ? LOADING
+          : read(entity, id, mode),
+      )
+    try {
+      fireEvent.click(await screen.findByTestId('closed-issues-archive-all'))
+      expect(runtime.outbox.pending()).toHaveLength(0)
+      expect(screen.queryByTestId('closed-issues-undo')).toBeNull()
+    } finally {
+      lookup.mockRestore()
+    }
+    fireEvent.click(screen.getByTestId('closed-issues-archive-all'))
+    expect(screen.getByTestId('closed-lane-header').textContent).toContain('Archiving…')
+  })
+
+  it('keeps the Undo card above the empty result under an active filter', async () => {
+    const fixture = await mount((fixture) =>
+      patchIssue(fixture, TARGET, {
+        stage: 'done',
+        closedReason: 'done',
+        closedAt: new Date(NOW - 1000).toISOString(),
+        tuckedAt: new Date(NOW - 500).toISOString(),
+      }),
+    )
+    fireEvent.click(screen.getByTestId('work-lane-closed'))
+    fireEvent.change(screen.getByTestId('work-search-input'), {
+      target: { value: 'Only responsive' },
+    })
+    fireEvent.click(await screen.findByRole('button', { name: 'Archive all 1 closed task' }))
+    const archive = await request('issues.archive')
+    await act(async () => patchIssue(fixture, TARGET, { archived: true }))
+    await accept(archive)
+    expect(await screen.findByTestId('work-filter-empty')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Undo' })).toBeTruthy()
+    expect(screen.queryByTestId('work-lane-empty')).toBeNull()
+    expect(screen.queryByTestId('work-filter-footnote')).toBeNull()
+    expect(
+      sidebarView(pool!)
+        .sections()
+        .bands.flatMap((band) => band.closedIds),
+    ).toEqual(['synthetic-5'])
+    fireEvent.click(screen.getByRole('button', { name: 'Undo' }))
+    await waitFor(() => expect(screen.queryByTestId('work-filter-empty')).toBeNull())
+    expect(screen.getByRole('button', { name: 'Archive all 1 closed task' })).toBeTruthy()
   })
 
   it('preserves archive and delete confirmation before enqueuing and rewinds both refusals', async () => {
@@ -1121,7 +1317,7 @@ describe('real pool row mutations and receipts', () => {
     fireEvent.click(within(archiveDialog).getByRole('button', { name: 'Archive' }))
     const archive = await request('issues.update')
     expect(archive.input).toMatchObject({ patch: { archived: true } })
-    await parity()
+    await settle()
     await refuse(archive)
     await menu()
     fireEvent.click(await item('Delete…'))
@@ -1129,7 +1325,7 @@ describe('real pool row mutations and receipts', () => {
     fireEvent.click(within(deleteDialog).getByRole('button', { name: 'Delete' }))
     const deletion = await request('issues.delete')
     expect(pool!.issueObject(TARGET).deletedAt).toBeTruthy()
-    await parity()
+    await settle()
     await refuse(deletion)
     expect(pool!.issueObject(TARGET).deletedAt).toBeFalsy()
   })
@@ -1152,7 +1348,8 @@ describe('real pool row mutations and receipts', () => {
     await waitFor(() => expect(sidebarView(pool!).row(TARGET)).toBeUndefined())
     expect(pool!.row('issue', TARGET, 'mark')).toEqual({ kind: 'gone', reason: 'not-visible' })
     expect(requests).toHaveLength(0)
-    await parity()
+    // POD-2129: the evicted task leaves no row behind, and nothing draws its sessions.
+    await settle()
     await act(async () => {
       for (const record of records) {
         fixture.records.set(`${record.entity}:${TARGET}`, record)
@@ -1164,7 +1361,7 @@ describe('real pool row mutations and receipts', () => {
       }
     })
     expect(value().title).toBe('Only responsive target')
-    await parity()
+    await settle()
   })
 })
 
@@ -1191,7 +1388,7 @@ describe('pool command-hold row shortcuts', () => {
       fireEvent.keyDown(window, { key: String(digit), code: `Digit${digit}`, metaKey: true })
       expect(referenceState(runtime).selectedIssueId).toBe(ids[digit - 1])
       expect(focused).toBe(ids[digit - 1])
-      await parity()
+      await settle()
     }
     fireEvent.keyUp(window, { key: 'Meta', metaKey: false })
     expect(document.querySelectorAll('[data-shortcut-digit]')).toHaveLength(0)
@@ -1202,6 +1399,6 @@ describe('pool command-hold row shortcuts', () => {
     expect(referenceState(runtime).selectedIssueId).toBe(ids[1])
     fireEvent.blur(window)
     expect(document.querySelectorAll('[data-shortcut-digit]')).toHaveLength(0)
-    await parity()
+    await settle()
   })
 })

@@ -2,24 +2,14 @@ import type { MainView } from '@podium/client-core/router'
 
 export {
   RIGHT_PANEL_KEY,
-  SIDEBAR_COLLAPSED_KEY,
   SUPERAGENT_MODE_KEY,
 } from '@podium/client-core/ui-state'
 
-export type RightPanelTab =
-  | 'issue'
-  | 'superagent'
-  | 'git'
-  | 'files'
-  | 'shell'
-  | 'mail'
-  | 'merge-queue'
-  | 'shipping'
+export type RightPanelTab = 'issue' | 'superagent' | 'git' | 'files' | 'shell' | 'mail' | 'shipping'
 
 export interface RightPanelFeatures {
   git: boolean
   messages: boolean
-  mergeQueue: boolean
   shipping: boolean
 }
 
@@ -29,7 +19,6 @@ export function rightPanelAllowed(
 ): boolean {
   if (panel === 'git') return features.git
   if (panel === 'mail') return features.messages
-  if (panel === 'merge-queue') return features.mergeQueue
   if (panel === 'shipping') return features.shipping
   return true
 }
@@ -62,12 +51,6 @@ export const REVEAL_IN_DECK_EVENT = 'podium:reveal-in-deck'
  *  closing the operator's panel. */
 export const CLOSE_RIGHT_PANEL = 'close'
 
-export function readBooleanState(value: string | null, fallback = false): boolean {
-  if (value === 'true' || value === '1') return true
-  if (value === 'false' || value === '0') return false
-  return fallback
-}
-
 /**
  * The Flight Deck occupies the column the Superagent used to own, so it keeps
  * that column's persisted mode key and its two-state semantics (#65): a
@@ -90,7 +73,6 @@ export function readRightPanel(value: string | null): RightPanelTab | null {
     value === 'files' ||
     value === 'shell' ||
     value === 'mail' ||
-    value === 'merge-queue' ||
     value === 'shipping'
     ? value
     : null

@@ -1,6 +1,4 @@
-import { here } from '../lookup'
 import { spliceQueryResult } from '../query-result'
-import { sidebarRosterView } from './sidebar-roster'
 import { lazy } from '@podium/mobx-helpers'
 import { MobileSection } from './mobile'
 import { machinePathBasename } from '@podium/model/browser'
@@ -237,11 +235,6 @@ export class GroupNode {
   ) {
   }
 
-  @lazy get rosterBand() {
-    const pool = this.groups.pool, ids = sidebarRosterView(pool).groupIds(this.key)
-    const head = ids[0] === undefined ? undefined : here(pool.model('worktree', ids[0]))
-    return { ids, label: head?.repoName ?? this.key, repoPath: head?.repoPath ?? this.key }
-  }
   private section?: MobileSection
   // Some non-phone group owners have no pool. Create this constant part only
   // when the phone asks; its lazy answers own all changing data.
@@ -274,11 +267,10 @@ export class GroupNode {
 
   /** The real sidebar groups root rows, including folded roots, before nesting.
    * Use the existing rank lane and cached placement; retain no new cold-id index. */
-  @lazy({ equals: compareStructural }) get sidebarMetadata(): { readonly label: string; readonly repoPath: string; readonly headBand: RowRank['band'] | undefined } {
+  @lazy({ equals: compareStructural }) get sidebarMetadata(): { readonly label: string; readonly repoPath: string } {
     const head = this.groups.rootMembers.lane(this.key)[0]
     const placement = head === undefined ? undefined : this.groups.placementOf(head)
-    const headBand = head === undefined ? undefined : this.groups.rankOf(head)?.band
-    return { label: placement?.label ?? '', repoPath: placement?.repoPath ?? this.key, headBand }
+    return { label: placement?.label ?? '', repoPath: placement?.repoPath ?? this.key }
   }
 
   /** These are the data layer's persistent lane answers. A latch edits one

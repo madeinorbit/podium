@@ -247,22 +247,6 @@ describe('definitive issue refusals (POD-5429)', () => {
     expect(await projection(issue.id)).toEqual(issue)
   })
 
-  it('refuses a colour on a sub-task', async () => {
-    const parent = await seed()
-    const child = await registry.issues.crud.create({
-      repoPath: '/repo',
-      title: 'child',
-      startNow: false,
-      parentId: parent.id,
-    })
-    await refuse(
-      'update',
-      { id: child.id, patch: { color: 'blue' } },
-      `colour belongs to top-level tasks: ${child.id} is a sub-task and takes its parent's colour`,
-    )
-    expect(await projection(child.id)).toEqual(child)
-  })
-
   it('refuses a self-dependency', async () => {
     const issue = await seed()
     await refuse(
@@ -270,6 +254,45 @@ describe('definitive issue refusals (POD-5429)', () => {
       { fromId: issue.id, toId: issue.id },
       'an issue cannot depend on itself (self-dep)',
     )
+  })
+
+  it('refuses a blocked-by edge on a phase at either end, but not other edge types', async () => {
+    const task = await seed()
+    const phase = await registry.issues.crud.create({
+      repoPath: '/repo',
+      title: 'Build',
+      type: 'phase',
+      startNow: false,
+    })
+    const hint = 'phases only group tasks and take no blocked-by edge'
+    for (const [fromId, toId, ref] of [
+      [task.id, phase.id, phase.id],
+      [phase.id, task.id, phase.id],
+    ]) {
+      await refuse(
+        'depAdd',
+        { fromId, toId },
+        `${ref} is a phase; ${hint}. Link the tasks instead: dep-add <later-task> <earlier-task>, from each task to the task whose output it needs`,
+      )
+    }
+    await registry.issues.hierarchy.addDep(task.id, phase.id, 'related')
+    expect(await registry.issues.crud.store.deps.store.issues.listIssueDeps(task.id)).toEqual([
+      expect.objectContaining({ toId: phase.id, type: 'related' }),
+    ])
+  })
+
+  it('refuses retyping an issue with a blocked-by edge to a phase', async () => {
+    const earlier = await seed()
+    const later = await seed()
+    await registry.issues.hierarchy.addDep(later.id, earlier.id)
+    for (const id of [later.id, earlier.id]) {
+      await refuse(
+        'update',
+        { id, patch: { type: 'phase' } },
+        `${id} has a blocked-by edge; phases only group tasks and take none. Remove it with dep-remove first, or keep it a task`,
+      )
+    }
+    expect((await registry.issues.crud.store.rowOrThrow(later.id)).type).toBe('task')
   })
 
   it('refuses dependency and containment cycles', async () => {

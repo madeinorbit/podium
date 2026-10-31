@@ -48,7 +48,6 @@ it('folded branches and archived crew get no display fields prepared before they
   const { pool, ui } = fixture()
   ui.set(FLIGHT_DECK_FOLDS_KEY, writeFlightDeckFolds(new Map([['branch', 'closed']])))
   const screen = new MissionScreen(pool, 'root', { setPreference: (key, raw) => ui.set(key, raw) })
-  screen.open()
   const presentation = vi.spyOn(screen.reader, 'presentation')
   const title = vi.spyOn(screen.reader, 'title')
   const archive = vi.spyOn(screen.reader, 'archive')

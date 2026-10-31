@@ -1,13 +1,13 @@
-import { assertReactiveRead } from '@podium/mobx-helpers'
-import type { SessionPanes } from '@podium/client-graph/session-pane-view'
 import type { SessionView } from '@podium/client-core/session-values'
+import type { SessionIssueOutcome } from '@podium/client-core/values'
 import type { IssueModel, MobxPool, SessionModel } from '@podium/client-graph'
 import type { SessionPaneRows } from '@podium/client-graph/session-pane-schema'
+import type { SessionPanes } from '@podium/client-graph/session-pane-view'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
-import { asSessionId, type IssueId, type IssueStage, type MachineWire, type SessionId } from '@podium/model/browser'
+import { assertReactiveRead } from '@podium/mobx-helpers'
+import { asSessionId, type IssueId, type IssueStatus, type MachineWire, type SessionId } from '@podium/model/browser'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useWorklistPool, useWorklistPoolProjection } from '@/app/store-worklist-pool'
-import { issueColorHex } from '@/lib/issueColors'
 
 /** The lazy runtime installs the view before publishing the pool to hooks. */
 function sessionPanes(pool: MobxPool): SessionPanes {
@@ -27,6 +27,11 @@ export function usePaneSession(id: SessionId | undefined): SessionView | undefin
   return useWorklistPoolProjection(read, undefined)
 }
 const machinesRead = (pool: MobxPool) => sessionPanes(pool).machines()
+/** How the session's issue ended, when that is what stopped it (POD-2151). */
+export function usePaneIssueOutcome(id: SessionId): SessionIssueOutcome | null {
+  const read = useCallback((pool: MobxPool) => sessionPanes(pool).loaded(id)?.issueOutcome ?? null, [id])
+  return useWorklistPoolProjection(read, null)
+}
 export function usePaneMachines(): MachineWire[] {
   return useWorklistPoolProjection(machinesRead, EMPTY_MACHINES)
 }
@@ -90,11 +95,6 @@ const selectedIssueRead = (pool: MobxPool) => sessionPanes(pool).selectedIssueId
 export function usePaneSelectedIssueId(): IssueId | null {
   return useWorklistPoolProjection(selectedIssueRead, null)
 }
-const issueHexRead = (pool: MobxPool) => sessionPanes(pool).issueHex(issueColorHex)
-/** The selected issue's inherited tint, independent of the pane's session. */
-export function usePaneIssueHex(): string | undefined {
-  return useWorklistPoolProjection(issueHexRead, undefined)
-}
 /** The issue a session pane stamps, read inside the stamp's observer. */
 export function usePaneStampIssue(id: SessionId): IssueModel | undefined {
   if (import.meta.env.DEV) assertReactiveRead('usePaneStampIssue')
@@ -107,14 +107,14 @@ export interface PaneReferenceStages {
   setActive(active: boolean): void
   beginPaint(): void
   endPaint(): void
-  resolveStage(ref: string): IssueStage | null
+  resolveStatus(ref: string): IssueStatus | null
   subscribe(paint: () => void): () => void
 }
 const EMPTY_REFERENCE_STAGES: PaneReferenceStages = {
   setActive: () => {},
   beginPaint: () => {},
   endPaint: () => {},
-  resolveStage: () => null,
+  resolveStatus: () => null,
   subscribe: () => () => {},
 }
 

@@ -13,12 +13,11 @@ import { type Aggregate, ownAttentionFields, unitOwnFields, unitsBelowFields,
   LOADING, type OwnAttention, type OwnFacts, type Rollup, rollupPartOf, phaseOf, askingOf,
   seatActivityPartOf, tipPartOf, type UnitOwn, type Units, waitingPartOf } from './rollup'
 import { NO_SIDEBAR_SESSIONS, sidebarLifecycle, sidebarTimingFromFacts, type SidebarRowValues, type SidebarProgress, type SidebarSessionFacts } from './sidebar-row'
-import type { SidebarOwner } from './sidebar-roster'
 import { sidebarBelowOf, sidebarNestedOf } from './sidebar'
-import { mobileWaitingCount, type MobileRowValues } from './mobile-row'
+import { mobileWaitingCount, type MobileNavigation } from './mobile-row'
 import { childIdsPartOf, type HeldIssue, type HiddenIssue, hiddenPresenceOf, keptBelowPartOf,
   laneMemberIdsPartOf, memberIdsPartOf, nestCandidatePartOf, nestParentPartOf,
-  flatPartOf, keepsPartOf, retainedSeatIdsPartOf, rosterIdsPartOf, openOwnPartOf, nestBelowPartOf, nestedPartOf,
+  exceptionSeatIdsPartOf, flatPartOf, keepsPartOf, retainedSeatIdsPartOf, rosterIdsPartOf, openOwnPartOf, nestBelowPartOf, nestedPartOf,
   laneRetainedSeatIdsPartOf, mergeIds, standingOf, type Standing, spinOffIdsPartOf } from './visible'
 import type { IssueModel, ModelHost } from '../models'
 import type { Worklist } from './view-model'
@@ -46,11 +45,6 @@ export class WorklistIssue implements HeldIssue, RowView {
   @lazy
   private get hasStanding(): boolean {
     return this.residentIssue() !== undefined
-  }
-
-  @lazy({ equals: compareStructural }) get rosterOwner(): SidebarOwner {
-    return { represented: this.placed, excluded: this.issue.excluded,
-      finishAt: this.issue.finished ? this.issue.finishedMs : undefined }
   }
 
   private readStanding(): Standing | undefined {
@@ -107,15 +101,16 @@ export class WorklistIssue implements HeldIssue, RowView {
       : mergeIds(summary.roster, rosterIdsPartOf(this.host.visibleInputs, this.laneRetainedSeatIds))
   }
 
+  /** R2's exited seats that may still want the human, by lifecycle rather than retention (POD-2171). */
+  @lazy({ equals: compareShallow }) get exceptionSeatIds(): readonly string[] {
+    const summary = this.explicitSeats
+    return exceptionSeatIdsPartOf(this.host.visibleInputs, this.seatIds, summary?.crashed)
+  }
+
   @lazy
   get retained(): boolean {
     const standing = this.standing
     return standing !== undefined && !standing.excluded && this.retainedSeatIds.length > 0
-  }
-
-  @lazy
-  get liveRoster(): boolean {
-    return this.rosterIds.length > 0
   }
 
   @lazy
@@ -156,7 +151,7 @@ export class WorklistIssue implements HeldIssue, RowView {
   @lazy get nestParent(): string | null {
     if (!this.present) return null
     const standing = this.standing
-    if (standing === undefined || (standing.parentId === null && standing.startedBy === null)) return null
+    if (standing === undefined || standing.parentId === null) return null
     return this.nestParentValue
   }
 
@@ -171,7 +166,7 @@ export class WorklistIssue implements HeldIssue, RowView {
     const parent = this.nestParent
     return parent !== null
       ? this.host.visibleInputs.issue(parent)?.placed === true
-      : this.standing?.agent === false
+      : this.standing !== undefined
   }
 
   @lazy
@@ -211,6 +206,7 @@ export class WorklistIssue implements HeldIssue, RowView {
       get state() { return row.issue.ownFacts.state },
       get finished() { return row.issue.ownFacts.finished },
       get decision() { return row.issue.ownFacts.decision },
+      get requests() { return row.issue.ownFacts.requests },
       get continuedByField() { return row.issue.ownFacts.continuedByField },
       get updatedAt() { return row.issue.ownFacts.updatedAt },
       get closedAt() { return row.issue.ownFacts.closedAt },
@@ -381,7 +377,7 @@ export class WorklistIssue implements HeldIssue, RowView {
     // going through `nesting`. Their constant null needs no memo either.
     if (!this.present) return null
     const standing = this.standing
-    if (standing === undefined || (standing.parentId === null && standing.startedBy === null)) {
+    if (standing === undefined || standing.parentId === null) {
       return null
     }
     return this.nestCandidateValue
@@ -523,14 +519,11 @@ export class WorklistIssue implements HeldIssue, RowView {
     return {
       get excluded() { return (model.issue.excluded) },
       get finished() { return (model.issue.finished ?? false) },
-      get agent() { return (model.issue.audience === 'agent') },
       get activeHuman() { return model.activeHuman },
       get awaitingMerge() { return (model.issue.awaitingMerge) },
       get sessionless() { return model.sessionless },
       get rescuable() { return model.rescuable },
       get parentId() { return (model.issue.parentRef) },
-      get startedBy() { return model.startedBy },
-      get draftVessel() { return (model.issue.isDraftVessel === true && !model.issue.worktreePath) },
       get finishedMs() { return model.issue.finishedMs },
       get updatedMs() { return (model.issue.updatedMs) },
       get replicaActivityMs() { return model.lastSessionActivity },
@@ -557,11 +550,6 @@ export class WorklistIssue implements HeldIssue, RowView {
   }
 
   @lazy
-  get startedBy(): Standing['startedBy'] {
-    return this.readStanding()!.startedBy
-  }
-
-  @lazy
   get lastSessionActivity(): Standing['replicaActivityMs'] {
     return parseMs(this.issue.lastActivityAt)
   }
@@ -572,6 +560,7 @@ export class WorklistIssue implements HeldIssue, RowView {
     const model = this
     return {
       get cold() { return model.sessionsLoading },
+      get coordinated() { return model.coordinated },
       get workingSince() { return model.sessionsWorkingSince },
       get firstSessionId() { return model.firstSessionId },
       get railWaiting() { return model.waitingCounts },
@@ -585,8 +574,15 @@ export class WorklistIssue implements HeldIssue, RowView {
       get deciding() { return model.needsDecision },
       get open() { return model.openSessionFlags },
       get finished() { return model.finishedSessionFlags },
+      get delegated() { return model.delegatedSessionFlags },
       get pending() { return model.pendingSessions },
     }
+  }
+
+  /** The row's coordinator is live (POD-2171): its other seats and its nest children ask only exceptions. */
+  @lazy
+  get coordinated(): OwnAttention['coordinated'] {
+    return this.readOwnAttention().coordinated
   }
 
   @lazy
@@ -604,7 +600,7 @@ export class WorklistIssue implements HeldIssue, RowView {
     if (!this.hasWaitingCounts) return undefined
     const row = this
     return { get open() { return row.waitingOpenSessions }, get finished() { return row.waitingFinishedSessions },
-      get decisions() { return row.waitingDecisions } }
+      get decisions() { return row.waitingDecisions }, get delegated() { return row.waitingDelegatedSessions } }
   }
 
   @lazy
@@ -627,6 +623,11 @@ export class WorklistIssue implements HeldIssue, RowView {
     return this.readOwnAttention().railWaiting!.decisions
   }
 
+  @lazy
+  get waitingDelegatedSessions(): NonNullable<Aggregate['railWaiting']>['delegated'] {
+    return this.readOwnAttention().railWaiting!.delegated
+  }
+
   @lazy({ equals: compareShallow }) get attentionSessionIds(): readonly string[] {
     return this.readOwnAttention().sessionIds ?? []
   }
@@ -639,6 +640,9 @@ export class WorklistIssue implements HeldIssue, RowView {
       get working() { return model.workingTimer },
       get waitingOpen() { return model.waitingOpenTimer },
       get waitingFinished() { return model.waitingFinishedTimer },
+      get workingDelegated() { return model.workingDelegatedTimer },
+      get waitingDelegated() { return model.waitingDelegatedTimer },
+      get errorClassDelegated() { return model.sessionErrorClassDelegated },
       get doneSince() { return model.sessionsDoneSince },
       get totalMs() { return model.sessionsWorkingMs },
       get errorClass() { return model.sessionErrorClass },
@@ -671,6 +675,16 @@ export class WorklistIssue implements HeldIssue, RowView {
     return this.readOwnAttention().sidebarFacts!.waitingFinished
   }
 
+  @lazy({ equals: compareStructural })
+  get workingDelegatedTimer(): SidebarSessionFacts['workingDelegated'] {
+    return this.readOwnAttention().sidebarFacts!.workingDelegated
+  }
+
+  @lazy({ equals: compareStructural })
+  get waitingDelegatedTimer(): SidebarSessionFacts['waitingDelegated'] {
+    return this.readOwnAttention().sidebarFacts!.waitingDelegated
+  }
+
   @lazy
   get sessionsDoneSince(): SidebarSessionFacts['doneSince'] {
     return this.readOwnAttention().sidebarFacts!.doneSince
@@ -679,6 +693,11 @@ export class WorklistIssue implements HeldIssue, RowView {
   @lazy
   get sessionsWorkingMs(): SidebarSessionFacts['totalMs'] {
     return this.readOwnAttention().sidebarFacts!.totalMs
+  }
+
+  @lazy
+  get sessionErrorClassDelegated(): SidebarSessionFacts['errorClassDelegated'] {
+    return this.readOwnAttention().sidebarFacts!.errorClassDelegated
   }
 
   @lazy
@@ -767,6 +786,30 @@ export class WorklistIssue implements HeldIssue, RowView {
   @lazy
   get finishedSessionsDone(): import('./rollup').PhaseFlags['allDone'] {
     return this.readOwnAttention().finished.allDone
+  }
+
+  get delegatedSessionFlags(): import('./rollup').PhaseFlags {
+    const model = this
+    return {
+      get waiting() { return model.delegatedSessionsWaiting },
+      get working() { return model.delegatedSessionsWorking },
+      get allDone() { return model.delegatedSessionsDone },
+    }
+  }
+
+  @lazy
+  get delegatedSessionsWaiting(): import('./rollup').PhaseFlags['waiting'] {
+    return this.readOwnAttention().delegated.waiting
+  }
+
+  @lazy
+  get delegatedSessionsWorking(): import('./rollup').PhaseFlags['working'] {
+    return this.readOwnAttention().delegated.working
+  }
+
+  @lazy
+  get delegatedSessionsDone(): import('./rollup').PhaseFlags['allDone'] {
+    return this.readOwnAttention().delegated.allDone
   }
 
   @lazy
@@ -937,14 +980,14 @@ export class WorklistIssue implements HeldIssue, RowView {
   // Drawn rows use the same companions on desktop and phone. Their demand
   // follows the resident nesting query, independently of filing the list.
   @lazy({ equals: compareShallow }) get visibleChildIds(): readonly string[] { return sidebarBelowOf(this, this.worklist.pool) }
-  @lazy({ equals: compareShallow }) get visibleDescendantIds(): readonly string[] { return sidebarNestedOf(this, this.worklist.pool) }
+  @lazy({ equals: compareShallow }) get visibleDescendantIds(): readonly string[] { return sidebarNestedOf(this) }
   get visibleParts(): import('./rollup').RollupSelf {
     const row = this
     return {
       get ownFacts() { return row.ownFacts }, get formalParent() { return row.formalParent },
       get updatedMs() { return row.issue.updatedMs },
       get openOwn() { return row.openOwn }, get present() { return row.present },
-      get seatIds() { return row.seatIds },
+      get seatIds() { return row.seatIds }, get exceptionSeatIds() { return row.exceptionSeatIds },
       get rosterIds() { return row.rosterIds }, get finished() { return row.finished },
       get tip() { return row.tip }, get ownAttention() { return row.ownAttention },
       get aggregate() { return row.visibleAttention }, get unitOwn() { return row.unitOwn },
@@ -1015,10 +1058,13 @@ export class WorklistIssue implements HeldIssue, RowView {
     return sidebarTimingFromFacts(this.visibleAttention.sidebarFacts ?? NO_SIDEBAR_SESSIONS,
       this.visiblePhase, this.ownFacts.finished, this.visibleActivityAt, this.visibleAttention.decidingAt)
   }
-  /** Desktop emphasis in the drawn subtree; working activity suppresses retention unread. */
+  /** Emphasize unseen activity even while a background agent is working. */
   @lazy get visibleUnread(): boolean {
-    if (this.visibleWorking) return false
-    const readAt = this.issue.readAt, readMs = Date.parse(readAt ?? '')
+    if (this.issue.readObservation.blocked) return true
+    if (this.issue.readObservation.viewing) return false
+    const durable = this.issue.readAt, seen = this.issue.readObservation.seenAt
+    const readAt = seen && (!durable || seen > durable) ? seen : durable
+    const readMs = Date.parse(readAt ?? '')
     return this.issue.unread || Boolean(readAt && Number.isFinite(readMs) &&
       ((Date.parse(this.visibleAttention.updatedAt ?? '') || 0) > readMs || (this.visibleSessionActivity ?? 0) > readMs) && this.visibleDescendantIds.length > 0)
   }
@@ -1050,7 +1096,7 @@ export class WorklistIssue implements HeldIssue, RowView {
   /** Phone emphasis also suppresses visibleUnread for a quiet session-only draft. */
   @lazy get emphasizeUnread() { return this.visibleUnread && !this.quietDraft }
   @lazy get attentionAction() { return this.waitingCount > 0 ? this.decision ? 'Review' as const : 'Answer' as const : null }
-  @lazy({ equals: compareStructural }) get navigation(): MobileRowValues['navigation'] {
+  @lazy({ equals: compareStructural }) get navigation(): MobileNavigation {
     const first = this.sessions[0]
     return this.sessionOnlyDraft && first ? { kind: 'session', id: first.sessionId } : { kind: 'issue', id: this.id }
   }

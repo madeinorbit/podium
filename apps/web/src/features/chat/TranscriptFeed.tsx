@@ -19,24 +19,52 @@ import type { SessionId} from '@podium/model/browser'
 import { MESSAGE_ACCEPTED_LINE } from '@podium/model'
 import { ArrowUp, Image as ImageIcon, RotateCcw } from 'lucide-react'
 import type { JSX, RefCallback, UIEventHandler } from 'react'
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { observer, Observer } from 'mobx-react-lite'
 import type { ChatSurface } from './use-chat-layout'
 import { renderMarkdown, sanitizeRenderedMarkdown } from '@/lib/markdown'
 import { renderMarkdownUnsafe } from '@/lib/markdown-renderer'
+import { useKnownRefPrefixesVersion } from '@/lib/use-known-ref-prefixes'
 import { cn } from '@/lib/utils'
-import { ChatBlockView, type ProcessPosition, type TurnPosition } from './ChatBlockView'
+import {
+  ChatBlockView,
+  type ProcessPosition,
+  StableMarkdown,
+  type TurnPosition,
+} from './ChatBlockView'
+import { ChatUploadThumb } from './ChatUploadThumb'
 import type { PendingItem } from './chat'
 import { MetaGlyph } from './MetaGlyph'
 import { ToolBatchView } from './ToolBatchView'
 import { TranscriptCold } from './TranscriptCold'
 import { TranscriptWindowRow, useTranscriptWindow } from './TranscriptWindow'
 import { TranscriptStandby } from './TranscriptStandby'
+import { IssueOutcomeCard } from './IssueOutcomeCard'
 import { TranscriptTail, trailingRunIsLive } from './TranscriptTail'
 import { transcriptComputeClient } from './transcript-compute-client'
 import { dayKey, dayLabel, rowTimestamp } from './transcript-time'
 import { rowIdentity, useFeedArrivals } from './use-feed-arrivals'
 import type { HeadlessOverlay, TurnPreview } from '@podium/client-core/conversation'
+import type { SessionIssueOutcome } from '@podium/client-core/values'
+import type { QuoteInput } from '@/lib/quote/quote-sinks'
+
+/** Pending text uses the same sanitized Markdown and link handling as history. */
+const PendingMarkdown = memo(function PendingMarkdown({
+  text,
+  sessionId,
+  cwd,
+  openFile,
+}: {
+  text: string
+  sessionId: SessionId
+  cwd: string
+  openFile: (sessionId: SessionId, path: string) => void
+}): JSX.Element {
+  const refPrefixesVersion = useKnownRefPrefixesVersion()
+  // biome-ignore lint/correctness/useExhaustiveDependencies: renderMarkdown reads the ref-prefix registry.
+  const html = useMemo(() => renderMarkdown(text), [text, refPrefixesVersion])
+  return <StableMarkdown html={html} sessionId={sessionId} cwd={cwd} openFile={openFile} />
+})
 
 /** Render a live partial through the same worker boundary as settled messages. */
 function StreamingMarkdown({ text }: { text: string }): JSX.Element {
@@ -326,7 +354,9 @@ export interface TranscriptFeedProps {
   /** Quote a message into the composer (POD-376 per-message actions). Absent →
    *  the Quote action is not offered, which is what a host without a composer
    *  should get rather than a button that does nothing. */
-  onQuote?: (markdown: string) => void
+  onQuote?: (quote: QuoteInput) => void
+  /** How the session's issue ended, drawn as the feed's last row (POD-2151). */
+  outcome?: SessionIssueOutcome | null
 }
 
 export const TranscriptFeed = observer(function TranscriptFeed(props: TranscriptFeedProps): JSX.Element {
@@ -549,8 +579,38 @@ export const TranscriptFeed = observer(function TranscriptFeed(props: Transcript
                   className={cn('transcript-you-bubble', waiting && 'transcript-you-bubble--queued')}
                 >
                   <div className="transcript-you-body">
-                    <div className="chat-md whitespace-pre-wrap">{p.text}</div>
-                    {p.tags && p.tags.length > 0 && (
+                    <PendingMarkdown text={p.text} sessionId={sessionId} cwd={cwd} openFile={openFile} />
+                    {p.files && p.files.length > 0 ? (
+                      <div className="mt-1.5 flex flex-wrap items-start gap-1.5">
+                        {p.files.map((file, i) => {
+                          // Until the issue holds its copy (POD-2148) a file
+                          // shows as the labelled chip it always did.
+                          const chip = (
+                            <span
+                              key={`${file.attachmentId ?? file.path}-${i}`}
+                              className="inline-flex items-center gap-1 rounded border border-input px-[7px] py-0.5 text-[11px] text-muted-foreground"
+                            >
+                              <ImageIcon size={12} aria-hidden="true" />
+                              {file.path}
+                            </span>
+                          )
+                          return file.kind === 'image' ? (
+                            <ChatUploadThumb
+                              key={`${file.attachmentId ?? file.path}-${i}`}
+                              sessionId={sessionId}
+                              attachmentId={file.attachmentId}
+                              fallbackUrl={null}
+                              name={file.path}
+                              httpOrigin={httpOrigin}
+                              onOpenImage={onOpenImage}
+                              fallback={chip}
+                            />
+                          ) : (
+                            chip
+                          )
+                        })}
+                      </div>
+                    ) : p.tags && p.tags.length > 0 && (
                       <div className="mt-1.5 flex flex-wrap gap-1.5">
                         {p.tags.map((tag, i) => (
                           <span
@@ -717,9 +777,6 @@ export const TranscriptFeed = observer(function TranscriptFeed(props: Transcript
           >
             <div className="transcript-rail transcript-rail--none" aria-hidden="true" />
             <div className="transcript-body">
-              {(!lastRow || !isProcessRow(lastRow)) && (
-                <div className="transcript-process-label">Process</div>
-              )}
               <StreamingMarkdown text={overlay.text} />
             </div>
           </div>
@@ -788,6 +845,7 @@ export const TranscriptFeed = observer(function TranscriptFeed(props: Transcript
             attribution={attributionForRole(attribution, 'tool')}
           />
         )}
+        {props.outcome && <IssueOutcomeCard outcome={props.outcome} />}
         {/* Where the transcript ENDS: the single live-status owner. Tool rows and
           headless status frames can refine its wording but never replace it.
 
@@ -808,9 +866,13 @@ export const TranscriptFeed = observer(function TranscriptFeed(props: Transcript
           const session = props.chat?.view.session ?? props.session
           const lastRow = props.chat?.view?.presentation.tailRow(rows[rows.length - 1]?.row) ?? rows[rows.length - 1]?.row
           const questionOwnsAttention = (livePendingAskIndex >= 0 || pendingAskBlock !== null) && activity?.tone === 'attention'
+          // The issue outcome is the ending (POD-2151): a stop keeps the agent's
+          // last state (a retryable error, an interrupt), which must not trail it.
+          // Only a wake the operator just asked for speaks after it.
+          const outcomeOwnsEnd = props.outcome != null && tailActivity?.tone !== 'working' && tailActivity?.transient !== 'just-sent'
           return (
         <div className="feed-tail-slot" data-testid="feed-tail-slot">
-          {(phase === 'ready' || tailActivity?.tone === 'working') && !questionOwnsAttention && (
+          {(phase === 'ready' || tailActivity?.tone === 'working') && !questionOwnsAttention && !outcomeOwnsEnd && (
             <TranscriptTail
               activity={tailActivity}
               since={props.chat ? props.chat.view.session?.agentSince : session?.agentState?.since}

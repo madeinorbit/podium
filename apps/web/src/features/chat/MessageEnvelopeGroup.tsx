@@ -6,21 +6,31 @@
  * row with its own header, so a turn receiving three notes spent three rows
  * before the answer got a word in.
  *
- * The whole burst is now ONE object — a counted, tinted line that opens into a
- * real mail list. See `.mail-group` in styles.css for the shape and its reasons.
+ * The whole burst is now ONE object — a "Note from steward · 03:13" row in the
+ * tool run's shell (POD-2234), opening into the same seamed list a run of calls
+ * opens into. See `.mail-group` in styles.css for what differs and why.
  *
- * WHAT OPENS ON ARRIVAL: any frame that asks a question or requests a reply,
- * because folding it would hide the one kind of mail with a consequence.
+ * NOTHING OPENS ON ARRIVAL (POD-2070): a question or reply request binds the
+ * receiving agent, not the reader, so the fold line only flags it.
  * WHAT IS NOT LOST: the two-line preview is a preview — clicking an item opens
  * that frame's full markdown, refs and code live.
+ *
+ * AN INBOX POINTER IS A NOTE TOO (POD-2143): an oversized mail reaches the agent
+ * as one line naming its id, so its item fetches the body when the card opens.
  */
-import { envelopePrincipal, type ParsedEnvelope } from '@podium/client-core/values'
-import { ChevronDown, Mail as MailIcon, X } from 'lucide-react'
-import type { JSX, MouseEvent as ReactMouseEvent } from 'react'
+import {
+  envelopePrincipal,
+  type ParsedEnvelope,
+  pointerFallbackBody,
+  principalShortName,
+} from '@podium/client-core/values'
+import { ChevronDown, Mail as MailIcon } from 'lucide-react'
+import type { JSX, MouseEvent as ReactMouseEvent, ReactNode } from 'react'
 import { memo, useMemo, useState } from 'react'
 import { renderMarkdown, sanitizeRenderedMarkdown } from '@/lib/markdown'
 import { isKnownRefPrefix } from '@/lib/markdown-references'
 import { useKnownRefPrefixesVersion } from '@/lib/use-known-ref-prefixes'
+import { useMailBody } from './mail-body'
 import { clockLabel, fullTimeLabel, parseTs } from './transcript-time'
 
 /** An envelope-header principal: the nice-id issue ref renders as the same
@@ -84,12 +94,53 @@ const StableEnvelopeMarkdown = memo(function StableEnvelopeMarkdown({ html }: { 
   )
 })
 
+/** A pointer's item: the body the agent was not typed, fetched by id. A sent
+ *  note's preview, when it has one, stands in while the body loads. */
+function PointerEnvelopeItem(props: {
+  envelope: ParsedEnvelope
+  forceFull?: boolean
+  direction: 'from' | 'to'
+}): JSX.Element {
+  const mail = useMailBody(props.envelope.id)
+  const body =
+    mail.status === 'ready'
+      ? mail.body
+      : mail.status === 'loading'
+        ? props.envelope.body || 'Loading…'
+        : mail.status === 'denied'
+          ? "You can't view this message\nOnly its sender, its recipients and an admin can open it."
+          : 'Could not load this message'
+  return (
+    <EnvelopeItem
+      {...props}
+      body={body}
+      footer={
+        mail.status === 'error' && (
+          <button data-pressable type="button" className="mail-item-retry" onClick={mail.retry}>
+            Retry
+          </button>
+        )
+      }
+    />
+  )
+}
+
 function EnvelopeItem({
   envelope,
+  body = envelope.body,
   markdownHtml,
   forceFull = false,
+  footer,
+  direction,
 }: {
   envelope: ParsedEnvelope
+  /** Which party the left column names: the sender, or the recipient of a
+   *  note this session sent. */
+  direction: 'from' | 'to'
+  /** The body when the frame did not carry it (an inbox pointer). */
+  body?: string
+  /** An action under the body, such as retrying a failed load. */
+  footer?: ReactNode
   markdownHtml?: ReadonlyMap<string, string> | undefined
   /** The active search hit: the matched word may be anywhere in the body, so
    *  the preview is not enough. */
@@ -98,46 +149,55 @@ function EnvelopeItem({
   const [opened, setOpened] = useState(false)
   const full = opened || forceFull
   const setFull = setOpened
-  const { subject, preview } = useMemo(() => splitSubject(envelope.body), [envelope.body])
-  const cachedHtml = markdownHtml?.get(envelope.body)
+  const { subject, preview } = useMemo(() => splitSubject(body), [body])
+  const cachedHtml = markdownHtml?.get(body)
   const refPrefixesVersion = useKnownRefPrefixesVersion()
   // biome-ignore lint/correctness/useExhaustiveDependencies: refPrefixesVersion is a deliberate recompute trigger — linkifyRefs reads the prefix registry.
   const html = useMemo(() => {
     if (!full) return ''
-    return cachedHtml === undefined
-      ? renderMarkdown(envelope.body)
-      : sanitizeRenderedMarkdown(cachedHtml)
+    return cachedHtml === undefined ? renderMarkdown(body) : sanitizeRenderedMarkdown(cachedHtml)
     // Ref chips are state-free transcript content (see ChatBlockView); only the
     // prefix registry arriving re-renders them (POD-4966).
-  }, [cachedHtml, envelope.body, full, refPrefixesVersion])
+  }, [cachedHtml, body, full, refPrefixesVersion])
   return (
     <div className="mail-item" data-testid="mail-item" data-full={full ? 'true' : undefined}>
-      <span className="mail-item-from">
-        <PrincipalLabel label={envelope.from} />
-      </span>
-      <span className="mail-item-main">
-        <button
-          data-pressable
-          type="button"
-          className="mail-item-head"
-          aria-expanded={full}
-          onClick={() => {
-            setFull((v) => !v)
-          }}
-        >
-          <span className="mail-item-subject">{subject || envelope.id}</span>
-          {envelope.question && <span className="mail-item-badge">question</span>}
-        </button>
-        {full ? (
-          <StableEnvelopeMarkdown html={html} />
+      <button
+        data-pressable
+        type="button"
+        className="mail-item-head"
+        aria-expanded={full}
+        onClick={() => {
+          setFull((v) => !v)
+        }}
+      >
+        <span className="mail-item-subject">{subject || envelope.id}</span>
+        {envelope.question && <span className="mail-item-badge">question</span>}
+      </button>
+      {full ? (
+        <StableEnvelopeMarkdown html={html} />
+      ) : (
+        preview !== '' && <span className="mail-item-preview">{preview}</span>
+      )}
+      {full && envelope.machineNote && (
+        <span className="mail-item-note">{envelope.machineNote}</span>
+      )}
+      {/* The route the card header used to carry, per note: in a burst from
+          several senders each note names its own (POD-2234). */}
+      <span className="mail-item-route">
+        {direction === 'from' ? (
+          <>
+            <PrincipalLabel label={envelope.from} />
+            {envelope.to && <span className="mail-item-arrow">→</span>}
+            {envelope.to && <PrincipalLabel label={envelope.to} />}
+          </>
         ) : (
-          preview !== '' && <span className="mail-item-preview">{preview}</span>
+          <>
+            to <PrincipalLabel label={envelope.to} />
+          </>
         )}
-        {full && envelope.machineNote && (
-          <span className="mail-item-note">{envelope.machineNote}</span>
-        )}
-        {envelope.expectsReply && <span className="mail-item-reply">reply · {envelope.id}</span>}
       </span>
+      {envelope.expectsReply && <span className="mail-item-reply">reply · {envelope.id}</span>}
+      {footer}
     </div>
   )
 }
@@ -150,6 +210,7 @@ export function MessageEnvelopeGroup({
   ts,
   onBodyClick,
   forceOpen = false,
+  direction = 'from',
 }: {
   envelopes: readonly ParsedEnvelope[]
   className: string
@@ -164,35 +225,32 @@ export function MessageEnvelopeGroup({
    *  the word they searched for. The active hit unfolds the whole group and
    *  every frame in it, the same way a run of tool calls unfolds. */
   forceOpen?: boolean
+  /** Whose notes these are: mail that arrived (`from`, names the senders) or
+   *  mail this session sent (`to`, names the recipients). */
+  direction?: 'from' | 'to'
 }): JSX.Element {
-  const consequential = envelopes.some((e) => e.question || e.expectsReply)
-  // A burst GROWS. The first frame of a provider turn can be background noise —
-  // the group mounts folded — and the second, arriving on the next poll into the
-  // same block, can be the one asking the operator to answer something. Reading
-  // `consequential` once at mount would leave that frame hidden behind a fold
-  // line, which is precisely the case the fold is not for. Adjusted during
-  // render rather than in an effect: no frame of the wrong state, and a manual
-  // fold afterwards still sticks.
-  const [fold, setFold] = useState({ opened: consequential, open: consequential })
-  if (consequential && !fold.opened) setFold({ opened: true, open: true })
-  const open = fold.open || forceOpen
-  const toggle = (): void => setFold((f) => ({ opened: true, open: !f.open }))
+  // ALWAYS FOLDED ON ARRIVAL (POD-2070). A question or a reply request in agent
+  // mail binds the RECEIVING AGENT, not the person reading the chat, so opening
+  // the card for it put a box in front of the reader for something they had
+  // nothing to do about. The fold line names the ask instead.
+  const [userOpen, setUserOpen] = useState(false)
+  const open = userOpen || forceOpen
+  const toggle = (): void => setUserOpen((o) => !o)
+  const flag = envelopes.some((e) => e.question)
+    ? 'question'
+    : envelopes.some((e) => e.expectsReply)
+      ? 'reply asked'
+      : undefined
   const single = envelopes.length === 1
-  const first = envelopes[0]
-  const tags = useMemo(() => {
-    const seen: string[] = []
-    for (const e of envelopes) {
-      const p = envelopePrincipal(e.from)
-      const tag = p.ref ?? ((p.pre + p.post).trim() || e.from)
-      if (!seen.includes(tag)) seen.push(tag)
-    }
-    return seen
-  }, [envelopes])
   const stamp = parseTs(ts)
-  // The route only names a sender when the whole burst shares one; otherwise the
-  // senders are the card's left column and repeating one of them in the header
-  // would be a lie about the other two.
-  const sharedFrom = envelopes.every((e) => e.from === first?.from) ? first?.from : undefined
+  const count = envelopes.length
+  const noun = single ? 'Note' : `${count} notes`
+  // Distinct short senders, in arrival order: "Note from steward",
+  // "2 notes from POD-84 · POD-90".
+  const names = [
+    ...new Set(envelopes.map((e) => principalShortName(direction === 'from' ? e.from : e.to))),
+  ].join(' · ')
+  const foldLabel = `${noun} ${direction} ${names}`
 
   return (
     <div
@@ -203,70 +261,56 @@ export function MessageEnvelopeGroup({
     >
       <div className="transcript-rail transcript-rail--none" aria-hidden="true" />
       <div className="transcript-body">
-        <div className="mail-group" data-open={open ? 'true' : 'false'}>
+        {/* THE TOOL RUN'S SHELL (POD-2234): a note is a quiet row like a run of
+            calls — the same box, glyph slot, trailing time and chevron — told
+            apart by its mail glyph. The row is the only toggle. */}
+        <div className="work-line mail-group" data-open={open ? 'true' : 'false'}>
           <button
             data-pressable
             type="button"
-            className="mail-fold"
+            className="work-line-row mail-fold"
             data-testid="message-envelope-toggle"
             aria-expanded={open}
-            aria-label={open ? 'Fold these notes' : 'Unfold these notes'}
+            aria-label={`${open ? 'Fold' : 'Unfold'} these notes${flag ? `, ${flag}` : ''}`}
             onClick={toggle}
           >
-            <MailIcon className="mail-fold-icon" size={13} aria-hidden="true" />
-            <span className="mail-fold-count">
-              {envelopes.length} {envelopes.length === 1 ? 'note' : 'notes'} from Podium
+            <span className="work-line-glyph mail-fold-glyph" aria-hidden="true">
+              <MailIcon size={13} />
             </span>
-            <span className="mail-fold-tags">{tags.join(' · ')}</span>
-            <span className="mail-fold-gap" />
-            {single && first && (
-              <span className="mail-fold-meta">
-                {stamp && (
-                  <time dateTime={ts} title={fullTimeLabel(stamp)}>
-                    {clockLabel(stamp)}
-                  </time>
-                )}
-                {stamp && ' · '}
-                {first.id}
-              </span>
+            <span className="work-line-phrase">
+              {foldLabel}
+              {flag && <span className="mail-fold-flag">· {flag}</span>}
+            </span>
+            {stamp && (
+              <time className="work-line-time" dateTime={ts} title={fullTimeLabel(stamp)}>
+                {clockLabel(stamp)}
+              </time>
             )}
-            <ChevronDown className="mail-fold-chev" size={14} aria-hidden="true" />
+            <ChevronDown className="work-line-chev" size={11} aria-hidden="true" />
           </button>
           {open && (
-            // biome-ignore lint/a11y/noStaticElementInteractions: delegated clicks activate only semantic links — the sender chips in the route and the left column, and the anchors sanitized markdown emits
+            // biome-ignore lint/a11y/noStaticElementInteractions: delegated clicks activate only semantic links — the route chips and the anchors sanitized markdown emits
             // biome-ignore lint/a11y/useKeyWithClickEvents: keyboard users activate those anchors natively
-            <div className="mail-card" onClick={onBodyClick}>
-              <div className="mail-card-head">
-                <span className="mail-card-kind">From Podium</span>
-                <span className="mail-card-route">
-                  {sharedFrom !== undefined && (
-                    <>
-                      <PrincipalLabel label={sharedFrom} />
-                      <span className="mail-card-arrow">→</span>
-                    </>
-                  )}
-                  {first && <PrincipalLabel label={first.to} />}
-                </span>
-                <button
-                  data-pressable
-                  type="button"
-                  className="mail-card-close"
-                  aria-label="Fold these notes"
-                  onClick={toggle}
-                >
-                  <X size={13} aria-hidden="true" />
-                </button>
-              </div>
-              <div className="mail-card-list">
-                {envelopes.map((envelope) => (
+            <div className="work-line-list mail-card" onClick={onBodyClick}>
+              {envelopes.map((envelope) =>
+                envelope.pointer === 'by-id' ? (
+                  <PointerEnvelopeItem
+                    key={envelope.id}
+                    envelope={envelope}
+                    forceFull={forceOpen}
+                    direction={direction}
+                  />
+                ) : (
                   <EnvelopeItem
                     key={envelope.id}
                     envelope={envelope}
+                    body={envelope.pointer ? pointerFallbackBody(envelope) : envelope.body}
                     markdownHtml={markdownHtml}
                     forceFull={forceOpen}
+                    direction={direction}
                   />
-                ))}
-              </div>
+                ),
+              )}
             </div>
           )}
         </div>

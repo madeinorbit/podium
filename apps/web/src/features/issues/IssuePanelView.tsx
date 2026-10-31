@@ -1,502 +1,248 @@
-import { issueObserver as observer } from './issue-page/issue-observer'
-import { IssueAge } from './issue-page/IssueAge'
 import { shallowEqual } from '@podium/client-core/shallow-equal'
-import {
-  artifactKind,
-  artifactUrl,
-  basename,
-  operationalState,
-  type PresenceKind,
-  type PresenceNote,
-  sessionNeedsHuman,
-} from '@podium/client-core/values'
+import { artifactKind, artifactUrl, basename, operationalState } from '@podium/client-core/values'
+import type { issuePages, PageIssue } from '@podium/client-graph/issue-page'
+import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { resolveMachinePath } from '@podium/model'
-import type { IssueComment, IssueId, MachineId, SessionId } from '@podium/model/browser'
+import type { IssueId, IssuePanelArtifact, MachineId, SessionId } from '@podium/model/browser'
 import { isFinished } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import {
-  ArrowDown,
   ArrowRight,
-  ArrowUpRight,
-  Ban,
-  Check,
-  CircleAlert,
+  Bot,
+  CircleDot,
+  ExternalLink,
   FileText,
-  Folder,
-  History,
-  type LucideIcon,
-  MessageSquare,
+  Film,
+  Image as ImageIcon,
   Play,
-  Truck,
 } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
+import { DockHeaderActions } from '@/app/DockHeaderSlot'
 import { useOperatorFocus } from '@/app/operator-focus'
 import { type IssueViewModel, useRuntimeSelector } from '@/app/store'
-import { MediaLightbox } from '@/components/MediaLightbox'
+import { ArtifactLightbox, artifactLightboxKey } from '@/components/ArtifactLightbox'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
+import { useOpenArtifactsTab } from '@/features/files/artifacts-tab'
 import { modChord } from '@/lib/mod-chord'
 import { cn } from '@/lib/utils'
 import { SessionNameEditor } from '@/lib/WorkerLabel'
 import { currentWorkspaceSlug } from '@/lib/workspace-request'
-import { rosterCostMeta } from '../cost/cost-format'
-import { costSectionMeta, TaskCostSection } from '../cost/TaskCostSection'
-import { useTaskCost } from '../cost/useTaskCost'
 import { inlineRenameEditor, useInlineRename } from '../worklist/use-inline-rename'
-import { IssueExplorerList } from './explorer/IssueExplorerList'
-import {
-  DOCK_BODY,
-  DOCK_ROW,
-  DOCK_STAMP,
-  IssueCompactControls,
-  IssueDecisionBand,
-  IssueGitScope,
-  IssueSessionRow,
-} from './IssueCompactControls'
+import { type FirstArtifactAnchorProps, useFirstArtifactAnchor } from './first-artifact-tip'
+import { IssueCompactControls } from './IssueCompactControls'
 import { IssueStatusPicker } from './IssueStatusPicker'
 import { issueIdTitle } from './issue-card'
-import { useIssuePageContext } from './issue-page/issue-page-data'
+import { IssueAge } from './issue-page/IssueAge'
 import { useIssueHistory } from './issue-page/IssueHistory'
-import { RECENT_ACTIVITY_SIZE } from '@podium/client-graph/issue-activity'
-import { issuePages, type PageIssue } from '@podium/client-graph/issue-page'
-import { useIssueEdgeResolver, edgeIssue } from './issue-page/issue-edges'
-import { LOADING } from '@podium/client-graph/worklist/rollup'
+import { edgeIssue, useIssueEdgeResolver } from './issue-page/issue-edges'
+import { issueObserver as observer } from './issue-page/issue-observer'
+import { useIssuePageContext } from './issue-page/issue-page-data'
 import { useIssueStatusApply } from './use-issue-status-apply'
 
-// Where the task's identity lives, since POD-743: the HEAD of this panel. The
-// dock title bar carried it between POD-516 and here, on the reasoning that the
-// bar is every panel's one header; the bar now carries the issue explorer's
-// trail — a position, not a name — so the name sits with the task again. The
-// stage still survives exactly twice: the trail's glyph-free ref, and the stage
-// dropdown's own label.
+// THE CALM COLUMN (POD-2077). One scroll, read top to bottom: the name and its
+// status, what the task is, then what it produced, what it is linked to, and what
+// people said about it. Every section heading is the same
+// quiet label + count; nothing in the column is boxed, and nothing is amber —
+// the offer card in chat is where a task asks for the operator now, so the
+// panel's old "Needs you" band, its roster, its activity log and its branch
+// address all left it. The Flight Deck, the chat header and the footer each
+// already say those things.
 
-const Hint = observer(function Hint({ children }: { children: string }): JSX.Element {
-  return <div className={cn(DOCK_BODY, 'py-0.5 text-text-faint italic')}>{children}</div>
-})
-
-/** Presence-note kind → its mark. The words come from `mission.ts` so the deck
- *  and the dock say the same thing about the same task; only the glyph is local
- *  to this surface. */
-const PRESENCE_ICON: Record<PresenceKind, LucideIcon> = {
-  moved: ArrowRight,
-  blocked: Ban,
-  waiting: ArrowDown,
-  done: Check,
-  review: Check,
-  ready: Play,
-  attention: CircleAlert,
-  shipping: Truck,
-}
-
-/** Why nobody is on this task. A blank where an agent row would be is the one
- *  thing this section must never render — "no session" is several different
- *  situations and only one of them is a problem. */
-const PresenceLine = observer(function PresenceLine({ note }: { note: PresenceNote }): JSX.Element {
-  const Icon = PRESENCE_ICON[note.kind]
-  return (
-    <div
-      className={cn(
-        'flex items-center gap-[7px] px-1 py-1.5',
-        // `text-attention` is the ink; `-foreground` is what sits ON the amber
-        // fill and is near-black, i.e. invisible on this panel. An attention
-        // line is its own object in this design — set tighter and bolder than
-        // the prose around it, because it is a statement rather than a reading.
-        note.attention
-          ? 'text-[11.5px] leading-none font-semibold text-attention'
-          : cn(DOCK_BODY, 'text-muted-foreground'),
-      )}
-      data-testid="dock-presence-note"
-      data-presence={note.kind}
-    >
-      <Icon size={note.attention ? 14 : 12} className="flex-none" aria-hidden="true" />
-      {note.text}
-    </div>
-  )
-})
-
-/** A section of the single scroll. The approved inspector is one continuous
- *  read, so a section is a heading and a hairline — no chevron, no per-section
- *  collapse, no nested tier. */
-const DockPart = observer(function DockPart({
+/** A section of the single scroll: one quiet heading line — label, count, and
+ *  an optional action parked at the right — over its rows. */
+const PanelSection = observer(function PanelSection({
   title,
   count,
-  meta,
+  action,
   testId,
+  className,
   children,
 }: {
   title: string
   count?: number
-  /** One machine-voice fact ABOUT the section, parked past the hairline — an
-   *  age, a size. It goes here rather than inside the body so the body stays
-   *  the thing the section is actually for. */
-  meta?: ReactNode
+  action?: ReactNode
   testId?: string
+  className?: string
   children: ReactNode
 }): JSX.Element {
   return (
-    // 14px between sections, the design's own rhythm — close enough that the
-    // scroll reads as one column of work rather than a stack of cards.
-    <section className="mb-3.5" data-testid={testId} data-part={title}>
-      {/* ONE row, always: label (+ its count, riding the label rather than
-          standing apart from it) · the rule that reaches the far edge · the
-          optional fact parked past it. The rule is --border, not
-          --hairline-soft: it is a section seam, not a row rule, and the two
-          tiers exist so a heading never reads at the same weight as the rows
-          under it. */}
-      <div className="mb-1.5 flex items-center gap-2">
-        <span className="shell-type-micro flex-none font-semibold text-muted-foreground">
-          {title}
-          {count !== undefined && count > 0 && (
-            <span className="ml-1 font-medium text-text-faint tabular-nums">{count}</span>
-          )}
-        </span>
-        <span className="h-px flex-1 bg-border" aria-hidden="true" />
-        {meta && (
-          <span className={cn(DOCK_STAMP, 'flex-none tabular-nums text-text-faint')}>{meta}</span>
+    <section
+      className={cn('flex flex-col gap-2', className)}
+      data-testid={testId}
+      data-part={title}
+    >
+      <div className="flex items-baseline gap-2 text-[11.5px]">
+        <span className="font-semibold text-muted-foreground">{title}</span>
+        {count !== undefined && count > 0 && (
+          <span className="text-text-faint tabular-nums">{count}</span>
         )}
+        <span className="flex-1" />
+        {action}
       </div>
       {children}
     </section>
   )
 })
 
-/** The fold rows the inspector uses instead of collapsible sections: a single
- *  quiet line that says exactly what it is hiding. */
-const FoldRow = observer(function FoldRow({
-  open,
-  label,
-  onToggle,
+/** A section's right-hand text action ("View all"): text, not a button shape. */
+function SectionAction({
+  children,
+  onClick,
+  testId,
 }: {
-  open: boolean
-  label: string
-  onToggle: () => void
+  children: string
+  onClick: () => void
+  testId?: string
 }): JSX.Element {
   return (
     <button
       data-pressable
       type="button"
-      onClick={onToggle}
-      aria-expanded={open}
-      // Wholly mono: a fold summary counts things, and half a mono line was the
-      // one place this scroll changed voice mid-sentence.
-      className="w-full px-1 py-1.5 text-left font-mono text-[11px] leading-none text-text-dim hover:text-foreground"
+      data-testid={testId}
+      onClick={onClick}
+      className="text-text-dim transition-colors hover:text-foreground"
     >
-      <span className="mr-1">{open ? '⌄' : '›'}</span>
-      {label}
+      {children}
     </button>
   )
-})
+}
 
-/** One task row in Work / Relations — the unified row the rest of the shell uses:
- *  stage glyph, ref, title, state word. */
-const UnifiedRow = observer(function UnifiedRow({
-  sub,
-  meta,
-  needs = false,
-  errored = false,
+/** `#2042` — the short address a row wears at its right edge. The full ref
+ *  rides the row's tooltip. */
+function shortRef(issue: IssueViewModel): string {
+  const ref = issueDisplayRef(issue)
+  const n = /-(\d+)$/.exec(ref)?.[1]
+  return n ? `#${n}` : ref
+}
+
+function issueTitle(issue: IssueViewModel): string {
+  return 'authoredTitle' in issue ? (issue as PageIssue).authoredTitle : issue.title
+}
+
+/**
+ * One linked task: an optional type label in the left column (printed once
+ * per group), the status ring — which is also the row's status picker
+ * (POD-1271) — the title, and the short ref. A finished task reads one ink step
+ * down rather than struck through.
+ */
+const LinkRow = observer(function LinkRow({
+  issue,
+  label,
+  trailing,
+  trailingTone,
   onOpen,
   onStatusPick,
 }: {
-  sub: IssueViewModel
-  meta: string
-  /** The row's glyph is a status picker (POD-1271); the panel applies the pick. */
-  onStatusPick: (issue: IssueViewModel, value: string) => void
-  /** This row's work is stopped on the operator. The mark is the state word in
-   *  attention ink — the SAME mark the sidebar's row (UnifiedIssueRow) and the
-   *  Flight Deck's task line use, so one task never reads three ways in three
-   *  columns. No box, no rule, no icon: one amber voice per row. */
-  needs?: boolean
-  /** …and this row's agent stopped on an ERROR, which is the one thing on this
-   *  line that is not the system working as intended. Still a `needs` row — it
-   *  wants you the same way — but red, matching the sidebar row and the session
-   *  row that say the same thing about the same agent (POD-1601). */
-  errored?: boolean
+  issue: IssueViewModel
+  /** The group label column. `undefined` drops the column (subtask rows);
+   *  `''` keeps it empty, for every row of a group after its first. */
+  label?: string
+  /** Overrides the short ref, for a subtask that is waiting on someone. */
+  trailing?: string
+  trailingTone?: 'attention' | 'error'
   onOpen: (issue: IssueViewModel) => void
+  onStatusPick: (issue: IssueViewModel, value: string) => void
 }): JSX.Element {
-  const closed = isFinished(sub)
+  const closed = isFinished(issue) || issue.archived
+  const title = issueTitle(issue)
   return (
     <button
       data-pressable
       type="button"
-      onClick={() => onOpen(sub)}
-      data-needs-you={needs || undefined}
-      title={`${issueDisplayRef(sub)} ${'authoredTitle' in sub ? (sub as PageIssue).authoredTitle : sub.title}`}
-      className={cn(
-        DOCK_ROW,
-        'grid min-h-[30px] w-full grid-cols-[12px_minmax(0,1fr)_auto] items-center gap-2 border-b border-hairline-soft px-1 py-1 text-left text-foreground hover:bg-accent/40',
-        sub.archived && 'opacity-60',
-      )}
+      onClick={() => onOpen(issue)}
+      title={`${issueDisplayRef(issue)} ${title}${issue.archived ? ' · archived' : ''}`}
+      data-testid="dock-link-row"
+      className="flex h-[26px] w-full min-w-0 items-center gap-2 rounded-[5px] text-left text-[12.5px] hover:bg-accent/40"
     >
-      <IssueStatusPicker issue={sub} onPick={(value) => onStatusPick(sub, value)} />
-      <span className="min-w-0 truncate">
-        {/* The ref is an address, not part of the sentence — mono, and the
-            faintest ink on the row, so the title is what the eye lands on. */}
-        <span className="mr-1.5 font-mono text-[10px] text-text-faint" title={issueIdTitle(sub)}>
-          {issueDisplayRef(sub)}
-        </span>
-        <span
-          className={cn(
-            closed && 'text-muted-foreground line-through decoration-muted-foreground/40',
-          )}
-        >
-          {'authoredTitle' in sub ? (sub as PageIssue).authoredTitle : sub.title}
-        </span>
-        {sub.archived && (
-          <span className="ml-1.5 font-mono text-[10px] text-text-faint uppercase tracking-[0.04em]">
+      {label !== undefined && (
+        <span className="w-[78px] flex-none truncate text-[11px] text-text-faint">{label}</span>
+      )}
+      <IssueStatusPicker
+        issue={issue}
+        size={10}
+        calm
+        onPick={(value) => onStatusPick(issue, value)}
+      />
+      <span className={cn('min-w-0 flex-1 truncate', closed ? 'text-text-dim' : 'text-foreground')}>
+        {title}
+        {issue.archived && (
+          <span className="ml-1.5 font-mono text-[10px] tracking-[0.04em] text-text-faint uppercase">
             archived
           </span>
         )}
       </span>
       <span
         className={cn(
-          DOCK_STAMP,
-          'flex-none',
-          errored ? 'font-semibold text-destructive' : undefined,
-          needs && !errored ? 'font-semibold text-attention' : undefined,
-          !needs && 'text-text-faint',
+          'flex-none font-mono text-[10.5px]',
+          trailingTone === 'error'
+            ? 'font-semibold text-destructive'
+            : trailingTone === 'attention'
+              ? 'font-semibold text-attention'
+              : 'text-text-faint',
         )}
+        title={trailing ? undefined : issueIdTitle(issue)}
       >
-        {meta}
+        {trailing ?? shortRef(issue)}
       </span>
     </button>
   )
 })
 
 /**
- * ONE meter primitive, and it always sits with the list it counts (POD-516 r3
- * #4). It used to float under the current update measuring a subtree nobody had
- * on screen, which is how it came to say "0 of 1 done" about an issue with no
- * children — a number describing nothing visible.
- *
- * Segment vocabulary is the Flight Deck's mission bar, down to the doses: done
- * in `--success`, running in the working blue `--live`. A live count is never
- * amber — amber on this branch means "this is asking something of you" and
- * nothing else. Renders nothing at all when there is nothing to count, so an
- * empty list never grows a rule.
- *
- * THE TRACK IS A WELL, NOT A PILL (POD-725), and a segment is an EXTENT rather
- * than a filled bar: `--background` ground one tier below the column, a 26%
- * tint you would struggle to name the hue of, and the exact figure carried by a
- * solid 2px datum rule along that extent's floor. Same two devices, same
- * percentages, as `.gauge-band` — a saturated slab here and a well in the deck
- * would be two kinds of object saying one kind of thing. At 6px there is no
- * room for the gauge's inner padding or its reading, so the extents meet edge
- * to edge and the reading stays outside the track.
- */
-const ProgressMeter = observer(function ProgressMeter({
-  done,
-  run = 0,
-  total,
-  testId,
-}: {
-  done: number
-  run?: number
-  total: number
-  testId: string
-}): JSX.Element | null {
-  if (total === 0) return null
-  const pct = (n: number): string => `${(n / total) * 100}%`
-  return (
-    <div className="mb-2 flex items-center gap-2" data-testid={testId}>
-      <span className="flex h-1.5 flex-1 overflow-hidden rounded-[3px] bg-background shadow-[inset_0_1px_2px_var(--carve-drop)]">
-        <span
-          className="h-full bg-success/26 shadow-[inset_0_-2px_0_var(--success)] transition-[width] duration-300"
-          style={{ width: pct(done) }}
-        />
-        <span
-          className="h-full bg-live/26 shadow-[inset_0_-2px_0_var(--live)] transition-[width] duration-300"
-          style={{ width: pct(run) }}
-        />
-      </span>
-      <span className="shell-type-micro flex-none font-mono tabular-nums text-text-dim">
-        {done} of {total} done
-      </span>
-    </div>
-  )
-})
-
-/**
- * Where this task lives (POD-516 r3 #6). A branch and a worktree path are not
- * evidence and not a check — they are the address of the work, and filing them
- * under the old "Evidence & checks" heading is what made that section read as a
- * junk drawer. Reference information: compact, mono, and late in the scroll.
- */
-const CheckoutPart = observer(function CheckoutPart({
-  issue,
-}: {
-  issue: IssueViewModel
-}): JSX.Element | null {
-  // An issue with no dedicated worktree is worked in the repo's own checkout —
-  // that is still an address, and saying nothing there is what sent the
-  // operator hunting for the branch in the git panel.
-  const root = issue.worktreePath ?? issue.repoPath
-  if (!issue.gitState && !root) return null
-  return (
-    <DockPart title="Branch & worktree" testId="dock-checkout">
-      <IssueGitScope issue={issue} />
-      {root && (
-        <div className="flex items-center gap-1.5 px-1 py-1 font-mono text-[10.5px] leading-[1.6] text-muted-foreground">
-          <Folder size={12} className="flex-none" aria-hidden="true" />
-          <span className="min-w-0 truncate" title={root}>
-            {root}
-          </span>
-        </div>
-      )}
-    </DockPart>
-  )
-})
-
-/** The five most recent things that happened to this task — comments and
- *  lifecycle events interleaved chronologically, newest first, using the same
- *  owned history as the full issue timeline.
- *
- *  Comment bodies no longer ride IssueViewModel (#175): the thread is fetched lazily
- *  via the issues.comments proc, re-fetched whenever the issue's updatedAt
- *  moves. */
-const RecentActivity = observer(function RecentActivity({
-  issue,
-}: {
-  issue: IssueViewModel
-}): JSX.Element {
-  // Asks the shared history for the newest few lines only, never every page.
-  const activity = useIssueHistory(issue, RECENT_ACTIVITY_SIZE)?.activity
-  // Revision observes append-only owned state; the last-five read stays bounded.
-  void activity?.revision
-  const shown = activity?.history.items.slice(-RECENT_ACTIVITY_SIZE).reverse() ?? []
-  return (
-    <DockPart title="Recent activity" count={shown.length}>
-      <div className="flex flex-col gap-1.5" data-testid="dock-recent-activity">
-        {shown.length === 0 ? (
-          <Hint>Nothing has happened here yet.</Hint>
-        ) : (
-          shown.map((item) => (
-            <div
-              key={item.id}
-              className={cn(DOCK_ROW, 'flex items-start gap-2 px-1 py-1 text-muted-foreground')}
-            >
-              {item.kind === 'comment' ? (
-                <MessageSquare size={11} className="mt-1 flex-none text-text-faint" />
-              ) : (
-                <History size={11} className="mt-1 flex-none text-text-faint" />
-              )}
-              <span className="min-w-0 flex-1 whitespace-pre-wrap">
-                {item.kind === 'comment' ? item.body : item.line.text}
-              </span>
-              <span className={cn(DOCK_STAMP, 'mt-0.5 flex-none text-text-faint')}>
-                <IssueAge stamp={item.ts} />
-              </span>
-            </div>
-          ))
-        )}
-      </div>
-      {/* No "open full activity" button here any more: the one exit to the full
-          issue is the timeline link under the current update, where the operator
-          asked for it. Two links to the same destination in one scroll is the
-          same fact said twice. */}
-    </DockPart>
-  )
-})
-
-/**
- * The task head: the ref and the one control strip. Fixed above the scroll —
- * the artifact's `inspect-head`.
- *
- * This box is laid out before the single scroll and never shrinks, so its
- * height is the scroll's budget — and every clamp that used to defend that
- * budget was itself a complaint. The description still lives DOWN in the
- * scroll, where length is free; the TITLE is bounded here at two lines.
- *
- * The title came BACK here in POD-743. It moved to the dock title bar under
- * POD-516 because the bar was the panel's one header and had nothing else to
- * say; the bar now carries the explorer's trail, which is a position rather
- * than a name, so the name returns to the surface it names. It takes the dock's
- * own step up (`shell-type-reading`), not the task page's 18px subject step —
- * this is a column you live in, not a sheet you visit.
+ * The task head: the name (renameable in place, POD-1618), then the status
+ * pill with the subtask count beside it. "Open in Work" is the external-link
+ * mark in the dock's title bar, beside the dock's own close, so the head holds
+ * only what this task IS.
  */
 const InspectHead = observer(function InspectHead({
   issue,
   title,
   onRename,
   onOpenInWork,
+  subtasks,
 }: {
   issue: IssueViewModel
   /** What this task is CALLED — `issueDisplayTitle`, derived once by the panel
-   *  body, which already holds the session list it needs. Never `issue.title`
-   *  (POD-1618): a draft carries the composer's placeholder there, so this head
-   *  announced "Draft" for the very task the sidebar row was naming. */
+   *  body. Never `issue.title` (POD-1618): a draft carries the composer's
+   *  placeholder there. */
   title: string
-  /** Write a new name. The panel body owns the mutation for the same reason it
-   *  owns the title: one store subscription for the surface, not one per box. */
   onRename: (next: string) => void
-  /** Point the rest of the shell at this task. The ONE control on this surface
-   *  that moves the app: the explorer syncs INWARD, so browsing a stranger's
-   *  task must never drag the deck along with it, and the operator who does
-   *  want to go there needs one obvious way to say so. */
+  /** Point the rest of the shell at this task. The panel syncs INWARD, so
+   *  looking at a task must never drag the deck along; this is the one way to. */
   onOpenInWork?: () => void
+  subtasks?: ReactNode
 }): JSX.Element {
-  // RENAMEABLE HERE (POD-1618). The name was readonly on the one surface whose
-  // whole job is judging a task and acting on it: the sidebar row could be
-  // renamed by double-click or by its menu, and the panel showing the same task
-  // offered neither. Same hook, same commit policy, so the two cannot disagree
-  // about what a blur does — and renaming a draft is also what promotes it
-  // (the server clears the draft flag on the first real title).
   const rename = useInlineRename(title, onRename)
   const renameEditor = inlineRenameEditor(rename, ({ value, onCommit, onCancel }) => (
     <SessionNameEditor
       value={value}
       onCommit={onCommit}
       onCancel={onCancel}
-      // The head's own type, not the editor's 12px row default: the field
-      // stands exactly where the name was, so it has to be the same size as it.
-      className="shell-type-reading w-full min-w-0 rounded-sm border border-primary/60 bg-background px-1 py-0 font-semibold text-secondary-foreground outline-none"
+      className="w-full min-w-0 rounded-sm border border-primary/60 bg-background px-1 py-0 text-[17px] leading-[22px] font-semibold tracking-[-0.015em] text-text-strong outline-none"
     />
   ))
   return (
-    // 8 / 6 / 10 / 14 / 14 (POD-1457). Tight where things belong together —
-    // the crossing, the name and the state chips are one group — and the
-    // design's section interval, twice, around the launch box, which is the
-    // only object in the head with equal air on both sides. That is what makes
-    // it read as an instrument rather than as one more chip.
-    <header className="flex-none px-3.5 pt-2 pb-3.5" data-testid="dock-inspect-head">
-      {/* THE CROSSING, NAMED AFTER WHERE IT GOES (POD-1457).
-          It was `Work on this` — a chip in the control strip, filled or
-          outlined depending on what else had resolved, sitting one gap from
-          `Start work`. Two adjacent controls both promising to begin the work,
-          and the operator had to know that only one of them did.
-
-          So it is a LINK, in the head's chrome line, above the name: the tier
-          the trail is on, which is where "where am I / where can I go" already
-          lives, and two tiers away from anything yellow. And it is named for
-          its destination — the toolbar calls that view Work — because a
-          destination link that borrows the destination's own word cannot be
-          read as an intent.
-
-          The line it stands on is the one the POD-#### eyebrow used to hold.
-          That eyebrow printed the ref about twenty pixels under the trail,
-          which prints the same ref: the head opened by saying the same thing
-          twice in the same mono grey. Copying the ref lives on in the overflow
-          menu; the crossing gets the line. */}
-      <div className="flex h-4 items-center justify-end">
-        {onOpenInWork && (
-          <button
-            data-pressable
-            type="button"
+    <header className="flex flex-col gap-2.5" data-testid="dock-inspect-head">
+      {onOpenInWork && (
+        <DockHeaderActions>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="size-7 flex-none text-text-dim"
             data-testid="task-open-in-work"
-            className="inline-flex cursor-pointer items-center gap-1 text-[11px] leading-none text-text-dim transition-colors hover:text-foreground"
             title="Open this task in the Work view"
+            aria-label="Open in Work"
             onClick={onOpenInWork}
           >
-            Open in Work
-            <ArrowUpRight size={12} aria-hidden="true" />
-          </button>
-        )}
-      </div>
-      {renameEditor ? (
-        <div className="mt-1.5">{renameEditor}</div>
-      ) : (
+            <ExternalLink size={14} aria-hidden="true" />
+          </Button>
+        </DockHeaderActions>
+      )}
+      {renameEditor ?? (
         <h2
-          className="shell-type-reading mt-1.5 line-clamp-2 cursor-text font-semibold text-secondary-foreground"
+          className="line-clamp-3 cursor-text text-[17px] leading-[22px] font-semibold tracking-[-0.015em] text-text-strong"
           title={title}
           data-testid="dock-title"
           onDoubleClick={() => rename.begin()}
@@ -504,29 +250,60 @@ const InspectHead = observer(function InspectHead({
           {title}
         </h2>
       )}
-      <IssueCompactControls issue={issue} onRename={rename.begin} />
+      <IssueCompactControls issue={issue} onRename={rename.begin} meta={subtasks} />
     </header>
   )
 })
 
+/** Comment authors that are the system talking rather than a person. */
+function machineAuthor(author: string): boolean {
+  return (
+    author === 'steward' ||
+    author === 'agent' ||
+    author === 'coordinator' ||
+    /^(system|issue|session|agent):/.test(author)
+  )
+}
+
+function authorName(author: string): string {
+  if (author === 'me') return 'You'
+  if (author.startsWith('system:')) return 'System'
+  if (author.startsWith('issue:')) return `Task ${author.slice('issue:'.length)}`
+  if (author.startsWith('agent:') || author.startsWith('session:')) return 'Agent'
+  return author.charAt(0).toUpperCase() + author.slice(1)
+}
+
+function initials(name: string): string {
+  const words = name.trim().split(/\s+/).filter(Boolean)
+  const [first = '', second = ''] = words
+  const letters = second ? `${first.charAt(0)}${second.charAt(0)}` : first.charAt(0)
+  return letters.toUpperCase()
+}
+
+/** How many comments the column shows before folding the older ones. */
+const COMMENTS_SHOWN = 3
+
 /**
- * Post an update without leaving the panel (POD-743).
+ * The thread, oldest first, then the field to add to it. Comment bodies are
+ * read through the shared issue history (window 0: comments and mail only, no
+ * event pages), the same fetch the old activity list made.
  *
- * Pinned to the foot rather than placed in the scroll, for the same reason the
- * task page pins its own: commenting is something you decide to do, not
- * something you scroll to find. Pinning it is also what freed the sections
- * above to be ordered by how fast their facts move, instead of by how badly the
- * composer needed to be near the top.
- *
- * RECEDES UNTIL USED (POD-635), like the page's composer: at rest a flat
- * one-line well with no edge of its own; the enclosure arrives on focus.
+ * The field recedes until used (POD-635): a one-line well at rest; Post and the
+ * chord arrive on focus.
  */
-const DockCommentComposer = observer(function DockCommentComposer({
+const CommentsPart = observer(function CommentsPart({
   issue,
 }: {
   issue: IssueViewModel
 }): JSX.Element {
   const trpc = useRuntimeSelector((s) => s.trpc)
+  const history = useIssueHistory(issue, 0)
+  const activity = history?.activity
+  void activity?.revision
+  const comments = (activity?.history.items ?? []).flatMap((item) =>
+    item.kind === 'comment' ? [item] : [],
+  )
+  const [showAll, setShowAll] = useState(false)
   const [body, setBody] = useState('')
   const [busy, setBusy] = useState(false)
   const [focused, setFocused] = useState(false)
@@ -534,8 +311,11 @@ const DockCommentComposer = observer(function DockCommentComposer({
   useEffect(() => {
     setBody('')
     setFocused(false)
+    setShowAll(false)
   }, [issue.id])
   const active = focused || body.trim().length > 0
+  const shown = showAll ? comments : comments.slice(-COMMENTS_SHOWN)
+  const hidden = comments.length - shown.length
   const post = (): void => {
     const text = body.trim()
     if (!text || busy) return
@@ -549,58 +329,178 @@ const DockCommentComposer = observer(function DockCommentComposer({
       .finally(() => setBusy(false))
   }
   return (
-    <div className="flex-none border-border/35 border-t bg-card/15 px-3 py-2">
-      <Textarea
-        value={body}
-        disabled={busy}
-        placeholder={`Comment on ${issueDisplayRef(issue)}…`}
-        aria-label={`Comment on ${issueDisplayRef(issue)}`}
-        data-testid="dock-comment"
-        className={cn(
-          'resize-none rounded-[9px] text-[12px]',
-          'transition-[min-height,border-color,background-color] duration-150',
-          active
-            ? 'min-h-[58px]'
-            : 'min-h-[30px] border-transparent bg-input/20 hover:border-border/60 dark:bg-input/20',
+    <PanelSection
+      title="Comments"
+      count={comments.length}
+      testId="dock-comments"
+      className="gap-2.5"
+      action={
+        hidden > 0 ? (
+          <SectionAction onClick={() => setShowAll(true)}>{`Show ${hidden} earlier`}</SectionAction>
+        ) : undefined
+      }
+    >
+      {shown.map((comment) => {
+        const machine = machineAuthor(comment.author)
+        const name = authorName(comment.author)
+        return (
+          <div key={comment.id} className="flex gap-[9px]" data-testid="dock-comment-row">
+            <span
+              className={cn(
+                'flex size-[22px] flex-none items-center justify-center rounded-full text-[10px] font-semibold',
+                machine ? 'bg-live/15 text-live' : 'bg-muted text-muted-foreground',
+              )}
+              aria-hidden="true"
+            >
+              {machine ? <Bot size={11} /> : initials(name)}
+            </span>
+            <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+              <div className="flex gap-1.5 text-[11.5px]">
+                <span className="font-semibold text-foreground">{name}</span>
+                <span className="text-text-faint">
+                  <IssueAge stamp={comment.ts} />
+                </span>
+              </div>
+              <ClampedText
+                text={comment.body}
+                className="text-foreground"
+                testId="dock-comment-body"
+              />
+            </div>
+          </div>
+        )
+      })}
+      <div>
+        <Textarea
+          value={body}
+          disabled={busy}
+          placeholder="Add a comment…"
+          aria-label={`Comment on ${issueDisplayRef(issue)}`}
+          data-testid="dock-comment"
+          className={cn(
+            'resize-none rounded-[8px] border-border bg-card px-3 py-2 text-[12.5px] dark:bg-card',
+            'transition-[min-height] duration-150 ease-out',
+            active ? 'min-h-[64px]' : 'min-h-9',
+          )}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
+          onChange={(e) => setBody(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+              e.preventDefault()
+              post()
+            }
+          }}
+        />
+        {active && (
+          <div className="mt-1.5 flex items-center justify-end gap-2">
+            <span className="font-mono text-[10.5px] text-text-faint">{modChord('↵')}</span>
+            <Button type="button" size="sm" disabled={busy || !body.trim()} onClick={post}>
+              {busy ? 'Posting…' : 'Post'}
+            </Button>
+          </div>
         )}
-        onFocus={() => setFocused(true)}
-        onBlur={() => setFocused(false)}
-        onChange={(e) => setBody(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-            e.preventDefault()
-            post()
-          }
-        }}
-      />
-      {active && (
-        <div className="mt-1.5 flex items-center justify-end gap-2">
-          <span className="font-mono shell-type-micro text-text-faint">{modChord('↵')}</span>
-          <Button type="button" size="sm" disabled={busy || !body.trim()} onClick={post}>
-            {busy ? 'Posting…' : 'Post'}
-          </Button>
-        </div>
-      )}
-    </div>
+      </div>
+    </PanelSection>
   )
 })
 
-/** What the work produced, and what it parked — artifacts, then deferred notes,
- *  each under its own plain heading.
+/** "Work continued in SYN-24": a quiet line that opens the task it names. */
+function ContinuationLine({
+  text,
+  target,
+  onOpen,
+}: {
+  text: string
+  target: IssueViewModel | null
+  onOpen: (issue: IssueViewModel) => void
+}): JSX.Element {
+  const body = (
+    <>
+      <ArrowRight size={12} className="flex-none text-text-faint" aria-hidden="true" />
+      {text}
+    </>
+  )
+  return target ? (
+    <button
+      data-pressable
+      type="button"
+      data-testid="dock-continuation"
+      onClick={() => onOpen(target)}
+      className="-mt-2 flex w-fit items-center gap-1.5 text-left text-[12px] text-text-dim transition-colors hover:text-foreground"
+    >
+      {body}
+    </button>
+  ) : (
+    <p
+      data-testid="dock-continuation"
+      className="-mt-2 flex items-center gap-1.5 text-[12px] text-text-dim"
+    >
+      {body}
+    </p>
+  )
+}
+
+/**
+ * Text clamped to four lines with an ellipsis (fidelity review P2-4). The full
+ * text rides the tooltip, and a click unfolds it in place. `pre-line` keeps
+ * the author's line breaks. Comments and the latest update both use it.
+ */
+function ClampedText({
+  text,
+  className,
+  testId,
+}: {
+  text: string
+  className: string
+  testId: string
+}): JSX.Element {
+  const [open, setOpen] = useState(false)
+  return (
+    // biome-ignore lint/a11y/useKeyWithClickEvents: a reading convenience; the full text is in the title
+    // biome-ignore lint/a11y/noNoninteractiveElementInteractions: same
+    <p
+      className={cn(
+        'text-[12.5px] leading-[18px] whitespace-pre-line break-words',
+        className,
+        !open && 'line-clamp-4 cursor-pointer',
+      )}
+      title={open ? undefined : text}
+      data-testid={testId}
+      onClick={() => setOpen(true)}
+    >
+      {text}
+    </p>
+  )
+}
+
+/** `10-11` — the artifact list's date column, month and day. */
+function shortDate(stamp: string): string {
+  const d = new Date(stamp)
+  if (Number.isNaN(d.getTime())) return ''
+  return `${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+/** How many non-preview artifacts the column lists before "View all". */
+const ARTIFACT_ROWS = 3
+
+/**
+ * What the work produced: two previews side by side, then a short list of the
+ * rest, newest first. "View all" opens the Artifacts stage tab when the host
+ * supplies `onViewAll`; without it the list unfolds in place, so no artifact is
+ * ever out of reach from this column.
  *
- *  This used to be one "Evidence & checks" heading over three lists. Two of
- *  them have since left: the branch and worktree are an address rather than a
- *  verification result and moved to {@link CheckoutPart}, and the todo
- *  checklist is gone from the dock entirely (POD-1071) — the operator read the
- *  section as a junk drawer, and an agent's private plan is not something the
- *  human is meant to tick off here. The full issue page still lists todos for
- *  anyone who wants them. What is left is named for what it is. */
-const ProducedAndDeferred = observer(function ProducedAndDeferred({
+ * Deferred notes follow under their own heading — the operator decides on
+ * those, so they stay in the panel, but only when there are any.
+ */
+const ArtifactsPart = observer(function ArtifactsPart({
   issue,
   machineId,
+  onViewAll,
 }: {
   issue: IssueViewModel
   machineId?: MachineId
+  onViewAll?: () => void
 }): JSX.Element | null {
   const { httpOrigin, openFileInWorktree, openArtifact } = useRuntimeSelector(
     (s) => ({
@@ -611,186 +511,271 @@ const ProducedAndDeferred = observer(function ProducedAndDeferred({
     shallowEqual,
   )
   const panel = issue.panel
-  const artifacts = panel?.artifacts ?? []
+  const all = panel?.artifacts ?? []
+  // Files people attached in the issue's chats (POD-2148) are kept for the
+  // chat's thumbnails, not published: they sit under their own folded heading
+  // so they never crowd out what the agent put up for review.
+  const artifacts = all.filter((a) => a.chatUploadId === undefined)
+  const chatUploads = all.filter((a) => a.chatUploadId !== undefined)
   const deferred = panel?.deferred ?? []
   // An issue with no dedicated worktree is worked in the repo's primary
-  // checkout — serve its artifacts from there instead of rendering every
-  // artifact as a dead disabled button.
+  // checkout — serve its artifacts from there.
   const root = issue.worktreePath ?? issue.repoPath
-  // Media artifact opened full-size (click a preview; Esc / click-out closes).
-  const [lightbox, setLightbox] = useState<{
-    kind: 'image' | 'video'
-    src: string
-    label: string
-  } | null>(null)
+  const [lightbox, setLightbox] = useState<string | null>(null)
+  const [expanded, setExpanded] = useState(false)
+  const [uploadsOpen, setUploadsOpen] = useState(false)
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reset only on issue switch
+  useEffect(() => {
+    setExpanded(false)
+    setUploadsOpen(false)
+  }, [issue.id])
 
-  // "Only when the issue actually has them" — an empty heading is chrome, and
-  // the artifact does not render one.
-  if (artifacts.length === 0 && deferred.length === 0) return null
+  const tipAnchor = useFirstArtifactAnchor('panel', artifacts.length > 0 ? issue.id : undefined)
+
+  if (all.length === 0 && deferred.length === 0) return null
+
+  const srcOf = (a: IssuePanelArtifact): string | null =>
+    // Snapshotted artifacts ([spec:SP-0fc9]) serve from the permanent store;
+    // legacy path-only entries need the live worktree root.
+    artifactUrl({
+      httpOrigin,
+      workspace: currentWorkspaceSlug(),
+      issueId: issue.id,
+      artifact: a,
+      root,
+      machineId,
+    }) ?? null
+  const kindOf = (a: IssuePanelArtifact) => artifactKind(a.entry ?? a.path)
+  const newest = [...artifacts].reverse()
+  const media = newest.filter((a) => {
+    const kind = kindOf(a)
+    return (kind === 'image' || kind === 'video') && srcOf(a)
+  })
+  const previews = media.slice(0, 2)
+  const rest = newest.filter((a) => !previews.includes(a))
+  const listed = expanded ? rest : rest.filter((a) => !media.includes(a)).slice(0, ARTIFACT_ROWS)
+  const more = artifacts.length > previews.length + listed.length
+
+  const open = (a: IssuePanelArtifact): void => {
+    const kind = kindOf(a)
+    if ((kind === 'image' || kind === 'video') && srcOf(a)) {
+      setLightbox(artifactLightboxKey(a))
+      return
+    }
+    // Snapshotted artifacts open their stored bytes as an artifact-scoped file
+    // tab; only legacy path-only entries open as live worktree file tabs.
+    if (a.artifactId) {
+      openArtifact({
+        issueId: issue.id,
+        artifactId: a.artifactId,
+        path: a.entry ?? basename(a.path),
+        ...(root ? { worktreePath: root } : {}),
+      })
+    } else if (root) {
+      // Artifact paths may be worktree-relative; file tabs need absolute.
+      // Owned by this issue (POD-149) so the tab stays in its strip.
+      openFileInWorktree({
+        machineId,
+        root,
+        path: resolveMachinePath(root, a.path),
+        issueId: issue.id,
+      })
+    }
+  }
+
+  const artifactRow = (
+    a: IssuePanelArtifact,
+    testId: string,
+    anchor?: FirstArtifactAnchorProps,
+  ): JSX.Element => {
+    const kind = kindOf(a)
+    const Icon = kind === 'image' ? ImageIcon : kind === 'video' ? Film : FileText
+    return (
+      <button
+        key={a.path}
+        data-pressable
+        type="button"
+        data-testid={testId}
+        {...anchor}
+        disabled={!root && !a.artifactId}
+        onClick={() => open(a)}
+        title={a.path}
+        className="flex h-[30px] w-full min-w-0 items-center gap-2 rounded-[5px] text-left text-[12.5px] text-foreground hover:bg-accent/40 disabled:opacity-50"
+      >
+        <Icon size={13} className="flex-none text-text-faint" aria-hidden="true" />
+        <span className="min-w-0 flex-1 truncate">{a.title ?? basename(a.path)}</span>
+        <span className="flex-none font-mono text-[10.5px] text-text-faint">
+          {shortDate(a.addedAt)}
+        </span>
+      </button>
+    )
+  }
 
   return (
     <>
       {artifacts.length > 0 && (
-        <DockPart title="Artifacts" count={artifacts.length} testId="dock-artifacts">
-          <div className="mb-2 flex flex-col gap-2.5">
-            {artifacts.map((a) => {
-              const kind = artifactKind(a.entry ?? a.path)
-              const label = a.title ?? basename(a.path)
-              // Snapshotted artifacts ([spec:SP-0fc9]) serve from the permanent
-              // store; legacy path-only entries need the live worktree root.
-              const src = artifactUrl({
-                httpOrigin,
-                workspace: currentWorkspaceSlug(),
-                issueId: issue.id,
-                artifact: a,
-                root,
-                machineId,
-              })
-              if (src && kind === 'image') {
+        <PanelSection
+          title="Artifacts"
+          count={artifacts.length}
+          testId="dock-artifacts"
+          action={
+            onViewAll ? (
+              <SectionAction onClick={onViewAll} testId="dock-artifacts-view-all">
+                View all
+              </SectionAction>
+            ) : more || expanded ? (
+              <SectionAction
+                onClick={() => setExpanded((v) => !v)}
+                testId="dock-artifacts-view-all"
+              >
+                {expanded ? 'Show fewer' : 'View all'}
+              </SectionAction>
+            ) : undefined
+          }
+        >
+          {previews.length > 0 && (
+            <div className="grid grid-cols-2 gap-2">
+              {previews.map((a, i) => {
+                const label = a.title ?? basename(a.path)
+                const src = srcOf(a) ?? undefined
+                const video = kindOf(a) === 'video'
                 return (
-                  <figure key={a.path}>
+                  <figure key={a.path} className="flex min-w-0 flex-col gap-1.5">
                     <button
                       data-pressable
                       type="button"
-                      className="block w-full cursor-zoom-in"
-                      title={`View ${label} full size`}
-                      onClick={() => setLightbox({ kind: 'image', src, label })}
+                      {...(i === 0 ? tipAnchor : undefined)}
+                      className="group relative block aspect-[4/3] w-full cursor-zoom-in overflow-hidden rounded-[7px] border border-border bg-muted"
+                      title={video ? `Play ${label}` : `View ${label} full size`}
+                      onClick={() => open(a)}
                     >
-                      <img
-                        src={src}
-                        alt={label}
-                        className="max-w-full rounded-md border border-border shadow-sm"
-                      />
+                      {video ? (
+                        <>
+                          <video
+                            src={src}
+                            preload="metadata"
+                            muted
+                            className="pointer-events-none size-full object-cover object-top"
+                          />
+                          <span className="absolute inset-0 flex items-center justify-center">
+                            <span className="flex size-8 items-center justify-center rounded-full bg-black/55 text-white transition-colors group-hover:bg-black/75">
+                              <Play size={14} aria-hidden="true" className="translate-x-px" />
+                            </span>
+                          </span>
+                        </>
+                      ) : (
+                        <img
+                          src={src}
+                          alt={label}
+                          loading="lazy"
+                          decoding="async"
+                          className="size-full object-cover object-top"
+                        />
+                      )}
                     </button>
-                    <figcaption className="shell-type-micro mt-1 text-muted-foreground">
+                    <figcaption className="truncate text-[11.5px] text-muted-foreground">
                       {label}
                     </figcaption>
                   </figure>
                 )
-              }
-              if (src && kind === 'video') {
-                return (
-                  <figure key={a.path}>
-                    {/* Inline preview only (first frame + play glyph); clicking
-                      opens the lightbox, where the video plays with controls. */}
-                    <button
-                      data-pressable
-                      type="button"
-                      className="group relative block w-full cursor-zoom-in"
-                      title={`Play ${label}`}
-                      onClick={() => setLightbox({ kind: 'video', src, label })}
-                    >
-                      <video
-                        src={src}
-                        preload="metadata"
-                        muted
-                        className="pointer-events-none max-w-full rounded-md border border-border shadow-sm"
-                      />
-                      <span className="absolute inset-0 flex items-center justify-center">
-                        <span className="flex size-9 items-center justify-center rounded-full bg-black/55 text-white transition-colors group-hover:bg-black/75">
-                          <Play size={16} aria-hidden="true" className="translate-x-px" />
-                        </span>
-                      </span>
-                    </button>
-                    <figcaption className="shell-type-micro mt-1 text-muted-foreground">
-                      {label}
-                    </figcaption>
-                  </figure>
-                )
-              }
-              return (
-                <Button
-                  key={a.path}
-                  variant="ghost"
-                  size="sm"
-                  className="h-auto w-full justify-start gap-2 rounded-md px-1 py-1.5 text-left font-normal hover:bg-accent/60"
-                  disabled={!root && !a.artifactId}
-                  onClick={() => {
-                    // Snapshotted artifacts ([spec:SP-0fc9]) open their stored bytes
-                    // as an in-app artifact-scoped file tab — the source file may be
-                    // gone, and openFileInWorktree re-homes the dock's Issue panel to
-                    // root's containing workspace (#441). Only legacy path-only
-                    // entries open as live worktree file tabs.
-                    if (a.artifactId) {
-                      openArtifact({
-                        issueId: issue.id,
-                        artifactId: a.artifactId,
-                        path: a.entry ?? basename(a.path),
-                        ...(root ? { worktreePath: root } : {}),
-                      })
-                    } else if (root) {
-                      // Artifact paths may be worktree-relative; file tabs need absolute.
-                      // Owned by this issue (POD-149) so the tab stays in its strip.
-                      openFileInWorktree({
-                        machineId,
-                        root,
-                        path: resolveMachinePath(root, a.path),
-                        issueId: issue.id,
-                      })
-                    }
-                  }}
-                >
-                  <FileText size={14} className="flex-none text-blue-300" />
-                  <span
-                    className={cn(
-                      DOCK_ROW,
-                      'min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap',
-                    )}
-                  >
-                    {label}
-                  </span>
-                  <span className={cn(DOCK_STAMP, 'flex-none text-text-faint')}>
-                    {basename(a.path)}
-                  </span>
-                </Button>
-              )
-            })}
-          </div>
-        </DockPart>
+              })}
+            </div>
+          )}
+          {listed.length > 0 && (
+            <div className="flex flex-col">
+              {listed.map((a, i) =>
+                artifactRow(
+                  a,
+                  'dock-artifact-row',
+                  i === 0 && previews.length === 0 ? tipAnchor : undefined,
+                ),
+              )}
+            </div>
+          )}
+        </PanelSection>
+      )}
+
+      {chatUploads.length > 0 && (
+        <PanelSection
+          title="Chat uploads"
+          count={chatUploads.length}
+          testId="dock-chat-uploads"
+          action={
+            <SectionAction
+              onClick={() => setUploadsOpen((v) => !v)}
+              testId="dock-chat-uploads-toggle"
+            >
+              {uploadsOpen ? 'Hide' : 'Show'}
+            </SectionAction>
+          }
+        >
+          {uploadsOpen && (
+            <div className="flex flex-col">
+              {[...chatUploads].reverse().map((a) => artifactRow(a, 'dock-chat-upload-row'))}
+            </div>
+          )}
+        </PanelSection>
       )}
 
       {deferred.length > 0 && (
-        <DockPart title="Deferred" count={deferred.length} testId="dock-deferred">
-          <div className="mb-2 flex flex-col gap-1">
+        <PanelSection title="Deferred" count={deferred.length} testId="dock-deferred">
+          <div className="flex flex-col gap-1">
             {deferred.map((d) => (
               <div
                 key={`${d.addedAt}:${d.text}`}
-                className={cn(
-                  DOCK_BODY,
-                  'flex items-baseline gap-2 px-1 py-0.5 text-foreground/80',
-                )}
+                className="flex items-baseline gap-2 text-[12.5px] leading-[18px] text-foreground"
               >
                 {/* A deferred note is a parked idea, not an obligation — amber
-                  would claim it needs the operator now. */}
+                    would claim it needs the operator now. */}
                 <span className="size-1 flex-none translate-y-[-2px] rounded-full bg-text-faint" />
                 <span className="min-w-0 flex-1">{d.text}</span>
-                <span className={cn(DOCK_STAMP, 'flex-none text-text-faint')}>
-                  {new Date(d.addedAt).toLocaleDateString()}
+                <span className="flex-none font-mono text-[10.5px] text-text-faint">
+                  {shortDate(d.addedAt)}
                 </span>
               </div>
             ))}
           </div>
-        </DockPart>
+        </PanelSection>
       )}
 
-      {lightbox && <MediaLightbox {...lightbox} onClose={() => setLightbox(null)} />}
+      {lightbox && (
+        <ArtifactLightbox
+          // Browse within the group the opened file belongs to.
+          artifacts={
+            chatUploads.some((a) => artifactLightboxKey(a) === lightbox) ? chatUploads : artifacts
+          }
+          selected={lightbox}
+          onSelect={setLightbox}
+          onClose={() => setLightbox(null)}
+          httpOrigin={httpOrigin}
+          issueId={issue.id}
+          root={root}
+          machineId={machineId}
+        />
+      )}
     </>
   )
 })
 
+/** What the task panel says when it has no task to show. */
+export function IssuePanelEmpty(): JSX.Element {
+  return (
+    <div
+      className="flex min-h-0 flex-1 flex-col items-center justify-center gap-1.5 px-8 pb-16 text-center"
+      data-testid="dock-issue-empty"
+    >
+      <CircleDot size={20} strokeWidth={1.6} className="mb-1 text-text-faint" aria-hidden="true" />
+      <p className="text-[13px] font-medium text-text-strong">No task selected</p>
+      <p className="text-[12px] leading-[1.5] text-pretty text-muted-foreground">
+        Pick a task in the sidebar or the Flight Deck and its details show up here.
+      </p>
+    </div>
+  )
+}
+
 /**
- * Issue tab of the right dock: the approved task inspector. A two-row fixed
- * head (ref, controls), the decision band when the issue needs you, and then
- * ONE scroll — the description, then current update, subtasks, agents &
- * sessions, relations, artifacts, branch & worktree, activity. No collapsible
- * section chrome and no nested per-subissue tier: the whole task reads top to
- * bottom.
- *
- * The scroll is ordered by how fast the fact moves. What the task IS (its
- * description) never changes; what it is DOING right now changes by the minute;
- * where it lives changes once; what happened is already over. Reading down the
- * panel is therefore reading forward in time, which is why the history sits
- * last and the address sits just above it.
+ * Issue tab of the right dock: the task panel. One scroll — head, description,
+ * the latest update (clamped), artifacts, relations, comments.
  */
 import { PoolIssuePanelView } from './pool-issue-page'
 
@@ -801,11 +786,12 @@ export const IssuePanelView = observer(function IssuePanelView(
 })
 
 export const IssuePanelBody = observer(function IssuePanelBody({
-  cwd,
+  cwd: _cwd,
   machineId,
-  sessionId,
-  issueId,
+  sessionId: _sessionId,
+  issueId: _issueId,
   onNavigate,
+  onViewAllArtifacts,
 }: {
   cwd: string
   machineId?: MachineId
@@ -814,171 +800,127 @@ export const IssuePanelBody = observer(function IssuePanelBody({
    *  session attachment and cwd containment. */
   issueId?: IssueId
   /**
-   * Where a linked task goes when it is clicked (POD-743).
-   *
-   * Inside the explorer this PUSHES a level — the operator is browsing, and a
-   * relation row that silently re-pointed the workspace at another task would
-   * be a navigation the trail cannot show or undo. Without it a linked row
-   * moves the shell instead, because there is no trail to walk back along.
+   * Where a linked task goes when it is clicked. In the dock this points the
+   * panel at it and leaves the shell alone; without it a linked row moves the
+   * shell instead.
    */
   onNavigate?: (issueId: IssueId) => void
+  /** Open the Artifacts stage tab for an issue (POD-2078). Absent, "View all"
+   *  opens it through the shared opener. */
+  onViewAllArtifacts?: (issueId: IssueId) => void
 }): JSX.Element {
   const page = useIssuePageContext()!
   const detail = page.views.row(page.issue.id)
-  const {
-    trpc,
-    updateIssue,
-    setPane,
-    setView,
-    setSelectedIssueId,
-    markIssueRead,
-    markSessionRead,
-  } = useRuntimeSelector(
-    (s) => ({
-      trpc: s.trpc,
-      updateIssue: s.updateIssue,
-      setPane: s.setPane,
-      setView: s.setView,
-      setSelectedIssueId: s.setSelectedIssueId,
-      markIssueRead: s.markIssueRead,
-      markSessionRead: s.markSessionRead,
-    }),
-    shallowEqual,
-  )
+  const { updateIssue, setPane, setView, setSelectedIssueId, markIssueRead, markSessionRead } =
+    useRuntimeSelector(
+      (s) => ({
+        updateIssue: s.updateIssue,
+        setPane: s.setPane,
+        setView: s.setView,
+        setSelectedIssueId: s.setSelectedIssueId,
+        markIssueRead: s.markIssueRead,
+        markSessionRead: s.markSessionRead,
+      }),
+      shallowEqual,
+    )
   const resolve = useIssueEdgeResolver()
+  const openArtifactsTab = useOpenArtifactsTab()
   // Every task row in this column carries its own status door (POD-1271); the
   // apply and its close guard are shared by all of them, once, here.
   const rowStatus = useIssueStatusApply()
   const { setFocusedIssueId } = useOperatorFocus()
   const issue = page.issue
-  // WHAT THIS TASK COST. Read here rather than inside the section so the hook
-  // sits above this component's own early return for an unresolvable id — and
-  // so the section stays a pure render of a view, which is what lets the task
-  // detail page reuse it against its own feed.
-  const { view: costView } = useTaskCost(trpc, issue?.id ?? null)
-
-  // DIRECT children only — the artifact's Subtasks section is one tier deep
-  // with a completed fold, not a flattened recursive subtree. The meter counts
-  // exactly this list and nothing else (POD-516 r3 #4): it used to walk the
-  // whole subtree AND count the issue itself, which is how a childless task
-  // came to wear a progress bar reading "0 of 1 done".
-  const [showCompleted, setShowCompleted] = useState(false)
-  const [showRetired, setShowRetired] = useState(false)
+  const [showSubtasks, setShowSubtasks] = useState(false)
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reset only on issue switch
+  useEffect(() => setShowSubtasks(false), [issue?.id])
 
   /**
-   * Move the SHELL to a task (POD-1151).
-   *
-   * Setting focus alone — all this used to do — arrives nowhere: the sidebar
-   * highlights `selectedIssueId`, a mission ROOT, and `resolveFocus` discards a
-   * focus naming a task that mission does not contain. Both halves now, as a
-   * sidebar row click and the deck's `openDeparture` do: SELECT the top-level
-   * issue the task hangs from (itself when it already is one), then FOCUS the
-   * task within it.
+   * Move the SHELL to a task (POD-1151): SELECT the top-level issue the task
+   * hangs from, then FOCUS the task within it, and put its agent on screen.
    */
-  const showInDeck = useCallback((target: IssueViewModel): void => {
-    const root = page.views.destination(target.id)
-    if (!root || typeof root === 'symbol') return
-    const resolved = page.views.row(target.id).dockActiveSessions
-    if (!resolved || typeof resolved === 'symbol') return
-    setSelectedIssueId(root.id)
-    setFocusedIssueId(target.id)
-    void markIssueRead(target.id)
-    const targetSession =
-      resolved.find((session) => session.sessionId === target.coordinatorSessionId) ??
-      resolved.reduce<(typeof resolved)[number] | undefined>(
-        (latest, session) =>
-          !latest || session.lastActiveAt > latest.lastActiveAt ? session : latest,
-        undefined,
-      )
-    if (targetSession) {
-      setPane('A', targetSession.sessionId)
-      void markSessionRead(targetSession.sessionId)
-    }
-    setView('workspace')
-  }, [page.views, setSelectedIssueId, setFocusedIssueId, markIssueRead, setPane, markSessionRead, setView])
-
-  /** What a linked task row does: browse deeper in the explorer, or — with no
-   *  trail to browse in — move the shell as it always did. */
-  const openLinked = useCallback((target: IssueViewModel): void => {
-    if (onNavigate) {
+  const showInDeck = useCallback(
+    (target: IssueViewModel): void => {
+      const root = page.views.destination(target.id)
+      if (!root || typeof root === 'symbol') return
+      const resolved = page.views.row(target.id).dockActiveSessions
+      if (!resolved || typeof resolved === 'symbol') return
+      setSelectedIssueId(root.id)
+      setFocusedIssueId(target.id)
       void markIssueRead(target.id)
-      onNavigate(target.id)
-      return
-    }
-    showInDeck(target)
-  }, [onNavigate, markIssueRead, showInDeck])
+      const targetSession =
+        resolved.find((session) => session.sessionId === target.coordinatorSessionId) ??
+        resolved.reduce<(typeof resolved)[number] | undefined>(
+          (latest, session) =>
+            !latest || session.lastActiveAt > latest.lastActiveAt ? session : latest,
+          undefined,
+        )
+      if (targetSession) {
+        setPane('A', targetSession.sessionId)
+        void markSessionRead(targetSession.sessionId)
+      }
+      setView('workspace')
+    },
+    [
+      page.views,
+      setSelectedIssueId,
+      setFocusedIssueId,
+      markIssueRead,
+      setPane,
+      markSessionRead,
+      setView,
+    ],
+  )
+
+  /** What a linked task row does: show it in this panel, or — outside the
+   *  dock — move the shell. */
+  const openLinked = useCallback(
+    (target: IssueViewModel): void => {
+      if (onNavigate) {
+        void markIssueRead(target.id)
+        onNavigate(target.id)
+        return
+      }
+      showInDeck(target)
+    },
+    [onNavigate, markIssueRead, showInDeck],
+  )
 
   const children = detail.children
   if (children === LOADING) throw LOADING
+  const continuation = issue ? detail.continuation : null
   const relations = issue.relationGroups
 
-  // NO ISSUE, NO PANEL OF ITS OWN. An id that resolves to nothing is not a
-  // state worth describing — the explorer's own level 0 is what "no task" looks
-  // like, and it is a place you can act from. This used to render an intake
-  // canvas written for a chat that had not become work yet, which on a level
-  // pointed at a real-but-unshowable task read as a panel about nothing
-  // (POD-1277). The trail collapses to match, in the explorer provider's own
-  // effect — which also runs while this panel is unmounted (POD-1471).
-  if (!issue) {
-    return <IssueExplorerList />
-  }
+  if (!issue) return <IssuePanelEmpty />
 
   const openChildren = children.filter((c) => !isFinished(c))
   const doneChildren = children.filter((c) => isFinished(c))
-  const runningChildren = openChildren.filter(
-    (c) => c.stage === 'in_progress' || c.stage === 'review',
-  ).length
-
-  const activeSessions = detail.dockActiveSessions
-  const retiredCount = detail.retiredCount
-  const retiredSessions = showRetired ? detail.dockRetiredSessions : []
-  if (activeSessions === LOADING || retiredSessions === LOADING) throw LOADING
-  // Total over the stage vocabulary since POD-516/9a05afd59: the only null is
-  // "this issue has live sessions", which is the branch that renders agent rows
-  // instead. No local fallback — a second set of words here is what drifts.
-  // The whole slice as the fourth argument, not just this issue's sessions: a
-  // hop's destination holds none of THESE, and reading where the work went is
-  // what tells a vacated origin from one whose agent simply retired.
-  const presence = activeSessions.length ? null : detail.presence
-
   const notesAt = issue.notesUpdatedAt ?? issue.updatedAt
-  const parent = edgeIssue(resolve(issue.parentId))
-
-  // WORKABLE: the same predicate the control strip closes on — a closure with a
-  // reason, or an archive, is the end of the work. `deckDestinationFor` already
-  // refuses an archived or deleted target; this adds the outcome half, which it
-  // has no reason to know about.
   const workable = !isFinished(issue) && !issue.archived
-
-  // WHAT THIS TASK IS CALLED, and the write that changes it (POD-1618). Both are
-  // derived HERE rather than in the head, which would otherwise open a second
-  // subscription to the session list this component already holds. The worktree
-  // paths are the fallback arm of `sessionsForIssueNav` and are read only for a
-  // row with no `memberSessionIds`; the view-model builder always supplies them,
-  // so this is the shape the derivation asks for rather than a lookup it makes.
   const title = detail.title
-  // UNCAUGHT, like every other outboxed curation write (`use-unified-work.ts`):
-  // the queue keeps a rejected write, replays it on reconnect, and parks it in
-  // the recovery surface with its own toast. A `.catch` here would be a second
-  // error policy for one mutation, and a second toast for one refusal.
+  // UNCAUGHT, like every other outboxed curation write: the queue keeps a
+  // rejected write and surfaces it in the recovery surface with its own toast.
   const renameIssue = (next: string): void => {
     void updateIssue(issue.id, { title: next })
   }
 
+  // Relations, one group per kind, the parent first. Unresolvable targets keep
+  // a row with their bare id rather than vanishing.
+  const linkGroups: Array<{ label: string; ids: IssueId[] }> = [
+    ...(issue.parentId ? [{ label: 'Parent', ids: [issue.parentId as IssueId] }] : []),
+    ...relations.map((g) => ({ label: g.section, ids: g.entries.map((e) => e.id) })),
+  ]
+  const linkCount = linkGroups.reduce((n, g) => n + g.ids.length, 0)
+
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      {/* TWO BOXES, and only two. Everything above the scroll lives in this
-          `flex-none` region and is bounded by construction (a ref line, one
-          control row, a one-line decision band — no free text at all); the
-          scroll below it is `flex-1 min-h-0` and gets all the rest. The dock
-          became unscrollable the moment something data-sized (a stack of offer
-          cards) was allowed into the fixed region — see the scroll test. */}
-      <div className="flex-none border-b border-border/60" data-testid="dock-fixed">
-        {/* Offered only where it can arrive: inside the explorer, which has a
-            trail to leave, and only for a task the deck can put on screen. A
-            control that lands nowhere is worse than no control (POD-1151) — and
-            since POD-1269, only for a task there is still work to do on. A
-            finished or archived task has a history to read, not a seat to take. */}
+      <div
+        className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-[18px] pt-3 pb-5"
+        data-testid="dock-scroll"
+        data-dock-scroll=""
+      >
+        {/* Offered only where it can arrive: in the dock, for a task the deck
+            can put on screen and there is still work to do on (POD-1151,
+            POD-1269). */}
         <InspectHead
           issue={issue}
           title={title}
@@ -988,103 +930,37 @@ export const IssuePanelBody = observer(function IssuePanelBody({
               ? () => showInDeck(issue)
               : undefined
           }
+          subtasks={
+            children.length > 0 ? (
+              <button
+                data-pressable
+                type="button"
+                data-testid="dock-subtasks-toggle"
+                aria-expanded={showSubtasks}
+                onClick={() => setShowSubtasks((v) => !v)}
+                className="text-[12px] text-text-dim transition-colors hover:text-foreground"
+              >
+                {doneChildren.length} of {children.length} subtasks done
+              </button>
+            ) : undefined
+          }
         />
-        <IssueDecisionBand issue={issue} />
-      </div>
-      <div
-        className="min-h-0 flex-1 overflow-y-auto px-3.5 pt-3 pb-6"
-        data-testid="dock-scroll"
-        data-dock-scroll=""
-      >
-        {/* The task in the author's own words, UNCAPPED (POD-516 r3 #2). It sits
-            in the scroll rather than the fixed head precisely so it can be: the
-            three-line clamp existed to protect the scroll's height budget, and
-            down here there is no budget to protect. One step up from the dock's
-            12px body, at prose leading — it is the one paragraph on this surface
-            anybody reads, and `shell-type-primary` would have collapsed that
-            step to half a pixel under compact density. */}
-        {issue.description.trim() && (
-          <p
-            className="mb-3.5 text-[13px] leading-[1.6] whitespace-pre-wrap text-muted-foreground"
-            data-testid="dock-description"
-          >
-            {issue.description}
-          </p>
+
+        {/* Where the work went on, when it left this task (a spin-off hop,
+            a superseding task): one quiet line under the status row, and the
+            way there. */}
+        {continuation && (
+          <ContinuationLine
+            text={continuation.full}
+            target={
+              continuation.target ? (edgeIssue(resolve(continuation.target.id)) ?? null) : null
+            }
+            onOpen={openLinked}
+          />
         )}
 
-        {/* The agent's name is NOT here (POD-516 r3 #3): the roster two sections
-            down is where agents are listed, and the update was repeating it. The
-            age moved onto the heading rule, so the body is only the words. */}
-        <DockPart
-          title="Current update"
-          testId="dock-current-update"
-          meta={notesAt ? <IssueAge stamp={notesAt} /> : undefined}
-        >
-          <p
-            className={cn(
-              DOCK_BODY,
-              'px-1 whitespace-pre-wrap',
-              issue.activityNotes ? 'text-foreground/85' : 'text-text-faint italic',
-            )}
-          >
-            {issue.activityNotes || 'No status posted yet.'}
-          </p>
-          {/* NO "Full update timeline" LINK (POD-1457). It crossed into the
-              Tasks tool, and this panel does not link there any more — entering
-              that tool is a decision the operator makes in the toolbar, not
-              something a sidebar drags them into. Nothing is lost from this
-              column: Recent activity is the next section down. */}
-        </DockPart>
-
-        {/* WHAT THE WORK PRODUCED, high (POD-743). The scroll used to be
-            ordered by how fast each fact moves, which put the artifacts below
-            two sections of roster. That order was right when this panel was the only
-            place a task's shape was visible; the Flight Deck shows the shape now,
-            and what is left for the dock to be good at is judging a task and
-            acting on it. So the things you came to look at — the artifacts, then
-            what happened — come first, and the structure the deck already draws
-            (subtasks, relations, the roster) sits underneath.
-
-            Both parts render nothing at all when the task has none, so a task
-            that produced no artifacts opens on its timeline rather than on an
-            empty heading. */}
-        <ProducedAndDeferred issue={issue} machineId={machineId} />
-
-        {/* History, immediately under the output it explains — the two
-            questions "what came out of this" and "what has been happening" are
-            asked together, and they were three sections apart. */}
-        <RecentActivity issue={issue} />
-
-        {/* ── Below here is STRUCTURE, not action ──────────────────────
-            The deck draws this tree in the column to the left. It stays in the
-            panel because the explorer can reach tasks the deck is not showing,
-            and because relations are how you walk between them — but it is
-            reference, and reference goes under. Archive is a live-list hide,
-            not an identity hide: a parent or child that has been archived
-            still belongs in this column, marked so the operator can see the
-            edge that would otherwise look deleted. */}
-        {issue.parentId && (
-          <DockPart title="Parent" testId="dock-parent">
-            {parent ? (
-              <UnifiedRow
-                sub={parent}
-                meta={parent.archived ? 'Archived' : 'Parent'}
-                onOpen={openLinked}
-                onStatusPick={rowStatus.pick}
-              />
-            ) : (
-              <Hint>{issue.parentId}</Hint>
-            )}
-          </DockPart>
-        )}
-        {children.length > 0 && (
-          <DockPart title="Subtasks" count={children.length} testId="dock-subissues">
-            <ProgressMeter
-              done={doneChildren.length}
-              run={runningChildren}
-              total={children.length}
-              testId="dock-subtasks-meter"
-            />
+        {showSubtasks && children.length > 0 && (
+          <div className="-mt-2 flex flex-col" data-testid="dock-subissues" data-part="Subtasks">
             {openChildren.map((sub) => (
               <DockChildRow
                 key={sub.id}
@@ -1094,130 +970,102 @@ export const IssuePanelBody = observer(function IssuePanelBody({
                 onStatusPick={rowStatus.pick}
               />
             ))}
-            {doneChildren.length > 0 && (
-              <>
-                <FoldRow
-                  open={showCompleted}
-                  label={`Show ${doneChildren.length} completed`}
-                  onToggle={() => setShowCompleted((v) => !v)}
-                />
-                {showCompleted &&
-                  doneChildren.map((sub) => (
-                    <UnifiedRow
-                      key={sub.id}
-                      sub={sub}
-                      meta="Done"
-                      onOpen={openLinked}
-                      onStatusPick={rowStatus.pick}
-                    />
-                  ))}
-              </>
-            )}
-          </DockPart>
+            {doneChildren.map((sub) => (
+              <LinkRow key={sub.id} issue={sub} onOpen={openLinked} onStatusPick={rowStatus.pick} />
+            ))}
+          </div>
         )}
 
-        <DockPart
-          title="Relations"
-          count={relations.reduce((n, g) => n + g.entries.length, 0)}
-          testId="dock-relations"
-        >
-          {relations.length === 0 ? (
-            <Hint>No linked work.</Hint>
-          ) : (
-            relations.map((group) => (
-              <div key={group.section} className="mb-1.5">
-                <div className="label-mono mb-0.5">{group.section}</div>
-                {group.entries.map((entry) => {
-                  const target = edgeIssue(resolve(entry.id))
-                  return target ? (
-                    <UnifiedRow
-                      key={`${group.section}-${entry.direction}-${entry.id}`}
-                      sub={target}
-                      meta={entry.type}
-                      onOpen={openLinked}
-                      onStatusPick={rowStatus.pick}
-                    />
-                  ) : (
-                    <div
-                      key={`${group.section}-${entry.direction}-${entry.id}`}
-                      className="shell-type-micro px-1 py-1 font-mono text-text-faint"
-                    >
-                      {entry.id}
-                    </div>
-                  )
-                })}
-              </div>
-            ))
-          )}
-        </DockPart>
+        {/* The task in the author's own words, uncapped (POD-516 r3 #2). */}
+        {issue.description.trim() && (
+          <p
+            className="text-[13px] leading-5 whitespace-pre-wrap text-foreground [text-wrap:pretty]"
+            data-testid="dock-description"
+          >
+            {issue.description}
+          </p>
+        )}
 
-        {/* The roster is live-only, so on a long task it shows two agents out of
-            ten and says nothing about the other eight. `meta` is the slot for
-            one machine-voice fact ABOUT a section, and this is the fact that
-            stops the list lying by omission — the same rollup figure the Cost
-            section below states in full, over the session count it was read
-            from. */}
-        <DockPart
-          title="Agents & sessions"
-          count={activeSessions.length}
-          meta={
-            costView?.state === 'costed'
-              ? rosterCostMeta(
-                  costView.rollup.estCostUsd,
-                  costView.rollup.sessionCount,
-                  costView.own.sessionCount,
-                )
-              : undefined
+        {/* The agent's latest posted update: quiet and clamped to four lines,
+            because the chat beside this column is where the work is narrated.
+            A click unfolds the whole text. */}
+        {issue.activityNotes?.trim() && (
+          <div
+            className="-mt-2 flex flex-col gap-1"
+            data-testid="dock-current-update"
+            data-part="Current update"
+          >
+            <span className="text-[11px] text-text-faint">
+              Agent status
+              {notesAt ? (
+                <>
+                  {' '}
+                  · <IssueAge stamp={notesAt} />
+                </>
+              ) : null}
+            </span>
+            <ClampedText
+              text={issue.activityNotes}
+              className="text-muted-foreground"
+              testId="dock-current-update-body"
+            />
+          </div>
+        )}
+
+        <ArtifactsPart
+          issue={issue}
+          machineId={machineId}
+          onViewAll={() =>
+            onViewAllArtifacts
+              ? onViewAllArtifacts(issue.id)
+              : openArtifactsTab(issue.id, issue.worktreePath ?? issue.repoPath)
           }
-          testId="dock-sessions"
-        >
-          {activeSessions.length > 0
-            ? activeSessions.map((session) => (
-                <IssueSessionRow
-                  key={session.sessionId}
-                  session={session}
-                  onOpen={() => {
-                    setPane('A', session.sessionId)
-                    void markSessionRead(session.sessionId)
-                    setView('workspace')
-                  }}
-                />
-              ))
-            : // A task with no agent is not an error — say why there is nobody on
-              // it, in the FLIGHT DECK'S OWN WORDS (mission.ts owns the vocabulary),
-              // so one task never reads two ways in two columns.
-              presence && <PresenceLine note={presence} />}
-          {retiredCount > 0 && (
-            <>
-              <FoldRow
-                open={showRetired}
-                label={`Retired · ${retiredCount}`}
-                onToggle={() => setShowRetired((v) => !v)}
-              />
-              {showRetired &&
-                retiredSessions.map((session) => (
-                  <IssueSessionRow
-                    key={session.sessionId}
-                    session={session}
-                    onOpen={() => {
-                      setPane('A', session.sessionId)
-                      setView('workspace')
-                    }}
-                  />
-                ))}
-            </>
-          )}
-        </DockPart>
+        />
 
-        {/* The accounting for the sessions the roster above will never show. */}
-        <DockPart title="Cost" meta={costSectionMeta(costView)} testId="dock-cost">
-          <TaskCostSection view={costView} />
-        </DockPart>
+        {linkCount > 0 && (
+          <PanelSection
+            title="Relations"
+            count={linkCount}
+            testId="dock-relations"
+            className="gap-1"
+          >
+            <div className="flex flex-col">
+              {linkGroups.map((group) => (
+                <div
+                  key={group.label}
+                  className="flex flex-col border-t border-hairline-soft py-[3px]"
+                  data-testid={group.label === 'Parent' ? 'dock-parent' : undefined}
+                >
+                  {group.ids.map((id, index) => {
+                    const target = edgeIssue(resolve(id))
+                    const label = index === 0 ? group.label : ''
+                    return target ? (
+                      <LinkRow
+                        key={id}
+                        issue={target}
+                        label={label}
+                        onOpen={openLinked}
+                        onStatusPick={rowStatus.pick}
+                      />
+                    ) : (
+                      <div key={id} className="flex h-[26px] items-center gap-2 text-[12.5px]">
+                        <span className="w-[78px] flex-none truncate text-[11px] text-text-faint">
+                          {label}
+                        </span>
+                        <span className="min-w-0 flex-1 truncate font-mono text-[10.5px] text-text-faint">
+                          {id}
+                        </span>
+                      </div>
+                    )
+                  })}
+                </div>
+              ))}
+            </div>
+          </PanelSection>
+        )}
 
-        {/* Where the work happens — an address, not a check. */}
-        <CheckoutPart issue={issue} />
+        <CommentsPart issue={issue} />
       </div>
-      <DockCommentComposer issue={issue} />
       {/* The close guard for a row picked from above — mounted at the column,
           not in the row, because a row can repaint or leave the list under it. */}
       {rowStatus.dialog}
@@ -1225,6 +1073,8 @@ export const IssuePanelBody = observer(function IssuePanelBody({
   )
 })
 
+/** An open subtask: its row says what the work is waiting on when that is the
+ *  operator (or an error), in the sidebar's own words. */
 const DockChildRow = observer(function DockChildRow({
   sub,
   views,
@@ -1239,14 +1089,19 @@ const DockChildRow = observer(function DockChildRow({
   const sessions = views.row(sub.id).dockActiveSessions
   if (sessions === LOADING) throw LOADING
   const state = operationalState(sub, sessions)
+  const errored = state.state === 'error'
+  const needs = state.state === 'needs-you' || errored
   return (
-    <UnifiedRow
-      sub={sub}
-      meta={state.label}
-      needs={state.state === 'needs-you' || state.state === 'error'}
-      errored={state.state === 'error'}
+    <LinkRow
+      issue={sub}
       onOpen={onOpen}
       onStatusPick={onStatusPick}
+      {...(needs
+        ? {
+            trailing: state.label,
+            trailingTone: errored ? ('error' as const) : ('attention' as const),
+          }
+        : {})}
     />
   )
 })

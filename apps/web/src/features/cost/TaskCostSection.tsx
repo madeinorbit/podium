@@ -1,5 +1,5 @@
 /**
- * WHAT THIS TASK COST — the section body, shared by the explorer's task detail
+ * WHAT THIS TASK COST — the section body, shared by the dock's task panel
  * panel and the task detail page (POD-1859, reused by POD-1860).
  *
  * ─────────────────────────────────────────────────────────────────────────────
@@ -41,10 +41,12 @@ import {
   type SessionCostView,
   type TaskCostView,
 } from '@podium/client-core/values'
-import type { HarnessDescriptorWire } from '@podium/protocol'
 import type { CostHarness } from '@podium/model/browser'
+import type { HarnessDescriptorWire } from '@podium/protocol'
+import { Info } from 'lucide-react'
 import type { JSX } from 'react'
 import { useState } from 'react'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { descriptorForKind } from '@/lib/agent-tone'
 import { WorkingMark } from '@/lib/motion/WorkingMark'
 import { cn } from '@/lib/utils'
@@ -441,6 +443,86 @@ export function TaskCostSection({ view }: { view: TaskCostView | null }): JSX.El
             </>
           )}
         </>
+      )}
+    </div>
+  )
+}
+
+/**
+ * THE PANEL'S COST, IN ONE LINE (POD-2077).
+ *
+ * The task panel no longer carries the full reading above: it states the
+ * rollup headline, and under it the models and the rate in one muted line. The
+ * hedge moves into the info mark's tooltip — the figure keeps its `≈`, which is
+ * the short form of the same caveat, so the sentence is one hover away rather
+ * than a paragraph every reader scrolls past.
+ *
+ * The four states keep their words (`No sessions`, `Not recorded`) and the
+ * unfilled slot, for the reasons this file's header gives; only `costed` draws
+ * the sub-line.
+ */
+export function TaskCostLine({ view }: { view: TaskCostView | null }): JSX.Element {
+  const state = view?.state ?? 'cold'
+  const figure =
+    view === null || view.state === 'pending' ? (
+      <Unfilled ch={6} />
+    ) : view.state === 'no-sessions' ? (
+      'No sessions'
+    ) : view.state === 'not-recorded' ? (
+      'Not recorded'
+    ) : (
+      approxUsd(view.rollup.estCostUsd)
+    )
+  const detail =
+    view?.state === 'costed'
+      ? [
+          view.rollup.models.map((m) => m.model).join(' + '),
+          view.rateVsMedian !== null ? `${rateLabel(view.rateVsMedian)} task` : '',
+          view.floor === 'partial' ? floorLabel(view.harnesses, view.uncostedSessionCount) : '',
+        ]
+          .filter(Boolean)
+          .join(' · ')
+      : ''
+  return (
+    <div className="flex flex-col gap-1.5" data-testid="cost-section" data-state={state}>
+      <div className="flex items-baseline gap-2 text-[11.5px]">
+        <span className="font-semibold text-muted-foreground">Cost</span>
+        {view?.provisional && <span className="text-text-faint">so far</span>}
+        <span className="flex-1" />
+        <span
+          className={cn(
+            view?.state === 'costed'
+              ? 'font-mono text-[12px] text-foreground tabular-nums'
+              : 'text-text-faint',
+          )}
+          data-testid={view?.state === 'costed' ? 'cost-figure' : 'cost-word'}
+        >
+          {figure}
+        </span>
+      </div>
+      {view?.state === 'costed' && (
+        <div className="flex items-center gap-2 text-[11.5px] text-text-dim">
+          <span className="min-w-0 flex-1 truncate" title={detail || undefined}>
+            {detail}
+          </span>
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <button
+                    type="button"
+                    className="flex flex-none text-text-faint hover:text-foreground"
+                    aria-label={`About this figure: estimated ${COST_HEDGE}`}
+                    data-testid="cost-hedge"
+                  />
+                }
+              >
+                <Info size={12} aria-hidden="true" />
+              </TooltipTrigger>
+              <TooltipContent side="top">Estimated {COST_HEDGE}</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        </div>
       )}
     </div>
   )

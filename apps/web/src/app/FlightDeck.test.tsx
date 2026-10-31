@@ -14,35 +14,27 @@ import { dedupeSessions } from '../../../../tests/worklist/diagnostics/reference
 import { createKernelReplica, createSideCache, memoryStorage } from '@podium/client-core/replica'
 import { allIssueViewModels } from '../../../../tests/worklist/diagnostics/reference/issue-view-models'
 import { type SessionView, sessionViews } from '@podium/client-core/session-values'
-import {
-  FLIGHT_DECK_BRIEF_CUTOFF_KEY,
-  FLIGHT_DECK_WATERFALL_ROW_ZOOM_KEY,
-  FLIGHT_DECK_WATERFALL_TASK_WIDTH_KEY,
-} from '@podium/client-core/ui-state'
 import { buildFlightDeckRows, missionIssueIds } from '@podium/client-core/values'
 
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, } from '@testing-library/react'
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { IssueExplorerProvider } from '@/features/issues/explorer/explorer-context'
+import { DockIssueProvider } from '@/features/issues/dock-issue'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
 import { fixtureStoreSnapshot } from '@/test-support/fixture-store'
 import { syncPoolFixture } from '@/test-support/pool-fixture'
 import { buildCorpus } from '../../../../tests/worklist/harness/src/fixture/corpus'
 import { seedCacheFromCorpus } from '../../../../tests/worklist/shared/src/scenarios'
-import { DOUBLE_CLICK_MS } from './click-intent'
 import {
-  briefCutoffLayout,
   continuationPresenceLine,
   deckTaskUnread,
   defaultFolded,
   FlightDeck,
   isFolded,
-  readBriefCutoff,
   readFolds,
-  writeBriefCutoff,
   writeFolds,
 } from './FlightDeck'
 import { defaultWaterfallRowZoom, defaultWaterfallTaskWidth } from './FlightDeckWaterfall'
+import { MovedConversationPane } from './MovedConversationPane'
 import { OperatorFocusProvider } from './operator-focus'
 import { clearHoveredSession, setHoveredSession } from './session-hover'
 import { OPEN_RIGHT_PANEL_EVENT, REVEAL_IN_DECK_EVENT, RIGHT_PANEL_KEY } from './shell-state'
@@ -231,9 +223,8 @@ vi.mock('@/lib/use-harness-descriptors', () => ({
   useHarnessDescriptors: () => ({ served: undefined, status: 'unavailable' }),
 }))
 
-const developerFeature = vi.hoisted(() => ({ enabled: false }))
 vi.mock('@/lib/use-feature', () => ({
-  useFeature: () => developerFeature.enabled,
+  useFeature: () => false,
 }))
 
 type Issue = Record<string, unknown>
@@ -279,40 +270,37 @@ const session = (id: string, over: Record<string, unknown> = {}): SessionView =>
 /** An agent mid-turn — what `Working` asks about, once per agent (POD-1452). */
 const WORKING = { phase: 'working', since: '2026-01-01T00:00:00.000Z' } as const
 
-function DeckHarness() {
+function DeckHarness({ pane = false }: { pane?: boolean }) {
   return (
     // ConfirmProvider because the task menu's Archive/Delete now use the
     // app-wide dialog (POD-1077), exactly as AppShell supplies it in the app.
     <ConfirmProvider>
       <OperatorFocusProvider missionId="root">
-        {/* The explorer's stack lives above the dock in the app, and the deck
+        {/* The task panel's pointer lives above the dock in the app, and the deck
             reads it to know which task the dock is already showing — so the
             harness supplies the real provider rather than the default context. */}
-        <IssueExplorerProvider>
+        <DockIssueProvider>
           <FlightDeck
             onCollapse={vi.fn()}
             display={harness.display}
             onDisplayChange={harness.onDisplayChange}
           />
-        </IssueExplorerProvider>
+          {/* The task's empty pane, which holds a moved conversation's actions
+              (POD-2043). */}
+          {pane && <MovedConversationPane issueId="root" fallback={null} />}
+        </DockIssueProvider>
       </OperatorFocusProvider>
     </ConfirmProvider>
   )
 }
 
-const deck = async (): Promise<ReturnType<typeof render>> => {
+const deck = async (opts: { pane?: boolean } = {}): Promise<ReturnType<typeof render>> => {
   let view!: ReturnType<typeof render>
   // The real pool imports preferences in a batch after the initial render.
   await act(async () => {
-    view = render(<DeckHarness />)
+    view = render(<DeckHarness pane={opts.pane} />)
   })
   return view
-}
-
-const waterfallDeck = async (): Promise<ReturnType<typeof render>> => {
-  developerFeature.enabled = true
-  harness.ui.set('podium.flightDeck.mode', 'waterfall')
-  return await deck()
 }
 
 /** Lets the double-click window and other pending timers flush. */
@@ -331,7 +319,55 @@ it('keeps explicit Full expansion reachable without forcing compact or hiding co
   expect(compact.getAttribute('aria-pressed')).toBe('true')
   fireEvent.click(compact)
   expect(harness.onDisplayChange).toHaveBeenCalledExactlyOnceWith('compact')
-  expect(screen.getByRole('button', { name: 'Collapse Flight Deck' })).toBeDefined()
+  // Expand and collapse are the eyebrow's own controls; no view bar sits below.
+  expect(screen.getByRole('button', { name: 'Collapse Flight Deck' }).parentElement).toBe(compact.parentElement)
+  expect(screen.queryByRole('group', { name: 'Deck view' })).toBeNull()
+})
+
+describe('task detail picks (POD-1639)', () => {
+  const title = (): HTMLElement => screen.getByTitle(/^Focus POD-/)
+  /** Every `podium:open-right-panel` detail the deck asked for, in order. */
+  const panelRequests = (): string[] => {
+    const details: string[] = []
+    const listener = (event: Event): void => {
+      details.push(String((event as CustomEvent).detail))
+    }
+    window.addEventListener(OPEN_RIGHT_PANEL_EVENT, listener)
+    afterEachListeners.push(() => window.removeEventListener(OPEN_RIGHT_PANEL_EVENT, listener))
+    return details
+  }
+
+  it('closes the dock when it already shows the mission', async () => {
+    // The task panel follows the selected mission, so its root is on screen.
+    harness.ui.set(RIGHT_PANEL_KEY, 'issue')
+    const details = panelRequests()
+    await deck()
+    fireEvent.click(title())
+    await settle()
+    expect(details).toEqual(['close'])
+  })
+
+  it('opens the dock when it is closed', async () => {
+    const details = panelRequests()
+    await deck()
+    fireEvent.click(title())
+    await settle()
+    fireEvent.click(title())
+    await settle()
+    expect(details).toEqual(['issue', 'issue'])
+  })
+
+  it('opens an empty leaf in the task dock while keeping the current conversation', async () => {
+    harness.paneA = 's1'
+    const details = panelRequests()
+    await deck()
+    const leaf = document.querySelector('[data-flight-issue="t4"]')!
+    fireEvent.click(leaf.querySelector('.flight-v6-title')!)
+    await settle()
+    expect(details).toEqual(['issue'])
+    expect(harness.openSessionTab).not.toHaveBeenCalled()
+    expect(readFolds(harness.ui.get('podium.flightDeck.folds') ?? null).has('t4')).toBe(false)
+  })
 })
 
 beforeEach(() => {
@@ -349,7 +385,6 @@ beforeEach(() => {
   harness.split = false
   harness.focusedPane = 'A'
   harness.coarseNow = Date.parse('2026-01-01T00:10:00.000Z')
-  developerFeature.enabled = false
   harness.display = 'compact'
   harness.onDisplayChange.mockClear()
   harness.openSessionTab.mockClear()
@@ -496,498 +531,6 @@ describe('mission key uniqueness', () => {
 const chevron = (title: string): HTMLElement =>
   screen.getByRole('button', { name: new RegExp(`^(Expand|Collapse) ${title}$`) })
 
-function briefRect(top: number, height: number, width = 320): DOMRect {
-  return {
-    x: 0,
-    y: top,
-    top,
-    right: width,
-    bottom: top + height,
-    left: 0,
-    width,
-    height,
-    toJSON: () => ({}),
-  }
-}
-
-/** Each observer owns its callback and targets, as in the browser. The deck
- * also observes its row window; a last-callback-only fake hides brief reports. */
-function fixtureResizeObservers() {
-  const observers = new Map<
-    ResizeObserver,
-    { callback: ResizeObserverCallback; targets: Set<Element>; initial: Set<Element> }
-  >()
-  class FixtureResizeObserver {
-    private readonly state
-    constructor(callback: ResizeObserverCallback) {
-      this.state = { callback, targets: new Set<Element>(), initial: new Set<Element>() }
-      observers.set(this as unknown as ResizeObserver, this.state)
-    }
-    observe(target: Element): void {
-      if (!this.state.targets.has(target)) this.state.initial.add(target)
-      this.state.targets.add(target)
-    }
-    unobserve(target: Element): void {
-      this.state.targets.delete(target)
-      this.state.initial.delete(target)
-    }
-    disconnect(): void {
-      this.state.targets.clear()
-      this.state.initial.clear()
-    }
-  }
-  vi.stubGlobal('ResizeObserver', FixtureResizeObserver)
-  return {
-    get observed(): Set<Element> {
-      return new Set([...observers.values()].flatMap((state) => [...state.targets]))
-    },
-    flush(changed: readonly Element[] = []): number {
-      let delivered = false
-      act(() => {
-        for (const [observer, state] of observers) {
-          const targets = new Set([
-            ...state.initial,
-            ...changed.filter((target) => state.targets.has(target)),
-          ])
-          state.initial.clear()
-          if (targets.size === 0) continue
-          state.callback(
-            [...targets].map((target) => ({ target }) as ResizeObserverEntry),
-            observer,
-          )
-          delivered = true
-        }
-      })
-      return delivered ? 1 : 0
-    },
-  }
-}
-
-/** Supply the handful of layout facts happy-dom cannot calculate. */
-async function measuredBrief() {
-  const deckHeight = 400
-  const contentHeight = 600
-  let briefTop = 80
-  const observers = fixtureResizeObservers()
-  Object.defineProperty(HTMLElement.prototype, 'scrollHeight', {
-    configurable: true,
-    get(this: HTMLElement) {
-      return this.dataset.testid === 'deck-brief' ? contentHeight : 0
-    },
-  })
-  vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (
-    this: Element,
-  ): DOMRect {
-    const element = this as HTMLElement
-    if (element.dataset.testid === 'flight-deck-scroller') return briefRect(0, deckHeight)
-    if (element.dataset.testid === 'deck-brief') return briefRect(briefTop, 70)
-    if (element.classList.contains('deck-brief-end')) return briefRect(briefTop + 80, 1)
-    if (element.classList.contains('deck-brief-rule')) {
-      const ratio = Number(element.getAttribute('aria-valuenow') ?? 40) / 100
-      return briefRect(ratio * deckHeight, 1)
-    }
-    if (element.classList.contains('deck-header')) return briefRect(0, briefTop + 100)
-    return briefRect(0, 0)
-  })
-
-  await deck()
-  observers.flush()
-  return {
-    get observed() {
-      return observers.observed
-    },
-    reflowHeader(nextTop: number): void {
-      briefTop = nextTop
-      observers.flush([document.querySelector('.deck-header')!])
-    },
-  }
-}
-
-describe('mission brief cutoff', () => {
-  const metrics = {
-    deckHeight: 800,
-    briefTop: 80,
-    endGap: 10,
-    contentHeight: 600,
-  }
-
-  it('uses the real deck height and keeps roster space on short screens', () => {
-    const tall = briefCutoffLayout(metrics, null)
-    const short = briefCutoffLayout({ ...metrics, deckHeight: 400 }, null)
-    const draggedLow = briefCutoffLayout({ ...metrics, deckHeight: 400 }, 0.9)
-
-    expect(tall).toMatchObject({ ratio: 0.4, limit: 230 })
-    expect(short).toMatchObject({ ratio: 0.4, limit: 70, maxLimit: 118 })
-    expect(draggedLow).toMatchObject({ ratio: 0.52, limit: 118, maxLimit: 118 })
-  })
-
-  it('round-trips one normalized device preference and rejects corrupt values', () => {
-    expect(readBriefCutoff(null)).toBeNull()
-    expect(readBriefCutoff('')).toBeNull()
-    expect(readBriefCutoff('not-a-number')).toBeNull()
-    expect(readBriefCutoff('1.5')).toBeNull()
-    expect(readBriefCutoff(writeBriefCutoff(0.43789))).toBe(0.4379)
-    expect(writeBriefCutoff(null)).toBeNull()
-  })
-})
-
-describe('mission brief cutoff interaction', () => {
-  beforeEach(() => {
-    developerFeature.enabled = true
-    harness.ui.set('podium.flightDeck.mode', 'handoff')
-  })
-  const separator = (): HTMLElement =>
-    screen.getByRole('separator', { name: 'Resize mission brief' })
-
-  it('accepts only one primary-button drag and commits it on pointer up', async () => {
-    await measuredBrief()
-    const rule = separator()
-    const setPointerCapture = vi.fn()
-    rule.setPointerCapture = setPointerCapture
-
-    fireEvent.pointerDown(rule, { button: 1, isPrimary: true, pointerId: 1, clientY: 160 })
-    fireEvent.pointerDown(rule, { button: 0, isPrimary: false, pointerId: 2, clientY: 160 })
-    expect(setPointerCapture).not.toHaveBeenCalled()
-
-    fireEvent.pointerDown(rule, { button: 0, isPrimary: true, pointerId: 3, clientY: 160 })
-    fireEvent.pointerDown(rule, { button: 0, isPrimary: true, pointerId: 4, clientY: 160 })
-    expect(setPointerCapture).toHaveBeenCalledTimes(1)
-    expect(setPointerCapture).toHaveBeenCalledWith(3)
-
-    fireEvent.pointerMove(rule, { isPrimary: true, pointerId: 3, clientY: 200 })
-    expect(rule.getAttribute('aria-valuenow')).toBe('50')
-    fireEvent.pointerUp(rule, { isPrimary: true, pointerId: 3, clientY: 200 })
-    expect(harness.ui.get(FLIGHT_DECK_BRIEF_CUTOFF_KEY)).toBe('0.5000')
-    expect(rule.dataset.dragging).toBeUndefined()
-  })
-
-  it('rolls back cancelled and lost-capture drags and releases the active pointer', async () => {
-    harness.ui.set(FLIGHT_DECK_BRIEF_CUTOFF_KEY, '0.4500')
-    await measuredBrief()
-    const rule = separator()
-    const setPointerCapture = vi.fn()
-    rule.setPointerCapture = setPointerCapture
-
-    fireEvent.pointerDown(rule, { button: 0, isPrimary: true, pointerId: 5, clientY: 180 })
-    fireEvent.pointerMove(rule, { isPrimary: true, pointerId: 5, clientY: 200 })
-    fireEvent.pointerCancel(rule, { isPrimary: true, pointerId: 5 })
-    expect(harness.ui.get(FLIGHT_DECK_BRIEF_CUTOFF_KEY)).toBe('0.4500')
-    expect(rule.getAttribute('aria-valuenow')).toBe('45')
-
-    fireEvent.pointerDown(rule, { button: 0, isPrimary: true, pointerId: 6, clientY: 180 })
-    fireEvent.pointerMove(rule, { isPrimary: true, pointerId: 6, clientY: 208 })
-    fireEvent(
-      rule,
-      new PointerEvent('lostpointercapture', { bubbles: true, pointerId: 6, isPrimary: true }),
-    )
-    expect(harness.ui.get(FLIGHT_DECK_BRIEF_CUTOFF_KEY)).toBe('0.4500')
-    expect(rule.getAttribute('aria-valuenow')).toBe('45')
-
-    fireEvent.pointerDown(rule, { button: 0, isPrimary: true, pointerId: 7, clientY: 180 })
-    expect(setPointerCapture).toHaveBeenLastCalledWith(7)
-    fireEvent.pointerCancel(rule, { isPrimary: true, pointerId: 7 })
-  })
-
-  it('supports Arrow, Home, End, and Escape without exceeding the short-screen bounds', async () => {
-    await measuredBrief()
-    const rule = separator()
-
-    await act(async () => {
-      fireEvent.keyDown(rule, { key: 'ArrowDown' })
-    })
-    expect(harness.ui.get(FLIGHT_DECK_BRIEF_CUTOFF_KEY)).toBe('0.4300')
-    await act(async () => {
-      fireEvent.keyDown(rule, { key: 'Home' })
-    })
-    expect(harness.ui.get(FLIGHT_DECK_BRIEF_CUTOFF_KEY)).toBe('0.3400')
-    await act(async () => {
-      fireEvent.keyDown(rule, { key: 'End' })
-    })
-    expect(harness.ui.get(FLIGHT_DECK_BRIEF_CUTOFF_KEY)).toBe('0.5200')
-    await act(async () => {
-      fireEvent.keyDown(rule, { key: 'Escape' })
-    })
-    expect(harness.ui.has(FLIGHT_DECK_BRIEF_CUTOFF_KEY)).toBe(false)
-    expect(rule.getAttribute('aria-valuetext')).toBe('Automatic cutoff at 40% of the Flight Deck')
-  })
-
-  it('keeps the expanded brief above the roster reserve on a short screen', async () => {
-    await measuredBrief()
-    const brief = screen.getByTestId('deck-brief')
-
-    expect(brief.style.maxHeight).toBe('70px')
-    fireEvent.click(screen.getByTestId('deck-brief-more'))
-    expect(brief.style.maxHeight).toBe('118px')
-  })
-
-  it('observes header wrapping and recomputes the brief height from its new top', async () => {
-    const layout = await measuredBrief()
-    const brief = screen.getByTestId('deck-brief')
-    const header = document.querySelector('.deck-header')
-    if (!header) throw new Error('mission header is missing')
-
-    expect(layout.observed.has(header)).toBe(true)
-    expect(brief.style.maxHeight).toBe('70px')
-    layout.reflowHeader(100)
-    expect(brief.style.maxHeight).toBe('50px')
-  })
-})
-
-describe('mission brief measurement after layout', () => {
-  beforeEach(() => {
-    developerFeature.enabled = true
-    harness.ui.set('podium.flightDeck.mode', 'handoff')
-  })
-  // Each observation starts with a browser-delivered size report after layout.
-  // No geometry read may happen during the commit, on mount or content change.
-  // Only the deck/header are observed; the body's height is their output.
-
-  /** Browser-faithful observer plus layout that answers like one: an initial
-   *  delivery per newly observed target, then one callback per flush whose
-   *  observed targets the test names as changed — the browser never reports an
-   *  unchanged box. Unlike measuredBrief above this helper does not render;
-   *  the test sets its missions first so the switch under test is real. */
-  function countedBrief(): {
-    readonly observed: Set<Element>
-    readonly setContentHeight: (height: number) => void
-    readonly setDeckHeight: (height: number) => void
-    readonly unmountObservations: () => boolean
-    readonly briefRectReads: () => number
-    readonly flushResizes: (changed?: Element[]) => number
-  } {
-    let contentHeight = 600
-    let deckHeight = 400
-    const briefTop = 80
-    const endGap = 10
-    let rectReads = 0
-    const observers = fixtureResizeObservers()
-
-    const appliedMax = (el: HTMLElement): number => {
-      const value = el.style.maxHeight ? Number.parseFloat(el.style.maxHeight) : Number.NaN
-      return Number.isFinite(value) ? value : Number.POSITIVE_INFINITY
-    }
-    /** The clamped body the browser lays out: content up to the cutoff. */
-    const bodyHeight = (): number => {
-      const el = document.querySelector<HTMLElement>('[data-testid="deck-brief"]')
-      return Math.min(contentHeight, el ? appliedMax(el) : Number.POSITIVE_INFINITY)
-    }
-
-    Object.defineProperty(HTMLElement.prototype, 'scrollHeight', {
-      configurable: true,
-      get(this: HTMLElement) {
-        return this.dataset.testid === 'deck-brief' ? contentHeight : 0
-      },
-    })
-    vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (
-      this: Element,
-    ): DOMRect {
-      const element = this as HTMLElement
-      // Only the three boxes the brief measure reads are counted; every other
-      // element answers zero without touching the counter.
-      if (element.dataset.testid === 'flight-deck-scroller') {
-        rectReads += 1
-        return briefRect(0, deckHeight)
-      }
-      if (element.dataset.testid === 'deck-brief') {
-        rectReads += 1
-        return briefRect(briefTop, bodyHeight())
-      }
-      if (element.classList.contains('deck-brief-end')) {
-        rectReads += 1
-        return briefRect(briefTop + bodyHeight() + endGap, 1)
-      }
-      return briefRect(0, 0)
-    })
-
-    return {
-      get observed() {
-        return observers.observed
-      },
-      setContentHeight(height: number): void {
-        contentHeight = height
-      },
-      setDeckHeight(height: number): void {
-        deckHeight = height
-      },
-      unmountObservations(): boolean {
-        return observers.observed.size === 0
-      },
-      briefRectReads(): number {
-        return rectReads
-      },
-      flushResizes(changed: Element[] = []): number {
-        return observers.flush(changed)
-      },
-    }
-  }
-
-  const twoMissions = (): void => {
-    harness.issues = [
-      issue('m1', {
-        title: 'Alpha',
-        description: `Alpha brief. ${'Long enough to bind the cap. '.repeat(20)}`,
-      }),
-      issue('m2', { title: 'Beta', description: 'Beta brief.' }),
-    ]
-    harness.sessions = []
-  }
-
-  it('measures once per issue switch and lands on the same limit', async () => {
-    twoMissions()
-    harness.selectedIssueId = 'm1'
-    const gauges = countedBrief()
-    const view = await deck()
-    expect(gauges.briefRectReads()).toBe(0)
-    // Settle the mount the way the browser would: the initial observer
-    // delivery, then the body's own resize once the cutoff clamps it.
-    gauges.flushResizes()
-    gauges.flushResizes([screen.getByTestId('deck-brief')])
-    expect(screen.getByTestId('deck-brief').style.maxHeight).toBe('70px')
-
-    const before = gauges.briefRectReads()
-    // The next mission's brief is short and unclamped, so the body's own box
-    // moves while neither watched ancestor does.
-    gauges.setContentHeight(50)
-    harness.selectedIssueId = 'm2'
-    view.rerender(<DeckHarness />)
-    expect(gauges.briefRectReads()).toBe(before)
-    // The browser delivers what changed: initial reports for re-observed
-    // boxes, then the body's own resize. Name exactly those.
-    gauges.flushResizes()
-    gauges.flushResizes([screen.getByTestId('deck-brief')])
-    const switchReads = gauges.briefRectReads() - before
-
-    // CONTROL first: the same content measures the same limit in both arms.
-    expect(screen.getByTestId('deck-brief').style.maxHeight).toBe('70px')
-    // One measure, three rects, all from delivery after the browser's layout.
-    expect(switchReads).toBe(3)
-  })
-
-  it('watches the deck and the header, not the brief body it sizes', async () => {
-    harness.issues = [issue('root', { title: 'Mission', description: 'Ship the footer.' })]
-    harness.sessions = []
-    const gauges = countedBrief()
-    await deck()
-    gauges.flushResizes()
-
-    const brief = screen.getByTestId('deck-brief')
-    const header = document.querySelector('.deck-header')
-    const scroller = screen.getByTestId('flight-deck-scroller')
-    expect(header).toBeTruthy()
-    expect(gauges.observed.has(header as Element)).toBe(true)
-    expect(gauges.observed.has(scroller)).toBe(true)
-    // The body's own height is the cutoff's output (max-height); watching it
-    // turns every cutoff update into another measure that compares equal.
-    // The legacy wiring observes it and fails here.
-    expect(gauges.observed.has(brief)).toBe(false)
-  })
-
-  it('recomputes the limit when the deck itself resizes', async () => {
-    harness.issues = [issue('root', { title: 'Mission', description: 'Ship the footer.' })]
-    harness.sessions = []
-    const gauges = countedBrief()
-    await deck()
-    gauges.flushResizes()
-    expect(screen.getByTestId('deck-brief').style.maxHeight).toBe('70px')
-
-    gauges.setDeckHeight(500)
-    gauges.flushResizes([screen.getByTestId('flight-deck-scroller')])
-    // 0.4 * 500 - 80 - 10: a taller deck moves the divider, and the watcher
-    // must still be there to say so.
-    expect(screen.getByTestId('deck-brief').style.maxHeight).toBe('110px')
-  })
-
-  it('refreshes clipped content even when both observed boxes keep their size', async () => {
-    twoMissions()
-    harness.selectedIssueId = 'm1'
-    const gauges = countedBrief()
-    const view = await deck()
-    gauges.flushResizes()
-    fireEvent.click(screen.getByTestId('deck-brief-more'))
-    expect(screen.getByTestId('deck-brief').dataset.open).toBe('true')
-
-    // Both contents still overflow the same cutoff. No ancestor resize is
-    // available to tell us that the intrinsic content height changed.
-    gauges.setContentHeight(90)
-    harness.selectedIssueId = 'm2'
-    const before = gauges.briefRectReads()
-    view.rerender(<DeckHarness />)
-    expect(gauges.briefRectReads()).toBe(before)
-    expect(gauges.flushResizes()).toBe(1)
-    expect(screen.getByTestId('deck-brief').dataset.open).toBeUndefined()
-    expect(screen.getByTestId('deck-brief').style.maxHeight).toBe('70px')
-    fireEvent.click(screen.getByTestId('deck-brief-more'))
-    expect(screen.getByTestId('deck-brief').style.maxHeight).toBe('90px')
-  })
-
-  it('keeps a saved cutoff through content changes and deck resizing', async () => {
-    twoMissions()
-    harness.selectedIssueId = 'm1'
-    harness.ui.set(FLIGHT_DECK_BRIEF_CUTOFF_KEY, '0.4500')
-    const gauges = countedBrief()
-    const view = await deck()
-    gauges.flushResizes()
-    expect(screen.getByTestId('deck-brief').style.maxHeight).toBe('90px')
-
-    harness.selectedIssueId = 'm2'
-    view.rerender(<DeckHarness />)
-    gauges.flushResizes()
-    gauges.setDeckHeight(500)
-    gauges.flushResizes([screen.getByTestId('flight-deck-scroller')])
-    expect(screen.getByTestId('deck-brief').style.maxHeight).toBe('135px')
-    expect(screen.getByRole('separator').getAttribute('aria-valuenow')).toBe('45')
-    expect(harness.ui.get(FLIGHT_DECK_BRIEF_CUTOFF_KEY)).toBe('0.4500')
-  })
-
-  it('waits for a hidden deck to acquire a box and disconnects on unmount', async () => {
-    harness.issues = [issue('root', { title: 'Mission', description: 'Ship the footer.' })]
-    harness.sessions = []
-    const gauges = countedBrief()
-    gauges.setDeckHeight(0)
-    const view = await deck()
-    gauges.flushResizes()
-    expect(screen.getByTestId('deck-brief').style.maxHeight).toBe('')
-    gauges.setDeckHeight(400)
-    gauges.flushResizes([screen.getByTestId('flight-deck-scroller')])
-    expect(screen.getByTestId('deck-brief').style.maxHeight).toBe('70px')
-    view.unmount()
-    expect(gauges.unmountObservations()).toBe(true)
-  })
-
-  it('defers the no-observer fallback until after the animation frame and cancels it', async () => {
-    harness.issues = [issue('root', { title: 'Mission', description: 'Ship the footer.' })]
-    harness.sessions = []
-    const gauges = countedBrief()
-    vi.stubGlobal('ResizeObserver', undefined)
-    vi.useFakeTimers()
-    const frames = new Map<number, FrameRequestCallback>()
-    let frameId = 0
-    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
-      frames.set(++frameId, callback)
-      return frameId
-    })
-    const cancel = vi.fn((id: number) => frames.delete(id))
-    vi.stubGlobal('cancelAnimationFrame', cancel)
-    const view = await deck()
-    expect(gauges.briefRectReads()).toBe(0)
-    act(() => frames.get(frameId)?.(0))
-    expect(gauges.briefRectReads()).toBe(0)
-    act(() => vi.runOnlyPendingTimers())
-    expect(gauges.briefRectReads()).toBe(3)
-    expect(screen.getByTestId('deck-brief').style.maxHeight).toBe('70px')
-    view.unmount()
-    expect(cancel).toHaveBeenCalledWith(frameId)
-
-    // A queued task belonging to an unmounted brief must never read geometry.
-    const next = await deck()
-    act(() => frames.get(frameId)?.(0))
-    const before = gauges.briefRectReads()
-    next.unmount()
-    act(() => vi.runOnlyPendingTimers())
-    expect(gauges.briefRectReads()).toBe(before)
-  })
-})
-
 describe('the cold deck (POD-1112)', () => {
   /** The composer's placeholder: a draft issue minted so a session has somewhere
    *  to live. After a reload the selection can still point at one whose session
@@ -995,15 +538,17 @@ describe('the cold deck (POD-1112)', () => {
   const vessel = (over: Issue = {}): Issue =>
     issue('v1', { title: 'Draft', stage: 'backlog', isDraftVessel: true, ...over })
 
-  it('shows the empty state for a selection left on an empty draft vessel', async () => {
+  // The shell does not mount the deck for an empty vessel; if it ever lands
+  // here, it is a wordless load, never a sentence.
+  it('stays wordless for a selection left on an empty draft vessel', async () => {
     harness.issues = [vessel()]
     harness.sessions = []
     harness.selectedIssueId = 'v1'
     await deck()
-    expect(screen.getByTestId('flight-empty')).toBeTruthy()
-    // Not the mission chrome the vessel used to get: no header, no view bar.
+    expect(screen.getByTestId('flight-settling').textContent).toBe('')
+    // Not the mission chrome the vessel used to get: no header, no filters.
     expect(screen.queryByText('Draft')).toBeNull()
-    expect(screen.queryByText('Full spine')).toBeNull()
+    expect(screen.queryByRole('group', { name: 'Task filters' })).toBeNull()
   })
 
   it('still shows the mission once the vessel has its session', async () => {
@@ -1011,8 +556,8 @@ describe('the cold deck (POD-1112)', () => {
     harness.sessions = [session('s-new', { issueId: 'v1' })]
     harness.selectedIssueId = 'v1'
     await deck()
-    expect(screen.queryByTestId('flight-empty')).toBeNull()
-    expect(screen.getByText('Full spine')).toBeTruthy()
+    expect(screen.queryByTestId('flight-settling')).toBeNull()
+    expect(screen.getByRole('group', { name: 'Task filters' })).toBeTruthy()
   })
 
   it('names an unnamed mission from the shared draft fallback, not the harness title', async () => {
@@ -1038,15 +583,9 @@ describe('the cold deck (POD-1112)', () => {
     await deck()
     expect(document.querySelector('.shell-type-column-title')?.textContent).toBe('Renamed mission')
   })
-
-  it('shows the empty state when nothing at all is selected', async () => {
-    harness.selectedIssueId = null as unknown as string
-    await deck()
-    expect(screen.getByTestId('flight-empty')).toBeTruthy()
-  })
 })
 
-describe('Full task filters remain separate from deck views', () => {
+describe('Full task filters', () => {
   it('keeps the coordinator visible for every filter, Done and a search with no matches', async () => {
     harness.issues = [
       issue('root', { coordinatorSessionId: 'coord', memberSessionIds: ['coord'] }),
@@ -1073,24 +612,6 @@ describe('Full task filters remain separate from deck views', () => {
     expect(screen.getByText('Nothing in this mission matches that.')).toBeDefined()
   })
 
-  it('retains Full filters across legacy view switches and does not overwrite view or fold preferences', async () => {
-    developerFeature.enabled = true
-    harness.ui.set('podium.flightDeck.folds', JSON.stringify({ v: 2, open: ['t1'], closed: ['t3'] }))
-    await deck()
-    const controls = () => screen.getByRole('group', { name: 'Task filters' })
-    await act(async () => { fireEvent.click(within(controls()).getByRole('button', { name: /^Up next / })) })
-    const folds = harness.ui.get('podium.flightDeck.folds')
-    for (const [label, stored] of [['Waterfall', 'waterfall'], ['Timeline', 'handoff'], ['Working', 'working'], ['Needs you', 'needs-you']]) {
-      await act(async () => { fireEvent.click(within(screen.getByRole('group', { name: 'Deck view' })).getByRole('button', { name: label })) })
-      expect(harness.ui.get('podium.flightDeck.mode')).toBe(stored)
-      expect(screen.queryByRole('group', { name: 'Task filters' })).toBeNull()
-      await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Full spine' })) })
-      expect(within(controls()).getByRole('button', { name: /^Up next / }).getAttribute('aria-pressed')).toBe('true')
-      expect(harness.ui.has('podium.flightDeck.mode')).toBe(false)
-      expect(harness.ui.get('podium.flightDeck.folds')).toBe(folds)
-    }
-  })
-
   it('reveals a finished session from a narrowed Full filter and search', async () => {
     harness.issues = [
       issue('root'), issue('t1', { parentId: 'root', stage: 'done',
@@ -1109,224 +630,6 @@ describe('Full task filters remain separate from deck views', () => {
     expect(screen.getByRole('button', { name: 'Done 1' }).getAttribute('aria-pressed')).toBe('true')
     expect(screen.queryByRole('textbox')).toBeNull()
     expect(document.querySelector('[data-flight-session="s1"]')).not.toBeNull()
-  })
-})
-
-describe('the developer Flight Deck views', () => {
-  it('keeps the original list and does no Timeline reads when development is off', async () => {
-    harness.ui.set('podium.flightDeck.mode', 'handoff')
-    await deck()
-
-    expect(screen.queryByRole('button', { name: 'Waterfall' })).toBeNull()
-    expect(screen.queryByRole('button', { name: 'Timeline' })).toBeNull()
-    expect(screen.getByTestId('flight-deck-rows').className).toContain('deck-rows')
-    expect(screen.queryByTestId('flight-deck-waterfall')).toBeNull()
-    expect(screen.queryByTestId('flight-deck-handoff')).toBeNull()
-    expect(harness.transcriptRead).not.toHaveBeenCalled()
-    expect(harness.issueEvents).not.toHaveBeenCalled()
-    expect(harness.ui.get('podium.flightDeck.mode')).toBe('handoff')
-    expect(screen.getByRole('button', { name: 'Full spine' }).getAttribute('aria-pressed')).toBe(
-      'true',
-    )
-  })
-
-  it('orders Waterfall and Timeline after the three spine views', async () => {
-    developerFeature.enabled = true
-    await deck()
-
-    const views = ['Full spine', 'Working', 'Needs you', 'Waterfall', 'Timeline'].map((name) =>
-      screen.getByRole('button', { name }),
-    )
-    expect(views.map((view) => view.textContent)).toEqual([
-      'Full spine',
-      'Working',
-      'Needs you',
-      'Waterfall',
-      'Timeline',
-    ])
-    await act(async () => {
-      fireEvent.click(views[4] as HTMLElement)
-    })
-
-    expect(harness.ui.get('podium.flightDeck.mode')).toBe('handoff')
-    expect(screen.getByTestId('flight-deck-handoff')).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'Timeline' }).getAttribute('aria-pressed')).toBe(
-      'true',
-    )
-  })
-
-  it('falls back without overwriting Timeline and restores it when the gate returns', async () => {
-    developerFeature.enabled = true
-    harness.ui.set('podium.flightDeck.mode', 'handoff')
-    const view = await deck()
-    expect(screen.getByTestId('flight-deck-handoff')).toBeTruthy()
-
-    developerFeature.enabled = false
-    view.rerender(<DeckHarness />)
-    expect(screen.queryByTestId('flight-deck-handoff')).toBeNull()
-    expect(screen.getByTestId('flight-deck-rows')).toBeTruthy()
-    expect(harness.ui.get('podium.flightDeck.mode')).toBe('handoff')
-
-    developerFeature.enabled = true
-    view.rerender(<DeckHarness />)
-    expect(screen.getByTestId('flight-deck-handoff')).toBeTruthy()
-  })
-
-  it('renders return context in order and opens the stable transcript item', async () => {
-    developerFeature.enabled = true
-    harness.ui.set('podium.flightDeck.mode', 'handoff')
-    harness.issueVisitBaseline = {
-      issueId: 'root',
-      readAt: '2026-01-01T00:05:00.000Z',
-      openedAt: '2026-01-01T00:10:00.000Z',
-    }
-    harness.issues = harness.issues.map((candidate) =>
-      (candidate as Issue).id === 'root'
-        ? {
-            ...(candidate as Issue),
-            activityNotes: 'Ready for the operator.',
-            notesUpdatedAt: '2026-01-01T00:04:00.000Z',
-          }
-        : candidate,
-    )
-    harness.sessions = harness.sessions.map((candidate) =>
-      (candidate as SessionView).sessionId === 's1'
-        ? session('s1', {
-            issueId: 't1',
-            displayRef: 'POD-1-A',
-            name: 'Private display name',
-            lastInputAt: '2026-01-01T00:08:00.000Z',
-            lastActiveAt: '2026-01-01T00:09:00.000Z',
-            transcriptAvailable: true,
-          })
-        : candidate,
-    )
-    harness.transcriptRead.mockResolvedValueOnce({
-      items: [
-        { id: 'prompt-id', cursor: 'prompt-cursor', role: 'user', text: 'Where are we?' },
-        {
-          id: 'answer-id',
-          cursor: 'answer-cursor',
-          role: 'assistant',
-          text: 'Ready to land.',
-          answer: true,
-          ts: '2026-01-01T00:07:00.000Z',
-        },
-      ],
-      hasMore: false,
-    })
-
-    await deck()
-    await waitFor(() => expect(screen.getByText('Where are we?')).toBeTruthy())
-    const headings = [...screen.getByTestId('flight-deck-handoff').querySelectorAll('h3')].map(
-      (heading) => heading.textContent,
-    )
-    expect(headings).toEqual([
-      'Last update',
-      'Last prompt',
-      'Last answer',
-      'What is happening',
-      'What happens next',
-      'Proposed',
-    ])
-    expect(screen.getByTestId('flight-deck-handoff').textContent).toContain(
-      'Ready for the operator.',
-    )
-    expect(screen.queryByText('Stored issue update')).toBeNull()
-    expect(screen.queryByText('Private display name')).toBeNull()
-    expect(screen.getAllByText('POD-1-A').length).toBeGreaterThan(0)
-    expect(screen.getByText('New since your last visit')).toBeTruthy()
-
-    fireEvent.click(screen.getByRole('button', { name: /Last prompt in session POD-1-A/ }))
-    expect(harness.setPanelMode).toHaveBeenCalledWith('s1', 'chat')
-    expect(harness.openSessionAtTranscript).toHaveBeenCalledWith('s1', 'prompt-cursor', {
-      permanent: true,
-    })
-  })
-})
-
-describe("the mission's brief (POD-1455)", () => {
-  beforeEach(() => {
-    developerFeature.enabled = true
-    harness.ui.set('podium.flightDeck.mode', 'handoff')
-  })
-  const brief = (): HTMLElement => screen.getByTestId('deck-brief')
-
-  it('keeps the shape the author wrote — a lead-in, then a list', async () => {
-    harness.issues = [
-      issue('root', {
-        title: 'Mission',
-        description: 'in the footer bar: make sure:\n\n- agents count is live\n- burn: the same',
-      }),
-    ]
-    harness.sessions = []
-    await deck()
-    const el = brief()
-    expect(el.querySelectorAll('li')).toHaveLength(2)
-    expect(el.querySelector('li')?.textContent).toBe('agents count is live')
-    // The hyphens are the list now, not text with hyphens in it.
-    expect(el.textContent).not.toContain('- agents count')
-  })
-
-  it('breaks a single newline, because a brief is written the way it is typed', async () => {
-    harness.issues = [issue('root', { title: 'Mission', description: 'first line\nsecond line' })]
-    harness.sessions = []
-    await deck()
-    expect(brief().querySelectorAll('br')).toHaveLength(1)
-  })
-
-  /* NEITHER IS THE TOGGLE. `Show more` appears only when the brief overflows its
-     ceiling, and happy-dom has no layout: every box measures zero, so nothing
-     ever overflows and the control is correctly absent in every case this file
-     can construct. Driven in Chromium instead, against the harness fixture whose
-     description is long enough to bind the cap: shut, the brief measures 243px
-     of 454px and the control reads `Show more`; opened, 454px with the header at
-     597px and the spine pushed down to what is left; shut again, back to 243px
-     and `Show more`. */
-
-  /* THE ANCHOR-AND-SCRIPT HALF OF `renderReadoutMarkdown` IS NOT TESTABLE HERE.
-     DOMPurify decides at import whether the environment supports it, and under
-     happy-dom it does not — `sanitize` hands the input straight back, so a
-     `queryByRole('link')` assertion in this file would pass or fail for reasons
-     that have nothing to do with this component. Verified in a real browser
-     instead (Chromium, against the deck harness): a description carrying
-     `[the spec](https://example.com/spec)`, a `<script>` and an `<img onerror>`
-     renders as `<p>see the spec </p>` and the list below it, with the link's
-     words kept and every tag gone. What IS environment-independent — that the
-     structure the author wrote survives — is what the tests here assert. */
-
-  it("marks the column's standing sentence as not the operator's words", async () => {
-    harness.issues = [issue('root', { title: 'Mission' })]
-    harness.sessions = []
-    await deck()
-    expect(brief().getAttribute('data-standing')).toBe('true')
-  })
-
-  it('drops the standing mark the moment somebody writes one', async () => {
-    harness.issues = [issue('root', { title: 'Mission', description: 'Ship the footer.' })]
-    harness.sessions = []
-    await deck()
-    expect(brief().getAttribute('data-standing')).toBeNull()
-  })
-
-  it('draws the line that ends the brief in every state', async () => {
-    harness.issues = [issue('root', { title: 'Mission', description: 'Ship the footer.' })]
-    harness.sessions = []
-    await deck()
-    expect(document.querySelector('.deck-brief-rule')).toBeTruthy()
-    // Nothing is cut in a box with no layout, so the toggle stays away — which
-    // is the same answer the browser gives for a brief that fits.
-    expect(screen.queryByTestId('deck-brief-more')).toBeNull()
-  })
-
-  it("falls through to the agent's own note when nobody wrote a description", async () => {
-    harness.issues = [
-      issue('root', { title: 'Mission', activityNotes: 'Rebasing onto main before review.' }),
-    ]
-    harness.sessions = []
-    await deck()
-    expect(brief().textContent).toContain('Rebasing onto main')
-    expect(brief().getAttribute('data-standing')).toBeNull()
   })
 })
 
@@ -1410,13 +713,14 @@ describe('Full mission header', () => {
     ]
     harness.sessions = []
     await deck()
-    await waitFor(() => expect(screen.getByTestId('mission-gauge').getAttribute('aria-label')).toBe(
-      '2 of 3 tasks done, 1 to go · 0 agents',
+    await waitFor(() => expect(screen.getByTestId('mission-gauge-track').parentElement?.getAttribute('aria-label')).toBe(
+      '1 of 2 tasks done, 0 working, 0 waiting, 1 to do',
     ))
-    expect(screen.getByRole('button', { name: /2 tasks done Show/ })).toBeTruthy()
-    const before = screen.getByTestId('mission-gauge').getAttribute('aria-label')
-    fireEvent.click(screen.getByRole('button', { name: /2 tasks done Show/ }))
-    expect(screen.getByTestId('mission-gauge').getAttribute('aria-label')).toBe(before)
+    expect(screen.getByRole('button', { name: /^All 2$/ })).toBeTruthy()
+    expect(screen.getByRole('button', { name: /1 task done Show/ })).toBeTruthy()
+    const before = screen.getByTestId('mission-gauge-track').parentElement?.getAttribute('aria-label')
+    fireEvent.click(screen.getByRole('button', { name: /1 task done Show/ }))
+    expect(screen.getByTestId('mission-gauge-track').parentElement?.getAttribute('aria-label')).toBe(before)
     captureHeader('Leaf totals · parents and phases excluded')
   })
 
@@ -1430,8 +734,8 @@ describe('Full mission header', () => {
     ]
     harness.sessions = [session('worker', { issueId: 'working', agentState: WORKING })]
     await deck()
-    expect(screen.getByTestId('mission-gauge').getAttribute('aria-label')).toBe(
-      '1 of 4 tasks done, 1 underway, 1 blocked, 1 to go · 1 working',
+    expect(screen.getByTestId('mission-gauge-track').parentElement?.getAttribute('aria-label')).toBe(
+      '1 of 4 tasks done, 1 working, 0 waiting, 2 to do',
     )
     captureHeader('Four bands · shared live leaf totals')
   })
@@ -1440,12 +744,12 @@ describe('Full mission header', () => {
     harness.issues = [issue('root', { stage: 'backlog' })]
     harness.sessions = []
     await deck()
-    expect(screen.getByTestId('mission-gauge').getAttribute('aria-label')).toBe(
-      '0 of 1 task done, 1 to go · 0 agents',
+    expect(screen.getByTestId('mission-gauge-track').parentElement?.getAttribute('aria-label')).toBe(
+      '0 of 1 tasks done, 0 working, 0 waiting, 1 to do',
     )
   })
 
-  it('keeps the cost floor and live crew while Add agent uses the existing default action', async () => {
+  it('keeps the cost floor and existing Add agent action without the crew chip', async () => {
     harness.issues = [issue('root', { description: 'Human summary.', defaultAgent: 'codex', agentProfileId: 'profile' })]
     harness.sessions = [session('present', { issueId: 'root', agentState: WORKING })]
     const usage = { model: 'claude-opus-5', inputTokens: 1_000_000, outputTokens: 0,
@@ -1457,7 +761,7 @@ describe('Full mission header', () => {
     } satisfies TaskCostWire
     await deck()
     await waitFor(() => expect(screen.getByTestId('mission-cost-chip').textContent).toContain('≥$'))
-    expect(screen.getByTestId('mission-live-chip').textContent).toBe('1 working')
+    expect(screen.queryByTestId('mission-live-chip')).toBeNull()
     expect(screen.getByRole('button', { name: 'Collapse Flight Deck' })).toBeTruthy()
     captureHeader('Live crew · partial cost · Add agent')
     fireEvent.click(screen.getByRole('button', { name: 'Add agent to mission' }))
@@ -1697,22 +1001,6 @@ describe('flight deck unread (POD-912)', () => {
     expect(deckTaskUnread(row, false, new Map())).toBe(false)
   })
 
-  it('an expanded strip leaves session unread to the session row', async () => {
-    harness.sessions = [
-      session('s2', { issueId: 't2', unread: true, lastActiveAt: '2026-01-01T00:20:00.000Z' }),
-      session('s3', { issueId: 't2', unread: false }),
-    ]
-    await waterfallDeck()
-    const task = document.querySelector('[data-flight-issue="t2"]') as HTMLElement
-    expect(task.querySelector('.waterfall-issue-cell .waterfall-unread-dot')).toBeNull()
-    const unreadSession = document.querySelector('[data-flight-session="s2"]') as HTMLElement
-    expect(unreadSession.getAttribute('data-unread')).toBe('true')
-    expect(unreadSession.querySelector('.waterfall-unread-dot')).toBeTruthy()
-    const readSession = document.querySelector('[data-flight-session="s3"]') as HTMLElement
-    expect(readSession.getAttribute('data-unread')).toBeNull()
-    expect(readSession.querySelector('.waterfall-unread-dot')).toBeNull()
-  })
-
   it('a collapsed parent stays unread when a child session is new', () => {
     const child = { id: 't4', updatedAt: '2026-01-01T00:00:00.000Z' }
     const row = {
@@ -1728,355 +1016,6 @@ describe('flight deck unread (POD-912)', () => {
       },
     } as unknown as Parameters<typeof deckTaskUnread>[0]
     expect(deckTaskUnread(row, true, new Map([['t4', child]]))).toBe(true)
-  })
-})
-
-describe('flight deck click semantics (POD-710 §4.1)', () => {
-  beforeEach(() => {
-    developerFeature.enabled = true
-    harness.ui.set('podium.flightDeck.mode', 'waterfall')
-  })
-
-  const sessionRow = (id: string): HTMLElement => {
-    const container = document.querySelector(`[data-flight-session="${id}"]`)
-    const row = container?.matches('button') ? container : container?.querySelector('button')
-    if (!row) throw new Error(`no session row ${id}`)
-    return row as HTMLElement
-  }
-  const taskRow = (id: string): HTMLElement => {
-    const row = document.querySelector(`[data-flight-issue="${id}"] .waterfall-issue-open`)
-    if (!row) throw new Error(`no task row ${id}`)
-    return row as HTMLElement
-  }
-
-  it('opens a session as a preview on one click', async () => {
-    await deck()
-    fireEvent.click(sessionRow('s2'))
-    // POD-5444: no 260 ms wait — the first click previews at once.
-    expect(harness.openSessionTab.mock.calls).toEqual([['s2', { permanent: false }]])
-    await settle()
-    expect(harness.openSessionTab.mock.calls).toEqual([['s2', { permanent: false }]])
-  })
-
-  it('contracts an expanded waterfall after opening a session preview', async () => {
-    harness.display = 'expanded'
-    await deck()
-    fireEvent.click(sessionRow('s2'))
-    await settle()
-    expect(harness.onDisplayChange).toHaveBeenCalledWith('compact')
-    expect(harness.openSessionTab.mock.calls).toEqual([['s2', { permanent: false }]])
-  })
-
-  it('expands a compact waterfall when the selected bar is clicked again', async () => {
-    harness.paneA = 's2'
-    await deck()
-    expect(sessionRow('s2').getAttribute('aria-pressed')).toBe('true')
-    fireEvent.click(sessionRow('s2'))
-    await settle()
-    expect(harness.onDisplayChange).toHaveBeenCalledWith('expanded')
-  })
-
-  it('swaps to a different preview without expanding the compact waterfall', async () => {
-    harness.paneA = 's2'
-    await deck()
-    fireEvent.click(sessionRow('s3'))
-    await settle()
-    expect(harness.onDisplayChange).not.toHaveBeenCalled()
-    expect(harness.openSessionTab.mock.calls).toEqual([['s3', { permanent: false }]])
-  })
-
-  it('advances active bar geometry with the shared clock while Now stays anchored', async () => {
-    // Since 6071eaca8e the live edge reads the shared observed clock, not the
-    // store's coarseNow: pin it to the fixture's time and advance them together.
-    vi.setSystemTime(harness.coarseNow)
-    harness.sessions = harness.sessions.map((raw) => {
-      const candidate = raw as SessionView
-      return candidate.sessionId === 's2'
-        ? { ...candidate, createdAt: '2026-01-01T00:05:00.000Z' }
-        : candidate
-    })
-    const view = await deck()
-    const initialLane = sessionRow('s2').closest('.waterfall-session-lane') as HTMLElement
-    const initialLeft = Number.parseFloat(initialLane.style.getPropertyValue('--waterfall-left'))
-    const initialWidth = Number.parseFloat(initialLane.style.getPropertyValue('--waterfall-width'))
-    // The Now anchor is a property of the auto-fit viewport, written once on
-    // the waterfall root; while following it must not drift with the clock.
-    const waterfall = screen.getByTestId('flight-deck-waterfall')
-    const initialNow = waterfall.style.getPropertyValue('--waterfall-now')
-    expect(Number.parseFloat(initialNow)).toBeGreaterThan(50)
-    expect(Number.parseFloat(initialNow)).toBeLessThanOrEqual(100)
-
-    harness.coarseNow += 10 * 60_000
-    act(() => vi.advanceTimersByTime(10 * 60_000))
-    view.rerender(<DeckHarness />)
-
-    const advancedLane = sessionRow('s2').closest('.waterfall-session-lane') as HTMLElement
-    const advancedLeft = Number.parseFloat(advancedLane.style.getPropertyValue('--waterfall-left'))
-    const advancedWidth = Number.parseFloat(
-      advancedLane.style.getPropertyValue('--waterfall-width'),
-    )
-    expect(advancedLeft).toBeLessThan(initialLeft)
-    expect(advancedWidth).toBeGreaterThan(initialWidth)
-    expect(Number.parseFloat(waterfall.style.getPropertyValue('--waterfall-now'))).toBeCloseTo(
-      Number.parseFloat(initialNow),
-      6,
-    )
-  })
-
-  it('opens a native worker through its owning session without overriding panel choice', async () => {
-    harness.sessions = [
-      session('s1', { issueId: 't1' }),
-      session('s2', {
-        issueId: 't2',
-        agentState: { nativeSubagents: [{ id: 'w1', type: 'general-purpose' }] },
-      }),
-      session('s3', { issueId: 't2' }),
-      session('s4', { issueId: 't3' }),
-    ]
-    await deck()
-
-    const toggle = screen.getByRole('button', { name: 'Show 1 native worker for s2' })
-    expect(toggle.getAttribute('aria-expanded')).toBe('false')
-    fireEvent.click(toggle)
-    expect(toggle.getAttribute('aria-expanded')).toBe('true')
-    const worker = screen.getByRole('button', {
-      name: 'Open s2 native panel for general-purpose worker w1',
-    })
-    expect(worker.tagName).toBe('BUTTON')
-    expect((worker as HTMLButtonElement).tabIndex).toBe(0)
-    fireEvent.click(worker)
-
-    expect(harness.openSessionTab.mock.calls).toEqual([['s2', { permanent: false }]])
-    expect(harness.preferPanelMode).toHaveBeenCalledWith('s2', 'native')
-    expect(harness.setPanelMode).not.toHaveBeenCalled()
-    expect(harness.onDisplayChange).not.toHaveBeenCalled()
-  })
-
-  it('opens the shared session lifecycle menu from a waterfall bar', async () => {
-    await deck()
-    expect(screen.queryByRole('button', { name: 'Session actions for s2' })).toBeNull()
-    expect(screen.queryByRole('button', { name: 'Task actions for Task t2' })).toBeNull()
-    fireEvent.contextMenu(sessionRow('s2'))
-    expect(screen.getByRole('menu', { name: 'Session actions' })).toBeTruthy()
-    expect(screen.getByRole('menuitem', { name: 'Rename' })).toBeTruthy()
-  })
-
-  it('zooms rows vertically and keeps the scale on this device', async () => {
-    await deck()
-    const control = screen.getByRole('slider', { name: 'Timeline row height' })
-    expect(control.getAttribute('aria-valuenow')).toBe('100')
-
-    await act(async () => fireEvent.keyDown(control, { key: 'ArrowUp' }))
-
-    expect(control.getAttribute('aria-valuenow')).toBe('108')
-    expect(harness.ui.get(FLIGHT_DECK_WATERFALL_ROW_ZOOM_KEY)).toBe('1.08')
-    expect(
-      screen.getByTestId('flight-deck-waterfall').style.getPropertyValue('--waterfall-row-zoom'),
-    ).toBe('1.08')
-
-    control.setPointerCapture = vi.fn()
-    fireEvent.pointerDown(control, { button: 0, clientY: 100, pointerId: 7 })
-    fireEvent.pointerMove(control, { clientY: 76, pointerId: 7 })
-    expect(control.getAttribute('aria-valuenow')).toBe('128')
-    expect(harness.ui.get(FLIGHT_DECK_WATERFALL_ROW_ZOOM_KEY)).toBe('1.08')
-
-    await act(async () => fireEvent.pointerUp(control, { clientY: 76, pointerId: 7 }))
-    expect(harness.ui.get(FLIGHT_DECK_WATERFALL_ROW_ZOOM_KEY)).toBe('1.28')
-
-    await act(async () => fireEvent.keyDown(control, { key: '0' }))
-    expect(harness.ui.has(FLIGHT_DECK_WATERFALL_ROW_ZOOM_KEY)).toBe(false)
-    expect(control.getAttribute('aria-valuetext')).toContain('automatic')
-  })
-
-  it('resizes task details, saves the width, and restores automatic sizing', async () => {
-    await deck()
-    const divider = screen.getByRole('separator', { name: 'Task details width' })
-    const initial = Number(divider.getAttribute('aria-valuenow'))
-    expect(initial).toBeGreaterThan(148)
-    expect(divider.getAttribute('aria-valuetext')).toContain('automatic')
-
-    await act(async () => fireEvent.keyDown(divider, { key: 'ArrowRight' }))
-    expect(harness.ui.get(FLIGHT_DECK_WATERFALL_TASK_WIDTH_KEY)).toBe(String(initial + 12))
-    expect(divider.getAttribute('aria-valuetext')).toContain('saved')
-
-    await act(async () => fireEvent.keyDown(divider, { key: 'Escape' }))
-    expect(harness.ui.has(FLIGHT_DECK_WATERFALL_TASK_WIDTH_KEY)).toBe(false)
-    expect(divider.getAttribute('aria-valuetext')).toContain('automatic')
-  })
-
-  it('explains how to return after leaving the current timeline', async () => {
-    await deck()
-    expect(screen.queryByRole('button', { name: 'Follow current work and time' })).toBeNull()
-
-    fireEvent.click(screen.getByRole('button', { name: 'Zoom in' }))
-    const follow = screen.getByRole('button', { name: 'Follow current work and time' })
-    expect(follow.textContent).toContain('Follow now')
-    expect(follow.getAttribute('title')).toContain('keep the timeline moving')
-
-    fireEvent.click(follow)
-    expect(screen.queryByRole('button', { name: 'Follow current work and time' })).toBeNull()
-  })
-
-  it('uses amber alone for a session that needs attention', async () => {
-    harness.sessions = harness.sessions.map((raw) => {
-      const item = raw as SessionView
-      return item.sessionId === 's2'
-        ? session('s2', {
-            issueId: 't2',
-            agentState: { phase: 'needs_user', since: '2026-01-01T00:00:00.000Z' },
-          })
-        : item
-    })
-    await deck()
-
-    const bar = sessionRow('s2')
-    expect(bar.getAttribute('data-state')).toBe('attention')
-    expect(bar.textContent).not.toContain('Needs you')
-    expect(
-      bar.closest('.waterfall-session-lane')?.querySelector('.waterfall-wait-reason'),
-    ).toBeNull()
-  })
-
-  it('reopens the Task dock when an issue is picked', async () => {
-    const openPanel = vi.fn()
-    window.addEventListener('podium:open-right-panel', openPanel, { once: true })
-    await deck()
-
-    fireEvent.click(taskRow('t2'))
-    await settle()
-
-    expect(openPanel).toHaveBeenCalledTimes(1)
-    expect((openPanel.mock.calls[0]?.[0] as CustomEvent).detail).toBe('issue')
-  })
-
-  /** Every `podium:open-right-panel` detail the deck asked for, in order. */
-  const panelRequests = (): string[] => {
-    const details: string[] = []
-    const listener = (event: Event): void => {
-      details.push(String((event as CustomEvent).detail))
-    }
-    window.addEventListener('podium:open-right-panel', listener)
-    afterEachListeners.push(() => window.removeEventListener('podium:open-right-panel', listener))
-    return details
-  }
-
-  it('closes the dock on a second click on the task it is already showing (POD-1639)', async () => {
-    // The dock is open on the Task panel, exactly as it is after the first pick.
-    harness.ui.set(RIGHT_PANEL_KEY, 'issue')
-    const details = panelRequests()
-    await deck()
-
-    fireEvent.click(taskRow('t2'))
-    await settle()
-    fireEvent.click(taskRow('t2'))
-    await settle()
-
-    expect(details).toEqual(['issue', 'close'])
-  })
-
-  it('opens rather than closes when the dock is showing another task', async () => {
-    harness.ui.set(RIGHT_PANEL_KEY, 'issue')
-    const details = panelRequests()
-    await deck()
-
-    fireEvent.click(taskRow('t2'))
-    await settle()
-    fireEvent.click(taskRow('t3'))
-    await settle()
-
-    expect(details).toEqual(['issue', 'issue'])
-  })
-
-  it('toggles a settled single closed, then the promotion reopens it (POD-5444)', async () => {
-    harness.ui.set(RIGHT_PANEL_KEY, 'issue')
-    const details = panelRequests()
-    await deck()
-
-    fireEvent.click(taskRow('t2'))
-    await settle()
-    // The dock is settled on t2 now, so this single is the POD-1639 toggle.
-    fireEvent.click(taskRow('t2'))
-    // The double promotes, which is an unambiguous open — it never closes.
-    fireEvent.click(taskRow('t2'))
-    await settle()
-
-    expect(details).toEqual(['issue', 'close', 'issue'])
-  })
-
-  it('opens the dock when it is closed, whatever the row it lands on', async () => {
-    const details = panelRequests()
-    await deck()
-
-    fireEvent.click(taskRow('t2'))
-    await settle()
-    fireEvent.click(taskRow('t2'))
-    await settle()
-
-    expect(details).toEqual(['issue', 'issue'])
-  })
-
-  it('previews on the first click and promotes on the second (POD-5444)', async () => {
-    await deck()
-    fireEvent.click(sessionRow('s2'))
-    fireEvent.click(sessionRow('s2'))
-    await settle()
-    // The first click already previewed; the second only upgrades it in place.
-    expect(harness.openSessionTab.mock.calls).toEqual([
-      ['s2', { permanent: false }],
-      ['s2', { permanent: true }],
-    ])
-  })
-
-  it('treats Enter as the double click', async () => {
-    await deck()
-    fireEvent.keyDown(sessionRow('s3'), { key: 'Enter' })
-    await settle()
-    expect(harness.openSessionTab.mock.calls).toEqual([['s3', { permanent: true }]])
-  })
-
-  it('folds a task AND previews its lead session on one click', async () => {
-    await deck()
-    expect(chevron('Task t2').getAttribute('aria-expanded')).toBe('true')
-    fireEvent.click(taskRow('t2'))
-    await settle()
-    expect(chevron('Task t2').getAttribute('aria-expanded')).toBe('false')
-    expect(harness.openSessionTab.mock.calls).toEqual([['s2', { permanent: false }]])
-  })
-
-  it('promotes a task’s lead session on a double click; the first click’s fold stands (POD-5444)', async () => {
-    await deck()
-    fireEvent.click(taskRow('t2'))
-    fireEvent.click(taskRow('t2'))
-    await settle()
-    expect(chevron('Task t2').getAttribute('aria-expanded')).toBe('false')
-    expect(harness.openSessionTab.mock.calls).toEqual([
-      ['s2', { permanent: false }],
-      ['s2', { permanent: true }],
-    ])
-  })
-
-  it('keeps the legacy proposal status picker in Timeline without opening the row', async () => {
-    // This file's fake clock is for the click-intent window. Base UI positions
-    // the status menu on rAF, and the two together make `findByRole` miss the
-    // item. The rest of the suite can keep the fake clock; this test needs the
-    // menu to actually open, then a real wait past the double-click window so
-    // a leaked row click would still have fired.
-    vi.useRealTimers()
-    const openPanel = vi.fn()
-    window.addEventListener('podium:open-right-panel', openPanel)
-    developerFeature.enabled = true
-    harness.ui.set('podium.flightDeck.mode', 'handoff')
-    await deck()
-
-    fireEvent.click(within(screen.getAllByTestId('flight-proposed')[0]!).getByLabelText('Status: Proposed'))
-    fireEvent.click(await screen.findByRole('menuitem', { name: 'Backlog' }))
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, DOUBLE_CLICK_MS + 40))
-    })
-
-    expect(harness.updateIssue).toHaveBeenCalledWith('p1', { stage: 'backlog' })
-    expect(openPanel).not.toHaveBeenCalled()
-    window.removeEventListener('podium:open-right-panel', openPanel)
   })
 })
 
@@ -2137,11 +1076,12 @@ describe('flight deck sections (POD-710 §4.3, §4.4)', () => {
     ]
     harness.sessions = [session('s-spin', { issueId: 'spin', name: 'Scroll fix' })]
 
-    await deck()
+    await deck({ pane: true })
 
+    // The conversation moved, so the filing action is the pane's (POD-2043).
     // The word "tuck" alone is never offered on an open task — it cannot work.
     expect(screen.queryByRole('button', { name: /^Tuck away/ })).toBeNull()
-    fireEvent.click(screen.getByRole('button', { name: /Done & tuck/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /Done & tuck/ }))
 
     // Nothing was at stake, so the guard did not interrupt: the close went
     // straight out, and the fold follows it.
@@ -2171,8 +1111,8 @@ describe('flight deck sections (POD-710 §4.3, §4.4)', () => {
     ]
     harness.sessions = [session('s-spin', { issueId: 'spin', name: 'Scroll fix' })]
 
-    await deck()
-    fireEvent.click(screen.getByRole('button', { name: /Done & tuck/ }))
+    await deck({ pane: true })
+    fireEvent.click(await screen.findByRole('button', { name: /Done & tuck/ }))
 
     expect(harness.closeIssue).not.toHaveBeenCalled()
     const concerns = await screen.findByTestId('issue-close-concerns')
@@ -2210,22 +1150,29 @@ describe('flight deck sections (POD-710 §4.3, §4.4)', () => {
     ]
     harness.sessions = [session('s-tip', { issueId: 'tip', name: 'Dest web rebuild' })]
 
-    await deck()
+    await deck({ pane: true })
 
-    const card = screen.getByTestId('flight-continuation')
-    expect(card.textContent).toContain('Work continued in POD-963')
-    expect(card.textContent).toContain('No session remains here.')
-    expect(card.textContent).not.toContain('session ended')
+    // The conversation moved (POD-2043): the deck marks it as the selected seat,
+    // and nothing in the deck counts the empty task as underway.
+    const seat = screen.getByTestId('flight-moved-seat')
+    expect(seat.textContent).toContain('Conversation moved')
+    expect(seat.textContent).toContain('to POD-963 · Dest web rebuild exit')
+    expect(screen.queryByTestId('flight-continuation')).toBeNull()
+    expect(screen.queryByText(/underway/i)).toBeNull()
     // ONE REGION, ONE STATEMENT (POD-1146). The tip is the continuation AND a
     // departure — it used to render as a card and again as a faint mono tick
-    // twelve pixels below it, in a different voice. The card is now the first
-    // row of the departures region, so POD-963 is said exactly once.
+    // twelve pixels below it, in a different voice. The seat is the first row of
+    // the departures region, so POD-963 is said exactly once there.
     expect(screen.getByText('Where the work went')).toBeTruthy()
     expect(screen.queryByText('Left this mission')).toBeNull()
     expect(screen.queryByTestId('flight-departure')).toBeNull()
-    expect(screen.getByTestId('flight-departures').contains(card)).toBe(true)
+    expect(screen.getByTestId('flight-departures').contains(seat)).toBe(true)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Open POD-963' }))
+    // The pane explains the move and holds the way there.
+    const pane = await screen.findByTestId('moved-conversation')
+    expect(pane.textContent).toContain('Your conversation moved to POD-963')
+    expect(pane.textContent).toContain('Dest web rebuild exit')
+    fireEvent.click(screen.getByRole('button', { name: /Open POD-963/ }))
     expect(harness.setSelectedIssueId).toHaveBeenCalledWith('tip')
   })
 
@@ -2505,12 +1452,6 @@ describe('flight deck sections (POD-710 §4.3, §4.4)', () => {
     expect(row).not.toBeNull()
     expect(row?.querySelector('.flight-v6-state')?.textContent).toBe('Done∑ 1:05')
   })
-
-  it('offers session lifecycle from the open card', async () => {
-    harness.ui.set('podium.flightDeck.folds', writeFolds(new Map([['t2', 'open']]))!)
-    await deck()
-    expect(screen.getByRole('button', { name: 'Session actions for s2' })).toBeTruthy()
-  })
 })
 
 /**
@@ -2563,11 +1504,6 @@ describe('flight deck task menu (POD-771)', () => {
     fireEvent.contextMenu(proposal as HTMLElement)
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Start issue' }))
     expect(harness.startIssue).toHaveBeenCalledWith({ id: 'p1' })
-  })
-
-  it('shows the hover affordance for operators who never right-click', async () => {
-    await deck()
-    expect(screen.getByRole('button', { name: 'Task actions for Task t1' })).toBeTruthy()
   })
 
   it('uses the shared draft name in the strip and its rename editor', async () => {
@@ -2679,40 +1615,11 @@ describe('flight deck spine (POD-758)', () => {
     expect(band?.className).not.toContain('issue-mix')
   })
 
-  it('keeps an empty task compact with its shared Idle state and actions', async () => {
+  it('keeps an empty task compact with its shared Idle state', async () => {
     harness.issues.push(issue('t5', { parentId: 'root', stage: 'planning', title: 'Unstaffed' }))
     await deck()
     expect(strip('t5').querySelector('.flight-v6-state')?.textContent).toBe('Idle')
-    expect(screen.getByRole('button', { name: 'Task actions for Unstaffed' })).toBeTruthy()
     expect(strip('t5').querySelector('.flight-v6-sessions')).toBeNull()
-  })
-
-  it('folds excess completed sessions into one truthful elapsed span', async () => {
-    harness.issues = harness.issues.map((raw) => {
-      const candidate = raw as Issue
-      return candidate.id === 'root'
-        ? { ...candidate, memberSessionIds: ['r1', 'r2', 'r3', 'r4'] }
-        : candidate
-    })
-    harness.sessions = [
-      ...harness.sessions,
-      ...['r1', 'r2', 'r3', 'r4'].map((id) =>
-        session(id, { issueId: 'root', status: 'exited', name: `Retired ${id}` }),
-      ),
-    ]
-    // The history fold is the waterfall's own density valve; the plain deck
-    // never rendered it, and this ran green only while the view was ungated.
-    await waterfallDeck()
-    const summary = screen.getByRole('button', { name: /Expand 4 completed sessions/ })
-    for (const id of ['r1', 'r2', 'r3', 'r4']) {
-      expect(document.querySelector(`[data-flight-session="${id}"]`)).toBeNull()
-    }
-
-    fireEvent.click(summary)
-    expect(summary.getAttribute('aria-expanded')).toBe('true')
-    for (const id of ['r1', 'r2', 'r3', 'r4']) {
-      expect(document.querySelector(`[data-flight-session="${id}"]`)).not.toBeNull()
-    }
   })
 
   it('names the mission coordinator in its own card above the task tree', async () => {
@@ -2932,286 +1839,36 @@ describe('flight deck tab-strip hover link', () => {
 })
 
 /**
- * THE DECK WITH NO MISSION UNDER THE SELECTION (POD-1139).
+ * THE DECK WITH NO MISSION UNDER THE SELECTION.
  *
- * Three different facts, three different answers, and the discriminator is the
- * focused session itself — its kind, then whether it knows its task. The screen
- * this replaced ("Ready when you are", over a copy of the right dock's
- * Task/Plan/Team rows) gave all three the same agent words, the shell included,
- * and a shell is never going to organize anything.
+ * The shell mounts the column only for a selected task, so what reaches here
+ * without a root is the selection catching up. Whatever the focused session
+ * is, the deck stays a wordless ghost: no empty-state advice, no shell copy,
+ * and no loose sessions.
  */
 describe('flight deck without a mission', () => {
   beforeEach(() => {
     harness.selectedIssueId = null
   })
 
-  it('offers the ghost tree and its advice when nothing is focused', async () => {
+  it('says nothing when nothing is selected', async () => {
     await deck()
-    expect(screen.getByTestId('flight-empty')).toBeTruthy()
-    expect(screen.getByText('Every agent, in one tree')).toBeTruthy()
+    expect(screen.getByTestId('flight-settling').textContent).toBe('')
   })
 
-  it('keeps the empty deck when the focused session has no task', async () => {
-    harness.sessions = [session('loose', { issueId: null })]
-    harness.paneA = 'loose'
-    await deck()
-    expect(screen.getByTestId('flight-empty')).toBeTruthy()
-    expect(document.querySelector('[data-flight-session]')).toBeNull()
-    expect(screen.queryByTestId('flight-settling')).toBeNull()
-  })
-
-  it('keeps unrelated agents out of the deck before any tab is open', async () => {
+  it('keeps loose sessions out of the deck', async () => {
     harness.sessions = [
       session('plain', { issueId: null, displayRef: 'POD-DRAFT-1' }),
-      session('contract', {
-        issueId: null,
-        displayRef: 'POD-DRAFT-2',
-        lastActiveAt: '2026-01-01T00:05:00.000Z',
-      }),
+      session('sh', { agentKind: 'shell', issueId: null, displayRef: 'POD-DRAFT-2' }),
     ]
+    harness.paneA = 'sh'
     await deck()
-    expect(screen.getByTestId('flight-empty')).toBeTruthy()
+    expect(screen.getByTestId('flight-settling')).toBeTruthy()
     expect(document.querySelector('[data-flight-session]')).toBeNull()
     expect(screen.queryByText('POD-DRAFT-1')).toBeNull()
     expect(screen.queryByText('POD-DRAFT-2')).toBeNull()
   })
-
-  // The composer's spawn paints the vessel and the session together, so the
-  // session knows its task before the selection does. That gap is a load.
-  it('ghosts, wordlessly, while a spawned session waits for its selection', async () => {
-    harness.sessions = [session('fresh', { issueId: 'root' })]
-    harness.paneA = 'fresh'
-    await deck()
-    expect(screen.getByTestId('flight-settling')).toBeTruthy()
-    expect(screen.getByTestId('flight-ghost-settling')).toBeTruthy()
-    // Nothing to read, because a beat later there is a real tree here.
-    expect(screen.queryByText('Every agent, in one tree')).toBeNull()
-    expect(screen.getByTestId('flight-settling').textContent).toBe('')
-  })
-
-  it('tells a shell what it is instead of promising it an agent', async () => {
-    harness.sessions = [session('sh', { agentKind: 'shell', issueId: null })]
-    harness.paneA = 'sh'
-    await deck()
-    expect(screen.getByTestId('flight-shell')).toBeTruthy()
-    expect(screen.getByText('A shell joins no task')).toBeTruthy()
-    expect(screen.queryByTestId('flight-empty')).toBeNull()
-  })
-
-  // A shell that DOES sit in a started worktree (`issue add-shell`) still gets
-  // the shell answer rather than the load: it is not waiting for anything.
-  it('keeps the shell answer even when the shell carries a task id', async () => {
-    harness.sessions = [session('sh', { agentKind: 'shell', issueId: 'root' })]
-    harness.paneA = 'sh'
-    await deck()
-    expect(screen.getByTestId('flight-shell')).toBeTruthy()
-    expect(screen.queryByTestId('flight-settling')).toBeNull()
-  })
 })
-
-/**
- * THE VIEW BAR ACTUALLY NARROWS THE COLUMN (POD-1245).
- *
- * `Working` and `Needs you` both looked broken in the field — an operator with
- * that view on was reading a spine of finished and cancelled tasks. Two separate
- * causes, and the tests below hold each at the level it is fixed: the viewmodel
- * decides WHICH rows survive (mission.test.ts), and this file decides what a row
- * that survived only as somebody else's path is allowed to draw.
- */
-describe('flight deck view filters (POD-1245)', () => {
-  const strip = (id: string): HTMLElement => {
-    const row = document.querySelector(`[data-flight-issue="${id}"]`)
-    if (!row) throw new Error(`no strip ${id}`)
-    return row as HTMLElement
-  }
-  const band = (id: string): HTMLElement => {
-    const el = strip(id).querySelector('.deck-strip')
-    if (!el) throw new Error(`no band ${id}`)
-    return el as HTMLElement
-  }
-
-  // root ── mid (done, quiet) ── leaf (in review — the one thing asking)
-  beforeEach(() => {
-    harness.issues = [
-      issue('root', { title: 'Mission' }),
-      issue('mid', {
-        parentId: 'root',
-        title: 'Finished parent',
-        stage: 'done',
-        memberSessionIds: ['busy', 'busy2'],
-      }),
-      issue('leaf', { parentId: 'mid', title: 'Wants a decision', stage: 'review' }),
-    ]
-    harness.sessions = [session('busy', { issueId: 'mid' }), session('busy2', { issueId: 'mid' })]
-  })
-
-  it('drops a finished task whose only agent is parked, in Working', async () => {
-    harness.issues = [
-      issue('root', { title: 'Mission' }),
-      issue('parked', {
-        parentId: 'root',
-        title: 'Parked',
-        stage: 'done',
-        memberSessionIds: ['p'],
-      }),
-      issue('running', {
-        parentId: 'root',
-        title: 'Running',
-        stage: 'in_progress',
-        memberSessionIds: ['r'],
-      }),
-    ]
-    harness.sessions = [
-      session('p', { issueId: 'parked', status: 'hibernated' }),
-      session('r', { issueId: 'running', agentState: WORKING }),
-    ]
-    harness.ui.set('podium.flightDeck.mode', 'working')
-    await deck()
-    expect(document.querySelector('[data-flight-issue="parked"]')).toBeNull()
-    expect(document.querySelector('[data-flight-issue="running"]')).not.toBeNull()
-  })
-
-  it('still draws the tree down to the match in Needs you', async () => {
-    harness.ui.set('podium.flightDeck.mode', 'needs-you')
-    await deck()
-    // The path survives — an exception you cannot place is not useful.
-    expect(strip('mid')).toBeTruthy()
-    expect(strip('leaf')).toBeTruthy()
-  })
-
-  // The heart of it: a path row is scaffolding, and scaffolding does not carry a
-  // fill, a state word, or a crew of agents that are not asking for anything.
-  it('renders a path-only row as scaffolding, not as a second thing needing you', async () => {
-    harness.ui.set('podium.flightDeck.mode', 'needs-you')
-    await deck()
-    const context = band('mid')
-    expect(context.className).toContain('bg-transparent')
-    expect(context.className).not.toContain('bg-tabstrip')
-    // Its two agents came with it before; now neither renders.
-    expect(strip('mid').textContent).not.toContain('busy')
-    expect(strip('mid').textContent).not.toContain('busy2')
-    // And it no longer reports a state of its own.
-    expect(strip('mid').textContent).not.toContain('done')
-    // The match itself is still a full strip.
-    expect(band('leaf').className).toContain('bg-tabstrip')
-  })
-
-  it('leaves every row a full strip in Full spine', async () => {
-    harness.ui.set('podium.flightDeck.mode', 'full')
-    await deck()
-    expect(band('mid').className).toContain('flight-v6-strip')
-    expect(strip('mid').textContent).toContain('busy')
-  })
-
-  /**
-   * POD-1452. This view was exempt from both rules above, because it matched
-   * whole open TASKS: every row it kept was live work in its own right and its
-   * crew came with it. It matches agents now, so the same fixture reads the same
-   * way here — the row on the path to the working agent is scaffolding, and the
-   * two idle agents on it are not what `Working` means.
-   */
-  it('renders a path-only row as scaffolding in Working too', async () => {
-    harness.issues = [
-      issue('root', { title: 'Mission' }),
-      issue('mid', {
-        parentId: 'root',
-        title: 'Finished parent',
-        stage: 'done',
-        memberSessionIds: ['busy', 'busy2'],
-      }),
-      issue('leaf', {
-        parentId: 'mid',
-        title: 'Wants a decision',
-        stage: 'review',
-        memberSessionIds: ['runner'],
-      }),
-    ]
-    harness.sessions = [
-      session('busy', { issueId: 'mid' }),
-      session('busy2', { issueId: 'mid' }),
-      session('runner', { issueId: 'leaf', agentState: WORKING }),
-    ]
-    harness.ui.set('podium.flightDeck.mode', 'working')
-    await deck()
-    expect(band('mid').className).toContain('bg-transparent')
-    expect(strip('mid').textContent).not.toContain('busy')
-    expect(band('leaf').className).toContain('bg-tabstrip')
-    expect(document.querySelector('[data-flight-session="runner"]')).not.toBeNull()
-  })
-
-  // The other half: an open task nobody is on is not active work, whatever its
-  // stage says (POD-1452).
-  it('drops an open task with no agent on it, in Working', async () => {
-    harness.ui.set('podium.flightDeck.mode', 'working')
-    await deck()
-    expect(document.querySelector('[data-flight-issue="leaf"]')).toBeNull()
-    expect(screen.getByText('No agent in this mission is working right now.')).toBeTruthy()
-  })
-
-  /**
-   * THE TWO NARROWED VIEWS ARE DISJOINT (POD-1452) — and this is the shape that
-   * makes the split safe.
-   *
-   * An agent stopped on a question is not working, so it leaves `Working`
-   * entirely. On a mission where that is the ONLY agent, `Working` therefore
-   * draws a blank column — which reads as "nothing here" when the truth is "all
-   * of it is waiting on you". The empty line is the only thing on screen at that
-   * moment, so it is where the count belongs, and it points at the tab that has
-   * them.
-   */
-  it('sends an asking agent to Needs you and counts it on the empty Working column', async () => {
-    harness.issues = [
-      issue('root', { title: 'Mission' }),
-      issue('leaf', { parentId: 'root', title: 'Wants a decision', memberSessionIds: ['asker'] }),
-    ]
-    harness.sessions = [
-      session('asker', {
-        issueId: 'leaf',
-        agentState: { phase: 'needs_user', since: '2026-01-01T00:00:00.000Z' },
-      }),
-    ]
-    harness.ui.set('podium.flightDeck.mode', 'working')
-    await deck()
-    expect(document.querySelector('[data-flight-session="asker"]')).toBeNull()
-    expect(screen.getByText('No agent is working — 1 is waiting on you.')).toBeTruthy()
-    cleanup()
-    // A warm pool receives preference edits through the routed owner port.
-    uiState.set('podium.flightDeck.mode', 'needs-you')
-    await deck()
-    expect(document.querySelector('[data-flight-session="asker"]')).not.toBeNull()
-  })
-
-  /**
-   * THE ONE-TASK MISSION (POD-1356) — where the bar had no effect at all.
-   *
-   * With no sub-tasks the whole column IS the header's roster, and that roster
-   * was read with `matched` forced true: no view could remove an agent from it,
-   * so all three views drew the same screen. The mission ROW is still exempt —
-   * the header names what is on screen — but its crew is content.
-   */
-  describe('a mission with no sub-tasks', () => {
-    beforeEach(() => {
-      harness.issues = [issue('root', { title: 'Mission', memberSessionIds: ['idle'] })]
-      harness.sessions = [session('idle', { issueId: 'root' })]
-    })
-
-    it('shows the mission agent in Full', async () => {
-      harness.ui.set('podium.flightDeck.mode', 'full')
-      await deck()
-      expect(document.querySelector('[data-flight-session="idle"]')).not.toBeNull()
-    })
-
-    it('drops it in Needs you and names the view that emptied the column', async () => {
-      harness.ui.set('podium.flightDeck.mode', 'needs-you')
-      await deck()
-      expect(document.querySelector('[data-flight-session="idle"]')).toBeNull()
-      expect(screen.getByText('No agent in this mission is asking for you.')).toBeTruthy()
-      // The old line claimed an unstaffed mission, about one with a live agent.
-      expect(screen.queryByText('No sessions or sub-tasks are attached.')).toBeNull()
-    })
-  })
-})
-
 
 describe('Full coordinator and session seats', () => {
   const row = (id: string) => document.querySelector<HTMLElement>(`[data-flight-session="${id}"]`)!
@@ -3280,9 +1937,6 @@ describe('Full coordinator and session seats', () => {
       expect(harness.openSessionTab).toHaveBeenLastCalledWith(id, { permanent: true })
     }
     expect(harness.openSessionTab).toHaveBeenCalledTimes(24)
-    expect(screen.getByRole('button', { name: 'Session actions for coord' })).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'Phase actions for Build' })).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'Task actions for Build storage' })).toBeTruthy()
   })
 
   it('keeps a simple issue, its pending offer and selected helper stable as child tasks and phases arrive', async () => {
@@ -3323,8 +1977,8 @@ describe('Full coordinator and session seats', () => {
     expect(row('coord').dataset.word).toBe('needs-you')
     expect(selected()).toEqual(['helper'])
     const card = screen.getByTestId('flight-full-coordinator')
-    const mode = screen.getByRole('button', { name: 'Full spine' })
-    expect(card.compareDocumentPosition(mode) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    const filters = screen.getByRole('group', { name: 'Task filters' })
+    expect(card.compareDocumentPosition(filters) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 
   it('does not assign a coordinator or phase lead from the first or original conversation', async () => {
@@ -3391,7 +2045,6 @@ afterAll(() => {
 
 describe('Full phase sections', () => {
   it('puts done restoration above unphased work and phase sections while retaining the tail', async () => {
-    harness.ui.set('podium.flightDeck.mode', 'full')
     harness.issues = [
       issue('root', { title: 'Mission' }),
       issue('phase', { parentId: 'root', type: 'phase', title: 'Build', sortKey: 'a' }),

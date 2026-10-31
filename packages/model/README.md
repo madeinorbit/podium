@@ -20,7 +20,7 @@ it. Reserved directories are intentionally empty and carry a README naming their
 | `clock.ts` | `Instant` (epoch ms) — **the** clock representation — plus `toInstant`/`toIso`/`requireInstant`, the adapters at the edges | live |
 | `exhaustive.ts` | `assertUnreachable` — the totality guard every closed union in this package ends with | live |
 | `ids/` | Branded ID types (`IssueId`, `SessionId`, `MachineId`, … and POD-1075's `UserId`) | **reserved** — POD-360…363 |
-| `entities/` | Entity aggregates and their field vocabularies (`issue-color` today) | live, grows |
+| `entities/` | Entity aggregates and their field vocabularies (`label-color`) | live, grows |
 | `identity/` | Identity of things and of principals: git remote / repo identity, worktree identity, session identity — and POD-1075's `User` / account aggregate | live, grows |
 | `authz/` | The authorization policy: roles, the closed scope set, and `authorize` — the single enforcement function | live |
 | `predicates/` | Pure derivations over entity shapes: issue stage/defer, snooze, sort keys, machine + handoff selection, session priority, mobile entry | live |

@@ -129,6 +129,8 @@ export function ToolBlock({
     () => (open && isCommand ? expandedCommand(item) : undefined),
     [open, isCommand, item],
   )
+  // A Codex script's calls, as the compute path listed them (POD-2144/2146).
+  const calls = open ? block.scriptCalls : undefined
   // The agent's own description of a command it ran — a detail, so it stays
   // behind this row's own disclosure, which is exactly where the operator asked
   // for details to live.
@@ -198,6 +200,24 @@ export function ToolBlock({
         </>
       )}
       {aside && open && <div className="tool-aside">{aside}</div>}
+      {calls && calls.length > 0 && (
+        <ul className="tool-script-calls">
+          {calls.map((call, index) => (
+            // biome-ignore lint/suspicious/noArrayIndexKey: a script's call list never reorders
+            <li key={index} className="tool-row min-w-0">
+              <span className="tool-name">{call.tool}</span>
+              <span
+                className={cn(
+                  'min-w-0 truncate',
+                  call.tool === 'Bash' ? 'tool-cmd' : 'tool-subject',
+                )}
+              >
+                {call.tool === 'Bash' ? <BashCommand command={call.input} /> : call.input}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
       {verdict === 'err' && (
         <div className="tool-fail-line">
           {abnormal ? 'Tool interrupted or timed out' : failLine(result)}

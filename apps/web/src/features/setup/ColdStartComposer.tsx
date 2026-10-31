@@ -1,37 +1,59 @@
+import {
+  AUTO,
+  draftForLaunchContext,
+  draftForReportedModels,
+  type LaunchPickContext,
+  readLastLaunchPicks,
+  rememberLaunchPick,
+} from '@podium/client-core/agent-models'
 import { randomUUID } from '@podium/client-core/id'
-import { FIRST_TASK_ACTIVATION_DRAFT_KEY, LAST_LAUNCH_PICK_KEY } from '@podium/client-core/ui-state'
+import {
+  FIRST_TASK_ACTIVATION_DRAFT_KEY,
+  LAST_LAUNCH_PICK_KEY,
+  SUPERAGENT_MODE_KEY,
+} from '@podium/client-core/ui-state'
 import {
   AGENT_NOT_READY_COPY,
-  agentCanLaunch,
   activationAgentReadiness,
+  agentCanLaunch,
   indexedRepoUsageAt,
   launchAgentKind,
-  signInInTerminalCopy,
   machineViewsFromWire,
   type RepoView,
   reposToViews,
+  signInInTerminalCopy,
   usableMachines,
 } from '@podium/client-core/values'
 import { asIssueId, asMutationId, asSessionId, type GitRepositoryWire } from '@podium/model'
-import { agentLoginCondition, asMachineId, DEFAULT_HARNESS_AGENT, machinePathBasename, machinePathKey, preferredMachineChoices } from '@podium/model/browser'
+import {
+  agentLoginCondition,
+  asMachineId,
+  DEFAULT_HARNESS_AGENT,
+  machinePathBasename,
+  machinePathKey,
+  preferredMachineChoices,
+} from '@podium/model/browser'
 import { nativeAccountId, resolveRole } from '@podium/runtime'
-import { ChevronDown, LoaderCircle, Monitor, Paperclip, X } from 'lucide-react'
+import { ChevronDown, Folder, LoaderCircle, Monitor, Paperclip } from 'lucide-react'
 import type { JSX } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AttachmentStrip } from '@/features/chat/AttachmentStrip'
 import { useAttachments } from '@/features/chat/use-attachments'
-import { chordLabel, useComposerChord } from '@/features/chat/use-composer-chord'
-import { useSettingsPersistedUiState as usePersistedUiState, useSettingsCatalog, useSettingsSetupSummary, useSettingsDraftSeed } from '@/features/settings/readers'
+import { useComposerChord } from '@/features/chat/use-composer-chord'
+import {
+  useSettingsPersistedUiState as usePersistedUiState,
+  useSettingsCatalog,
+  useSettingsDraftSeed,
+  useSettingsSetupSummary,
+} from '@/features/settings/readers'
 import { useSettingsClient } from '@/features/settings/stable-access'
+import { useTipMoment } from '@/features/tips'
+import { noteFirstSend } from '@/features/worklist/first-send-tip'
 import {
   agentFleetStatus,
   CapabilityAgentMenu,
   candidateFromAvailability,
 } from '@/lib/agent-capability'
-import {
-  AUTO, draftForLaunchContext, draftForReportedModels, readLastLaunchPicks,
-  rememberLaunchPick, type LaunchPickContext,
-} from '@podium/client-core/agent-models'
 import {
   ISSUE_AGENT_KINDS,
   type IssueAgentKind,
@@ -50,7 +72,9 @@ import {
 import { useFeature } from '@/lib/use-feature'
 import { useModelCatalog } from '@/lib/use-model-catalog'
 import { useNativeDraftText } from '@/lib/use-native-draft-text'
+import { cn } from '@/lib/utils'
 import { useColdStartPromptAutoGrow } from './cold-start-prompt-height'
+import { FIRST_PROMPT_ANCHOR, FirstPromptGhost, firstPromptCards } from './FirstPromptTip'
 import {
   clearFirstTaskDraft,
   type FirstTaskDraft,
@@ -154,20 +178,36 @@ function withoutCreateReservation(draft: FirstTaskDraft): FirstTaskDraft {
 }
 
 /** The single first-task picker owns the order for each menu opening. */
-export function useFirstTaskRepositoryPicker(repos: GitRepositoryWire[], repositoryUsage: ReadonlyMap<string, number>) {
+export function useFirstTaskRepositoryPicker(
+  repos: GitRepositoryWire[],
+  repositoryUsage: ReadonlyMap<string, number>,
+) {
   // Stored on picker open: identities and recency stay still; metadata stays live.
   const [repoOrder, setRepoOrder] = useState<readonly string[] | null>(null)
-  const repoIdentity = (repo: RepoView) => repo.repoId ?? (repo.originUrl ||
-    JSON.stringify([repo.machines?.[0]?.machineId ?? '', machinePathKey(repo.path)]))
-  const liveRepoChoices = useMemo(() => reposToViews(repos)
-    .filter(view => checkoutForMachine(repos, view, undefined) !== undefined), [repos])
+  const repoIdentity = (repo: RepoView) =>
+    repo.repoId ??
+    (repo.originUrl ||
+      JSON.stringify([repo.machines?.[0]?.machineId ?? '', machinePathKey(repo.path)]))
+  const liveRepoChoices = useMemo(
+    () =>
+      reposToViews(repos).filter(
+        (view) => checkoutForMachine(repos, view, undefined) !== undefined,
+      ),
+    [repos],
+  )
   const rankedRepoChoices = () => {
     const usage = new Map<string, number>()
     for (const repo of repos) usage.set(repo.path, indexedRepoUsageAt(repo, repositoryUsage))
-    const usageFor = (view: RepoView): number => Math.max(usage.get(view.path) ?? 0,
-      ...(view.machines ?? []).map(({ path }) => usage.get(path) ?? 0))
-    return [...liveRepoChoices].sort((a, b) => usageFor(b) - usageFor(a) ||
-      a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }))
+    const usageFor = (view: RepoView): number =>
+      Math.max(
+        usage.get(view.path) ?? 0,
+        ...(view.machines ?? []).map(({ path }) => usage.get(path) ?? 0),
+      )
+    return [...liveRepoChoices].sort(
+      (a, b) =>
+        usageFor(b) - usageFor(a) ||
+        a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }),
+    )
   }
   const rankingUsage = repoOrder === null ? repositoryUsage : undefined
   const repoChoices = useMemo(() => {
@@ -180,14 +220,43 @@ export function useFirstTaskRepositoryPicker(repos: GitRepositoryWire[], reposit
     }
     return choices.filter((repo): repo is RepoView => repo !== undefined)
   }, [repoOrder, liveRepoChoices, rankingUsage])
-  const onOpenChange = (open: boolean) => setRepoOrder(open ? rankedRepoChoices().map(repoIdentity) : null)
+  const onOpenChange = (open: boolean) =>
+    setRepoOrder(open ? rankedRepoChoices().map(repoIdentity) : null)
   return { repoChoices, onOpenChange }
 }
 
-export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
+/** Optional instructions for coordinating a complex epic. */
+export const COORDINATOR_PROMPT =
+  'This is a complex epic. You are the designated coordinator. Organize your work accordingly. Check with me on key decisions.'
+
+/** Words, as a person counts them: runs of non-space. */
+export function countWords(text: string): number {
+  const trimmed = text.trim()
+  return trimmed ? trimmed.split(/\s+/).length : 0
+}
+
+export function ColdStartComposer({
+  first,
+  autoFocus = false,
+  onLaunched,
+}: {
+  first: boolean
+  /** Take focus on mount — the New task overlay opens ready to type. */
+  autoFocus?: boolean
+  /** A launch went out; the overlay that hosts this box gets out of the way. */
+  onLaunched?: () => void
+}): JSX.Element {
   const {
-    trpc, uiState, focusIssueSession, spawnDraftAgent, spawnIssueAgent,
-    setSelectedIssueId, setSelectedWorktree, setPane, setPanelMode, setView,
+    trpc,
+    uiState,
+    focusIssueSession,
+    spawnDraftAgent,
+    spawnIssueAgent,
+    setSelectedIssueId,
+    setSelectedWorktree,
+    setPane,
+    setPanelMode,
+    setView,
   } = useSettingsClient()
   const { repos, machines } = useSettingsCatalog()
   const { usage: repositoryUsage, defaultAgent: recentAgent } = useSettingsSetupSummary(repos)
@@ -227,9 +296,14 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
     serializeFirstTaskDraft,
   )
   const [lastLaunchPicks] = usePersistedUiState(
-    LAST_LAUNCH_PICK_KEY, readLastLaunchPicks, JSON.stringify,
+    LAST_LAUNCH_PICK_KEY,
+    readLastLaunchPicks,
+    JSON.stringify,
   )
-  const { loading: draftLoading } = useSettingsDraftSeed(FIRST_TASK_ACTIVATION_DRAFT_KEY, readFirstTaskDraft)
+  const { loading: draftLoading } = useSettingsDraftSeed(
+    FIRST_TASK_ACTIVATION_DRAFT_KEY,
+    readFirstTaskDraft,
+  )
   const previousLaunchContext = useRef<LaunchPickContext | undefined>(undefined)
   /**
    * The operator's harness, as `roles.coding` answers it — the same read the
@@ -341,7 +415,9 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
    * A pick made in THIS box outranks both — it is the most recent thing the
    * operator said about this specific task.
    */
-  const defaultAgent = issueAgentKind((agentSetting && agentSetting !== 'auto' ? agentSetting : recentAgent)) ?? DEFAULT_HARNESS_AGENT
+  const defaultAgent =
+    issueAgentKind(agentSetting && agentSetting !== 'auto' ? agentSetting : recentAgent) ??
+    DEFAULT_HARNESS_AGENT
 
   /**
    * PICKING A HARNESS HERE IS A WRITE (POD-1469).
@@ -465,9 +541,9 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
     })
   }, [authorized, selectedMachine])
 
-  /** The home composer has no issue yet. Keep picked bytes in browser memory;
-   *  `sessions.create` snapshots them onto the new draft before its agent runs.
-   *  Existing-session chat keeps using daemon workspace uploads. */
+  /** The home composer has no issue yet. Picked files are held on the server
+   *  (POD-2148); `sessions.create` claims them into the new draft, and its
+   *  first prompt hands them to the agent like any chat message. */
   const [uploadScope] = useState(() => asSessionId(`coldstart-${randomUUID()}`))
   const attachments = useAttachments({
     sessionId: uploadScope,
@@ -475,62 +551,19 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
     destination: 'issue',
   })
 
-  /**
-   * TWO MODES, ONE BOX (POD-1469).
-   *
-   * The box opened as a 132px well every time, which asserted that a mission
-   * always begins with a paragraph. It does not: half the time the operator
-   * wants the harness in front of them and will type into the agent itself. So
-   * the well starts CLOSED — one clickable line of placeholder over the
-   * instrument row — and unfolds when they say they have something to write.
-   *
-   * The prompt's contents decide what Launch does. With nothing written, closed
-   * or open, it starts the agent with no prompt (`startCli`) because "no prompt"
-   * is the whole request. With text, it creates the mission from what was typed.
-   * An attached file still needs prose so it cannot be silently dropped by the
-   * promptless CLI path.
-   *
-   * EXPANSION IS DERIVED, NOT STORED. A persisted draft with words in it — the
-   * operator navigated away mid-sentence — has to come back open, or the text
-   * they wrote would be invisible under a placeholder saying the box is empty.
-   * The same holds the moment a file is attached: the strip lives inside the
-   * well, so attaching has to open it. And a FAILED launch holds the box open by
-   * the same rule: `pendingIssueId` means an issue exists and is waiting to be
-   * started, so Launch must stay the retry — a closed box would route the press
-   * to `startCli` and strand the mission the operator thought they were retrying.
-   *
-   * FIRST RUN OPENS WRITTEN. The headline above says "give this project its first
-   * mission", and a closed box under that sentence answers it with a promptless
-   * CLI vessel on the most obvious click there is.
-   */
-  const [unfolded, setUnfolded] = useState(first)
-  const expanded =
-    unfolded ||
-    draft.title.trim().length > 0 ||
-    attachments.attachments.length > 0 ||
-    Boolean(draft.pendingIssueId)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const initialPrompt = useNativeDraftText(inputRef, draft.title)
   const [rootEl, setRootEl] = useState<HTMLFieldSetElement | null>(null)
-  const [focused, setFocused] = useState(false)
-  useColdStartPromptAutoGrow({
-    taRef: inputRef,
-    expanded,
-    value: draft.title,
-    layoutKey: [
-      attachments.attachments.length,
-      error,
-      machineDenied,
-      ready,
-      draft.pendingIssueId,
-      first,
-      selectedRepo?.path,
-      selectedMachine?.id,
-      agent,
-      draft.model,
-      draft.effort,
-    ].join('\u0000'),
-  })
+  useColdStartPromptAutoGrow({ taRef: inputRef, value: draft.title })
+  // Mount-only: the overlay opens ready to type, and the caret lands after any
+  // prompt the draft brought back.
+  useEffect(() => {
+    if (!autoFocus) return
+    const field = inputRef.current
+    if (!field) return
+    field.focus()
+    field.setSelectionRange(field.value.length, field.value.length)
+  }, [autoFocus])
   /**
    * THE FOCUS CHORD (POD-993). The session prompt already answers ⌘/ (and ⌘L
    * from the macOS View menu). This box is the prompt when nothing is open, so
@@ -542,6 +575,13 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
     inputRef.current?.focus()
   }, [])
   useComposerChord(rootEl, focusField)
+  /** First Flights moment 1 (POD-2196). The ghost demo never touches the draft. */
+  const [ghost, setGhost] = useState(false)
+  const [tipShowing, setTipShowing] = useState(false)
+  useTipMoment('first-prompt', {
+    active: first,
+    cards: firstPromptCards({ setGhost, setShowing: setTipShowing, focusComposer: focusField }),
+  })
   useEffect(() => {
     const globals = globalThis as { __PODIUM_FOCUS_SESSION_PROMPT__?: () => void }
     globals.__PODIUM_FOCUS_SESSION_PROMPT__ = focusField
@@ -551,17 +591,6 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
       }
     }
   }, [focusField])
-  const collapse = useCallback(() => {
-    // A retry in flight owns this box; there is no closed mode that could carry
-    // it, so the control is not offered and this is a no-op if it is reached.
-    if (draft.pendingIssueId) return
-    setUnfolded(false)
-    setDraft(withoutCreateReservation({ ...draft, title: '' }))
-    attachments.clear()
-    // Blur, or the field's own focus would re-open the box it just closed.
-    inputRef.current?.blur()
-  }, [attachments, draft, setDraft])
-
   /**
    * A DIFFERENT PATH FOR THE SAME PROJECT IS NOT A DIFFERENT PROJECT (POD-1582).
    *
@@ -611,16 +640,39 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
     }
     // Wait for the default harness before restoring a pair. A launch that owns
     // the draft keeps its reserved request unchanged for retries.
-    if (!busy && !draft.pendingIssueId && !draft.createIssueId && selectedMachine &&
-      (draft.agent || agentSetting !== undefined)) {
+    if (
+      !busy &&
+      !draft.pendingIssueId &&
+      !draft.createIssueId &&
+      selectedMachine &&
+      (draft.agent || agentSetting !== undefined)
+    ) {
       const context = { machineId: selectedMachine.id, harness: agent }
       next = draftForLaunchContext(next, previousLaunchContext.current, context, lastLaunchPicks)
       previousLaunchContext.current = context
       next = draftForReportedModels(next, reportedModels) ?? next
     }
-    if (repoChanged || machineChanged || agentChanged || next.model !== draft.model ||
-      next.effort !== draft.effort || next.launchPickTouched !== draft.launchPickTouched) setDraft(next)
-  }, [agent, agentSetting, busy, draft, draftLoading, lastLaunchPicks, reportedModels, selectedMachine, selectedRepo, setDraft])
+    if (
+      repoChanged ||
+      machineChanged ||
+      agentChanged ||
+      next.model !== draft.model ||
+      next.effort !== draft.effort ||
+      next.launchPickTouched !== draft.launchPickTouched
+    )
+      setDraft(next)
+  }, [
+    agent,
+    agentSetting,
+    busy,
+    draft,
+    draftLoading,
+    lastLaunchPicks,
+    reportedModels,
+    selectedMachine,
+    selectedRepo,
+    setDraft,
+  ])
 
   const selectRepo = (repoPath: string): void => {
     const repo = repoChoices.find((candidate) => candidate.path === repoPath)
@@ -732,7 +784,7 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
       const readyAttachments = attachments.ready()
       const attachmentPaths =
         draft.attachmentPaths.length > 0 ? draft.attachmentPaths : readyAttachments.paths
-      const draftArtifacts = readyAttachments.draftArtifacts
+      const uploaded = readyAttachments.refs
       const brief = attachmentBrief(attachmentPaths)
       // Drafts left by the old two-mutation path may already have a durable issue.
       // Finish those in place; every new launch uses the single optimistic path.
@@ -815,6 +867,7 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
           }
           setBusy(false)
         })
+        if (first) noteFirstSend(uiState, started.issueId)
         setSelectedIssueId(started.issueId)
         setSelectedWorktree(selectedCheckout.path)
         setPanelMode(started.sessionId, 'chat')
@@ -856,7 +909,7 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
       setDraft(launchDraft)
       const started = spawnDraftAgent({
         ...retryCreate,
-        ...(draftArtifacts.length ? { draftArtifacts } : {}),
+        ...(uploaded.length ? { attachments: uploaded } : {}),
         target: {
           path: selectedCheckout.path,
           repoPath: selectedCheckout.path,
@@ -881,6 +934,8 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
         setDraft({ ...launchDraft, launchError: "Couldn't start the agent." })
         setBusy(false)
       })
+      // First Flights: the task this first launch opens gets the list tip.
+      if (first) noteFirstSend(uiState, started.issueId)
       setSelectedIssueId(started.issueId)
       setSelectedWorktree(selectedCheckout.path)
       // A signed-out harness opens on its terminal: the sign-in screen is the
@@ -896,7 +951,8 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
 
   const hasPrompt = draft.title.trim().length > 0
   const launchBlocked =
-    busy || draftLoading ||
+    busy ||
+    draftLoading ||
     // A launch that outran its uploads would create the mission with a brief
     // naming files that are still in flight.
     attachments.uploading ||
@@ -909,9 +965,9 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
     // The promptless path has no way to deliver uploaded files to the agent.
     (!draft.pendingIssueId && !hasPrompt && attachments.attachments.length > 0)
 
-  /** What Launch and ⌘↵ do. Text starts the agent on that prompt in a draft
-   *  issue (or resumes a mission a previous Launch already created); no text
-   *  starts a bare session. Neither side is refused. */
+  /** What Start task and ⌘↵ do. Text starts the agent on that prompt in a draft
+   *  issue (or resumes a mission a previous launch already created); no text
+   *  starts a bare session. */
   const launch = (): void => {
     if (launchBlocked) return
     // Starting work on a harness is what makes it the operator's harness — see
@@ -920,9 +976,32 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
     // nothing to write.
     if (agent !== defaultAgent) void persistDefaultAgent(agent)
     rememberLaunchPick(uiState, { machineId: selectedMachine!.id, harness: agent }, draft)
+    // The new task gets the room, as it did when New task folded the deck.
+    uiState.set(SUPERAGENT_MODE_KEY, 'folded')
     if (draft.pendingIssueId || hasPrompt) void start()
     else startCli()
+    onLaunched?.()
   }
+
+  /** The coordinator prompt is one link away rather than on screen (POD-2079):
+   *  most tasks are not epics, and the tip used to sit under every one of them. */
+  const insertCoordinatorPrompt = (): void => {
+    const current = draft.title.trimEnd()
+    setDraft(
+      withoutCreateReservation({
+        ...draft,
+        title: current ? `${current}\n\n${COORDINATOR_PROMPT}` : COORDINATOR_PROMPT,
+      }),
+    )
+    requestAnimationFrame(() => {
+      const field = inputRef.current
+      if (!field) return
+      field.focus()
+      field.setSelectionRange(field.value.length, field.value.length)
+      field.scrollTop = field.scrollHeight
+    })
+  }
+  const words = countWords(draft.title)
 
   /**
    * THE WHOLE EMPTY DECK TAKES A DROP (POD-1669).
@@ -959,32 +1038,29 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
     },
   }
 
+  /** The chip text inside the box: muted ink for the parts that only describe. */
+  const chip =
+    'inline-flex h-7 max-w-full flex-none items-center gap-1.5 rounded-[7px] px-2 text-[12px] leading-none text-muted-foreground transition-colors hover:bg-accent hover:text-text-strong focus-visible:outline-2 focus-visible:outline-ring'
+
   return (
     <div
       data-testid="cold-start-deck"
-      className="cold-start relative flex min-h-0 flex-1 flex-col bg-card font-sans"
+      className="cold-start relative flex min-h-0 flex-1 flex-col font-sans"
       {...paneDrop}
     >
       {/* THE SCROLLER IS NOT THE DROP TARGET'S BOX (POD-1669). An absolutely
           positioned veil inside an `overflow-y-auto` element is laid out against
-          the SCROLLED content, so on the short panes where this deck actually
-          overflows the "drop here" frame would sit above the visible area and
-          scroll with it. Splitting the two puts the veil over the pane and
-          leaves the scrolling exactly where it was. */}
+          the SCROLLED content, so the "drop here" frame would scroll with it.
+          Splitting the two puts the veil over the pane. */}
       <div data-cold-start-bounds className="flex min-h-0 flex-1 flex-col overflow-y-auto">
         <div data-cold-start-body className="cold-start-body">
-          {/* ONE SENTENCE, SET AS TEXT (POD-1184). The headline used to be a
-              wrapping FLEX row of three items — sentence, project pill, tail —
-              and a flex line break is not a text line break: at a ~680px pane
-              the sentence wrapped internally, leaving "in" alone on its own
-              line, and the tail "?" landed after the pill as a separate item
-              with a 0.4em gap in front of it, reading as a stranded glyph rather
-              than the sentence's punctuation. Inline flow has neither problem —
-              the pill is one unbreakable word inside the sentence and the mark
-              sits hard against it. */}
-          <h2 className="cold-start-head font-semibold text-text-strong">
-            {first ? 'Give ' : 'What do you want to work on in '}
+          {/* WHERE IT LANDS, said once and quietly (POD-2079). The 33px question
+              this replaced asked the operator something the box itself asks; the
+              label only names the project, and the pill is how to change it. */}
+          <h2 className="cold-start-head">
+            {first ? 'First task in' : 'New task in'}
             <PropertyMenu
+              typeahead
               trigger={
                 <button
                   type="button"
@@ -992,18 +1068,13 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
                   aria-label={
                     selectedRepo ? `Project: ${repoLabel(selectedRepo)}` : 'Choose a project'
                   }
-                  className="cold-start-project items-center bg-bar text-text-strong shadow-[inset_0_0_0_1px_var(--border-strong)] transition-colors hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+                  className="cold-start-project focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
                 >
-                  {/* NO MARK (POD-1469). The pill carried a 7px Claude-clay square:
-                      the harness's brand colour, on the control that names the
-                      PROJECT. It said nothing true about the repo — every project
-                      wore the same dot whatever was going to run in it — and beside
-                      the agent chip's identical dot it read as a shared bullet
-                      rather than as anything meaningful. The word is the pill. */}
-                  <span className="cold-start-project-name leading-none font-semibold tracking-[-0.02em]">
+                  <Folder size={12} className="flex-none text-text-dim" aria-hidden="true" />
+                  <span className="cold-start-project-name">
                     {selectedRepo ? repoLabel(selectedRepo) : 'a project'}
                   </span>
-                  <ChevronDown className="cold-start-project-caret text-label" aria-hidden="true" />
+                  <ChevronDown size={11} className="flex-none text-text-dim" aria-hidden="true" />
                 </button>
               }
               onOpenChange={onRepositoryPickerOpen}
@@ -1012,21 +1083,15 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
               placeholder="Choose a project…"
               onSelect={selectRepo}
             />
-            {/* U+2060 WORD JOINER. A line may break either side of an atomic
-                inline box, so a pill that nearly fills the measure could strand
-                the question mark alone on the next line — the same orphan this
-                rewrite removed, one character smaller. The tail of the first-run
-                wording is a phrase and breaks normally. */}
-            {first ? ' its first mission.' : '⁠?'}
           </h2>
 
-          {/* The drop target is the PANE now, not this box (POD-1669) — see
+          {/* The drop target is the PANE, not this box (POD-1669) — see
               `paneDrop`. What stays here is the chord and the paste. */}
           <fieldset
             ref={setRootEl}
             data-testid="cold-start-field"
-            data-expanded={expanded ? 'true' : 'false'}
-            className="cold-start-field relative min-w-0 overflow-hidden rounded-[14px] border-0 bg-bar p-0 shadow-[inset_0_0_0_1px_var(--border-strong),0_20px_50px_-30px_var(--carve-drop)]"
+            data-tip-anchor={FIRST_PROMPT_ANCHOR}
+            className="cold-start-field relative min-w-0 overflow-hidden border-0 p-0"
             onKeyDown={(event) => {
               if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
                 event.preventDefault()
@@ -1034,79 +1099,24 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
               }
             }}
           >
-            {/* ONE ELEMENT IN BOTH MODES, not a line that is swapped for a well.
-                The field is the same textarea throughout — it is only shorter —
-                so the click that opens it is the click that focuses it, the caret
-                lands where the placeholder was, and there is no frame in which the
-                operator is typing into something that has just been unmounted. */}
             <textarea
               ref={inputRef}
               aria-label="What do you want to work on?"
-              rows={1}
+              rows={2}
               defaultValue={initialPrompt}
               disabled={busy || Boolean(draft.pendingIssueId)}
+              data-ghosted={ghost ? 'true' : undefined}
+              aria-hidden={ghost || undefined}
               onChange={(event) =>
                 setDraft(withoutCreateReservation({ ...draft, title: event.currentTarget.value }))
               }
-              onFocus={() => {
-                setFocused(true)
-                setUnfolded(true)
-              }}
-              onBlur={() => setFocused(false)}
-              onKeyDown={(event) => {
-                // Escape closes an EMPTY box and nothing else. Two keystrokes from
-                // discarding written work is not a shortcut, it is a trap — the X
-                // is the way out of one of those, deliberately deliberate. An
-                // ATTACHED FILE counts as written work: the file was chosen through
-                // a picker or a drop, and the key most likely to be pressed after
-                // either of those is the one dismissing whatever it left behind.
-                const empty =
-                  draft.title.trim().length === 0 && attachments.attachments.length === 0
-                if (event.key === 'Escape' && empty) {
-                  event.stopPropagation()
-                  collapse()
-                }
-              }}
               onPaste={attachments.onPaste}
-              placeholder={
-                expanded
-                  ? 'Describe the mission — an outcome, a bug, a question about the codebase…'
-                  : 'Click here to enter a prompt'
-              }
-              className="cold-start-input block w-full resize-none bg-transparent px-[22px] text-[14.5px] leading-[1.6] text-text-strong outline-none placeholder:text-text-faint disabled:opacity-60"
+              placeholder="What should change, and why?"
+              className="cold-start-input block w-full resize-none bg-transparent text-text-strong outline-none placeholder:text-text-faint disabled:opacity-60"
             />
-            {/* Shown only while the box is closed and unfocused — the expanded
-                well already gives its right shoulder to the close control, and
-                a chord hint under the operator's own words is a puzzle. */}
-            {!expanded && (
-              <span
-                className="composer-chord"
-                data-show={!focused ? 'true' : undefined}
-                data-testid="composer-chord"
-                aria-hidden="true"
-              >
-                {chordLabel()} to focus
-              </span>
-            )}
-            {/* THE WAY BACK OUT, and it is only offered where there is something to
-                go back to. It clears rather than hides: a collapsed box showing
-                `Click here to enter a prompt` while still holding a paragraph
-                would launch a mission the operator believes they cancelled. */}
-            {expanded && !draft.pendingIssueId && (
-              <button
-                type="button"
-                data-pressable
-                data-testid="cold-start-collapse"
-                aria-label="Close the prompt"
-                title="Close the prompt"
-                onClick={collapse}
-                className="absolute top-[9px] right-[10px] z-10 inline-flex size-6 items-center justify-center rounded-md text-text-faint transition-colors hover:bg-accent hover:text-text-strong focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
-              >
-                <X size={14} aria-hidden="true" />
-              </button>
-            )}
+            {ghost && <FirstPromptGhost />}
             {attachments.attachments.length > 0 && (
-              <div className="px-[22px] pb-2.5">
+              <div className="px-8 pb-3">
                 <AttachmentStrip
                   attachments={attachments.attachments}
                   onRemove={attachments.remove}
@@ -1120,38 +1130,23 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
               className="hidden"
               onChange={attachments.onFileInputChange}
             />
-            <div className="flex flex-wrap items-center gap-2 border-t border-hairline-soft px-3.5 py-2.5">
-              {/* The instrument strip is a WELL cut into the composer's bar. The
-                  floor is --well-floor rather than a flat tone because the well
-                  inks are an ALPHA over whatever surface they land on, which is
-                  the only way one value stays a recess in both modes: over the
-                  dark bar it lands on the mock's #16171a, over paper it darkens
-                  the stone by the same fraction. The rim is the bar seam.
-
-                  `flex-none` is load-bearing: `overflow-hidden` sets this box's
-                  automatic minimum size to 0, so as a shrinkable flex item it
-                  SQUASHED rather than wrapped — the row never ran out of room by
-                  its own arithmetic, it just clipped the pickers mid-word and
-                  then to nothing at all. It is one instrument; it wraps whole. */}
-              <div className="inline-flex h-7 max-w-full flex-none items-stretch overflow-hidden rounded-lg bg-[var(--well-floor)] shadow-[inset_0_0_0_1px_var(--hairline-bar)]">
+            <div className="cold-start-foot">
+              {/* ONE CHIP FOR THE HARNESS (POD-2079): `Codex GPT-6.1-Sol · Max`.
+                  Agent, model and effort are still three menus, because they are
+                  three decisions, but they read as one phrase with the parts that
+                  only qualify it in a quieter ink. */}
+              <span className={cn(chip, 'gap-0 px-0 hover:bg-transparent')}>
                 <CapabilityAgentMenu
+                  typeahead
                   trigger={
                     <button
                       type="button"
                       data-pressable
                       aria-label="Agent"
-                      className="inline-flex h-7 items-center gap-1.5 px-2.5 text-[11px] leading-none font-semibold text-text-strong hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring"
+                      className="inline-flex h-7 items-center gap-1.5 rounded-[7px] pr-1 pl-2 hover:text-text-strong focus-visible:outline-2 focus-visible:outline-ring"
                     >
-                      {/* THE HARNESS'S OWN MARK, ALWAYS (POD-1469). This was a
-                          7px square in Claude clay — hue and nothing else, and the
-                          SAME hue whichever harness was selected, so picking Codex
-                          left an orange dot in front of the word `Codex`. The menu
-                          this chip opens draws every harness's real glyph; the
-                          chip now draws the selected one, at the menu's own 13px
-                          column, and the swatch's job is done properly. */}
                       {issueAgentIcon(agent, 13)}
                       {issueAgentLabel(agent)}
-                      <ChevronDown size={13} className="text-text-faint" aria-hidden="true" />
                     </button>
                   }
                   options={agentOptions}
@@ -1167,37 +1162,49 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
                     )
                   }}
                 />
-                <span className="w-px bg-hairline-bar" aria-hidden="true" />
                 <ModelPicker
-                  variant="composer"
+                  variant="inline"
                   allowFreeText={false}
                   agentKind={agent}
                   machineId={selectedMachine?.id}
                   value={draft.model}
+                  className="h-7 px-1 text-text-faint hover:text-text-strong"
                   onChange={(model) =>
-                    setDraft(withoutCreateReservation({ ...draft, model, effort: AUTO, launchPickTouched: true }))
+                    setDraft(
+                      withoutCreateReservation({
+                        ...draft,
+                        model,
+                        effort: AUTO,
+                        launchPickTouched: true,
+                      }),
+                    )
                   }
                 />
-                <span className="w-px bg-hairline-bar" aria-hidden="true" />
+                <span className="text-text-faint" aria-hidden="true">
+                  ·
+                </span>
                 <EffortPicker
-                  variant="composer"
+                  variant="inline"
                   agentKind={agent}
                   machineId={selectedMachine?.id}
                   model={draft.model}
                   value={draft.effort}
-                  onChange={(effort) => setDraft(withoutCreateReservation({ ...draft, effort, launchPickTouched: true }))}
+                  className="h-7 pr-2 pl-1 text-text-faint enabled:hover:text-text-strong"
+                  onChange={(effort) =>
+                    setDraft(
+                      withoutCreateReservation({ ...draft, effort, launchPickTouched: true }),
+                    )
+                  }
                 />
-              </div>
+              </span>
               <PropertyMenu
+                typeahead
                 trigger={
-                  <button
-                    type="button"
-                    data-pressable
-                    className="inline-flex h-7 max-w-full flex-none items-center gap-[7px] rounded-lg px-2.5 font-mono text-[11px] leading-none text-text-dim shadow-[inset_0_0_0_1px_var(--hairline-bar)] hover:bg-accent hover:text-text-strong focus-visible:outline-2 focus-visible:outline-ring"
-                  >
-                    <Monitor size={13} className="text-text-faint" aria-hidden="true" />
-                    {selectedMachine?.name ?? 'Choose machine'}
-                    <ChevronDown size={13} className="text-text-faint" aria-hidden="true" />
+                  <button type="button" data-pressable className={chip}>
+                    <Monitor size={13} className="flex-none text-text-dim" aria-hidden="true" />
+                    <span className="min-w-0 truncate">
+                      {selectedMachine?.name ?? 'Choose machine'}
+                    </span>
                   </button>
                 }
                 options={targetMachines.map((machine) => ({
@@ -1217,15 +1224,10 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
               {runtimeDriversEnabled &&
               (availableHeadedDriver !== undefined || availableHeadlessDrivers.length > 0) ? (
                 <PropertyMenu
+                  typeahead
                   trigger={
-                    <button
-                      type="button"
-                      data-pressable
-                      aria-label="Driver"
-                      className="inline-flex h-7 max-w-full flex-none items-center gap-[7px] rounded-lg px-2.5 font-mono text-[11px] leading-none text-text-dim shadow-[inset_0_0_0_1px_var(--hairline-bar)] hover:bg-accent hover:text-text-strong focus-visible:outline-2 focus-visible:outline-ring"
-                    >
+                    <button type="button" data-pressable aria-label="Driver" className={chip}>
                       {driverChoice === HEADED_DRIVER ? 'Headed' : runtimeDriverLabel(driverChoice)}
-                      <ChevronDown size={13} className="text-text-faint" aria-hidden="true" />
                     </button>
                   }
                   options={[
@@ -1242,13 +1244,10 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
                 />
               ) : null}
               {driverUnavailable && (
-                <span role="status" className="text-[11px] text-danger">
+                <span role="status" className="px-1 text-[11px] text-danger">
                   {driverChoice} unavailable
                 </span>
               )}
-              {/* The clip sits with the machine picker rather than beside Launch:
-                  both name WHAT the mission is given, and the auto-margined group
-                  to its right is reserved for the act of launching it. */}
               <button
                 type="button"
                 data-pressable
@@ -1256,36 +1255,34 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
                 title="Attach a file"
                 disabled={busy || Boolean(draft.pendingIssueId) || Boolean(draft.createIssueId)}
                 onClick={attachments.openFilePicker}
-                className="inline-flex size-7 flex-none items-center justify-center rounded-lg text-text-dim shadow-[inset_0_0_0_1px_var(--hairline-bar)] hover:bg-accent hover:text-text-strong focus-visible:outline-2 focus-visible:outline-ring disabled:cursor-not-allowed disabled:opacity-40"
+                className="inline-flex size-7 flex-none items-center justify-center rounded-[7px] text-text-dim transition-colors hover:bg-accent hover:text-text-strong focus-visible:outline-2 focus-visible:outline-ring disabled:cursor-not-allowed disabled:opacity-40"
               >
-                <Paperclip size={13} aria-hidden="true" />
+                <Paperclip size={14} aria-hidden="true" />
               </button>
-              {/* THE CHORD IS IN THE BUTTON NOW (POD-1469). It used to sit beside
-                  it as a bare `⌘↵` in the row's ink — a mark with nothing
-                  attaching it to the control it fires, which is why it also had to
-                  be hidden below 560px to stop reading as a third instrument. On
-                  the button it is unambiguous at any width, and it replaces the
-                  arrow: an arrow says "forward", the chord says how to do this
-                  without the mouse, and only one of those is information. */}
-              <div className="ml-auto flex flex-none items-center gap-2">
+              <div className="ml-auto flex flex-none items-center">
+                {words > 0 && (
+                  <span
+                    data-testid="cold-start-words"
+                    className="mr-2.5 font-mono text-[10.5px] text-text-faint tabular-nums"
+                  >
+                    {words} {words === 1 ? 'word' : 'words'}
+                  </span>
+                )}
                 <button
                   type="button"
                   data-pressable
                   data-testid="cold-start-launch"
-                  className="btn-primary-rim inline-flex h-[30px] items-center gap-[9px] rounded-[9px] border border-transparent bg-primary px-3.5 text-[12px] leading-none font-semibold text-primary-foreground transition-colors hover:bg-primary/80 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-text-strong disabled:cursor-not-allowed disabled:opacity-40"
+                  className="cold-start-launch btn-primary-rim"
+                  // Empty, it still starts the agent with no prompt, but in the
+                  // quiet secondary face: the empty box stays calm (POD-2079).
+                  data-quiet={!hasPrompt && !draft.pendingIssueId ? 'true' : undefined}
                   disabled={launchBlocked}
                   onClick={launch}
-                  aria-label={
-                    draft.pendingIssueId
-                      ? 'Retry starting work'
-                      : expanded
-                        ? 'Start work'
-                        : `Start a ${issueAgentLabel(agent)} session`
-                  }
-                  // Closed, this button does something the words do not say on
-                  // their own — so the tooltip says it.
+                  aria-label={draft.pendingIssueId ? 'Retry starting work' : 'Start task'}
+                  // Empty, this button opens the agent with no prompt — the
+                  // words do not say so on their own.
                   title={
-                    expanded
+                    hasPrompt || draft.pendingIssueId
                       ? undefined
                       : `Start a ${issueAgentLabel(agent)} session in ${
                           selectedRepo ? repoLabel(selectedRepo) : 'this project'
@@ -1296,11 +1293,8 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
                     <LoaderCircle size={15} className="animate-spin" aria-hidden="true" />
                   ) : (
                     <>
-                      Launch
-                      <span
-                        className="font-mono text-[12.5px] leading-none text-primary-foreground/60"
-                        aria-hidden="true"
-                      >
+                      Start task
+                      <span className="cold-start-launch-chord" aria-hidden="true">
                         {modChord('↵')}
                       </span>
                     </>
@@ -1314,13 +1308,13 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
                 className="absolute inset-0 flex items-center justify-center bg-background/75 backdrop-blur-[2px]"
                 role="status"
               >
-                <div className="inline-flex items-center gap-2.5 rounded-lg bg-bar px-4 py-3 font-mono text-[11px] text-foreground shadow-[inset_0_0_0_1px_var(--border-strong),0_12px_30px_var(--carve-popover-near)]">
+                <div className="inline-flex items-center gap-2.5 rounded-lg bg-bar px-4 py-3 text-[12px] text-foreground shadow-[inset_0_0_0_1px_var(--border-strong),0_12px_30px_var(--carve-popover-near)]">
                   <LoaderCircle
                     size={15}
                     className="animate-spin text-primary"
                     aria-hidden="true"
                   />
-                  Starting your mission…
+                  Starting your task…
                 </div>
               </div>
             )}
@@ -1328,31 +1322,24 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
 
           {/* THREE DEAD ENDS, THREE ANSWERS (POD-1469, POD-1582).
               UNAUTHORIZED IS NOT UNREADY, and it is stated first: no amount of
-              agent setup makes a host you have no grant on runnable, so the note
-              that sends the operator to Settings would be a wrong instruction.
-              NEITHER IS A MISSING CHECKOUT. `activationAgentReadiness` reports
-              `unavailable` both when the harness is not set up and when there is
-              no checkout to run it in, and one message for both sent the second
-              case to Settings → Agents — where nothing on the page changes the
-              outcome, with Launch dead and no way to tell why. The machine
-              picker is the control that fixes that one, so name it. */}
+              agent setup makes a host you have no grant on runnable. NEITHER IS
+              A MISSING CHECKOUT: the machine picker is the control that fixes
+              that one, so name it. */}
           {machineDenied ? (
-            <p className="mt-3 font-mono text-[10.5px] leading-5 text-text-faint">
+            <p className="cold-start-note">
               You do not have access to run work on this machine. Ask its owner for access, or pick
               another machine.
             </p>
           ) : signInFirst ? (
-            <p className="mt-3 font-mono text-[10.5px] leading-5 text-text-faint">
+            <p className="cold-start-note">
               {signInInTerminalCopy(readiness, issueAgentLabel(agent))}
             </p>
           ) : (
             !ready &&
             (selectedCheckout ? (
-              <p className="mt-3 font-mono text-[10.5px] leading-5 text-text-faint">
-                {AGENT_NOT_READY_COPY}
-              </p>
+              <p className="cold-start-note">{AGENT_NOT_READY_COPY}</p>
             ) : (
-              <p className="mt-3 font-mono text-[10.5px] leading-5 text-text-faint">
+              <p className="cold-start-note">
                 {selectedRepo ? repoLabel(selectedRepo) : 'This project'} is not checked out on{' '}
                 {selectedMachine?.name ?? 'this machine'}. Pick another machine, or clone it there
                 first.
@@ -1360,7 +1347,7 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
             ))
           )}
           {draft.pendingIssueId && !error && (
-            <p className="mt-3 font-mono text-[10.5px] leading-5 text-text-faint">
+            <p className="cold-start-note">
               The task is saved. Podium is retrying the same task, so it cannot create a duplicate.
             </p>
           )}
@@ -1369,33 +1356,26 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
               <SetupError>{error} Your request and selections are still saved.</SetupError>
             </div>
           )}
-          {ready && !machineDenied && !busy && !error && !draft.pendingIssueId && (
-            <aside aria-label="Prompt tip" className="cold-start-tip">
-              <p>
-                For complex tasks, be ambitious. Discuss the full scope with your agent and have it
-                organise everything. Try:
-              </p>
-              <blockquote>
-                "You are the coordinator of this epic. Break this into sub-tasks, delegate
-                independent work to sub-agents, and coordinate the results. Check with me on key
-                decisions."
-              </blockquote>
-            </aside>
+          {!busy && !draft.pendingIssueId && !draft.title.includes(COORDINATOR_PROMPT) && (
+            // Hidden, not removed, while the first-prompt tip shows: one tip at a time,
+            // and on a narrow pane the tip card lands on this line.
+            <p className="cold-start-tip" style={tipShowing ? { visibility: 'hidden' } : undefined}>
+              Something big?{' '}
+              <button
+                type="button"
+                data-testid="cold-start-coordinator"
+                onClick={insertCoordinatorPrompt}
+                title="Adds a prompt that has the agent break the work into sub-issues and coordinate other sessions"
+              >
+                Try adding a coordinator prompt
+              </button>
+            </p>
           )}
         </div>
       </div>
-      {/* One frame over the WHOLE deck, because that is what now accepts the
-          drop. It is drawn here rather than inside the well so the answer to
-          "will this land?" covers the same area as the question. */}
+      {/* One frame over the WHOLE deck, because that is what accepts the drop. */}
       {dragging && (
         <div className="pointer-events-none absolute inset-2.5 z-20 flex items-center justify-center rounded-[18px] border-2 border-dashed border-primary bg-primary/[0.07]">
-          {/* THE LABEL IS A CHIP, NOT LOOSE INK. Centred in the pane it lands on
-              the centred well, and bare text over the placeholder read as a
-              collision. It is the busy overlay's own chip — bar tone, inset rim,
-              the popover carve — so the two things this deck can say over itself
-              say them the same way, and neither depends on a scrim: a veil that
-              dims the deck to answer a hover is a heavier promise than "this
-              will land here", and on paper it bleached the whole screen. */}
           <span className="inline-flex items-center gap-2.5 rounded-lg bg-bar px-4 py-3 text-[12.5px] font-semibold text-text-strong shadow-[inset_0_0_0_1px_var(--border-strong),0_12px_30px_var(--carve-popover-near)]">
             <Paperclip size={14} className="text-primary" aria-hidden="true" />
             Drop files to attach

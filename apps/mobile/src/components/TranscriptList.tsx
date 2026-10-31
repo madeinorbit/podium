@@ -5,6 +5,7 @@ import {
   failLine,
   formatChurn,
   type ParsedEnvelope,
+  pointerFallbackBody,
   resultPreview,
   toolBatchTitle,
   toolRunFailures,
@@ -113,7 +114,13 @@ export interface PendingTurn {
   text: string
   /** Files uploaded with this turn, so the bubble shows the screenshot the
    *  operator just attached instead of a bare filename in the text. */
-  files?: readonly { path: string; previewUri: string; name: string }[]
+  files?: readonly {
+    path: string
+    previewUri?: string
+    name?: string
+    attachmentId?: string
+    kind?: 'image' | 'file'
+  }[]
   /** Set when the send itself was REJECTED (POD-346). A rejected turn that
    *  keeps saying "sending…" is the worst possible outcome — the phone reads as
    *  broken and the words are lost. The row goes red, names the reason, and
@@ -189,6 +196,12 @@ function EnvelopePrincipalLabel({
   )
 }
 
+/** An inbox pointer (POD-2143) carries no body. This list shows every envelope
+ *  open, so fetching one here would load it unasked; say where it went instead. */
+function envelopeText(envelope: ParsedEnvelope): string {
+  return envelope.pointer ? pointerFallbackBody(envelope) : envelope.body
+}
+
 function EnvelopeRow({
   envelope,
   onRefPress,
@@ -202,15 +215,19 @@ function EnvelopeRow({
         <Text style={styles.envelopeKind}>Internal</Text>
         <Text style={styles.envelopeRoute} numberOfLines={1}>
           <EnvelopePrincipalLabel label={envelope.from} onRefPress={onRefPress} />
-          {' → '}
-          <EnvelopePrincipalLabel label={envelope.to} onRefPress={onRefPress} />
+          {envelope.to ? (
+            <>
+              {' → '}
+              <EnvelopePrincipalLabel label={envelope.to} onRefPress={onRefPress} />
+            </>
+          ) : null}
         </Text>
         {envelope.question ? <Text style={styles.envelopeQuestion}>question</Text> : null}
         {envelope.expectsReply ? <Text style={styles.envelopeReply}>reply requested</Text> : null}
       </View>
-      <Text style={styles.envelopeId}>{envelope.id}</Text>
+      {envelope.pointer === 'legacy' ? null : <Text style={styles.envelopeId}>{envelope.id}</Text>}
       <View style={styles.envelopeBody}>
-        <RichMarkdown text={envelope.body} onRefPress={onRefPress} />
+        <RichMarkdown text={envelopeText(envelope)} onRefPress={onRefPress} />
       </View>
       {envelope.machineNote ? (
         <Text style={styles.envelopeMachine}>{envelope.machineNote}</Text>
@@ -622,7 +639,7 @@ const TranscriptFeedRow = memo(
               style={[styles.userCard, failed ? styles.userCardFailed : styles.userCardPending]}
             >
               <MessageText text={row.pendingText} style={styles.userText} onRefPress={onRefPress} />
-              <PendingFiles files={turn.files ?? []} />
+              <PendingFiles files={turn.files ?? []} context={assetContext} />
               {failed ? (
                 <>
                   <Text style={styles.pendingError}>{failed}</Text>
@@ -725,7 +742,7 @@ const TranscriptFeedRow = memo(
       case 'envelope':
         content = row.envelope
           ? message(
-              row.envelope.body,
+              envelopeText(row.envelope),
               <EnvelopeRow envelope={row.envelope} onRefPress={onRefPress} />,
             )
           : null
@@ -1129,8 +1146,11 @@ export const TranscriptList = observer(function TranscriptList({
           id: turn.id,
           role: 'user',
           text: turn.text,
-          ...(turn.files && turn.files.length > 0
-            ? { toolPaths: turn.files.map((file) => file.path) }
+          // A held upload (POD-2148) names its file, not a path on the machine.
+          ...(turn.files?.some((file) => !file.attachmentId)
+            ? {
+                toolPaths: turn.files.flatMap((file) => (file.attachmentId ? [] : [file.path])),
+              }
             : {}),
         } as TranscriptItem,
         blockIndices: [],

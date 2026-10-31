@@ -85,7 +85,7 @@ export class ConversationPresentation {
   get blockCount(): number { return this.computeReady ? this.graph!.blockIds.length : 0 }
   get rowCount(): number { return this.computeReady ? this.graph!.rowIds.length : 0 }
   get rowVersion(): number { return this.graph?.version ?? 0 }
-  get lastAnswer() { return this.computeReady ? this.graph!.lastAnswer : { blockIndex: -1, text: '' } }
+  get lastAnswer() { return this.computeReady ? this.graph!.lastAnswer : { blockIndex: -1 } }
   get headKey(): string {
     const id = this.log?.ids[0]
     return id === undefined ? '' : this.log?.byId.get(id)?.cursor ?? id

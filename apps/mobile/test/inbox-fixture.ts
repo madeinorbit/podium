@@ -14,7 +14,7 @@ export function createInboxFixture(count = 24, sessions = 12) {
     patch('issueProjection', `synthetic-${index}`, {
       description: { value: `Summary ${index}` },
       brief: `Brief ${index}`,
-      color: 'blue',
+
       ...(index >= 12
         ? { stage: 'done', closedReason: 'done', archived: true, worktreePath: null }
         : {}),

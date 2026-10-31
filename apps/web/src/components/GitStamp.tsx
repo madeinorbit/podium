@@ -14,17 +14,12 @@ export function GitStamp({
   issueBranch,
   git,
   density,
-  suppressAhead = false,
   onClick,
   className = '',
 }: {
   issueBranch: string | null | undefined
   git: IssueGitState | null | undefined
   density: 'chip' | 'stamp' | 'footer' | 'panel'
-  /** Drop the merge-axis `N commits ahead` counter because the caller already
-   *  says it louder — the sidebar's "ready to merge · N commits" decision chip
-   *  (POD-279). Two amber counters for one fact read as two problems. */
-  suppressAhead?: boolean
   /** Chip densities are the click-through to the RightDock Git tab. */
   onClick?: () => void
   className?: string
@@ -32,23 +27,11 @@ export function GitStamp({
   const m = deriveGitStamp(issueBranch, git)
   if (m.kind === 'hidden') return null
 
-  // Sidebar rows are for decisions, not a miniature git dashboard. Clean/no-op
-  // states stay silent; actionable exceptions use short copy instead of another
-  // positional dot or expert-only arrow glyph (POD-236).
+  // The sidebar keeps branch faults and landing outcomes; Git counts live in
+  // the detailed views.
   if (density === 'stamp') {
     if (m.kind !== 'ready') return null
-    const ahead = suppressAhead ? undefined : m.ahead
-    // `merged` EARNS THE LINE (POD-1193). The stamp stays silent on clean
-    // no-ops, but landing is not a no-op: it is the outcome of the one decision
-    // this column shouts about ("ready to merge · N"), and the row that shouted
-    // must be able to say the shouting is over. It reads in the same dim mono
-    // as the other facts — the answer to a question, not a new one.
-    const hasAction = m.mismatch || m.merged || m.dirty !== undefined || ahead !== undefined
-    if (!hasAction) return null
-    // Yellow is the "needs you" signal alone (DESIGN.md, The Signal Rule).
-    // Uncommitted / ahead are facts, not asks — they read as dim mono, no chip
-    // box, so the row's one amber voice stays the decision chip (POD-293). Only
-    // a wrong-branch mismatch is a genuine fault and keeps an alert tone.
+    if (!m.mismatch && !m.merged) return null
     return (
       <span
         data-testid="git-stamp"
@@ -60,12 +43,6 @@ export function GitStamp({
       >
         {m.mismatch && <span>Wrong branch</span>}
         {m.merged && <span>merged</span>}
-        {m.dirty !== undefined && <span>{m.dirty} uncommitted</span>}
-        {ahead !== undefined && (
-          <span>
-            {ahead} commit{ahead === 1 ? '' : 's'} ahead
-          </span>
-        )}
       </span>
     )
   }
@@ -81,7 +58,7 @@ export function GitStamp({
         title={m.title}
         className={`inline-flex animate-pulse items-center gap-1.5 font-mono text-[10.5px] text-muted-foreground/60 ${
           density === 'chip'
-            ? 'rounded-[6px] border issue-hairline-35 bg-background/50 px-2 py-1'
+            ? 'rounded-[6px] border surface-hairline-35 bg-background/50 px-2 py-1'
             : ''
         } ${className}`}
       >
@@ -160,7 +137,7 @@ export function GitStamp({
         data-density="chip"
         title={`${m.title} — open Git panel`}
         onClick={onClick}
-        className={`inline-flex cursor-pointer items-center gap-1.5 rounded-[6px] border issue-hairline-35 bg-background/50 px-2 py-1 font-mono text-[10.5px] leading-none transition-colors hover:issue-hairline-60 ${className}`}
+        className={`inline-flex cursor-pointer items-center gap-1.5 rounded-[6px] border surface-hairline-35 bg-background/50 px-2 py-1 font-mono text-[10.5px] leading-none transition-colors hover:surface-hairline-60 ${className}`}
       >
         {body}
       </button>

@@ -1,6 +1,7 @@
 import type { TranscriptItem } from '@podium/model'
 import { autorun } from 'mobx'
 import { expect, it } from 'vitest'
+import { livePendingAskIndex } from '../values/compose/chat'
 import { computeTranscript } from '../values/transcript-compute'
 import { TranscriptGraph, type TranscriptGraphChange } from './transcript-graph'
 
@@ -58,12 +59,89 @@ it('pairs reused tool IDs, last results and effects across the loaded page seam'
   f.append(prose('separator'), call('interactive', 'ask', 'AskUserQuestion'))
 })
 
+it('keeps a Codex async acknowledgement pending until its correlated human reply, including page seams', () => {
+  const question = {
+    ...call('question', 'async', 'request_user_input_async'),
+    toolInputJson: JSON.stringify({
+      questions: [{ question: 'Where?', options: [{ label: 'main' }] }],
+    }),
+  }
+  const ack = result('ack', 'async', '{"accepted":true}')
+  const f = fixture([ack])
+  f.prepend(question)
+  expect(f.graph.pendingQuestionId).toBe('question')
+  f.append(result('reply', 'async', '[{"answer":"main"}]'), user('human', 'main'))
+  expect(f.graph.pendingQuestionId).toBeUndefined()
+  expect(f.graph.block('question')?.result).toBe('[{"answer":"main"}]')
+  f.graph.dispose()
+})
+
+it('retires async interviews after a human prompt or a later interview without reviving older questions', () => {
+  const question = (id: string): TranscriptItem => ({
+    ...call(id, id, 'request_user_input_async'),
+    toolInputJson: JSON.stringify({ questions: [{ question: 'Where?', options: [] }] }),
+  })
+  const checkPending = (graph: TranscriptGraph, expected: string | undefined) => {
+    expect(graph.pendingQuestionId).toBe(expected)
+    const blocks = graph.snapshot().blocks
+    expect(blocks[livePendingAskIndex(blocks, 'live')]?.item.id).toBe(expected)
+  }
+  const f = fixture([question('first'), result('ack-first', 'first', '{"accepted":true}')])
+  f.append(prose('still-working'))
+  checkPending(f.graph, 'first')
+  f.append(user('plain-answer', 'Use main, please.'))
+  checkPending(f.graph, undefined)
+  f.append(question('next'), result('ack-next', 'next', '{"accepted":true}'))
+  checkPending(f.graph, 'next')
+  f.append(question('last'), result('ack-last', 'last', '{"accepted":true}'))
+  checkPending(f.graph, 'last')
+  f.append(result('last-answer', 'last', '[{"answer":"main"}]'))
+  checkPending(f.graph, undefined)
+  f.prepend(question('older'), result('ack-older', 'older', '{"accepted":true}'))
+  checkPending(f.graph, undefined)
+  f.graph.dispose()
+})
+
+it('preserves native-menu pending rules when a later human prompt appears', () => {
+  const f = fixture([
+    {
+      ...call('native', 'native', 'AskUserQuestion'),
+      toolInputJson: JSON.stringify({ questions: [{ question: 'Where?', options: [] }] }),
+    },
+    user('human'),
+  ])
+  expect(f.graph.pendingQuestionId).toBe('native')
+  expect(livePendingAskIndex(f.graph.snapshot().blocks, 'live')).toBe(0)
+  f.graph.dispose()
+})
+
 it('folds image/file markers through paired results and repairs the older-page seam', () => {
   const f = fixture([media('image'), media('file', 'file'), prose('after')])
   f.prepend(user('prompt'))
   f.append(call('call'), user('next'), result('r'), media('attachment'), media('chip', 'file'))
   f.apply({ changed: [{ ...media('attachment'), toolPaths: ['/replacement'] }] })
   f.append(media('orphan-file', 'file'), prose('break'), media('seam-file', 'file'), media('seam-image'))
+})
+
+it('folds a compaction boundary, summary and idle notice into one note across frames and seams', () => {
+  const part = (id: string, extra: Partial<TranscriptItem>): TranscriptItem =>
+    ({ id, role: 'system', text: '', systemKind: 'compaction', ...extra })
+  const boundary = (id: string) => part(id, { compaction: { trigger: 'auto', preTokens: 300_000, postTokens: 9_000 } })
+  const summary = (id: string) => part(id, { text: `${id} needle` })
+  const idle = (id: string) => part(id, { compaction: { idle: true, notice: 'Compacted while idle' } })
+  const f = fixture([prose('before'), boundary('b1')])
+  f.append(summary('s1'), media('reread', 'file'))
+  f.append(idle('n1'), prose('after'))
+  expect(f.graph.structuralBlocks.map(block => block.item.id)).toEqual(['before', 'b1', 'after'])
+  expect(f.graph.block('b1')?.item).toMatchObject({
+    text: 's1 needle', compaction: { trigger: 'auto', preTokens: 300_000, idle: true },
+  })
+  // A second compaction starts its own note, and a page that brings the older
+  // boundary in front of a summary folds the head into it.
+  f.append(boundary('b2'), summary('s2'))
+  const g = fixture([summary('s3'), idle('n3'), prose('tail')])
+  g.prepend(prose('older'), boundary('b3'))
+  expect(g.graph.structuralBlocks.map(block => block.item.id)).toEqual(['older', 'b3', 'tail'])
 })
 
 it('repairs local prompt timestamps on append and prepend without sorting file order', () => {
@@ -170,4 +248,18 @@ it('publishes addressed rows atomically across prefix rekeys and coalesced sourc
     graph.reset([prose('reset', 'Replacement')])
     expect(graph.rowPublication).toEqual({ reset: true, changed: [], removed: [] })
   } finally { graph.dispose() }
+})
+
+it('moves a command in and out of its run when an update makes it the agent’s own mail (POD-2146)', () => {
+  const bash = (id: string, command: string): TranscriptItem =>
+    ({ ...call(id, id, 'Bash'), toolInput: command })
+  const send = bash('b', `podium mail send --to POD-2140 --body 'handoff'`)
+  const f = fixture([bash('a', 'ls'), bash('b', 'pwd'), bash('c', 'git status')])
+  expect(f.graph.snapshot().rows.map(row => row.kind)).toEqual(['tools'])
+  // Updated in place to a send: tools[a], note[b], tools[c].
+  f.apply({ changed: [send] })
+  expect(f.graph.snapshot().rows.map(row => row.kind)).toEqual(['tools', 'block', 'tools'])
+  // And back.
+  f.apply({ changed: [bash('b', 'pwd')] })
+  expect(f.graph.snapshot().rows.map(row => row.kind)).toEqual(['tools'])
 })

@@ -176,6 +176,18 @@ describe('toolCallPhrase — what the live work line says', () => {
       'Searching pinnedMachineId',
     )
   })
+  it('leaves long live subjects intact for the row to truncate at its edge', () => {
+    const command = 'rm apps/web/harness/outcome-card-preview.html'
+    expect(toolCallPhrase({ ...tool('Bash', 'b'), toolInput: `${command}\necho finished` })).toBe(
+      `Running ${command}`,
+    )
+    const filename = 'ToolBatchView.command-summary-width.test.tsx'
+    expect(toolCallPhrase({ ...tool('Read', 'r'), toolPaths: [`/repo/${filename}`] })).toBe(
+      `Reading ${filename}`,
+    )
+    const title = 'Check tool call summaries at desktop and phone widths'
+    expect(toolCallPhrase({ ...tool('Bash', 'b'), toolTitle: title })).toBe(`Running "${title}"`)
+  })
   it('never renders an empty phrase when a call has no target at all', () => {
     expect(toolCallPhrase(tool('Bash', 'b'))).toBe('Running Bash')
     expect(toolCallPhrase({ ...tool('Read', 'r'), toolName: undefined })).toBe('Running a tool')

@@ -201,7 +201,7 @@ it('keeps a drawn card flat through archived session history while preserving un
     const stop = autorun(() => {
       const cards = boardCards(f.pool), issue = cards.issue('parent')
       readCard(f.pool, 'parent')
-      card = { unread: issue.unread, stage: issue.stage, sessions: cards.explorerRow(issue).sessions.map(seat => seat.id) }
+      card = { unread: issue.unread, stage: issue.stage, sessions: issue.presentMembers.map(seat => seat.id) }
     })
     const read = vi.spyOn(f.pool, 'row')
     try {

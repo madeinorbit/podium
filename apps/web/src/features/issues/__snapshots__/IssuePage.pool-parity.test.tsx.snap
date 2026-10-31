@@ -1,36 +1,22 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
-exports[`issue page rendered pool parity > preserves the fallback list close dialog, working members, child counts, question and delivery words > close dialog 1`] = `
-{
-  "bytes": 9167,
-  "sha256": "3c18aa07fdedff83253c1a47fb962cda7b4aadc9aa5c1c5749146ce37e4044cc",
-}
-`;
-
-exports[`issue page rendered pool parity > preserves the list text, labels, order, layout and loader results with zero legacy derivations > rendered output 1`] = `
-{
-  "bytes": 10846,
-  "sha256": "9cb573962893557ea2b1958a1c304e883de4b85c26a0ad7faba07e12b67b8d2e",
-}
-`;
-
 exports[`issue page rendered pool parity > preserves the page text, labels, order, layout and loader results with zero legacy derivations > rendered output 1`] = `
 {
-  "bytes": 155236,
-  "sha256": "0a137e78a1330a356d3e54f3591bdd5649bde37a6d0026428d4290c77dafba29",
+  "bytes": 150060,
+  "sha256": "7445ae992b354393aed7472fb6514c7e218a8ba622877270692173e56649a729",
 }
 `;
 
 exports[`issue page rendered pool parity > preserves the panel text, labels, order, layout and loader results with zero legacy derivations > rendered output 1`] = `
 {
-  "bytes": 84141,
-  "sha256": "3ba80705145efbb674355edca16c7eb913c5cf0917c018278c00338853f6b9ff",
+  "bytes": 28788,
+  "sha256": "12906b7ea4c986bf84a5ea5eee7a53e60c3c0379e4acb4033fe4dd2e2f4223cf",
 }
 `;
 
 exports[`issue page rendered pool parity > preserves the rendered continuation after multiple spin-off hops > rendered output 1`] = `
 {
-  "bytes": 54349,
-  "sha256": "24ad34380138abb8f281fc068750e9151c562d6033997a94fb5bb57e1814a300",
+  "bytes": 33306,
+  "sha256": "874d784cd24c8d840dfcbf1ec365af5f5b97a64369240751cd2833f48b234798",
 }
 `;

@@ -215,6 +215,33 @@ describe('oracle: setArchived', () => {
 })
 
 describe('oracle: read state', () => {
+  it('keeps post-read grace when a quiet historical session is viewed', async () => {
+    let now = Date.parse('2026-10-29T12:00:00.000Z')
+    const o = await makeOracle({ now: () => now })
+    const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
+    const seen = (await o.meta(sessionId)).lastActiveAt
+    now += 2 * 24 * 60 * 60 * 1000
+    await o.call.sessions.markRead({ sessionId, readAt: seen })
+    expect(await o.store.sessions.getReadAt(firstAdminMemberId(), sessionId)).toBe(new Date(now).toISOString())
+  })
+  it('stores only observed session activity for delayed receipts and keeps cursors independent', async () => {
+    const o = await makeOracle()
+    const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
+    const other = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
+    const seen = '2026-01-01T12:00:00.000Z'
+    await o.call.sessions.markRead({ sessionId, readAt: seen })
+    expect(await o.store.sessions.getReadAt(firstAdminMemberId(), sessionId)).toBe(seen)
+    expect(await o.store.sessions.getReadAt(firstAdminMemberId(), other.sessionId)).toBeNull()
+    // This receipt predates the session's current activity, so that activity
+    // must remain unread even though the delayed receipt just reached us.
+    expect((await o.meta(sessionId)).unread).toBe(true)
+    await o.call.sessions.markRead({ sessionId, readAt: '2025-01-01T12:00:00.000Z' })
+    expect(await o.store.sessions.getReadAt(firstAdminMemberId(), sessionId)).toBe(seen)
+    await o.call.sessions.markUnread({ sessionId })
+    expect(await o.store.sessions.getReadAt(firstAdminMemberId(), sessionId)).toBeNull()
+    await o.call.sessions.markRead({ sessionId })
+    expect((await o.meta(sessionId)).unread).toBe(false)
+  })
   // RESOLVED by POD-1076 (was: will-change "readAt becomes per-user once POD-1077
   // makes fan-out per-principal; POD-380 left the row in place"). The storage half
   // is done: `sessions.read_at` is gone and the marker lives in
@@ -244,7 +271,18 @@ describe('oracle: read state', () => {
     expect(typeof readAt).toBe('string')
     // Both DEVICES of the one principal see the same readAt — the feed is unscoped.
     await waitFor(
-      () => lastSession(second, sessionId)?.readAt === readAt,
+      () =>
+        second.some(
+          (message) =>
+            message.type === 'feedDelta' &&
+            message.changes.some(
+              (change) =>
+                change.entity === 'sessionUserState' &&
+                change.op === 'upsert' &&
+                (change.value as { sessionId?: string; readAt?: string }).sessionId === sessionId &&
+                (change.value as { readAt?: string }).readAt === readAt,
+            ),
+        ),
       "the other client to observe this operator's readAt",
     )
 

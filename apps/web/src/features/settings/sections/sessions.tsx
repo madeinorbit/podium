@@ -102,7 +102,7 @@ export const SessionsSection = observer(function SessionsSection({
               Seeds each spawned CLI&apos;s per-session theme flag (Claude Code{' '}
               <span className="font-mono">theme: auto</span>, Codex{' '}
               <span className="font-mono">tui.theme=ansi</span>) so agent colours follow the
-              issue-tinted terminal. Your global agent config is never modified.
+              terminal appearance. Your global agent config is never modified.
             </>
           }
         >

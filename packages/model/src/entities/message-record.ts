@@ -22,6 +22,9 @@ import { TranscriptItemRef } from './transcript'
 /** What a bubble shows of one attachment. The stored reference (with its path
  *  on the agent's machine) stays on the server. */
 export const MessageRecordAttachment = z.object({
+  /** The id it was staged under — what the bubble finds the issue's stored
+   *  copy by (POD-2148). Optional: rows from older servers carry none. */
+  id: z.string().min(1).optional(),
   filename: z.string().min(1),
   mediaType: z.string().min(1),
   kind: z.enum(['image', 'file']),
@@ -36,6 +39,8 @@ export const MessageRecordWire = z.object({
   /** The user who sent it. */
   senderUserId: z.string().min(1),
   body: z.string(),
+  /** The creation-owned first prompt, identified by its server-derived message id. */
+  initialPrompt: z.literal(true).optional(),
   attachments: z.array(MessageRecordAttachment).optional(),
   createdAt: z.string(),
   /** Where its delivery stands. Read tolerantly (POD-4885): a status a newer

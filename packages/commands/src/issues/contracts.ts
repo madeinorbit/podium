@@ -57,7 +57,7 @@
  */
 
 import {
-  IssueColor,
+  ArtifactUploadPacket,
   IssueIdField,
   IssueStage,
   IssueType,
@@ -257,6 +257,7 @@ export const panelApplyInput = z.object({
     'todo-remove',
     'todo-clear',
     'artifact-add',
+    'artifact-upload',
     'artifact-remove',
     'deferred-add',
     'deferred-remove',
@@ -271,6 +272,7 @@ export const panelApplyInput = z.object({
   terminalEvidence: z.boolean().optional(),
   /** Filled by the CLI from its current checkout; never accepted without terminalEvidence. */
   sourceRoot: z.string().optional(),
+  upload: ArtifactUploadPacket.optional(),
 })
 
 export const createInput = z.object({
@@ -301,10 +303,6 @@ export const createInput = z.object({
   // lets it add the missing ones. The operator always creates-or-picks.
   createLabels: z.boolean().optional(),
   parentId: IssueIdField.optional(),
-  // Colour slot name [spec:SP-b4d1]; absent = no colour (slate flow). Top-level
-  // only (POD-697): a create that also names a `parentId` is a sub-task, which
-  // runs under its mission's colour, and the service drops the field.
-  color: IssueColor.optional(),
   // #198: an agent opts a work item onto the human's top-level board with
   // `audience: 'human'`. `origin` is NOT accepted — it is derived from the
   // caller (operator vs constrained agent), so provenance cannot be forged.
@@ -361,10 +359,6 @@ export const updateInput = z.object({
     // `SORT_KEY_COMPACT_LEN` keeps scopes under, which is what makes the
     // refusal unreachable rather than merely rare.
     sortKey: z.string().max(SORT_KEY_MAX_LEN).refine(isSortKey, 'malformed sort key').optional(),
-    // Colour slot name [spec:SP-b4d1]; null clears back to the slate flow.
-    // Top-level only (POD-697): the service refuses a slot on a sub-task, which
-    // takes its mission's colour. Clearing stays legal at any depth.
-    color: IssueColor.nullable().optional(),
     estimateMin: z.number().int().optional(),
   }),
   /** Same as `close`'s: the patch closes the issue while a session on it works [POD-5762]. */
@@ -513,6 +507,7 @@ export const undeferInput = byIssueId.extend({
 
 export const markReadInput = z.object({
   id: IssueIdField,
+  readAt: z.string().datetime().optional(),
   mutationId: z.string().max(128).pipe(MutationIdField).optional(),
 })
 
@@ -1198,7 +1193,12 @@ export const issuePanelApplyContract = {
   policy: WRITE_POLICY,
   exposure: SERVED_EVERYWHERE,
   delivery: WRITE_DELIVERY,
-  redaction: ISSUE_REDACTION,
+  redaction: {
+    reviewed: true,
+    inputPaths: ['upload'],
+    outputPaths: [],
+    note: 'Upload packets contain file bytes; keep them out of command diagnostics. Published artifact metadata is readable by the issue audience.',
+  },
   ownership: owns(
     ['artifact'],
     'parent',
@@ -1628,10 +1628,12 @@ export const issueMoveContract = {
   name: 'issues.move',
   version: 1,
   visibility: ISSUE_VISIBILITY,
-  input: moveInput.merge(EXPECTED_REVISION).refine(
-    (input) => (input.before !== undefined) !== (input.after !== undefined),
-    'pass exactly one of --before or --after',
-  ),
+  input: moveInput
+    .merge(EXPECTED_REVISION)
+    .refine(
+      (input) => (input.before !== undefined) !== (input.after !== undefined),
+      'pass exactly one of --before or --after',
+    ),
   policy: WRITE_POLICY,
   exposure: SERVED_EVERYWHERE,
   delivery: WRITE_DELIVERY,

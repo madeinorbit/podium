@@ -1,5 +1,6 @@
 import type { TranscriptItem } from '@podium/model'
 import { describe, expect, it } from 'vitest'
+import { isBatchableTool, presentToolBlock, toolMailCommand } from './chat'
 import { computeTranscript } from './transcript-compute'
 
 const item = (
@@ -121,5 +122,139 @@ describe('computeTranscript', () => {
         ]),
       ).toEqual(['u0', 'u1'])
     })
+  })
+})
+
+// The agent's own mail (POD-2146), in the shape each harness adapter emits.
+describe('computeTranscript: mail the agent sent', () => {
+  const send = `podium issue mail send POD-2128 --body 'Ready for review'`
+  const shapes: Array<[string, Partial<TranscriptItem>]> = [
+    // Claude Bash keeps the full command as a shell-command payload.
+    [
+      'Claude Bash',
+      {
+        toolName: 'Bash',
+        toolInput: send,
+        toolInputJson: JSON.stringify({ kind: 'shell-command', command: send }),
+      },
+    ],
+    // A Codex exec wrapping one exec_command renders as that call.
+    ['Codex single call', { toolName: 'Bash', toolInput: send }],
+  ]
+  for (const [name, call] of shapes) {
+    it(`a ${name} send leaves the work run as its own row`, () => {
+      const { rows } = computeTranscript({
+        items: [
+          item({ id: 'r', role: 'tool', toolName: 'Read', toolInput: 'a.ts', toolUseId: 'r' }),
+          item({ id: 's', role: 'tool', toolUseId: 's', ...call }),
+          item({
+            id: 's-out',
+            role: 'tool',
+            toolUseId: 's',
+            toolResult: 'mail DELIVERED to POD-2128 (msg_1) — confirmed in the recipient’s context',
+          }),
+          item({ id: 'b', role: 'tool', toolName: 'Bash', toolInput: 'ls', toolUseId: 'b' }),
+        ],
+        verbosity: 'summary',
+        query: '',
+        cursor: 0,
+      })
+      // The read and the ls are quiet work and drop out of summary; the note stays.
+      expect(rows).toHaveLength(1)
+      // The row's presentation rides on the block as plain data, so it
+      // survives the worker's structured clone.
+      const [row] = structuredClone(rows)
+      expect(row?.kind === 'block' && row.block.mail).toEqual({
+        op: 'note',
+        to: 'issue:POD-2128',
+        id: 'msg_1',
+        preview: 'Ready for review',
+      })
+    })
+  }
+
+  it('a Codex Script with a send inside stays one Script row', () => {
+    const { rows } = computeTranscript({
+      items: [
+        item({
+          id: 'x',
+          role: 'tool',
+          toolName: 'Script',
+          toolTitle: '2 commands',
+          toolInputJson: JSON.stringify({
+            kind: 'script-calls',
+            calls: [
+              { tool: 'Bash', input: 'git status' },
+              { tool: 'Bash', input: send },
+            ],
+          }),
+          toolUseId: 'x',
+        }),
+        item({
+          id: 'x-out',
+          role: 'tool',
+          toolUseId: 'x',
+          toolResult: `Script completed\nOutput:\n${JSON.stringify({ exit_code: 0, output: 'mail DELIVERED to POD-2128 (msg_1) — confirmed' })}`,
+        }),
+      ],
+      verbosity: 'normal',
+      query: '',
+      cursor: 0,
+    })
+    expect(rows).toEqual([expect.objectContaining({ kind: 'tools' })])
+    const [row] = structuredClone(rows)
+    expect(row?.kind === 'tools' && row.blocks[0]?.scriptCalls).toEqual([
+      { tool: 'Bash', input: 'git status' },
+      { tool: 'Mail', input: 'Note to POD-2128 · Ready for review' },
+    ])
+  })
+
+  it('leaves Script sends as shell lines when their receipt could be either’s', () => {
+    // Two sends to one recipient, the first failed: one receipt, two owners.
+    const again = `podium issue mail send POD-2128 --body 'Second try'`
+    const block = presentToolBlock({
+      item: item({
+        id: 'x',
+        role: 'tool',
+        toolName: 'Script',
+        toolInputJson: JSON.stringify({
+          kind: 'script-calls',
+          calls: [
+            { tool: 'Bash', input: send },
+            { tool: 'Bash', input: again },
+          ],
+        }),
+      }),
+      result: 'Script completed\nOutput:\nmail DELIVERED to POD-2128 (msg_2) — confirmed',
+    })
+    expect(block.scriptCalls).toEqual([
+      { tool: 'Bash', input: send },
+      { tool: 'Bash', input: again },
+    ])
+  })
+
+  it('keeps a failed send in summary as its error row', () => {
+    const { rows } = computeTranscript({
+      items: [
+        item({ id: 's', role: 'tool', toolName: 'Bash', toolInput: send, toolUseId: 's' }),
+        item({
+          id: 's-out',
+          role: 'tool',
+          toolUseId: 's',
+          toolResult: 'Exit code 1\npodium issue: mail to POD-2128 could not be delivered',
+        }),
+      ],
+      verbosity: 'summary',
+      query: '',
+      cursor: 0,
+    })
+    expect(rows).toHaveLength(1)
+    expect(rows[0]?.kind === 'block' && rows[0].block.mail).toBeUndefined()
+  })
+
+  it('an echo of a send is an ordinary command', () => {
+    const echo = item({ id: 'e', role: 'tool', toolName: 'Bash', toolInput: `echo "${send}"` })
+    expect(isBatchableTool(echo)).toBe(true)
+    expect(toolMailCommand(echo)).toBeNull()
   })
 })

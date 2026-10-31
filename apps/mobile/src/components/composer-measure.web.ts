@@ -26,7 +26,7 @@ import type { TextInput } from 'react-native'
  *
  * THE PLACEHOLDER IS NOT CONTENT, but `scrollHeight` counts it. An empty
  * textarea whose placeholder wraps measures as many lines as the placeholder
- * takes — "Message — resumes the agent…" is two of them on a phone. That made
+ * takes — "Message the agent to resume it…" is two of them on a phone. That made
  * the resting composer two lines tall, and, worse, made it never look at rest:
  * the caller reports its height to the feed only while the field is resting, so
  * the transcript stopped paying for the composer and its last message scrolled

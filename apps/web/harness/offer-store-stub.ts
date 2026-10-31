@@ -7,30 +7,33 @@
  * so this stands in for that module; the vite config redirects it by RESOLVED
  * PATH so `@/app/store` lands here.
  *
- * The thumbnails point at real files served by vite from `public/`, because a
- * broken <img> lays out at a different size than a loaded one and would make
- * every measurement in this harness a lie.
+ * The image tiles point at real bytes the harness's vite config serves, because
+ * a broken <img> paints a broken-image glyph instead of a preview and would
+ * make every screenshot in this harness a lie.
  */
 import type { IssueViewModel } from '@podium/client-core/replica'
 
+/** Six, so `?evidence=6` overflows the row into "+N"; the first three are the
+ *  common mix (two screenshots and an HTML concept). */
 const ARTIFACTS = [
-  {
-    path: 'docs/sweep-a.png',
-    entry: 'docs/sweep-a.png',
-    title: 'Row tint sweep — 0.4 / 0.5',
-    addedAt: '2026-08-21T09:00:00.000Z',
-    artifactId: 'art_a',
-  },
-  {
-    path: 'docs/sweep-b.png',
-    entry: 'docs/sweep-b.png',
-    title: 'Row tint sweep — 0.6 / 0.7',
-    addedAt: '2026-08-21T09:01:00.000Z',
-    artifactId: 'art_b',
-  },
-]
+  ['docs/sweep-a.png', 'Row tint sweep — 0.4 / 0.5', 'art_a'],
+  ['docs/sweep-b.png', 'Row tint sweep — 0.6 / 0.7', 'art_b'],
+  ['docs/concept.html', 'Interaction concept', 'art_c'],
+  ['docs/sweep-dark.png', 'Row tint sweep, dark', 'art_d'],
+  ['docs/notes.md', 'Dose notes', 'art_e'],
+  ['docs/sweep-hover.png', 'Hover states', 'art_f'],
+].map(([path, title, artifactId], i) => ({
+  path,
+  entry: path,
+  title,
+  addedAt: `2026-08-21T09:0${i}:00.000Z`,
+  artifactId,
+}))
 
-const ISSUE = {
+/** The paths an offer in the harness names: the first `n` artifacts. */
+export const offerArtifactPaths = (n: number): string[] => ARTIFACTS.slice(0, n).map((a) => a.path)
+
+export const ISSUE = {
   id: 'iss_1462',
   seq: 1462,
   displayRef: 'POD-1462',
@@ -50,7 +53,7 @@ const ISSUE = {
 const STATE = {
   // Same-origin: the harness serves `/harness/thumb-*.svg` itself.
   httpOrigin: '',
-  openArtifact: () => {},
+  openArtifact: (args: unknown) => console.info('openArtifact', args),
   openFileInWorktree: () => {},
 }
 

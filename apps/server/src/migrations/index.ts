@@ -1,4 +1,5 @@
 import { bootStage } from '../boot-timing'
+
 /**
  * Schema migration runtime [spec:SP-4428].
  *
@@ -18,13 +19,13 @@ import { bootStage } from '../boot-timing'
  * open it — that transition is complete for the founders' databases.)
  */
 
-import { beginMachineUpdateMigrations } from '@podium/runtime/machine-update'
 import { createLogger } from '@podium/logger'
+import { type IdPrefix, mintBrandedId } from '@podium/model'
+import { beginMachineUpdateMigrations } from '@podium/runtime/machine-update'
 import { MIGRATION_NAME_ALIASES as SHARED_MIGRATION_NAME_ALIASES } from '@podium/runtime/migration-ledger'
 import { bunSqliteClient, isBunRuntime, type SqlDatabase } from '@podium/runtime/sqlite'
 import { drizzle } from 'drizzle-orm/bun-sqlite'
 import { migrate } from 'drizzle-orm/bun-sqlite/migrator'
-import { type IdPrefix, mintBrandedId } from '@podium/model'
 import { backupDatabase } from './backup'
 import { DRIZZLE_MIGRATIONS } from './drizzle-manifest.generated'
 import { applySchemaRepairs, repairReason } from './repair'
@@ -300,7 +301,10 @@ export function runDrizzleMigrations(
       pending.map((m) => ({
         name: m.name,
         timestamp: folderMillis(m.name),
-        sql: mintIdsIn(m.sql),
+        // Capture install age BEFORE this batch: historical migrations create
+        // a first admin even on an empty database. The backfill must leave
+        // that new account eligible while seeding every account on upgrades.
+        sql: mintIdsIn(m.sql).replaceAll('{{existing-install}}', applied.size > 0 ? '1' : '0'),
       })),
     )
   } catch (error) {

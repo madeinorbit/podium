@@ -229,7 +229,7 @@ describe('SidebarUnified unread emphasis + mark-read-on-open', () => {
     // The tag renders while deferUntil is in the past. It is a mono word on
     // line 2 now rather than a boxed badge on line 1 (POD-1057) — line 1 is a
     // title and a time, and every other mark moved down into the machine voice.
-    expect(screen.getByText('unsnoozed')).toBeTruthy()
+    expect(screen.getByText(/unsnoozed/)).toBeTruthy()
     await act(async () => { fireEvent.click(screen.getByText('Unsnoozed issue')) })
     // …and opening the issue nulls deferUntil so the tag source is gone.
     expect(deferIssue).toHaveBeenCalledWith('d1', null)
@@ -237,7 +237,7 @@ describe('SidebarUnified unread emphasis + mark-read-on-open', () => {
 
   it('shows a suspended row as one dim line with its snooze marker (#133, POD-293)', async () => {
     render(<SidebarUnified />)
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: '1 snoozed' })) })
+    await act(async () => { fireEvent.click(screen.getByTestId('work-lane-snoozed')) })
     // Suspended work is out of triage: one dim line, no chrome — the alarm icon
     // and full row give way to the fold's own "snoozed …" marker (POD-293).
     const row = screen

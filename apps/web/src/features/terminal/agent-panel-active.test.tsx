@@ -1,12 +1,12 @@
-import { createPanePoolFixture } from './test-support/pane-pool.test.fixture'
-import { useRuntimeSelector } from '@/app/store'
-import { poolFixtureStore } from '@/test-support/pool-issue-fixture'
 // @vitest-environment happy-dom
 import { asSessionId, type SessionMeta, type SessionMetaInput } from '@podium/model'
 import { act, StrictMode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { useRuntimeSelector } from '@/app/store'
 import { makeIssue } from '@/lib/test-issue'
+import { poolFixtureStore } from '@/test-support/pool-issue-fixture'
+import { createPanePoolFixture } from './test-support/pane-pool.test.fixture'
 
 // ---------------------------------------------------------------------------
 // Capture the latest MountedSession handed back by mountSession so we can assert
@@ -226,7 +226,7 @@ describe('AgentPanel active wiring', () => {
         branch: 'issue/1',
         worktreePath: '/w',
         repoPath: '/w',
-        color: 'blue',
+
         gitState: {
           branch: 'issue/1',
           ahead: 3,
@@ -242,10 +242,10 @@ describe('AgentPanel active wiring', () => {
     const world = poolFixtureStore({ issues: storeIssues, sessions: storeSessions })
     await act(async () => renderPanel(<AgentPanel sessionId={asSessionId('s1')} active />))
     await flush()
-    const stamp = container.querySelector('[data-testid="git-stamp"]')
-    expect(stamp?.textContent).toContain('issue/1')
-    expect(stamp?.textContent).toContain('↑3')
-    expect(stamp?.textContent).toContain('2')
+    // POD-2076: the header's quiet line names the branch; ahead/dirty counts
+    // live in the Git panel it opens.
+    const branch = container.querySelector('[data-testid="pane-branch"]')
+    expect(branch?.textContent).toContain('issue/1')
   })
 
   it('focuses the native CLI prompt and toggles the focused panel to Chat', async () => {

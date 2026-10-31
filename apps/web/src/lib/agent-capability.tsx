@@ -57,6 +57,7 @@ import {
 } from '@podium/client-core/values'
 import { Check } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
+import { useState } from 'react'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -65,6 +66,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { MENU_HINT } from '@/lib/menu-surface'
+import { useSelectTypeahead } from '@/lib/use-select-typeahead'
 
 export {
   type AgentRowStatus,
@@ -151,16 +153,28 @@ export function CapabilityAgentMenu({
   selectedValue,
   onSelect,
   align = 'start',
+  typeahead = false,
 }: {
   trigger: JSX.Element
   options: Array<{ value: string; label: string; icon?: ReactNode; status: AgentRowStatus }>
   selectedValue: string
   onSelect: (value: string) => void
   align?: 'start' | 'end'
+  typeahead?: boolean
 }): JSX.Element {
+  const [open, setOpen] = useState(false)
+  const typing = useSelectTypeahead({
+    enabled: typeahead && !open,
+    options: options.map((option) => ({
+      ...option,
+      disabled: option.status.reason !== undefined,
+    })),
+    selectedValue,
+    onSelect,
+  })
   return (
-    <DropdownMenu modal={false}>
-      <DropdownMenuTrigger render={trigger} />
+    <DropdownMenu modal={false} open={open} onOpenChange={setOpen}>
+      <DropdownMenuTrigger render={trigger} {...typing} />
       <DropdownMenuContent align={align} className="w-56">
         {options.map((option) => (
           <CapabilityAgentItem

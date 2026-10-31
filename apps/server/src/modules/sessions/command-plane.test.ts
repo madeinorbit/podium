@@ -35,10 +35,13 @@ import {
   bindingPrincipalFor,
   createdOwnership,
   dispatchSessionCommand,
+  SESSION_COMMAND_HANDLERS,
   SessionCommandCtx,
   type SessionCommandDeps,
   spawnedByFor,
 } from './command-plane'
+import { DurableIssueAccessIndex } from '../issues/access-index'
+import { messageRecordOf } from '../message-feed/feed'
 import { disposeOracles, makeOracle, messageOf } from './oracle-support'
 import {
   ambiguousSessionPrefixMessage,
@@ -119,6 +122,9 @@ async function ctxFor(
   const deps: SessionCommandDeps = {
     sessions: () => sessionCommandServices(modules),
     stageAttachment: (input) => modules.sessions.runtimeGateway.stageAttachment(input),
+    holdUpload: async (input) => await modules.pendingUploads.put(input),
+    claimUpload: async (issueId, input) =>
+      await modules.issues.crud.panelChatUploadClaim(issueId, input),
     isAgentDriven: async (sessionId) => modules.sessions.receiptSender.onContract(sessionId),
     // The chat path's send dispatches the `mail.send` CONTRACT (POD-729), so the
     // fixture binds the port the same way the composition root does — from the
@@ -157,6 +163,369 @@ async function ctxFor(
   }
   return new SessionCommandCtx(deps, principal)
 }
+
+describe('held chat uploads (POD-2148)', () => {
+  const png = Buffer.from([0x89, 0x50, 0x4e, 0x47]).toString('base64')
+
+  async function hold(o: Oracle, sessionId: string, pending?: true) {
+    const held = await dispatchSessionCommand(
+      await ctxFor(o, human(firstAdminMemberId())),
+      'uploadImage',
+      {
+        sessionId: asSessionId(sessionId),
+        filename: 'shot.png',
+        mimeType: 'image/png',
+        dataBase64: png,
+        ...(pending ? { pending } : {}),
+      },
+    )
+    if (!('attachment' in held) || !held.attachment) throw new Error('expected a held ref')
+    expect(held.path).toBe('')
+    expect(held.attachment).not.toHaveProperty('path')
+    return held.attachment
+  }
+
+  it('create claims the task’s uploads and queues the first prompt with them instead of argv', async () => {
+    const o = await makeOracle()
+    await provisionHost(o)
+    const ref = await hold(o, 'coldstart-5c1f', true)
+
+    const created = await dispatchSessionCommand(
+      await ctxFor(o, human(firstAdminMemberId())),
+      'create',
+      {
+        agentKind: 'claude-code',
+        cwd: '/p',
+        draftIssue: { repoPath: '/p' },
+        initialPrompt: 'what is in this picture?',
+        attachments: [ref],
+      },
+    )
+
+    const draft = (await o.reg.issues.reports.list('/p')).find((issue) => issue.draft)
+    expect(draft?.panel?.artifacts).toEqual([
+      expect.objectContaining({ chatUploadId: ref.id, title: 'shot.png', entry: 'shot.png' }),
+    ])
+    // Argv carries text alone: the prompt rides a queued row with its file.
+    const spawn = o.daemon.filter((m) => m.type === 'spawn').at(-1)
+    expect(spawn).toMatchObject({ sessionId: created.sessionId })
+    expect(spawn).not.toHaveProperty('initialPrompt')
+    const queued = await o.store.sync.listQueuedMessages(created.sessionId)
+    expect(queued.map((row) => [row.text, JSON.parse(row.attachmentsJson ?? '[]')])).toEqual([
+      ['what is in this picture?', [ref]],
+    ])
+    // The first bubble's record names the file.
+    const prompt = await o.store.messages.getMessage(queued[0]?.sourceMessageId ?? '')
+    expect(prompt?.attachments).toEqual([ref])
+    expect(prompt && messageRecordOf(prompt)).toMatchObject({
+      id: queued[0]?.sourceMessageId,
+      initialPrompt: true,
+      attachments: [{ id: ref.id, filename: 'shot.png', mediaType: 'image/png', kind: 'image' }],
+    })
+    expect((await o.reg.modules.sessions.listSessions(undefined, 'rpc'))
+      .find(session => session.sessionId === created.sessionId)?.draftUpdatedAt).toBeUndefined()
+    expect((await o.store.sessions.loadDrafts())[created.sessionId]).toBeUndefined()
+  })
+
+  it('a create that fails after claiming hands the files back, so the same refs work on retry', async () => {
+    const o = await makeOracle()
+    await provisionHost(o)
+    const ref = await hold(o, 'coldstart-9a2e', true)
+    vi.spyOn(o.reg.modules.sessions, 'createSession').mockImplementationOnce(() => {
+      throw new Error('unknown model')
+    })
+    // The purge's artifact cleanup is held until the test lets it go: the
+    // create must not reject (and invite a retry) while it is still running.
+    const removeIssue = o.reg.modules.issueArtifacts.removeIssue.bind(o.reg.modules.issueArtifacts)
+    let letCleanupRun: () => void = () => {}
+    const cleanupHeld = new Promise<void>((resolve) => {
+      letCleanupRun = resolve
+    })
+    vi.spyOn(o.reg.modules.issueArtifacts, 'removeIssue').mockImplementationOnce(async (id) => {
+      await cleanupHeld
+      await removeIssue(id)
+    })
+    const create = {
+      sessionId: asSessionId('5d0c7c1e-3f2a-4b8e-9c61-7a2d4e8f1b03'),
+      agentKind: 'claude-code' as const,
+      cwd: '/p',
+      draftIssue: { repoPath: '/p', issueId: asIssueId('iss_6f1e2d3c-4b5a-4c6d-8e7f-9a0b1c2d3e4f') },
+      initialPrompt: 'what is in this picture?',
+      attachments: [ref],
+    }
+
+    let settled = false
+    const failed = dispatchSessionCommand(await ctxFor(o, human(firstAdminMemberId())), 'create', create)
+      .finally(() => {
+        settled = true
+      })
+      .catch((error: unknown) => error)
+    await vi.waitFor(() => expect(o.reg.modules.issueArtifacts.removeIssue).toHaveBeenCalled())
+    expect(settled).toBe(false)
+    letCleanupRun()
+    expect(await failed).toMatchObject({ message: 'unknown model' })
+    expect((await o.reg.issues.reports.list('/p')).filter((issue) => issue.draft)).toEqual([])
+    expect(await o.reg.modules.pendingUploads.meta(ref.id)).not.toHaveProperty('claimed')
+
+    await dispatchSessionCommand(await ctxFor(o, human(firstAdminMemberId())), 'create', create)
+    const draft = (await o.reg.issues.reports.list('/p')).find((issue) => issue.draft)
+    expect(draft?.panel?.artifacts).toEqual([expect.objectContaining({ chatUploadId: ref.id })])
+    expect(await o.reg.issues.crud.chatUploadBytes(asIssueId(draft?.id ?? ''), ref.id)).toEqual(
+      new Uint8Array(Buffer.from(png, 'base64')),
+    )
+  })
+
+  it('a claim whose panel commit fails hands the file back, so the same refs work on retry', async () => {
+    const o = await makeOracle()
+    await provisionHost(o)
+    const ref = await hold(o, 'coldstart-e05f', true)
+    vi.spyOn(o.reg.issues.crud, 'panelApply').mockRejectedValueOnce(new Error('revision conflict'))
+    const create = {
+      sessionId: asSessionId('8b2e4c1a-6d3f-4a7b-9e05-1c2d3e4f5a6b'),
+      agentKind: 'claude-code' as const,
+      cwd: '/p',
+      draftIssue: { repoPath: '/p', issueId: asIssueId('iss_2a3b4c5d-6e7f-4a8b-9c0d-1e2f3a4b5c6d') },
+      initialPrompt: 'what is in this picture?',
+      attachments: [ref],
+    }
+
+    await expect(
+      dispatchSessionCommand(await ctxFor(o, human(firstAdminMemberId())), 'create', create),
+    ).rejects.toThrow('revision conflict')
+    expect((await o.reg.issues.reports.list('/p')).filter((issue) => issue.draft)).toEqual([])
+    expect(await o.reg.modules.pendingUploads.meta(ref.id)).not.toHaveProperty('claimed')
+
+    await dispatchSessionCommand(await ctxFor(o, human(firstAdminMemberId())), 'create', create)
+    const draft = (await o.reg.issues.reports.list('/p')).find((issue) => issue.draft)
+    expect(await o.reg.issues.crud.chatUploadBytes(asIssueId(draft?.id ?? ''), ref.id)).toEqual(
+      new Uint8Array(Buffer.from(png, 'base64')),
+    )
+  })
+
+  it.each([
+    ['moving the file back fails', 'relinquish'],
+    ['clearing the claim fails after the move', 'markUnclaimed'],
+  ] as const)('a failed claim commit whose rollback fails (%s) still works on retry', async (_label, broken) => {
+    const o = await makeOracle()
+    await provisionHost(o)
+    const ref = await hold(o, `coldstart-${broken}`, true)
+    vi.spyOn(o.reg.issues.crud, 'panelApply').mockRejectedValueOnce(new Error('revision conflict'))
+    if (broken === 'relinquish') {
+      vi.spyOn(o.reg.modules.issueArtifacts, 'relinquish').mockRejectedValueOnce(new Error('EBUSY'))
+    } else {
+      vi.spyOn(o.reg.modules.pendingUploads, 'markUnclaimed').mockRejectedValueOnce(new Error('EIO'))
+    }
+    const create = {
+      sessionId: asSessionId(
+        broken === 'relinquish'
+          ? '0e1f2a3b-4c5d-4e6f-8a7b-9c0d1e2f3a4b'
+          : '1f2a3b4c-5d6e-4f7a-8b9c-0d1e2f3a4b5c',
+      ),
+      agentKind: 'claude-code' as const,
+      cwd: '/p',
+      draftIssue: {
+        repoPath: '/p',
+        issueId: asIssueId(
+          broken === 'relinquish'
+            ? 'iss_3b4c5d6e-7f8a-4b9c-8d0e-1f2a3b4c5d6e'
+            : 'iss_4c5d6e7f-8a9b-4c0d-9e1f-2a3b4c5d6e7f',
+        ),
+      },
+      initialPrompt: 'what is in this picture?',
+      attachments: [ref],
+    }
+
+    await expect(
+      dispatchSessionCommand(await ctxFor(o, human(firstAdminMemberId())), 'create', create),
+    ).rejects.toThrow('revision conflict')
+    expect((await o.reg.issues.reports.list('/p')).filter((issue) => issue.draft)).toEqual([])
+    expect(await o.reg.modules.pendingUploads.meta(ref.id)).not.toHaveProperty('claimed')
+
+    // A fresh launch (new ids) with the same file.
+    await dispatchSessionCommand(await ctxFor(o, human(firstAdminMemberId())), 'create', {
+      ...create,
+      sessionId: asSessionId(crypto.randomUUID()),
+      draftIssue: { repoPath: '/p', issueId: asIssueId(`iss_${crypto.randomUUID()}`) },
+    })
+    const draft = (await o.reg.issues.reports.list('/p')).find((issue) => issue.draft)
+    expect(await o.reg.issues.crud.chatUploadBytes(asIssueId(draft?.id ?? ''), ref.id)).toEqual(
+      new Uint8Array(Buffer.from(png, 'base64')),
+    )
+  })
+
+  it('a discard that cannot hand a file back keeps the draft’s stored files', async () => {
+    const o = await makeOracle()
+    await provisionHost(o)
+    const ref = await hold(o, 'coldstart-keepdir', true)
+    vi.spyOn(o.reg.issues.crud, 'panelApply').mockRejectedValueOnce(new Error('revision conflict'))
+    // Both the claim's rollback and the discard's release fail to move it back.
+    vi.spyOn(o.reg.modules.issueArtifacts, 'relinquish')
+      .mockRejectedValueOnce(new Error('EBUSY'))
+      .mockRejectedValueOnce(new Error('EBUSY'))
+    const removeIssue = vi.spyOn(o.reg.modules.issueArtifacts, 'removeIssue')
+    const create = {
+      sessionId: asSessionId('2a3b4c5d-6e7f-4a8b-9c0d-1e2f3a4b5c6e'),
+      agentKind: 'claude-code' as const,
+      cwd: '/p',
+      draftIssue: { repoPath: '/p', issueId: asIssueId('iss_5d6e7f8a-9b0c-4d1e-8f2a-3b4c5d6e7f8a') },
+      initialPrompt: 'what is in this picture?',
+      attachments: [ref],
+    }
+
+    await expect(
+      dispatchSessionCommand(await ctxFor(o, human(firstAdminMemberId())), 'create', create),
+    ).rejects.toThrow('revision conflict')
+    expect(removeIssue).not.toHaveBeenCalled()
+
+    // The same create re-adopts the file where it was left.
+    await dispatchSessionCommand(await ctxFor(o, human(firstAdminMemberId())), 'create', create)
+    const draft = (await o.reg.issues.reports.list('/p')).find((issue) => issue.draft)
+    expect(await o.reg.issues.crud.chatUploadBytes(asIssueId(draft?.id ?? ''), ref.id)).toEqual(
+      new Uint8Array(Buffer.from(png, 'base64')),
+    )
+  })
+
+  it('a create that fails after its session registered keeps the draft and its claimed files', async () => {
+    const o = await makeOracle()
+    await provisionHost(o)
+    const ref = await hold(o, 'coldstart-b71d', true)
+    const createSession = o.reg.modules.sessions.createSession.bind(o.reg.modules.sessions)
+    vi.spyOn(o.reg.modules.sessions, 'createSession').mockImplementationOnce(async (input) => {
+      await createSession(input)
+      throw new Error('late spawn failure')
+    })
+
+    await expect(
+      dispatchSessionCommand(await ctxFor(o, human(firstAdminMemberId())), 'create', {
+        agentKind: 'claude-code',
+        cwd: '/p',
+        draftIssue: { repoPath: '/p' },
+        initialPrompt: 'what is in this picture?',
+        attachments: [ref],
+      }),
+    ).rejects.toThrow('late spawn failure')
+
+    // The queued first prompt still has its file to stage.
+    const draft = (await o.reg.issues.reports.list('/p')).find((issue) => issue.draft)
+    expect(draft?.panel?.artifacts).toEqual([expect.objectContaining({ chatUploadId: ref.id })])
+    expect(await o.reg.modules.pendingUploads.meta(ref.id)).toMatchObject({
+      claimed: { issueId: draft?.id },
+    })
+    expect(await o.reg.issues.crud.chatUploadBytes(asIssueId(draft?.id ?? ''), ref.id)).toEqual(
+      new Uint8Array(Buffer.from(png, 'base64')),
+    )
+  })
+
+  it('a shell refuses files before anything is claimed or spawned', async () => {
+    const o = await makeOracle()
+    await provisionHost(o)
+    const ref = await hold(o, 'coldstart-4c2a', true)
+    const createSession = vi.spyOn(o.reg.modules.sessions, 'createSession')
+
+    await expect(
+      dispatchSessionCommand(await ctxFor(o, human(firstAdminMemberId())), 'create', {
+        agentKind: 'shell',
+        cwd: '/p',
+        draftIssue: { repoPath: '/p' },
+        initialPrompt: 'ls',
+        attachments: [ref],
+      }),
+    ).rejects.toThrow('this agent cannot accept file attachments')
+    expect(createSession).not.toHaveBeenCalled()
+    expect((await o.reg.issues.reports.list('/p')).filter((issue) => issue.draft)).toEqual([])
+    expect(await o.reg.modules.pendingUploads.meta(ref.id)).not.toHaveProperty('claimed')
+  })
+
+  it('a send claims its uploads into the session’s issue, once, and queues the ref without a path', async () => {
+    const o = await makeOracle()
+    await provisionHost(o)
+    const issue = await o.reg.issues.crud.create({ repoPath: '/p', title: 'Work', startNow: false })
+    const { sessionId } = await dispatchSessionCommand(
+      await ctxFor(o, human(firstAdminMemberId())),
+      'create',
+      {
+        agentKind: 'claude-code',
+        cwd: '/p',
+        issueId: issue.id,
+      },
+    )
+    const ref = await hold(o, sessionId)
+    const send = {
+      sessionId,
+      text: 'look',
+      attachments: [ref],
+      mutationId: 'msg_0f6a3c2e-1b4d-4c8e-9a7f-2d5e6b8c9a01',
+    }
+
+    // Through the router, whose capability carries the sender's attribution.
+    const first = await o.call.sessions.sendText(send)
+    const again = await o.call.sessions.sendText(send)
+
+    expect(first).toMatchObject({ ok: true })
+    expect(again).toMatchObject({ ok: true })
+    const artifacts = (await o.reg.issues.reports.get(issue.id))?.panel?.artifacts ?? []
+    expect(artifacts.filter((artifact) => artifact.chatUploadId === ref.id)).toHaveLength(1)
+    const queued = await o.store.sync.listQueuedMessages(sessionId)
+    expect(queued.map((row) => JSON.parse(row.attachmentsJson ?? '[]'))).toEqual([[ref]])
+  })
+
+  it('a session with no issue has nowhere to keep a file, so the send is refused', async () => {
+    const o = await makeOracle()
+    await provisionHost(o)
+    const { sessionId } = await dispatchSessionCommand(
+      await ctxFor(o, human(firstAdminMemberId())),
+      'create',
+      {
+        agentKind: 'claude-code',
+        // Outside every known repo: an agent started in one gets a draft task.
+        cwd: '/elsewhere',
+      },
+    )
+    const ref = await hold(o, sessionId)
+
+    expect(await o.call.sessions.sendText({ sessionId, text: 'look', attachments: [ref] })).toEqual(
+      {
+        ok: false,
+        reason: 'this agent cannot accept file attachments',
+        disposition: 'dead_letter',
+      },
+    )
+    expect(await o.store.sync.listQueuedMessages(sessionId)).toEqual([])
+  })
+
+  it('the superagent’s headless session still stages at upload, so its path can ride the text', async () => {
+    const staged = {
+      id: 'staged-1',
+      path: '/home/u/.podium/uploads/s-1/staged-1.png',
+      filename: 'shot.png',
+      mediaType: 'image/png',
+      kind: 'image' as const,
+    }
+    const holdUpload = vi.fn()
+    const ctx = new SessionCommandCtx(
+      {
+        sessions: () =>
+          ({ sessionById: async () => ({ sessionId: 's-1', headless: true }) }) as never,
+        stageAttachment: async () => staged,
+        holdUpload,
+        claimUpload: async () => {},
+        isAgentDriven: async () => true,
+        rpc: () => ({}) as never,
+      } as unknown as SessionCommandDeps,
+      human(firstAdminMemberId()),
+    )
+
+    expect(
+      await SESSION_COMMAND_HANDLERS.uploadImage(ctx, {
+        sessionId: asSessionId('s-1'),
+        filename: 'shot.png',
+        mimeType: 'image/png',
+        dataBase64: png,
+      }),
+    ).toEqual({ path: staged.path, attachment: staged })
+    expect(holdUpload).not.toHaveBeenCalled()
+  })
+})
 
 describe('draft launch compensation', () => {
   it('stores browser attachments on the draft before starting its session', async () => {
@@ -204,6 +573,125 @@ describe('draft launch compensation', () => {
 
     expect((await o.reg.issues.reports.list('/p')).filter((candidate) => candidate.draft)).toEqual([])
     expect(await o.reg.modules.sessions.readSessionIssueId(created.sessionId)).toBe(issue.id)
+  })
+
+  it('gives an agent started with no task its own draft, on create and on a fresh resume', async () => {
+    const o = await makeOracle()
+    await provisionHost(o)
+    const ctx = await ctxFor(o, human(firstAdminMemberId()))
+    const created = await dispatchSessionCommand(ctx, 'create', { agentKind: 'codex', cwd: '/p' })
+    const resumed = await dispatchSessionCommand(ctx, 'resume', {
+      agentKind: 'codex',
+      cwd: '/p',
+      resume: { kind: 'codex-thread', value: 'thread-1' },
+      conversationId: 'thread-1',
+    })
+
+    const drafts = (await o.reg.issues.reports.list('/p')).filter((issue) => issue.draft)
+    expect(drafts).toHaveLength(2)
+    for (const { sessionId } of [created, resumed])
+      expect(drafts.map((issue) => issue.id)).toContain(
+        o.reg.modules.sessions.getSessionIssueId(sessionId),
+      )
+  })
+
+  it('joins the task that owns the cwd only for a starter who may write to it', async () => {
+    const o = await makeOracle()
+    await provisionHost(o)
+    const host = o.store.hostMachineId
+    const task = await o.reg.issues.crud.create({ repoPath: '/p', title: 'Admin work', startNow: false })
+    await o.reg.issues.crud.update(task.id, { worktreePath: '/p/.worktrees/a' })
+    const ownership = ownershipTable(
+      new Map([[host, { owner: firstAdminMemberId(), grants: [{ subject: COLLEAGUE, verb: 'use' }] }]]),
+    )
+
+    const colleague = await dispatchSessionCommand(
+      await ctxFor(o, human(COLLEAGUE), { ownership }),
+      'create',
+      { agentKind: 'codex', cwd: '/p/.worktrees/a' },
+    )
+    const owner = await dispatchSessionCommand(
+      await ctxFor(o, human(firstAdminMemberId(), 'admin'), { ownership }),
+      'create',
+      { agentKind: 'codex', cwd: '/p/.worktrees/a' },
+    )
+
+    const colleagueTask = o.reg.modules.sessions.getSessionIssueId(colleague.sessionId)
+    expect(colleagueTask).not.toBe(task.id)
+    expect((await o.reg.issues.reports.get(colleagueTask ?? ''))?.draft).toBe(true)
+    expect(o.reg.modules.sessions.getSessionIssueId(owner.sessionId)).toBe(task.id)
+  })
+
+  it('finds the task that owns a cwd only among tasks homed on the starting machine', async () => {
+    const o = await makeOracle()
+    await provisionHost(o)
+    const task = await o.reg.issues.crud.create({ repoPath: '/p', title: 'Elsewhere', startNow: false })
+    await o.reg.issues.crud.update(task.id, { worktreePath: '/p/.worktrees/a' })
+    const row = await o.store.issues.getIssue(task.id)
+    await o.store.issues.upsertIssue({ ...row!, machineId: asMachineId('machine-a') })
+    const access = new DurableIssueAccessIndex(o.store.issues, o.store.grants, o.store.repos)
+
+    expect(await access.soleOwnerForCwd('/p/.worktrees/a', asMachineId('machine-a'))).toBe(task.id)
+    expect(await access.soleOwnerForCwd('/p/.worktrees/a', asMachineId('machine-b'))).toBeNull()
+  })
+
+  it('gives a non-admin fresh resume in someone else\'s task worktree a draft of its own', async () => {
+    const o = await makeOracle()
+    await provisionHost(o)
+    const host = o.store.hostMachineId
+    const task = await o.reg.issues.crud.create({ repoPath: '/p', title: 'Admin work', startNow: false })
+    await o.reg.issues.crud.update(task.id, { worktreePath: '/p/.worktrees/a' })
+    const ownership = ownershipTable(
+      new Map([[host, { owner: firstAdminMemberId(), grants: [{ subject: COLLEAGUE, verb: 'use' }] }]]),
+    )
+
+    const resumed = await dispatchSessionCommand(
+      await ctxFor(o, human(COLLEAGUE), { ownership }),
+      'resume',
+      {
+        agentKind: 'codex',
+        cwd: '/p/.worktrees/a',
+        resume: { kind: 'codex-thread', value: 'thread-colleague' },
+        conversationId: 'thread-colleague',
+      },
+    )
+
+    const joined = o.reg.modules.sessions.getSessionIssueId(resumed.sessionId)
+    expect(joined).not.toBe(task.id)
+    expect((await o.reg.issues.reports.get(joined ?? ''))?.draft).toBe(true)
+    expect((await o.store.issues.getIssue(joined ?? ''))?.ownerUserId).toBe(COLLEAGUE)
+  })
+
+  it('starts a fresh resume with no authenticated owner task-less', async () => {
+    const o = await makeOracle()
+    await provisionHost(o)
+    const task = await o.reg.issues.crud.create({ repoPath: '/p', title: 'Admin work', startNow: false })
+    await o.reg.issues.crud.update(task.id, { worktreePath: '/p/.worktrees/a' })
+
+    const { sessionId } = await o.reg.modules.sessions.resumeSession(
+      {
+        agentKind: 'codex',
+        cwd: '/p/.worktrees/a',
+        resume: { kind: 'codex-thread', value: 'thread-ownerless' },
+        conversationId: 'thread-ownerless',
+      },
+      o.reg.issues.gitWorkflow,
+    )
+
+    expect(o.reg.modules.sessions.getSessionIssueId(sessionId)).toBeNull()
+    expect((await o.reg.issues.reports.list('/p')).filter((issue) => issue.draft)).toEqual([])
+  })
+
+  it('never gives a homeless task whose worktree is some machine\'s main checkout a start elsewhere', async () => {
+    const o = await makeOracle()
+    await provisionHost(o)
+    const task = await o.reg.issues.crud.create({ repoPath: '/p', title: 'Legacy', startNow: false })
+    // Written below the service, as a pre-guard row: a main checkout as its worktree, no home.
+    const row = await o.store.issues.getIssue(task.id)
+    await o.store.issues.upsertIssue({ ...row!, worktreePath: '/p', machineId: null })
+    const access = new DurableIssueAccessIndex(o.store.issues, o.store.grants, o.store.repos)
+
+    expect(await access.soleOwnerForCwd('/p/nested/src', asMachineId('machine-b'))).toBeNull()
   })
 
   it('purges only the placeholder created for a session spawn that throws', async () => {
@@ -914,6 +1402,12 @@ describe('session id prefix (POD-4536)', () => {
       {
         sessions: () => ({ sessionById: rowFor }) as never,
         stageAttachment: async () => {
+          throw new Error('unused')
+        },
+        holdUpload: async () => {
+          throw new Error('unused')
+        },
+        claimUpload: async () => {
           throw new Error('unused')
         },
         isAgentDriven: async () => false,

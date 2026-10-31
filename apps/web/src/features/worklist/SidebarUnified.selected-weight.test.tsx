@@ -149,31 +149,25 @@ function rowButton(label: string): HTMLElement {
 afterEach(cleanup)
 
 describe('SidebarUnified selection weight (#41 redesign)', () => {
-  it('a selected row is a lifted band with an ink spine, and no bridge notch', () => {
+  it('the selected row is the one raised white row, and draws no bridge notch', () => {
     render(<SidebarUnified />)
     const active = rowButton('Read selected issue')
     const row = active.closest('[class*="group/row"]') as HTMLElement
     expect(row.getAttribute('data-selected')).toBe('true')
-    // THE BAND LIFTS to the raised tier and takes a 3px spine. `--chip` rather
-    // than `--card` because the dark appearance gives card and sidebar the same
-    // value (POD-1057); the spine is NEUTRAL ink because the issue's hue is already
-    // the row's resting ground, and selection is a different question.
-    expect(row.className).toContain('bg-chip')
-    expect(row.style.boxShadow).toBe('inset 3px 0 0 var(--text-strong)')
-    // NO BRIDGE NOTCH. The 3a design drops the tab that used to grow out of the
-    // selected row into the engraved column — with it went the whole horizontal
-    // head-room the scroller had to reserve for it (see SidebarUnified).
+    // THE CALM DESIGN (POD-2074): selection is the row lifted onto `--chip`
+    // with a hairline rim and a soft shadow — drawn by `.shell-work-row
+    // [data-selected="true"]` in CSS, so no inline spine and no tint.
+    expect(cssBlock('.shell-work-row[data-selected="true"]')).toContain('background: var(--chip)')
+    expect(cssBlock('.shell-work-row[data-selected="true"]')).toContain('box-shadow')
+    expect(row.style.boxShadow).toBe('')
     expect(row.querySelector('[data-testid="bridge-notch"]')).toBeNull()
     const other = rowButton('Unread issue').closest('[class*="group/row"]') as HTMLElement
     expect(other.getAttribute('data-selected')).toBe('false')
-    expect(other.className).not.toContain('bg-chip')
   })
 
-  it('gives selection one weight step, and unread the one above it', () => {
+  it('sets the selected title semibold, as unread is', () => {
     render(<SidebarUnified />)
-    // Medium for the row you are in, semibold for a row with something new —
-    // and nothing at all for the other twenty-eight.
-    expect(screen.getByText('Read selected issue').className).toContain('font-medium')
+    expect(screen.getByText('Read selected issue').className).toContain('font-semibold')
     expect(screen.getByText('Unread issue').className).toContain('font-semibold')
   })
 
@@ -181,70 +175,33 @@ describe('SidebarUnified selection weight (#41 redesign)', () => {
     render(<SidebarUnified />)
     const active = rowButton('Read selected issue').closest('[class*="group/row"]') as HTMLElement
     const plain = rowButton('Unread issue').closest('[class*="group/row"]') as HTMLElement
-    // Both selection states delegate vertical geometry to the same density-aware
-    // CSS class. Any remaining padding utilities must also be identical, so a
-    // click cannot introduce a state-specific shift on either axis.
+    // Both selection states delegate geometry to the same density-aware CSS
+    // class, so a click cannot introduce a state-specific shift on either axis.
     expect(active.className).toContain('shell-work-row')
     expect(plain.className).toContain('shell-work-row')
     const paddingClasses = (row: HTMLElement) =>
       row.className.split(/\s+/).filter((token) => /^p(?:[xytrlb])?-/.test(token))
     expect(paddingClasses(active)).toEqual(paddingClasses(plain))
 
-    // Balanced and compact density own their distinct vertical padding in CSS,
-    // rather than baking one mode's geometry into the component utility list.
-    expect(cssBlock('.shell-work-row')).toContain('--work-row-pad: 7px')
-    expect(cssBlock('.shell-work-row')).toContain('padding-block: var(--work-row-pad)')
+    // Balanced and compact density own their distinct padding in CSS: the
+    // design's `padding: 8px 12px 8px 22px` on a radius-8 row.
+    expect(cssBlock('.shell-work-row')).toContain('--work-row-pad: 8px')
+    expect(cssBlock('.shell-work-row')).toContain(
+      'padding: var(--work-row-pad) 12px var(--work-row-pad) 22px',
+    )
     expect(cssBlock('html[data-density="compact"] .shell-work-row')).toContain(
       '--work-row-pad: 6px',
     )
-    // The row rule is CSS too (POD-1078), and at the soft weight: the bands rule
-    // at --hairline-bar and have to stay the louder structure. Asserted here
-    // beside the padding because the two are one decision — the mock's row is
-    // `padding:7px 13px;border-bottom:1px solid`, and a rule between rows needs
-    // the air on both sides of it.
-    expect(cssBlock('.shell-work-row')).toContain('border-bottom: 1px solid var(--hairline-soft)')
-
-    /**
-     * THE ARTBOARD'S TWO ROW BOXES (POD-1253).
-     *
-     * `ADE Sidebar 3a.dc.html` writes `min-height:36px` on a two-line row and
-     * `min-height:46px` on one carrying the meter, on a CONTENT box — so its
-     * rows measure 36+14+1 = 51px and 46+14+1 = 61px. This landed as a single
-     * `min-h-[46px]` utility on a BORDER-box row, which is 47px: one number
-     * where the design has two, and the wrong one, four pixels under the
-     * artboard's short row.
-     *
-     * Asserted against the stylesheet rather than a rendered height because
-     * happy-dom lays nothing out — and asserted at all because this row box has
-     * now been re-derived three times (POD-1057, POD-1078, here) and each time
-     * the thing that drifted was the reading of the mock's `min-height`.
-     */
-    expect(cssBlock('.shell-work-row')).toContain('--work-row-content: 36px')
-    expect(cssBlock('.shell-work-row')).toContain(
-      'min-height: calc(var(--work-row-content) + 2 * var(--work-row-pad) + 1px)',
-    )
-    expect(cssBlock('.shell-work-row:has([data-testid="row-progress"])')).toContain(
-      '--work-row-content: 46px',
-    )
-    // And the row must NOT also carry a utility min-height, which would be a
-    // second, density-blind spelling of the same decision silently winning or
-    // losing depending on the cascade.
     expect(active.className).not.toMatch(/\bmin-h-\[/)
-
-    // The selection ring is an inset box-shadow, never a border that changes
-    // the shared box dimensions.
+    // The selection rim is a box-shadow, never a border that changes the box.
     expect(active.className.split(/\s+/)).not.toContain('border')
-    expect(active.style.boxShadow).toContain('inset')
   })
 
-  it('a spin-off row carries the quiet ⤷ origin tick; a plain row does not (POD-85)', () => {
+  it('keeps spin-off origins out of the status line', () => {
     render(<SidebarUnified />)
     const spin = rowButton('Unread issue').closest('[class*="group/row"]') as HTMLElement
-    const tick = spin.querySelector('[data-testid="spinoff-origin-tick"]')
-    expect(tick).toBeTruthy()
-    expect(tick?.textContent).toContain('⤷ 1')
-    expect(tick?.getAttribute('title')).toContain('Spun off from')
-    expect(tick?.getAttribute('title')).toContain('Read selected issue')
+    expect(spin.querySelector('[data-testid="spinoff-origin-tick"]')).toBeNull()
+    expect(spin.textContent).not.toContain('⤷')
     const plain = rowButton('Read selected issue').closest('[class*="group/row"]') as HTMLElement
     expect(plain.querySelector('[data-testid="spinoff-origin-tick"]')).toBeNull()
     // The origin row is findable for the lineage flash.

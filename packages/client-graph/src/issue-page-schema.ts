@@ -1,5 +1,5 @@
-import type { FieldSpec } from './shared/schema'
 import type { ReferentExit } from '@podium/client-core/values'
+import type { FieldSpec } from './shared/schema'
 
 export interface IssuePageSourceRows { issueExit: { kind: ReferentExit | undefined } }
 declare module './source-registry' { interface PoolSourceRows extends IssuePageSourceRows {} }
@@ -16,7 +16,7 @@ export const ISSUE_PAGE_FIELDS = {
   dependencyNote: field('string'),
   suggestedStage: field('string'), suggestedReason: field('string'),
   estimateMin: field('number'), dueAt: field('isoDate'),
-  parentBranch: field('string', false), color: field('string'),
+  parentBranch: field('string', false),
   intentOrigin: field('string', false), asked: field('object'),
   supersededBy: field('id'), duplicateOf: field('id'),
   linearIdentifier: field('string'), linearUrl: field('string'),
@@ -40,7 +40,7 @@ export const ISSUE_PAGE_SESSION_FIELDS = {
 export const ISSUE_PAGE_SUMMARIES = {
   issue: ['seq', 'title', 'labels', 'assignee', 'repoId', 'repoPath', 'stage',
     'parentId', 'archived', 'deletedAt', 'closedReason', 'owner', 'createdBy', 'deps', 'worktreePath',
-    'blocked', 'blockedByNotes', 'needsHuman', 'color', 'isDraftVessel', 'audience', 'updatedAt', 'deferUntil', 'supersededBy', 'duplicateOf',
+    'blocked', 'blockedByNotes', 'needsHuman', 'isDraftVessel', 'audience', 'updatedAt', 'deferUntil', 'supersededBy', 'duplicateOf',
     // The fallback list's shared close dialog names these concerns too.
     'asked', 'gitState', 'parentBranch'],
   session: ['sessionId', 'refIssueId', 'issueId', 'agentKind', 'headless', 'archived', 'status',

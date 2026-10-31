@@ -1,5 +1,4 @@
 import { asClientPrincipal } from '@podium/client-core/principal'
-import { referenceState } from '../../../../tests/worklist/diagnostics/reference-state'
 import { observer } from '@podium/client-graph/react'
 import { asUserId } from '@podium/model/browser'
 import { act, cleanup, render, waitFor } from '@testing-library/react'
@@ -41,7 +40,7 @@ it('attaches the existing pool after mounting every reader without a legacy fall
     states.push(Boolean(pool))
     if (pool) expect(pool.sources.peekView('sessionPanes')).toBeDefined()
     const chrome = reads.useShellChrome(),
-      dock = reads.useShellDockCatalogs(true),
+      shipping = reads.useShellShipping(),
       window = reads.useShellWindow()
     const approvals = reads.useShellApprovals(),
       sessions = reads.useShellSessions(),
@@ -54,7 +53,7 @@ it('attaches the existing pool after mounting every reader without a legacy fall
       <div data-testid="loaded" data-loaded={String(Boolean(pool && window && close))}>
         {[
           chrome.repoCount,
-          dock.issues.length,
+          shipping.unfinishedCount,
           approvals.length,
           sessions.length,
           links.readIssue('synthetic-0')?.seq ?? 0,
@@ -75,18 +74,25 @@ it('attaches the existing pool after mounting every reader without a legacy fall
       onFatalError={(message) => failures.push(message)}
       attachRuntime={(runtime) => {
         fixture.bindHub(runtime.hub)
-        void referenceState(runtime).refreshRepos()
+        void runtime.access.refreshRepos()
         return attachWorklistPool(runtime, (error) => failures.push(error.message))
       }}
     >
       <Surface />
     </StoreProvider>,
   )
-  await waitFor(() => expect(document.querySelector('[data-loaded="true"]')).not.toBeNull())
+  // Lazy screen imports are transformed after render in this source-based fixture.
+  await waitFor(
+    () => {
+      expect(failures).toEqual([])
+      expect(document.querySelector('[data-loaded="true"]')).not.toBeNull()
+    },
+    { timeout: 10_000 },
+  )
   expect(states).toContain(false)
   expect(states).toContain(true)
   expect(failures).toEqual([])
-  expect(document.querySelector('[data-testid="loaded"]')?.textContent).toContain('40')
+  expect(document.querySelector('[data-testid="loaded"]')?.textContent?.split(':')[3]).toBe('42')
   await waitFor(() =>
     expect(document.querySelector('[data-testid="loaded"]')?.textContent?.split(':')[0]).toBe('1'),
   )

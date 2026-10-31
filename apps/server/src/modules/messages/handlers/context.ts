@@ -37,9 +37,10 @@ import {
   isSpawnedBy,
   type SessionId,
   type MachineId,
+  type UserId,
 } from '@podium/model'
 import { type CommandPrincipal, onBehalfOfUser } from '../../../command-principal'
-import { type Capability, checkIssueAccess } from '../../../issue-authz'
+import { type Capability, checkIssueAccess, mayReadOwned } from '../../../issue-authz'
 import type { MessageRow } from '../../../store'
 import { withReadScope } from '../../../store/executor/read-scope'
 import { failureNoticeId } from '../../../message-ids'
@@ -346,6 +347,29 @@ export class MailAccess {
       capability.scope.kind === 'subtree' &&
       m.fromIssue === capability.scope.rootId
     )
+  }
+
+  /**
+   * ONE RULE FOR BOTH ENDS (POD-2143, POD-2146): whoever may read a session —
+   * its owner or a grantee, by the session queries' own `mayReadOwned` rule —
+   * may read mail sent from it or delivered to it. They can already read that
+   * session's transcript, where the note is shown; `mayView` misses them
+   * because a person's capability names no session. Nothing wider: no issue
+   * membership, no other session.
+   */
+  async mayReadAsSessionReader(caller: MailCaller, m: MessageRow): Promise<boolean> {
+    if (caller.principal.kind !== 'user') return false
+    const receiver = m.deliveredTo ?? (m.toKind === 'session' ? m.toId : null)
+    for (const session of new Set([m.fromSession, receiver])) {
+      if (session && (await this.mayReadSession(caller.principal.user, session))) return true
+    }
+    return false
+  }
+
+  /** `user` may read session `id`, as the session queries decide it. */
+  private async mayReadSession(user: UserId, id: string): Promise<boolean> {
+    const target = await this.deps.sessionOwner?.(asSessionId(id))
+    return target !== undefined && mayReadOwned(user, { id, owner: target.owner, grants: target.grants })
   }
 
   async wire(m: MessageRow): Promise<MessageWire> {

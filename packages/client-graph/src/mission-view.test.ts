@@ -8,7 +8,7 @@ import type { IssueNavigationModel } from '@podium/client-core/values'
 import type { SessionView } from '@podium/client-core/session-values'
 import { MobxPool } from './pool'
 import { MissionScreen, missionRootId } from './mission-screen'
-import { missionView, readMissionHandoff, settled } from './mission-view'
+import { missionView, settled } from './mission-view'
 import { MISSION_VIEW_SUMMARIES } from './mission-view-schema'
 import { SHELL_SUMMARIES } from './shell-schema'
 import { createPoolProjection } from './runtime-pool'
@@ -50,12 +50,10 @@ function open(rows: IssueNavigationModel[], seats: SessionView[], summaries: { i
   return { pool, load, reader: missionView(pool) }
 }
 
-it.each([
-  ['mission pane', (reader: ReturnType<typeof missionView>) => pane(reader.pool, 'root')],
-  ['handoff', (reader: ReturnType<typeof missionView>) => readMissionHandoff(reader, 'root')],
-] as const)('renders a cold %s history as loading and recovers after hydration', (_name, read) => {
+it('renders a cold mission pane history as loading and recovers after hydration', () => {
+  const read = (reader: ReturnType<typeof missionView>) => pane(reader.pool, 'root')
   // The shell makes an archived session's display summary usable before its
-  // handoff/prompt history is resident, just as the production workspace does.
+  // history is resident, just as the production workspace does.
   const history = [session('old', 'root'), session('older', 'root'), session('oldest', 'root')]
   const { pool, reader } = open([coldRoot()], history, {
     issue: MISSION_VIEW_SUMMARIES.issue,
@@ -120,7 +118,7 @@ it('a missing declared cold summary cannot invent an empty roster', () => {
   expect(load).toHaveBeenCalledTimes(1)
 })
 
-it('counts a closed archive without observing prompt, activity or handoff history', () => {
+it('counts a closed archive without observing activity history', () => {
   const { pool, reader } = open([coldRoot()], [
     session('drawn', 'root'), session('headless', 'root', { headless: true }),
     session('shell', 'root', { agentKind: 'shell' }),
@@ -192,6 +190,30 @@ it('a standalone progress read batches cold siblings without preparing their dis
   } finally { stop() }
 })
 
+it('loads cold leaf issues and their sessions in two batches for standalone progress', () => {
+  const children = Array.from({ length: 8 }, (_, index) => issue(`child-${index}`, {
+    ...coldRoot(), id: `child-${index}`, parentId: 'root',
+  }))
+  const seats = children.map((child, index) => session(`seat-${index}`, child.id, {
+    archived: false, stoppedAt: '2026-09-20T12:00:00Z', lastActiveAt: '2026-09-20T12:00:00Z', readAt: '2026-09-20T12:00:00Z',
+  }))
+  const { pool, load, reader } = open([issue('root'), ...children], seats)
+  expect(seats.every((seat) => !pool.tables.session.has(seat.sessionId))).toBe(true)
+  let result: unknown
+  const stop = autorun(() => { result = reader.deck('root').progress })
+  try {
+    expect(result).toBe(LOADING)
+    expect(pool.hydrate()).toBe(8)
+    expect(load.mock.calls.map(([kind]) => kind)).toEqual(Array(8).fill('issue'))
+    expect(result).toBe(LOADING)
+    load.mockClear()
+    expect(pool.hydrate()).toBe(8)
+    expect(load.mock.calls.map(([kind]) => kind)).toEqual(Array(8).fill('session'))
+    expect(result).toMatchObject({ total: 8, done: 8 })
+    expect(pool.hydrate()).toBe(0)
+  } finally { stop() }
+})
+
 it('keeps crew presentation unobserved when a hidden row asks only for its collapsed task count', () => {
   const { reader } = open([issue('root'), issue('child', { parentId: 'root' })], [
     session('crew', 'child', { archived: false, status: 'live' }),
@@ -255,20 +277,6 @@ it.each([
     }))
     const { pool, reader } = open([issue('root'), ...tasks, ...targets], [])
     return { pool, read: () => settled(() => reader.deck('root').model('root').word) }
-  }],
-  ['handoff depth over the blockers of a task\'s blockers', () => {
-    // The lead resumes after its one child; ordering that entry walks the
-    // child's open blockers and, through each, the blocker it waits on.
-    const blockers = Array.from({ length: WIDTH }, (_, index) => issue(`blocker-${index}`, {
-      seq: index + 10, deps: [{ id: `cold-${index}`, type: 'blocked-by' }],
-    }))
-    const cold = Array.from({ length: WIDTH }, (_, index) => issue(`cold-${index}`, {
-      ...coldRoot(), id: `cold-${index}`, seq: index + 100,
-    }))
-    const { pool, reader } = open([issue('root'), issue('lead', { parentId: 'root', seq: 2 }),
-      issue('child', { parentId: 'lead', seq: 3, deps: blockers.map(blocker => ({ id: blocker.id, type: 'blocked-by' })) }),
-      ...blockers, ...cold], [])
-    return { pool, read: () => readMissionHandoff(reader, 'root') }
   }],
 ] as const)('settles the %s in a few load windows, not one per task', (_name, fixture) => {
   const { pool, read } = fixture()
@@ -340,22 +348,87 @@ it('keeps raw issue member IDs and the collapsed winner in its original roster p
   expect(tracked(() => reader.issue('root'))).toMatchObject({ readAt: '2026-10-01T12:02:00Z', unread: false })
 })
 
-it('updates ready and handoff at the deferral deadline without a row change', () => {
+it('updates ready at the deferral deadline without a row change', () => {
   const deadline = now + 60_000
-  const { pool, reader } = open([issue('root', { stage: 'backlog', deferUntil: new Date(deadline).toISOString() })], [])
-  const seen: { deferred: boolean; ready: boolean; next: readonly string[] }[] = []
+  const { pool } = open([issue('root', { stage: 'backlog', deferUntil: new Date(deadline).toISOString() })], [])
+  const seen: { deferred: boolean; ready: boolean }[] = []
   const stop = autorun(() => {
-    const values = pane(pool, 'root'), handoff = readMissionHandoff(reader, 'root')
-    if (values === LOADING || handoff === LOADING || !values.root) throw new Error('Unsettled fixture')
-    seen.push({ deferred: values.root.deferred, ready: values.root.ready, next: handoff.next.map(entry => entry.issueId) })
+    const values = pane(pool, 'root')
+    if (values === LOADING || !values.root) throw new Error('Unsettled fixture')
+    seen.push({ deferred: values.root.deferred, ready: values.root.ready })
   })
   try {
-    expect(seen).toEqual([{ deferred: true, ready: false, next: [] }])
+    expect(seen).toEqual([{ deferred: true, ready: false }])
     pool.clock.advance(deadline - 1)
     expect(seen).toHaveLength(1)
     pool.clock.advance(deadline)
-    expect(seen.at(-1)).toEqual({ deferred: false, ready: true, next: ['root'] })
+    expect(seen.at(-1)).toEqual({ deferred: false, ready: true })
     pool.clock.advance(deadline + 60_000)
     expect(seen).toHaveLength(2)
   } finally { stop() }
+})
+
+// POD-2171: the deck's counts, its Needs-you filter and its words follow the
+// coordinated rule from the same seat facts as the sidebar.
+const working = { status: 'live', archived: false, agentState: { phase: 'working', since: stamp } }
+const idleDone = { status: 'live', archived: false, agentState: { phase: 'idle', since: stamp, idle: { kind: 'done' } } }
+const offered = { offer: { message: 'Ready', actions: [], createdAt: stamp } }
+function deckFacts(coordinated: boolean, extra: { rows?: IssueNavigationModel[]; seats?: SessionView[] } = {}) {
+  const { reader } = open([issue('root', coordinated ? { coordinatorSessionId: 'coord' } : {}), ...(extra.rows ?? [])], [
+    session('coord', 'root', idleDone),
+    session('helper', 'root', { ...working, ...offered }),
+    ...(extra.seats ?? []),
+  ])
+  return tracked(() => {
+    const row = reader.deck('root').model('root')
+    return {
+      word: row.word, waiting: row.waitingAgentCount, actionable: row.actionableCount,
+      matches: row.matchesNeedsYou, asking: row.askingSessionIds, collapsed: row.collapsedSummary.needsYou,
+    }
+  })
+}
+
+it('a coordinated deck row counts no delegate offer, and reads its work', () => {
+  expect(deckFacts(true)).toEqual({ word: 'working', waiting: 0, actionable: 0, matches: false, asking: [], collapsed: false })
+  expect(deckFacts(false)).toMatchObject({ word: 'needs-you', waiting: 1, actionable: 1, matches: true, asking: ['helper'], collapsed: true })
+})
+
+it('a coordinated deck row counts a sub-task’s exception but not its own requests', () => {
+  const child = (patch: Record<string, unknown>) => ({
+    rows: [issue('child', { parentId: 'root', ...patch })],
+    seats: [session('impl', 'child', idleDone)],
+  })
+  expect(deckFacts(true, child({ stage: 'review' }))).toMatchObject({ word: 'working', actionable: 0, collapsed: false })
+  expect(deckFacts(true, child({ type: 'decision' }))).toMatchObject({ word: 'working', actionable: 0 })
+  expect(deckFacts(false, child({ stage: 'review' }))).toMatchObject({ actionable: 2 })
+  const crashed = { rows: [issue('child', { parentId: 'root' })],
+    seats: [session('impl', 'child', { status: 'exited', archived: false, stopReason: 'oom', exitCode: 137 })] }
+  expect(deckFacts(true, crashed)).toMatchObject({ word: 'error', waiting: 1, actionable: 1, collapsed: true })
+})
+
+it('R2-1/R2-2: a coordinated deck row counts the coordinator by the shared seat facts, and offered work as work', () => {
+  const facts = (seats: SessionView[], interactions: Record<string, number> = {}, coordinated = true) => {
+    const { reader, pool } = open([issue('root', coordinated ? { coordinatorSessionId: 'coord' } : {})], seats)
+    Object.defineProperty(pool, 'sessionOpenInteractions', {
+      value: (id: string) => (interactions[id] ? { count: interactions[id], since: now } : { count: 0, since: null }),
+    })
+    return tracked(() => {
+      const row = reader.deck('root').model('root')
+      return { word: row.word, actionable: row.actionableCount, waiting: row.waitingAgentCount,
+        matches: row.matchesNeedsYou, working: row.workingAgentCount, matchesWorking: row.matchesWorking,
+        workingIds: row.workingSessionIds }
+    })
+  }
+  // The coordinator idles with an open permission interaction: every surface asks.
+  expect(facts([session('coord', 'root', idleDone)], { coord: 1 })).toMatchObject({
+    word: 'needs-you', actionable: 1, waiting: 1, matches: true })
+  // The coordinator ended its turn with a question.
+  const question = { ...idleDone, agentState: { phase: 'idle', since: stamp, idle: { kind: 'question' } } }
+  expect(facts([session('coord', 'root', question)])).toMatchObject({ word: 'needs-you', actionable: 1, matches: true })
+  // A delegate works while holding an offer: Working everywhere, and no ask.
+  expect(facts([session('coord', 'root', idleDone), session('helper', 'root', { ...working, ...offered })])).toMatchObject({
+    word: 'working', actionable: 0, working: 1, matchesWorking: true, workingIds: ['helper'] })
+  // Uncoordinated rows read exactly as before: no interaction input, offers mask work.
+  expect(facts([session('coord', 'root', idleDone)], { coord: 1 }, false)).toMatchObject({ word: 'idle', actionable: 0, waiting: 0 })
+  expect(facts([session('helper', 'root', { ...working, ...offered })], {}, false)).toMatchObject({ working: 0, matchesWorking: false })
 })

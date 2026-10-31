@@ -1,9 +1,12 @@
+import { renderMailPointer } from '@podium/commands/mail-pointer-nudge'
+import { LEGACY_TURN_CLOSE_RULE, TURN_CLOSE_RULE } from '@podium/commands/mail-turn-close-rule'
 import { describe, expect, it } from 'vitest'
 import {
   envelopePrincipal,
   envelopePrincipalLabel,
   parseEnvelopeBatch,
   parseMessageEnvelope,
+  pointerFallbackBody,
 } from './message-envelope'
 
 const frame = (id: string, from: string, to: string, body: string, extra = '') =>
@@ -58,6 +61,34 @@ describe('parseMessageEnvelope', () => {
       expectsReply: true,
       question: false,
     })
+  })
+
+  // Agent mail ends with the turn-close rule, AFTER the response rule. Left in
+  // place it hid the response rule from the strip above it, so the preview
+  // showed the instructions and the reply flag never set (POD-2070).
+  it.each([
+    ['current', TURN_CLOSE_RULE],
+    ['POD-604', LEGACY_TURN_CLOSE_RULE],
+  ])('strips the %s turn-close rule and still reads the response rule', (_, rule) => {
+    const p = parseMessageEnvelope(
+      frame(
+        'msg_t',
+        'issue:POD-84',
+        'your session',
+        'please confirm',
+        '[a response was requested: reply within this thread (`podium mail reply msg_t`) when you have handled it — any substantive reply satisfies it]\n' +
+          rule,
+      ),
+    )
+    expect(p).toMatchObject({ body: 'please confirm', expectsReply: true, question: false })
+  })
+
+  it('keeps a sender line that only looks like the turn-close rule', () => {
+    const quoted = '[before you go idle: say who mailed you]'
+    const p = parseMessageEnvelope(
+      frame('msg_q', 'issue:POD-84', 'your session', `the old rule was:\n${quoted}`),
+    )
+    expect(p?.body).toBe(`the old rule was:\n${quoted}`)
   })
 
   it('strips the cross-machine note into machineNote', () => {
@@ -142,6 +173,111 @@ describe('parseMessageEnvelope', () => {
 
   it('does not promote a frame-shaped quote inside operator text', () => {
     expect(parseEnvelopeBatch(`look at this:\n${frame('msg_q', 'a', 'b', 'quoted')}`)).toBeNull()
+  })
+})
+
+describe('parseEnvelopeBatch: inbox pointers (POD-2143)', () => {
+  /** What the server typed before pointers carried ids — still in transcripts. */
+  const legacyPointer = (count: number, senders: string) =>
+    `[podium] ${count} message(s) from ${senders} — run 'podium issue mail inbox' to read them, ` +
+    'then close your turn without repeating your last answer: no message if they needed ' +
+    'nothing or only a reply, one sentence if you acted on them, more only if they change ' +
+    'what you told the human; leave your standing offer as it is'
+  const pointer = { to: '', body: '', question: false, expectsReply: false }
+
+  it('reads a pointer with ids as a body-less entry per message', () => {
+    const text = renderMailPointer(1, [{ from: 'issue:POD-2128', ids: ['msg_1b437348'] }])
+    expect(parseEnvelopeBatch(text)).toEqual({
+      envelopes: [{ ...pointer, id: 'msg_1b437348', from: 'issue:POD-2128', pointer: 'by-id' }],
+      operatorText: '',
+    })
+  })
+
+  it('maps each id to its sender in a coalesced multi-sender pointer', () => {
+    const text = renderMailPointer(3, [
+      { from: 'issue:POD-1', ids: ['msg_a', 'msg_b'] },
+      { from: 'superagent', ids: ['msg_c'] },
+    ])
+    expect(parseEnvelopeBatch(text)?.envelopes.map((e) => [e.id, e.from, e.pointer])).toEqual([
+      ['msg_a', 'issue:POD-1', 'by-id'],
+      ['msg_b', 'issue:POD-1', 'by-id'],
+      ['msg_c', 'superagent', 'by-id'],
+    ])
+  })
+
+  // Every tail the server has typed, newest first (git log -G'read them' --
+  // apps/server/src/modules/messages/render.ts): b6a1cb23f7, b97e13ccc0, 574f9922a1.
+  it.each([
+    ['POD-2070 no-repeat rule', legacyPointer(1, 'issue:POD-9')],
+    [
+      'POD-604 restate-your-summary rule',
+      "[podium] 1 message(s) from issue:POD-9 — run 'podium issue mail inbox' to read them, " +
+        'then close your turn by saying briefly who mailed you and what you did, repeating ' +
+        'your previous summary below that, and leaving your standing offer as it is',
+    ],
+    [
+      'bare stem',
+      "[podium] 1 message(s) from issue:POD-9 — run 'podium issue mail inbox' to read them",
+    ],
+  ])('reads the %s legacy tail as internal, with a follow-up line kept as operator text', (_, line) => {
+    expect(parseEnvelopeBatch(`${line}\nand then ship it`)).toEqual({
+      envelopes: [{ ...pointer, id: 'pointer:0', from: 'issue:POD-9', pointer: 'legacy' }],
+      operatorText: 'and then ship it',
+    })
+  })
+
+  it('refuses an id-carrying pointer whose tail is not the current one', () => {
+    const line = renderMailPointer(1, [{ from: 'operator', ids: ['msg_a'] }])
+    expect(parseEnvelopeBatch(line.replace('leave your standing offer', 'drop'))).toBeNull()
+  })
+
+  it('round-trips ids in either case, as MessageId accepts them', () => {
+    const upper = 'MSG_0A1B2C3D-0000-4000-8000-00000000000A'
+    const text = renderMailPointer(2, [
+      { from: 'issue:POD-1', ids: [upper] },
+      { from: 'superagent', ids: ['msg_0a1b2c3d-0000-4000-8000-00000000000b'] },
+    ])
+    expect(parseEnvelopeBatch(text)?.envelopes.map((e) => [e.id, e.from, e.pointer])).toEqual([
+      [upper, 'issue:POD-1', 'by-id'],
+      ['msg_0a1b2c3d-0000-4000-8000-00000000000b', 'superagent', 'by-id'],
+    ])
+  })
+
+  it('reads a legacy pointer without ids, one entry per sender', () => {
+    const batch = parseEnvelopeBatch(legacyPointer(2, 'issue:#212, superagent'))
+    expect(batch).toEqual({
+      envelopes: [
+        { ...pointer, id: 'pointer:0', from: 'issue:#212', pointer: 'legacy' },
+        { ...pointer, id: 'pointer:1', from: 'superagent', pointer: 'legacy' },
+      ],
+      operatorText: '',
+    })
+  })
+
+  it('keeps a pointer internal beside frames and splits off operator text', () => {
+    const text = `${frame('msg_x', 'system', 'your session', 'hi')}\n${renderMailPointer(1, [
+      { from: 'operator', ids: ['msg_y'] },
+    ])}\nnow ship it`
+    const batch = parseEnvelopeBatch(text)
+    expect(batch?.envelopes.map((e) => e.id)).toEqual(['msg_x', 'msg_y'])
+    expect(batch?.operatorText).toBe('now ship it')
+  })
+
+  it('says where an unloaded pointer body went, and how to read a by-id one', () => {
+    const [byId] = parseEnvelopeBatch(
+      renderMailPointer(1, [{ from: 'operator', ids: ['msg_z'] }]),
+    )!.envelopes
+    const [legacy] = parseEnvelopeBatch(legacyPointer(1, 'operator'))!.envelopes
+    expect(pointerFallbackBody(byId!)).toMatch(
+      /^Delivered via the inbox\n.*podium mail show msg_z/s,
+    )
+    expect(pointerFallbackBody(legacy!)).toMatch(/^Delivered via the inbox\n/)
+    expect(pointerFallbackBody(legacy!)).not.toContain('mail show')
+  })
+
+  it('leaves look-alike human text alone', () => {
+    expect(parseEnvelopeBatch('[podium] 1 message(s) from me — read it later')).toBeNull()
+    expect(parseEnvelopeBatch(`please explain: ${legacyPointer(1, 'operator')}`)).toBeNull()
   })
 })
 

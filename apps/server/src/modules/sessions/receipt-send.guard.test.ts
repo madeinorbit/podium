@@ -94,7 +94,11 @@ describe('W4 guard: every agent send is one durable row (C5, POD-4795)', () => {
     mediaType: 'image/png',
     kind: 'image' as const,
   }
-  const sender = (onContract: boolean, reasons: { archive?: string } = {}) => {
+  const sender = (
+    onContract: boolean,
+    reasons: { archive?: string } = {},
+    claimed: ReadonlyMap<string, string> = new Map(),
+  ) => {
     const rows: Record<string, unknown>[] = []
     const legacy: string[] = []
     const s = new ReceiptSender({
@@ -131,6 +135,7 @@ describe('W4 guard: every agent send is one durable row (C5, POD-4795)', () => {
         delegation: null,
       }),
       now: () => 0,
+      chatUploadOwner: async (_sessionId, uploadId) => claimed.get(uploadId) as never,
     })
     return { s, rows, legacy }
   }
@@ -216,6 +221,82 @@ describe('W4 guard: every agent send is one durable row (C5, POD-4795)', () => {
     expect(offContract.rows).toEqual([])
     expect(offContract.legacy).toEqual([])
     expect(receipts).toEqual(['unsupported'])
+  })
+
+  it('takes a held ref only when it names a chat upload claimed into the session’s issue (POD-2148)', async () => {
+    const held = {
+      id: 'up-1',
+      filename: 'shot.png',
+      mediaType: 'image/png',
+      kind: 'image' as const,
+    }
+    const as = (user: string) => ({
+      kind: 'user' as const,
+      principalRef: user,
+      delegation: null,
+      attribution: { actor: { kind: 'user' as const, id: user }, onBehalfOf: user },
+    })
+    const live = sender(true, {}, new Map([['up-1', 'user:alice']]))
+    expect(
+      await live.s.send('queue', {
+        sessionId: asSessionId('s1'),
+        text: 'look',
+        attachments: [held],
+        principal: as('user:alice') as never,
+      }),
+    ).toEqual({ ok: true, queued: true, position: 1 })
+    expect(live.rows).toEqual([expect.objectContaining({ attachments: [held] })])
+
+    // Another reader of the same issue naming Alice's id — by chat or by mail
+    // straight to the session — and a sender with no person behind it.
+    const refused = { ok: false, reason: 'file attachment reference was not staged for this session' }
+    for (const principal of [as('user:bob'), undefined]) {
+      const other = sender(true, {}, new Map([['up-1', 'user:alice']]))
+      expect(
+        await other.s.send('queue', {
+          sessionId: asSessionId('s1'),
+          text: 'look',
+          attachments: [held],
+          ...(principal ? { principal: principal as never } : {}),
+        }),
+      ).toEqual(refused)
+      expect(other.rows).toEqual([])
+    }
+
+    // A staged path supplied with the id buys nothing: the uploader is checked
+    // all the same, and the path is dropped so delivery stages it again.
+    const staged = { ...held, path: '/state/uploads/s1/up-1.png' }
+    const bob = sender(true, {}, new Map([['up-1', 'user:alice']]))
+    expect(
+      await bob.s.send('queue', {
+        sessionId: asSessionId('s1'),
+        text: 'look',
+        attachments: [staged],
+        principal: as('user:bob') as never,
+      }),
+    ).toEqual(refused)
+    expect(bob.rows).toEqual([])
+    const alice = sender(true, {}, new Map([['up-1', 'user:alice']]))
+    expect(
+      await alice.s.send('queue', {
+        sessionId: asSessionId('s1'),
+        text: 'look',
+        attachments: [staged],
+        principal: as('user:alice') as never,
+      }),
+    ).toEqual({ ok: true, queued: true, position: 1 })
+    expect(alice.rows).toEqual([expect.objectContaining({ attachments: [held] })])
+
+    const elsewhere = sender(true)
+    expect(
+      await elsewhere.s.send('queue', {
+        sessionId: asSessionId('s1'),
+        text: 'look',
+        attachments: [{ ...held, id: 'up-2' }],
+        principal: as('user:alice') as never,
+      }),
+    ).toEqual(refused)
+    expect(elsewhere.rows).toEqual([])
   })
 
   it('rejects a forged filesystem ref before it reaches either send implementation', async () => {

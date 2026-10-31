@@ -1,11 +1,15 @@
 import {
   type AskAnswerChoice,
   type AskQuestion,
+  askQuestionResult,
+  codexAsyncQuestionReply,
   isChosenOption,
+  isCodexAsyncQuestion,
   isPreviewLayout,
   optionPreview,
   parseAskQuestions,
 } from '@podium/client-core/values'
+import { parseCodexQuestionReplies } from '@podium/harness/browser'
 import { CircleHelp } from 'lucide-react'
 import type { JSX, KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { useEffect, useRef, useState } from 'react'
@@ -28,6 +32,8 @@ import type { ChatBlock } from './chat'
  *    result then reconciles it to the read-only highlight.
  *  - otherwise (historical / already-answered / parked): read-only, with the
  *    chosen option highlighted from the tool result text.
+ * Codex async interviews share the card and submit a correlated chat reply.
+ * Their immediate tool acknowledgement only registers the question.
  *
  * ONE QUESTION AT A TIME (POD-594). A multi-question ask used to render every
  * question stacked — nine equally-weighted boxes for a three-question ask, a card
@@ -104,11 +110,15 @@ function OptionPreviewWell({ label, text }: { label: string; text: string }): JS
 }
 
 /**
- * What the card submits. Matches `sessions.answerAskUserQuestion`:
- * option digits, free text via the native Other entry, or skip (Esc).
+ * What the card submits: native menu choices or skip, or an async chat reply.
  * Who answered is never on the payload — the authority stamps it.
  */
-export type AskUserQuestionAnswer = ({ skip: true } | { choices: AskAnswerChoice[] }) & { interactionId?: string; question?: string }
+export type AskUserQuestionAnswer =
+  | (({ skip: true } | { choices: AskAnswerChoice[] }) & {
+      interactionId?: string
+      question?: string
+    })
+  | { reply: { itemId: string; question: string; text: string } }
 
 export function AskUserQuestionCard({
   block,
@@ -128,8 +138,13 @@ export function AskUserQuestionCard({
   const { item } = block
   const questions: AskQuestion[] = parseAskQuestions(item.toolInputJson)
   // The answer arrives as: …"<question>"="<chosen label>"… — match per option.
-  const answer = block.result ?? item.toolResult ?? ''
-  const isChosen = (label: string) => isChosenOption(answer, label)
+  const answer = askQuestionResult(block) ?? ''
+  const codex = isCodexAsyncQuestion(item)
+  const replies = codex ? parseCodexQuestionReplies(answer) : null
+  const replyAt = (qi: number) => replies?.find((reply) => reply.questionIndex === qi)?.answer
+  const isChosen = (label: string, qi: number) =>
+    codex ? replyAt(qi) === label : isChosenOption(answer, label)
+  const canSkip = !codex
 
   // Local answer state for a live question. `picks[qi]` is the set of selected
   // 0-based option indices for question qi. Multi-select toggles; single-select
@@ -174,7 +189,11 @@ export function AskUserQuestionCard({
   // Card-wide rather than per-question, so the commit rule cannot change under
   // the operator as they step through a rail.
   const previewed = questions.some(isPreviewLayout)
-  const commitsOnClick = questions.length === 1 && !questions[0]?.multiSelect && !previewed
+  const commitsOnClick =
+    questions.length === 1 &&
+    (questions[0]?.options.length ?? 0) > 0 &&
+    !questions[0]?.multiSelect &&
+    !previewed
   const current = questions[Math.min(step, Math.max(questions.length - 1, 0))]
   const currentIndex = Math.min(step, Math.max(questions.length - 1, 0))
 
@@ -216,17 +235,30 @@ export function AskUserQuestionCard({
     if (!choices) return
     setSubmitState('sending')
     try {
-      await onAnswer({ choices, ...(interactionId ? { interactionId, question: item.toolInputJson } : {}) })
+      await onAnswer(
+        codex
+          ? {
+              reply: {
+                itemId: item.id,
+                question: item.toolInputJson ?? '',
+                text: codexAsyncQuestionReply(item, choices),
+              },
+            }
+          : { choices, ...(interactionId ? { interactionId, question: item.toolInputJson } : {}) },
+      )
     } catch {
       setSubmitState('failed')
     }
   }
 
   const skip = async () => {
-    if (locked) return
+    if (locked || !canSkip) return
     setSubmitState('sending')
     try {
-      await onAnswer({ skip: true, ...(interactionId ? { interactionId, question: item.toolInputJson } : {}) })
+      await onAnswer({
+        skip: true,
+        ...(interactionId ? { interactionId, question: item.toolInputJson } : {}),
+      })
     } catch {
       setSubmitState('failed')
     }
@@ -344,7 +376,7 @@ export function AskUserQuestionCard({
       e.preventDefault()
       void submit(picks, custom)
     }
-    if (e.key === 'Escape') {
+    if (e.key === 'Escape' && canSkip) {
       e.preventDefault()
       void skip()
     }
@@ -361,7 +393,7 @@ export function AskUserQuestionCard({
         <div className="transcript-body flex flex-col gap-1 py-0.5">
           {questions.map((q, qi) => {
             const chosen = q.options
-              .filter((o) => isChosen(o.label))
+              .filter((o) => isChosen(o.label, qi))
               .map((o) => splitRecommendation(o.label).text)
             return (
               <div
@@ -374,8 +406,8 @@ export function AskUserQuestionCard({
                 <span className="min-w-0 truncate" title={q.question}>
                   {q.question}
                 </span>
-                <span className="flex-none rounded-[5px] border border-border px-[7px] text-[11px] font-medium text-foreground">
-                  {chosen.length > 0 ? chosen.join(', ') : 'answered'}
+                <span className="max-w-[60%] flex-none truncate rounded-[5px] border border-border px-[7px] text-[11px] font-medium text-foreground">
+                  {chosen.length > 0 ? chosen.join(', ') : (replyAt(qi) ?? 'answered')}
                 </span>
               </div>
             )
@@ -465,7 +497,10 @@ export function AskUserQuestionCard({
                 )}
               >
                 {answered(qi) && (
-                  <span className="shell-type-micro leading-none text-foreground" aria-hidden="true">
+                  <span
+                    className="shell-type-micro leading-none text-foreground"
+                    aria-hidden="true"
+                  >
                     ✓
                   </span>
                 )}
@@ -487,7 +522,7 @@ export function AskUserQuestionCard({
           // Read-only has no pointer to follow, so its well shows the option the
           // agent's own result named — the record of what the decision was.
           const chosenIndex = readOnly
-            ? q.options.findIndex((o) => isChosen(o.label))
+            ? q.options.findIndex((o) => isChosen(o.label, qi))
             : ([...(picks[qi] ?? new Set<number>())][0] ?? -1)
           const pvIndex = previewIndex(q, readOnly ? null : peek, chosenIndex)
           const pvOption = pvIndex >= 0 ? q.options[pvIndex] : undefined
@@ -536,7 +571,9 @@ export function AskUserQuestionCard({
                       {q.options.map((o, oi) => {
                         // Live: highlight the operator's local pick. Read-only:
                         // highlight the option the agent's result says was chosen.
-                        const chosen = readOnly ? isChosen(o.label) : (picks[qi]?.has(oi) ?? false)
+                        const chosen = readOnly
+                          ? isChosen(o.label, qi)
+                          : (picks[qi]?.has(oi) ?? false)
                         const { text, recommended } = splitRecommendation(o.label)
                         const recommendedIndex = q.options.findIndex(
                           (option) => splitRecommendation(option.label).recommended,
@@ -667,7 +704,9 @@ export function AskUserQuestionCard({
                     type="text"
                     disabled={locked}
                     value={custom[qi] ?? ''}
-                    placeholder="Or type your own answer…"
+                    placeholder={
+                      q.options.length > 0 ? 'Or type your own answer…' : 'Type your answer…'
+                    }
                     onChange={(e) => onCustomChange(qi, e.target.value)}
                     onKeyDown={(e) => onCustomKeyDown(e, qi)}
                     className={cn(
@@ -696,36 +735,42 @@ export function AskUserQuestionCard({
             >
               {questions.length > 1 ? 'Send answers' : 'Send answer'}
             </button>
-            <button
-              data-pressable
-              type="button"
-              data-testid="ask-skip"
-              disabled={locked}
-              onClick={() => void skip()}
-              className="h-[26px] rounded-md px-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-foreground/[0.04] hover:text-foreground disabled:cursor-default disabled:opacity-40"
-            >
-              Skip
-            </button>
+            {canSkip && (
+              <button
+                data-pressable
+                type="button"
+                data-testid="ask-skip"
+                disabled={locked}
+                onClick={() => void skip()}
+                className="h-[26px] rounded-md px-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-foreground/[0.04] hover:text-foreground disabled:cursor-default disabled:opacity-40"
+              >
+                Skip
+              </button>
+            )}
             <span className="font-mono shell-type-micro tracking-[0.05em] text-muted-foreground/70">
               {questions.length > 1 && remaining > 0 ? `${remaining} left · ` : ''}
-              {current?.multiSelect ? 'digits toggle' : 'digits choose'} · ↵ send · esc skip
+              {(current?.options.length ?? 0) > 0 &&
+                `${current?.multiSelect ? 'digits toggle' : 'digits choose'} · `}
+              ↵ send{canSkip && ' · esc skip'}
             </span>
           </div>
         )}
         {livePending && commitsOnClick && (
           <div className="mt-2 flex items-center gap-2.5">
-            <button
-              data-pressable
-              type="button"
-              data-testid="ask-skip"
-              disabled={locked}
-              onClick={() => void skip()}
-              className="h-[26px] rounded-md px-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-foreground/[0.04] hover:text-foreground disabled:cursor-default disabled:opacity-40"
-            >
-              Skip
-            </button>
+            {canSkip && (
+              <button
+                data-pressable
+                type="button"
+                data-testid="ask-skip"
+                disabled={locked}
+                onClick={() => void skip()}
+                className="h-[26px] rounded-md px-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-foreground/[0.04] hover:text-foreground disabled:cursor-default disabled:opacity-40"
+              >
+                Skip
+              </button>
+            )}
             <span className="font-mono shell-type-micro tracking-[0.05em] text-muted-foreground/70">
-              digits choose · ↑↓ move · ↵ free text · esc skip
+              digits choose · ↑↓ move · ↵ free text{canSkip && ' · esc skip'}
             </span>
           </div>
         )}

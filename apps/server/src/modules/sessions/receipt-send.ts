@@ -36,7 +36,7 @@
 import { randomUUID } from 'node:crypto'
 import { basename, dirname, isAbsolute, normalize } from 'node:path'
 import { createLogger } from '@podium/logger'
-import type { MutationId, SessionId } from '@podium/model'
+import type { MutationId, SessionId, UserId } from '@podium/model'
 import type { ObservationInputOrigin } from '@podium/protocol'
 import type { RuntimeAttachmentRef, TurnReceipt } from '@podium/protocol/daemon'
 import type { InboxPrincipalReference } from './inbox'
@@ -104,6 +104,11 @@ export interface ReceiptSenderPorts {
    *  root so "who is system" is answered in one visible place. */
   systemPrincipal(): InboxPrincipalReference
   now(): number
+  /** Who uploaded the chat upload this session's issue holds under this id
+   *  (POD-2148): undefined when the issue holds none, null when the entry names
+   *  nobody. Absent = no chat uploads here; a ref without a path is then
+   *  refused like any unstaged ref. */
+  chatUploadOwner?(sessionId: SessionId, uploadId: string): Promise<UserId | null | undefined>
 }
 
 /** What a caller learns when the receipt lands. `via` and the input echo back so
@@ -115,7 +120,10 @@ const log = createLogger('server:receipt-send')
 /** A ref is usable only by the session whose daemon staging directory minted it.
  * The daemon repeats this check against the real filesystem; this structural
  * guard stops forged local paths before they cross the machine boundary. */
-function attachmentMatchesSession(sessionId: SessionId, attachment: RuntimeAttachmentRef): boolean {
+function attachmentMatchesSession(
+  sessionId: SessionId,
+  attachment: RuntimeAttachmentRef & { path: string },
+): boolean {
   if (!isAbsolute(attachment.path) || normalize(attachment.path) !== attachment.path) return false
   const sessionDir = dirname(attachment.path)
   return (
@@ -153,10 +161,8 @@ export class ReceiptSender {
     const archiveReason = this.ports.archiveReason?.(input.sessionId)
     if (archiveReason) return { ok: false, reason: archiveReason }
 
-    const invalidAttachment = input.attachments?.find(
-      (attachment) => !attachmentMatchesSession(input.sessionId, attachment),
-    )
-    if (invalidAttachment) {
+    const attachments = await this.attachmentsBelonging(input)
+    if (!attachments) {
       return this.refuseAttachments(
         via,
         input,
@@ -177,7 +183,41 @@ export class ReceiptSender {
       }
       return this.legacy(via, input)
     }
-    return this.enqueue(via, input, onReceipt)
+    return this.enqueue(
+      via,
+      { ...input, ...(input.attachments?.length ? { attachments } : {}) },
+      onReceipt,
+    )
+  }
+
+  /**
+   * The refs as they may be queued, or undefined when one does not belong to
+   * this session. A ref whose id names a chat upload on the session's issue
+   * (POD-2148) is handed on only by the person who uploaded it — by chat or by
+   * mail naming the id — and loses any path the sender supplied: delivery
+   * stages it again from the server. Any other ref must be a staged path
+   * inside this session's upload dir, which the daemon checks again.
+   */
+  private async attachmentsBelonging(
+    input: ReceiptSendInput,
+  ): Promise<readonly RuntimeAttachmentRef[] | undefined> {
+    const sender = input.principal?.attribution.onBehalfOf
+    const out: RuntimeAttachmentRef[] = []
+    for (const attachment of input.attachments ?? []) {
+      const owner = await this.ports.chatUploadOwner?.(input.sessionId, attachment.id)
+      if (owner !== undefined) {
+        if (!sender || owner !== sender) return undefined
+        const { path: _path, ...held } = attachment
+        out.push(held)
+        continue
+      }
+      const path = attachment.path
+      if (path === undefined || !attachmentMatchesSession(input.sessionId, { ...attachment, path })) {
+        return undefined
+      }
+      out.push(attachment)
+    }
+    return out
   }
 
   /** Invoke immediately, but own completion separately from send admission.

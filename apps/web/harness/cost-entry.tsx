@@ -18,7 +18,7 @@ import type { JSX } from 'react'
 import { createRoot } from 'react-dom/client'
 import { OperatorFocusProvider } from '@/app/operator-focus'
 import { ThemeProvider } from '@/app/theme'
-import { IssueExplorerProvider } from '@/features/issues/explorer/explorer-context'
+import { DockIssueProvider } from '@/features/issues/dock-issue'
 import { IssuePanelView } from '@/features/issues/IssuePanelView'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
 import { makeIssue } from '@/lib/test-issue'
@@ -405,7 +405,7 @@ function Harness(): JSX.Element {
     <ThemeProvider>
       <ConfirmProvider>
         <OperatorFocusProvider>
-          <IssueExplorerProvider>
+          <DockIssueProvider>
             <div
               style={{
                 display: 'flex',
@@ -435,7 +435,7 @@ function Harness(): JSX.Element {
                 ))}
               </div>
             </div>
-          </IssueExplorerProvider>
+          </DockIssueProvider>
         </OperatorFocusProvider>
       </ConfirmProvider>
     </ThemeProvider>

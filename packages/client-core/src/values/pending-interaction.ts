@@ -139,18 +139,13 @@ export function pendingInteractionCard(row: PendingInteractionWire): PendingInte
     }
     case 'question': {
       const first = row.payload.questions[0]
-      const readable = questionIsPressable(row.payload.questions)
-      // WHO HAS THE RICHER CARD — not "is it readable" (POD-2414 review, P1/3).
-      //
-      // Deferring to the transcript is only correct where a transcript card
-      // EXISTS, and the predicate for that is the contract's
-      // ({@link hasTranscriptCard}), shared with the server's delivery route so
-      // the two cannot drift. Two sources have no transcript item behind them:
-      // an opencode `question.asked`, which is a structured protocol
-      // interaction on a family that has no terminal to fall back to; and a
-      // screen-classified dialog, which is read off the screen precisely
-      // because the CLI drew it without a tool call. Deferring hid the only
-      // answerable row either one has.
+      const readable =
+        row.payload.questions.length > 0 &&
+        row.payload.questions.every((question) => question.options.length > 0)
+      const pressable = questionIsPressable(row.payload.questions)
+      // Rich forms belong to the transcript even when this generic card cannot
+      // answer them. Missing options keep the aggregate fallback visible.
+      // Screen-classified and structured protocol asks have no transcript card.
       const transcriptOwnsIt = readable && hasTranscriptCard(row)
       return {
         ...base,
@@ -161,7 +156,7 @@ export function pendingInteractionCard(row: PendingInteractionWire): PendingInte
         // previews and multi-select collection. Anything else defers rather than
         // offering half a dialog.
         actions:
-          readable && first
+          pressable && first
             ? first.options.map((option, index) => ({
                 id: `option-${index + 1}`,
                 label: option.label,
@@ -172,7 +167,17 @@ export function pendingInteractionCard(row: PendingInteractionWire): PendingInte
                 },
               }))
             : [],
-        ...(readable ? {} : { note: UNPRESSABLE_QUESTION }),
+        ...(pressable
+          ? {}
+          : {
+              note: !readable
+                ? UNREADABLE_QUESTION
+                : transcriptOwnsIt
+                  ? 'Answer this form in the conversation.'
+                  : row.answerable === 'structured'
+                    ? 'This form cannot be answered here. Answer it in the requesting tool.'
+                    : 'This form cannot be answered here. Open the terminal to answer it.',
+            }),
         surface: transcriptOwnsIt ? 'transcript' : 'aggregate',
       }
     }
@@ -207,7 +212,7 @@ export function pendingInteractionCard(row: PendingInteractionWire): PendingInte
         actions: [
           {
             id: 'completed',
-            label: 'I signed in — retry',
+            label: 'I signed in, retry',
             tone: 'primary',
             answer: { kind: 'login', outcome: 'completed' },
           },
@@ -308,7 +313,7 @@ export function pendingInteractionCards(
     .map(pendingInteractionCard)
 }
 
-const UNPRESSABLE_QUESTION =
+const UNREADABLE_QUESTION =
   'Podium could not read this prompt’s options, so it cannot answer it for you. Open the terminal to see it.'
 
 /**

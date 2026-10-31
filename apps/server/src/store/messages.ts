@@ -42,6 +42,7 @@ import {
   gt,
   gte,
   inArray,
+  isNotNull,
   isNull,
   lt,
   lte,
@@ -1238,6 +1239,19 @@ export class MessagesRepository {
     const size = inListSize(unique.length)
     return (await messagesWithIds(this.db, size).all(inListValues(unique, size, 'ids')))
       .map(mapMessage)
+  }
+
+  /** Saved attachment messages for a bounded transcript window, including
+   * sessions whose confirmation records have left the live feed. */
+  async getTranscriptAttachmentMessages(sessionId: SessionId, itemIds: readonly string[]): Promise<MessageRow[]> {
+    if (itemIds.length === 0) return []
+    return (await this.db.select().from(messagesTable).where(and(
+      eq(messagesTable.fromKind, 'operator'),
+      eq(messagesTable.toKind, 'session'),
+      eq(messagesTable.toId, sessionId),
+      inArray(messagesTable.transcriptItemId, [...new Set(itemIds)]),
+      isNotNull(messagesTable.attachmentsJson),
+    )).all()).map(mapMessage)
   }
 
   /** All messages addressed to a principal, oldest first. */

@@ -204,6 +204,106 @@ describe('codexRecordToItems', () => {
     })
   })
 
+  it.each([
+    { questions: [{ options: ['main'] }] },
+    { questions: [{ title: 'Where?', options: [1] }] },
+  ])('preserves the generic tool preview for malformed async input: %j', (input) => {
+    const [item] = codexRecordToItems({
+      type: 'response_item',
+      payload: {
+        type: 'function_call',
+        name: 'request_user_input_async',
+        arguments: JSON.stringify(input),
+      },
+    })
+    expect(item?.toolName).toBe('request_user_input_async')
+    expect(item?.toolInputJson).toBeUndefined()
+    expect(item?.toolInput).not.toBe('AskUserQuestion')
+    expect(item?.toolInput).toContain('questions')
+  })
+
+  it('carries async titles, string options, and free-text questions to the shared card', () => {
+    const [item] = codexRecordToItems(
+      env('response_item', {
+        type: 'function_call',
+        name: 'request_user_input_async',
+        call_id: 'call_async',
+        arguments: JSON.stringify({
+          questions: [
+            {
+              title: 'Where should these fixes land?',
+              options: ['main (Recommended)', 'A branch'],
+            },
+            { title: 'Any constraints?' },
+          ],
+        }),
+      }),
+    )
+
+    expect(item).toMatchObject({
+      toolName: 'request_user_input_async',
+      toolUseId: 'call_async',
+      toolInput: 'Where should these fixes land?',
+    })
+    expect(JSON.parse(item?.toolInputJson ?? '')).toEqual({
+      questions: [
+        {
+          question: 'Where should these fixes land?',
+          options: [{ label: 'main (Recommended)' }, { label: 'A branch' }],
+        },
+        { question: 'Any constraints?', options: [] },
+      ],
+    })
+  })
+
+  it.each([
+    false,
+    true,
+  ])('pairs async replies while retaining the exact user receipt text, wrapped=%s', (wrapped) => {
+    const replies = [
+      {
+        answer: 'main, using an isolated branch',
+        question: 'Where?',
+        questionItemId: '["request_user_input_async","call_async",0]',
+      },
+      {
+        answer: 'No backend changes',
+        question: 'Constraints?',
+        questionItemId: '["request_user_input_async","call_async",1]',
+      },
+    ]
+    const json = JSON.stringify(replies)
+    const text = wrapped
+      ? `<send_user_message_question_reply>\n${json}\n</send_user_message_question_reply>`
+      : json
+    const items = codexRecordToItems(
+      env('event_msg', {
+        type: 'item_completed',
+        turn_id: 'turn_reply',
+        item: { type: 'UserMessage', id: 'user_reply', content: [{ type: 'text', text }] },
+      }),
+    )
+    expect(items).toHaveLength(2)
+    expect(items[0]).toMatchObject({ role: 'tool', toolUseId: 'call_async' })
+    expect(
+      JSON.parse(items[0]?.toolResult ?? '').map((reply: { answer: string }) => reply.answer),
+    ).toEqual(replies.map((reply) => reply.answer))
+    expect(items[1]).toMatchObject({
+      id: 'user_reply',
+      role: 'user',
+      text,
+      promptEntry: true,
+      harnessRef: [{ kind: 'codex-turn', id: 'turn_reply' }],
+    })
+  })
+
+  it('does not interpret ordinary JSON messages as interview answers', () => {
+    const text = '[{"question":"Where?","answer":"main","questionItemId":"not a call id"}]'
+    expect(
+      codexRecordToItems(env('event_msg', { type: 'user_message', message: text })),
+    ).toMatchObject([{ role: 'user', text }])
+  })
+
   it('unwraps unified exec calls into the command the reader cares about', () => {
     const items = codexRecordToItems(
       env('response_item', {
@@ -317,7 +417,61 @@ describe('codexRecordToItems', () => {
     )
 
     expect(poll[0]).toMatchObject({ toolName: 'Bash', toolInput: 'command session 6663' })
-    expect(parallel[0]).toMatchObject({ toolName: 'Workflow', toolTitle: '2 commands' })
+    expect(parallel).toHaveLength(1)
+    expect(parallel[0]).toMatchObject({ toolName: 'Script', toolTitle: '2 commands' })
+    expect(JSON.parse(parallel[0]?.toolInputJson ?? '{}')).toEqual({
+      kind: 'script-calls',
+      calls: [
+        { tool: 'Bash', input: 'bun test' },
+        { tool: 'Bash', input: 'bun run typecheck' },
+      ],
+    })
+  })
+
+  it("lists a mixed script's calls on one row, single-quoted commands included", () => {
+    const items = codexRecordToItems(
+      env('response_item', {
+        type: 'custom_tool_call',
+        name: 'exec',
+        call_id: 'call_mixed',
+        input:
+          "text(await tools.exec_command({cmd:'git status --short',max_output_tokens:1000}));\ntext(await tools.apply_patch(\"*** Begin Patch\\n*** Update File: a.ts\\n@@\\n-a\\n+b\\n*** End Patch\"));\ntext(await tools.exec_command({cmd:'echo it\\'s \"done\"'}));",
+      }),
+    )
+
+    expect(items).toHaveLength(1)
+    expect(items[0]).toMatchObject({
+      id: 'call_mixed',
+      toolUseId: 'call_mixed',
+      toolName: 'Script',
+      toolTitle: '3 actions',
+    })
+    expect(JSON.parse(items[0]?.toolInputJson ?? '{}').calls).toEqual([
+      { tool: 'Bash', input: 'git status --short' },
+      { tool: 'Edit', input: 'a.ts' },
+      { tool: 'Bash', input: 'echo it\'s "done"' },
+    ])
+  })
+
+  it("keeps a failed script's output as the result of its one row", () => {
+    const items = codexRecordToItems(
+      env('response_item', {
+        type: 'custom_tool_call_output',
+        call_id: 'call_mixed',
+        output: [
+          { type: 'input_text', text: 'Script failed\nWall time 0.2 seconds\nOutput:\n' },
+          { type: 'input_text', text: 'Script error:\nexec_command failed' },
+        ],
+      }),
+    )
+
+    expect(items).toEqual([
+      expect.objectContaining({
+        id: 'call_mixed:out',
+        toolUseId: 'call_mixed',
+        toolResult: expect.stringContaining('Script error:\nexec_command failed'),
+      }),
+    ])
   })
 
   it('keeps unrecognized exec scripts quiet without exposing their JavaScript', () => {
@@ -329,7 +483,8 @@ describe('codexRecordToItems', () => {
       }),
     )
 
-    expect(items[0]).toMatchObject({ toolName: 'Workflow', toolTitle: 'automation' })
+    expect(items[0]).toMatchObject({ toolName: 'Script', toolTitle: 'automation' })
+    expect(items[0]?.toolInputJson).toBeUndefined()
     expect(items[0]?.toolInput).toBeUndefined()
   })
 

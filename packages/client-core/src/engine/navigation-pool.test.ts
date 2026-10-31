@@ -1,6 +1,6 @@
-import { fixtureNavigation } from '../../test-support/navigation'
 import { asIssueId, asSessionId, type IssueProjection } from '@podium/model'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { fixtureNavigation } from '../../test-support/navigation'
 import type { SessionView } from '../session-values'
 import { routeDefaults } from '../ui-state'
 import { emptyWorkspace, openTab, splitPane } from '../values'
@@ -56,8 +56,14 @@ const state = (navigation?: NavigationProvider) => {
     settingsTab: null,
     openIssueId: null,
     issueVisitBaseline: null,
-  } as unknown as EngineState & { issueProjections: IssueProjection[]; sessions: SessionView[]; issueUserStates: object[] }
-  st.navigation = navigation ?? fixtureNavigation({ issues: () => st.issueProjections, sessions: () => st.sessions })
+  } as unknown as EngineState & {
+    issueProjections: IssueProjection[]
+    sessions: SessionView[]
+    issueUserStates: object[]
+  }
+  st.navigation =
+    navigation ??
+    fixtureNavigation({ issues: () => st.issueProjections, sessions: () => st.sessions })
   return st
 }
 
@@ -441,7 +447,7 @@ describe('navigation with an injected pool provider', () => {
     })
     try {
       reactions.updateMarkReadTimer()
-      expect(markSessionRead).toHaveBeenCalledExactlyOnceWith(seat.sessionId)
+      expect(markSessionRead).toHaveBeenCalledExactlyOnceWith(seat.sessionId, seat.lastActiveAt)
     } finally {
       reactions.dispose()
     }
@@ -487,7 +493,7 @@ describe('navigation with an injected pool provider', () => {
       expect(markIssueRead).not.toHaveBeenCalled()
       ready = true
       reactions.updateIssueMarkReadTimer()
-      expect(markIssueRead).toHaveBeenCalledExactlyOnceWith(child.id)
+      expect(markIssueRead).toHaveBeenCalledExactlyOnceWith(child.id, stamp)
     } finally {
       reactions.dispose()
     }

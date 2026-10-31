@@ -2,6 +2,7 @@
  * UserLayoutRepository — per-user scoping and closed vocabulary (POD-1350).
  */
 
+import { layoutSetInput } from '@podium/commands'
 import { asUserId, firstAdminMemberId, type UserId } from '@podium/model'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { openMigratedTestDatabase } from '../test-support/migrated-database'
@@ -22,6 +23,18 @@ beforeEach(() => {
 })
 
 describe('UserLayoutRepository', () => {
+  it('accepts tip keys through the command schema and stores independent account rows', async () => {
+    const values = {
+      'tips.seen.first-prompt': AT,
+      'tips.enabled': 'false',
+    }
+    expect(layoutSetInput.parse({ values })).toEqual({ values })
+    await layout.setMany(ALICE, values, AT)
+    await layout.setMany(ALICE, { 'tips.seen.first-send': AT }, AT)
+    expect(await layout.getSnapshot(ALICE)).toEqual({ ...values, 'tips.seen.first-send': AT })
+    expect(await layout.getSnapshot(BOB)).toEqual({})
+  })
+
   it('writes and reads a snapshot for one user only', async () => {
     await layout.set(ALICE, 'dockTab', 'files', AT)
     await layout.set(ALICE, 'superOpen', true, AT)
@@ -55,6 +68,8 @@ describe('UserLayoutRepository', () => {
 
   it('refuses device-local keys that must stay on the client', async () => {
     await expect(layout.set(ALICE, 'view', 'workspace', AT)).rejects.toThrow(/not a replicated/)
-    await expect(layout.set(ALICE, 'podium.view', 'workspace', AT)).rejects.toThrow(/not a replicated/)
+    await expect(layout.set(ALICE, 'podium.view', 'workspace', AT)).rejects.toThrow(
+      /not a replicated/,
+    )
   })
 })

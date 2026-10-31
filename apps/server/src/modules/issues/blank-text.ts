@@ -50,7 +50,7 @@ import type { IssueRow } from '../../store/types'
  *
  * `-?` strips optionality first so `brief?: string | null` is seen as
  * `string | null`. Branded ids (`UserId`, `IssueId`, `SessionId`) and literal
- * unions (`IssueColorSlot`) are text and are included — `''` is not a valid
+ * unions (`IssueStage`) are text and are included — `''` is not a valid
  * member of any of them, so it is a corrupt value there rather than a meaningful
  * one. `string[] | null` columns (`humanQuestionOptions`) are not text and are
  * excluded by construction.
@@ -93,7 +93,6 @@ export const BLANK_TO_NULL_COLUMNS = [
   'supersededBy',
   'duplicateOf',
   'sortKey',
-  'color',
   'humanQuestion',
   'humanQuestionAskedBy',
   'humanQuestionAskedAt',

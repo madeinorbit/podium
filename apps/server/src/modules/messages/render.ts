@@ -17,10 +17,12 @@
  */
 
 import { AUTO_CONTINUE_SENDER, deliversUnwrapped, type MailSenderPrincipal } from '@podium/commands'
-import type { SessionMeta, SessionId } from '@podium/model'
+import { renderMailPointer } from '@podium/commands/mail-pointer-nudge'
+import { TURN_CLOSE_RULE } from '@podium/commands/mail-turn-close-rule'
+import type { SessionId, SessionMeta } from '@podium/model'
 import type { MessageRow } from '../../store'
-import type { IssueService } from '../issues/service'
 import { INLINE_BODY_MAX, isPointerMessage } from '../../store/messages'
+import type { IssueService } from '../issues/service'
 import { sanitizeForInjection } from '../sessions/paste'
 
 /** Bodies past this render as a pointer, not inline (issue-addressed only). */
@@ -81,29 +83,9 @@ export const principalOfRow = (m: MessageRow): MailSenderPrincipal =>
  */
 export const sanitizeBody = sanitizeForInjection
 
-/**
- * How a mail-handling turn must END [POD-604].
- *
- * Mail only ever lands on an IDLE session — a running one queues until its turn
- * ends — so almost every delivery interrupts an agent that has just finished
- * and reported. Two things the human relies on are then at risk, and they fail
- * in opposite directions:
- *
- *  - the SUMMARY genuinely is lost: the mail-handling turn appends after it, so
- *    a human returning hours later reads "replied to POD-588" where the account
- *    of the actual work used to be. It has to be restated.
- *  - the OFFER is not lost — a `mail`-origin turn deliberately does not clear it
- *    (`userOpenedTurn`, POD-118) — but `podium offer` REPLACES rather than
- *    stacks, so an agent that posts a mail-flavoured card destroys the
- *    "ready to merge" one the human was coming back to click. The instruction is
- *    therefore to leave it alone, NOT to re-post it.
- */
-export const TURN_CLOSE_RULE =
-  `[before you go idle: a human returning here reads only your LAST message. In one or two plain ` +
-  `sentences say who mailed you, what they wanted and what you did — then repeat, below that, the ` +
-  `summary of your own work this interrupted, so it is still what they see.]\n` +
-  `[your standing offer survived this mail: leave it, or re-post it unchanged — never replace it ` +
-  `with one about the mail. Check the issue stage still matches reality before you stop.]\n`
+/** How a mail-handling turn must END: the rule and its reasons live in
+ *  `@podium/commands`, which the client strips it by [POD-604, POD-2070]. */
+export { TURN_CLOSE_RULE }
 
 /**
  * A PERSON'S WORDS THAT A SERVER JOB DELIVERED (POD-4846): an automation's
@@ -278,18 +260,17 @@ export class MessageRenderer {
     return (await this.deps.sessionById(receiverSessionId))?.agentKind === 'shell'
   }
 
-  /** The pointer rendering: the line typed in place of an oversized body. */
+  /** The pointer rendering: the line typed in place of an oversized body,
+   *  naming each sender's message ids so the chat can open the body [POD-2143]. */
   async pointerText(rows: MessageRow[]): Promise<string> {
-    const senders = [...new Set(await Promise.all(rows.map(async (m) => await this.fromLabel(m))))]
-    // The pointer path leads to the same interrupted-turn problem the envelope's
-    // TURN_CLOSE_RULE covers [POD-604] — reading the inbox is still a turn that
-    // buries the summary the human was coming back to. Said in one line here
-    // because a coalesced nudge has to stay a nudge.
-    return (
-      `[podium] ${rows.length} message(s) from ${senders.join(', ')} — ` +
-      `run 'podium issue mail inbox' to read them, then close your turn by saying briefly ` +
-      `who mailed you and what you did, repeating your previous summary below that, and ` +
-      `leaving your standing offer as it is`
+    const senders = new Map<string, string[]>()
+    for (const m of rows) {
+      const from = await this.fromLabel(m)
+      senders.set(from, [...(senders.get(from) ?? []), m.id])
+    }
+    return renderMailPointer(
+      rows.length,
+      [...senders].map(([from, ids]) => ({ from, ids })),
     )
   }
 
@@ -336,7 +317,9 @@ export class MessageRenderer {
     if (message.toKind === 'issue') {
       const issues = this.deps.issues
       const issue = await issues.reports.getMeta(message.toId ?? '')
-      return issue ? `your issue ${await issues.reports.niceRef(issue)}` : `your issue ${message.toId}`
+      return issue
+        ? `your issue ${await issues.reports.niceRef(issue)}`
+        : `your issue ${message.toId}`
     }
     if (message.toKind === 'session') return 'your session'
     return 'the operator'

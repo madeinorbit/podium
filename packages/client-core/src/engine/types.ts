@@ -185,9 +185,6 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
   attachedSessionId: SessionId | null
   /** Drop the attachment without sending — the chip's ×. */
   clearAttachedSession: () => void
-  /** Ask the superagent for a concise tl;dr of the agent's last answer (passed in
-   *  for context), with the session attached to that turn. */
-  tldrSession: (sessionId: SessionId, answerText: string) => Promise<void>
   /** The issue whose detail drawer is open (from the kanban card or the sidebar
    *  Issues tab), or null when closed. Ephemeral — not persisted. */
   openIssueId: IssueId | null
@@ -474,15 +471,15 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
   setSnooze: (sessionId: SessionId, until: string | null) => Promise<void>
   /** Un-snooze a session (return it to the normal attention flow). */
   clearSnooze: (sessionId: SessionId) => Promise<void>
-  /** Mark a session read (issue #124): stamp readAt = now, clearing derived `unread`.
-   *  Optimistic + outboxed. Called when the operator opens/focuses the session. */
-  markSessionRead: (sessionId: SessionId) => Promise<void>
+  /** Mark a session read. Automatic receipts pass the observed activity;
+   * explicit gestures omit it to acknowledge current server activity. Outboxed. */
+  markSessionRead: (sessionId: SessionId, readAt?: string) => Promise<void>
   /** Mark a session UNREAD again (issue #138, email-style inverse of markSessionRead):
    *  stamp readAt = null so derived `unread` flips back to true. Optimistic + outboxed. */
   markSessionUnread: (sessionId: SessionId) => Promise<void>
-  /** Mark an issue read (issue #124): stamp readAt = now, clearing derived `unread`.
-   *  Optimistic + outboxed. Called when the operator opens the issue. */
-  markIssueRead: (id: string) => Promise<void>
+  /** Mark an issue read. Automatic receipts pass the observed activity;
+   * explicit gestures omit it for a covering server cursor. Outboxed. */
+  markIssueRead: (id: string, readAt?: string) => Promise<void>
   /** Mark an issue UNREAD again (issue #138, email-style inverse of markIssueRead):
    *  stamp readAt = null so derived `unread` flips back to true. Optimistic + outboxed. */
   markIssueUnread: (id: string) => Promise<void>

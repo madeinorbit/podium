@@ -1,13 +1,15 @@
-import { omitGone } from './lookup'
-import { worklistView } from './worklist/view-model'
 import type { SessionView } from '@podium/client-core/session-values'
+import { type OutcomeIssueFacts, type SessionIssueOutcome, sessionIssueOutcome } from '@podium/client-core/values'
 import { companion, lazy } from '@podium/mobx-helpers'
+import { compareStructural } from 'mobx'
 import { asIssueId, type IssueId, type MachineWire, machinePathAncestors, machinePathSeparator } from '@podium/model/browser'
+import { omitGone } from './lookup'
 import type { IssueModel, SessionModel } from './models'
 import type { MobxPool } from './pool'
+import { eligiblePaneIssue, loadedPaneSession, paneHasSessions, paneMachines, paneSpawnConfirmed, paneWindow } from './session-pane'
 import type { SessionPaneRows } from './session-pane-schema'
-import { eligiblePaneIssue, loadedPaneSession, paneWindow, paneMachines, paneSpawnConfirmed, paneHasSessions, paneIssueColor } from './session-pane'
 import { LOADING, type Loaded } from './worklist/rollup'
+import { worklistView } from './worklist/view-model'
 
 const EMPTY_WINDOW: SessionPaneRows['sessionPaneWindow'] = { panelMode: {}, dockShells: {}, reposLoaded: false }
 
@@ -49,6 +51,19 @@ export class PaneSession {
     return undefined
   }
 
+  /** The issue's ending, when closing it is what stopped this session
+   * (POD-2151): the pane trades its Hibernated bar for it and closes the
+   * transcript with it. Only the attached issue counts; a checkout match is
+   * not the issue that stopped the session. */
+  @lazy({ equals: compareStructural }) get issueOutcome(): SessionIssueOutcome | null {
+    const { issueId } = this.session
+    if (!issueId) return null
+    const issue = omitGone(this.pool.model('issue', issueId))
+    if (!issue || issue === LOADING) return null
+    const outcome = sessionIssueOutcome(this.session as unknown as SessionView, issue as unknown as OutcomeIssueFacts)
+    return outcome && { ...outcome, issueId }
+  }
+
   private loadedIssue(id: string): Loaded<IssueModel> {
     // A gone attachment is omitted; a pending payload keeps the stamp loading.
     return omitGone(this.pool.model('issue', id))
@@ -85,11 +100,6 @@ export class SessionPanes {
   @lazy get selectedIssueId(): IssueId | null {
     const selected = worklistView(this.pool).selectedId
     return selected === null ? null : asIssueId(selected)
-  }
-  /** The selected issue's tint, inherited through its parents. */
-  issueHex(hex: (color: string | null | undefined) => string | undefined): string | undefined {
-    const color = paneIssueColor(this.pool, this.selectedIssueId, hex)
-    return color === LOADING ? undefined : color
   }
 }
 

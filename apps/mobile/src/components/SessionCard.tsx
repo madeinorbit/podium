@@ -1,12 +1,10 @@
 import { relativeTime } from '@podium/client-core/focus'
-import { panelLabel } from '@podium/client-core/values'
-import { observer } from '@podium/client-graph/react'
-import { useAgeNow } from '../lib/clock-hooks'
 import type { IssueViewModel } from '@podium/client-core/replica'
-import { agentColorHex, type DotTone, type SessionCardModel } from '@podium/client-core/values'
+import { agentColorHex, type DotTone, panelLabel, type SessionCardModel } from '@podium/client-core/values'
+import { observer } from '@podium/client-graph/react'
 import type { SessionMeta } from '@podium/model'
 import { StyleSheet, Text, View } from 'react-native'
-import { flow, issueColorHex } from '../theme/issueColors'
+import { useAgeNow } from '../lib/clock-hooks'
 import { alpha } from '../theme/mix'
 import {
   type AttentionTone,
@@ -20,8 +18,8 @@ import {
   tone,
 } from '../theme/theme'
 import { IdSquare, type IdSquareState } from './IdSquare'
-import { PressableScale } from './PressableScale'
 import { NotSavedMark } from './NotSavedMark'
+import { PressableScale } from './PressableScale'
 import { Pill, StatusDot } from './ui'
 import { WorkingMark } from './WorkingMark'
 
@@ -69,8 +67,7 @@ export function hidesDraftDot(
 
 /**
  * One session row in the redesign's work-list grammar: the 26px ID square is
- * the identity mark, the row tints in the issue's colour (slate-quiet when
- * uncoloured), status lives as a glyph column on the right. Needs-you rows are
+ * the identity mark, and status lives as a glyph column on the right. Needs-you rows are
  * the heroes — bisque border + tint, the agent's actual question quoted below.
  */
 export function SessionCard({
@@ -96,7 +93,6 @@ export function SessionCard({
   const toneKey = DOT_TONE[model.dotTone]
   const needsYou = model.group === 'needsYou'
   const working = model.dotTone === 'working'
-  const hex = issue ? issueColorHex(issue.color) : undefined
   const identity = agentColorHex(agentColor) ?? color.idle
   const initial = (model.title.trim()[0] ?? '?').toUpperCase()
 
@@ -108,7 +104,7 @@ export function SessionCard({
       onLongPress={onLongPress}
       style={[
         styles.row,
-        hex ? { backgroundColor: flow.rowBg(hex) } : styles.rowNeutral,
+        styles.rowNeutral,
         needsYou && styles.rowNeedsYou,
       ]}
     >
@@ -117,7 +113,7 @@ export function SessionCard({
           <IdSquare
             issue={issue}
             state={SQUARE_STATE[model.dotTone]}
-            ringColor={hex ? flow.rowBg(hex) : color.surface}
+            ringColor={color.surface}
           />
         ) : (
           <View style={[styles.avatar, { borderColor: alpha(identity, 0.45) }]}>
@@ -125,11 +121,11 @@ export function SessionCard({
           </View>
         )}
         <View style={styles.titles}>
-          <Text style={[styles.title, hex ? { color: flow.text(hex) } : null]} numberOfLines={1}>
+          <Text style={styles.title} numberOfLines={1}>
             {model.title}
           </Text>
           <Text
-            style={[styles.subtitle, hex ? { color: flow.muted(hex) } : null]}
+            style={styles.subtitle}
             numberOfLines={1}
           >
             {session ? <SessionSubtitle session={session} /> : model.subtitle}

@@ -1,21 +1,20 @@
-import { omitGone } from '@podium/client-graph/lookup'
-import { sidebarView } from '@podium/client-graph/worklist/sidebar'
-import { allowImperativeRead } from '@podium/mobx-helpers'
 import { beginSwitch } from '@podium/client-core/perf'
 import { useStoreHandle } from '@podium/client-core/react'
 import type { SessionView } from '@podium/client-core/session-values'
 import { pickPaneSession } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph'
 import { LOADING } from '@podium/client-graph/loading'
+import { omitGone } from '@podium/client-graph/lookup'
 import { missions } from '@podium/client-graph/mission'
 import { missionView, readMissionActionInputs } from '@podium/client-graph/mission-view'
 import type { SliceIssue } from '@podium/client-graph/shared/slice-types'
+import { sidebarView } from '@podium/client-graph/worklist/sidebar'
+import { allowImperativeRead } from '@podium/mobx-helpers'
 import {
   asIssueId,
   asSessionId,
-  machinePathsEqual,
-  type IssueColorSlot,
   type IssueId,
+  machinePathsEqual,
   type SessionId,
 } from '@podium/model/browser'
 import { useMemo, useRef } from 'react'
@@ -23,7 +22,7 @@ import { useOperatorFocus } from '@/app/operator-focus'
 import { readIssueMenuOrigins } from '@/features/issues/issue-menu-readers'
 import type { UnifiedIssueRowMenuData } from './UnifiedIssueRow'
 
-/** Addressed mission target seam shared with the explorer. It reads the raw
+/** Addressed mission target seam shared with the dock's task panel. It reads the raw
  * parent relation so an archived ancestor stops the walk, as in navigation. */
 export function poolMissionRoot(
   pool: MobxPool,
@@ -131,10 +130,40 @@ function sessionMembership(
   return byIssue
 }
 
+export type ArchiveIssueTree = { rootId: string; ids: readonly string[]; queued: boolean }
+
+function poolArchiveBatch(
+  pool: MobxPool,
+  rootIds: readonly string[],
+): ArchiveIssueTree[] | typeof LOADING {
+  const trees: ArchiveIssueTree[] = []
+  const seen = new Set<string>()
+  for (const rootId of rootIds) {
+    const ids: string[] = []
+    const stack = [rootId]
+    while (stack.length) {
+      const id = stack.pop()!
+      if (seen.has(id)) continue
+      seen.add(id)
+      // The relation index includes cold children. Their declared summaries
+      // provide archive state without warming the entire subtree.
+      const row = omitGone(pool.row('issue', id, 'summary-fields'))
+      if (row === LOADING) return LOADING
+      if (!row) throw new Error('Could not load all tasks to archive')
+      // The server stops its cascade at an archived or deleted child too.
+      if (row.archived || row.deletedAt) continue
+      ids.push(id)
+      stack.push(...pool.graph.many('issue', id, 'treeChildren'))
+    }
+    if (ids.length) trees.push({ rootId, ids, queued: false })
+  }
+  return trees
+}
+
 /** Pool reads are gesture-local. Writes and batching remain the app's actions. */
 export function createPoolWorkActions(
   pool: MobxPool,
-  runtime: Pick<ReturnType<typeof useStoreHandle>, 'access'>,
+  runtime: Pick<ReturnType<typeof useStoreHandle>, 'access' | 'outbox'>,
   focus: (id: string) => void,
 ) {
   let lastIssueNavigation: string | null = null
@@ -175,7 +204,18 @@ export function createPoolWorkActions(
     const files = worktreePath
       ? store.fileTabs.filter((f) => machinePathsEqual(f.worktreePath, worktreePath)).map((f) => f.id)
       : []
-    const target = paneSession ?? pickPaneSession([...members.values()], store.paneA, files)
+    // POD-2034: with no remembered pane, the clicked task's coordinator wins,
+    // then the mission root's, before falling back to the most recent agent.
+    const coordinatorOf = (issueId: string) => {
+      const issue = omitGone(pool.row('issue', issueId)) as SliceIssue | typeof LOADING | undefined
+      return issue === undefined || issue === LOADING ? null : issue.coordinatorSessionId
+    }
+    const target =
+      paneSession ??
+      pickPaneSession([...members.values()], store.paneA, files, [
+        coordinatorOf(id),
+        coordinatorOf(rootId),
+      ])
     trace(target, asIssueId(id))
     batch(() => {
       const changed = store.navigateWorkspace({
@@ -193,43 +233,9 @@ export function createPoolWorkActions(
     })
     focus(id)
   }
-  const selectWorktree = (path: string): void => {
-    const store = runtime.access
-    batch(() => {
-      store.setSelectedIssueId(null)
-      store.setSelectedWorktree(path)
-      const members = [...pool.graph.many('worktree', path, 'sessions')].flatMap((id) => {
-        const session = omitGone(pool.row('session', id)) as SessionView | typeof LOADING | undefined
-        return session === undefined ||
-          session === LOADING ||
-          session.archived ||
-          session.headless === true
-          ? []
-          : [session as unknown as SessionView]
-      })
-      const files = store.fileTabs.filter((f) => machinePathsEqual(f.worktreePath, path)).map((f) => f.id)
-      const target = pickPaneSession(members, store.paneA, files)
-      trace(target, null)
-      store.setPane('A', target)
-      if (target && members.some((s) => s.sessionId === target)) void store.markSessionRead(target)
-      store.setView('workspace')
-    })
-  }
   return {
     selectIssue: (id: string, paneSession?: SessionId) => allowImperativeRead(() => selectIssue(id, paneSession)),
     selectPanelForIssue: (id: string, sessionId: SessionId) => allowImperativeRead(() => selectIssue(id, sessionId)),
-    selectWorktree: (path: string) => allowImperativeRead(() => selectWorktree(path)),
-    selectPanel: (path: string, sessionId: SessionId) => {
-      const store = runtime.access
-      batch(() => {
-        trace(sessionId, null)
-        store.setSelectedIssueId(null)
-        store.setSelectedWorktree(path)
-        store.setPane('A', sessionId)
-        void store.markSessionRead(sessionId)
-        store.setView('workspace')
-      })
-    },
     openIssuePage: (id: IssueId) => {
       const store = runtime.access
       store.setOpenIssueId(id)
@@ -238,12 +244,30 @@ export function createPoolWorkActions(
     renameIssue: (id: string, title: string) => {
       void runtime.access.updateIssue(id, { title })
     },
-    setIssueColor: (id: string, color: IssueColorSlot | null) =>
-      runtime.access.updateIssue(id, { color }),
     archiveIssue: (id: string) => runtime.access.archiveIssue(id),
+    captureArchiveBatch: (rootIds: readonly string[]) =>
+      allowImperativeRead(() => poolArchiveBatch(pool, rootIds)),
+    subscribeArchiveChanges: (notify: () => void) => runtime.outbox.subscribe(notify),
+    archiveBatchPending: (trees: readonly ArchiveIssueTree[]) =>
+      trees.length > 0 &&
+      (trees.some((tree) => !tree.queued) ||
+        runtime.outbox
+          .pending()
+          .some(
+            (entry) =>
+              entry.kind === 'issueArchive' &&
+              trees.some((tree) => tree.rootId === (entry.input as { id: string }).id),
+          )),
+    unarchiveBatch: (trees: readonly ArchiveIssueTree[]) =>
+      Promise.all(
+        trees.flatMap((tree) =>
+          tree.ids.map((id) => runtime.access.updateIssue(id, { archived: false })),
+        ),
+      ),
     deleteIssue: (id: string) => runtime.access.deleteIssue(id),
     applySortPatches: (patches: { id: string; sortKey: string; pinned?: boolean }[]) =>
       Promise.all(patches.map(({ id, ...patch }) => runtime.access.updateIssue(id, patch))),
+    undeferIssue: (id: string) => runtime.access.undeferIssue(id),
     setIssueTucked: (id: string, tucked: boolean) =>
       runtime.access.setIssueTucked(id, tucked),
     resolveMenuData: (id: string): UnifiedIssueRowMenuData => allowImperativeRead(() => {

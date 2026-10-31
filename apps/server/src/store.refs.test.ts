@@ -4,7 +4,10 @@
  * migration backfill over colliding repo names.
  */
 import { asIssueId, asMachineId, asRepoId } from '@podium/model'
+import { sql } from 'drizzle-orm'
 import { describe, expect, it } from 'vitest'
+import type { SessionRegistry } from './relay'
+import { RepoRegistry } from './repo-registry'
 import type { SessionStore } from './store'
 import { openTestStore } from './test-support/open-test-store'
 
@@ -55,6 +58,149 @@ describe('repo prefixes', () => {
     await expect(s.repos.setRepoPrefix(asMachineId('__local__'), '/a/podium', otherPrefix)).rejects.toThrow(
       /already used/,
     )
+    await s.close()
+  })
+})
+
+describe('repo base branches (POD-2065)', () => {
+  /** A registry over a fake daemon whose repository has `branches`; `answers:
+   *  false` models a machine that cannot be reached. */
+  function registry(s: SessionStore, branches: string[], answers = true) {
+    const asked: string[] = []
+    const reg = {
+      modules: {
+        machines: { defaultMachine: async () => s.hostMachineId },
+        rpc: {
+          repoOp: async (_op: string, _cwd: string, args?: Record<string, string>) => {
+            asked.push(args?.ref ?? '')
+            if (!answers) return { ok: false, output: 'no daemon answered the git request in time' }
+            const ref = args?.ref ?? ''
+            return ref === 'HEAD' || branches.some((b) => ref === `refs/heads/${b}`)
+              ? { ok: true, output: 'deadbeef' }
+              : { ok: false, output: 'fatal: Needed a single revision' }
+          },
+        },
+        issues: { reports: { store: { publishRepos: async () => {} } } },
+      },
+    } as unknown as SessionRegistry
+    return { repos: new RepoRegistry(reg, s), asked }
+  }
+
+  it('stores a branch the repository has, for every checkout of it, and clears with null', async () => {
+    const s = await memStore()
+    await s.repos.addRepo('/a/podium', s.hostMachineId)
+    const { repos, asked } = registry(s, ['main', 'tf.dev'])
+    await repos.setDefaultParentBranch('/a/podium', 'tf.dev')
+    expect(asked).toEqual(['refs/heads/tf.dev'])
+    expect(await s.repos.defaultParentBranchForIssueRepo('/a/podium')).toBe('tf.dev')
+    expect(await s.repos.defaultParentBranchForIssueRepo('/a/podium/.worktrees/x')).toBe('tf.dev')
+    expect((await s.repos.listRepos())[0]?.defaultParentBranch).toBe('tf.dev')
+    // The prefix row it shares is untouched.
+    expect(await s.repos.prefixForPath('/a/podium')).toBe('POD')
+    await repos.setDefaultParentBranch('/a/podium', null)
+    expect(await s.repos.defaultParentBranchForIssueRepo('/a/podium')).toBeNull()
+    await s.close()
+  })
+
+  it('refuses a branch the repository does not have, and says so', async () => {
+    const s = await memStore()
+    await s.repos.addRepo('/a/podium', s.hostMachineId)
+    const { repos } = registry(s, ['main'])
+    await expect(repos.setDefaultParentBranch('/a/podium', 'tf.dev')).rejects.toThrow(
+      "branch 'tf.dev' does not exist in /a/podium",
+    )
+    expect(await s.repos.defaultParentBranchForIssueRepo('/a/podium')).toBeNull()
+    await s.close()
+  })
+
+  it('refuses revision syntax before asking the repository', async () => {
+    const s = await memStore()
+    await s.repos.addRepo('/a/podium', s.hostMachineId)
+    const { repos, asked } = registry(s, ['tf.dev', 'feature/tf.dev'])
+    for (const bad of [
+      'tf.dev~1',
+      'tf.dev^{commit}',
+      '-x',
+      'a..b',
+      'x@{1}',
+      'a b',
+      'x.lock',
+      'x/',
+      'HEAD',
+      '@',
+    ]) {
+      await expect(repos.setDefaultParentBranch('/a/podium', bad)).rejects.toThrow(
+        `invalid branch name '${bad}'`,
+      )
+    }
+    expect(asked).toEqual([])
+    await repos.setDefaultParentBranch('/a/podium', 'feature/tf.dev')
+    expect(asked).toEqual(['refs/heads/feature/tf.dev'])
+    await s.close()
+  })
+
+  it('keeps a base set before the checkout reported its origin', async () => {
+    const s = await memStore()
+    const a = asMachineId('machine-a')
+    const b = asMachineId('machine-b')
+    const origin = 'git@example.com:acme/podium.git'
+    await s.repos.addRepo('/a/podium', a, origin)
+    // B's checkout has no origin yet: a path-derived identity with its own prefix row.
+    await s.repos.addRepo('/b/podium', b)
+    await s.repos.setRepoDefaultParentBranch(b, '/b/podium', 'tf.dev')
+    await s.repos.updateRepoOrigin(b, '/b/podium', origin)
+    expect(await s.repos.defaultParentBranchForIssueRepo('/b/podium', b)).toBe('tf.dev')
+    expect(await s.repos.defaultParentBranchForIssueRepo('/a/podium', a)).toBe('tf.dev')
+    await s.close()
+  })
+
+  it('never overwrites a destination base set after the convergence read it', async () => {
+    const s = await memStore()
+    const a = asMachineId('machine-a')
+    const b = asMachineId('machine-b')
+    await s.repos.addRepo('/a/podium', a, 'git@example.com:acme/podium.git')
+    await s.repos.addRepo('/b/podium', b)
+    await s.repos.setRepoDefaultParentBranch(b, '/b/podium', 'tf.dev')
+    const ids = Object.fromEntries((await s.repos.listRepos()).map((r) => [r.path, r.repoId!]))
+    // The registry is read and held with the destination unset ...
+    expect(await s.repos.defaultParentBranchForRepoId(ids['/a/podium']!)).toBeNull()
+    // ... then a concurrent writer sets it without passing through this class's
+    // invalidation, as an interleaved scan would between read and write.
+    const repos = s.repos as unknown as {
+      rootDb: { run(q: unknown): Promise<unknown> }
+      carryBaseBranch(from: string, to: string): Promise<void>
+    }
+    await repos.rootDb.run(
+      sql`UPDATE repo_prefixes SET default_parent_branch = 'main' WHERE repo_id = ${ids['/a/podium']}`,
+    )
+    await repos.carryBaseBranch(ids['/b/podium']!, ids['/a/podium']!)
+    await s.repos.invalidateRegistry()
+    expect(await s.repos.defaultParentBranchForRepoId(ids['/a/podium']!)).toBe('main')
+    await s.close()
+  })
+
+  it("keeps the origin repository's base when both checkouts had one", async () => {
+    const s = await memStore()
+    const a = asMachineId('machine-a')
+    const b = asMachineId('machine-b')
+    const origin = 'git@example.com:acme/podium.git'
+    await s.repos.addRepo('/a/podium', a, origin)
+    await s.repos.addRepo('/b/podium', b)
+    await s.repos.setRepoDefaultParentBranch(a, '/a/podium', 'main')
+    await s.repos.setRepoDefaultParentBranch(b, '/b/podium', 'tf.dev')
+    await s.repos.updateRepoOrigin(b, '/b/podium', origin)
+    expect(await s.repos.defaultParentBranchForIssueRepo('/b/podium', b)).toBe('main')
+    await s.close()
+  })
+
+  it('does not blame the branch when the repository did not answer', async () => {
+    const s = await memStore()
+    await s.repos.addRepo('/a/podium', s.hostMachineId)
+    const { repos } = registry(s, ['tf.dev'], false)
+    await expect(repos.setDefaultParentBranch('/a/podium', 'tf.dev')).rejects.toThrow(
+      /could not read the repository at \/a\/podium/,
+    )
+    expect(await s.repos.defaultParentBranchForIssueRepo('/a/podium')).toBeNull()
     await s.close()
   })
 })

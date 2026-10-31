@@ -1,3 +1,4 @@
+import { createLogger } from '@podium/logger'
 import { isMachinePathWithinRoot, machinePathKey, machinePathSeparator, normalizeMachinePath } from '@podium/model'
 /**
  * Repos aggregate — owns the `repos` table (registered repo roots per machine,
@@ -16,6 +17,8 @@ import { deriveRepoId, isPathFallbackRepoId, readLocalOriginUrl } from '../repo-
 import type { StoreDrizzle, StoreQueries, TransactionRunner } from './executor/sync-drizzle'
 import { executeRaw, param, prepared } from './executor/sync-drizzle'
 import type { TableWrites } from './table-writes'
+
+const log = createLogger('server:store')
 
 export function normalizeRepoPath(path: string): string {
   const trimmed = path.trim()
@@ -50,7 +53,14 @@ const registryRows = prepared((db: StoreDrizzle) =>
 )
 
 const registryPrefixes = prepared((db: StoreDrizzle) =>
-  db.select({ repoId: repoPrefixes.repoId, prefix: repoPrefixes.prefix }).from(repoPrefixes).prepare(),
+  db
+    .select({
+      repoId: repoPrefixes.repoId,
+      prefix: repoPrefixes.prefix,
+      defaultParentBranch: repoPrefixes.defaultParentBranch,
+    })
+    .from(repoPrefixes)
+    .prepare(),
 )
 
 const allPrefixes = prepared((db: StoreDrizzle) =>
@@ -133,6 +143,8 @@ function repoRowAt() {
 
 /** A prepared builder write on `repos` / `repo_prefixes`. */
 type RepoWrite = (db: StoreDrizzle) => { run(values: Record<string, unknown>): Promise<unknown> }
+/** A prepared write that returns the rows it changed. */
+type RepoReturningWrite = (db: StoreDrizzle) => { all(values: Record<string, unknown>): Promise<unknown[]> }
 /** A prepared whole raw statement (`UPDATE OR IGNORE`, POD-3406). */
 type RepoRawWrite = (db: StoreDrizzle) => ReturnType<StoreDrizzle['run']>
 
@@ -194,6 +206,7 @@ export class ReposRepository {
   private cached: {
     rows: RegistryRow[]
     prefixes: Map<string, string>
+    baseBranches: Map<string, string>
   } | null = null
   private readonly rootDb: StoreDrizzle
   protected readonly createOrJoinTransaction: TransactionRunner
@@ -220,6 +233,8 @@ export class ReposRepository {
     deleteRow?: RepoWrite
     setOrigin?: RepoWrite
     rekeyPrefix?: RepoRawWrite
+    setBaseBranch?: RepoWrite
+    carryBaseBranch?: RepoReturningWrite
   } = {}
 
   constructor(
@@ -283,14 +298,20 @@ export class ReposRepository {
    * issue per call — rather than as finished objects, so the machine-scoped
    * variant filters the same materialization instead of forcing a second query.
    */
-  private async registry(): Promise<{ rows: RegistryRow[]; prefixes: Map<string, string> }> {
+  private async registry(): Promise<{
+    rows: RegistryRow[]
+    prefixes: Map<string, string>
+    baseBranches: Map<string, string>
+  }> {
     if (this.cached) return this.cached
     // ROWID ORDER IS THE CONTRACT (see registryRows).
     const rows = await registryRows(this.db).all()
-    const prefixes = new Map(
-      (await registryPrefixes(this.db).all()).map((r) => [r.repoId, r.prefix] as const),
+    const prefixRows = await registryPrefixes(this.db).all()
+    const prefixes = new Map(prefixRows.map((r) => [r.repoId, r.prefix] as const))
+    const baseBranches = new Map(
+      prefixRows.flatMap((r) => (r.defaultParentBranch ? [[r.repoId, r.defaultParentBranch] as const] : [])),
     )
-    this.cached = { rows, prefixes }
+    this.cached = { rows, prefixes, baseBranches }
     return this.cached
   }
 
@@ -301,8 +322,9 @@ export class ReposRepository {
     originUrl: string | null
     repoId: RepoId | null
     prefix: string | null
+    defaultParentBranch: string | null
   }[]> {
-    const { rows: allRows, prefixes } = await this.registry()
+    const { rows: allRows, prefixes, baseBranches } = await this.registry()
     // Same rows, same `ORDER BY rowid ASC` order, filtered in memory: the
     // machine-scoped statement this replaces read the same table with the same
     // ordering, and repo-discovery documents that it depends on that order.
@@ -313,6 +335,7 @@ export class ReposRepository {
       originUrl: r.originUrl,
       repoId: r.repoId,
       prefix: (r.repoId ? prefixes.get(r.repoId) : undefined) ?? null,
+      defaultParentBranch: (r.repoId ? baseBranches.get(r.repoId) : undefined) ?? null,
     }))
   }
 
@@ -424,6 +447,68 @@ export class ReposRepository {
         .prepare(),
     ))
     await upsertPrefix(this.db).run({ repoId, prefix })
+  }
+
+  // ---- base branches [POD-2065] ----
+  //
+  // A column on `repo_prefixes` because it is the same kind of fact: one value per
+  // LOGICAL repo, shared by every checkout of one origin. NULL defers to the
+  // instance-wide `gitWorkflow.defaultParentBranch`.
+
+  /**
+   * A machine that reported the logical repo `repoId` at a root containing
+   * `repoPath`, or null when none has. `preferred` wins when it is one of them; it
+   * is ignored otherwise, since the same path there may be another repository. A
+   * registry read only.
+   */
+  async reportingMachineFor(
+    repoId: RepoId,
+    repoPath: string,
+    preferred?: MachineId | null,
+  ): Promise<MachineId | null> {
+    const path = machinePathKey(normalizeRepoPath(repoPath))
+    const reporters = (await this.sortedRoots())
+      .filter((r) => r.repoId === repoId && rootContains(r.path, path))
+      .map((r) => r.machineId)
+    if (preferred && reporters.includes(preferred)) return preferred
+    return reporters[0] ?? null
+  }
+
+  /** The base branch chosen for the logical repo `repoId` (or null). */
+  async defaultParentBranchForRepoId(repoId: RepoId): Promise<string | null> {
+    return (await this.registry()).baseBranches.get(repoId) ?? null
+  }
+
+  /** The base branch for the repo an ISSUE in `repoPath` belongs to (or null),
+   *  resolved the way the issue's own repo_id is ({@link issueRepoIdResolver}).
+   *  A registry read only — it never touches git. */
+  async defaultParentBranchForIssueRepo(repoPath: string, machineId?: MachineId | null): Promise<string | null> {
+    const id = (await this.issueRepoIdResolver())(repoPath, machineId)
+    return id ? await this.defaultParentBranchForRepoId(id) : null
+  }
+
+  /**
+   * Set (or clear, with null) a repo's base branch. Keyed by the logical repo_id
+   * like the prefix. The caller checks the branch exists; this only stores it, and
+   * existing issues keep the parent they were created with.
+   */
+  async setRepoDefaultParentBranch(machineId: MachineId, path: string, branch: string | null): Promise<void> {
+    const normalizedPath = normalizeRepoPath(path)
+    const repoId = await this.resolveRepoIdForPath(normalizedPath, machineId)
+    // The row is the prefix row, which registration mints; a repo registered
+    // before prefixes existed gets one here rather than losing the write.
+    if (branch !== null && await this.prefixForRepoId(repoId) === null) {
+      await this.ensurePrefixForRepoId(repoId, machinePathBasename(normalizedPath) || normalizedPath)
+    }
+    await this.invalidateRegistry()
+    const setBaseBranch = (this.repoWrites.setBaseBranch ??= prepared((db: StoreDrizzle) =>
+      db
+        .update(repoPrefixes)
+        .set({ defaultParentBranch: sql.placeholder('branch') })
+        .where(eq(repoPrefixes.repoId, param(repoPrefixes.repoId, 'repoId')))
+        .prepare(),
+    ))
+    await setBaseBranch(this.db).run({ branch, repoId })
   }
 
   /**
@@ -602,7 +687,50 @@ export class ReposRepository {
           ),
         ))
         await executeRaw(rekeyPrefix(this.db), { newId, oldId: row.repoId })
+      } else if (row.repoId && row.repoId !== newId) {
+        await this.carryBaseBranch(row.repoId, newId)
       }
+    }
+  }
+
+  /**
+   * Carry a base branch across an identity convergence whose destination already
+   * owns a prefix row, so the re-key above did not move it [POD-2065]. A base set
+   * on a path-derived id (a checkout whose origin was not reported yet) is the
+   * operator's choice for that repository and must not vanish when the checkout
+   * joins its origin. The rule: the source's base fills an UNSET destination; when
+   * both are set and differ, the destination's — already shared by the repo's other
+   * checkouts — wins, and the dropped one is logged.
+   *
+   * "Unset" is decided BY the write, never by an earlier read: scans converge
+   * concurrently, and a destination base set between a read and this UPDATE must
+   * not be overwritten. So the UPDATE is conditional on the column still being
+   * NULL, and only a write that changed nothing re-reads to report a conflict.
+   */
+  private async carryBaseBranch(from: RepoId, to: RepoId): Promise<void> {
+    const source = (await this.registry()).baseBranches.get(from)
+    if (!source) return
+    await this.invalidateRegistry()
+    const carry = (this.repoWrites.carryBaseBranch ??= prepared((db: StoreDrizzle) =>
+      db
+        .update(repoPrefixes)
+        .set({ defaultParentBranch: sql.placeholder('branch') })
+        .where(and(
+          eq(repoPrefixes.repoId, param(repoPrefixes.repoId, 'repoId')),
+          isNull(repoPrefixes.defaultParentBranch),
+        ))
+        .returning({ repoId: repoPrefixes.repoId })
+        .prepare(),
+    ))
+    if ((await carry(this.db).all({ branch: source, repoId: to })).length > 0) return
+    const kept = await this.defaultParentBranchForRepoId(to)
+    if (kept && kept !== source) {
+      log.warn('repo identity converged with two base branches; keeping the destination\'s', {
+        from,
+        to,
+        kept,
+        dropped: source,
+      })
     }
   }
 
@@ -683,6 +811,14 @@ export class ReposRepository {
       }
       return derived
     }
+  }
+
+  /** Whether a root `machineId` reported contains `path`. */
+  async machineHasRootContaining(path: string, machineId: MachineId): Promise<boolean> {
+    const normalized = machinePathKey(normalizeRepoPath(path))
+    return (await this.sortedRoots()).some(
+      (root) => root.machineId === machineId && rootContains(root.path, normalized),
+    )
   }
 
   /** {@link issueRepoIdResolver} for one issue path; throws where it answers null. */

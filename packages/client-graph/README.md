@@ -21,9 +21,8 @@ The package declares MobX and its React bindings. React and React DOM are peers.
 Draft labels use the canonical `@podium/harness/browser` descriptor fallback;
 the current row/local channels do not carry served descriptors. No legacy
 worklist derivation is imported for labels.
-TanStack Virtual, demo row layouts, native lists, commit instrumentation, strict
-MobX test setup, snapshots, scan oracles, generators and tests stay in
-`tests/worklist`. Prototype imports use this package's source exports;
+Strict MobX test setup, work meters, the synthetic corpus, scenario engines and
+the pool tests stay in `tests/worklist`. Prototype imports use this package's source exports;
 there is one copy of the implementation.
 
 The enumeration module is `src/enumerate.ts`; ordinary updates maintain resident

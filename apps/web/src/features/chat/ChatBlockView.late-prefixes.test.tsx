@@ -1,3 +1,4 @@
+import './test-support/no-message-attachments'
 import type { TranscriptItem } from '@podium/model'
 import { asSessionId } from '@podium/model'
 import { act } from 'react'

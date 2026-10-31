@@ -1,18 +1,18 @@
-import { omitGone } from '@podium/client-graph/lookup'
-import { referenceState } from '../../../tests/worklist/diagnostics/reference-state'
 /** Real production consumers and one offline runtime. Every row is synthetic. */
 import type { ClientRuntime } from '@podium/client-core/engine'
-import type { ReferenceState as Store } from '../../../tests/worklist/diagnostics/reference-state'
 import { storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
-import type { SidebarSnapshot } from '../../../tests/worklist/diagnostics/sidebar-check'
+import { omitGone } from '@podium/client-graph/lookup'
 import { observer } from '@podium/client-graph/react'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { asIssueId, asSessionId, asUserId } from '@podium/model/browser'
 import { Profiler, useEffect } from 'react'
 import { createRoot } from 'react-dom/client'
 import { Toaster } from 'sonner'
+import type { ReferenceState as Store } from '../../../tests/worklist/diagnostics/reference-state'
+import { referenceState } from '../../../tests/worklist/diagnostics/reference-state'
+import type { SidebarSnapshot } from '../../../tests/worklist/diagnostics/sidebar-check'
 import { ApprovalDialog } from '../src/app/ApprovalDialog'
 import { AutoContinueDialog } from '../src/app/AutoContinueDialog'
 import { BrowserOpenOverlay } from '../src/app/BrowserOpenOverlay'
@@ -105,7 +105,7 @@ Object.assign(fixture.api, {
       query: async () => ({
         devMode: true,
         channel: 'edge',
-        flags: ['shipping', 'git-panel', 'messages-panel', 'merge-queue'],
+        flags: ['shipping', 'git-panel', 'messages-panel'],
       }),
     },
   },
@@ -153,8 +153,13 @@ const ChromeControls = observer(function ChromeControls() {
   )
 })
 function dockFields(dock: ReturnType<typeof useShellDock>) {
-  const shown = <T,>(value: T | typeof LOADING | undefined) => (value === LOADING ? undefined : value)
-  return { active: shown(dock?.active), gitIssue: shown(dock?.gitIssue), mailIssueId: shown(dock?.mailIssueId) }
+  const shown = <T,>(value: T | typeof LOADING | undefined) =>
+    value === LOADING ? undefined : value
+  return {
+    active: shown(dock?.active),
+    gitIssue: shown(dock?.gitIssue),
+    mailIssueId: shown(dock?.mailIssueId),
+  }
 }
 const DockContext = observer(function DockContext() {
   const dock = dockFields(useShellDock()),

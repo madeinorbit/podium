@@ -1,6 +1,7 @@
-import type { SessionView } from '../session-values'
-import type { PendingInteractionWire, QuestionAsk } from '@podium/protocol'
+import { CODEX_ASYNC_QUESTION_TOOL } from '@podium/harness/browser'
 import type { AgentInterview, TranscriptItem } from '@podium/model'
+import type { PendingInteractionWire, QuestionAsk } from '@podium/protocol'
+import type { SessionView } from '../session-values'
 
 /** One option of an AskUserQuestion question. */
 export interface AskOption {
@@ -86,6 +87,63 @@ export function isAskUserQuestion(item: TranscriptItem): boolean {
   return item.role === 'tool' && item.toolName === 'AskUserQuestion' && Boolean(item.toolInputJson)
 }
 
+/** Includes async interviews without adding them to native-menu-only readers. */
+export function isInterviewQuestion(item: TranscriptItem): boolean {
+  return (
+    isAskUserQuestion(item) || (isCodexAsyncQuestion(item) && Boolean(item.toolInputJson))
+  )
+}
+
+export function isCodexAsyncQuestion(item: TranscriptItem): boolean {
+  return item.role === 'tool' && item.toolName === CODEX_ASYNC_QUESTION_TOOL
+}
+
+/** Registration is not an answer for Codex's non-blocking interview tool. */
+export function askQuestionResult(block: {
+  item: TranscriptItem
+  result?: string
+}): string | undefined {
+  const result = block.result ?? block.item.toolResult
+  if (isCodexAsyncQuestion(block.item) && result) {
+    try {
+      if (JSON.parse(result)?.accepted === true) return undefined
+    } catch {
+      /* ordinary result */
+    }
+  }
+  return result
+}
+
+export function isPendingAskQuestion(block: { item: TranscriptItem; result?: string }): boolean {
+  return isInterviewQuestion(block.item) && askQuestionResult(block) === undefined
+}
+
+/** Answers ride the existing text-message route, never Claude's menu keystrokes. */
+export function codexAsyncQuestionReply(item: TranscriptItem, choices: AskAnswerChoice[]): string {
+  const questions = parseAskQuestions(item.toolInputJson)
+  if (!isCodexAsyncQuestion(item) ||
+    !item.toolUseId ||
+    questions.length === 0 ||
+    choices.length !== questions.length
+  )
+    throw new Error('The Codex question is unavailable.')
+  const replies = questions.map((q, index) => {
+    const choice = choices[index]
+    if (!choice) throw new Error('Answer every question before sending.')
+    const answer =
+      'freeText' in choice
+        ? choice.freeText.trim()
+        : choice.optionIndices.map((i) => q.options[i - 1]?.label ?? '').join(', ')
+    if (!answer) throw new Error('Answer every question before sending.')
+    return {
+      answer,
+      question: q.question,
+      questionItemId: JSON.stringify([CODEX_ASYNC_QUESTION_TOOL, item.toolUseId, index]),
+    }
+  })
+  return `<send_user_message_question_reply>\n${JSON.stringify(replies)}\n</send_user_message_question_reply>`
+}
+
 /**
  * The single AskUserQuestion the user can answer right now: the LAST one in the
  * transcript, and only when it has no result yet. Everything earlier is history.
@@ -157,7 +215,6 @@ export const PENDING_ASK_ITEM_ID = 'pending-ask-from-state'
 export function isChosenOption(answer: string, label: string): boolean {
   return answer.includes(`"${label}"`)
 }
-
 
 /** A transcript card may lag the aggregate. Never attach a replacement ID to
  * choices rendered from a different question or layout. */

@@ -12,9 +12,11 @@
  * succeeding under a ceiling that allows it.
  */
 
-import { asIssueId, asMachineId, asSessionId } from '@podium/model'
+import { MAIL_VIEW_REFUSED } from '@podium/commands/mail-pointer-nudge'
+import { asIssueId, asMachineId, asSessionId, asUserId } from '@podium/model'
 import type { TRPCError } from '@trpc/server'
 import { describe, expect, it } from 'vitest'
+import { userCommandPrincipal } from '../../command-principal'
 import type { Capability } from '../../issue-authz'
 import {
   currentReadScope,
@@ -24,6 +26,7 @@ import {
 import { OPERATOR } from '../../test-support/capabilities'
 import { mailHarness } from './characterization-support'
 import { applyAuthFromCeiling } from './handlers/context'
+import { INLINE_BODY_MAX } from './render'
 
 /** A ceiling that hides exactly the named issue ids from the delegating human. */
 const ceilingHiding = (hidden: () => string[]) => ({
@@ -203,7 +206,9 @@ describe('a queued send is re-authorized at the drain, not at accept', () => {
     expect(after?.deliveryStatus).toBe('failed')
     expect(h.pushes.filter((p) => p.sessionId === 'sTarget')).toEqual([])
     // …and never silently dropped — the sender is told (ADR 3 D9).
-    const notices = (await h.svc.inbox([{ kind: 'session', id: 'sSender' }], { limit: 50 })).filter((m) => m.body.includes(r.message.id))
+    const notices = (await h.svc.inbox([{ kind: 'session', id: 'sSender' }], { limit: 50 })).filter(
+      (m) => m.body.includes(r.message.id),
+    )
     expect(notices.length).toBeGreaterThan(0)
     expect(notices.at(-1)?.body).toContain('sender no longer has access to the target')
   })
@@ -355,7 +360,9 @@ describe('spawnAgent places work on OWNED COMPUTE and fails closed', () => {
     isReachable: () => opts.reachable,
   })
 
-  const withMachine = async (h: Awaited<ReturnType<typeof mailHarness>>): Promise<{ id: string; seq: number }> => {
+  const withMachine = async (
+    h: Awaited<ReturnType<typeof mailHarness>>,
+  ): Promise<{ id: string; seq: number }> => {
     const issue = await h.createIssue({ title: 'work' })
     await h.issues.crud.update(issue.id, { machineId: asMachineId('mac_alices_laptop') })
     return issue
@@ -384,7 +391,10 @@ describe('spawnAgent places work on OWNED COMPUTE and fails closed', () => {
     const offline = await mailHarness({ machines: machines({ use: true, reachable: false }) })
     const a = await withMachine(denied)
     const b = await withMachine(offline)
-    const message = async (h: Awaited<ReturnType<typeof mailHarness>>, id: string): Promise<string> => {
+    const message = async (
+      h: Awaited<ReturnType<typeof mailHarness>>,
+      id: string,
+    ): Promise<string> => {
       try {
         await h.gate.dispatch(
           h.agentCap(asIssueId(id), asSessionId('sMe')),
@@ -788,5 +798,79 @@ describe('sender identity is stamped from the capability and cannot be influence
       fromIssue: mine.id,
     })) as { id: string }
     expect((await h.svc.message(r.id))?.fromKind).toBe('operator')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// A member reads the body of mail delivered to a session they own (POD-2143)
+// ---------------------------------------------------------------------------
+
+describe('mail.show admits the owner of the session the mail was delivered to', () => {
+  it('a member opens the pointer body in their own agent’s chat; another member is refused', async () => {
+    const bob = asUserId('u_bob')
+    const h = await mailHarness({
+      sessionOwner: async (id) => (id === 'sBob' ? { owner: bob, grants: [] } : undefined),
+    })
+    const iss = await h.createIssue({ title: 'bob’s task' })
+    h.put({ sessionId: asSessionId('sBob'), issueId: iss.id, phase: 'idle' })
+    const body = 'x'.repeat(INLINE_BODY_MAX + 1)
+    const sent = await h.svc.send({ kind: 'operator' }, { to: { kind: 'issue', id: iss.id }, body })
+    await h.svc.onQueuedInputApplied(sent.message.id, asSessionId('sBob'))
+    expect((await h.svc.message(sent.message.id))?.deliveredTo).toBe('sBob')
+
+    // The web's own principal for a member: owned scope, no session.
+    const member = (user: string) => userCommandPrincipal(asUserId(user), 'member').capability
+    const shown = (await h.gate.dispatch(member('u_bob'), undefined, 'show', {
+      id: sent.message.id,
+    })) as { body: string }
+    expect(shown.body).toBe(body)
+    await expect(
+      h.gate.dispatch(member('u_carol'), undefined, 'show', { id: sent.message.id }),
+    ).rejects.toThrow(MAIL_VIEW_REFUSED)
+  })
+})
+
+// Whoever may read a session may read mail sent from it or delivered to it
+// (POD-2146): one rule for both ends, nothing wider.
+describe('mail.show admits a reader of the sending or the receiving session', () => {
+  const bob = asUserId('u_bob')
+  const dana = asUserId('u_dana')
+  const erin = asUserId('u_erin')
+  // sFrom is bob's and granted to dana; sTo is carol's and granted to erin.
+  const owners: Record<string, { owner: typeof bob; grants: string[] }> = {
+    sFrom: { owner: bob, grants: [dana] },
+    sTo: { owner: asUserId('u_carol'), grants: [erin] },
+  }
+  const member = (user: string) => userCommandPrincipal(asUserId(user), 'member').capability
+
+  async function sentAndDelivered() {
+    const h = await mailHarness({ sessionOwner: async (id) => owners[id] })
+    const from = await h.createIssue({ title: 'sender' })
+    const to = await h.createIssue({ title: 'receiver' })
+    h.put({ sessionId: asSessionId('sFrom'), issueId: from.id, phase: 'idle' })
+    h.put({ sessionId: asSessionId('sTo'), issueId: to.id, phase: 'idle' })
+    const sent = await h.svc.send(
+      { kind: 'agent', issueId: from.id, sessionId: asSessionId('sFrom') },
+      { to: { kind: 'issue', id: to.id }, body: 'handoff' },
+    )
+    await h.svc.onQueuedInputApplied(sent.message.id, asSessionId('sTo'))
+    expect((await h.svc.message(sent.message.id))?.deliveredTo).toBe('sTo')
+    const show = (user: string) =>
+      h.gate.dispatch(member(user), undefined, 'show', { id: sent.message.id }) as Promise<{
+        body: string
+      }>
+    return show
+  }
+
+  it('admits the sending session’s owner and grantee, and the receiving session’s grantee', async () => {
+    const show = await sentAndDelivered()
+    for (const user of ['u_bob', 'u_dana', 'u_erin']) {
+      expect((await show(user)).body, user).toBe('handoff')
+    }
+  })
+
+  it('refuses a member who may read neither session', async () => {
+    const show = await sentAndDelivered()
+    await expect(show('u_frank')).rejects.toThrow(MAIL_VIEW_REFUSED)
   })
 })

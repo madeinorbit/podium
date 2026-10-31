@@ -26,6 +26,10 @@ const ERROR_PHRASE: Record<string, string> = {
   network_error: 'Network error',
   authentication: 'Sign-in failed',
   billing_error: 'Billing problem',
+  // Exits nobody asked for (`seatErrorClass`, POD-2171).
+  oom: 'Ran out of memory',
+  crashed: 'Agent crashed',
+  spawn_failed: 'Agent failed to start',
 }
 
 /**

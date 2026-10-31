@@ -17,8 +17,6 @@ const configs = [
   'apps/web/vitest.frontend-perf.config.ts',
   'apps/web/harness/sidebar-acceptance.vite.ts',
   'apps/web/harness/pool-memory.vite.ts',
-  'tests/worklist/harness/web/vite.config.ts',
-  'tests/worklist/harness/browser/window-cost.config.ts',
   'tests/worklist/harness/browser/runtime-pool.vite.config.ts',
 ].sort()
 const AsyncFunction = Object.getPrototypeOf(async () => {}).constructor as new (body: string) => unknown

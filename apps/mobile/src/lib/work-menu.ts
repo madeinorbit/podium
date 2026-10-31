@@ -17,7 +17,6 @@ export type WorkMenuActionId =
   | 'rename'
   | 'read'
   | 'status'
-  | 'color'
   | 'placement'
   | 'bringBack'
   | 'undefer'
@@ -51,7 +50,6 @@ export function workMenuActionIds(
   if (issue.deletedAt) return []
 
   const ids: WorkMenuActionId[] = ['rename', 'read', 'status']
-  if (issue.parentId == null) ids.push('color')
   if (capabilities.placement) ids.push('placement')
   ids.push('delete')
   return ids

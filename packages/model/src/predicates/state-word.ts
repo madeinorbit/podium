@@ -11,13 +11,21 @@
  * TASK (D6), most urgent first: `error` > `needs-you` > `working` > `idle` >
  * `blocked` > `not-started`, and `done` only when the issue is closed. A task's
  * word rolls up from its own sessions AND its sub-issues' words, so a parent
- * always shows its most urgent descendant.
+ * always shows its most urgent descendant, except that under a live
+ * coordinator only exceptions ask (POD-2171, {@link taskWords}).
  */
 
 import type { IdleVerdict } from '../entities/session'
 import { issueAbandoned } from './active-work'
-import { idleVerdictNeedsHuman } from './idle-verdict'
 import { isFinished } from './issue-lifecycle'
+import {
+  type CoordinatedSeat,
+  coordinatedSeat,
+  seatAsks,
+  seatAttention,
+  sessionErrorFact,
+  sessionWorkingFact,
+} from './seat-attention'
 
 // ---------------------------------------------------------------------------
 // Session
@@ -59,57 +67,16 @@ export interface SessionWordContext {
 }
 
 /**
- * Error (D5): any agent error, a crash, out-of-memory, or a failed start.
- *
- * The `errored` phase stays until the next turn replaces it, which is the "a new
- * turn clears Error" rule; nothing here needs to remember it. A crash is an exit
- * nobody asked for (`stopReason: 'exited'`) with a non-zero code: a requested
- * stop (`self`, `parent`, `forced`) is Done whatever code the process returned.
- */
-export function sessionErrorFact(session: SessionWordFacts): boolean {
-  if (session.agentState?.phase === 'errored') return true
-  if (session.status !== 'exited') return false
-  if (session.stopReason === 'oom') return true
-  if (session.exitCode === -1 || session.spawnFailure) return true
-  return session.stopReason === 'exited' && session.exitCode != null && session.exitCode !== 0
-}
-
-/**
- * Needs you (D5): a question, a permission request, or a pending offer.
- *
- * An offer and a pending interaction outlive the process (the user can still
- * answer them), so they count on an exited session too. A question read from
- * the phase only counts while the process can still take the answer: a
- * hibernated session keeps its last phase and resumes into it, an exited one
- * does not.
+ * Needs you (D5): a question, a permission request, or a pending offer. The
+ * facts and the policy are `seatAttention` and `seatAsks`: an offer and a
+ * pending interaction outlive the process, a question read from the phase
+ * counts only while the process can still take the answer.
  */
 export function sessionAsksFact(
   session: SessionWordFacts,
   context: SessionWordContext = {},
 ): boolean {
-  if (session.offer) return true
-  if ((context.pendingInteractions ?? 0) > 0) return true
-  if (session.status === 'exited') return false
-  const phase = session.agentState?.phase
-  if (phase === 'needs_user') return true
-  return phase === 'idle' && idleVerdictNeedsHuman(session.agentState?.idle?.kind ?? undefined)
-}
-
-/**
- * Working (D5): working, compacting, starting or reconnecting.
- *
- * A hibernated or exited process cannot be working, however stale its last
- * phase: a harness killed mid-turn freezes `working`. An agent with no phase
- * evidence (`unknown`, a shell) is working only while its PTY is busy.
- */
-export function sessionWorkingFact(session: SessionWordFacts): boolean {
-  const status = session.status
-  if (status === 'starting' || status === 'reconnecting') return true
-  if (status !== 'live') return false
-  const phase = session.agentState?.phase
-  if (phase === 'working' || phase === 'compacting') return true
-  if (phase == null || phase === 'unknown') return session.busy === true
-  return false
+  return seatAsks(seatAttention(session, context.pendingInteractions))
 }
 
 /**
@@ -179,6 +146,20 @@ export interface TaskWordFacts {
 export interface TaskWordParts {
   readonly sessions?: Iterable<SessionWord>
   readonly children?: Iterable<TaskWord>
+  /** The word as the task shows a coordinated ancestor (POD-2171): its own
+   *  requests are for the coordinator, so they do not ask. */
+  readonly delegated?: boolean
+}
+
+/**
+ * The task's OWN request to a human, before its sessions: a decision-type issue
+ * or the explicit needs-human flag. An open review is not one here: the offer
+ * posted with it is (the deck's rule; the sidebar row differs, see
+ * `seat-attention.ts`). A closed task asks nothing of its own.
+ */
+export function taskOwnAsks(task: TaskWordFacts): boolean {
+  if (isFinished(task)) return false
+  return task.type === 'decision' || task.needsHuman === true
 }
 
 /** Stages that mean somebody already took the work up. */
@@ -193,10 +174,14 @@ const STARTED_STAGES: ReadonlySet<unknown> = new Set([
  * One task's word (D6).
  *
  *  - Done only when the issue is closed; see {@link taskHidden} for the closes
- *    that also hide the row.
- *  - Error > Needs you > Working come from any session or sub-issue. An open
- *    decision and an explicit `needs-human` flag are Needs you. A task in
- *    `shipping` is Working: the system is landing it.
+ *    that also hide the row. A phase only groups (D1, POD-2178): it is also
+ *    Done once it has sub-issues, all of them Done, and nothing on it (a
+ *    session, its own request, a `shipping` stage) errs, asks or works,
+ *    whether or not anyone closed the phase itself.
+ *  - Error > Needs you > Working come from any session or sub-issue. The
+ *    task's own requests ({@link taskOwnAsks}: an open decision, an explicit
+ *    `needs-human` flag) are Needs you, except in its `delegated` word. A task in `shipping` is Working: the system is
+ *    landing it.
  *  - A live Idle (an idle session, or a sub-issue that reads Idle) outranks
  *    Blocked. Blocked is an unmet dependency (own or a sub-issue's) with
  *    nothing running.
@@ -207,11 +192,14 @@ const STARTED_STAGES: ReadonlySet<unknown> = new Set([
 export function taskWord(task: TaskWordFacts, parts: TaskWordParts = {}): TaskWord {
   if (isFinished(task)) return 'done'
   let error = false
-  let asks = task.type === 'decision' || task.needsHuman === true
+  let asks = false
   let working = task.stage === 'shipping'
   let idle = false
   let blocked = task.blocked === true
   let started = STARTED_STAGES.has(task.stage)
+  if (!parts.delegated && taskOwnAsks(task)) asks = true
+  let childCount = 0
+  let childrenDone = true
   for (const word of parts.sessions ?? []) {
     started = true
     if (word === 'error') error = true
@@ -220,6 +208,8 @@ export function taskWord(task: TaskWordFacts, parts: TaskWordParts = {}): TaskWo
     else if (word === 'idle') idle = true
   }
   for (const word of parts.children ?? []) {
+    childCount += 1
+    if (word !== 'done') childrenDone = false
     if (word === 'error') error = true
     else if (word === 'needs-you') asks = true
     else if (word === 'working') working = true
@@ -230,9 +220,107 @@ export function taskWord(task: TaskWordFacts, parts: TaskWordParts = {}): TaskWo
   if (error) return 'error'
   if (asks) return 'needs-you'
   if (working) return 'working'
+  // A phase only groups (D1, POD-2178): Done once every sub-issue is, unless
+  // something on it still errs, asks or works (an idle lead does not count).
+  if (task.type === 'phase' && childCount > 0 && childrenDone) return 'done'
   if (idle) return 'idle'
   if (blocked) return 'blocked'
   return started ? 'idle' : 'not-started'
+}
+
+/** One session as a task's word reads it (POD-2171). */
+export interface SeatWords {
+  /** Its word on an uncoordinated task: what its own line shows. */
+  readonly word: SessionWord
+  /** Its word as the coordinator of a coordinated task: every ask counts. */
+  readonly coordinator: SessionWord
+  /** Its word as a delegate: only an exception asks. */
+  readonly delegate: SessionWord
+  /** It holds the task's coordinator seat. */
+  readonly lead?: boolean
+}
+
+/**
+ * The word of a seat on a coordinated task: its {@link coordinatedSeat} verdict
+ * in D5's words, with the same precedence as {@link sessionWord}. Only a
+ * translation; the verdict decides.
+ */
+export function coordinatedWord(seat: CoordinatedSeat): SessionWord {
+  if (!seat.counted) return 'done'
+  if (seat.error) return 'error'
+  if (seat.asks) return 'needs-you'
+  if (seat.working) return 'working'
+  return seat.stopped ? 'done' : 'idle'
+}
+
+/**
+ * A session's {@link SeatWords}. The role words are {@link coordinatedWord} of
+ * its {@link coordinatedSeat} verdicts and read `roleInteractions`, its open
+ * pending interactions (a seat fact on every coordinated surface); the plain
+ * word reads `context` as given, so a reader that never counted them on an
+ * uncoordinated task need not start.
+ */
+export function seatWords(
+  session: SessionWordFacts,
+  context: SessionWordContext = {},
+  lead = false,
+  roleInteractions = context.pendingInteractions,
+): SeatWords {
+  const interactions = { count: roleInteractions ?? 0 }
+  const role = (name: 'coordinator' | 'delegate') =>
+    coordinatedWord(coordinatedSeat(session, name, interactions, context.issueClosed !== true))
+  return {
+    word: sessionWord(session, context),
+    coordinator: role('coordinator'),
+    delegate: role('delegate'),
+    lead,
+  }
+}
+
+/** A task's two words (POD-2171, `seat-attention.ts`). */
+export interface TaskWords {
+  /** The word on the task's own row. */
+  readonly word: TaskWord
+  /** The word it shows an ancestor whose coordinator is live: only work and exceptions. */
+  readonly delegated: TaskWord
+}
+
+/**
+ * A task's word and its delegated word. On a task whose coordinator is live
+ * (`coordinated`), its sessions other than the coordinator speak as delegates
+ * and its sub-tasks show their delegated words, so asks come only from the
+ * coordinator and the task's own requests, while work and errors still roll
+ * up.
+ *
+ * The delegated word is what the task is to a coordinated ancestor: every
+ * session a delegate, every sub-task's delegated word, and none of its own
+ * requests (a decision type, needs-human). Those stay on its own
+ * row; the ancestor's coordinator is the one they are for.
+ */
+export function taskWords(
+  task: TaskWordFacts,
+  parts: {
+    readonly seats?: Iterable<SeatWords>
+    readonly children?: Iterable<TaskWords>
+    readonly coordinated?: boolean
+  } = {},
+): TaskWords {
+  const seats = [...(parts.seats ?? [])]
+  const children = [...(parts.children ?? [])]
+  const coordinated = parts.coordinated === true
+  return {
+    word: taskWord(task, {
+      sessions: seats.map((seat) =>
+        coordinated ? (seat.lead ? seat.coordinator : seat.delegate) : seat.word,
+      ),
+      children: children.map((child) => (coordinated ? child.delegated : child.word)),
+    }),
+    delegated: taskWord(task, {
+      sessions: seats.map((seat) => seat.delegate),
+      children: children.map((child) => child.delegated),
+      delegated: true,
+    }),
+  }
 }
 
 /** Cancelled, duplicate and superseded issues count as done and are hidden
@@ -251,7 +339,9 @@ export function taskHidden(task: TaskWordFacts): boolean {
 export interface WordTree<Id> {
   readonly task: (id: Id) => TaskWordFacts | undefined
   readonly children: (id: Id) => Iterable<Id>
-  readonly sessions: (id: Id) => Iterable<SessionWord>
+  readonly sessions: (id: Id) => Iterable<SeatWords>
+  /** The task's coordinator is live (POD-2171, {@link taskWords}). */
+  readonly coordinated?: (id: Id) => boolean
 }
 
 /**
@@ -264,24 +354,29 @@ export interface WordTree<Id> {
  * recursing.
  */
 export function rollUpTaskWords<Id>(root: Id, tree: WordTree<Id>): Map<Id, TaskWord> {
-  const words = new Map<Id, TaskWord>()
+  const words = new Map<Id, TaskWords>()
   const visiting = new Set<Id>()
-  const visit = (id: Id): TaskWord => {
+  const NOT_STARTED: TaskWords = { word: 'not-started', delegated: 'not-started' }
+  const visit = (id: Id): TaskWords => {
     const known = words.get(id)
     if (known !== undefined) return known
-    if (visiting.has(id)) return 'not-started'
+    if (visiting.has(id)) return NOT_STARTED
     const task = tree.task(id)
-    if (!task) return 'not-started'
+    if (!task) return NOT_STARTED
     visiting.add(id)
-    const children: TaskWord[] = []
+    const children: TaskWords[] = []
     for (const child of tree.children(id)) if (tree.task(child)) children.push(visit(child))
-    const word = taskWord(task, { sessions: tree.sessions(id), children })
+    const both = taskWords(task, {
+      seats: tree.sessions(id),
+      children,
+      coordinated: tree.coordinated?.(id) === true,
+    })
     visiting.delete(id)
-    words.set(id, word)
-    return word
+    words.set(id, both)
+    return both
   }
   visit(root)
-  return words
+  return new Map([...words].map(([id, both]) => [id, both.word]))
 }
 
 /** A phase groups work and is never itself a unit of work in counts (D1). */

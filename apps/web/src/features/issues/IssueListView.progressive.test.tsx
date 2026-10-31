@@ -156,7 +156,7 @@ describe('IssueListView bounded rendering', () => {
       <IssueListView groups={group} {...baseProps} selected={['issue-3']} />,
     )
     expect(container.querySelector('[data-issue-id="issue-3"]')?.className).toContain(
-      'issue-mix-20',
+      'surface-mix-20',
     )
 
     rerender(
@@ -170,7 +170,7 @@ describe('IssueListView bounded rendering', () => {
 
     rerender(<IssueListView groups={group} {...baseProps} selected={['issue-3']} />)
     expect(container.querySelector('[data-issue-id="issue-3"]')?.className).toContain(
-      'issue-mix-20',
+      'surface-mix-20',
     )
   })
 

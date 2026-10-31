@@ -135,6 +135,7 @@ export const runtimeHandlers: Pick<
         bytes: new Uint8Array(Buffer.from(msg.source.dataBase64, 'base64')),
         filename: msg.source.filename,
         mediaType: msg.source.mediaType,
+        ...(msg.source.id ? { id: msg.source.id } : {}),
       })
       .then((result) => {
         ctx.send({

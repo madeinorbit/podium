@@ -141,8 +141,7 @@ export async function gotoWorkspace(page: Page): Promise<void> {
  * empty-state Launch press matches the composer's `cold-start-launch` testid:
  * after `Start first task` the box is closed, so Launch is named
  * `Start a <Agent> session`, not `Start work` — the name gotoWorkspace clicks.
- * A folded sidebar (auto-fold below 1600px) is expanded first so the work list
- * is reachable.
+ * The sidebar stays visible at every desktop viewport width.
  */
 export async function openWorkspace(page: Page): Promise<void> {
   await openHome(page)
@@ -160,12 +159,6 @@ export async function openWorkspace(page: Page): Promise<void> {
   const onDesktop = await sidebar.isVisible()
   const list = onDesktop ? sidebar : mobileShell
   if (!onDesktop) await page.locator('button[title="Tasks"]').click({ timeout: 15_000 })
-
-  // A folded sidebar hides the work list; unfold it before looking for rows.
-  if (onDesktop) {
-    const expand = page.getByRole('button', { name: 'Expand sidebar' }).first()
-    if (await expand.isVisible().catch(() => false)) await expand.click({ timeout: 15_000 })
-  }
 
   // Work rows load with the repos/sessions feeds — give the top row a
   // loaded-host window (15s) to appear (it exists whenever earlier specs or a
@@ -192,21 +185,11 @@ export async function openWorkspace(page: Page): Promise<void> {
 }
 
 /**
- * Unfold the work sidebar when the window boots it folded (below 1600px, or a
- * synced collapse), so work-list rows are reachable (POD-4733). No-op when
- * already open.
- */
-export async function expandSidebarIfFolded(page: Page): Promise<void> {
-  const expand = page.getByRole('button', { name: 'Expand sidebar' }).first()
-  if (await expand.isVisible().catch(() => false)) await expand.click({ timeout: 15_000 })
-}
-
-/**
  * Unfold the Flight Deck when it boots folded, so the engraved glow surface
  * is mounted (POD-4733). No-op when already open.
  */
 export async function expandFlightDeckIfFolded(page: Page): Promise<void> {
-  const expand = page.getByRole('button', { name: 'Expand Flight Deck' }).first()
+  const expand = page.getByRole('button', { name: 'Open flight deck' }).first()
   if (await expand.isVisible().catch(() => false)) await expand.click({ timeout: 15_000 })
 }
 

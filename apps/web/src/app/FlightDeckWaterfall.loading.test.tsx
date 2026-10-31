@@ -42,10 +42,9 @@ afterEach(() => {
 it('opens a cold production mission in Waterfall without throwing the loading sentinel', async () => {
   const ctx = await startScenarioEngine(1, { seed: 4443 })
   const handle = createRuntimeWorklistPool(ctx.engine, screenOptions(poolBackedScreens, ctx.engine))
-  const screen = new MissionScreen(handle.pool, 'i1766', { development: true })
+  const screen = new MissionScreen(handle.pool, 'i1766')
   state.pool = handle.pool
   state.now = ctx.corpus.fixedNow
-  screen.open()
   const stop = autorun(() => void screen.ready)
   try {
     // Match the mission opening seam: header ready, no Waterfall reads warmed.

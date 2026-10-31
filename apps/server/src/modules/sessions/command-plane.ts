@@ -37,6 +37,7 @@ import {
   sessionCommandPlane,
   type sessionCommandPlaneInputs,
 } from '@podium/commands'
+import { attachmentKindFor } from '@podium/harness/driver'
 import type {
   AgentKind,
   Attribution,
@@ -58,7 +59,7 @@ import {
   UNADDRESSABLE_SEND_REASON,
 } from '@podium/model'
 import type { SessionBindingSpawnPrincipal } from '@podium/protocol'
-import type { Refusal, RuntimeAttachmentRef } from '@podium/protocol/daemon'
+import type { Refusal, RuntimeAttachmentRef, StagedAttachmentRef } from '@podium/protocol/daemon'
 
 import type { MutationLedgerPort } from '@podium/sync'
 import { TRPCError } from '@trpc/server'
@@ -173,14 +174,23 @@ export interface SessionCommandDeps {
   ): Promise<void>
   /** Compensate only the draft created by this launch when createSession throws. */
   discardUnlaunchedDraft(issueId: IssueId): Promise<boolean>
-  issueOwner(
-    issueId: IssueId,
-  ): Promise<import('@podium/model').UserId | undefined>
-  /** The runtime-contract staging leg for live sessions. */
+  issueOwner(issueId: IssueId): Promise<import('@podium/model').UserId | undefined>
+  /** The runtime-contract staging leg, used at upload only for headless
+   *  sessions (the superagent), whose turn carries the path as text. */
   stageAttachment(input: {
     sessionId: SessionId
     source: { bytes: Uint8Array; filename: string; mediaType: string }
-  }): Promise<RuntimeAttachmentRef | Refusal>
+  }): Promise<StagedAttachmentRef | Refusal>
+  /** Hold a composer upload on the server until a send or create claims it
+   *  (POD-2148). */
+  holdUpload(input: {
+    ownerUserId: UserId
+    filename: string
+    mediaType: string
+    bytes: Uint8Array
+  }): Promise<{ id: string; filename: string; mediaType: string }>
+  /** Claim a held upload into an issue; throws the refusal to show. */
+  claimUpload(issueId: IssueId, input: { uploadId: string; ownerUserId: UserId }): Promise<void>
   /** True for agent sessions (agentKind !== 'shell'), which take the driver
    *  path; shells keep the raw transport. Taxonomy, not a flag — renamed
    *  POD-4440 from `runtimeContractActive`, which read as the deleted switch. */
@@ -572,6 +582,10 @@ function sendHandler(lifecycle: 'wait' | 'wake', proc: string) {
     ) {
       return { ok: false, reason: 'no resume ref', disposition: 'dead_letter' }
     }
+    // Files held on the server join the session's issue before anything else
+    // happens, so a refused claim leaves no wake or message behind (POD-2148).
+    const claimRefusal = await claimHeldUploads(ctx, target.issueId, input.attachments)
+    if (claimRefusal) return { ok: false, reason: claimRefusal, disposition: 'dead_letter' }
     // A wait-send may be held behind a LIVE turn, but it cannot be held behind
     // a dead process: no turn boundary will ever arrive to re-arm delivery.
     // Upgrade only that process-gone state to the durable wake path. This keeps
@@ -607,6 +621,34 @@ function sendHandler(lifecycle: 'wait' | 'wake', proc: string) {
   }
 }
 
+/**
+ * CLAIM THE HELD UPLOADS A SEND OR CREATE CARRIES (POD-2148): each ref with no
+ * path names a file the sender uploaded, which moves into the issue now and is
+ * staged on the agent's machine when the message is delivered. Only the person
+ * who uploaded a file may send it, into one issue; a replay claims nothing
+ * twice. A session with no issue has nowhere to keep it. Answers the refusal,
+ * or undefined when every ref is claimed (or none needed claiming).
+ */
+async function claimHeldUploads(
+  ctx: SessionCommandCtx,
+  issueId: IssueId | null | undefined,
+  attachments: readonly RuntimeAttachmentRef[] | undefined,
+): Promise<string | undefined> {
+  const held = attachments?.filter((attachment) => attachment.path === undefined) ?? []
+  if (held.length === 0) return undefined
+  if (!issueId) return 'this agent cannot accept file attachments'
+  const ownerUserId = attributionOf(ctx.principal).onBehalfOf
+  if (!ownerUserId) return 'file attachments need a person to send them'
+  try {
+    for (const attachment of held) {
+      await ctx.deps.claimUpload(issueId, { uploadId: attachment.id, ownerUserId })
+    }
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error)
+  }
+  return undefined
+}
+
 // biome-ignore lint/suspicious/noExplicitAny: the table is heterogeneous by construction
 type Handler = (ctx: SessionCommandCtx, input: any) => unknown
 
@@ -617,7 +659,12 @@ type Handler = (ctx: SessionCommandCtx, input: any) => unknown
  */
 export const SESSION_COMMAND_HANDLERS = {
   create: async (ctx: SessionCommandCtx, input: CreateInput) => {
-    const { draftIssue, draftArtifacts, mutationId: _mutationId, ...rest } = input
+    const { draftIssue, draftArtifacts, attachments, mutationId: _mutationId, ...rest } = input
+    // A shell has no driver to hand files to, so it refuses them before any
+    // claim or spawn, as a send to one does (POD-2148).
+    if (attachments?.length && rest.agentKind === 'shell') {
+      throw new Error('this agent cannot accept file attachments')
+    }
     // Explicit placement is gated BEFORE the target is prepared, because
     // preparing may clone a repository onto the target machine — a side effect
     // a denied principal must never cause.
@@ -647,10 +694,18 @@ export const SESSION_COMMAND_HANDLERS = {
         if (!createdDraftId) throw new Error('draft artifacts require a newly-created draft issue')
         await ctx.deps.attachDraftArtifacts(createdDraftId, draftArtifacts)
       }
+      // The task's files join its issue before the session exists, so the
+      // first prompt's row can be staged the moment it is forwarded (POD-2148).
+      if (attachments?.length) {
+        if (!rest.initialPrompt?.trim()) throw new Error('file attachments need a first prompt')
+        const refusal = await claimHeldUploads(ctx, issueId, attachments)
+        if (refusal) throw new Error(refusal)
+      }
       return await ctx.sessions.createSession({
         ...rest,
         ...target,
         ...(issueId ? { issueId } : {}),
+        ...(attachments?.length ? { initialAttachments: attachments } : {}),
         use: ctx.machineUse,
         spawnedBy: spawnedByFor(ctx.principal),
         ownerUserId: ownership.owner as import('@podium/model').UserId,
@@ -665,6 +720,8 @@ export const SESSION_COMMAND_HANDLERS = {
         },
       })
     } catch (error) {
+      // A discarded draft hands its claimed uploads back to pending (POD-2148);
+      // one kept because its session registered keeps them.
       if (createdDraftId) await ctx.deps.discardUnlaunchedDraft(createdDraftId)
       throw error
     }
@@ -811,12 +868,43 @@ export const SESSION_COMMAND_HANDLERS = {
       mimeType: string
       dataBase64: string
       machineId?: MachineId
+      pending?: true
     },
   ) => {
     const row = await ctx.sessions.sessionById(input.sessionId)
     const machineId = row?.machineId ?? input.machineId
     if (machineId !== undefined) ctx.assertMachineUse(machineId)
-    if (await ctx.deps.isAgentDriven(input.sessionId)) {
+    // HELD ON THE SERVER (POD-2148): an agent session's upload, and one for a
+    // task not created yet, wait here for the send or create that claims them;
+    // the agent's machine gets the file when the message is delivered. The ref
+    // has no path, and `path: ''` keeps an old client from sending one.
+    const agentDriven = row ? await ctx.deps.isAgentDriven(input.sessionId) : false
+    if ((agentDriven && !row?.headless) || (!row && input.pending)) {
+      const ownerUserId = attributionOf(ctx.principal).onBehalfOf
+      if (!ownerUserId) {
+        return {
+          refusal: {
+            reason: 'unsupported' as const,
+            detail: 'file attachments need a person to send them',
+          },
+        }
+      }
+      const held = await ctx.deps.holdUpload({
+        ownerUserId,
+        filename: input.filename,
+        mediaType: input.mimeType,
+        bytes: new Uint8Array(Buffer.from(input.dataBase64, 'base64')),
+      })
+      const attachment: RuntimeAttachmentRef = {
+        id: held.id,
+        filename: held.filename,
+        mediaType: held.mediaType,
+        kind: attachmentKindFor(held.mediaType),
+      }
+      return { path: '', attachment }
+    }
+    // The superagent's headless turn carries the staged path as text.
+    if (agentDriven) {
       const staged = await ctx.deps.stageAttachment({
         sessionId: input.sessionId,
         source: {

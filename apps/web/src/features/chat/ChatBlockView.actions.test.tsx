@@ -1,9 +1,11 @@
+import './test-support/no-message-attachments'
 import { asSessionId, type TranscriptItem } from '@podium/model'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { QuoteInput } from '@/lib/quote/quote-sinks'
 import { ChatBlockView } from './ChatBlockView'
 
 // PER-MESSAGE ACTIONS (POD-376). Measured before this: zero buttons on zero
@@ -15,7 +17,7 @@ let host: HTMLDivElement
 let root: Root
 let written: string[]
 
-function mount(item: TranscriptItem, onQuote?: (markdown: string) => void): void {
+function mount(item: TranscriptItem, onQuote?: (quote: QuoteInput) => void): void {
   act(() => {
     root.render(
       <ChatBlockView
@@ -79,11 +81,18 @@ describe('per-message actions', () => {
     expect(written).toEqual(['Ran the suite — **all green**.'])
   })
 
-  it('quotes a message into the composer as a blockquote', () => {
-    const quoted: string[] = []
-    mount(prose('first line\nsecond line'), (markdown) => quoted.push(markdown))
+  it('adds a message to the chat as a quote that names its origin', () => {
+    const quoted: QuoteInput[] = []
+    mount(prose('first line\nsecond line\n'), (quote) => quoted.push(quote))
     click(buttons()[1])
-    expect(quoted).toEqual(['> first line\n> second line\n\n'])
+    expect(quoted).toEqual([{ text: 'first line\nsecond line', source: 'your reply' }])
+  })
+
+  it('marks the message body as a source a selection can quote', () => {
+    mount(prose('pick a passage', 'user'))
+    expect(host.querySelector('[data-quote-source]')?.getAttribute('data-quote-source')).toBe(
+      'my message',
+    )
   })
 
   it('offers no Quote where there is no composer to quote into', () => {
@@ -161,7 +170,8 @@ describe('the message foot’s two registers, in the stylesheet', () => {
 
   it('fades the clock, not the whole foot', () => {
     expect(block('.msg-foot')).not.toMatch(/opacity:/)
-    expect(block('.msg-foot .chat-clk')).toMatch(/opacity:\s*0\.4/)
+    // POD-2076: no per-block time at rest; it comes up with the actions.
+    expect(block('.msg-foot .chat-clk')).toMatch(/opacity:\s*0;/)
   })
 
   it('needs no exemption to keep a caption or a mark at full ink', () => {

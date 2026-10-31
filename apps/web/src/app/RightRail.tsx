@@ -1,34 +1,24 @@
 import { observer } from '@podium/client-graph/react'
 import type { JSX } from 'react'
+import { FirstArtifactDot, FirstArtifactMoment } from '@/features/issues/first-artifact-tip'
 import { useFeature } from '@/lib/use-feature'
 import { RIGHT_PANELS } from './RightDock'
 import { useShellShipping } from './shell-data'
 import { type RightPanelTab, rightPanelAllowed } from './shell-state'
 
 /**
- * The 44px right rail (handoff §2.5): one cell per dock panel — Tasks,
- * Superagent, Git, Files, Shell, Messages, Queues, Shipping.
- *
- * The Tasks cell used to be the SELECTED ISSUE'S ID SQUARE, wearing that
- * issue's colour and its working/waiting corner badge, because the panel it
- * opened was one issue's inspector. It opens an explorer over every task in the
- * repo now (POD-743), so it is an ordinary rail cell with a list glyph: a
- * coloured square would name a task this panel is not about, and a status badge
- * would report on an agent it is not showing. Recolouring an issue was the ID
- * square's other job here; the Colour submenu on every issue's context menu
- * (POD-380) is where that lives.
+ * The 44px right rail (handoff §2.5): one cell per dock panel — Task,
+ * Superagent, Git, Files, Shell, Messages, Shipping.
  *
  * The Superagent cell used to carry a numbered badge: the PORTFOLIO attention
  * count, every task anywhere waiting on a decision. Sitting on the superagent
  * glyph, the number read as a fact about the superagent — the one thing it
  * never was — so the rail now names panels and reports on nothing. The count
  * itself is unchanged and still readable where it belongs to something: the
- * explorer's Needs tab and the Flight Deck's "Needs you" filter, both on
- * `issueIsActionable`, the predicate that badge summed. The explorer runs it
- * over board scope (POD-1581), so a draft vessel whose agent is waiting is
- * counted by neither — its sidebar row IS the agent, and carries the pill.
+ * Flight Deck's "Needs you" filter, on `issueIsActionable`, the predicate that
+ * badge summed.
  *
- * The rail carries NO issue tint (POD-516 item 9). It hosts Superagent, Git,
+ * The rail uses neutral chrome (POD-516 item 9). It hosts Superagent, Git,
  * Files, Shell and Messages alongside the task cell, so a tint pulled from the
  * selected issue asserted a relationship most of these cells do not have.
  */
@@ -41,18 +31,17 @@ export const RightRail = observer(function RightRail({
 }): JSX.Element {
   const gitPanelEnabled = useFeature('git-panel')
   const messagesPanelEnabled = useFeature('messages-panel')
-  const mergeQueueEnabled = useFeature('merge-queue')
   const shippingEnabled = useFeature('shipping')
   const shipping = useShellShipping()
   const panelAllowed = (panel: RightPanelTab): boolean =>
     rightPanelAllowed(panel, {
       git: gitPanelEnabled,
       messages: messagesPanelEnabled,
-      mergeQueue: mergeQueueEnabled,
       shipping: shippingEnabled,
     })
   return (
     <nav aria-label="Panels" className="right-rail" data-testid="right-rail">
+      <FirstArtifactMoment />
       {RIGHT_PANELS.filter((panel) => panelAllowed(panel.id)).map((panel) => {
         const isShipping = panel.id === 'shipping'
         const shippingLabel =
@@ -80,6 +69,7 @@ export const RightRail = observer(function RightRail({
             className="right-rail-cell relative"
           >
             <panel.icon size={17} strokeWidth={1.7} aria-hidden="true" />
+            {panel.id === 'issue' && rightPanel !== 'issue' && <FirstArtifactDot />}
             {isShipping && shipping.unfinishedCount > 0 && (
               <span
                 className="absolute -top-1 -right-1 flex min-w-4 items-center justify-center rounded-full border border-border bg-secondary px-1 font-mono text-[8px] leading-[14px] tabular-nums text-text-dim"

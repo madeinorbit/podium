@@ -48,7 +48,6 @@ function missionPool() {
 /** Open the mission, draw what the deck draws, then close it. */
 function openAndClose(pool: MobxPool, held: WeakRef<object>[], owner?: MissionScreen[]): void {
   const screen = new MissionScreen(pool, 'root', { sessionName: session => session.name ?? '' })
-  screen.open()
   let rows: readonly MissionDeckIssueModel[] = []
   const stop = autorun(() => {
     if (!screen.ready) return

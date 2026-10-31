@@ -178,7 +178,7 @@ describe('POD-785 — only writes a later one subsumes may collapse', () => {
       route('settingsUpdatePersonal', SAMPLE.settingsUpdatePersonal).collapseKey,
     ).toBeUndefined()
     // POD-781: `issues.update` is the same shape of partial patch — a rename and
-    // a recolour of one issue are two different keys, and collapsing them on the
+    // a priority change on one issue are two different keys, and collapsing them on the
     // issue id would silently drop the rename.
     expect(route('issueUpdate', SAMPLE.issueUpdate).collapseKey).toBeUndefined()
   })

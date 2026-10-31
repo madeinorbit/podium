@@ -474,7 +474,7 @@ export const SpawnMessage = z.object({
   // Additive + optional: an older daemon ignores it, an older server omits it.
   env: z.record(z.string(), z.string()).optional(),
   // Seed the CLI's theme with per-session official flags so it follows the
-  // terminal's issue-tinted colours (roles.coding.seedCliTheme, [spec:SP-a04d]).
+  // terminal's colors (roles.coding.seedCliTheme, [spec:SP-a04d]).
   // Absent = the setting's default (on) — older servers simply get the default.
   seedCliTheme: z.boolean().optional(),
   // Draft Sync v2 (POD-859): the server's `draftSync` flag for this session — the

@@ -1,4 +1,5 @@
 import {
+  coordinatorLive,
   counterChildren,
   dedupeSessionsByResume,
   type IssueDeck,
@@ -9,9 +10,10 @@ import {
   leafTasks,
   resumeKey,
   rollUpTaskWords,
+  type SeatWords,
   type SessionId,
   type SessionMeta,
-  sessionWord,
+  seatWords,
   tallyTaskWords,
   taskHidden,
   toIssueTreeSession,
@@ -173,6 +175,7 @@ export async function readDeck(
   )
   const kept = new Map(senders().map((s) => [s.sessionId, s]))
   const seats = new Map<IssueId, IssueDeckSession[]>()
+  const seatWordsOf = new Map<SessionId, SeatWords>()
   for (const s of kept.values()) {
     if (
       !s.issueId ||
@@ -185,6 +188,12 @@ export async function readDeck(
     const row = rows.get(s.issueId)
     if (!row) continue
     const coordinator = row.coordinatorSessionId === s.sessionId
+    const words = seatWords(
+      s,
+      { issueClosed: store.isClosed(row), pendingInteractions: pending.get(s.sessionId) ?? 0 },
+      coordinator,
+    )
+    seatWordsOf.set(s.sessionId, words)
     const session: IssueDeckSession = {
       ...toIssueTreeSession({
         ...s,
@@ -200,10 +209,7 @@ export async function readDeck(
           : row.type === 'phase'
             ? 'phase-lead'
             : 'worker',
-      word: sessionWord(s, {
-        issueClosed: store.isClosed(row),
-        pendingInteractions: pending.get(s.sessionId) ?? 0,
-      }),
+      word: words.word,
     }
     const list = seats.get(row.id) ?? []
     list.push(session)
@@ -224,7 +230,13 @@ export async function readDeck(
       return row ? { ...row, blocked: (blockers.get(id)?.length ?? 0) > 0 } : undefined
     },
     children: workChildren,
-    sessions: (id: IssueId) => (seats.get(id) ?? []).map((s) => s.word),
+    sessions: (id: IssueId) => (seats.get(id) ?? []).map((s) => seatWordsOf.get(s.sessionId)!),
+    // POD-2171: the coordinator may sit on an ancestor, so its liveness is read
+    // from every session's facts, not this row's seats. Only a boolean leaves.
+    coordinated: (id: IssueId) => {
+      const coordinator = rows.get(id)?.coordinatorSessionId
+      return coordinator != null && coordinatorLive(factsById.get(coordinator))
+    },
   }
   const words = rollUpTaskWords(root.id, tree)
   for (const id of proposalIds) {

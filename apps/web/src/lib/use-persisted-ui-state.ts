@@ -1,7 +1,7 @@
-import { omitGone } from '@podium/client-graph/lookup'
 import { useStoreHandle } from '@podium/client-core/react'
 import type { RoutedUiState } from '@podium/client-core/ui-state'
 import type { MobxPool } from '@podium/client-graph'
+import { omitGone } from '@podium/client-graph/lookup'
 import { useCallback, useMemo } from 'react'
 import { useWorklistPoolProjection } from '@/app/store-worklist-pool'
 
@@ -11,7 +11,7 @@ import { useWorklistPoolProjection } from '@/app/store-worklist-pool'
  * A `useState(() => ui.get(key))` initializer runs once, on the first render,
  * and never again. That is correct only for DEVICE-LOCAL keys, which the replica
  * has already loaded from synchronous storage by the time anything mounts. Every
- * PER-USER REPLICATED key (`sidebar.collapsed`, `rightPanel`,
+ * PER-USER REPLICATED key (`sidebar.section.pinned`, `rightPanel`,
  * `superagent.mode`, the file-mode maps…) arrives later, over the wire: the
  * initializer reads `null`, falls back to the default, and the surface is stuck
  * on that default forever after even though the stored row is right there.

@@ -44,6 +44,7 @@ export class IssueAttentionModule {
       | 'create'
       | 'update'
       | 'purgeEmptyDraft'
+      | 'panelChatUploadRelease'
       | 'defer'
       | 'undefer'
       | 'setNeedsHuman'
@@ -172,10 +173,23 @@ export class IssueAttentionModule {
       // inert until accepted and closed/archived work is never resurrected.
       target = opts.newSpinoff ? await this.acceptedSpinoff(anchor, title) : undefined
       if (!target) {
+        // An anchor cut from a base the default rule picks (the repository's base
+        // branch, the instance default, `main`, `master`) already answered for this
+        // repository, so the new issue takes it instead of probing git inside this
+        // transaction [POD-2065]. Any other parent — a stack, a release branch —
+        // was the anchor's own choice.
+        const { repo, instance } = await this.store.baseBranchDefaults(
+          anchor.repoPath,
+          anchor.machineId,
+        )
+        const inheritsBase = [repo, instance, 'main', 'master']
+          .filter(Boolean)
+          .includes(anchor.parentBranch)
         const wire = await this.crud().create({
           repoPath: anchor.repoPath,
           title,
           startNow: false,
+          ...(anchor.parentBranch && inheritsBase ? { parentBranch: anchor.parentBranch } : {}),
           // Subissue = decomposition, nests under the anchor. Spinoff = a sibling
           // at top level; its provenance is the discovered-from edge below.
           ...(opts.newSubissue ? { parentId: anchorId } : {}),
@@ -440,7 +454,11 @@ export class IssueAttentionModule {
     if (!row || row.deletedAt || !row.draft || row.worktreePath) return false
     if ((await this.store.childRows(id)).length > 0) return false
     if ((await this.store.sessionsFor(row)).some((session) => session.issueId === id)) return false
-    await this.crud().purgeEmptyDraft(id)
+    // Discarded, so no session can deliver its files: they go back to pending
+    // before the purge deletes the draft's stored artifacts, and a retry of the
+    // same create claims them again (POD-2148).
+    const returned = await this.crud().panelChatUploadRelease(id)
+    await this.crud().purgeEmptyDraft(id, { keepArtifacts: !returned })
     return true
   }
 
@@ -452,9 +470,11 @@ export class IssueAttentionModule {
     agentKind?: string,
     id?: IssueId,
     ownership?: { ownerUserId: UserId; createdByActor: string; createdByOnBehalfOf: UserId },
+    machineId?: MachineId,
   ): Promise<IssueProjection> {
     return await this.crud().create({
       repoPath,
+      ...(machineId ? { machineId } : {}),
       title: DRAFT_ISSUE_TITLE,
       startNow: false,
       draft: true,

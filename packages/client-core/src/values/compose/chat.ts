@@ -1,5 +1,7 @@
 import type { SessionView } from '../../session-values'
 import { sessionById } from '../../session-index'
+import { isCodexAsyncQuestion, isInterviewQuestion, isPendingAskQuestion } from '../ask-question'
+import { parseEnvelopeBatch } from '../message-envelope'
 /**
  * THE CHAT SLICE (POD-405, completing POD-330's per-feature split).
  *
@@ -450,33 +452,22 @@ export function livePendingAskIndex(
   status: SessionView['status'] | undefined,
 ): number {
   if (status !== 'live' && status !== 'starting') return -1
-  let last = -1
-  blocks.forEach((b, i) => {
-    const isAsk =
-      b.item.role === 'tool' && b.item.toolName === 'AskUserQuestion' && b.item.toolInputJson
-    const answered = (b.result ?? b.item.toolResult) !== undefined
-    if (isAsk && !answered) last = i
-  })
-  return last
+  let superseded = false
+  for (let i = blocks.length - 1; i >= 0; i--) {
+    const block = blocks[i]!
+    if (isPendingAskQuestion(block) && (!isCodexAsyncQuestion(block.item) || !superseded)) return i
+    if (isInterviewQuestion(block.item) || isOperatorPrompt(block.item, {
+      collapseMachineContext: true,
+      operatorTextOf: text => parseEnvelopeBatch(text)?.operatorText,
+    })) superseded = true
+  }
+  return -1
 }
 
 /** The agent's most recent answer: the block index carrying the end-of-turn
- *  marker (for the compact column's context label) and the latest assistant prose
- *  (what tl;dr summarises). Both are one pass over the same list. */
+ *  marker (for the compact column's context label). */
 export interface LastAnswer {
   readonly blockIndex: number
-  readonly text: string
-}
-
-export function lastAnswer(blocks: readonly ChatBlock[]): LastAnswer {
-  let blockIndex = -1
-  let text = ''
-  blocks.forEach((b, i) => {
-    if (b.item.role !== 'assistant') return
-    if (b.item.answer) blockIndex = i
-    if (b.item.text.trim()) text = b.item.text
-  })
-  return { blockIndex, text }
 }
 
 // ---------------------------------------------------------------------------
@@ -495,6 +486,24 @@ export interface ComposerState {
   readonly placeholder: string
   /** Server refusal copy for a stale client that submits after a terminal failure. */
   readonly refusalReason?: string
+}
+
+/** Two sentences, the first closed with a period unless the provider detail already ends one. */
+function asSentences(first: string, second: string): string {
+  return (/[.!?]$/.test(first) ? first : first + '.') + ' ' + second
+}
+
+const RESUME_PLACEHOLDER = 'Message the agent to resume it…'
+
+/**
+ * A session its issue's closing stopped (POD-2151) still resumes on a message,
+ * in a worktree rebuilt from the branch, but nothing reopens the issue. The
+ * resume offer says so; every other placeholder is unchanged.
+ */
+export function issueClosedPlaceholder(state: ComposerState): string {
+  return state.placeholder === RESUME_PLACEHOLDER
+    ? 'Message the agent to resume it — the issue stays closed…'
+    : state.placeholder
 }
 
 export function composerState(input: {
@@ -539,7 +548,7 @@ export function composerState(input: {
     ? archived
       ? 'Session is archived.'
       : turnRunning
-      ? 'Working — stop to interject…'
+      ? 'Agent is working. Stop it to interject…'
       : compact
         ? // The fresh-thread box says this too. It is ONE box either side of the
           // first turn, so its statement of scope must not change under the
@@ -549,13 +558,13 @@ export function composerState(input: {
     : archived
       ? 'Session is archived.'
       : terminalError
-      ? formatAgentError(terminalError) + ' — ' + agentErrorRecoveryInstruction(terminalError)
+      ? asSentences(formatAgentError(terminalError), agentErrorRecoveryInstruction(terminalError))
       : waking
-        ? 'Waking the agent — message queues…'
+        ? 'Waking the agent. Your message will queue…'
         : sendable
           ? 'Message the agent…'
           : canResume
-            ? 'Message — resumes the agent…'
+            ? RESUME_PLACEHOLDER
             : 'Session is not running.'
   return {
     deliverable,

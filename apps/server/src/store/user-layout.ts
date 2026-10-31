@@ -8,9 +8,10 @@
  * ui-state module (POD-403).
  *
  * ---------------------------------------------------------------------------
- * EVERY READ TAKES A USER. THERE IS NO METHOD THAT DOES NOT.
+ * CLIENT READS TAKE A USER; BOOT RECONCILIATION READS FULL TRUTH.
  * ---------------------------------------------------------------------------
- * Same posture as {@link UserPreferencesRepository}: no bulk cross-user read.
+ * Ordinary reads have the same posture as {@link UserPreferencesRepository}:
+ * no bulk cross-user read. The boot-only reconciliation scan is the exception.
  * A caller's snapshot is their own rows; a second user on the same device sees
  * nothing of the first.
  *
@@ -25,6 +26,7 @@
 import {
   isLayoutKey,
   type LayoutSnapshot,
+  type LayoutWire,
   normalizeDockWorktreeKey,
   type SessionId,
   type UserId,
@@ -32,7 +34,7 @@ import {
 import { and, asc, eq, sql } from 'drizzle-orm'
 import { userDockShell, userLayout } from '../migrations/schema'
 import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
-import { param, prepared } from './executor/sync-drizzle'
+import { param, prepared, preparedFamily } from './executor/sync-drizzle'
 
 // Every query these repositories run, prepared once per store [POD-6147].
 
@@ -61,6 +63,20 @@ const upsertLayout = prepared((db: StoreDrizzle) =>
 
 const deleteLayoutKey = prepared((db: StoreDrizzle) =>
   db.delete(userLayout).where(layoutKeyIs()).prepare(),
+)
+
+/** Every user's layout rows in primary-key order, one page after a cursor:
+ *  the boot reconcile's full truth, read a page at a time through the key. */
+const layoutRowsPage = preparedFamily((db: StoreDrizzle, from: 'start' | 'after') =>
+  db
+    .select({ userId: userLayout.userId, key: userLayout.key, value: userLayout.value })
+    .from(userLayout)
+    .where(from === 'start'
+      ? undefined
+      : sql`(${userLayout.userId}, ${userLayout.key}) > (${P('afterUserId')}, ${P('afterKey')})`)
+    .orderBy(asc(userLayout.userId), asc(userLayout.key))
+    .limit(P('limit'))
+    .prepare(),
 )
 
 const layoutKeysOfUser = prepared((db: StoreDrizzle) =>
@@ -185,6 +201,28 @@ export class UserLayoutRepository {
       }
     }
     return out
+  }
+
+  /** Full durable truth for boot reconciliation only, before clients are served.
+   * Ordinary reads remain user-scoped. Malformed JSON is absent, just as in getSnapshot. */
+  async allForBootReconcile(pageSize = 500): Promise<LayoutWire[]> {
+    const values: LayoutWire[] = []
+    let after: { afterUserId: UserId; afterKey: string } | null = null
+    for (;;) {
+      const rows: Array<{ userId: UserId; key: string; value: string }> = after === null
+        ? await layoutRowsPage(this.db, 'start').all({ limit: pageSize })
+        : await layoutRowsPage(this.db, 'after').all({ ...after, limit: pageSize })
+      for (const row of rows) {
+        try {
+          values.push({ userId: row.userId, key: row.key, value: JSON.parse(row.value) })
+        } catch {
+          // Corrupt rows must not poison the feed or disagree with getSnapshot.
+        }
+      }
+      if (rows.length < pageSize) return values
+      const last = rows[rows.length - 1]!
+      after = { afterUserId: last.userId, afterKey: last.key }
+    }
   }
 
   /** One key's value, or `undefined` when never set. */

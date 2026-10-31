@@ -1,7 +1,18 @@
-import { observer } from 'mobx-react-lite'
+import { issueAgentKind, issueDefaultAgentKind } from '@podium/client-core/agent-models'
 import type { SessionView } from '@podium/client-core/session-values'
+import type { TranscriptFreshness } from '@podium/client-core/transcript'
 import type { useVoiceInput } from '@podium/terminal-client-react'
-import { ArrowUp, CloudOff, MessageSquareText, Paperclip, RefreshCw, Square, X } from 'lucide-react'
+import {
+  ArrowUp,
+  CloudOff,
+  Command,
+  MessageSquareText,
+  Paperclip,
+  RefreshCw,
+  Square,
+  X,
+} from 'lucide-react'
+import { observer } from 'mobx-react-lite'
 import type { JSX, RefObject } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { usePanelVisible } from '@/app/panel-visible'
@@ -10,17 +21,23 @@ import { Textarea } from '@/components/ui/textarea'
 import { AtMentionMenu } from '@/lib/at-mention/AtMentionMenu'
 import { useAtMenu, useAtTrigger } from '@/lib/at-mention/useAtMention'
 import { useFileMentions } from '@/lib/at-mention/useFileMentions'
-import { issueAgentKind, issueDefaultAgentKind } from '@podium/client-core/agent-models'
 import { AllConnectorsModelPicker, EffortPicker } from '@/lib/ModelEffortPicker'
-import { usePromptAutoGrow } from '@/lib/use-prompt-auto-grow'
+import {
+  healTokens,
+  type TokenRange,
+  tokenAfter,
+  tokenAround,
+  tokenBefore,
+} from '@/lib/quote/quote-tokens'
 import { useNativeDraftText } from '@/lib/use-native-draft-text'
+import { usePromptAutoGrow } from '@/lib/use-prompt-auto-grow'
 import { cn } from '@/lib/utils'
 import { AttachmentStrip } from './AttachmentStrip'
 import { OfferBar } from './OfferBar'
+import { QuoteOverlay, type UseQuotesResult } from './QuoteTokens'
 import type { UseAttachmentsResult } from './use-attachments'
 import { useChatMentions } from './use-chat-context'
-import { chordLabel, useComposerChord } from './use-composer-chord'
-import type { TranscriptFreshness } from '@podium/client-core/transcript'
+import { chordKeys, useComposerChord } from './use-composer-chord'
 import { VoiceButton } from './VoiceButton'
 
 /**
@@ -133,6 +150,7 @@ export const ChatComposer = observer(function ChatComposer({
   onSend,
   voice,
   attachments,
+  quotes,
   turnRunning,
   canInterrupt,
   onInterrupt,
@@ -146,6 +164,7 @@ export const ChatComposer = observer(function ChatComposer({
   offlineAsOf,
   attached,
   autoFocusKey,
+  tipAnchor,
   transcriptSettled,
   backend,
   onBackendModelChange,
@@ -165,6 +184,9 @@ export const ChatComposer = observer(function ChatComposer({
   onSend: () => void
   voice: ReturnType<typeof useVoiceInput>
   attachments: UseAttachmentsResult
+  /** Passages added from a selection (POD-2057), standing in the draft as
+   *  tokens (POD-2207). Absent where nothing quotes. */
+  quotes?: UseQuotesResult | undefined
   /** A turn is running — native or headless. Shows the stop control. The
    *  composer no longer asks WHICH kind: `headless` used to be here only to gate
    *  that control, and gating it was the bug (POD-1214). */
@@ -180,7 +202,9 @@ export const ChatComposer = observer(function ChatComposer({
   onOfferAction: (prompt: string, offerAt: string) => Promise<void>
   /** "None of these" — clears the offer without sending a turn. */
   onOfferDismiss: (offerAt: string) => Promise<void>
-  session: Pick<SessionView, 'sessionId' | 'issueId' | 'lastInputAt' | 'cwd' | 'machineId'> | undefined
+  session:
+    | Pick<SessionView, 'sessionId' | 'issueId' | 'lastInputAt' | 'cwd' | 'machineId'>
+    | undefined
   turnError: string | null
   /** Whether the visible transcript is being checked, rendered, or remains saved-only. */
   transcriptFreshness: TranscriptFreshness
@@ -190,6 +214,8 @@ export const ChatComposer = observer(function ChatComposer({
   attached?: { label: string; clear: () => void } | null
   /** Re-focus on a session switch — the mobile AgentPanel reuses one instance. */
   autoFocusKey: string
+  /** First Flights anchor name for the field (POD-2198). */
+  tipAnchor?: string
   /** False while the initial transcript read is outstanding, so focus is not
    *  grabbed mid-load. */
   transcriptSettled: boolean
@@ -204,13 +230,11 @@ export const ChatComposer = observer(function ChatComposer({
   const lastInterruptEscapeAt = useRef<number | null>(null)
   // The reset default is a mount seed, never a mirror of the live draft.
   const initialDraft = useRef(draft)
-  // THE FOCUS CHORD (POD-993). ⌘/ puts the caret here from anywhere in the pane,
-  // and the box says so in its corner while it is unfocused and empty — the one
-  // thing about a prompt box a reader cannot discover by looking at it. What the
-  // corner names is `chordLabel()`, which is ⌘L on the macOS shell: the View menu
-  // owns that accelerator and the focused panel already answers it.
+  // THE FOCUS CHORD (POD-993). ⌘L (macOS shell) puts the caret here from
+  // anywhere in the pane. The keycaps beside the send cluster name it while the
+  // field is unfocused and empty; CSS alone decides when, so no render follows
+  // focus or the first keystroke.
   const [rootEl, setRootEl] = useState<HTMLDivElement | null>(null)
-  const [focused, setFocused] = useState(false)
   const [transcriptAnnouncement, setTranscriptAnnouncement] = useState('')
   const previousTranscriptStatus = useRef<{
     freshness: TranscriptFreshness
@@ -342,6 +366,43 @@ export const ChatComposer = observer(function ChatComposer({
     onSend()
   }
 
+  // ---- inline quote tokens (POD-2207): a token is one thing ----
+  // The caret never rests inside one, a delete takes it whole, and an edit that
+  // cut into one anyway (a soft keyboard's Backspace never reaches keydown with
+  // a usable key) loses the rest of it.
+  // Each end of the selection leaves a token on the side it was heading for, so
+  // arrows and Shift+arrows step over a token whole, both growing a selection
+  // and shrinking it back. A click inside one goes to the nearer edge.
+  const lastSelection = useRef<[number, number]>([0, 0])
+  const keepTokensWhole = (): void => {
+    const ta = taRef.current
+    if (!ta) return
+    const { selectionStart: s, selectionEnd: e, value } = ta
+    const [wasStart, wasEnd] = lastSelection.current
+    const snap = (at: number, was: number): number => {
+      const token = tokenAround(value, at)
+      if (!token) return at
+      if (was <= token.start) return token.end
+      if (was >= token.end) return token.start
+      return at - token.start > token.end - at ? token.end : token.start
+    }
+    let start = snap(s, wasStart)
+    let end = s === e ? start : snap(e, wasEnd)
+    if (end < start) [start, end] = [end, start]
+    if (start !== s || end !== e) ta.setSelectionRange(start, end, ta.selectionDirection)
+    lastSelection.current = [start, end]
+  }
+  const removeToken = (token: TokenRange): void => {
+    const ta = taRef.current
+    if (!ta) return
+    ta.setSelectionRange(token.start, token.end)
+    // execCommand keeps the edit on the field's undo stack; the fallback does not.
+    if (document.execCommand('delete')) return
+    ta.setRangeText('', token.start, token.end, 'start')
+    onDraftChange(ta.value)
+    trigger.sync()
+  }
+
   /**
    * THE ACTION CLUSTER, HOISTED (POD-993) — one definition, two placements.
    *
@@ -470,9 +531,10 @@ export const ChatComposer = observer(function ChatComposer({
             // safe-area maths, so nothing is restated here.
             'prompt-dock font-mono'
           : cn(
-              // The dock is the feed's own gutter, minus ten: 22px each side, so
-              // the well's edge sits just inside the column of words it answers
-              // and the whole bottom of the sheet reads as one object.
+              // The dock's inline padding lives in `.chat-composer-dock`: the
+              // feed's own gutter minus ten, capped to the reading measure, so
+              // the well sits just outside the column of words it answers
+              // however wide the pane gets.
               // No top rule and no surface of its own any more (POD-725): the
               // sheet runs to the bottom edge and the field's own well is the
               // only boundary the design draws. A border here would have cut the
@@ -486,7 +548,7 @@ export const ChatComposer = observer(function ChatComposer({
               // watching it arrive in a proportional one is the seam this removes.
               // The micro labels that ARE machine voice — the queue notice, the
               // focus chord — ask for mono themselves.
-              'chat-composer-dock px-[22px] pt-2 pb-[calc(18px+(1-var(--kb-open,0))*env(safe-area-inset-bottom,0px))]',
+              'chat-composer-dock pt-2 pb-[calc(18px+(1-var(--kb-open,0))*env(safe-area-inset-bottom,0px))]',
             ),
       )}
       ref={setRootEl}
@@ -607,8 +669,9 @@ export const ChatComposer = observer(function ChatComposer({
           'relative',
           compact
             ? 'prompt-well'
-            : 'chat-composer-well flex flex-col gap-1.5 rounded-[12px] pt-[11px] pr-3 pb-[9px] pl-[15px]',
+            : 'chat-composer-well flex flex-col gap-1.5 rounded-[9px] py-3 pr-[10px] pl-4',
         )}
+        data-tip-anchor={tipAnchor}
       >
         {/* THE DESTINATION, LIT (POD-1595 second pass). Not a hit area — the
             drop is accepted across the whole conversation — but the place the
@@ -630,21 +693,6 @@ export const ChatComposer = observer(function ChatComposer({
           </div>
         )}
         <AtMentionMenu mention={mention} hint="↑↓ to move · ↵ to insert · esc to dismiss" />
-        {/* Shown only while the box is unfocused AND empty, so it can never land
-            on the operator's own words — a placeholder line never reaches it.
-            It names what it does, not just the keys: a bare chord in the corner of
-            a text field is a puzzle, and the two extra words cost nothing at the
-            moment the field is empty. */}
-        {!compact && (
-          <span
-            className="composer-chord"
-            data-show={!focused && draft === '' ? 'true' : undefined}
-            data-testid="composer-chord"
-            aria-hidden="true"
-          >
-            {chordLabel()} to focus
-          </span>
-        )}
         <input
           ref={attachments.fileInputRef}
           type="file"
@@ -653,111 +701,154 @@ export const ChatComposer = observer(function ChatComposer({
           onChange={attachments.onFileInputChange}
         />
         <div className={cn('flex min-w-0 flex-col gap-0.5', compact && 'flex-1')}>
-          <div className="flex items-start gap-2">
-            <Textarea
-              ref={taRef}
-              rows={1}
-              placeholder={placeholder}
-              className={cn(
-                // `shell-type-primary` is the SHELL's reading size (13/18) and it
-                // belongs to the narrow dock, which is shell chrome. The wide
-                // composer sets its own 14/24 below — the transcript's size —
-                // and cannot do that with this class also in play: both are
-                // single-class selectors, so the winner is whichever Tailwind
-                // emits last rather than whichever we meant.
-                'min-h-0 resize-none rounded-none border-0 bg-transparent text-foreground caret-foreground outline-none focus-visible:border-0 focus-visible:ring-0 disabled:bg-transparent disabled:text-muted-foreground disabled:opacity-100 dark:bg-transparent dark:disabled:bg-transparent',
-                compact && 'shell-type-primary [field-sizing:fixed]',
-                compact
-                  ? // `.prompt-input` owns the height transition, the padding and
-                    // the cap (in px, from usePromptAutoGrow) — so no `max-h-*`
-                    // here, which would clamp against the animated height, and no
-                    // `overflow-y-auto`, which is driven by [data-capped].
-                    // Placeholder ink steps up from Faint to Dim: at 10.5px on
-                    // this ground Faint is under 4.5:1 and this is the only line
-                    // of copy left in the box.
-                    'prompt-input min-w-0 flex-1 px-0 shadow-none placeholder:text-text-dim'
-                  : // THE FIELD IS THE FULL WIDTH OF THE WELL AND NOTHING ELSE
-                    // (POD-993 round 2). The cluster no longer sits beside the
-                    // words — it dropped to the floor below them — so there is
-                    // nothing left to centre against and the padding that used
-                    // to do that centring is gone. What remains is a plain
-                    // 14/24 line box: the same reading size as the transcript
-                    // above it, so what you type looks like what you sent.
-                    '[field-sizing:content] placeholder-shown:[field-sizing:fixed] block min-h-[1lh] max-h-[150px] w-full overflow-y-auto p-0 text-[14px] leading-6 transition-[height] duration-200 ease-[cubic-bezier(0.25,1,0.35,1)] placeholder:text-text-faint motion-reduce:transition-none',
-              )}
-              defaultValue={initialDraft.current}
-              onChange={(e) => {
-                onDraftChange(e.target.value)
-                trigger.sync()
-              }}
-              // Caret moves that are not edits — a click, an arrow, a selection —
-              // open and close a mention just as typing does.
-              onSelect={trigger.sync}
-              onKeyDown={(e) => {
-                // The @ menu gets first refusal, and takes ONLY the keys it uses
-                // while it is open (never during an IME composition). Everything
-                // below is reached unchanged when it declines.
-                if (mention.onKeyDown(e)) return
-                // Transcript-chat equivalent of the native CLI interrupt: two
-                // Esc presses in an EMPTY composer cancel the active turn. The
-                // first press is consumed so a surrounding sheet/menu cannot
-                // close in the middle of the chord. Any other key disarms it.
-                if (e.key === 'Escape' && canInterrupt && draft === '') {
-                  e.preventDefault()
-                  e.stopPropagation()
-                  const now = Date.now()
-                  if (
-                    lastInterruptEscapeAt.current !== null &&
-                    now - lastInterruptEscapeAt.current <= 600
-                  ) {
-                    lastInterruptEscapeAt.current = null
-                    onInterrupt()
-                  } else {
-                    lastInterruptEscapeAt.current = now
+          <div className={cn('flex gap-2', compact ? 'items-start' : 'items-end')}>
+            {/* The field's box, shared with the quote pills painted behind it. */}
+            <div className="relative min-w-0 flex-1">
+              {quotes && <QuoteOverlay taRef={taRef} draft={draft} quotes={quotes.quotes} />}
+              <Textarea
+                ref={taRef}
+                rows={1}
+                placeholder={placeholder}
+                className={cn(
+                  // Positioned so it paints over the pills behind it.
+                  'relative',
+                  // `shell-type-primary` is the SHELL's reading size (13/18) and it
+                  // belongs to the narrow dock, which is shell chrome. The wide
+                  // composer sets its own 14/24 below — the transcript's size —
+                  // and cannot do that with this class also in play: both are
+                  // single-class selectors, so the winner is whichever Tailwind
+                  // emits last rather than whichever we meant.
+                  'min-h-0 resize-none rounded-none border-0 bg-transparent text-foreground caret-foreground outline-none focus-visible:border-0 focus-visible:ring-0 disabled:bg-transparent disabled:text-muted-foreground disabled:opacity-100 dark:bg-transparent dark:disabled:bg-transparent',
+                  compact && 'shell-type-primary [field-sizing:fixed]',
+                  compact
+                    ? // `.prompt-input` owns the height transition, the padding and
+                      // the cap (in px, from usePromptAutoGrow) — so no `max-h-*`
+                      // here, which would clamp against the animated height, and no
+                      // `overflow-y-auto`, which is driven by [data-capped].
+                      // Placeholder ink steps up from Faint to Dim: at 10.5px on
+                      // this ground Faint is under 4.5:1 and this is the only line
+                      // of copy left in the box.
+                      'prompt-input min-w-0 flex-1 px-0 shadow-none placeholder:text-text-dim'
+                    : // THE FIELD IS THE FULL WIDTH OF THE WELL AND NOTHING ELSE
+                      // (POD-993 round 2). The cluster no longer sits beside the
+                      // words — it dropped to the floor below them — so there is
+                      // nothing left to centre against and the padding that used
+                      // to do that centring is gone. What remains is a plain
+                      // 14/24 line box: the same reading size as the transcript
+                      // above it, so what you type looks like what you sent.
+                      '[field-sizing:content] placeholder-shown:[field-sizing:fixed] block min-h-[1lh] max-h-[150px] w-full overflow-y-auto p-0 text-[14px] leading-6 transition-[height] duration-200 ease-[cubic-bezier(0.25,1,0.35,1)] placeholder:text-text-faint motion-reduce:transition-none',
+                )}
+                defaultValue={initialDraft.current}
+                onChange={(e) => {
+                  const ta = e.target
+                  const healed = healTokens(draft, ta.value)
+                  if (healed) {
+                    ta.value = healed.value
+                    ta.setSelectionRange(healed.caret, healed.caret)
                   }
-                  return
-                }
-                lastInterruptEscapeAt.current = null
-                // Desktop: Enter submits, Shift+Enter is a newline (⌘/Ctrl+Enter
-                // still submits). Mobile keeps plain Enter as a newline — the
-                // send button submits there.
-                // Some browsers clear isComposing on the Enter keydown that
-                // confirms a candidate, but continue to report the legacy IME
-                // keyCode. In either case, let the composition finish untouched.
-                if (
-                  e.key === 'Enter' &&
-                  (e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229)
-                ) {
-                  return
-                }
-                if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-                  e.preventDefault()
-                  sendFromKeyboard()
-                  return
-                }
-                if (e.key === 'Enter' && !e.shiftKey && !isMobile) {
-                  e.preventDefault()
-                  sendFromKeyboard()
-                }
-              }}
-              onPaste={attachments.onPaste}
-              onFocus={() => {
-                setFocused(true)
-              }}
-              onBlur={() => {
-                setFocused(false)
-              }}
-            />
-            {/* Compact only: the dock's box has no room for a second row. */}
-            {compact && actionCluster}
+                  onDraftChange(ta.value)
+                  trigger.sync()
+                }}
+                // Caret moves that are not edits — a click, an arrow, a selection —
+                // open and close a mention just as typing does.
+                onSelect={() => {
+                  keepTokensWhole()
+                  trigger.sync()
+                }}
+                onKeyDown={(e) => {
+                  // The @ menu gets first refusal, and takes ONLY the keys it uses
+                  // while it is open (never during an IME composition). Everything
+                  // below is reached unchanged when it declines.
+                  if (mention.onKeyDown(e)) return
+                  // Transcript-chat equivalent of the native CLI interrupt: two
+                  // Esc presses in an EMPTY composer cancel the active turn. The
+                  // first press is consumed so a surrounding sheet/menu cannot
+                  // close in the middle of the chord. Any other key disarms it.
+                  if (e.key === 'Escape' && canInterrupt && draft === '') {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    const now = Date.now()
+                    if (
+                      lastInterruptEscapeAt.current !== null &&
+                      now - lastInterruptEscapeAt.current <= 600
+                    ) {
+                      lastInterruptEscapeAt.current = null
+                      onInterrupt()
+                    } else {
+                      lastInterruptEscapeAt.current = now
+                    }
+                    return
+                  }
+                  lastInterruptEscapeAt.current = null
+                  // Backspace and Delete take a quote token whole. A selection
+                  // that reaches into one already covers it (keepTokensWhole).
+                  if (
+                    (e.key === 'Backspace' || e.key === 'Delete') &&
+                    !e.nativeEvent.isComposing &&
+                    e.nativeEvent.keyCode !== 229 &&
+                    !e.altKey &&
+                    !e.metaKey &&
+                    !e.ctrlKey
+                  ) {
+                    const ta = e.currentTarget
+                    if (ta.selectionStart === ta.selectionEnd) {
+                      const token = (e.key === 'Backspace' ? tokenBefore : tokenAfter)(
+                        ta.value,
+                        ta.selectionStart,
+                      )
+                      if (token) {
+                        e.preventDefault()
+                        removeToken(token)
+                        return
+                      }
+                    }
+                  }
+                  // Desktop: Enter submits, Shift+Enter is a newline (⌘/Ctrl+Enter
+                  // still submits). Mobile keeps plain Enter as a newline — the
+                  // send button submits there.
+                  // Some browsers clear isComposing on the Enter keydown that
+                  // confirms a candidate, but continue to report the legacy IME
+                  // keyCode. In either case, let the composition finish untouched.
+                  if (
+                    e.key === 'Enter' &&
+                    (e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229)
+                  ) {
+                    return
+                  }
+                  if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                    e.preventDefault()
+                    sendFromKeyboard()
+                    return
+                  }
+                  if (e.key === 'Enter' && !e.shiftKey && !isMobile) {
+                    e.preventDefault()
+                    sendFromKeyboard()
+                  }
+                }}
+                onPaste={attachments.onPaste}
+              />
+            </div>
+            {!compact && !isMobile && (
+              <span className="composer-chord" aria-hidden="true">
+                {/* ⌘ is drawn, not typed: Geist has no glyph for it, and the
+                    fallback face sets it heavier and lower than the letter. */}
+                {chordKeys().map((key) => (
+                  <kbd key={key}>
+                    {key === '⌘' ? (
+                      <Command size={10} strokeWidth={2.25} aria-hidden="true" />
+                    ) : (
+                      key
+                    )}
+                  </kbd>
+                ))}
+              </span>
+            )}
+            {/* ONE CALM LINE (POD-2076): the field and its attach · mic · send
+                cluster share a row in both modes; the cluster rides the last
+                line as the field grows. */}
+            {actionCluster}
           </div>
           <AttachmentStrip attachments={attachments.attachments} onRemove={attachments.remove} />
-          {/* THE BOTTOM ROW (POD-993). The field takes the whole width and the
-              cluster sits under it, right-aligned. It briefly carried a
-              send/newline caption; that is gone — the chord chip in the corner
-              is the one hint this box needs, and it appears only when it can
-              still be acted on. */}
-          {!compact && <div className="composer-row">{actionCluster}</div>}
         </div>
       </div>
       {/* The field's ref must attach before sync, then sizing reads the adopted

@@ -1,13 +1,11 @@
-import { omitGone } from '@podium/client-graph/lookup'
-import { attachPreferenceSource } from '@podium/client-graph/preference-source'
-import { preferenceSource } from '@podium/client-graph/preference-source'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
 import { createRoutedUiState, type RoutedUiState } from '@podium/client-core/ui-state'
 import { MobxPool } from '@podium/client-graph'
-import { checkPreferences } from '../../../../tests/worklist/diagnostics/preference-check'
+import { omitGone } from '@podium/client-graph/lookup'
+import { attachPreferenceSource, preferenceSource } from '@podium/client-graph/preference-source'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { asUserId } from '@podium/model'
@@ -15,10 +13,11 @@ import { act, cleanup, render } from '@testing-library/react'
 import { StrictMode } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { attachWorklistPool, useWorklistPool } from '@/app/store-worklist-pool'
+import { checkPreferences } from '../../../../tests/worklist/diagnostics/preference-check'
 import { createSidebarFixture } from '../../test/sidebar-fixture'
 import { usePersistedUiState } from './use-persisted-ui-state'
 
-const FOLD = 'podium:sidebar:collapsed',
+const FOLD = 'podium:sidebar:pinned',
   STICKY = 'podium.chat.stickyPrompts'
 const parse = (raw: string | null) => raw ?? 'absent'
 const serialize = (value: string) => (value === 'absent' ? null : value)
@@ -86,10 +85,10 @@ it('declares routed keys before batched loads and follows late, optimistic, roll
     // Each step exercises the same declared per-user key through the existing
     // optimistic writer or a later authoritative replacement/eviction.
     for (const change of [
-      () => replicated.set('sidebar.collapsed', 'true'),
+      () => replicated.set('sidebar.section.pinned', 'true'),
       () => ui.set(FOLD, 'false'),
-      () => replicated.set('sidebar.collapsed', 'true'),
-      () => replicated.clear('sidebar.collapsed'),
+      () => replicated.set('sidebar.section.pinned', 'true'),
+      () => replicated.clear('sidebar.section.pinned'),
       () => ui.set(STICKY, 'false'),
       () => ui.set(STICKY, null),
     ]) {
@@ -128,7 +127,7 @@ it('releases the source and cancels queued reads on disposal', async () => {
   await Promise.resolve()
   expect(ui.get).not.toHaveBeenCalled()
   expect(ui.listeners.size).toBe(0)
-  expect((preferenceSource(pool)?.keys() ?? [])).toEqual([])
+  expect(preferenceSource(pool)?.keys() ?? []).toEqual([])
   expect(omitGone(pool.row('preference', STICKY))).toBe(LOADING)
 })
 
@@ -199,12 +198,12 @@ it('uses one offline runtime pool and no legacy preference reads across StrictMo
   })
   expect(owner).not.toBe(oldOwner)
   expect(pool).not.toBe(oldPool)
-  expect((preferenceSource(oldPool)?.keys() ?? [])).toEqual([])
+  expect(preferenceSource(oldPool)?.keys() ?? []).toEqual([])
   await act(async () => oldOwner.ui.set(STICKY, 'old-person'))
   expect(view.container.textContent).toBe('absent')
   view.rerender(tree(null))
   expect(view.container.textContent).toBe('')
-  expect((preferenceSource(pool!)?.keys() ?? [])).toEqual([])
+  expect(preferenceSource(pool!)?.keys() ?? []).toEqual([])
   expect(failures).toEqual([])
   expect(
     errors.mock.calls.some((args) => String(args[0]).includes('Cannot update a component')),

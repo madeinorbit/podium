@@ -1,4 +1,5 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { modelCatalogFixture } from '@/test-support/model-catalog-mock'
 import { AllConnectorsModelPicker, EffortPicker, ModelPicker } from './ModelEffortPicker'
@@ -24,6 +25,18 @@ afterEach(() => {
 })
 
 describe('ModelPicker live catalog', () => {
+  it('selects an inline model by typing after Tab', async () => {
+    const user = userEvent.setup()
+    const onChange = vi.fn()
+    render(
+      <ModelPicker variant="inline" agentKind="claude-code" value="auto" onChange={onChange} />,
+    )
+    await user.tab()
+    await user.keyboard('h')
+    expect(onChange).toHaveBeenCalledExactlyOnceWith('claude-haiku-4-5')
+    expect(screen.queryByRole('menu')).toBeNull()
+  })
+
   it('shows the agent CLI models supplied by the live catalog', async () => {
     render(<ModelPicker agentKind="grok" value="auto" onChange={vi.fn()} />)
     fireEvent.click(screen.getByRole('button', { name: 'Model' }))
@@ -54,9 +67,7 @@ describe('ModelPicker without a live catalog (POD-3911)', () => {
 
 describe('ModelPicker without typed models (POD-3911)', () => {
   it('offers no "Use …" entry for a typed name when free text is off', async () => {
-    render(
-      <ModelPicker agentKind="grok" value="auto" onChange={vi.fn()} allowFreeText={false} />,
-    )
+    render(<ModelPicker agentKind="grok" value="auto" onChange={vi.fn()} allowFreeText={false} />)
     fireEvent.click(screen.getByRole('button', { name: 'Model' }))
     fireEvent.change(await screen.findByPlaceholderText('Filter…'), {
       target: { value: 'my-custom-model' },
@@ -75,6 +86,24 @@ describe('ModelPicker without typed models (POD-3911)', () => {
 })
 
 describe('EffortPicker follows the selected model', () => {
+  it('selects an inline effort by typing after Tab', async () => {
+    const user = userEvent.setup()
+    const onChange = vi.fn()
+    render(
+      <EffortPicker
+        variant="inline"
+        agentKind="claude-code"
+        model="claude-opus-4-8"
+        value="auto"
+        onChange={onChange}
+      />,
+    )
+    await user.tab()
+    await user.keyboard('h')
+    expect(onChange).toHaveBeenCalledExactlyOnceWith('high')
+    expect(screen.queryByRole('menu')).toBeNull()
+  })
+
   // POD-3911: under an Auto model nobody knows which model will run, so nobody
   // knows its efforts. The pill stays, reads Auto, and offers nothing.
   it('reads Auto and offers no ladder while the model is auto', () => {
@@ -117,7 +146,9 @@ describe('EffortPicker follows the selected model', () => {
 
   it('shows stored effort inert for a harness with no effort flag at all', () => {
     render(<EffortPicker agentKind="cursor" model="auto" value="auto" onChange={vi.fn()} />)
-    expect((screen.getByRole('button', { name: 'Effort' }) as HTMLButtonElement).disabled).toBe(true)
+    expect((screen.getByRole('button', { name: 'Effort' }) as HTMLButtonElement).disabled).toBe(
+      true,
+    )
   })
 })
 
@@ -134,9 +165,15 @@ describe('AllConnectorsModelPicker', () => {
   })
 })
 
-
 it('shows a stored effort inert when the live model has no levels', () => {
-  render(<EffortPicker agentKind="claude-code" model="claude-haiku-4-5" value="high" onChange={vi.fn()} />)
+  render(
+    <EffortPicker
+      agentKind="claude-code"
+      model="claude-haiku-4-5"
+      value="high"
+      onChange={vi.fn()}
+    />,
+  )
   const pill = screen.getByRole('button', { name: 'Effort' }) as HTMLButtonElement
   expect(pill.disabled).toBe(true)
   expect(pill.textContent).toContain('High')

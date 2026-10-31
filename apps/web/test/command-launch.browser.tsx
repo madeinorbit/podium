@@ -191,25 +191,15 @@ const driver = {
   selection: () => ({ issueId: referenceState(owner).openIssueId, view: referenceState(owner).view }),
   async check() {
     if (!pool) return null
-    const { checkCommandLaunch, poolCommandLaunchSnapshot } = await import(
+    const { poolCommandLaunchSnapshot } = await import(
       '../../../tests/worklist/diagnostics/command-launch-check'
     )
-    for (let round = 0; round < 32; round++) {
-      poolCommandLaunchSnapshot(pool)
-      if (!pool.hydrate()) break
-    }
-    const result = checkCommandLaunch(pool, referenceState(owner))
+    let snapshot = poolCommandLaunchSnapshot(pool)
+    for (let round = 0; round < 32 && pool.hydrate(); round++)
+      snapshot = poolCommandLaunchSnapshot(pool)
     return {
-      differences: result.differences,
-      pending: result.pending,
-      positions: result.rows,
-      first: result.first
-        ? {
-            sectionIndex: result.first.sectionIndex,
-            rowIndex: result.first.rowIndex,
-            field: result.first.field,
-          }
-        : null,
+      pending: snapshot.pending,
+      positions: snapshot.sections.reduce((count, section) => count + section.rows.length, 0),
     }
   },
   close: () => root.unmount(),

@@ -18,23 +18,25 @@
 import type {
   ContractInput,
   mailCancelContract,
-  mailDismissNoticeContract,
   mailDismissContract,
+  mailDismissNoticeContract,
   mailRecordsContract,
   mailShowContract,
   mailStatusContract,
 } from '@podium/commands'
+import { MAIL_VIEW_REFUSED } from '@podium/commands/mail-pointer-nudge'
 import type { MessageRecordWire } from '@podium/model'
 import type { MessageWire } from '../gate'
 import type { MailHandlerContext } from './context'
 
-/** The shared read: resolve, gate on `mayView`, project. */
+/** The shared read: resolve, gate on `mayView` (or on reading the session that
+ *  sent it or that it was delivered to), project. */
 async function viewable(ctx: MailHandlerContext, id: string): Promise<MessageWire> {
   const { caller, deps, access } = ctx
   const m = await deps.messages.message(id)
   if (!m) throw new Error(`unknown message ${id}`)
-  if (!access.mayView(caller.capability, m)) {
-    throw new Error('not allowed to view a message you neither sent nor received')
+  if (!access.mayView(caller.capability, m) && !(await access.mayReadAsSessionReader(caller, m))) {
+    throw new Error(MAIL_VIEW_REFUSED)
   }
   return await access.wire(m)
 }
@@ -111,5 +113,7 @@ export async function recordsHandler(
 ): Promise<{ records: MessageRecordWire[] }> {
   const { principal } = ctx.caller
   if (principal.kind !== 'user') return { records: [] }
-  return { records: await ctx.deps.messageRecords(principal.user, input.ids) }
+  return { records: 'ids' in input
+    ? await ctx.deps.messageRecords(principal.user, input.ids)
+    : await ctx.deps.messageRecords(principal.user, input.transcriptItemIds, input.sessionId) }
 }

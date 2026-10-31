@@ -4,32 +4,21 @@ import { keyedComputed } from '@podium/mobx-helpers'
 import { isFinished } from './shared/predicates'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
-import {
-  filterBoardIssues,
-  issueIsActionable,
-  sessionNeedsHuman,
-  sessionPresentOnTask,
-} from '@podium/client-core/values'
-import { asIssueId, asSessionId, issueStatusOf, machinePathBasename, machinePathKey } from '@podium/model/browser'
+import { asIssueId, asSessionId, machinePathBasename, machinePathKey } from '@podium/model/browser'
 import {
   compareStructural,
   observable,
-  observe,
   runInAction,
 } from 'mobx'
 import { createBoardLayout } from './issue-board-layout'
 import {
-  BOARD_EXPLORER_TABS,
   type BoardCatalog,
   type BoardColumnOptions,
-  type BoardExplorerTab,
   type BoardQuery,
   ISSUE_BOARD_SUMMARIES,
   type IssueBoardSourceRows,
-  type PoolExplorerData,
 } from './issue-board-schema'
 import { inBoardScope } from './issue-board-cards'
-import { createIssueExplorer } from './issue-explorer'
 import type { MobxPool } from './pool'
 import { createQueryResult } from './query-result'
 import { defineSource, type PoolSource } from './source-registry'
@@ -38,14 +27,6 @@ import { LOADING, type Loaded } from './worklist/rollup'
 const byId = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
 const text = (value: unknown): string =>
   typeof value === 'string' ? value : ((value as { value?: string } | undefined)?.value ?? '')
-const tabOf = (row: IssueViewModel): BoardExplorerTab | null => {
-  const status = issueStatusOf(row)
-  return status === 'shipping'
-    ? null
-    : status === 'cancelled' || status === 'duplicate' || status === 'superseded'
-      ? 'cancelled'
-      : status
-}
 
 /** Read-side service over declared pool questions and relations. Layouts
  * publish IDs; rich cards belong to mounted rows or explicit diagnostics.
@@ -60,35 +41,7 @@ export function createIssueBoardSource(
   const layout = createBoardLayout(pool)
   const cache = keyedComputed((key: string) => `IssueBoard@${key}`, (_key: string, read: () => unknown) => read())
   const rosters = new Map<string, ReturnType<typeof createQueryResult<SessionView>>>()
-  const countQuestion = { kind: 'boardCounts' } as const
-  // Counts are maintained contributions. Opening an explorer attaches its
-  // aggregate once; an addressed update changes only that issue's answer.
-  // Closing the last count reader releases every contribution and roster.
-  const tabCounts = createQueryResult<{ tab: BoardExplorerTab | null; needs: boolean }>({
-    name: 'IssueBoard@tabCounts',
-    ids: () => pool.queries.ids(countQuestion),
-    has: id => pool.queries.has(countQuestion, id),
-    read: id => {
-      const row = facts(id)
-      if (row === LOADING) return LOADING
-      if (!row || row.archived || row.deletedAt || !scoped(row, false, false, id)) return undefined
-      return { tab: tabOf(row), needs: !isFinished(row) && actionable(row) }
-    },
-    matches: BOARD_EXPLORER_TABS.map(tab => value => tab === 'needs' ? value.needs : value.tab === tab),
-    subscribe: changed => {
-      const stopTable = observe(pool.tables.issue, change => changed(change.name))
-      const stopFeed = pool.queries.onChange(event => {
-        if (event.type === 'replace') changed(undefined)
-        else for (const row of event.rows) if (row.kind === 'issue') changed(row.id)
-      })
-      return () => { stopTable(); stopFeed() }
-    },
-  })
   const frame = defineSource({ readById, release })
-  const explorerLayout = createIssueExplorer(pool, (id, query) => {
-    const row = facts(id)
-    return !row || row === LOADING ? row : matches(row, query, id)
-  })
   const open = observable.box(owner?.readLocal('openIssueId') ?? null)
   // Keyed (POD-5433): only an open-issue change wakes the board.
   const stopOwner =
@@ -101,8 +54,8 @@ export function createIssueBoardSource(
   }
   function facts(id: string): Loaded<IssueViewModel> {
 
-    // Observed counts and eligibility share resident scalar facts. Cold
-    // facts remain demand-owned by the query's addressed computations.
+    // Resident rows share memoized scalar facts. Cold facts remain
+    // demand-owned by the reader's addressed computations.
     return pool.tables.issue.has(id) ? memo(`facts:${id}`, () => readFacts(id)) : readFacts(id)
   }
   function readFacts(id: string): Loaded<IssueViewModel> {
@@ -154,10 +107,6 @@ export function createIssueBoardSource(
           pool.graph.isCollapsed('session', sid)
             ? undefined
             : (omitGone(pool.row('session', sid, 'summary')) as Loaded<SessionView>),
-        matches: [
-          (seat) => !seat.archived && sessionNeedsHuman(seat),
-          (seat) => !seat.archived && seat.issueId === id && sessionPresentOnTask(seat),
-        ],
         subscribe: (changed) => pool.queries.onMembers('issue', id, 'missionSessions', changed),
         released: () => rosters.delete(id),
       })
@@ -168,50 +117,8 @@ export function createIssueBoardSource(
   function sessions(id: string): Loaded<SessionView[]> {
     return frame.disposed ? LOADING : roster(id).get()
   }
-  function actionable(row: IssueViewModel): boolean {
-    if (row.archived || row.deletedAt || isFinished(row)) return false
-    const seats = roster(row.id)
-    // The shared pure predicate needs only witnesses for these two
-    // existential questions. Archived history never enters this read.
-    const asking = seats.firstMatch(0),
-      staffed = seats.firstMatch(1)
-    const attention =
-      row.stage === 'review'
-        ? {
-            ...row,
-            dependents: [...pool.graph.many('issue', row.id, 'spinOffs')].map((id) => ({
-              id: asIssueId(id),
-              type: 'discovered-from',
-            })),
-          }
-        : row
-    return (
-      asking !== LOADING &&
-      staffed !== LOADING &&
-      issueIsActionable(
-        attention,
-        [asking, staffed].filter((seat): seat is SessionView => seat !== undefined),
-      )
-    )
-  }
-  function matches(row: IssueViewModel, query: BoardQuery, id: string = row.id): boolean {
-    if (query.kind === 'board')
-      return (
-        filterBoardIssues([row], query.filter ?? {}).length > 0 &&
-        scoped(row, query.showAgentTasks ?? false, false, id)
-      )
-    const needle = query.query?.trim().toLowerCase()
-    if (needle && !row.deletedAt && row.displayRef.toLowerCase() === needle) return true
-    if (row.archived || row.deletedAt || !scoped(row, false, false, id)) return false
-    if (needle) return `${row.displayRef} ${row.title}`.toLowerCase().includes(needle)
-    return query.tab === 'needs' ? actionable(row) : tabOf(row) === query.tab
-  }
   function queryIds(query: BoardQuery): Loaded<{ ids: string[] }> {
-    if (query.kind === 'board') return layout.queryIds(query)
-    return memo(`query:${JSON.stringify(query)}`, () => {
-      const ids = explorerLayout.ids(query)
-      return ids === LOADING ? LOADING : { ids: ids ?? [] }
-    })
+    return layout.queryIds(query)
   }
   const catalogEntry = keyedComputed('IssueBoard.catalogEntry', (key: string) => {
     const [id, agents] = JSON.parse(key) as [string, boolean]
@@ -326,78 +233,6 @@ export function createIssueBoardSource(
       }
     })
   }
-  function explorerCounts(): Loaded<Record<BoardExplorerTab, number>> {
-    return memo('explorerCounts', () => {
-      const counts = Object.fromEntries(BOARD_EXPLORER_TABS.map((tab) => [tab, 0])) as Record<
-        BoardExplorerTab,
-        number
-      >
-      for (const [index, tab] of BOARD_EXPLORER_TABS.entries()) {
-        const count = tabCounts.countMatch(index)
-        if (count === LOADING) return LOADING
-        counts[tab] = count ?? 0
-      }
-      return counts
-    })
-  }
-  function explorer(options: {
-    tab: BoardExplorerTab | null
-    query: string
-    windowed?: boolean
-  }): Loaded<PoolExplorerData> {
-    return memo(`explorer:${JSON.stringify(options)}`, () => {
-      const counts = explorerCounts()
-      if (!counts || counts === LOADING) return LOADING
-      const tab = options.tab ?? BOARD_EXPLORER_TABS.find((key) => counts[key]) ?? 'in_progress'
-      const found = explorerLayout.ids({ kind: 'explorer', tab, query: options.query }, true)
-      if (!found || found === LOADING) return LOADING
-      const total = BOARD_EXPLORER_TABS.reduce((n, key) => n + (key === 'needs' ? 0 : counts[key]), 0)
-      // Production publishes only order and counts. Rich values are demanded
-      // by mounted cards, or explicitly by the diagnostic snapshot below.
-      if (options.windowed) return { counts, tab, total, ids: found, rows: [],
-        byId: new Map(), rowSessions: new Map(), sessions: [] }
-      const rows: IssueViewModel[] = [],
-        byId = new Map<string, IssueViewModel>(),
-        rowSessions = new Map<string, SessionView[]>(),
-        allSeats = new Map<string, SessionView>()
-      for (const id of found) {
-        const row = issue(id)
-        if (row === LOADING) return LOADING
-        if (row) {
-          rows.push(row)
-          byId.set(id, row)
-        }
-      }
-      const neighbours = new Set<string>(found)
-      for (const id of found) {
-        const parent = pool.graph.one('issue', id, 'treeParent')
-        if (parent) neighbours.add(parent)
-        for (const relation of ['pageDependencies', 'pageDependents', 'spinOffs'] as const)
-          for (const other of pool.graph.many('issue', id, relation)) neighbours.add(other)
-      }
-      for (const id of neighbours) {
-        if (!byId.has(id)) {
-          const row = issue(id)
-          if (row === LOADING) return LOADING
-          if (row) byId.set(id, row)
-        }
-        const roster = sessions(id)
-        if (roster === LOADING) return LOADING
-        rowSessions.set(id, roster ?? [])
-        for (const seat of roster ?? []) allSeats.set(seat.sessionId, seat)
-      }
-      return {
-        counts,
-        tab,
-        total,
-        ids: found,
-        rows,
-        byId,
-        rowSessions,
-        sessions: [...allSeats.values()],
-      }
-    })
-  }
   function readById(entity: keyof IssueBoardSourceRows, id: string): ReturnType<PoolSource<keyof IssueBoardSourceRows>['read']> {
     switch (entity) {
       case 'issueBoardWindow':
@@ -424,8 +259,6 @@ export function createIssueBoardSource(
         const index = layout.dropIndex(JSON.parse(id))
         return index === LOADING ? LOADING : { index }
       }
-      case 'issueExplorerModel':
-        return explorer(JSON.parse(id))
       case 'issueBoardRow':
         return issue(id)
       case 'issueBoardSessions':
@@ -436,8 +269,6 @@ export function createIssueBoardSource(
   function release(): void {
     stopOwner()
     layout.dispose()
-    explorerLayout.dispose()
-    tabCounts.dispose()
     for (const result of [...rosters.values()]) result.dispose()
     rosters.clear()
     cache.clear()
@@ -447,16 +278,14 @@ export function createIssueBoardSource(
     board,
     columnIds: layout.columnIds,
     openIds: layout.openIds,
-    explorer,
-    explorerCounts,
     issue,
     sessions,
     queryIds,
     catalog,
     stats: () => ({
       residentRows: 0,
-      demandKeys: explorerLayout.stats().demandKeys + layout.stats().demandKeys,
-      cached: cache.size + catalogEntry.size + explorerLayout.stats().cached + layout.stats().cached,
+      demandKeys: layout.stats().demandKeys,
+      cached: cache.size + catalogEntry.size + layout.stats().cached,
     }),
   })
 }

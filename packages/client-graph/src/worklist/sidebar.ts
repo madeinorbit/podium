@@ -1,7 +1,7 @@
-import { here, omitGone } from '../lookup'
+import { here } from '../lookup'
 import { worklistGroups } from './groups'
 import { machinePathKey, machinePathsEqual } from '@podium/model/browser'
-import { sidebarRosterView } from './sidebar-roster'
+import { projectIndex } from './projects'
 /** The real sidebar's section projection over resident pool indexes.
  * The small state argument is caller-owned per-user layout/selection data.
  * It is never read from worklistSlice, a selector, or browser storage here.
@@ -9,33 +9,27 @@ import { sidebarRosterView } from './sidebar-roster'
 
 import { compareShallow, compareStructural } from 'mobx'
 import { keyedViews } from '../cached'
-import { hostOf, type IssueModel, type ModelHost } from '../models'
+import { hostOf, type IssueModel } from '../models'
 import type { MobxPool } from '../pool'
-import { createRowOverlay } from '../shared/overlay-row'
-import type { SliceIssue, SliceSession, SliceWorktree } from '../shared/slice-types'
-import { attentionGroup, LOADING, type Loaded } from './rollup'
-import { type SidebarProgress, type SidebarRowValues, sortedSidebarSessions } from './sidebar-row'
-import { parkedOnFinishedIssue, retains } from './visible'
+import { LOADING, type Loaded } from './rollup'
+import type { SidebarProgress } from './sidebar-row'
 import { WorklistIssue } from './issue'
 import { worklistView, type Worklist } from './view-model'
-
-const overlayRow = createRowOverlay()
 
 export interface SidebarState {
   readonly projectOrder?: readonly string[]
   readonly pinnedRepos?: readonly string[]
   readonly pinnedWorktrees?: readonly string[]
   readonly collapsed?: Readonly<Record<string, boolean>>
-  readonly paneA?: string | null
-  readonly selectedWorktree?: string | null
 }
 export interface SidebarBand {
   readonly key: string
   readonly label: string
   readonly aliases: readonly string[]
   readonly repoPath: string
+  /** The registered repository this band shows, when it is one (POD-2153). */
+  readonly repoId?: string | null
   readonly rowIds: readonly string[]
-  readonly worktreeIds: readonly string[]
   readonly snoozedIds: readonly string[]
   readonly closedIds: readonly string[]
   readonly collapsed: boolean
@@ -44,7 +38,6 @@ export interface SidebarBand {
   readonly foldKey: string
   readonly snoozedFoldKey: string
   readonly closedFoldKey: string
-  readonly startFirstTask: boolean
 }
 export interface SidebarSections {
   readonly pinnedIds: readonly string[]
@@ -52,47 +45,6 @@ export interface SidebarSections {
   readonly pinnedFoldKey: string
   readonly bands: readonly SidebarBand[]
 }
-export interface SidebarWorktree {
-  readonly worktree: SliceWorktree
-  readonly sessions: readonly SliceSession[]
-  readonly visible: readonly SliceSession[]
-  readonly stale: readonly SliceSession[]
-  /** The existing row's provenance/ref lookup needs only these owners,
-   * never a copy of the issue world. Missing owners use session.displayRef. */
-  readonly issues: readonly (SliceIssue & { readonly displayRef: string })[]
-  readonly activityAt: number
-  readonly active: boolean
-  readonly pending: number
-}
-
-export interface SidebarRoster {
-  readonly ids: readonly string[]
-  readonly pending: number
-}
-
-/** One worktree's retained, unrepresented seats. The worklist companion reads
- * this resident index from narrow session/owner facts. */
-export function sidebarRosterOf(host: ModelHost, path: string): SidebarRoster {
-  const input = host.visibleInputs
-  const ids: string[] = []
-  const pending = 0
-  // POD-5407: the candidates are resident seats only (`SidebarRosterIndex`):
-  // a session the rule keeps cold can no longer be a retained seat.
-  for (const id of host.rosterCandidates(path)) {
-    const session = here(host.model('session', id))
-    if (session === undefined) continue
-    const retention = worklistView(host as MobxPool).session(session).retention
-    if (retention === null || !retention.seat || retention.shell) continue
-    const owner = session.issueLink === null ? undefined : input.issue(session.issueLink)
-    if (owner?.standing?.excluded) continue
-    if (parkedOnFinishedIssue(session.status, owner?.standing?.finished)) continue
-    const finish =
-      retention.finish.kind === 'idleDone' && owner?.standing?.finished ? owner.ownFacts : undefined
-    if (retains(retention, finish, owner?.standing, input)) ids.push(id)
-  }
-  return { ids, pending }
-}
-
 function companionOf(model: IssueModel | WorklistIssue, pool: MobxPool): WorklistIssue {
   return model instanceof WorklistIssue ? model : worklistView(pool).row(model)
 }
@@ -110,36 +62,17 @@ export function sidebarBelowOf(issue: WorklistIssue, pool: MobxPool): readonly s
   return ids.length === 0 ? EMPTY_IDS : ids.sort()
 }
 
-/** The candidate set excludes archived senders before any iteration. The
- * nesting rule's ownerOf rejects them, including archived non-exited seats.
- * Unarchived exited senders and issueless lane members still contribute. */
-export function sidebarNestedOf(issue: WorklistIssue, pool: MobxPool): readonly string[] {
+/** The visible children a row nests: those whose nest parent it is. Only a
+ * real `parentId` nests a task; the session that started one never does. */
+export function sidebarNestedOf(issue: WorklistIssue): readonly string[] {
   if (!issue.present) return EMPTY_IDS
   const host = issue.worklist.host
-  const ids = new Set<string>()
+  const ids: string[] = []
   for (const id of issue.visibleChildIds) {
     const child = host.visibleInputs.issue(id)
-    if (child && child.nestParent === issue.id) ids.add(id)
+    if (child && child.nestParent === issue.id) ids.push(id)
   }
-  const startedBy = (sessionId: string) => {
-    for (const id of pool.graph.many('session', sessionId, 'startedIssues')) {
-      const child = host.visibleInputs.issue(id)
-      if (child && child.nestParent === issue.id) ids.add(id)
-    }
-  }
-  for (const sessionId of pool.queries.ids({ kind: 'commandIssueSessions', issueId: issue.id,
-    archived: false, includeShells: true })) {
-    // Each child's canonical parent checks R2 ownership, headless exclusion
-    // and resume collapse. Empty started relations need no ownership probe.
-    startedBy(sessionId)
-  }
-  if (issue.issue.worktreePath) {
-    for (const sessionId of issue.laneMemberIds) {
-      const session = host.visibleInputs.session(sessionId)
-      if (session.retention !== null && !session.retention.archived) startedBy(sessionId)
-    }
-  }
-  return ids.size === 0 ? EMPTY_IDS : [...ids].sort()
+  return ids.length === 0 ? EMPTY_IDS : ids.sort()
 }
 
 export function sidebarNested(model: IssueModel | WorklistIssue, pool: MobxPool) { return companionOf(model, pool).visibleDescendantIds }
@@ -177,7 +110,6 @@ export class SidebarIndex {
   private readonly specViews = keyedViews<BandSpecs>('pool.sidebar', 'bandSpecs', compareStructural)
   private readonly bandViews = keyedViews<SidebarBand>('pool.sidebar', 'band', sameBand)
   private readonly groupViews = keyedViews<GroupFacts>('pool.sidebar', 'group', compareStructural)
-  private readonly rosterViews = keyedViews<RosterFacts>('pool.sidebar', 'rosterFacts', compareStructural)
   private get pool() { return this.view.pool }
   constructor(private readonly view: Worklist) {}
 
@@ -191,32 +123,6 @@ export class SidebarIndex {
    * its existing action when this answers true. A cold known row still counts. */
   selectionGone(): boolean {
     return this.view.selectionGone
-  }
-
-  active(id: string, state: SidebarState): boolean {
-    const model = here(this.pool.issue(id))
-    if (model === undefined || !this.view.row(model).selected) return false
-    const row = sidebarIssueRow(model, this.pool)
-    return (
-      row !== undefined &&
-      row !== LOADING &&
-      (!row.sessionOnlyDraft || state.paneA === row.firstSessionId)
-    )
-  }
-
-  worktree(path: string, state: SidebarState = {}): SidebarWorktree | undefined {
-    const model = here(this.pool.model('worktree', path))
-    if (!model) return undefined
-    const tree = this.view.tree(model)
-    if (!tree.rosterIds.length && tree.pending === 0) return undefined
-    return {
-      worktree: model as unknown as SliceWorktree,
-      sessions: tree.sessions as unknown as readonly SliceSession[],
-      visible: tree.visible as unknown as readonly SliceSession[],
-      stale: tree.stale as unknown as readonly SliceSession[],
-      issues: tree.issues as unknown as SidebarWorktree['issues'],
-      activityAt: tree.activityAt, pending: tree.pending, active: tree.active(state),
-    }
   }
 
   /**
@@ -264,7 +170,12 @@ export class SidebarIndex {
       const group = worklistGroups(this.pool).group(key)
       const rowIds = group.sidebarRowIds, snoozedIds = group.sidebarSnoozedIds, closedIds = group.sidebarClosedIds
       const firstOpen = rowIds[0]
+      // The group's logical repo, from its issues: two repos can share a path,
+      // and only one of them seeds a root lane there (POD-2153).
+      const member = firstOpen ?? snoozedIds[0] ?? closedIds[0]
+      const issue = member === undefined ? undefined : here(this.pool.model('issue', member))
       return {
+        repoId: issue?.repoId ?? null,
         shown: rowIds.length > 0 || snoozedIds.length > 0 || closedIds.length > 0,
         label: group.sidebarMetadata.label,
         // Legacy uses the first open issue's path, then the key; folded rows
@@ -273,46 +184,23 @@ export class SidebarIndex {
           firstOpen === undefined
             ? key
             : (worklistGroups(this.pool).placementOf(firstOpen)?.repoPath ?? key),
-        folded: snoozedIds.length > 0 || closedIds.length > 0,
-        headBand2: group.sidebarMetadata.headBand === 2,
       }
     })
   }
 
-  /** Band ordering reads presence and head metadata, never roster contents. */
-  private rosterFacts(key: string): RosterFacts {
-    return this.rosterViews(key, () => {
-      const roster = sidebarRosterView(this.pool).band(key)
-      return { shown: roster.ids.length > 0, label: roster.label, repoPath: roster.repoPath }
-    })
-  }
-
   private specValues(state: SidebarState): BandSpecs {
-    const index = sidebarRosterView(this.pool)
-    const repos = [...index.projects]
-      .map((path) => omitGone(this.pool.row('worktree', path)))
-      .filter((row) => row !== undefined && row !== LOADING)
-      .filter(
-        (lane) =>
-          state.pinnedRepos?.some(path => machinePathsEqual(path, lane.path)) ||
-          index.unpinnedProjectLanes(lane.projectIndex, state.pinnedWorktrees ?? []) > 0,
-      )
-      .sort((a, b) => {
-        const ap = state.pinnedRepos?.findIndex(path => machinePathsEqual(path, a.path)) ?? -1,
-          bp = state.pinnedRepos?.findIndex(path => machinePathsEqual(path, b.path)) ?? -1
-        if (ap >= 0 || bp >= 0) return ap >= 0 && bp >= 0 ? ap - bp : ap >= 0 ? -1 : 1
-        return (a.projectIndex ?? 0) - (b.projectIndex ?? 0)
-      })
+    const repos = projectIndex(this.pool).registered(state)
     const specs = new Map<string, BandSpec>()
     const add = (
       key: string,
       label: string,
       path: string,
       aliases: readonly string[] = [key],
+      repoId: string | null = null,
     ): BandSpec => {
       const previous = specs.get(key)
       if (previous) return previous
-      const spec: BandSpec = { key, label, aliases, repoPath: path, group: false }
+      const spec: BandSpec = { key, label, aliases, repoPath: path, repoId, group: false }
       specs.set(key, spec)
       return spec
     }
@@ -322,27 +210,14 @@ export class SidebarIndex {
         repo.repoName,
         repo.repoPath,
         repo.projectAliases ?? [repo.repoId ?? repo.repoPath, repo.path],
+        repo.repoId ?? null,
       )
     for (const key of worklistGroups(this.pool).keys) {
       const facts = this.groupFacts(key)
       if (!facts.shown) continue
       // A registered root was seeded above; its path stays.
-      const spec = add(key, facts.label, facts.path)
-      specs.set(key, { ...spec, label: facts.label, group: true })
-    }
-    for (const key of index.keys()) {
-      const existing = specs.get(key)
-      const facts = existing?.group ? this.groupFacts(key) : undefined
-      // An existing project/issue band needs no roster presence to keep its
-      // place. Only the snoozed-head rule borrows the roster's label.
-      if (existing && !(facts?.folded === true && facts.headBand2)) continue
-      const roster = this.rosterFacts(key)
-      if (!roster.shown) continue
-      const spec = add(key, roster.label, roster.repoPath)
-      // The unified head names the section before folds: worktrees (band 1)
-      // precede snoozed roots (band 2), even when a root is in the closed fold.
-      const label = facts?.folded === true && facts.headBand2 ? roster.label : spec.label
-      specs.set(key, { ...spec, label })
+      const spec = add(key, facts.label, facts.path, [key], facts.repoId)
+      specs.set(key, { ...spec, label: facts.label, repoId: spec.repoId ?? facts.repoId, group: true })
     }
     const base = [...specs.values()]
     const registered = new Set(repos.map((repo) => repo.repoId ?? machinePathKey(repo.repoPath)))
@@ -378,14 +253,13 @@ export class SidebarIndex {
     const snoozedFoldKey = `podium:sidebar:snoozed-fold:${band}`
     const closedFoldKey = `podium:sidebar:closed-fold:${band}`
     const rows = spec.group ? worklistGroups(this.pool).group(band) : undefined
-    const worktreeIds = sidebarRosterView(this.pool).band(band).ids
     return {
       key: band,
       label: spec.label,
       aliases: spec.aliases,
       repoPath: spec.repoPath,
+      repoId: spec.repoId,
       rowIds: rows?.sidebarRowIds ?? NO_IDS,
-      worktreeIds,
       snoozedIds: rows?.sidebarSnoozedIds ?? NO_IDS,
       closedIds: rows?.sidebarClosedIds ?? NO_IDS,
       foldKey,
@@ -394,7 +268,6 @@ export class SidebarIndex {
       collapsed: state.collapsed?.[foldKey] === true,
       snoozedCollapsed: state.collapsed?.[snoozedFoldKey] !== false,
       closedCollapsed: state.collapsed?.[closedFoldKey] !== false,
-      startFirstTask: !spec.group && worktreeIds.length === 0,
     }
   }
 }
@@ -404,6 +277,7 @@ interface BandSpec {
   readonly label: string
   readonly aliases: readonly string[]
   readonly repoPath: string
+  readonly repoId: string | null
   /** It holds the group's root rows. */
   readonly group: boolean
 }
@@ -413,15 +287,9 @@ interface BandSpecs {
 }
 interface GroupFacts {
   readonly shown: boolean
+  readonly repoId: string | null
   readonly label: string
   readonly path: string
-  readonly folded: boolean
-  readonly headBand2: boolean
-}
-interface RosterFacts {
-  readonly shown: boolean
-  readonly label: string
-  readonly repoPath: string
 }
 
 const NO_IDS: readonly string[] = Object.freeze([])

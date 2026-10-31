@@ -197,15 +197,17 @@ describe('tauri desktop config', () => {
       'Desktop connections to non-loopback servers require HTTPS or WSS.',
     )
 
-    expect(startup.indexOf('bootstrap::validate_server_transport(server_url)')).toBeLessThan(
-      startup.indexOf('replacement_daemon_command('),
+    const transportValidation = startup.indexOf('bootstrap::validate_server_transport(server_url)')
+    expect(transportValidation).toBeGreaterThan(-1)
+    expect(
+      startup.indexOf('remote_parent_command(&runnable, &shutdown_file).spawn()'),
+    ).toBeGreaterThan(transportValidation)
+    expect(startup.indexOf('remote_capability_pattern(&window_origin)')).toBeGreaterThan(
+      transportValidation,
     )
-    expect(startup.indexOf('bootstrap::validate_server_transport(server_url)')).toBeLessThan(
-      startup.indexOf('remote_capability_pattern(&server_url)'),
-    )
-    expect(transfer.indexOf('remote_capability_pattern(server_url)?')).toBeLessThan(
-      transfer.indexOf('app.add_capability(capability)'),
-    )
+    const transferValidation = transfer.indexOf('remote_capability_pattern(server_url)?')
+    expect(transferValidation).toBeGreaterThan(-1)
+    expect(transfer.indexOf('app.add_capability(capability)')).toBeGreaterThan(transferValidation)
     expect(mainSource).toContain('BackendExitDecision::BlockedServerTransport { reason }')
     expect(mainSource).toContain('.title("Server connection blocked")')
     expect(mainSource).toContain('.on_navigation(move |url|')
@@ -405,27 +407,24 @@ describe('served-local launchMode classification (POD-2510)', () => {
     // claim it — an unowned accelerator never reaches WKWebView.
     expect(mainSource).toMatch(/"open-settings"[^;]*\.accelerator\("CmdOrCtrl\+,"\)/)
     expect(mainSource).toContain('MenuItemBuilder::with_id("add-project", "Add Project…")')
-    expect(mainSource).toContain(
-      'MenuItemBuilder::with_id("toggle-left-sidebar", "Toggle Left Sidebar")',
-    )
+    expect(mainSource).not.toContain('toggle-left-sidebar')
+    expect(mainSource).not.toContain('__PODIUM_TOGGLE_LEFT_SIDEBAR__')
     expect(mainSource).toContain(
       'MenuItemBuilder::with_id("toggle-flight-deck", "Toggle Flight Deck")',
     )
     expect(mainSource).toContain(
       'MenuItemBuilder::with_id("toggle-right-sidebar", "Toggle Right Sidebar")',
     )
-    // Pin the pairing, not just the two chords: the bare ⌘B belongs to the
-    // right dock and ⇧⌘B to the left work list. Asserting the id and the
-    // accelerator separately stays green through a swap. `[^;]*` keeps each
-    // match inside its own let-statement so it cannot borrow the other
-    // item's accelerator.
-    expect(mainSource).toMatch(/"toggle-right-sidebar"[^;]*\.accelerator\("CmdOrCtrl\+B"\)/)
-    expect(mainSource).toMatch(/"toggle-left-sidebar"[^;]*\.accelerator\("Shift\+CmdOrCtrl\+B"\)/)
+    // The flight deck owns ⌘B and the right dock ⌥⌘B. Match each id and
+    // accelerator within the same let-statement so another menu item cannot
+    // satisfy the assertion.
+    expect(mainSource).toMatch(/"toggle-flight-deck"[^;]*\.accelerator\("CmdOrCtrl\+B"\)/)
+    expect(mainSource).toMatch(/"toggle-right-sidebar"[^;]*\.accelerator\("Alt\+CmdOrCtrl\+B"\)/)
+    expect(mainSource).not.toMatch(/"toggle-right-sidebar"[^;]*\.accelerator\("CmdOrCtrl\+B"\)/)
     expect(mainSource).toContain('__PODIUM_ABOUT__')
     expect(mainSource).toContain('__PODIUM_CHECK_UPDATES__')
     expect(mainSource).toContain('__PODIUM_SETTINGS__')
     expect(mainSource).toContain('__PODIUM_ADD_PROJECT__')
-    expect(mainSource).toContain('__PODIUM_TOGGLE_LEFT_SIDEBAR__')
     expect(mainSource).toContain('__PODIUM_TOGGLE_FLIGHT_DECK__')
     expect(mainSource).toContain('__PODIUM_TOGGLE_RIGHT_SIDEBAR__')
   })
@@ -594,7 +593,7 @@ describe('served-local launchMode classification (POD-2510)', () => {
   it('uses native traffic lights on macOS and native window-manager chrome elsewhere', () => {
     expect(mainSource).toContain('.title_bar_style(tauri::TitleBarStyle::Overlay)')
     expect(mainSource).toContain('.hidden_title(true)')
-    expect(mainSource).toContain('.traffic_light_position(tauri::LogicalPosition::new(14.0, 22.0))')
+    expect(mainSource).toContain('.traffic_light_position(tauri::LogicalPosition::new(14.0, 26.0))')
     expect(mainSource).toContain('const NATIVE_DECORATIONS: bool = true;')
     expect(mainSource).not.toContain('window_builder.decorations(false)')
     expect(mainSource).toContain('.min_inner_size(900.0, 600.0)')

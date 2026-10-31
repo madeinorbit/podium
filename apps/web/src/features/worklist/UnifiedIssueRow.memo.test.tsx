@@ -77,7 +77,7 @@ it('preserves continuation text ahead of child progress and pending decisions', 
     fleet: { total: 0, parkedCount: 0, nativeCount: 0, tiles: [] },
   } as unknown as SidebarRowValues
   const pool = render(<UnifiedIssueRow {...props} display={poolIssueDisplay(facts)} />)
-  expect(pool.getByText('continued · POD-2')).toBeTruthy()
+  expect(pool.getByText('Continued · POD-2')).toBeTruthy()
   expect(pool.queryByText('1/3 subtasks done · 1 underway')).toBeNull()
 })
 
@@ -230,14 +230,15 @@ describe('worklist row memo (POD-4421)', () => {
     expect(fixedAfter.get('a') ?? 0).toBe(0)
     expect(fixedAfter.get('c') ?? 0).toBe(0)
 
-    // Frozen output from the last green parity control.
-    expect(fixedText).toBe(
-      'POD-11Alphain progressPOD-22Bravo!in progress⤷ 1POD-33Charliein progress',
+    // Frozen output from the last green parity control, ages (which move with
+    // the wall clock) stripped.
+    expect(fixedText.replace(/\d+[mhd](?=In )/g, '')).toBe(
+      'AlphaIn progress· 1/3POD-1Bravo!In progress· 0/2⤷ POD-1POD-2CharlieIn progress· 2/4POD-3',
     )
     for (const title of ['Alpha', 'Bravo!', 'Charlie']) {
       expect(fixedText).toContain(title)
     }
     // The addressed origin tick remains visible.
-    expect(fixedText).toContain('⤷ 1')
+    expect(fixedText).toContain('⤷ POD-1')
   })
 })

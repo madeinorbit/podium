@@ -11,6 +11,7 @@ import userEvent from '@testing-library/user-event'
 import { autorun } from 'mobx'
 import { createRef } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
+import { FlightDeckFullCoordinator } from './FlightDeckFullSeats'
 import {
   FlightDeckV6Rows,
   FlightDeckV6Session,
@@ -109,7 +110,6 @@ async function open(
   const screen = new MissionScreen(pool, 'root', {
     setPreference: (key, raw) => uiState.set(key, raw),
   })
-  screen.open()
   const stop = autorun(() => {
     void settled(() => [screen.ready, screen.full.ready])
   })
@@ -122,6 +122,7 @@ async function open(
   const actions = {
     activeSessionId: null as string | null,
     renameTarget: null,
+    onOpenTask: vi.fn(),
     onSelectSession: vi.fn(),
     onMenu: vi.fn(),
     onStatusPick: vi.fn(),
@@ -166,6 +167,41 @@ it('strip pointer and keyboard fold only; session pointer and keyboard open the 
   await keyboard.keyboard(' ')
   expect(f.agent()).toBeNull()
   expect(f.actions.onSelectSession).toHaveBeenCalledTimes(3)
+})
+
+it('anchors the team-forms step-in card on a collapsed sub-task strip, then on its session rows', async () => {
+  const f = await open()
+  const strip = () => f.task().querySelector('[data-flight-task-row]') as HTMLElement
+  const anchored = () =>
+    [...f.ui.container.querySelectorAll('[data-tip-anchor="team-forms-session"]')].map((el) =>
+      el.hasAttribute('data-flight-task-row') ? 'strip' : el.getAttribute('data-flight-session'),
+    )
+  // Collapsed by default: the strip stands in for the hidden session rows.
+  expect(f.agent()).toBeNull()
+  expect(anchored()).toEqual(['strip'])
+  await act(async () => {
+    fireEvent.click(f.fold())
+  })
+  expect(strip().hasAttribute('data-tip-anchor')).toBe(false)
+  expect(anchored()).toEqual(['worker', 'helper'])
+})
+
+it('opens an empty leaf by pointer, Enter and Space without writing a fold or selecting a session', async () => {
+  const f = await open(undefined, [])
+  const body = f.ui.getByRole('button', { name: 'Open POD-2 Task task' })
+  expect(body.hasAttribute('aria-expanded')).toBe(false)
+  expect(body.hasAttribute('aria-controls')).toBe(false)
+  expect(f.task().querySelector('button.flight-v6-fold')).toBeNull()
+  const keyboard = userEvent.setup()
+  fireEvent.click(body)
+  body.focus()
+  await keyboard.keyboard('{Enter}')
+  await keyboard.keyboard(' ')
+  fireEvent.click(f.task().querySelector('.flight-v6-strip')!)
+  expect(f.actions.onOpenTask).toHaveBeenCalledTimes(4)
+  expect(f.actions.onOpenTask).toHaveBeenLastCalledWith(f.full.task('task'))
+  expect(f.actions.onSelectSession).not.toHaveBeenCalled()
+  expect(f.screen.folds.has('task')).toBe(false)
 })
 
 it('session selection tints only its own row and leaves the task surface unchanged', async () => {
@@ -216,6 +252,28 @@ it('native chip starts collapsed; pointer, Enter and Space toggle a read-only ru
   expect(f.ui.getByRole('list')).toBeDefined()
   expect(f.actions.onSelectSession).not.toHaveBeenCalled()
   expect(f.fold().getAttribute('aria-expanded')).toBe('true')
+})
+
+it('lists the coordinator’s native subagents openly in its card, with no chip', async () => {
+  const f = await open(
+    [issue('root', null, 1, { coordinatorSessionId: 'coord' })],
+    [
+      session('coord', 'root', {
+        agentState: {
+          phase: 'working',
+          since: stamp,
+          nativeSubagents: [{ id: 'n-1', type: 'Explore' }],
+          nativeSubagentCount: 2,
+        },
+      }),
+    ],
+  )
+  const card = render(<FlightDeckFullCoordinator full={f.full} {...f.actions} />)
+  const coordinator = card.container.querySelector('[data-seat="coordinator"]') as HTMLElement
+  expect(within(coordinator).queryByRole('button', { name: /native/ })).toBeNull()
+  const list = within(coordinator).getByRole('list', { name: 'Native subagents of Agent coord' })
+  expect(within(list).getAllByRole('listitem')).toHaveLength(2)
+  expect(list.textContent).toContain('Explore')
 })
 
 it('draws 22px guide steps with middle, last and continuing ancestor elbows beyond three levels', async () => {
@@ -308,9 +366,9 @@ it.each([
 
 it('keeps task menu, status picker and rename access independent of fold and session selection', async () => {
   const f = await open()
-  fireEvent.click(f.ui.getByRole('button', { name: 'Task actions for Task task' }))
+  expect(f.ui.queryByRole('button', { name: 'Task actions for Task task' })).toBeNull()
   fireEvent.contextMenu(f.task().querySelector('.flight-v6-strip')!)
-  expect(f.actions.onMenu).toHaveBeenCalledTimes(2)
+  expect(f.actions.onMenu).toHaveBeenCalledTimes(1)
   expect(f.actions.onMenu.mock.calls[0]?.[0]).toBe(f.full.task('task'))
   expect(f.fold().getAttribute('aria-expanded')).toBe('false')
   fireEvent.click(f.ui.getByTestId('issue-status-picker'))
@@ -332,14 +390,13 @@ it('keeps task menu, status picker and rename access independent of fold and ses
   expect(f.actions.onRenameDone).toHaveBeenCalled()
 })
 
-it('session actions retain the shared lifecycle menu without opening the session', async () => {
+it('right-click retains the shared lifecycle menu without opening the session', async () => {
   const f = await open()
   await act(async () => {
     fireEvent.click(f.fold())
   })
-  fireEvent.click(
-    within(f.agent()).getByRole('button', { name: 'Session actions for Agent worker' }),
-  )
+  expect(f.ui.queryByRole('button', { name: 'Session actions for Agent worker' })).toBeNull()
+  fireEvent.contextMenu(f.agent().querySelector('.flight-v6-session-open')!)
   expect(f.ui.getByRole('menu').textContent).toContain('Session menu worker')
   expect(f.actions.onSelectSession).not.toHaveBeenCalled()
 })
@@ -404,7 +461,7 @@ it.each([
 
 // Optional review capture uses this test's real rendered markup and the scoped
 // source CSS. It is static evidence, not a second implementation of the UI.
-it('opens Error and Needs you by default and leaves working and blocked leaves folded', async () => {
+it('opens Error and Needs you by default and keeps empty leaves free of fold controls', async () => {
   vi.useFakeTimers({ shouldAdvanceTime: true })
   vi.setSystemTime(NOW)
   const f = await open(
@@ -436,7 +493,8 @@ it('opens Error and Needs you by default and leaves working and blocked leaves f
   )
   expect(f.fold('error').getAttribute('aria-expanded')).toBe('true')
   expect(f.fold('ask').getAttribute('aria-expanded')).toBe('true')
-  expect(f.fold('blocked').getAttribute('aria-expanded')).toBe('false')
+  expect(f.fold('blocked').hasAttribute('aria-expanded')).toBe(false)
+  expect(f.fold('blocked').getAttribute('aria-label')).toBe('Open POD-5 Run acceptance checks')
   expect(f.task('blocked').querySelector('.flight-v6-dependency')?.textContent).toContain('POD-2')
   const capture = process.env['PODIUM_V6_REVIEW_HTML']
   if (capture) {

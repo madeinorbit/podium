@@ -1,3 +1,4 @@
+import { mailUnreadNudge } from '@podium/commands/mail-stop-nudge'
 import { describe, expect, it } from 'vitest'
 import { recordUuid, stampCursors } from '../../store/cursor-codec.js'
 import { codexRecordToItems } from '../codex/transcript.js'
@@ -770,8 +771,41 @@ describe('claudeRecordToItems toolPaths', () => {
       attachment: { type: 'edited_text_file', filename: '/repo/b.ts', snippet: '...' },
     })
     expect(items).toMatchObject([
-      { role: 'system', text: 'File changed: /repo/b.ts', toolPaths: ['/repo/b.ts'] },
+      {
+        role: 'system',
+        text: 'File changed: /repo/b.ts',
+        toolPaths: ['/repo/b.ts'],
+        systemKind: 'file-changed',
+      },
     ])
+  })
+
+  // POD-2179: straight after a tool call the notice is the agent's own edit
+  // echoing back (a formatter hook, a shell rewrite) — nothing for the reader.
+  it('drops an edited_text_file notice that closes a tool call', () => {
+    const notice = {
+      type: 'attachment',
+      attachment: { type: 'edited_text_file', filename: '/repo/b.ts', snippet: '...' },
+    }
+    const hook = {
+      type: 'attachment',
+      attachment: { type: 'hook_success', hookEvent: 'PostToolUse', hookName: 'PostToolUse:Bash' },
+    }
+    const result = {
+      type: 'user',
+      message: {
+        role: 'user',
+        content: [{ type: 'tool_result', tool_use_id: 't1', content: 'ok' }],
+      },
+    }
+    expect(claudeRecordToItems(notice, hook)).toEqual([])
+    expect(claudeRecordToItems(notice, result)).toEqual([])
+    // At a turn's start, or behind another notice, something outside the turn
+    // changed the file: it stays.
+    const prompt = { type: 'user', message: { role: 'user', content: 'go on' } }
+    const stop = { type: 'attachment', attachment: { type: 'hook_success', hookEvent: 'Stop' } }
+    for (const previous of [prompt, stop, notice, undefined])
+      expect(claudeRecordToItems(notice, previous)).toMatchObject([{ systemKind: 'file-changed' }])
   })
 
   it('drops a compact_file_reference attachment (context carried across a seam)', () => {
@@ -926,6 +960,29 @@ describe('claudeRecordToItems toolPaths', () => {
         durationMs: 479963,
       },
     ])
+  })
+
+  it('hides a clean stop_hook_summary and keeps hook errors or a halt', () => {
+    const summary = { type: 'system', subtype: 'stop_hook_summary', uuid: 'h1', hookCount: 1 }
+    expect(
+      claudeRecordToItems({ ...summary, hookErrors: [], preventedContinuation: false }),
+    ).toEqual([])
+    expect(
+      claudeRecordToItems({ ...summary, hookErrors: ['connect ECONNREFUSED 127.0.0.1:45777'] }),
+    ).toEqual([
+      {
+        id: 'h1',
+        role: 'system',
+        text: 'Stop hook reported: connect ECONNREFUSED 127.0.0.1:45777',
+      },
+    ])
+    expect(
+      claudeRecordToItems({ ...summary, preventedContinuation: true, stopReason: 'Tests failed' }),
+    ).toMatchObject([{ text: 'A stop hook halted the agent: Tests failed' }])
+    // Podium's mail nudge is a block reason for the agent; the human sees the mail.
+    expect(
+      claudeRecordToItems({ ...summary, hookErrors: [mailUnreadNudge(1, ['issue:#27'])] }),
+    ).toEqual([])
   })
 
   it('maps an away_summary system record to a recap item', () => {

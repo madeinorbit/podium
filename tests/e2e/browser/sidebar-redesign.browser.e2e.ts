@@ -7,13 +7,11 @@ import { RELAY } from './_harness'
 /**
  * Runtime verification of the #41 work-sidebar redesign against the real Live
  * UI: two-line rows with the motion grammar (spinner+timer while working, amber
- * pill + frozen stamp while waiting), the selected row's colour-flowed
+ * pill + frozen stamp while waiting), the selected row's neutral
  * background and bridge notch physically crossing the aside border, dimmed
- * queued rows, and the collapsed 58px rail in its 3b dress (POD-1178): named
- * project groups, the 36x32 identity tile, corner badges, the selection spine
- * flush with the column edge, the hover card, select-then-pick clicks.
+ * queued rows.
  */
-test.skip(({ isMobile }) => isMobile, 'desktop verification: the sidebar/rail are desktop-only')
+test.skip(({ isMobile }) => isMobile, 'desktop verification: the sidebar is desktop-only')
 
 const PORT = Number(process.env.PORT ?? 8799)
 const HTTP = RELAY.replace(/^ws/, 'http')
@@ -72,7 +70,7 @@ async function resolveColor(page: Page, expression: string): Promise<string> {
   }, expression)
 }
 
-test('rows carry the motion grammar, the selected row grows the bridge notch, colour flows', async ({
+test('rows carry the motion grammar and the selected row grows the bridge notch', async ({
   page,
   request,
 }) => {
@@ -151,20 +149,6 @@ test('rows carry the motion grammar, the selected row grows the bridge notch, co
     expect(notchBox.x + notchBox.width).toBeGreaterThan(asideBox.x + asideBox.width - 0.1)
   }
 
-  // ---- Colour flows live: pick Violet, the row background re-mixes. ----
-  await square.click()
-  const picker = page.getByRole('dialog', { name: /Task colour for / })
-  await expect(picker).toBeVisible()
-  await picker.getByRole('button', { name: 'Violet' }).click()
-  await expect(square).toHaveAttribute('data-color', 'violet')
-  const selectedViolet = await resolveColor(page, 'color-mix(in srgb, #8b5cf6 28%, #16161c)')
-  await expect
-    .poll(async () =>
-      rowSurface.evaluate((el) => getComputedStyle(el as HTMLElement).backgroundColor),
-    )
-    .toBe(selectedViolet)
-  await expect(square).toHaveAttribute('aria-busy', 'false', { timeout: 15_000 })
-
   // ---- DONE: the real Stop hook replaces motion with check + explicit copy. ----
   const stopped = await fetch(hookUrl as string, {
     method: 'POST',
@@ -184,87 +168,4 @@ test('rows carry the motion grammar, the selected row grows the bridge notch, co
   if (process.env.SIDEBAR_SHOT) {
     await aside.screenshot({ path: process.env.SIDEBAR_SHOT })
   }
-})
-
-test('collapsed 58px rail keeps the square language and select-then-pick clicks persist', async ({
-  page,
-}) => {
-  await page.setViewportSize({ width: 1280, height: 900 })
-  await openShell(page)
-
-  // Ensure at least one work row exists (reuses rows from earlier tests when
-  // the harness kept them; otherwise spawn one).
-  const aside = page.locator('aside').first()
-  if ((await aside.getByTestId('unified-issue-row').count()) === 0) {
-    await aside.getByRole('button', { name: /^New .+ in .+/ }).click()
-    await expect
-      .poll(async () => aside.getByTestId('unified-issue-row').count(), { timeout: 30_000 })
-      .toBeGreaterThan(0)
-  }
-
-  // ---- Collapse: the shell folds to the 58px rail. ----
-  await page.getByRole('button', { name: 'Collapse sidebar' }).click()
-  const rail = page.locator('.collapsed-sidebar')
-  await expect(rail).toBeVisible()
-  const railBox = await rail.boundingBox()
-  expect(Math.round(railBox?.width ?? 0)).toBe(58)
-
-  // The rail carries the full language: compact new-agent tile, the agent/repo
-  // menu under it, NAMED project groups (3b replaced the bare hairlines), one
-  // identity tile per row, footer search.
-  await expect(rail.getByTestId('rail-new-agent')).toBeVisible()
-  await expect(rail.getByTestId('rail-new-menu')).toBeVisible()
-  const groupLabel = rail.getByTestId('rail-group-label').first()
-  await expect(groupLabel).toBeVisible()
-  expect((await groupLabel.textContent())?.trim().length ?? 0).toBeGreaterThan(0)
-  const railSquares = rail.getByTestId('issue-id-square')
-  await expect.poll(async () => railSquares.count(), { timeout: 15_000 }).toBeGreaterThan(0)
-  await expect(rail.getByRole('button', { name: 'Search' })).toBeVisible()
-
-  // ---- Rail click #1 selects the issue (tile gains its spine)… ----
-  const firstSquare = railSquares.first()
-  const initiallySelected = (await firstSquare.getAttribute('data-selected')) === 'true'
-  if (!initiallySelected) {
-    await firstSquare.click()
-    await expect(firstSquare).toHaveAttribute('data-selected', 'true', { timeout: 10_000 })
-  }
-  // 3b's spine STOPS at the column's own right edge — 3a's notch deliberately
-  // overhung it to bridge into the flight deck, and this asserts the reverse.
-  const railSpine = rail.getByTestId('rail-spine').first()
-  await expect(railSpine).toBeVisible()
-  const spineBox = await railSpine.boundingBox()
-  const box = await rail.boundingBox()
-  if (box && spineBox) {
-    expect(spineBox.x + spineBox.width).toBeLessThanOrEqual(box.x + box.width + 0.4)
-    expect(spineBox.x + spineBox.width).toBeGreaterThan(box.x + box.width - 4)
-  }
-
-  // ---- Hovering a tile opens the card the OS tooltip used to hide. ----
-  await firstSquare.hover()
-  await expect(page.getByTestId('rail-hover-card')).toBeVisible({ timeout: 5_000 })
-
-  // ---- …click #2 on the selected square opens the colour picker. ----
-  await firstSquare.click()
-  await expect(page.getByRole('dialog', { name: /Task colour for / })).toBeVisible()
-  await page.keyboard.press('Escape')
-
-  if (process.env.RAIL_SHOT) {
-    await rail.screenshot({ path: process.env.RAIL_SHOT })
-  }
-
-  // ---- Collapse state persists across a reload. ----
-  await page.reload()
-  await page.waitForFunction(() => !document.querySelector('.app-loading'), undefined, {
-    timeout: 60_000,
-  })
-  await expect(page.locator('.collapsed-sidebar')).toBeVisible({ timeout: 15_000 })
-  await expect(
-    page.locator('.collapsed-sidebar').getByTestId('issue-id-square').first(),
-  ).toBeVisible({ timeout: 15_000 })
-
-  // ---- Expand restores the wide sidebar. ----
-  await page.getByRole('button', { name: 'Expand sidebar' }).click()
-  await expect(page.locator('aside').first().getByTestId('unified-issue-row').first()).toBeVisible({
-    timeout: 15_000,
-  })
 })

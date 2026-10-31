@@ -1,8 +1,8 @@
 import '@/test-support/mock-core-store-handle'
 // @vitest-environment happy-dom
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { ResizableColumn } from './sidebar-common'
+import { ResizableAside, ResizableColumn } from './sidebar-common'
 
 vi.mock('@/app/store', () => ({
   useRuntimeSelector: (select: (store: unknown) => unknown) =>
@@ -79,5 +79,20 @@ describe('ResizableColumn drawer anchoring', () => {
     } finally {
       rects.mockRestore()
     }
+  })
+})
+
+describe('sidebar resizing', () => {
+  it('keeps keyboard resizing inside 240–360px', () => {
+    render(<ResizableAside>Work list</ResizableAside>)
+    const handle = screen.getByRole('separator', { name: 'Resize sidebar' })
+    fireEvent.keyDown(handle, { key: 'End' })
+    fireEvent.keyDown(handle, { key: 'ArrowRight' })
+    expect(handle.getAttribute('aria-valuenow')).toBe('360')
+    expect(handle.parentElement?.style.width).toBe('360px')
+    fireEvent.keyDown(handle, { key: 'Home' })
+    fireEvent.keyDown(handle, { key: 'ArrowLeft' })
+    expect(handle.getAttribute('aria-valuenow')).toBe('240')
+    expect(handle.parentElement?.style.width).toBe('240px')
   })
 })

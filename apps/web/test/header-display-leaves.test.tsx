@@ -84,7 +84,7 @@ it('renewal prepares zero displayed labels and a selected title updates only its
   expect(unrelated.renders).toBe(shellRenders)
   await act(async () => fixture.patch('issueProjection', 'synthetic-0', { title: 'Selected title changed' }))
   expect(view.container.querySelector('.status-strip-issue')?.getAttribute('title')).toBe('Selected title changed')
-  expect(view.container.querySelector('.status-strip-issue-title')?.textContent).toBe('Selected title changed')
+  expect(view.container.querySelector('.status-strip-issue [data-issue-reference]')?.getAttribute('aria-label')).toContain('Selected title changed')
   expect(labelPreparations).not.toHaveBeenCalled()
   expect(unrelated.renders).toBe(shellRenders)
   for (const read of reads) read.mockClear()

@@ -109,14 +109,11 @@ export const LANES: Record<string, Lane> = {
     admission: 'focused',
     summary: '@podium/mobile under node',
   },
-  // POD-4825: the worklist prototype's React Native suites. The node lane
-  // excludes `harness/native/**` (Flow-typed `react-native` source); the
-  // package config aliases it to `react-native-web`.
-  'worklist-native': {
+  worklist: {
     cwd: 'tests/worklist',
     command: bunVitest('vitest.config.ts'),
     admission: 'focused',
-    summary: '@podium/worklist-tests harness/native suites (react-native -> react-native-web)',
+    summary: '@podium/worklist-tests fixtures, diagnostics and pool regression harness',
   },
   scripts: {
     cwd: 'scripts',
@@ -196,13 +193,7 @@ export function runnerFor(path: string): FileRunner | { error: string } {
   const parts = path.split(sep)
   const [top, second] = parts
   if (top === 'tests' && second === 'e2e') return { kind: 'vitest', lane: 'e2e' }
-  if (
-    top === 'tests' &&
-    second === 'worklist' &&
-    parts[2] === 'harness' &&
-    parts[3] === 'native'
-  )
-    return { kind: 'vitest', lane: 'worklist-native' }
+  if (top === 'tests' && second === 'worklist') return { kind: 'vitest', lane: 'worklist' }
   if (
     path === 'scripts/loop-split-load.integration.test.ts' ||
     /\.acceptance\.(test|spec)\./.test(path)

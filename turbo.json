@@ -139,18 +139,11 @@
         "$TURBO_ROOT$/packages/*/src/**",
         "!$TURBO_ROOT$/packages/api-types/src/**"
       ],
-      "outputs": [
-        "src/index.d.ts"
-      ]
+      "outputs": ["src/index.d.ts"]
     },
     "@podium/api-types#typecheck": {
-      "dependsOn": [
-        "build",
-        "^typecheck"
-      ],
-      "outputs": [
-        "*.tsbuildinfo"
-      ]
+      "dependsOn": ["build", "^typecheck"],
+      "outputs": ["*.tsbuildinfo"]
     },
     "typecheck": {
       "dependsOn": ["^typecheck"],
@@ -170,8 +163,7 @@
         "$TURBO_ROOT$/packages/client-graph/package.json",
         "$TURBO_ROOT$/tests/worklist/harness/src/mobx-enforce.ts",
         "$TURBO_ROOT$/tests/worklist/harness/src/mobx-trap.ts",
-        "$TURBO_ROOT$/tests/worklist/harness/src/work-meter.ts",
-        "$TURBO_ROOT$/tests/worklist/legacy-values/**"
+        "$TURBO_ROOT$/tests/worklist/harness/src/work-meter.ts"
       ],
       "outputs": ["*.tsbuildinfo"]
     },
@@ -193,7 +185,6 @@
         "$TURBO_ROOT$/tests/worklist/harness/src/perf/**",
         "$TURBO_ROOT$/tests/worklist/shared/src/**",
         "$TURBO_ROOT$/tests/worklist/diagnostics/**",
-        "$TURBO_ROOT$/tests/worklist/legacy-values/**",
         "$TURBO_ROOT$/apps/web/harness/header-scan-control.ts",
         "$TURBO_ROOT$/apps/mobile/src/lib/mission-session.ts",
         "$TURBO_ROOT$/apps/web/src/app/flight-deck-display.ts",
@@ -203,6 +194,19 @@
       ],
       "outputs": ["*.tsbuildinfo"]
     },
+    "@podium/worklist-tests#test": {
+      "dependsOn": [],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/packages/*/package.json",
+        "$TURBO_ROOT$/packages/*/src/**",
+        "$TURBO_ROOT$/apps/web/src/**",
+        "$TURBO_ROOT$/apps/web/harness/**",
+        "$TURBO_ROOT$/apps/web/test/**",
+        "$TURBO_ROOT$/apps/mobile/src/**"
+      ],
+      "outputs": []
+    },
     "@podium/worklist-tests#typecheck": {
       "dependsOn": ["^typecheck"],
       "inputs": [
@@ -210,10 +214,7 @@
         "$TURBO_ROOT$/apps/mobile/src/lib/mission-session.ts",
         "$TURBO_ROOT$/apps/web/harness/header-scan-control.ts",
         "$TURBO_ROOT$/apps/mobile/src/lib/work-sections.ts",
-        "$TURBO_ROOT$/apps/mobile/src/lib/podium-route.ts",
-        "$TURBO_ROOT$/apps/mobile/src/lib/screening.ts",
         "$TURBO_ROOT$/apps/mobile/src/lib/pool-work-menu.ts",
-        "$TURBO_ROOT$/apps/mobile/src/lib/work-menu.ts",
         "$TURBO_ROOT$/apps/web/src/app/command-launch-readers.ts",
         "$TURBO_ROOT$/apps/web/src/app/flight-deck-display.ts",
         "$TURBO_ROOT$/apps/web/src/app/pool-navigation-provider.ts",
@@ -311,11 +312,9 @@
         "$TURBO_ROOT$/tests/worklist/diagnostics/mission-session-fixture.ts",
         "$TURBO_ROOT$/tests/worklist/diagnostics/notice-fixture.ts",
         "$TURBO_ROOT$/tests/worklist/diagnostics/reference-state.ts",
-        "$TURBO_ROOT$/tests/worklist/harness/src/fence-scenarios.ts",
+        "$TURBO_ROOT$/tests/worklist/harness/src/fence-feeds.ts",
         "$TURBO_ROOT$/tests/worklist/harness/src/fixture/**",
         "$TURBO_ROOT$/tests/worklist/harness/src/mobx-census.ts",
-        "$TURBO_ROOT$/tests/worklist/harness/src/oracle/mobile.ts",
-        "$TURBO_ROOT$/tests/worklist/harness/src/oracle/mobile-snapshot.ts",
         "$TURBO_ROOT$/tests/worklist/harness/src/refusal-fixture.ts",
         "$TURBO_ROOT$/tests/worklist/harness/src/work-meter.ts",
         "$TURBO_ROOT$/tests/worklist/shared/src/scenarios.ts"
@@ -650,8 +649,7 @@
         "$TURBO_ROOT$/test-hermetic-state-guard.ts",
         "$TURBO_ROOT$/packages/*/src/**",
         "$TURBO_ROOT$/tests/worklist/diagnostics/notice-fixture.ts",
-        "$TURBO_ROOT$/tests/worklist/harness/src/fixture/**",
-        "$TURBO_ROOT$/tests/worklist/harness/src/oracle/mobile.ts"
+        "$TURBO_ROOT$/tests/worklist/harness/src/fixture/**"
       ],
       "outputs": []
     },

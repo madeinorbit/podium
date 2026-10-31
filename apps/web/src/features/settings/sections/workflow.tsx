@@ -22,7 +22,10 @@ export const WorkflowSection = observer(function WorkflowSection({
 }): JSX.Element {
   return (
     <Section title="Git workflow" hint="Defaults for task worktrees and the quick-action buttons.">
-      <Row label="Default parent branch">
+      <Row
+        label="Default parent branch"
+        description="New tasks branch from this in repositories without their own base branch. Leave empty to use each repository's main branch."
+      >
         <Input
           type="text"
           placeholder="(auto-detect)"

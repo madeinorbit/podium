@@ -62,7 +62,7 @@ export const state = {
   selectedIssueId: 'root' as string | null,
   paneA: null as string | null,
   ui: new Map<string, string>(),
-  listeners: new Set<() => void>(),
+  listeners: new Set<(keys: ReadonlySet<string>) => void>(),
   /** Per-session phase samples served to the waterfall's activityHistory
    *  query — the on/off record a fixture declares for segmented bars. */
   activity: {} as Record<string, Array<{ at: string; phase: string }>>,
@@ -75,9 +75,9 @@ const uiState = {
   set: (key: string, value: string | null): void => {
     if (value === null) state.ui.delete(key)
     else state.ui.set(key, value)
-    for (const listener of state.listeners) listener()
+    for (const listener of state.listeners) listener(new Set([key]))
   },
-  subscribe: (cb: () => void): (() => void) => {
+  subscribe: (cb: (keys: ReadonlySet<string>) => void): (() => void) => {
     state.listeners.add(cb)
     return () => {
       state.listeners.delete(cb)
@@ -106,7 +106,22 @@ const trpc = {
       }),
     },
   },
+  // The mission header asks what the mission cost; no figure renders no chip.
+  cost: {
+    task: { query: async () => {
+      if (!new URLSearchParams(location.search).has('cost')) return null
+      const usage = {
+        models: [{ model: 'claude-opus-5', inputTokens: 2_000_000, outputTokens: 0,
+          cacheReadTokens: 0, cacheCreationTokens: 0, cacheCreation1hTokens: 0, messages: 20 }],
+        messages: 20, sessionCount: 2,
+      }
+      return { issueId: 'root', state: 'costed', own: usage, rollup: usage,
+        descendantCount: 12, provisional: false, floor: 'none', harnesses: ['claude-code'], sessions: [] }
+    } },
+    tasks: { query: async () => [] },
+  },
   issues: {
+    events: { query: async () => [] },
     setPlacement: { mutate: noop },
     start: { mutate: noop },
     addSession: { mutate: noop },
@@ -126,6 +141,7 @@ const trpc = {
 } as unknown
 
 const store = (): Record<string, unknown> => ({
+  issues: state.issues,
   sessions: state.sessions,
   repos: [],
   machines: [],

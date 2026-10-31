@@ -1,10 +1,14 @@
 import { describe, expect, it } from 'vitest'
+import { coordinatedSeat, type SeatSessionFacts } from './seat-attention'
 import {
+  coordinatedWord,
   counterChildren,
   leafTasks,
   rollUpTaskWords,
+  type SeatWords,
   type SessionWord,
   type SessionWordFacts,
+  seatWords,
   sessionWord,
   TASK_WORD_FILTERS,
   type TaskWord,
@@ -127,6 +131,20 @@ describe('taskWord (D6)', () => {
     expect(taskWord(open, { children: ['done', 'done'] })).toBe('idle')
   })
 
+  it('a phase is Done once all its sub-issues are, closed or not (POD-2178)', () => {
+    const phase = { ...open, type: 'phase' }
+    expect(taskWord(phase, { children: ['done', 'done'] })).toBe('done')
+    expect(taskWord(phase, { sessions: ['idle'], children: ['done'] })).toBe('done')
+    // An empty phase is a placeholder, not finished work.
+    expect(taskWord(phase)).toBe('not-started')
+    expect(taskWord(phase, { children: ['done', 'not-started'] })).toBe('idle')
+    // A lead still working or asking keeps the phase open.
+    expect(taskWord(phase, { sessions: ['needs-you'], children: ['done'] })).toBe('needs-you')
+    expect(taskWord(phase, { sessions: ['working'], children: ['done'] })).toBe('working')
+    // The phase's own request to a human still asks.
+    expect(taskWord({ ...phase, needsHuman: true }, { children: ['done'] })).toBe('needs-you')
+  })
+
   it('cancelled, duplicate and superseded count as done and are hidden', () => {
     for (const closedReason of ['cancelled', 'duplicate', 'superseded']) {
       expect(taskHidden({ ...open, stage: 'done', closedReason })).toBe(true)
@@ -194,7 +212,8 @@ const NODES: Record<string, Node> = {
 const TREE: WordTree<string> = {
   task: (id) => NODES[id],
   children: (id) => NODES[id]?.children ?? [],
-  sessions: (id) => NODES[id]?.sessions ?? [],
+  sessions: (id) =>
+    (NODES[id]?.sessions ?? []).map((word) => ({ word, coordinator: word, delegate: word })),
 }
 
 describe('trees', () => {
@@ -252,5 +271,226 @@ describe('trees', () => {
       'blocked',
       'not-started',
     ])
+  })
+})
+
+describe('coordinated tasks (POD-2171)', () => {
+  const idleDone = live('idle', { agentState: { phase: 'idle', idle: { kind: 'done' } } })
+  const question = live('idle', { agentState: { phase: 'idle', idle: { kind: 'question' } } })
+  const offered = { ...idleDone, offer: { message: 'Ready' } }
+  const permission = live('needs_user')
+  const errored = live('errored')
+  const working = live('working')
+
+  it('a delegate asks only when held at a prompt only a human can answer', () => {
+    const asDelegate = (s: SessionWordFacts, pendingInteractions = 0) =>
+      seatWords(s, {}, false, pendingInteractions).delegate
+    expect(asDelegate(permission)).toBe('needs-you')
+    expect(asDelegate(idleDone, 1)).toBe('needs-you')
+    expect(asDelegate(errored)).toBe('error')
+    expect(asDelegate(question)).toBe('idle')
+    expect(asDelegate(offered)).toBe('idle')
+    expect(asDelegate({ ...working, offer: { message: 'x' } })).toBe('working')
+    expect(sessionWord(question)).toBe('needs-you')
+  })
+
+  // An epic run by `coord`; `reviewed` is a decision-free child whose agent
+  // asked a question, `building` is a child whose delegate works.
+  const tree = (
+    seats: Record<string, SeatWords[]>,
+    coordinated: (id: string) => boolean,
+    extra: Record<string, TaskWordFacts & { children?: string[] }> = {},
+  ): WordTree<string> => {
+    const nodes: Record<string, TaskWordFacts & { children?: string[] }> = {
+      epic: { type: 'task', stage: 'in_progress', children: ['reviewed', 'building'] },
+      reviewed: { type: 'task', stage: 'review' },
+      building: { type: 'task', stage: 'in_progress' },
+      ...extra,
+    }
+    return {
+      task: (id) => nodes[id],
+      children: (id) => nodes[id]?.children ?? [],
+      sessions: (id) => seats[id] ?? [],
+      coordinated,
+    }
+  }
+  const seats = (over: Partial<Record<string, SeatWords[]>> = {}): Record<string, SeatWords[]> =>
+    ({
+      epic: [seatWords(idleDone, {}, true)],
+      reviewed: [seatWords(question)],
+      building: [seatWords(working)],
+      ...over,
+    }) as Record<string, SeatWords[]>
+  const epicWord = (t: WordTree<string>) => rollUpTaskWords('epic', t).get('epic')
+
+  it('reads Working while a delegate works and a child agent asks the coordinator', () => {
+    const t = tree(seats(), (id) => id === 'epic')
+    expect(epicWord(t)).toBe('working')
+    // The child's own row still shows its own session's question.
+    expect(rollUpTaskWords('epic', t).get('reviewed')).toBe('needs-you')
+  })
+
+  it('without a live coordinator the child question rolls up as before', () => {
+    expect(epicWord(tree(seats(), () => false))).toBe('needs-you')
+  })
+
+  it('escalates a delegate error and a permission prompt from anywhere below', () => {
+    expect(epicWord(tree(seats({ building: [seatWords(errored)] }), (id) => id === 'epic'))).toBe(
+      'error',
+    )
+    expect(
+      epicWord(tree(seats({ building: [seatWords(permission)] }), (id) => id === 'epic')),
+    ).toBe('needs-you')
+  })
+
+  it('asks for the coordinator itself, never for a delegate\u2019s question', () => {
+    expect(
+      epicWord(tree(seats({ epic: [seatWords(offered, {}, true)] }), (id) => id === 'epic')),
+    ).toBe('needs-you')
+    expect(
+      epicWord(
+        tree(
+          seats({ epic: [seatWords(offered, {}, true), seatWords(question)] }),
+          (id) => id === 'epic',
+        ),
+      ),
+    ).toBe('needs-you')
+    expect(
+      epicWord(
+        tree(
+          seats({ epic: [seatWords(idleDone, {}, true), seatWords(question)] }),
+          (id) => id === 'epic',
+        ),
+      ),
+    ).toBe('working')
+  })
+
+  it('keeps a descendant\u2019s own requests on its own row', () => {
+    const quiet = seats({ building: [seatWords(idleDone)], reviewed: [] })
+    for (const building of [
+      { type: 'task', stage: 'in_progress', needsHuman: true },
+      { type: 'decision', stage: 'review' },
+    ] as const) {
+      const words = rollUpTaskWords(
+        'epic',
+        tree(quiet, (id) => id === 'epic', { building }),
+      )
+      expect(words.get('building')).toBe('needs-you')
+      expect(words.get('epic')).toBe('idle')
+      expect(epicWord(tree(quiet, () => false, { building }))).toBe('needs-you')
+    }
+  })
+
+  it('reads a delegate\u2019s work apart from its suppressed offer, and counts open interactions', () => {
+    const offeredWorking = { ...working, offer: { message: 'Ready' } }
+    expect(seatWords(offeredWorking)).toEqual({
+      word: 'needs-you',
+      coordinator: 'needs-you',
+      delegate: 'working',
+      lead: false,
+    })
+    // The role words count open interactions even where the plain word is not given them.
+    expect(seatWords(idleDone, {}, true, 1)).toMatchObject({
+      word: 'idle',
+      coordinator: 'needs-you',
+    })
+    expect(seatWords(idleDone, { pendingInteractions: 1 }).delegate).toBe('needs-you')
+    const pending = seats({ building: [seatWords(idleDone, { pendingInteractions: 1 })] })
+    expect(epicWord(tree(pending, (id) => id === 'epic'))).toBe('needs-you')
+  })
+
+  it('a nested coordinator asks on its own row and only escalates exceptions further up', () => {
+    const nested = (sub: SessionWordFacts) =>
+      tree(
+        seats({ building: [seatWords(sub, {}, true), seatWords(working)] }),
+        (id) => id === 'epic' || id === 'building',
+      )
+    expect(rollUpTaskWords('epic', nested(offered)).get('building')).toBe('needs-you')
+    expect(epicWord(nested(offered))).toBe('working')
+    expect(epicWord(nested(permission))).toBe('needs-you')
+  })
+})
+
+describe('coordinatedSeat: one seat\u2019s whole verdict on a coordinated task (POD-2171)', () => {
+  const at = (iso: string) => Date.parse(iso)
+  const s = (over: Record<string, unknown>) =>
+    ({ status: 'live', archived: false, ...over }) as SeatSessionFacts
+  it('reads work apart from an offer, and asks only as the coordinator', () => {
+    const offered = s({
+      agentState: { phase: 'working', since: '2026-10-26T11:00:00Z' },
+      offer: { createdAt: '2026-10-26T10:00:00Z' },
+    })
+    expect(coordinatedSeat(offered, 'delegate')).toMatchObject({
+      asks: false,
+      working: true,
+      asksSince: null,
+    })
+    expect(coordinatedSeat(offered, 'coordinator')).toMatchObject({
+      asks: true,
+      working: true,
+      asksSince: at('2026-10-26T10:00:00Z'),
+    })
+  })
+  it('times a pending interaction from when it was asked, a prompt from its state, a crash from its stop', () => {
+    const idle = s({
+      agentState: { phase: 'idle', since: '2026-10-26T09:00:00Z', idle: { kind: 'done' } },
+    })
+    expect(
+      coordinatedSeat(idle, 'delegate', { count: 1, since: at('2026-10-26T12:00:00Z') }),
+    ).toMatchObject({ asks: true, asksSince: at('2026-10-26T12:00:00Z') })
+    const prompt = s({
+      agentState: { phase: 'needs_user', since: '2026-10-26T12:00:00Z' },
+      offer: { createdAt: '2026-10-26T09:00:00Z' },
+    })
+    expect(coordinatedSeat(prompt, 'delegate').asksSince).toBe(at('2026-10-26T12:00:00Z'))
+    const crash = s({
+      status: 'exited',
+      stopReason: 'oom',
+      exitCode: 137,
+      stoppedAt: '2026-10-26T11:30:00Z',
+      agentState: { phase: 'working', since: '2026-10-26T08:00:00Z' },
+    })
+    expect(coordinatedSeat(crash, 'delegate')).toMatchObject({
+      asks: true,
+      asksSince: at('2026-10-26T11:30:00Z'),
+      errorClass: 'oom',
+      working: false,
+    })
+  })
+  it('asks nothing on a closed task or from an archived seat', () => {
+    const crash = s({ status: 'exited', stopReason: 'oom', exitCode: 137 })
+    expect(coordinatedSeat(crash, 'delegate', undefined, false)).toMatchObject({
+      asks: false,
+      errorClass: null,
+    })
+    expect(coordinatedSeat({ ...crash, archived: true }, 'delegate')).toMatchObject({ asks: false })
+  })
+  it('a coordinator\u2019s question or pending interaction asks', () => {
+    const question = s({
+      agentState: { phase: 'idle', since: '2026-10-26T09:00:00Z', idle: { kind: 'question' } },
+    })
+    expect(coordinatedSeat(question, 'coordinator').asks).toBe(true)
+    expect(coordinatedSeat(question, 'delegate').asks).toBe(false)
+  })
+})
+
+describe('the verdict is unambiguous (review round 3)', () => {
+  const stale = [
+    { status: 'reconnecting', agentState: { phase: 'idle', idle: { kind: 'done' } } },
+    { status: 'starting', agentState: { phase: 'idle', idle: { kind: 'open_todos' } } },
+    { status: 'starting', agentState: { phase: 'ended' } },
+  ] as const
+  it('a starting or reconnecting seat with a stale finished phase is working, never also done', () => {
+    for (const session of stale) {
+      const seat = coordinatedSeat(session as SeatSessionFacts, 'delegate')
+      expect(seat).toMatchObject({ working: true, done: false })
+      expect(coordinatedWord(seat)).toBe('working')
+      expect(seatWords(session as SessionWordFacts).delegate).toBe('working')
+    }
+  })
+  it('role words translate the verdict with the session word\u2019s precedence', () => {
+    const exited = { status: 'exited', stopReason: 'self', exitCode: 0 } as SessionWordFacts
+    expect(seatWords(exited, {}, false, 1)).toMatchObject({ word: 'done', delegate: 'needs-you' })
+    expect(seatWords(exited, { issueClosed: true }, false, 1).delegate).toBe('done')
   })
 })

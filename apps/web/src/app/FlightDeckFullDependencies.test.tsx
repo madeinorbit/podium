@@ -153,7 +153,6 @@ async function open(rows = fixture(), sessions: Row[] = []) {
   const screen = new MissionScreen(pool, 'root', {
     setPreference: (key, value) => preferences.set(key, value),
   })
-  screen.open()
   const stop = autorun(() => {
     void settled(() => screen.full.ready)
   })
@@ -167,6 +166,7 @@ async function open(rows = fixture(), sessions: Row[] = []) {
   const actions = {
     activeSessionId: 'selected-session',
     renameTarget: null,
+    onOpenTask: vi.fn(),
     onSelectSession: vi.fn(),
     onMenu: vi.fn(),
     onStatusPick: vi.fn(),

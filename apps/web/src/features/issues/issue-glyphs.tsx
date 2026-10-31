@@ -180,7 +180,7 @@ export function StatusGlyph({
 
 /**
  * The STAGE-only door onto {@link StatusGlyph}, for the surfaces that hold a
- * stage and nothing else — a resolved `POD-…` chip, a board column header, a
+ * stage and nothing else — a board column header or a
  * filter row. Where the row's `closedReason` IS in hand, call `StatusGlyph`
  * with `issueStatusOf(issue)` instead: a cancelled issue passed through here
  * still draws the green Done tick, because a bare stage genuinely cannot tell
@@ -311,6 +311,57 @@ export function AssigneeAvatar({
       style={{ width: size, height: size }}
     >
       {assigneeInitials(assignee)}
+    </span>
+  )
+}
+
+/** The sidebar's calm dot tone per status (`.work-row-dot[data-tone]`). */
+const CALM_TONE: Record<IssueStatus, 'idle' | 'active' | 'settled' | 'closed'> = {
+  proposed: 'idle',
+  backlog: 'idle',
+  planning: 'idle',
+  in_progress: 'active',
+  review: 'active',
+  shipping: 'active',
+  done: 'settled',
+  cancelled: 'closed',
+  duplicate: 'closed',
+  superseded: 'closed',
+}
+
+/**
+ * The calm status set the sidebar rows speak (POD-2074): a hollow grey ring
+ * before work starts, a hollow blue ring while it is under way (review
+ * included), a grey dot once done, a faint dot once closed otherwise. The
+ * panel's relation rows and status pill use it so the column and the sidebar
+ * read as one vocabulary (fidelity review P2-3); the colourful progress
+ * circles stay with the status menus, where every lane must be told apart.
+ */
+export function CalmStatusMark({
+  status,
+  size = 12,
+  decorative = false,
+}: {
+  status: IssueStatus
+  /** The box the dot sits centred in, so it drops into a StatusGlyph slot. */
+  size?: number
+  decorative?: boolean
+}): JSX.Element {
+  const tone = CALM_TONE[status]
+  return (
+    <span
+      role="img"
+      aria-label={ISSUE_STATUS_LABELS[status]}
+      aria-hidden={decorative || undefined}
+      data-testid="calm-status-mark"
+      data-status={status}
+      className="grid shrink-0 place-items-center"
+      style={{ width: size, height: size }}
+    >
+      <span
+        className={cn('work-row-dot', tone === 'closed' && 'opacity-60')}
+        data-tone={tone === 'closed' ? 'settled' : tone}
+      />
     </span>
   )
 }

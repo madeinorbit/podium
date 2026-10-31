@@ -5,12 +5,12 @@ import { groupSessions, withoutShells } from '@podium/client-core/focus'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
 import { groupRelations, sessionCardModel } from '@podium/client-core/values'
+import { here } from '@podium/client-graph/lookup'
 import { mobileInboxViews } from '@podium/client-graph/mobile-inbox'
 import { createMobileSessionReader } from '@podium/client-graph/mobile-session-context'
 import { MOBILE_SESSION_SCHEMA } from '@podium/client-graph/mobile-session-schema'
 import type { MobxPool } from '@podium/client-graph/pool'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
-import { here } from '@podium/client-graph/lookup'
 import { issueDisplayRef, type PodiumTarget } from '@podium/protocol'
 
 const cardFields = [
@@ -20,7 +20,6 @@ const cardFields = [
   'stage',
   'description',
   'brief',
-  'color',
   'repoPath',
   'displayRef',
   'priority',
@@ -47,7 +46,6 @@ const issueFacts = (row: IssueViewModel | undefined) =>
         ref: issueDisplayRef(row),
         title: row.title,
         stage: row.stage,
-        color: row.color,
         priority: row.priority,
         pinned: row.pinned,
         needsHuman: row.needsHuman,
@@ -94,7 +92,6 @@ export function mobileSessionSnapshot(pool: MobxPool, ids: readonly string[], no
       seq: row.seq,
       title: row.title,
       stage: row.stage,
-      color: row.color,
     })),
     machines: reader.machines(),
     booting: reader.booting(),

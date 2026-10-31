@@ -17,8 +17,7 @@ import { attentionGroup } from '../focus'
  * empty line whose live counter comes from {@link workingSessionCount}.
  *
  * Scope (spec §5, POD-113): the tray is GLOBAL — every live item across all
- * tasks, always. The selected issue influences rendering only via the colour
- * ring on its cards; it never narrows or re-sorts the list.
+ * tasks, always. Selecting an issue never narrows or re-sorts the list.
  */
 export type TrayItem = {
   issue: IssueNavigationModel

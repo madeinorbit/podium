@@ -1451,6 +1451,7 @@ export class ReaderQueries {
   }
   dispose(): void {
     this.releaseReaderChanges()
+    this.sourceSeen = undefined
     for (const stop of this.stopTables) stop()
     this.repoOverrides.clear()
     this.repoPrefixCounts.clear()

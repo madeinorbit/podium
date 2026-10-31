@@ -7,7 +7,6 @@ import { afterEach, expect, it, vi } from 'vitest'
 import { makeIssue } from '@/lib/test-issue'
 import { EMPTY_BOARD, readBoardCatalog, useBoardBase, useBoardCatalog, useBoardData } from './board-pool-data'
 import { useBoardCloseGuard } from './board-pool-row'
-import { useExplorerData } from './explorer/explorer-pool-data'
 import { IssueBulkCloseDialog } from './issue-lifecycle'
 import { DEFAULT_DISPLAY } from './issues-display'
 import { useIssueStatusApply } from './use-issue-status-apply'
@@ -101,9 +100,8 @@ function useBoundary() {
     openIssueId: base.openIssueId,
     now: 0,
   })
-  const explorer = useExplorerData(null, '')
   useBoardCloseGuard([])
-  return { base, board, explorer }
+  return { base, board }
 }
 it('keeps board-only pool reads off both legacy collections before and after attachment', () => {
   issueBoardStats.enable()
@@ -111,25 +109,17 @@ it('keeps board-only pool reads off both legacy collections before and after att
   const { result, rerender } = renderHook(useBoundary)
   expect(result.current.base.openIssueId).toBeNull()
   expect(result.current.board).toEqual(EMPTY_BOARD)
-  expect(result.current.explorer.rows).toEqual([])
   state.attached = true
   rerender()
   expect(result.current.base.openIssueId).toBeNull()
   expect(result.current.board).toEqual(EMPTY_BOARD)
-  expect(result.current.explorer.rows).toEqual([])
   expect(state.issueReads).not.toHaveBeenCalled()
   expect(state.sessionReads).not.toHaveBeenCalled()
   expect(issueBoardStats.read()).toEqual({})
   expect(
     storeStats
       .snapshot()
-      .runtimes.reduce(
-        (n, runtime) =>
-          n +
-          (runtime.slices['issueBoard.board'] ?? 0) +
-          (runtime.slices['issueBoard.explorer'] ?? 0),
-        0,
-      ),
+      .runtimes.reduce((n, runtime) => n + (runtime.slices['issueBoard.board'] ?? 0), 0),
   ).toBe(0)
 })
 it('keeps the pool bulk-close dialog off the legacy session collection', () => {

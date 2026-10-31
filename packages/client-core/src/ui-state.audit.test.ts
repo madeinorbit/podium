@@ -14,7 +14,6 @@ import {
   CLIENT_DEVICE_LOCAL_UI_KEYS,
   createRoutedUiState,
   KNOWN_NON_UI_ROUTES,
-  SIDEBAR_COLLAPSED_KEY,
   SUPERAGENT_MODE_KEY,
   UI_STATE_KEYS,
   uiStateRoute,
@@ -127,7 +126,8 @@ describe('UI persistence ownership lint', () => {
   it('only the two new-work launch forms call the last-launch preference writer', () => {
     const writers = PRODUCT_ROOTS.flatMap(sources)
       .filter((path) => /\brememberLaunchPick\s*\(/.test(readFileSync(path, 'utf8')))
-      .map((path) => relative(ROOT, path)).sort()
+      .map((path) => relative(ROOT, path))
+      .sort()
     expect(writers).toEqual([
       'apps/mobile/src/components/NewWorkButton.tsx',
       'apps/web/src/features/setup/ColdStartComposer.tsx',
@@ -311,13 +311,12 @@ const LEGACY_UI_STATE_VOCABULARY: readonly string[] = [
   ...Object.values(UI_STATE_KEYS),
   ...Object.keys(LAYOUT_KEY_FROM_LEGACY),
   SUPERAGENT_MODE_KEY,
-  SIDEBAR_COLLAPSED_KEY,
   ...DEVICE_LOCAL_UI_KEYS,
   ...CLIENT_DEVICE_LOCAL_UI_KEYS,
 ]
 
 /** The legacy PREFIXES under which dynamic section keys are spelled on disk. */
-const LEGACY_SECTION_PREFIXES: readonly string[] = ['podium:sidebar:']
+const LEGACY_SECTION_PREFIXES: readonly string[] = ['podium:sidebar:', 'tips.seen.']
 
 /**
  * The canonical layout keys that are actually REACHABLE: a legacy spelling the

@@ -46,7 +46,6 @@ const OFFER: UpdatePanelView = {
   version: '0.4.3',
   steps: [],
   places: [{ kind: 'this-app', label: 'This app', effect: 'will refresh' }],
-  restartNote: 'Your sessions keep running.',
   primary: { kind: 'start', label: 'Update Podium', pendingLabel: 'Starting…' },
   awaitingElsewhere: [],
   indicator: 'idle-dot',
@@ -120,7 +119,7 @@ describe('UpdatesEngine', () => {
       pending: null,
       run: mocks.run,
       checkNow: mocks.checkNow,
-    refreshState: mocks.refreshState,
+      refreshState: mocks.refreshState,
       acknowledge: mocks.acknowledge,
       proposal: PROPOSAL,
       proposalPending: false,
@@ -159,7 +158,7 @@ describe('UpdatesEngine', () => {
   it('Hide collapses to the indicator, and the indicator brings it back', () => {
     mount()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Hide' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Later' }))
     expect(screen.queryByTestId('update-panel')).toBeNull()
     // NOTHING IS LOST: the indicator is still there, from server truth.
     expect(screen.getByTestId('update-indicator')).toBeTruthy()
@@ -170,7 +169,7 @@ describe('UpdatesEngine', () => {
 
   it('Hide does not mutate service-worker state', () => {
     mount()
-    fireEvent.click(screen.getByRole('button', { name: 'Hide' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Later' }))
     expect(mocks.setNeedRefresh).not.toHaveBeenCalled()
   })
 
@@ -194,9 +193,12 @@ describe('UpdatesEngine', () => {
     expect(screen.getByTestId('update-panel')).toBeTruthy()
   })
 
-  it.each(['done', 'none'] as const)('keeps Hide closed when the same operation becomes %s', (state) => {
+  it.each([
+    'done',
+    'none',
+  ] as const)('keeps Hide closed when the same operation becomes %s', (state) => {
     const { rerender } = mount({ ...OFFER, state: 'waiting-you', operationId: 'op_same' })
-    fireEvent.click(screen.getByRole('button', { name: 'Hide' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Later' }))
     mocks.useUpdateState.mockReturnValue({
       ...mocks.useUpdateState.mock.results.at(-1)?.value,
       view: { ...OFFER, state, operationId: 'op_same' },
@@ -207,7 +209,7 @@ describe('UpdatesEngine', () => {
 
   it('reopens a hidden running operation when it fails', () => {
     const { rerender } = mount({ ...OFFER, state: 'running', operationId: 'op_same' })
-    fireEvent.click(screen.getByRole('button', { name: 'Hide' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Later' }))
     mocks.useUpdateState.mockReturnValue({
       ...mocks.useUpdateState.mock.results.at(-1)?.value,
       view: { ...OFFER, state: 'failed', operationId: 'op_same' },
@@ -224,7 +226,9 @@ describe('UpdatesEngine', () => {
     rerender(<UpdatesEngine httpOrigin="http://podium.test" />)
     expect(screen.queryByTestId('release-proposal-card')).toBeNull()
     mocks.useUpdateState.mockReturnValue({
-      ...result, view, proposal: { ...PROPOSAL, state: 'building' },
+      ...result,
+      view,
+      proposal: { ...PROPOSAL, state: 'building' },
     })
     rerender(<UpdatesEngine httpOrigin="http://podium.test" />)
     expect(screen.getByTestId('release-proposal-card')).toBeTruthy()
@@ -240,14 +244,14 @@ describe('UpdatesEngine', () => {
       indicatorLabel: 'Update failed',
     })
 
-    fireEvent.click(screen.getByRole('button', { name: 'Hide' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }))
     expect(mocks.acknowledge).toHaveBeenCalledTimes(1)
     expect(screen.getByTestId('update-indicator').getAttribute('data-indicator')).toBe('attention')
   })
 
   it('re-opens when the situation itself changes', () => {
     const { rerender } = mount()
-    fireEvent.click(screen.getByRole('button', { name: 'Hide' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Later' }))
     expect(screen.queryByTestId('update-panel')).toBeNull()
 
     mocks.useUpdateState.mockReturnValue({
@@ -258,7 +262,7 @@ describe('UpdatesEngine', () => {
       pending: null,
       run: mocks.run,
       checkNow: mocks.checkNow,
-    refreshState: mocks.refreshState,
+      refreshState: mocks.refreshState,
       acknowledge: mocks.acknowledge,
     })
     rerender(
@@ -302,7 +306,7 @@ describe('UpdatesEngine', () => {
   /** The skew banner and the version guard live outside this tree (POD-1610). */
   it('can be opened from outside the React tree', () => {
     mount()
-    fireEvent.click(screen.getByRole('button', { name: 'Hide' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Later' }))
     expect(screen.queryByTestId('update-panel')).toBeNull()
 
     act(() => {

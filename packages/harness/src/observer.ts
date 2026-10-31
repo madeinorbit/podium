@@ -260,7 +260,7 @@ export function acceptAgentObservation(
 // From agent-state/reducer.ts (POD-4472): unchanged, re-homed.
 // ---------------------------------------------------------------------------
 
-import type { AgentNeed, AgentRuntimeState } from '@podium/model'
+import type { AgentCompactingFrom, AgentNeed, AgentRuntimeState } from '@podium/model'
 import type { AgentStateEvent } from './agent-state/types.js'
 
 /**
@@ -313,13 +313,48 @@ export function initialAgentState(now: string): AgentRuntimeState {
   return { phase: 'unknown', since: now, workingMsTotal: 0, nativeSubagentCount: 0 }
 }
 
+/**
+ * Compacting counts as working time only when it interrupted work. A compaction
+ * Claude runs between turns (idle auto-compaction, manual /compact) is the
+ * harness housekeeping while the agent waits; counting it would grow a stopped
+ * session's motion timer with no turn the user can see.
+ */
+function countsAsWorking(state: AgentRuntimeState): boolean {
+  if (state.phase === 'working') return true
+  if (state.phase !== 'compacting') return false
+  return state.compactingFrom === undefined || state.compactingFrom.phase === 'working'
+}
+
 function workingMsAt(prev: AgentRuntimeState, nextSince: string): number {
   const total = prev.workingMsTotal ?? 0
-  if (prev.phase !== 'working' && prev.phase !== 'compacting') return total
+  if (!countsAsWorking(prev)) return total
   const from = Date.parse(prev.since)
   const to = Date.parse(nextSince)
   if (!Number.isFinite(from) || !Number.isFinite(to)) return total
   return total + Math.max(0, to - from)
+}
+
+/**
+ * What a compaction starting now interrupts, for its end to restore. Undefined
+ * for a running turn (and for `unknown`, which has nothing to go back to): the
+ * end then resumes plain `working`, as mid-turn auto-compaction always has.
+ */
+function compactionResumePoint(prev: AgentRuntimeState): AgentCompactingFrom | undefined {
+  switch (prev.phase) {
+    case 'compacting':
+      return prev.compactingFrom
+    case 'working':
+      return prev.awaitingSubagents ? { phase: 'working', awaitingSubagents: true } : undefined
+    case 'idle':
+      return { phase: 'idle', ...(prev.idle ? { idle: prev.idle } : {}) }
+    case 'needs_user':
+      return { phase: 'needs_user', ...(prev.need ? { need: prev.need } : {}) }
+    case 'errored':
+      return { phase: 'errored', ...(prev.error ? { error: prev.error } : {}) }
+    case 'unknown':
+    case 'ended':
+      return undefined
+  }
 }
 
 /** Carry the identity list only when non-empty (field is optional/additive). */
@@ -550,10 +585,19 @@ export function reduceAgentState(
           ...(event.detail ? { detail: event.detail } : {}),
         },
       }
-    case 'compaction':
-      return event.phase === 'start'
-        ? { phase: 'compacting', ...base }
-        : { phase: 'working', ...base }
+    case 'compaction': {
+      if (event.phase === 'start') {
+        const compactingFrom = compactionResumePoint(prev)
+        return { phase: 'compacting', ...base, ...(compactingFrom ? { compactingFrom } : {}) }
+      }
+      // An end with no compaction open restates nothing: re-promoting here is
+      // what turned an end-only report (OpenCode's session.compacted) into work.
+      if (prev.phase !== 'compacting') return prev
+      // Return to what the compaction interrupted. Only a running turn resumes
+      // working; an idle compaction goes back to idle with its verdict.
+      const { phase, ...detail } = prev.compactingFrom ?? { phase: 'working' as const }
+      return { phase, ...base, ...detail }
+    }
     case 'task_delta': {
       const applied = applyTaskDelta(prev, event)
       if (!applied) return prev

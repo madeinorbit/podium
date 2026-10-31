@@ -217,7 +217,11 @@ const setIssueId: CommandDef = {
 
 /** Per-user read state. `policy.scope: 'self'` is what makes "one user setting
  *  another user's readAt" unrepresentable rather than merely unimplemented. */
-const markReadInput = z.object({ sessionId: SessionIdField, mutationId })
+const markReadInput = z.object({
+  sessionId: SessionIdField,
+  readAt: z.string().datetime().optional(),
+  mutationId,
+})
 
 const markRead: CommandDef = {
   input: markReadInput,
@@ -230,7 +234,8 @@ const markRead: CommandDef = {
   conflict: 'single-writer',
 }
 
-const markUnread: CommandDef = { ...markRead }
+const markUnreadInput = markReadInput.omit({ readAt: true })
+const markUnread: CommandDef = { ...markRead, input: markUnreadInput }
 
 const snoozeSetInput = z.object({
   sessionId: SessionIdField,
@@ -439,9 +444,7 @@ export const sessionStateInputs = {
   'sessions.setIssueId': setIssueIdInput,
   'sessions.dismissOffer': dismissOfferInput,
   'sessions.markRead': markReadInput,
-  // markUnread is `{ ...markRead }`, so it IS markRead's schema instance — the
-  // mirror-action pair shares one input by construction rather than by copy.
-  'sessions.markUnread': markReadInput,
+  'sessions.markUnread': markUnreadInput,
   'sessions.setDraft': sessionDraftInput,
   'snoozes.set': snoozeSetInput,
   'snoozes.clear': snoozeClearInput,

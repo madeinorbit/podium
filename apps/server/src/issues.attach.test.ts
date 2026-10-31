@@ -13,6 +13,7 @@ import { formatIssueRef, SELF_REF_RULE, selfRefRule } from '@podium/protocol'
 import { normalizeSettings } from '@podium/runtime'
 import { describe, expect, it, vi } from 'vitest'
 import { type IssueDeps, IssueService } from './modules/issues/service'
+import { seatText } from './modules/issues/service/seat'
 import { issueTestPlumbing } from './modules/issues/service/test-plumbing'
 import { openTestStore } from './test-support/open-test-store'
 import { sessionReadPorts } from './test-support/session-facts'
@@ -241,6 +242,54 @@ describe('attachSession', () => {
     expect(w.isDraftVessel).toBe(false)
     expect(issueBySession.get(asSessionId('s1'))).toBe(w.id)
     expect(await svc.reports.get(parent.id)).not.toBeNull()
+  })
+
+  it("newSubissue takes the anchor's base parent branch, never a stack (POD-2065)", async () => {
+    for (const [anchorParent, expected] of [
+      ['master', 'master'],
+      ['issue/7-base', 'main'],
+    ] as const) {
+      const { svc, issueBySession } = await harness([
+        sess(asSessionId('s1'), '/r/.worktrees/epic'),
+        sess(asSessionId('s2'), '/r/.worktrees/epic'),
+      ])
+      const parent = await svc.crud.create({
+        repoPath: '/r',
+        title: 'Epic',
+        parentBranch: anchorParent,
+        startNow: false,
+      })
+      await svc.crud.update(parent.id, { worktreePath: '/r/.worktrees/epic' })
+      issueBySession.set(asSessionId('s1'), parent.id)
+      issueBySession.set(asSessionId('s2'), parent.id)
+      await svc.crud.setCoordinator(parent.id, asSessionId('s2'))
+      const w = await svc.attention.attachSession({
+        sessionId: asSessionId('s1'),
+        newSubissue: { title: 'Side quest', origin: 'human' },
+        confirmRehome: true,
+      })
+      expect(w.parentBranch).toBe(expected)
+    }
+  })
+
+  it("newSubissue inherits the repository's base branch (POD-2065)", async () => {
+    const { svc, store, issueBySession } = await harness([
+      sess(asSessionId('s1'), '/r/.worktrees/epic'),
+      sess(asSessionId('s2'), '/r/.worktrees/epic'),
+    ])
+    await store.repos.setRepoDefaultParentBranch(store.hostMachineId, '/r', 'release')
+    const parent = await svc.crud.create({ repoPath: '/r', title: 'Epic', startNow: false })
+    expect(parent.parentBranch).toBe('release')
+    await svc.crud.update(parent.id, { worktreePath: '/r/.worktrees/epic' })
+    issueBySession.set(asSessionId('s1'), parent.id)
+    issueBySession.set(asSessionId('s2'), parent.id)
+    await svc.crud.setCoordinator(parent.id, asSessionId('s2'))
+    const w = await svc.attention.attachSession({
+      sessionId: asSessionId('s1'),
+      newSubissue: { title: 'Side quest', origin: 'human' },
+      confirmRehome: true,
+    })
+    expect(w.parentBranch).toBe('release')
   })
 
   it('newSubissue with no current issue requires targetId as parent', async () => {
@@ -762,8 +811,13 @@ describe('coordinator seat', () => {
 
   it('only a session with no coordinator above it is the top seat', async () => {
     const { svc, root, issueBySession, sessions } = await tree()
-    // Before any split nobody coordinates, so every session talks to the user.
-    expect((await svc.reports.seatFor(S('helper'))).kind).toBe('top')
+    // Before any split nobody coordinates, so every session talks to the user,
+    // and its seat line says the role is open (POD-2062).
+    const open = await svc.reports.seatFor(S('helper'))
+    expect(open).toMatchObject({ kind: 'top', coordinates: false, claimable: expect.any(String) })
+    expect(seatText(open)).toContain(
+      `This issue has no active coordinator. If the user named you coordinator or you orchestrate other agent sessions, claim it: \`podium issue coordinator ${(open as { claimable: string }).claimable} --claim\`.`,
+    )
 
     const phase = await svc.crud.create({
       repoPath: '/r',

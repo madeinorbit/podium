@@ -65,10 +65,10 @@ import type { RowRecord } from './shared/source'
 /** A borrowed feed row, or the stable facade of declared repo metadata. */
 export type StoredRow = object
 
-type RepoInputs = { id: unknown; prefix: unknown; repoPath: unknown }
+type RepoInputs = { id: unknown; prefix: unknown; defaultParentBranch: unknown; repoPath: unknown }
 // Lane ownership is ingest bookkeeping, never a reactive input or a cold index.
 // The shared composer keeps its latest-lane/takeover rule independently of the
-// three declared repo fields exposed by the product's single row reader.
+// four declared repo fields exposed by the product's single row reader.
 interface RepoState {
   readonly inputs: Map<string, ReturnType<typeof createFieldInputs<RepoInputs>>>
   holders: Map<string, StoredRow>
@@ -196,7 +196,7 @@ export function put(
       inputs.replace(read)
     } else {
       inputs = createFieldInputs<RepoInputs>(
-        ['id', 'prefix', 'repoPath'],
+        ['id', 'prefix', 'defaultParentBranch', 'repoPath'],
         read,
         `repo:${id}`,
         // row(repo) tracks presence separately. Its existing value atom can

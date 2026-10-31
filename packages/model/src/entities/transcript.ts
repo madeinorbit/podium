@@ -170,8 +170,25 @@ export const TranscriptItem = z.object({
   /** Distinguishes special system items so the chat can render them apart from a
    *  generic "System" line: 'recap' = Claude Code's away/while-you-were-gone
    *  summary (subtype away_summary); 'duration' = a turn's churn time (subtype
-   *  turn_duration), carried in `durationMs`. Absent on plain system messages. */
-  systemKind: z.enum(['recap', 'duration']).optional(),
+   *  turn_duration), carried in `durationMs`; 'compaction' = the summary saved
+   *  when the harness compacts its context; 'file-changed' = a file the agent
+   *  had read changed on disk outside its own tool calls (`toolPaths` names it).
+   *  Absent on plain system messages. */
+  systemKind: z.enum(['recap', 'duration', 'compaction', 'file-changed']).optional(),
+  /** What a harness recorded about a compaction beside its summary (set with
+   *  systemKind 'compaction'). Claude Code writes a boundary record (trigger,
+   *  token counts) and, for an idle compaction, a notice; each arrives as its own
+   *  text-less item and the chat folds them into the summary's note. */
+  compaction: z
+    .object({
+      trigger: z.string().optional(),
+      preTokens: z.number().optional(),
+      postTokens: z.number().optional(),
+      /** Compacted while the session sat idle; `notice` is the harness's words. */
+      idle: z.boolean().optional(),
+      notice: z.string().optional(),
+    })
+    .optional(),
   /** Wall-clock duration of the turn in ms (set with systemKind 'duration'),
    *  surfaced as "Churned for Xm Ys". */
   durationMs: z.number().optional(),

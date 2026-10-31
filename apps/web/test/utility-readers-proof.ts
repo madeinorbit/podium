@@ -1,5 +1,5 @@
 /** Actual production readers in real Chromium, one arm at a time. The before
- * arm restores only the six old acquisitions in this isolated checkout.
+ * arm restores only the four old acquisitions in this isolated checkout.
  * Timed runs require bench:flatblock; no backend or daemon is started. */
 import { spawn } from 'node:child_process'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
@@ -10,8 +10,7 @@ import type {} from './utility-readers.browser'
 
 const sources = [
   'apps/web/src/features/usage/UsageView.tsx', 'apps/web/src/features/messages/MessageLedgerView.tsx',
-  'apps/web/src/app/MissionCostChip.tsx', 'apps/web/src/app/FlightDeckHandoff.tsx',
-  'apps/web/src/app/FlightDeckWaterfall.tsx', 'apps/web/src/app/use-handoff-transcript.ts',
+  'apps/web/src/app/MissionCostChip.tsx', 'apps/web/src/app/FlightDeckWaterfall.tsx',
 ]
 async function legacyAcquisitions() {
   const originals = new Map<string, string>()
@@ -19,12 +18,9 @@ async function legacyAcquisitions() {
     for (const path of sources) {
       const original = await readFile(path, 'utf8')
       originals.set(path, original)
-      const expression = path.endsWith('use-handoff-transcript.ts')
-        ? 'useStoreHandle<Trpc>().access' : 'useStoreHandle<Trpc>().access.trpc'
+      const expression = 'useStoreHandle<Trpc>().access.trpc'
       if (original.split(expression).length !== 2) throw new Error('Expected exactly one stable acquisition per source')
-      const legacy = path.endsWith('use-handoff-transcript.ts')
-        ? 'useLegacySelector((store) => ({ trpc: store.trpc, replica: store.replica }), (a, b) => a.trpc === b.trpc && a.replica === b.replica)'
-        : 'useLegacySelector((store) => store.trpc)'
+      const legacy = 'useLegacySelector((store) => store.trpc)'
       await writeFile(path, `import { useRuntimeSelector as useLegacySelector } from '@podium/client-core/react'\n${original.replace(expression, legacy)}`)
     }
   } catch (error) {

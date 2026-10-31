@@ -20,7 +20,7 @@ if finish and (not scope_record or scope_record.get('coordinatorMessage') != 'ms
     raise RuntimeError('The reduced audit requires the recorded coordinator scope change')
 checkouts = {arm: args.home / f'podium-test-5501-{arm}' for arm in ['old', 'new']}
 expected_sha = {'old': '5e3ece5cd68c5fbd7dbd8b1dcfa6d92a35f42cbb', 'new': args.new_sha, 'new-deleted': args.deleted_sha, 'new-current': args.current_sha}
-web = set('sidebar-select sidebar-collapse sidebar-expand sidebar-group-collapse sidebar-group-expand session-switch superagent-composer-typing flight-deck-collapse flight-deck-expand sidebar-drag-start sidebar-drag-drop mark-read mission-switch large-mission-switch command-palette issue-picker-search board-open dock-open dock-close issue-rename header-menu issue-page-open board-search'.split())
+web = set('sidebar-select sidebar-group-collapse sidebar-group-expand session-switch superagent-composer-typing flight-deck-collapse flight-deck-expand sidebar-drag-start sidebar-drag-drop mark-read mission-switch large-mission-switch command-palette issue-picker-search board-open dock-open dock-close issue-rename header-menu issue-page-open board-search'.split())
 phone = set('phone-issue-screen phone-work-screen phone-mission-open phone-long-press phone-mission-details phone-composer-typing phone-issue-open phone-issue-picker-search phone-issue-rename phone-work-search'.split())
 errors = []
 counts = collections.Counter()
