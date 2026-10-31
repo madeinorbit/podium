@@ -68,6 +68,7 @@ function fixture(items: TranscriptItem[] = [item('a')]) {
     source: { read: async () => ({ items: log.items, hasMore: false }), subscribe: () => () => {} },
     cache: { read: () => ({ items, savedAt: 1 }), write: () => {} },
     retainHistory: () => presentation.retainHistory,
+    retainFrom: () => presentation.retainFrom,
     onChange: (change) => presentation.changed(change),
   })
   presentation.bind(log)
@@ -237,4 +238,83 @@ it('keeps the held window and preceding operator prompt addressed across an olde
   presentation.setFollowTail(false)
   presentation.setRenderCount(310)
   expect(presentation.renderStart).toBe(21)
+})
+
+it('keeps complete live turn identity, counts and timing beyond both source limits, then releases old turns', () => {
+  worker.usesWorker = false
+  const at = (seconds: number) => new Date(Date.UTC(2026, 9, 31, 12, 0, seconds)).toISOString()
+  const old = Array.from({ length: 80 }, (_, n) => ({
+    ...item(`old-${n}`),
+    cursor: `old-cursor-${n}`,
+  }))
+  const prompt: TranscriptItem = {
+    id: 'long-prompt',
+    cursor: 'long-0',
+    role: 'user',
+    text: 'Check everything',
+    ts: at(0),
+  }
+  const updates: TranscriptItem[] = Array.from({ length: 298 }, (_, n) => ({
+    id: `update-${n}`,
+    cursor: `long-${n + 1}`,
+    role: 'assistant',
+    text: `Checking ${n}`,
+    ts: at(n + 1),
+  }))
+  const first: TranscriptItem = {
+    id: 'first-call',
+    cursor: 'long-first',
+    role: 'tool',
+    text: '',
+    toolName: 'Read',
+    toolInput: '/first.ts',
+    toolResult: 'done',
+    ts: at(1),
+  }
+  const { presentation, log } = fixture([...old, prompt, first, ...updates])
+  const initial = presentation.turnFolds.trailing!
+  presentation.folds.open(initial.key)
+  expect(presentation.renderStart).toBe(80)
+  expect(initial.members).toHaveLength(299)
+  for (const [from, to] of [
+    [298, 360],
+    [360, 450],
+  ])
+    log.merge(
+      Array.from({ length: to! - from! }, (_, offset) => {
+        const n = from! + offset
+        return {
+          id: `update-${n}`,
+          cursor: `long-${n + 1}`,
+          role: 'assistant' as const,
+          text: `Checking ${n}`,
+          ts: at(n + 1),
+        }
+      }),
+    )
+  const live = presentation.turnFolds.trailing!
+  expect(live.key).toBe(initial.key)
+  expect(presentation.folds.isOpen(live.key)).toBe(true)
+  expect(live.members).toHaveLength(451)
+  expect(live.startedAt).toBe(initial.startedAt)
+  expect(log.ids).toContain(prompt.id)
+  expect(log.ids).not.toContain('old-0')
+  expect(presentation.renderStart).toBe(0)
+  const model = presentation.turn(presentation.renderRows(false, false)[1]!.row)
+  expect(model.eventCount).toBe(1)
+  log.merge([{ ...item('long-answer'), cursor: 'long-answer', ts: at(600) }])
+  expect(presentation.turnFolds.folds[0]?.key).toBe(initial.key)
+  expect(presentation.turnFolds.folds[0]?.durationMs).toBe(599000)
+  // A later window is allowed to release that now wholly off-screen segment.
+  log.merge(
+    Array.from({ length: 500 }, (_, n) => ({
+      ...item(`later-${n}`),
+      cursor: `later-cursor-${n}`,
+      ts: at(700 + n),
+    })),
+  )
+  log.merge([{ ...item('last'), cursor: 'last-cursor' }])
+  expect(log.ids.length).toBeLessThanOrEqual(400)
+  expect(log.ids).not.toContain(prompt.id)
+  expect(presentation.visibleRows).toHaveLength(300)
 })

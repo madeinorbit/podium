@@ -150,8 +150,25 @@ export class PresentedTurn {
     return this.clauses.reduce((sum, clause) => sum + clause.count, 0)
   }
   @lazy get summary(): string {
-    const text = toolBatchTitleFromClauses(this.clauses)
-    return text ? text[0]!.toLowerCase() + text.slice(1) : ''
+    const verbs = new Map<string, string[]>()
+    for (const { verb, noun, count } of this.clauses) {
+      const plural = /[^aeiou]y$/.test(noun)
+        ? `${noun.slice(0, -1)}ies`
+        : /(?:s|x|ch|sh)$/.test(noun)
+          ? `${noun}es`
+          : `${noun}s`
+      const object =
+        noun === 'inbox'
+          ? `the inbox${count > 1 ? ` ${count} times` : ''}`
+          : `${count} ${count === 1 ? noun : plural}`
+      const objects = verbs.get(verb) ?? []
+      objects.push(object)
+      verbs.set(verb, objects)
+    }
+    const clauses = [...verbs].flatMap(([verb, objects]) =>
+      objects.map((object, index) => (index === 0 ? `${verb.toLowerCase()} ${object}` : object)),
+    )
+    return joinCounts(clauses)
   }
   @lazy get failures(): number {
     return (this.fold?.rows ?? []).reduce((sum, { row }) => {
@@ -227,4 +244,8 @@ export class PresentedTurn {
     }
     return members
   }
+}
+
+function joinCounts(parts: readonly string[]): string {
+  return parts.length < 2 ? parts.join('') : `${parts.slice(0, -1).join(', ')} and ${parts.at(-1)}`
 }

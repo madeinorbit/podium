@@ -8,6 +8,7 @@ import {
   type SessionMetaInput,
   type TranscriptItem,
 } from '@podium/model'
+import { fireEvent } from '@testing-library/react'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -1655,4 +1656,68 @@ describe('ChatView ask-anything tip (POD-2222)', () => {
     expect(await publish({ phase: 'idle', since, workingMsTotal: 2_000 })).toBeGreaterThan(floor)
     disconnect()
   })
+})
+
+it('scrolls again when search moves between commands in the same run', async () => {
+  act(() => root.render(<ChatView sessionId={asSessionId('s1')} />))
+  await act(async () =>
+    reads[0]!.resolve({
+      items: [
+        { id: 'find-prompt', role: 'user', text: 'Check' },
+        { id: 'find-intro', role: 'assistant', text: 'Checking.' },
+        {
+          id: 'find-one',
+          role: 'tool',
+          text: '',
+          toolName: 'Bash',
+          toolInput: 'first',
+          toolResult: 'needle first',
+        },
+        {
+          id: 'find-two',
+          role: 'tool',
+          text: '',
+          toolName: 'Bash',
+          toolInput: 'second',
+          toolResult: 'needle second',
+        },
+        { id: 'find-answer', role: 'assistant', text: 'Done.', answer: true },
+      ],
+      hasMore: false,
+    }),
+  )
+  await flush()
+  const scroller = container.querySelector<HTMLElement>('[data-feed-scroller]')!
+  const scrollTo = vi.fn()
+  scroller.scrollTo = scrollTo
+  Object.defineProperty(scroller, 'clientHeight', { configurable: true, value: 400 })
+  const original = HTMLElement.prototype.getBoundingClientRect
+  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (
+    this: HTMLElement,
+  ) {
+    const top =
+      this.dataset.transcriptMemberKey === 'find-one'
+        ? 500
+        : this.dataset.transcriptMemberKey === 'find-two'
+          ? 900
+          : undefined
+    return top === undefined
+      ? original.call(this)
+      : ({ ...original.call(this).toJSON(), top, bottom: top + 30, height: 30 } as DOMRect)
+  })
+  act(() =>
+    container.querySelector<HTMLButtonElement>('button[aria-label="Find in transcript"]')!.click(),
+  )
+  const input = container.querySelector<HTMLInputElement>('input[aria-label="Find in transcript"]')!
+  act(() => fireEvent.change(input, { target: { value: 'needle' } }))
+  await flush()
+  expect(scrollTo.mock.calls.some(([options]) => options.top === 315)).toBe(true)
+  scrollTo.mockClear()
+  act(() => fireEvent.keyDown(input, { key: 'Enter' }))
+  await flush()
+  expect(scrollTo.mock.calls.some(([options]) => options.top === 715)).toBe(true)
+  expect(
+    container.querySelector('[data-row-key="find-two"] .tool-result-full')?.textContent,
+  ).toContain('needle second')
+  vi.restoreAllMocks()
 })

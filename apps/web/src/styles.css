@@ -4955,6 +4955,9 @@ button.pane-branch:hover {
   position: relative;
   min-width: 0;
 }
+.turn-entry .tool-block > .work-line-row > .work-line-time {
+  margin-left: auto;
+}
 .tl-say {
   padding: 4px 0 5px;
   font-size: 13.5px;
@@ -5005,7 +5008,9 @@ button.pane-branch:hover {
 }
 .tl-answer > div {
   min-height: 0;
-  overflow: hidden;
+  /* Clip the height reveal without creating a horizontal scroller that pans
+     the prose when its gutter action receives keyboard focus. */
+  overflow-y: clip;
 }
 .tl-answer.is-new .chat-md {
   opacity: 1;
@@ -6106,6 +6111,44 @@ button.pane-branch:hover {
   grid-row: 1 / span 2;
   align-self: start;
   margin-top: 0;
+}
+.msg-narrow-actions {
+  display: none;
+}
+.msg-menu-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-width: 240px;
+  padding: 4px 8px;
+  color: var(--text-faint);
+  font-size: 11px;
+}
+/* The existing 32px gutter fits one menu trigger. Full-width narrow prose
+   keeps its 12px beat, with no transparent controls covering words or links. */
+@container feed (max-width: 519px) {
+  .transcript-prose {
+    display: block;
+  }
+  .transcript-prose > .msg-foot {
+    display: none;
+  }
+  .transcript-prose > .msg-narrow-actions {
+    display: block;
+    position: absolute;
+    inset-block-start: 0;
+    inset-inline-start: calc(100% + 5px);
+    opacity: 0;
+  }
+  .transcript-row:hover .msg-narrow-actions,
+  .msg-narrow-actions:focus-within {
+    opacity: 1;
+  }
+}
+@media (hover: none) {
+  .transcript-prose > .msg-narrow-actions {
+    opacity: 1;
+  }
 }
 /* Wide panes have room for the controls beside the reading column. */
 @container feed (min-width: 900px) {

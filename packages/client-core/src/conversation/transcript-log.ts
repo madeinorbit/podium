@@ -274,11 +274,15 @@ export class TranscriptLog {
         limit: this.initialLimit,
       })
       if (!this.accepts(generation, serial)) return false
+      const boundary = this.options.retainFrom?.()
+      const retainsBoundary =
+        boundary !== undefined &&
+        this.byId.has(boundary) &&
+        (this.initialLoaded || page.items.some((item) => this.byId.has(item.id)))
       const retainHistory =
         !page.reset &&
-        this.initialLoaded &&
         this.orderedItems.length > 0 &&
-        this.options.retainHistory?.() === true
+        ((this.initialLoaded && this.options.retainHistory?.() === true) || retainsBoundary)
       if (!retainHistory) this.windowEpoch += 1
       this.reconciledSignal = signal ?? this.activity?.signal ?? null
       if (!retainHistory) this.pagedBack = false
@@ -589,9 +593,11 @@ export class TranscriptLog {
     let trimmed = false
     const removed: string[] = []
     if (!retainHistory && !this.loadingOlder && this.orderedItems.length > limit) {
-      const drop = this.orderedItems.length - limit
+      const keep = this.options.retainFrom?.()
+      const boundary = keep === undefined ? undefined : this.position(keep)
+      const drop = Math.min(this.orderedItems.length - limit, boundary ?? Infinity)
       const head = this.orderedItems[drop]?.cursor
-      if (head) {
+      if (drop > 0 && head) {
         for (const item of this.orderedItems.splice(0, drop)) {
           removed.push(item.id)
           this.removeFacts(item.id)
@@ -761,7 +767,11 @@ export class TranscriptLog {
     const retainHistory = this.options.retainHistory ? this.options.retainHistory() : this.pagedBack
     const limit = this.initialLimit * 2
     if (retainHistory || this.loadingOlder || items.length <= limit) return { items }
-    const tail = items.slice(-limit)
+    const keep = this.options.retainFrom?.()
+    const boundary = keep === undefined ? -1 : items.findIndex((item) => item.id === keep)
+    const drop = Math.min(items.length - limit, boundary < 0 ? Infinity : boundary)
+    if (drop === 0) return { items }
+    const tail = items.slice(drop)
     // Store readers accept the native item cursor as their opaque anchor. Keep
     // the authority's original page head until an actual trim, then page from
     // the first retained item so the omitted prefix remains recoverable.

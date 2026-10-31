@@ -1,17 +1,17 @@
 import type { ChatRow, RenderableRow } from '@podium/client-core/values'
 import {
-  formatChurn,
   isInteractiveTool,
   isOperatorQuestion,
   transcriptActivityFacts,
 } from '@podium/client-core/values'
 import { action, observable } from 'mobx'
-import { parseTs, rowTimestamp } from './transcript-time'
+import { formatWorkDuration, parseTs, rowTimestamp } from './transcript-time'
 import { rowIdentity } from './use-feed-arrivals'
 
 export interface TurnFold {
   /** The first work row owns the line throughout append, pause and settlement. */
   readonly key: string
+  readonly boundary: number | undefined
   readonly start: number
   readonly anchor: number
   readonly rows: readonly RenderableRow[]
@@ -26,6 +26,7 @@ export interface TurnFold {
   readonly endedAt: string | undefined
   readonly durationMs: number | undefined
   readonly ending: number | undefined
+  readonly questionSeam: boolean
 }
 
 export interface TurnFolds {
@@ -105,6 +106,7 @@ export function turnFolds(
   const endings = new Set<number>()
   let segment: number[] = []
   let boundary: string | undefined
+  let boundaryIndex: number | undefined
   const update = (row: ChatRow) =>
     row.kind === 'block' &&
     row.block.item.role === 'assistant' &&
@@ -143,6 +145,7 @@ export function turnFolds(
     const latest = work.findLast((pos) => update(rows[pos]!.row))
     const fold: TurnFold = {
       key: boundary === undefined ? rowIdentity(start.row) : `${boundary}:work`,
+      boundary: boundaryIndex,
       start: start.index,
       anchor: start.index,
       rows: members.map((pos) => rows[pos]!),
@@ -159,6 +162,7 @@ export function turnFolds(
       endedAt: to?.toISOString(),
       durationMs,
       ending: end?.index,
+      questionSeam: end !== undefined && question(end.row),
     }
     folds.push(fold)
     byKey.set(fold.key, fold)
@@ -172,19 +176,24 @@ export function turnFolds(
       settle(pos, 'done')
       segment = []
       boundary = rowIdentity(row)
+      boundaryIndex = rows[pos]!.index
     } else if (duration(row)) {
       settle(pos, 'done')
       segment = []
       boundary = rowIdentity(row)
+      boundaryIndex = rows[pos]!.index
     } else if (answer(row)) {
       settle(pos, 'done')
       boundary = rowIdentity(row)
+      boundaryIndex = rows[pos]!.index
     } else if (interrupt(row)) {
       settle(pos, 'stopped')
       boundary = rowIdentity(row)
+      boundaryIndex = rows[pos]!.index
     } else if (question(row)) {
       settle(pos, isPending(row) ? 'paused' : 'done')
       boundary = rowIdentity(row)
+      boundaryIndex = rows[pos]!.index
     } else segment.push(pos)
   }
   settle(undefined, 'live')
@@ -203,7 +212,7 @@ export function foldLead(
       : 'Worked for'
   return fold.durationMs === undefined
     ? verb.replace(/ (for|after)$/, '')
-    : `${verb} ${formatChurn(fold.durationMs)}`
+    : `${verb} ${formatWorkDuration(fold.durationMs)}`
 }
 
 /** Only deliberate disclosure persists. Forced search/reveal opens are temporary. */

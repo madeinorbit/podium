@@ -26,7 +26,7 @@ export interface UseDomTranscriptScrollResult {
   jumpToBottom: () => void
   pinToBottom: () => void
   loadOlder: () => void
-  scrollToBlock: (index: number, opts?: { instant?: boolean }) => void
+  scrollToBlock: (index: number, opts?: { instant?: boolean; memberKey?: string }) => void
   scrollToOffset: (offset: number) => void
   scrollBy: (delta: number) => void
   /** Hold the reading window before a folded target grows into view. */
@@ -583,9 +583,28 @@ export function useDomTranscriptScroll(
   )
 
   const scrollToBlock = useCallback(
-    (index: number, opts?: { instant?: boolean }): void => {
+    (index: number, opts?: { instant?: boolean; memberKey?: string }): void => {
       const scroller = scrollerRef.current
-      const target = scroller?.querySelector<HTMLElement>(`[data-block="${index}"]`)
+      const row = scroller?.querySelector<HTMLElement>(`[data-block="${index}"]`)
+      // Row addresses intentionally group a run. Search names the exact member;
+      // prefer its leaf over the turn owner's alias of that same first record.
+      const member =
+        opts?.memberKey === undefined
+          ? undefined
+          : [
+              ...(scroller?.querySelectorAll<HTMLElement>(
+                '[data-transcript-member-key], [data-row-key]',
+              ) ?? []),
+            ].find(
+              (element) =>
+                (element.dataset.transcriptMemberKey ??
+                  (element.hasAttribute('data-turn-fold') ? undefined : element.dataset.rowKey)) ===
+                opts.memberKey,
+            )
+      const target =
+        opts?.memberKey === undefined
+          ? row
+          : (member ?? (row?.hasAttribute('data-transcript-placeholder') ? row : undefined))
       if (!scroller || !target) return
       if (target.hasAttribute('data-transcript-placeholder')) {
         // Called by effects as well as input handlers. Expand outside React's

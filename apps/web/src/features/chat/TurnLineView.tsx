@@ -1,4 +1,4 @@
-import { formatClock, toolSubject, transcriptActivityFacts } from '@podium/client-core/values'
+import { toolSubject, transcriptActivityFacts } from '@podium/client-core/values'
 import { ChevronRight } from 'lucide-react'
 import { observer } from 'mobx-react-lite'
 import { useCallback, useId, useLayoutEffect, useRef, useState } from 'react'
@@ -11,7 +11,7 @@ import { handleChatMdClick } from './chat-md-click'
 import { StretchMember } from './ToolBatchView'
 import type { TranscriptFeedProps } from './TranscriptFeed'
 import { transcriptTailState } from './TranscriptTail'
-import { clockLabel, fullTimeLabel, parseTs } from './transcript-time'
+import { clockLabel, formatWorkDuration, fullTimeLabel, parseTs } from './transcript-time'
 import { FOLD_GEOMETRY_EVENT, type FoldLine, foldLead, type TurnFoldState } from './turn-fold'
 import { buildTurnPreviewMembers, type PresentedTurn, type TurnMember } from './turn-line-model'
 import { useFeedArrivals } from './use-feed-arrivals'
@@ -71,7 +71,7 @@ function Clock({
   const elapsed = live && known ? Math.max(0, now - at) : duration
   return elapsed === undefined ? null : (
     <span className="tl-timer" aria-hidden={live || undefined}>
-      {formatClock(elapsed)}
+      {formatWorkDuration(elapsed)}
     </span>
   )
 }
@@ -182,7 +182,9 @@ export const TurnLineView = observer(function TurnLineView({
     (fold.startedAt && stopAt
       ? Math.max(0, Date.parse(stopAt) - Date.parse(fold.startedAt))
       : undefined)
-  const single = model.eventCount === 1
+  // Answering a question settles the paused segment as a turn summary, even
+  // when it contained just one command. The next segment gets its own line.
+  const single = model.eventCount === 1 && !fold.questionSeam
   const singleWell = single && fold.updates === 0 && mode === 'done'
   const lead = foldLead({
     ...fold,
@@ -202,14 +204,17 @@ export const TurnLineView = observer(function TurnLineView({
         ? model.eventPhrase
         : lead
   const counts = !live && !paused && !single ? model.summary : ''
-  const hits = !props.search.filtering
-    ? 0
-    : fold.members.filter((index) => {
-        const row = fold.rows.find((entry) => entry.index === index)?.row
-        return row?.kind === 'tools'
-          ? row.blockIndices.some((index) => props.search.matches.includes(index))
-          : row?.kind === 'block' && props.search.matches.includes(row.blockIndex)
-      }).length
+  const matching = props.search.filtering ? new Set(props.search.matches) : undefined
+  const hits = matching
+    ? fold.rows.reduce(
+        (count, { row }) =>
+          count +
+          (row.kind === 'tools'
+            ? row.blockIndices.filter((index) => matching.has(index)).length
+            : Number(matching.has(row.blockIndex))),
+        0,
+      )
+    : 0
   const current =
     live &&
     tail.lastRow?.kind === 'tools' &&
@@ -314,7 +319,7 @@ export const TurnLineView = observer(function TurnLineView({
                 <span className="tl-span">
                   {single
                     ? model.firstEvent?.item.durationMs !== undefined
-                      ? formatClock(model.firstEvent.item.durationMs)
+                      ? formatWorkDuration(model.firstEvent.item.durationMs)
                       : span
                     : span}
                 </span>
@@ -495,6 +500,7 @@ const TurnEntry = observer(function TurnEntry({
       )}
       data-block={index >= 0 ? index : undefined}
       data-row-key={id}
+      data-transcript-member-key={id}
       data-turn-preview={index < 0 || undefined}
       data-testid={(preview || index < 0) && narration ? 'streaming-text' : undefined}
     >

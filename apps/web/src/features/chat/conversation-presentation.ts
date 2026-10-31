@@ -188,11 +188,23 @@ export class ConversationPresentation {
       ? this.graph!.positionSearch(this.matches, this.cursor, this.query.trim() !== '')
       : EMPTY_SEARCH
   }
+  @lazy get activeMatchKey(): string | undefined {
+    return this.matches[this.search.position - 1]
+  }
   @lazy get renderStart(): number {
     const tail = Math.max(0, this.rowCount - this.renderCount)
     const held =
       !this.followTail && this.heldHead ? this.graph?.rowPosition(this.heldHead) : undefined
-    return held === undefined ? tail : Math.min(tail, held)
+    const start = held === undefined ? tail : Math.min(tail, held)
+    // The source window may start inside one turn. Its complete boundary
+    // segment owns the line, membership and disclosure identity.
+    const fold = this.turnFolds.byMember.get(start)
+    return fold === undefined ? start : Math.min(start, fold.boundary ?? fold.start)
+  }
+  @lazy get retainFrom(): string | undefined {
+    // During the first streamed frame the log has filed items before the
+    // graph has seen them. Keep that frame's first item through this commit.
+    return this.graph?.rowIds[this.renderStart] ?? this.log?.ids[0]
   }
   @lazy({ equals: compareShallow }) get visibleRows(): ChatRow[] {
     if (!this.computeReady) return EMPTY_ROWS
@@ -242,10 +254,14 @@ export class ConversationPresentation {
     return last ? { kind: 'tools', blocks: [last], blockIndices: [], title: run.title } : row
   }
 
+  /** Fold membership belongs to the loaded graph, never the sliding DOM source. */
+  @lazy({ equals: compareShallow }) private get foldRows(): RenderableRow[] {
+    return this.rows.map((row) => this.renderedRow(row).value!)
+  }
   @lazy get turnFolds(): TurnFolds {
     return this.computeReady
       ? turnFolds(
-          this.plainRows,
+          this.foldRows,
           this.isPrompt,
           (row) => this.rowFacts(row).hasText,
           (row) => this.rowFacts(row).hasWork,

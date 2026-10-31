@@ -1,11 +1,12 @@
 import './test-support/no-message-attachments'
-import { TranscriptGraph, type TurnPreview } from '@podium/client-core/conversation'
+import { TranscriptGraph, TranscriptLog, type TurnPreview } from '@podium/client-core/conversation'
 import { buildChatRows, pairToolResults, transcriptActivityFacts } from '@podium/client-core/values'
 import { asSessionId, type TranscriptItem } from '@podium/model'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import * as markdown from '@/lib/markdown'
+import { ConversationPresentation } from './conversation-presentation'
 import { TranscriptFeed, type TranscriptFeedProps } from './TranscriptFeed'
 
 vi.mock('./mail-body', () => ({
@@ -246,6 +247,7 @@ it('pauses at an interactive card, settles that seam on answer, and starts a new
   const ask: TranscriptItem = {
     ...call('ask'),
     toolName: 'AskUserQuestion',
+    ts: new Date(Date.parse(ts) + 100000).toISOString(),
     toolInputJson: JSON.stringify({
       questions: [
         {
@@ -274,6 +276,42 @@ it('pauses at an interactive card, settles that seam on answer, and starts a new
   expect(line()).toBe(first)
   expect(first.dataset.open).toBe('true')
   expect(first.dataset.state).toBe('done')
+  expect(first.querySelector('.tl-current')?.textContent).toBe('Worked for 1m 40s · ran 1 command')
+  expect(first.querySelector('.tl-timer')).toBeNull()
+})
+
+it('groups settled counts by verb with numbers and one final conjunction', () => {
+  const commands = Array.from({ length: 5 }, (_, n) => call(`command-${n}`, 'green'))
+  render(
+    [
+      prompt,
+      say('intro', 'Checking now.'),
+      ...commands,
+      { ...call('read', 'contents'), toolName: 'Read', toolInput: '/repo/file.ts' },
+      note(),
+      say('answer', 'Ready.', true),
+    ],
+    { activity: null },
+  )
+  expect(line().querySelector('.tl-counts')?.textContent).toBe(
+    ' · ran 5 commands, read 1 file and 1 note',
+  )
+  expect(line().querySelector(':scope > button')?.getAttribute('aria-label')).toContain(
+    'ran 5 commands, read 1 file and 1 note',
+  )
+})
+
+it('keeps the command glyph on a live opened entry and uses work duration units', () => {
+  render([prompt, say('intro', 'Checking now.'), call('cmd')])
+  toggle()
+  const command = host.querySelector('.turn-entry[data-row-key="cmd"] .tool-block')!
+  expect(command.getAttribute('data-state')).toBe('live')
+  expect(command.querySelector('.work-line-glyph .lucide-terminal')).not.toBeNull()
+  expect(command.querySelector('.work-line-glyph .pod-mark')).toBeNull()
+  expect(command.querySelector('.work-line-time')?.textContent).toMatch(
+    /(?:\d+s|\d+m \d{2}s|\d+h \d{2}m)/,
+  )
+  expect(line().querySelector('.tl-timer')?.textContent).not.toContain(':')
 })
 
 it('settles a failed turn with a separate error tail and an interrupted turn with a full-ink stand-in', () => {
@@ -352,4 +390,106 @@ it('keeps unchanged opened narration cold on append, and still reads a live text
   act(() => graph.apply({ changed: [{ ...items[1]!, text: 'An edited narration.' }] }))
   expect(before.textContent).toContain('An edited narration.')
   spy.mockRestore()
+})
+
+it('counts matching blocks within one activity row', () => {
+  render(
+    [
+      prompt,
+      say('intro'),
+      call('one', 'needle'),
+      call('two', 'needle'),
+      say('answer', 'Done', true),
+      { ...prompt, id: 'next-prompt' },
+      say('next-answer', 'needle elsewhere', true),
+    ],
+    {
+      activity: null,
+      search: {
+        filtering: true,
+        matches: [2, 3, 6],
+        activeMatch: 6,
+        activeRow: 5,
+        position: 3,
+        total: 3,
+      },
+    },
+  )
+  expect(line().dataset.open).toBe('false')
+  expect(line().querySelector('.tl-hits')?.textContent).toBe('2 hits')
+})
+
+it('retains the live line and selected note DOM when a turn crosses the source and item windows', () => {
+  const client = {
+    usesWorker: false,
+    computeGraphOnMain(
+      source: { sent(): void; graph: { search(q: string, n: number): unknown } },
+      q: string,
+      n: number,
+    ) {
+      source.sent()
+      return { search: source.graph.search(q, n), markdownHtml: new Map() }
+    },
+    forgetGraph() {},
+  }
+  const presentation = new ConversationPresentation(client as never)
+  const updates = (start: number, count: number): TranscriptItem[] =>
+    Array.from({ length: count }, (_, at) => ({
+      ...say(`long-${start + at}`, `Checking ${start + at}`),
+      cursor: `cursor-${start + at}`,
+    }))
+  const items = [
+    { ...prompt, cursor: 'prompt-cursor' },
+    say('intro'),
+    note(),
+    call('first', 'done'),
+    ...updates(0, 297),
+  ]
+  const log: TranscriptLog = new TranscriptLog({
+    sessionId: asSessionId('long-dom'),
+    source: { read: async () => ({ items: log.items, hasMore: false }), subscribe: () => () => {} },
+    cache: { read: () => ({ items, savedAt: 1 }), write: () => {} },
+    retainHistory: () => presentation.retainHistory,
+    retainFrom: () => presentation.retainFrom,
+    onChange: (change) => presentation.changed(change),
+  })
+  presentation.bind(log)
+  disposals.push(() => {
+    presentation.dispose()
+    log.dispose()
+  })
+  const chat = {
+    view: {
+      presentation,
+      pending: [],
+      preview: null,
+      activity: { tone: 'working', label: 'Working' },
+      session: undefined,
+    },
+  } as never
+  const paint = () => render(log.items, { chat, rows: presentation.renderRows(false, false) })
+  paint()
+  toggle()
+  const owner = line()
+  act(() => host.querySelector<HTMLButtonElement>('.mail-item-head')!.click())
+  const body = host.querySelector('.mail-item-body')!
+  const range = document.createRange()
+  range.selectNodeContents(body)
+  document.getSelection()!.addRange(range)
+  const selected = document.getSelection()!.toString()
+  act(() => log.merge(updates(297, 160)))
+  paint()
+  expect(line()).toBe(owner)
+  expect(line().dataset.open).toBe('true')
+  expect(presentation.turnFolds.trailing?.key).toBe(`${prompt.id}:work`)
+  expect(presentation.turnFolds.trailing?.members.length).toBeGreaterThan(450)
+  expect(host.querySelector('.mail-item-body')).toBe(body)
+  expect(document.getSelection()!.toString()).toBe(selected)
+  act(() => log.merge([{ ...say('answer', 'Ready.', true), cursor: 'answer-cursor' }]))
+  paint()
+  expect(line()).toBe(owner)
+  expect(line().dataset.open).toBe('true')
+  expect(host.querySelector('.mail-item-body')).toBe(body)
+  expect(document.getSelection()!.toString()).toBe(selected)
+  document.getSelection()!.removeAllRanges()
 })

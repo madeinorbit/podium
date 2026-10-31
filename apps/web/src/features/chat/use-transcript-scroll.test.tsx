@@ -942,3 +942,17 @@ describe('transcript scrolling', () => {
     expect(row('row-8').firstChild).toBe(text)
   })
 })
+
+it('centers the selected member when two commands share a row address', () => {
+  renderHarness(<Harness />)
+  const first = row('row-3'),
+    second = row('row-6')
+  first.dataset.block = '3'
+  second.dataset.block = '3'
+  first.dataset.transcriptMemberKey = 'first-command'
+  second.dataset.transcriptMemberKey = 'second-command'
+  act(() => api.scrollToBlock(3, { instant: true, memberKey: 'second-command' }))
+  expect(top('row-6') + second.getBoundingClientRect().height / 2).toBe(viewport / 2)
+  act(() => api.scrollToBlock(3, { instant: true, memberKey: 'first-command' }))
+  expect(top('row-3') + first.getBoundingClientRect().height / 2).toBe(viewport / 2)
+})

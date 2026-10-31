@@ -2,7 +2,6 @@ import { highlightCode } from '@podium/client-core/code-highlight'
 import { useActivityDisclosure } from '@podium/client-core/react'
 import {
   type ActivityDisclosureProps,
-  formatClock,
   resolveToolEdit,
   toolCategory,
 } from '@podium/client-core/values'
@@ -10,11 +9,10 @@ import type { SessionId, TranscriptItem } from '@podium/model/browser'
 import type { JSX } from 'react'
 import { useMemo } from 'react'
 import { useAgeNow } from '@/lib/clock-hooks'
-import { WorkingMark } from '@/lib/motion/WorkingMark'
 import { cn } from '@/lib/utils'
 import { type ChatBlock, failLine, mcpLabel, toolSubject, toolVerdict } from './chat'
 import { ToolEditDiff } from './ToolEditDiff'
-import { clockLabel, fullTimeLabel, parseTs } from './transcript-time'
+import { clockLabel, formatWorkDuration, fullTimeLabel, parseTs } from './transcript-time'
 import { WorkGlyph } from './WorkGlyph'
 
 /** How a call NAMES ITSELF in a list: the tool that ran, in the operator's
@@ -192,7 +190,7 @@ export function ToolBlock({
           className={cn('work-line-glyph', verdict === 'err' && 'work-line-glyph--err')}
           aria-hidden="true"
         >
-          {live ? <WorkingMark size={15} /> : <WorkGlyph item={item} />}
+          <WorkGlyph item={item} />
         </span>
         <span className={cn('work-line-phrase', isCommand && 'work-line-code')}>
           {subject ? (isCommand ? subject : `${toolCategory(item).verb} ${subject}`) : label}
@@ -201,7 +199,7 @@ export function ToolBlock({
           <ToolLiveTimer since={item.ts} />
         ) : (
           item.durationMs !== undefined && (
-            <span className="work-line-time">{formatClock(item.durationMs)}</span>
+            <span className="work-line-time">{formatWorkDuration(item.durationMs)}</span>
           )
         )}
       </button>
@@ -299,6 +297,6 @@ function ToolLiveTimer({ since }: { since: string | undefined }) {
   const known = Number.isFinite(started)
   const now = useAgeNow(started, 0, known)
   return known ? (
-    <span className="work-line-time">{formatClock(Math.max(0, now - started))}</span>
+    <span className="work-line-time">{formatWorkDuration(Math.max(0, now - started))}</span>
   ) : null
 }

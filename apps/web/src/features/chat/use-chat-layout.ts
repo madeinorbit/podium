@@ -251,13 +251,21 @@ export function useChatLayout(opts: UseChatLayoutOptions): ChatSurface {
     [view, presentation, trpc, sessionId, sends, scroll.pinToBottom],
   )
   const activeRow = presentation.search.activeRow
+  const activeMatch = presentation.search.activeMatch
+  const activeMatchKey = presentation.activeMatchKey
   useEffect(() => {
-    if (activeRow === undefined) return
-    if (activeRow < presentation.renderStart) {
-      presentation.setRenderCount(presentation.rowCount - activeRow + RENDER_WINDOW)
-      requestAnimationFrame(() => scroll.scrollToBlock(activeRow))
-    } else scroll.scrollToBlock(activeRow)
-  }, [activeRow, presentation, scroll.scrollToBlock])
+    if (activeRow === undefined || activeMatch === undefined || activeMatchKey === undefined) return
+    // Materialize the turn owner, then land on the selected member. Several
+    // commands share one row address; cursor moves within that row still scroll.
+    const owner = presentation.turnFolds.byMember.get(activeRow)?.start ?? activeRow
+    const land = () => scroll.scrollToBlock(owner, { memberKey: activeMatchKey })
+    if (owner < presentation.renderStart) {
+      presentation.setRenderCount(presentation.rowCount - owner + RENDER_WINDOW)
+      const frame = requestAnimationFrame(land)
+      return () => cancelAnimationFrame(frame)
+    }
+    land()
+  }, [activeRow, activeMatch, activeMatchKey, presentation, scroll.scrollToBlock])
   // The queued landing belongs to this session's feed: a new jump, another
   // session or an unmount cancels it.
   const pendingFoldReveal = useRef<(() => void) | undefined>(undefined)

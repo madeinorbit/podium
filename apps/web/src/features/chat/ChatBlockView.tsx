@@ -20,10 +20,17 @@ import {
   FileText,
   Layers2,
   MessageCircleQuestion,
+  MoreHorizontal,
 } from 'lucide-react'
 import { observer } from 'mobx-react-lite'
 import type { JSX, MouseEvent as ReactMouseEvent, ReactNode } from 'react'
 import { memo, useCallback, useId, useMemo, useRef, useState } from 'react'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { assetUrl } from '@/lib/asset-url'
 import { renderMarkdown, sanitizeRenderedMarkdown } from '@/lib/markdown'
 import type { QuoteInput } from '@/lib/quote/quote-sinks'
@@ -85,8 +92,9 @@ const COPY_ACK_MS = 1400
  * answering.
  *
  * The foot follows the words in reading order. On agent prose its hover
- * controls sit beside the prose so hidden controls do not widen the transcript's
- * 12px beat. Human prompts keep their foot below the bubble and their turn seam.
+ * controls sit beside the prose, in a gutter menu on narrow panes, so controls
+ * do not widen the transcript's 12px beat. Human prompts keep their foot below
+ * the bubble and their turn seam.
  */
 function MessageActions({
   text,
@@ -126,36 +134,70 @@ function MessageActions({
   const empty = !text.trim()
   if (empty && !children && !ts) return null
   return (
-    <div className="msg-foot" data-side={side} data-testid="message-actions">
-      {ts && <BlockClock ts={ts} />}
-      {children}
-      {!empty && (
-        <span className="msg-tools">
-          <button
-            data-pressable
-            type="button"
-            className="msg-action"
-            onClick={copy}
-            title="Copy message"
-            aria-label={copied ? 'Message copied' : 'Copy message'}
-          >
-            <MetaGlyph name={copied ? 'check' : 'copy'} />
-          </button>
-          {onQuote && (
+    <>
+      <div className="msg-foot" data-side={side} data-testid="message-actions">
+        {ts && <BlockClock ts={ts} />}
+        {children}
+        {!empty && (
+          <span className="msg-tools">
             <button
               data-pressable
               type="button"
               className="msg-action"
-              onClick={quote}
-              title="Add to chat"
-              aria-label="Add to chat"
+              onClick={copy}
+              title="Copy message"
+              aria-label={copied ? 'Message copied' : 'Copy message'}
             >
-              <MetaGlyph name="quote" />
+              <MetaGlyph name={copied ? 'check' : 'copy'} />
             </button>
-          )}
+            {onQuote && (
+              <button
+                data-pressable
+                type="button"
+                className="msg-action"
+                onClick={quote}
+                title="Add to chat"
+                aria-label="Add to chat"
+              >
+                <MetaGlyph name="quote" />
+              </button>
+            )}
+          </span>
+        )}
+      </div>
+      {side === 'left' && !empty && (
+        <span className="msg-narrow-actions">
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              data-pressable
+              className="msg-action"
+              aria-label="Message actions"
+              title="Message actions"
+            >
+              <MoreHorizontal size={15} aria-hidden="true" />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" sideOffset={4}>
+              {(ts || children) && (
+                <div className="msg-menu-meta">
+                  {ts && <BlockClock ts={ts} />}
+                  {children}
+                </div>
+              )}
+              <DropdownMenuItem onClick={copy}>
+                <MetaGlyph name={copied ? 'check' : 'copy'} />
+                {copied ? 'Message copied' : 'Copy message'}
+              </DropdownMenuItem>
+              {onQuote && (
+                <DropdownMenuItem onClick={quote}>
+                  <MetaGlyph name="quote" />
+                  Add to chat
+                </DropdownMenuItem>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
         </span>
       )}
-    </div>
+    </>
   )
 }
 

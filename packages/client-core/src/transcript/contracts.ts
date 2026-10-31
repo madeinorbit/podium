@@ -1,10 +1,11 @@
 import type { SessionId, TranscriptItem } from '@podium/model'
+
 export {
-  mergeTranscriptFrame,
-  reconcileTranscriptSnapshot,
   dedupeTranscriptItems,
   freshOlderTranscriptPage,
+  mergeTranscriptFrame,
   prependTranscriptItems,
+  reconcileTranscriptSnapshot,
   sameTranscriptItem,
   sameTranscriptItems,
 } from './merge'
@@ -70,6 +71,9 @@ export interface TranscriptSourceOptions {
   /** Keep the loaded prefix during newest reads while a host is reading history.
    * An explicit source reset always replaces the transcript. */
   retainHistory?: () => boolean
+  /** Earliest displayed boundary item. Following-window trimming keeps this
+   * item and its suffix; unrelated older history still obeys the normal cap. */
+  retainFrom?: () => string | undefined
   /** Extra maintained facts declared by the host that consumes them. */
   questions?: readonly ('userEcho' | 'latestRecordedAt')[]
 }

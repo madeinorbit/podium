@@ -1,6 +1,8 @@
 import { reaction } from 'mobx'
 import { TranscriptLog, type TranscriptLogOptions } from './transcript-log'
+
 const createTranscriptLog = (options: TranscriptLogOptions) => new TranscriptLog(options)
+
 import { asSessionId, type TranscriptItem } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import {
@@ -849,5 +851,42 @@ it('a host that starts the controller before reporting the row pays no second re
   } finally {
     controller.dispose()
     vi.useRealTimers()
+  }
+})
+
+it('keeps an addressed boundary through stream and newest-read trimming, then applies the normal cap again', async () => {
+  let keep: string | undefined = 'i2'
+  let page: TranscriptPage = {
+    items: [item('i6', 'c6'), item('i7', 'c7'), item('i8', 'c8')],
+    hasMore: true,
+  }
+  const log = new TranscriptLog({
+    sessionId: asSessionId('boundary'),
+    initialLimit: 2,
+    source: { read: async () => page, subscribe: () => () => {} },
+    cache: {
+      read: () => ({
+        items: Array.from({ length: 6 }, (_, n) => item(`i${n}`, `c${n}`)),
+        savedAt: 0,
+      }),
+      write: () => {},
+    },
+    retainFrom: () => keep,
+  })
+  try {
+    log.merge([item('i6', 'c6')])
+    expect([...log.ids]).toEqual(['i2', 'i3', 'i4', 'i5', 'i6'])
+    await log.refresh()
+    expect([...log.ids]).toEqual(['i2', 'i3', 'i4', 'i5', 'i6', 'i7', 'i8'])
+    keep = undefined
+    log.merge([item('i9', 'c9')])
+    expect([...log.ids]).toEqual(['i6', 'i7', 'i8', 'i9'])
+    // A reset is authoritative, even while a caller names the old boundary.
+    keep = 'i6'
+    page = { items: [item('replacement', 'r1')], hasMore: false, reset: true }
+    await log.refresh()
+    expect([...log.ids]).toEqual(['replacement'])
+  } finally {
+    log.dispose()
   }
 })
