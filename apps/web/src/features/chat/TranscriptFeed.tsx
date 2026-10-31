@@ -1016,18 +1016,21 @@ const TranscriptRow = observer(function TranscriptRow({
     base.kind === 'tools' && (run?.count ?? base.blocks.length) === 1
       ? (run?.firstBlock ?? base.blocks[0])
       : undefined
-  const row: ChatRow =
+  const displayRow: ChatRow =
     base.kind === 'tools' && lone && !isBatchableTool(lone.item)
       ? { kind: 'block', block: lone, blockIndex: base.blockIndices[0] ?? -1 }
       : base
+  // One component owns a stretch from its first note onward. Only the display
+  // treatment changes when a neighbour arrives, preserving opened note DOM.
+  const row = base
 
   // An operator prompt opens an exchange — except at the very top of the
   // mounted window, where the air would only pad the scrollport (and
   // where the row is often the sticky continuation of an exchange whose
   // opening is scrolled away above).
   const turn: TurnPosition | undefined =
-    pos > 0 && isOperatorPromptRow(row) ? 'open' : turnPosition(row)
-  const process = processPosition(row, previous)
+    pos > 0 && isOperatorPromptRow(displayRow) ? 'open' : turnPosition(displayRow)
+  const process = processPosition(displayRow, previous)
   const identity = rowIdentity(row)
   // THE DAY MARK (POD-701). A per-row clock is ambiguous the moment a
   // session outlives a day, so each date boundary states itself once and

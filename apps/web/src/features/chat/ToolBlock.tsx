@@ -85,6 +85,7 @@ export function ToolBlock({
   diffPath,
   timed = false,
   forceOpen = false,
+  onOpenChange,
 }: {
   block: ChatBlock
   sessionId: SessionId
@@ -102,6 +103,7 @@ export function ToolBlock({
   /** The call's clock time goes in the opened run's gutter (POD-2286). */
   timed?: boolean
   forceOpen?: boolean
+  onOpenChange?: ((open: boolean) => void) | undefined
 }): JSX.Element {
   const [userOpen, setOpen] = useState(false)
   const open = userOpen || forceOpen
@@ -154,7 +156,10 @@ export function ToolBlock({
   const openable = onOpenDiff && diffPath && !item.toolEffects?.length ? diffPath : undefined
   const activate = (): void => {
     if (openable && onOpenDiff) onOpenDiff(openable)
-    else setOpen((v) => !v)
+    else {
+      setOpen(!userOpen)
+      onOpenChange?.(!userOpen)
+    }
   }
   return (
     <div

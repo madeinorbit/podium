@@ -24,6 +24,7 @@ export function SentNoteRow({
   onBodyClick,
   forceOpen,
   bare = false,
+  onOpenChange,
 }: {
   note: Extract<ToolMail, { op: 'note' }>
   /** Keys the item while the send is still running and has no id. */
@@ -34,6 +35,7 @@ export function SentNoteRow({
   onBodyClick: (e: ReactMouseEvent) => void
   forceOpen: boolean
   bare?: boolean
+  onOpenChange?: ((open: boolean) => void) | undefined
 }): JSX.Element {
   const envelopes = useMemo(
     (): ParsedEnvelope[] => [
@@ -62,6 +64,7 @@ export function SentNoteRow({
       forceOpen={forceOpen}
       direction="to"
       bare={bare}
+      onOpenChange={onOpenChange}
     />
   )
 }
@@ -75,6 +78,7 @@ export function InboxReadRow({
   ts,
   bare = false,
   forceOpen = false,
+  onOpenChange,
 }: {
   /** How many notes the read listed, when its output said. */
   notes: number | undefined
@@ -85,6 +89,7 @@ export function InboxReadRow({
   ts: string | undefined
   bare?: boolean
   forceOpen?: boolean
+  onOpenChange?: ((open: boolean) => void) | undefined
 }): JSX.Element {
   const [userOpen, setOpen] = useState(false)
   const open = userOpen || forceOpen
@@ -109,7 +114,10 @@ export function InboxReadRow({
         className="work-line-row mail-fold"
         data-transcript-run-toggle={forceOpen && !userOpen ? '' : undefined}
         aria-expanded={open}
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => {
+          setOpen(!userOpen)
+          onOpenChange?.(!userOpen)
+        }}
       >
         <span className="work-line-glyph" aria-hidden="true">
           <WorkGlyph mail />

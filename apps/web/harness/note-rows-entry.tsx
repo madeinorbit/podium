@@ -6,10 +6,11 @@ import {
   parseEnvelopeBatch,
 } from '@podium/client-core/values'
 import { asSessionId, type TranscriptItem } from '@podium/model/browser'
-import { type JSX, type ReactNode, useEffect, useRef } from 'react'
+import { type JSX, type ReactNode, useEffect, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { MessageEnvelopeGroup } from '@/features/chat/MessageEnvelopeGroup'
 import { ToolBatchView } from '@/features/chat/ToolBatchView'
+import { TranscriptFeed } from '@/features/chat/TranscriptFeed'
 import '@/index.css'
 import '@/styles.css'
 
@@ -96,6 +97,20 @@ const ASK = note(
   'the operator',
 )
 const rows = buildChatRows(pairToolResults([...RUN, ASK]))
+const NOTE_BODY_CASES = [
+  note(
+    'one-line',
+    'issue:POD-2242',
+    'Please read [the conflict report](https://example.com/conflict) before landing.',
+    '17:19',
+  ),
+  note(
+    'long-paragraph',
+    'issue:POD-2242',
+    `Please read [the conflict report](https://example.com/conflict) before landing. ${'The first paragraph stays complete when opened. '.repeat(12)}These final words must remain visible.`,
+    '17:20',
+  ),
+]
 
 function Shell({ children }: { children: ReactNode }): JSX.Element {
   return (
@@ -133,16 +148,7 @@ function Activity({ row, index }: { row: ChatRow; index: number }): JSX.Element 
   const batch = lone?.item.role === 'user' ? parseEnvelopeBatch(lone.item.text) : null
   return (
     <Shell>
-      {batch ? (
-        <MessageEnvelopeGroup
-          envelopes={batch.envelopes}
-          className="transcript-row"
-          rowKey={lone?.item.id}
-          blockIndex={index}
-          ts={lone?.item.ts}
-          onBodyClick={noop}
-        />
-      ) : row.kind === 'tools' ? (
+      {row.kind === 'tools' ? (
         <ToolBatchView
           row={row}
           index={index}
@@ -153,6 +159,15 @@ function Activity({ row, index }: { row: ChatRow; index: number }): JSX.Element 
           cwd="/repo"
           openFile={noop}
         />
+      ) : batch ? (
+        <MessageEnvelopeGroup
+          envelopes={batch.envelopes}
+          className="transcript-row"
+          rowKey={lone?.item.id}
+          blockIndex={index}
+          ts={lone?.item.ts}
+          onBodyClick={noop}
+        />
       ) : null}
     </Shell>
   )
@@ -160,9 +175,16 @@ function Activity({ row, index }: { row: ChatRow; index: number }): JSX.Element 
 function Pane({ scene, narrow = false }: { scene: string; narrow?: boolean }): JSX.Element {
   const pane = useRef<HTMLElement>(null)
   useEffect(() => {
-    if (scene !== 'opened' && scene !== 'narrow') return
+    if (scene !== 'opened' && scene !== 'narrow' && scene !== 'note-body') return
     let details = 0
     const frame = requestAnimationFrame(() => {
+      if (scene === 'note-body') {
+        for (const button of pane.current?.querySelectorAll<HTMLButtonElement>(
+          '.mail-item-head[aria-expanded="false"]',
+        ) ?? [])
+          button.click()
+        return
+      }
       pane.current
         ?.querySelector<HTMLButtonElement>('[data-transcript-run-toggle][aria-expanded="false"]')
         ?.click()
@@ -194,7 +216,9 @@ function Pane({ scene, narrow = false }: { scene: string; narrow?: boolean }): J
           ? 'Between messages'
           : scene === 'narrow'
             ? 'Narrow pane · 360px'
-            : `Busy stretch · ${scene}`}
+            : scene === 'note-body'
+              ? 'Disclosed notes · first paragraphs and links'
+              : `Busy stretch · ${scene}`}
       </div>
       <div
         data-feed-container=""
@@ -208,7 +232,7 @@ function Pane({ scene, narrow = false }: { scene: string; narrow?: boolean }): J
           className="feed-column"
           style={{ padding: '28px max(32px, calc((100% - 41rem) / 2)) 32px' }}
         >
-          {scene !== 'opened' && scene !== 'narrow' && (
+          {scene !== 'opened' && scene !== 'narrow' && scene !== 'note-body' && (
             <Shell>
               <div className="transcript-row transcript-you">
                 <div className="transcript-you-bubble">
@@ -227,6 +251,13 @@ function Pane({ scene, narrow = false }: { scene: string; narrow?: boolean }): J
               <Activity row={buildChatRows(pairToolResults([RUN[6]!]))[0]!} index={1} />
               <Activity row={buildChatRows(pairToolResults([RUN[1]!]))[0]!} index={2} />
               <Prose>Checks pass and the merge lock is free, so I'm landing it.</Prose>
+            </>
+          ) : scene === 'note-body' ? (
+            <>
+              <Prose>A one-line note keeps its link when opened.</Prose>
+              <Activity row={buildChatRows(pairToolResults([NOTE_BODY_CASES[0]!]))[0]!} index={0} />
+              <Prose>A long first paragraph wraps in the message body.</Prose>
+              <Activity row={buildChatRows(pairToolResults([NOTE_BODY_CASES[1]!]))[0]!} index={1} />
             </>
           ) : (
             <>
@@ -252,6 +283,91 @@ function Pane({ scene, narrow = false }: { scene: string; narrow?: boolean }): J
     </section>
   )
 }
+function LiveNotePane(): JSX.Element {
+  const [joined, setJoined] = useState(false)
+  const items = [
+    note(
+      'live-note',
+      'issue:POD-2242',
+      'Status\nI am reading this body while the agent keeps working.',
+      '17:19',
+    ),
+    ...(joined ? [command('live-command', 'git status', '17:20', 'clean')] : []),
+  ]
+  const blocks = pairToolResults(items)
+  const rows = buildChatRows(blocks).map((row, index) => ({ row, index }))
+  return (
+    <section data-scenario="live-note" style={{ width: 960, maxWidth: '100%' }}>
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          marginBottom: 14,
+          font: '11px var(--font-mono)',
+          color: 'var(--text-dim)',
+        }}
+      >
+        <span>Opened note · command joins without replacing the message</span>
+        <button type="button" data-testid="append-command" onClick={() => setJoined(true)}>
+          Add a command
+        </button>
+      </div>
+      <div
+        style={{
+          height: 330,
+          display: 'flex',
+          background: 'var(--chat-face)',
+          border: '1px solid var(--border-strong)',
+          borderRadius: 10,
+        }}
+      >
+        <TranscriptFeed
+          setScrollerRef={noop}
+          setContentRef={noop}
+          onScroll={noop}
+          onPointerUp={noop}
+          compact={false}
+          superagent={false}
+          phase="ready"
+          rows={rows}
+          blocks={blocks}
+          markdownHtml={new Map()}
+          search={{
+            activeRow: undefined,
+            filtering: false,
+            matches: [],
+            activeMatch: undefined,
+            position: 0,
+            total: 0,
+          }}
+          moreAbove={false}
+          loadingOlder={false}
+          loadOlder={noop}
+          sessionId={sessionId}
+          cwd="/repo"
+          session={undefined}
+          httpOrigin="http://localhost"
+          openFile={noop}
+          onOpenImage={noop}
+          onAnswerAsk={async () => {}}
+          livePendingAskIndex={-1}
+          pendingAskBlock={null}
+          lastAnswerBlockIndex={-1}
+          ctxSeq={null}
+          collapseContext={false}
+          stickyEnabled={false}
+          isOperatorPromptRow={() => false}
+          pending={[]}
+          onRetractQueued={async () => {}}
+          overlay={null}
+          turnPreview={null}
+          activity={null}
+          attribution={{} as never}
+        />
+      </div>
+    </section>
+  )
+}
 const params = new URLSearchParams(location.search)
 document.documentElement.dataset.theme = 'podium'
 document.documentElement.classList.toggle('dark', params.get('theme') !== 'light')
@@ -268,7 +384,9 @@ function Harness(): JSX.Element {
         gap: 28,
       }}
     >
-      {state ? (
+      {state === 'live-note' ? (
+        <LiveNotePane />
+      ) : state ? (
         <Pane scene={state} narrow={state === 'narrow'} />
       ) : (
         <>
@@ -276,6 +394,8 @@ function Harness(): JSX.Element {
           <Pane scene="folded" />
           <Pane scene="opened" />
           <Pane scene="narrow" narrow />
+          <Pane scene="note-body" />
+          <LiveNotePane />
         </>
       )}
     </main>

@@ -164,6 +164,20 @@ export const ToolBatchView = observer(function ToolBatchView({
   openFile: (sessionId: SessionId, path: string) => void
 }): JSX.Element {
   const [open, setOpen] = useState(false)
+  const count = run?.count ?? row.blocks.length
+  const first = run?.firstBlock ?? row.blocks[0]!
+  const noteCount =
+    count === 1 && first.item.role === 'user'
+      ? (parseEnvelopeBatch(first.item.text)?.envelopes.length ?? 0)
+      : 0
+  const singleMember = count === 1 && (first.mail !== undefined || noteCount === 1)
+  const multiple = count > 1 || noteCount > 1
+  const onMemberOpenChange = useCallback(
+    (opened: boolean) => {
+      if (singleMember || opened) setOpen(opened)
+    },
+    [singleMember],
+  )
   const onBodyClick = useCallback(
     (e: ReactMouseEvent) => {
       handleChatMdClick(e, sessionId, cwd, openFile)
@@ -209,7 +223,8 @@ export const ToolBatchView = observer(function ToolBatchView({
    */
   const [diffPath, setDiffPath] = useState<string | null>(null)
   const expanded = open || forceOpen
-  const blocks = expanded || diffPath !== null ? (run?.blocks ?? row.blocks) : EMPTY_BLOCKS
+  const blocks =
+    expanded || singleMember || diffPath !== null ? (run?.blocks ?? row.blocks) : EMPTY_BLOCKS
   // Edit metadata belongs to the disclosed rows and sheet, so even snapshot
   // rows skip payload parsing while folded. `toolEditHasDiff` only splits
   // lines; it never walks the LCS table for a replacement hunk. A chat
@@ -231,6 +246,7 @@ export const ToolBatchView = observer(function ToolBatchView({
     const normalise = (raw: string): string =>
       machinePathRelativeToRoot(cwd, raw) ?? resolveMachinePath(cwd, raw)
     for (const b of blocks) {
+      if (b.item.role !== 'tool' || b.mail) continue
       // ONLY a recorded edit. `toolPaths` is every path the call reported —
       // reads included, and files outside the repo — and neither belongs in a
       // list of what this run changed. See the note above.
@@ -302,7 +318,6 @@ export const ToolBatchView = observer(function ToolBatchView({
     highlighted && 'transcript-search-hit',
     dimmed && 'opacity-35',
   )
-  const count = run?.count ?? row.blocks.length
   const failed = run?.failures ?? toolRunFailures(row.blocks)
   // One interval per work line, and only a live one ticks — a settled
   // transcript full of them must not re-render every second.
@@ -310,7 +325,7 @@ export const ToolBatchView = observer(function ToolBatchView({
   // A tools row always folds ≥1 block, so the last one exists.
   const lastItem = (run?.lastBlock ?? row.blocks[count - 1]!).item
   const title = run?.title ?? row.title
-  const firstItem = (run?.firstBlock ?? row.blocks[0]!).item
+  const firstItem = first.item
   const singleCommand = count === 1 && firstItem.toolName === 'Bash'
   const summary =
     count > 1
@@ -334,13 +349,13 @@ export const ToolBatchView = observer(function ToolBatchView({
         className={cn('work-line-glyph', failed > 0 && !live && 'work-line-glyph--err')}
         aria-hidden="true"
       >
-        <WorkGlyph item={firstItem} stretch={count > 1} />
+        <WorkGlyph item={firstItem} stretch={multiple} />
       </span>
       <span className={cn('work-line-phrase', singleCommand && !live && 'work-line-code')}>
         {phrase}
       </span>
       {failed > 0 && <span className="work-line-fail">✕ {failed} failed</span>}
-      {count > 1 && (
+      {multiple && (
         <ChevronRight className="work-line-chev" size={12} strokeWidth={1.5} aria-hidden="true" />
       )}
       <ToolElapsed run={run} blocks={row.blocks} live={live} count={count} />
@@ -365,7 +380,7 @@ export const ToolBatchView = observer(function ToolBatchView({
           className="work-line"
           data-state={activeWaiting ? 'wait' : live ? 'live' : 'done'}
           data-verdict={failed > 0 ? 'err' : undefined}
-          data-transcript-run-view=""
+          data-transcript-run-view={!singleMember || (forceOpen && !open) ? '' : undefined}
           data-open={expanded ? 'true' : 'false'}
           data-single={count === 1 ? 'true' : undefined}
           data-settle={settling ? 'true' : undefined}
@@ -382,26 +397,33 @@ export const ToolBatchView = observer(function ToolBatchView({
               disclosure it duplicated does not have. What survives is its TEXT:
               the unfolded rows now carry `toolSubject`, the short form the panel
               was built from. See ToolBlock. */}
-          <button
-            data-pressable
-            type="button"
-            className="work-line-row"
-            onClick={toggle}
-            data-transcript-run-toggle=""
-            aria-expanded={expanded}
-            aria-label={accessibleSummary}
-            title={title}
-          >
-            {face}
-          </button>
-          {expanded && (
-            <div className="work-line-list work-line-list--timed">
+          {!singleMember && (
+            <button
+              data-pressable
+              type="button"
+              className="work-line-row"
+              onClick={toggle}
+              data-transcript-run-toggle=""
+              aria-expanded={expanded}
+              aria-label={accessibleSummary}
+              title={title}
+            >
+              {face}
+            </button>
+          )}
+          {(expanded || singleMember) && (
+            <div
+              className={
+                singleMember ? 'work-line-members' : 'work-line-list work-line-list--timed'
+              }
+            >
               {blocks.map((b) => (
                 <StretchMember
                   key={b.item.id}
                   block={b}
                   timed
                   forceOpen={forceOpen}
+                  onOpenChange={onMemberOpenChange}
                   onBodyClick={onBodyClick}
                   sessionId={sessionId}
                   cwd={cwd}
@@ -469,6 +491,7 @@ function StretchMember({
   block,
   onBodyClick,
   forceOpen,
+  onOpenChange,
   ...toolProps
 }: Parameters<typeof ToolBlock>[0] & {
   onBodyClick: (e: ReactMouseEvent) => void
@@ -483,6 +506,7 @@ function StretchMember({
         ts={block.item.ts}
         onBodyClick={onBodyClick}
         forceOpen={forceOpen}
+        onOpenChange={onOpenChange}
       />
     )
   if (block.mail?.op === 'note')
@@ -494,6 +518,7 @@ function StretchMember({
         ts={block.item.ts}
         onBodyClick={onBodyClick}
         forceOpen={forceOpen}
+        onOpenChange={onOpenChange}
       />
     )
   if (block.mail?.op === 'inbox')
@@ -505,7 +530,10 @@ function StretchMember({
         rowKey={block.item.id}
         ts={block.item.ts}
         forceOpen={forceOpen}
+        onOpenChange={onOpenChange}
       />
     )
-  return <ToolBlock block={block} forceOpen={forceOpen} {...toolProps} />
+  return (
+    <ToolBlock block={block} forceOpen={forceOpen} onOpenChange={onOpenChange} {...toolProps} />
+  )
 }

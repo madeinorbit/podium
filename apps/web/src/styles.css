@@ -4832,6 +4832,9 @@ button.pane-branch:hover {
 .work-line-list .work-line {
   margin: 0;
 }
+.work-line-members .work-line {
+  margin: 0;
+}
 .quiet-time {
   display: none;
   position: absolute;

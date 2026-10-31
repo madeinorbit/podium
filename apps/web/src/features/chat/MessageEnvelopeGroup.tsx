@@ -34,18 +34,14 @@ function PrincipalLabel({ label }: { label: string }): JSX.Element {
   )
 }
 
-/** The first line supplies the subject. The opened body keeps its markdown. */
-function splitSubject(body: string): { subject: string; detail: string } {
-  const [first = '', ...rest] = body.trim().split('\n')
-  return {
-    subject: first
-      .trim()
-      .replace(/^#{1,6}\s+/, '')
-      .replace(/^[-*+]\s+/, '')
-      .replace(/^\*\*(.*)\*\*$/, '$1')
-      .replace(/^`(.*)`$/, '$1'),
-    detail: rest.join('\n').trim(),
-  }
+/** A folded preview only. Disclosure renders the complete original markdown. */
+function noteSubject(body: string): string {
+  return (body.trim().split('\n', 1)[0] ?? '')
+    .trim()
+    .replace(/^#{1,6}\s+/, '')
+    .replace(/^[-*+]\s+/, '')
+    .replace(/^\*\*(.*)\*\*$/, '$1')
+    .replace(/^`(.*)`$/, '$1')
 }
 
 /** Identical HTML must not replace text nodes while a reader selects a note. */
@@ -87,12 +83,9 @@ function PointerEnvelopeBody({ envelope }: { envelope: ParsedEnvelope }): JSX.El
         : mail.status === 'denied'
           ? "You can't view this message\nOnly its sender, its recipients and an admin can open it."
           : 'Could not load this message'
-  const known = splitSubject(envelope.body).subject
-  const fetched = splitSubject(body)
-  const detail = known && fetched.subject === known ? fetched.detail : body
   return (
     <>
-      <EnvelopeBody body={detail} />
+      <EnvelopeBody body={body} />
       {mail.status === 'error' && (
         <button data-pressable type="button" className="mail-item-retry" onClick={mail.retry}>
           Retry
@@ -110,6 +103,7 @@ function EnvelopeItem({
   timed,
   markdownHtml,
   onReply,
+  onOpenChange,
 }: {
   envelope: ParsedEnvelope
   forceOpen: boolean
@@ -118,15 +112,26 @@ function EnvelopeItem({
   timed: boolean
   markdownHtml?: ReadonlyMap<string, string> | undefined
   onReply?: ((envelope: ParsedEnvelope) => void) | undefined
+  onOpenChange?: ((open: boolean) => void) | undefined
 }): JSX.Element {
   const [opened, setOpened] = useState(false)
   const full = opened || forceOpen
-  const { subject, detail } = useMemo(() => splitSubject(envelope.body), [envelope.body])
+  // The opened line keeps its byline; the full markdown below owns all of the
+  // message, including the first paragraph used as the folded preview.
+  const subject = useMemo(() => noteSubject(envelope.body), [envelope.body])
   const ask = isOperatorQuestion(envelope)
   const who = principalShortName(direction === 'from' ? envelope.from : envelope.to)
   const stamp = timed ? parseTs(ts) : undefined
-  const toggle = (): void => setOpened((v) => !v)
-  const phrase = subject || (direction === 'from' ? `Note from ${who}` : `Note to ${who}`)
+  const toggle = (): void => {
+    setOpened(!opened)
+    onOpenChange?.(!opened)
+  }
+  const byline = direction === 'from' ? who : `To ${who}`
+  const phrase = subject
+    ? `${byline} ${subject}`
+    : direction === 'from'
+      ? `Note from ${who}`
+      : `Note to ${who}`
   return (
     <div
       className={ask ? 'mail-question' : 'work-line mail-item mail-group'}
@@ -152,7 +157,8 @@ function EnvelopeItem({
             aria-expanded={full}
             onClick={toggle}
           >
-            <b>{principalShortName(envelope.from)}</b> asks {subject || 'a question'}
+            <b>{principalShortName(envelope.from)}</b> asks{' '}
+            {full ? 'a question' : subject || 'a question'}
           </button>
           <button
             data-pressable
@@ -160,6 +166,7 @@ function EnvelopeItem({
             className="quiet-ask-reply"
             onClick={() => {
               setOpened(true)
+              onOpenChange?.(true)
               onReply?.(envelope)
             }}
           >
@@ -187,8 +194,12 @@ function EnvelopeItem({
                   {direction === 'to' && 'To '}
                   {who}
                 </span>
-                {'  '}
-                {subject}
+                {!full && (
+                  <>
+                    {'  '}
+                    {subject}
+                  </>
+                )}
               </>
             ) : (
               phrase
@@ -202,7 +213,7 @@ function EnvelopeItem({
             <PointerEnvelopeBody envelope={envelope} />
           ) : (
             <EnvelopeBody
-              body={envelope.pointer ? pointerFallbackBody(envelope) : detail}
+              body={envelope.pointer ? pointerFallbackBody(envelope) : envelope.body}
               markdownHtml={markdownHtml}
             />
           )}
@@ -240,6 +251,7 @@ export function MessageEnvelopeGroup({
   direction = 'from',
   bare = false,
   onReply,
+  onOpenChange,
 }: {
   envelopes: readonly ParsedEnvelope[]
   className?: string
@@ -252,6 +264,7 @@ export function MessageEnvelopeGroup({
   direction?: 'from' | 'to'
   bare?: boolean
   onReply?: ((envelope: ParsedEnvelope) => void) | undefined
+  onOpenChange?: ((open: boolean) => void) | undefined
 }): JSX.Element {
   const [userOpen, setUserOpen] = useState(false)
   const open = userOpen || forceOpen
@@ -267,6 +280,7 @@ export function MessageEnvelopeGroup({
       timed={timed}
       markdownHtml={markdownHtml}
       onReply={onReply}
+      onOpenChange={onOpenChange}
     />
   )
   const content = (
@@ -287,7 +301,10 @@ export function MessageEnvelopeGroup({
             data-testid="message-envelope-toggle"
             aria-expanded={open}
             aria-label={`${open ? 'Fold' : 'Unfold'} these notes`}
-            onClick={() => setUserOpen((v) => !v)}
+            onClick={() => {
+              setUserOpen(!userOpen)
+              onOpenChange?.(!userOpen)
+            }}
           >
             <span className="work-line-glyph" aria-hidden="true">
               <WorkGlyph stretch />

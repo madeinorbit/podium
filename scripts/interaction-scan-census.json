@@ -35321,24 +35321,6 @@
       "guard": "ChatBlockView.envelope.test.tsx proves the body is requested only after the note opens, by the pointer id; legacy pointers request nothing."
     },
     {
-      "file": "apps/web/src/features/chat/MessageEnvelopeGroup.tsx",
-      "holder": "PointerEnvelopeBody/fetched",
-      "rule": "reader-summary",
-      "tokens": "478ae571469630e064181b2035357d6812ee96f20ecee1125c42da6ac2d7207d",
-      "gate": [],
-      "origin": [
-        "29ef4a25e89fc8a2714d1c07bf2d8d0156c909359bcfd147f07eedde65ca5b42"
-      ],
-      "fingerprint": "099afdeff7dfb7a3b726b8a8249c56236e0ba3e3321052d598abaabe032e6639",
-      "count": 1,
-      "classification": "bounded local work",
-      "owner": "POD-2287",
-      "trigger": "An opened note's addressed body has loaded or supplied its preview.",
-      "bound": "One body string for envelope.id, never a message table or session catalogue.",
-      "reason": "Splits the already addressed body into its subject and remainder to avoid rendering the subject twice. It enumerates no records and makes no request.",
-      "guard": "ChatBlockView.envelope.test.tsx covers deferred fetch by message id, denial/retry and fetched subject omission; ToolBatchView.test.tsx covers search disclosure and automatic-open windowing."
-    },
-    {
       "file": "apps/web/src/features/tips/tip-log-source.ts",
       "holder": "useTipLogSource",
       "rule": "reader-summary",

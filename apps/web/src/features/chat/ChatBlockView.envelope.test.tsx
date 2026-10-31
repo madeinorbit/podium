@@ -3,6 +3,7 @@ import { presentToolBlock } from '@podium/client-core/values'
 import { renderMailPointer } from '@podium/commands/mail-pointer-nudge'
 import type { TranscriptItem } from '@podium/model'
 import { asSessionId } from '@podium/model'
+import { getByRole } from '@testing-library/react'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -25,10 +26,11 @@ vi.mock('@/lib/ref-activation', () => ({
 // An inbox pointer's body comes from the server by id (POD-2143); the stub
 // records which ids were asked for.
 const bodyRequests: string[] = []
-let bodyAnswer: (id: string) => unknown = (id) => ({
+const defaultBodyAnswer = (id: string) => ({
   status: 'ready',
   body: `Long review notes\nfull body of ${id}`,
 })
+let bodyAnswer: (id: string) => unknown = defaultBodyAnswer
 vi.mock('./mail-body', () => ({
   useMailBody: (id: string) => {
     bodyRequests.push(id)
@@ -91,6 +93,7 @@ beforeEach(() => {
   setKnownRefPrefixes(['POD'])
   activations.length = 0
   bodyRequests.length = 0
+  bodyAnswer = defaultBodyAnswer
   host = document.createElement('div')
   document.body.appendChild(host)
   root = createRoot(host)
@@ -466,7 +469,7 @@ describe('mail the agent sent', () => {
     bodyAnswer = () => ({ status: 'loading' })
     mount(send, false, false, undefined, 'sent msg_9 to POD-2128 (delivered)')
     click(toggle())
-    expect(host.querySelector('.work-line-phrase')?.textContent).toContain('Ready for review')
+    expect(host.querySelector('.mail-item-body')?.textContent).toContain('Ready for review')
     bodyAnswer = (id) => ({ status: 'ready', body: `Long review notes\nfull body of ${id}` })
   })
 
@@ -541,7 +544,7 @@ it('keeps an operator question visible outside the note fold and puts Reply in t
   expect(host.textContent).toContain('Which would you prefer?')
 })
 
-it('omits a fetched sent note subject already shown on its line', () => {
+it('discloses a fetched sent note completely without repeating its preview', () => {
   bodyAnswer = () => ({ status: 'ready', body: 'Ready for review\nThe checks passed.' })
   mount(
     {
@@ -557,6 +560,89 @@ it('omits a fetched sent note subject already shown on its line', () => {
     'sent msg_review to POD-2242 (delivered)',
   )
   click(toggle())
-  expect(host.querySelector('.work-line-phrase')?.textContent).toContain('Ready for review')
-  expect(host.querySelector('.mail-item-body')?.textContent?.trim()).toBe('The checks passed.')
+  expect(host.querySelector('.mail-item-body')?.textContent).toContain('Ready for review')
+  expect(host.querySelector('.mail-item-body')?.textContent).toContain('The checks passed.')
+  expect(host.querySelector('.work-line-phrase')?.textContent).toBe('To POD-2242')
+  expect(host.textContent?.match(/Ready for review/g)).toHaveLength(1)
+})
+
+const firstParagraph =
+  'Please read [the conflict report](https://example.com/conflict), review POD-86 and run `bun run test` before landing.'
+for (const forceOpen of [false, true]) {
+  it.each([
+    firstParagraph,
+    `${firstParagraph} ${'Keep this complete. '.repeat(40)}Last words.`,
+    `${firstParagraph}\n\nFollow-up paragraph.`,
+  ])(`preserves first-paragraph markdown and full text on disclosure (forceOpen=${forceOpen}): %s`, (body) => {
+    mount(userItem(frame('msg_full', 'issue:POD-2242', 'your session', body)), false, forceOpen)
+    if (!forceOpen) click(toggle())
+    const content = host.querySelector<HTMLElement>('.mail-item-body')!
+    expect(content.querySelector('a[href="https://example.com/conflict"]')?.textContent).toBe(
+      'the conflict report',
+    )
+    expect(content.querySelector('a.ref-link[data-ref="POD-86"]')).not.toBeNull()
+    expect(content.querySelector('code')?.textContent).toBe('bun run test')
+    if (body.includes('Last words.')) expect(content.textContent).toContain('Last words.')
+    if (body.includes('Follow-up paragraph.'))
+      expect(content.textContent).toContain('Follow-up paragraph.')
+    expect(host.querySelector('.work-line-phrase')?.textContent).toBe('POD-2242')
+    expect(
+      host.querySelectorAll('.mail-item-body a[href="https://example.com/conflict"]'),
+    ).toHaveLength(1)
+  })
+
+  it(`preserves a one-line sent-note pointer body (forceOpen=${forceOpen})`, () => {
+    bodyAnswer = () => ({ status: 'ready', body: firstParagraph })
+    mount(
+      {
+        id: 'sent_full',
+        role: 'tool',
+        text: '',
+        toolName: 'Bash',
+        toolInput: `podium mail send --to POD-2242 --body '${firstParagraph}'`,
+      },
+      false,
+      forceOpen,
+      undefined,
+      'sent msg_full to POD-2242 (delivered)',
+    )
+    if (!forceOpen) {
+      expect(bodyRequests).toEqual([])
+      click(toggle())
+    }
+    expect(bodyRequests).toContain('msg_full')
+    const content = host.querySelector('.mail-item-body')
+    expect(content?.querySelector('a[href="https://example.com/conflict"]')).not.toBeNull()
+    expect(content?.textContent).toContain('before landing.')
+    expect(host.querySelector('.work-line-phrase')?.textContent).toBe('To POD-2242')
+  })
+}
+
+it('includes the visible sender and subject in a note toggle accessible name', () => {
+  mount(userItem(frame('msg_label', 'issue:POD-2242', 'your session', 'Ready for review')))
+  expect(getByRole(host, 'button', { name: /^Unfold POD-2242\s+Ready for review$/ })).toBe(toggle())
+  expect(toggle()?.getAttribute('aria-label')).toContain(
+    toggle()?.textContent?.replace(/\s+/g, ' ').trim(),
+  )
+  click(toggle())
+  expect(getByRole(host, 'button', { name: /^Fold POD-2242\s+Ready for review$/ })).toBe(toggle())
+})
+
+it('includes the visible recipient and subject in a sent-note toggle accessible name', () => {
+  mount(
+    {
+      id: 'sent_label',
+      role: 'tool',
+      text: '',
+      toolName: 'Bash',
+      toolInput: "podium mail send --to POD-2242 --body 'Ready for review'",
+    },
+    false,
+    false,
+    undefined,
+    'sent msg_label to POD-2242 (delivered)',
+  )
+  expect(getByRole(host, 'button', { name: /^Unfold To POD-2242\s+Ready for review$/ })).toBe(
+    toggle(),
+  )
 })

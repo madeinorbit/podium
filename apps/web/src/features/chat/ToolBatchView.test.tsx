@@ -675,7 +675,7 @@ it('opens mixed activity without extra feed rows and reveals note bodies for sea
   expect(host.querySelectorAll('.quiet-time')).toHaveLength(1)
   expect(host.querySelector('.work-line-list')?.textContent).not.toContain('needle')
   mount(row, false, undefined, undefined, true)
-  expect(host.querySelector('.mail-item-body')?.textContent?.trim()).toBe('needle in the body')
+  expect(host.querySelector('.mail-item-body')?.textContent).toContain('needle in the body')
   expect(host.querySelector('.work-line-list')?.textContent).toContain('Sent body')
   expect(host.querySelector('.tool-result-full')?.textContent).toBe('clean')
   expect(host.querySelectorAll('[data-block]')).toHaveLength(1)
