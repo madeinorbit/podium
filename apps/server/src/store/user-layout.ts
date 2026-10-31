@@ -71,8 +71,9 @@ const layoutRowsPage = preparedFamily((db: StoreDrizzle, from: 'start' | 'after'
   db
     .select({ userId: userLayout.userId, key: userLayout.key, value: userLayout.value })
     .from(userLayout)
+    // The first page starts at the lowest key, `>=`, so it is a seek like the rest.
     .where(from === 'start'
-      ? undefined
+      ? sql`(${userLayout.userId}, ${userLayout.key}) >= (${P('afterUserId')}, ${P('afterKey')})`
       : sql`(${userLayout.userId}, ${userLayout.key}) > (${P('afterUserId')}, ${P('afterKey')})`)
     .orderBy(asc(userLayout.userId), asc(userLayout.key))
     .limit(P('limit'))
@@ -210,7 +211,7 @@ export class UserLayoutRepository {
     let after: { afterUserId: UserId; afterKey: string } | null = null
     for (;;) {
       const rows: Array<{ userId: UserId; key: string; value: string }> = after === null
-        ? await layoutRowsPage(this.db, 'start').all({ limit: pageSize })
+        ? await layoutRowsPage(this.db, 'start').all({ afterUserId: '', afterKey: '', limit: pageSize })
         : await layoutRowsPage(this.db, 'after').all({ ...after, limit: pageSize })
       for (const row of rows) {
         try {
