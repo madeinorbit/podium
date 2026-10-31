@@ -33,6 +33,10 @@ export function useMessageActionFocus(narrow: boolean) {
   const trigger = useRef<HTMLButtonElement>(null)
   const popup = useRef<HTMLDivElement>(null)
   const focus = useRef({ owned: false, action: 'copy', narrow })
+  const closeAction = useRef<(() => void) | null>(null)
+  const runAfterClose = useCallback((action: () => void) => {
+    closeAction.current = action
+  }, [])
   const contains = useCallback(
     (target: EventTarget | null) =>
       target instanceof Node &&
@@ -69,8 +73,16 @@ export function useMessageActionFocus(narrow: boolean) {
     // Resolve after popup teardown, when the surviving control and any new
     // composer focus are committed. Never restore onto the removed trigger.
     queueMicrotask(() => {
+      // A menu can restore its focused item while it closes. Let Quote hand
+      // focus to the composer only after that focus management is removed.
+      const action = closeAction.current
+      closeAction.current = null
+      action?.()
       const active = doc?.activeElement
-      if (active && active !== doc?.body && !contains(active)) return
+      if (active && active !== doc?.body && !contains(active)) {
+        focus.current.owned = false
+        return
+      }
       const triggerNode = trigger.current
       const target =
         triggerNode?.isConnected && triggerNode.getClientRects().length ? triggerNode : wideTarget()
@@ -85,5 +97,5 @@ export function useMessageActionFocus(narrow: boolean) {
     const target = narrow ? trigger.current : wideTarget()
     target?.focus({ preventScroll: true })
   }, [narrow, wideTarget])
-  return { wide, trigger, popup, onFocusCapture, onBlurCapture, finalFocus }
+  return { wide, trigger, popup, onFocusCapture, onBlurCapture, finalFocus, runAfterClose }
 }

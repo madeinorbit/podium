@@ -212,7 +212,10 @@ function MessageActions({
                 {copied ? 'Message copied' : 'Copy message'}
               </DropdownMenuItem>
               {onQuote && (
-                <DropdownMenuItem onClick={quote} data-message-action="quote">
+                <DropdownMenuItem
+                  onClick={() => focus.runAfterClose(quote)}
+                  data-message-action="quote"
+                >
                   <MetaGlyph name="quote" />
                   Add to chat
                 </DropdownMenuItem>

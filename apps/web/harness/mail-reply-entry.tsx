@@ -8,9 +8,14 @@ import { observable } from 'mobx'
 import { useMemo, useRef } from 'react'
 import { createRoot } from 'react-dom/client'
 import { attachWorklistPool } from '@/app/store-worklist-pool'
+import { ChatBlockView } from '@/features/chat/ChatBlockView'
 import { ScopedChatComposer } from '@/features/chat/ChatView'
 import { ChatViewModel } from '@/features/chat/chat-view-model'
 import { MessageEnvelopeGroup } from '@/features/chat/MessageEnvelopeGroup'
+import {
+  NarrowMessageActions,
+  useNarrowMessageActions,
+} from '@/features/chat/message-actions-layout'
 import type { ChatSurface } from '@/features/chat/use-chat-layout'
 import type { QuoteInput } from '@/lib/quote/quote-sinks'
 import { createSidebarFixture } from '../test/sidebar-fixture'
@@ -45,6 +50,44 @@ const wire = {
   hop: 0,
 }
 const noop = () => {}
+/** The real message action → scoped composer boundary, including menu focus. */
+function QuoteMessages({ onQuote }: { onQuote: (input: QuoteInput) => void }) {
+  const scroller = useRef<HTMLDivElement>(null)
+  const narrow = useNarrowMessageActions(scroller)
+  return (
+    <NarrowMessageActions.Provider value={narrow}>
+      <div
+        data-feed-container
+        data-compact={params.has('compact') || undefined}
+        style={{ flex: 1 }}
+      >
+        <div ref={scroller} data-feed-scroller style={{ padding: '32px', overflow: 'auto' }}>
+          {[
+            { id: 'quote-0', text: 'The answer is ready for review.' },
+            { id: 'quote-1', text: 'Please review the command output.' },
+            { id: 'quote-2', text: 'The third result is ready for review.' },
+          ].map((item, index) => (
+            <ChatBlockView
+              key={item.id}
+              block={{ item: { ...item, role: 'assistant', answer: true } }}
+              index={index}
+              highlighted={false}
+              dimmed={false}
+              sessionId={id}
+              cwd="/repo"
+              openFile={noop}
+              httpOrigin="http://offline.invalid"
+              onOpenImage={noop}
+              askLivePending={false}
+              onAnswerAsk={async () => {}}
+              onQuote={onQuote}
+            />
+          ))}
+        </div>
+      </div>
+    </NarrowMessageActions.Provider>
+  )
+}
 function Harness() {
   const taRef = useRef<HTMLTextAreaElement>(null),
     surfaceRef = useRef<HTMLDivElement>(null)
@@ -174,9 +217,12 @@ function Harness() {
           background: 'var(--chat-face)',
         }}
       >
+        {params.get('state') === 'message-quote' && (
+          <QuoteMessages onQuote={(input) => quoteDraftRef.current?.(input)} />
+        )}
         <div
           style={{
-            flex: 1,
+            flex: params.get('state') === 'message-quote' ? undefined : 1,
             padding: 24,
             display: 'flex',
             flexDirection: 'column',
