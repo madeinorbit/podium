@@ -35,6 +35,17 @@ describe('UserLayoutRepository', () => {
     expect(await layout.getSnapshot(BOB)).toEqual({})
   })
 
+  it('reads every account row for the boot reconcile, a page at a time through the key', async () => {
+    await layout.setMany(ALICE, { dockTab: 'files', superOpen: true, 'tips.enabled': 'false' }, AT)
+    await layout.setMany(BOB, { dockTab: 'shell', superOpen: false }, AT)
+
+    const whole = await layout.allForBootReconcile()
+    expect(whole.filter((row) => row.userId === ALICE || row.userId === BOB)).toHaveLength(5)
+    // Pages of two cross the user boundary mid-page and end on a partial page.
+    expect(await layout.allForBootReconcile(2)).toEqual(whole)
+    expect(await layout.allForBootReconcile(1)).toEqual(whole)
+  })
+
   it('writes and reads a snapshot for one user only', async () => {
     await layout.set(ALICE, 'dockTab', 'files', AT)
     await layout.set(ALICE, 'superOpen', true, AT)
