@@ -15,6 +15,7 @@ import { attachWorklistPool } from '@/app/store-worklist-pool'
 import { MessageEnvelopeGroup } from '@/features/chat/MessageEnvelopeGroup'
 import { ToolBatchView } from '@/features/chat/ToolBatchView'
 import { TranscriptFeed } from '@/features/chat/TranscriptFeed'
+import type { QuoteInput } from '@/lib/quote/quote-sinks'
 import { createSidebarFixture } from '../test/sidebar-fixture'
 import '@/index.css'
 import '@/styles.css'
@@ -335,9 +336,13 @@ function LiveNotePane(): JSX.Element {
 function ReviewFeed({
   items,
   activity = null,
+  compact = false,
+  onQuote,
 }: {
   items: TranscriptItem[]
   activity?: ChatActivity | null
+  compact?: boolean
+  onQuote?: (quote: QuoteInput) => void
 }): JSX.Element {
   const blocks = pairToolResults(items)
   const rows = buildChatRows(blocks).map((row, index) => ({ row, index }))
@@ -347,7 +352,7 @@ function ReviewFeed({
       setContentRef={noop}
       onScroll={noop}
       onPointerUp={noop}
-      compact={false}
+      compact={compact}
       superagent={false}
       phase="ready"
       rows={rows}
@@ -384,6 +389,7 @@ function ReviewFeed({
       turnPreview={null}
       activity={activity}
       attribution={{} as never}
+      onQuote={onQuote}
     />
   )
 }
@@ -447,9 +453,60 @@ function LiveCommandPane(): JSX.Element {
     </section>
   )
 }
+
+function MessageControlsPane(): JSX.Element {
+  const compact = params.get('compact') === 'true'
+  const [quoted, setQuoted] = useState('')
+  const items: TranscriptItem[] = [
+    {
+      id: 'plain-answer',
+      role: 'assistant',
+      answer: true,
+      text: 'The answer is ready for review.',
+      ts: clock('17:19'),
+    },
+    {
+      id: 'linked-narration',
+      role: 'assistant',
+      text: 'Please read [the full conflict report before landing](https://example.com/murmur-narration).',
+      ts: clock('17:20'),
+    },
+    {
+      id: 'linked-answer',
+      role: 'assistant',
+      answer: true,
+      text: 'See [the full conflict report before landing](https://example.com/murmur-answer).',
+      ts: clock('17:21'),
+    },
+  ]
+  return (
+    <section
+      data-scenario="message-controls"
+      className={compact ? 'chat-compact' : undefined}
+      style={{ width: Number(params.get('width') ?? 320), maxWidth: '100%' }}
+    >
+      <p style={{ marginBottom: 14, font: '11px var(--font-mono)', color: 'var(--text-dim)' }}>
+        Message controls stay clear of prose and links
+      </p>
+      <div
+        style={{
+          height: 440,
+          display: 'flex',
+          background: 'var(--chat-face)',
+          border: '1px solid var(--border-strong)',
+          borderRadius: 10,
+        }}
+      >
+        <ReviewFeed items={items} compact={compact} onQuote={(quote) => setQuoted(quote.text)} />
+      </div>
+      <output data-testid="quoted-message">{quoted}</output>
+    </section>
+  )
+}
 const params = new URLSearchParams(location.search)
 document.documentElement.dataset.theme = 'podium'
 document.documentElement.classList.toggle('dark', params.get('theme') !== 'light')
+if (params.has('density')) document.documentElement.dataset.density = params.get('density') ?? ''
 const state = params.get('state')
 function Harness(): JSX.Element {
   return (
@@ -457,7 +514,7 @@ function Harness(): JSX.Element {
       style={{
         minHeight: '100vh',
         background: 'var(--background)',
-        padding: '32px',
+        padding: state === 'message-controls' ? 0 : '32px',
         display: 'grid',
         gridTemplateColumns: 'minmax(0, 1fr)',
         justifyItems: 'center',
@@ -469,6 +526,8 @@ function Harness(): JSX.Element {
         <LiveNotePane />
       ) : state === 'live-command' ? (
         <LiveCommandPane />
+      ) : state === 'message-controls' ? (
+        <MessageControlsPane />
       ) : state ? (
         <Pane scene={state} narrow={state === 'narrow'} />
       ) : (

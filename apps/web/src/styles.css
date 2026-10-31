@@ -5860,24 +5860,32 @@ button.pane-branch:hover {
   justify-content: flex-end;
   padding-right: 2px;
 }
-/* Hidden message controls must not add 27px to every prose gap. Keep them
-   reachable on hover and keyboard focus without moving the words. */
-.transcript-prose > .msg-foot {
-  position: absolute;
-  inset-block-end: 0;
-  inset-inline-end: 0;
-  margin-top: 0;
+/* Reserve a separate column for controls so they cannot cover words or links,
+   including while transparent. This keeps the vertical prose beat unchanged. */
+.transcript-prose {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) max-content;
+  column-gap: 12px;
 }
-.transcript-row:hover .transcript-prose > .msg-foot,
-.transcript-prose > .msg-foot:focus-within {
-  background: var(--chat-face);
-  box-shadow: -6px 0 6px var(--chat-face);
+.transcript-prose > :not(.msg-foot) {
+  grid-column: 1;
+}
+.transcript-prose > .msg-foot {
+  grid-column: 2;
+  /* Span the compact answer's label and prose without stretching its label. */
+  grid-row: 1 / span 2;
+  align-self: start;
+  margin-top: 0;
 }
 /* Wide panes have room for the controls beside the reading column. */
 @container feed (min-width: 900px) {
+  .transcript-prose {
+    display: block;
+  }
   .transcript-prose > .msg-foot {
+    position: absolute;
+    inset-block-end: 0;
     inset-inline-start: calc(100% + 12px);
-    inset-inline-end: auto;
     width: max-content;
   }
 }

@@ -85,7 +85,7 @@ const COPY_ACK_MS = 1400
  * answering.
  *
  * The foot follows the words in reading order. On agent prose its hover
- * controls sit outside the flow so hidden controls do not widen the transcript's
+ * controls sit beside the prose so hidden controls do not widen the transcript's
  * 12px beat. Human prompts keep their foot below the bubble and their turn seam.
  */
 function MessageActions({
@@ -103,8 +103,7 @@ function MessageActions({
   /** The row's own instant. Every voice now carries one here — see the foot's
    *  note below for why the clock left the label rows. */
   ts?: string | undefined
-  /** Which edge the foot hangs from: the human's turn reads right, everything
-   *  the machine says reads left, both directly under their own words. */
+  /** Alignment of metadata within the footer. */
   side: 'left' | 'right'
   /** Row-specific controls that belong with the metadata rather than with the
    *  message — the queued turn's Retract is the only one today. */
