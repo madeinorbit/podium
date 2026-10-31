@@ -591,7 +591,7 @@ describe('draft launch compensation', () => {
     expect(drafts).toHaveLength(2)
     for (const { sessionId } of [created, resumed])
       expect(drafts.map((issue) => issue.id)).toContain(
-        o.reg.modules.sessions.getSessionIssueId(sessionId),
+        await o.reg.modules.sessions.readSessionIssueId(sessionId),
       )
   })
 
@@ -616,10 +616,10 @@ describe('draft launch compensation', () => {
       { agentKind: 'codex', cwd: '/p/.worktrees/a' },
     )
 
-    const colleagueTask = o.reg.modules.sessions.getSessionIssueId(colleague.sessionId)
+    const colleagueTask = await o.reg.modules.sessions.readSessionIssueId(colleague.sessionId)
     expect(colleagueTask).not.toBe(task.id)
     expect((await o.reg.issues.reports.get(colleagueTask ?? ''))?.draft).toBe(true)
-    expect(o.reg.modules.sessions.getSessionIssueId(owner.sessionId)).toBe(task.id)
+    expect(await o.reg.modules.sessions.readSessionIssueId(owner.sessionId)).toBe(task.id)
   })
 
   it('finds the task that owns a cwd only among tasks homed on the starting machine', async () => {
@@ -656,7 +656,7 @@ describe('draft launch compensation', () => {
       },
     )
 
-    const joined = o.reg.modules.sessions.getSessionIssueId(resumed.sessionId)
+    const joined = await o.reg.modules.sessions.readSessionIssueId(resumed.sessionId)
     expect(joined).not.toBe(task.id)
     expect((await o.reg.issues.reports.get(joined ?? ''))?.draft).toBe(true)
     expect((await o.store.issues.getIssue(joined ?? ''))?.ownerUserId).toBe(COLLEAGUE)
@@ -678,7 +678,7 @@ describe('draft launch compensation', () => {
       o.reg.issues.gitWorkflow,
     )
 
-    expect(o.reg.modules.sessions.getSessionIssueId(sessionId)).toBeNull()
+    expect(await o.reg.modules.sessions.readSessionIssueId(sessionId)).toBeNull()
     expect((await o.reg.issues.reports.list('/p')).filter((issue) => issue.draft)).toEqual([])
   })
 

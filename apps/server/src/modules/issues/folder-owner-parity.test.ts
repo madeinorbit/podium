@@ -96,7 +96,7 @@ async function expectAnswers(store: SessionStore, rows: readonly CorpusIssue[], 
       shared: deepestOwner(shared, cwd),
       many: many.get(cwd) ?? null,
       sole: await access.soleOwnerForCwd(cwd),
-      soleShared: soleOwner(shared, cwd, roots),
+      soleShared: soleOwner(shared, cwd, { any: roots, home: roots }),
     }
     const expected = { owner: want.owner, shared: want.owner, many: want.owner, sole: want.sole, soleShared: want.sole }
     if (JSON.stringify(got) !== JSON.stringify(expected)) mismatches.push({ cwd, got, expected })

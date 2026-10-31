@@ -345,6 +345,22 @@ const messagesWithIds = preparedFamily((db: StoreDrizzle, size: number) =>
   db.select().from(messagesTable).where(inListOf(messagesTable.id, size, 'ids')).prepare(),
 )
 
+/** Operator messages to one session carrying attachments, by transcript item;
+ *  the item list is keyed by its padded size. */
+const attachmentMessagesOfItems = preparedFamily((db: StoreDrizzle, size: number) =>
+  db
+    .select()
+    .from(messagesTable)
+    .where(and(
+      eq(messagesTable.fromKind, 'operator'),
+      eq(messagesTable.toKind, 'session'),
+      eq(messagesTable.toId, param(messagesTable.toId, 'sessionId')),
+      inListOf(messagesTable.transcriptItemId, size, 'items'),
+      isNotNull(messagesTable.attachmentsJson),
+    ))
+    .prepare(),
+)
+
 const messagesAddressedTo = preparedFamily((db: StoreDrizzle, shape: AddressShape) =>
   db
     .select()
@@ -1245,13 +1261,12 @@ export class MessagesRepository {
    * sessions whose confirmation records have left the live feed. */
   async getTranscriptAttachmentMessages(sessionId: SessionId, itemIds: readonly string[]): Promise<MessageRow[]> {
     if (itemIds.length === 0) return []
-    return (await this.db.select().from(messagesTable).where(and(
-      eq(messagesTable.fromKind, 'operator'),
-      eq(messagesTable.toKind, 'session'),
-      eq(messagesTable.toId, sessionId),
-      inArray(messagesTable.transcriptItemId, [...new Set(itemIds)]),
-      isNotNull(messagesTable.attachmentsJson),
-    )).all()).map(mapMessage)
+    const unique = [...new Set(itemIds)]
+    const size = inListSize(unique.length)
+    return (await attachmentMessagesOfItems(this.db, size).all({
+      sessionId,
+      ...inListValues(unique, size, 'items'),
+    })).map(mapMessage)
   }
 
   /** All messages addressed to a principal, oldest first. */

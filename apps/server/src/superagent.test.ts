@@ -229,7 +229,7 @@ describe('start_agent tool wiring (issue #60)', () => {
       threadId: asThreadId(threadId),
     })
 
-    const issueId = registry.modules.sessions.getSessionIssueId(sessionId)
+    const issueId = await registry.modules.sessions.readSessionIssueId(sessionId)
     expect(issueId).not.toBe(task.id)
     const draft = await registry.sessionStore.issues.getIssue(issueId ?? '')
     expect(draft?.draft).toBe(true)

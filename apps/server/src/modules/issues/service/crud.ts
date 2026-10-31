@@ -1796,7 +1796,7 @@ export class IssueCrudModule {
     // Automatic receipts name what was actually seen, including across an
     // offline replay. Open-issue receipts avoid subtree discovery entirely;
     // read receipts never rewrite the issue.
-    const previous = this.store.issueOverlay(row.id).readAt
+    const previous = (await this.store.issueOverlay(row.id)).readAt
     let readAt = observedAt ?? (await this.coveringReadAt(row))
     // A quiet closed issue keeps its existing post-read retention grace. Only
     // advance to receipt time after proving there is no newer unseen activity.

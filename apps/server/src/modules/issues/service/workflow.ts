@@ -2162,7 +2162,7 @@ export class IssueGitWorkflowModule {
         this.store.now(),
       )
       // Discard it rather than overwrite the state the merge action settled.
-      if ((this.store.rows.get(id)?.landedAt ?? null) !== landedAt) return false
+      if (((await this.store.row(id))?.landedAt ?? null) !== landedAt) return false
       this.store.gitStates.set(id, state)
       return true
     } catch {
